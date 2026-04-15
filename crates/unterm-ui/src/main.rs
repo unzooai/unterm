@@ -1,21 +1,25 @@
 //! unterm-ui: Unterm GUI 渲染进程
 
-mod render;
+mod bridge;
+mod client;
+mod config;
 mod input;
 mod layout;
-mod client;
+mod render;
 
 use anyhow::Result;
-use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tracing::info;
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
 use winit::event::{ElementState, StartCause, WindowEvent};
-use winit::event_loop::{ActiveEventLoop, EventLoop};
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, ModifiersState, PhysicalKey};
 use winit::window::{Window, WindowId, WindowAttributes};
 
+use crate::bridge::CoreBridge;
+use crate::config::AppConfig;
 use crate::layout::{LayoutManager, SplitDirection};
 use crate::render::{PaneContent, PaneRect, TabInfo};
 
@@ -28,26 +32,41 @@ struct App {
     input_handler: input::InputHandler,
     layout: Option<LayoutManager>,
 
-    /// 每个 pane 的终端内容，key 是 pane_id
-    pane_contents: HashMap<u64, String>,
+    /// 配置
+    config: AppConfig,
+
+    /// Core 通信桥
+    bridge: Option<CoreBridge>,
 
     /// 当前修饰键状态
     modifiers: ModifiersState,
 
-    /// 是否已连接
-    connected: bool,
+    /// 上次重绘时间（用于控制刷新频率）
+    last_redraw: Instant,
 }
 
 impl App {
-    fn new() -> Self {
+    fn new(config: AppConfig) -> Self {
         Self {
             window: None,
             renderer: None,
             input_handler: input::InputHandler::new(),
             layout: None,
-            pane_contents: HashMap::new(),
+            config,
+            bridge: None,
             modifiers: ModifiersState::empty(),
-            connected: false,
+            last_redraw: Instant::now(),
+        }
+    }
+
+    /// 为新 pane 创建 session
+    fn create_session_for_pane(&self, pane_id: u64) {
+        if let Some(bridge) = &self.bridge {
+            bridge.create_session_for_pane(
+                pane_id,
+                Some(self.config.default_shell.clone()),
+                Some(self.config.effective_cwd()),
+            );
         }
     }
 
@@ -68,17 +87,27 @@ impl App {
                 // Ctrl+Shift+T — 新建 Tab
                 KeyCode::KeyT => {
                     let tab_count = layout.tab_infos().len();
-                    let (_tab_id, _pane_id) =
+                    let (_tab_id, pane_id) =
                         layout.add_tab(format!("Tab {}", tab_count + 1));
-                    info!("新建 Tab");
+                    info!("新建 Tab, Pane ID: {}", pane_id);
+                    // 自动创建 session
+                    if self.config.auto_create_session {
+                        self.create_session_for_pane(pane_id);
+                    }
                     self.request_redraw();
                     return true;
                 }
                 // Ctrl+Shift+W — 关闭当前 Tab
                 KeyCode::KeyW => {
+                    // 销毁 Tab 内所有 pane 的 session
+                    let pane_layouts = layout.compute_pane_layouts();
+                    if let Some(bridge) = &mut self.bridge {
+                        for pl in &pane_layouts {
+                            bridge.destroy_pane_session(pl.pane_id);
+                        }
+                    }
                     let tab_id = layout.active_tab().id;
                     layout.close_tab(tab_id);
-                    // 当所有 Tab 都关闭时，退出应用
                     if layout.tab_infos().is_empty() {
                         info!("所有 Tab 已关闭，退出应用");
                         event_loop.exit();
@@ -90,6 +119,9 @@ impl App {
                 KeyCode::KeyD => {
                     if let Some(new_pane_id) = layout.split_pane(SplitDirection::Vertical) {
                         info!("垂直分屏，新 Pane ID: {}", new_pane_id);
+                        if self.config.auto_create_session {
+                            self.create_session_for_pane(new_pane_id);
+                        }
                     }
                     self.request_redraw();
                     return true;
@@ -98,20 +130,24 @@ impl App {
                 KeyCode::KeyR => {
                     if let Some(new_pane_id) = layout.split_pane(SplitDirection::Horizontal) {
                         info!("水平分屏，新 Pane ID: {}", new_pane_id);
+                        if self.config.auto_create_session {
+                            self.create_session_for_pane(new_pane_id);
+                        }
                     }
                     self.request_redraw();
                     return true;
                 }
                 // Ctrl+Shift+X — 关闭当前 Pane
                 KeyCode::KeyX => {
+                    // 销毁当前 pane 的 session
+                    let active_pane_id = layout.active_tab().active_pane;
+                    if let Some(bridge) = &mut self.bridge {
+                        bridge.destroy_pane_session(active_pane_id);
+                    }
                     let tab_closed = layout.close_pane();
-                    if tab_closed {
-                        info!("Pane 关闭导致 Tab 关闭");
-                        // 当所有 Tab 都关闭时，退出应用
-                        if layout.tab_infos().is_empty() {
-                            info!("所有 Tab 已关闭，退出应用");
-                            event_loop.exit();
-                        }
+                    if tab_closed && layout.tab_infos().is_empty() {
+                        info!("所有 Tab 已关闭，退出应用");
+                        event_loop.exit();
                     }
                     self.request_redraw();
                     return true;
@@ -119,7 +155,6 @@ impl App {
                 // Ctrl+Shift+Tab — 上一个 Tab
                 KeyCode::Tab => {
                     layout.prev_tab();
-                    info!("切换到上一个 Tab");
                     self.request_redraw();
                     return true;
                 }
@@ -127,26 +162,23 @@ impl App {
             }
         }
 
-        // Ctrl+Tab — 下一个 Tab（无 Shift）
+        // Ctrl+Tab — 下一个 Tab
         if ctrl && !shift && !alt && key_code == KeyCode::Tab {
             layout.next_tab();
-            info!("切换到下一个 Tab");
             self.request_redraw();
             return true;
         }
 
-        // Alt+ArrowLeft — 切换到上一个 Pane
+        // Alt+ArrowLeft — 上一个 Pane
         if alt && !ctrl && !shift && key_code == KeyCode::ArrowLeft {
             layout.focus_prev_pane();
-            info!("切换到上一个 Pane");
             self.request_redraw();
             return true;
         }
 
-        // Alt+ArrowRight — 切换到下一个 Pane
+        // Alt+ArrowRight — 下一个 Pane
         if alt && !ctrl && !shift && key_code == KeyCode::ArrowRight {
             layout.focus_next_pane();
-            info!("切换到下一个 Pane");
             self.request_redraw();
             return true;
         }
@@ -197,18 +229,85 @@ impl ApplicationHandler for App {
                     }
                 }
 
-                // 初始化布局管理器（需要窗口尺寸）
-                self.layout = Some(LayoutManager::new(
-                    size.width as f32,
-                    size.height as f32,
-                ));
-                self.connected = false;
+                // 初始化布局管理器
+                let layout = LayoutManager::new(size.width as f32, size.height as f32);
+
+                // 获取初始 pane 的 ID
+                let initial_pane_id = layout.active_tab().active_pane;
+
+                self.layout = Some(layout);
                 self.window = Some(window);
-                info!("unterm-ui 窗口已创建");
+
+                // 启动 Core 通信桥
+                let bridge = CoreBridge::start(
+                    self.config.core_address.clone(),
+                    self.config.screen_poll_interval_ms,
+                );
+
+                // 为初始 pane 创建 session
+                if self.config.auto_create_session {
+                    bridge.create_session_for_pane(
+                        initial_pane_id,
+                        Some(self.config.default_shell.clone()),
+                        Some(self.config.effective_cwd()),
+                    );
+                }
+
+                self.bridge = Some(bridge);
+
+                info!("unterm-ui 窗口已创建，正在连接 core...");
             }
             Err(e) => {
                 tracing::error!("窗口创建失败: {}", e);
                 event_loop.exit();
+            }
+        }
+    }
+
+    /// 事件循环空闲时调用 — 用于轮询 bridge 事件并触发重绘
+    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+        // 轮询 bridge 事件
+        let mut needs_redraw = false;
+        if let Some(bridge) = &mut self.bridge {
+            let events = bridge.poll_events();
+            if !events.is_empty() {
+                needs_redraw = true;
+                for event in &events {
+                    match event {
+                        bridge::CoreEvent::Connected => {
+                            info!("已连接到 unterm-core");
+                        }
+                        bridge::CoreEvent::Disconnected => {
+                            tracing::warn!("与 unterm-core 断开连接");
+                        }
+                        bridge::CoreEvent::SessionCreated { pane_id, session_id } => {
+                            info!("Session 已创建: pane={} session={}", pane_id, session_id);
+                        }
+                        bridge::CoreEvent::Error(msg) => {
+                            tracing::error!("Core 错误: {}", msg);
+                        }
+                        bridge::CoreEvent::ScreenUpdate { .. } => {
+                            // 屏幕内容更新，需要重绘
+                        }
+                    }
+                }
+            }
+        }
+
+        // 限制最大刷新频率为 60fps（~16ms）
+        let now = Instant::now();
+        if needs_redraw && now.duration_since(self.last_redraw) > Duration::from_millis(16) {
+            self.last_redraw = now;
+            self.request_redraw();
+        }
+
+        // 设置下次唤醒时间（确保持续轮询）
+        if let Some(bridge) = &self.bridge {
+            if bridge.connected {
+                _event_loop.set_control_flow(ControlFlow::wait_duration(Duration::from_millis(16)));
+            } else {
+                // 未连接时降低频率
+                _event_loop.set_control_flow(ControlFlow::wait_duration(Duration::from_millis(100)));
             }
         }
     }
@@ -236,14 +335,30 @@ impl ApplicationHandler for App {
                 }
                 if let Some(layout) = &mut self.layout {
                     layout.resize(size.width as f32, size.height as f32);
+
+                    // 通知 core 调整所有可见 pane 的 session 尺寸
+                    if let Some(bridge) = &self.bridge {
+                        let pane_layouts = layout.compute_pane_layouts();
+                        for pl in &pane_layouts {
+                            if let Some(session_id) = bridge.get_session_id(pl.pane_id) {
+                                bridge.send_command(bridge::UiCommand::ResizeSession {
+                                    session_id: session_id.to_string(),
+                                    cols: pl.cols,
+                                    rows: pl.rows,
+                                });
+                            }
+                        }
+                    }
                 }
                 self.request_redraw();
             }
 
             WindowEvent::RedrawRequested => {
-                // 收集渲染数据（借用 layout 为不可变引用）
+                // 从 bridge 获取连接状态
+                let connected = self.bridge.as_ref().map_or(false, |b| b.connected);
+
+                // 收集渲染数据
                 let render_data = if let Some(layout) = &self.layout {
-                    // Tab 栏数据
                     let tab_infos: Vec<TabInfo> = layout
                         .tab_infos()
                         .iter()
@@ -254,20 +369,22 @@ impl ApplicationHandler for App {
                         })
                         .collect();
 
-                    // Pane 布局和内容
                     let pane_layouts = layout.compute_pane_layouts();
                     let pane_contents: Vec<PaneContent> = pane_layouts
                         .iter()
                         .map(|pl| {
+                            // 优先从 bridge 获取实时屏幕内容
                             let text = self
-                                .pane_contents
-                                .get(&pl.pane_id)
-                                .cloned()
+                                .bridge
+                                .as_ref()
+                                .and_then(|b| b.get_pane_content(pl.pane_id))
+                                .map(|s| s.to_string())
                                 .unwrap_or_else(|| {
-                                    format!(
-                                        "Pane {} ({}x{})\n等待连接...",
-                                        pl.pane_id, pl.cols, pl.rows
-                                    )
+                                    if connected {
+                                        format!("Pane {} ({}x{})\n正在加载...", pl.pane_id, pl.cols, pl.rows)
+                                    } else {
+                                        format!("Pane {} ({}x{})\n等待连接 unterm-core...", pl.pane_id, pl.cols, pl.rows)
+                                    }
                                 });
                             PaneContent {
                                 pane_id: pl.pane_id,
@@ -284,14 +401,12 @@ impl ApplicationHandler for App {
                         })
                         .collect();
 
-                    // 状态栏文本
-                    let status_text = if self.connected {
+                    let status_text = if connected {
                         rust_i18n::t!("ui.status_connected").to_string()
                     } else {
                         rust_i18n::t!("ui.status_disconnected").to_string()
                     };
 
-                    // 布局区域（layout::Rect -> render::PaneRect 字段拷贝）
                     let sr = layout.status_bar_rect();
                     let status_rect = PaneRect {
                         x: sr.x,
@@ -313,24 +428,16 @@ impl ApplicationHandler for App {
                     None
                 };
 
-                // 调用渲染器绘制
-                if let (Some(renderer), Some((tab_infos, pane_contents, status_text, status_rect, tab_bar_rect))) =
+                if let (Some(renderer), Some((tabs, panes, status, sr, tr))) =
                     (&mut self.renderer, render_data)
                 {
-                    if let Err(e) = renderer.draw_frame(
-                        &tab_infos,
-                        &pane_contents,
-                        &status_text,
-                        status_rect,
-                        tab_bar_rect,
-                    ) {
+                    if let Err(e) = renderer.draw_frame(&tabs, &panes, &status, sr, tr) {
                         tracing::error!("渲染错误: {}", e);
                     }
                 }
             }
 
             WindowEvent::KeyboardInput { event, .. } => {
-                // 只在按下时处理
                 if event.state != ElementState::Pressed {
                     return;
                 }
@@ -342,20 +449,17 @@ impl ApplicationHandler for App {
                     }
                 }
 
-                // 非快捷键：通过 InputHandler 转换后路由到当前激活 pane 的 session
+                // 非快捷键：转换为终端输入序列，发送到当前激活 pane
                 let text = event.text.as_ref().map(|s| s.as_str());
-                if let Some(_bytes) = self.input_handler.key_to_sequence(
+                if let Some(bytes) = self.input_handler.key_to_sequence(
                     &event.physical_key,
                     event.state,
                     text,
                 ) {
                     if let Some(layout) = &self.layout {
-                        if let Some(_session_id) = layout.active_session_id() {
-                            // TODO: 通过 IPC 发送到 unterm-core
-                            // client.call("exec.send", json!({
-                            //     "session_id": session_id,
-                            //     "input": String::from_utf8_lossy(&bytes)
-                            // }))
+                        let active_pane_id = layout.active_tab().active_pane;
+                        if let Some(bridge) = &self.bridge {
+                            bridge.send_input_to_pane(active_pane_id, bytes);
                         }
                     }
                 }
@@ -371,10 +475,17 @@ fn main() -> Result<()> {
         .with_env_filter("unterm_ui=debug")
         .init();
 
-    // 语言检测
-    let locale = std::env::var("UNTERM_LOCALE")
-        .or_else(|_| std::env::var("LANG"))
-        .unwrap_or_default();
+    // 加载配置
+    let config = AppConfig::load();
+    info!("配置已加载: shell={}, cwd={:?}, core={}",
+        config.default_shell, config.default_cwd, config.core_address);
+
+    // 语言设置：配置文件 > 环境变量 > 默认英文
+    let locale = config.locale.clone().unwrap_or_else(|| {
+        std::env::var("UNTERM_LOCALE")
+            .or_else(|_| std::env::var("LANG"))
+            .unwrap_or_default()
+    });
     if locale.starts_with("zh") {
         rust_i18n::set_locale("zh-CN");
     }
@@ -382,7 +493,7 @@ fn main() -> Result<()> {
     info!("unterm-ui 启动中...");
 
     let event_loop = EventLoop::new()?;
-    let mut app = App::new();
+    let mut app = App::new(config);
     event_loop.run_app(&mut app)?;
 
     Ok(())

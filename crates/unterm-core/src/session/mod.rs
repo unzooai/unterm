@@ -42,7 +42,20 @@ impl SessionManager {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
         let shell = req.shell.clone().unwrap_or_else(|| {
-            if cfg!(target_os = "windows") { "pwsh.exe".into() } else { "/bin/zsh".into() }
+            if cfg!(target_os = "windows") {
+                // 优先 pwsh (PowerShell 7+)，回退 powershell
+                std::env::var_os("PATH")
+                    .and_then(|paths| {
+                        if std::env::split_paths(&paths).any(|d| d.join("pwsh.exe").exists()) {
+                            Some("pwsh.exe".into())
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or_else(|| "powershell.exe".into())
+            } else {
+                "/bin/zsh".into()
+            }
         });
         let cwd = req.cwd.clone().unwrap_or_else(|| {
             std::env::current_dir()
