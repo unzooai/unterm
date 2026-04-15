@@ -22,6 +22,8 @@ struct App {
     renderer: Option<render::Renderer>,
     input_handler: input::InputHandler,
     layout: Option<layout::Layout>,
+    terminal_content: String,
+    connected: bool,
 }
 
 impl App {
@@ -31,6 +33,8 @@ impl App {
             renderer: None,
             input_handler: input::InputHandler::new(),
             layout: None,
+            terminal_content: String::new(),
+            connected: false,
         }
     }
 }
@@ -61,7 +65,9 @@ impl ApplicationHandler for App {
                 match render::Renderer::new(window.clone()) {
                     Ok(mut renderer) => {
                         let welcome = rust_i18n::t!("ui.welcome");
-                        renderer.set_text(&welcome);
+                        self.terminal_content = welcome.to_string();
+                        self.connected = false;
+                        renderer.set_text(&self.terminal_content);
                         self.renderer = Some(renderer);
                     }
                     Err(e) => {
@@ -101,6 +107,7 @@ impl ApplicationHandler for App {
             }
             WindowEvent::RedrawRequested => {
                 if let Some(renderer) = &mut self.renderer {
+                    renderer.set_text(&self.terminal_content);
                     if let Err(e) = renderer.draw_frame() {
                         tracing::error!("渲染错误: {}", e);
                     }

@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::io::Read;
 use anyhow::Result;
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use std::sync::Arc;
 use uuid::Uuid;
 use chrono::Utc;
@@ -16,7 +16,9 @@ use crate::pty::{PtyConfig, PtyHandle, PtyManager};
 /// 单个 Session
 pub struct Session {
     pub info: SessionInfo,
-    pub pty_handle: PtyHandle,
+    pub pty_handle: Mutex<PtyHandle>,
+    /// PTY writer，创建时通过 take_writer 获取
+    pub writer: Mutex<Box<dyn std::io::Write + Send>>,
     /// PTY 输出累积缓冲
     pub output_buffer: Arc<RwLock<String>>,
 }
@@ -24,14 +26,14 @@ pub struct Session {
 /// Session 管理器
 pub struct SessionManager {
     sessions: Arc<RwLock<HashMap<String, Session>>>,
-    pty_manager: PtyManager,
+    pty_manager: Mutex<PtyManager>,
 }
 
 impl SessionManager {
     pub fn new() -> Self {
         Self {
             sessions: Arc::new(RwLock::new(HashMap::new())),
-            pty_manager: PtyManager::new(),
+            pty_manager: Mutex::new(PtyManager::new()),
         }
     }
 
@@ -57,7 +59,7 @@ impl SessionManager {
             proxy_env: None,
         };
 
-        let pty_handle = self.pty_manager.create_pty(config)?;
+        let pty_handle = self.pty_manager.lock().create_pty(config)?;
 
         let info = SessionInfo {
             id: id.clone(),
@@ -94,9 +96,14 @@ impl SessionManager {
             }
         });
 
+        // 提前获取 writer（take_writer 只能调用一次）
+        let writer = pty_handle.master.take_writer()
+            .map_err(|e| anyhow::anyhow!("无法获取 PTY writer: {}", e))?;
+
         let session = Session {
             info: info.clone(),
-            pty_handle,
+            pty_handle: Mutex::new(pty_handle),
+            writer: Mutex::new(writer),
             output_buffer,
         };
 
@@ -118,8 +125,8 @@ impl SessionManager {
 
     /// 销毁 session
     pub fn destroy_session(&self, id: &str) -> Result<()> {
-        if let Some(mut session) = self.sessions.write().remove(id) {
-            session.pty_handle.child.kill()?;
+        if let Some(session) = self.sessions.write().remove(id) {
+            session.pty_handle.lock().child.kill()?;
             info!("Session 已销毁: {}", id);
             Ok(())
         } else {
@@ -131,10 +138,34 @@ impl SessionManager {
     pub fn resize_session(&self, id: &str, cols: u16, rows: u16) -> Result<()> {
         let mut sessions = self.sessions.write();
         if let Some(session) = sessions.get_mut(id) {
-            session.pty_handle.resize(cols, rows)?;
+            session.pty_handle.lock().resize(cols, rows)?;
             session.info.cols = cols;
             session.info.rows = rows;
             Ok(())
+        } else {
+            anyhow::bail!("Session 未找到: {}", id)
+        }
+    }
+
+    /// 向 session 发送输入
+    pub fn send_input(&self, id: &str, input: &str) -> Result<()> {
+        let sessions = self.sessions.read();
+        if let Some(session) = sessions.get(id) {
+            use std::io::Write;
+            let mut writer = session.writer.lock();
+            writer.write_all(input.as_bytes())?;
+            writer.flush()?;
+            Ok(())
+        } else {
+            anyhow::bail!("Session 未找到: {}", id)
+        }
+    }
+
+    /// 读取 session 屏幕内容
+    pub fn read_screen(&self, id: &str) -> Result<String> {
+        let sessions = self.sessions.read();
+        if let Some(session) = sessions.get(id) {
+            Ok(session.output_buffer.read().clone())
         } else {
             anyhow::bail!("Session 未找到: {}", id)
         }

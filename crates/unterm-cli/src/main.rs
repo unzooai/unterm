@@ -1,7 +1,11 @@
 //! unterm: CLI 工具
 //! MCP client 的薄封装，将子命令映射到 MCP tool 调用。
 
+mod client;
+
+use anyhow::Result;
 use clap::{Parser, Subcommand};
+use serde_json::json;
 
 rust_i18n::i18n!("locales", fallback = "en");
 
@@ -197,105 +201,261 @@ fn detect_locale() {
     }
 }
 
-fn main() {
+fn main() -> Result<()> {
     detect_locale();
     let cli = Cli::parse();
 
     match cli.command {
         Commands::Session { action } => match action {
-            SessionAction::List => println!("{}", rust_i18n::t!("messages.not_implemented")),
+            SessionAction::List => {
+                let mut client = client::McpClient::connect()?;
+                let result = client.call("session.list", json!({}))?;
+                if result.is_null() || result.as_array().is_some_and(|a| a.is_empty()) {
+                    println!("{}", rust_i18n::t!("messages.no_sessions"));
+                } else {
+                    println!("{}", serde_json::to_string_pretty(&result)?);
+                }
+            }
             SessionAction::Create { name, cwd, shell } => {
-                println!("session create: name={:?}, cwd={:?}, shell={:?}", name, cwd, shell);
-                println!("{}", rust_i18n::t!("messages.not_implemented"));
+                let mut client = client::McpClient::connect()?;
+                let mut params = json!({});
+                if let Some(name) = name {
+                    params["name"] = json!(name);
+                }
+                if let Some(cwd) = cwd {
+                    params["cwd"] = json!(cwd);
+                }
+                if let Some(shell) = shell {
+                    params["shell"] = json!(shell);
+                }
+                let result = client.call("session.create", params)?;
+                let id = result
+                    .get("session_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                println!("{}", rust_i18n::t!("messages.session_created", id = id));
             }
             SessionAction::Destroy { session_id } => {
-                println!("session destroy: {}", session_id);
-                println!("{}", rust_i18n::t!("messages.not_implemented"));
+                let mut client = client::McpClient::connect()?;
+                client.call("session.destroy", json!({ "session_id": session_id }))?;
+                println!(
+                    "{}",
+                    rust_i18n::t!("messages.session_destroyed", id = &session_id)
+                );
             }
-            SessionAction::Resize { session_id, cols, rows } => {
-                println!("session resize: {} {}x{}", session_id, cols, rows);
-                println!("{}", rust_i18n::t!("messages.not_implemented"));
+            SessionAction::Resize {
+                session_id,
+                cols,
+                rows,
+            } => {
+                let mut client = client::McpClient::connect()?;
+                let result = client.call(
+                    "session.resize",
+                    json!({ "session_id": session_id, "cols": cols, "rows": rows }),
+                )?;
+                println!("{}", serde_json::to_string_pretty(&result)?);
             }
             SessionAction::Status { session_id } => {
-                println!("session status: {}", session_id);
-                println!("{}", rust_i18n::t!("messages.not_implemented"));
+                let mut client = client::McpClient::connect()?;
+                let result =
+                    client.call("session.status", json!({ "session_id": session_id }))?;
+                println!("{}", serde_json::to_string_pretty(&result)?);
             }
-            SessionAction::History { session_id, since, limit } => {
-                println!("session history: {} since={:?} limit={:?}", session_id, since, limit);
-                println!("{}", rust_i18n::t!("messages.not_implemented"));
+            SessionAction::History {
+                session_id,
+                since,
+                limit,
+            } => {
+                let mut client = client::McpClient::connect()?;
+                let mut params = json!({ "session_id": session_id });
+                if let Some(since) = since {
+                    params["since"] = json!(since);
+                }
+                if let Some(limit) = limit {
+                    params["limit"] = json!(limit);
+                }
+                let result = client.call("session.history", params)?;
+                println!("{}", serde_json::to_string_pretty(&result)?);
             }
         },
-        Commands::Exec { session_id, command, timeout } => {
-            println!("exec: session={} cmd={} timeout={:?}", session_id, command, timeout);
-            println!("{}", rust_i18n::t!("messages.not_implemented"));
+        Commands::Exec {
+            session_id,
+            command,
+            timeout,
+        } => {
+            let mut client = client::McpClient::connect()?;
+            let mut params = json!({ "session_id": session_id, "command": command });
+            if let Some(timeout) = timeout {
+                params["timeout_ms"] = json!(timeout);
+            }
+            let result = client.call("exec.run", params)?;
+            println!("{}", serde_json::to_string_pretty(&result)?);
         }
         Commands::Send { session_id, input } => {
-            println!("send: session={} input={}", session_id, input);
-            println!("{}", rust_i18n::t!("messages.not_implemented"));
+            let mut client = client::McpClient::connect()?;
+            client.call("exec.send", json!({ "session_id": session_id, "input": input }))?;
         }
-        Commands::Signal { session_id, signal } => {
-            println!("signal: session={} signal={}", session_id, signal);
-            println!("{}", rust_i18n::t!("messages.not_implemented"));
+        Commands::Signal {
+            session_id,
+            signal,
+        } => {
+            let mut client = client::McpClient::connect()?;
+            let result = client.call(
+                "signal.send",
+                json!({ "session_id": session_id, "signal": signal }),
+            )?;
+            println!("{}", serde_json::to_string_pretty(&result)?);
         }
         Commands::Screen { action } => match action {
             ScreenAction::Read { session_id, lines } => {
-                println!("screen read: {} lines={:?}", session_id, lines);
-                println!("{}", rust_i18n::t!("messages.not_implemented"));
+                let mut client = client::McpClient::connect()?;
+                let mut params = json!({ "session_id": session_id });
+                if let Some(lines) = lines {
+                    params["lines"] = json!(lines);
+                }
+                let result = client.call("screen.read", params)?;
+                // 直接输出屏幕文本内容
+                if let Some(text) = result.as_str() {
+                    println!("{}", text);
+                } else {
+                    println!("{}", serde_json::to_string_pretty(&result)?);
+                }
             }
             ScreenAction::Cursor { session_id } => {
-                println!("screen cursor: {}", session_id);
-                println!("{}", rust_i18n::t!("messages.not_implemented"));
+                let mut client = client::McpClient::connect()?;
+                let result =
+                    client.call("screen.cursor", json!({ "session_id": session_id }))?;
+                println!("{}", serde_json::to_string_pretty(&result)?);
             }
-            ScreenAction::Scroll { session_id, offset, count } => {
-                println!("screen scroll: {} offset={} count={}", session_id, offset, count);
-                println!("{}", rust_i18n::t!("messages.not_implemented"));
+            ScreenAction::Scroll {
+                session_id,
+                offset,
+                count,
+            } => {
+                let mut client = client::McpClient::connect()?;
+                let result = client.call(
+                    "screen.scroll",
+                    json!({ "session_id": session_id, "offset": offset, "count": count }),
+                )?;
+                if let Some(text) = result.as_str() {
+                    println!("{}", text);
+                } else {
+                    println!("{}", serde_json::to_string_pretty(&result)?);
+                }
             }
         },
         Commands::Orchestrate { action } => match action {
             OrchestrateAction::Launch { command, name, cwd } => {
-                println!("orchestrate launch: {} name={:?} cwd={:?}", command, name, cwd);
-                println!("{}", rust_i18n::t!("messages.not_implemented"));
+                let mut client = client::McpClient::connect()?;
+                let mut params = json!({ "command": command });
+                if let Some(name) = name {
+                    params["name"] = json!(name);
+                }
+                if let Some(cwd) = cwd {
+                    params["cwd"] = json!(cwd);
+                }
+                let result = client.call("orchestrate.launch", params)?;
+                println!("{}", serde_json::to_string_pretty(&result)?);
             }
-            OrchestrateAction::Broadcast { command, sessions } => {
-                println!("orchestrate broadcast: {} sessions={:?}", command, sessions);
-                println!("{}", rust_i18n::t!("messages.not_implemented"));
+            OrchestrateAction::Broadcast {
+                command,
+                sessions,
+            } => {
+                let mut client = client::McpClient::connect()?;
+                let result = client.call(
+                    "orchestrate.broadcast",
+                    json!({ "command": command, "sessions": sessions }),
+                )?;
+                println!("{}", serde_json::to_string_pretty(&result)?);
             }
-            OrchestrateAction::Wait { session_id, pattern, timeout } => {
-                println!("orchestrate wait: {} pattern={} timeout={:?}", session_id, pattern, timeout);
-                println!("{}", rust_i18n::t!("messages.not_implemented"));
+            OrchestrateAction::Wait {
+                session_id,
+                pattern,
+                timeout,
+            } => {
+                let mut client = client::McpClient::connect()?;
+                let mut params = json!({ "session_id": session_id, "pattern": pattern });
+                if let Some(timeout) = timeout {
+                    params["timeout_ms"] = json!(timeout);
+                }
+                let result = client.call("orchestrate.wait", params)?;
+                println!("{}", serde_json::to_string_pretty(&result)?);
             }
         },
         Commands::Proxy { action } => match action {
-            ProxyAction::Status => println!("{}", rust_i18n::t!("messages.not_implemented")),
-            ProxyAction::Nodes => println!("{}", rust_i18n::t!("messages.not_implemented")),
+            ProxyAction::Status => {
+                let mut client = client::McpClient::connect()?;
+                let result = client.call("proxy.status", json!({}))?;
+                println!("{}", serde_json::to_string_pretty(&result)?);
+            }
+            ProxyAction::Nodes => {
+                let mut client = client::McpClient::connect()?;
+                let result = client.call("proxy.nodes", json!({}))?;
+                println!("{}", serde_json::to_string_pretty(&result)?);
+            }
             ProxyAction::Switch { node_name } => {
-                println!("proxy switch: {}", node_name);
-                println!("{}", rust_i18n::t!("messages.not_implemented"));
+                let mut client = client::McpClient::connect()?;
+                let result =
+                    client.call("proxy.switch", json!({ "node_name": node_name }))?;
+                println!("{}", serde_json::to_string_pretty(&result)?);
             }
             ProxyAction::Speedtest { node_name } => {
-                println!("proxy speedtest: {:?}", node_name);
-                println!("{}", rust_i18n::t!("messages.not_implemented"));
+                let mut client = client::McpClient::connect()?;
+                let mut params = json!({});
+                if let Some(node_name) = node_name {
+                    params["node_name"] = json!(node_name);
+                }
+                let result = client.call("proxy.speedtest", params)?;
+                println!("{}", serde_json::to_string_pretty(&result)?);
             }
         },
         Commands::Workspace { action } => match action {
             WorkspaceAction::Save { name } => {
-                println!("workspace save: {}", name);
-                println!("{}", rust_i18n::t!("messages.not_implemented"));
+                let mut client = client::McpClient::connect()?;
+                let result = client.call("workspace.save", json!({ "name": name }))?;
+                println!("{}", serde_json::to_string_pretty(&result)?);
             }
             WorkspaceAction::Restore { name } => {
-                println!("workspace restore: {}", name);
-                println!("{}", rust_i18n::t!("messages.not_implemented"));
+                let mut client = client::McpClient::connect()?;
+                let result = client.call("workspace.restore", json!({ "name": name }))?;
+                println!("{}", serde_json::to_string_pretty(&result)?);
             }
-            WorkspaceAction::List => println!("{}", rust_i18n::t!("messages.not_implemented")),
+            WorkspaceAction::List => {
+                let mut client = client::McpClient::connect()?;
+                let result = client.call("workspace.list", json!({}))?;
+                println!("{}", serde_json::to_string_pretty(&result)?);
+            }
         },
         Commands::Capture { action } => match action {
-            CaptureAction::Screen => println!("{}", rust_i18n::t!("messages.not_implemented")),
-            CaptureAction::Window { title, pid } => {
-                println!("capture window: title={:?} pid={:?}", title, pid);
-                println!("{}", rust_i18n::t!("messages.not_implemented"));
+            CaptureAction::Screen => {
+                let mut client = client::McpClient::connect()?;
+                let result = client.call("capture.screen", json!({}))?;
+                println!("{}", serde_json::to_string_pretty(&result)?);
             }
-            CaptureAction::Select => println!("{}", rust_i18n::t!("messages.not_implemented")),
-            CaptureAction::Clipboard => println!("{}", rust_i18n::t!("messages.not_implemented")),
+            CaptureAction::Window { title, pid } => {
+                let mut client = client::McpClient::connect()?;
+                let mut params = json!({});
+                if let Some(title) = title {
+                    params["title"] = json!(title);
+                }
+                if let Some(pid) = pid {
+                    params["pid"] = json!(pid);
+                }
+                let result = client.call("capture.window", params)?;
+                println!("{}", serde_json::to_string_pretty(&result)?);
+            }
+            CaptureAction::Select => {
+                let mut client = client::McpClient::connect()?;
+                let result = client.call("capture.select", json!({}))?;
+                println!("{}", serde_json::to_string_pretty(&result)?);
+            }
+            CaptureAction::Clipboard => {
+                let mut client = client::McpClient::connect()?;
+                let result = client.call("capture.clipboard", json!({}))?;
+                println!("{}", serde_json::to_string_pretty(&result)?);
+            }
         },
     }
+
+    Ok(())
 }
