@@ -1,0 +1,8 @@
+[messages]
+connecting = "Connecting to unterm-core..."
+not_running = "unterm-core is not running. Start it first: unterm-core"
+connected = "Connected"
+session_created = "Session created: %{id}"
+session_destroyed = "Session destroyed: %{id}"
+no_sessions = "No active sessions"
+not_implemented = "Not implemented yet. Will connect to unterm-core via MCP."

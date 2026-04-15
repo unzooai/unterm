@@ -1,0 +1,8 @@
+[messages]
+connecting = "正在连接 unterm-core..."
+not_running = "unterm-core 未运行，请先启动: unterm-core"
+connected = "已连接"
+session_created = "会话已创建: %{id}"
+session_destroyed = "会话已销毁: %{id}"
+no_sessions = "没有活跃会话"
+not_implemented = "功能尚未实现，将通过 MCP 连接 unterm-core。"

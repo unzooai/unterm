@@ -16,3 +16,7 @@ serde_json.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+portable-pty = "0.9"
+parking_lot = "0.12"
+uuid = { version = "1", features = ["v4"] }
+chrono = "0.4"

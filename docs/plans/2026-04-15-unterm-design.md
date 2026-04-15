@@ -112,6 +112,16 @@
 - 一个 UI 窗口内同时管理本地和远程 session
 - AI agent 不关心 session 在本地还是远程，统一的 MCP 接口
 
+### 12. AI 看不到屏幕
+
+**痛点**：Claude Code 调试 UI 问题时，无法"看到"页面效果。用户得手动截图、保存文件、告诉 AI 路径，流程断裂。macOS 终端的剪贴板操作（特别是图片）也很痛苦。
+
+**解法**：**内置截图 + 剪贴板桥接**
+- `capture.screen` / `capture.window`：AI 直接截取屏幕或指定窗口，返回 base64 图片
+- `clipboard.read`：读取剪贴板内容（包括图片），AI 可以"看到"用户复制的内容
+- 实现 AI 可视化调试闭环：截图 → 分析 → 修改代码 → 再次截图验证
+- 彻底解决 macOS 终端粘贴行为不一致的问题
+
 ## 架构：前后端分离双进程
 
 ```
@@ -237,6 +247,43 @@
 | `workspace.restore` | `name` | 恢复工作环境快照 |
 | `workspace.list` | — | 列出已保存的 workspace |
 
+### 截图与剪贴板
+
+| Tool | 参数 | 说明 |
+|------|------|------|
+| `capture.screen` | `region?{x,y,w,h}` | 全屏截图或指定区域，返回 base64 PNG |
+| `capture.window` | `title?, pid?` | 按窗口标题或进程名截取指定窗口 |
+| `capture.save` | `path, region?` | 截图并保存到指定路径 |
+| `clipboard.read` | — | 读取系统剪贴板（文本返回 string，图片返回 base64 PNG） |
+| `clipboard.write_text` | `text` | 写入文本到系统剪贴板 |
+| `clipboard.write_image` | `base64_png` | 写入图片到系统剪贴板 |
+| `capture.select` | — | 弹出交互式框选覆盖层，用户手动选区截图后返回 base64 PNG |
+
+**核心场景：AI 可视化调试**
+```
+场景 A：AI 自主截图
+  Claude Code 在 session 1 里改前端代码
+  → AI 调用 capture.window --title "Chrome" 截取浏览器窗口
+  → 图片以 base64 返回，AI 直接"看到"页面
+  → AI 分析 UI 问题，修改代码，再次截图验证
+
+场景 B：用户指哪截哪
+  用户说"你看看这个地方有问题"
+  → AI 调用 capture.select
+  → Unterm 弹出半透明覆盖层，用户拖拽框选区域
+  → 截图返回给 AI，AI 精准定位问题
+```
+
+**平台实现：**
+- Windows: Win32 API (`BitBlt`, `GetDC`, `OpenClipboard`)
+- macOS: `screencapture` 命令 或 Core Graphics (`CGWindowListCreateImage`)
+- 剪贴板: Windows `OpenClipboard`/`GetClipboardData`, macOS `NSPasteboard`
+
+**解决 macOS 剪贴板痛点：**
+- macOS 终端里 Cmd+V 粘贴行为不一致（bracketed paste、换行处理等）
+- 通过 `clipboard.read` + `exec.send` 让 AI 精确控制粘贴内容
+- 图片粘贴：传统终端完全不支持，Unterm 通过 MCP tool 原生支持
+
 ## 项目结构
 
 ```
@@ -287,12 +334,52 @@ unterm/
 | 异步运行时 | `tokio` | 异步 I/O |
 | 序列化 | `serde` + `serde_json` | JSON 序列化 |
 | 代理引擎 | `clash-rs` | 内置代理核心（Rust 实现的 Clash） |
+| 国际化 | `rust-i18n` | 编译时 i18n，零运行时开销 |
 
 ## 平台支持
 
 - Windows 11（Named Pipe，ConPTY）
 - macOS（Unix Socket，POSIX PTY）
 - 双平台同步开发，通过 `cfg(target_os)` 隔离平台差异
+
+## 多语言支持（i18n）
+
+第一期支持中文和英文，架构上预留扩展其他语言。
+
+**方案：`rust-i18n` crate**
+- 编译时加载翻译文件，零运行时开销
+- 翻译文件放在各 crate 的 `locales/` 目录下
+- 格式：TOML（简洁，适合少量文本）
+
+**翻译文件结构：**
+```
+crates/unterm-cli/locales/
+├── en.toml          # English
+└── zh-CN.toml       # 简体中文
+
+crates/unterm-ui/locales/
+├── en.toml
+└── zh-CN.toml
+```
+
+**配置：**
+```toml
+# config.toml
+[defaults]
+locale = "zh-CN"     # 默认语言，支持 "en" / "zh-CN"
+```
+
+**语言检测优先级：**
+1. 配置文件 `defaults.locale`
+2. 环境变量 `LANG` / `LC_ALL`
+3. 系统语言（Windows: GetUserDefaultLocaleName, macOS: NSLocale）
+4. 回退到英文
+
+**影响范围：**
+- CLI 输出信息（帮助文本、错误提示、状态显示）
+- UI 界面文本（菜单、状态栏、对话框）
+- MCP 错误消息
+- 不翻译：MCP tool 名称、配置键名、日志（日志始终英文）
 
 ## 数据流
 

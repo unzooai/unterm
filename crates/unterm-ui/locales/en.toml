@@ -1,0 +1,5 @@
+[ui]
+title = "Unterm"
+welcome = "Welcome to Unterm - AI-native Super Workstation"
+status_connected = "Connected to unterm-core"
+status_disconnected = "Disconnected"
