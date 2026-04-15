@@ -1,0 +1,18 @@
+[package]
+name = "unterm-cli"
+version.workspace = true
+edition.workspace = true
+description = "Unterm CLI：命令行工具，MCP client 的薄封装"
+
+[[bin]]
+name = "unterm"
+path = "src/main.rs"
+
+[dependencies]
+unterm-proto = { path = "../unterm-proto" }
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
