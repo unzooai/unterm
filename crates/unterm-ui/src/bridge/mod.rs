@@ -174,12 +174,12 @@ impl CoreBridge {
                                 serde_json::from_str::<serde_json::Value>(line.trim())
                             {
                                 if let Some(result) = resp.get("result") {
-                                    if let Some(content) =
-                                        result.get("content").and_then(|c| c.as_str())
-                                    {
+                                    // result 是结构化 JSON（cells/cursor/cols/rows），序列化为字符串传给 UI
+                                    let content = serde_json::to_string(result).unwrap_or_default();
+                                    if !content.is_empty() {
                                         let _ = poll_event_tx.send(CoreEvent::ScreenUpdate {
                                             session_id: session_id.clone(),
-                                            content: content.to_string(),
+                                            content,
                                         });
                                     }
                                 }

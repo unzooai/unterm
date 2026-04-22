@@ -1,0 +1,17 @@
+Windows Registry Editor Version 5.00
+
+; ===== 文件夹背景右键菜单（在文件夹内空白处右键）=====
+[HKEY_CURRENT_USER\Software\Classes\Directory\Background\shell\Unterm]
+@="在 Unterm 中打开"
+"Icon"="\"C:\\Program Files\\Unterm\\unterm-app.exe\""
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\Background\shell\Unterm\command]
+@="\"C:\\Program Files\\Unterm\\unterm-app.exe\" \"%V\""
+
+; ===== 文件夹右键菜单（右键点击文件夹）=====
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\Unterm]
+@="在 Unterm 中打开"
+"Icon"="\"C:\\Program Files\\Unterm\\unterm-app.exe\""
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\Unterm\command]
+@="\"C:\\Program Files\\Unterm\\unterm-app.exe\" \"%V\""

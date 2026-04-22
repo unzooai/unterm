@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html><head>
+<meta charset="UTF-8">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;cursor:crosshair;
+  user-select:none;-webkit-user-select:none;background:#000}
+#bg{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;pointer-events:none;-webkit-user-drag:none}
+#dim{position:absolute;inset:0;background:rgba(0,0,0,0.4);pointer-events:none}
+#bright{position:absolute;display:none;pointer-events:none}
+#border{position:absolute;border:2px solid #0078d4;display:none;box-sizing:border-box;pointer-events:none}
+#label{position:absolute;background:rgba(0,0,0,0.8);color:#fff;padding:2px 8px;border-radius:3px;
+  font:12px 'Segoe UI',system-ui,sans-serif;display:none;pointer-events:none;white-space:nowrap}
+#hint{position:absolute;top:20px;left:50%;transform:translateX(-50%);
+  background:rgba(0,0,0,0.7);color:#fff;padding:8px 24px;border-radius:8px;
+  font:14px 'Segoe UI',system-ui,sans-serif;pointer-events:none}
+#toolbar{position:absolute;display:none;gap:6px;background:rgba(30,30,30,0.95);
+  padding:6px 10px;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.5)}
+#toolbar button{border:none;padding:7px 16px;border-radius:5px;cursor:pointer;
+  font:13px 'Segoe UI',system-ui,sans-serif;transition:opacity .15s}
+#toolbar button:hover{opacity:0.85}
+.bp{background:#0078d4;color:#fff}
+.bs{background:#555;color:#fff}
+.bc{background:#333;color:#999}
+</style>
+</head>
+<body>
+<img id="bg">
+<div id="dim"></div>
+<canvas id="bright"></canvas>
+<div id="border"></div>
+<div id="label"></div>
+<div id="hint">拖拽选区 · 右键全屏截图 · ESC 取消</div>
+<div id="toolbar">
+  <button class="bp" id="bSave">✓ 保存</button>
+  <button class="bs" id="bCopy">复制</button>
+  <button class="bc" id="bCancel">✕</button>
+</div>
+
+<script>
+(async function() {
+  const { emit } = window.__TAURI__.event;
+  const { getCurrentWindow } = window.__TAURI__.window;
+  const win = getCurrentWindow();
+
+  // 从 localStorage 读取截图数据
+  const imgData = localStorage.getItem('_ss_img');
+  if (!imgData) { win.close(); return; }
+
+  const bg = document.getElementById('bg');
+  const dim = document.getElementById('dim');
+  const bright = document.getElementById('bright');
+  const border = document.getElementById('border');
+  const label = document.getElementById('label');
+  const hint = document.getElementById('hint');
+  const toolbar = document.getElementById('toolbar');
+
+  // 加载图片
+  bg.src = 'data:image/png;base64,' + imgData;
+  await new Promise(r => { bg.onload = r; bg.onerror = r; });
+
+  let sx=0, sy=0, dragging=false, done=false;
+  let cx=0, cy=0, cw=0, ch=0;
+
+  function close() {
+    localStorage.removeItem('_ss_img');
+    win.close();
+  }
+
+  function cropB64() {
+    const rx = bg.naturalWidth / window.innerWidth;
+    const ry = bg.naturalHeight / window.innerHeight;
+    const w = Math.round(cw * rx), h = Math.round(ch * ry);
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    c.getContext('2d').drawImage(bg,
+      Math.round(cx*rx), Math.round(cy*ry), w, h, 0, 0, w, h);
+    return c.toDataURL('image/png').split(',')[1];
+  }
+
+  async function doSave() {
+    const b = cropB64();
+    try {
+      const path = await window.__TAURI__.core.invoke('save_screenshot', { imageData: b });
+      await window.__TAURI__.core.invoke('copy_image_to_clipboard', { imageData: b }).catch(()=>{});
+      await emit('screenshot-done', { path: path });
+    } catch(e) {
+      await emit('screenshot-error', { message: e.message || String(e) });
+    }
+    close();
+  }
+
+  async function doCopy() {
+    const b = cropB64();
+    try {
+      await window.__TAURI__.core.invoke('copy_image_to_clipboard', { imageData: b });
+      await emit('screenshot-copied', {});
+    } catch(e) {}
+    close();
+  }
+
+  // ── 鼠标事件 ──
+  document.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    if (done) {
+      // 点工具栏按钮
+      if (e.target.id === 'bSave') { doSave(); return; }
+      if (e.target.id === 'bCopy') { doCopy(); return; }
+      if (e.target.id === 'bCancel') { close(); return; }
+      // 重新选区
+      done = false;
+      toolbar.style.display = 'none';
+    }
+    sx = e.clientX; sy = e.clientY;
+    dragging = true;
+    border.style.display = 'block';
+    bright.style.display = 'block';
+    hint.style.display = 'none';
+    border.style.left = sx+'px'; border.style.top = sy+'px';
+    border.style.width = '0'; border.style.height = '0';
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    e.preventDefault();
+    const x = Math.min(e.clientX, sx), y = Math.min(e.clientY, sy);
+    const w = Math.abs(e.clientX - sx), h = Math.abs(e.clientY - sy);
+    border.style.left = x+'px'; border.style.top = y+'px';
+    border.style.width = w+'px'; border.style.height = h+'px';
+    label.style.display = 'block';
+    label.style.left = x+'px'; label.style.top = (y+h+6)+'px';
+    label.textContent = w+' \u00d7 '+h;
+    // 亮区
+    if (bg.naturalWidth > 0) {
+      bright.style.left = x+'px'; bright.style.top = y+'px';
+      bright.width = w||1; bright.height = h||1;
+      const rx = bg.naturalWidth/window.innerWidth;
+      const ry = bg.naturalHeight/window.innerHeight;
+      bright.getContext('2d').drawImage(bg,
+        Math.round(x*rx), Math.round(y*ry),
+        Math.round(w*rx), Math.round(h*ry), 0, 0, w, h);
+    }
+  });
+
+  document.addEventListener('mouseup', (e) => {
+    if (e.button !== 0 || !dragging) return;
+    e.preventDefault();
+    dragging = false;
+    cx = Math.min(e.clientX, sx); cy = Math.min(e.clientY, sy);
+    cw = Math.abs(e.clientX - sx); ch = Math.abs(e.clientY - sy);
+    if (cw < 5 || ch < 5) { close(); return; }
+    done = true;
+    toolbar.style.display = 'flex';
+    toolbar.style.left = cx+'px';
+    toolbar.style.top = (cy+ch+10)+'px';
+    if (cy+ch+50 > window.innerHeight)
+      toolbar.style.top = Math.max(0, cy-44)+'px';
+  });
+
+  // 右键 = 全屏截图
+  document.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    cx=0; cy=0; cw=window.innerWidth; ch=window.innerHeight;
+    doSave();
+  });
+
+  // 键盘
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') close();
+    if (e.key === 'Enter' && done) doSave();
+  });
+})();
+</script>
+</body></html>

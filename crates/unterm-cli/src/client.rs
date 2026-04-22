@@ -38,12 +38,26 @@ pub struct McpClient {
 }
 
 impl McpClient {
-    /// 连接到 unterm-core
+    /// 连接到 unterm-core（自动认证）
     pub fn connect() -> Result<Self> {
         // 临时使用 TCP，后续切换为 IPC
         let stream = TcpStream::connect("127.0.0.1:19876")
             .map_err(|_| anyhow::anyhow!("{}", rust_i18n::t!("messages.not_running")))?;
-        Ok(Self { stream, next_id: 1 })
+        let mut client = Self { stream, next_id: 1 };
+
+        // 自动认证：读取 ~/.unterm/auth_token
+        let token_path = dirs::home_dir()
+            .unwrap_or_default()
+            .join(".unterm")
+            .join("auth_token");
+        if let Ok(token) = std::fs::read_to_string(&token_path) {
+            let token = token.trim().to_string();
+            if !token.is_empty() {
+                client.call("auth.login", serde_json::json!({"token": token}))?;
+            }
+        }
+
+        Ok(client)
     }
 
     /// 发送 JSON-RPC 请求并获取响应

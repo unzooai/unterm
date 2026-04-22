@@ -21,3 +21,12 @@ Desktop.ini
 # Environment
 .env
 .env.local
+
+# Node
+node_modules/
+
+# Claude Code
+.claude/
+
+# Screenshots (test artifacts)
+screenshot*.png

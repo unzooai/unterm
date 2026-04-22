@@ -1,0 +1,318 @@
+#tab-bar {
+  height: var(--tab-height);
+  background: var(--crust);
+  display: flex;
+  align-items: center;
+  -webkit-app-region: drag;
+  padding-left: 8px;
+}
+
+/* 汉堡菜单按钮 */
+.menu-btn {
+  width: 36px;
+  height: 36px;
+  border: none;
+  background: transparent;
+  color: var(--subtext0);
+  cursor: pointer;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: background 0.15s;
+  -webkit-app-region: no-drag;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.menu-btn:hover {
+  background: var(--surface0);
+  color: var(--text);
+}
+
+/* 应用菜单下拉 */
+.app-menu {
+  position: absolute;
+  top: var(--tab-height);
+  left: 8px;
+  background: var(--surface0);
+  border: 1px solid var(--surface1);
+  border-radius: 6px;
+  padding: 4px;
+  min-width: 240px;
+  z-index: 100;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
+
+.menu-section {
+  padding: 4px 0;
+}
+
+.menu-section + .menu-section {
+  border-top: 1px solid var(--surface1);
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 13px;
+  transition: background 0.1s;
+}
+
+.menu-item:hover {
+  background: var(--surface1);
+}
+
+.menu-label {
+  padding: 6px 12px 4px;
+  font-size: 11px;
+  color: var(--overlay0);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* 主题列表项 */
+.theme-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 13px;
+  transition: background 0.1s;
+}
+
+.theme-item:hover {
+  background: var(--surface1);
+}
+
+.theme-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1px solid var(--surface2);
+  flex-shrink: 0;
+}
+
+.theme-name {
+  flex: 1;
+}
+
+.theme-check {
+  color: var(--green);
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+#drag-region {
+  flex: 1;
+  height: 100%;
+  min-width: 40px;
+}
+
+#tabs-container {
+  display: flex;
+  height: 100%;
+  overflow-x: auto;
+  -webkit-app-region: no-drag;
+}
+
+#tabs-container::-webkit-scrollbar {
+  height: 2px;
+}
+
+#tabs-container::-webkit-scrollbar-thumb {
+  background: var(--surface1);
+  border-radius: 1px;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  padding: 0 16px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s;
+  gap: 8px;
+  min-width: 120px;
+  max-width: 200px;
+  position: relative;
+  border-radius: 6px 6px 0 0;
+  -webkit-app-region: no-drag;
+}
+
+.tab:hover {
+  background: var(--mantle);
+}
+
+.tab.active {
+  background: var(--base);
+  border-bottom: 2px solid var(--blue);
+}
+
+.tab-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  color: var(--subtext1);
+}
+
+.tab.active .tab-title {
+  color: var(--text);
+}
+
+.tab-close {
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: var(--overlay0);
+  cursor: pointer;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s;
+  flex-shrink: 0;
+}
+
+.tab:hover .tab-close {
+  opacity: 1;
+}
+
+.tab-close:hover {
+  background: var(--surface1);
+  color: var(--text);
+}
+
+#tab-actions {
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  height: 100%;
+  -webkit-app-region: no-drag;
+  position: relative;
+}
+
+#new-tab-btn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--subtext0);
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+}
+
+#new-tab-btn:hover {
+  background: var(--surface0);
+  color: var(--text);
+}
+
+/* 窗口控制按钮 */
+#window-controls {
+  display: flex;
+  height: 100%;
+  -webkit-app-region: no-drag;
+  margin-left: auto;
+}
+
+.win-btn {
+  width: 46px;
+  height: 100%;
+  border: none;
+  background: transparent;
+  color: var(--subtext0);
+  cursor: pointer;
+  font-family: 'Segoe MDL2 Assets', 'Segoe Fluent Icons', sans-serif;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.1s;
+}
+
+.win-btn:hover {
+  background: var(--surface0);
+  color: var(--text);
+}
+
+.win-btn-close:hover {
+  background: #c42b1c;
+  color: #fff;
+}
+
+/* Shell 下拉菜单 */
+.dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  background: var(--surface0);
+  border: 1px solid var(--surface1);
+  border-radius: 6px;
+  padding: 4px;
+  min-width: 300px;
+  z-index: 100;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.shell-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background 0.1s;
+}
+
+.shell-item:hover {
+  background: var(--surface1);
+}
+
+.shell-item-name {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.shell-item-icon {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.shell-item-shortcut {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--overlay0);
+  flex-shrink: 0;
+}
+
+.shell-dropdown-sep {
+  height: 1px;
+  background: var(--surface1);
+  margin: 4px 8px;
+}

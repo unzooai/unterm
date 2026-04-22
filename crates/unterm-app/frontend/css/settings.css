@@ -1,0 +1,275 @@
+/* 全屏遮罩层 */
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+}
+
+/* 面板 */
+.overlay-panel {
+  max-width: 480px;
+  width: 90%;
+  background: var(--mantle);
+  border-radius: 8px;
+  border: 1px solid var(--surface0);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+}
+
+.overlay-panel-sm {
+  max-width: 320px;
+}
+
+/* 面板头部 */
+.overlay-header {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--surface0);
+}
+
+.overlay-header h2 {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0;
+}
+
+/* 关闭按钮 */
+.overlay-close {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--subtext0);
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+}
+
+.overlay-close:hover {
+  background: var(--surface0);
+  color: var(--text);
+}
+
+/* 面板主体 */
+.overlay-body {
+  padding: 20px;
+  max-height: 75vh;
+  overflow-y: auto;
+}
+
+/* 设置行 */
+.setting-group {
+  margin-bottom: 16px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.setting-group:last-child {
+  margin-bottom: 0;
+}
+
+.setting-label {
+  font-size: 13px;
+  color: var(--subtext1);
+  min-width: 100px;
+  flex-shrink: 0;
+}
+
+/* 输入框 / 下拉 */
+.setting-input {
+  background: var(--surface0);
+  border: 1px solid var(--surface1);
+  border-radius: 4px;
+  padding: 6px 10px;
+  color: var(--text);
+  font-size: 13px;
+  width: 200px;
+  outline: none;
+  font-family: inherit;
+  transition: border-color 0.15s;
+}
+
+.setting-input:focus {
+  border-color: var(--blue);
+}
+
+select.setting-input {
+  cursor: pointer;
+}
+
+/* 开关 (toggle) */
+.toggle {
+  position: relative;
+  display: inline-block;
+  width: 40px;
+  height: 22px;
+  cursor: pointer;
+}
+
+.toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+  position: absolute;
+}
+
+.toggle-slider {
+  position: absolute;
+  inset: 0;
+  background: var(--surface1);
+  border-radius: 11px;
+  transition: background 0.2s;
+}
+
+.toggle-slider::before {
+  content: '';
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  left: 3px;
+  top: 3px;
+  background: var(--text);
+  border-radius: 50%;
+  transition: transform 0.2s;
+}
+
+.toggle input:checked + .toggle-slider {
+  background: var(--green);
+}
+
+.toggle input:checked + .toggle-slider::before {
+  transform: translateX(18px);
+}
+
+/* 提示文字 */
+.setting-hint {
+  font-size: 11px;
+  color: var(--overlay0);
+  margin-top: 8px;
+}
+.setting-hint kbd {
+  background: var(--surface0);
+  border: 1px solid var(--surface1);
+  border-radius: 3px;
+  padding: 0 4px;
+  font-size: 11px;
+  font-family: var(--font-mono, monospace);
+}
+
+/* 设置分区标题 */
+.setting-divider {
+  height: 1px;
+  background: var(--surface0);
+  margin: 16px 0 12px;
+}
+.setting-section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--blue);
+  margin-bottom: 8px;
+}
+.setting-optional {
+  font-weight: normal;
+  color: var(--overlay0);
+  font-size: 11px;
+}
+
+/* 代码块（MCP 连接命令） */
+.setting-code-block {
+  background: var(--surface0);
+  border: 1px solid var(--surface1);
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  color: var(--text);
+  word-break: break-all;
+  user-select: all;
+  cursor: pointer;
+}
+
+/* 关于面板 */
+.about-body {
+  text-align: center;
+  padding: 20px;
+}
+
+.about-logo {
+  font-size: 48px;
+  margin-bottom: 8px;
+}
+
+.about-name {
+  font-size: 20px;
+  font-weight: bold;
+  color: var(--text);
+}
+
+.about-version {
+  font-size: 13px;
+  color: var(--subtext0);
+  margin: 4px 0;
+}
+
+.about-desc {
+  font-size: 13px;
+  color: var(--overlay0);
+}
+
+.about-links {
+  margin-top: 16px;
+}
+
+.about-link {
+  font-size: 12px;
+  color: var(--blue);
+}
+
+/* 菜单图标 */
+.menu-icon {
+  width: 20px;
+  display: inline-block;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+/* 菜单快捷键 */
+.menu-shortcut {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--overlay0);
+}
+
+/* 代理状态徽标 */
+.menu-badge {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.menu-badge.active {
+  background: var(--green);
+}
+
+/* 代理子面板 */
+.proxy-panel {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--surface0);
+}

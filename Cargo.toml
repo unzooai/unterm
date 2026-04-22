@@ -5,6 +5,7 @@ members = [
     "crates/unterm-ui",
     "crates/unterm-cli",
     "crates/unterm-proto",
+    "crates/unterm-app",
 ]
 
 [workspace.package]

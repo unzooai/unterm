@@ -19,3 +19,4 @@ tracing-subscriber.workspace = true
 clap = { version = "4", features = ["derive"] }
 colored = "3"
 rust-i18n = "3"
+dirs = "6"

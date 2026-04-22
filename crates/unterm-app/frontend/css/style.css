@@ -1,0 +1,59 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  /* Windows Terminal (Campbell) 配色 — 默认，由 ThemeManager 动态覆盖 */
+  --base: #0c0c0c;
+  --mantle: #181818;
+  --crust: #202020;
+  --surface0: #2a2a2a;
+  --surface1: #333333;
+  --surface2: #3a3a3a;
+  --overlay0: #555555;
+  --text: #cccccc;
+  --subtext0: #999999;
+  --subtext1: #bbbbbb;
+  --blue: #3b78ff;
+  --green: #16c60c;
+  --red: #e74856;
+  --yellow: #f9f1a5;
+  --peach: #f9f1a5;
+  --mauve: #b4009e;
+  --teal: #61d6d6;
+
+  --tab-height: 36px;
+  --status-height: 26px;
+  --font-family: 'Cascadia Code', 'Consolas', 'Courier New', monospace;
+  --font-mono: 'Cascadia Mono', 'Consolas', 'Courier New', monospace;
+  --ui-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  background: var(--base);
+  color: var(--text);
+  font-family: var(--ui-font);
+  font-size: 13px;
+  user-select: none;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+}
+
+#terminal-area {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  position: relative;
+}
+
+/* 隐藏类 */
+.hidden {
+  display: none !important;
+}

@@ -102,6 +102,9 @@ impl PtyManager {
             }
         }
 
+        // 清除可能从父进程继承的干扰变量
+        cmd.env_remove("CLAUDECODE");
+
         // 强制 UTF-8
         cmd.env("LANG", "en_US.UTF-8");
 

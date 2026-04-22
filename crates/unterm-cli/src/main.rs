@@ -69,6 +69,31 @@ enum Commands {
         #[command(subcommand)]
         action: CaptureAction,
     },
+    /// 执行命令并等待结果（AI 模式）
+    Run {
+        session_id: String,
+        command: String,
+        #[arg(long, default_value = "30000")]
+        timeout: u64,
+    },
+    /// 取消正在运行的命令
+    Cancel {
+        session_id: String,
+    },
+    /// 系统信息
+    System,
+    /// 命令策略管理
+    Policy {
+        #[command(subcommand)]
+        action: PolicyAction,
+    },
+    /// 审计日志
+    Audit {
+        #[arg(long)]
+        session_id: Option<String>,
+        #[arg(long, default_value = "50")]
+        limit: u32,
+    },
 }
 
 #[derive(Subcommand)]
@@ -104,6 +129,14 @@ enum SessionAction {
         #[arg(long)]
         limit: Option<u32>,
     },
+    /// 检查会话是否空闲
+    Idle { session_id: String },
+    /// 获取当前工作目录
+    Cwd { session_id: String },
+    /// 读取环境变量
+    Env { session_id: String, name: String },
+    /// 设置环境变量
+    SetEnv { session_id: String, name: String, value: String },
 }
 
 #[derive(Subcommand)]
@@ -123,6 +156,15 @@ enum ScreenAction {
         offset: u32,
         #[arg(long)]
         count: u32,
+    },
+    /// 读取屏幕纯文本
+    Text { session_id: String },
+    /// 搜索屏幕内容
+    Search {
+        session_id: String,
+        pattern: String,
+        #[arg(long, default_value = "50")]
+        max_results: u64,
     },
 }
 
@@ -190,6 +232,17 @@ enum CaptureAction {
     Clipboard,
 }
 
+#[derive(Subcommand)]
+enum PolicyAction {
+    /// 检查命令是否被允许
+    Check { command: String },
+    /// 设置策略（JSON）
+    Set {
+        /// JSON 格式: {"enabled":true,"blocked_patterns":["rm -rf"],"allowed_patterns":[]}
+        json: String,
+    },
+}
+
 fn detect_locale() {
     let locale = std::env::var("UNTERM_LOCALE")
         .or_else(|_| std::env::var("LANG"))
@@ -202,6 +255,18 @@ fn detect_locale() {
 }
 
 fn main() -> Result<()> {
+    // Windows 控制台设为 UTF-8，避免 GBK 乱码
+    #[cfg(target_os = "windows")]
+    unsafe {
+        #[link(name = "kernel32")]
+        unsafe extern "system" {
+            fn SetConsoleOutputCP(wCodePageID: u32) -> i32;
+            fn SetConsoleCP(wCodePageID: u32) -> i32;
+        }
+        SetConsoleOutputCP(65001);
+        SetConsoleCP(65001);
+    }
+
     detect_locale();
     let cli = Cli::parse();
 
@@ -277,6 +342,26 @@ fn main() -> Result<()> {
                 let result = client.call("session.history", params)?;
                 println!("{}", serde_json::to_string_pretty(&result)?);
             }
+            SessionAction::Idle { session_id } => {
+                let mut client = client::McpClient::connect()?;
+                let result = client.call("session.idle", json!({ "session_id": session_id }))?;
+                println!("{}", serde_json::to_string_pretty(&result)?);
+            }
+            SessionAction::Cwd { session_id } => {
+                let mut client = client::McpClient::connect()?;
+                let result = client.call("session.cwd", json!({ "session_id": session_id }))?;
+                println!("{}", serde_json::to_string_pretty(&result)?);
+            }
+            SessionAction::Env { session_id, name } => {
+                let mut client = client::McpClient::connect()?;
+                let result = client.call("session.env", json!({ "session_id": session_id, "name": name }))?;
+                println!("{}", serde_json::to_string_pretty(&result)?);
+            }
+            SessionAction::SetEnv { session_id, name, value } => {
+                let mut client = client::McpClient::connect()?;
+                let result = client.call("session.set_env", json!({ "session_id": session_id, "name": name, "value": value }))?;
+                println!("{}", serde_json::to_string_pretty(&result)?);
+            }
         },
         Commands::Exec {
             session_id,
@@ -342,6 +427,26 @@ fn main() -> Result<()> {
                 } else {
                     println!("{}", serde_json::to_string_pretty(&result)?);
                 }
+            }
+            ScreenAction::Text { session_id } => {
+                let mut client = client::McpClient::connect()?;
+                let result = client.call("screen.text", json!({ "session_id": session_id }))?;
+                // 输出纯文本行
+                if let Some(lines) = result.get("lines").and_then(|v| v.as_array()) {
+                    for line in lines {
+                        println!("{}", line.as_str().unwrap_or(""));
+                    }
+                } else {
+                    println!("{}", serde_json::to_string_pretty(&result)?);
+                }
+            }
+            ScreenAction::Search { session_id, pattern, max_results } => {
+                let mut client = client::McpClient::connect()?;
+                let result = client.call(
+                    "screen.search",
+                    json!({ "session_id": session_id, "pattern": pattern, "max_results": max_results }),
+                )?;
+                println!("{}", serde_json::to_string_pretty(&result)?);
             }
         },
         Commands::Orchestrate { action } => match action {
@@ -455,6 +560,51 @@ fn main() -> Result<()> {
                 println!("{}", serde_json::to_string_pretty(&result)?);
             }
         },
+        Commands::Run { session_id, command, timeout } => {
+            let mut client = client::McpClient::connect()?;
+            let result = client.call(
+                "exec.run_wait",
+                json!({ "session_id": session_id, "command": command, "timeout_ms": timeout }),
+            )?;
+            // 直接输出命令结果
+            if let Some(output) = result.get("output").and_then(|v| v.as_str()) {
+                println!("{}", output);
+            } else {
+                println!("{}", serde_json::to_string_pretty(&result)?);
+            }
+        }
+        Commands::Cancel { session_id } => {
+            let mut client = client::McpClient::connect()?;
+            let result = client.call("exec.cancel", json!({ "session_id": session_id }))?;
+            println!("{}", serde_json::to_string_pretty(&result)?);
+        }
+        Commands::System => {
+            let mut client = client::McpClient::connect()?;
+            let result = client.call("system.info", json!({}))?;
+            println!("{}", serde_json::to_string_pretty(&result)?);
+        }
+        Commands::Policy { action } => match action {
+            PolicyAction::Check { command } => {
+                let mut client = client::McpClient::connect()?;
+                let result = client.call("policy.check", json!({ "command": command }))?;
+                println!("{}", serde_json::to_string_pretty(&result)?);
+            }
+            PolicyAction::Set { json: policy_json } => {
+                let mut client = client::McpClient::connect()?;
+                let params: serde_json::Value = serde_json::from_str(&policy_json)?;
+                let result = client.call("policy.set", params)?;
+                println!("{}", serde_json::to_string_pretty(&result)?);
+            }
+        },
+        Commands::Audit { session_id, limit } => {
+            let mut client = client::McpClient::connect()?;
+            let mut params = json!({ "limit": limit });
+            if let Some(sid) = session_id {
+                params["session_id"] = json!(sid);
+            }
+            let result = client.call("session.audit_log", params)?;
+            println!("{}", serde_json::to_string_pretty(&result)?);
+        }
     }
 
     Ok(())

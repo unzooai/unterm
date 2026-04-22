@@ -1,19 +1,21 @@
 //! Tab/分屏布局管理模块
 
-/// Tab 栏高度（像素）
-const TAB_BAR_HEIGHT: f32 = 32.0;
-/// 状态栏高度（像素）
-const STATUS_BAR_HEIGHT: f32 = 24.0;
+/// Tab 栏高度（像素）— 匹配 Windows Terminal
+const TAB_BAR_HEIGHT: f32 = 36.0;
+/// 状态栏高度（像素）— 0 = 隐藏，匹配 Windows Terminal 默认
+const STATUS_BAR_HEIGHT: f32 = 0.0;
 /// 分屏边框宽度（像素）
-const SPLIT_BORDER_WIDTH: f32 = 2.0;
+const SPLIT_BORDER_WIDTH: f32 = 1.0;
 /// 默认字体大小
 const DEFAULT_FONT_SIZE: f32 = 16.0;
 /// 默认行高
 const DEFAULT_LINE_HEIGHT: f32 = 20.0;
 /// 等宽字体宽高比
 const FONT_WIDTH_RATIO: f32 = 0.6;
+/// 每个 Tab 最大 pane 数
+const MAX_PANES_PER_TAB: usize = 4;
 /// 内边距
-const PADDING: f32 = 4.0;
+const PADDING: f32 = 0.0;
 
 /// 唯一标识一个 Pane
 pub type PaneId = u64;
@@ -248,12 +250,18 @@ pub struct Tab {
 }
 
 /// 矩形区域（像素坐标）
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Rect {
     pub x: f32,
     pub y: f32,
     pub width: f32,
     pub height: f32,
+}
+
+impl Rect {
+    pub fn contains(&self, px: f32, py: f32) -> bool {
+        px >= self.x && px < self.x + self.width && py >= self.y && py < self.y + self.height
+    }
 }
 
 /// Pane 的渲染信息
@@ -289,7 +297,7 @@ impl LayoutManager {
         let tab_id = 1;
         let tab = Tab {
             id: tab_id,
-            title: "Tab 1".to_string(),
+            title: "Windows PowerShell".to_string(),
             root: PaneNode::Leaf {
                 pane_id,
                 session_id: None,
@@ -324,6 +332,15 @@ impl LayoutManager {
         (tab_id, pane_id)
     }
 
+    /// 获取指定 Tab 的所有 Pane ID
+    pub fn tab_pane_ids(&self, tab_id: TabId) -> Vec<PaneId> {
+        let mut ids = Vec::new();
+        if let Some(tab) = self.tabs.iter().find(|t| t.id == tab_id) {
+            tab.root.collect_leaves(&mut ids);
+        }
+        ids
+    }
+
     /// 关闭 Tab
     pub fn close_tab(&mut self, tab_id: TabId) {
         if let Some(idx) = self.tabs.iter().position(|t| t.id == tab_id) {
@@ -334,7 +351,7 @@ impl LayoutManager {
                 let new_tab_id = self.next_tab_id();
                 self.tabs.push(Tab {
                     id: new_tab_id,
-                    title: "Tab 1".to_string(),
+                    title: "Windows PowerShell".to_string(),
                     root: PaneNode::Leaf {
                         pane_id,
                         session_id: None,
@@ -342,9 +359,16 @@ impl LayoutManager {
                     active_pane: pane_id,
                 });
                 self.active_tab = 0;
-            } else if self.active_tab >= self.tabs.len() {
-                self.active_tab = self.tabs.len() - 1;
+            } else if idx < self.active_tab {
+                // 关闭了活跃 tab 之前的 tab，索引需要前移
+                self.active_tab -= 1;
+            } else if idx == self.active_tab {
+                // 关闭了活跃 tab 本身，切换到相邻 tab
+                if self.active_tab >= self.tabs.len() {
+                    self.active_tab = self.tabs.len() - 1;
+                }
             }
+            // idx > active_tab 时无需调整
         }
     }
 
@@ -393,7 +417,18 @@ impl LayoutManager {
     }
 
     /// 分屏：将当前激活 pane 按指定方向分成两个，返回新 pane_id
+    /// 每个 Tab 最多 MAX_PANES_PER_TAB 个 pane
     pub fn split_pane(&mut self, direction: SplitDirection) -> Option<PaneId> {
+        // 检查当前 Tab 的 pane 数是否已达上限
+        let tab = &self.tabs[self.active_tab];
+        let mut leaves = Vec::new();
+        tab.root.collect_leaves(&mut leaves);
+        let current_count = leaves.len();
+        if current_count >= MAX_PANES_PER_TAB {
+            tracing::warn!("已达到最大分屏数 {}", MAX_PANES_PER_TAB);
+            return None;
+        }
+
         let new_pane_id = self.next_pane_id();
         let tab = &mut self.tabs[self.active_tab];
         let target = tab.active_pane;

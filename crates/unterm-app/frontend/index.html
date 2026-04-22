@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Unterm</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/tabs.css">
+  <link rel="stylesheet" href="css/terminal.css">
+  <link rel="stylesheet" href="css/settings.css">
+  <link rel="stylesheet" href="css/screenshot.css">
+  <link rel="stylesheet" href="lib/xterm.css">
+</head>
+<body>
+  <!-- Tab 栏（兼作标题栏） -->
+  <div id="tab-bar">
+    <button id="menu-btn" class="menu-btn" title="菜单">☰</button>
+    <div id="app-menu" class="app-menu hidden">
+      <div class="menu-section">
+        <div class="menu-item" id="menu-settings">
+          <span class="menu-icon">⚙</span>
+          <span>设置</span>
+          <span class="menu-shortcut">Ctrl+,</span>
+        </div>
+        <div class="menu-item" id="menu-screenshot">
+          <span class="menu-icon">&#x1F4F7;</span>
+          <span>截图选区</span>
+          <span class="menu-shortcut">Ctrl+Shift+S</span>
+        </div>
+        <div class="menu-item" id="menu-screenshot-hide">
+          <span class="menu-icon">&#x1F4F7;</span>
+          <span>隐藏窗口截图（保存+复制）</span>
+        </div>
+        <div class="menu-item" id="menu-open-folder">
+          <span class="menu-icon">📂</span>
+          <span>打开目录...</span>
+          <span class="menu-shortcut">Ctrl+Shift+O</span>
+        </div>
+        <div class="menu-item" id="menu-admin">
+          <span class="menu-icon">🛡️</span>
+          <span>以管理员身份打开</span>
+        </div>
+      </div>
+      <div class="menu-section">
+        <div class="menu-label">分屏</div>
+        <div class="menu-item" id="menu-split-h">
+          <span class="menu-icon">▌</span>
+          <span>左右分屏</span>
+          <span class="menu-shortcut">Ctrl+Shift+D</span>
+        </div>
+        <div class="menu-item" id="menu-split-v">
+          <span class="menu-icon">▬</span>
+          <span>上下分屏</span>
+          <span class="menu-shortcut">Ctrl+Shift+R</span>
+        </div>
+        <div class="menu-item" id="menu-close-pane">
+          <span class="menu-icon">✕</span>
+          <span>关闭当前面板</span>
+          <span class="menu-shortcut">Ctrl+Shift+X</span>
+        </div>
+      </div>
+      <div class="menu-section">
+        <div class="menu-item" id="menu-proxy">
+          <span class="menu-icon">🌐</span>
+          <span>代理设置</span>
+          <span id="proxy-status" class="menu-badge"></span>
+        </div>
+      </div>
+      <div class="menu-section">
+        <div class="menu-label">主题</div>
+        <div id="theme-list"></div>
+      </div>
+      <div class="menu-section">
+        <div class="menu-item" id="menu-about">
+          <span class="menu-icon">ℹ️</span>
+          <span>关于 Unterm</span>
+        </div>
+      </div>
+    </div>
+    <div id="tabs-container"></div>
+    <div id="drag-region"></div>
+    <div id="tab-actions">
+      <button id="new-tab-btn" title="新建 Tab (Ctrl+Shift+T)">+</button>
+      <div id="shell-dropdown" class="dropdown hidden">
+        <div id="shell-list"></div>
+      </div>
+    </div>
+    <div id="window-controls">
+      <button id="btn-minimize" class="win-btn" title="最小化">&#xE921;</button>
+      <button id="btn-maximize" class="win-btn" title="最大化">&#xE922;</button>
+      <button id="btn-close" class="win-btn win-btn-close" title="关闭">&#xE8BB;</button>
+    </div>
+  </div>
+
+  <!-- 右键菜单 -->
+  <div id="context-menu" class="context-menu hidden">
+    <div class="ctx-item" data-action="copy"><span class="ctx-icon">📋</span>复制<span class="ctx-shortcut">Ctrl+C</span></div>
+    <div class="ctx-item" data-action="paste"><span class="ctx-icon">📌</span>粘贴<span class="ctx-shortcut">Ctrl+V</span></div>
+    <div class="ctx-sep"></div>
+    <div class="ctx-item" data-action="open-folder"><span class="ctx-icon">📂</span>打开目录...<span class="ctx-shortcut">Ctrl+Shift+O</span></div>
+    <div class="ctx-sep"></div>
+    <div class="ctx-item" data-action="split-h"><span class="ctx-icon">▌</span>左右分屏<span class="ctx-shortcut">Ctrl+Shift+D</span></div>
+    <div class="ctx-item" data-action="split-v"><span class="ctx-icon">▬</span>上下分屏<span class="ctx-shortcut">Ctrl+Shift+R</span></div>
+    <div class="ctx-sep"></div>
+    <div class="ctx-item ctx-danger" data-action="close-pane"><span class="ctx-icon">✕</span>关闭面板<span class="ctx-shortcut">Ctrl+Shift+X</span></div>
+  </div>
+
+  <!-- 终端区域 -->
+  <div id="terminal-area"></div>
+
+  <!-- 状态栏 -->
+  <div id="status-bar">
+    <div id="status-left">
+      <span id="connection-status" class="disconnected">&#x25cf; 未连接</span>
+    </div>
+    <div id="status-right">
+      <span id="shell-info"></span>
+      <span id="pane-size"></span>
+      <button id="status-screenshot-btn" class="status-btn" title="截图 (Ctrl+Shift+S)">&#x1F4F7; 截图</button>
+    </div>
+  </div>
+
+  <!-- 设置面板 -->
+  <div id="settings-overlay" class="overlay hidden">
+    <div class="overlay-panel">
+      <div class="overlay-header">
+        <h2>设置</h2>
+        <button class="overlay-close" data-close="settings-overlay">&times;</button>
+      </div>
+      <div class="overlay-body">
+        <div class="setting-group">
+          <label class="setting-label">默认 Shell</label>
+          <select id="setting-shell" class="setting-input"></select>
+        </div>
+        <div class="setting-group">
+          <label class="setting-label">字体</label>
+          <input id="setting-font" class="setting-input" type="text" value="Cascadia Code" />
+        </div>
+        <div class="setting-group">
+          <label class="setting-label">字号</label>
+          <input id="setting-fontsize" class="setting-input" type="number" value="14" min="8" max="32" />
+        </div>
+        <div class="setting-group">
+          <label class="setting-label">光标样式</label>
+          <select id="setting-cursor" class="setting-input">
+            <option value="bar">竖线</option>
+            <option value="block">方块</option>
+            <option value="underline">下划线</option>
+          </select>
+        </div>
+        <div class="setting-group">
+          <label class="setting-label">光标闪烁</label>
+          <label class="toggle">
+            <input id="setting-cursor-blink" type="checkbox" checked />
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- 代理设置面板 -->
+  <div id="proxy-overlay" class="overlay hidden">
+    <div class="overlay-panel">
+      <div class="overlay-header">
+        <h2>代理设置</h2>
+        <button class="overlay-close" data-close="proxy-overlay">&times;</button>
+      </div>
+      <div class="overlay-body">
+        <div class="setting-group">
+          <label class="setting-label">代理模式</label>
+          <select id="proxy-mode" class="setting-input">
+            <option value="off">关闭</option>
+            <option value="manual">手动设置</option>
+          </select>
+        </div>
+
+        <div id="proxy-manual-panel" class="proxy-panel hidden">
+          <div class="setting-group">
+            <label class="setting-label">HTTP 代理</label>
+            <input id="proxy-http" class="setting-input" type="text" placeholder="http://127.0.0.1:7890" />
+          </div>
+          <div class="setting-group">
+            <label class="setting-label">SOCKS5 代理</label>
+            <input id="proxy-socks" class="setting-input" type="text" placeholder="socks5://127.0.0.1:7890" />
+          </div>
+        </div>
+
+        <p class="setting-hint">代理设置将应用于新建的终端会话</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 关于面板 -->
+  <div id="about-overlay" class="overlay hidden">
+    <div class="overlay-panel overlay-panel-sm">
+      <div class="overlay-header">
+        <h2>关于 Unterm</h2>
+        <button class="overlay-close" data-close="about-overlay">&times;</button>
+      </div>
+      <div class="overlay-body about-body">
+        <div class="about-logo">⬛</div>
+        <div class="about-name">Unterm</div>
+        <div class="about-version">v0.1.0</div>
+        <div class="about-desc">AI-Native Terminal by Unzoo</div>
+        <div class="about-links">
+          <span class="about-link">github.com/unzooai/unterm</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="lib/xterm.js"></script>
+  <script src="lib/addon-fit.js"></script>
+  <script src="lib/addon-web-links.js"></script>
+  <script src="lib/addon-image.js"></script>
+  <script src="lib/addon-webgl.js"></script>
+  <script src="js/themes.js"></script>
+  <script src="js/settings.js"></script>
+  <script src="js/profiles.js"></script>
+  <script src="js/tabs.js"></script>
+  <script src="js/split.js"></script>
+  <script src="js/terminal.js"></script>
+  <script src="js/screenshot.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
