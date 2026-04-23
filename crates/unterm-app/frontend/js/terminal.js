@@ -41,18 +41,18 @@ const TerminalManager = {
         terminal.loadAddon(webLinksAddon);
       }
 
-      // WebGL 渲染器（色彩还原更准确）
-      if (typeof WebglAddon !== 'undefined') {
-        try {
-          const webglAddon = new WebglAddon.WebglAddon();
-          terminal.loadAddon(webglAddon);
-          webglAddon.onContextLoss(() => {
-            webglAddon.dispose();
-          });
-        } catch (e) {
-          console.warn('[Unterm] WebGL 渲染器加载失败，回退 Canvas:', e);
-        }
-      }
+      // WebGL 渲染器（暂时禁用，排查 TUI 抖动问题）
+      // if (typeof WebglAddon !== 'undefined') {
+      //   try {
+      //     const webglAddon = new WebglAddon.WebglAddon();
+      //     terminal.loadAddon(webglAddon);
+      //     webglAddon.onContextLoss(() => {
+      //       webglAddon.dispose();
+      //     });
+      //   } catch (e) {
+      //     console.warn('[Unterm] WebGL 渲染器加载失败，回退 Canvas:', e);
+      //   }
+      // }
 
       // 加载图片协议支持（Sixel / iTerm2 inline images）
       if (typeof ImageAddon !== 'undefined') {
@@ -66,11 +66,11 @@ const TerminalManager = {
 
       this.panes.set(paneId, { terminal, fitAddon, element: null });
 
-      // 输入回调（过滤 DSR 响应，后端已处理，避免双重回复）
+      // 输入回调 — DSR 响应由 xterm.js 独占处理，
+      // 后端 VTE 缺少 alternate screen buffer 支持，其光标位置不可靠，
+      // 所以不再过滤 xterm.js 的 DSR 响应（ESC[row;colR），直接发送到 PTY
       terminal.onData((data) => {
-        // xterm.js 收到 ESC[6n 后会自动回复 ESC[row;colR，
-        // 但后端 VTE 解析器已经回复了，多余的响应会被 shell 当成输入吃掉字符
-        if (/^\x1b\[\d+;\d+R$/.test(data)) return;
+        if (!data) return;
         this._sendInput(paneId, data);
       });
 
@@ -84,16 +84,33 @@ const TerminalManager = {
 
       await this._mountWithRetry(paneId, 5);
 
-      // 通知后端创建 session
+      // 通知后端创建 PTY
       try {
         if (window.__TAURI__ && window.__TAURI__.core) {
           const envVars = typeof ProxyManager !== 'undefined' ? await ProxyManager.getEnvVars() : null;
-          await window.__TAURI__.core.invoke('create_session', {
+          await window.__TAURI__.core.invoke('pty_create', {
             paneId,
             shell: shell || null,
             cwd: cwd || null,
             env: envVars,
+            cols: terminal.cols || 80,
+            rows: terminal.rows || 24,
           });
+
+          // 注册 Tauri Event 监听器 — PTY 输出零延迟推送到 xterm.js
+          const { listen } = window.__TAURI__.event;
+
+          const unlisten = await listen(`pty-output-${paneId}`, (event) => {
+            terminal.write(event.payload.data);
+          });
+
+          const unlistenExit = await listen(`pty-exit-${paneId}`, () => {
+            terminal.writeln('\r\n\x1b[90m[进程已退出]\x1b[0m');
+          });
+
+          // 保存到 pane 对象用于清理
+          this.panes.get(paneId)._unlisten = unlisten;
+          this.panes.get(paneId)._unlistenExit = unlistenExit;
         } else {
           terminal.writeln('\x1b[31m连接失败: Tauri IPC 未就绪\x1b[0m');
         }
@@ -152,24 +169,40 @@ const TerminalManager = {
       });
     }
 
-    // 用 ResizeObserver 监听容器尺寸变化，自动 fit
-    // 防抖 + cols/rows 去重，避免滚动条引起的循环抖动
+    // 初始 fit：延迟一帧确保 DOM 布局完成
+    setTimeout(() => {
+      try {
+        pane.fitAddon.fit();
+        const cols = pane.terminal.cols;
+        const rows = pane.terminal.rows;
+        this._resize(paneId, cols, rows);
+      } catch (e) {}
+    }, 100);
+
+    // ResizeObserver 仅响应真实的容器尺寸变化（窗口缩放/分屏）
+    // 使用 one-shot 策略：首次 fit 后只在尺寸变化 >= 8px 时才触发
     let resizeTimer = null;
-    let lastCols = 0, lastRows = 0;
-    const ro = new ResizeObserver(() => {
+    let lastW = 0, lastH = 0;
+    const ro = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const w = Math.round(entry.contentRect.width);
+      const h = Math.round(entry.contentRect.height);
+      // 首次记录基准值
+      if (lastW === 0 && lastH === 0) { lastW = w; lastH = h; return; }
+      // 变化 < 8px 忽略，只响应真实窗口/分屏变化
+      if (Math.abs(w - lastW) < 8 && Math.abs(h - lastH) < 8) return;
+      lastW = w;
+      lastH = h;
       if (resizeTimer) clearTimeout(resizeTimer);
       resizeTimer = setTimeout(() => {
         try {
           pane.fitAddon.fit();
           const cols = pane.terminal.cols;
           const rows = pane.terminal.rows;
-          if (cols !== lastCols || rows !== lastRows) {
-            lastCols = cols;
-            lastRows = rows;
-            this._resize(paneId, cols, rows);
-          }
+          this._resize(paneId, cols, rows);
         } catch (e) {}
-      }, 100);
+      }, 200);
     });
     ro.observe(element);
     pane._resizeObserver = ro;
@@ -178,34 +211,35 @@ const TerminalManager = {
   destroyPane(paneId) {
     const pane = this.panes.get(paneId);
     if (!pane) return;
+    // 清理 Tauri Event 监听器
+    if (pane._unlisten) pane._unlisten();
+    if (pane._unlistenExit) pane._unlistenExit();
     if (pane._resizeObserver) {
       pane._resizeObserver.disconnect();
     }
     pane.terminal.dispose();
     this.panes.delete(paneId);
     if (window.__TAURI__ && window.__TAURI__.core) {
-      window.__TAURI__.core.invoke('destroy_session', { paneId }).catch(() => {});
+      window.__TAURI__.core.invoke('pty_destroy', { paneId }).catch(() => {});
     }
   },
 
   async _sendInput(paneId, data) {
     try {
       if (window.__TAURI__ && window.__TAURI__.core) {
-        await window.__TAURI__.core.invoke('send_input', { paneId, input: data });
+        await window.__TAURI__.core.invoke('pty_write', { paneId, data });
       }
     } catch (e) {
-      console.error('[Unterm] send_input failed:', e);
+      console.error('[Unterm] pty_write failed:', e);
     }
   },
 
   async _resize(paneId, cols, rows) {
     try {
       if (window.__TAURI__ && window.__TAURI__.core) {
-        await window.__TAURI__.core.invoke('resize_session', { paneId, cols, rows });
+        await window.__TAURI__.core.invoke('pty_resize', { paneId, cols, rows });
       }
-    } catch (e) {
-      console.error('[Unterm] resize failed:', e);
-    }
+    } catch (e) {}
   },
 
   // 右键粘贴：先检查图片（保存+路径），再检查文本
@@ -274,13 +308,6 @@ const TerminalManager = {
 
     if (ok && typeof ScreenshotManager !== 'undefined') {
       ScreenshotManager.showToast('已复制');
-    }
-  },
-
-  writeToPane(paneId, data) {
-    const pane = this.panes.get(paneId);
-    if (pane) {
-      pane.terminal.write(data);
     }
   },
 

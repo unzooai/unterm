@@ -1,6 +1,3 @@
-// session_id -> pane_id 映射
-const sessionToPaneMap = new Map();
-
 // Unterm 主入口
 (async function main() {
 
@@ -32,8 +29,12 @@ const sessionToPaneMap = new Map();
   // 保存窗口大小（关闭和调整时）
   initWindowStateSaver();
 
-  // 启动事件轮询循环
-  startEventPolling();
+  // 直连 PTY 模式，无需轮询
+  const statusEl = document.getElementById('connection-status');
+  if (statusEl) {
+    statusEl.textContent = '● 已连接';
+    statusEl.className = 'connected';
+  }
 
   // 注册全局快捷键
   registerShortcuts();
@@ -44,53 +45,6 @@ const sessionToPaneMap = new Map();
   // 截图按钮绑定
   initScreenshotBindings();
 })();
-
-// 事件轮询
-function startEventPolling() {
-  setInterval(async () => {
-    try {
-      if (!window.__TAURI__ || !window.__TAURI__.core) return;
-      const events = await window.__TAURI__.core.invoke('poll_events');
-      for (const event of events) {
-        handleCoreEvent(event);
-      }
-    } catch (e) {}
-  }, 50);
-}
-
-// 处理后端事件
-function handleCoreEvent(event) {
-  const statusEl = document.getElementById('connection-status');
-
-  switch (event.type) {
-    case 'connected':
-      statusEl.className = 'connected';
-      statusEl.textContent = '\u25CF \u5DF2\u8FDE\u63A5';
-      break;
-
-    case 'disconnected':
-      statusEl.className = 'disconnected';
-      statusEl.textContent = '\u25CF \u672A\u8FDE\u63A5';
-      break;
-
-    case 'session_created':
-      sessionToPaneMap.set(event.session_id, event.pane_id);
-      break;
-
-    case 'screen_update':
-      {
-        const paneId = sessionToPaneMap.get(event.session_id);
-        if (paneId !== undefined && event.content) {
-          TerminalManager.writeToPane(paneId, event.content);
-        }
-      }
-      break;
-
-    case 'error':
-      console.error('Core \u9519\u8BEF:', event.message);
-      break;
-  }
-}
 
 // 全局快捷键
 function registerShortcuts() {
