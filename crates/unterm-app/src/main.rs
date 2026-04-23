@@ -6,11 +6,12 @@
 
 mod bridge;
 mod proxy;
+mod pty_manager;
 mod screenshot;
 
 use bridge::CoreBridge;
 use std::sync::Arc;
-use tauri::{Manager, State};
+use tauri::{AppHandle, Manager, State};
 use tokio::sync::Mutex;
 use tracing::info;
 
@@ -776,6 +777,70 @@ fn load_window_state() -> Option<serde_json::Value> {
     serde_json::from_str(&data).ok()
 }
 
+// ─── 直连 PTY 相关 ───
+
+/// 直连 PTY 状态
+struct DirectPtyState(std::sync::Mutex<pty_manager::DirectPtyManager>);
+
+/// 创建直连 PTY 会话
+#[tauri::command]
+async fn pty_create(
+    app_handle: AppHandle,
+    state: State<'_, DirectPtyState>,
+    pane_id: u64,
+    shell: Option<String>,
+    cwd: Option<String>,
+    env: Option<std::collections::HashMap<String, String>>,
+    cols: Option<u16>,
+    rows: Option<u16>,
+) -> Result<(), String> {
+    let mut mgr = state.0.lock().map_err(|e| format!("锁定 PTY 管理器失败: {}", e))?;
+    mgr.create_session(
+        app_handle,
+        pane_id,
+        shell,
+        cwd,
+        env,
+        cols.unwrap_or(80),
+        rows.unwrap_or(24),
+    )
+}
+
+/// 向直连 PTY 写入数据
+#[tauri::command]
+async fn pty_write(
+    state: State<'_, DirectPtyState>,
+    pane_id: u64,
+    data: String,
+) -> Result<(), String> {
+    let mut mgr = state.0.lock().map_err(|e| format!("锁定 PTY 管理器失败: {}", e))?;
+    mgr.write_input(pane_id, data.as_bytes())
+}
+
+/// 调整直连 PTY 尺寸
+#[tauri::command]
+async fn pty_resize(
+    state: State<'_, DirectPtyState>,
+    pane_id: u64,
+    cols: u16,
+    rows: u16,
+) -> Result<(), String> {
+    let mut mgr = state.0.lock().map_err(|e| format!("锁定 PTY 管理器失败: {}", e))?;
+    mgr.resize(pane_id, cols, rows)
+}
+
+/// 销毁直连 PTY 会话
+#[tauri::command]
+async fn pty_destroy(
+    state: State<'_, DirectPtyState>,
+    pane_id: u64,
+) -> Result<(), ()> {
+    if let Ok(mut mgr) = state.0.lock() {
+        mgr.destroy_session(pane_id);
+    }
+    Ok(())
+}
+
 /// 启动参数
 struct LaunchArgs {
     cwd: Option<String>,
@@ -835,6 +900,7 @@ fn main() {
         .plugin(tauri_plugin_shell::init())
         .manage(state)
         .manage(launch_args)
+        .manage(DirectPtyState(std::sync::Mutex::new(pty_manager::DirectPtyManager::new())))
         .setup(move |app| {
             // 恢复窗口大小
             if let Some(window) = app.get_webview_window("main") {
@@ -880,6 +946,10 @@ fn main() {
             save_window_state,
             load_window_state,
             pick_folder,
+            pty_create,
+            pty_write,
+            pty_resize,
+            pty_destroy,
         ])
         .run(tauri::generate_context!())
         .expect("Tauri 应用启动失败");

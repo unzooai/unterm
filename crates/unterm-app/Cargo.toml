@@ -28,6 +28,7 @@ serde_yaml = "0.9"
 image = { version = "0.25", default-features = false, features = ["png"] }
 chrono = "0.4"
 rfd = "0.15"
+portable-pty = "0.8"
 unterm-core = { path = "../unterm-core" }
 
 [target.'cfg(windows)'.dependencies]
