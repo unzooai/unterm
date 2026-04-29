@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+    Name="Unterm"
+    Manufacturer="Unzoo AI"
+    Version="0.2.0"
+    UpgradeCode="2B17738E-D6E7-44BB-9B55-1D6AF31404A2"
+    Scope="perMachine">
+
+    <SummaryInformation
+      Description="Unterm terminal"
+      Manufacturer="Unzoo AI" />
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Unterm is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Feature Id="MainFeature" Title="Unterm" Level="1">
+      <ComponentGroupRef Id="UntermFiles" />
+      <ComponentRef Id="StartMenuShortcut" />
+    </Feature>
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Unterm" />
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ApplicationProgramsFolder" Name="Unterm" />
+    </StandardDirectory>
+
+    <ComponentGroup Id="UntermFiles" Directory="INSTALLFOLDER">
+      <Component Id="UntermExe" Guid="9A7EA657-4A0E-42B0-9974-0A77B4DD7FD0">
+        <File Id="UntermExeFile" Source="$(var.SourceDir)\unterm.exe" KeyPath="yes" />
+      </Component>
+      <Component Id="ConptyDll" Guid="E32B8E38-04D9-44C4-B06B-FE97D2E7CC20">
+        <File Source="$(var.SourceDir)\conpty.dll" KeyPath="yes" />
+      </Component>
+      <Component Id="LibEglDll" Guid="5E30B910-8558-432F-9BD0-B01D55913D94">
+        <File Source="$(var.SourceDir)\libEGL.dll" KeyPath="yes" />
+      </Component>
+      <Component Id="LibGlesDll" Guid="81E1F3B1-5941-4F59-B9A3-B7C72A12FC3E">
+        <File Source="$(var.SourceDir)\libGLESv2.dll" KeyPath="yes" />
+      </Component>
+      <Component Id="OpenConsoleExe" Guid="31E6F6F2-74DE-4576-BC35-3E4D2E66E84F">
+        <File Source="$(var.SourceDir)\OpenConsole.exe" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <DirectoryRef Id="ApplicationProgramsFolder">
+      <Component Id="StartMenuShortcut" Guid="235E0638-8150-4871-BF45-3914E77D5DF2">
+        <Shortcut
+          Id="ApplicationStartMenuShortcut"
+          Name="Unterm"
+          Description="Launch Unterm"
+          Target="[INSTALLFOLDER]unterm.exe"
+          WorkingDirectory="INSTALLFOLDER" />
+        <RemoveFolder Id="ApplicationProgramsFolder" On="uninstall" />
+        <RegistryValue
+          Root="HKLM"
+          Key="Software\Unzoo AI\Unterm"
+          Name="installed"
+          Type="integer"
+          Value="1"
+          KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+  </Package>
+</Wix>

@@ -14,6 +14,9 @@ dhat-heap.json
 /pkg
 /target/
 /dist/
+/.dotnet-home/
+/.tools/
+/installer/out/
 /wezterm-char-props/codegen/target
 /wezterm-char-props/codegen/Cargo.lock
 /termwiz/codegen/target
