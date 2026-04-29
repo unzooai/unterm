@@ -1,5 +1,0 @@
-[ui]
-title = "Unterm"
-welcome = "欢迎使用 Unterm — AI 原生超级工作台"
-status_connected = "已连接 unterm-core"
-status_disconnected = "未连接"

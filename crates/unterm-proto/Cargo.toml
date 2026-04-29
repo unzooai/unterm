@@ -1,9 +1,0 @@
-[package]
-name = "unterm-proto"
-version.workspace = true
-edition.workspace = true
-description = "Unterm 共享协议定义：MCP tool 类型、IPC 消息格式"
-
-[dependencies]
-serde.workspace = true
-serde_json.workspace = true
