@@ -3,7 +3,7 @@
   <Package
     Name="Unterm"
     Manufacturer="Unzoo AI"
-    Version="0.2.0"
+    Version="0.2.1"
     UpgradeCode="2B17738E-D6E7-44BB-9B55-1D6AF31404A2"
     Scope="perMachine">
 

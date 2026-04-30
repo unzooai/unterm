@@ -1,40 +1,87 @@
-# Wez's Terminal
+# Unterm
 
-<img height="128" alt="WezTerm Icon" src="https://raw.githubusercontent.com/wezterm/wezterm/main/assets/icon/wezterm-icon.svg" align="left"> *A GPU-accelerated cross-platform terminal emulator and multiplexer written by <a href="https://github.com/wez">@wez</a> and implemented in <a href="https://www.rust-lang.org/">Rust</a>*
+Unterm is a Windows-first terminal built from a customized WezTerm engine. It focuses on a practical developer workflow: fast terminal sessions, project-aware tabs, built-in screenshots, proxy switching, theme switching, CLI access, and an MCP server surface for automation.
 
-User facing docs and guide at: https://wezterm.org/
+## Current Release
 
-![Screenshot](docs/screenshots/two.png)
+Download the latest Windows installer from GitHub Releases:
 
-*Screenshot of wezterm on macOS, running vim*
+https://github.com/unzooai/unterm/releases
 
-## Installation
+Recommended package:
 
-https://wezterm.org/installation
+```text
+Unterm-0.2.1-x64.msi
+```
 
-## Getting help
+The MSI installs Unterm into `Program Files\Unterm` and creates a Start Menu shortcut.
 
-This is a spare time project, so please bear with me.  There are a couple of channels for support:
+## Features
 
-* You can use the [GitHub issue tracker](https://github.com/wezterm/wezterm/issues) to see if someone else has a similar issue, or to file a new one.
-* Start or join a thread in our [GitHub Discussions](https://github.com/wezterm/wezterm/discussions); if you have general
-  questions or want to chat with other wezterm users, you're welcome here!
-* There is a [Matrix room via Element.io](https://app.element.io/#/room/#wezterm:matrix.org)
-  for (potentially!) real time discussions.
+- Native terminal window based on the WezTerm rendering and PTY stack.
+- Compact bottom status bar for project directory, proxy state, theme, and screenshots.
+- Screenshot modes:
+  - exclude the current Unterm window
+  - include the current Unterm window
+- Project directory workflow:
+  - status bar shows the active project directory
+  - directory picker opens a new tab in the selected project
+- Proxy controls:
+  - status bar toggle
+  - proxy settings overlay
+  - persisted proxy configuration for new shells
+- Theme controls:
+  - quick theme cycling
+  - theme selector overlay
+  - immediate palette apply without full app reload
+- CLI support through `unterm.exe`.
+- MCP server support for automation tools.
 
-The GitHub Discussions and Element/Gitter rooms are better suited for questions
-than bug reports, but don't be afraid to use whichever you are most comfortable
-using and we'll work it out.
+## Basic Usage
 
-## Supporting the Project
+Start Unterm from the Start Menu after installing the MSI, or run it directly:
 
-If you use and like WezTerm, please consider sponsoring it: your support helps
-to cover the fees required to maintain the project and to validate the time
-spent working on it!
+```powershell
+unterm.exe start
+```
 
-[Read more about sponsoring](https://wezterm.org/sponsor.html).
+Check the CLI:
 
-* [![Sponsor WezTerm](https://img.shields.io/github/sponsors/wez?label=Sponsor%20WezTerm&logo=github&style=for-the-badge)](https://github.com/sponsors/wez)
-* [Patreon](https://patreon.com/WezFurlong)
-* [Ko-Fi](https://ko-fi.com/wezfurlong)
-* [Liberapay](https://liberapay.com/wez)
+```powershell
+unterm.exe --help
+```
+
+## Configuration
+
+Unterm reads user configuration from:
+
+```text
+%USERPROFILE%\.unterm\
+```
+
+Current persisted product settings include:
+
+- `proxy.json`
+- `theme.json`
+
+## Development
+
+Build the main Windows executable:
+
+```powershell
+cargo build -p unterm
+```
+
+Build the MSI after creating or refreshing the release runtime directory:
+
+```powershell
+D:\code\unterm\.tools\wix.exe build D:\code\unterm\installer\Unterm.wxs -d SourceDir=D:\code\unterm-release-stage\unterm -arch x64 -o D:\code\unterm-release-stage\Unterm-0.2.1-x64.msi
+```
+
+## Repository
+
+This repository is the main Unterm project:
+
+https://github.com/unzooai/unterm
+
+Unterm includes modified WezTerm components. Upstream WezTerm remains a separate project by Wez Furlong and contributors.
