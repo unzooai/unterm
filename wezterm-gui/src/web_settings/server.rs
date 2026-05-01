@@ -312,6 +312,8 @@ fn route(req: &Request, auth_token: &str, handler: &McpHandler) -> Response {
         ("GET", "/api/state") => api_state(handler),
         ("POST", "/api/proxy") => api_proxy(handler, &req.body),
         ("POST", "/api/theme") => api_theme(&req.body),
+        ("GET", "/api/scrollback") => api_scrollback_get(),
+        ("POST", "/api/scrollback") => api_scrollback_set(&req.body),
         ("POST", "/api/recording/start") => api_recording(handler, &req.body, true),
         ("POST", "/api/recording/stop") => api_recording(handler, &req.body, false),
         ("GET", "/api/sessions") => api_sessions(handler, &req.query),
@@ -449,6 +451,74 @@ fn api_state(handler: &McpHandler) -> Response {
         "project": project,
         "recording": recording,
         "sessions_path": sessions_path,
+        "scrollback": {
+            "lines": current_scrollback_lines(),
+            "default": 10_000,
+            "max": 999_999_999u64,
+        },
+    }))
+}
+
+// --- Scrollback override ---------------------------------------------------
+//
+// Stored at `~/.unterm/scrollback.json` so config::default_scrollback_lines()
+// can read it without going through the lua config layer. Changes only
+// affect newly-created panes (the existing VecDeque<Line> per pane has its
+// capacity locked at construction), so the UI surfaces a "restart to apply"
+// hint after Save.
+
+fn scrollback_path() -> std::path::PathBuf {
+    dirs_next::home_dir()
+        .unwrap_or_default()
+        .join(".unterm")
+        .join("scrollback.json")
+}
+
+fn current_scrollback_lines() -> u64 {
+    if let Ok(content) = std::fs::read_to_string(scrollback_path()) {
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
+            if let Some(n) = value.get("lines").and_then(|v| v.as_u64()) {
+                if n > 0 {
+                    return n;
+                }
+            }
+        }
+    }
+    10_000
+}
+
+fn api_scrollback_get() -> Response {
+    Response::ok_json(json!({
+        "lines": current_scrollback_lines(),
+        "default": 10_000,
+        "max": 999_999_999u64,
+        "min": 100u64,
+    }))
+}
+
+fn api_scrollback_set(body: &[u8]) -> Response {
+    let body = parse_json_body(body);
+    let lines = match body.get("lines").and_then(|v| v.as_u64()) {
+        Some(n) if n >= 100 && n <= 999_999_999 => n,
+        Some(_) => return Response::err(400, "Bad Request", "lines must be in [100, 999999999]"),
+        None => return Response::err(400, "Bad Request", "missing lines (u64)"),
+    };
+    let path = scrollback_path();
+    if let Some(parent) = path.parent() {
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            return Response::err(500, "Internal Error", &e.to_string());
+        }
+    }
+    let payload = serde_json::to_string_pretty(&json!({"lines": lines})).unwrap();
+    if let Err(e) = std::fs::write(&path, payload) {
+        return Response::err(500, "Internal Error", &e.to_string());
+    }
+    Response::ok_json(json!({
+        "applied": true,
+        "lines": lines,
+        // Existing panes keep their old buffer; new panes pick up the new
+        // value. Tell the client so it can prompt the user.
+        "requires_restart_for_existing_panes": true,
     }))
 }
 

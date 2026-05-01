@@ -48,12 +48,27 @@ function untermSettings() {
         { id: 'general', label: this.t('web.nav.general') },
         { id: 'appearance', label: this.t('web.nav.appearance') },
         { id: 'proxy', label: this.t('web.nav.proxy') },
+        { id: 'scrollback', label: this.t('web.nav.scrollback') },
         { id: 'recording', label: this.t('web.nav.recording'), badge: !this._recordingSeen },
         { id: 'project', label: this.t('web.nav.project') },
         { id: 'about', label: this.t('web.nav.about') },
       ];
     },
     _recordingSeen: false,
+
+    // Scrollback config — number of lines kept in each pane's history
+    // buffer. Existing panes keep their old buffer until they're closed,
+    // because the per-pane VecDeque capacity is fixed at construction; we
+    // surface that with `appliedAt` so the UI can show "restart to apply
+    // to existing panes" right after Save.
+    scrollback: {
+      lines: 10000,
+      default: 10000,
+      min: 100,
+      max: 999_999_999,
+      saving: false,
+      appliedAt: null,
+    },
 
     themes: [
       {
@@ -171,10 +186,41 @@ function untermSettings() {
           };
         }
         if (s.recording) this.recording = s.recording;
+        if (s.scrollback) {
+          // Don't clobber `saving` / `appliedAt` UI flags — only sync the
+          // numeric fields the server is the source of truth for.
+          this.scrollback.lines = s.scrollback.lines ?? this.scrollback.lines;
+          this.scrollback.default = s.scrollback.default ?? this.scrollback.default;
+          this.scrollback.max = s.scrollback.max ?? this.scrollback.max;
+        }
       } catch (e) {
         this.toast(this.t('web.toast.refresh').replace('{err}', e.message), 'error');
       }
       await this.loadSessions();
+    },
+
+    async saveScrollback() {
+      // Clamp client-side so we don't fire off requests that we know the
+      // server will reject — keeps the round-trip cheap and the toast
+      // friendlier than raw 400s.
+      const n = Math.max(this.scrollback.min,
+                Math.min(this.scrollback.max, Number(this.scrollback.lines) | 0));
+      this.scrollback.lines = n;
+      this.scrollback.saving = true;
+      try {
+        const j = await this.api('POST', '/api/scrollback', { lines: n });
+        this.scrollback.appliedAt = new Date().toISOString();
+        this.toast(this.t('web.toast.scrollback_saved').replace('{n}', String(j.lines)));
+      } catch (e) {
+        this.toast(this.t('web.toast.scrollback_failed').replace('{err}', e.message), 'error');
+      } finally {
+        this.scrollback.saving = false;
+      }
+    },
+
+    resetScrollback() {
+      this.scrollback.lines = this.scrollback.default;
+      this.saveScrollback();
     },
 
     async pollHealth() {

@@ -1734,7 +1734,29 @@ fn default_swap_backspace_and_delete() -> bool {
 }
 
 fn default_scrollback_lines() -> usize {
-    3500
+    // Honor a per-user override at ~/.unterm/scrollback.json before falling
+    // back to the built-in default. The Web Settings UI writes that file so
+    // users can change the buffer size without editing lua. We read the
+    // value lazily and clamp it to MAX_SCROLLBACK_LINES; anything weird in
+    // the file (missing key, NaN, negative, > max) just falls through.
+    if let Some(home) = dirs_next::home_dir() {
+        let path = home.join(".unterm").join("scrollback.json");
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
+                if let Some(n) = value.get("lines").and_then(|v| v.as_u64()) {
+                    let n = n as usize;
+                    if n > 0 && n <= MAX_SCROLLBACK_LINES {
+                        return n;
+                    }
+                }
+            }
+        }
+    }
+    // 10000 is the new default — bigger than wezterm upstream's 3500 because
+    // most users hit the limit on log-heavy commands like `find /` or
+    // `cargo build` and ask for more anyway. ~80 cols × 10k rows × 96 B/cell
+    // = ~75 MiB worst case per pane, which is fine on a modern machine.
+    10_000
 }
 
 const MAX_SCROLLBACK_LINES: usize = 999_999_999;
