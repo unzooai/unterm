@@ -64,18 +64,18 @@ done
 echo ">> Signing + notarizing as $TAG"
 TAG_NAME="$TAG" NOTARY_PROFILE="$NOTARY_PROFILE" bash ci/sign-macos.sh
 
-zip="Unterm-macos-$TAG.zip"
-if [ ! -f "$zip" ]; then
-  echo "ERROR: expected $zip not produced by ci/sign-macos.sh" >&2
+dmg="Unterm-macos-$TAG.dmg"
+if [ ! -f "$dmg" ]; then
+  echo "ERROR: expected $dmg not produced by ci/sign-macos.sh" >&2
   exit 1
 fi
 
-echo ">> Uploading $zip to release $TAG"
+echo ">> Uploading $dmg to release $TAG"
 # `--clobber` so re-runs just overwrite the asset; `gh release create` first if
 # the release doesn't exist yet (the Linux/Windows workflows usually create it).
 if ! gh release view "$TAG" >/dev/null 2>&1; then
   gh release create "$TAG" --title "Unterm $TAG" --notes "Unterm $TAG"
 fi
-gh release upload "$TAG" "$zip" --clobber
+gh release upload "$TAG" "$dmg" --clobber
 
-echo ">> Done. Asset $zip attached to release $TAG."
+echo ">> Done. Asset $dmg attached to release $TAG."

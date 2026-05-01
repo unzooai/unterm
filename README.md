@@ -26,16 +26,15 @@ https://github.com/unzooai/unterm/releases
 
 | Platform | Artifact                                                    |
 | -------- | ----------------------------------------------------------- |
-| macOS    | `Unterm-macos-<version>.zip` (universal arm64+x86_64)       |
+| macOS    | `Unterm-macos-<version>.dmg` (universal arm64+x86_64, signed + notarized) |
 | Linux    | `unterm-<version>.deb` or `Unterm-<version>-x86_64.AppImage` |
 | Windows  | `Unterm-<version>-x64.msi` or `Unterm-windows-<version>.zip` |
 
 ### macOS
 
-```bash
-unzip Unterm-macos-<version>.zip
-mv Unterm-macos-<version>/Unterm.app /Applications/
-```
+Double-click `Unterm-macos-<version>.dmg`, then drag `Unterm.app` onto the
+`Applications` shortcut. The DMG is signed with a Developer ID and Apple-
+notarized, so Gatekeeper opens it on first launch without warnings.
 
 ### Linux (Debian / Ubuntu)
 
