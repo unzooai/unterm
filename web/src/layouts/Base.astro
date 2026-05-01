@@ -1,0 +1,125 @@
+---
+// Base layout: <html>, <head>, sticky nav, footer, slot for the page body.
+//
+// Each translated page passes:
+//   - lang        the BCP-47 locale code, e.g. "zh-CN"
+//   - dict        the loaded translation object (already filtered to that lang)
+//   - alternates  array of {code, href} for hreflang link tags
+//
+// The nav language picker is server-rendered as a real <form> + <select>: a
+// change submits to the corresponding /<code>/ URL via <option data-href>,
+// no JS framework needed. (Tiny inline script handles the select->navigate.)
+
+interface Locale {
+  code: string;
+  name: string;
+  href: string;
+}
+
+interface Props {
+  lang: string;
+  dict: Record<string, string>;
+  alternates: { code: string; href: string }[];
+  locales: Locale[];
+  pathPrefix: string; // "" for en, "/zh-CN" for others
+}
+
+const { lang, dict, alternates, locales, pathPrefix } = Astro.props as Props;
+const t = (k: string) => dict[k] ?? k;
+const canonical = `https://unterm.app${pathPrefix || "/"}`;
+---
+
+<!doctype html>
+<html lang={lang} class="bg-zinc-950 scroll-smooth">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{t("meta.title")}</title>
+    <meta name="description" content={t("meta.desc")} />
+    <link rel="canonical" href={canonical} />
+    {alternates.map((a) => (
+      <link rel="alternate" hreflang={a.code} href={a.href} />
+    ))}
+    <link rel="alternate" hreflang="x-default" href="https://unterm.app/" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={t("meta.title")} />
+    <meta property="og:description" content={t("meta.desc")} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content="https://unterm.app/assets/icon-512.png" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content={t("meta.title")} />
+    <meta name="twitter:description" content={t("meta.desc")} />
+    <meta name="twitter:image" content="https://unterm.app/assets/icon-512.png" />
+
+    <link rel="icon" type="image/png" sizes="32x32" href="/assets/icon-32.png" />
+    <link rel="icon" type="image/png" sizes="256x256" href="/assets/icon-256.png" />
+    <link rel="icon" type="image/svg+xml" href="/assets/icon.svg" />
+  </head>
+  <body class="bg-zinc-950 text-zinc-100 antialiased font-sans">
+
+    <!-- ============== NAV ============== -->
+    <header class="sticky top-0 z-30 backdrop-blur bg-zinc-950/80 border-b border-zinc-900">
+      <div class="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
+        <a href={pathPrefix + "/"} class="flex items-center gap-2 group">
+          <img src="/assets/icon.svg" alt="" width="28" height="28" />
+          <span class="font-semibold tracking-tight text-zinc-100 group-hover:text-white">Unterm</span>
+          <span class="text-xs font-mono text-zinc-500 hidden sm:inline">v0.5.0</span>
+        </a>
+        <nav class="hidden md:flex items-center gap-6 text-sm text-zinc-400">
+          <a href={pathPrefix + "/#features"} class="hover:text-zinc-100">{t("nav.features")}</a>
+          <a href={pathPrefix + "/#install"}  class="hover:text-zinc-100">{t("nav.install")}</a>
+          <a href={pathPrefix + "/#download"} class="hover:text-zinc-100">{t("nav.download")}</a>
+          <a href={pathPrefix + "/#faq"}      class="hover:text-zinc-100">{t("nav.faq")}</a>
+        </nav>
+        <div class="flex items-center gap-3">
+          <select id="lang-picker"
+                  class="text-xs bg-zinc-900 border border-zinc-800 rounded px-2 py-1 text-zinc-300 focus:outline-none focus:border-zinc-700">
+            {locales.map((l) => (
+              <option value={l.href} selected={l.code === lang}>{l.name}</option>
+            ))}
+          </select>
+          <a href="https://github.com/unzooai/unterm" target="_blank" rel="noopener"
+             class="text-zinc-400 hover:text-zinc-100" aria-label="GitHub">
+            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M12 .5C5.7.5.5 5.7.5 12c0 5.1 3.3 9.4 7.8 10.9.6.1.8-.2.8-.6V20c-3.2.7-3.9-1.4-3.9-1.4-.5-1.3-1.3-1.7-1.3-1.7-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.7 1.3 3.4 1 .1-.7.4-1.3.7-1.6-2.6-.3-5.3-1.3-5.3-5.7 0-1.3.4-2.4 1.2-3.2-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.3 1.2.9-.3 2-.4 3-.4s2.1.1 3 .4c2.3-1.5 3.3-1.2 3.3-1.2.6 1.6.2 2.8.1 3.1.7.8 1.2 1.9 1.2 3.2 0 4.4-2.7 5.4-5.3 5.7.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6 4.5-1.5 7.8-5.8 7.8-10.9C23.5 5.7 18.3.5 12 .5z"/>
+            </svg>
+          </a>
+        </div>
+      </div>
+    </header>
+
+    <main id="top">
+      <slot />
+    </main>
+
+    <!-- ============== FOOTER ============== -->
+    <footer class="border-t border-zinc-900 py-10 mt-10">
+      <div class="max-w-6xl mx-auto px-6 flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+        <div class="flex items-center gap-2 text-zinc-500 text-sm">
+          <img src="/assets/icon.svg" alt="" width="20" height="20" />
+          <span class="font-semibold text-zinc-300">Unterm</span>
+          <span>{t("footer.tag")}</span>
+        </div>
+        <div class="flex flex-wrap items-center gap-5 text-sm text-zinc-500">
+          <a href="https://github.com/unzooai/unterm" target="_blank" rel="noopener" class="hover:text-zinc-200">GitHub</a>
+          <a href="https://github.com/unzooai/unterm/releases" target="_blank" rel="noopener" class="hover:text-zinc-200">{t("footer.releases")}</a>
+          <a href="https://github.com/unzooai/unterm/blob/master/README.md" target="_blank" rel="noopener" class="hover:text-zinc-200">{t("footer.docs")}</a>
+          <a href="https://github.com/unzooai/unterm/blob/master/LICENSE.md" target="_blank" rel="noopener" class="hover:text-zinc-200">{t("footer.license")}</a>
+          <span>{t("footer.copy")}</span>
+        </div>
+      </div>
+    </footer>
+
+    <script is:inline>
+      // Tiny non-framework lang picker — no Alpine needed.
+      const sel = document.getElementById("lang-picker");
+      if (sel) {
+        sel.addEventListener("change", (e) => {
+          const href = e.target.value;
+          if (href) window.location.assign(href);
+        });
+      }
+    </script>
+  </body>
+</html>

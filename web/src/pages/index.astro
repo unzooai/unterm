@@ -1,0 +1,16 @@
+---
+import Base from "../layouts/Base.astro";
+import Page from "../components/Page.astro";
+import dict from "../i18n/en-US.json";
+import { LOCALES, alternates } from "../i18n/locales";
+---
+
+<Base
+  lang="en-US"
+  dict={dict}
+  alternates={alternates()}
+  locales={LOCALES}
+  pathPrefix=""
+>
+  <Page dict={dict} pathPrefix="" />
+</Base>
