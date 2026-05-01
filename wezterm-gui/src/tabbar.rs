@@ -162,6 +162,17 @@ fn compute_tab_title(
                     items.push(FormatItem::Text(icon_text));
                 }
 
+                // Unterm: red dot when this pane has an active recording.
+                if crate::recording::recorder::current_session(pane.pane_id).is_some() {
+                    let dot = "● ";
+                    len += unicode_column_width(dot, None);
+                    items.push(FormatItem::Foreground(FormatColor::AnsiColor(
+                        AnsiColor::Red,
+                    )));
+                    items.push(FormatItem::Text(dot.to_string()));
+                    items.push(FormatItem::Foreground(FormatColor::Default));
+                }
+
                 let classic_spacing = if config.use_fancy_tab_bar { "" } else { " " };
                 if config.show_tab_index_in_tab_bar {
                     let index = format!(

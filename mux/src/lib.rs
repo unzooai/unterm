@@ -27,7 +27,7 @@ use std::sync::{Arc, Weak};
 use std::thread;
 use std::time::{Duration, Instant};
 use termwiz::escape::csi::{DecPrivateMode, DecPrivateModeCode, Device, Mode};
-use termwiz::escape::{Action, CSI};
+use termwiz::escape::{Action, OperatingSystemCommand, CSI};
 use thiserror::*;
 use wezterm_term::{Clipboard, ClipboardSelection, DownloadHandler, TerminalSize};
 #[cfg(windows)]
@@ -157,6 +157,16 @@ fn parse_buffered_data(pane: Weak<dyn Pane>, dead: &Arc<AtomicBool>, mut rx: Fil
                 break;
             }
             Ok(size) => {
+                // Tap point for session recording: forward the raw bytes
+                // (faithful, byte-for-byte) to the registered RecordSink
+                // before they are consumed by the terminal model. This lets
+                // the recorder treat the .log as the source of truth and
+                // apply transforms (redaction, markdown render) at export
+                // time rather than mutating the captured stream.
+                let record_sink = pane.upgrade().and_then(|p| p.record_sink());
+                if let Some(sink) = &record_sink {
+                    sink.write_bytes(&buf[0..size]);
+                }
                 parser.parse(&buf[0..size], |action| {
                     let mut flush = false;
                     match &action {
@@ -180,6 +190,16 @@ fn parse_buffered_data(pane: Weak<dyn Pane>, dead: &Arc<AtomicBool>, mut rx: Fil
                         Action::CSI(CSI::Device(dev)) if matches!(**dev, Device::SoftReset) => {
                             hold = false;
                             flush = true;
+                        }
+                        Action::OperatingSystemCommand(osc) => {
+                            if let Some(sink) = &record_sink {
+                                if matches!(
+                                    **osc,
+                                    OperatingSystemCommand::FinalTermSemanticPrompt(_)
+                                ) {
+                                    sink.on_osc133(osc.as_ref());
+                                }
+                            }
                         }
                         _ => {}
                     };

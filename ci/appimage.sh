@@ -1,48 +1,31 @@
 #!/bin/bash
+# Build a Linux AppImage for Unterm.
+# Run after: cargo build --release -p unterm -p unterm-cli -p unterm-mux -p strip-ansi-escapes
+set -euo pipefail
 set -x
-rm -rf AppDir *.AppImage *.zsync
-set -e
 
+rm -rf AppDir *.AppImage *.zsync
 mkdir AppDir
 
-install -Dsm755 -t AppDir/usr/bin target/release/wezterm-mux-server
-install -Dsm755 -t AppDir/usr/bin target/release/wezterm
-install -Dsm755 -t AppDir/usr/bin target/release/wezterm-gui
+install -Dsm755 -t AppDir/usr/bin target/release/unterm
+install -Dsm755 -t AppDir/usr/bin target/release/unterm-cli
+install -Dsm755 -t AppDir/usr/bin target/release/unterm-mux
 install -Dsm755 -t AppDir/usr/bin target/release/strip-ansi-escapes
-install -Dm644 assets/icon/terminal.png AppDir/usr/share/icons/hicolor/128x128/apps/org.wezfurlong.wezterm.png
-install -Dm644 assets/wezterm.desktop AppDir/usr/share/applications/org.wezfurlong.wezterm.desktop
-install -Dm644 assets/wezterm.appdata.xml AppDir/usr/share/metainfo/org.wezfurlong.wezterm.appdata.xml
-install -Dm644 assets/wezterm-nautilus.py AppDir/usr/share/nautilus-python/extensions/wezterm-nautilus.py
+install -Dm644 assets/icon/terminal.png AppDir/usr/share/icons/hicolor/128x128/apps/ai.unzoo.unterm.png
+install -Dm644 assets/icon/unterm-icon.svg AppDir/usr/share/icons/hicolor/scalable/apps/ai.unzoo.unterm.svg
+install -Dm644 assets/unterm.desktop AppDir/usr/share/applications/ai.unzoo.unterm.desktop
+install -Dm644 assets/unterm.appdata.xml AppDir/usr/share/metainfo/ai.unzoo.unterm.appdata.xml
 
 [ -x /tmp/linuxdeploy ] || ( curl -L 'https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage' -o /tmp/linuxdeploy && chmod +x /tmp/linuxdeploy )
 
 TAG_NAME=${TAG_NAME:-$(git -c "core.abbrev=8" show -s "--format=%cd-%h" "--date=format:%Y%m%d-%H%M%S")}
-distro=$(lsb_release -is 2>/dev/null || sh -c "source /etc/os-release && echo \$NAME")
-distver=$(lsb_release -rs 2>/dev/null || sh -c "source /etc/os-release && echo \$VERSION_ID")
+OUTPUT=Unterm-$TAG_NAME-x86_64.AppImage
 
-# Embed appropriate update info
-# https://github.com/AppImage/AppImageSpec/blob/master/draft.md#github-releases
-if [[ "$BUILD_REASON" == "Schedule" ]] ; then
-  UPDATE="gh-releases-zsync|wez|wezterm|nightly|WezTerm-*.AppImage.zsync"
-  OUTPUT=WezTerm-nightly-$distro$distver.AppImage
-else
-  UPDATE="gh-releases-zsync|wez|wezterm|latest|WezTerm-*.AppImage.zsync"
-  OUTPUT=WezTerm-$TAG_NAME-$distro$distver.AppImage
-fi
-
-# Munge the path so that it finds our appstreamcli wrapper
-PATH="$PWD/ci:$PATH" \
 VERSION="$TAG_NAME" \
-UPDATE_INFORMATION="$UPDATE" \
+UPDATE_INFORMATION="gh-releases-zsync|unzooai|unterm|latest|Unterm-*.AppImage.zsync" \
 OUTPUT="$OUTPUT" \
   /tmp/linuxdeploy \
   --exclude-library='libwayland-client.so.0' \
   --appdir AppDir \
   --output appimage \
-  --desktop-file assets/wezterm.desktop
-
-# Update the AUR build file.  We only really want to use this for tagged
-# builds but it doesn't hurt to generate it always here.
-SHA256=$(sha256sum $OUTPUT | cut -d' ' -f1)
-sed -e "s/@TAG@/$TAG_NAME/g" -e "s/@SHA256@/$SHA256/g" < ci/PKGBUILD.template > PKGBUILD
-sed -e "s/@TAG@/$TAG_NAME/g" -e "s/@SHA256@/$SHA256/g" < ci/wezterm-linuxbrew.rb.template > wezterm-linuxbrew.rb
+  --desktop-file assets/unterm.desktop

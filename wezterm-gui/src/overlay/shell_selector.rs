@@ -101,7 +101,7 @@ impl SelectorState {
         changes.push(fg_bg(top, SURFACE1, MANTLE));
 
         // ── Row 1: Title ──
-        let title = "  New Tab";
+        let title = crate::i18n::t("shell.title");
         let accent = "◆";
         let right_pad = card_w.saturating_sub(title.chars().count() + 5);
         changes.push(Change::CursorPosition {
@@ -110,7 +110,7 @@ impl SelectorState {
         });
         changes.push(fg_bg("│ ".to_string(), SURFACE1, MANTLE));
         changes.push(fg_bg(accent.to_string(), MAUVE, MANTLE));
-        changes.push(fg_bg(title.to_string(), TEXT, MANTLE));
+        changes.push(fg_bg(title.clone(), TEXT, MANTLE));
         changes.push(fg_bg(
             format!("{} │", " ".repeat(right_pad)),
             SURFACE1,
@@ -118,14 +118,14 @@ impl SelectorState {
         ));
 
         // ── Row 2: Subtitle ──
-        let subtitle = "  Choose a shell profile";
+        let subtitle = crate::i18n::t("shell.subtitle");
         let right_pad = card_w.saturating_sub(subtitle.chars().count() + 4);
         changes.push(Change::CursorPosition {
             x: Position::Absolute(start_x),
             y: Position::Absolute(start_y + 2),
         });
         changes.push(fg_bg("│ ".to_string(), SURFACE1, MANTLE));
-        changes.push(fg_bg(subtitle.to_string(), SUBTEXT0, MANTLE));
+        changes.push(fg_bg(subtitle.clone(), SUBTEXT0, MANTLE));
         changes.push(fg_bg(
             format!("{} │", " ".repeat(right_pad)),
             SURFACE1,
@@ -192,14 +192,14 @@ impl SelectorState {
         changes.push(fg_bg(sep, SURFACE1, MANTLE));
 
         // ── Footer: key hints ──
-        let hints = " ↑↓ Navigate   Enter Open   Esc Cancel   1-9 Quick";
+        let hints = crate::i18n::t("shell.footer.hint");
         let hint_pad = card_w.saturating_sub(hints.chars().count() + 4);
         changes.push(Change::CursorPosition {
             x: Position::Absolute(start_x),
             y: Position::Absolute(footer_y + 1),
         });
         changes.push(fg_bg("│ ".to_string(), SURFACE1, MANTLE));
-        changes.push(fg_bg(hints.to_string(), OVERLAY0, MANTLE));
+        changes.push(fg_bg(hints.clone(), OVERLAY0, MANTLE));
         changes.push(fg_bg(
             format!("{} │", " ".repeat(hint_pad)),
             SURFACE1,

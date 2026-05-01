@@ -2,7 +2,7 @@ use crate::quad::TripleLayerQuadAllocator;
 use crate::termwindow::render::RenderScreenLineParams;
 use crate::termwindow::{UIItem, UIItemType};
 use mux::renderable::RenderableDimensions;
-use termwiz::cell::CellAttributes;
+use termwiz::cell::{unicode_column_width, CellAttributes};
 use termwiz::color::SrgbaTuple;
 use termwiz::surface::line::Line;
 use wezterm_term::color::ColorAttribute;
@@ -197,35 +197,38 @@ impl crate::TermWindow {
         let rows = self.terminal_size.rows;
 
         let proxy = if unterm_proxy_enabled() {
-            "Proxy:on"
+            crate::i18n::t("status_bar.proxy_on")
         } else {
-            "Proxy:off"
+            crate::i18n::t("status_bar.proxy_off")
         };
         let theme = crate::overlay::theme_selector::read_theme_id();
 
-        let project_part = format!("Project:{}", self.active_project_label());
+        let project_part = crate::i18n::t_args(
+            "status_bar.project",
+            &[("name", &self.active_project_label())],
+        );
+
+        // Use *cell width* (not char count) for offsets so the click hit-test
+        // lines up with the rendered glyph. Wide CJK chars take 2 cells.
+        let cw = |s: &str| unicode_column_width(s, None);
 
         let mut text = format!(" {} | {}x{} | ", shell_name, cols, rows);
-        let project_offset = text.chars().count();
+        let project_offset = cw(&text);
         text.push_str(&project_part);
         text.push_str(" | ");
-        let capture_offset = text.chars().count();
-        let capture_part = "Screenshot L:exclude R:include";
-        text.push_str(capture_part);
+        let exclude_offset = cw(&text);
+        let exclude_part = crate::i18n::t("status_bar.screenshot_exclude");
+        text.push_str(&exclude_part);
         text.push_str(" | ");
-        let admin_offset = text.chars().count();
-        let admin_part = "Admin";
-        text.push_str(admin_part);
+        let include_offset = cw(&text);
+        let include_part = crate::i18n::t("status_bar.screenshot_include");
+        text.push_str(&include_part);
         text.push_str(" | ");
-        let command_offset = text.chars().count();
-        let command_part = "Command";
-        text.push_str(command_part);
+        let proxy_offset = cw(&text);
+        text.push_str(&proxy);
         text.push_str(" | ");
-        let proxy_offset = text.chars().count();
-        text.push_str(proxy);
-        text.push_str(" | ");
-        let theme_offset = text.chars().count();
-        let theme_part = format!("Theme:{}", theme);
+        let theme_offset = cw(&text);
+        let theme_part = crate::i18n::t_args("status_bar.theme", &[("name", &theme)]);
         text.push_str(&theme_part);
         text.push(' ');
 
@@ -234,32 +237,27 @@ impl crate::TermWindow {
             vec![
                 StatusRegion {
                     offset: project_offset,
-                    len: project_part.chars().count(),
+                    len: cw(&project_part),
                     item_type: UIItemType::StatusBarProject,
                 },
                 StatusRegion {
-                    offset: capture_offset,
-                    len: capture_part.chars().count(),
-                    item_type: UIItemType::StatusBarCapture,
+                    offset: exclude_offset,
+                    len: cw(&exclude_part),
+                    item_type: UIItemType::StatusBarCaptureExclude,
                 },
                 StatusRegion {
-                    offset: admin_offset,
-                    len: admin_part.chars().count(),
-                    item_type: UIItemType::StatusBarAdmin,
-                },
-                StatusRegion {
-                    offset: command_offset,
-                    len: command_part.chars().count(),
-                    item_type: UIItemType::StatusBarCommand,
+                    offset: include_offset,
+                    len: cw(&include_part),
+                    item_type: UIItemType::StatusBarCaptureInclude,
                 },
                 StatusRegion {
                     offset: proxy_offset,
-                    len: proxy.chars().count(),
+                    len: cw(&proxy),
                     item_type: UIItemType::StatusBarProxy,
                 },
                 StatusRegion {
                     offset: theme_offset,
-                    len: theme_part.chars().count(),
+                    len: cw(&theme_part),
                     item_type: UIItemType::StatusBarTheme,
                 },
             ],

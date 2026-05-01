@@ -4,7 +4,7 @@
 //! management via the MCP protocol. AI agents and unterm-cli can connect
 //! to read screen content, send input, and manage sessions.
 
-mod handler;
+pub mod handler;
 mod server;
 
 pub use server::start_mcp_server;

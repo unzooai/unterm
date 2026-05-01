@@ -6269,7 +6269,7 @@ checksum = "673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861"
 
 [[package]]
 name = "unterm"
-version = "0.1.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -6282,6 +6282,8 @@ dependencies = [
  "codec",
  "colorgrad",
  "config",
+ "core-foundation 0.10.0",
+ "core-graphics 0.24.0",
  "dhat",
  "dirs-next",
  "downcast-rs",
@@ -6355,6 +6357,74 @@ dependencies = [
  "window",
  "window-funcs",
  "windows 0.33.0",
+]
+
+[[package]]
+name = "unterm-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cc",
+ "chrono",
+ "clap",
+ "clap_complete",
+ "clap_complete_fig",
+ "codec",
+ "config",
+ "dirs-next",
+ "embed-resource",
+ "env-bootstrap",
+ "filedescriptor",
+ "hostname",
+ "humantime",
+ "image",
+ "libc",
+ "log",
+ "mux",
+ "portable-pty",
+ "promise",
+ "serde",
+ "serde_json",
+ "shell-words",
+ "smol",
+ "tabout",
+ "tempfile",
+ "termios",
+ "termwiz",
+ "termwiz-funcs",
+ "textwrap",
+ "umask",
+ "url",
+ "wezterm-client",
+ "wezterm-gui-subcommands",
+ "wezterm-term",
+ "winapi",
+]
+
+[[package]]
+name = "unterm-mux"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async_ossl",
+ "cc",
+ "clap",
+ "config",
+ "embed-resource",
+ "env-bootstrap",
+ "libc",
+ "log",
+ "mlua",
+ "mux",
+ "openssl",
+ "portable-pty",
+ "promise",
+ "umask",
+ "wezterm-blob-leases",
+ "wezterm-gui-subcommands",
+ "wezterm-mux-server-impl",
+ "wezterm-term",
+ "winapi",
 ]
 
 [[package]]
@@ -6725,47 +6795,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "009936b22a61d342859b5f0ea64681cbb35a358ab548e2a44a8cf0dac2d980b8"
 
 [[package]]
-name = "wezterm"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "cc",
- "chrono",
- "clap",
- "clap_complete",
- "clap_complete_fig",
- "codec",
- "config",
- "embed-resource",
- "env-bootstrap",
- "filedescriptor",
- "hostname",
- "humantime",
- "image",
- "libc",
- "log",
- "mux",
- "portable-pty",
- "promise",
- "serde",
- "serde_json",
- "shell-words",
- "smol",
- "tabout",
- "tempfile",
- "termios",
- "termwiz",
- "termwiz-funcs",
- "textwrap",
- "umask",
- "url",
- "wezterm-client",
- "wezterm-gui-subcommands",
- "wezterm-term",
- "winapi",
-]
-
-[[package]]
 name = "wezterm-bidi"
 version = "0.2.3"
 dependencies = [
@@ -6978,32 +7007,6 @@ dependencies = [
  "euclid",
  "serde",
  "wezterm-dynamic",
-]
-
-[[package]]
-name = "wezterm-mux-server"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async_ossl",
- "cc",
- "clap",
- "config",
- "embed-resource",
- "env-bootstrap",
- "libc",
- "log",
- "mlua",
- "mux",
- "openssl",
- "portable-pty",
- "promise",
- "umask",
- "wezterm-blob-leases",
- "wezterm-gui-subcommands",
- "wezterm-mux-server-impl",
- "wezterm-term",
- "winapi",
 ]
 
 [[package]]

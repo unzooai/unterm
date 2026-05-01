@@ -431,7 +431,10 @@ impl FontAttributes {
 impl Default for FontAttributes {
     fn default() -> Self {
         Self {
-            family: "Cascadia Code".into(),
+            // JetBrains Mono is vendored into the unterm binary (see
+            // wezterm-gui Cargo features: vendor-jetbrains-font), so this
+            // font is always available regardless of system installation.
+            family: "JetBrains Mono".into(),
             weight: FontWeight::default(),
             stretch: FontStretch::default(),
             style: FontStyle::Normal,

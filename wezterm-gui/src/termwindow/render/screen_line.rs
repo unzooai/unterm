@@ -15,7 +15,7 @@ use termwiz::cell::{unicode_column_width, Blink};
 use termwiz::color::LinearRgba;
 use termwiz::surface::CursorShape;
 use wezterm_bidi::Direction;
-use wezterm_term::color::{ColorAttribute, SrgbaTuple};
+use wezterm_term::color::ColorAttribute;
 use wezterm_term::CellAttributes;
 
 impl crate::TermWindow {
@@ -734,23 +734,6 @@ impl crate::TermWindow {
             let mut line = params.line.clone();
             let seqno = line.current_seqno();
             line.overlay_text_with_attribute(*cursor_x, &composing, CellAttributes::blank(), seqno);
-            line.cluster(bidi_hint)
-        } else if let Some((cursor_x, ghost)) = params
-            .shape_key
-            .as_ref()
-            .and_then(|k| k.ghost_text.as_ref())
-        {
-            // Overlay ghost text with dim foreground color (Catppuccin Overlay0: #6c7086)
-            let mut line = params.line.clone();
-            let seqno = line.current_seqno();
-            let mut attrs = CellAttributes::blank();
-            attrs.set_foreground(ColorAttribute::TrueColorWithDefaultFallback(SrgbaTuple(
-                0x6c as f32 / 255.0,
-                0x70 as f32 / 255.0,
-                0x86 as f32 / 255.0,
-                1.0,
-            )));
-            line.overlay_text_with_attribute(*cursor_x, &ghost, attrs, seqno);
             line.cluster(bidi_hint)
         } else {
             params.line.cluster(bidi_hint)

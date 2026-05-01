@@ -3,13 +3,14 @@ use crate::renderable::*;
 use crate::ExitBehavior;
 use async_trait::async_trait;
 use config::keyassignment::{KeyAssignment, ScrollbackEraseMode};
-use downcast_rs::{impl_downcast, Downcast};
+use downcast_rs::{impl_downcast, DowncastSync};
 use parking_lot::MappedMutexGuard;
 use rangeset::RangeSet;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::Arc;
+use termwiz::escape::OperatingSystemCommand;
 use termwiz::hyperlink::Rule;
 use termwiz::input::KeyboardEncoding;
 use termwiz::surface::{Line, SequenceNo};
@@ -164,7 +165,7 @@ impl LogicalLine {
 
 /// A Pane represents a view on a terminal
 #[async_trait(?Send)]
-pub trait Pane: Downcast + Send + Sync {
+pub trait Pane: DowncastSync {
     fn pane_id(&self) -> PaneId;
 
     /// Returns the 0-based cursor position relative to the top left of
@@ -336,8 +337,33 @@ pub trait Pane: Downcast + Send + Sync {
     fn exit_behavior(&self) -> Option<ExitBehavior> {
         None
     }
+
+    /// Returns an optional Arc to a registered recording sink for this pane.
+    /// The mux read loop calls this after each PTY read and forwards raw
+    /// bytes (and OSC 133 events) to the sink so that recordings can be
+    /// kept byte-for-byte faithful with the source-of-truth bytes.
+    fn record_sink(&self) -> Option<Arc<dyn RecordSink>> {
+        None
+    }
 }
-impl_downcast!(Pane);
+impl_downcast!(sync Pane);
+
+/// Trait implemented by the recording subsystem; the mux feeds raw bytes
+/// and parsed semantic-prompt events into this for any pane that has a
+/// sink registered. Implementations must be cheap on the read path: do
+/// the heavy lifting (flushing, rendering, redaction) on a separate
+/// thread or buffer in memory and flush periodically.
+pub trait RecordSink: Send + Sync {
+    /// Called with the raw bytes read from the PTY. These are exactly
+    /// the bytes produced by the foreground program, before any parsing
+    /// or terminal-state mutation.
+    fn write_bytes(&self, bytes: &[u8]);
+
+    /// Called for every OSC 133 (FinalTerm semantic prompt) event seen
+    /// in the byte stream. This lets the recorder track block boundaries
+    /// without re-parsing the byte stream.
+    fn on_osc133(&self, _event: &OperatingSystemCommand) {}
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CachePolicy {

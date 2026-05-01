@@ -56,26 +56,42 @@ pub fn save_session_state(state: &SessionState) -> Result<()> {
     Ok(())
 }
 
-/// Load session state from disk, if it exists.
+/// Load session state from disk, if it exists. Sizes that are clearly bogus
+/// (too small to be usable) are dropped — this prevents a single accidental
+/// resize from locking the user into a tiny window across restarts.
 pub fn load_session_state() -> Option<SessionState> {
+    /// Minimum acceptable persisted window size in physical pixels. Anything
+    /// smaller almost certainly came from a misclick / runaway resize and
+    /// should fall back to `default_initial_cols/rows` instead.
+    const MIN_W: usize = 800;
+    const MIN_H: usize = 480;
+
     let path = state_path();
     if !path.exists() {
         return None;
     }
-    match std::fs::read_to_string(&path) {
-        Ok(data) => match serde_json::from_str::<SessionState>(&data) {
-            Ok(state) => {
-                log::info!("Session state loaded from {}", path.display());
-                Some(state)
-            }
-            Err(e) => {
-                log::warn!("Failed to parse session state: {}", e);
-                None
-            }
-        },
+    let data = match std::fs::read_to_string(&path) {
+        Ok(data) => data,
         Err(e) => {
             log::warn!("Failed to read session state: {}", e);
-            None
+            return None;
         }
+    };
+    let state: SessionState = match serde_json::from_str(&data) {
+        Ok(state) => state,
+        Err(e) => {
+            log::warn!("Failed to parse session state: {}", e);
+            return None;
+        }
+    };
+    if state.width < MIN_W || state.height < MIN_H {
+        log::info!(
+            "Ignoring tiny saved window ({}x{}); falling back to default size",
+            state.width,
+            state.height,
+        );
+        return None;
     }
+    log::info!("Session state loaded from {}", path.display());
+    Some(state)
 }

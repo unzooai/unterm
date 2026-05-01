@@ -184,12 +184,18 @@ pub(crate) fn apply_unterm_proxy_to_process_env() {
 }
 
 fn read_unterm_proxy_env() -> Option<Vec<(String, String)>> {
+    // Schema is now just `{ "enabled": true|false }`. URLs are auto-detected
+    // from the OS at spawn time so the user doesn't have to copy host:port
+    // out of their proxy GUI. Existing proxy.json files with explicit
+    // `http_proxy` / `socks_proxy` keys still work as a manual override.
     let path = dirs_next::home_dir()
         .unwrap_or_default()
         .join(".unterm")
         .join("proxy.json");
-    let content = std::fs::read_to_string(path).ok()?;
-    let value: serde_json::Value = serde_json::from_str(&content).ok()?;
+    let value: serde_json::Value = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_else(|| serde_json::json!({"enabled": false}));
     if !value
         .get("enabled")
         .and_then(serde_json::Value::as_bool)
@@ -198,28 +204,60 @@ fn read_unterm_proxy_env() -> Option<Vec<(String, String)>> {
         return None;
     }
 
+    // Prefer explicit override URLs in proxy.json; otherwise auto-detect.
+    let manual_http = value
+        .get("http_proxy")
+        .and_then(serde_json::Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    let manual_socks = value
+        .get("socks_proxy")
+        .and_then(serde_json::Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    let manual_no = value
+        .get("no_proxy")
+        .and_then(serde_json::Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+
+    let detected = if manual_http.is_none() && manual_socks.is_none() {
+        crate::system_proxy::detect()
+    } else {
+        None
+    };
+
+    let http = manual_http.or_else(|| {
+        detected
+            .as_ref()
+            .and_then(|d| d.primary_http().map(str::to_string))
+    });
+    let socks = manual_socks.or_else(|| detected.as_ref().and_then(|d| d.socks.clone()));
+    let no_proxy = manual_no
+        .or_else(|| detected.as_ref().and_then(|d| d.no_proxy.clone()))
+        .unwrap_or_else(|| "localhost,127.0.0.1,::1".to_string());
+
     let mut env = Vec::new();
-    if let Some(http) = value.get("http_proxy").and_then(serde_json::Value::as_str) {
-        if !http.is_empty() {
-            env.push(("HTTP_PROXY".to_string(), http.to_string()));
-            env.push(("HTTPS_PROXY".to_string(), http.to_string()));
-            env.push(("http_proxy".to_string(), http.to_string()));
-            env.push(("https_proxy".to_string(), http.to_string()));
-        }
+    if let Some(http) = &http {
+        env.push(("HTTP_PROXY".to_string(), http.clone()));
+        env.push(("HTTPS_PROXY".to_string(), http.clone()));
+        env.push(("http_proxy".to_string(), http.clone()));
+        env.push(("https_proxy".to_string(), http.clone()));
     }
-    if let Some(socks) = value.get("socks_proxy").and_then(serde_json::Value::as_str) {
-        if !socks.is_empty() {
-            env.push(("ALL_PROXY".to_string(), socks.to_string()));
-            env.push(("all_proxy".to_string(), socks.to_string()));
-        }
+    if let Some(socks) = &socks {
+        env.push(("ALL_PROXY".to_string(), socks.clone()));
+        env.push(("all_proxy".to_string(), socks.clone()));
     }
-    if let Some(no_proxy) = value.get("no_proxy").and_then(serde_json::Value::as_str) {
-        if !no_proxy.is_empty() {
-            env.push(("NO_PROXY".to_string(), no_proxy.to_string()));
-            env.push(("no_proxy".to_string(), no_proxy.to_string()));
-        }
+    if !no_proxy.is_empty() {
+        env.push(("NO_PROXY".to_string(), no_proxy.clone()));
+        env.push(("no_proxy".to_string(), no_proxy));
     }
+
     if env.is_empty() {
+        log::warn!(
+            "Unterm proxy is enabled but no proxy could be detected from the OS or scan; \
+             set explicit URLs in ~/.unterm/proxy.json if needed"
+        );
         None
     } else {
         Some(env)

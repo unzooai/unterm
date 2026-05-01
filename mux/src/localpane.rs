@@ -1,7 +1,7 @@
 use crate::domain::DomainId;
 use crate::pane::{
     CachePolicy, CloseReason, ForEachPaneLogicalLine, LogicalLine, Pane, PaneId, Pattern,
-    SearchResult, WithPaneLines,
+    RecordSink, SearchResult, WithPaneLines,
 };
 use crate::renderable::*;
 use crate::tmux::{TmuxDomain, TmuxDomainState};
@@ -133,6 +133,7 @@ pub struct LocalPane {
     #[cfg(unix)]
     leader: Arc<Mutex<Option<CachedLeaderInfo>>>,
     command_description: String,
+    record_sink: Mutex<Option<Arc<dyn RecordSink>>>,
 }
 
 #[async_trait(?Send)]
@@ -391,6 +392,10 @@ impl Pane for LocalPane {
         self.terminal.lock().perform_actions(actions)
     }
 
+    fn record_sink(&self) -> Option<Arc<dyn RecordSink>> {
+        self.record_sink.lock().clone()
+    }
+
     fn mouse_event(&self, event: MouseEvent) -> Result<(), Error> {
         Mux::get().record_input_for_current_identity();
         self.terminal.lock().mouse_event(event)
@@ -450,7 +455,7 @@ impl Pane for LocalPane {
         let title = self.terminal.lock().get_title().to_string();
         // If the title is the default pane title, then try to spice
         // things up a bit by returning the process basename instead
-        if title == "wezterm" {
+        if title == "unterm" {
             if let Some(proc_name) = self.get_foreground_process_name(CachePolicy::AllowStale) {
                 let proc_name = std::path::Path::new(&proc_name);
                 if let Some(name) = proc_name.file_name() {
@@ -1019,7 +1024,14 @@ impl LocalPane {
             #[cfg(unix)]
             leader: Arc::new(Mutex::new(None)),
             command_description,
+            record_sink: Mutex::new(None),
         }
+    }
+
+    /// Register (or clear) the recording sink for this pane. Pass `None`
+    /// to detach an existing sink.
+    pub fn set_record_sink(&self, sink: Option<Arc<dyn RecordSink>>) {
+        *self.record_sink.lock() = sink;
     }
 
     #[cfg(unix)]

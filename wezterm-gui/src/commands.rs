@@ -810,22 +810,6 @@ pub fn derive_command_from_key_assignment(action: &KeyAssignment) -> Option<Comm
             menubar: &["Help"],
             icon: Some("cod_debug"),
         },
-        ToggleAiPanel => CommandDef {
-            brief: "Toggle AI Insights panel".into(),
-            doc: "Toggle the AI Insights side panel".into(),
-            keys: vec![],
-            args: &[ArgType::ActiveWindow],
-            menubar: &["View"],
-            icon: Some("md_smart_toy"),
-        },
-        FocusAiChat => CommandDef {
-            brief: "AI Chat".into(),
-            doc: "Open AI panel and focus chat input, or close panel if already focused".into(),
-            keys: vec![],
-            args: &[ArgType::ActiveWindow],
-            menubar: &["View"],
-            icon: Some("md_chat"),
-        },
         ShowShellSelector => CommandDef {
             brief: "New Tab (Shell Selector)".into(),
             doc: "Opens the Unterm shell selector to create a new tab with a specific shell".into(),
@@ -833,14 +817,6 @@ pub fn derive_command_from_key_assignment(action: &KeyAssignment) -> Option<Comm
             args: &[ArgType::ActiveWindow],
             menubar: &["Shell"],
             icon: Some("cod_terminal"),
-        },
-        ShowAiSettings => CommandDef {
-            brief: "AI Settings".into(),
-            doc: "Open AI provider and API key settings".into(),
-            keys: vec![],
-            args: &[ArgType::ActiveWindow],
-            menubar: &["View"],
-            icon: Some("md_settings"),
         },
         ShowContextMenu => CommandDef {
             brief: "Context Menu".into(),

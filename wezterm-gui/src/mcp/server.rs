@@ -1,54 +1,54 @@
-//! TCP server for MCP JSON-RPC protocol.
+//! TCP server for the Unterm MCP JSON-RPC protocol.
 //!
-//! Listens on 127.0.0.1:19876, authenticates clients via UUID token,
-//! and dispatches requests to the handler module.
+//! Binds 127.0.0.1 with a preferred-port-then-fallback strategy (see
+//! `crate::server_info`), authenticates clients with the UUID token written
+//! to `~/.unterm/server.json`, and dispatches each request to the handler
+//! module.
 
 use super::handler::McpHandler;
+use crate::server_info::{self, MCP_PREFERRED_PORT, SERVER_BIND};
 use anyhow::Result;
-use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::Arc;
 use std::thread;
 
-const MCP_PORT: u16 = 19876;
-const MCP_BIND: &str = "127.0.0.1";
+/// Bind the MCP server, write the initial `server.json`, and start
+/// accepting clients on a background thread. Returns the bound port and the
+/// generated auth token.
+pub fn start_mcp_server() -> (u16, String) {
+    let (listener, port) = match server_info::bind_with_fallback(MCP_PREFERRED_PORT) {
+        Ok(pair) => pair,
+        Err(e) => {
+            log::error!("MCP server failed to bind any port: {}", e);
+            return (0, String::new());
+        }
+    };
 
-/// Start the MCP server in a background thread.
-/// Returns the auth token for client connections.
-pub fn start_mcp_server() -> String {
-    let auth_token = uuid::Uuid::new_v4().to_string();
+    let info = match server_info::write_initial(port) {
+        Ok(info) => info,
+        Err(e) => {
+            log::error!("Could not write ~/.unterm/server.json: {}", e);
+            return (port, String::new());
+        }
+    };
 
-    // Save token to ~/.unterm/auth_token
-    if let Err(e) = save_auth_token(&auth_token) {
-        log::warn!("Failed to save MCP auth token: {}", e);
-    }
-
-    let token = auth_token.clone();
+    let token = info.auth_token.clone();
+    let token_for_thread = token.clone();
     thread::Builder::new()
         .name("mcp-server".into())
         .spawn(move || {
-            if let Err(e) = run_server(&token) {
+            if let Err(e) = run_server(listener, &token_for_thread) {
                 log::error!("MCP server error: {}", e);
             }
         })
         .expect("Failed to spawn MCP server thread");
 
-    log::info!("MCP server starting on {}:{}", MCP_BIND, MCP_PORT);
-    auth_token
+    log::info!("MCP server listening on {}:{}", SERVER_BIND, port);
+    (port, token)
 }
 
-fn save_auth_token(token: &str) -> Result<()> {
-    let dir = dirs_next::home_dir().unwrap_or_default().join(".unterm");
-    fs::create_dir_all(&dir)?;
-    fs::write(dir.join("auth_token"), token)?;
-    Ok(())
-}
-
-fn run_server(auth_token: &str) -> Result<()> {
-    let listener = TcpListener::bind(format!("{}:{}", MCP_BIND, MCP_PORT))?;
-    log::info!("MCP server listening on {}:{}", MCP_BIND, MCP_PORT);
-
+fn run_server(listener: TcpListener, auth_token: &str) -> Result<()> {
     let handler = Arc::new(McpHandler::new());
 
     for stream in listener.incoming() {

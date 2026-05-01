@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Unterm
+Comment=Unterm terminal emulator
+Keywords=shell;prompt;command;commandline;cmd;terminal;
+Icon=ai.unzoo.unterm
+StartupWMClass=ai.unzoo.unterm
+TryExec=unterm
+Exec=unterm start --cwd .
+Type=Application
+Categories=System;TerminalEmulator;Utility;
+Terminal=false

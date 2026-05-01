@@ -2950,13 +2950,6 @@ unsafe fn do_wnd_proc(hwnd: HWND, msg: UINT, wparam: WPARAM, lparam: LPARAM) -> 
             mouse_button(hwnd, msg, wparam, lparam)
         }
         WM_DROPFILES => drop_files(hwnd, msg, wparam, lparam),
-        // Unterm: WM_APP is used to show the native context menu.
-        // It must run at this level (not inside a RefCell borrow) because
-        // TrackPopupMenu runs its own message loop which re-enters wnd_proc.
-        WM_APP => {
-            unterm_context_menu(hwnd, wparam, lparam);
-            Some(0)
-        }
         WM_ERASEBKGND => Some(1),
         WM_CLOSE => {
             if let Some(inner) = rc_from_hwnd(hwnd) {
@@ -2990,89 +2983,6 @@ unsafe fn do_wnd_proc(hwnd: HWND, msg: UINT, wparam: WPARAM, lparam: LPARAM) -> 
     }
 }
 
-/// Unterm: show a native Win32 popup context menu.
-/// Called from WM_APP handler, which runs at the top level of do_wnd_proc
-/// (no RefCell borrow held), so TrackPopupMenu's re-entrant messages work fine.
-/// wparam encodes cursor_x (low 16 bits) and cursor_y (high 16 bits) as signed i16.
-/// lparam is unused.
-unsafe fn unterm_context_menu(hwnd: HWND, wparam: WPARAM, _lparam: LPARAM) {
-    let cursor_x = (wparam & 0xFFFF) as i16 as i32;
-    let cursor_y = ((wparam >> 16) & 0xFFFF) as i16 as i32;
-    log::info!("unterm_context_menu: hwnd={:?}, cursor=({}, {})", hwnd, cursor_x, cursor_y);
-
-    let menu = CreatePopupMenu();
-    if menu.is_null() {
-        return;
-    }
-
-    const ID_COPY: usize = 1;
-    const ID_PASTE: usize = 2;
-    const ID_SELECT_ALL: usize = 3;
-    const ID_FIND: usize = 10;
-    const ID_CMD_PALETTE: usize = 11;
-    const ID_SCREENSHOT_HIDE: usize = 12;
-    const ID_SCREENSHOT_VISIBLE: usize = 13;
-    const ID_NEW_TAB: usize = 20;
-    const ID_SPLIT_RIGHT: usize = 21;
-    const ID_SPLIT_DOWN: usize = 22;
-    const ID_OPEN_PROJECT: usize = 23;
-    const ID_PROXY_SETTINGS: usize = 31;
-    const ID_THEME_SELECTOR: usize = 32;
-    const ID_CLOSE_PANE: usize = 40;
-    const ID_CLOSE_TAB: usize = 41;
-
-    fn wide(s: &str) -> Vec<u16> {
-        s.encode_utf16().chain(std::iter::once(0)).collect()
-    }
-
-    AppendMenuW(menu, MF_STRING, ID_COPY, wide("Copy\tCtrl+C").as_ptr());
-    AppendMenuW(menu, MF_STRING, ID_PASTE, wide("Paste\tCtrl+V").as_ptr());
-    AppendMenuW(menu, MF_STRING, ID_SELECT_ALL, wide("Select All").as_ptr());
-    AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null_mut());
-    AppendMenuW(menu, MF_STRING, ID_FIND, wide("Find...\tCtrl+Shift+F").as_ptr());
-    AppendMenuW(menu, MF_STRING, ID_CMD_PALETTE, wide("Command Palette\tCtrl+Shift+P").as_ptr());
-    AppendMenuW(menu, MF_STRING, ID_SCREENSHOT_HIDE, wide("Screenshot (Exclude Current Window)").as_ptr());
-    AppendMenuW(menu, MF_STRING, ID_SCREENSHOT_VISIBLE, wide("Screenshot (Include Current Window)").as_ptr());
-    AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null_mut());
-    AppendMenuW(menu, MF_STRING, ID_NEW_TAB, wide("New Tab\tCtrl+Shift+T").as_ptr());
-    AppendMenuW(menu, MF_STRING, ID_SPLIT_RIGHT, wide("Split Right\tCtrl+Shift+D").as_ptr());
-    AppendMenuW(menu, MF_STRING, ID_SPLIT_DOWN, wide("Split Down").as_ptr());
-    AppendMenuW(menu, MF_STRING, ID_OPEN_PROJECT, wide("Open Project Directory...").as_ptr());
-    AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null_mut());
-    AppendMenuW(menu, MF_STRING, ID_PROXY_SETTINGS, wide("Proxy Settings").as_ptr());
-    AppendMenuW(menu, MF_STRING, ID_THEME_SELECTOR, wide("Theme").as_ptr());
-    AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null_mut());
-    AppendMenuW(menu, MF_STRING, ID_CLOSE_PANE, wide("Close Pane\tCtrl+Shift+W").as_ptr());
-    AppendMenuW(menu, MF_STRING, ID_CLOSE_TAB, wide("Close Tab").as_ptr());
-
-    let cmd = TrackPopupMenu(
-        menu,
-        TPM_RETURNCMD | TPM_RIGHTBUTTON,
-        cursor_x,
-        cursor_y,
-        0,
-        hwnd,
-        std::ptr::null_mut(),
-    );
-
-    DestroyMenu(menu);
-    log::info!("unterm_context_menu: TrackPopupMenu returned cmd={}", cmd);
-
-    if cmd == 0 {
-        return; // User cancelled the menu
-    }
-
-    // Send WM_APP+1 with the selected command ID back to the window.
-    // This will be dispatched through the normal event system.
-    // We use WM_APP+1 so it's processed as a notification with the result.
-    if let Some(inner) = rc_from_hwnd(hwnd) {
-        let mut inner = inner.borrow_mut();
-        // Dispatch a notification with the menu command ID
-        inner.events.dispatch(WindowEvent::Notification(Box::new(
-            cmd as usize,
-        )));
-    }
-}
 
 unsafe extern "system" fn wnd_proc(
     hwnd: HWND,

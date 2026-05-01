@@ -1,9 +1,13 @@
 [package]
-name = "wezterm"
+name = "unterm-cli"
 version = "0.1.0"
-authors = ["Wez Furlong <wez@wezfurlong.org>"]
+authors = ["Unzoo"]
 edition = "2018"
 publish = false
+
+[[bin]]
+name = "unterm-cli"
+path = "src/main.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -15,6 +19,7 @@ clap_complete.workspace = true
 clap_complete_fig.workspace = true
 codec.workspace = true
 config.workspace = true
+dirs-next.workspace = true
 env-bootstrap.workspace = true
 filedescriptor.workspace = true
 hostname.workspace = true

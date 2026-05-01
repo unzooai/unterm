@@ -142,20 +142,6 @@ impl crate::TermWindow {
             }
         }
 
-        // Check if AI state was modified externally (e.g. by MCP handler or background thread)
-        if crate::ai::models::ai_state().take_dirty() {
-            if let Some(window) = self.window.clone().take() {
-                // Re-apply dimensions to resize terminal for panel show/hide
-                let dims = self.dimensions.clone();
-                self.apply_dimensions(&dims, None, &window);
-                window.invalidate();
-            }
-        }
-
-        // Note: AI state changes from MCP/background threads now directly
-        // invalidate the window via AiState::mark_dirty(), which triggers
-        // the invalidate callback registered during window init.
-        // The dirty flag is checked at the top of paint_impl (line ~146).
     }
 
     pub fn paint_modal(&mut self) -> anyhow::Result<()> {
@@ -261,15 +247,24 @@ impl crate::TermWindow {
             .context("filled_rectangle for window background")?;
         }
 
-        for pos in panes {
+        let multi_pane = panes.len() > 1;
+        for pos in &panes {
             if pos.is_active {
-                self.update_text_cursor(&pos);
+                self.update_text_cursor(pos);
                 if focused {
                     pos.pane.advise_focus();
                     mux::Mux::get().record_focus_for_current_identity(pos.pane.pane_id());
                 }
             }
-            self.paint_pane(&pos, &mut layers).context("paint_pane")?;
+            self.paint_pane(pos, &mut layers).context("paint_pane")?;
+        }
+        if multi_pane {
+            // Render the per-pane × close button only when there's >1 pane;
+            // a single pane would just have a button no one needs.
+            for pos in &panes {
+                self.paint_pane_close_button(pos, &mut layers)
+                    .context("paint_pane_close_button")?;
+            }
         }
 
         if let Some(pane) = self.get_active_pane_or_overlay() {
@@ -283,8 +278,6 @@ impl crate::TermWindow {
         if self.show_tab_bar {
             self.paint_tab_bar(&mut layers).context("paint_tab_bar")?;
         }
-
-        self.paint_ai_panel(&mut layers).context("paint_ai_panel")?;
 
         self.paint_status_bar(&mut layers)
             .context("paint_status_bar")?;

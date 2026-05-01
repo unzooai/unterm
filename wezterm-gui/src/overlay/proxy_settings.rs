@@ -144,32 +144,50 @@ impl ProxyState {
         }
 
         let mut row = start_y;
-        self.line(&mut changes, start_x, row, card_w, "Proxy Settings", BLUE);
+        self.line(
+            &mut changes,
+            start_x,
+            row,
+            card_w,
+            &crate::i18n::t("proxy.title"),
+            BLUE,
+        );
         row += 1;
-        let status = if self.enabled { "enabled" } else { "disabled" };
+        let status = if self.enabled {
+            crate::i18n::t("proxy.status.enabled")
+        } else {
+            crate::i18n::t("proxy.status.disabled")
+        };
         let status_color = if self.enabled { GREEN } else { RED };
         self.text_row(
             &mut changes,
             start_x,
             row,
             card_w,
-            &format!("Status: {status}    Current: {}", self.current_node),
+            &crate::i18n::t_args(
+                "proxy.status_line",
+                &[("status", &status), ("node", &self.current_node)],
+            ),
             status_color,
         );
         row += 1;
+        let unset = crate::i18n::t("proxy.value.unset");
+        let http_value = if self.http_proxy.is_empty() {
+            unset.clone()
+        } else {
+            self.http_proxy.clone()
+        };
+        let socks_value = if self.socks_proxy.is_empty() {
+            unset
+        } else {
+            self.socks_proxy.clone()
+        };
         self.text_row(
             &mut changes,
             start_x,
             row,
             card_w,
-            &format!(
-                "HTTP: {}",
-                if self.http_proxy.is_empty() {
-                    "(not set)"
-                } else {
-                    &self.http_proxy
-                }
-            ),
+            &crate::i18n::t_args("proxy.http", &[("value", &http_value)]),
             SUBTEXT0,
         );
         row += 1;
@@ -178,14 +196,7 @@ impl ProxyState {
             start_x,
             row,
             card_w,
-            &format!(
-                "SOCKS: {}",
-                if self.socks_proxy.is_empty() {
-                    "(not set)"
-                } else {
-                    &self.socks_proxy
-                }
-            ),
+            &crate::i18n::t_args("proxy.socks", &[("value", &socks_value)]),
             SUBTEXT0,
         );
         row += 1;
@@ -228,7 +239,7 @@ impl ProxyState {
         let footer = self
             .message
             .clone()
-            .unwrap_or_else(|| "Enter Switch   T Toggle   D Disable   Esc Close".to_string());
+            .unwrap_or_else(|| crate::i18n::t("proxy.footer.hint"));
         self.text_row(&mut changes, start_x, row, card_w, &footer, OVERLAY0);
 
         changes.push(Change::AllAttributes(CellAttributes::default()));
@@ -305,14 +316,17 @@ impl ProxyState {
                 self.http_proxy = node.url.clone();
             }
             self.save();
-            self.message = Some(format!("Switched to {}", node.name));
+            self.message = Some(crate::i18n::t_args(
+                "proxy.switched_to",
+                &[("name", &node.name)],
+            ));
         }
     }
 
     fn toggle(&mut self) {
         if self.enabled {
             self.enabled = false;
-            self.message = Some("Proxy disabled".to_string());
+            self.message = Some(crate::i18n::t("proxy.disabled_msg"));
         } else {
             self.switch_selected();
             return;
@@ -323,7 +337,7 @@ impl ProxyState {
     fn disable(&mut self) {
         self.enabled = false;
         self.save();
-        self.message = Some("Proxy disabled".to_string());
+        self.message = Some(crate::i18n::t("proxy.disabled_msg"));
     }
 
     fn save(&self) {

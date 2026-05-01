@@ -1,0 +1,55 @@
+name: ci
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+env:
+  CARGO_INCREMENTAL: "0"
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  check-macos:
+    name: cargo check (macOS)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check -p unterm -p unterm-cli -p unterm-mux -p strip-ansi-escapes
+
+  check-linux:
+    name: cargo check (Linux)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libfontconfig1-dev libssl-dev \
+            libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libxcb-keysyms1-dev libxcb-icccm4-dev libxcb-image0-dev libxcb-util-dev \
+            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev
+      - run: cargo check -p unterm -p unterm-cli -p unterm-mux -p strip-ansi-escapes
+
+  check-windows:
+    name: cargo check (Windows)
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          target: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check -p unterm -p unterm-cli -p unterm-mux -p strip-ansi-escapes

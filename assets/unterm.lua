@@ -1,5 +1,5 @@
 -- Unterm 默认配置
--- AI-Native Super Terminal
+-- Native Super Terminal
 
 local wezterm = require 'wezterm'
 local config = wezterm.config_builder()
@@ -113,7 +113,7 @@ wezterm.on('update-status', function(window, pane)
 end)
 
 -------------------------------------------------
--- AI CLI 运行环境
+-- Windows PATH 扩展（Node/Bun/Perl 等常用工具）
 -------------------------------------------------
 if wezterm.target_triple == 'x86_64-pc-windows-msvc' then
   local path = os.getenv('PATH') or os.getenv('Path') or ''
@@ -183,10 +183,6 @@ config.keys = {
   { key = 'F11', action = act.ToggleFullScreen },
   -- 命令面板
   { key = 'P', mods = 'CTRL|SHIFT', action = act.ActivateCommandPalette },
-  -- AI 功能
-  { key = 'I', mods = 'CTRL|SHIFT', action = act.FocusAiChat },
-  { key = 'J', mods = 'CTRL|SHIFT', action = act.ToggleAiPanel },
-  { key = ',', mods = 'CTRL|SHIFT', action = act.ShowAiSettings },
   -- Shell 选择器
   { key = 'N', mods = 'CTRL|SHIFT', action = act.ShowShellSelector },
 }
@@ -195,13 +191,13 @@ config.keys = {
 -- 鼠标
 -------------------------------------------------
 config.mouse_bindings = {
-  -- 右键上下文菜单
+  -- 右键 = 快速动作:有选中就复制 + 清空选中,无选中就粘贴(无菜单)
   {
     event = { Down = { streak = 1, button = 'Right' } },
     mods = 'NONE',
     action = act.ShowContextMenu,
   },
-  -- 选中自动复制
+  -- 选中后左键释放自动复制
   {
     event = { Up = { streak = 1, button = 'Left' } },
     mods = 'NONE',

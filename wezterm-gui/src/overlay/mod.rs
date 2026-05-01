@@ -6,10 +6,8 @@ use std::pin::Pin;
 use std::sync::Arc;
 use wezterm_term::{TerminalConfiguration, TerminalSize};
 
-pub mod ai_settings;
 pub mod confirm;
 pub mod confirm_close_pane;
-pub mod context_menu;
 pub mod copy;
 pub mod debug;
 pub mod launcher;
@@ -17,6 +15,7 @@ pub mod prompt;
 pub mod proxy_settings;
 pub mod quickselect;
 pub mod selector;
+pub mod settings_menu;
 pub mod shell_selector;
 pub mod tab_context_menu;
 pub mod theme_selector;

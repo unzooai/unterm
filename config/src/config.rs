@@ -290,9 +290,9 @@ pub struct Config {
 
     #[dynamic(default)]
     pub display_pixel_geometry: DisplayPixelGeometry,
-    #[dynamic(default)]
+    #[dynamic(default = "default_freetype_load_target")]
     pub freetype_load_target: FreeTypeLoadTarget,
-    #[dynamic(default)]
+    #[dynamic(default = "default_freetype_render_target")]
     pub freetype_render_target: Option<FreeTypeLoadTarget>,
     #[dynamic(default)]
     pub freetype_load_flags: Option<FreeTypeLoadFlags>,
@@ -571,7 +571,7 @@ pub struct Config {
     pub background: Vec<BackgroundLayer>,
 
     /// Only works on MacOS
-    #[dynamic(default)]
+    #[dynamic(default = "default_macos_window_background_blur")]
     pub macos_window_background_blur: i64,
 
     /// Only works on KDE Wayland
@@ -899,62 +899,14 @@ pub struct Config {
     #[dynamic(default = "default_ulimit_nproc")]
     pub ulimit_nproc: u64,
 
-    // --- Unterm AI Configuration ---
-    /// Enable AI features (ghost text, insights, error detection)
-    #[dynamic(default = "default_true")]
-    pub ai_enabled: bool,
-
-    /// Enable ghost text command predictions at cursor
-    #[dynamic(default = "default_true")]
-    pub ai_ghost_text: bool,
-
-    /// Enable automatic error detection and fix suggestions
-    #[dynamic(default = "default_true")]
-    pub ai_auto_error_detect: bool,
-
-    /// Default AI model name (e.g., "claude", "gemini", "openai")
-    #[dynamic(default = "default_ai_model")]
-    pub ai_default_model: String,
-
-    /// Enable the MCP server for AI agent access
+    // --- Unterm MCP Configuration ---
+    /// Enable the MCP server for external agent access
     #[dynamic(default = "default_true")]
     pub mcp_enabled: bool,
 
     /// MCP server port
     #[dynamic(default = "default_mcp_port")]
     pub mcp_port: u16,
-
-    /// Claude API key
-    #[dynamic(default)]
-    pub ai_claude_api_key: String,
-
-    /// Claude model ID
-    #[dynamic(default = "default_claude_model")]
-    pub ai_claude_model: String,
-
-    /// OpenAI API key
-    #[dynamic(default)]
-    pub ai_openai_api_key: String,
-
-    /// OpenAI model ID
-    #[dynamic(default = "default_openai_model")]
-    pub ai_openai_model: String,
-
-    /// Gemini API key
-    #[dynamic(default)]
-    pub ai_gemini_api_key: String,
-
-    /// Gemini model ID
-    #[dynamic(default = "default_gemini_model")]
-    pub ai_gemini_model: String,
-
-    /// Custom AI API endpoint (for self-hosted models)
-    #[dynamic(default)]
-    pub ai_custom_endpoint: String,
-
-    /// Enable AI insights panel
-    #[dynamic(default = "default_true")]
-    pub ai_insights_panel: bool,
 
     /// Show Unterm's compact bottom status bar.
     #[dynamic(default = "default_true")]
@@ -1796,11 +1748,14 @@ fn validate_scrollback_lines(value: &usize) -> Result<(), String> {
 }
 
 fn default_initial_rows() -> u16 {
-    30
+    // ~40 rows fits a modern 1080p / 1440p / 4K display comfortably without
+    // looking dwarfed. macOS Terminal defaults to 24x80; iTerm2 defaults to
+    // 25x80 — both feel cramped on Retina screens.
+    40
 }
 
 fn default_initial_cols() -> u16 {
-    120
+    140
 }
 
 pub fn default_hyperlink_rules() -> Vec<hyperlink::Rule> {
@@ -1835,24 +1790,8 @@ fn default_font_size() -> f64 {
     12.0
 }
 
-fn default_ai_model() -> String {
-    "claude".to_string()
-}
-
 fn default_mcp_port() -> u16 {
     19876
-}
-
-fn default_claude_model() -> String {
-    "claude-sonnet-4-20250514".to_string()
-}
-
-fn default_openai_model() -> String {
-    "gpt-5-mini".to_string()
-}
-
-fn default_gemini_model() -> String {
-    "gemini-2.5-flash".to_string()
 }
 
 fn default_color_scheme() -> Option<String> {
@@ -2104,7 +2043,37 @@ fn default_system_backdrop() -> SystemBackdrop {
 }
 
 fn default_window_opacity() -> f32 {
+    // Opaque on every platform — transparency over the desktop wallpaper
+    // measurably reduces glyph edge contrast on Retina screens, which the
+    // user flagged as "text looks fuzzy". Users who want vibrancy can opt
+    // in via their own config.
     1.0
+}
+
+fn default_macos_window_background_blur() -> i64 {
+    // Off by default for the same readability reason as window_opacity.
+    0
+}
+
+fn default_freetype_load_target() -> FreeTypeLoadTarget {
+    // On macOS Retina screens, the FreeType `Normal` target produces noticeably
+    // softer glyphs than the system's CoreText rendering. `HorizontalLcd` uses
+    // subpixel anti-aliasing and is closer to what users expect from a Mac
+    // terminal. Other platforms keep the unbiased `Normal` default.
+    #[cfg(target_os = "macos")]
+    {
+        FreeTypeLoadTarget::HorizontalLcd
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        FreeTypeLoadTarget::Normal
+    }
+}
+
+fn default_freetype_render_target() -> Option<FreeTypeLoadTarget> {
+    // Mirror the load target so hinted output and rendered output stay
+    // consistent. `None` lets WezTerm fall back to the load target.
+    None
 }
 
 fn default_update_interval() -> u64 {
@@ -2226,8 +2195,12 @@ pub enum NewlineCanon {
 
 #[derive(FromDynamic, ToDynamic, Clone, Copy, Debug, Default)]
 pub enum WindowCloseConfirmation {
-    #[default]
     AlwaysPrompt,
+    /// Cmd+Q / window-close = quit immediately. Asking "Really Quit?" after
+    /// the user explicitly pressed the quit shortcut is noise; macOS itself
+    /// already lets users opt into "Confirm before quitting" globally for
+    /// any app at the OS level.
+    #[default]
     NeverPrompt,
     // TODO: something smart where we see whether the
     // running programs are stateful

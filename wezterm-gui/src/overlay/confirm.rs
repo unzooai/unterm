@@ -34,11 +34,13 @@ fn run_confirmation_impl(message: &str, term: &mut TermWizTerminal) -> anyhow::R
     let button_row = top_row + message_rows + 1;
     let mut active = ActiveButton::None;
 
+    let yes_label = crate::i18n::t("confirm.yes");
+    let no_label = crate::i18n::t("confirm.no");
     let yes_x = x_pos;
-    let yes_w = 7;
+    let yes_w = yes_label.chars().count();
 
     let no_x =  yes_x + yes_w + 8 /* spacer */;
-    let no_w = 6;
+    let no_w = no_label.chars().count();
 
     #[derive(Copy, Clone, PartialEq, Eq)]
     enum ActiveButton {
@@ -70,7 +72,7 @@ fn run_confirmation_impl(message: &str, term: &mut TermWizTerminal) -> anyhow::R
         if active == ActiveButton::Yes {
             changes.push(AttributeChange::Reverse(true).into());
         }
-        changes.push(" [Y]es ".into());
+        changes.push(yes_label.clone().into());
         if active == ActiveButton::Yes {
             changes.push(AttributeChange::Reverse(false).into());
         }
@@ -80,7 +82,7 @@ fn run_confirmation_impl(message: &str, term: &mut TermWizTerminal) -> anyhow::R
         if active == ActiveButton::No {
             changes.push(AttributeChange::Reverse(true).into());
         }
-        changes.push(" [N]o ".into());
+        changes.push(no_label.clone().into());
         if active == ActiveButton::No {
             changes.push(AttributeChange::Reverse(false).into());
         }

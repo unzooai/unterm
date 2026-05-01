@@ -44,15 +44,12 @@ impl super::TermWindow {
             | UIItemType::BelowScrollThumb
             | UIItemType::ScrollThumb
             | UIItemType::Split(_)
-            | UIItemType::AiPanel
-            | UIItemType::AiPanelInput
-            | UIItemType::AiPanelExecute(_)
             | UIItemType::StatusBarProject
             | UIItemType::StatusBarTheme
-            | UIItemType::StatusBarCapture
-            | UIItemType::StatusBarAdmin
+            | UIItemType::StatusBarCaptureExclude
+            | UIItemType::StatusBarCaptureInclude
             | UIItemType::StatusBarProxy
-            | UIItemType::StatusBarCommand => {}
+            | UIItemType::CloseSplitPane(_) => {}
         }
     }
 
@@ -64,15 +61,12 @@ impl super::TermWindow {
             | UIItemType::BelowScrollThumb
             | UIItemType::ScrollThumb
             | UIItemType::Split(_)
-            | UIItemType::AiPanel
-            | UIItemType::AiPanelInput
-            | UIItemType::AiPanelExecute(_)
             | UIItemType::StatusBarProject
             | UIItemType::StatusBarTheme
-            | UIItemType::StatusBarCapture
-            | UIItemType::StatusBarAdmin
+            | UIItemType::StatusBarCaptureExclude
+            | UIItemType::StatusBarCaptureInclude
             | UIItemType::StatusBarProxy
-            | UIItemType::StatusBarCommand => {}
+            | UIItemType::CloseSplitPane(_) => {}
         }
     }
 
@@ -400,92 +394,38 @@ impl super::TermWindow {
             UIItemType::CloseTab(idx) => {
                 self.mouse_event_close_tab(idx, event, context);
             }
-            UIItemType::AiPanel => {
-                self.mouse_event_ai_panel(event, context);
-            }
-            UIItemType::AiPanelInput => {
-                self.mouse_event_ai_panel_input(event, context);
-            }
-            UIItemType::AiPanelExecute(ref cmd) => {
-                self.mouse_event_ai_panel_execute(cmd.clone(), event, context);
-            }
             UIItemType::StatusBarProject => {
                 self.mouse_event_status_bar_project(event, context);
             }
             UIItemType::StatusBarTheme => {
                 self.mouse_event_theme_selector(event, context);
             }
-            UIItemType::StatusBarCapture => {
-                self.mouse_event_status_bar_capture(event, context);
+            UIItemType::StatusBarCaptureExclude => {
+                self.mouse_event_status_bar_capture(event, context, true);
             }
-            UIItemType::StatusBarAdmin => {
-                self.mouse_event_status_bar_admin(event, context);
+            UIItemType::StatusBarCaptureInclude => {
+                self.mouse_event_status_bar_capture(event, context, false);
             }
             UIItemType::StatusBarProxy => {
                 self.mouse_event_status_bar_proxy(event, context);
             }
-            UIItemType::StatusBarCommand => {
-                self.mouse_event_status_bar_command(event, context);
+            UIItemType::CloseSplitPane(pane_id) => {
+                self.mouse_event_close_split_pane(pane_id, event, context);
             }
         }
     }
 
-    fn mouse_event_ai_panel(&mut self, event: MouseEvent, context: &dyn WindowOps) {
-        use crate::ai::models::ai_state;
-        match event.kind {
-            WMEK::Press(MousePress::Left) => {
-                log::info!("AI panel body clicked — unfocusing chat");
-                ai_state().set_chat_focused(false);
-                context.invalidate();
-            }
-            WMEK::VertWheel(amount) => {
-                let state = ai_state();
-                if amount > 0 {
-                    state.scroll_up(3);
-                } else {
-                    state.scroll_down(3);
-                }
-                context.invalidate();
-            }
-            _ => {}
-        }
-        context.set_cursor(Some(MouseCursor::Arrow));
-    }
-
-    fn mouse_event_ai_panel_input(&mut self, event: MouseEvent, context: &dyn WindowOps) {
-        use crate::ai::models::ai_state;
-        match event.kind {
-            WMEK::Press(MousePress::Left) => {
-                log::info!("AI panel input clicked — focusing chat");
-                ai_state().set_chat_focused(true);
-                context.invalidate();
-            }
-            _ => {}
-        }
-        context.set_cursor(Some(MouseCursor::Text));
-    }
-
-    fn mouse_event_ai_panel_execute(
+    fn mouse_event_close_split_pane(
         &mut self,
-        cmd: String,
+        pane_id: mux::pane::PaneId,
         event: MouseEvent,
         context: &dyn WindowOps,
     ) {
-        match event.kind {
-            WMEK::Press(MousePress::Left) => {
-                log::info!("AI panel execute clicked: {}", cmd);
-                // Send the command to the active pane
-                if let Some(pane) = self.get_active_pane_or_overlay() {
-                    let mut writer = pane.writer();
-                    // Send the command followed by Enter
-                    let _ = writer.write_all(cmd.as_bytes());
-                    let _ = writer.write_all(b"\r");
-                }
-                context.invalidate();
-            }
-            _ => {}
+        if matches!(event.kind, WMEK::Press(MousePress::Left)) {
+            self.close_pane_by_id(pane_id);
+            context.invalidate();
         }
-        context.set_cursor(Some(MouseCursor::Hand));
+        context.set_cursor(Some(MouseCursor::Arrow));
     }
 
     fn mouse_event_theme_selector(&mut self, event: MouseEvent, context: &dyn WindowOps) {
@@ -495,14 +435,23 @@ impl super::TermWindow {
                     Ok((name, scheme)) => {
                         if let Err(err) = self.apply_client_theme_palette(&scheme) {
                             log::error!("theme palette apply failed: {err:#}");
-                            format!("Theme saved as {name}, palette apply failed: {err:#}")
+                            crate::i18n::t_args(
+                                "theme.saved_palette_failed",
+                                &[("name", &name), ("err", &format!("{err:#}"))],
+                            )
                         } else {
-                            format!("Theme switched to {name}.")
+                            crate::i18n::t_args(
+                                "theme.switched_to",
+                                &[("name", &name)],
+                            )
                         }
                     }
                     Err(err) => {
                         log::error!("theme cycle failed: {err:#}");
-                        format!("Theme switch failed: {err:#}")
+                        crate::i18n::t_args(
+                            "theme.switch_failed",
+                            &[("err", &format!("{err:#}"))],
+                        )
                     }
                 };
                 if let Some(pane) = self.get_active_pane_no_overlay() {
@@ -543,53 +492,17 @@ impl super::TermWindow {
         Ok(())
     }
 
-    fn mouse_event_status_bar_capture(&mut self, event: MouseEvent, context: &dyn WindowOps) {
-        match event.kind {
-            WMEK::Press(MousePress::Left) => {
-                if let Some(pane) = self.get_active_pane_no_overlay() {
-                    write_unterm_status_to_pane(
-                        &pane,
-                        "Hidden-window region screenshot started. Drag a region or press Esc to cancel.",
-                    );
-                    std::thread::spawn(move || {
-                        let message = match capture_selected_region_to_file(true) {
-                            Ok(path) => format!(
-                                "Hidden-window region screenshot saved and copied: {}",
-                                path.display()
-                            ),
-                            Err(err) => {
-                                log::error!("status bar hidden region capture failed: {err:#}");
-                                format!("Hidden-window region screenshot failed: {err:#}")
-                            }
-                        };
-                        write_unterm_status_to_pane(&pane, &message);
-                    });
-                }
-                context.invalidate();
+    fn mouse_event_status_bar_capture(
+        &mut self,
+        event: MouseEvent,
+        context: &dyn WindowOps,
+        hide_window: bool,
+    ) {
+        if let WMEK::Press(MousePress::Left) = event.kind {
+            if let Some(pane) = self.get_active_pane_no_overlay() {
+                capture_and_announce(&pane, hide_window);
             }
-            WMEK::Press(MousePress::Right) => {
-                if let Some(pane) = self.get_active_pane_no_overlay() {
-                    write_unterm_status_to_pane(
-                        &pane,
-                        "Visible-window region screenshot started. Drag a region or press Esc to cancel.",
-                    );
-                    std::thread::spawn(move || {
-                        let message = match capture_selected_region_to_file(false) {
-                            Ok(path) => format!(
-                                "Visible-window region screenshot saved and copied: {}",
-                                path.display()
-                            ),
-                            Err(err) => {
-                                log::error!("status bar visible region capture failed: {err:#}");
-                                format!("Visible-window region screenshot failed: {err:#}")
-                            }
-                        };
-                        write_unterm_status_to_pane(&pane, &message);
-                    });
-                }
-                context.invalidate();
-            }
-            _ => {}
+            context.invalidate();
         }
         context.set_cursor(Some(MouseCursor::Hand));
     }
@@ -598,10 +511,13 @@ impl super::TermWindow {
         match event.kind {
             WMEK::Press(MousePress::Left) => {
                 let message = match launch_admin_window() {
-                    Ok(()) => "Admin PowerShell requested. Accept the UAC prompt.".to_string(),
+                    Ok(()) => crate::i18n::t("admin.requested"),
                     Err(err) => {
                         log::error!("status bar admin launch failed: {err:#}");
-                        format!("Admin launch failed: {err:#}")
+                        crate::i18n::t_args(
+                            "admin.failed",
+                            &[("err", &format!("{err:#}"))],
+                        )
                     }
                 };
                 if let Some(pane) = self.get_active_pane_no_overlay() {
@@ -618,11 +534,14 @@ impl super::TermWindow {
         match event.kind {
             WMEK::Press(MousePress::Left) => {
                 let message = match toggle_unterm_proxy_enabled() {
-                    Ok(true) => "Proxy enabled for new shells.".to_string(),
-                    Ok(false) => "Proxy disabled for new shells.".to_string(),
+                    Ok(true) => crate::i18n::t("proxy.enabled_for_new_shells"),
+                    Ok(false) => crate::i18n::t("proxy.disabled_for_new_shells"),
                     Err(err) => {
                         log::error!("proxy toggle failed: {err:#}");
-                        format!("Proxy toggle failed: {err:#}")
+                        crate::i18n::t_args(
+                            "proxy.toggle_failed",
+                            &[("err", &format!("{err:#}"))],
+                        )
                     }
                 };
                 if let Some(pane) = self.get_active_pane_no_overlay() {
@@ -651,10 +570,10 @@ impl super::TermWindow {
                 };
                 write_unterm_status_to_pane(
                     &pane,
-                    "Select a project directory to open in a new tab.",
+                    &crate::i18n::t("project.prompt_picker"),
                 );
                 std::thread::spawn(move || {
-                    open_project_directory_in_new_tab(window, pane_id);
+                    open_project_directory_in_new_tab(window, pane_id, None);
                 });
                 context.invalidate();
             }
@@ -663,7 +582,13 @@ impl super::TermWindow {
                     if let Some(cwd) =
                         pane.get_current_working_dir(mux::pane::CachePolicy::AllowStale)
                     {
-                        write_unterm_status_to_pane(&pane, &format!("Current project: {cwd}"));
+                        write_unterm_status_to_pane(
+                            &pane,
+                            &crate::i18n::t_args(
+                                "project.current",
+                                &[("path", &cwd.to_string())],
+                            ),
+                        );
                     }
                 }
                 context.invalidate();
@@ -774,7 +699,7 @@ impl super::TermWindow {
                     self.do_new_tab_button_click(MousePress::Left);
                 }
                 TabBarItem::MenuButton => {
-                    self.show_context_menu();
+                    self.show_settings_menu();
                 }
                 TabBarItem::None | TabBarItem::LeftStatus | TabBarItem::RightStatus => {
                     let maximized = self
@@ -840,7 +765,7 @@ impl super::TermWindow {
                     self.do_new_tab_button_click(MousePress::Right);
                 }
                 TabBarItem::MenuButton => {
-                    self.show_context_menu();
+                    self.show_settings_menu();
                 }
                 TabBarItem::None
                 | TabBarItem::LeftStatus
@@ -1378,10 +1303,137 @@ fn mouse_press_to_tmb(press: &MousePress) -> TMB {
     }
 }
 
+/// Run a region screenshot from the status bar and announce results back to
+/// the user. After saving the PNG, copy the file path as plain text to the
+/// system clipboard so the user can paste it into the terminal (or anywhere
+/// else) directly.  The PNG bytes themselves were already copied to the
+/// system *image* clipboard by `capture_selected_region_to_file` — that
+/// covers image-aware paste targets like editors and chat windows.
+///
+/// We deliberately do *not* render the image inline via OSC 1337.  Forcing
+/// hundreds of KB of escape data through the terminal's escape parser was
+/// found to wedge the GUI on large captures, and the user's actual need is
+/// "be able to send the screenshot back to the terminal" — pasting a path
+/// satisfies that with no parser involvement.
+pub(crate) fn capture_and_announce(pane: &Arc<dyn Pane>, hide_window: bool) {
+    let mode_label = if hide_window {
+        crate::i18n::t("screenshot.mode.hidden")
+    } else {
+        crate::i18n::t("screenshot.mode.visible")
+    };
+    write_unterm_status_to_pane(
+        pane,
+        &crate::i18n::t_args("screenshot.started", &[("mode", &mode_label)]),
+    );
+    let pane = pane.clone();
+    let mode_label_thread = mode_label.clone();
+    std::thread::spawn(move || match capture_selected_region_to_file(hide_window) {
+        Ok(path) => {
+            let path_str = path.display().to_string();
+            if let Err(err) = copy_text_to_clipboard(&path_str) {
+                log::warn!("could not copy screenshot path to clipboard: {err:#}");
+            }
+            write_unterm_status_to_pane(
+                &pane,
+                &crate::i18n::t_args(
+                    "screenshot.saved",
+                    &[("mode", &mode_label_thread), ("path", &path_str)],
+                ),
+            );
+        }
+        Err(err) => {
+            log::error!("status bar region capture failed: {err:#}");
+            write_unterm_status_to_pane(
+                &pane,
+                &crate::i18n::t_args(
+                    "screenshot.failed",
+                    &[("mode", &mode_label_thread), ("err", &format!("{err:#}"))],
+                ),
+            );
+        }
+    });
+}
+
+/// Put plain text on the system clipboard so the user can paste it as the
+/// next command (or argument). Each platform has its own command.
+#[cfg(target_os = "macos")]
+pub(crate) fn copy_text_to_clipboard(text: &str) -> anyhow::Result<()> {
+    use std::process::{Command, Stdio};
+    let mut child = Command::new("/usr/bin/pbcopy")
+        .stdin(Stdio::piped())
+        .spawn()?;
+    if let Some(stdin) = child.stdin.as_mut() {
+        std::io::Write::write_all(stdin, text.as_bytes())?;
+    }
+    let status = child.wait()?;
+    if !status.success() {
+        anyhow::bail!("pbcopy exited with {status}");
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn copy_text_to_clipboard(text: &str) -> anyhow::Result<()> {
+    use std::process::{Command, Stdio};
+    use std::os::windows::process::CommandExt;
+    let mut cmd = Command::new("clip");
+    cmd.stdin(Stdio::piped());
+    cmd.creation_flags(0x08000000);
+    let mut child = cmd.spawn()?;
+    if let Some(stdin) = child.stdin.as_mut() {
+        std::io::Write::write_all(stdin, text.as_bytes())?;
+    }
+    let status = child.wait()?;
+    if !status.success() {
+        anyhow::bail!("clip exited with {status}");
+    }
+    Ok(())
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+pub(crate) fn copy_text_to_clipboard(text: &str) -> anyhow::Result<()> {
+    use std::process::{Command, Stdio};
+    // Try wl-copy first (Wayland), fall back to xclip / xsel (X11).
+    for (bin, args) in &[
+        ("wl-copy", &[][..]),
+        ("xclip", &["-selection", "clipboard"][..]),
+        ("xsel", &["--clipboard", "--input"][..]),
+    ] {
+        let mut cmd = Command::new(bin);
+        cmd.args(*args).stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::null());
+        let child = match cmd.spawn() {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let mut child = child;
+        if let Some(stdin) = child.stdin.as_mut() {
+            std::io::Write::write_all(stdin, text.as_bytes())?;
+        }
+        if child.wait()?.success() {
+            return Ok(());
+        }
+    }
+    anyhow::bail!("no usable clipboard tool (tried wl-copy, xclip, xsel)")
+}
+
 pub(crate) fn write_unterm_status_to_pane(pane: &Arc<dyn Pane>, message: &str) {
-    let mut writer = pane.writer();
-    let message = message.replace('\'', "''");
-    let _ = writer.write_all(format!("\r\nWrite-Host '[Unterm] {message}'\r\n").as_bytes());
+    // Emit the status banner directly into the terminal's *output* side via
+    // the escape parser, NOT through `pane.writer()` (which goes to the PTY
+    // input side and would be executed as a shell command — producing a
+    // stream of "command not found: [Unterm] ..." errors on Posix shells
+    // and similar nonsense on PowerShell).
+    //
+    // We render with ANSI SGR for a subtle muted color so the line reads as
+    // a status line, not as program output, and surround with CRLF so it
+    // settles on its own row regardless of cursor position.
+    let line = format!(
+        "\r\n\x1b[2m[Unterm] {}\x1b[0m\r\n",
+        message.replace('\x1b', "")
+    );
+    let mut parser = termwiz::escape::parser::Parser::new();
+    let mut actions = Vec::new();
+    parser.parse(line.as_bytes(), |action| actions.push(action));
+    pane.perform_actions(actions);
 }
 
 fn toggle_unterm_proxy_enabled() -> anyhow::Result<bool> {
@@ -1417,9 +1469,16 @@ fn toggle_unterm_proxy_enabled() -> anyhow::Result<bool> {
     Ok(next)
 }
 
-#[cfg(windows)]
-pub(crate) fn open_project_directory_in_new_tab(window: ::window::Window, pane_id: mux::pane::PaneId) {
-    match pick_project_directory() {
+pub(crate) fn open_project_directory_in_new_tab(
+    window: ::window::Window,
+    pane_id: mux::pane::PaneId,
+    start_at: Option<std::path::PathBuf>,
+) {
+    #[cfg(windows)]
+    let picked = pick_project_directory_starting_at(start_at.as_deref());
+    #[cfg(not(windows))]
+    let picked = pick_project_directory_unix_starting_at(start_at.as_deref());
+    match picked {
         Ok(path) => {
             if let Err(err) = save_recent_project_directory(&path) {
                 log::warn!("failed to save recent project directory: {err:#}");
@@ -1439,25 +1498,174 @@ pub(crate) fn open_project_directory_in_new_tab(window: ::window::Window, pane_i
     }
 }
 
+#[cfg(target_os = "macos")]
+pub(crate) fn pick_project_directory_unix() -> anyhow::Result<std::path::PathBuf> {
+    pick_project_directory_unix_starting_at(None)
+}
+
+/// Pop the macOS folder picker, optionally pre-pointed at `start_at` so the
+/// dialog opens at the user's current pane cwd (instead of always Documents).
+/// User can immediately accept the start_at directory, or navigate elsewhere.
+#[cfg(target_os = "macos")]
+pub(crate) fn pick_project_directory_unix_starting_at(
+    start_at: Option<&std::path::Path>,
+) -> anyhow::Result<std::path::PathBuf> {
+    let default_clause = match start_at {
+        Some(p) if p.is_dir() => {
+            // Escape embedded double quotes / backslashes for AppleScript string.
+            let escaped = p
+                .display()
+                .to_string()
+                .replace('\\', "\\\\")
+                .replace('"', "\\\"");
+            format!(" default location (POSIX file \"{}\")", escaped)
+        }
+        _ => String::new(),
+    };
+    let script = format!(
+        r#"try
+  POSIX path of (choose folder with prompt "Select project directory"{default_clause})
+on error
+  ""
+end try"#
+    );
+    let output = std::process::Command::new("/usr/bin/osascript")
+        .arg("-e")
+        .arg(&script)
+        .output()?;
+    if !output.status.success() {
+        anyhow::bail!("osascript exited with {}", output.status);
+    }
+    let selected = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if selected.is_empty() {
+        anyhow::bail!("project directory selection was canceled");
+    }
+    let path = std::path::PathBuf::from(selected);
+    if !path.is_dir() {
+        anyhow::bail!("selected path is not a directory: {}", path.display());
+    }
+    Ok(path)
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+pub(crate) fn pick_project_directory_unix() -> anyhow::Result<std::path::PathBuf> {
+    pick_project_directory_unix_starting_at(None)
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+pub(crate) fn pick_project_directory_unix_starting_at(
+    start_at: Option<&std::path::Path>,
+) -> anyhow::Result<std::path::PathBuf> {
+    let start_str: String = start_at
+        .filter(|p| p.is_dir())
+        .map(|p| p.display().to_string())
+        .unwrap_or_default();
+    // zenity supports `--filename=<path>` to open the picker at <path>.
+    // kdialog takes the start dir as positional arg. yad mirrors zenity.
+    let mut zenity_filename = String::new();
+    if !start_str.is_empty() {
+        zenity_filename = format!("--filename={}/", start_str);
+    }
+    let kdialog_start: &str = if start_str.is_empty() { "." } else { &start_str };
+    let candidates: Vec<(&str, Vec<String>)> = vec![
+        (
+            "zenity",
+            vec![
+                "--file-selection".into(),
+                "--directory".into(),
+                "--title=Select project directory".into(),
+                zenity_filename.clone(),
+            ],
+        ),
+        ("kdialog", vec!["--getexistingdirectory".into(), kdialog_start.to_string()]),
+        (
+            "yad",
+            vec![
+                "--file".into(),
+                "--directory".into(),
+                "--title=Select project directory".into(),
+                zenity_filename,
+            ],
+        ),
+    ];
+    for (bin, args) in &candidates {
+        let args: Vec<&str> = args.iter().filter(|s| !s.is_empty()).map(|s| s.as_str()).collect();
+        let output = match std::process::Command::new(bin).args(&args).output() {
+            Ok(o) => o,
+            Err(_) => continue,
+        };
+        if !output.status.success() {
+            continue;
+        }
+        let selected = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if selected.is_empty() {
+            anyhow::bail!("project directory selection was canceled");
+        }
+        let path = std::path::PathBuf::from(selected);
+        if !path.is_dir() {
+            anyhow::bail!("selected path is not a directory: {}", path.display());
+        }
+        return Ok(path);
+    }
+    anyhow::bail!("no usable directory picker (install one of: zenity, kdialog, yad)")
+}
+
 #[cfg(not(windows))]
-pub(crate) fn open_project_directory_in_new_tab(_window: ::window::Window, _pane_id: mux::pane::PaneId) {
-    log::warn!("project directory picker is only supported on Windows");
+fn save_recent_project_directory(path: &std::path::Path) -> anyhow::Result<()> {
+    let config_path = dirs_next::home_dir()
+        .unwrap_or_default()
+        .join(".unterm")
+        .join("projects.json");
+    if let Some(parent) = config_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut projects = std::fs::read_to_string(&config_path)
+        .ok()
+        .and_then(|content| serde_json::from_str::<Vec<String>>(&content).ok())
+        .unwrap_or_default();
+    let path = path.display().to_string();
+    projects.retain(|existing| existing != &path);
+    projects.insert(0, path);
+    projects.truncate(12);
+    std::fs::write(config_path, serde_json::to_string_pretty(&projects)?)?;
+    Ok(())
 }
 
 #[cfg(windows)]
-fn pick_project_directory() -> anyhow::Result<std::path::PathBuf> {
+pub(crate) fn pick_project_directory() -> anyhow::Result<std::path::PathBuf> {
+    pick_project_directory_starting_at(None)
+}
+
+/// Pop the FolderBrowserDialog pre-pointed at `start_at` so the picker opens
+/// at the current pane cwd instead of My Computer / Desktop.
+#[cfg(windows)]
+pub(crate) fn pick_project_directory_starting_at(
+    start_at: Option<&std::path::Path>,
+) -> anyhow::Result<std::path::PathBuf> {
     use base64::Engine as _;
 
-    let script = r#"
+    // Single-quote string literal in PowerShell — escape ' by doubling it.
+    let initial_dir = start_at
+        .filter(|p| p.is_dir())
+        .map(|p| p.display().to_string().replace('\'', "''"))
+        .unwrap_or_default();
+    let initial_clause = if initial_dir.is_empty() {
+        String::new()
+    } else {
+        format!("$dlg.SelectedPath = '{}'\n", initial_dir)
+    };
+    let script = format!(
+        r#"
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
 $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
 $dlg.Description = 'Select project directory'
 $dlg.ShowNewFolderButton = $true
-if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+{initial_clause}if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{
   [Console]::Out.Write($dlg.SelectedPath)
-}
-"#;
+}}
+"#
+    );
     let mut bytes = Vec::with_capacity(script.len() * 2);
     for unit in script.encode_utf16() {
         bytes.extend_from_slice(&unit.to_le_bytes());
@@ -1590,15 +1798,28 @@ fn launch_admin_window() -> anyhow::Result<()> {
 }
 
 #[cfg(windows)]
-pub(crate) fn capture_selected_region_to_file(hide_window: bool) -> anyhow::Result<std::path::PathBuf> {
-    use base64::Engine as _;
+fn powershell_single_quote(text: &str) -> String {
+    text.replace('\'', "''")
+}
 
-    let pid = std::process::id();
+/// Returns the directory where region screenshots are saved (creates it if missing).
+fn screenshot_output_dir() -> anyhow::Result<std::path::PathBuf> {
     let dir = dirs_next::home_dir()
         .unwrap_or_default()
         .join(".unterm")
         .join("screenshots");
     std::fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
+
+#[cfg(windows)]
+pub(crate) fn capture_selected_region_to_file(
+    hide_window: bool,
+) -> anyhow::Result<std::path::PathBuf> {
+    use base64::Engine as _;
+
+    let pid = std::process::id();
+    let dir = screenshot_output_dir()?;
     let prefix = if hide_window {
         "region_hidden"
     } else {
@@ -1717,7 +1938,6 @@ try {{
         "-EncodedCommand",
         &encoded,
     ]);
-    #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         command.creation_flags(0x08000000);
@@ -1732,12 +1952,221 @@ try {{
     Ok(output_path)
 }
 
-#[cfg(not(windows))]
-pub(crate) fn capture_selected_region_to_file(_hide_window: bool) -> anyhow::Result<std::path::PathBuf> {
-    anyhow::bail!("region capture is only supported on Windows")
+/// macOS region screenshot via `screencapture -i`.
+///
+/// `hide_window=true` hides our app first using `osascript` to ask System
+/// Events to hide the frontmost process, runs the interactive picker, then
+/// reactivates Unterm. ESC cancels the picker.
+#[cfg(target_os = "macos")]
+pub(crate) fn capture_selected_region_to_file(
+    hide_window: bool,
+) -> anyhow::Result<std::path::PathBuf> {
+    let dir = screenshot_output_dir()?;
+    let prefix = if hide_window {
+        "region_hidden"
+    } else {
+        "region_visible"
+    };
+    let output_path = dir.join(format!(
+        "{}_{}.png",
+        prefix,
+        chrono::Local::now().format("%Y%m%d_%H%M%S_%3f")
+    ));
+
+    if hide_window {
+        let _ = std::process::Command::new("osascript")
+            .args([
+                "-e",
+                "tell application \"System Events\" to set visible of process \"unterm\" to false",
+            ])
+            .status();
+        // Brief delay so the window finishes hiding before the picker UI shows.
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
+
+    // -i = interactive selection, -t png = explicit format
+    // We do NOT pass -x so the picker chrome and shutter sound stay (matches Win UX).
+    let status = std::process::Command::new("/usr/sbin/screencapture")
+        .args(["-i", "-t", "png"])
+        .arg(&output_path)
+        .status();
+
+    if hide_window {
+        // Always try to bring our window back, even on cancel/error.
+        let _ = std::process::Command::new("osascript")
+            .args([
+                "-e",
+                "tell application \"unterm\" to activate",
+            ])
+            .status();
+    }
+
+    let status = status?;
+    if !status.success() {
+        anyhow::bail!("screencapture exited with {status}");
+    }
+
+    if !output_path.exists() {
+        anyhow::bail!(
+            "Screenshot canceled or file not created: {}",
+            output_path.display()
+        );
+    }
+
+    // Copy to clipboard so the user can paste it elsewhere (parity with Win path).
+    let _ = std::process::Command::new("osascript")
+        .args([
+            "-e",
+            &format!(
+                "set the clipboard to (read (POSIX file \"{}\") as «class PNGf»)",
+                output_path.display()
+            ),
+        ])
+        .status();
+
+    Ok(output_path)
 }
 
-#[cfg(windows)]
-fn powershell_single_quote(text: &str) -> String {
-    text.replace('\'', "''")
+/// Linux region screenshot. Probes available tools in order and uses the first
+/// one that exists.
+///
+/// `hide_window=true` is best-effort — most Linux screenshot tools take a
+/// short delay flag, but minimizing the window cleanly across X11/Wayland
+/// without window-server-specific code is fragile, so we currently skip it
+/// and just rely on the tool's own region picker UI.
+#[cfg(all(unix, not(target_os = "macos")))]
+pub(crate) fn capture_selected_region_to_file(
+    hide_window: bool,
+) -> anyhow::Result<std::path::PathBuf> {
+    let dir = screenshot_output_dir()?;
+    let prefix = if hide_window {
+        "region_hidden"
+    } else {
+        "region_visible"
+    };
+    let output_path = dir.join(format!(
+        "{}_{}.png",
+        prefix,
+        chrono::Local::now().format("%Y%m%d_%H%M%S_%3f")
+    ));
+
+    // Try grim+slurp (Wayland), then gnome-screenshot, spectacle, scrot, maim.
+    let path_str = output_path.display().to_string();
+    let attempts: &[(&str, &[&str])] = &[
+        ("grim", &[]), // grim handled specially below because slurp is piped
+        ("gnome-screenshot", &["-a", "-f"]),
+        ("spectacle", &["-bn", "-r", "-o"]),
+        ("scrot", &["-s"]),
+        ("maim", &["-s"]),
+    ];
+
+    let mut last_err: Option<String> = None;
+    for (tool, args) in attempts {
+        if !command_exists(tool) {
+            continue;
+        }
+
+        let status = if *tool == "grim" {
+            // grim -g "$(slurp)" <output>
+            if !command_exists("slurp") {
+                last_err = Some("grim found but slurp is required for region selection".into());
+                continue;
+            }
+            // Run `slurp` to pick a region, capture stdout, pass to grim.
+            let slurp = std::process::Command::new("slurp").output();
+            let slurp = match slurp {
+                Ok(o) if o.status.success() => o,
+                Ok(o) => {
+                    last_err = Some(format!(
+                        "slurp exited with {} (selection cancelled?)",
+                        o.status
+                    ));
+                    continue;
+                }
+                Err(e) => {
+                    last_err = Some(format!("slurp failed: {e}"));
+                    continue;
+                }
+            };
+            let geom = String::from_utf8_lossy(&slurp.stdout).trim().to_string();
+            std::process::Command::new("grim")
+                .args(["-g", &geom])
+                .arg(&output_path)
+                .status()
+        } else {
+            let mut cmd = std::process::Command::new(tool);
+            cmd.args(*args);
+            cmd.arg(&path_str);
+            cmd.status()
+        };
+
+        match status {
+            Ok(s) if s.success() => {
+                if output_path.exists() {
+                    // Try to copy to clipboard via xclip / wl-copy — best effort.
+                    let _ = copy_image_to_clipboard_unix(&output_path);
+                    return Ok(output_path);
+                } else {
+                    last_err = Some(format!("{tool} reported success but no file was created"));
+                }
+            }
+            Ok(s) => {
+                last_err = Some(format!("{tool} exited with {s}"));
+            }
+            Err(e) => {
+                last_err = Some(format!("failed to run {tool}: {e}"));
+            }
+        }
+    }
+
+    let _ = hide_window; // currently unused on Linux
+    let msg = last_err.unwrap_or_else(|| {
+        "No screenshot tool found. Install one of: grim+slurp, gnome-screenshot, spectacle, scrot, or maim".into()
+    });
+    anyhow::bail!("{}", msg)
 }
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn command_exists(name: &str) -> bool {
+    let Some(path_var) = std::env::var_os("PATH") else {
+        return false;
+    };
+    for dir in std::env::split_paths(&path_var) {
+        let candidate = dir.join(name);
+        if candidate.is_file() {
+            return true;
+        }
+    }
+    false
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn copy_image_to_clipboard_unix(path: &std::path::Path) -> anyhow::Result<()> {
+    use std::io::Write;
+    if command_exists("wl-copy") {
+        let mut child = std::process::Command::new("wl-copy")
+            .args(["--type", "image/png"])
+            .stdin(std::process::Stdio::piped())
+            .spawn()?;
+        let bytes = std::fs::read(path)?;
+        if let Some(mut stdin) = child.stdin.take() {
+            stdin.write_all(&bytes)?;
+        }
+        child.wait()?;
+        return Ok(());
+    }
+    if command_exists("xclip") {
+        let mut child = std::process::Command::new("xclip")
+            .args(["-selection", "clipboard", "-t", "image/png", "-i"])
+            .stdin(std::process::Stdio::piped())
+            .spawn()?;
+        let bytes = std::fs::read(path)?;
+        if let Some(mut stdin) = child.stdin.take() {
+            stdin.write_all(&bytes)?;
+        }
+        child.wait()?;
+        return Ok(());
+    }
+    Ok(())
+}
+

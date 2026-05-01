@@ -136,15 +136,9 @@ impl crate::TermWindow {
             euclid::rect(
                 x,
                 y,
-                // Go all the way to the right edge if we're right-most,
-                // but stop at the AI panel boundary if it's visible
+                // Go all the way to the right edge if we're right-most
                 if pos.left + pos.width >= self.terminal_size.cols as usize {
-                    let right_edge = if crate::ai::models::ai_state().panel_visible() {
-                        self.ai_panel_pixel_x()
-                    } else {
-                        self.dimensions.pixel_width as f32
-                    };
-                    right_edge - x
+                    self.dimensions.pixel_width as f32 - x
                 } else {
                     (pos.width as f32 * cell_width) + width_delta
                 },
@@ -431,18 +425,6 @@ impl crate::TermWindow {
 
                     let shape_hash = self.term_window.shape_hash_for_line(line);
 
-                    // Check for ghost text on the cursor line
-                    let ghost_text_str = if self.cursor.y == stable_row && self.pos.is_active {
-                        crate::ghost_text::ghost_text_state()
-                            .get()
-                            .filter(|g| {
-                                g.pane_id == self.pane_id && g.cursor_y == stable_row as i64
-                            })
-                            .map(|g| g.text.clone())
-                    } else {
-                        None
-                    };
-
                     let quad_key = LineQuadCacheKey {
                         pane_id: self.pane_id,
                         password_input,
@@ -451,7 +433,6 @@ impl crate::TermWindow {
                         shape_generation: self.term_window.shape_generation,
                         quad_generation: self.term_window.quad_generation,
                         composing: composing.clone(),
-                        ghost_text: ghost_text_str.clone(),
                         selection: selrange.clone(),
                         cursor,
                         shape_hash,
@@ -505,7 +486,6 @@ impl crate::TermWindow {
                         } else {
                             None
                         },
-                        ghost_text: ghost_text_str.map(|t| (self.cursor.x, t)),
                     };
 
                     let render_result = self
@@ -707,5 +687,117 @@ impl crate::TermWindow {
             baseline: 1.0,
             content: ComputedElementContent::Children(vec![]),
         })
+    }
+
+    /// Render a small `×` button in the top-right corner of `pos`. Caller is
+    /// responsible for only invoking this when there are 2+ panes — for a
+    /// single pane the button would be redundant with Cmd+W and just clutter.
+    pub fn paint_pane_close_button(
+        &mut self,
+        pos: &PositionedPane,
+        layers: &mut TripleLayerQuadAllocator,
+    ) -> anyhow::Result<()> {
+        let cell_width = self.render_metrics.cell_size.width as f32;
+        let cell_height = self.render_metrics.cell_size.height as f32;
+        let (padding_left, padding_top) = self.padding_left_top();
+        let border = self.get_os_border();
+        let tab_bar_height = if self.show_tab_bar {
+            self.tab_bar_pixel_height().context("tab_bar_pixel_height")?
+        } else {
+            0.0
+        };
+        let (top_bar_height, _bottom_bar_height) = if self.config.tab_bar_at_bottom {
+            (0.0, tab_bar_height)
+        } else {
+            (tab_bar_height, 0.0)
+        };
+        let top_pixel_y = top_bar_height + padding_top + border.top.get() as f32;
+
+        // Pane right edge in pixels (mirror background_rect logic).
+        let pane_right = if pos.left + pos.width >= self.terminal_size.cols as usize {
+            self.dimensions.pixel_width as f32
+        } else {
+            padding_left
+                + border.left.get() as f32
+                + ((pos.left + pos.width) as f32 * cell_width)
+        };
+        let pane_top = if pos.top == 0 {
+            top_pixel_y
+        } else {
+            top_pixel_y + (pos.top as f32 * cell_height)
+        };
+
+        // 3-cell button " × " — wide enough to click reliably even on small
+        // displays without crowding the corner.
+        let button_cols = 3usize;
+        let button_w = cell_width * button_cols as f32;
+        let button_h = cell_height;
+        let button_x = (pane_right - button_w).max(0.0);
+        let button_y = pane_top;
+
+        // Solid red close button drawn entirely in layer 2 so it sits above
+        // the pane's text glyphs (which live in layer 1). render_screen_line
+        // would have stuffed our `×` glyph back into layer 1 where it'd be
+        // masked by anything we drew in layer 2 above it, so we draw the
+        // `×` mark with axis-aligned rectangles in layer 2 too.
+        let bg_rgba = if pos.is_active {
+            LinearRgba::with_components(0.82, 0.22, 0.24, 1.0)
+        } else {
+            LinearRgba::with_components(0.55, 0.20, 0.22, 0.95)
+        };
+        self.filled_rectangle(
+            layers,
+            2,
+            euclid::rect(button_x, button_y, button_w, button_h),
+            bg_rgba,
+        )
+        .context("filled_rectangle for pane close button bg")?;
+
+        // Draw the `×` mark as two diagonal strokes, each made of small
+        // 2x2 px squares stepping along the diagonal. Crude, but readable
+        // at every DPI and self-contained in layer 2.
+        let white = LinearRgba::with_components(0.98, 0.98, 0.98, 1.0);
+        let cx = button_x + button_w / 2.0;
+        let cy = button_y + button_h / 2.0;
+        // Half-extent of each diagonal arm — fits within the cell without
+        // hugging the edge.
+        let arm = (button_h * 0.30).max(4.0);
+        // Stroke thickness in pixels (DPI-aware via cell_height).
+        let thick = (button_h / 9.0).max(1.5);
+        // Number of squares per arm — denser = smoother diagonal.
+        let steps = ((arm * 2.0).round() as i32).max(8);
+        for i in -steps..=steps {
+            let t = i as f32 / steps as f32; // -1..=1
+            let dx = t * arm;
+            let dy = t * arm;
+            // `\` stroke: top-left to bottom-right.
+            self.filled_rectangle(
+                layers,
+                2,
+                euclid::rect(cx + dx - thick / 2.0, cy + dy - thick / 2.0, thick, thick),
+                white,
+            )
+            .context("filled_rectangle for close x stroke 1")?;
+            // `/` stroke: top-right to bottom-left.
+            self.filled_rectangle(
+                layers,
+                2,
+                euclid::rect(cx + dx - thick / 2.0, cy - dy - thick / 2.0, thick, thick),
+                white,
+            )
+            .context("filled_rectangle for close x stroke 2")?;
+        }
+
+        let _ = button_cols;
+
+        self.ui_items.push(UIItem {
+            x: button_x as usize,
+            y: button_y as usize,
+            width: button_w as usize,
+            height: button_h as usize,
+            item_type: UIItemType::CloseSplitPane(pos.pane.pane_id()),
+        });
+
+        Ok(())
     }
 }

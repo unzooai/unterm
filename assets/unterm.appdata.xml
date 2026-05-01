@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>ai.unzoo.unterm</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>Unterm</name>
+  <summary>Unterm terminal emulator</summary>
+  <description>
+    <p>
+      Unterm is a GPU-accelerated cross-platform terminal emulator built on
+      a customized WezTerm engine, with a developer-focused workflow:
+      project-aware tabs, built-in screenshots, proxy switching, theme
+      switching, a CLI interface, and an MCP server surface for automation.
+    </p>
+  </description>
+  <launchable type="desktop-id">ai.unzoo.unterm.desktop</launchable>
+  <url type="homepage">https://github.com/unzooai/unterm</url>
+  <url type="bugtracker">https://github.com/unzooai/unterm/issues</url>
+  <provides>
+    <binary>unterm</binary>
+  </provides>
+  <developer_name>Unzoo AI</developer_name>
+  <content_rating type="oars-1.1" />
+</component>

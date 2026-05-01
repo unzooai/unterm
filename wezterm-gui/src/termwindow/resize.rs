@@ -248,19 +248,11 @@ impl super::TermWindow {
                 config.window_padding.bottom.evaluate_as_pixels(v_context) as usize;
             let padding_right = effective_right_padding(&config, h_context);
 
-            let mut avail_width = dimensions.pixel_width.saturating_sub(
+            let avail_width = dimensions.pixel_width.saturating_sub(
                 (padding_left + padding_right) as usize
                     + (border.left + border.right).get() as usize,
             );
 
-            // Shrink terminal area when AI panel is visible
-            if crate::ai::models::ai_state().panel_visible() {
-                let total_cols =
-                    dimensions.pixel_width / self.render_metrics.cell_size.width as usize;
-                let panel_cols = (total_cols * 30 / 100).max(30).min(60);
-                let panel_pixel_width = panel_cols * self.render_metrics.cell_size.width as usize;
-                avail_width = avail_width.saturating_sub(panel_pixel_width);
-            }
             let avail_height = dimensions
                 .pixel_height
                 .saturating_sub(

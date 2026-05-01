@@ -34,18 +34,18 @@ use wezterm_gui_subcommands::*;
 use wezterm_mux_server_impl::update_mux_domains;
 use wezterm_toast_notification::*;
 
-mod ai;
 mod colorease;
 mod commands;
 mod customglyph;
 mod download;
 mod frontend;
-mod ghost_text;
 mod glyphcache;
+mod i18n;
 mod inputmap;
 mod mcp;
 mod overlay;
 mod quad;
+mod recording;
 mod renderstate;
 mod resize_increment_calculator;
 mod scripting;
@@ -55,12 +55,15 @@ pub mod session_state;
 mod shapecache;
 mod spawn;
 mod stats;
+mod system_proxy;
 mod tabbar;
 mod termwindow;
 mod unicode_names;
 mod uniforms;
 mod update;
 mod utilsprites;
+mod server_info;
+mod web_settings;
 
 #[cfg(feature = "dhat-heap")]
 #[global_allocator]
@@ -424,9 +427,21 @@ async fn async_run_terminal_gui(
         log::warn!("{:#}", err);
     }
 
-    // Start Unterm MCP server for AI agent access
-    let _mcp_token = mcp::start_mcp_server();
-    log::info!("Unterm MCP server started, auth token saved");
+    // Start Unterm MCP server for AI agent access. Token + bound port are
+    // written to ~/.unterm/server.json; legacy ~/.unterm/auth_token is also
+    // written for back-compat with older clients.
+    let (mcp_port, mcp_token) = mcp::start_mcp_server();
+    log::info!(
+        "Unterm MCP server started on 127.0.0.1:{}, server.json written",
+        mcp_port
+    );
+
+    // Bring up the HTTP-Settings server so users can hit
+    // http://127.0.0.1:<http_port> for the Web UI. Same auth token as MCP.
+    if !mcp_token.is_empty() {
+        let http_port = web_settings::start_web_settings_server(mcp_token);
+        log::info!("Unterm Web Settings UI: http://127.0.0.1:{}", http_port);
+    }
 
     if !opts.no_auto_connect {
         connect_to_auto_connect_domains().await?;
@@ -500,7 +515,42 @@ async fn async_run_terminal_gui(
             trigger_and_log_gui_attached(MuxDomain(domain.domain_id())).await;
         }
     }
-    spawn_tab_in_domain_if_mux_is_empty(cmd, is_connecting, domain, opts.workspace).await
+    let result =
+        spawn_tab_in_domain_if_mux_is_empty(cmd, is_connecting, domain, opts.workspace).await;
+
+    // First-run onboarding hint — write a single dim status line to the
+    // initial pane the first time Unterm launches, so the user discovers the
+    // session-recording feature without having to open the Settings menu
+    // unprompted. After it shows once, mark `~/.unterm/onboarded.json:first_run`
+    // so it never appears again.
+    if let Some(path) = first_run_path() {
+        if !path.exists() {
+            std::thread::spawn(move || {
+                // Wait for the first prompt to settle so the hint isn't overwritten.
+                std::thread::sleep(std::time::Duration::from_secs(3));
+                let mux = Mux::get();
+                if let Some(pane) = mux.iter_panes().into_iter().next() {
+                    crate::termwindow::mouseevent::write_unterm_status_to_pane(
+                        &pane,
+                        "💡 Save this terminal session for AI tuning — Settings (▼) → Session Recording",
+                    );
+                }
+                if let Some(parent) = path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                let _ = std::fs::write(
+                    &path,
+                    serde_json::json!({"first_run": true}).to_string().as_bytes(),
+                );
+            });
+        }
+    }
+
+    result
+}
+
+fn first_run_path() -> Option<std::path::PathBuf> {
+    Some(dirs_next::home_dir()?.join(".unterm").join("first_run.json"))
 }
 
 #[derive(Debug)]
@@ -1263,7 +1313,7 @@ fn run() -> anyhow::Result<()> {
         Some(sub) => sub,
         None => {
             // Need to fake an argv0
-            let mut argv = vec!["wezterm-gui".to_string()];
+            let mut argv = vec!["unterm".to_string()];
             for a in &config.default_gui_startup_args {
                 argv.push(a.clone());
             }

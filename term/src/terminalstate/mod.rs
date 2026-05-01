@@ -552,7 +552,7 @@ impl TerminalState {
             newline_mode: false,
             current_mouse_buttons: vec![],
             tabs: TabStop::new(size.cols, 8),
-            title: "wezterm".to_string(),
+            title: "unterm".to_string(),
             icon_title: None,
             palette: None,
             pixel_height: size.pixel_height,

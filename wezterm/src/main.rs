@@ -18,12 +18,13 @@ use wezterm_gui_subcommands::*;
 
 mod asciicast;
 mod cli;
+mod unterm_cli;
 
 //    let message = "; ❤ 😍🤢\n\x1b[91;mw00t\n\x1b[37;104;m bleet\x1b[0;m.";
 
 #[derive(Debug, Parser)]
 #[command(
-    about = "Wez's Terminal Emulator\nhttp://github.com/wezterm/wezterm",
+    about = "Unterm — cross-platform terminal\nhttps://github.com/unzooai/unterm",
     version = wezterm_version()
 )]
 pub struct Opt {
@@ -48,6 +49,16 @@ pub struct Opt {
         value_parser=ValueParser::new(name_equals_value),
         number_of_values = 1)]
     config_override: Vec<(String, String)>,
+
+    /// Emit raw JSON-RPC `result` payloads for `proxy`, `theme`, `session`,
+    /// `sessions`, and `screenshot` subcommands. Ignored by other commands.
+    #[arg(long = "json", global = true)]
+    json: bool,
+
+    /// Override the interface locale for this invocation only (does not
+    /// persist). Use `unterm-cli lang set <code>` to make it permanent.
+    #[arg(long = "lang", global = true, value_name = "code")]
+    lang: Option<String>,
 
     #[command(subcommand)]
     cmd: Option<SubCommand>,
@@ -134,6 +145,40 @@ enum SubCommand {
 
     #[command(name = "replay", about = "Replay an asciicast terminal session")]
     Replay(asciicast::PlayCommand),
+
+    #[command(name = "proxy", about = "Manage Unterm's proxy via the MCP server")]
+    Proxy(unterm_cli::ProxyCommand),
+
+    #[command(name = "theme", about = "List/switch Unterm theme presets")]
+    Theme(unterm_cli::ThemeCommand),
+
+    #[command(name = "session", about = "Operate on a single live pane")]
+    Session(unterm_cli::SessionCommand),
+
+    #[command(name = "sessions", about = "Browse the recorded session archive")]
+    Sessions(unterm_cli::SessionsCommand),
+
+    #[command(
+        name = "settings",
+        about = "Open the Unterm Web Settings UI in your browser"
+    )]
+    Settings(unterm_cli::SettingsCommand),
+
+    #[command(
+        name = "lang",
+        about = "List, set, or print the active interface locale"
+    )]
+    Lang(unterm_cli::LangCommand),
+
+    #[command(name = "screenshot", about = "Capture the screen via Unterm's MCP server")]
+    Screenshot {
+        /// Include Unterm's own window in the capture (default: exclude).
+        #[arg(long = "include-window")]
+        include_window: bool,
+        /// Optional output PNG path. If omitted, the MCP-side path is printed.
+        #[arg(short = 'o', long = "output", value_hint=ValueHint::FilePath)]
+        output: Option<std::path::PathBuf>,
+    },
 
     /// Generate shell completion information
     #[command(name = "shell-completion")]
@@ -737,6 +782,11 @@ fn run() -> anyhow::Result<()> {
 
     let opts = Opt::parse();
 
+    // `--lang <code>` is a global flag that affects only this process. The
+    // CLI subcommands look up translations through `unterm_cli::i18n`, which
+    // honours this transient override.
+    unterm_cli::apply_transient_lang(opts.lang.as_deref());
+
     match opts
         .cmd
         .as_ref()
@@ -755,6 +805,16 @@ fn run() -> anyhow::Result<()> {
         SubCommand::Cli(cli) => cli::run_cli(&opts, cli),
         SubCommand::Record(cmd) => cmd.run(init_config(&opts)?),
         SubCommand::Replay(cmd) => cmd.run(),
+        SubCommand::Proxy(cmd) => unterm_cli::run_proxy(cmd, opts.json),
+        SubCommand::Theme(cmd) => unterm_cli::run_theme(cmd, opts.json),
+        SubCommand::Session(cmd) => unterm_cli::run_session(cmd, opts.json),
+        SubCommand::Sessions(cmd) => unterm_cli::run_sessions(cmd, opts.json),
+        SubCommand::Screenshot {
+            include_window,
+            output,
+        } => unterm_cli::run_screenshot(include_window, output, opts.json),
+        SubCommand::Settings(cmd) => unterm_cli::run_settings(cmd),
+        SubCommand::Lang(cmd) => unterm_cli::run_lang(cmd, opts.json),
         SubCommand::ShellCompletion { shell } => {
             use clap::CommandFactory;
             let mut cmd = Opt::command();
@@ -772,9 +832,9 @@ fn delegate_to_gui(saver: UmaskSaver) -> anyhow::Result<()> {
     drop(saver);
 
     let exe_name = if cfg!(windows) {
-        "wezterm-gui.exe"
+        "unterm.exe"
     } else {
-        "wezterm-gui"
+        "unterm"
     };
 
     let exe = std::env::current_exe()?

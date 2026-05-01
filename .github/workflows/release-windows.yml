@@ -1,0 +1,69 @@
+name: release-windows
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "tag override"
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-2022
+    env:
+      RUSTUP_WINDOWS_PATH_ADD_BIN: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Resolve tag
+        id: tag
+        shell: bash
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then echo "name=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else echo "name=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"; fi
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          target: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: cargo build --release -p unterm -p unterm-cli -p unterm-mux -p strip-ansi-escapes
+      - name: Stage zip
+        shell: bash
+        env:
+          TAG_NAME: ${{ steps.tag.outputs.name }}
+          OSTYPE: msys
+        run: ci/deploy.sh
+      - name: Fetch WiX
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force .\.tools | Out-Null
+          Invoke-WebRequest -Uri "https://github.com/wixtoolset/wix/releases/download/v6.0.1/wix-cli-x64.msi" -OutFile wix.msi
+          # Extract wix.exe out of the MSI without installing globally
+          msiexec /a wix.msi /qn TARGETDIR="$PWD\wix-extract"
+          $wixExe = Get-ChildItem -Recurse -Filter wix.exe wix-extract | Select-Object -First 1
+          Copy-Item $wixExe.FullName .\.tools\wix.exe
+      - name: Build MSI
+        shell: pwsh
+        run: |
+          $ver = (Select-String -Path installer\Unterm.wxs -Pattern 'Version="([0-9.]+)"').Matches.Groups[1].Value
+          pwsh -File ci\build-msi.ps1 -Version $ver
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-artifacts
+          path: |
+            Unterm-windows-*.zip
+            dist\Unterm-*.msi
+      - name: GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            Unterm-windows-*.zip
+            dist\Unterm-*.msi
+          fail_on_unmatched_files: false

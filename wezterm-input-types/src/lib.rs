@@ -2116,8 +2116,22 @@ impl TryFrom<String> for WindowDecorations {
 
 impl Default for WindowDecorations {
     fn default() -> Self {
-        // Unterm: 无边框 + 集成标题按钮，类似 Windows Terminal
-        WindowDecorations::INTEGRATED_BUTTONS | WindowDecorations::RESIZE
+        // Per-platform Unterm defaults:
+        //   Windows: integrated title buttons (Windows Terminal feel)
+        //   macOS:   native title bar + traffic-light buttons
+        //   Linux:   client-side title bar (works on both X11 and Wayland)
+        #[cfg(target_os = "windows")]
+        {
+            WindowDecorations::INTEGRATED_BUTTONS | WindowDecorations::RESIZE
+        }
+        #[cfg(target_os = "macos")]
+        {
+            WindowDecorations::TITLE | WindowDecorations::RESIZE
+        }
+        #[cfg(all(unix, not(target_os = "macos")))]
+        {
+            WindowDecorations::TITLE | WindowDecorations::RESIZE
+        }
     }
 }
 

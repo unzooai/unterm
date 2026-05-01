@@ -34,7 +34,6 @@ use wezterm_term::color::{ColorAttribute, ColorPalette};
 use wezterm_term::{CellAttributes, Line, StableRowIndex};
 use window::color::LinearRgba;
 
-pub mod ai_panel;
 pub mod borders;
 pub mod corners;
 pub mod draw;
@@ -62,8 +61,6 @@ pub struct LineQuadCacheKey {
     pub quad_generation: usize,
     /// Only set if cursor.y == stable_row
     pub composing: Option<String>,
-    /// Ghost text suggestion at cursor position
-    pub ghost_text: Option<String>,
     pub selection: Range<usize>,
     pub shape_hash: [u8; 16],
     pub top_pixel_y: NotNan<f32>,
@@ -100,8 +97,6 @@ pub struct LineToElementParams<'a> {
 pub struct LineToEleShapeCacheKey {
     pub shape_hash: [u8; 16],
     pub composing: Option<(usize, String)>,
-    /// Ghost text suggestion: (cursor_x, text)
-    pub ghost_text: Option<(usize, String)>,
     pub shape_generation: usize,
 }
 

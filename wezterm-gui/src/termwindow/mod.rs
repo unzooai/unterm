@@ -74,7 +74,7 @@ pub mod charselect;
 pub mod clipboard;
 pub mod keyevent;
 pub mod modal;
-mod mouseevent;
+pub(crate) mod mouseevent;
 pub mod palette;
 pub mod paneselect;
 mod prevcursor;
@@ -167,15 +167,16 @@ pub enum UIItemType {
     ScrollThumb,
     BelowScrollThumb,
     Split(PositionedSplit),
-    AiPanel,
-    AiPanelInput,
-    AiPanelExecute(String),
     StatusBarProject,
     StatusBarTheme,
-    StatusBarCapture,
-    StatusBarAdmin,
+    /// Region screenshot, hide-Unterm-window mode (left-click = trigger).
+    StatusBarCaptureExclude,
+    /// Region screenshot, include-Unterm-window mode (left-click = trigger).
+    StatusBarCaptureInclude,
     StatusBarProxy,
-    StatusBarCommand,
+    /// `×` button rendered in the top-right corner of every pane when the
+    /// active tab has 2+ panes. Click closes the specific pane.
+    CloseSplitPane(mux::pane::PaneId),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -480,6 +481,15 @@ pub struct TermWindow {
     gl: Option<Rc<glium::backend::Context>>,
     webgpu: Option<Rc<WebGpuState>>,
     config_subscription: Option<config::ConfigSubscription>,
+}
+
+/// Read the pane's current working directory and turn it into a local
+/// filesystem PathBuf — used as the starting location for folder pickers,
+/// so the dialog opens at where the user is *now*, not at Documents/My Computer.
+/// Returns None when cwd is unknown (not a file:// URL, or remote SSH pane).
+fn pane_cwd_path(pane: &Arc<dyn mux::pane::Pane>) -> Option<std::path::PathBuf> {
+    let url = pane.get_current_working_dir(mux::pane::CachePolicy::AllowStale)?;
+    url.to_file_path().ok()
 }
 
 impl TermWindow {
@@ -907,14 +917,6 @@ impl TermWindow {
         .await?;
         tw.borrow_mut().window.replace(window.clone());
 
-        // Register window invalidate callback for AI state changes from MCP/background threads
-        {
-            let win = window.clone();
-            crate::ai::models::ai_state().set_invalidate_fn(Box::new(move || {
-                win.invalidate();
-            }));
-        }
-
         Self::apply_icon(&window)?;
 
         let config_subscription = config::subscribe_to_config_reload({
@@ -1097,9 +1099,6 @@ impl TermWindow {
                         self.dispatch_notif(*notif, window)
                             .context("dispatch_notif")?;
                     }
-                } else if let Ok(menu_cmd) = item.downcast::<usize>() {
-                    // Unterm: native context menu result from WM_APP handler
-                    self.handle_context_menu_result(*menu_cmd);
                 }
                 Ok(true)
             }
@@ -1525,8 +1524,6 @@ impl TermWindow {
             if let Some(ref win) = self.window {
                 win.invalidate();
             }
-            // Auto error detection for AI insights
-            crate::ai::auto_detect::on_pane_output(pane_id);
         }
     }
 
@@ -2043,7 +2040,7 @@ impl TermWindow {
     }
 
     fn default_right_status(
-        config: &config::ConfigHandle,
+        _config: &config::ConfigHandle,
         active_pane: Option<&PaneInformation>,
     ) -> String {
         let mut parts: Vec<String> = Vec::new();
@@ -2057,21 +2054,6 @@ impl TermWindow {
 
             // Terminal dimensions (cols x rows)
             parts.push(format!("{}×{}", pane.width, pane.height));
-        }
-
-        // AI model name
-        if config.ai_enabled {
-            let ai = crate::ai::models::ai_state();
-            let model = ai.active_model();
-            // Capitalize first letter for display
-            let display_name = {
-                let mut chars = model.chars();
-                match chars.next() {
-                    Some(c) => c.to_uppercase().to_string() + chars.as_str(),
-                    None => model.clone(),
-                }
-            };
-            parts.push(display_name);
         }
 
         if parts.is_empty() {
@@ -2513,20 +2495,6 @@ impl TermWindow {
         promise::spawn::spawn(future).detach();
     }
 
-    pub fn show_ai_settings(&mut self) {
-        let mux = Mux::get();
-        let tab = match mux.get_active_tab_for_window(self.mux_window_id) {
-            Some(tab) => tab,
-            None => return,
-        };
-
-        let (overlay, future) = start_overlay(self, &tab, move |_tab_id, mut term| {
-            crate::overlay::ai_settings::ai_settings(&mut term)
-        });
-        self.assign_overlay(tab.tab_id(), overlay);
-        promise::spawn::spawn(future).detach();
-    }
-
     pub fn show_proxy_settings(&mut self) {
         let mux = Mux::get();
         let tab = match mux.get_active_tab_for_window(self.mux_window_id) {
@@ -2577,88 +2545,63 @@ impl TermWindow {
         promise::spawn::spawn(future).detach();
     }
 
+    /// Right-click is a direct gesture, not a menu trigger:
+    ///   * with selection → copy + clear selection
+    ///   * without selection → paste from clipboard
+    ///
+    /// Settings entry points (Themes / Proxy / Project Directory / Shell
+    /// Selector) are reached via the status bar buttons, the OS app menu bar,
+    /// and keyboard shortcuts — never by right-click.
     fn show_context_menu(&mut self) {
-        #[cfg(windows)]
-        {
-            self.show_native_context_menu_async();
-            return;
-        }
-
-        #[cfg(not(windows))]
-        {
-            // Fallback to overlay menu on non-Windows
-            let mux = Mux::get();
-            let tab = match mux.get_active_tab_for_window(self.mux_window_id) {
-                Some(tab) => tab,
-                None => return,
-            };
-            let pane = match self.get_active_pane_or_overlay() {
-                Some(pane) => pane,
-                None => return,
-            };
-            let window = self.window.as_ref().unwrap().clone();
-            let pane_id = pane.pane_id();
-            let (overlay, future) = start_overlay(self, &tab, move |_tab_id, mut term| {
-                crate::overlay::context_menu::context_menu(&mut term, window, pane_id)
-            });
-            self.assign_overlay(tab.tab_id(), overlay);
-            promise::spawn::spawn(future).detach();
-        }
-    }
-
-    /// Handle the result from a native Win32 context menu selection.
-    /// The menu command IDs match those defined in window/src/os/windows/window.rs
-    /// unterm_context_menu function.
-    #[cfg(windows)]
-    fn handle_context_menu_result(&mut self, cmd: usize) {
-        use config::keyassignment::*;
-
-        let assignment = match cmd {
-            1 => Some(KeyAssignment::CopyTo(ClipboardCopyDestination::Clipboard)),
-            2 => Some(KeyAssignment::PasteFrom(ClipboardPasteSource::Clipboard)),
-            3 => Some(KeyAssignment::ActivateCopyMode),
-            10 => Some(KeyAssignment::Search(
-                Pattern::CurrentSelectionOrEmptyString,
-            )),
-            11 => Some(KeyAssignment::ActivateCommandPalette),
-            12 => {
-                self.capture_region_from_menu(true);
-                None
-            }
-            13 => {
-                self.capture_region_from_menu(false);
-                None
-            }
-            20 => Some(KeyAssignment::SpawnTab(SpawnTabDomain::CurrentPaneDomain)),
-            21 => Some(KeyAssignment::SplitHorizontal(SpawnCommand::default())),
-            22 => Some(KeyAssignment::SplitVertical(SpawnCommand::default())),
-            23 => {
-                self.open_project_directory_from_menu();
-                None
-            }
-            31 => {
-                self.show_proxy_settings();
-                None
-            }
-            32 => {
-                self.show_theme_selector();
-                None
-            }
-            40 => Some(KeyAssignment::CloseCurrentPane { confirm: true }),
-            41 => Some(KeyAssignment::CloseCurrentTab { confirm: true }),
-            _ => None,
+        use config::keyassignment::{
+            ClipboardCopyDestination, ClipboardPasteSource, KeyAssignment,
         };
 
-        if let Some(assignment) = assignment {
-            log::info!("handle_context_menu_result: executing cmd={}", cmd);
-            if let Some(pane) = self.get_active_pane_or_overlay() {
-                self.perform_key_assignment(&pane, &assignment).ok();
-            }
+        let pane = match self.get_active_pane_or_overlay() {
+            Some(pane) => pane,
+            None => return,
+        };
+        let has_selection = !self.selection_text(&pane).is_empty();
+
+        let assignment = if has_selection {
+            KeyAssignment::CopyTo(ClipboardCopyDestination::Clipboard)
+        } else {
+            KeyAssignment::PasteFrom(ClipboardPasteSource::Clipboard)
+        };
+        if let Err(err) = self.perform_key_assignment(&pane, &assignment) {
+            log::warn!("right-click quick-action failed: {err:#}");
+        }
+        if has_selection {
+            // Clear the selection so the user gets a clean prompt back.
+            let pane_id = pane.pane_id();
+            self.selection(pane_id).clear();
         }
     }
 
-    #[cfg(windows)]
-    fn open_project_directory_from_menu(&mut self) {
+    /// Open the settings menu — the Tab bar's `▼` button is the GUI entry
+    /// point for everything configuration-related (Themes, Proxy, Project
+    /// Directory, Shell Selector). The right-click gesture is reserved for
+    /// direct copy/paste, so this is the *only* place a menu surfaces.
+    fn show_settings_menu(&mut self) {
+        let mux = Mux::get();
+        let tab = match mux.get_active_tab_for_window(self.mux_window_id) {
+            Some(tab) => tab,
+            None => return,
+        };
+        let pane = match self.get_active_pane_or_overlay() {
+            Some(pane) => pane,
+            None => return,
+        };
+        let pane_id = pane.pane_id();
+        let window = self.window.as_ref().unwrap().clone();
+        let (overlay, future) = start_overlay(self, &tab, move |_tab_id, mut term| {
+            crate::overlay::settings_menu::settings_menu(&mut term, window, pane_id)
+        });
+        self.assign_overlay(tab.tab_id(), overlay);
+        promise::spawn::spawn(future).detach();
+    }
+
+    pub(crate) fn open_project_directory_from_menu(&mut self) {
         let Some(pane) = self.get_active_pane_no_overlay() else {
             return;
         };
@@ -2666,66 +2609,236 @@ impl TermWindow {
         let Some(window) = self.window.as_ref().cloned() else {
             return;
         };
+        let start_at = pane_cwd_path(&pane);
         crate::termwindow::mouseevent::write_unterm_status_to_pane(
             &pane,
-            "Select a project directory to open in a new tab.",
+            &crate::i18n::t("project.prompt_new_tab"),
         );
         std::thread::spawn(move || {
-            crate::termwindow::mouseevent::open_project_directory_in_new_tab(window, pane_id);
+            crate::termwindow::mouseevent::open_project_directory_in_new_tab(
+                window, pane_id, start_at,
+            );
         });
     }
 
-    #[cfg(windows)]
-    fn capture_region_from_menu(&mut self, hide_window: bool) {
+    /// Pop a folder picker, then split the current pane horizontally and
+    /// spawn a shell in the picked directory in the new right-side pane.
+    pub(crate) fn open_folder_in_split(&mut self, pane_id: mux::pane::PaneId) {
+        use config::keyassignment::{KeyAssignment, SpawnCommand};
         let Some(pane) = self.get_active_pane_no_overlay() else {
             return;
         };
-        let mode_label = if hide_window {
-            "exclude-current-window"
-        } else {
-            "include-current-window"
+        let Some(window) = self.window.as_ref().cloned() else {
+            return;
         };
+        let start_at = pane_cwd_path(&pane);
         crate::termwindow::mouseevent::write_unterm_status_to_pane(
             &pane,
-            &format!("{mode_label} screenshot started. Drag a region or press Esc to cancel."),
+            &crate::i18n::t("project.prompt_split"),
         );
         std::thread::spawn(move || {
-            let message = match crate::termwindow::mouseevent::capture_selected_region_to_file(hide_window) {
-                Ok(path) => format!("{mode_label} screenshot saved and copied: {}", path.display()),
-                Err(err) => {
-                    log::error!("context menu {mode_label} region capture failed: {err:#}");
-                    format!("{mode_label} screenshot failed: {err:#}")
+            #[cfg(target_os = "windows")]
+            let picked = crate::termwindow::mouseevent::pick_project_directory_starting_at(
+                start_at.as_deref(),
+            );
+            #[cfg(not(target_os = "windows"))]
+            let picked = crate::termwindow::mouseevent::pick_project_directory_unix_starting_at(
+                start_at.as_deref(),
+            );
+            match picked {
+                Ok(path) => {
+                    window.notify(crate::termwindow::TermWindowNotif::PerformAssignment {
+                        pane_id,
+                        assignment: KeyAssignment::SplitHorizontal(SpawnCommand {
+                            cwd: Some(path),
+                            ..SpawnCommand::default()
+                        }),
+                        tx: None,
+                    });
                 }
-            };
-            crate::termwindow::mouseevent::write_unterm_status_to_pane(&pane, &message);
+                Err(err) => {
+                    log::warn!("open-folder-in-split canceled: {err:#}");
+                }
+            }
         });
     }
 
-    /// Post WM_APP to our HWND to show a native Win32 context menu.
-    /// The menu is created and shown in do_wnd_proc's WM_APP handler,
-    /// which runs outside any RefCell borrow — avoiding re-entrant panics
-    /// from TrackPopupMenu's internal message loop.
-    #[cfg(windows)]
-    fn show_native_context_menu_async(&mut self) {
-        use winapi::shared::windef::POINT;
-        use winapi::um::winuser::*;
-
-        // Capture cursor position
-        let mut pt = POINT { x: 0, y: 0 };
-        unsafe { GetCursorPos(&mut pt) };
-
-        // Encode cursor position into wparam: low 16 bits = x, high 16 bits = y
-        let wparam = ((pt.x as i16 as u16) as usize) | (((pt.y as i16 as u16) as usize) << 16);
-
-        // Get the HWND and post WM_APP
-        let hwnd = unsafe { GetForegroundWindow() };
-        if !hwnd.is_null() {
-            log::info!(
-                "show_native_context_menu_async: posting WM_APP at ({}, {})",
-                pt.x,
-                pt.y
+    /// Pop a folder picker, then `cd` the chosen path in the *current* pane —
+    /// no new tab. The cd is shell-quoted and written to the pane's PTY input,
+    /// so the user sees and confirms it.
+    pub(crate) fn change_working_directory_for_pane(&mut self, _pane_id: mux::pane::PaneId) {
+        let Some(pane) = self.get_active_pane_no_overlay() else {
+            return;
+        };
+        let start_at = pane_cwd_path(&pane);
+        crate::termwindow::mouseevent::write_unterm_status_to_pane(
+            &pane,
+            &crate::i18n::t("cwd.prompt"),
+        );
+        std::thread::spawn(move || {
+            #[cfg(target_os = "windows")]
+            let picked = crate::termwindow::mouseevent::pick_project_directory_starting_at(
+                start_at.as_deref(),
             );
-            unsafe { PostMessageW(hwnd, WM_APP, wparam, 0) };
+            #[cfg(not(target_os = "windows"))]
+            let picked = crate::termwindow::mouseevent::pick_project_directory_unix_starting_at(
+                start_at.as_deref(),
+            );
+
+            match picked {
+                Ok(path) => {
+                    // POSIX single-quote literal — escape embedded single
+                    // quotes by closing / re-opening: foo'bar → 'foo'\''bar'.
+                    // Same form works in PowerShell.
+                    let raw = path.display().to_string();
+                    let quoted = format!("'{}'", raw.replace('\'', "'\\''"));
+                    let cmd = format!("cd {}\n", quoted);
+                    use std::io::Write as _;
+                    let mut writer = pane.writer();
+                    if let Err(err) = writer.write_all(cmd.as_bytes()) {
+                        log::warn!("could not inject cd command: {err:#}");
+                    }
+                }
+                Err(err) => {
+                    log::warn!("change-cwd canceled: {err:#}");
+                }
+            }
+        });
+    }
+
+    /// Toggle session recording on/off for the given pane. Status is
+    /// announced inline in the pane so the user always knows whether the
+    /// red dot they see corresponds to an active recording.
+    pub(crate) fn toggle_session_recording(&mut self, pane_id: mux::pane::PaneId) {
+        let Some(pane) = self.get_active_pane_no_overlay() else {
+            return;
+        };
+        if crate::recording::recorder::current_session(pane_id).is_some() {
+            match crate::recording::recorder::stop_recording(pane_id) {
+                Ok(stop) => {
+                    crate::termwindow::mouseevent::write_unterm_status_to_pane(
+                        &pane,
+                        &crate::i18n::t_args(
+                            "recording.stopped",
+                            &[
+                                ("blocks", &stop.block_count.to_string()),
+                                ("path", &stop.md_path),
+                            ],
+                        ),
+                    );
+                }
+                Err(err) => {
+                    log::error!("recording stop failed: {err:#}");
+                    crate::termwindow::mouseevent::write_unterm_status_to_pane(
+                        &pane,
+                        &crate::i18n::t_args(
+                            "recording.stop_failed",
+                            &[("err", &format!("{err:#}"))],
+                        ),
+                    );
+                }
+            }
+        } else {
+            match crate::recording::recorder::start_recording(pane_id) {
+                Ok(start) => {
+                    crate::termwindow::mouseevent::write_unterm_status_to_pane(
+                        &pane,
+                        &crate::i18n::t_args(
+                            "recording.started",
+                            &[("path", &start.log_path)],
+                        ),
+                    );
+                }
+                Err(err) => {
+                    log::error!("recording start failed: {err:#}");
+                    crate::termwindow::mouseevent::write_unterm_status_to_pane(
+                        &pane,
+                        &crate::i18n::t_args(
+                            "recording.start_failed",
+                            &[("err", &format!("{err:#}"))],
+                        ),
+                    );
+                }
+            }
+        }
+    }
+
+    /// One-shot dump of the current pane's scrollback to a markdown file
+    /// under `~/.unterm/sessions/`. Independent of recording state.
+    pub(crate) fn export_current_session(&mut self, pane_id: mux::pane::PaneId) {
+        let Some(pane) = self.get_active_pane_no_overlay() else {
+            return;
+        };
+        match crate::recording::recorder::export_pane_markdown(pane_id, None) {
+            Ok((path, _output)) => {
+                let path_str = path.display().to_string();
+                if let Err(err) = crate::termwindow::mouseevent::copy_text_to_clipboard(&path_str)
+                {
+                    log::warn!("could not copy export path to clipboard: {err:#}");
+                }
+                crate::termwindow::mouseevent::write_unterm_status_to_pane(
+                    &pane,
+                    &crate::i18n::t_args(
+                        "recording.exported",
+                        &[("path", &path_str)],
+                    ),
+                );
+            }
+            Err(err) => {
+                log::error!("session export failed: {err:#}");
+                crate::termwindow::mouseevent::write_unterm_status_to_pane(
+                    &pane,
+                    &crate::i18n::t_args(
+                        "recording.export_failed",
+                        &[("err", &format!("{err:#}"))],
+                    ),
+                );
+            }
+        }
+    }
+
+    /// Open the Unterm Web Settings UI in the user's default browser. The
+    /// HTTP-Settings server's bound port lives in `~/.unterm/server.json`.
+    pub(crate) fn open_web_settings(&mut self) {
+        let info = crate::server_info::read();
+        if info.http_port == 0 {
+            log::warn!("web settings: http_port not yet bound; cannot open browser");
+            return;
+        }
+        let url = format!("http://127.0.0.1:{}", info.http_port);
+
+        #[cfg(target_os = "macos")]
+        let opener = "open";
+        #[cfg(target_os = "windows")]
+        let opener = "explorer";
+        #[cfg(all(unix, not(target_os = "macos")))]
+        let opener = "xdg-open";
+
+        if let Err(err) = std::process::Command::new(opener).arg(&url).spawn() {
+            log::warn!("could not open web settings in browser: {err:#}");
+        }
+    }
+
+    /// Reveal `~/.unterm/sessions/` in the platform's file manager.
+    pub(crate) fn open_sessions_folder(&mut self) {
+        let Some(home) = dirs_next::home_dir() else {
+            return;
+        };
+        let sessions_dir = home.join(".unterm").join("sessions");
+        let _ = std::fs::create_dir_all(&sessions_dir);
+
+        #[cfg(target_os = "macos")]
+        let opener = "open";
+        #[cfg(target_os = "windows")]
+        let opener = "explorer";
+        #[cfg(all(unix, not(target_os = "macos")))]
+        let opener = "xdg-open";
+
+        if let Err(err) = std::process::Command::new(opener)
+            .arg(&sessions_dir)
+            .spawn()
+        {
+            log::warn!("could not open sessions folder: {err:#}");
         }
     }
 
@@ -3169,42 +3282,7 @@ impl TermWindow {
             ScrollToBottom => self.scroll_to_bottom(pane),
             ShowTabNavigator => self.show_tab_navigator(),
             ShowDebugOverlay => self.show_debug_overlay(),
-            ToggleAiPanel => {
-                let visible = crate::ai::models::ai_state().toggle_panel();
-                log::info!(
-                    "AI Insights panel: {}",
-                    if visible { "shown" } else { "hidden" }
-                );
-                if !visible {
-                    crate::ai::models::ai_state().set_chat_focused(false);
-                }
-                // Re-apply dimensions so the terminal resizes for the panel
-                if let Some(window) = self.window.clone() {
-                    let dims = self.dimensions.clone();
-                    self.apply_dimensions(&dims, None, &window);
-                    window.invalidate();
-                }
-            }
-            FocusAiChat => {
-                let state = crate::ai::models::ai_state();
-                if state.panel_visible() {
-                    // Panel is open → close it
-                    state.set_panel_visible(false);
-                    state.set_chat_focused(false);
-                } else {
-                    // Panel is closed → open and focus chat
-                    state.set_panel_visible(true);
-                    state.set_chat_focused(true);
-                }
-                // Re-apply dimensions so terminal resizes
-                if let Some(window) = self.window.clone() {
-                    let dims = self.dimensions.clone();
-                    self.apply_dimensions(&dims, None, &window);
-                    window.invalidate();
-                }
-            }
             ShowShellSelector => self.show_shell_selector(),
-            ShowAiSettings => self.show_ai_settings(),
             ShowContextMenu => self.show_context_menu(),
             ShowLauncher => self.show_launcher(),
             ShowLauncherArgs(args) => {
@@ -3661,6 +3739,14 @@ impl TermWindow {
         } else {
             mux.remove_pane(pane_id);
         }
+    }
+
+    /// Close the pane identified by `pane_id` (the pane behind the `×` button
+    /// on a split). Skips the confirmation overlay — splits are cheap and the
+    /// user explicitly clicked the kill button, so we trust them. This matches
+    /// `WindowCloseConfirmation::NeverPrompt` from the global default.
+    pub fn close_pane_by_id(&mut self, pane_id: mux::pane::PaneId) {
+        Mux::get().remove_pane(pane_id);
     }
 
     fn close_specific_tab(&mut self, tab_idx: usize, confirm: bool) {

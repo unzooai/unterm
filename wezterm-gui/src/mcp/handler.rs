@@ -1,9 +1,6 @@
 //! MCP request handler — bridges JSON-RPC methods to WezTerm's Mux API.
 //! Implements all methods required by unterm-cli compatibility.
 
-use crate::ai::client as ai_client;
-use crate::ai::models::{ai_state, ChatMessage, ChatRole, InsightCard, InsightType, ModelProvider};
-use crate::ghost_text::{ghost_text_state, GhostText};
 use anyhow::{anyhow, Context, Result};
 use base64::Engine as _;
 use config::keyassignment::SpawnTabDomain;
@@ -51,6 +48,7 @@ struct ProxyNodeConfig {
 }
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 struct ProxySettings {
     enabled: bool,
     mode: String,
@@ -130,9 +128,6 @@ impl McpHandler {
             "screen.detect_errors" => self.screen_detect_errors(params),
             // Signal
             "signal.send" => self.signal_send(params),
-            // Ghost text
-            "ghost_text.set" => self.ghost_text_set(params),
-            "ghost_text.clear" => self.ghost_text_clear(params),
             // Orchestrate
             "orchestrate.launch" => self.orchestrate_launch(params),
             "orchestrate.broadcast" => self.orchestrate_broadcast(params),
@@ -160,23 +155,18 @@ impl McpHandler {
             // System
             "system.info" => self.system_info(),
             "system.launch_admin" => self.system_launch_admin(params),
-            // AI
-            "ai.complete" => self.ai_complete(params),
-            "ai.chat" => self.ai_chat(params),
-            "ai.analyze_error" => self.ai_analyze_error(params),
-            "ai.suggest" => self.ai_suggest(params),
-            "ai.suggest_next" => self.ai_suggest_next(params),
-            "ai.set_model" => self.ai_set_model(params),
-            "ai.get_model" => self.ai_get_model(),
-            "ai.toggle_panel" => self.ai_toggle_panel(),
-            "ai.set_insight" => self.ai_set_insight(params),
-            "ai.focus_chat" => self.ai_focus_chat(params),
-            "ai.send_chat_input" => self.ai_send_chat_input(params),
-            "ai.panel_state" => self.ai_panel_state(),
             "server.info" => self.server_info(),
             "server.health" => self.server_health(),
             "server.capabilities" => self.server_capabilities(),
             "selftest.run" => self.selftest_run(params),
+            // Session recording
+            "session.recording_start" => self.session_recording_start(params),
+            "session.recording_stop" => self.session_recording_stop(params),
+            "session.recording_status" => self.session_recording_status(params),
+            "session.recording_list" => self.session_recording_list(params),
+            "session.recording_read" => self.session_recording_read(params),
+            "session.recording_attach_trace" => self.session_recording_attach_trace(params),
+            "session.export_markdown" => self.session_export_markdown(params),
             _ => Err(anyhow!("Unknown method: {}", method)),
         }
     }
@@ -258,7 +248,6 @@ impl McpHandler {
         let pane_count = Mux::try_get()
             .map(|mux| mux.iter_panes().len())
             .unwrap_or_default();
-        let ai = ai_state();
         let config = config::configuration();
 
         Ok(json!({
@@ -279,12 +268,6 @@ impl McpHandler {
                 "color_scheme": config.color_scheme,
                 "term": config.term,
             },
-            "ai": {
-                "model": ai.active_model(),
-                "provider": ai.provider().display_name(),
-                "panel_visible": ai.panel_visible(),
-                "chat_focused": ai.chat_focused(),
-            },
         }))
     }
 
@@ -300,7 +283,14 @@ impl McpHandler {
                 "session.idle",
                 "session.cwd",
                 "session.history",
-                "session.audit_log"
+                "session.audit_log",
+                "session.recording_start",
+                "session.recording_stop",
+                "session.recording_status",
+                "session.recording_list",
+                "session.recording_read",
+                "session.recording_attach_trace",
+                "session.export_markdown"
             ],
             "exec": [
                 "exec.run",
@@ -317,24 +307,6 @@ impl McpHandler {
                 "screen.scroll",
                 "screen.search",
                 "screen.detect_errors"
-            ],
-            "ai": [
-                "ai.complete",
-                "ai.chat",
-                "ai.analyze_error",
-                "ai.suggest",
-                "ai.suggest_next",
-                "ai.set_model",
-                "ai.get_model",
-                "ai.toggle_panel",
-                "ai.set_insight",
-                "ai.focus_chat",
-                "ai.send_chat_input",
-                "ai.panel_state"
-            ],
-            "ghost_text": [
-                "ghost_text.set",
-                "ghost_text.clear"
             ],
             "workspace": [
                 "workspace.save",
@@ -891,8 +863,23 @@ impl McpHandler {
 
     // --- Proxy ---
 
+    /// Always reload from disk so external edits to `~/.unterm/proxy.json`
+    /// (or the GUI proxy_settings overlay) are reflected immediately. The
+    /// in-memory `mcp_state` proxy field is a write cache; reads should
+    /// fetch fresh.
+    fn refresh_proxy_state(&self) -> ProxySettings {
+        let fresh = load_proxy_settings();
+        mcp_state().lock().proxy = fresh.clone();
+        fresh
+    }
+
     fn proxy_status(&self) -> Result<Value> {
-        let settings = mcp_state().lock().proxy.clone();
+        let settings = self.refresh_proxy_state();
+        let health = if settings.enabled {
+            Some(probe_proxy_health(&settings))
+        } else {
+            None
+        };
         Ok(json!({
             "enabled": settings.enabled,
             "mode": settings.mode,
@@ -901,11 +888,12 @@ impl McpHandler {
             "no_proxy": settings.no_proxy,
             "current_node": settings.current_node,
             "node_count": settings.nodes.len(),
+            "health": health,
         }))
     }
 
     fn proxy_nodes(&self) -> Result<Value> {
-        let settings = mcp_state().lock().proxy.clone();
+        let settings = self.refresh_proxy_state();
         Ok(json!({
             "current_node": settings.current_node,
             "nodes": settings.nodes,
@@ -1023,17 +1011,44 @@ impl McpHandler {
     }
 
     fn proxy_env(&self) -> Result<Value> {
-        let settings = mcp_state().lock().proxy.clone();
+        let settings = self.refresh_proxy_state();
         let mut env = serde_json::Map::new();
         if settings.enabled {
-            if let Some(http) = settings.http_proxy {
+            // Prefer manual override URLs in proxy.json, otherwise auto-detect.
+            let manual_http = settings
+                .http_proxy
+                .clone()
+                .filter(|s| !s.is_empty());
+            let manual_socks = settings
+                .socks_proxy
+                .clone()
+                .filter(|s| !s.is_empty());
+            let detected = if manual_http.is_none() && manual_socks.is_none() {
+                crate::system_proxy::detect()
+            } else {
+                None
+            };
+
+            let http = manual_http.or_else(|| {
+                detected
+                    .as_ref()
+                    .and_then(|d| d.primary_http().map(str::to_string))
+            });
+            let socks =
+                manual_socks.or_else(|| detected.as_ref().and_then(|d| d.socks.clone()));
+            let no_proxy = detected
+                .as_ref()
+                .and_then(|d| d.no_proxy.clone())
+                .unwrap_or_else(|| settings.no_proxy.clone());
+
+            if let Some(http) = &http {
                 env.insert("HTTP_PROXY".to_string(), json!(http));
                 env.insert("HTTPS_PROXY".to_string(), json!(http));
             }
-            if let Some(socks) = settings.socks_proxy {
+            if let Some(socks) = &socks {
                 env.insert("ALL_PROXY".to_string(), json!(socks));
             }
-            env.insert("NO_PROXY".to_string(), json!(settings.no_proxy));
+            env.insert("NO_PROXY".to_string(), json!(no_proxy));
         }
         Ok(json!({
             "enabled": settings.enabled,
@@ -1256,14 +1271,7 @@ impl McpHandler {
     }
 
     fn capture_clipboard(&self) -> Result<Value> {
-        #[cfg(windows)]
-        {
-            return clipboard_read_win32();
-        }
-        #[cfg(not(windows))]
-        {
-            Err(anyhow!("Clipboard reading only supported on Windows"))
-        }
+        clipboard_read_any()
     }
 
     // --- Policy ---
@@ -1448,31 +1456,6 @@ impl McpHandler {
         }))
     }
 
-    fn ghost_text_set(&self, params: &Value) -> Result<Value> {
-        let pane = self.get_pane(params)?;
-        let text = params
-            .get("text")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing 'text' parameter"))?
-            .to_string();
-
-        let cursor = pane.get_cursor_position();
-
-        ghost_text_state().set(GhostText {
-            pane_id: pane.pane_id(),
-            text,
-            cursor_x: cursor.x,
-            cursor_y: cursor.y as i64,
-        });
-
-        Ok(json!({"status": "ok"}))
-    }
-
-    fn ghost_text_clear(&self, _params: &Value) -> Result<Value> {
-        ghost_text_state().clear();
-        Ok(json!({"status": "ok"}))
-    }
-
     fn screen_detect_errors(&self, params: &Value) -> Result<Value> {
         let pane = self.get_pane(params)?;
         let dims = pane.get_dimensions();
@@ -1532,292 +1515,6 @@ impl McpHandler {
         }))
     }
 
-    // --- AI Methods ---
-
-    fn get_ai_config(&self) -> (ModelProvider, String, String) {
-        let config = config::configuration();
-        let model_name = ai_state().active_model();
-        let provider = ModelProvider::from_name(&model_name);
-        let (api_key, model_id) = match &provider {
-            ModelProvider::Claude => (
-                config.ai_claude_api_key.clone(),
-                config.ai_claude_model.clone(),
-            ),
-            ModelProvider::OpenAI => (
-                config.ai_openai_api_key.clone(),
-                config.ai_openai_model.clone(),
-            ),
-            ModelProvider::Gemini => (
-                config.ai_gemini_api_key.clone(),
-                config.ai_gemini_model.clone(),
-            ),
-            ModelProvider::Custom => (String::new(), String::new()),
-        };
-        (provider, api_key, model_id)
-    }
-
-    fn ai_complete(&self, params: &Value) -> Result<Value> {
-        let prompt = params
-            .get("prompt")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing 'prompt'"))?;
-        let system = params
-            .get("system")
-            .and_then(|v| v.as_str())
-            .unwrap_or("You are a helpful assistant.");
-
-        let (provider, api_key, model_id) = self.get_ai_config();
-        let response = ai_client::complete(&provider, &api_key, &model_id, system, prompt)?;
-        Ok(json!({"response": response}))
-    }
-
-    fn ai_chat(&self, params: &Value) -> Result<Value> {
-        let pane = self.get_pane(params)?;
-        let message = params
-            .get("message")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing 'message'"))?;
-
-        let screen_context = self.read_pane_text(&pane);
-        let shell = Self::detect_shell(&pane);
-        let shell_type = shell["shell_type"].as_str().unwrap_or("unknown");
-
-        // Add user message to chat history
-        ai_state().add_chat_message(ChatMessage {
-            role: ChatRole::User,
-            content: message.to_string(),
-        });
-
-        let (provider, api_key, model_id) = self.get_ai_config();
-        let response = ai_client::chat(
-            &provider,
-            &api_key,
-            &model_id,
-            shell_type,
-            &screen_context,
-            message,
-        )?;
-
-        // Add AI response to chat history
-        ai_state().add_chat_message(ChatMessage {
-            role: ChatRole::Assistant,
-            content: response.clone(),
-        });
-
-        // Store as insight card
-        ai_state().set_insight(InsightCard {
-            title: "AI Chat".to_string(),
-            content: response.clone(),
-            card_type: InsightType::Chat,
-            command: None,
-        });
-
-        Ok(json!({"response": response}))
-    }
-
-    fn ai_analyze_error(&self, params: &Value) -> Result<Value> {
-        let pane = self.get_pane(params)?;
-        let screen_context = self.read_pane_text(&pane);
-        let shell = Self::detect_shell(&pane);
-        let shell_type = shell["shell_type"].as_str().unwrap_or("unknown");
-
-        let (provider, api_key, model_id) = self.get_ai_config();
-        let (explanation, fix_command) =
-            ai_client::analyze_error(&provider, &api_key, &model_id, shell_type, &screen_context)?;
-
-        // Store as insight card
-        ai_state().set_insight(InsightCard {
-            title: "Error Analysis".to_string(),
-            content: explanation.clone(),
-            card_type: InsightType::Error,
-            command: fix_command.clone(),
-        });
-
-        Ok(json!({
-            "explanation": explanation,
-            "fix_command": fix_command,
-        }))
-    }
-
-    fn ai_suggest(&self, params: &Value) -> Result<Value> {
-        let pane = self.get_pane(params)?;
-        let partial = params.get("partial").and_then(|v| v.as_str()).unwrap_or("");
-
-        let screen_context = self.read_pane_text(&pane);
-        let shell = Self::detect_shell(&pane);
-        let shell_type = shell["shell_type"].as_str().unwrap_or("unknown");
-        let cwd = shell["cwd"].as_str().unwrap_or("~");
-
-        let (provider, api_key, model_id) = self.get_ai_config();
-        let suggestion = ai_client::ghost_text_complete(
-            &provider,
-            &api_key,
-            &model_id,
-            shell_type,
-            cwd,
-            &screen_context,
-            partial,
-        )?;
-
-        let suggestion = suggestion.trim().to_string();
-        if !suggestion.is_empty() {
-            let cursor = pane.get_cursor_position();
-            ghost_text_state().set(GhostText {
-                pane_id: pane.pane_id(),
-                text: suggestion.clone(),
-                cursor_x: cursor.x,
-                cursor_y: cursor.y as i64,
-            });
-        }
-
-        Ok(json!({"suggestion": suggestion}))
-    }
-
-    fn ai_suggest_next(&self, params: &Value) -> Result<Value> {
-        let pane = self.get_pane(params)?;
-        let screen_context = self.read_pane_text(&pane);
-        let shell = Self::detect_shell(&pane);
-        let shell_type = shell["shell_type"].as_str().unwrap_or("unknown");
-
-        let (provider, api_key, model_id) = self.get_ai_config();
-        let (suggestion, command) = ai_client::suggest_next_step(
-            &provider,
-            &api_key,
-            &model_id,
-            shell_type,
-            &screen_context,
-        )?;
-
-        // Store as insight card
-        ai_state().set_insight(InsightCard {
-            title: "Next Step".to_string(),
-            content: suggestion.clone(),
-            card_type: InsightType::Suggestion,
-            command: command.clone(),
-        });
-
-        Ok(json!({
-            "suggestion": suggestion,
-            "command": command,
-        }))
-    }
-
-    fn ai_set_model(&self, params: &Value) -> Result<Value> {
-        let model = params
-            .get("model")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing 'model'"))?;
-
-        ai_state().set_model(model);
-        Ok(json!({
-            "status": "ok",
-            "model": model,
-            "provider": format!("{:?}", ModelProvider::from_name(model)),
-        }))
-    }
-
-    fn ai_get_model(&self) -> Result<Value> {
-        let model = ai_state().active_model();
-        let provider = ai_state().provider();
-        Ok(json!({
-            "model": model,
-            "provider": format!("{:?}", provider),
-            "icon": provider.display_icon(),
-        }))
-    }
-
-    fn ai_set_insight(&self, params: &Value) -> Result<Value> {
-        let title = params
-            .get("title")
-            .and_then(|v| v.as_str())
-            .unwrap_or("Insight")
-            .to_string();
-        let content = params
-            .get("content")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        let card_type = match params
-            .get("type")
-            .and_then(|v| v.as_str())
-            .unwrap_or("info")
-        {
-            "error" => InsightType::Error,
-            "suggestion" => InsightType::Suggestion,
-            "chat" => InsightType::Chat,
-            _ => InsightType::Info,
-        };
-        let command = params
-            .get("command")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
-
-        ai_state().set_insight(InsightCard {
-            title,
-            content,
-            card_type,
-            command,
-        });
-        Ok(json!({"status": "ok"}))
-    }
-
-    fn ai_toggle_panel(&self) -> Result<Value> {
-        let visible = ai_state().toggle_panel();
-        Ok(json!({
-            "visible": visible,
-        }))
-    }
-
-    fn ai_focus_chat(&self, params: &Value) -> Result<Value> {
-        let focused = params
-            .get("focused")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(true);
-        let state = ai_state();
-        // Ensure panel is visible when focusing chat
-        if focused && !state.panel_visible() {
-            state.set_panel_visible(true);
-        }
-        state.set_chat_focused(focused);
-        Ok(json!({
-            "focused": focused,
-            "panel_visible": state.panel_visible(),
-        }))
-    }
-
-    fn ai_send_chat_input(&self, params: &Value) -> Result<Value> {
-        let text = params
-            .get("text")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing 'text' parameter"))?;
-        let state = ai_state();
-        // Ensure panel is visible and chat is focused
-        if !state.panel_visible() {
-            state.set_panel_visible(true);
-        }
-        state.set_chat_focused(true);
-        for c in text.chars() {
-            state.chat_input_push(c);
-        }
-        Ok(json!({
-            "input": state.chat_input(),
-            "focused": true,
-        }))
-    }
-
-    fn ai_panel_state(&self) -> Result<Value> {
-        let state = ai_state();
-        Ok(json!({
-            "panel_visible": state.panel_visible(),
-            "chat_focused": state.chat_focused(),
-            "chat_input": state.chat_input(),
-            "model": state.active_model(),
-            "provider": state.provider().display_name(),
-            "has_insight": state.get_insight().is_some(),
-            "chat_history_count": state.chat_history().len(),
-        }))
-    }
-
     fn selftest_run(&self, params: &Value) -> Result<Value> {
         let mut checks: Vec<Value> = Vec::new();
 
@@ -1836,28 +1533,16 @@ impl McpHandler {
         }));
 
         let caps = self.server_capabilities()?;
-        let has_ai = caps
-            .get("ai")
-            .and_then(|v| v.as_array())
-            .is_some_and(|v| !v.is_empty());
         let has_screen = caps
             .get("screen")
             .and_then(|v| v.as_array())
             .is_some_and(|v| !v.is_empty());
         checks.push(json!({
             "name": "server.capabilities",
-            "ok": has_ai && has_screen,
+            "ok": has_screen,
             "detail": {
-                "has_ai": has_ai,
                 "has_screen": has_screen,
             },
-        }));
-
-        let ai_panel = self.ai_panel_state()?;
-        checks.push(json!({
-            "name": "ai.panel_state",
-            "ok": ai_panel.get("model").and_then(|v| v.as_str()).is_some(),
-            "detail": ai_panel,
         }));
 
         let policy = self.policy_check(&json!({"command": "echo unterm-selftest"}));
@@ -1940,6 +1625,20 @@ impl McpHandler {
             }));
         }
 
+        // Non-mutating recording self-check against pane 0 (or the
+        // first available pane). We never start a recording here.
+        let probe_id = Mux::try_get()
+            .and_then(|mux| mux.iter_panes().first().map(|p| p.pane_id() as u64));
+        let rec_status = self.session_recording_status(&json!({"id": probe_id.unwrap_or(0)}));
+        checks.push(json!({
+            "name": "session.recording_status",
+            "ok": rec_status.is_ok(),
+            "detail": match rec_status {
+                Ok(value) => value,
+                Err(err) => json!({"error": err.to_string()}),
+            },
+        }));
+
         let ok = checks
             .iter()
             .all(|check| check.get("ok").and_then(|v| v.as_bool()).unwrap_or(false));
@@ -1947,6 +1646,107 @@ impl McpHandler {
         Ok(json!({
             "ok": ok,
             "checks": checks,
+        }))
+    }
+
+    // ----------------------------------------------------------------
+    // Session recording
+    // ----------------------------------------------------------------
+
+    fn session_recording_start(&self, params: &Value) -> Result<Value> {
+        let pane = self.get_pane(params)?;
+        let pane_id = pane.pane_id();
+        self.audit(
+            "session.recording_start",
+            Some(&pane_id.to_string()),
+            "start",
+        );
+        let r = crate::recording::start_recording(pane_id)?;
+        Ok(json!({
+            "session_id": r.session_id,
+            "log_path": r.log_path,
+            "md_path_when_done": r.md_path,
+        }))
+    }
+
+    fn session_recording_stop(&self, params: &Value) -> Result<Value> {
+        let pane = self.get_pane(params)?;
+        let pane_id = pane.pane_id();
+        self.audit(
+            "session.recording_stop",
+            Some(&pane_id.to_string()),
+            "stop",
+        );
+        let r = crate::recording::stop_recording(pane_id)?;
+        Ok(json!({
+            "session_id": r.session_id,
+            "ended_at": r.ended_at,
+            "block_count": r.block_count,
+            "exit_reason": r.exit_reason,
+            "md_path": r.md_path,
+        }))
+    }
+
+    fn session_recording_status(&self, params: &Value) -> Result<Value> {
+        let pane = self.get_pane(params)?;
+        Ok(crate::recording::recording_status(pane.pane_id()))
+    }
+
+    fn session_recording_list(&self, params: &Value) -> Result<Value> {
+        let project = params.get("project").and_then(|v| v.as_str());
+        let entries = crate::recording::list_sessions(project)?;
+        let entries_json: Vec<Value> = entries
+            .into_iter()
+            .map(|e| {
+                json!({
+                    "unterm_session_id": e.unterm_session_id,
+                    "tab_id": e.tab_id,
+                    "project_path": e.project_path,
+                    "project_slug": e.project_slug,
+                    "started_at": e.started_at,
+                    "ended_at": e.ended_at,
+                    "block_count": e.block_count,
+                    "bytes_raw": e.bytes_raw,
+                    "log_path": e.log_path,
+                    "md_path": e.md_path,
+                })
+            })
+            .collect();
+        Ok(json!(entries_json))
+    }
+
+    fn session_recording_read(&self, params: &Value) -> Result<Value> {
+        let session_id = params
+            .get("session_id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing 'session_id'"))?;
+        let md = crate::recording::read_session_markdown(session_id)?;
+        Ok(json!({"markdown": md}))
+    }
+
+    fn session_recording_attach_trace(&self, params: &Value) -> Result<Value> {
+        let pane = self.get_pane(params)?;
+        let trace_id = params
+            .get("trace_id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing 'trace_id'"))?
+            .to_string();
+        let traces = crate::recording::attach_trace(pane.pane_id(), trace_id)?;
+        Ok(json!({"trace_ids": traces}))
+    }
+
+    fn session_export_markdown(&self, params: &Value) -> Result<Value> {
+        let pane = self.get_pane(params)?;
+        let path = params
+            .get("path")
+            .and_then(|v| v.as_str())
+            .map(std::path::PathBuf::from);
+        let (dest, out) = crate::recording::export_pane_markdown(pane.pane_id(), path)?;
+        Ok(json!({
+            "session_id": uuid::Uuid::new_v4().to_string(),
+            "path": dest.display().to_string(),
+            "bytes": out.markdown.len(),
+            "block_count": out.block_count,
         }))
     }
 }
@@ -1963,6 +1763,41 @@ fn load_proxy_settings() -> ProxySettings {
     match std::fs::read_to_string(&path) {
         Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
         Err(_) => ProxySettings::default(),
+    }
+}
+
+/// Result of probing whether the configured (or auto-detected) proxy is
+/// reachable. Returned in the `health` field of `proxy.status`.
+fn probe_proxy_health(settings: &ProxySettings) -> Value {
+    // 1. If the user supplied an explicit URL, probe that.
+    if let Some(url) = settings
+        .http_proxy
+        .as_ref()
+        .filter(|s| !s.is_empty())
+        .or(settings.socks_proxy.as_ref().filter(|s| !s.is_empty()))
+    {
+        let alive = probe_proxy_endpoint(url, 200);
+        return json!({
+            "source": "manual",
+            "url": url,
+            "reachable": alive,
+            "hint": if alive { "" } else { "configured proxy is not responding — start your proxy software or disable the toggle" },
+        });
+    }
+    // 2. Otherwise rely on the auto-detect path.
+    match crate::system_proxy::detect() {
+        Some(found) => json!({
+            "source": found.source,
+            "url": found.primary_http(),
+            "socks": found.socks,
+            "no_proxy": found.no_proxy,
+            "reachable": true,
+        }),
+        None => json!({
+            "source": "auto",
+            "reachable": false,
+            "hint": "no system proxy detected and no responsive proxy on common local ports (7897, 7890, 1087, …); start your Clash/V2Ray or set a system proxy in Settings",
+        }),
     }
 }
 
@@ -2000,385 +1835,6 @@ fn probe_proxy_endpoint(url: &str, timeout_ms: u64) -> bool {
         .any(|addr| std::net::TcpStream::connect_timeout(&addr, timeout).is_ok())
 }
 
-#[cfg(windows)]
-fn capture_output_dir() -> Result<std::path::PathBuf> {
-    let dir = dirs_next::home_dir()
-        .unwrap_or_default()
-        .join(".unterm")
-        .join("screenshots");
-    std::fs::create_dir_all(&dir)?;
-    Ok(dir)
-}
-
-/// Read clipboard content using Win32 API.
-/// Supports both text (CF_UNICODETEXT) and image (CF_DIB) formats.
-/// For images: reads DIB data, converts BGR → RGBA, encodes PNG,
-/// saves to ~/.unterm/clipboard/ and returns the path + dimensions.
-/// IMPORTANT: Do NOT use PowerShell for clipboard access — it steals window focus.
-#[cfg(windows)]
-fn clipboard_read_win32() -> Result<Value> {
-    use std::ptr;
-    use winapi::um::winuser::{
-        CloseClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard, CF_DIB,
-        CF_UNICODETEXT,
-    };
-    use winapi::um::winbase::GlobalLock;
-    use winapi::um::winbase::GlobalUnlock;
-    use winapi::um::winbase::GlobalSize;
-    use winapi::shared::minwindef::HGLOBAL;
-    use winapi::um::wingdi::BITMAPINFOHEADER;
-
-    // Try image first (CF_DIB), then fall back to text (CF_UNICODETEXT)
-    let has_image = unsafe { IsClipboardFormatAvailable(CF_DIB as u32) != 0 };
-    let has_text = unsafe { IsClipboardFormatAvailable(CF_UNICODETEXT as u32) != 0 };
-
-    if !has_image && !has_text {
-        return Err(anyhow!("Clipboard is empty or contains unsupported format"));
-    }
-
-    // Open clipboard (pass NULL for current task)
-    let opened = unsafe { OpenClipboard(ptr::null_mut()) };
-    if opened == 0 {
-        return Err(anyhow!("Failed to open clipboard (it may be locked by another application)"));
-    }
-
-    // Ensure we close clipboard on all exit paths
-    struct ClipboardGuard;
-    impl Drop for ClipboardGuard {
-        fn drop(&mut self) {
-            unsafe { CloseClipboard(); }
-        }
-    }
-    let _guard = ClipboardGuard;
-
-    if has_image {
-        let handle: HGLOBAL = unsafe { GetClipboardData(CF_DIB as u32) as HGLOBAL };
-        if handle.is_null() {
-            if has_text {
-                // Fall through to text path below
-            } else {
-                return Err(anyhow!("GetClipboardData(CF_DIB) returned NULL"));
-            }
-        } else {
-            let ptr = unsafe { GlobalLock(handle) };
-            if ptr.is_null() {
-                return Err(anyhow!("GlobalLock failed on clipboard DIB data"));
-            }
-
-            let data_size = unsafe { GlobalSize(handle) };
-            if data_size < std::mem::size_of::<BITMAPINFOHEADER>() {
-                unsafe { GlobalUnlock(handle); }
-                return Err(anyhow!("Clipboard DIB data too small"));
-            }
-
-            // Read BITMAPINFOHEADER
-            let bih = unsafe { &*(ptr as *const BITMAPINFOHEADER) };
-            let width = bih.biWidth as u32;
-            // biHeight can be negative (top-down) or positive (bottom-up)
-            let height_signed = bih.biHeight;
-            let height = height_signed.unsigned_abs();
-            let bit_count = bih.biBitCount;
-            let compression = bih.biCompression;
-
-            // We only support uncompressed 24-bit or 32-bit DIBs
-            if compression != 0 {
-                // BI_RGB = 0; BI_BITFIELDS = 3 for 32-bit is sometimes used
-                // For simplicity, only handle BI_RGB
-                unsafe { GlobalUnlock(handle); }
-                return Err(anyhow!(
-                    "Unsupported DIB compression: {}. Only uncompressed (BI_RGB) is supported.",
-                    compression
-                ));
-            }
-
-            if bit_count != 24 && bit_count != 32 {
-                unsafe { GlobalUnlock(handle); }
-                return Err(anyhow!(
-                    "Unsupported DIB bit depth: {}. Only 24-bit and 32-bit are supported.",
-                    bit_count
-                ));
-            }
-
-            let bytes_per_pixel = (bit_count / 8) as usize;
-            // DIB rows are padded to 4-byte boundaries
-            let row_stride = ((width as usize * bytes_per_pixel + 3) / 4) * 4;
-
-            // Pixel data starts after the header (and color table, but for 24/32-bit there's none with BI_RGB)
-            let header_size = bih.biSize as usize;
-            let pixel_offset = header_size;
-
-            let total_pixel_bytes = row_stride * height as usize;
-            if pixel_offset + total_pixel_bytes > data_size {
-                unsafe { GlobalUnlock(handle); }
-                return Err(anyhow!("DIB pixel data exceeds clipboard buffer size"));
-            }
-
-            let pixel_data = unsafe {
-                std::slice::from_raw_parts(
-                    (ptr as *const u8).add(pixel_offset),
-                    total_pixel_bytes,
-                )
-            };
-
-            // Convert BGR(A) → RGBA, handling bottom-up vs top-down
-            let mut rgba_buf = vec![0u8; (width * height * 4) as usize];
-            let bottom_up = height_signed > 0;
-
-            for y in 0..height as usize {
-                let src_y = if bottom_up { height as usize - 1 - y } else { y };
-                let src_row = &pixel_data[src_y * row_stride..src_y * row_stride + width as usize * bytes_per_pixel];
-                let dst_offset = y * width as usize * 4;
-
-                for x in 0..width as usize {
-                    let si = x * bytes_per_pixel;
-                    let di = dst_offset + x * 4;
-                    // DIB stores BGR or BGRA
-                    rgba_buf[di] = src_row[si + 2];     // R
-                    rgba_buf[di + 1] = src_row[si + 1]; // G
-                    rgba_buf[di + 2] = src_row[si];     // B
-                    rgba_buf[di + 3] = if bytes_per_pixel == 4 {
-                        src_row[si + 3]                  // A
-                    } else {
-                        255                              // opaque
-                    };
-                }
-            }
-
-            unsafe { GlobalUnlock(handle); }
-
-            // Encode as PNG
-            let img = image::RgbaImage::from_raw(width, height, rgba_buf)
-                .ok_or_else(|| anyhow!("Failed to create image buffer from DIB data"))?;
-
-            // Save to ~/.unterm/clipboard/
-            let clipboard_dir = dirs_next::home_dir()
-                .unwrap_or_default()
-                .join(".unterm")
-                .join("clipboard");
-            std::fs::create_dir_all(&clipboard_dir)
-                .context("Failed to create clipboard output directory")?;
-
-            let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S_%3f");
-            let filename = format!("clipboard_{}.png", timestamp);
-            let file_path = clipboard_dir.join(&filename);
-
-            img.save(&file_path)
-                .context("Failed to save clipboard image as PNG")?;
-
-            let path_str = file_path.to_string_lossy().to_string();
-
-            // Also produce base64 for inline use — read back the saved PNG file
-            let png_bytes = std::fs::read(&file_path)
-                .context("Failed to read saved clipboard PNG for base64 encoding")?;
-            let b64 = base64::engine::general_purpose::STANDARD.encode(&png_bytes);
-
-            return Ok(json!({
-                "type": "image",
-                "format": "png",
-                "image_path": path_str,
-                "width": width,
-                "height": height,
-                "bit_depth": bit_count,
-                "size_bytes": png_bytes.len(),
-                "base64": b64,
-            }));
-        }
-    }
-
-    // Text path: CF_UNICODETEXT
-    if has_text {
-        let handle: HGLOBAL = unsafe { GetClipboardData(CF_UNICODETEXT as u32) as HGLOBAL };
-        if handle.is_null() {
-            return Err(anyhow!("GetClipboardData(CF_UNICODETEXT) returned NULL"));
-        }
-
-        let ptr = unsafe { GlobalLock(handle) };
-        if ptr.is_null() {
-            return Err(anyhow!("GlobalLock failed on clipboard text data"));
-        }
-
-        // Read null-terminated UTF-16 string
-        let wchar_ptr = ptr as *const u16;
-        let mut len = 0usize;
-        unsafe {
-            while *wchar_ptr.add(len) != 0 {
-                len += 1;
-            }
-        }
-        let wstr = unsafe { std::slice::from_raw_parts(wchar_ptr, len) };
-        let text = String::from_utf16_lossy(wstr);
-
-        unsafe { GlobalUnlock(handle); }
-
-        return Ok(json!({"type": "text", "content": text}));
-    }
-
-    Err(anyhow!("Clipboard is empty"))
-}
-
-#[cfg(windows)]
-fn ps_single_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "''"))
-}
-
-#[cfg(windows)]
-fn run_powershell_json(script: &str) -> Result<Value> {
-    let script = format!(
-        "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)\n$OutputEncoding = [Console]::OutputEncoding\n{}",
-        script
-    );
-    let mut bytes = Vec::with_capacity(script.len() * 2);
-    for unit in script.encode_utf16() {
-        bytes.extend_from_slice(&unit.to_le_bytes());
-    }
-    let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
-    let mut command = std::process::Command::new("powershell.exe");
-    command.args([
-        "-NoProfile",
-        "-NonInteractive",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-EncodedCommand",
-        &encoded,
-    ]);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x08000000);
-    }
-    let output = command.output().context("run PowerShell capture helper")?;
-    if !output.status.success() {
-        return Err(anyhow!(
-            "PowerShell helper failed: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        ));
-    }
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let value: Value =
-        serde_json::from_str(stdout.trim()).context("parse PowerShell helper JSON output")?;
-    Ok(value)
-}
-
-#[cfg(windows)]
-fn append_base64_if_requested(mut value: Value, include_base64: bool) -> Result<Value> {
-    if include_base64 {
-        if let Some(path) = value.get("path").and_then(|v| v.as_str()) {
-            let bytes = std::fs::read(path)?;
-            value["base64"] = json!(base64::engine::general_purpose::STANDARD.encode(bytes));
-        }
-    }
-    Ok(value)
-}
-
-#[cfg(windows)]
-fn capture_screen_image(include_base64: bool) -> Result<Value> {
-    let path = capture_output_dir()?.join(format!(
-        "screen_{}.png",
-        chrono::Local::now().format("%Y%m%d_%H%M%S_%3f")
-    ));
-    let path = path.display().to_string();
-    let qpath = ps_single_quote(&path);
-    let script = format!(
-        r#"
-$ErrorActionPreference = 'Stop'
-Add-Type -AssemblyName System.Drawing
-Add-Type -AssemblyName System.Windows.Forms
-$bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
-$bmp = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
-$gfx = [System.Drawing.Graphics]::FromImage($bmp)
-$gfx.CopyFromScreen($bounds.Left, $bounds.Top, 0, 0, $bmp.Size)
-$bmp.Save({qpath}, [System.Drawing.Imaging.ImageFormat]::Png)
-$gfx.Dispose()
-$bmp.Dispose()
-[pscustomobject]@{{
-  path = {qpath}
-  width = $bounds.Width
-  height = $bounds.Height
-  left = $bounds.Left
-  top = $bounds.Top
-}} | ConvertTo-Json -Compress
-"#
-    );
-    append_base64_if_requested(run_powershell_json(&script)?, include_base64)
-}
-
-#[cfg(not(windows))]
-fn capture_screen_image(_include_base64: bool) -> Result<Value> {
-    Err(anyhow!("Image capture is only supported on Windows"))
-}
-
-#[cfg(windows)]
-fn capture_window_image(
-    title_filter: Option<&str>,
-    pid_filter: Option<u32>,
-    include_base64: bool,
-) -> Result<Value> {
-    let path = capture_output_dir()?.join(format!(
-        "window_{}.png",
-        chrono::Local::now().format("%Y%m%d_%H%M%S_%3f")
-    ));
-    let path = path.display().to_string();
-    let qpath = ps_single_quote(&path);
-    let title = title_filter
-        .map(ps_single_quote)
-        .unwrap_or_else(|| "$null".to_string());
-    let pid = pid_filter.unwrap_or_else(std::process::id);
-    let script = format!(
-        r#"
-$ErrorActionPreference = 'Stop'
-Add-Type -AssemblyName System.Drawing
-Add-Type @"
-using System;
-using System.Runtime.InteropServices;
-public class UntermCapture {{
-  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
-  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
-}}
-public struct RECT {{ public int Left; public int Top; public int Right; public int Bottom; }}
-"@
-$pidFilter = {pid}
-$titleFilter = {title}
-if ($titleFilter -ne $null) {{
-  $proc = Get-Process | Where-Object {{ $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle -like "*$titleFilter*" }} | Select-Object -First 1
-}} else {{
-  $proc = Get-Process -Id $pidFilter -ErrorAction Stop
-}}
-if ($null -eq $proc -or $proc.MainWindowHandle -eq 0) {{ throw "No matching window found" }}
-[UntermCapture]::SetForegroundWindow($proc.MainWindowHandle) | Out-Null
-Start-Sleep -Milliseconds 150
-$rect = New-Object RECT
-[UntermCapture]::GetWindowRect($proc.MainWindowHandle, [ref]$rect) | Out-Null
-$width = $rect.Right - $rect.Left
-$height = $rect.Bottom - $rect.Top
-if ($width -le 0 -or $height -le 0) {{ throw "Invalid window bounds" }}
-$bmp = New-Object System.Drawing.Bitmap $width, $height
-$gfx = [System.Drawing.Graphics]::FromImage($bmp)
-$gfx.CopyFromScreen($rect.Left, $rect.Top, 0, 0, $bmp.Size)
-$bmp.Save({qpath}, [System.Drawing.Imaging.ImageFormat]::Png)
-$gfx.Dispose()
-$bmp.Dispose()
-[pscustomobject]@{{
-  path = {qpath}
-  width = $width
-  height = $height
-  left = $rect.Left
-  top = $rect.Top
-  pid = $proc.Id
-  title = $proc.MainWindowTitle
-}} | ConvertTo-Json -Compress
-"#
-    );
-    append_base64_if_requested(run_powershell_json(&script)?, include_base64)
-}
-
-#[cfg(not(windows))]
-fn capture_window_image(
-    _title_filter: Option<&str>,
-    _pid_filter: Option<u32>,
-    _include_base64: bool,
-) -> Result<Value> {
-    Err(anyhow!("Image capture is only supported on Windows"))
-}
 
 #[cfg(windows)]
 fn elevated_unterm_command_args(shell: &str) -> Result<Vec<String>> {
@@ -2518,4 +1974,810 @@ fn extract_wait_output(before: &str, after: &str, command: &str, marker: &str) -
         .filter(|line| !before.contains(line))
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+// ---------------------------------------------------------------------------
+// Capture helpers — cross-platform plumbing
+// ---------------------------------------------------------------------------
+
+fn capture_output_dir() -> Result<std::path::PathBuf> {
+    let dir = dirs_next::home_dir()
+        .unwrap_or_default()
+        .join(".unterm")
+        .join("screenshots");
+    std::fs::create_dir_all(&dir).context("create screenshots output dir")?;
+    Ok(dir)
+}
+
+fn append_base64_if_requested(mut value: Value, include_base64: bool) -> Result<Value> {
+    if include_base64 {
+        if let Some(path) = value.get("path").and_then(|v| v.as_str()) {
+            let bytes = std::fs::read(path)?;
+            value["base64"] = json!(base64::engine::general_purpose::STANDARD.encode(bytes));
+        }
+    }
+    Ok(value)
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn unix_command_exists(name: &str) -> bool {
+    let Some(path_var) = std::env::var_os("PATH") else {
+        return false;
+    };
+    for dir in std::env::split_paths(&path_var) {
+        if dir.join(name).is_file() {
+            return true;
+        }
+    }
+    false
+}
+
+// ---------------------------------------------------------------------------
+// Cross-platform clipboard.read entry point
+// ---------------------------------------------------------------------------
+
+fn clipboard_read_any() -> Result<Value> {
+    #[cfg(windows)]
+    {
+        return clipboard_read_win32();
+    }
+    #[cfg(target_os = "macos")]
+    {
+        return clipboard_read_macos();
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        return clipboard_read_linux();
+    }
+    #[allow(unreachable_code)]
+    Err(anyhow!("Clipboard reading is not supported on this platform"))
+}
+
+// ---------------------------------------------------------------------------
+// Windows implementations (PowerShell + Win32 API)
+// ---------------------------------------------------------------------------
+
+/// Read clipboard content using Win32 API.
+/// Supports both text (CF_UNICODETEXT) and image (CF_DIB) formats.
+/// IMPORTANT: Do NOT use PowerShell for clipboard access — it steals window focus.
+#[cfg(windows)]
+fn clipboard_read_win32() -> Result<Value> {
+    use std::ptr;
+    use winapi::shared::minwindef::HGLOBAL;
+    use winapi::um::winbase::{GlobalLock, GlobalSize, GlobalUnlock};
+    use winapi::um::wingdi::BITMAPINFOHEADER;
+    use winapi::um::winuser::{
+        CloseClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard, CF_DIB,
+        CF_UNICODETEXT,
+    };
+
+    let has_image = unsafe { IsClipboardFormatAvailable(CF_DIB as u32) != 0 };
+    let has_text = unsafe { IsClipboardFormatAvailable(CF_UNICODETEXT as u32) != 0 };
+
+    if !has_image && !has_text {
+        return Err(anyhow!("Clipboard is empty or contains unsupported format"));
+    }
+
+    let opened = unsafe { OpenClipboard(ptr::null_mut()) };
+    if opened == 0 {
+        return Err(anyhow!(
+            "Failed to open clipboard (it may be locked by another application)"
+        ));
+    }
+
+    struct ClipboardGuard;
+    impl Drop for ClipboardGuard {
+        fn drop(&mut self) {
+            unsafe {
+                CloseClipboard();
+            }
+        }
+    }
+    let _guard = ClipboardGuard;
+
+    if has_image {
+        let handle: HGLOBAL = unsafe { GetClipboardData(CF_DIB as u32) as HGLOBAL };
+        if !handle.is_null() {
+            let ptr = unsafe { GlobalLock(handle) };
+            if ptr.is_null() {
+                return Err(anyhow!("GlobalLock failed on clipboard DIB data"));
+            }
+
+            let data_size = unsafe { GlobalSize(handle) };
+            if data_size < std::mem::size_of::<BITMAPINFOHEADER>() {
+                unsafe {
+                    GlobalUnlock(handle);
+                }
+                return Err(anyhow!("Clipboard DIB data too small"));
+            }
+
+            let bih = unsafe { &*(ptr as *const BITMAPINFOHEADER) };
+            let width = bih.biWidth as u32;
+            let height_signed = bih.biHeight;
+            let height = height_signed.unsigned_abs();
+            let bit_count = bih.biBitCount;
+            let compression = bih.biCompression;
+
+            if compression != 0 {
+                unsafe {
+                    GlobalUnlock(handle);
+                }
+                return Err(anyhow!(
+                    "Unsupported DIB compression: {}. Only uncompressed (BI_RGB) is supported.",
+                    compression
+                ));
+            }
+
+            if bit_count != 24 && bit_count != 32 {
+                unsafe {
+                    GlobalUnlock(handle);
+                }
+                return Err(anyhow!(
+                    "Unsupported DIB bit depth: {}. Only 24-bit and 32-bit are supported.",
+                    bit_count
+                ));
+            }
+
+            let bytes_per_pixel = (bit_count / 8) as usize;
+            let row_stride = ((width as usize * bytes_per_pixel + 3) / 4) * 4;
+            let header_size = bih.biSize as usize;
+            let pixel_offset = header_size;
+            let total_pixel_bytes = row_stride * height as usize;
+
+            if pixel_offset + total_pixel_bytes > data_size {
+                unsafe {
+                    GlobalUnlock(handle);
+                }
+                return Err(anyhow!("DIB pixel data exceeds clipboard buffer size"));
+            }
+
+            let pixel_data = unsafe {
+                std::slice::from_raw_parts(
+                    (ptr as *const u8).add(pixel_offset),
+                    total_pixel_bytes,
+                )
+            };
+
+            let mut rgba_buf = vec![0u8; (width * height * 4) as usize];
+            let bottom_up = height_signed > 0;
+
+            for y in 0..height as usize {
+                let src_y = if bottom_up { height as usize - 1 - y } else { y };
+                let src_row = &pixel_data
+                    [src_y * row_stride..src_y * row_stride + width as usize * bytes_per_pixel];
+                let dst_offset = y * width as usize * 4;
+
+                for x in 0..width as usize {
+                    let si = x * bytes_per_pixel;
+                    let di = dst_offset + x * 4;
+                    rgba_buf[di] = src_row[si + 2];
+                    rgba_buf[di + 1] = src_row[si + 1];
+                    rgba_buf[di + 2] = src_row[si];
+                    rgba_buf[di + 3] = if bytes_per_pixel == 4 {
+                        src_row[si + 3]
+                    } else {
+                        255
+                    };
+                }
+            }
+
+            unsafe {
+                GlobalUnlock(handle);
+            }
+
+            let img = image::RgbaImage::from_raw(width, height, rgba_buf)
+                .ok_or_else(|| anyhow!("Failed to create image buffer from DIB data"))?;
+
+            let clipboard_dir = dirs_next::home_dir()
+                .unwrap_or_default()
+                .join(".unterm")
+                .join("clipboard");
+            std::fs::create_dir_all(&clipboard_dir)
+                .context("Failed to create clipboard output directory")?;
+
+            let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S_%3f");
+            let filename = format!("clipboard_{}.png", timestamp);
+            let file_path = clipboard_dir.join(&filename);
+
+            img.save(&file_path)
+                .context("Failed to save clipboard image as PNG")?;
+
+            let path_str = file_path.to_string_lossy().to_string();
+            let png_bytes = std::fs::read(&file_path)
+                .context("Failed to read saved clipboard PNG for base64 encoding")?;
+            let b64 = base64::engine::general_purpose::STANDARD.encode(&png_bytes);
+
+            return Ok(json!({
+                "type": "image",
+                "format": "png",
+                "image_path": path_str,
+                "width": width,
+                "height": height,
+                "bit_depth": bit_count,
+                "size_bytes": png_bytes.len(),
+                "base64": b64,
+            }));
+        }
+    }
+
+    if has_text {
+        let handle: HGLOBAL = unsafe { GetClipboardData(CF_UNICODETEXT as u32) as HGLOBAL };
+        if handle.is_null() {
+            return Err(anyhow!("GetClipboardData(CF_UNICODETEXT) returned NULL"));
+        }
+
+        let ptr = unsafe { GlobalLock(handle) };
+        if ptr.is_null() {
+            return Err(anyhow!("GlobalLock failed on clipboard text data"));
+        }
+
+        let wchar_ptr = ptr as *const u16;
+        let mut len = 0usize;
+        unsafe {
+            while *wchar_ptr.add(len) != 0 {
+                len += 1;
+            }
+        }
+        let wstr = unsafe { std::slice::from_raw_parts(wchar_ptr, len) };
+        let text = String::from_utf16_lossy(wstr);
+
+        unsafe {
+            GlobalUnlock(handle);
+        }
+
+        return Ok(json!({"type": "text", "content": text}));
+    }
+
+    Err(anyhow!("Clipboard is empty"))
+}
+
+#[cfg(windows)]
+fn ps_single_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
+}
+
+#[cfg(windows)]
+fn run_powershell_json(script: &str) -> Result<Value> {
+    let script = format!(
+        "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)\n$OutputEncoding = [Console]::OutputEncoding\n{}",
+        script
+    );
+    let mut bytes = Vec::with_capacity(script.len() * 2);
+    for unit in script.encode_utf16() {
+        bytes.extend_from_slice(&unit.to_le_bytes());
+    }
+    let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+    let mut command = std::process::Command::new("powershell.exe");
+    command.args([
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-EncodedCommand",
+        &encoded,
+    ]);
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+    let output = command.output().context("run PowerShell capture helper")?;
+    if !output.status.success() {
+        return Err(anyhow!(
+            "PowerShell helper failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let value: Value =
+        serde_json::from_str(stdout.trim()).context("parse PowerShell helper JSON output")?;
+    Ok(value)
+}
+
+#[cfg(windows)]
+fn capture_screen_image(include_base64: bool) -> Result<Value> {
+    let path = capture_output_dir()?.join(format!(
+        "screen_{}.png",
+        chrono::Local::now().format("%Y%m%d_%H%M%S_%3f")
+    ));
+    let path = path.display().to_string();
+    let qpath = ps_single_quote(&path);
+    let script = format!(
+        r#"
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Drawing
+Add-Type -AssemblyName System.Windows.Forms
+$bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
+$bmp = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
+$gfx = [System.Drawing.Graphics]::FromImage($bmp)
+$gfx.CopyFromScreen($bounds.Left, $bounds.Top, 0, 0, $bmp.Size)
+$bmp.Save({qpath}, [System.Drawing.Imaging.ImageFormat]::Png)
+$gfx.Dispose()
+$bmp.Dispose()
+[pscustomobject]@{{
+  path = {qpath}
+  width = $bounds.Width
+  height = $bounds.Height
+  left = $bounds.Left
+  top = $bounds.Top
+}} | ConvertTo-Json -Compress
+"#
+    );
+    append_base64_if_requested(run_powershell_json(&script)?, include_base64)
+}
+
+#[cfg(windows)]
+fn capture_window_image(
+    title_filter: Option<&str>,
+    pid_filter: Option<u32>,
+    include_base64: bool,
+) -> Result<Value> {
+    let path = capture_output_dir()?.join(format!(
+        "window_{}.png",
+        chrono::Local::now().format("%Y%m%d_%H%M%S_%3f")
+    ));
+    let path = path.display().to_string();
+    let qpath = ps_single_quote(&path);
+    let title = title_filter
+        .map(ps_single_quote)
+        .unwrap_or_else(|| "$null".to_string());
+    let pid = pid_filter.unwrap_or_else(std::process::id);
+    let script = format!(
+        r#"
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Drawing
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public class UntermCapture {{
+  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+}}
+public struct RECT {{ public int Left; public int Top; public int Right; public int Bottom; }}
+"@
+$pidFilter = {pid}
+$titleFilter = {title}
+if ($titleFilter -ne $null) {{
+  $proc = Get-Process | Where-Object {{ $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle -like "*$titleFilter*" }} | Select-Object -First 1
+}} else {{
+  $proc = Get-Process -Id $pidFilter -ErrorAction Stop
+}}
+if ($null -eq $proc -or $proc.MainWindowHandle -eq 0) {{ throw "No matching window found" }}
+[UntermCapture]::SetForegroundWindow($proc.MainWindowHandle) | Out-Null
+Start-Sleep -Milliseconds 150
+$rect = New-Object RECT
+[UntermCapture]::GetWindowRect($proc.MainWindowHandle, [ref]$rect) | Out-Null
+$width = $rect.Right - $rect.Left
+$height = $rect.Bottom - $rect.Top
+if ($width -le 0 -or $height -le 0) {{ throw "Invalid window bounds" }}
+$bmp = New-Object System.Drawing.Bitmap $width, $height
+$gfx = [System.Drawing.Graphics]::FromImage($bmp)
+$gfx.CopyFromScreen($rect.Left, $rect.Top, 0, 0, $bmp.Size)
+$bmp.Save({qpath}, [System.Drawing.Imaging.ImageFormat]::Png)
+$gfx.Dispose()
+$bmp.Dispose()
+[pscustomobject]@{{
+  path = {qpath}
+  width = $width
+  height = $height
+  left = $rect.Left
+  top = $rect.Top
+  pid = $proc.Id
+  title = $proc.MainWindowTitle
+}} | ConvertTo-Json -Compress
+"#
+    );
+    append_base64_if_requested(run_powershell_json(&script)?, include_base64)
+}
+
+// ---------------------------------------------------------------------------
+// macOS implementations (screencapture + osascript)
+// ---------------------------------------------------------------------------
+
+/// Read PNG dimensions cheaply (no full decode) for capture metadata.
+/// Falls back to 0x0 if anything goes wrong — purely informational.
+#[cfg(unix)]
+fn png_dimensions(path: &std::path::Path) -> (u32, u32) {
+    use std::io::Read;
+    let mut file = match std::fs::File::open(path) {
+        Ok(f) => f,
+        Err(_) => return (0, 0),
+    };
+    let mut header = [0u8; 24];
+    if file.read_exact(&mut header).is_err() {
+        return (0, 0);
+    }
+    // PNG: 8-byte signature + 4-byte length + 4-byte "IHDR" + 4-byte width + 4-byte height
+    if &header[0..8] != b"\x89PNG\r\n\x1a\n" || &header[12..16] != b"IHDR" {
+        return (0, 0);
+    }
+    let w = u32::from_be_bytes([header[16], header[17], header[18], header[19]]);
+    let h = u32::from_be_bytes([header[20], header[21], header[22], header[23]]);
+    (w, h)
+}
+
+#[cfg(target_os = "macos")]
+fn capture_screen_image(include_base64: bool) -> Result<Value> {
+    let dir = capture_output_dir()?;
+    let path = dir.join(format!(
+        "screen_{}.png",
+        chrono::Local::now().format("%Y%m%d_%H%M%S_%3f")
+    ));
+
+    // -x = no shutter sound, -t png = explicit format
+    let status = std::process::Command::new("/usr/sbin/screencapture")
+        .args(["-x", "-t", "png"])
+        .arg(&path)
+        .status()
+        .context("invoke /usr/sbin/screencapture")?;
+    if !status.success() {
+        return Err(anyhow!("screencapture exited with {status}"));
+    }
+    if !path.exists() {
+        return Err(anyhow!("screencapture did not produce {}", path.display()));
+    }
+
+    let (width, height) = png_dimensions(&path);
+    let value = json!({
+        "path": path.display().to_string(),
+        "width": width,
+        "height": height,
+        "left": 0,
+        "top": 0,
+    });
+    append_base64_if_requested(value, include_base64)
+}
+
+#[cfg(target_os = "macos")]
+fn capture_window_image(
+    title_filter: Option<&str>,
+    pid_filter: Option<u32>,
+    include_base64: bool,
+) -> Result<Value> {
+    // macOS `screencapture -l <CGWindowID>` captures a specific window without
+    // any UI. We just have to translate (pid, title) → CGWindowID via
+    // CGWindowListCopyWindowInfo. If neither filter is supplied, fall back
+    // to the calling process's own pid (i.e. capture this Unterm window).
+    let target_pid = pid_filter.unwrap_or_else(std::process::id);
+    let window_id = match find_cg_window_id(target_pid, title_filter) {
+        Ok(Some(id)) => id,
+        Ok(None) => {
+            // No matching on-screen window — degrade to full-screen capture so
+            // the caller still gets pixels rather than an error.
+            let mut value = capture_screen_image(false)?;
+            if let Some(obj) = value.as_object_mut() {
+                obj.insert("mode".into(), json!("screen_fallback"));
+                obj.insert(
+                    "note".into(),
+                    json!(format!(
+                        "no on-screen window matched pid={} title={:?}; returned full screen",
+                        target_pid, title_filter
+                    )),
+                );
+            }
+            return append_base64_if_requested(value, include_base64);
+        }
+        Err(err) => return Err(err),
+    };
+
+    let dir = capture_output_dir()?;
+    let path = dir.join(format!(
+        "window_{}.png",
+        chrono::Local::now().format("%Y%m%d_%H%M%S_%3f")
+    ));
+    let status = std::process::Command::new("/usr/sbin/screencapture")
+        .args(["-x", "-o", "-t", "png", "-l", &window_id.to_string()])
+        .arg(&path)
+        .status()
+        .context("invoke /usr/sbin/screencapture -l")?;
+    if !status.success() || !path.exists() {
+        return Err(anyhow!(
+            "screencapture -l {} failed (status {:?}, path exists: {})",
+            window_id,
+            status.code(),
+            path.exists()
+        ));
+    }
+
+    let (width, height) = png_dimensions(&path);
+    let value = json!({
+        "path": path.display().to_string(),
+        "width": width,
+        "height": height,
+        "pid": target_pid,
+        "window_id": window_id,
+    });
+    append_base64_if_requested(value, include_base64)
+}
+
+/// Return the first on-screen CGWindowID belonging to `pid` (and optionally
+/// containing `title_substr`), or None if no match.
+#[cfg(target_os = "macos")]
+fn find_cg_window_id(pid: u32, title_substr: Option<&str>) -> Result<Option<u32>> {
+    use core_foundation::array::CFArray;
+    use core_foundation::base::{CFType, TCFType};
+    use core_foundation::dictionary::CFDictionary;
+    use core_foundation::number::CFNumber;
+    use core_foundation::string::CFString;
+    use core_graphics::display::{
+        kCGNullWindowID, kCGWindowListExcludeDesktopElements, kCGWindowListOptionOnScreenOnly,
+        CGWindowListCopyWindowInfo,
+    };
+
+    let info: CFArray<CFDictionary<CFString, CFType>> = unsafe {
+        let raw = CGWindowListCopyWindowInfo(
+            kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements,
+            kCGNullWindowID,
+        );
+        if raw.is_null() {
+            return Ok(None);
+        }
+        CFArray::wrap_under_create_rule(raw)
+    };
+
+    let pid_key = CFString::from_static_string("kCGWindowOwnerPID");
+    let id_key = CFString::from_static_string("kCGWindowNumber");
+    let name_key = CFString::from_static_string("kCGWindowName");
+
+    for entry in info.iter() {
+        let owner_pid: i64 = entry
+            .find(&pid_key)
+            .and_then(|v| v.downcast::<CFNumber>())
+            .and_then(|n| n.to_i64())
+            .unwrap_or(-1);
+        if owner_pid as u32 != pid {
+            continue;
+        }
+        if let Some(needle) = title_substr {
+            let window_title = entry
+                .find(&name_key)
+                .and_then(|v| v.downcast::<CFString>())
+                .map(|s| s.to_string())
+                .unwrap_or_default();
+            if !window_title.contains(needle) {
+                continue;
+            }
+        }
+        let window_id: i64 = entry
+            .find(&id_key)
+            .and_then(|v| v.downcast::<CFNumber>())
+            .and_then(|n| n.to_i64())
+            .unwrap_or(0);
+        if window_id > 0 {
+            return Ok(Some(window_id as u32));
+        }
+    }
+    Ok(None)
+}
+
+#[cfg(target_os = "macos")]
+fn clipboard_read_macos() -> Result<Value> {
+    // 1) If pasteboard contains an image, write it to a PNG and return.
+    //    osascript exits non-zero when the cast to PNGf fails (i.e. no image).
+    let dir = dirs_next::home_dir()
+        .unwrap_or_default()
+        .join(".unterm")
+        .join("clipboard");
+    std::fs::create_dir_all(&dir).context("create clipboard output dir")?;
+    let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S_%3f");
+    let png_path = dir.join(format!("clipboard_{}.png", timestamp));
+
+    let script = format!(
+        "try\n  set theData to the clipboard as «class PNGf»\n  set fp to open for access POSIX file \"{}\" with write permission\n  set eof of fp to 0\n  write theData to fp\n  close access fp\n  return \"image\"\non error\n  try\n    close access fp\n  end try\n  return \"none\"\nend try",
+        png_path.display()
+    );
+    let out = std::process::Command::new("osascript")
+        .args(["-e", &script])
+        .output()
+        .context("invoke osascript for clipboard image probe")?;
+    let kind = String::from_utf8_lossy(&out.stdout).trim().to_string();
+
+    if kind == "image" && png_path.exists() {
+        let png_bytes = std::fs::read(&png_path)?;
+        let (width, height) = png_dimensions(&png_path);
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&png_bytes);
+        return Ok(json!({
+            "type": "image",
+            "format": "png",
+            "image_path": png_path.display().to_string(),
+            "width": width,
+            "height": height,
+            "size_bytes": png_bytes.len(),
+            "base64": b64,
+        }));
+    }
+
+    // Cleanup empty file if osascript wrote a zero-byte file before failing
+    if png_path.exists() {
+        let _ = std::fs::remove_file(&png_path);
+    }
+
+    // 2) Fall back to text via pbpaste.
+    let out = std::process::Command::new("pbpaste")
+        .output()
+        .context("invoke pbpaste")?;
+    if !out.status.success() {
+        return Err(anyhow!(
+            "pbpaste failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    let text = String::from_utf8_lossy(&out.stdout).to_string();
+    if text.is_empty() {
+        return Err(anyhow!("Clipboard is empty"));
+    }
+    Ok(json!({"type": "text", "content": text}))
+}
+
+// ---------------------------------------------------------------------------
+// Linux implementations (probe grim/gnome-screenshot/spectacle/scrot/maim)
+// ---------------------------------------------------------------------------
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn capture_screen_image(include_base64: bool) -> Result<Value> {
+    let dir = capture_output_dir()?;
+    let path = dir.join(format!(
+        "screen_{}.png",
+        chrono::Local::now().format("%Y%m%d_%H%M%S_%3f")
+    ));
+    let path_str = path.display().to_string();
+
+    // Probe each tool in order; the first that exists is used. No interactive
+    // selection — we want a full-screen PNG.
+    let candidates: &[(&str, &[&str])] = &[
+        ("grim", &[]),                    // grim <file>
+        ("gnome-screenshot", &["-f"]),    // gnome-screenshot -f <file>
+        ("spectacle", &["-bn", "-f", "-o"]), // spectacle -bn -f -o <file>
+        ("scrot", &[]),                   // scrot <file>
+        ("maim", &[]),                    // maim <file>
+    ];
+
+    let mut last_err: Option<String> = None;
+    for (tool, args) in candidates {
+        if !unix_command_exists(tool) {
+            continue;
+        }
+        let mut cmd = std::process::Command::new(tool);
+        cmd.args(*args);
+        cmd.arg(&path_str);
+        match cmd.status() {
+            Ok(s) if s.success() && path.exists() => {
+                let (width, height) = png_dimensions(&path);
+                let value = json!({
+                    "path": path_str,
+                    "width": width,
+                    "height": height,
+                    "left": 0,
+                    "top": 0,
+                });
+                return append_base64_if_requested(value, include_base64);
+            }
+            Ok(s) => last_err = Some(format!("{tool} exited with {s}")),
+            Err(e) => last_err = Some(format!("failed to run {tool}: {e}")),
+        }
+    }
+
+    Err(anyhow!(
+        "{}",
+        last_err.unwrap_or_else(|| "No screenshot tool found. Install one of: grim, gnome-screenshot, spectacle, scrot, or maim".into())
+    ))
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn capture_window_image(
+    _title_filter: Option<&str>,
+    _pid_filter: Option<u32>,
+    include_base64: bool,
+) -> Result<Value> {
+    // We don't have a robust cross-WM way to locate a window by pid/title
+    // without xdotool/wmctrl + a lot of glue. For headless MCP we fall back
+    // to a full-screen capture so the caller still gets pixels.
+    let mut value = capture_screen_image(false)?;
+    if let Some(obj) = value.as_object_mut() {
+        obj.insert("mode".into(), json!("screen_fallback"));
+        obj.insert(
+            "note".into(),
+            json!("Linux MCP capture currently falls back to full screen; install xdotool/wmctrl to wire window-pick up if needed"),
+        );
+    }
+    append_base64_if_requested(value, include_base64)
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn clipboard_read_linux() -> Result<Value> {
+    // 1) Try image via wl-paste / xclip first.
+    let dir = dirs_next::home_dir()
+        .unwrap_or_default()
+        .join(".unterm")
+        .join("clipboard");
+    std::fs::create_dir_all(&dir).context("create clipboard output dir")?;
+    let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S_%3f");
+    let png_path = dir.join(format!("clipboard_{}.png", timestamp));
+
+    let mut got_image = false;
+
+    if unix_command_exists("wl-paste") {
+        // Check available types; if image/png is offered, save it.
+        let types = std::process::Command::new("wl-paste")
+            .args(["--list-types"])
+            .output();
+        if let Ok(out) = types {
+            let listed = String::from_utf8_lossy(&out.stdout);
+            if listed.lines().any(|t| t.trim() == "image/png") {
+                let f = std::fs::File::create(&png_path)?;
+                let status = std::process::Command::new("wl-paste")
+                    .args(["--type", "image/png"])
+                    .stdout(f)
+                    .status()?;
+                if status.success() && png_path.exists() && std::fs::metadata(&png_path)?.len() > 0
+                {
+                    got_image = true;
+                }
+            }
+        }
+    }
+
+    if !got_image && unix_command_exists("xclip") {
+        // xclip -selection clipboard -t TARGETS -o -> list of mime types
+        let targets = std::process::Command::new("xclip")
+            .args(["-selection", "clipboard", "-t", "TARGETS", "-o"])
+            .output();
+        if let Ok(out) = targets {
+            let listed = String::from_utf8_lossy(&out.stdout);
+            if listed.lines().any(|t| t.trim() == "image/png") {
+                let f = std::fs::File::create(&png_path)?;
+                let status = std::process::Command::new("xclip")
+                    .args(["-selection", "clipboard", "-t", "image/png", "-o"])
+                    .stdout(f)
+                    .status()?;
+                if status.success() && png_path.exists() && std::fs::metadata(&png_path)?.len() > 0
+                {
+                    got_image = true;
+                }
+            }
+        }
+    }
+
+    if got_image {
+        let png_bytes = std::fs::read(&png_path)?;
+        let (width, height) = png_dimensions(&png_path);
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&png_bytes);
+        return Ok(json!({
+            "type": "image",
+            "format": "png",
+            "image_path": png_path.display().to_string(),
+            "width": width,
+            "height": height,
+            "size_bytes": png_bytes.len(),
+            "base64": b64,
+        }));
+    }
+
+    if png_path.exists() {
+        let _ = std::fs::remove_file(&png_path);
+    }
+
+    // 2) Text fallback.
+    let text_cmds: &[(&str, &[&str])] = &[
+        ("wl-paste", &["--no-newline"]),
+        ("xclip", &["-selection", "clipboard", "-o"]),
+        ("xsel", &["--clipboard", "--output"]),
+    ];
+    for (cmd, args) in text_cmds {
+        if !unix_command_exists(cmd) {
+            continue;
+        }
+        let out = std::process::Command::new(cmd).args(*args).output();
+        if let Ok(out) = out {
+            if out.status.success() {
+                let text = String::from_utf8_lossy(&out.stdout).to_string();
+                if !text.is_empty() {
+                    return Ok(json!({"type": "text", "content": text}));
+                }
+            }
+        }
+    }
+
+    Err(anyhow!(
+        "Clipboard is empty or no clipboard tool available (install wl-clipboard, xclip, or xsel)"
+    ))
 }

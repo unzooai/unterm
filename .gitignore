@@ -1,6 +1,10 @@
 /.tag
 .DS_Store
 dhat-heap.json
+# Unterm: local Developer-ID-signed bundles produced by ci/sign-macos.sh
+/Unterm-macos-local-*
+# Unterm: per-user runtime state — recording probe dirs, sessions cache, etc.
+/.unterm/
 /docs/_site
 /docs/favicon.png
 /docs/favicon.svg

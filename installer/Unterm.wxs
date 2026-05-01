@@ -31,6 +31,12 @@
       <Component Id="UntermExe" Guid="9A7EA657-4A0E-42B0-9974-0A77B4DD7FD0">
         <File Id="UntermExeFile" Source="$(var.SourceDir)\unterm.exe" KeyPath="yes" />
       </Component>
+      <Component Id="UntermCliExe" Guid="2C81E2F0-2E83-4B73-9F1B-5C4A7B3C7CE0">
+        <File Source="$(var.SourceDir)\unterm-cli.exe" KeyPath="yes" />
+      </Component>
+      <Component Id="UntermMuxExe" Guid="A2BAF1A0-8C2C-4F0B-9E0A-FE2D3D9B0D11">
+        <File Source="$(var.SourceDir)\unterm-mux.exe" KeyPath="yes" />
+      </Component>
       <Component Id="ConptyDll" Guid="E32B8E38-04D9-44C4-B06B-FE97D2E7CC20">
         <File Source="$(var.SourceDir)\conpty.dll" KeyPath="yes" />
       </Component>

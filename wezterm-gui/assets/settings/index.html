@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="en" class="bg-zinc-950" :lang="lang">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Unterm Settings</title>
+    <script src="/static/tailwind.js"></script>
+    <!-- Load our controller before Alpine so untermSettings() resolves
+         when Alpine evaluates x-data on body. Alpine is `defer`ed so it
+         only initializes after both <body> and our app.js are ready. -->
+    <script defer src="/static/app.js"></script>
+    <script defer src="/static/alpine.js"></script>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body
+    class="min-h-screen bg-zinc-950 text-zinc-100 antialiased font-sans"
+    x-data="untermSettings()"
+    x-init="boot()"
+  >
+    <!-- Top bar -->
+    <header
+      class="sticky top-0 z-10 border-b border-zinc-800 bg-zinc-950/80 backdrop-blur"
+    >
+      <div class="mx-auto flex max-w-6xl items-center gap-4 px-6 py-3">
+        <div class="flex items-center gap-2">
+          <span
+            class="inline-block h-2.5 w-2.5 rounded-full"
+            :class="health.ok ? 'bg-emerald-400' : 'bg-rose-500'"
+            :title="health.ok ? t('web.health.online') : t('web.health.offline')"
+          ></span>
+          <span class="text-sm font-semibold tracking-tight">Unterm</span>
+          <span class="text-xs text-zinc-500" x-text="state.version"></span>
+        </div>
+        <div class="ml-auto text-xs text-zinc-500">
+          <span x-text="`${state.hostname || ''} · 127.0.0.1:${state.ports.http || '?'}`"></span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Body grid -->
+    <main class="mx-auto grid max-w-6xl grid-cols-12 gap-6 px-6 py-8">
+      <!-- Side nav -->
+      <nav class="col-span-3">
+        <ul class="space-y-1">
+          <template x-for="item in nav" :key="item.id">
+            <li>
+              <button
+                type="button"
+                class="group flex w-full items-center justify-between rounded-md px-3 py-2 text-sm transition"
+                :class="active === item.id
+                  ? 'bg-zinc-800 text-white'
+                  : 'text-zinc-400 hover:bg-zinc-900 hover:text-zinc-100'"
+                @click="select(item.id)"
+              >
+                <span class="flex items-center gap-2">
+                  <span
+                    class="inline-block h-1.5 w-1.5 rounded-full"
+                    :class="active === item.id ? 'bg-emerald-400' : 'bg-zinc-700'"
+                  ></span>
+                  <span x-text="item.label"></span>
+                </span>
+                <span
+                  x-show="item.badge"
+                  class="inline-block h-2 w-2 rounded-full bg-orange-400"
+                  title="New"
+                ></span>
+              </button>
+            </li>
+          </template>
+        </ul>
+      </nav>
+
+      <!-- Panel container -->
+      <section class="col-span-9 space-y-6">
+        <!-- General -->
+        <div x-show="active==='general'">
+          <h2 class="text-xl font-semibold" x-text="t('web.general.title')"></h2>
+          <p class="mt-1 text-sm text-zinc-400" x-text="t('web.general.subtitle')"></p>
+
+          <dl class="mt-6 grid grid-cols-2 gap-4">
+            <template
+              x-for="row in [
+                [t('web.general.row.version'), state.version],
+                [t('web.general.row.hostname'), state.hostname],
+                [t('web.general.row.mcp_port'), state.ports.mcp],
+                [t('web.general.row.http_port'), state.ports.http],
+                [t('web.general.row.pid'), state.pid],
+                [t('web.general.row.started_at'), state.started_at],
+              ]"
+              :key="row[0]"
+            >
+              <div class="rounded-lg border border-zinc-800 bg-zinc-900 px-4 py-3">
+                <dt
+                  class="text-xs uppercase tracking-wider text-zinc-500"
+                  x-text="row[0]"
+                ></dt>
+                <dd class="mt-1 break-all text-sm text-zinc-200" x-text="row[1] ?? '—'"></dd>
+              </div>
+            </template>
+          </dl>
+
+          <div class="mt-6 rounded-lg border border-zinc-800 bg-zinc-900 p-4 text-sm">
+            <div class="font-medium text-zinc-200" x-text="t('web.general.selftest.title')"></div>
+            <div class="mt-2 text-xs text-zinc-400">
+              <span x-text="t('web.general.selftest.try')"></span>
+              <code class="rounded bg-zinc-950 px-1.5 py-0.5 text-zinc-300"
+                >curl -H "Authorization: Bearer …" http://127.0.0.1:<span
+                  x-text="state.ports.http || '?'"
+                ></span
+                >/api/health</code
+              >
+            </div>
+          </div>
+
+          <!-- Language section -->
+          <div class="mt-8">
+            <h3 class="text-base font-semibold" x-text="t('web.language.title')"></h3>
+            <p class="mt-1 text-sm text-zinc-400" x-text="t('web.language.subtitle')"></p>
+            <div class="mt-3 rounded-lg border border-zinc-800 bg-zinc-900 p-4">
+              <select
+                class="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
+                :value="lang"
+                @change="changeLang($event.target.value)"
+              >
+                <template x-for="loc in availableLocales" :key="loc.code">
+                  <option
+                    :value="loc.code"
+                    :selected="loc.code === lang"
+                    x-text="loc.name + ' (' + loc.code + ')'"
+                  ></option>
+                </template>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Appearance -->
+        <div x-show="active==='appearance'">
+          <h2 class="text-xl font-semibold" x-text="t('web.appearance.title')"></h2>
+          <p class="mt-1 text-sm text-zinc-400" x-text="t('web.appearance.subtitle')"></p>
+
+          <div class="mt-6 grid grid-cols-2 gap-4">
+            <template x-for="theme in themes" :key="theme.id">
+              <button
+                type="button"
+                class="group rounded-lg border bg-zinc-900 p-4 text-left transition hover:border-zinc-600"
+                :class="state.theme === theme.id
+                  ? 'border-emerald-500 ring-1 ring-emerald-500/40'
+                  : 'border-zinc-800'"
+                @click="applyTheme(theme.id)"
+              >
+                <div class="flex items-start justify-between">
+                  <div>
+                    <div class="font-medium" x-text="t('theme.preset.' + theme.id + '.name')"></div>
+                    <div class="text-xs text-zinc-500" x-text="theme.scheme"></div>
+                  </div>
+                  <span
+                    x-show="state.theme === theme.id"
+                    class="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] uppercase tracking-wider text-emerald-300"
+                    x-text="t('web.appearance.active')"
+                  ></span>
+                </div>
+                <div class="mt-3 flex h-10 overflow-hidden rounded">
+                  <template x-for="c in theme.swatches" :key="c">
+                    <div class="flex-1" :style="`background:${c}`"></div>
+                  </template>
+                </div>
+                <div class="mt-3 text-xs text-zinc-400" x-text="t('theme.preset.' + theme.id + '.desc')"></div>
+              </button>
+            </template>
+          </div>
+        </div>
+
+        <!-- Proxy -->
+        <div x-show="active==='proxy'">
+          <h2 class="text-xl font-semibold" x-text="t('web.proxy.title')"></h2>
+          <p class="mt-1 text-sm text-zinc-400" x-text="t('web.proxy.subtitle')"></p>
+
+          <div
+            class="mt-6 rounded-lg border border-zinc-800 bg-zinc-900 p-4"
+          >
+            <label class="flex items-center justify-between gap-4">
+              <span>
+                <span class="font-medium" x-text="t('web.proxy.auto.label')"></span>
+                <span class="block text-xs text-zinc-500" x-text="t('web.proxy.auto.hint')"></span>
+              </span>
+              <input
+                type="checkbox"
+                class="h-5 w-9 cursor-pointer appearance-none rounded-full bg-zinc-700 transition-all checked:bg-emerald-500"
+                style="position:relative"
+                :checked="proxy.enabled"
+                @change="toggleProxy($event.target.checked)"
+              />
+            </label>
+          </div>
+
+          <div
+            class="mt-4 rounded-lg border border-zinc-800 bg-zinc-900 p-4 text-sm"
+          >
+            <div class="text-xs uppercase tracking-wider text-zinc-500" x-text="t('web.proxy.status')"></div>
+            <dl class="mt-2 grid grid-cols-3 gap-3">
+              <div>
+                <dt class="text-xs text-zinc-500" x-text="t('web.proxy.status.enabled')"></dt>
+                <dd class="font-medium" x-text="proxy.enabled ? t('web.proxy.yes') : t('web.proxy.no')"></dd>
+              </div>
+              <div>
+                <dt class="text-xs text-zinc-500" x-text="t('web.proxy.status.source')"></dt>
+                <dd
+                  class="font-medium"
+                  x-text="proxy.health?.source || proxy.mode || 'off'"
+                ></dd>
+              </div>
+              <div>
+                <dt class="text-xs text-zinc-500" x-text="t('web.proxy.status.reachable')"></dt>
+                <dd
+                  class="font-medium"
+                  :class="proxy.health?.reachable ? 'text-emerald-400' : 'text-zinc-300'"
+                  x-text="proxy.health == null ? t('web.proxy.dash') : (proxy.health.reachable ? t('web.proxy.yes') : t('web.proxy.no'))"
+                ></dd>
+              </div>
+              <div class="col-span-3">
+                <dt class="text-xs text-zinc-500" x-text="t('web.proxy.status.url')"></dt>
+                <dd
+                  class="break-all font-mono text-xs text-zinc-200"
+                  x-text="proxy.health?.url || proxy.http_proxy || t('web.proxy.dash')"
+                ></dd>
+              </div>
+            </dl>
+          </div>
+
+          <details
+            class="mt-4 rounded-lg border border-zinc-800 bg-zinc-900 p-4"
+          >
+            <summary class="cursor-pointer text-sm font-medium" x-text="t('web.proxy.manual')"></summary>
+            <div class="mt-3 space-y-3 text-sm">
+              <label class="block">
+                <span class="text-xs text-zinc-500" x-text="t('web.proxy.http_url')"></span>
+                <input
+                  type="text"
+                  x-model="proxyForm.http_proxy"
+                  placeholder="http://127.0.0.1:7890"
+                  class="mt-1 block w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono text-xs"
+                />
+              </label>
+              <label class="block">
+                <span class="text-xs text-zinc-500" x-text="t('web.proxy.socks_url')"></span>
+                <input
+                  type="text"
+                  x-model="proxyForm.socks_proxy"
+                  placeholder="socks5://127.0.0.1:1080"
+                  class="mt-1 block w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono text-xs"
+                />
+              </label>
+              <label class="block">
+                <span class="text-xs text-zinc-500" x-text="t('web.proxy.no_proxy')"></span>
+                <input
+                  type="text"
+                  x-model="proxyForm.no_proxy"
+                  placeholder="localhost,127.0.0.1,::1"
+                  class="mt-1 block w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono text-xs"
+                />
+              </label>
+              <button
+                type="button"
+                class="rounded bg-emerald-500/90 px-3 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-emerald-400"
+                @click="saveProxyManual()"
+                x-text="t('web.proxy.save_manual')"
+              ></button>
+            </div>
+          </details>
+        </div>
+
+        <!-- Recording -->
+        <div x-show="active==='recording'">
+          <h2 class="text-xl font-semibold" x-text="t('web.recording.title')"></h2>
+          <p class="mt-1 text-sm text-zinc-400">
+            <span x-text="t('web.recording.subtitle_pre')"></span>
+            <code class="rounded bg-zinc-900 px-1 text-zinc-200"
+              >~/.unterm/sessions/</code
+            >
+            <span x-text="t('web.recording.subtitle_post')"></span>
+          </p>
+
+          <div
+            class="mt-6 flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900 p-4"
+          >
+            <div>
+              <div class="font-medium" x-text="t('web.recording.active.title')"></div>
+              <div class="text-xs text-zinc-500" x-text="t('web.recording.active.hint')"></div>
+            </div>
+            <span
+              class="rounded-full px-3 py-1 text-xs font-semibold"
+              :class="recording.active ? 'bg-rose-500/15 text-rose-300' : 'bg-zinc-800 text-zinc-400'"
+              x-text="recording.active ? t('web.recording.badge.recording') : t('web.recording.badge.idle')"
+            ></span>
+          </div>
+
+          <div class="mt-6">
+            <div
+              class="mb-2 flex items-center justify-between text-xs uppercase tracking-wider text-zinc-500"
+            >
+              <span x-text="t('web.recording.past.heading').replace('{n}', sessions.length)"></span>
+              <button
+                class="rounded border border-zinc-700 px-2 py-0.5 text-[10px] hover:bg-zinc-800"
+                @click="loadSessions()"
+                x-text="t('web.recording.past.refresh')"
+              ></button>
+            </div>
+            <ul class="divide-y divide-zinc-800 rounded-lg border border-zinc-800 bg-zinc-900">
+              <template x-for="s in sessions" :key="s.unterm_session_id">
+                <li class="cursor-pointer px-4 py-3 text-sm hover:bg-zinc-800/60"
+                  @click="openSession(s)">
+                  <div class="flex justify-between">
+                    <span class="font-medium" x-text="s.project_slug || '_orphan'"></span>
+                    <span class="text-xs text-zinc-500" x-text="s.started_at"></span>
+                  </div>
+                  <div class="mt-1 text-xs text-zinc-500">
+                    <span x-text="t('web.recording.blocks_label').replace('{n}', s.block_count || 0)"></span>
+                    · <span x-text="s.unterm_session_id"></span>
+                  </div>
+                </li>
+              </template>
+              <li x-show="sessions.length === 0" class="px-4 py-3 text-sm text-zinc-500" x-text="t('web.recording.past.empty')"></li>
+            </ul>
+          </div>
+
+          <div
+            x-show="sessionMarkdown !== null"
+            class="mt-6 rounded-lg border border-zinc-800 bg-zinc-950"
+          >
+            <div
+              class="flex items-center justify-between border-b border-zinc-800 px-4 py-2 text-xs text-zinc-500"
+            >
+              <span x-text="t('web.recording.session.label').replace('{id}', currentSessionId || '')"></span>
+              <button
+                class="rounded border border-zinc-700 px-2 py-0.5 hover:bg-zinc-800"
+                @click="sessionMarkdown=null"
+                x-text="t('web.recording.session.close')"
+              ></button>
+            </div>
+            <pre
+              class="max-h-[60vh] overflow-auto whitespace-pre-wrap break-words p-4 font-mono text-xs leading-relaxed text-zinc-200"
+              x-text="sessionMarkdown"
+            ></pre>
+          </div>
+
+          <div class="mt-4 text-xs text-zinc-500">
+            <span x-text="t('web.recording.sessions_folder')"></span>
+            <code class="rounded bg-zinc-900 px-1 text-zinc-200"
+              x-text="state.sessions_path"
+            ></code>
+          </div>
+        </div>
+
+        <!-- Project -->
+        <div x-show="active==='project'">
+          <h2 class="text-xl font-semibold" x-text="t('web.project.title')"></h2>
+          <p class="mt-1 text-sm text-zinc-400" x-text="t('web.project.subtitle')"></p>
+
+          <div class="mt-6 rounded-lg border border-zinc-800 bg-zinc-900 p-4 text-sm">
+            <div class="text-xs uppercase tracking-wider text-zinc-500" x-text="t('web.project.current')"></div>
+            <div class="mt-1 break-all font-mono" x-text="state.project.path || t('web.project.no_pane')"></div>
+            <div class="mt-1 text-xs text-zinc-500" x-text="t('web.project.slug_label').replace('{slug}', state.project.slug || '_orphan')"></div>
+          </div>
+
+          <div class="mt-4 text-xs text-zinc-500" x-text="t('web.project.help')"></div>
+        </div>
+
+        <!-- About -->
+        <div x-show="active==='about'">
+          <h2 class="text-xl font-semibold" x-text="t('web.about.title')"></h2>
+          <div class="mt-4 space-y-2 text-sm text-zinc-300">
+            <div>
+              Unterm <span class="font-mono" x-text="state.version"></span>
+            </div>
+            <div class="text-xs text-zinc-500" x-text="t('web.about.line')"></div>
+            <div class="pt-2">
+              <a
+                class="text-emerald-400 hover:text-emerald-300"
+                href="https://github.com/unzooai/unterm"
+                target="_blank"
+                rel="noreferrer"
+                >github.com/unzooai/unterm</a
+              >
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Toasts -->
+    <div
+      class="pointer-events-none fixed bottom-6 right-6 flex flex-col gap-2"
+    >
+      <template x-for="t in toasts" :key="t.id">
+        <div
+          class="rounded-md border px-4 py-2 text-xs shadow-lg"
+          :class="t.kind === 'error'
+            ? 'border-rose-500/50 bg-rose-500/10 text-rose-200'
+            : 'border-emerald-500/50 bg-emerald-500/10 text-emerald-200'"
+          x-text="t.text"
+        ></div>
+      </template>
+    </div>
+  </body>
+</html>
