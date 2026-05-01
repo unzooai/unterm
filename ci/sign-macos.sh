@@ -75,4 +75,9 @@ fi
 set +x
 echo "Signed: $zipdir/Unterm.app"
 echo "Zip:    $zipname"
-[ -z "$NOTARY_PROFILE" ] && echo "NOTE: not notarized — set NOTARY_PROFILE=<name> after running 'xcrun notarytool store-credentials <name>'"
+# Use a real `if` (not `&& echo`) so the exit status of this script is always
+# 0 on success — under `set -e`, a `[ -z "$X" ] && echo` short-circuit returns
+# non-zero when $X is set, which would tank any caller that pipefails on us.
+if [ -z "$NOTARY_PROFILE" ]; then
+  echo "NOTE: not notarized — set NOTARY_PROFILE=<name> after running 'xcrun notarytool store-credentials <name>'"
+fi
