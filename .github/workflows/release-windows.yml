@@ -39,15 +39,15 @@ jobs:
           TAG_NAME: ${{ steps.tag.outputs.name }}
           OSTYPE: msys
         run: ci/deploy.sh
-      - name: Fetch WiX
+      - name: Install WiX (as a .NET tool, the official WiX 6 distribution)
         shell: pwsh
         run: |
+          # WiX 6 ships as the `wix` .NET global tool, not a standalone .exe.
+          # Install it into a per-repo path that build-msi.ps1 already looks at
+          # (.\.tools\), so the script doesn't need to know where it lives on
+          # the runner.
           New-Item -ItemType Directory -Force .\.tools | Out-Null
-          Invoke-WebRequest -Uri "https://github.com/wixtoolset/wix/releases/download/v6.0.1/wix-cli-x64.msi" -OutFile wix.msi
-          # Extract wix.exe out of the MSI without installing globally
-          msiexec /a wix.msi /qn TARGETDIR="$PWD\wix-extract"
-          $wixExe = Get-ChildItem -Recurse -Filter wix.exe wix-extract | Select-Object -First 1
-          Copy-Item $wixExe.FullName .\.tools\wix.exe
+          dotnet tool install --tool-path .\.tools wix --version 6.0.1
       - name: Build MSI
         shell: pwsh
         run: |
