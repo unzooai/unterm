@@ -1,4 +1,4 @@
-.PHONY: all fmt build check test
+.PHONY: all fmt build check test release-mac
 
 all: build
 
@@ -23,3 +23,8 @@ build:
 
 fmt:
 	cargo +nightly fmt
+
+# Build, sign, notarize, and upload the macOS Unterm.app for the tag at HEAD.
+# Override the keychain notary profile with `make release-mac NOTARY_PROFILE=Foo`.
+release-mac:
+	bash ci/release-mac.sh

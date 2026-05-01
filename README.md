@@ -165,17 +165,31 @@ bash ci/deploy.sh
 pwsh -File ci/build-msi.ps1
 ```
 
-macOS code-signing + notarization (requires your Developer ID):
+macOS code-signing + notarization is **local-only** (no CI step) so the
+Developer ID `.p12` private key never has to leave your Mac. One-time
+setup, on the Mac that holds the cert:
 
 ```bash
-ci/sign-macos.sh
-# One-time setup of notary credentials:
-xcrun notarytool store-credentials UntermNotary --apple-id <your-apple-id> --team-id <your-team-id>
-# Then signed + notarized:
-NOTARY_PROFILE=UntermNotary ci/sign-macos.sh
+xcrun notarytool store-credentials UntermNotary \
+  --apple-id <your-apple-id> --team-id 6NQM3XP5RF
 ```
 
-CI on every PR runs `cargo check` against macOS, Linux, and Windows. Tagged pushes (`vX.Y.Z`) trigger the three `release-*` workflows that publish artifacts to GitHub Releases.
+Then for every release:
+
+```bash
+git tag -a vX.Y.Z -m "Unterm vX.Y.Z" && git push origin vX.Y.Z
+make release-mac                    # build universal + sign + notarize + upload
+```
+
+`make release-mac` reads the tag from `git describe --exact-match HEAD`,
+builds universal x86_64+aarch64 binaries, calls `ci/sign-macos.sh` with
+`NOTARY_PROFILE=UntermNotary`, then `gh release upload`s the resulting
+zip to the matching GitHub Release.
+
+CI on every PR runs `cargo check` against macOS, Linux, and Windows.
+Tagged pushes (`vX.Y.Z`) trigger the `release-linux` and
+`release-windows` workflows that publish those two platforms' artifacts
+to GitHub Releases. macOS sits out of CI by design — see above.
 
 ---
 
