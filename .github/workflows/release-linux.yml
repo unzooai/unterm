@@ -27,14 +27,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Install build deps
+        # `get-deps` is the authoritative package list for the various Linux
+        # distros — running it here keeps the workflow in sync with what the
+        # README tells local devs to install. The hand-rolled list this used
+        # to ship was missing libx11-xcb-dev / libxcb-ewmh-dev / libxcb-randr0-dev
+        # and broke at the x11 crate's pkg-config check.
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            pkg-config libfontconfig1-dev libssl-dev \
-            libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
-            libxcb-keysyms1-dev libxcb-icccm4-dev libxcb-image0-dev libxcb-util-dev \
-            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
-            fakeroot dpkg-dev curl
+          SUDO=sudo bash get-deps
       - name: Build
         run: cargo build --release -p unterm -p unterm-cli -p unterm-mux -p strip-ansi-escapes
       - name: Build .deb
