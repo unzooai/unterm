@@ -18,6 +18,10 @@
 
   "install.title": "一次安装，三端通吃",
   "install.subtitle": "下载对应系统的签名包。三端一致是正确性，不是“暂未支持”——Windows 能用而 macOS 不能用就是 bug。",
+  "install.copy_hint": "点击复制",
+  "install.unix_detail": "脚本自动识别 OS + 架构，拉最新版的对应资产。macOS 把签名+公证好的 DMG 装到 <code class=\"text-zinc-300\">/Applications</code>。Linux 有 <code class=\"text-zinc-300\">apt</code> 时走 .deb；否则把 AppImage 放进 <code class=\"text-zinc-300\">~/.local/bin</code>。",
+  "install.win_detail": "脚本自动从 GitHub Releases 拉 <code class=\"text-zinc-300\">Unterm-x.y.z-x64.msi</code> 并以基本 UI 模式调 <code class=\"text-zinc-300\">msiexec</code>。UAC 会弹出询问授权。",
+  "install.or_manual": "或者直接下载文件：",
   "install.macos.title": "macOS",
   "install.macos.detail": "通用二进制 (arm64 + x86_64) .dmg，已签名 + 已公证。",
   "install.macos.action": "Unterm-macos.dmg →",
