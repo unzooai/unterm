@@ -1416,24 +1416,25 @@ pub(crate) fn copy_text_to_clipboard(text: &str) -> anyhow::Result<()> {
     anyhow::bail!("no usable clipboard tool (tried wl-copy, xclip, xsel)")
 }
 
-pub(crate) fn write_unterm_status_to_pane(pane: &Arc<dyn Pane>, message: &str) {
-    // Emit the status banner directly into the terminal's *output* side via
-    // the escape parser, NOT through `pane.writer()` (which goes to the PTY
-    // input side and would be executed as a shell command — producing a
-    // stream of "command not found: [Unterm] ..." errors on Posix shells
-    // and similar nonsense on PowerShell).
+pub(crate) fn write_unterm_status_to_pane(_pane: &Arc<dyn Pane>, _message: &str) {
+    // Intentionally a no-op.
     //
-    // We render with ANSI SGR for a subtle muted color so the line reads as
-    // a status line, not as program output, and surround with CRLF so it
-    // settles on its own row regardless of cursor position.
-    let line = format!(
-        "\r\n\x1b[2m[Unterm] {}\x1b[0m\r\n",
-        message.replace('\x1b', "")
-    );
-    let mut parser = termwiz::escape::parser::Parser::new();
-    let mut actions = Vec::new();
-    parser.parse(line.as_bytes(), |action| actions.push(action));
-    pane.perform_actions(actions);
+    // The earlier implementation injected `[Unterm] ...` banner lines
+    // straight into the pane's output stream via perform_actions(). On
+    // a naive shell that's harmless — text just lands above the prompt.
+    // But Claude Code, vim, btop, lazygit, k9s, and basically every
+    // ncurses/TUI app uses absolute cursor positioning and full-frame
+    // repaints; an injected CRLF sequence in the middle of their render
+    // shifts every subsequent absolute-positioned cell by one row, so
+    // the user sees fragments of the next frame interleaved with stale
+    // text from the previous frame ("内容多了以后开始乱序"). 2026-05-01
+    // bug report attached a screenshot of Claude Code self-corruption.
+    //
+    // Subtraction principle: the action's effect is already visible
+    // through the status bar, the system clipboard, and the file on
+    // disk — yelling about it inside the pane was redundant and now
+    // we know it's destructive. Keep the function symbol so the 19
+    // existing call sites still compile, but it does nothing.
 }
 
 fn toggle_unterm_proxy_enabled() -> anyhow::Result<bool> {

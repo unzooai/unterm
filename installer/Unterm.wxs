@@ -1,18 +1,27 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
   <Package
     Name="Unterm"
     Manufacturer="Alex"
-    Version="0.5.1"
+    Version="0.5.2"
     UpgradeCode="2B17738E-D6E7-44BB-9B55-1D6AF31404A2"
     Scope="perMachine">
 
     <SummaryInformation
       Description="Unterm terminal"
-      Manufacturer="Unzoo AI" />
+      Manufacturer="Alex" />
 
     <MajorUpgrade DowngradeErrorMessage="A newer version of Unterm is already installed." />
     <MediaTemplate EmbedCab="yes" />
+
+    <!-- WixUI_Minimal gives the user a small wizard: Welcome → License →
+         Install → Finish. Without this the MSI runs *silently* — double-click
+         and "nothing happens" because there is no progress dialog or
+         finish screen. v0.5.1 shipped without UI by accident; users saw the
+         installer flash and disappear. -->
+    <ui:WixUI Id="WixUI_Minimal" />
+    <WixVariable Id="WixUILicenseRtf" Value="installer\License.rtf" />
 
     <Feature Id="MainFeature" Title="Unterm" Level="1">
       <ComponentGroupRef Id="UntermFiles" />

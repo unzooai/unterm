@@ -51,10 +51,16 @@ if (-not (Test-Path $WixPath)) {
   throw "WiX not found at $WixPath. Download wix.exe from https://github.com/wixtoolset/wix and place it there."
 }
 
+# Make sure the WixUI extension is registered for this wix.exe — needed to
+# resolve the <ui:WixUI Id="WixUI_Minimal"/> reference at build time.
+# `wix extension add` is idempotent; it noops if already added.
+& $WixPath extension add -g WixToolset.UI.wixext/6.0.1 | Out-Null
+
 $msiName = "Unterm-$Version-x64.msi"
 $msiPath = Join-Path $OutDir $msiName
 
 & $WixPath build installer\Unterm.wxs `
+  -ext WixToolset.UI.wixext `
   -d "SourceDir=$stage" `
   -arch x64 `
   -o $msiPath
