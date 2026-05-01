@@ -3,12 +3,15 @@
 // The dict is passed in by the per-locale page entry; nothing here knows
 // what the active language is, it just looks keys up in the dict.
 
+import { formatCount, type Stats } from "../lib/stats";
+
 interface Props {
   dict: Record<string, string>;
   pathPrefix: string;
+  stats: Stats;
 }
 
-const { dict, pathPrefix } = Astro.props as Props;
+const { dict, pathPrefix, stats } = Astro.props as Props;
 const t = (k: string) => dict[k] ?? k;
 
 // FAQ entries — shape matches the keys inside the locale JSON.
@@ -51,7 +54,10 @@ const cmpRows = [
 ];
 
 const dlBaseUrl = "https://github.com/unzooai/unterm/releases";
-const dmgUrl    = `${dlBaseUrl}/latest/download/Unterm-macos-v0.5.0.dmg`;
+// `stats.release` is the latest tag returned by the GitHub API at build
+// time. Driving the DMG URL off it means we don't have to hand-edit this
+// file every time we cut a new tag — the next deploy auto-points at it.
+const dmgUrl = `${dlBaseUrl}/latest/download/Unterm-macos-${stats.release}.dmg`;
 ---
 
 <!-- ============== HERO ============== -->
@@ -79,6 +85,22 @@ const dmgUrl    = `${dlBaseUrl}/latest/download/Unterm-macos-v0.5.0.dmg`;
       <a href="https://github.com/unzooai/unterm" target="_blank" rel="noopener"
          class="inline-flex items-center gap-2 px-5 py-3 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-100 font-medium transition">
         <span>{t("hero.cta.github")}</span>
+      </a>
+    </div>
+    <!-- Social proof: GitHub stars + total release downloads, baked in at
+         build time so it loads instantly with the rest of the HTML. -->
+    <div class="mt-6 flex flex-wrap items-center justify-center gap-2 text-xs">
+      <a href="https://github.com/unzooai/unterm/stargazers" target="_blank" rel="noopener"
+         class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-zinc-900/80 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 transition">
+        <svg class="w-3.5 h-3.5 text-yellow-400" fill="currentColor" viewBox="0 0 24 24"><path d="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>
+        <span class="font-semibold">{formatCount(stats.stars)}</span>
+        <span class="text-zinc-500">stars</span>
+      </a>
+      <a href="https://github.com/unzooai/unterm/releases" target="_blank" rel="noopener"
+         class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-zinc-900/80 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 transition">
+        <svg class="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" stroke-width="2.4" viewBox="0 0 24 24"><path d="M12 4v12m0 0l-4-4m4 4l4-4M5 20h14"/></svg>
+        <span class="font-semibold">{formatCount(stats.downloads)}</span>
+        <span class="text-zinc-500">downloads</span>
       </a>
     </div>
     <p class="mt-6 text-xs text-zinc-500">{t("hero.meta")}</p>

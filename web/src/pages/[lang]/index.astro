@@ -2,6 +2,7 @@
 import Base from "../../layouts/Base.astro";
 import Page from "../../components/Page.astro";
 import { LOCALES, alternates } from "../../i18n/locales";
+import { fetchStats } from "../../lib/stats";
 
 import zhCN from "../../i18n/zh-CN.json";
 import zhTW from "../../i18n/zh-TW.json";
@@ -39,6 +40,7 @@ export function getStaticPaths() {
 const { lang } = Astro.params;
 const dict = DICTS[lang as string];
 const pathPrefix = `/${lang}`;
+const stats = await fetchStats();
 ---
 
 <Base
@@ -48,5 +50,5 @@ const pathPrefix = `/${lang}`;
   locales={LOCALES}
   pathPrefix={pathPrefix}
 >
-  <Page dict={dict} pathPrefix={pathPrefix} />
+  <Page dict={dict} pathPrefix={pathPrefix} stats={stats} />
 </Base>

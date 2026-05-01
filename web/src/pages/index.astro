@@ -3,6 +3,9 @@ import Base from "../layouts/Base.astro";
 import Page from "../components/Page.astro";
 import dict from "../i18n/en-US.json";
 import { LOCALES, alternates } from "../i18n/locales";
+import { fetchStats } from "../lib/stats";
+
+const stats = await fetchStats();
 ---
 
 <Base
@@ -12,5 +15,5 @@ import { LOCALES, alternates } from "../i18n/locales";
   locales={LOCALES}
   pathPrefix=""
 >
-  <Page dict={dict} pathPrefix="" />
+  <Page dict={dict} pathPrefix="" stats={stats} />
 </Base>
