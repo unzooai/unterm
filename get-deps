@@ -426,6 +426,8 @@ if ! test_cmd 'rustc'; then
   exit 1
 fi
 
-if ! ./ci/check-rust-version.sh; then
+# Optional rust-version pin check — kept around for upstream WezTerm parity
+# but not shipped in the Unterm fork, so skip silently if it's not present.
+if [ -x ./ci/check-rust-version.sh ] && ! ./ci/check-rust-version.sh; then
   exit 1
 fi

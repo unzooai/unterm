@@ -61,7 +61,7 @@ done
 ditto -c -k --keepParent "$zipdir/Unterm.app" "$zipname"
 
 if [ -n "$NOTARY_PROFILE" ] ; then
-  echo "Submitting to Apple notary service via profile $NOTARY_PROFILE…"
+  echo "Submitting to Apple notary service via profile ${NOTARY_PROFILE}..."
   xcrun notarytool submit "$zipname" \
     --keychain-profile "$NOTARY_PROFILE" \
     --wait
