@@ -106,17 +106,27 @@ case ${OSTYPE:-} in
     rm -rf pkg
     mkdir -p "$debroot/DEBIAN"
 
-    # `dpkg-shlibdeps` (used right after this) reads `debian/control` and
-    # demands a *source* stanza first (Source: + Section: …). We then move
-    # control into DEBIAN/ where dpkg-deb only reads the *binary* stanza.
-    # Two stanzas separated by a blank line keeps both tools happy.
+    # Two flavors of debian/control are needed:
+    #
+    #   1. `pkg/debian/control` is a *source* package control file (with a
+    #      `Source:` stanza). dpkg-shlibdeps requires this format to compute
+    #      runtime library deps. We delete it after.
+    #
+    #   2. `pkg/debian/DEBIAN/control` is a *binary* package control file
+    #      (only `Package:` stanza). dpkg-deb requires this format to assemble
+    #      the .deb. We append `Depends:` here from shlibdeps' output.
+    #
+    # Earlier we tried writing one combined file and moving it; dpkg-deb hit
+    # "missing 'Package' field" because the Source stanza came first.
     cat > "$debroot/control" <<EOF
 Source: $pkgname
 Section: utils
 Priority: optional
 Maintainer: Alex <lixd220@gmail.com>
 Homepage: https://github.com/unzooai/unterm
+EOF
 
+    cat > "$debroot/DEBIAN/control" <<EOF
 Package: $pkgname
 Version: ${TAG_NAME#nightly-}
 Architecture: $arch
@@ -145,7 +155,7 @@ EOF
     install -Dm644 assets/shell-integration/* -t "$debroot/etc/profile.d"
 
     deps=$(cd pkg && dpkg-shlibdeps -O -e debian/usr/bin/*)
-    mv "$debroot/control" "$debroot/DEBIAN/control"
+    rm "$debroot/control"  # source-stanza file no longer needed
     echo "$deps" | sed -e 's/shlibs:Depends=/Depends: /' >> "$debroot/DEBIAN/control"
 
     debname=unterm-$TAG_NAME
