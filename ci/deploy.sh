@@ -103,6 +103,11 @@ case ${OSTYPE:-} in
     pkgname=unterm
     arch=$(dpkg-architecture -q DEB_BUILD_ARCH_CPU)
     debroot=pkg/debian
+    # dpkg-deb requires the Version field to start with a digit, but our git
+    # tags use a `v` prefix (e.g. v0.5.0). Strip the leading `v` for the .deb
+    # but keep it on artifact filenames where users expect it.
+    DEB_VERSION=${TAG_NAME#nightly-}
+    DEB_VERSION=${DEB_VERSION#v}
     rm -rf pkg
     mkdir -p "$debroot/DEBIAN"
 
@@ -128,7 +133,7 @@ EOF
 
     cat > "$debroot/DEBIAN/control" <<EOF
 Package: $pkgname
-Version: ${TAG_NAME#nightly-}
+Version: ${DEB_VERSION}
 Architecture: $arch
 Maintainer: Alex <lixd220@gmail.com>
 Section: utils
