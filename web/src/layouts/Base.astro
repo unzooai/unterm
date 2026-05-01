@@ -120,6 +120,47 @@ const canonical = `https://unterm.app${pathPrefix || "/"}`;
           if (href) window.location.assign(href);
         });
       }
+
+      // Layer 3 of the stats stack: live-refresh the star/download chips.
+      //
+      // Why this exists, even though Astro already SSR'd numbers into the
+      // HTML: the build only runs on push to master, which can be days or
+      // weeks ago. /api/stats is a Pages Function that proxies GitHub on
+      // a 5-minute edge cache, so a regular visitor still sees today's
+      // count without us redeploying.
+      //
+      // Two footguns guarded against:
+      //   1. We update only when the answer is > 0. A null response
+      //      (proxy failure) leaves the SSR text alone — never overwrite
+      //      a real number with "—" or 0.
+      //   2. We swallow all errors silently. If /api/stats is down, the
+      //      page just keeps showing the build-time numbers; users never
+      //      see "loading..." flicker or a thrown promise.
+      (function () {
+        function fmt(n) {
+          if (n === null || !Number.isFinite(n)) return "—";
+          if (n < 1000) return String(n);
+          if (n < 10000) return (n / 1000).toFixed(1).replace(/\.0$/, "") + "k";
+          if (n < 1000000) return Math.round(n / 1000) + "k";
+          return (n / 1000000).toFixed(1).replace(/\.0$/, "") + "M";
+        }
+        function paint(key, value) {
+          if (typeof value !== "number" || value <= 0) return;
+          document
+            .querySelectorAll('[data-stat="' + key + '"]')
+            .forEach((el) => {
+              el.textContent = fmt(value);
+            });
+        }
+        fetch("/api/stats", { headers: { accept: "application/json" } })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((d) => {
+            if (!d) return;
+            paint("stars", d.stars);
+            paint("downloads", d.downloads);
+          })
+          .catch(() => {});
+      })();
     </script>
   </body>
 </html>

@@ -21,14 +21,21 @@ const HEADERS: Record<string, string> = {
 };
 
 export interface Stats {
-  stars: number;
-  downloads: number;
+  /** `null` means "no trustworthy answer yet" — render an em dash, not 0.
+   *  Distinguishing null vs 0 is load-bearing: a transient GitHub 503 must
+   *  not pin "⭐ 0 stars" onto the homepage for the next 5 minutes. */
+  stars: number | null;
+  downloads: number | null;
   /** Latest tag, e.g. "v0.5.0". Used for download links so we don't have
    *  to update the hero CTA every time we cut a release. */
   release: string;
 }
 
-const FALLBACK: Stats = { stars: 0, downloads: 0, release: "v0.5.0" };
+// Fallback used when the build-time fetch fails entirely. We give the
+// release a sane default (v0.5.0) because the hero CTA must point
+// _somewhere_, but the numbers stay null so the chips render as em dashes
+// and let the client-side refresh fill them in if it can.
+const FALLBACK: Stats = { stars: null, downloads: null, release: "v0.5.0" };
 
 let cache: Promise<Stats> | null = null;
 
@@ -85,8 +92,12 @@ async function doFetch(): Promise<Stats> {
  * 1234 -> "1.2k", 12345 -> "12k", 1_234_567 -> "1.2M".
  * Anything under 1000 is shown raw. Trailing ".0" is stripped so we get
  * "5k" not "5.0k".
+ *
+ * `null` renders as an em dash so the chip layout doesn't collapse and
+ * the user can tell "we don't know yet" apart from "the answer is zero".
  */
-export function formatCount(n: number): string {
+export function formatCount(n: number | null): string {
+  if (n === null || !Number.isFinite(n)) return "—";
   if (n < 1000) return String(n);
   if (n < 10_000) return (n / 1000).toFixed(1).replace(/\.0$/, "") + "k";
   if (n < 1_000_000) return Math.round(n / 1000) + "k";
