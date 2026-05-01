@@ -106,11 +106,21 @@ case ${OSTYPE:-} in
     rm -rf pkg
     mkdir -p "$debroot/DEBIAN"
 
+    # `dpkg-shlibdeps` (used right after this) reads `debian/control` and
+    # demands a *source* stanza first (Source: + Section: …). We then move
+    # control into DEBIAN/ where dpkg-deb only reads the *binary* stanza.
+    # Two stanzas separated by a blank line keeps both tools happy.
     cat > "$debroot/control" <<EOF
+Source: $pkgname
+Section: utils
+Priority: optional
+Maintainer: Alex <lixd220@gmail.com>
+Homepage: https://github.com/unzooai/unterm
+
 Package: $pkgname
 Version: ${TAG_NAME#nightly-}
 Architecture: $arch
-Maintainer: Unzoo AI <noreply@unzoo.ai>
+Maintainer: Alex <lixd220@gmail.com>
 Section: utils
 Priority: optional
 Homepage: https://github.com/unzooai/unterm
