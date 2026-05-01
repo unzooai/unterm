@@ -51,7 +51,13 @@ jobs:
       - name: Build MSI
         shell: pwsh
         run: |
-          $ver = (Select-String -Path installer\Unterm.wxs -Pattern 'Version="([0-9.]+)"').Matches.Groups[1].Value
+          # Anchor the regex on `Package … Version="…"` so we don't accidentally
+          # match the XML declaration's lowercase `version="1.0"` on the first
+          # line. Select-String is case-insensitive by default.
+          $ver = (Select-String -Path installer\Unterm.wxs `
+                                 -Pattern '<Package[^>]*\s+Version="([0-9.]+)"' `
+                                 -CaseSensitive).Matches.Groups[1].Value
+          if (-not $ver) { throw "couldn't extract Package Version from installer\Unterm.wxs" }
           pwsh -File ci\build-msi.ps1 -Version $ver
       - uses: actions/upload-artifact@v4
         with:
