@@ -36,22 +36,42 @@ cp -r assets/shell-completion "$stagedir/Unterm.app/Contents/Resources"
 tic -xe wezterm -o "$stagedir/Unterm.app/Contents/Resources/terminfo" termwiz/data/wezterm.terminfo
 
 for bin in unterm unterm-cli unterm-mux strip-ansi-escapes ; do
-  if [[ -f "$TARGET_DIR/release/$bin" ]] ; then
-    cp "$TARGET_DIR/release/$bin" "$stagedir/Unterm.app/Contents/MacOS/$bin"
-  elif compgen -G "$TARGET_DIR/*/release/$bin" >/dev/null ; then
+  # Prefer the per-arch builds (target/<triple>/release/$bin) and lipo them
+  # together into a fat universal binary. We only fall back to the host-arch
+  # direct path (target/release/$bin) if no per-arch builds exist at all —
+  # otherwise we'd happily ship a stale single-arch binary from an earlier
+  # `cargo build --release` (no --target) when newer per-arch builds are
+  # sitting right next to it. (We ate this on 2026-05-01: shipped a v0.5.1
+  # DMG whose binary predated the scrollback feature it claimed to include.)
+  if compgen -G "$TARGET_DIR/*/release/$bin" >/dev/null ; then
     lipo "$TARGET_DIR"/*/release/$bin -output "$stagedir/Unterm.app/Contents/MacOS/$bin" -create
+  elif [[ -f "$TARGET_DIR/release/$bin" ]] ; then
+    cp "$TARGET_DIR/release/$bin" "$stagedir/Unterm.app/Contents/MacOS/$bin"
   else
     echo "ERROR: missing build artifact $bin — run 'cargo build --release -p unterm -p unterm-cli -p unterm-mux -p strip-ansi-escapes' first"
     exit 1
   fi
 done
 
-# Sign every binary individually then the bundle (deep)
-for bin in "$stagedir/Unterm.app/Contents/MacOS/"* ; do
-  /usr/bin/codesign --force --options runtime --timestamp \
-    --entitlements ci/macos-entitlement.plist \
-    --sign "$DEV_ID" "$bin"
+# Sign every binary individually, then the bundle.
+#
+# Order matters: codesign walks bundle subcomponents while signing the main
+# executable, and refuses with "code object is not signed at all" if it
+# encounters a sibling binary that hasn't been signed yet. Iterating
+# alphabetically (the previous bug) put `unterm` before `unterm-mux` and
+# tripped that check. Sign helpers first, main last, then the bundle.
+HELPERS=(unterm-cli unterm-mux strip-ansi-escapes)
+for bin in "${HELPERS[@]}" ; do
+  bin_path="$stagedir/Unterm.app/Contents/MacOS/$bin"
+  if [[ -f "$bin_path" ]] ; then
+    /usr/bin/codesign --force --options runtime --timestamp \
+      --entitlements ci/macos-entitlement.plist \
+      --sign "$DEV_ID" "$bin_path"
+  fi
 done
+/usr/bin/codesign --force --options runtime --timestamp \
+  --entitlements ci/macos-entitlement.plist \
+  --sign "$DEV_ID" "$stagedir/Unterm.app/Contents/MacOS/unterm"
 /usr/bin/codesign --force --options runtime --timestamp \
   --entitlements ci/macos-entitlement.plist \
   --sign "$DEV_ID" "$stagedir/Unterm.app"
