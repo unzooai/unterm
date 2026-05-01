@@ -1,3 +1,11 @@
+// On Windows, this binary runs as a background mux daemon spawned by the
+// GUI process — it has no console UI and no user input. Without the
+// `windows` subsystem, Windows attaches a default console window the
+// instant the .exe starts, which the user sees as "Unterm just opened
+// two windows" alongside the real GUI. The `cfg_attr(not(test), …)`
+// dance is so cargo test still gets a console for assertion output.
+#![cfg_attr(not(test), windows_subsystem = "windows")]
+
 use clap::*;
 use config::configuration;
 use mux::activity::Activity;
