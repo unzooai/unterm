@@ -1,6 +1,6 @@
 [package]
 name = "wezterm-dynamic"
-version = "0.2.1"
+version = "0.5.0"
 edition = "2021"
 repository = "https://github.com/wezterm/wezterm"
 description = "config serialization for wezterm via dynamic json-like data values"

@@ -2,8 +2,8 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Package
     Name="Unterm"
-    Manufacturer="Unzoo AI"
-    Version="0.2.1"
+    Manufacturer="Alex"
+    Version="0.5.0"
     UpgradeCode="2B17738E-D6E7-44BB-9B55-1D6AF31404A2"
     Scope="perMachine">
 
