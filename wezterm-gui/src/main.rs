@@ -44,6 +44,7 @@ mod i18n;
 mod inputmap;
 mod mcp;
 mod overlay;
+mod update_check;
 mod quad;
 mod recording;
 mod renderstate;
@@ -442,6 +443,13 @@ async fn async_run_terminal_gui(
         let http_port = web_settings::start_web_settings_server(mcp_token);
         log::info!("Unterm Web Settings UI: http://127.0.0.1:{}", http_port);
     }
+
+    // Start the background "is there a newer Unterm" poller. First check
+    // fires ~20 s after launch, then every 6 h. Result lands in
+    // ~/.unterm/update_check.json so the ▼ menu, Web Settings banner,
+    // and status bar can all read the same flag without each re-hitting
+    // GitHub.
+    update_check::start_background_poller();
 
     if !opts.no_auto_connect {
         connect_to_auto_connect_domains().await?;

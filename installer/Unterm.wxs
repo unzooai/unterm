@@ -4,7 +4,7 @@
   <Package
     Name="Unterm"
     Manufacturer="Alex"
-    Version="0.5.4"
+    Version="0.5.5"
     UpgradeCode="2B17738E-D6E7-44BB-9B55-1D6AF31404A2"
     Scope="perMachine">
 

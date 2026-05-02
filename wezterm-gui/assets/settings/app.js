@@ -85,6 +85,21 @@ function untermSettings() {
       appliedAt: null,
     },
 
+    // Update check state — populated from /api/updates which reads
+    // ~/.unterm/update_check.json. The background poller writes that
+    // file every 6 h; we just surface it. `dismissed` is a session-local
+    // flag (sessionStorage) so the user can hush the banner for one
+    // browser session without clobbering the underlying disk state —
+    // next refresh / next deploy / next manual check brings it back.
+    updates: {
+      upgrade_available: false,
+      latest_tag: "",
+      current_pkg: "",
+      checked_at: "",
+      dismissed: false,
+      checking: false,
+    },
+
     themes: [
       {
         id: 'standard',
@@ -213,6 +228,7 @@ function untermSettings() {
       }
       await this.loadSessions();
       await this.loadCompat();
+      await this.loadUpdates();
     },
 
     async saveScrollback() {
@@ -271,6 +287,55 @@ function untermSettings() {
     resetCompat() {
       this.compat.term_program = this.compat.default;
       this.saveCompat();
+    },
+
+    async loadUpdates() {
+      try {
+        const j = await this.api('GET', '/api/updates');
+        this.updates.upgrade_available = !!j.upgrade_available;
+        this.updates.latest_tag = j.latest_tag ?? '';
+        this.updates.current_pkg = j.current_pkg ?? '';
+        this.updates.checked_at = j.checked_at ?? '';
+        // Honor session-scoped dismissal (clicked × on the banner this
+        // browser session). It resets on full reload — intentional, so
+        // the user can't permanently silence themselves out of seeing
+        // future versions.
+        if (sessionStorage.getItem('unterm_update_dismissed') === this.updates.latest_tag) {
+          this.updates.dismissed = true;
+          this.updates.upgrade_available = false;
+        }
+      } catch (e) {
+        // network blip on first load — leave defaults, don't toast spam
+      }
+    },
+
+    async checkUpdatesNow() {
+      this.updates.checking = true;
+      try {
+        const j = await this.api('POST', '/api/updates/check');
+        this.updates.upgrade_available = !!j.upgrade_available;
+        this.updates.latest_tag = j.latest_tag ?? '';
+        this.updates.current_pkg = j.current_pkg ?? '';
+        this.updates.checked_at = j.checked_at ?? '';
+        this.updates.dismissed = false; // manual recheck unhushes
+        sessionStorage.removeItem('unterm_update_dismissed');
+        const msg = this.updates.upgrade_available
+          ? this.t('web.toast.update_available').replace('{tag}', this.updates.latest_tag)
+          : this.t('web.toast.update_uptodate');
+        this.toast(msg);
+      } catch (e) {
+        this.toast(this.t('web.toast.update_failed').replace('{err}', e.message), 'error');
+      } finally {
+        this.updates.checking = false;
+      }
+    },
+
+    dismissUpdate() {
+      this.updates.dismissed = true;
+      // Pin the dismissal to the specific tag — if a yet-newer version
+      // arrives later, the banner re-emerges.
+      sessionStorage.setItem('unterm_update_dismissed', this.updates.latest_tag);
+      this.updates.upgrade_available = false;
     },
 
     async pollHealth() {

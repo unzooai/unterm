@@ -416,13 +416,30 @@ impl MenuState {
         });
         changes.push(fg_bg(bottom, SURFACE1, MANTLE));
 
-        let brand = "Unterm";
-        let brand_x = start_x + (card_w.saturating_sub(brand.len())) / 2;
+        // Brand + version, centered together on the same row. If a newer
+        // tag is available (Web Settings background poller wrote a flag
+        // to ~/.unterm/update_check.json), append a tiny green dot so
+        // the user sees "upgrade pending" without opening the browser.
+        let version = config::wezterm_version();
+        let upgrade_pending = check_update_flag();
+        let suffix = if upgrade_pending { " ●" } else { "" };
+        let line = format!("Unterm  v{}{}", version, suffix);
+        let line_w = cw(&line);
+        let line_x = start_x + (card_w.saturating_sub(line_w)) / 2;
         changes.push(Change::CursorPosition {
-            x: Position::Absolute(brand_x),
+            x: Position::Absolute(line_x),
             y: Position::Absolute(footer_y + 1),
         });
-        changes.push(fg_bg(brand.to_string(), SURFACE2, CRUST));
+        // The brand name itself stays muted; the version is dimmer; the
+        // upgrade dot, if present, is the only thing that pops.
+        changes.push(fg_bg("Unterm  ".to_string(), SURFACE2, CRUST));
+        changes.push(fg_bg(format!("v{}", version), OVERLAY0, CRUST));
+        if upgrade_pending {
+            // Catppuccin green — same green used for the menu's selected-row
+            // accent, signals "good thing available".
+            const GREEN: (u8, u8, u8) = (0xa6, 0xe3, 0xa1);
+            changes.push(fg_bg(suffix.to_string(), GREEN, CRUST));
+        }
 
         changes.push(Change::AllAttributes(CellAttributes::default()));
         changes.push(Change::CursorPosition {
@@ -480,4 +497,21 @@ fn fg_bg(text: String, fg: (u8, u8, u8), bg: (u8, u8, u8)) -> Change {
         "\x1b[38;2;{};{};{}m\x1b[48;2;{};{};{}m{}\x1b[0m",
         fg.0, fg.1, fg.2, bg.0, bg.1, bg.2, text
     ))
+}
+
+/// True iff the background updater has recorded that a newer release is
+/// available. Reads `~/.unterm/update_check.json` written by
+/// `crate::update_check`. Quiet on error — better to under-report
+/// than to render an upgrade dot when there isn't really one.
+fn check_update_flag() -> bool {
+    let Some(home) = dirs_next::home_dir() else { return false; };
+    let path = home.join(".unterm").join("update_check.json");
+    let Ok(content) = std::fs::read_to_string(&path) else { return false; };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) else {
+        return false;
+    };
+    value
+        .get("upgrade_available")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
 }

@@ -17,6 +17,36 @@
     x-data="untermSettings()"
     x-init="boot()"
   >
+    <!-- Update banner: shows above the top bar when the background poller
+         (~/.unterm/update_check.json) reports a newer release tag.
+         Hidden whenever upgrade_available is false / null — never adds
+         vertical chrome on a healthy install. -->
+    <div
+      x-show="updates.upgrade_available"
+      class="border-b border-emerald-800/50 bg-emerald-950/40"
+    >
+      <div class="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-2 text-sm">
+        <span class="text-emerald-300">
+          <span x-text="t('web.update.available_pre')"></span>
+          <span class="font-mono font-semibold" x-text="updates.latest_tag"></span>
+          <span x-text="t('web.update.available_post')"></span>
+        </span>
+        <div class="flex items-center gap-2 text-xs">
+          <a
+            :href="'https://github.com/unzooai/unterm/releases/tag/' + updates.latest_tag"
+            target="_blank" rel="noopener"
+            class="rounded-md border border-emerald-600/40 px-2.5 py-1 text-emerald-200 hover:bg-emerald-900/40"
+            x-text="t('web.update.view_release')"
+          ></a>
+          <button
+            @click="dismissUpdate()"
+            class="text-emerald-500/60 hover:text-emerald-300"
+            x-text="t('web.update.dismiss')"
+          ></button>
+        </div>
+      </div>
+    </div>
+
     <!-- Top bar -->
     <header
       class="sticky top-0 z-10 border-b border-zinc-800 bg-zinc-950/80 backdrop-blur"

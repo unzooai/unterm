@@ -316,6 +316,8 @@ fn route(req: &Request, auth_token: &str, handler: &McpHandler) -> Response {
         ("POST", "/api/scrollback") => api_scrollback_set(&req.body),
         ("GET", "/api/compat") => api_compat_get(),
         ("POST", "/api/compat") => api_compat_set(&req.body),
+        ("GET", "/api/updates") => api_updates_get(),
+        ("POST", "/api/updates/check") => api_updates_check(),
         ("POST", "/api/recording/start") => api_recording(handler, &req.body, true),
         ("POST", "/api/recording/stop") => api_recording(handler, &req.body, false),
         ("GET", "/api/sessions") => api_sessions(handler, &req.query),
@@ -562,6 +564,28 @@ fn api_compat_get() -> Response {
         // implicitly available — any non-listed string is accepted.
         "presets": ["Unterm", "WezTerm", "Apple_Terminal", "iTerm.app", "xterm"],
     }))
+}
+
+// --- Update check ---------------------------------------------------------
+//
+// The actual GitHub poll lives in `crate::update_check` and runs in a
+// background thread that writes ~/.unterm/update_check.json every 6 h.
+// These endpoints are thin: GET reads that file, POST kicks the
+// poller's check_once() so the user can hit "Check now" in the UI
+// without waiting on the next 6h tick.
+
+fn api_updates_get() -> Response {
+    Response::ok_json(crate::update_check::read_state())
+}
+
+fn api_updates_check() -> Response {
+    // Run synchronously — the request takes one HTTP round-trip to
+    // GitHub plus a small file write, well under a second on any
+    // network where we can reach the user at all.
+    if let Err(e) = crate::update_check::check_once() {
+        return Response::err(502, "Bad Gateway", &format!("github check failed: {e:#}"));
+    }
+    Response::ok_json(crate::update_check::read_state())
 }
 
 fn api_compat_set(body: &[u8]) -> Response {

@@ -1,0 +1,74 @@
+---
+// Wraps Astro markdown pages in the same chrome the marketing site uses.
+// Content goes through Astro's built-in markdown renderer so we can write
+// docs as plain `.md` without fighting `{` / `}` JSX-expression escapes
+// the way our earlier .astro draft did.
+//
+// The frontmatter object Astro passes us has `title`, `subtitle`, optional
+// `kicker` (breadcrumb tail), and `date`. Everything else is the rendered
+// HTML body slot.
+import Base from "./Base.astro";
+import dict from "../i18n/en-US.json";
+import { LOCALES, alternates } from "../i18n/locales";
+
+interface Frontmatter {
+  title: string;
+  subtitle?: string;
+  kicker?: string;
+  date?: string;
+}
+
+interface Props {
+  frontmatter: Frontmatter;
+}
+
+const { frontmatter } = Astro.props as Props;
+---
+
+<Base
+  lang="en-US"
+  dict={dict}
+  alternates={alternates()}
+  locales={LOCALES}
+  pathPrefix=""
+>
+  <article class="max-w-3xl mx-auto px-6 py-16">
+    <header class="border-b border-zinc-900 pb-8 mb-10">
+      {frontmatter.kicker && (
+        <div class="text-xs text-zinc-500 mb-3">
+          <a href="/" class="hover:text-zinc-300">Unterm</a>
+          <span class="mx-1">/</span>
+          <span class="text-zinc-300">{frontmatter.kicker}</span>
+        </div>
+      )}
+      <h1 class="text-4xl sm:text-5xl font-semibold tracking-tight text-zinc-50 leading-tight">{frontmatter.title}</h1>
+      {frontmatter.subtitle && (
+        <p class="mt-4 text-lg text-zinc-400">{frontmatter.subtitle}</p>
+      )}
+      {frontmatter.date && (
+        <p class="mt-3 text-xs text-zinc-500">{frontmatter.date}</p>
+      )}
+    </header>
+
+    <div
+      class="prose-doc text-zinc-300 leading-relaxed
+             [&_h2]:text-2xl [&_h2]:font-semibold [&_h2]:text-zinc-100 [&_h2]:mt-12 [&_h2]:mb-4
+             [&_h3]:text-lg  [&_h3]:font-semibold [&_h3]:text-zinc-100 [&_h3]:mt-8  [&_h3]:mb-3
+             [&_p]:my-4
+             [&_ul]:my-4 [&_ul]:ml-6 [&_ul]:list-disc [&_ul]:space-y-2
+             [&_ol]:my-4 [&_ol]:ml-6 [&_ol]:list-decimal [&_ol]:space-y-2
+             [&_strong]:text-zinc-100
+             [&_em]:italic
+             [&_a]:text-emerald-400 [&_a:hover]:text-emerald-300 [&_a]:underline [&_a]:underline-offset-2
+             [&_pre]:font-mono [&_pre]:text-sm [&_pre]:bg-zinc-900 [&_pre]:border [&_pre]:border-zinc-800 [&_pre]:rounded-lg [&_pre]:p-4 [&_pre]:overflow-x-auto [&_pre]:my-4
+             [&_:not(pre)>code]:font-mono [&_:not(pre)>code]:text-sm [&_:not(pre)>code]:bg-zinc-900 [&_:not(pre)>code]:rounded [&_:not(pre)>code]:px-1.5 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:text-zinc-300
+             [&_table]:w-full [&_table]:my-4 [&_table]:text-sm [&_table]:border [&_table]:border-zinc-800 [&_table]:rounded-lg [&_table]:overflow-hidden
+             [&_thead]:bg-zinc-900 [&_thead]:text-zinc-400
+             [&_th]:text-left [&_th]:px-4 [&_th]:py-2 [&_th]:font-medium
+             [&_td]:px-4 [&_td]:py-2 [&_td]:border-t [&_td]:border-zinc-800
+             [&_blockquote]:border-l-2 [&_blockquote]:border-zinc-700 [&_blockquote]:pl-4 [&_blockquote]:text-zinc-400 [&_blockquote]:my-4"
+    >
+      <slot />
+    </div>
+  </article>
+</Base>
