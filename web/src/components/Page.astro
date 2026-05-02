@@ -16,12 +16,48 @@ const t = (k: string) => dict[k] ?? k;
 
 // FAQ entries — shape matches the keys inside the locale JSON.
 const faq = [
-  { q: "faq.what.q",    a: "faq.what.a" },
-  { q: "faq.mcp.q",     a: "faq.mcp.a" },
-  { q: "faq.warp.q",    a: "faq.warp.a" },
-  { q: "faq.privacy.q", a: "faq.privacy.a" },
-  { q: "faq.script.q",  a: "faq.script.a" },
-  { q: "faq.opensrc.q", a: "faq.opensrc.a" },
+  { q: "faq.what.q",     a: "faq.what.a" },
+  { q: "faq.mcp.q",      a: "faq.mcp.a" },
+  { q: "faq.multi.q",    a: "faq.multi.a" },
+  { q: "faq.warp.q",     a: "faq.warp.a" },
+  { q: "faq.privacy.q",  a: "faq.privacy.a" },
+  { q: "faq.script.q",   a: "faq.script.a" },
+  { q: "faq.platform.q", a: "faq.platform.a" },
+  { q: "faq.opensrc.q",  a: "faq.opensrc.a" },
+  { q: "faq.contrib.q",  a: "faq.contrib.a" },
+];
+
+// Personas section — three columns, each with header + body + 4 bullets.
+// The bullet keys follow the persona prefix so locale files can stay flat.
+const personas = [
+  {
+    icon: "🤖",
+    title: "persona.ai.title",
+    body: "persona.ai.body",
+    bullets: ["persona.ai.bullets.1", "persona.ai.bullets.2", "persona.ai.bullets.3", "persona.ai.bullets.4"],
+  },
+  {
+    icon: "⚙️",
+    title: "persona.ops.title",
+    body: "persona.ops.body",
+    bullets: ["persona.ops.bullets.1", "persona.ops.bullets.2", "persona.ops.bullets.3", "persona.ops.bullets.4"],
+  },
+  {
+    icon: "🔧",
+    title: "persona.power.title",
+    body: "persona.power.body",
+    bullets: ["persona.power.bullets.1", "persona.power.bullets.2", "persona.power.bullets.3", "persona.power.bullets.4"],
+  },
+];
+
+// What's-new-in-v0.10 section: four highlight cards. Same card shape as
+// features but with a "v0.10" version chip and a denser tech-paragraph
+// body (these are about what changed, not what exists).
+const whatsnew = [
+  { v: "v0.10", title: "whatsnew.flash.title",     body: "whatsnew.flash.body" },
+  { v: "v0.9",  title: "whatsnew.instances.title", body: "whatsnew.instances.body" },
+  { v: "v0.7",  title: "whatsnew.utf8.title",      body: "whatsnew.utf8.body" },
+  { v: "v0.9",  title: "whatsnew.cwd.title",       body: "whatsnew.cwd.body" },
 ];
 
 const principles = [
@@ -111,6 +147,46 @@ const dmgUrl = `${dlBaseUrl}/latest/download/Unterm-macos-${stats.release}.dmg`;
   </div>
 </section>
 
+<!-- ============== TAGLINE ============== -->
+<!-- One-paragraph positioning amplified. SoloMD has the same beat right
+     after the hero — pulls the reader past "what is this" into "why
+     does this exist" before they hit the feature wall. -->
+<section class="py-20 border-t border-zinc-900">
+  <div class="max-w-3xl mx-auto px-6 text-center">
+    <h2 class="text-3xl sm:text-4xl font-semibold tracking-tight text-zinc-100 leading-tight">{t("tagline.title")}</h2>
+    <p class="mt-6 text-lg text-zinc-400 leading-relaxed" set:html={t("tagline.body")}></p>
+  </div>
+</section>
+
+<!-- ============== PERSONAS ============== -->
+<!-- Three persona cards in a single grid. Each card mirrors the
+     "header + 50-80 word body + 4 bullets" shape SoloMD uses for its
+     Writers / Researchers / Developers section, adapted to our
+     audience: AI engineers, DevOps, OSS hackers. -->
+<section class="py-20 border-t border-zinc-900 bg-zinc-950">
+  <div class="max-w-6xl mx-auto px-6">
+    <h2 class="text-3xl font-semibold tracking-tight text-center">{t("persona.title")}</h2>
+    <p class="mt-3 text-center text-zinc-400 max-w-2xl mx-auto">{t("persona.subtitle")}</p>
+    <div class="mt-12 grid md:grid-cols-3 gap-5">
+      {personas.map((p) => (
+        <div class="bg-zinc-900/40 border border-zinc-800 rounded-xl p-6 flex flex-col">
+          <div class="text-3xl">{p.icon}</div>
+          <div class="mt-3 text-lg font-semibold text-zinc-100">{t(p.title)}</div>
+          <p class="mt-2 text-sm text-zinc-400 leading-relaxed" set:html={t(p.body)}></p>
+          <ul class="mt-4 space-y-1.5 text-sm text-zinc-300">
+            {p.bullets.map((b) => (
+              <li class="flex items-start gap-2">
+                <span class="mt-1 w-1 h-1 rounded-full bg-emerald-400 shrink-0"></span>
+                <span>{t(b)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>
+
 <!-- ============== INSTALL ============== -->
 <section id="install" class="py-20 border-t border-zinc-900">
   <div class="max-w-4xl mx-auto px-6">
@@ -147,21 +223,30 @@ const dmgUrl = `${dlBaseUrl}/latest/download/Unterm-macos-${stats.release}.dmg`;
     <div class="mt-4 grid sm:grid-cols-3 gap-4">
       <a href={dmgUrl}
          class="group block bg-zinc-900/60 hover:bg-zinc-900 border border-zinc-800 rounded-xl p-5 transition">
-        <div class="text-3xl">🍎</div>
+        <div class="flex items-center justify-between">
+          <div class="text-3xl">🍎</div>
+          <span class="text-xs font-mono text-zinc-500">{t("install.macos.size")}</span>
+        </div>
         <div class="mt-3 font-semibold">{t("install.macos.title")}</div>
         <div class="text-sm text-zinc-400 mt-1">{t("install.macos.detail")}</div>
         <div class="mt-3 text-xs text-emerald-400 group-hover:text-emerald-300">{t("install.macos.action")}</div>
       </a>
       <a href={dlBaseUrl + "/latest"}
          class="group block bg-zinc-900/60 hover:bg-zinc-900 border border-zinc-800 rounded-xl p-5 transition">
-        <div class="text-3xl">🐧</div>
+        <div class="flex items-center justify-between">
+          <div class="text-3xl">🐧</div>
+          <span class="text-xs font-mono text-zinc-500">{t("install.linux.size")}</span>
+        </div>
         <div class="mt-3 font-semibold">{t("install.linux.title")}</div>
         <div class="text-sm text-zinc-400 mt-1">{t("install.linux.detail")}</div>
         <div class="mt-3 text-xs text-emerald-400 group-hover:text-emerald-300">{t("install.linux.action")}</div>
       </a>
       <a href={dlBaseUrl + "/latest"}
          class="group block bg-zinc-900/60 hover:bg-zinc-900 border border-zinc-800 rounded-xl p-5 transition">
-        <div class="text-3xl">🪟</div>
+        <div class="flex items-center justify-between">
+          <div class="text-3xl">🪟</div>
+          <span class="text-xs font-mono text-zinc-500">{t("install.windows.size")}</span>
+        </div>
         <div class="mt-3 font-semibold">{t("install.windows.title")}</div>
         <div class="text-sm text-zinc-400 mt-1">{t("install.windows.detail")}</div>
         <div class="mt-3 text-xs text-emerald-400 group-hover:text-emerald-300">{t("install.windows.action")}</div>
@@ -187,8 +272,34 @@ const dmgUrl = `${dlBaseUrl}/latest/download/Unterm-macos-${stats.release}.dmg`;
   </div>
 </section>
 
+<!-- ============== WHAT'S NEW ============== -->
+<!-- Mirrors SoloMD's "v3.0 sync, encryption, search" highlight band.
+     Anchors recent shipping work to specific tagged releases so the
+     page reads as actively maintained, not a static brochure. The
+     version chip on each card is the tag the change first shipped in. -->
+<section class="py-20 border-t border-zinc-900">
+  <div class="max-w-5xl mx-auto px-6">
+    <h2 class="text-3xl font-semibold tracking-tight text-center">{t("whatsnew.title")}</h2>
+    <p class="mt-3 text-center text-zinc-400 max-w-2xl mx-auto">{t("whatsnew.subtitle")}</p>
+    <div class="mt-12 grid md:grid-cols-2 gap-4">
+      {whatsnew.map((w) => (
+        <div class="bg-zinc-900/40 border border-zinc-800 rounded-xl p-6">
+          <div class="flex items-center gap-2">
+            <span class="text-xs font-mono px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-900">{w.v}</span>
+            <span class="font-semibold">{t(w.title)}</span>
+          </div>
+          <p class="mt-3 text-sm text-zinc-400 leading-relaxed" set:html={t(w.body)}></p>
+        </div>
+      ))}
+    </div>
+    <p class="mt-6 text-center text-xs text-zinc-500">
+      <a href="https://github.com/unzooai/unterm/releases" target="_blank" rel="noopener" class="hover:text-zinc-300">View all releases on GitHub →</a>
+    </p>
+  </div>
+</section>
+
 <!-- ============== PRINCIPLES ============== -->
-<section class="py-20 border-t border-zinc-900 bg-zinc-950">
+<section id="principles" class="py-20 border-t border-zinc-900 bg-zinc-950">
   <div class="max-w-5xl mx-auto px-6">
     <h2 class="text-3xl font-semibold tracking-tight text-center">{t("principles.title")}</h2>
     <div class="mt-12 grid md:grid-cols-2 gap-4">
@@ -204,7 +315,7 @@ const dmgUrl = `${dlBaseUrl}/latest/download/Unterm-macos-${stats.release}.dmg`;
 </section>
 
 <!-- ============== COMPARISON ============== -->
-<section class="py-20 border-t border-zinc-900">
+<section id="compare" class="py-20 border-t border-zinc-900">
   <div class="max-w-5xl mx-auto px-6">
     <h2 class="text-3xl font-semibold tracking-tight text-center">{t("cmp.title")}</h2>
     <p class="mt-3 text-center text-zinc-400 max-w-2xl mx-auto">{t("cmp.subtitle")}</p>
@@ -262,6 +373,39 @@ const dmgUrl = `${dlBaseUrl}/latest/download/Unterm-macos-${stats.release}.dmg`;
           <p class="px-5 pb-5 text-sm text-zinc-400 leading-relaxed" set:html={t(q.a)}></p>
         </details>
       ))}
+    </div>
+  </div>
+</section>
+
+<!-- ============== COMMUNITY ============== -->
+<!-- Three contact channels in one row. SoloMD ends its long page with
+     a similar "Support / contact" cluster; we adapt it as routing
+     guidance: which channel for which type of question. The email is
+     spelled out in the dict so user keeps it scrapeable but the
+     surrounding copy frames it as last-resort. -->
+<section id="community" class="py-20 border-t border-zinc-900 bg-zinc-950">
+  <div class="max-w-5xl mx-auto px-6">
+    <h2 class="text-3xl font-semibold tracking-tight text-center">{t("community.title")}</h2>
+    <p class="mt-3 text-center text-zinc-400 max-w-2xl mx-auto">{t("community.subtitle")}</p>
+    <div class="mt-12 grid md:grid-cols-3 gap-4">
+      <a href="https://github.com/unzooai/unterm/issues" target="_blank" rel="noopener"
+         class="group block bg-zinc-900/40 hover:bg-zinc-900 border border-zinc-800 hover:border-zinc-700 rounded-xl p-6 transition">
+        <div class="text-xl font-semibold">{t("community.github.title")}</div>
+        <p class="mt-2 text-sm text-zinc-400 leading-relaxed">{t("community.github.body")}</p>
+        <div class="mt-3 text-xs text-emerald-400 group-hover:text-emerald-300 font-mono">{t("community.github.cta")} →</div>
+      </a>
+      <a href="https://github.com/unzooai/unterm/discussions" target="_blank" rel="noopener"
+         class="group block bg-zinc-900/40 hover:bg-zinc-900 border border-zinc-800 hover:border-zinc-700 rounded-xl p-6 transition">
+        <div class="text-xl font-semibold">{t("community.discussions.title")}</div>
+        <p class="mt-2 text-sm text-zinc-400 leading-relaxed">{t("community.discussions.body")}</p>
+        <div class="mt-3 text-xs text-emerald-400 group-hover:text-emerald-300 font-mono">{t("community.discussions.cta")} →</div>
+      </a>
+      <a href={`mailto:${t("community.email.cta")}`}
+         class="group block bg-zinc-900/40 hover:bg-zinc-900 border border-zinc-800 hover:border-zinc-700 rounded-xl p-6 transition">
+        <div class="text-xl font-semibold">{t("community.email.title")}</div>
+        <p class="mt-2 text-sm text-zinc-400 leading-relaxed">{t("community.email.body")}</p>
+        <div class="mt-3 text-xs text-emerald-400 group-hover:text-emerald-300 font-mono">{t("community.email.cta")} →</div>
+      </a>
     </div>
   </div>
 </section>

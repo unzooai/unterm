@@ -66,10 +66,11 @@ const canonical = `https://unterm.app${pathPrefix || "/"}`;
           <span class="font-semibold tracking-tight text-zinc-100 group-hover:text-white">Unterm</span>
           <span class="text-xs font-mono text-zinc-500 hidden sm:inline">v0.10.0</span>
         </a>
-        <nav class="hidden md:flex items-center gap-6 text-sm text-zinc-400">
+        <nav class="hidden md:flex items-center gap-5 text-sm text-zinc-400">
           <a href={pathPrefix + "/#features"} class="hover:text-zinc-100">{t("nav.features")}</a>
+          <a href={pathPrefix + "/#principles"} class="hover:text-zinc-100">{t("nav.principles")}</a>
+          <a href={pathPrefix + "/#compare"} class="hover:text-zinc-100">{t("nav.compare")}</a>
           <a href={pathPrefix + "/#install"}  class="hover:text-zinc-100">{t("nav.install")}</a>
-          <a href={pathPrefix + "/#download"} class="hover:text-zinc-100">{t("nav.download")}</a>
           <a href={pathPrefix + "/#faq"}      class="hover:text-zinc-100">{t("nav.faq")}</a>
         </nav>
         <div class="flex items-center gap-3">
@@ -94,19 +95,27 @@ const canonical = `https://unterm.app${pathPrefix || "/"}`;
     </main>
 
     <!-- ============== FOOTER ============== -->
-    <footer class="border-t border-zinc-900 py-10 mt-10">
-      <div class="max-w-6xl mx-auto px-6 flex flex-col md:flex-row md:items-center md:justify-between gap-6">
-        <div class="flex items-center gap-2 text-zinc-500 text-sm">
-          <img src="/assets/icon.svg" alt="" width="20" height="20" />
-          <span class="font-semibold text-zinc-300">Unterm</span>
-          <span>{t("footer.tag")}</span>
+    <footer class="border-t border-zinc-900 py-12 mt-10">
+      <div class="max-w-6xl mx-auto px-6 space-y-6">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+          <div class="flex items-center gap-2 text-zinc-500 text-sm">
+            <img src="/assets/icon.svg" alt="" width="20" height="20" />
+            <span class="font-semibold text-zinc-300">Unterm</span>
+            <span>{t("footer.tag")}</span>
+          </div>
+          <div class="flex flex-wrap items-center gap-5 text-sm text-zinc-500">
+            <a href="https://github.com/unzooai/unterm" target="_blank" rel="noopener" class="hover:text-zinc-200">GitHub</a>
+            <a href="https://github.com/unzooai/unterm/releases" target="_blank" rel="noopener" class="hover:text-zinc-200">{t("footer.releases")}</a>
+            <a href="/docs/agent-integration" class="hover:text-zinc-200">{t("footer.docs")}</a>
+            <a href="https://github.com/unzooai/unterm/blob/master/LICENSE.md" target="_blank" rel="noopener" class="hover:text-zinc-200">{t("footer.license")}</a>
+            <span>{t("footer.copy")}</span>
+          </div>
         </div>
-        <div class="flex flex-wrap items-center gap-5 text-sm text-zinc-500">
-          <a href="https://github.com/unzooai/unterm" target="_blank" rel="noopener" class="hover:text-zinc-200">GitHub</a>
-          <a href="https://github.com/unzooai/unterm/releases" target="_blank" rel="noopener" class="hover:text-zinc-200">{t("footer.releases")}</a>
-          <a href="/docs/agent-integration" class="hover:text-zinc-200">{t("footer.docs")}</a>
-          <a href="https://github.com/unzooai/unterm/blob/master/LICENSE.md" target="_blank" rel="noopener" class="hover:text-zinc-200">{t("footer.license")}</a>
-          <span>{t("footer.copy")}</span>
+        <!-- SoloMD-style tech-stack callout: a single line at the very bottom
+             that signals "this is what's actually under the hood." Helps
+             ship engineers get a quick read on whether to read the source. -->
+        <div class="text-center text-xs text-zinc-600 font-mono pt-4 border-t border-zinc-900/60">
+          {t("footer.stack")}
         </div>
       </div>
     </footer>
