@@ -2973,7 +2973,34 @@ unsafe fn do_wnd_proc(hwnd: HWND, msg: UINT, wparam: WPARAM, lparam: LPARAM) -> 
             mouse_button(hwnd, msg, wparam, lparam)
         }
         WM_DROPFILES => drop_files(hwnd, msg, wparam, lparam),
-        WM_ERASEBKGND => Some(1),
+        WM_ERASEBKGND => {
+            // Default WezTerm behavior was `Some(1)` — tell Windows "we
+            // handled it, skip the brush." Correct in steady state because
+            // our OpenGL renderer paints every pixel each frame.
+            //
+            // BUT: between ShowWindow and the first GL SwapBuffers, the
+            // window's redirection bitmap is whatever the DWM allocated —
+            // typically white. Returning 1 without painting anything means
+            // the user sees that white flash on launch (and on any
+            // invalidation that happens before the next GL frame).
+            //
+            // Fix: do a manual GDI FillRect with BLACK_BRUSH first, then
+            // return 1. This guarantees the visible surface is black until
+            // GL takes over. The brush set on the WNDCLASSW would do this
+            // automatically if we didn't intercept the message — but we
+            // need to intercept (returning 0 to fall through causes
+            // double-paint flicker), so we do the fill ourselves.
+            let hdc = wparam as HDC;
+            if !hdc.is_null() {
+                let mut rect: RECT = std::mem::zeroed();
+                GetClientRect(hwnd, &mut rect);
+                let brush = GetStockObject(BLACK_BRUSH as i32) as HBRUSH;
+                if !brush.is_null() {
+                    FillRect(hdc, &rect, brush);
+                }
+            }
+            Some(1)
+        }
         WM_CLOSE => {
             if let Some(inner) = rc_from_hwnd(hwnd) {
                 let mut inner = inner.borrow_mut();

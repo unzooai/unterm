@@ -7,7 +7,7 @@
   "nav.download": "下载",
   "nav.faq": "常见问题",
 
-  "hero.badge": "v0.9.0 — 已签名、已公证，支持 macOS / Linux / Windows",
+  "hero.badge": "v0.10.0 — 已签名、已公证，支持 macOS / Linux / Windows",
   "hero.title.1": "AI 智能体",
   "hero.title.2": "可以驱动的终端。",
   "hero.subtitle": "跨平台终端，内置 MCP、HTTP、CLI 三套控制面。Claude Code、Cursor、Aider、你写的脚本，都通过同一套 JSON-RPC 接口驱动每一项操作。",
@@ -76,9 +76,9 @@
   "cmp.intentional": "✗ (有意不做)",
   "cmp.note": "对比基于 2026-05-01 的公开特性。其他终端可能存在闭源或路线图中的项未列出。",
 
-  "dl.title": "下载 Unterm 0.9.0",
+  "dl.title": "下载 Unterm 0.10.0",
   "dl.subtitle": "macOS 版用 Developer ID 签名并通过了 Apple 公证。Linux .deb / AppImage 与 Windows .msi / .zip 也已发布。",
-  "dl.cta": "查看 GitHub 上的 v0.9.0 release",
+  "dl.cta": "查看 GitHub 上的 v0.10.0 release",
 
   "faq.title": "常见问题",
   "faq.what.q": "Unterm 是什么？",

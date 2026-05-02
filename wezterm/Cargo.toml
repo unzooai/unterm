@@ -1,6 +1,6 @@
 [package]
 name = "unterm-cli"
-version = "0.9.0"
+version = "0.10.0"
 authors = ["Alex <lixd220@gmail.com>"]
 edition = "2018"
 publish = false
