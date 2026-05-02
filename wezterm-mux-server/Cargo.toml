@@ -1,6 +1,6 @@
 [package]
 name = "unterm-mux"
-version = "0.5.3"
+version = "0.5.4"
 authors = ["Alex <lixd220@gmail.com>"]
 edition = "2018"
 resolver = "2"

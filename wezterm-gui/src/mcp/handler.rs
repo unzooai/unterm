@@ -1760,10 +1760,38 @@ fn proxy_config_path() -> std::path::PathBuf {
 
 fn load_proxy_settings() -> ProxySettings {
     let path = proxy_config_path();
-    match std::fs::read_to_string(&path) {
+    let mut settings: ProxySettings = match std::fs::read_to_string(&path) {
         Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
         Err(_) => ProxySettings::default(),
+    };
+
+    // Auto-refresh: when the user is in "auto" mode (or hasn't picked a
+    // mode yet), re-run system_proxy::detect() at every load and overlay
+    // its URLs over whatever stale values were on disk. This is what
+    // makes "I changed Clash from 7890 to 7897" Just Work without the
+    // user having to delete proxy.json by hand. Manual mode preserves
+    // the user's explicit URLs untouched.
+    //
+    // We don't persist the refreshed URLs to disk — they're overlay-only.
+    // That keeps the on-disk file as a record of *intent* (auto vs
+    // manual + manual URLs if applicable), while in-memory state always
+    // reflects what's actually reachable right now.
+    let is_auto = settings.mode != "manual";
+    if is_auto {
+        if let Some(found) = crate::system_proxy::detect() {
+            settings.http_proxy = found.primary_http().map(|s| s.to_string());
+            settings.socks_proxy = found.socks.clone();
+            if !settings.no_proxy.is_empty()
+                && found.no_proxy.as_deref().unwrap_or("").is_empty()
+            {
+                // Keep user's no_proxy if set; otherwise take detected.
+            } else if let Some(np) = found.no_proxy.clone() {
+                settings.no_proxy = np;
+            }
+        }
     }
+
+    settings
 }
 
 /// Result of probing whether the configured (or auto-detected) proxy is
