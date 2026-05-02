@@ -7,7 +7,7 @@
   "nav.download": "Télécharger",
   "nav.faq": "FAQ",
 
-  "hero.badge": "v0.7.0 — signé, notarié, pour macOS / Linux / Windows",
+  "hero.badge": "v0.9.0 — signé, notarié, pour macOS / Linux / Windows",
   "hero.title.1": "Le terminal",
   "hero.title.2": "que les agents IA peuvent piloter.",
   "hero.subtitle": "Terminal multiplateforme avec plans de contrôle MCP, HTTP et CLI intégrés. Claude Code, Cursor, Aider ou vos propres scripts utilisent la même interface JSON-RPC pour piloter chaque opération.",
@@ -72,9 +72,9 @@
   "cmp.intentional": "✗ (par choix)",
   "cmp.note": "La comparaison reflète les fonctionnalités publiquement documentées au 2026-05-01. D'autres terminaux peuvent avoir des éléments fermés ou en feuille de route non listés.",
 
-  "dl.title": "Obtenir Unterm 0.7.0",
+  "dl.title": "Obtenir Unterm 0.9.0",
   "dl.subtitle": "Le bundle macOS est signé avec un Developer ID et notarié par Apple. Linux .deb / AppImage et Windows .msi / .zip sont également publiés.",
-  "dl.cta": "Voir la release v0.7.0 sur GitHub",
+  "dl.cta": "Voir la release v0.9.0 sur GitHub",
 
   "faq.title": "Questions fréquentes",
   "faq.what.q": "Qu'est-ce qu'Unterm ?",

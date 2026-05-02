@@ -7,7 +7,7 @@
   "nav.download": "डाउनलोड",
   "nav.faq": "सामान्य प्रश्न",
 
-  "hero.badge": "v0.7.0 — हस्ताक्षरित, नोटराइज़्ड, macOS / Linux / Windows पर",
+  "hero.badge": "v0.9.0 — हस्ताक्षरित, नोटराइज़्ड, macOS / Linux / Windows पर",
   "hero.title.1": "वह टर्मिनल",
   "hero.title.2": "जिसे AI एजेंट चला सकते हैं।",
   "hero.subtitle": "क्रॉस-प्लैटफ़ॉर्म टर्मिनल जिसमें MCP, HTTP और CLI तीन नियंत्रण तल अंतर्निहित हैं। Claude Code, Cursor, Aider, या आपकी अपनी स्क्रिप्ट — सभी एक ही JSON-RPC इंटरफ़ेस से हर ऑपरेशन चलाते हैं।",
@@ -72,9 +72,9 @@
   "cmp.intentional": "✗ (जानबूझकर नहीं)",
   "cmp.note": "तुलना 2026-05-01 तक सार्वजनिक रूप से प्रलेखित विशेषताओं को दर्शाती है। अन्य टर्मिनलों में बंद-स्रोत या रोडमैप आइटम हो सकते हैं जो यहाँ सूचीबद्ध नहीं हैं।",
 
-  "dl.title": "Unterm 0.7.0 प्राप्त करें",
+  "dl.title": "Unterm 0.9.0 प्राप्त करें",
   "dl.subtitle": "macOS बंडल Developer ID से हस्ताक्षरित और Apple-नोटराइज़्ड है। Linux .deb / AppImage और Windows .msi / .zip भी प्रकाशित हैं।",
-  "dl.cta": "GitHub पर v0.7.0 रिलीज़ देखें",
+  "dl.cta": "GitHub पर v0.9.0 रिलीज़ देखें",
 
   "faq.title": "सामान्य प्रश्न",
   "faq.what.q": "Unterm क्या है?",

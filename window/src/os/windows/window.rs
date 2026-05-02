@@ -44,7 +44,7 @@ use winapi::um::sysinfoapi::{GetTickCount, GetVersionExW};
 use winapi::um::uxtheme::{
     CloseThemeData, GetThemeFont, GetThemeSysFont, OpenThemeData, SetWindowTheme,
 };
-use winapi::um::wingdi::{LOGFONTW, MAKEPOINTS};
+use winapi::um::wingdi::{GetStockObject, BLACK_BRUSH, LOGFONTW, MAKEPOINTS};
 use winapi::um::winnt::OSVERSIONINFOW;
 use winapi::um::winuser::*;
 use windows::UI::Color as WUIColor;
@@ -431,7 +431,12 @@ impl Window {
             // The ID is defined in assets/windows/resource.rc
             hIcon: unsafe { LoadIconW(h_inst, MAKEINTRESOURCEW(0x101)) },
             hCursor: null_mut(),
-            hbrBackground: null_mut(),
+            // Black brush instead of null so the brief moment between
+            // CreateWindow and our first GL/D3D frame paints black, not the
+            // OS default white. Eliminates the bright "white flash" startup
+            // on Windows that other terminals (Windows Terminal, Alacritty)
+            // also avoid by registering a non-null background brush.
+            hbrBackground: unsafe { GetStockObject(BLACK_BRUSH as i32) as *mut _ },
             lpszMenuName: null(),
             lpszClassName: class_name.as_ptr(),
         };
@@ -448,36 +453,54 @@ impl Window {
         let decorations = config.window_decorations;
         let style = decorations_to_style(decorations);
         let frame_dpi = get_primary_monitor_dpi();
-        let (width, height) =
+        let (mut width, mut height) =
             adjust_client_to_window_dimensions(style, geometry.width, geometry.height, frame_dpi);
+
+        // Always query the primary monitor's *work area* (rcWork — desktop
+        // minus the taskbar) up front. Two things rely on it below:
+        //   1. Clamp width/height so the window cannot be created larger
+        //      than what the user can actually see. The previous code only
+        //      did this for WS_POPUP and trusted CW_USEDEFAULT for normal
+        //      windows — but CW_USEDEFAULT positions a window at the OS
+        //      default x,y and then *lets* it extend off-screen if the
+        //      requested height pushes the bottom edge past the work area.
+        //      That's why the bottom status bar would disappear on small /
+        //      high-DPI displays even with our 32×120 default.
+        //   2. Center the window in the work area instead of using
+        //      CW_USEDEFAULT, so the window is always fully visible.
+        let (work_left, work_top, work_width, work_height) = unsafe {
+            let mut mi: MONITORINFO = std::mem::zeroed();
+            mi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+            GetMonitorInfoW(
+                MonitorFromWindow(std::ptr::null_mut(), MONITOR_DEFAULTTOPRIMARY),
+                &mut mi,
+            );
+            (
+                mi.rcWork.left,
+                mi.rcWork.top,
+                mi.rcWork.right - mi.rcWork.left,
+                mi.rcWork.bottom - mi.rcWork.top,
+            )
+        };
+
+        // Reserve a small margin so the window doesn't kiss the work-area
+        // edges (Windows snap zones, taskbar fly-out, monitor bezel UX).
+        const WORK_AREA_MARGIN: i32 = 16;
+        let max_w = (work_width - WORK_AREA_MARGIN * 2).max(640);
+        let max_h = (work_height - WORK_AREA_MARGIN * 2).max(480);
+        if width > max_w {
+            width = max_w;
+        }
+        if height > max_h {
+            height = max_h;
+        }
 
         let (x, y) = match (geometry.x, geometry.y) {
             (Some(x), Some(y)) => (x, y),
-            _ => {
-                if (style & WS_POPUP) == 0 {
-                    (CW_USEDEFAULT, CW_USEDEFAULT)
-                } else {
-                    // WS_POPUP windows need to specify the initial position.
-                    // We pick the middle of the primary monitor
-
-                    unsafe {
-                        let mut mi: MONITORINFO = std::mem::zeroed();
-                        mi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
-                        GetMonitorInfoW(
-                            MonitorFromWindow(std::ptr::null_mut(), MONITOR_DEFAULTTOPRIMARY),
-                            &mut mi,
-                        );
-
-                        let mon_width = mi.rcMonitor.right - mi.rcMonitor.left;
-                        let mon_height = mi.rcMonitor.bottom - mi.rcMonitor.top;
-
-                        (
-                            mi.rcMonitor.left + (mon_width - width) / 2,
-                            mi.rcMonitor.top + (mon_height - height) / 2,
-                        )
-                    }
-                }
-            }
+            _ => (
+                work_left + (work_width - width) / 2,
+                work_top + (work_height - height) / 2,
+            ),
         };
 
         let name = wide_string(name);

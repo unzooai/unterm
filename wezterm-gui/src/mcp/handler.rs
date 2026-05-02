@@ -158,6 +158,12 @@ impl McpHandler {
             "server.info" => self.server_info(),
             "server.health" => self.server_health(),
             "server.capabilities" => self.server_capabilities(),
+            // Multi-instance discovery (one Unterm process = one instance,
+            // each with a NATO-phonetic name like "alpha", "bravo", ...)
+            "instance.list" => self.instance_list(),
+            "instance.info" => self.instance_info(),
+            "instance.set_title" => self.instance_set_title(params),
+            "instance.focus" => self.instance_focus(params),
             "selftest.run" => self.selftest_run(params),
             // Session recording
             "session.recording_start" => self.session_recording_start(params),
@@ -339,7 +345,96 @@ impl McpHandler {
             "system": [
                 "system.info",
                 "system.launch_admin"
+            ],
+            "instance": [
+                "instance.list",
+                "instance.info",
+                "instance.set_title",
+                "instance.focus"
             ]
+        }))
+    }
+
+    /// Enumerate every live Unterm instance on this machine. An "instance"
+    /// is a single Unterm process; each owns a NATO-phonetic name (alpha,
+    /// bravo, …) recorded in `~/.unterm/instances/<name>.json`. Stale
+    /// files (PID dead) are filtered out by the storage layer.
+    ///
+    /// AI agents use this when driving multiple Unterm windows: list
+    /// instances, pick one by cwd / title / start order, then connect
+    /// to that instance's `mcp_port` with its `auth_token` directly.
+    fn instance_list(&self) -> Result<Value> {
+        let instances = crate::server_info::list_live_instances();
+        let arr: Vec<Value> = instances
+            .into_iter()
+            .map(|i| {
+                json!({
+                    "id": i.id,
+                    "pid": i.pid,
+                    "started_at": i.started_at,
+                    "mcp_port": i.mcp_port,
+                    "http_port": i.http_port,
+                    "title": i.title,
+                    "cwd": i.cwd,
+                    "version": i.version,
+                    "platform": i.platform,
+                })
+            })
+            .collect();
+        Ok(json!({ "instances": arr }))
+    }
+
+    /// Return *this* instance's own metadata (id, ports, title, cwd).
+    /// Helpful for an agent to confirm which instance it's actually
+    /// connected to vs. what `instance.list` says.
+    fn instance_info(&self) -> Result<Value> {
+        let i = crate::server_info::read_current();
+        Ok(json!({
+            "id": i.id,
+            "pid": i.pid,
+            "started_at": i.started_at,
+            "mcp_port": i.mcp_port,
+            "http_port": i.http_port,
+            "auth_token": i.auth_token,
+            "title": i.title,
+            "cwd": i.cwd,
+            "version": i.version,
+            "platform": i.platform,
+        }))
+    }
+
+    /// Pin a custom display title for this instance — overrides the
+    /// auto-derived `Unterm — <name> — <project>` window title, and
+    /// shows up alongside the NATO id in `instance.list` so peers
+    /// can route to the right window. Pass `null` (or omit) to
+    /// clear the override and resume auto-titling.
+    fn instance_set_title(&self, params: &Value) -> Result<Value> {
+        let title = params
+            .get("title")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .filter(|s| !s.is_empty());
+        crate::server_info::set_title(title.clone())
+            .context("failed to write instance title")?;
+        Ok(json!({ "ok": true, "title": title }))
+    }
+
+    /// Bring this instance's window to the foreground.
+    ///
+    /// **Cross-instance focus is intentionally NOT supported here** — to
+    /// focus a peer, connect to that peer's MCP port directly and call
+    /// `instance.focus` there. Keeps the auth model simple (each instance
+    /// only ever acts on itself with its own token).
+    ///
+    /// In v0.9 the actual window-raise side-effect is a stub; we return
+    /// `ok: true` so agents can rely on the call shape, but the OS-level
+    /// raise is tracked as a v0.10 polish item. Workaround for now: agents
+    /// that need a peer in front can spawn it (or poke its tab bar via
+    /// `session.list`) and the user Alt-Tabs to it.
+    fn instance_focus(&self, _params: &Value) -> Result<Value> {
+        Ok(json!({
+            "ok": true,
+            "note": "stub in v0.9; OS-level window raise scheduled for v0.10"
         }))
     }
 

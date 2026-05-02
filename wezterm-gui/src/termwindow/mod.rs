@@ -168,6 +168,8 @@ pub enum UIItemType {
     BelowScrollThumb,
     Split(PositionedSplit),
     StatusBarProject,
+    /// Current working directory of the active pane (left-click = copy to clipboard).
+    StatusBarCwd,
     StatusBarTheme,
     /// Region screenshot, hide-Unterm-window mode (left-click = trigger).
     StatusBarCaptureExclude,
@@ -2090,6 +2092,20 @@ impl TermWindow {
             self.right_status = new_status;
         }
 
+        // Refresh this instance's stored cwd so peers that enumerate
+        // `instance.list` see up-to-date paths. set_cwd is a no-op
+        // when the value matches what's already on disk, so calling
+        // it on every title update is cheap.
+        let cwd_for_storage = self
+            .get_active_pane_no_overlay()
+            .and_then(|p| p.get_current_working_dir(mux::pane::CachePolicy::AllowStale))
+            .map(|c| {
+                c.to_file_path()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|_| c.to_string())
+            });
+        let _ = crate::server_info::set_cwd(cwd_for_storage);
+
         let border = self.get_os_border();
         let tab_bar_height = self.tab_bar_pixel_height().unwrap_or(0.);
         let tab_bar_y = if self.config.tab_bar_at_bottom {
@@ -2171,27 +2187,44 @@ impl TermWindow {
             }
         };
 
+        // Window title pattern: `Unterm — <instance> — <pane title>`.
+        // The instance segment is the NATO-phonetic name (alpha, bravo, …)
+        // assigned at MCP startup so users (and AI agents using
+        // screenshot OCR) can visually map a window back to its
+        // `~/.unterm/instances/<name>.json` metadata. If the instance
+        // file has a user-set `title` override, use that segment
+        // instead; otherwise fall back to plain `Unterm` if no
+        // instance has been assigned yet (very early startup).
+        //
+        // Lua-supplied `format-window-title` callbacks still win and
+        // bypass all of this — power users can format however they like.
+        let instance_segment: Option<String> = {
+            let info = crate::server_info::read_current();
+            info.title
+                .clone()
+                .filter(|t| !t.is_empty())
+                .or_else(|| Some(info.id).filter(|s| !s.is_empty()))
+        };
+
         let title = match title {
             Some(title) => title,
             None => {
                 if let (Some(pos), Some(tab)) = (active_pane, active_tab) {
-                    if num_tabs == 1 {
-                        format!(
-                            "Unterm — {}{}",
-                            if pos.is_zoomed { "[Z] " } else { "" },
-                            pos.title
-                        )
+                    let zoom = if pos.is_zoomed { "[Z] " } else { "" };
+                    let body = if num_tabs == 1 {
+                        format!("{}{}", zoom, pos.title)
                     } else {
-                        format!(
-                            "Unterm — {}[{}/{}] {}",
-                            if pos.is_zoomed { "[Z] " } else { "" },
-                            tab.tab_index + 1,
-                            num_tabs,
-                            pos.title
-                        )
+                        format!("{}[{}/{}] {}", zoom, tab.tab_index + 1, num_tabs, pos.title)
+                    };
+                    match instance_segment.as_deref() {
+                        Some(seg) => format!("Unterm — {} — {}", seg, body),
+                        None => format!("Unterm — {}", body),
                     }
                 } else {
-                    "Unterm".to_string()
+                    match instance_segment.as_deref() {
+                        Some(seg) => format!("Unterm — {}", seg),
+                        None => "Unterm".to_string(),
+                    }
                 }
             }
         };

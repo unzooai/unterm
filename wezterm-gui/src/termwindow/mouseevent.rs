@@ -45,6 +45,7 @@ impl super::TermWindow {
             | UIItemType::ScrollThumb
             | UIItemType::Split(_)
             | UIItemType::StatusBarProject
+            | UIItemType::StatusBarCwd
             | UIItemType::StatusBarTheme
             | UIItemType::StatusBarCaptureExclude
             | UIItemType::StatusBarCaptureInclude
@@ -62,6 +63,7 @@ impl super::TermWindow {
             | UIItemType::ScrollThumb
             | UIItemType::Split(_)
             | UIItemType::StatusBarProject
+            | UIItemType::StatusBarCwd
             | UIItemType::StatusBarTheme
             | UIItemType::StatusBarCaptureExclude
             | UIItemType::StatusBarCaptureInclude
@@ -397,6 +399,9 @@ impl super::TermWindow {
             UIItemType::StatusBarProject => {
                 self.mouse_event_status_bar_project(event, context);
             }
+            UIItemType::StatusBarCwd => {
+                self.mouse_event_status_bar_cwd(event, context);
+            }
             UIItemType::StatusBarTheme => {
                 self.mouse_event_theme_selector(event, context);
             }
@@ -556,6 +561,31 @@ impl super::TermWindow {
             _ => {}
         }
         context.set_cursor(Some(MouseCursor::Hand));
+    }
+
+    /// Click on the CWD segment: copy the active pane's full cwd to the
+    /// clipboard. Useful when you've navigated deep into a project tree and
+    /// want to paste the path into another tool. No prompt — silent copy,
+    /// the path is already shown in the bar so the user knows what landed.
+    fn mouse_event_status_bar_cwd(&mut self, event: MouseEvent, context: &dyn WindowOps) {
+        if !matches!(event.kind, WMEK::Press(MousePress::Left)) {
+            return;
+        }
+        let Some(pane) = self.get_active_pane_no_overlay() else {
+            return;
+        };
+        let Some(cwd) = pane.get_current_working_dir(mux::pane::CachePolicy::AllowStale) else {
+            return;
+        };
+        let path = cwd
+            .to_file_path()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|_| cwd.to_string());
+        self.copy_to_clipboard(
+            config::keyassignment::ClipboardCopyDestination::ClipboardAndPrimarySelection,
+            path,
+        );
+        context.invalidate();
     }
 
     fn mouse_event_status_bar_project(&mut self, event: MouseEvent, context: &dyn WindowOps) {

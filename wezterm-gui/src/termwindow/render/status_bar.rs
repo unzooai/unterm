@@ -212,7 +212,13 @@ impl crate::TermWindow {
         // lines up with the rendered glyph. Wide CJK chars take 2 cells.
         let cw = |s: &str| unicode_column_width(s, None);
 
-        let mut text = format!(" {} | {}x{} | ", shell_name, cols, rows);
+        let cwd_part = self.active_pane_cwd_for_status();
+
+        let mut text = format!(" {} | ", shell_name);
+        let cwd_offset = cw(&text);
+        text.push_str(&cwd_part);
+        text.push_str(" | ");
+        text.push_str(&format!("{}x{} | ", cols, rows));
         let project_offset = cw(&text);
         text.push_str(&project_part);
         text.push_str(" | ");
@@ -235,6 +241,11 @@ impl crate::TermWindow {
         (
             Line::from_text(&text, &attrs, 0, None),
             vec![
+                StatusRegion {
+                    offset: cwd_offset,
+                    len: cw(&cwd_part),
+                    item_type: UIItemType::StatusBarCwd,
+                },
                 StatusRegion {
                     offset: project_offset,
                     len: cw(&project_part),
@@ -262,6 +273,57 @@ impl crate::TermWindow {
                 },
             ],
         )
+    }
+
+    /// Active pane's cwd, formatted for the bottom status bar:
+    ///   - Resolved to a local path when possible (drops the `file://` scheme
+    ///     and the host component for remote URIs we can't visit anyway).
+    ///   - $HOME prefix replaced with `~` so common project paths
+    ///     stay short.
+    ///   - Truncated to ~48 display columns by elision in the *middle*
+    ///     (`/Users/me/code/.../wezterm-gui/src`) — keeps both project
+    ///     root context and current-directory tail visible.
+    fn active_pane_cwd_for_status(&self) -> String {
+        let raw: Option<String> = self
+            .get_active_pane_no_overlay()
+            .and_then(|pane| pane.get_current_working_dir(mux::pane::CachePolicy::AllowStale))
+            .map(|cwd| {
+                cwd.to_file_path()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|_| cwd.to_string())
+            });
+        let Some(path) = raw else {
+            return "~".to_string();
+        };
+
+        // Normalize Windows backslashes to forward slashes for display
+        // consistency. The on-disk path doesn't change; this is purely UI.
+        let display = path.replace('\\', "/");
+
+        let home = dirs_next::home_dir()
+            .and_then(|h| Some(h.display().to_string().replace('\\', "/")))
+            .unwrap_or_default();
+        let with_tilde = if !home.is_empty() && display.starts_with(&home) {
+            format!("~{}", &display[home.len()..])
+        } else {
+            display
+        };
+
+        // Truncate by display *width* (CJK chars are 2 cells), not byte
+        // length. Aim for ~48 columns; if longer, keep first 24 and last
+        // 20 with " ... " in the middle.
+        const MAX: usize = 48;
+        let width = unicode_column_width(&with_tilde, None);
+        if width <= MAX {
+            return with_tilde;
+        }
+        let chars: Vec<char> = with_tilde.chars().collect();
+        let head: String = chars.iter().take(24).collect();
+        let mut tail_chars: Vec<char> =
+            chars.iter().rev().take(20).copied().collect();
+        tail_chars.reverse();
+        let tail: String = tail_chars.into_iter().collect();
+        format!("{} ... {}", head, tail)
     }
 
     fn active_project_label(&self) -> String {

@@ -7,7 +7,7 @@
   "nav.download": "ダウンロード",
   "nav.faq": "FAQ",
 
-  "hero.badge": "v0.7.0 — 署名・公証済み、macOS / Linux / Windows 対応",
+  "hero.badge": "v0.9.0 — 署名・公証済み、macOS / Linux / Windows 対応",
   "hero.title.1": "AI エージェントが",
   "hero.title.2": "操作できるターミナル。",
   "hero.subtitle": "MCP・HTTP・CLI の 3 つのコントロールプレーンを内蔵したクロスプラットフォーム端末。Claude Code、Cursor、Aider、自作スクリプトのいずれも、同じ JSON-RPC 経由で全操作を駆動できます。",
@@ -72,9 +72,9 @@
   "cmp.intentional": "✗ (意図的に非搭載)",
   "cmp.note": "比較は 2026-05-01 時点で公開されている機能に基づきます。クローズドソースまたはロードマップ上の項目は反映されていない可能性があります。",
 
-  "dl.title": "Unterm 0.7.0 を入手",
+  "dl.title": "Unterm 0.9.0 を入手",
   "dl.subtitle": "macOS バンドルは Developer ID 署名と Apple 公証済み。Linux .deb / AppImage、Windows .msi / .zip もリリース済み。",
-  "dl.cta": "GitHub の v0.7.0 リリースを見る",
+  "dl.cta": "GitHub の v0.9.0 リリースを見る",
 
   "faq.title": "よくある質問",
   "faq.what.q": "Unterm とは?",
