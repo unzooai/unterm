@@ -184,10 +184,12 @@ pub(crate) fn apply_unterm_proxy_to_process_env() {
 }
 
 fn read_unterm_proxy_env() -> Option<Vec<(String, String)>> {
-    // Schema is now just `{ "enabled": true|false }`. URLs are auto-detected
-    // from the OS at spawn time so the user doesn't have to copy host:port
-    // out of their proxy GUI. Existing proxy.json files with explicit
-    // `http_proxy` / `socks_proxy` keys still work as a manual override.
+    // Reads ~/.unterm/proxy.json (managed by the ▼ menu / Web Settings).
+    // Schema: { enabled, mode: "auto" | "manual", http_proxy, socks_proxy, no_proxy }.
+    // In auto mode (default), system_proxy::detect() runs at every spawn and
+    // overlays whatever stale URLs are on disk — mirroring what the UI does in
+    // mcp/handler.rs::load_proxy_settings() so the ▼ menu, Web Settings, and
+    // spawned shells never disagree on the active proxy URL.
     let path = dirs_next::home_dir()
         .unwrap_or_default()
         .join(".unterm")
@@ -204,7 +206,25 @@ fn read_unterm_proxy_env() -> Option<Vec<(String, String)>> {
         return None;
     }
 
-    // Prefer explicit override URLs in proxy.json; otherwise auto-detect.
+    // Mode determines whether on-disk URLs are authoritative.
+    //   - "manual" (or any explicit non-auto value): trust the URLs in
+    //     proxy.json exactly. This is the user saying "I know what I want."
+    //   - anything else (including missing field): treat as auto. The
+    //     URLs on disk are stale state from a previous detect() and must
+    //     be overlaid with a fresh detect() call. Without this, a user
+    //     who changed their Clash listener from 7890 to 7897 keeps getting
+    //     7890 piped into every spawned shell — which is exactly the bug
+    //     that bit the v0.5.4 Windows release.
+    //
+    // Mirrors mcp/handler.rs::load_proxy_settings(), which has the same
+    // overlay semantics for the UI/MCP side. The two paths must agree or
+    // ▼ menu and Web Settings will show 7897 while spawned shells get 7890.
+    let mode = value
+        .get("mode")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("auto");
+    let is_auto = mode != "manual";
+
     let manual_http = value
         .get("http_proxy")
         .and_then(serde_json::Value::as_str)
@@ -221,21 +241,37 @@ fn read_unterm_proxy_env() -> Option<Vec<(String, String)>> {
         .filter(|s| !s.is_empty())
         .map(str::to_string);
 
-    let detected = if manual_http.is_none() && manual_socks.is_none() {
+    // In auto mode: always run detect() and let it win over stale on-disk URLs.
+    // In manual mode: only fall back to detect() when both URL fields are blank.
+    let detected = if is_auto || (manual_http.is_none() && manual_socks.is_none()) {
         crate::system_proxy::detect()
     } else {
         None
     };
 
-    let http = manual_http.or_else(|| {
-        detected
-            .as_ref()
-            .and_then(|d| d.primary_http().map(str::to_string))
-    });
-    let socks = manual_socks.or_else(|| detected.as_ref().and_then(|d| d.socks.clone()));
-    let no_proxy = manual_no
-        .or_else(|| detected.as_ref().and_then(|d| d.no_proxy.clone()))
-        .unwrap_or_else(|| "localhost,127.0.0.1,::1".to_string());
+    let detected_http = detected
+        .as_ref()
+        .and_then(|d| d.primary_http().map(str::to_string));
+    let detected_socks = detected.as_ref().and_then(|d| d.socks.clone());
+    let detected_no = detected.as_ref().and_then(|d| d.no_proxy.clone());
+
+    let (http, socks, no_proxy) = if is_auto {
+        // Auto mode: detected wins; manual values only fill blanks.
+        let http = detected_http.or(manual_http);
+        let socks = detected_socks.or(manual_socks);
+        let no_proxy = detected_no
+            .or(manual_no)
+            .unwrap_or_else(|| "localhost,127.0.0.1,::1".to_string());
+        (http, socks, no_proxy)
+    } else {
+        // Manual mode: user URLs win; detected only fills blanks.
+        let http = manual_http.or(detected_http);
+        let socks = manual_socks.or(detected_socks);
+        let no_proxy = manual_no
+            .or(detected_no)
+            .unwrap_or_else(|| "localhost,127.0.0.1,::1".to_string());
+        (http, socks, no_proxy)
+    };
 
     let mut env = Vec::new();
     if let Some(http) = &http {
