@@ -7,7 +7,7 @@
   "nav.download": "다운로드",
   "nav.faq": "자주 묻는 질문",
 
-  "hero.badge": "v0.5.0 — 서명 + 공증 완료, macOS / Linux / Windows 지원",
+  "hero.badge": "v0.5.5 — 서명 + 공증 완료, macOS / Linux / Windows 지원",
   "hero.title.1": "AI 에이전트가",
   "hero.title.2": "제어할 수 있는 터미널.",
   "hero.subtitle": "MCP, HTTP, CLI 세 가지 컨트롤 플레인이 내장된 크로스 플랫폼 터미널. Claude Code, Cursor, Aider, 직접 작성한 스크립트 모두 동일한 JSON-RPC 인터페이스로 모든 작업을 제어합니다.",
@@ -72,9 +72,9 @@
   "cmp.intentional": "✗ (의도적으로 미탑재)",
   "cmp.note": "비교는 2026-05-01 기준 공개된 기능을 반영합니다. 다른 터미널은 비공개 또는 로드맵에 있는 항목이 있을 수 있습니다.",
 
-  "dl.title": "Unterm 0.5.0 받기",
+  "dl.title": "Unterm 0.5.5 받기",
   "dl.subtitle": "macOS 번들은 Developer ID 서명과 Apple 공증을 마쳤습니다. Linux .deb / AppImage, Windows .msi / .zip도 게시되었습니다.",
-  "dl.cta": "GitHub에서 v0.5.0 릴리스 보기",
+  "dl.cta": "GitHub에서 v0.5.5 릴리스 보기",
 
   "faq.title": "자주 묻는 질문",
   "faq.what.q": "Unterm은 무엇인가요?",

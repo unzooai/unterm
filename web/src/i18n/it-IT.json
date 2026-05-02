@@ -7,7 +7,7 @@
   "nav.download": "Download",
   "nav.faq": "FAQ",
 
-  "hero.badge": "v0.5.0 — firmato, notarizzato, per macOS / Linux / Windows",
+  "hero.badge": "v0.5.5 — firmato, notarizzato, per macOS / Linux / Windows",
   "hero.title.1": "Il terminale",
   "hero.title.2": "che gli agenti IA possono guidare.",
   "hero.subtitle": "Terminale multipiattaforma con piani di controllo MCP, HTTP e CLI integrati. Claude Code, Cursor, Aider e i tuoi script usano la stessa interfaccia JSON-RPC per pilotare ogni operazione.",
@@ -72,9 +72,9 @@
   "cmp.intentional": "✗ (di proposito)",
   "cmp.note": "Il confronto riflette le funzioni pubblicamente documentate al 2026-05-01. Altri terminali possono avere elementi closed-source o in roadmap non elencati.",
 
-  "dl.title": "Ottieni Unterm 0.5.0",
+  "dl.title": "Ottieni Unterm 0.5.5",
   "dl.subtitle": "Il bundle macOS è firmato con Developer ID e notarizzato Apple. Linux .deb / AppImage e Windows .msi / .zip sono pubblicati.",
-  "dl.cta": "Vedi la release v0.5.0 su GitHub",
+  "dl.cta": "Vedi la release v0.5.5 su GitHub",
 
   "faq.title": "Domande frequenti",
   "faq.what.q": "Cos'è Unterm?",

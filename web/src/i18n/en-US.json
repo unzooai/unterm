@@ -7,7 +7,7 @@
   "nav.download": "Download",
   "nav.faq": "FAQ",
 
-  "hero.badge": "v0.5.0 — signed, notarized, on macOS / Linux / Windows",
+  "hero.badge": "v0.5.5 — signed, notarized, on macOS / Linux / Windows",
   "hero.title.1": "The terminal",
   "hero.title.2": "AI agents can drive.",
   "hero.subtitle": "A cross-platform terminal with built-in MCP, HTTP, and CLI control planes. Claude Code, Cursor, Aider, your scripts — they all get the same JSON-RPC surface to drive every operation.",
@@ -76,9 +76,9 @@
   "cmp.intentional": "✗ (by design)",
   "cmp.note": "Comparison reflects publicly documented features as of 2026-05-01. Other terminals may have closed-source or roadmap items not listed.",
 
-  "dl.title": "Get Unterm 0.5.0",
+  "dl.title": "Get Unterm 0.5.5",
   "dl.subtitle": "macOS bundle is signed with a Developer ID and Apple-notarized. Linux .deb / AppImage and Windows .msi / .zip are also published.",
-  "dl.cta": "View v0.5.0 release on GitHub",
+  "dl.cta": "View v0.5.5 release on GitHub",
 
   "faq.title": "Frequently asked",
   "faq.what.q": "What is Unterm?",

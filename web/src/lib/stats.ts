@@ -26,16 +26,16 @@ export interface Stats {
    *  not pin "⭐ 0 stars" onto the homepage for the next 5 minutes. */
   stars: number | null;
   downloads: number | null;
-  /** Latest tag, e.g. "v0.5.0". Used for download links so we don't have
+  /** Latest tag, e.g. "v0.5.5". Used for download links so we don't have
    *  to update the hero CTA every time we cut a release. */
   release: string;
 }
 
 // Fallback used when the build-time fetch fails entirely. We give the
-// release a sane default (v0.5.0) because the hero CTA must point
+// release a sane default (v0.5.5) because the hero CTA must point
 // _somewhere_, but the numbers stay null so the chips render as em dashes
 // and let the client-side refresh fill them in if it can.
-const FALLBACK: Stats = { stars: null, downloads: null, release: "v0.5.0" };
+const FALLBACK: Stats = { stars: null, downloads: null, release: "v0.5.5" };
 
 let cache: Promise<Stats> | null = null;
 
