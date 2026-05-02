@@ -314,6 +314,8 @@ fn route(req: &Request, auth_token: &str, handler: &McpHandler) -> Response {
         ("POST", "/api/theme") => api_theme(&req.body),
         ("GET", "/api/scrollback") => api_scrollback_get(),
         ("POST", "/api/scrollback") => api_scrollback_set(&req.body),
+        ("GET", "/api/compat") => api_compat_get(),
+        ("POST", "/api/compat") => api_compat_set(&req.body),
         ("POST", "/api/recording/start") => api_recording(handler, &req.body, true),
         ("POST", "/api/recording/stop") => api_recording(handler, &req.body, false),
         ("GET", "/api/sessions") => api_sessions(handler, &req.query),
@@ -519,6 +521,86 @@ fn api_scrollback_set(body: &[u8]) -> Response {
         // Existing panes keep their old buffer; new panes pick up the new
         // value. Tell the client so it can prompt the user.
         "requires_restart_for_existing_panes": true,
+    }))
+}
+
+// --- Compatibility (TERM_PROGRAM masquerade) -------------------------------
+//
+// Some third-party tools — Gemini CLI, certain IDE terminal detectors —
+// whitelist a fixed set of TERM_PROGRAM values and reject anything else.
+// We default to "Unterm" because that's our product identity, but expose
+// a per-user override at ~/.unterm/compat.json. config::read_term_program_override
+// reads it when spawning each new shell. Existing shells keep their old
+// env until the user opens a new tab.
+
+fn compat_path() -> std::path::PathBuf {
+    dirs_next::home_dir()
+        .unwrap_or_default()
+        .join(".unterm")
+        .join("compat.json")
+}
+
+fn current_term_program() -> String {
+    if let Ok(content) = std::fs::read_to_string(compat_path()) {
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
+            if let Some(s) = value.get("term_program").and_then(|v| v.as_str()) {
+                let trimmed = s.trim();
+                if !trimmed.is_empty() {
+                    return trimmed.to_string();
+                }
+            }
+        }
+    }
+    "Unterm".to_string()
+}
+
+fn api_compat_get() -> Response {
+    Response::ok_json(json!({
+        "term_program": current_term_program(),
+        "default": "Unterm",
+        // Common values the UI offers as one-click presets. Custom is
+        // implicitly available — any non-listed string is accepted.
+        "presets": ["Unterm", "WezTerm", "Apple_Terminal", "iTerm.app", "xterm"],
+    }))
+}
+
+fn api_compat_set(body: &[u8]) -> Response {
+    let body = parse_json_body(body);
+    let term_program = match body.get("term_program").and_then(|v| v.as_str()) {
+        Some(s) => {
+            let s = s.trim();
+            if s.is_empty() {
+                return Response::err(400, "Bad Request", "term_program may not be empty — pass \"Unterm\" to reset to default");
+            }
+            if s.len() > 64 {
+                return Response::err(400, "Bad Request", "term_program too long (max 64 chars)");
+            }
+            // Reject anything that contains nul / newline / control chars,
+            // since this string ends up in an env var passed to child
+            // processes — corrupt env breaks downstream shells.
+            if s.chars().any(|c| c.is_control()) {
+                return Response::err(400, "Bad Request", "term_program contains control characters");
+            }
+            s.to_string()
+        }
+        None => return Response::err(400, "Bad Request", "missing term_program (string)"),
+    };
+    let path = compat_path();
+    if let Some(parent) = path.parent() {
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            return Response::err(500, "Internal Error", &e.to_string());
+        }
+    }
+    let payload = serde_json::to_string_pretty(&json!({"term_program": term_program})).unwrap();
+    if let Err(e) = std::fs::write(&path, payload) {
+        return Response::err(500, "Internal Error", &e.to_string());
+    }
+    Response::ok_json(json!({
+        "applied": true,
+        "term_program": term_program,
+        // Existing shells keep their old TERM_PROGRAM; only newly spawned
+        // shells pick up the change. Tell the client to prompt for new tab.
+        "requires_new_shell": true,
     }))
 }
 

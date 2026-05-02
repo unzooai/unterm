@@ -1646,9 +1646,13 @@ impl Config {
         cmd.umask(umask::UmaskSaver::saved_umask());
         cmd.env("TERM", &self.term);
         cmd.env("COLORTERM", "truecolor");
-        // TERM_PROGRAM and TERM_PROGRAM_VERSION are an emerging
-        // de-facto standard for identifying the terminal.
-        cmd.env("TERM_PROGRAM", "Unterm");
+        // TERM_PROGRAM and TERM_PROGRAM_VERSION are an emerging de-facto
+        // standard for identifying the terminal. We default to "Unterm" but
+        // honor a per-user override at ~/.unterm/compat.json so users can
+        // masquerade as WezTerm/iTerm2/etc when third-party tools
+        // (Gemini CLI, certain IDE detectors) only whitelist a fixed set
+        // of terminal names. Web Settings has a dropdown for this.
+        cmd.env("TERM_PROGRAM", read_term_program_override());
         cmd.env("TERM_PROGRAM_VERSION", crate::wezterm_version());
     }
 }
@@ -1656,6 +1660,30 @@ impl Config {
 fn default_check_for_updates() -> bool {
     // Unterm: disable auto update check
     false
+}
+
+/// Resolve the TERM_PROGRAM string to advertise into spawned shells.
+///
+/// Reads `~/.unterm/compat.json` and looks for a `term_program` key. If
+/// absent / unreadable / empty, falls back to "Unterm". Any non-empty
+/// string is accepted — the Web Settings UI restricts this to a known
+/// list (Unterm / WezTerm / Apple_Terminal / iTerm.app / xterm), but
+/// power users can hand-edit the file to spoof anything they want.
+fn read_term_program_override() -> String {
+    if let Some(home) = dirs_next::home_dir() {
+        let path = home.join(".unterm").join("compat.json");
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
+                if let Some(s) = value.get("term_program").and_then(|v| v.as_str()) {
+                    let trimmed = s.trim();
+                    if !trimmed.is_empty() {
+                        return trimmed.to_string();
+                    }
+                }
+            }
+        }
+    }
+    "Unterm".to_string()
 }
 
 fn default_pane_select_fg_color() -> RgbaColor {
@@ -1769,15 +1797,18 @@ fn validate_scrollback_lines(value: &usize) -> Result<(), String> {
     Ok(())
 }
 
+// New-window default size, in character cells (~10×22 px each at the default
+// font size). 32 × 120 lands at roughly 1240 × 730 px including chrome —
+// comfortably fits a 1366×768 Windows laptop with the taskbar visible while
+// still feeling spacious on 1080p / 1440p / 4K displays. Earlier defaults
+// (40 × 140) overflowed below the taskbar on 1366×768 so the status bar
+// and ▼ menu fell off-screen until the user manually maximized.
 fn default_initial_rows() -> u16 {
-    // ~40 rows fits a modern 1080p / 1440p / 4K display comfortably without
-    // looking dwarfed. macOS Terminal defaults to 24x80; iTerm2 defaults to
-    // 25x80 — both feel cramped on Retina screens.
-    40
+    32
 }
 
 fn default_initial_cols() -> u16 {
-    140
+    120
 }
 
 pub fn default_hyperlink_rules() -> Vec<hyperlink::Rule> {

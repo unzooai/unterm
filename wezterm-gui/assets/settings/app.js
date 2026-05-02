@@ -49,6 +49,7 @@ function untermSettings() {
         { id: 'appearance', label: this.t('web.nav.appearance') },
         { id: 'proxy', label: this.t('web.nav.proxy') },
         { id: 'scrollback', label: this.t('web.nav.scrollback') },
+        { id: 'compat', label: this.t('web.nav.compat') },
         { id: 'recording', label: this.t('web.nav.recording'), badge: !this._recordingSeen },
         { id: 'project', label: this.t('web.nav.project') },
         { id: 'about', label: this.t('web.nav.about') },
@@ -66,6 +67,20 @@ function untermSettings() {
       default: 10000,
       min: 100,
       max: 999_999_999,
+      saving: false,
+      appliedAt: null,
+    },
+
+    // Compatibility config — what to advertise as TERM_PROGRAM into spawned
+    // shells. Default "Unterm" keeps our brand identity; some third-party
+    // tools (Gemini CLI, certain IDE detectors) only whitelist a fixed
+    // set of terminal names, so users can spoof to dodge those checks.
+    // `appliedAt` flips a hint asking the user to open a new tab — the
+    // running shells keep their old TERM_PROGRAM until respawned.
+    compat: {
+      term_program: "Unterm",
+      default: "Unterm",
+      presets: ["Unterm", "WezTerm", "Apple_Terminal", "iTerm.app", "xterm"],
       saving: false,
       appliedAt: null,
     },
@@ -197,6 +212,7 @@ function untermSettings() {
         this.toast(this.t('web.toast.refresh').replace('{err}', e.message), 'error');
       }
       await this.loadSessions();
+      await this.loadCompat();
     },
 
     async saveScrollback() {
@@ -221,6 +237,40 @@ function untermSettings() {
     resetScrollback() {
       this.scrollback.lines = this.scrollback.default;
       this.saveScrollback();
+    },
+
+    async loadCompat() {
+      try {
+        const j = await this.api('GET', '/api/compat');
+        this.compat.term_program = j.term_program ?? this.compat.term_program;
+        this.compat.default = j.default ?? this.compat.default;
+        if (Array.isArray(j.presets)) this.compat.presets = j.presets;
+      } catch (e) { /* leave defaults */ }
+    },
+
+    async saveCompat() {
+      const value = (this.compat.term_program || '').trim() || this.compat.default;
+      this.compat.term_program = value;
+      this.compat.saving = true;
+      try {
+        const j = await this.api('POST', '/api/compat', { term_program: value });
+        this.compat.appliedAt = new Date().toISOString();
+        this.toast(this.t('web.toast.compat_saved').replace('{name}', j.term_program));
+      } catch (e) {
+        this.toast(this.t('web.toast.compat_failed').replace('{err}', e.message), 'error');
+      } finally {
+        this.compat.saving = false;
+      }
+    },
+
+    pickCompatPreset(name) {
+      this.compat.term_program = name;
+      this.saveCompat();
+    },
+
+    resetCompat() {
+      this.compat.term_program = this.compat.default;
+      this.saveCompat();
     },
 
     async pollHealth() {
