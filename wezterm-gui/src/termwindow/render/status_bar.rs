@@ -288,9 +288,22 @@ impl crate::TermWindow {
             .get_active_pane_no_overlay()
             .and_then(|pane| pane.get_current_working_dir(mux::pane::CachePolicy::AllowStale))
             .map(|cwd| {
-                cwd.to_file_path()
-                    .map(|p| p.display().to_string())
-                    .unwrap_or_else(|_| cwd.to_string())
+                // OSC 7 carries the hostname; on the local machine that's
+                // typically "localhost", but multiplexer-mode and remote
+                // panes (Linux container / SSH host) report a real
+                // hostname like "ubuntu". `to_file_path()` only succeeds
+                // when host is empty/localhost — for everything else it
+                // returns Err and we previously fell back to the raw URL
+                // (ugly: `file://ubuntu/home/alexlee` showing up in the
+                // status bar). Strip to just the path component instead.
+                if let Ok(p) = cwd.to_file_path() {
+                    p.display().to_string()
+                } else {
+                    let s = cwd.as_str();
+                    s.strip_prefix("file://")
+                        .and_then(|rest| rest.split_once('/').map(|(_host, path)| format!("/{}", path)))
+                        .unwrap_or_else(|| s.to_string())
+                }
             });
         let Some(path) = raw else {
             return "~".to_string();
