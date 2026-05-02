@@ -150,16 +150,22 @@ pub fn pid_alive(pid: u32) -> bool {
         return false;
     }
     #[cfg(unix)]
-    unsafe {
+    {
         // kill(pid, 0) returns 0 if process exists and we can signal.
-        // ESRCH (3) = no such process. EPERM (1) = exists but we can't signal,
-        // which still means it's running. So: only treat ESRCH as dead.
-        let rc = libc::kill(pid as libc::pid_t, 0);
+        // ESRCH = no such process. EPERM = exists but we can't signal,
+        // which still means it's running. Only ESRCH = dead.
+        //
+        // Read errno portably via std::io::Error::last_os_error so this
+        // works on both macOS (libc::__error) and Linux (__errno_location)
+        // without #[cfg(target_os)] forks.
+        let rc = unsafe { libc::kill(pid as libc::pid_t, 0) };
         if rc == 0 {
             return true;
         }
-        let errno = *libc::__error();
-        errno != libc::ESRCH
+        !matches!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(e) if e == libc::ESRCH
+        )
     }
     #[cfg(windows)]
     unsafe {
