@@ -474,6 +474,7 @@ async fn async_run_terminal_gui(
     };
     if let Some(spawn) = spawn_command.as_mut() {
         crate::spawn::apply_unterm_proxy_to_spawn(spawn);
+        crate::spawn::apply_unterm_windows_utf8_to_spawn(spawn);
     }
     let mux = Mux::get();
 

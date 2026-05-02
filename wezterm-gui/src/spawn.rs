@@ -90,6 +90,7 @@ pub async fn spawn_command_internal(
         }
     };
     apply_unterm_proxy_env(&mut cmd_builder);
+    apply_unterm_windows_utf8(&mut cmd_builder);
 
     let workspace = mux.active_workspace().clone();
 
@@ -181,6 +182,128 @@ pub(crate) fn apply_unterm_proxy_to_process_env() {
     for (key, value) in proxy {
         std::env::set_var(key, value);
     }
+}
+
+/// On Windows, force UTF-8 in spawned shells so that PowerShell / cmd.exe
+/// running on a zh-CN (CP936/GBK), zh-TW (CP950/Big5), ja-JP (CP932/SJIS),
+/// or any other non-UTF-8 system locale still emit UTF-8 bytes — which is
+/// what every other tool in our pipeline (font rendering, MCP transcripts,
+/// recording redaction, agent integrations) expects.
+///
+/// Why we do this even though Windows Terminal mostly "just works": WT
+/// relies on the user's PowerShell `$PROFILE` having
+/// `[Console]::OutputEncoding = [Text.UTF8Encoding]::new()` already, or
+/// on `pwsh` (PowerShell 7+) which defaults to UTF-8. Our positioning is
+/// "the terminal AI agents can drive" — agents won't fix the user's
+/// profile, and we can't assume PS7 either. So we wrap at spawn time.
+///
+/// Strategy:
+///   - Default prog (no args, `%ComSpec%` → cmd.exe): wrap with
+///     `cmd.exe /D /K "chcp 65001 > nul"` — sets the console codepage
+///     before the prompt appears, no command echoed.
+///   - args == ["powershell.exe"] / ["pwsh.exe"] / etc. (just the
+///     binary, nothing else): replace with the binary plus
+///     `-NoLogo -NoExit -Command "<UTF-8 setup>; load $PROFILE"`.
+///     The -Command runs first, then $PROFILE loads (so user
+///     customizations still apply, but on top of UTF-8 defaults).
+///   - args == ["cmd.exe"]: same wrap as default prog.
+///   - Anything else (user passed extra args, or non-shell exe): leave
+///     untouched. They're customizing; we don't second-guess.
+#[cfg(windows)]
+fn apply_unterm_windows_utf8(cmd_builder: &mut Option<CommandBuilder>) {
+    use std::ffi::OsString;
+
+    let builder = cmd_builder.get_or_insert_with(CommandBuilder::new_default_prog);
+
+    // Default prog (cmd.exe via %ComSpec%): wrap with chcp 65001 prelude.
+    if builder.is_default_prog() {
+        builder.replace_default_prog([
+            OsString::from("cmd.exe"),
+            OsString::from("/D"),
+            OsString::from("/K"),
+            OsString::from("chcp 65001 > nul"),
+        ]);
+        return;
+    }
+
+    let args = builder.get_argv().clone();
+    if args.len() != 1 {
+        return; // user passed args — don't second-guess.
+    }
+    let exe_str = args[0].to_string_lossy().to_lowercase();
+    let basename = exe_str
+        .rsplit(['\\', '/'])
+        .next()
+        .unwrap_or(exe_str.as_str());
+
+    let argv = builder.get_argv_mut();
+    if basename.starts_with("powershell") || basename.starts_with("pwsh") {
+        let setup = "[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false);\
+                     $OutputEncoding=[Console]::OutputEncoding;\
+                     chcp 65001>$null;\
+                     if(Test-Path $PROFILE){. $PROFILE}";
+        let exe = argv[0].clone();
+        argv.clear();
+        argv.push(exe);
+        argv.push("-NoLogo".into());
+        argv.push("-NoExit".into());
+        argv.push("-Command".into());
+        argv.push(setup.into());
+    } else if basename == "cmd.exe" || basename == "cmd" {
+        let exe = argv[0].clone();
+        argv.clear();
+        argv.push(exe);
+        argv.push("/D".into());
+        argv.push("/K".into());
+        argv.push("chcp 65001 > nul".into());
+    }
+}
+
+#[cfg(not(windows))]
+fn apply_unterm_windows_utf8(_cmd_builder: &mut Option<CommandBuilder>) {}
+
+/// SpawnCommand-shaped variant — same logic as `apply_unterm_windows_utf8`
+/// but operating on `config::keyassignment::SpawnCommand` (used for the
+/// MCP / Lua-driven spawn paths). Mutates `spawn.args` in place.
+#[cfg(windows)]
+pub(crate) fn apply_unterm_windows_utf8_to_spawn(spawn: &mut config::keyassignment::SpawnCommand) {
+    let args = match spawn.args.as_ref() {
+        None => return, // None = use default prog; the CommandBuilder path handles that.
+        Some(a) if a.len() == 1 => a.clone(),
+        Some(_) => return, // user passed extra args — don't wrap.
+    };
+    let exe_str = args[0].to_lowercase();
+    let basename = exe_str
+        .rsplit(['\\', '/'])
+        .next()
+        .unwrap_or(exe_str.as_str());
+
+    if basename.starts_with("powershell") || basename.starts_with("pwsh") {
+        let setup = "[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false);\
+                     $OutputEncoding=[Console]::OutputEncoding;\
+                     chcp 65001>$null;\
+                     if(Test-Path $PROFILE){. $PROFILE}";
+        spawn.args = Some(vec![
+            args[0].clone(),
+            "-NoLogo".into(),
+            "-NoExit".into(),
+            "-Command".into(),
+            setup.into(),
+        ]);
+    } else if basename == "cmd.exe" || basename == "cmd" {
+        spawn.args = Some(vec![
+            args[0].clone(),
+            "/D".into(),
+            "/K".into(),
+            "chcp 65001 > nul".into(),
+        ]);
+    }
+}
+
+#[cfg(not(windows))]
+pub(crate) fn apply_unterm_windows_utf8_to_spawn(
+    _spawn: &mut config::keyassignment::SpawnCommand,
+) {
 }
 
 fn read_unterm_proxy_env() -> Option<Vec<(String, String)>> {
