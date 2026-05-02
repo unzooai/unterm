@@ -52,9 +52,13 @@ jobs:
             unterm-*.deb
             Unterm-*.AppImage
       - name: GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
+        # Publish on push-tag AND workflow_dispatch. The old `if:` guard checked
+        # `startsWith(github.ref, 'refs/tags/')` — but workflow_dispatch has a
+        # branch ref, not a tag ref, so it silently skipped the upload and
+        # burned a 10-minute build. Use the resolved tag from the earlier step.
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.tag.outputs.name }}
           files: |
             unterm-*.deb
             Unterm-*.AppImage

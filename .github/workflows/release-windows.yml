@@ -72,9 +72,13 @@ jobs:
             Unterm-windows-*.zip
             dist\Unterm-*.msi
       - name: GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
+        # Publish on push-tag AND workflow_dispatch. The old `if:` guard checked
+        # `startsWith(github.ref, 'refs/tags/')` — but workflow_dispatch has a
+        # branch ref, not a tag ref, so it silently skipped the upload. Use
+        # the resolved tag from the earlier step instead.
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.tag.outputs.name }}
           files: |
             Unterm-windows-*.zip
             dist\Unterm-*.msi
