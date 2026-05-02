@@ -127,6 +127,14 @@ pub(crate) struct WindowInner {
     config: ConfigHandle,
     paint_throttled: bool,
     invalidated: bool,
+    /// Whether we've already painted the client area black via the
+    /// WM_ERASEBKGND handler. Stays false until the first ERASEBKGND
+    /// (which happens before ShowWindow makes the window visible);
+    /// after that, the GL renderer owns every pixel, so subsequent
+    /// ERASEBKGND messages skip the FillRect — doing one each time
+    /// would burn GDI cycles on a fullscreen high-DPI client area
+    /// for paint cycles whose pixels we're about to overwrite anyway.
+    did_initial_erase: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
@@ -570,6 +578,7 @@ impl Window {
             config: config.clone(),
             paint_throttled: false,
             invalidated: true,
+            did_initial_erase: false,
         }));
 
         // Careful: `raw` owns a ref to inner, but there is no Drop impl
@@ -2979,24 +2988,48 @@ unsafe fn do_wnd_proc(hwnd: HWND, msg: UINT, wparam: WPARAM, lparam: LPARAM) -> 
             // our OpenGL renderer paints every pixel each frame.
             //
             // BUT: between ShowWindow and the first GL SwapBuffers, the
-            // window's redirection bitmap is whatever the DWM allocated —
-            // typically white. Returning 1 without painting anything means
-            // the user sees that white flash on launch (and on any
-            // invalidation that happens before the next GL frame).
+            // window's DWM redirection bitmap is uninitialized — typically
+            // white. Returning 1 without painting means the user sees a
+            // white flash on launch.
             //
-            // Fix: do a manual GDI FillRect with BLACK_BRUSH first, then
-            // return 1. This guarantees the visible surface is black until
-            // GL takes over. The brush set on the WNDCLASSW would do this
-            // automatically if we didn't intercept the message — but we
-            // need to intercept (returning 0 to fall through causes
-            // double-paint flicker), so we do the fill ourselves.
-            let hdc = wparam as HDC;
-            if !hdc.is_null() {
-                let mut rect: RECT = std::mem::zeroed();
-                GetClientRect(hwnd, &mut rect);
-                let brush = GetStockObject(BLACK_BRUSH as i32) as HBRUSH;
-                if !brush.is_null() {
-                    FillRect(hdc, &rect, brush);
+            // Fix v0.10 (initial): always FillRect black before returning 1.
+            // That worked but was overkill — WM_ERASEBKGND fires on every
+            // resize tick (CS_HREDRAW | CS_VREDRAW) and any invalidate
+            // sequence Windows decides needs erasing, and the GDI FillRect
+            // on a fullscreen high-DPI client area is wasted work because
+            // the next GL SwapBuffers overwrites everything anyway. Users
+            // reported the cumulative cost made startup + interaction feel
+            // sluggish.
+            //
+            // Fix v0.11 (this): only do the FillRect on the first ERASEBKGND
+            // for each window. After that, just return 1. The first fire
+            // happens before the window becomes visible (or right at
+            // ShowWindow), which is the only moment that matters for the
+            // anti-flash; later fires can safely return without painting
+            // because GL is already rendering on top.
+            //
+            // try_borrow_mut so a re-entrant message dispatch can't panic:
+            // if the inner is already borrowed (we're nested inside another
+            // handler) we skip the fill — a missed flash on a nested message
+            // is not a regression, white flash on first paint is.
+            let already_erased = rc_from_hwnd(hwnd)
+                .and_then(|inner| {
+                    inner.try_borrow_mut().ok().map(|mut i| {
+                        let was = i.did_initial_erase;
+                        i.did_initial_erase = true;
+                        was
+                    })
+                })
+                .unwrap_or(true);
+            if !already_erased {
+                let hdc = wparam as HDC;
+                if !hdc.is_null() {
+                    let mut rect: RECT = std::mem::zeroed();
+                    GetClientRect(hwnd, &mut rect);
+                    let brush = GetStockObject(BLACK_BRUSH as i32) as HBRUSH;
+                    if !brush.is_null() {
+                        FillRect(hdc, &rect, brush);
+                    }
                 }
             }
             Some(1)

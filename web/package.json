@@ -1,6 +1,6 @@
 {
   "name": "unterm-site",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "Marketing site for Unterm — the terminal AI agents can drive.",
   "type": "module",
   "private": true,
