@@ -7,7 +7,7 @@
   "nav.download": "Download",
   "nav.faq": "FAQ",
 
-  "hero.badge": "v0.5.5 — signiert, notarisiert, für macOS / Linux / Windows",
+  "hero.badge": "v0.6.0 — signiert, notarisiert, für macOS / Linux / Windows",
   "hero.title.1": "Das Terminal,",
   "hero.title.2": "das KI-Agenten steuern können.",
   "hero.subtitle": "Plattformübergreifendes Terminal mit eingebauten MCP-, HTTP- und CLI-Kontrollebenen. Claude Code, Cursor, Aider oder eigene Skripte — alle nutzen dieselbe JSON-RPC-Schnittstelle, um jede Operation zu steuern.",
@@ -72,9 +72,9 @@
   "cmp.intentional": "✗ (bewusst nicht)",
   "cmp.note": "Vergleich basiert auf öffentlich dokumentierten Funktionen am 2026-05-01. Andere Terminals haben eventuell Closed-Source- oder Roadmap-Punkte, die nicht aufgeführt sind.",
 
-  "dl.title": "Unterm 0.5.5 holen",
+  "dl.title": "Unterm 0.6.0 holen",
   "dl.subtitle": "macOS-Bundle ist mit Developer ID signiert und Apple-notarisiert. Linux .deb / AppImage und Windows .msi / .zip sind ebenfalls veröffentlicht.",
-  "dl.cta": "v0.5.5-Release auf GitHub ansehen",
+  "dl.cta": "v0.6.0-Release auf GitHub ansehen",
 
   "faq.title": "Häufige Fragen",
   "faq.what.q": "Was ist Unterm?",

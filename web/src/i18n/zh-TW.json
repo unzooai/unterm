@@ -7,7 +7,7 @@
   "nav.download": "下載",
   "nav.faq": "常見問題",
 
-  "hero.badge": "v0.5.5 — 已簽章、已公證,支援 macOS / Linux / Windows",
+  "hero.badge": "v0.6.0 — 已簽章、已公證,支援 macOS / Linux / Windows",
   "hero.title.1": "AI 代理",
   "hero.title.2": "可以驅動的終端機。",
   "hero.subtitle": "跨平台終端機,內建 MCP、HTTP、CLI 三套控制面。Claude Code、Cursor、Aider、你自己寫的腳本,都透過同一套 JSON-RPC 介面驅動每一項操作。",
@@ -72,9 +72,9 @@
   "cmp.intentional": "✗ (有意不做)",
   "cmp.note": "對比基於 2026-05-01 的公開特性。其他終端機可能有閉源或路線圖中的項未列出。",
 
-  "dl.title": "下載 Unterm 0.5.5",
+  "dl.title": "下載 Unterm 0.6.0",
   "dl.subtitle": "macOS 版以 Developer ID 簽章並通過了 Apple 公證。Linux .deb / AppImage 與 Windows .msi / .zip 也已發布。",
-  "dl.cta": "查看 GitHub 上的 v0.5.5 release",
+  "dl.cta": "查看 GitHub 上的 v0.6.0 release",
 
   "faq.title": "常見問題",
   "faq.what.q": "Unterm 是什麼?",

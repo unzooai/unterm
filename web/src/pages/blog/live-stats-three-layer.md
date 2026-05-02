@@ -63,14 +63,14 @@ async function doFetch(): Promise<Stats> {
     return {
       stars: repo.stargazers_count ?? null,
       downloads: releases.length > 0 ? downloads : null,
-      release: releases[0]?.tag_name ?? "v0.5.5",
+      release: releases[0]?.tag_name ?? "v0.6.0",
     };
   } catch {
     return FALLBACK;
   }
 }
 
-const FALLBACK: Stats = { stars: null, downloads: null, release: "v0.5.5" };
+const FALLBACK: Stats = { stars: null, downloads: null, release: "v0.6.0" };
 ```
 
 Then in your Astro page frontmatter:
