@@ -9,7 +9,7 @@
   "nav.download": "Download",
   "nav.faq": "FAQ",
 
-  "hero.badge": "v0.11.0 — signed, notarized, on macOS / Linux / Windows",
+  "hero.badge": "v0.12.0 — signed, notarized, on macOS / Linux / Windows",
   "hero.title.1": "The terminal",
   "hero.title.2": "AI agents can drive.",
   "hero.subtitle": "A cross-platform terminal with built-in MCP, HTTP, and CLI control planes. Claude Code, Cursor, Aider, your scripts — they all get the same JSON-RPC surface to drive every operation.",
@@ -80,10 +80,10 @@
   "features.engine.title": "GPU rendering",
   "features.engine.body": "Built on a customized WezTerm engine — Metal on macOS, OpenGL on Linux, DirectX via ANGLE on Windows.",
 
-  "whatsnew.title": "What's new in v0.10",
-  "whatsnew.subtitle": "Three weeks of Windows polish + the multi-instance foundation that AI agents need to drive a fleet of terminals.",
-  "whatsnew.flash.title": "White-flash fix",
-  "whatsnew.flash.body": "Windows used to flash bright white between window create and the first GL frame. Root cause: WindowProc intercepted WM_ERASEBKGND but never painted, so the DWM redirection bitmap stayed in its uninitialized white state. Now we manually FillRect the client area with BLACK_BRUSH before returning.",
+  "whatsnew.title": "What's new in v0.12",
+  "whatsnew.subtitle": "The Windows white-flash hunt is over. Multi-instance MCP foundation is shipped. UTF-8 is the default on every locale. The product is finally calm on launch.",
+  "whatsnew.flash.title": "Sync pre-show paint kills the Windows white flash",
+  "whatsnew.flash.body": "Three iterations to root-cause it: the DWM samples its redirection bitmap before WM_ERASEBKGND fires, so any fix routed through the message pump arrives too late. v0.12 renders one synchronous frame of real terminal content into the backbuffer in <code class=\"font-mono text-xs\">wezterm-gui</code> <em>before</em> <code class=\"font-mono text-xs\">window.show()</code>. Spawn-to-visible is ~880ms, no flash. Linux/macOS paths unchanged — the new path is cfg(windows) gated.",
   "whatsnew.instances.title": "Multi-instance NATO names",
   "whatsnew.instances.body": "Each Unterm process owns one instance with a NATO-phonetic name (alpha, bravo, charlie…). MCP <code class=\"font-mono\">instance.list</code> enumerates all live instances; agents pick by cwd, title, or start order. Window title becomes <code class=\"font-mono\">Unterm — alpha — Project</code> for visual mapping.",
   "whatsnew.utf8.title": "Auto UTF-8 on Windows",
@@ -116,9 +116,9 @@
   "cmp.intentional": "✗ (by design)",
   "cmp.note": "Comparison reflects publicly documented features as of 2026-05-01. Other terminals may have closed-source or roadmap items not listed.",
 
-  "dl.title": "Get Unterm 0.11.0",
+  "dl.title": "Get Unterm 0.12.0",
   "dl.subtitle": "macOS bundle is signed with a Developer ID and Apple-notarized. Linux .deb / AppImage and Windows .msi / .zip are also published.",
-  "dl.cta": "View v0.11.0 release on GitHub",
+  "dl.cta": "View v0.12.0 release on GitHub",
 
   "faq.title": "Frequently asked",
   "faq.what.q": "What is Unterm?",
