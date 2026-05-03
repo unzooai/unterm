@@ -426,15 +426,16 @@ impl McpHandler {
     /// `instance.focus` there. Keeps the auth model simple (each instance
     /// only ever acts on itself with its own token).
     ///
-    /// In v0.9 the actual window-raise side-effect is a stub; we return
-    /// `ok: true` so agents can rely on the call shape, but the OS-level
-    /// raise is tracked as a v0.10 polish item. Workaround for now: agents
-    /// that need a peer in front can spawn it (or poke its tab bar via
-    /// `session.list`) and the user Alt-Tabs to it.
+    /// The actual window-raise side-effect is a stub today; we return
+    /// `ok: true` so agents can rely on the call shape, but the
+    /// OS-level raise (Win32 SetForegroundWindow / NSApp activate /
+    /// X SubstructureRedirect) is still tracked as a polish item.
+    /// Workaround: agents that need a peer in front can spawn into it
+    /// (or poke its tab bar via `session.list`) and the user Alt-Tabs.
     fn instance_focus(&self, _params: &Value) -> Result<Value> {
         Ok(json!({
             "ok": true,
-            "note": "stub in v0.9; OS-level window raise scheduled for v0.10"
+            "note": "OS-level window raise not yet implemented — call returns ok so callers can rely on the shape"
         }))
     }
 

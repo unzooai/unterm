@@ -3,6 +3,7 @@ layout: ../../layouts/Doc.astro
 title: Driving Unterm from outside
 subtitle: How to wire up Claude Code, Cursor, Aider, or your own scripts to control an Unterm window over MCP — the pattern Unterm was designed around.
 kicker: Docs / Agent integration
+date: 2026-05-03
 ---
 
 ## The mental model
@@ -11,10 +12,12 @@ Most terminals embed their AI _inside_ the terminal — Warp's AI lives in a clo
 
 Concretely, every Unterm window opens two local servers on launch:
 
-- **MCP server** on `127.0.0.1:<auto-port>` — line-delimited JSON-RPC over TCP, auth-token gated, exposes every product operation (spawn, exec, read pane, screenshot, recording, settings).
-- **HTTP settings server** on `127.0.0.1:<auto-port>` — REST endpoints for the same surface, plus a Tailwind+Alpine SPA at the root for human-driven config.
+- **MCP server** on `127.0.0.1:<auto-port>` — line-delimited JSON-RPC over TCP, auth-token gated, exposes every product operation (create pane, send input, read screen, capture screenshot, record, manage proxy, query instances).
+- **HTTP settings server** on `127.0.0.1:<auto-port>` — REST endpoints for human-driven config (theme, font, profile) and a Tailwind+Alpine SPA at the root. Theme switching, font tweaks, and profile edits are HTTP-only — they're not on MCP because they're settings the user owns, not actions an agent should script.
 
 Both ports plus the auth token are written to `~/.unterm/server.json` on launch. That file is the canonical handshake — every external tool reads it to figure out where to connect.
+
+For the full schema of every MCP method see the [MCP reference](/docs/mcp-reference). For the layout of `~/.unterm/` see the [configuration guide](/docs/configuration). For driving more than one window at a time see the [multi-instance guide](/docs/multi-instance). For shell scripting, see the [CLI reference](/docs/cli-reference).
 
 ## Quick start: connecting Claude Code
 
@@ -38,7 +41,7 @@ Claude Code is the canonical example because it ships native MCP support. Two mi
 
 3. Restart Claude Code. Type `/mcp` and you should see `unterm` listed as a connected server with its tool list.
 
-Cursor and Aider follow the same pattern — point an MCP client at the local socket described in `server.json`.
+Cursor and Aider follow the same pattern — point an MCP client at the local socket described in `server.json`. If you want to drive multiple Unterm windows from one agent, see the [multi-instance guide](/docs/multi-instance) — each window gets its own port and token, and there's a small registry under `~/.unterm/instances/` to enumerate them.
 
 ## Pattern 1 — Director and worker
 
@@ -47,24 +50,37 @@ The killer use case for an MCP-controllable terminal: an _outer_ agent supervise
 Concretely, in your outer Claude Code session:
 
 ```js
-// 1. spawn a fresh pane in the project dir
-mcp.unterm.session.spawn({
+// 1. open a fresh pane in the project dir and launch the inner agent.
+//    orchestrate.launch = session.create + a command line typed into the pane.
+const pane = await mcp.unterm.orchestrate.launch({
   cwd: "/Volumes/Dev/code/some-project",
-  prog: ["claude", "code"]
+  command: "claude code",
 })
 
-// 2. wait for the inner agent to be ready (look for prompt marker)
-await mcp.unterm.session.wait_for(pane_id, "▶▶ bypass permissions on")
+// 2. wait for the inner agent's prompt marker to appear (or time out).
+await mcp.unterm.orchestrate.wait({
+  id: pane.id,
+  pattern: "▶▶ bypass permissions on",
+  timeout_ms: 30_000,
+})
 
-// 3. dispatch a task
-mcp.unterm.session.send_text(pane_id,
-  "implement the feature described in TODO.md, run the tests, commit when green\n")
+// 3. dispatch the task by typing into the pane.
+await mcp.unterm.session.input({
+  id: pane.id,
+  input: "implement the feature described in TODO.md, run the tests, commit when green\n",
+})
 
-// 4. poll output every 30s, intervene if stuck
-while (!await mcp.unterm.session.contains(pane_id, "all green")) {
-  const tail = await mcp.unterm.session.read_tail(pane_id, 200)
-  if (looksStuck(tail)) {
-    mcp.unterm.session.send_text(pane_id, "you appear stuck — try X\n")
+// 4. poll output every 30s, intervene if stuck.
+while (true) {
+  const hit = await mcp.unterm.screen.search({ id: pane.id, pattern: "all green" })
+  if (hit.total > 0) break
+
+  const tail = await mcp.unterm.screen.scroll({ id: pane.id, offset: -200, count: 200 })
+  if (looksStuck(tail.lines)) {
+    await mcp.unterm.session.input({
+      id: pane.id,
+      input: "you appear stuck — try X\n",
+    })
   }
   await sleep(30_000)
 }
@@ -72,25 +88,50 @@ while (!await mcp.unterm.session.contains(pane_id, "all green")) {
 
 The outer agent has the strategic picture (which task next, when to escalate, when to switch from coding to commit prep), the inner agent has the keyboard. Both can be Claude — they're just running with different system prompts and different scopes.
 
+A few notes on the methods used:
+
+- `orchestrate.launch` is `session.create` plus a typed `command` line. If you don't need to run anything (just want a blank shell pane), use `session.create` directly — it accepts `cwd`, `cols`, `rows`.
+- `session.input` types characters as if the user typed them, including control codes. Append `\n` to actually submit.
+- `orchestrate.wait` blocks server-side until a regex-free substring match hits the visible screen, or `timeout_ms` elapses. Returns `{ matched: bool, timed_out?: bool, pattern }`. Cheaper than polling from the client.
+- `screen.search` scans visible-plus-scrollback for a substring and returns `{ matches: [{row, text}], total }`. Use this for "did the run finish yet" checks where you don't want to block.
+
 ## Pattern 2 — Long-running watcher
 
 Run a long task in a pane, have an external agent notice when it finishes and act:
 
 ```js
-const pane = await mcp.unterm.session.spawn({ cwd, prog: ["bash", "-c", "make ci-full"] })
+const pane = await mcp.unterm.orchestrate.launch({
+  cwd,
+  command: "make ci-full",
+})
 
-while (!await mcp.unterm.session.is_idle(pane.id)) {
+// session.idle returns { idle: bool, foreground_process: string }. The
+// heuristic is "is the foreground process the user's shell again" — i.e.
+// whatever was running has exited and we're back at a prompt.
+while (true) {
+  const status = await mcp.unterm.session.idle({ id: pane.id })
+  if (status.idle) break
   await sleep(60_000)
 }
-const transcript = await mcp.unterm.session.read_all(pane.id)
-if (transcript.match(/PASS \d+ tests/)) {
+
+// pull the visible screen + scrollback for analysis.
+const { lines } = await mcp.unterm.screen.scroll({
+  id: pane.id,
+  offset: 0,
+  count: 5000,
+})
+const transcript = lines.join("\n")
+
+if (/PASS \d+ tests/.test(transcript)) {
   notify("CI green, ready to merge")
 } else {
-  notify(`CI red, last 50 lines:\n${tail(transcript, 50)}`)
+  notify(`CI red, last 50 lines:\n${lines.slice(-50).join("\n")}`)
 }
 ```
 
 Same pattern works for `cargo build`, `npm run test`, long ETL jobs, or any "kick off something, wait, decide" loop. The agent doesn't have to be a chat session — a cron job calling `unterm-cli` works the same way.
+
+`session.idle` is a heuristic — it returns `idle: true` when the foreground process name matches a known shell (`bash`, `zsh`, `fish`, `pwsh`, `nu`, etc.). It's not a guarantee that the previous command "really finished," just that control returned to the shell. For correctness-sensitive flows, also check the screen for an explicit completion marker (`exit code: 0`, `PASS \d+ tests`, your project's own marker).
 
 ## Pattern 3 — Multi-pane orchestration
 
@@ -98,58 +139,106 @@ When an outer agent fans out work across several projects, each pane is one proj
 
 ```js
 const repos = ["solomd", "unflick", "unterm"]
-const panes = await Promise.all(repos.map(r =>
-  mcp.unterm.session.spawn({ cwd: `/Volumes/Dev/code/${r}` })
-))
 
-panes.forEach(p => mcp.unterm.session.send_text(p.id, "make lint\n"))
+const panes = await Promise.all(
+  repos.map((r) =>
+    mcp.unterm.session.create({ cwd: `/Volumes/Dev/code/${r}` })
+  )
+)
 
-await Promise.all(panes.map(p => mcp.unterm.session.wait_idle(p.id)))
-const reports = await Promise.all(panes.map(p =>
-  mcp.unterm.session.read_tail(p.id, 100)
-))
+// fan-out: send the same command to every pane in one round trip.
+await mcp.unterm.orchestrate.broadcast({
+  command: "make lint",
+  sessions: panes.map((p) => String(p.id)),
+})
+
+// fan-in: wait for each pane to return to its shell, then read tail.
+await Promise.all(
+  panes.map(async (p) => {
+    while (!(await mcp.unterm.session.idle({ id: p.id })).idle) {
+      await sleep(5_000)
+    }
+  })
+)
+
+const reports = await Promise.all(
+  panes.map((p) =>
+    mcp.unterm.screen.scroll({ id: p.id, offset: -100, count: 100 })
+  )
+)
 ```
+
+`orchestrate.broadcast` takes `{ command, sessions }` (sessions is an array of pane id strings) and types `command + \r` into each. It returns per-session success/error so you know which pane the input actually reached.
+
+If you want to broadcast to panes across _different Unterm windows_ — e.g. one window per project root — see the [multi-instance guide](/docs/multi-instance) for how to discover peer instances and dispatch to each one's MCP port.
 
 ## Pattern 4 — Recording for review
 
 Every pane can be recorded into a markdown transcript with built-in token redaction. An outer agent triggers a recording, drives a session, then ships the markdown for human review or AI fine-tune:
 
 ```js
-await mcp.unterm.session.recording_start({ pane_id })
-await mcp.unterm.session.send_text(pane_id, "<commands the agent runs>")
+const start = await mcp.unterm.session.recording_start({ id: pane.id })
+// start.session_id  — the recording id, distinct from pane id
+// start.log_path    — raw NDJSON log being appended to
+// start.md_path_when_done — the markdown path that will exist on stop
+
+await mcp.unterm.session.input({
+  id: pane.id,
+  input: "<commands the agent runs>\n",
+})
 // ... agent works ...
-const result = await mcp.unterm.session.recording_stop({ pane_id })
-// result.markdown_path: "<cwd>/.unterm/sessions/2026-05-02/tab-0-104530.md"
-// result.block_count: how many OSC 133 prompts were captured
-// result.redaction_count: how many tokens were masked
+
+const result = await mcp.unterm.session.recording_stop({ id: pane.id })
+// result.session_id  — recording id (matches start.session_id)
+// result.ended_at    — ISO 8601 stop timestamp
+// result.block_count — number of OSC 133 prompt blocks captured
+// result.exit_reason — "user_stop" | "pane_dead" | etc.
+// result.md_path     — the rendered markdown transcript on disk
 ```
 
 Recordings live under `<cwd>/.unterm/sessions/<date>/` when there's a writable project directory; otherwise they fall back to `~/.unterm/sessions/_orphan/`. Tokens, GitHub PATs, and 40+ char base64/hex strings are masked before write.
 
-## MCP method reference
+`session.recording_status` returns the live state (running/stopped, byte count) for a pane. `session.recording_list` enumerates past recordings — pass `{ project: "<path>" }` to filter by project root. `session.recording_read` returns the rendered markdown body so you can ship it to a follow-up LLM call without round-tripping through the filesystem. There's also `session.recording_attach_trace` for stitching an external trace ID into the markdown frontmatter, useful when an outer agent wants to correlate one pane's recording with its own run log.
 
-Most-used methods, all under the `unterm` namespace:
+## What's _not_ on MCP
+
+A few things that look like they should be MCP methods aren't, on purpose:
+
+- **Theme, font, profile, keybinding edits.** These live on the HTTP settings server (`/api/theme`, `/api/font`, etc.) and the SPA at `127.0.0.1:<http_port>/`. The `unterm-cli theme list` / `unterm-cli theme switch <name>` commands hit those HTTP endpoints, not the MCP server. The split is deliberate: MCP is the action surface for agents, HTTP is the configuration surface for the user. An agent should not be retheming your terminal mid-session.
+- **Workspace save/restore is on MCP, but workspace _list_ semantics are minimal.** `workspace.save`, `workspace.restore`, `workspace.list` exist. They're scoped to pane layout snapshots, not full settings.
+- **Cross-instance window focus.** Each Unterm window's MCP server only ever acts on _its own_ window — `instance.focus` brings _this_ window forward. To raise a peer, you connect to that peer's MCP port (discoverable via the [multi-instance registry](/docs/multi-instance)) and call `instance.focus` there. OS-level window raise is scheduled — see the multi-instance guide for the current state.
+
+## MCP method reference (most-used)
+
+Every method below appears in the dispatch table at `wezterm-gui/src/mcp/handler.rs`. All under the `unterm` namespace.
 
 | Method | Purpose |
 |---|---|
-| `session.list` | Enumerate panes (id, cwd, shell, dimensions) |
-| `session.spawn` | Open a new pane with given cwd / prog / env |
-| `session.send_text` | Type characters into a pane (as if user typed) |
-| `session.read_tail` | Read the last N lines of pane output |
-| `session.recording_start` / `_stop` | Record to redacted markdown |
-| `screenshot.capture` | Region screenshot, returns PNG path |
-| `proxy.status` / `.toggle` | Read or flip the proxy on/off |
-| `theme.list` / `.switch` | Get or change the active terminal theme |
-| `server.info` | Server identity + ports + version |
+| `session.list` | Enumerate panes — id, title, cols/rows, cursor, shell |
+| `session.create` | Open a new pane with given `cwd` / `cols` / `rows` |
+| `session.input` | Type characters into a pane (as if user typed) |
+| `session.idle` | Heuristic "is the pane back at its shell" check |
+| `session.history` | Last N scrollback lines as `{entries, count}` |
+| `session.recording_start` / `_stop` | Record to redacted markdown transcript |
+| `screen.text` | Visible viewport as lines + cursor position |
+| `screen.scroll` | Read N lines starting at scrollback `offset` |
+| `screen.search` | Substring search across visible + scrollback |
+| `orchestrate.launch` | `session.create` + type a command line |
+| `orchestrate.wait` | Block until `pattern` appears on screen, or timeout |
+| `orchestrate.broadcast` | Send the same command to many panes at once |
+| `capture.screen` / `capture.window` | PNG capture of all panes / a specific window |
+| `proxy.status` / `proxy.switch` | Read or change the active proxy node |
+| `instance.list` / `instance.focus` | Enumerate peer Unterm windows / raise this one |
+| `server.info` / `server.capabilities` | Server identity, ports, version, method list |
 
-Full schema in the repo at `wezterm-gui/src/mcp/handler.rs`. The `unterm-cli` binary uses this same surface — every CLI subcommand maps 1:1 to an MCP method.
+The full enumeration (every method, every parameter, every return shape) is in the [MCP reference](/docs/mcp-reference). The dispatch table in `handler.rs` is the source of truth — if it's not in the dispatch, it's not a real method.
 
 ## Security model
 
 - Both servers bind to `127.0.0.1` only. Nothing on the LAN can reach them; no port forwarding by default.
 - Every request must carry the auth token from `server.json` — generated fresh on each launch, written with 0600 permissions. Connections without it get 401 immediately.
 - No telemetry, no analytics, no login. The auth token never leaves your machine. Recordings stay on disk under your project dir.
-- The `session.spawn` and `session.send_text` methods can run arbitrary shell commands — treat the auth token like an SSH key, not like an API key. If you're checking `~/.unterm/` into version control by accident, you'll be sad.
+- The `session.create`, `session.input`, and `orchestrate.launch` methods can run arbitrary shell commands — treat the auth token like an SSH key, not like an API key. If you're checking `~/.unterm/` into version control by accident, you'll be sad.
 
 ## CLI parity
 
@@ -162,7 +251,9 @@ unterm-cli proxy status
 unterm-cli screenshot --include-window --output /tmp/cap.png
 ```
 
-Pipe `--json` through anywhere downstream that wants raw JSON-RPC.
+Pipe `--json` through anywhere downstream that wants raw JSON-RPC. Theme and font management are also on the CLI (`unterm-cli theme list`, `unterm-cli theme switch <name>`) — those subcommands hit the HTTP settings server rather than the MCP server, but from the user's point of view it's all one binary.
+
+For the full subcommand list see the [CLI reference](/docs/cli-reference).
 
 ---
 

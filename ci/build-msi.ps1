@@ -4,7 +4,11 @@ Build the Unterm MSI on Windows.
 
 Prerequisites:
   - cargo build --release -p unterm -p unterm-cli -p unterm-mux -p strip-ansi-escapes
-  - WiX 4 binary at .\.tools\wix.exe (or pass -WixPath)
+  - WiX 6 .NET tool installed at .\.tools\wix (or pass -WixPath).
+    Install with:
+      dotnet tool install --tool-path .\.tools wix --version 6.0.1
+      .\.tools\wix.exe extension add -g WixToolset.UI.wixext/6.0.1
+    See .github/workflows/release-windows.yml for the canonical recipe.
 
 Usage:
   pwsh -File ci\build-msi.ps1

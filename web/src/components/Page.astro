@@ -90,10 +90,33 @@ const cmpRows = [
 ];
 
 const dlBaseUrl = "https://github.com/unzooai/unterm/releases";
-// `stats.release` is the latest tag returned by the GitHub API at build
-// time. Driving the DMG URL off it means we don't have to hand-edit this
-// file every time we cut a new tag — the next deploy auto-points at it.
-const dmgUrl = `${dlBaseUrl}/latest/download/Unterm-macos-${stats.release}.dmg`;
+
+// `stats.release` is the latest tag from the GitHub API at build time
+// (or the FALLBACK in stats.ts on API failure). Tags are 2-segment per
+// the repo's release-cadence rule (vX.Y), so e.g. "v0.12".
+//
+// MSI and Windows-zip naming has historical quirks:
+//   - DMG, deb, AppImage, win.zip:  use the 2-segment tag verbatim
+//     (Unterm-macos-v0.12.dmg, unterm-v0.12.deb, Unterm-v0.12-x86_64.AppImage, Unterm-windows-v0.12.zip)
+//   - MSI:  uses 3-segment SemVer with no `v` prefix
+//     (Unterm-0.12.0-x64.msi) because WiX requires SemVer in
+//     installer/Unterm.wxs and our build script reads from there.
+//
+// `releaseSemver` strips the `v` and pads to 3-segment so the MSI URL
+// keeps building correctly. Example transforms:
+//   "v0.12"   → "0.12.0"
+//   "v0.12.5" → "0.12.5"
+//   "0.13.0"  → "0.13.0"
+const releaseSemver = (() => {
+  const r = stats.release.replace(/^v/, "");
+  return r.split(".").length === 2 ? `${r}.0` : r;
+})();
+
+const dmgUrl      = `${dlBaseUrl}/latest/download/Unterm-macos-${stats.release}.dmg`;
+const debUrl      = `${dlBaseUrl}/latest/download/unterm-${stats.release}.deb`;
+const appimageUrl = `${dlBaseUrl}/latest/download/Unterm-${stats.release}-x86_64.AppImage`;
+const msiUrl      = `${dlBaseUrl}/latest/download/Unterm-${releaseSemver}-x64.msi`;
+const winZipUrl   = `${dlBaseUrl}/latest/download/Unterm-windows-${stats.release}.zip`;
 ---
 
 <!-- ============== HERO ============== -->
@@ -303,9 +326,18 @@ const dmgUrl = `${dlBaseUrl}/latest/download/Unterm-macos-${stats.release}.dmg`;
 
     <p class="mt-6 text-center text-xs text-zinc-500">{t("install.or_manual")}</p>
 
+    <!-- Platform cards. macOS has one artifact (DMG) so the whole card
+         is one link. Linux + Windows ship two artifacts each (deb +
+         AppImage / MSI + portable .zip) so we expose both as direct
+         action chips inside the card — the user shouldn't have to
+         click through to the GitHub releases page to pick. The card
+         itself is no longer wrapped in <a>; only the chips are
+         clickable, with hover/border states on the card for the
+         "this is one platform" affordance. -->
     <div class="mt-4 grid sm:grid-cols-3 gap-4">
+      <!-- macOS — single artifact -->
       <a href={dmgUrl}
-         class="group block bg-zinc-900/60 hover:bg-zinc-900 border border-zinc-800 rounded-xl p-5 transition">
+         class="group block bg-zinc-900/60 hover:bg-zinc-900 border border-zinc-800 hover:border-zinc-700 rounded-xl p-5 transition">
         <div class="flex items-center justify-between">
           <div class="text-3xl">🍎</div>
           <span class="text-xs font-mono text-zinc-500">{t("install.macos.size")}</span>
@@ -314,26 +346,46 @@ const dmgUrl = `${dlBaseUrl}/latest/download/Unterm-macos-${stats.release}.dmg`;
         <div class="text-sm text-zinc-400 mt-1">{t("install.macos.detail")}</div>
         <div class="mt-3 text-xs text-emerald-400 group-hover:text-emerald-300">{t("install.macos.action")}</div>
       </a>
-      <a href={dlBaseUrl + "/latest"}
-         class="group block bg-zinc-900/60 hover:bg-zinc-900 border border-zinc-800 rounded-xl p-5 transition">
+
+      <!-- Linux — two artifacts: .deb + AppImage -->
+      <div class="bg-zinc-900/60 hover:bg-zinc-900 border border-zinc-800 hover:border-zinc-700 rounded-xl p-5 transition flex flex-col">
         <div class="flex items-center justify-between">
           <div class="text-3xl">🐧</div>
           <span class="text-xs font-mono text-zinc-500">{t("install.linux.size")}</span>
         </div>
         <div class="mt-3 font-semibold">{t("install.linux.title")}</div>
-        <div class="text-sm text-zinc-400 mt-1">{t("install.linux.detail")}</div>
-        <div class="mt-3 text-xs text-emerald-400 group-hover:text-emerald-300">{t("install.linux.action")}</div>
-      </a>
-      <a href={dlBaseUrl + "/latest"}
-         class="group block bg-zinc-900/60 hover:bg-zinc-900 border border-zinc-800 rounded-xl p-5 transition">
+        <div class="text-sm text-zinc-400 mt-1 flex-1">{t("install.linux.detail")}</div>
+        <div class="mt-3 flex flex-wrap gap-2">
+          <a href={debUrl}
+             class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-mono bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 hover:text-emerald-200 border border-emerald-500/20 hover:border-emerald-500/40 transition">
+            .deb →
+          </a>
+          <a href={appimageUrl}
+             class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-mono bg-zinc-800/60 hover:bg-zinc-800 text-zinc-300 hover:text-zinc-100 border border-zinc-700/50 hover:border-zinc-700 transition">
+            .AppImage →
+          </a>
+        </div>
+      </div>
+
+      <!-- Windows — two artifacts: MSI + portable .zip -->
+      <div class="bg-zinc-900/60 hover:bg-zinc-900 border border-zinc-800 hover:border-zinc-700 rounded-xl p-5 transition flex flex-col">
         <div class="flex items-center justify-between">
           <div class="text-3xl">🪟</div>
           <span class="text-xs font-mono text-zinc-500">{t("install.windows.size")}</span>
         </div>
         <div class="mt-3 font-semibold">{t("install.windows.title")}</div>
-        <div class="text-sm text-zinc-400 mt-1">{t("install.windows.detail")}</div>
-        <div class="mt-3 text-xs text-emerald-400 group-hover:text-emerald-300">{t("install.windows.action")}</div>
-      </a>
+        <div class="text-sm text-zinc-400 mt-1 flex-1">{t("install.windows.detail")}</div>
+        <div class="mt-3 flex flex-wrap gap-2">
+          <a href={msiUrl}
+             class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-mono bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 hover:text-emerald-200 border border-emerald-500/20 hover:border-emerald-500/40 transition">
+            .msi →
+          </a>
+          <a href={winZipUrl}
+             class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-mono bg-zinc-800/60 hover:bg-zinc-800 text-zinc-300 hover:text-zinc-100 border border-zinc-700/50 hover:border-zinc-700 transition">
+            portable .zip →
+          </a>
+        </div>
+      </div>
     </div>
   </div>
 </section>
