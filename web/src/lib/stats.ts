@@ -32,10 +32,20 @@ export interface Stats {
 }
 
 // Fallback used when the build-time fetch fails entirely. We give the
-// release a sane default (v0.12.0) because the hero CTA must point
-// _somewhere_, but the numbers stay null so the chips render as em dashes
-// and let the client-side refresh fill them in if it can.
-const FALLBACK: Stats = { stars: null, downloads: null, release: "v0.12.0" };
+// release a sane default because the hero CTA must point _somewhere_,
+// but the numbers stay null so the chips render as em dashes and let
+// the client-side refresh fill them in if it can.
+//
+// IMPORTANT: this string must match the actual git tag format we
+// publish under, which is **2-segment** minor tags (`v0.12`, not
+// `v0.12.0`) per the repo's release-cadence rule. Asset filenames on
+// GitHub Releases use the same 2-segment form (e.g.
+// `Unterm-macos-v0.12.dmg`), so the URL the page builds —
+// `releases/latest/download/Unterm-macos-${stats.release}.dmg` — only
+// resolves correctly when stats.release is `vX.Y`. Putting `vX.Y.Z`
+// here lands users on a 404 the moment the GitHub API fetch fails at
+// build time, which has happened on rate-limited Cloudflare runners.
+const FALLBACK: Stats = { stars: null, downloads: null, release: "v0.12" };
 
 let cache: Promise<Stats> | null = null;
 
