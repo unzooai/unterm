@@ -74,3 +74,4 @@ dhat-heap.json
 /assets/flatpak/generated-sources.json
 /__pycache__/
 /nix/result
+.claude/
