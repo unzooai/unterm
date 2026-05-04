@@ -26,7 +26,7 @@ export interface Stats {
    *  not pin "⭐ 0 stars" onto the homepage for the next 5 minutes. */
   stars: number | null;
   downloads: number | null;
-  /** Latest tag, e.g. "v0.12.0". Used for download links so we don't have
+  /** Latest tag, e.g. "v0.12.1". Used for download links so we don't have
    *  to update the hero CTA every time we cut a release. */
   release: string;
 }
@@ -36,16 +36,12 @@ export interface Stats {
 // but the numbers stay null so the chips render as em dashes and let
 // the client-side refresh fill them in if it can.
 //
-// IMPORTANT: this string must match the actual git tag format we
-// publish under, which is **2-segment** minor tags (`v0.12`, not
-// `v0.12.0`) per the repo's release-cadence rule. Asset filenames on
-// GitHub Releases use the same 2-segment form (e.g.
-// `Unterm-macos-v0.12.dmg`), so the URL the page builds —
-// `releases/latest/download/Unterm-macos-${stats.release}.dmg` — only
-// resolves correctly when stats.release is `vX.Y`. Putting `vX.Y.Z`
-// here lands users on a 404 the moment the GitHub API fetch fails at
-// build time, which has happened on rate-limited Cloudflare runners.
-const FALLBACK: Stats = { stars: null, downloads: null, release: "v0.12" };
+// IMPORTANT: this string must match the actual latest git tag and asset
+// filenames. The homepage builds direct links such as
+// `releases/latest/download/Unterm-macos-${stats.release}.dmg`; if this
+// fallback drifts from the published asset names, users hit a 404 when the
+// GitHub API fetch fails at build time.
+const FALLBACK: Stats = { stars: null, downloads: null, release: "v0.12.1" };
 
 let cache: Promise<Stats> | null = null;
 
