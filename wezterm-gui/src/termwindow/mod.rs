@@ -86,7 +86,7 @@ pub mod webgpu;
 use crate::spawn::SpawnWhere;
 use prevcursor::PrevCursorPos;
 
-const ATLAS_SIZE: usize = 128;
+const ATLAS_SIZE: usize = 256;
 
 lazy_static::lazy_static! {
     static ref WINDOW_CLASS: Mutex<String> = Mutex::new(wezterm_gui_subcommands::DEFAULT_WINDOW_CLASS.to_owned());
@@ -970,20 +970,6 @@ impl TermWindow {
                 myself.created(RenderContext::WebGpu(Rc::clone(&webgpu)))?;
             }
             myself.load_os_parameters();
-
-            // On Windows, render the first real frame BEFORE the
-            // window becomes visible. Without this the user sees a
-            // ~1s default-white DWM redirection bitmap while the
-            // renderer compiles shaders and lays out the first frame
-            // asynchronously after show().
-            #[cfg(windows)]
-            {
-                if myself.gl.is_some() {
-                    let _ = myself.do_paint(&window);
-                } else if myself.webgpu.is_some() {
-                    let _ = myself.do_paint_webgpu();
-                }
-            }
 
             window.show();
             myself.subscribe_to_pane_updates();

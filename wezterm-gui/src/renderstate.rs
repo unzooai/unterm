@@ -459,10 +459,11 @@ pub struct RenderLayer {
 
 impl RenderLayer {
     pub fn new(context: &RenderContext, num_quads: usize, zindex: i8) -> anyhow::Result<Self> {
+        let aux_quads = 128;
         let vb = [
-            Self::compute_vertices(context, 32)?,
+            Self::compute_vertices(context, aux_quads)?,
             Self::compute_vertices(context, num_quads)?,
-            Self::compute_vertices(context, 32)?,
+            Self::compute_vertices(context, aux_quads)?,
         ];
 
         Ok(Self {

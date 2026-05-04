@@ -6,7 +6,11 @@ use termwiz::cell::{unicode_column_width, CellAttributes};
 use termwiz::color::SrgbaTuple;
 use termwiz::surface::line::Line;
 use wezterm_term::color::ColorAttribute;
+use window::WindowOps;
 use window::color::LinearRgba;
+
+static DEFER_FIRST_STATUS_TEXT_RENDER: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(true);
 
 impl crate::TermWindow {
     /// Height of the status bar in pixels (1 row of terminal font).
@@ -62,6 +66,13 @@ impl crate::TermWindow {
             euclid::rect(0., bar_y, bar_width, 1.0),
             sep_color,
         )?;
+
+        if DEFER_FIRST_STATUS_TEXT_RENDER.swap(false, std::sync::atomic::Ordering::AcqRel) {
+            if let Some(window) = self.window.as_ref() {
+                window.invalidate();
+            }
+            return Ok(());
+        }
 
         let (line, regions) = self.build_status_line();
         let total_cols = (bar_width / cell_width) as usize;
@@ -196,17 +207,15 @@ impl crate::TermWindow {
         let cols = self.terminal_size.cols;
         let rows = self.terminal_size.rows;
 
-        let proxy = if unterm_proxy_enabled() {
-            crate::i18n::t("status_bar.proxy_on")
+        let proxy_enabled = unterm_proxy_enabled();
+        let proxy = if proxy_enabled {
+            "proxy:on".to_string()
         } else {
-            crate::i18n::t("status_bar.proxy_off")
+            "proxy:off".to_string()
         };
         let theme = crate::overlay::theme_selector::read_theme_id();
 
-        let project_part = crate::i18n::t_args(
-            "status_bar.project",
-            &[("name", &self.active_project_label())],
-        );
+        let project_part = format!("project:{}", self.active_project_label());
 
         // Use *cell width* (not char count) for offsets so the click hit-test
         // lines up with the rendered glyph. Wide CJK chars take 2 cells.
@@ -223,18 +232,18 @@ impl crate::TermWindow {
         text.push_str(&project_part);
         text.push_str(" | ");
         let exclude_offset = cw(&text);
-        let exclude_part = crate::i18n::t("status_bar.screenshot_exclude");
+        let exclude_part = "capture:exclude".to_string();
         text.push_str(&exclude_part);
         text.push_str(" | ");
         let include_offset = cw(&text);
-        let include_part = crate::i18n::t("status_bar.screenshot_include");
+        let include_part = "capture:include".to_string();
         text.push_str(&include_part);
         text.push_str(" | ");
         let proxy_offset = cw(&text);
         text.push_str(&proxy);
         text.push_str(" | ");
         let theme_offset = cw(&text);
-        let theme_part = crate::i18n::t_args("status_bar.theme", &[("name", &theme)]);
+        let theme_part = format!("theme:{theme}");
         text.push_str(&theme_part);
         text.push(' ');
 
@@ -370,7 +379,40 @@ struct StatusRegion {
     item_type: UIItemType,
 }
 
+#[derive(Default)]
+struct ProxyStatusCache {
+    value: bool,
+    loaded: bool,
+    loading: bool,
+}
+
+lazy_static::lazy_static! {
+    static ref PROXY_STATUS_CACHE: std::sync::Mutex<ProxyStatusCache> =
+        std::sync::Mutex::new(ProxyStatusCache::default());
+}
+
 fn unterm_proxy_enabled() -> bool {
+    let mut cache = PROXY_STATUS_CACHE.lock().unwrap();
+    if cache.loaded || cache.loading {
+        return cache.value;
+    }
+
+    cache.loading = true;
+    let value = cache.value;
+    drop(cache);
+
+    std::thread::spawn(|| {
+        let enabled = read_unterm_proxy_enabled();
+        let mut cache = PROXY_STATUS_CACHE.lock().unwrap();
+        cache.value = enabled;
+        cache.loaded = true;
+        cache.loading = false;
+    });
+
+    value
+}
+
+fn read_unterm_proxy_enabled() -> bool {
     let path = dirs_next::home_dir()
         .unwrap_or_default()
         .join(".unterm")

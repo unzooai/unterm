@@ -2980,23 +2980,15 @@ unsafe fn do_wnd_proc(hwnd: HWND, msg: UINT, wparam: WPARAM, lparam: LPARAM) -> 
         }
         WM_DROPFILES => drop_files(hwnd, msg, wparam, lparam),
         WM_ERASEBKGND => {
-            // First-time defense: fill black so the redirection bitmap
-            // isn't seen as default-white before the GL renderer's
-            // first frame lands. Subsequent erases are pure no-ops
-            // since our renderer paints every pixel each frame.
+            // Let Windows apply the WNDCLASS black background brush on the
+            // first erase, then suppress later erases because the renderer
+            // owns every pixel. This avoids blocking startup with a manual
+            // full-window GDI fill or forced synchronous repaint.
             if let Some(inner) = rc_from_hwnd(hwnd) {
                 if let Ok(mut inner) = inner.try_borrow_mut() {
                     if !inner.did_initial_erase {
-                        let hdc = wparam as HDC;
-                        if !hdc.is_null() {
-                            let mut rect: RECT = std::mem::zeroed();
-                            GetClientRect(hwnd, &mut rect);
-                            let brush = GetStockObject(BLACK_BRUSH as i32) as HBRUSH;
-                            if !brush.is_null() {
-                                FillRect(hdc, &rect, brush);
-                            }
-                        }
                         inner.did_initial_erase = true;
+                        return None;
                     }
                 }
             }

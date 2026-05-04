@@ -4,7 +4,7 @@
   <Package
     Name="Unterm"
     Manufacturer="Alex"
-    Version="0.12.0"
+    Version="0.12.1"
     UpgradeCode="2B17738E-D6E7-44BB-9B55-1D6AF31404A2"
     Scope="perMachine">
 
@@ -29,7 +29,9 @@
     </Feature>
 
     <StandardDirectory Id="ProgramFiles64Folder">
-      <Directory Id="INSTALLFOLDER" Name="Unterm" />
+      <Directory Id="INSTALLFOLDER" Name="Unterm">
+        <Directory Id="MesaFolder" Name="mesa" />
+      </Directory>
     </StandardDirectory>
 
     <StandardDirectory Id="ProgramMenuFolder">
@@ -46,6 +48,9 @@
       <Component Id="UntermMuxExe" Guid="A2BAF1A0-8C2C-4F0B-9E0A-FE2D3D9B0D11">
         <File Source="$(var.SourceDir)\unterm-mux.exe" KeyPath="yes" />
       </Component>
+      <Component Id="StripAnsiEscapesExe" Guid="9AECD6AC-68D7-4883-A670-6E162BEFD103">
+        <File Source="$(var.SourceDir)\strip-ansi-escapes.exe" KeyPath="yes" />
+      </Component>
       <Component Id="ConptyDll" Guid="E32B8E38-04D9-44C4-B06B-FE97D2E7CC20">
         <File Source="$(var.SourceDir)\conpty.dll" KeyPath="yes" />
       </Component>
@@ -57,6 +62,9 @@
       </Component>
       <Component Id="OpenConsoleExe" Guid="31E6F6F2-74DE-4576-BC35-3E4D2E66E84F">
         <File Source="$(var.SourceDir)\OpenConsole.exe" KeyPath="yes" />
+      </Component>
+      <Component Id="MesaOpenGlDll" Directory="MesaFolder" Guid="6E9F2F00-7795-4D4B-B910-660306DC1220">
+        <File Source="$(var.SourceDir)\mesa\opengl32.dll" KeyPath="yes" />
       </Component>
     </ComponentGroup>
 
