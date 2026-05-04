@@ -1267,6 +1267,8 @@ fn run() -> anyhow::Result<()> {
         }
     }
 
+    env_bootstrap::bootstrap();
+
     let opts = Opt::parse();
 
     // This is a bit gross.
@@ -1286,8 +1288,6 @@ fn run() -> anyhow::Result<()> {
             winapi::um::wincon::AttachConsole(winapi::um::wincon::ATTACH_PARENT_PROCESS);
         }
     };
-
-    env_bootstrap::bootstrap();
     // window_funcs is not set up by env_bootstrap as window_funcs is
     // GUI environment specific and env_bootstrap is used to setup the
     // headless mux server.
