@@ -1868,8 +1868,10 @@ fn default_default_prog() -> Option<Vec<String>> {
 }
 
 fn default_launch_menu() -> Vec<SpawnCommand> {
-    use crate::keyassignment::SpawnCommand;
+    #[cfg(windows)]
     let mut menu = Vec::new();
+    #[cfg(not(windows))]
+    let menu = Vec::new();
 
     #[cfg(windows)]
     {

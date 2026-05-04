@@ -321,7 +321,7 @@ impl AsRawSocket for FileDescriptor {
 }
 
 impl AsSocket for FileDescriptor {
-    fn as_socket(&self) -> BorrowedSocket {
+    fn as_socket(&self) -> BorrowedSocket<'_> {
         unsafe { BorrowedSocket::borrow_raw(self.as_raw_socket()) }
     }
 }
