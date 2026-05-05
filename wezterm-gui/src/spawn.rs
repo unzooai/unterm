@@ -198,31 +198,27 @@ pub(crate) fn apply_unterm_proxy_to_process_env() {
 /// profile, and we can't assume PS7 either. So we wrap at spawn time.
 ///
 /// Strategy:
-///   - Default prog (no args, `%ComSpec%` → cmd.exe): wrap with
-///     `cmd.exe /D /K "chcp 65001 > nul"` — sets the console codepage
-///     before the prompt appears, no command echoed.
 ///   - args == ["powershell.exe"] / ["pwsh.exe"] / etc. (just the
 ///     binary, nothing else): replace with the binary plus
 ///     `-NoLogo -NoExit -Command "<UTF-8 setup>; load $PROFILE"`.
 ///     The -Command runs first, then $PROFILE loads (so user
 ///     customizations still apply, but on top of UTF-8 defaults).
-///   - args == ["cmd.exe"]: same wrap as default prog.
+///   - args == ["cmd.exe"]: wrap with
+///     `cmd.exe /D /K "chcp 65001 > nul"` — sets the console codepage
+///     before the prompt appears, no command echoed.
 ///   - Anything else (user passed extra args, or non-shell exe): leave
 ///     untouched. They're customizing; we don't second-guess.
+///
+/// If no args are present, leave the builder alone. The mux/domain layer
+/// still needs to resolve the configured default_prog; forcing it to cmd.exe
+/// here makes default split panes ignore the PowerShell default on Windows.
 #[cfg(windows)]
 fn apply_unterm_windows_utf8(cmd_builder: &mut Option<CommandBuilder>) {
-    use std::ffi::OsString;
+    let Some(builder) = cmd_builder.as_mut() else {
+        return;
+    };
 
-    let builder = cmd_builder.get_or_insert_with(CommandBuilder::new_default_prog);
-
-    // Default prog (cmd.exe via %ComSpec%): wrap with chcp 65001 prelude.
     if builder.is_default_prog() {
-        builder.replace_default_prog([
-            OsString::from("cmd.exe"),
-            OsString::from("/D"),
-            OsString::from("/K"),
-            OsString::from("chcp 65001 > nul"),
-        ]);
         return;
     }
 
