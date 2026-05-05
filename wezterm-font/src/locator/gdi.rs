@@ -182,7 +182,7 @@ fn handle_from_descriptor(
     descriptor: &FontDescriptor,
     pixel_size: u16,
 ) -> Option<ParsedFont> {
-    let font = collection.font_from_descriptor(&descriptor)?;
+    let font = collection.font_from_descriptor(&descriptor).ok()??;
     let face = font.create_font_face();
     for file in face.files() {
         if let Some(path) = file.font_file_path() {
@@ -367,7 +367,9 @@ impl FontLocator for GdiFontLocator {
         for family in collection.families_iter() {
             let count = family.get_font_count();
             for idx in 0..count {
-                let font = family.font(idx);
+                let Ok(font) = family.font(idx) else {
+                    continue;
+                };
                 let face = font.create_font_face();
                 for file in face.files() {
                     if let Some(path) = file.font_file_path() {
