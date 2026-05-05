@@ -55,6 +55,7 @@ use smol::channel::Sender;
 use smol::Timer;
 use std::cell::{RefCell, RefMut};
 use std::collections::{HashMap, LinkedList};
+use std::io::Write as _;
 use std::ops::Add;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -492,6 +493,58 @@ pub struct TermWindow {
 fn pane_cwd_path(pane: &Arc<dyn mux::pane::Pane>) -> Option<std::path::PathBuf> {
     let url = pane.get_current_working_dir(mux::pane::CachePolicy::AllowStale)?;
     url.to_file_path().ok()
+}
+
+fn posix_single_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
+#[cfg(windows)]
+fn powershell_single_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "''"))
+}
+
+#[cfg(windows)]
+fn cmd_double_quote(s: &str) -> String {
+    // Windows paths cannot contain `"`, so quote for spaces and escape `%`
+    // to avoid accidental environment expansion in cmd.exe.
+    format!("\"{}\"", s.replace('%', "^%"))
+}
+
+fn cd_command_for_pane(pane: &Arc<dyn mux::pane::Pane>, path: &std::path::Path) -> String {
+    let raw = path.display().to_string();
+    #[cfg(not(windows))]
+    let _ = pane;
+
+    #[cfg(windows)]
+    {
+        let shell = pane
+            .get_foreground_process_name(mux::pane::CachePolicy::AllowStale)
+            .or_else(|| pane.get_foreground_process_name(mux::pane::CachePolicy::FetchImmediate))
+            .unwrap_or_default()
+            .rsplit(['\\', '/'])
+            .next()
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+
+        if shell == "cmd.exe" || shell == "cmd" {
+            return format!("cd /d {}\r\n", cmd_double_quote(&raw));
+        }
+
+        if shell == "powershell.exe"
+            || shell == "powershell"
+            || shell == "pwsh.exe"
+            || shell == "pwsh"
+        {
+            return format!("Set-Location -LiteralPath {}\r\n", powershell_single_quote(&raw));
+        }
+
+        if shell == "nu.exe" || shell == "nu" {
+            return format!("cd {}\r\n", powershell_single_quote(&raw));
+        }
+    }
+
+    format!("cd {}\n", posix_single_quote(&raw))
 }
 
 impl TermWindow {
@@ -2721,15 +2774,8 @@ impl TermWindow {
 
             match picked {
                 Ok(path) => {
-                    // POSIX single-quote literal — escape embedded single
-                    // quotes by closing / re-opening: foo'bar → 'foo'\''bar'.
-                    // Same form works in PowerShell.
-                    let raw = path.display().to_string();
-                    let quoted = format!("'{}'", raw.replace('\'', "'\\''"));
-                    let cmd = format!("cd {}\n", quoted);
-                    use std::io::Write as _;
-                    let mut writer = pane.writer();
-                    if let Err(err) = writer.write_all(cmd.as_bytes()) {
+                    let cmd = cd_command_for_pane(&pane, &path);
+                    if let Err(err) = pane.writer().write_all(cmd.as_bytes()) {
                         log::warn!("could not inject cd command: {err:#}");
                     }
                 }

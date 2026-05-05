@@ -26,6 +26,7 @@
     <Feature Id="MainFeature" Title="Unterm" Level="1">
       <ComponentGroupRef Id="UntermFiles" />
       <ComponentRef Id="StartMenuShortcut" />
+      <ComponentRef Id="ExplorerContextMenu" />
     </Feature>
 
     <StandardDirectory Id="ProgramFiles64Folder">
@@ -84,6 +85,45 @@
           Type="integer"
           Value="1"
           KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+
+    <DirectoryRef Id="INSTALLFOLDER">
+      <Component Id="ExplorerContextMenu" Guid="DABEE42D-469F-4509-9F22-6F5C0A7452F6">
+        <RegistryValue
+          Root="HKLM"
+          Key="Software\Classes\Directory\shell\Unterm"
+          Type="string"
+          Value="Open in Unterm"
+          KeyPath="yes" />
+        <RegistryValue
+          Root="HKLM"
+          Key="Software\Classes\Directory\shell\Unterm"
+          Name="Icon"
+          Type="string"
+          Value="[INSTALLFOLDER]unterm.exe" />
+        <RegistryValue
+          Root="HKLM"
+          Key="Software\Classes\Directory\shell\Unterm\command"
+          Type="string"
+          Value="&quot;[INSTALLFOLDER]unterm.exe&quot; start --cwd &quot;%1&quot;" />
+
+        <RegistryValue
+          Root="HKLM"
+          Key="Software\Classes\Directory\Background\shell\Unterm"
+          Type="string"
+          Value="Open in Unterm" />
+        <RegistryValue
+          Root="HKLM"
+          Key="Software\Classes\Directory\Background\shell\Unterm"
+          Name="Icon"
+          Type="string"
+          Value="[INSTALLFOLDER]unterm.exe" />
+        <RegistryValue
+          Root="HKLM"
+          Key="Software\Classes\Directory\Background\shell\Unterm\command"
+          Type="string"
+          Value="&quot;[INSTALLFOLDER]unterm.exe&quot; start --cwd &quot;%V&quot;" />
       </Component>
     </DirectoryRef>
   </Package>
