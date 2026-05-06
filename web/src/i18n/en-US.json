@@ -1,6 +1,6 @@
 {
-  "meta.title": "Unterm — The terminal AI agents can drive",
-  "meta.desc": "Cross-platform terminal with built-in MCP, HTTP, and CLI control planes. Drive every operation from Claude Code, Cursor, scripts, or your browser.",
+  "meta.title": "Unterm — a terminal AI agents can control",
+  "meta.desc": "A cross-platform terminal built for agent control: drive panes, cwd, screenshots, and sessions through MCP, HTTP, and CLI.",
 
   "nav.features": "Features",
   "nav.principles": "Principles",
@@ -9,17 +9,17 @@
   "nav.download": "Download",
   "nav.faq": "FAQ",
 
-  "hero.badge": "v0.12.2 — signed, notarized, on macOS / Linux / Windows",
-  "hero.title.1": "The terminal",
-  "hero.title.2": "AI agents can drive.",
-  "hero.subtitle": "A cross-platform terminal with built-in MCP, HTTP, and CLI control planes. Claude Code, Cursor, Aider, your scripts — they all get the same JSON-RPC surface to drive every operation.",
-  "hero.cta.download": "Download for macOS",
-  "hero.cta.other": "Linux / Windows builds",
+  "hero.badge": "v0.12.2 — signed, notarized, ready for agents",
+  "hero.title.1": "A terminal",
+  "hero.title.2": "AI agents can control.",
+  "hero.subtitle": "Drive panes, shells, cwd, screenshots, and session state through MCP, HTTP, and CLI so Claude Code, Cursor, or your own agent can run the whole terminal.",
+  "hero.cta.download": "Download macOS",
+  "hero.cta.other": "Other platforms",
   "hero.cta.github": "★ Star on GitHub",
-  "hero.meta": "Open source · Local-first · No cloud · No login",
+  "hero.meta": "Agent-controllable terminal · Local-first · No cloud · No login",
 
-  "tagline.title": "Your terminal is a surface. AI agents are the hands.",
-  "tagline.body": "Most terminals embed AI <em>inside</em> the binary — Warp's cloud orchestrator, ChatGPT desktop's panel. Unterm picks the opposite end: keep AI completely outside, expose the terminal as a surface that any external agent can grip via MCP. The terminal is the hand. Whatever's holding it is up to you.",
+  "tagline.title": "AI controls the terminal. MCP makes it real.",
+  "tagline.body": "Most terminals embed AI <em>inside</em> the binary. Unterm does the opposite: keep AI outside, expose the terminal as a surface that any external agent can grip via MCP. The terminal is the thing being controlled; the agent is the thing doing the work.",
 
   "persona.title": "Three ways to use Unterm",
   "persona.subtitle": "We didn't build for one workflow. The MCP surface means each persona gets the same control plane through different entry points.",
@@ -42,8 +42,8 @@
   "persona.power.bullets.3": "Windows MSI with WiX 6 + portable .zip",
   "persona.power.bullets.4": "9 locales out of the box, system locale auto-detect",
 
-  "install.title": "One install, three platforms",
-  "install.subtitle": "Download the signed bundle for your OS. Cross-platform parity is a correctness property — if a feature works on Windows but bails on macOS, that's a bug.",
+  "install.title": "Download by platform",
+  "install.subtitle": "Pick the signed bundle for your OS. The direct links below go straight to GitHub Releases.",
   "install.copy_hint": "click to copy",
   "install.unix_detail": "Detects OS + arch, downloads the right artifact for the latest release. macOS gets the signed + notarized DMG into <code class=\"text-zinc-300\">/Applications</code>. Linux uses <code class=\"text-zinc-300\">apt</code> when available, falls back to the AppImage in <code class=\"text-zinc-300\">~/.local/bin</code>.",
   "install.win_detail": "Pulls the latest <code class=\"text-zinc-300\">Unterm-x.y.z-x64.msi</code> from GitHub Releases and runs <code class=\"text-zinc-300\">msiexec</code> with a basic UI. UAC will prompt for elevation.",
@@ -118,7 +118,7 @@
 
   "dl.title": "Get Unterm 0.12.2",
   "dl.subtitle": "macOS bundle is signed with a Developer ID and Apple-notarized. Linux .deb / AppImage and Windows .msi / .zip are also published.",
-  "dl.cta": "View v0.12.2 release on GitHub",
+  "dl.cta": "Open the v0.12.2 release",
 
   "faq.title": "Frequently asked",
   "faq.what.q": "What is Unterm?",
@@ -157,7 +157,7 @@
   "sister.solomd": "Solo, AI-driven Markdown editor with offline RAG, git rollback, and the same MCP control plane. solomd.app.",
   "sister.unflick": "Video player for humans and AI: GUI, CLI, and an MCP server exposing playback, transcription, and library tools. unflick.app.",
 
-  "footer.tag": "— the terminal AI agents can drive",
+  "footer.tag": "— the terminal AI agents can control",
   "footer.releases": "Releases",
   "footer.docs": "Docs",
   "footer.license": "License",

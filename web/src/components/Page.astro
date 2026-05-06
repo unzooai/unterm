@@ -119,27 +119,47 @@ const debUrl      = `${dlBaseUrl}/latest/download/unterm-${releaseTag}.deb`;
 const appimageUrl = `${dlBaseUrl}/latest/download/Unterm-${releaseTag}-x86_64.AppImage`;
 const msiUrl      = `${dlBaseUrl}/latest/download/Unterm-${releaseSemver}-x64.msi`;
 const winZipUrl   = `${dlBaseUrl}/latest/download/Unterm-windows-${releaseTag}.zip`;
+const heroDownloads = [
+  {
+    href: dmgUrl,
+    icon: "🍎",
+    size: "install.macos.size",
+    title: "install.macos.title",
+    detail: "install.macos.detail",
+    action: "install.macos.action",
+  },
+  {
+    href: debUrl,
+    icon: "🐧",
+    size: "install.linux.size",
+    title: "install.linux.title",
+    detail: "install.linux.detail",
+    action: "install.linux.action",
+  },
+  {
+    href: msiUrl,
+    icon: "🪟",
+    size: "install.windows.size",
+    title: "install.windows.title",
+    detail: "install.windows.detail",
+    action: "install.windows.action",
+  },
+];
 ---
 
 <!-- ============== HERO ============== -->
-<!-- Two-column on desktop, stacked on mobile. Left: text + CTAs +
-     stats. Right: a CSS-rendered Unterm window mockup. The mockup
-     IS the visual identity of this page — without it the hero is
-     just text and the reader can't picture the product. -->
+<!-- Two-column on desktop, stacked on mobile. Left: product claim,
+     download rail, and primary CTAs. Right: a CSS-rendered terminal
+     scene showing an agent controlling the app through MCP. -->
 <section class="relative overflow-hidden">
-  <!-- Layered background: emerald glow at top, vignette + grid pattern
-       for subtle texture. Pure CSS / SVG; no images, no extra HTTP. -->
-  <div class="absolute inset-0 bg-gradient-to-b from-emerald-950/40 via-zinc-950 to-zinc-950"></div>
+  <div class="absolute inset-0 bg-gradient-to-b from-emerald-950/35 via-zinc-950 to-zinc-950"></div>
   <div class="absolute inset-0 opacity-[0.04]"
        style="background-image: radial-gradient(rgb(160 240 200) 1px, transparent 1px); background-size: 28px 28px;"></div>
-  <!-- Soft emerald glow blob behind the title — pure CSS gradient blob.
-       Pointer-events-none so it never steals clicks. -->
   <div class="absolute pointer-events-none -top-40 left-1/2 -translate-x-1/2 w-[900px] h-[900px] rounded-full"
        style="background: radial-gradient(closest-side, rgb(16 185 129 / 0.18), transparent 70%);"></div>
 
   <div class="relative max-w-6xl mx-auto px-6 pt-20 pb-24">
-    <div class="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
-      <!-- ─── LEFT: text column ─── -->
+    <div class="grid lg:grid-cols-2 gap-10 lg:gap-16 items-center">
       <div class="text-center lg:text-left">
         <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-zinc-900/80 border border-zinc-800 text-xs text-zinc-400 mb-6">
           <span class="relative flex w-1.5 h-1.5">
@@ -148,7 +168,7 @@ const winZipUrl   = `${dlBaseUrl}/latest/download/Unterm-windows-${releaseTag}.z
           </span>
           <span>{t("hero.badge")}</span>
         </div>
-        <h1 class="text-5xl sm:text-6xl lg:text-6xl xl:text-7xl font-bold tracking-tight text-zinc-50 leading-[1.05]">
+        <h1 class="text-5xl sm:text-6xl lg:text-6xl xl:text-7xl font-bold tracking-tight text-zinc-50 leading-[1.02]">
           <span>{t("hero.title.1")}</span><br/>
           <span class="bg-gradient-to-r from-emerald-300 via-teal-300 to-cyan-300 bg-clip-text text-transparent">{t("hero.title.2")}</span>
         </h1>
@@ -183,29 +203,35 @@ const winZipUrl   = `${dlBaseUrl}/latest/download/Unterm-windows-${releaseTag}.z
           </a>
         </div>
         <p class="mt-6 text-xs text-zinc-500">{t("hero.meta")}</p>
+
+        <div class="mt-8 grid sm:grid-cols-3 gap-3">
+          {heroDownloads.map((d) => (
+            <a href={d.href}
+               class="group flex flex-col gap-3 bg-zinc-900/70 hover:bg-zinc-900 border border-zinc-800 hover:border-zinc-700 rounded-xl p-4 text-left transition">
+              <div class="flex items-center justify-between">
+                <div class="text-2xl">{d.icon}</div>
+                <span class="text-[11px] font-mono text-zinc-500">{t(d.size)}</span>
+              </div>
+              <div class="font-semibold text-zinc-100">{t(d.title)}</div>
+              <div class="text-sm text-zinc-400 leading-relaxed">{t(d.detail)}</div>
+              <div class="text-xs text-emerald-400 group-hover:text-emerald-300 font-mono">{t(d.action)}</div>
+            </a>
+          ))}
+        </div>
       </div>
 
-      <!-- ─── RIGHT: terminal mockup ─── -->
-      <!-- A faux Unterm window. Glass-effect card → tab bar → pane area
-           with an MCP roundtrip transcript → bottom status bar mirroring
-           the actual product. The transcript shows a Claude-driven
-           session.spawn → exec.run → screen.read flow so visitors
-           understand the agent control plane without reading the docs. -->
       <div class="relative">
-        <!-- Glow underlay so the mockup looks like it's floating -->
         <div class="absolute -inset-4 bg-gradient-to-r from-emerald-500/20 via-teal-500/10 to-cyan-500/20 blur-2xl rounded-2xl"></div>
         <div class="relative rounded-xl overflow-hidden border border-zinc-800 shadow-2xl shadow-black/60 bg-zinc-950">
-          <!-- Title bar: traffic lights + "Unterm — alpha — myproject" -->
           <div class="flex items-center gap-2 px-4 py-2.5 bg-zinc-900/80 border-b border-zinc-800">
             <div class="flex gap-1.5">
               <span class="w-3 h-3 rounded-full bg-red-500/80"></span>
               <span class="w-3 h-3 rounded-full bg-yellow-500/80"></span>
               <span class="w-3 h-3 rounded-full bg-green-500/80"></span>
             </div>
-            <div class="flex-1 text-center text-xs font-mono text-zinc-400">Unterm — <span class="text-emerald-400">alpha</span> — myproject</div>
-            <span class="text-xs font-mono text-zinc-600">v0.12</span>
+            <div class="flex-1 text-center text-xs font-mono text-zinc-400">Unterm — <span class="text-emerald-400">alpha</span> — /work/auth-service</div>
+            <span class="text-xs font-mono text-zinc-600">MCP on</span>
           </div>
-          <!-- Tab bar -->
           <div class="flex items-center gap-1 px-2 py-1.5 bg-zinc-900/40 border-b border-zinc-800/60 text-xs font-mono">
             <div class="flex items-center gap-1.5 px-2.5 py-1 rounded bg-zinc-800/60 text-zinc-200">
               <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
@@ -217,25 +243,23 @@ const winZipUrl   = `${dlBaseUrl}/latest/download/Unterm-windows-${releaseTag}.z
             <div class="flex items-center gap-1.5 px-2.5 py-1 text-zinc-500 hover:text-zinc-300">
               <span>logs</span>
             </div>
-            <div class="ml-auto text-zinc-600">+ ▾</div>
+            <div class="ml-auto text-zinc-600">agent-ready</div>
           </div>
-          <!-- Pane content: an MCP transcript -->
-          <div class="px-4 py-4 font-mono text-[12.5px] leading-relaxed bg-zinc-950 min-h-[280px] space-y-1.5">
-            <div class="text-zinc-500"><span class="text-emerald-400">→</span> claude:  spawn a pane in /work/auth-service, run the test suite</div>
-            <div class="text-zinc-300"><span class="text-cyan-400">unterm</span> mcp.session.spawn <span class="text-zinc-500">{`{ cwd: "/work/auth-service" }`}</span></div>
-            <div class="text-zinc-500">     → <span class="text-emerald-400">{`{ pane_id: 7, ok: true }`}</span></div>
+          <div class="px-4 py-4 font-mono text-[12.5px] leading-relaxed bg-zinc-950 min-h-[300px] space-y-1.5">
+            <div class="text-zinc-500"><span class="text-emerald-400">→</span> claude: open /work/auth-service and switch cwd</div>
+            <div class="text-zinc-300"><span class="text-cyan-400">unterm</span> mcp.pane.set_cwd <span class="text-zinc-500">{`{ pane_id: 7, cwd: "/work/auth-service" }`}</span></div>
+            <div class="text-zinc-500">     → <span class="text-emerald-400">{`{ ok: true }`}</span></div>
             <div class="text-zinc-300"><span class="text-cyan-400">unterm</span> mcp.exec.run <span class="text-zinc-500">{`{ pane_id: 7, cmd: "cargo test" }`}</span></div>
             <div class="text-zinc-500">     <span class="text-zinc-400">running 142 tests</span></div>
             <div class="text-zinc-500">     <span class="text-emerald-400">test result: ok. 142 passed; 0 failed</span></div>
             <div class="text-zinc-300"><span class="text-cyan-400">unterm</span> mcp.screen.read <span class="text-zinc-500">{`{ pane_id: 7, lines: 5 }`}</span></div>
-            <div class="text-zinc-500">     → <span class="text-zinc-300">"...all green, ready to merge"</span></div>
-            <div class="text-zinc-500"><span class="text-emerald-400">←</span> claude:  green. opening PR.</div>
+            <div class="text-zinc-500">     → <span class="text-zinc-300">"cwd switched, build is green"</span></div>
+            <div class="text-zinc-500"><span class="text-emerald-400">←</span> claude: commit and open the release branch.</div>
             <div class="flex items-center gap-1 mt-2">
               <span class="text-emerald-400">$</span>
               <span class="inline-block w-2 h-4 bg-emerald-400 animate-pulse"></span>
             </div>
           </div>
-          <!-- Bottom status bar — mirrors the real product's segments -->
           <div class="flex items-center text-[11px] font-mono text-zinc-400 bg-zinc-900/60 border-t border-zinc-800 px-3 py-1.5 gap-2 overflow-hidden">
             <span>pwsh 7</span>
             <span class="text-zinc-700">|</span>
@@ -256,9 +280,6 @@ const winZipUrl   = `${dlBaseUrl}/latest/download/Unterm-windows-${releaseTag}.z
 </section>
 
 <!-- ============== TAGLINE ============== -->
-<!-- One-paragraph positioning amplified. SoloMD has the same beat right
-     after the hero — pulls the reader past "what is this" into "why
-     does this exist" before they hit the feature wall. -->
 <section class="py-20 border-t border-zinc-900">
   <div class="max-w-3xl mx-auto px-6 text-center">
     <h2 class="text-3xl sm:text-4xl font-semibold tracking-tight text-zinc-100 leading-tight">{t("tagline.title")}</h2>
