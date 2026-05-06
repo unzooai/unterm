@@ -457,6 +457,7 @@ impl ComputedElement {
                 y: self.bounds.min_y().max(0.) as usize,
                 width: self.bounds.width().max(0.) as usize,
                 height: self.bounds.height().max(0.) as usize,
+                pane_id: None,
                 item_type: item_type.clone(),
             });
         }

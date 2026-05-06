@@ -635,6 +635,7 @@ impl TabBarState {
                 width: entry.width * cell_width,
                 y,
                 height: cell_height,
+                pane_id: None,
                 item_type: UIItemType::TabBar(entry.item),
             });
         }

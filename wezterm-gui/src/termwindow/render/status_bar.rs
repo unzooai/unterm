@@ -142,6 +142,7 @@ impl crate::TermWindow {
                 y: bar_y as usize,
                 width: (region.len as f32 * cell_width) as usize,
                 height: bar_height as usize,
+                pane_id: None,
                 item_type: region.item_type,
             });
         }

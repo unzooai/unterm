@@ -188,6 +188,7 @@ pub struct UIItem {
     pub y: usize,
     pub width: usize,
     pub height: usize,
+    pub pane_id: Option<PaneId>,
     pub item_type: UIItemType,
 }
 
@@ -4012,6 +4013,34 @@ impl TermWindow {
                 .map(|overlay| overlay.pane.clone())
                 .or_else(|| Some(pane))
         }
+    }
+
+    pub fn get_pane_by_id(&self, pane_id: PaneId) -> Option<Arc<dyn Pane>> {
+        let mux = Mux::get();
+        let tab = mux.get_active_tab_for_window(self.mux_window_id)?;
+        let tab_id = tab.tab_id();
+
+        if let Some(tab_overlay) = self
+            .tab_state(tab_id)
+            .overlay
+            .as_ref()
+            .map(|overlay| overlay.pane.clone())
+        {
+            if tab_overlay.pane_id() == pane_id {
+                return Some(tab_overlay);
+            }
+        }
+
+        for pos in tab.iter_panes() {
+            if pos.pane.pane_id() == pane_id {
+                if let Some(overlay) = self.pane_state(pane_id).overlay.as_ref() {
+                    return Some(overlay.pane.clone());
+                }
+                return Some(pos.pane);
+            }
+        }
+
+        None
     }
 
     fn get_splits(&mut self) -> Vec<PositionedSplit> {

@@ -223,12 +223,7 @@ impl crate::TermWindow {
             }
         }
 
-        // TODO: we only have a single scrollbar in a single position.
-        // We only update it for the active pane, but we should probably
-        // do a per-pane scrollbar.  That will require more extensive
-        // changes to ScrollHit, mouse positioning, PositionedPane
-        // and tab size calculation.
-        if pos.is_active && self.show_scroll_bar {
+        if self.show_scroll_bar {
             let thumb_y_offset = top_bar_height as usize + border.top.get();
 
             let min_height = self.min_scroll_bar_height();
@@ -248,8 +243,16 @@ impl crate::TermWindow {
             // Adjust the scrollbar thumb position
             let config = &self.config;
             let padding = self.effective_right_padding(&config) as f32;
-
-            let thumb_x = self.dimensions.pixel_width - padding as usize - border.right.get();
+            let pane_right = if pos.left + pos.width >= self.terminal_size.cols as usize {
+                self.dimensions.pixel_width as f32
+            } else {
+                padding_left
+                    + border.left.get() as f32
+                    + ((pos.left + pos.width) as f32 * self.render_metrics.cell_size.width as f32)
+            };
+            let thumb_x = (pane_right.max(0.0).round() as usize)
+                .saturating_sub(padding as usize + border.right.get());
+            let pane_id = pos.pane.pane_id();
 
             // Register the scroll bar location
             self.ui_items.push(UIItem {
@@ -257,6 +260,7 @@ impl crate::TermWindow {
                 width: padding as usize,
                 y: thumb_y_offset,
                 height: info.top,
+                pane_id: Some(pane_id),
                 item_type: UIItemType::AboveScrollThumb,
             });
             self.ui_items.push(UIItem {
@@ -264,6 +268,7 @@ impl crate::TermWindow {
                 width: padding as usize,
                 y: abs_thumb_top,
                 height: thumb_size,
+                pane_id: Some(pane_id),
                 item_type: UIItemType::ScrollThumb,
             });
             self.ui_items.push(UIItem {
@@ -274,6 +279,7 @@ impl crate::TermWindow {
                     .dimensions
                     .pixel_height
                     .saturating_sub(abs_thumb_top + thumb_size),
+                pane_id: Some(pane_id),
                 item_type: UIItemType::BelowScrollThumb,
             });
 
@@ -795,6 +801,7 @@ impl crate::TermWindow {
             y: button_y as usize,
             width: button_w as usize,
             height: button_h as usize,
+            pane_id: Some(pos.pane.pane_id()),
             item_type: UIItemType::CloseSplitPane(pos.pane.pane_id()),
         });
 

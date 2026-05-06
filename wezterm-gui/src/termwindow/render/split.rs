@@ -49,6 +49,7 @@ impl crate::TermWindow {
                     + first_row_offset as usize
                     + split.top * cell_height as usize,
                 height: split.size * cell_height as usize,
+                pane_id: None,
                 item_type: UIItemType::Split(split.clone()),
             });
         } else {
@@ -72,6 +73,7 @@ impl crate::TermWindow {
                     + first_row_offset as usize
                     + split.top * cell_height as usize,
                 height: cell_height as usize,
+                pane_id: None,
                 item_type: UIItemType::Split(split.clone()),
             });
         }

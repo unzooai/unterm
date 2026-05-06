@@ -34,6 +34,13 @@ impl super::TermWindow {
             .cloned()
     }
 
+    fn pane_for_ui_item(&self, item: &UIItem, fallback: Arc<dyn Pane>) -> Arc<dyn Pane> {
+        let Some(pane_id) = item.pane_id else {
+            return fallback;
+        };
+        self.get_pane_by_id(pane_id).unwrap_or(fallback)
+    }
+
     fn leave_ui_item(&mut self, item: &UIItem) {
         match item.item_type {
             UIItemType::TabBar(_) => {
@@ -231,10 +238,11 @@ impl super::TermWindow {
         };
 
         if let Some(item) = ui_item.clone() {
+            let item_pane = self.pane_for_ui_item(&item, pane.clone());
             if capture_mouse {
                 self.current_mouse_capture = Some(MouseCapture::UI);
             }
-            self.mouse_event_ui_item(item, pane, y, event, context);
+            self.mouse_event_ui_item(item, item_pane, y, event, context);
         } else if matches!(
             self.current_mouse_capture,
             None | Some(MouseCapture::TerminalPane(_))
@@ -301,7 +309,10 @@ impl super::TermWindow {
         event: MouseEvent,
         context: &dyn WindowOps,
     ) {
-        let pane = match self.get_active_pane_or_overlay() {
+        let Some(pane_id) = item.pane_id else {
+            return;
+        };
+        let pane = match self.get_pane_by_id(pane_id) {
             Some(pane) => pane,
             None => return,
         };
@@ -834,11 +845,12 @@ impl super::TermWindow {
 
     pub fn mouse_event_above_scroll_thumb(
         &mut self,
-        _item: UIItem,
+        item: UIItem,
         pane: Arc<dyn Pane>,
         event: MouseEvent,
         context: &dyn WindowOps,
     ) {
+        let pane = self.pane_for_ui_item(&item, pane);
         if let WMEK::Press(MousePress::Left) = event.kind {
             let dims = pane.get_dimensions();
             let current_viewport = self.get_viewport(pane.pane_id());
@@ -859,11 +871,12 @@ impl super::TermWindow {
 
     pub fn mouse_event_below_scroll_thumb(
         &mut self,
-        _item: UIItem,
+        item: UIItem,
         pane: Arc<dyn Pane>,
         event: MouseEvent,
         context: &dyn WindowOps,
     ) {
+        let pane = self.pane_for_ui_item(&item, pane);
         if let WMEK::Press(MousePress::Left) = event.kind {
             let dims = pane.get_dimensions();
             let current_viewport = self.get_viewport(pane.pane_id());
@@ -2200,4 +2213,3 @@ fn copy_image_to_clipboard_unix(path: &std::path::Path) -> anyhow::Result<()> {
     }
     Ok(())
 }
-
