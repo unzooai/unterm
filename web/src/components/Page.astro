@@ -97,7 +97,7 @@ const cmpRows = [
 ];
 
 const dlBaseUrl = "https://github.com/unzooai/unterm/releases";
-const releaseTag = "v0.12.2";
+const releaseTag = "v0.12.3";
 
 // Download links use the version pinned for this site build, not
 // `stats.release`. The stats call can legitimately see the previous GitHub
@@ -106,9 +106,9 @@ const releaseTag = "v0.12.2";
 //
 // MSI and Windows-zip naming has historical quirks:
 //   - DMG, deb, AppImage, win.zip: use the tag verbatim
-//     (Unterm-macos-v0.12.2.dmg, unterm-v0.12.2.deb, Unterm-v0.12.2-x86_64.AppImage, Unterm-windows-v0.12.2.zip)
+//     (Unterm-macos-v0.12.3.dmg, unterm-v0.12.3.deb, Unterm-v0.12.3-x86_64.AppImage, Unterm-windows-v0.12.3.zip)
 //   - MSI:  uses 3-segment SemVer with no `v` prefix
-//     (Unterm-0.12.2-x64.msi) because WiX requires SemVer in
+//     (Unterm-0.12.3-x64.msi) because WiX requires SemVer in
 //     installer/Unterm.wxs and our build script reads from there.
 //
 // `releaseSemver` strips the `v` and pads to 3-segment so the MSI URL
@@ -587,7 +587,7 @@ const heroDownloads = [
   <div class="max-w-3xl mx-auto px-6 text-center">
     <h2 class="text-3xl font-semibold tracking-tight">{t("dl.title")}</h2>
     <p class="mt-3 text-zinc-400">{t("dl.subtitle")}</p>
-    <a href="https://github.com/unzooai/unterm/releases/tag/v0.12.2"
+    <a href="https://github.com/unzooai/unterm/releases/tag/v0.12.3"
        class="mt-8 inline-flex items-center gap-2 px-5 py-3 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-semibold transition">
       <span>{t("dl.cta")}</span>
     </a>

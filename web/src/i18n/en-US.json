@@ -10,7 +10,7 @@
   "nav.download": "Download",
   "nav.faq": "FAQ",
 
-  "hero.badge": "v0.12.2 — signed, notarized, ready for agents",
+  "hero.badge": "v0.12.3 — signed, notarized, ready for agents",
   "hero.title.1": "A terminal",
   "hero.title.2": "AI agents can control.",
   "hero.subtitle": "Drive panes, shells, cwd, screenshots, and session state through MCP, HTTP, and CLI so Claude Code, Cursor, or your own agent can run the whole terminal.",
@@ -128,9 +128,9 @@
   "cmp.intentional": "✗ (by design)",
   "cmp.note": "Comparison reflects publicly documented features as of 2026-05-01. Other terminals may have closed-source or roadmap items not listed.",
 
-  "dl.title": "Get Unterm 0.12.2",
+  "dl.title": "Get Unterm 0.12.3",
   "dl.subtitle": "macOS bundle is signed with a Developer ID and Apple-notarized. Linux .deb / AppImage and Windows .msi / .zip are also published.",
-  "dl.cta": "Open the v0.12.2 release",
+  "dl.cta": "Open the v0.12.3 release",
 
   "faq.title": "Frequently asked",
   "faq.what.q": "What is Unterm?",

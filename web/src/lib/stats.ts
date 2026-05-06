@@ -26,7 +26,7 @@ export interface Stats {
    *  not pin "⭐ 0 stars" onto the homepage for the next 5 minutes. */
   stars: number | null;
   downloads: number | null;
-  /** Latest tag, e.g. "v0.12.2". Used for download links so we don't have
+  /** Latest tag, e.g. "v0.12.3". Used for download links so we don't have
    *  to update the hero CTA every time we cut a release. */
   release: string;
 }
@@ -41,7 +41,7 @@ export interface Stats {
 // `releases/latest/download/Unterm-macos-${stats.release}.dmg`; if this
 // fallback drifts from the published asset names, users hit a 404 when the
 // GitHub API fetch fails at build time.
-const FALLBACK: Stats = { stars: null, downloads: null, release: "v0.12.2" };
+const FALLBACK: Stats = { stars: null, downloads: null, release: "v0.12.3" };
 
 let cache: Promise<Stats> | null = null;
 
