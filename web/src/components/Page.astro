@@ -90,9 +90,12 @@ const cmpRows = [
 ];
 
 const dlBaseUrl = "https://github.com/unzooai/unterm/releases";
+const releaseTag = "v0.12.2";
 
-// `stats.release` is the latest tag from the GitHub API at build time
-// (or the FALLBACK in stats.ts on API failure).
+// Download links use the version pinned for this site build, not
+// `stats.release`. The stats call can legitimately see the previous GitHub
+// latest release if Cloudflare builds immediately after a version-bump push
+// but before the release assets finish uploading.
 //
 // MSI and Windows-zip naming has historical quirks:
 //   - DMG, deb, AppImage, win.zip: use the tag verbatim
@@ -107,15 +110,15 @@ const dlBaseUrl = "https://github.com/unzooai/unterm/releases";
 //   "v0.12.5" → "0.12.5"
 //   "0.13.0"  → "0.13.0"
 const releaseSemver = (() => {
-  const r = stats.release.replace(/^v/, "");
+  const r = releaseTag.replace(/^v/, "");
   return r.split(".").length === 2 ? `${r}.0` : r;
 })();
 
-const dmgUrl      = `${dlBaseUrl}/latest/download/Unterm-macos-${stats.release}.dmg`;
-const debUrl      = `${dlBaseUrl}/latest/download/unterm-${stats.release}.deb`;
-const appimageUrl = `${dlBaseUrl}/latest/download/Unterm-${stats.release}-x86_64.AppImage`;
+const dmgUrl      = `${dlBaseUrl}/latest/download/Unterm-macos-${releaseTag}.dmg`;
+const debUrl      = `${dlBaseUrl}/latest/download/unterm-${releaseTag}.deb`;
+const appimageUrl = `${dlBaseUrl}/latest/download/Unterm-${releaseTag}-x86_64.AppImage`;
 const msiUrl      = `${dlBaseUrl}/latest/download/Unterm-${releaseSemver}-x64.msi`;
-const winZipUrl   = `${dlBaseUrl}/latest/download/Unterm-windows-${stats.release}.zip`;
+const winZipUrl   = `${dlBaseUrl}/latest/download/Unterm-windows-${releaseTag}.zip`;
 ---
 
 <!-- ============== HERO ============== -->
