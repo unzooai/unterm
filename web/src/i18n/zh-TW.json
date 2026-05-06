@@ -94,7 +94,7 @@
   "principles.parity.title": "Cross-platform parity is correctness",
   "principles.parity.body": "A feature that works on Windows but bails on macOS or Linux is a bug, not a 'not yet supported.' Mac, Linux, Windows ship together.",
   "principles.subtraction.title": "Subtraction over decoration",
-  "principles.subtraction.body": "When a feature is awkward, delete it instead of redesigning it. No right-click menu, no Cmd+Q confirmation, no manual proxy URL config — they used to exist, then we cut them and the product got better.",
+  "principles.subtraction.body": "屬於系統的能力就交給系統。終端內不做自訂右鍵選單，不做 Cmd+Q 確認，不手填代理 URL；Finder 整合改用原生右鍵擴充功能和 Services。",
   "cmp.title": "How Unterm differs",
   "cmp.subtitle": "Three terminals reset the bar in 2026. They each picked a different lane.",
   "cmp.h.feature": "Feature",

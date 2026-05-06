@@ -94,7 +94,7 @@
   "principles.parity.title": "Cross-platform parity is correctness",
   "principles.parity.body": "A feature that works on Windows but bails on macOS or Linux is a bug, not a 'not yet supported.' Mac, Linux, Windows ship together.",
   "principles.subtraction.title": "Subtraction over decoration",
-  "principles.subtraction.body": "When a feature is awkward, delete it instead of redesigning it. No right-click menu, no Cmd+Q confirmation, no manual proxy URL config — they used to exist, then we cut them and the product got better.",
+  "principles.subtraction.body": "When a feature belongs to the OS, use the OS. No in-terminal custom right-click chrome, no Cmd+Q confirmation, no manual proxy URL config — Finder integration now uses the native right-click extension and Services.",
   "cmp.title": "How Unterm differs",
   "cmp.subtitle": "Three terminals reset the bar in 2026. They each picked a different lane.",
   "cmp.h.feature": "Feature",

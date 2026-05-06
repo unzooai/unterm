@@ -34,6 +34,7 @@ mkdir -p "$stagedir/Unterm.app/Contents/Resources"
 cp -r assets/shell-integration/* "$stagedir/Unterm.app/Contents/Resources"
 cp -r assets/shell-completion "$stagedir/Unterm.app/Contents/Resources"
 tic -xe wezterm -o "$stagedir/Unterm.app/Contents/Resources/terminfo" termwiz/data/wezterm.terminfo
+bash ci/build-macos-finder-sync.sh "$stagedir/Unterm.app"
 
 for bin in unterm unterm-cli unterm-mux strip-ansi-escapes ; do
   # Prefer the per-arch builds (target/<triple>/release/$bin) and lipo them
@@ -69,6 +70,12 @@ for bin in "${HELPERS[@]}" ; do
       --sign "$DEV_ID" "$bin_path"
   fi
 done
+
+if [[ -d "$stagedir/Unterm.app/Contents/PlugIns/UntermFinderSync.appex" ]] ; then
+  /usr/bin/codesign --force --options runtime --timestamp \
+    --sign "$DEV_ID" "$stagedir/Unterm.app/Contents/PlugIns/UntermFinderSync.appex"
+fi
+
 /usr/bin/codesign --force --options runtime --timestamp \
   --entitlements ci/macos-entitlement.plist \
   --sign "$DEV_ID" "$stagedir/Unterm.app/Contents/MacOS/unterm"
@@ -98,6 +105,8 @@ dmg_stage="$stagedir.dmg-stage"
 rm -rf "$dmg_stage"
 mkdir "$dmg_stage"
 cp -R "$stagedir/Unterm.app" "$dmg_stage/Unterm.app"
+cp "assets/macos/Repair Finder Integration.command" "$dmg_stage/"
+chmod +x "$dmg_stage/Repair Finder Integration.command"
 ln -s /Applications "$dmg_stage/Applications"
 hdiutil create -volname "Unterm" -srcfolder "$dmg_stage" \
   -ov -format UDZO "$dmgname"

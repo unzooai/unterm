@@ -13,7 +13,7 @@ Practical implications:
 - **9 languages out of the box**: en / 简体中文 / 繁體中文 / 日本語 / 한국어 / Deutsch / Français / Italiano / हिन्दी. Auto-detects from system locale, can be overridden in Web Settings or via `unterm-cli lang set <code>`.
 - **Multi-instance discovery**: every running Unterm process owns one NATO-named instance (alpha, bravo, charlie…) and writes its ports + auth token to `~/.unterm/instances/<name>.json`. Agents that drive several windows at once enumerate that directory.
 - **Cross-platform parity is a correctness property**: if a feature works on Windows but bails on macOS or Linux, that's a bug, not "not supported yet."
-- **Subtraction over decoration**: no AI overlay inside the terminal, no inline image render that wedges the GUI, no in-terminal right-click menu, no Cmd+Q confirmation, no manual proxy URL config (auto-detected from system). Finder integration on macOS now lives in Services instead of a custom app chrome.
+- **Subtraction over decoration**: no AI overlay inside the terminal, no inline image render that wedges the GUI, no in-terminal custom right-click chrome, no Cmd+Q confirmation, no manual proxy URL config (auto-detected from system). Finder integration on macOS uses the native Finder right-click extension and Services.
 
 Built on top of the WezTerm engine for renderer / font / TUI / SSH / mux work, with a thin product layer on top.
 
@@ -36,6 +36,11 @@ https://github.com/unzooai/unterm/releases
 Double-click `Unterm-macos-<version>.dmg`, then drag `Unterm.app` onto the
 `Applications` shortcut. The DMG is signed with a Developer ID and Apple-
 notarized, so Gatekeeper opens it on first launch without warnings.
+
+Finder integration is bundled in the DMG. After the first launch, Finder's
+right-click menu can show `Open in Unterm` for folders and files; if macOS
+doesn't refresh the extension immediately, run `Repair Finder Integration.command`
+from the DMG once.
 
 ### Linux (Debian / Ubuntu)
 

@@ -13,6 +13,7 @@ use objc::declare::ClassDecl;
 use objc::rc::StrongPtr;
 use objc::runtime::{Class, Object, Sel, BOOL, NO, YES};
 use objc::*;
+use std::process::Command;
 
 const CLS_NAME: &str = "WezTermAppDelegate";
 
@@ -81,6 +82,7 @@ extern "C" fn application_did_finish_launching(this: &mut Object, _sel: Sel, _no
         let send_types = NSArray::arrayWithObject(nil, NSFilenamesPboardType);
         let () = msg_send![ns_app, registerServicesMenuSendTypes: send_types returnTypes: nil];
     }
+    register_finder_integration();
 }
 
 extern "C" fn application_open_untitled_file(
@@ -129,9 +131,18 @@ extern "C" fn application_open_file(
     let launched: BOOL = unsafe { *this.get_ivar("launched") };
     if launched == YES {
         let file_name = unsafe { nsstring_to_str(file_name) }.to_string();
+        let path = std::path::PathBuf::from(&file_name);
         if let Some(conn) = Connection::get() {
             log::debug!("application_open_file {file_name}");
-            conn.dispatch_app_event(ApplicationEvent::OpenCommandScript(file_name));
+            if path.is_dir() {
+                conn.dispatch_app_event(ApplicationEvent::OpenDirectory(path));
+            } else if is_command_script(&path) {
+                conn.dispatch_app_event(ApplicationEvent::OpenCommandScript(file_name));
+            } else if let Some(parent) = path.parent() {
+                conn.dispatch_app_event(ApplicationEvent::OpenDirectory(parent.to_path_buf()));
+            } else {
+                conn.dispatch_app_event(ApplicationEvent::OpenCommandScript(file_name));
+            }
         }
     }
 }
@@ -179,6 +190,49 @@ extern "C" fn application_open_in_unterm(
     if let Some(conn) = Connection::get() {
         log::debug!("application_open_in_unterm cwd={}", path.display());
         conn.dispatch_app_event(ApplicationEvent::OpenDirectory(path));
+    }
+}
+
+fn is_command_script(path: &std::path::Path) -> bool {
+    matches!(
+        path.extension().and_then(|ext| ext.to_str()),
+        Some("command" | "sh" | "zsh" | "bash" | "fish" | "tool")
+    )
+}
+
+fn register_finder_integration() {
+    let Some(app_path) = main_bundle_path() else {
+        return;
+    };
+
+    std::thread::spawn(move || {
+        let lsregister = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister";
+        let _ = Command::new(lsregister).arg("-f").arg(&app_path).status();
+
+        let appex = std::path::Path::new(&app_path)
+            .join("Contents")
+            .join("PlugIns")
+            .join("UntermFinderSync.appex");
+        if appex.exists() {
+            let _ = Command::new("pluginkit").arg("-a").arg(&appex).status();
+            let _ = Command::new("pluginkit")
+                .args(["-e", "use", "-i", "ai.unzoo.unterm.finder-sync"])
+                .status();
+        }
+    });
+}
+
+fn main_bundle_path() -> Option<String> {
+    unsafe {
+        let bundle: id = msg_send![class!(NSBundle), mainBundle];
+        if bundle.is_null() {
+            return None;
+        }
+        let path: id = msg_send![bundle, bundlePath];
+        if path.is_null() {
+            return None;
+        }
+        Some(nsstring_to_str(path).to_string())
     }
 }
 
