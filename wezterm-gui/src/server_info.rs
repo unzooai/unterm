@@ -342,23 +342,7 @@ pub fn write_initial(mcp_port: u16) -> Result<InstanceInfo> {
     };
     write_atomic(&instance_file(&id), &info)?;
 
-    // Update active.json only if it's missing, points to a dead
-    // instance, or fails to parse. We do NOT clobber a live peer's
-    // active claim — single-instance agents who connected to peer X
-    // shouldn't get redirected to us just because we launched.
-    let should_claim_active = match fs::read_to_string(active_pointer_path()) {
-        Ok(content) => match serde_json::from_str::<InstanceInfo>(&content) {
-            Ok(prev) => !pid_alive(prev.pid),
-            Err(_) => true,
-        },
-        Err(_) => true,
-    };
-    if should_claim_active {
-        write_atomic(&active_pointer_path(), &info)?;
-        // Mirror to legacy server.json for old CLI / agent clients.
-        write_atomic(&server_info_path(), &info)?;
-        write_legacy_token(&info.auth_token)?;
-    }
+    claim_compat_files_if_needed(&info)?;
     Ok(info)
 }
 
@@ -377,16 +361,7 @@ pub fn set_http_port(port: u16) -> Result<InstanceInfo> {
         .unwrap_or_default();
     info.http_port = port;
     write_atomic(&instance_file(&id), &info)?;
-
-    // If we're currently the active pointer, refresh it too.
-    if let Ok(content) = fs::read_to_string(active_pointer_path()) {
-        if let Ok(active) = serde_json::from_str::<InstanceInfo>(&content) {
-            if active.id == info.id {
-                write_atomic(&active_pointer_path(), &info)?;
-                write_atomic(&server_info_path(), &info)?;
-            }
-        }
-    }
+    claim_compat_files_if_needed(&info)?;
     Ok(info)
 }
 
@@ -404,19 +379,12 @@ pub fn set_cwd(cwd: Option<String>) -> Result<()> {
         Err(_) => return Ok(()),
     };
     if info.cwd == cwd {
+        claim_compat_files_if_needed(&info)?;
         return Ok(()); // no change
     }
     info.cwd = cwd;
     write_atomic(&instance_file(&id), &info)?;
-    // active.json also gets updated if we're the active.
-    if let Ok(content) = fs::read_to_string(active_pointer_path()) {
-        if let Ok(active) = serde_json::from_str::<InstanceInfo>(&content) {
-            if active.id == info.id {
-                write_atomic(&active_pointer_path(), &info)?;
-                write_atomic(&server_info_path(), &info)?;
-            }
-        }
-    }
+    claim_compat_files_if_needed(&info)?;
     Ok(())
 }
 
@@ -490,5 +458,24 @@ fn write_legacy_token(token: &str) -> Result<()> {
         fs::create_dir_all(parent)?;
     }
     fs::write(path, token)?;
+    Ok(())
+}
+
+fn claim_compat_files_if_needed(info: &InstanceInfo) -> Result<()> {
+    let should_claim_active = match fs::read_to_string(active_pointer_path()) {
+        Ok(content) => match serde_json::from_str::<InstanceInfo>(&content) {
+            Ok(prev) => prev.id == info.id || !pid_alive(prev.pid),
+            Err(_) => true,
+        },
+        Err(_) => true,
+    };
+
+    if should_claim_active {
+        write_atomic(&active_pointer_path(), info)?;
+        // Mirror to legacy server.json for old CLI / agent clients.
+        write_atomic(&server_info_path(), info)?;
+        write_legacy_token(&info.auth_token)?;
+    }
+
     Ok(())
 }

@@ -6,7 +6,9 @@
 //! legacy `~/.unterm/auth_token` (fallback for older Unterm builds).
 
 use anyhow::{anyhow, Context, Result};
+use serde::Deserialize;
 use serde_json::{json, Value};
+use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpStream;
 use std::path::PathBuf;
@@ -116,13 +118,30 @@ pub struct ServerEndpoint {
     pub http_port: u16,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+struct InstanceRecord {
+    pub mcp_port: u16,
+    pub auth_token: String,
+    pub pid: u32,
+    #[serde(default)]
+    pub started_at: String,
+}
+
 impl ServerEndpoint {
     pub fn resolve() -> Result<Self> {
         let dir = unterm_dir()?;
 
-        // Prefer server.json
+        if let Some(info) = resolve_live_instance(&dir)? {
+            return Ok(Self {
+                token: info.auth_token,
+                port: info.mcp_port,
+                http_port: 0,
+            });
+        }
+
+        // Prefer server.json as the legacy fallback for older builds.
         let server_json = dir.join("server.json");
-        if let Ok(raw) = std::fs::read_to_string(&server_json) {
+        if let Ok(raw) = fs::read_to_string(&server_json) {
             if let Ok(info) = serde_json::from_str::<Value>(&raw) {
                 let token = info
                     .get("auth_token")
@@ -164,6 +183,76 @@ impl ServerEndpoint {
             port: LEGACY_MCP_PORT,
             http_port: 0,
         })
+    }
+}
+
+fn resolve_live_instance(dir: &PathBuf) -> Result<Option<InstanceRecord>> {
+    if let Some(info) = read_live_record(&dir.join("active.json"))? {
+        return Ok(Some(info));
+    }
+
+    let instances_dir = dir.join("instances");
+    let mut live = Vec::new();
+    let entries = match fs::read_dir(&instances_dir) {
+        Ok(entries) => entries,
+        Err(_) => return Ok(None),
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().map(|ext| ext != "json").unwrap_or(true) {
+            continue;
+        }
+        if let Some(info) = read_live_record(&path)? {
+            live.push(info);
+        }
+    }
+
+    live.sort_by(|a, b| b.started_at.cmp(&a.started_at));
+    Ok(live.into_iter().next())
+}
+
+fn read_live_record(path: &PathBuf) -> Result<Option<InstanceRecord>> {
+    let raw = match fs::read_to_string(path) {
+        Ok(raw) => raw,
+        Err(_) => return Ok(None),
+    };
+    let info: InstanceRecord = match serde_json::from_str(&raw) {
+        Ok(info) => info,
+        Err(_) => return Ok(None),
+    };
+    if info.pid == 0 || !pid_alive(info.pid) || info.mcp_port == 0 || info.auth_token.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(info))
+}
+
+#[cfg(unix)]
+fn pid_alive(pid: u32) -> bool {
+    let rc = unsafe { libc::kill(pid as libc::pid_t, 0) };
+    if rc == 0 {
+        return true;
+    }
+    !matches!(
+        std::io::Error::last_os_error().raw_os_error(),
+        Some(e) if e == libc::ESRCH
+    )
+}
+
+#[cfg(windows)]
+fn pid_alive(pid: u32) -> bool {
+    unsafe {
+        use winapi::shared::minwindef::FALSE;
+        use winapi::um::handleapi::CloseHandle;
+        use winapi::um::processthreadsapi::{GetExitCodeProcess, OpenProcess};
+        use winapi::um::winnt::PROCESS_QUERY_LIMITED_INFORMATION;
+        let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+        if h.is_null() {
+            return false;
+        }
+        let mut code: u32 = 0;
+        let ok = GetExitCodeProcess(h, &mut code) != 0;
+        CloseHandle(h);
+        ok && code == 259
     }
 }
 
