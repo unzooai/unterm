@@ -3,6 +3,7 @@ use crate::{Appearance, Connection, GeometryOrigin, RequestedWindowGeometry, Res
 use anyhow::Result as Fallible;
 use config::keyassignment::KeyAssignment;
 use config::DimensionContext;
+use std::path::PathBuf;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Mutex;
@@ -23,6 +24,8 @@ pub fn shutdown() {
 pub enum ApplicationEvent {
     /// The system wants to open a command in the terminal
     OpenCommandScript(String),
+    /// The system wants to open a directory in a new terminal tab/window.
+    OpenDirectory(PathBuf),
     PerformKeyAssignment(KeyAssignment),
 }
 

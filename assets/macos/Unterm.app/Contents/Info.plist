@@ -100,5 +100,23 @@
 			</array>
 		</dict>
 	</array>
+	<key>NSServices</key>
+	<array>
+		<dict>
+			<key>NSMenuItem</key>
+			<dict>
+				<key>default</key>
+				<string>Open in Unterm</string>
+			</dict>
+			<key>NSMessage</key>
+			<string>openInUnterm</string>
+			<key>NSPortName</key>
+			<string>Unterm</string>
+			<key>NSSendTypes</key>
+			<array>
+				<string>NSFilenamesPboardType</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

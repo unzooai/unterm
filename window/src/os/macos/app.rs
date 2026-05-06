@@ -4,8 +4,9 @@ use crate::macos::{nsstring, nsstring_to_str};
 use crate::menu::{Menu, MenuItem};
 use crate::{ApplicationEvent, Connection};
 use cocoa::appkit::NSApplicationTerminateReply;
-use cocoa::base::id;
-use cocoa::foundation::NSInteger;
+use cocoa::appkit::{NSFilenamesPboardType, NSApp, NSPasteboard};
+use cocoa::base::{id, nil};
+use cocoa::foundation::{NSArray, NSInteger, NSFastEnumeration};
 use config::keyassignment::KeyAssignment;
 use config::WindowCloseConfirmation;
 use objc::declare::ClassDecl;
@@ -72,6 +73,13 @@ extern "C" fn application_did_finish_launching(this: &mut Object, _sel: Sel, _no
     log::debug!("application_did_finish_launching");
     unsafe {
         (*this).set_ivar("launched", YES);
+
+        let ns_app = NSApp();
+        let services_menu = Menu::new_with_title("Services");
+        services_menu.assign_as_services_menu();
+        let () = msg_send![ns_app, setServicesProvider: this];
+        let send_types = NSArray::arrayWithObject(nil, NSFilenamesPboardType);
+        let () = msg_send![ns_app, registerServicesMenuSendTypes: send_types returnTypes: nil];
     }
 }
 
@@ -128,6 +136,52 @@ extern "C" fn application_open_file(
     }
 }
 
+extern "C" fn application_open_in_unterm(
+    this: &mut Object,
+    _sel: Sel,
+    pboard: *mut Object,
+    _user_data: *mut Object,
+    _error: *mut Object,
+) {
+    let launched: BOOL = unsafe { *this.get_ivar("launched") };
+    if launched != YES {
+        return;
+    }
+
+    let paths = unsafe {
+        let filenames = NSPasteboard::propertyListForType(pboard, NSFilenamesPboardType);
+        if filenames.is_null() {
+            Vec::new()
+        } else {
+            filenames
+                .iter()
+                .map(|file| {
+                    let path = nsstring_to_str(file);
+                    std::path::PathBuf::from(path)
+                })
+                .collect::<Vec<_>>()
+        }
+    };
+
+    let path: std::path::PathBuf = match paths.into_iter().next() {
+        Some(path) => {
+            if path.is_dir() {
+                path
+            } else {
+                path.parent()
+                    .map(|p: &std::path::Path| p.to_path_buf())
+                    .unwrap_or(path)
+            }
+        }
+        None => return,
+    };
+
+    if let Some(conn) = Connection::get() {
+        log::debug!("application_open_in_unterm cwd={}", path.display());
+        conn.dispatch_app_event(ApplicationEvent::OpenDirectory(path));
+    }
+}
+
 extern "C" fn application_dock_menu(
     _self: &mut Object,
     _sel: Sel,
@@ -165,6 +219,11 @@ fn get_class() -> &'static Class {
             cls.add_method(
                 sel!(application:openFile:),
                 application_open_file as extern "C" fn(&mut Object, Sel, *mut Object, *mut Object),
+            );
+            cls.add_method(
+                sel!(openInUnterm:userData:error:),
+                application_open_in_unterm
+                    as extern "C" fn(&mut Object, Sel, *mut Object, *mut Object, *mut Object),
             );
             cls.add_method(
                 sel!(applicationDockMenu:),

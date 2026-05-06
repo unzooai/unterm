@@ -271,6 +271,44 @@ impl GuiFrontEnd {
                 })
                 .detach();
             }
+            ApplicationEvent::OpenDirectory(path) => {
+                promise::spawn::spawn(async move {
+                    use config::keyassignment::SpawnTabDomain;
+                    use wezterm_term::TerminalSize;
+
+                    let mux = Mux::get();
+                    let window_id = None;
+                    let pane_id = None;
+                    let cmd = None;
+                    let cwd = Some(path.display().to_string());
+                    let workspace = mux.active_workspace();
+
+                    match mux
+                        .spawn_tab_or_window(
+                            window_id,
+                            SpawnTabDomain::DomainName("local".to_string()),
+                            cmd,
+                            cwd,
+                            TerminalSize::default(),
+                            pane_id,
+                            workspace,
+                            None,
+                        )
+                        .await
+                    {
+                        Ok((_tab, pane, _window_id)) => {
+                            log::trace!(
+                                "Opened folder from Finder as pane_id {}",
+                                pane.pane_id()
+                            );
+                        }
+                        Err(err) => {
+                            log::error!("Failed to open Finder folder: {err:#?}");
+                        }
+                    };
+                })
+                .detach();
+            }
             ApplicationEvent::PerformKeyAssignment(action) => {
                 // We should only get here when there are no windows open
                 // and the user picks an action from the menubar.
