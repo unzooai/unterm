@@ -4,6 +4,7 @@
 // what the active language is, it just looks keys up in the dict.
 
 import { formatCount, type Stats } from "../lib/stats";
+import enUS from "../i18n/en-US.json";
 
 interface Props {
   dict: Record<string, string>;
@@ -12,7 +13,7 @@ interface Props {
 }
 
 const { dict, pathPrefix, stats } = Astro.props as Props;
-const t = (k: string) => dict[k] ?? k;
+const t = (k: string) => dict[k] ?? enUS[k] ?? k;
 
 // FAQ entries — shape matches the keys inside the locale JSON.
 const faq = [
@@ -48,6 +49,12 @@ const personas = [
     body: "persona.power.body",
     bullets: ["persona.power.bullets.1", "persona.power.bullets.2", "persona.power.bullets.3", "persona.power.bullets.4"],
   },
+];
+
+const demoFlow = [
+  { n: "01", title: "demo.flow.1.title", body: "demo.flow.1.body" },
+  { n: "02", title: "demo.flow.2.title", body: "demo.flow.2.body" },
+  { n: "03", title: "demo.flow.3.title", body: "demo.flow.3.body" },
 ];
 
 // What's-new-in-v0.12 section: four highlight cards. Same card shape as
@@ -290,6 +297,70 @@ const heroDownloads = [
   <div class="max-w-3xl mx-auto px-6 text-center">
     <h2 class="text-3xl sm:text-4xl font-semibold tracking-tight text-zinc-100 leading-tight">{t("tagline.title")}</h2>
     <p class="mt-6 text-lg text-zinc-400 leading-relaxed" set:html={t("tagline.body")}></p>
+  </div>
+</section>
+
+<!-- ============== DEMO ============== -->
+<section id="demo" class="py-20 border-t border-zinc-900 bg-zinc-950">
+  <div class="max-w-6xl mx-auto px-6">
+    <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-zinc-900/80 border border-zinc-800 text-xs text-zinc-400">
+      <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+      <span>{t("demo.badge")}</span>
+    </div>
+    <div class="mt-8 grid lg:grid-cols-2 gap-10 lg:gap-12 items-start">
+      <div>
+        <h2 class="text-3xl sm:text-4xl font-semibold tracking-tight text-zinc-100 leading-tight max-w-xl">
+          {t("demo.title")}
+        </h2>
+        <p class="mt-5 text-lg text-zinc-400 leading-relaxed max-w-2xl">
+          {t("demo.subtitle")}
+        </p>
+        <div class="mt-8 grid gap-4">
+          {demoFlow.map((step) => (
+            <div class="bg-zinc-900/50 border border-zinc-800 rounded-xl p-5">
+              <div class="text-xs font-mono text-emerald-400">{step.n}</div>
+              <div class="mt-2 font-semibold text-zinc-100">{t(step.title)}</div>
+              <p class="mt-2 text-sm text-zinc-400 leading-relaxed">{t(step.body)}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div class="relative">
+        <div class="absolute -inset-4 bg-gradient-to-r from-cyan-500/10 via-emerald-500/10 to-teal-500/10 blur-2xl rounded-2xl"></div>
+        <div class="relative rounded-xl overflow-hidden border border-zinc-800 bg-zinc-950 shadow-2xl shadow-black/50">
+          <div class="flex items-center justify-between gap-3 px-4 py-2.5 bg-zinc-900/80 border-b border-zinc-800">
+            <div class="text-xs font-mono text-zinc-400">outer agent → inner agent</div>
+            <div class="text-xs font-mono text-zinc-600">demo</div>
+          </div>
+          <div class="px-4 py-4 font-mono text-[12.5px] leading-relaxed bg-zinc-950 space-y-1.5 min-h-[320px]">
+            <div class="text-zinc-500"><span class="text-emerald-400">→</span> open /work/auth-service and start a worker pane</div>
+            <div class="text-zinc-300"><span class="text-cyan-400">unterm</span> mcp.pane.set_cwd <span class="text-zinc-500">{`{ pane_id: 7, cwd: "/work/auth-service" }`}</span></div>
+            <div class="text-zinc-500">     → <span class="text-emerald-400">{`{ ok: true }`}</span></div>
+            <div class="text-zinc-300"><span class="text-cyan-400">unterm</span> mcp.exec.run <span class="text-zinc-500">{`{ pane_id: 7, cmd: "claude code" }`}</span></div>
+            <div class="text-zinc-500">     → <span class="text-zinc-300">inner agent ready</span></div>
+            <div class="text-zinc-300"><span class="text-cyan-400">unterm</span> mcp.exec.run <span class="text-zinc-500">{`{ pane_id: 7, cmd: "cargo test" }`}</span></div>
+            <div class="text-zinc-500">     <span class="text-zinc-400">running 142 tests</span></div>
+            <div class="text-zinc-500">     <span class="text-emerald-400">test result: ok. 142 passed; 0 failed</span></div>
+            <div class="text-zinc-300"><span class="text-cyan-400">unterm</span> mcp.screen.read <span class="text-zinc-500">{`{ pane_id: 7, lines: 5 }`}</span></div>
+            <div class="text-zinc-500">     → <span class="text-zinc-300">"build is green, commit the fix"</span></div>
+            <div class="flex items-center gap-1 mt-2">
+              <span class="text-emerald-400">$</span>
+              <span class="inline-block w-2 h-4 bg-emerald-400 animate-pulse"></span>
+            </div>
+          </div>
+          <div class="flex flex-wrap items-center gap-2 text-[11px] font-mono text-zinc-400 bg-zinc-900/60 border-t border-zinc-800 px-3 py-1.5">
+            <span>pane: 7</span>
+            <span class="text-zinc-700">|</span>
+            <span class="text-emerald-400">cwd: /work/auth-service</span>
+            <span class="text-zinc-700">|</span>
+            <span>worker: claude code</span>
+            <span class="text-zinc-700">|</span>
+            <span>tests: green</span>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </section>
 

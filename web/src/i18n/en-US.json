@@ -3,6 +3,7 @@
   "meta.desc": "A cross-platform terminal built for agent control: drive panes, cwd, screenshots, and sessions through MCP, HTTP, and CLI.",
 
   "nav.features": "Features",
+  "nav.demo": "Demo",
   "nav.principles": "Principles",
   "nav.compare": "Compare",
   "nav.install": "Install",
@@ -21,6 +22,16 @@
 
   "tagline.title": "AI controls the terminal. MCP makes it real.",
   "tagline.body": "Most terminals embed AI <em>inside</em> the binary. Unterm does the opposite: keep AI outside, expose the terminal as a surface that any external agent can grip via MCP. The terminal is the thing being controlled; the agent is the thing doing the work.",
+
+  "demo.badge": "Typical case",
+  "demo.title": "One AI controls another AI through the terminal.",
+  "demo.subtitle": "The outer agent owns the terminal session. It switches cwd, launches an inner coding agent in a pane, reads the logs, and keeps iterating until the repository is green.",
+  "demo.flow.1.title": "Open the repo",
+  "demo.flow.1.body": "The outer agent points the active pane at the project root so every command, log, and screenshot stays anchored to the same working directory.",
+  "demo.flow.2.title": "Start the inner agent",
+  "demo.flow.2.body": "It spawns a coding agent in a split pane, gives it the task, and lets that agent do the edit loop inside the terminal.",
+  "demo.flow.3.title": "Read, retry, release",
+  "demo.flow.3.body": "The outer agent reads test output and pane state, retries when needed, and only moves to commit or release when the terminal says the work is done.",
 
   "persona.title": "Three ways to use Unterm",
   "persona.subtitle": "We didn't build for one workflow. The MCP surface means each persona gets the same control plane through different entry points.",

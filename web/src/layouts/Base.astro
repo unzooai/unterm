@@ -25,7 +25,9 @@ interface Props {
 }
 
 const { lang, dict, alternates, locales, pathPrefix } = Astro.props as Props;
-const t = (k: string) => dict[k] ?? k;
+import enUS from "../i18n/en-US.json";
+
+const t = (k: string) => dict[k] ?? enUS[k] ?? k;
 const canonical = `https://unterm.app${pathPrefix || "/"}`;
 ---
 
@@ -67,6 +69,7 @@ const canonical = `https://unterm.app${pathPrefix || "/"}`;
           <span class="text-xs font-mono text-zinc-500 hidden sm:inline">v0.12.2</span>
         </a>
         <nav class="hidden md:flex items-center gap-5 text-sm text-zinc-400">
+          <a href={pathPrefix + "/#demo"} class="hover:text-zinc-100">{t("nav.demo")}</a>
           <a href={pathPrefix + "/#features"} class="hover:text-zinc-100">{t("nav.features")}</a>
           <a href={pathPrefix + "/#principles"} class="hover:text-zinc-100">{t("nav.principles")}</a>
           <a href={pathPrefix + "/#compare"} class="hover:text-zinc-100">{t("nav.compare")}</a>
