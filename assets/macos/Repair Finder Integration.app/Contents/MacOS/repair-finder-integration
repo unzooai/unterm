@@ -1,0 +1,25 @@
+#!/bin/bash
+set -euo pipefail
+
+APP="${0%/Contents/MacOS/repair-finder-integration}"
+DMG_ROOT="$(cd "$APP/../../.." && pwd)"
+UNTERM_APP="$DMG_ROOT/Unterm.app"
+
+if [ ! -d "$UNTERM_APP" ]; then
+  UNTERM_APP="/Applications/Unterm.app"
+fi
+
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+APPEX="$UNTERM_APP/Contents/PlugIns/UntermFinderSync.appex"
+
+if [ ! -d "$APPEX" ]; then
+  osascript -e 'display alert "Unterm Finder integration was not found. Install Unterm.app in /Applications, then open Unterm once." as warning'
+  exit 1
+fi
+
+"$LSREGISTER" -f "$UNTERM_APP" >/dev/null 2>&1 || true
+pluginkit -a "$APPEX" >/dev/null 2>&1 || true
+pluginkit -e use -i ai.unzoo.unterm.finder-sync >/dev/null 2>&1 || true
+killall Finder >/dev/null 2>&1 || true
+
+osascript -e 'display notification "Finder integration has been refreshed." with title "Unterm"'

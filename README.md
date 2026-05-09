@@ -39,7 +39,7 @@ notarized, so Gatekeeper opens it on first launch without warnings.
 
 Finder integration is bundled in the DMG. After the first launch, Finder's
 right-click menu can show `Open in Unterm` for folders and files; if macOS
-doesn't refresh the extension immediately, run `Repair Finder Integration.command`
+doesn't refresh the extension immediately, run `Repair Finder Integration.app`
 from the DMG once.
 
 ### Linux (Debian / Ubuntu)

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key>
+  <string>en</string>
+  <key>CFBundleDisplayName</key>
+  <string>Repair Finder Integration</string>
+  <key>CFBundleExecutable</key>
+  <string>repair-finder-integration</string>
+  <key>CFBundleIdentifier</key>
+  <string>ai.unzoo.unterm.repair-finder-integration</string>
+  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+  <key>CFBundleName</key>
+  <string>Repair Finder Integration</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>0.12.5</string>
+  <key>CFBundleVersion</key>
+  <string>0.12.5</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>10.15</string>
+  <key>LSUIElement</key>
+  <true/>
+  <key>NSHighResolutionCapable</key>
+  <true/>
+</dict>
+</plist>

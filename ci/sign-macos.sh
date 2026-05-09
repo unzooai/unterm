@@ -105,8 +105,10 @@ dmg_stage="$stagedir.dmg-stage"
 rm -rf "$dmg_stage"
 mkdir "$dmg_stage"
 cp -R "$stagedir/Unterm.app" "$dmg_stage/Unterm.app"
-cp "assets/macos/Repair Finder Integration.command" "$dmg_stage/"
-chmod +x "$dmg_stage/Repair Finder Integration.command"
+cp -R "assets/macos/Repair Finder Integration.app" "$dmg_stage/"
+chmod +x "$dmg_stage/Repair Finder Integration.app/Contents/MacOS/repair-finder-integration"
+/usr/bin/codesign --force --options runtime --timestamp \
+  --sign "$DEV_ID" "$dmg_stage/Repair Finder Integration.app"
 ln -s /Applications "$dmg_stage/Applications"
 hdiutil create -volname "Unterm" -srcfolder "$dmg_stage" \
   -ov -format UDZO "$dmgname"
