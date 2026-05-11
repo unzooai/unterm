@@ -260,6 +260,43 @@ esac
 
 Agents reading `screen.text` (see [MCP reference](/docs/mcp-reference/)) will see the `UNTERM_PROFILE` in the shell prompt if your prompt theme includes it (most don't by default). A future "destructive command guard" (v0.14) will pop a confirmation when a profile-bound shell tries to run `gh repo delete`, `aws s3 rb`, `npm unpublish`, or `git push --force` to the wrong remote.
 
+## Destructive-command guard
+
+A profile-aware safety net for the handful of operations that genuinely can't be undone — `gh repo delete`, `aws s3 rb`, `npm unpublish`, `git push --force`, `vercel rm`, and friends. Run any of these inside a profile-bound shell and Unterm intercepts the call to ask for confirmation:
+
+```text
+[Unterm guard] profile=work-acme
+[Unterm guard] About to run: gh repo delete unzooai/disposable
+[Unterm guard] gh repo delete — proceed? [y/N]
+```
+
+Setup is one line in your `.bashrc` / `.zshrc`:
+
+```sh
+[[ -n "$UNTERM_PROFILE" ]] && eval "$(unterm-cli profile shell-integration zsh)"
+```
+
+(Use `bash` or `fish` in place of `zsh` to match your shell.) The `[[ -n "$UNTERM_PROFILE" ]]` guard means the integration only loads inside Unterm windows bound to a profile — your other shells (cron, SSH-to-server, plain Terminal.app) are unaffected.
+
+**Bypass for known-safe scripts:** prefix the binary with `command` to skip the wrapper:
+
+```sh
+# Skip the prompt — useful in disposal scripts where you know the repo is safe to delete
+command gh repo delete unzooai/disposable --yes
+```
+
+**What's wrapped vs not:**
+
+| Wrapper | Triggers a prompt for | Passes through |
+| ------- | --------------------- | -------------- |
+| `gh`    | `repo delete`, `repo archive` | everything else |
+| `aws`   | `s3 rb`, `s3api delete-bucket`, `s3 rm --recursive` | everything else |
+| `npm`   | `unpublish` | everything else |
+| `git`   | `push --force`, `push -f` | `push --force-with-lease` (safe variant), all non-push |
+| `vercel` | `rm`, `remove` | everything else |
+
+The list is curated rather than exhaustive on purpose — the goal is to catch the few commands that have ruined people's afternoons, not to wrap every potentially-meaningful operation. If you have a tool that should be on this list, open an issue.
+
 ## FAQ
 
 **Will switching profile change my git identity in existing shells?**

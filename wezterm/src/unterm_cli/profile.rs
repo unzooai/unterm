@@ -128,6 +128,23 @@ pub enum ProfileSubCommand {
         /// Display name or ID. Pass `-` to clear the default.
         name: String,
     },
+
+    /// Emit a shell script that prompts before destructive
+    /// operations (`gh repo delete`, `aws s3 rb`, `npm unpublish`,
+    /// `git push --force`, `vercel rm`) when a profile is bound to
+    /// the current window. Source the output from your shell rc:
+    ///
+    /// ```sh
+    /// [[ -n "$UNTERM_PROFILE" ]] && eval "$(unterm-cli profile shell-integration zsh)"
+    /// ```
+    ///
+    /// The script only triggers when `$UNTERM_PROFILE` is set, so
+    /// non-Unterm shells (cron, SSH-to-server, ...) are unaffected.
+    ShellIntegration {
+        /// Shell flavor.
+        #[arg(value_parser = ["bash", "zsh", "fish"])]
+        shell: String,
+    },
 }
 
 pub fn run(cmd: ProfileCommand, json_out: bool) -> Result<()> {
@@ -150,7 +167,14 @@ pub fn run(cmd: ProfileCommand, json_out: bool) -> Result<()> {
         ProfileSubCommand::Spawn { name, cwd } => run_spawn(&name, cwd),
         ProfileSubCommand::Import { source } => run_import(source.as_deref(), json_out),
         ProfileSubCommand::SetDefault { name } => run_set_default(&name),
+        ProfileSubCommand::ShellIntegration { shell } => run_shell_integration(&shell),
     }
+}
+
+fn run_shell_integration(shell: &str) -> Result<()> {
+    let script = unterm_profile::guard::script_for(shell)?;
+    print!("{script}");
+    Ok(())
 }
 
 fn run_set_default(name: &str) -> Result<()> {

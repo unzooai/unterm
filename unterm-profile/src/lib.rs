@@ -20,6 +20,7 @@
 //! See `project_identity_profiles_design.md` for the locked design.
 
 pub mod config;
+pub mod guard;
 pub mod registry;
 pub mod slugify;
 pub mod sniff;

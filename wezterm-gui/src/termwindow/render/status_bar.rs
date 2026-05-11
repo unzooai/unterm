@@ -450,13 +450,16 @@ fn read_unterm_proxy_enabled() -> bool {
         .unwrap_or(false)
 }
 
-/// Display name of the profile this window is bound to, or `—` when
-/// no profile is set. Read off the per-instance JSON so the chip
-/// reflects the same value `apply_unterm_profile_env` uses at spawn
-/// time — never a stale registry-default. Failures are silent: a
-/// missing instance file or registry-load error renders as `—`, same
-/// as "no profile" — there's no useful distinction to draw for the
-/// user, and the chip should never visibly error.
+/// Display name of the profile this window is bound to, suffixed with
+/// `⚠` if any of the profile's tracked secrets expires within 7 days.
+/// Returns `—` when no profile is set.
+///
+/// Read off the per-instance JSON so the chip reflects the same value
+/// `apply_unterm_profile_env` uses at spawn time — never a stale
+/// registry-default. Failures are silent: a missing instance file or
+/// registry-load error renders as `—`, same as "no profile" — there's
+/// no useful distinction to draw for the user, and the chip should
+/// never visibly error.
 fn current_profile_display_name() -> String {
     let info = crate::server_info::read_current();
     let Some(id) = info.profile.as_deref() else {
@@ -468,10 +471,27 @@ fn current_profile_display_name() -> String {
     let Ok(registry) = unterm_profile::ProfileRegistry::load() else {
         return id.to_string();
     };
-    registry
-        .get(id)
-        .map(|p| p.display_name.clone())
-        .unwrap_or_else(|| id.to_string())
+    let Some(profile) = registry.get(id) else {
+        return id.to_string();
+    };
+
+    // Check whether any tracked secret expires within 7 days. The
+    // warning glyph is a soft signal; the canonical reason live on
+    // `unterm-cli profile audit` (and the equivalent MCP method),
+    // both of which show date + days-remaining per secret. The chip
+    // only needs to surface that something is wrong, not what.
+    let today = chrono::Local::now().date_naive();
+    let has_expiry_warning = profile.expiration.values().any(|date_str| {
+        chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d")
+            .map(|d| (d - today).num_days() <= 7)
+            .unwrap_or(false)
+    });
+
+    if has_expiry_warning {
+        format!("{} ⚠", profile.display_name)
+    } else {
+        profile.display_name.clone()
+    }
 }
 
 fn status_bar_theme_colors() -> ((u8, u8, u8), (u8, u8, u8), (u8, u8, u8)) {
