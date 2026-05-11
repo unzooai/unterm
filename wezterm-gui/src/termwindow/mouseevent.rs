@@ -458,9 +458,7 @@ impl super::TermWindow {
             return;
         }
         let Ok(registry) = unterm_profile::ProfileRegistry::load() else {
-            self.toast_status_message(
-                "Couldn't load profile registry. Try `unterm-cli profile list`.",
-            );
+            self.toast_status_message(&crate::i18n::t("profile.toast.registry_load_failed"));
             return;
         };
         let ordered: Vec<String> = registry
@@ -469,9 +467,7 @@ impl super::TermWindow {
             .map(|(id, _)| id.to_string())
             .collect();
         if ordered.is_empty() {
-            self.toast_status_message(
-                "No profiles yet. Create one: `unterm-cli profile create \"Work\"`.",
-            );
+            self.toast_status_message(&crate::i18n::t("profile.toast.no_profiles"));
             return;
         }
         let current = crate::server_info::read_current().profile;
@@ -491,11 +487,17 @@ impl super::TermWindow {
                     .get(&next)
                     .map(|p| p.display_name.as_str())
                     .unwrap_or(&next);
-                self.toast_status_message(&format!("Opening new window in {display:?}"));
+                self.toast_status_message(&crate::i18n::t_args(
+                    "profile.toast.opening_window",
+                    &[("name", display)],
+                ));
             }
             Err(e) => {
                 log::warn!("profile chip spawn failed: {e:#}");
-                self.toast_status_message(&format!("Spawn failed: {e}"));
+                self.toast_status_message(&crate::i18n::t_args(
+                    "profile.toast.spawn_failed",
+                    &[("err", &format!("{e}"))],
+                ));
             }
         }
     }
