@@ -172,6 +172,10 @@ pub enum UIItemType {
     /// Current working directory of the active pane (left-click = copy to clipboard).
     StatusBarCwd,
     StatusBarTheme,
+    /// Identity profile bound to this window. Left-click spawns a new
+    /// Unterm window in the next profile (cycling through `index.toml`
+    /// order). Right-click would open a picker overlay — TBD in v0.14.
+    StatusBarProfile,
     /// Region screenshot, hide-Unterm-window mode (left-click = trigger).
     StatusBarCaptureExclude,
     /// Region screenshot, include-Unterm-window mode (left-click = trigger).

@@ -54,6 +54,7 @@ impl super::TermWindow {
             | UIItemType::StatusBarProject
             | UIItemType::StatusBarCwd
             | UIItemType::StatusBarTheme
+            | UIItemType::StatusBarProfile
             | UIItemType::StatusBarCaptureExclude
             | UIItemType::StatusBarCaptureInclude
             | UIItemType::StatusBarProxy
@@ -72,6 +73,7 @@ impl super::TermWindow {
             | UIItemType::StatusBarProject
             | UIItemType::StatusBarCwd
             | UIItemType::StatusBarTheme
+            | UIItemType::StatusBarProfile
             | UIItemType::StatusBarCaptureExclude
             | UIItemType::StatusBarCaptureInclude
             | UIItemType::StatusBarProxy
@@ -425,12 +427,104 @@ impl super::TermWindow {
             UIItemType::StatusBarProxy => {
                 self.mouse_event_status_bar_proxy(event, context);
             }
+            UIItemType::StatusBarProfile => {
+                self.mouse_event_status_bar_profile(event, context);
+            }
             UIItemType::CloseSplitPane(pane_id) => {
                 self.mouse_event_close_split_pane(pane_id, event, context);
             }
         }
     }
 
+    /// Click on the profile chip = spawn a new Unterm window bound to
+    /// the *next* profile (cycling through `index.toml` order). The
+    /// mental model mirrors theme cycling on the theme chip, but
+    /// because window=identity (see design doc §1) we can't switch
+    /// in place — a new identity needs a new window.
+    ///
+    /// Edge cases:
+    ///   - No profiles defined yet → toast hints at the CLI.
+    ///   - One profile → cycle wraps to itself, which is still a
+    ///     useful action (another window in the same identity).
+    ///   - This window is un-bound → cycle starts from the first
+    ///     profile in display order.
+    ///
+    /// The spawn shells out to `unterm --profile <id>` rather than
+    /// invoking the GUI's spawn path internally; that's the same
+    /// path `unterm-cli profile spawn` takes and keeps the chip's
+    /// behavior consistent with the documented CLI flow.
+    fn mouse_event_status_bar_profile(&mut self, event: MouseEvent, _context: &dyn WindowOps) {
+        if !matches!(event.kind, WMEK::Press(MousePress::Left)) {
+            return;
+        }
+        let Ok(registry) = unterm_profile::ProfileRegistry::load() else {
+            self.toast_status_message(
+                "Couldn't load profile registry. Try `unterm-cli profile list`.",
+            );
+            return;
+        };
+        let ordered: Vec<String> = registry
+            .iter_ordered()
+            .into_iter()
+            .map(|(id, _)| id.to_string())
+            .collect();
+        if ordered.is_empty() {
+            self.toast_status_message(
+                "No profiles yet. Create one: `unterm-cli profile create \"Work\"`.",
+            );
+            return;
+        }
+        let current = crate::server_info::read_current().profile;
+        let next = next_profile_in_cycle(&ordered, current.as_deref());
+
+        // Find the `unterm` binary — alongside this binary (release
+        // tree) or via PATH. Mirrors unterm-cli's `run_spawn` logic.
+        let exe = match std::env::current_exe() {
+            Ok(p) => p,
+            Err(_) => std::path::PathBuf::from("unterm"),
+        };
+        let mut cmd = std::process::Command::new(&exe);
+        cmd.arg("--profile").arg(&next);
+        match cmd.spawn() {
+            Ok(_) => {
+                let display = registry
+                    .get(&next)
+                    .map(|p| p.display_name.as_str())
+                    .unwrap_or(&next);
+                self.toast_status_message(&format!("Opening new window in {display:?}"));
+            }
+            Err(e) => {
+                log::warn!("profile chip spawn failed: {e:#}");
+                self.toast_status_message(&format!("Spawn failed: {e}"));
+            }
+        }
+    }
+
+    /// Brief textual feedback in the pane's terminal area, reusing the
+    /// existing status-write infrastructure that theme/proxy chips use.
+    fn toast_status_message(&self, message: &str) {
+        if let Some(pane) = self.get_active_pane_no_overlay() {
+            write_unterm_status_to_pane(&pane, message);
+        }
+    }
+}
+
+/// Cycle helper: given an ordered slice and an optional current ID,
+/// return the next one. When current is `None` or not found in the
+/// list, returns the first entry. With a single-element list,
+/// returns that single element (cycling-to-self) — that's still a
+/// useful action (opens another window in the same identity).
+fn next_profile_in_cycle(ordered: &[String], current: Option<&str>) -> String {
+    let Some(cur) = current else {
+        return ordered[0].clone();
+    };
+    match ordered.iter().position(|id| id == cur) {
+        Some(idx) => ordered[(idx + 1) % ordered.len()].clone(),
+        None => ordered[0].clone(),
+    }
+}
+
+impl crate::TermWindow {
     fn mouse_event_close_split_pane(
         &mut self,
         pane_id: mux::pane::PaneId,

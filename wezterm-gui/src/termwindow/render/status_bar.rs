@@ -216,6 +216,18 @@ impl crate::TermWindow {
         };
         let theme = crate::overlay::theme_selector::read_theme_id();
 
+        // Identity profile chip (window=identity model). The chip lives
+        // in the bottom status bar rather than the top tabbar so it
+        // shares space with the other context indicators (cwd / project /
+        // theme); they're all "current window state" signals that the
+        // user wants to see at a glance. Display `—` when no profile
+        // is bound so the chip stays visible but visibly empty —
+        // important because the click action (cycle profile) doubles
+        // as the "I haven't set up profiles yet, what's this?"
+        // discoverability hook.
+        let profile_label = current_profile_display_name();
+        let profile_part = format!("profile:{profile_label}");
+
         let project_part = format!("project:{}", self.active_project_label());
 
         // Use *cell width* (not char count) for offsets so the click hit-test
@@ -246,6 +258,9 @@ impl crate::TermWindow {
         let theme_offset = cw(&text);
         let theme_part = format!("theme:{theme}");
         text.push_str(&theme_part);
+        text.push_str(" | ");
+        let profile_offset = cw(&text);
+        text.push_str(&profile_part);
         text.push(' ');
 
         (
@@ -280,6 +295,11 @@ impl crate::TermWindow {
                     offset: theme_offset,
                     len: cw(&theme_part),
                     item_type: UIItemType::StatusBarTheme,
+                },
+                StatusRegion {
+                    offset: profile_offset,
+                    len: cw(&profile_part),
+                    item_type: UIItemType::StatusBarProfile,
                 },
             ],
         )
@@ -428,6 +448,30 @@ fn read_unterm_proxy_enabled() -> bool {
         .get("enabled")
         .and_then(|enabled| enabled.as_bool())
         .unwrap_or(false)
+}
+
+/// Display name of the profile this window is bound to, or `—` when
+/// no profile is set. Read off the per-instance JSON so the chip
+/// reflects the same value `apply_unterm_profile_env` uses at spawn
+/// time — never a stale registry-default. Failures are silent: a
+/// missing instance file or registry-load error renders as `—`, same
+/// as "no profile" — there's no useful distinction to draw for the
+/// user, and the chip should never visibly error.
+fn current_profile_display_name() -> String {
+    let info = crate::server_info::read_current();
+    let Some(id) = info.profile.as_deref() else {
+        return "—".to_string();
+    };
+    if id.is_empty() {
+        return "—".to_string();
+    }
+    let Ok(registry) = unterm_profile::ProfileRegistry::load() else {
+        return id.to_string();
+    };
+    registry
+        .get(id)
+        .map(|p| p.display_name.clone())
+        .unwrap_or_else(|| id.to_string())
 }
 
 fn status_bar_theme_colors() -> ((u8, u8, u8), (u8, u8, u8), (u8, u8, u8)) {
