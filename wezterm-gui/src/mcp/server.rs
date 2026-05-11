@@ -88,6 +88,12 @@ fn apply_startup_profile_binding() {
         log::warn!("startup profile {want:?}: set_profile failed: {e:#}");
         return;
     }
+    // Regenerate the SSH config fragment at startup so users who edit
+    // profiles between Unterm sessions don't end up with a stale
+    // config.unterm referencing deleted entries.
+    if let Err(e) = registry.sync_ssh_config() {
+        log::warn!("startup SSH config sync failed: {e:#}");
+    }
     log::info!("Instance bound to profile {id_owned}");
 }
 

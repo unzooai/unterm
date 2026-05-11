@@ -315,6 +315,12 @@ fn run_delete(name: &str, yes: bool) -> Result<()> {
         }
     }
     std::fs::remove_file(profile_path(&id)).context("remove profile TOML")?;
+    // Regenerate SSH config so the deleted profile's Match blocks
+    // disappear immediately rather than lingering until next startup.
+    let reloaded = ProfileRegistry::load().unwrap_or_else(|_| ProfileRegistry::empty());
+    if let Err(e) = reloaded.sync_ssh_config() {
+        eprintln!("  warning: sync SSH config after delete failed: {e:#}");
+    }
     println!("Deleted profile {:?}", p.display_name);
     Ok(())
 }
@@ -399,6 +405,13 @@ fn run_edit(name: &str) -> Result<()> {
     ProfileFile::load(&path).with_context(|| {
         format!("profile {} no longer parses — check syntax", path.display())
     })?;
+    // Edits often add or change [ssh] entries — sync the SSH fragment
+    // so the user's `ssh foo` command picks up the new routing without
+    // having to restart Unterm.
+    let reloaded = ProfileRegistry::load().unwrap_or_else(|_| ProfileRegistry::empty());
+    if let Err(e) = reloaded.sync_ssh_config() {
+        eprintln!("  warning: sync SSH config after edit failed: {e:#}");
+    }
     Ok(())
 }
 

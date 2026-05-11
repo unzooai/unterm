@@ -91,6 +91,30 @@ impl ProfileRegistry {
         }
     }
 
+    // ---- test-only helpers ----
+    //
+    // The fields of `ProfileRegistry` are private so the public API
+    // stays tight, but submodule tests (e.g. `ssh::tests`) need to
+    // build a registry from synthetic profiles without writing them
+    // to disk. These helpers are exposed for that purpose. The
+    // `#[doc(hidden)]` keeps them out of generated documentation;
+    // production code paths should go through `load` / `create` etc.
+
+    #[doc(hidden)]
+    pub fn empty_for_tests() -> Self {
+        Self::empty()
+    }
+
+    #[doc(hidden)]
+    pub fn insert_for_tests(&mut self, id: String, profile: ProfileFile) {
+        self.profiles.insert(id, profile);
+    }
+
+    #[doc(hidden)]
+    pub fn set_order_for_tests(&mut self, order: Vec<String>) {
+        self.index.order = order;
+    }
+
     /// Return profiles in chip-display order: `index.order` first, then
     /// any profile not mentioned in the index appended alphabetically.
     /// Items removed from disk but still in `index.order` are dropped.
@@ -177,6 +201,14 @@ impl ProfileRegistry {
             self.index.order.push(id.clone());
             self.index.save(&index_path())?;
         }
+        // Keep SSH routing in sync. Don't propagate a failure here:
+        // the profile was created successfully, and a missing
+        // config.unterm regen is a soft warning rather than a hard
+        // error — the user can rerun `profile edit <id>` later or
+        // restart Unterm to re-sync.
+        if let Err(e) = self.sync_ssh_config() {
+            log::warn!("sync_ssh_config after create({id}) failed: {e:#}");
+        }
         Ok(id)
     }
 
@@ -184,6 +216,9 @@ impl ProfileRegistry {
     pub fn save_profile(&mut self, id: &str, profile: ProfileFile) -> Result<()> {
         profile.save(&profile_path(id))?;
         self.profiles.insert(id.to_string(), profile);
+        if let Err(e) = self.sync_ssh_config() {
+            log::warn!("sync_ssh_config after save_profile({id}) failed: {e:#}");
+        }
         Ok(())
     }
 
@@ -289,6 +324,15 @@ impl ProfileRegistry {
         self.index.default = id;
         self.index.save(&index_path())?;
         Ok(())
+    }
+
+    /// Regenerate `~/.unterm/ssh/config.unterm` from the current state.
+    /// Cheap — a few hundred bytes of formatting + atomic write. Call
+    /// after any registry mutation so SSH key routing stays in sync.
+    /// Failures are non-fatal: SSH routing breaks until next regen,
+    /// but profile-level operations succeed.
+    pub fn sync_ssh_config(&self) -> Result<()> {
+        crate::ssh::write_for_registry(self)
     }
 
     pub fn len(&self) -> usize {

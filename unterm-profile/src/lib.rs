@@ -22,6 +22,7 @@
 pub mod config;
 pub mod registry;
 pub mod slugify;
+pub mod ssh;
 pub mod store;
 
 #[cfg(target_os = "macos")]
