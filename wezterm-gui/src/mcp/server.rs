@@ -65,27 +65,56 @@ pub fn start_mcp_server() -> (u16, String) {
 /// afterward so child processes spawned inside Unterm don't inherit
 /// the marker and re-attempt to claim the profile.
 fn apply_startup_profile_binding() {
-    let want = std::env::var("UNTERM_STARTUP_PROFILE").unwrap_or_default();
+    let explicit = std::env::var("UNTERM_STARTUP_PROFILE").unwrap_or_default();
     std::env::remove_var("UNTERM_STARTUP_PROFILE");
-    if want.is_empty() {
-        return;
-    }
+
     let registry = match unterm_profile::ProfileRegistry::load() {
         Ok(r) => r,
         Err(e) => {
-            log::warn!("startup profile {want:?}: registry load failed: {e:#}");
+            if !explicit.is_empty() {
+                log::warn!("startup profile {explicit:?}: registry load failed: {e:#}");
+            }
             return;
         }
     };
-    let Some((id, _)) = registry.resolve(&want) else {
-        log::warn!(
-            "startup profile {want:?}: no match (try `unterm-cli profile list`)"
-        );
+
+    // Three-tier resolution:
+    //   1. `--profile X` passed → resolve `X` (display name OR ID OR
+    //      unique prefix). Missing match logs a warning and the
+    //      window starts un-bound.
+    //   2. No flag, but `index.toml` has a `default` set → use it
+    //      silently. Common path for users who pick one profile in
+    //      Settings and want every new window to inherit it.
+    //   3. No flag and no default → window starts un-bound, panes
+    //      spawn with the user's normal env. This is the v0.12
+    //      behavior so existing workflows aren't disturbed.
+    let resolved: Option<String> = if !explicit.is_empty() {
+        match registry.resolve(&explicit) {
+            Some((id, _)) => Some(id.to_string()),
+            None => {
+                log::warn!(
+                    "startup profile {explicit:?}: no match (try `unterm-cli profile list`)"
+                );
+                return;
+            }
+        }
+    } else if let Some(id) = registry.default_id() {
+        Some(id.to_string())
+    } else {
+        None
+    };
+
+    let Some(id) = resolved else {
+        // No explicit, no default. Still re-sync SSH config so any
+        // edits made since last launch propagate, then bail.
+        if let Err(e) = registry.sync_ssh_config() {
+            log::warn!("startup SSH config sync failed: {e:#}");
+        }
         return;
     };
-    let id_owned = id.to_string();
-    if let Err(e) = server_info::set_profile(Some(id_owned.clone())) {
-        log::warn!("startup profile {want:?}: set_profile failed: {e:#}");
+
+    if let Err(e) = server_info::set_profile(Some(id.clone())) {
+        log::warn!("startup profile set_profile({id:?}) failed: {e:#}");
         return;
     }
     // Regenerate the SSH config fragment at startup so users who edit
@@ -94,7 +123,7 @@ fn apply_startup_profile_binding() {
     if let Err(e) = registry.sync_ssh_config() {
         log::warn!("startup SSH config sync failed: {e:#}");
     }
-    log::info!("Instance bound to profile {id_owned}");
+    log::info!("Instance bound to profile {id}");
 }
 
 fn run_server(listener: TcpListener, auth_token: &str) -> Result<()> {

@@ -120,6 +120,14 @@ pub enum ProfileSubCommand {
               value_parser = ["gh","aws","npm","ssh","docker","gcloud","netrc"])]
         source: Option<String>,
     },
+
+    /// Set (or clear) the profile that new Unterm windows bind to
+    /// when launched without an explicit `--profile X` flag. Stored
+    /// in `~/.unterm/profiles/index.toml`.
+    SetDefault {
+        /// Display name or ID. Pass `-` to clear the default.
+        name: String,
+    },
 }
 
 pub fn run(cmd: ProfileCommand, json_out: bool) -> Result<()> {
@@ -141,7 +149,22 @@ pub fn run(cmd: ProfileCommand, json_out: bool) -> Result<()> {
         ProfileSubCommand::Export { name } => run_export(&name),
         ProfileSubCommand::Spawn { name, cwd } => run_spawn(&name, cwd),
         ProfileSubCommand::Import { source } => run_import(source.as_deref(), json_out),
+        ProfileSubCommand::SetDefault { name } => run_set_default(&name),
     }
+}
+
+fn run_set_default(name: &str) -> Result<()> {
+    let mut r = load_registry()?;
+    if name == "-" {
+        r.set_default(None)?;
+        println!("Cleared default profile. New windows will start un-bound.");
+        return Ok(());
+    }
+    let id = resolve_id(&r, name)?;
+    r.set_default(Some(id.clone()))?;
+    println!("Default profile set to {id:?}");
+    println!("New Unterm windows (`unterm` without --profile) will now bind to this profile.");
+    Ok(())
 }
 
 fn run_import(source: Option<&str>, json_out: bool) -> Result<()> {

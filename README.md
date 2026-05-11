@@ -78,6 +78,7 @@ The full Unterm docs live at **https://unterm.app/docs/**:
 - [Agent integration](https://unterm.app/docs/agent-integration) — how to drive Unterm from Claude Code / Cursor / Aider / your own client
 - [MCP reference](https://unterm.app/docs/mcp-reference) — every JSON-RPC method, parameters, return shape
 - [Multi-instance](https://unterm.app/docs/multi-instance) — NATO names, instances directory, picking the right window
+- [Identity profiles](https://unterm.app/docs/profiles) — one window per identity. Bind GitHub / AWS / npm / OpenAI tokens, git identity, SSH key routing all at once. CLI + MCP.
 - [CLI reference](https://unterm.app/docs/cli-reference) — `unterm-cli` subcommands, flags, exit codes
 - [Configuration](https://unterm.app/docs/configuration) — every file under `~/.unterm/`
 - [Architecture](https://unterm.app/docs/architecture) — what we forked from WezTerm and why
@@ -89,7 +90,7 @@ This README is the short version. The site is the long version.
 ## Features
 
 - **GPU-accelerated rendering** on all three platforms (Metal / OpenGL / DirectX via ANGLE).
-- **MCP server** on `127.0.0.1:<auto-port>` (default 19876) — JSON-RPC over TCP, auth-token gated. Method namespaces: session, exec, screen, signal, orchestrate, proxy, workspace, capture, policy, system, server, instance.
+- **MCP server** on `127.0.0.1:<auto-port>` (default 19876) — JSON-RPC over TCP, auth-token gated. Method namespaces: session, exec, screen, signal, orchestrate, proxy, workspace, capture, policy, system, server, instance, profile.
 - **Web Settings UI** on `127.0.0.1:<auto-port>` (default 19877) — open in any browser via `unterm-cli settings open` or the `Settings (Web)` item in the `▼` menu. Tailwind-styled SPA, supports all 9 languages, keyboard + mouse.
 - **Auto proxy detection** — reads macOS System Preferences / Windows registry / GNOME gsettings / `$HTTPS_PROXY`, falls back to scanning common local ports. The single `proxy.json` toggle is `{"enabled": true|false}` — no manual URL configuration needed.
 - **Region screenshots** from the status bar (left-click excludes the Unterm window, right-click includes it). PNG lands on disk under `~/.unterm/screenshots/`, on the system image clipboard, and the path on the text clipboard.
@@ -105,6 +106,29 @@ This README is the short version. The site is the long version.
 - **macOS-native window decorations** (traffic-light buttons + native title bar); Windows uses Windows Terminal-style integrated title buttons; Linux uses client-side decorations.
 
 ---
+
+## Identity profiles
+
+Bind a window to a coherent developer identity — GitHub PAT, AWS keys, npm token, git author, SSH keys — all in one shot. New window for a different identity. The chip in the tab bar tells you which one you're in. Secrets live in the OS-native vault (Keychain / Credential Manager / Secret Service), never in `~/.unterm/`.
+
+```bash
+unterm-cli profile create "Work — Acme"
+unterm-cli profile set-secret "Work" GITHUB_TOKEN
+unterm-cli profile spawn "Work"           # → new window bound to Work
+unterm-cli profile set-default "Work"     # plain `unterm` now binds to Work
+unterm-cli profile import                 # scans gh/aws/npm/ssh/docker/gcloud/netrc
+                                          #   for existing credentials, read-only
+```
+
+Inside a profile-bound shell:
+
+```bash
+$ env | grep UNTERM_PROFILE
+UNTERM_PROFILE=work-acme
+# GITHUB_TOKEN, GIT_AUTHOR_NAME, AWS_*, etc. all set from the profile
+```
+
+Full docs: [unterm.app/docs/profiles](https://unterm.app/docs/profiles).
 
 ## Multi-instance
 
