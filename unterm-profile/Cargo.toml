@@ -1,0 +1,41 @@
+[package]
+name = "unterm-profile"
+version = "0.13.0"
+authors = ["Alex <lixd220@gmail.com>"]
+edition = "2021"
+publish = false
+
+# Identity profile system for Unterm: TOML schema for per-window
+# identities (GitHub / AWS / npm tokens, git identity, SSH key routing),
+# slugified IDs derived from user-typed display names, and a platform-
+# native secret-store abstraction (macOS Keychain, Windows Credential
+# Manager, Linux Secret Service via D-Bus). The wezterm-gui binary and
+# the unterm-cli subcommand surface both depend on this crate so the
+# TOML schema, ID derivation, and keychain access stay consistent
+# across the GUI and the CLI.
+#
+# See project_identity_profiles_design.md for the locked design.
+
+[dependencies]
+anyhow.workspace = true
+serde = { workspace = true, features = ["derive"] }
+toml.workspace = true
+thiserror.workspace = true
+unicode-segmentation.workspace = true
+dirs-next.workspace = true
+log.workspace = true
+
+# Platform-specific secret-store backends are pulled in only on their
+# target OS. The trait `SecretStore` lives in `store.rs` regardless of
+# platform; the impl modules are cfg-gated and added in a subsequent
+# step as part of v0.13.
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework.workspace = true
+
+[target.'cfg(target_os = "windows")'.dependencies]
+# windows-rs Credential APIs added when store_windows.rs lands.
+
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+# secret-service crate added when store_linux.rs lands.
+
+[dev-dependencies]

@@ -9,6 +9,7 @@ mod client;
 pub mod i18n;
 mod lang;
 mod output;
+mod profile;
 mod proxy;
 mod screenshot;
 mod session;
@@ -17,6 +18,7 @@ mod settings;
 mod theme;
 
 pub use lang::LangCommand;
+pub use profile::ProfileCommand;
 pub use proxy::ProxyCommand;
 pub use session::SessionCommand;
 pub use sessions::SessionsCommand;
@@ -28,6 +30,10 @@ use std::path::PathBuf;
 
 pub fn run_proxy(cmd: ProxyCommand, json_out: bool) -> Result<()> {
     proxy::run(cmd, json_out)
+}
+
+pub fn run_profile(cmd: ProfileCommand, json_out: bool) -> Result<()> {
+    profile::run(cmd, json_out)
 }
 
 pub fn run_theme(cmd: ThemeCommand, json_out: bool) -> Result<()> {

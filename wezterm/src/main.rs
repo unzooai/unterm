@@ -146,6 +146,12 @@ enum SubCommand {
     #[command(name = "replay", about = "Replay an asciicast terminal session")]
     Replay(asciicast::PlayCommand),
 
+    #[command(
+        name = "profile",
+        about = "Manage identity profiles (GitHub / AWS / npm tokens, git identity, SSH keys)"
+    )]
+    Profile(unterm_cli::ProfileCommand),
+
     #[command(name = "proxy", about = "Manage Unterm's proxy via the MCP server")]
     Proxy(unterm_cli::ProxyCommand),
 
@@ -805,6 +811,7 @@ fn run() -> anyhow::Result<()> {
         SubCommand::Cli(cli) => cli::run_cli(&opts, cli),
         SubCommand::Record(cmd) => cmd.run(init_config(&opts)?),
         SubCommand::Replay(cmd) => cmd.run(),
+        SubCommand::Profile(cmd) => unterm_cli::run_profile(cmd, opts.json),
         SubCommand::Proxy(cmd) => unterm_cli::run_proxy(cmd, opts.json),
         SubCommand::Theme(cmd) => unterm_cli::run_theme(cmd, opts.json),
         SubCommand::Session(cmd) => unterm_cli::run_session(cmd, opts.json),

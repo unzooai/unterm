@@ -91,6 +91,7 @@ pub async fn spawn_command_internal(
     };
     apply_unterm_proxy_env(&mut cmd_builder);
     apply_unterm_windows_utf8(&mut cmd_builder);
+    apply_unterm_profile_env(&mut cmd_builder);
 
     let workspace = mux.active_workspace().clone();
 
@@ -154,6 +155,76 @@ pub async fn spawn_command_internal(
     drop(activity);
 
     Ok(())
+}
+
+/// Inject env vars from this window's bound identity profile, if any.
+///
+/// Reads the per-instance JSON (see `server_info::read_current`) for
+/// the profile binding, loads the profile registry, resolves secrets
+/// from the OS keychain, and overlays the resulting env onto the
+/// `CommandBuilder`. Profile env wins over any vars that were set by
+/// the spawn caller — when a user picks "Work — Acme", we want
+/// Work's GITHUB_TOKEN, not whatever leaked in from process env.
+///
+/// Every failure mode is recoverable: registry unparseable, keychain
+/// locked, individual secret missing — we log a warning and continue
+/// with whatever did resolve. The mental model is "a shell with
+/// partial profile env is still more useful than a failed spawn".
+/// The `profile.audit` MCP method surfaces unresolved secrets so the
+/// user notices via the chip rather than via a broken `git push`.
+///
+/// No-op when:
+///   - no instance ID (we're not yet registered in `~/.unterm/instances/`)
+///   - the instance file's `profile` field is None or empty
+///   - the platform has no compiled-in SecretStore backend (e.g.
+///     Linux without secret-service)
+fn apply_unterm_profile_env(cmd_builder: &mut Option<CommandBuilder>) {
+    let info = crate::server_info::read_current();
+    let Some(profile_id) = info.profile.as_deref() else {
+        return;
+    };
+    if profile_id.is_empty() {
+        return;
+    }
+
+    let registry = match unterm_profile::ProfileRegistry::load() {
+        Ok(r) => r,
+        Err(e) => {
+            log::warn!("apply_unterm_profile_env: registry load failed: {e:#}");
+            return;
+        }
+    };
+    let store = match unterm_profile::default_store() {
+        Ok(s) => s,
+        Err(e) => {
+            // Backend unavailable on this platform — expected on Linux
+            // headless / Windows before backend lands. Debug level: this
+            // is not an error, just "feature not active here".
+            log::debug!("apply_unterm_profile_env: no secret store: {e:#}");
+            return;
+        }
+    };
+    let env = match registry.resolve_env(store.as_ref(), profile_id) {
+        Ok(e) => e,
+        Err(e) => {
+            log::warn!(
+                "apply_unterm_profile_env: resolve_env({profile_id}) failed: {e:#}"
+            );
+            return;
+        }
+    };
+    if env.is_empty() {
+        return;
+    }
+
+    // Mirror `apply_unterm_proxy_env`: if the spawn didn't customize
+    // anything, we still need a CommandBuilder so we have somewhere
+    // to attach env. Default prog matches what wezterm would have
+    // launched anyway.
+    let builder = cmd_builder.get_or_insert_with(CommandBuilder::new_default_prog);
+    for (k, v) in env {
+        builder.env(k, v);
+    }
 }
 
 fn apply_unterm_proxy_env(cmd_builder: &mut Option<CommandBuilder>) {
@@ -234,8 +305,18 @@ fn apply_unterm_windows_utf8(cmd_builder: &mut Option<CommandBuilder>) {
 
     let argv = builder.get_argv_mut();
     if basename.starts_with("powershell") || basename.starts_with("pwsh") {
+        // Four encoding knobs on Windows PowerShell. Missing any one
+        // causes mojibake somewhere in the I/O chain. In particular,
+        // omitting InputEncoding is what causes UTF-8 Chinese filenames
+        // typed at the prompt to be re-decoded as CP936/GBK by PowerShell
+        // before they reach cmdlets — at which point Move-Item / Get-Item
+        // can't find the file and reports a corrupted name back. So we
+        // set all four every time, on the same line so a profile that
+        // overrides one of them only overrides that one.
         let setup = "[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false);\
+                     [Console]::InputEncoding=[Text.UTF8Encoding]::new($false);\
                      $OutputEncoding=[Console]::OutputEncoding;\
+                     $PSDefaultParameterValues['*:Encoding']='utf8';\
                      chcp 65001>$null;\
                      if(Test-Path $PROFILE){. $PROFILE}";
         let exe = argv[0].clone();
@@ -275,8 +356,18 @@ pub(crate) fn apply_unterm_windows_utf8_to_spawn(spawn: &mut config::keyassignme
         .unwrap_or(exe_str.as_str());
 
     if basename.starts_with("powershell") || basename.starts_with("pwsh") {
+        // Four encoding knobs on Windows PowerShell. Missing any one
+        // causes mojibake somewhere in the I/O chain. In particular,
+        // omitting InputEncoding is what causes UTF-8 Chinese filenames
+        // typed at the prompt to be re-decoded as CP936/GBK by PowerShell
+        // before they reach cmdlets — at which point Move-Item / Get-Item
+        // can't find the file and reports a corrupted name back. So we
+        // set all four every time, on the same line so a profile that
+        // overrides one of them only overrides that one.
         let setup = "[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false);\
+                     [Console]::InputEncoding=[Text.UTF8Encoding]::new($false);\
                      $OutputEncoding=[Console]::OutputEncoding;\
+                     $PSDefaultParameterValues['*:Encoding']='utf8';\
                      chcp 65001>$null;\
                      if(Test-Path $PROFILE){. $PROFILE}";
         spawn.args = Some(vec![

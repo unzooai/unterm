@@ -15,6 +15,7 @@ members = [
   "wezterm-ssh",
   "wezterm-surface",
   "wezterm-uds",
+  "unterm-profile",
 ]
 resolver = "2"
 exclude = [
@@ -188,6 +189,15 @@ reqwest = { version = "0.12", features = ["blocking", "json"] }
 resize = "0.5"
 rstest = "0.21"
 rusqlite = "0.32"
+# macOS Keychain access for unterm-profile's identity secret store.
+# Pinned to 2.x; the 3.x line dropped the simple `passwords` module that
+# wraps SecKeychain generic-password APIs we rely on.
+# Hidden-prompt input for `unterm-cli profile set-secret` so vibe coders
+# don't accidentally paste a token into shell history. Reads from /dev/tty
+# (not stdin) so pipe-driven non-interactive flows can route around it
+# via the `--from-stdin` flag in the subcommand.
+rpassword = "7.3"
+security-framework = "2.11"
 serde = {version="1.0", default-features=false, features = ["derive"]}
 serde-funcs = { path = "lua-api-crates/serde-funcs" }
 serde_json = "1.0"
@@ -230,6 +240,7 @@ uds_windows = "1.1"
 umask = { path = "umask" }
 unicode-normalization = "0.1.24"
 unicode-segmentation = "1.12"
+unterm-profile = { path = "unterm-profile" }
 url = "2"
 url-funcs = { path = "lua-api-crates/url-funcs" }
 utf8parse = "0.2"

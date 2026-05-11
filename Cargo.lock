@@ -4727,6 +4727,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "rpassword"
+version = "7.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5ac5b223d9738ef56e0b98305410be40fa0941bf6036c56f1506751e43552d64"
+dependencies = [
+ "libc",
+ "rtoolbox",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "rstest"
 version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4754,6 +4765,16 @@ dependencies = [
  "rustc_version",
  "syn 2.0.110",
  "unicode-ident",
+]
+
+[[package]]
+name = "rtoolbox"
+version = "0.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "50a0e551c1e27e1731aba276dbeaeac73f53c7cd34d1bda485d02bd1e0f36844"
+dependencies = [
+ "libc",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -6158,6 +6179,7 @@ dependencies = [
  "umask",
  "unicode-normalization",
  "unicode-segmentation",
+ "unterm-profile",
  "url",
  "url-funcs",
  "uuid",
@@ -6205,6 +6227,7 @@ dependencies = [
  "mux",
  "portable-pty",
  "promise",
+ "rpassword",
  "serde",
  "serde_json",
  "shell-words",
@@ -6216,6 +6239,7 @@ dependencies = [
  "termwiz-funcs",
  "textwrap",
  "umask",
+ "unterm-profile",
  "url",
  "wezterm-client",
  "wezterm-gui-subcommands",
@@ -6247,6 +6271,20 @@ dependencies = [
  "wezterm-mux-server-impl",
  "wezterm-term",
  "winapi",
+]
+
+[[package]]
+name = "unterm-profile"
+version = "0.13.0"
+dependencies = [
+ "anyhow",
+ "dirs-next",
+ "log",
+ "security-framework",
+ "serde",
+ "thiserror 1.0.69",
+ "toml 0.8.23",
+ "unicode-segmentation",
 ]
 
 [[package]]

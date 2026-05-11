@@ -65,6 +65,14 @@ pub struct InstanceInfo {
     /// query it live via `session.list`.
     #[serde(default)]
     pub cwd: Option<String>,
+    /// Identity profile bound to this window (window=identity model,
+    /// see project_identity_profiles_design.md §1). `None` = profile
+    /// system not used or no default selected yet. Set on launch from
+    /// the picker (or `index.toml` default), via `profile.spawn` MCP
+    /// call, or via the chip menu. Once set, every pane spawned in
+    /// this instance inherits its env from this profile.
+    #[serde(default)]
+    pub profile: Option<String>,
     #[serde(default)]
     pub version: String,
     #[serde(default)]
@@ -337,6 +345,11 @@ pub fn write_initial(mcp_port: u16) -> Result<InstanceInfo> {
         started_at: chrono::Local::now().to_rfc3339(),
         title: None,
         cwd: None,
+        // Profile binding is resolved later — either by the GUI when
+        // the window finishes initializing (reading `index.toml` for
+        // the default profile, or showing the picker) or by an MCP
+        // `profile.spawn` call that names a profile up front.
+        profile: None,
         version: env!("CARGO_PKG_VERSION").to_string(),
         platform: std::env::consts::OS.to_string(),
     };
@@ -385,6 +398,30 @@ pub fn set_cwd(cwd: Option<String>) -> Result<()> {
     info.cwd = cwd;
     write_atomic(&instance_file(&id), &info)?;
     claim_compat_files_if_needed(&info)?;
+    Ok(())
+}
+
+/// Update this instance's bound identity profile. `None` clears the
+/// binding (panes spawned afterward run with the unscoped global env).
+/// `Some(id)` pins this window to a profile — subsequent pane spawns
+/// will resolve secrets from that profile's keychain entries and
+/// inject `UNTERM_PROFILE` + `GIT_AUTHOR_*` + `[env]` + `[secrets]`
+/// into their environment. Per the locked design we do NOT respawn
+/// already-running panes: the window's mental model is "this whole
+/// window is identity X", and existing panes keep whatever env they
+/// were spawned with.
+pub fn set_profile(profile: Option<String>) -> Result<()> {
+    let id = match current_instance_id() {
+        Some(id) => id,
+        None => return Ok(()),
+    };
+    let _g = file_lock().lock();
+    let mut info: InstanceInfo = match fs::read_to_string(instance_file(&id)) {
+        Ok(s) => serde_json::from_str(&s).unwrap_or_default(),
+        Err(_) => return Ok(()),
+    };
+    info.profile = profile;
+    write_atomic(&instance_file(&id), &info)?;
     Ok(())
 }
 
