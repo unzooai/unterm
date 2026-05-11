@@ -92,8 +92,10 @@
   "features.engine.title": "GPU rendering",
   "features.engine.body": "Built on a customized WezTerm engine — Metal on macOS, OpenGL on Linux, DirectX via ANGLE on Windows.",
 
-  "whatsnew.title": "What's new in v0.12",
-  "whatsnew.subtitle": "The Windows white-flash hunt is over. Multi-instance MCP foundation is shipped. UTF-8 is the default on every locale. The product is finally calm on launch.",
+  "whatsnew.title": "What's new in v0.13",
+  "whatsnew.subtitle": "Identity profiles land: one window per identity, OS-native keychain, seven auto-discovery sniffers. The terminal AI agents can drive — now it knows whose credentials it's driving with.",
+  "whatsnew.profiles.title": "Identity profiles — one window per identity",
+  "whatsnew.profiles.body": "Bind a window to a coherent developer identity in one shot: GitHub PAT, AWS keys, npm token, OpenAI key, git author, SSH key routing. Tokens live in the OS-native vault (Keychain / Credential Manager / libsecret), never in <code class=\"font-mono text-xs\">~/.unterm/</code>. Seven sniffers (<code class=\"font-mono text-xs\">gh / aws / npm / ssh / docker / gcloud / netrc</code>) discover existing credentials read-only. CLI + read-only MCP namespace expose the system to agents that need to know which identity is running. New chip in the status bar tells you at a glance — click to spawn a new window in the next profile.",
   "whatsnew.flash.title": "Sync pre-show paint kills the Windows white flash",
   "whatsnew.flash.body": "Three iterations to root-cause it: the DWM samples its redirection bitmap before WM_ERASEBKGND fires, so any fix routed through the message pump arrives too late. v0.12 renders one synchronous frame of real terminal content into the backbuffer in <code class=\"font-mono text-xs\">wezterm-gui</code> <em>before</em> <code class=\"font-mono text-xs\">window.show()</code>. Spawn-to-visible is ~880ms, no flash. Linux/macOS paths unchanged — the new path is cfg(windows) gated.",
   "whatsnew.instances.title": "Multi-instance NATO names",
