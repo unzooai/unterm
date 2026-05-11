@@ -52,7 +52,7 @@ pub struct ProfileFile {
     /// into spawned shells via `GIT_AUTHOR_*` and `GIT_COMMITTER_*` env
     /// vars rather than rewriting `~/.gitconfig` — that way the user's
     /// global git config stays untouched.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "GitIdentity::is_empty")]
     pub git: GitIdentity,
 
     /// Non-secret environment variables. Examples: `NODE_ENV=production`,
