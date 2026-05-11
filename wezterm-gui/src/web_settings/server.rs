@@ -330,8 +330,338 @@ fn route(req: &Request, auth_token: &str, handler: &McpHandler) -> Response {
             let code = &p["/api/i18n/".len()..];
             api_i18n_dict(code)
         }
+        // Identity profile management — backs the Settings panel and the
+        // onboarding wizard. List/get are pure reads; the rest mutate
+        // `~/.unterm/profiles/` and (for secrets) the OS keychain.
+        ("GET", "/api/profile/list") => api_profile_list(),
+        ("POST", "/api/profile/create") => api_profile_create(&req.body),
+        ("GET", "/api/profile/import-scan") => api_profile_import_scan(),
+        ("GET", "/api/profile/ssh-include-status") => api_profile_ssh_include_status(),
+        ("POST", "/api/profile/install-ssh-include") => api_profile_install_ssh_include(),
+        ("POST", "/api/profile/set-default") => api_profile_set_default(&req.body),
+        ("PUT", p) if p.starts_with("/api/profile/") && !p.contains("/secret") => {
+            let id = &p["/api/profile/".len()..];
+            api_profile_update(id, &req.body)
+        }
+        ("DELETE", p) if p.starts_with("/api/profile/") && !p.contains("/secret") => {
+            let id = &p["/api/profile/".len()..];
+            api_profile_delete(id)
+        }
+        ("POST", p) if p.starts_with("/api/profile/") && p.ends_with("/secret") => {
+            let id = &p["/api/profile/".len()..p.len() - "/secret".len()];
+            api_profile_set_secret(id, &req.body)
+        }
+        ("DELETE", p) if p.starts_with("/api/profile/") && p.contains("/secret/") => {
+            // /api/profile/{id}/secret/{env_name}
+            let rest = &p["/api/profile/".len()..];
+            if let Some((id, env_name)) = rest.split_once("/secret/") {
+                api_profile_delete_secret(id, env_name)
+            } else {
+                Response::err(400, "Bad Request", "malformed secret path")
+            }
+        }
         _ => Response::err(404, "Not Found", "no such route"),
     }
+}
+
+// --- Profile endpoints ----------------------------------------------------
+//
+// Profile state lives in three places: the TOML files under
+// ~/.unterm/profiles/, the OS keychain (referenced from [secrets] via
+// `keychain://...` URLs), and ~/.unterm/ssh/config.unterm. Mutating
+// endpoints go through ProfileRegistry which keeps all three in sync
+// — write a TOML, sync_ssh_config regenerates the SSH fragment, and
+// set_secret round-trips through the keychain.
+//
+// Secret values are accepted from the SPA over the bearer-token-
+// authenticated localhost HTTP server. They are never echoed back in
+// any response — list/get endpoints surface keychain reference URLs
+// only, so an open browser tab can't be tricked into reading a token.
+
+fn profile_summary_json(
+    id: &str,
+    profile: &unterm_profile::ProfileFile,
+    default_id: Option<&str>,
+) -> Value {
+    let today = chrono::Local::now().date_naive();
+    let warnings: Vec<Value> = profile
+        .expiration
+        .iter()
+        .filter_map(|(env, date_str)| {
+            let date = chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d").ok()?;
+            let days = (date - today).num_days();
+            if days <= 7 {
+                Some(json!({
+                    "env_name": env,
+                    "expires_on": date_str,
+                    "days_remaining": days,
+                }))
+            } else {
+                None
+            }
+        })
+        .collect();
+    json!({
+        "id": id,
+        "display_name": profile.display_name,
+        "accent_color": profile.accent_color,
+        "description": profile.description,
+        "secret_count": profile.secrets.len(),
+        "secret_keys": profile.secrets.keys().collect::<Vec<_>>(),
+        "git": {
+            "user_name": profile.git.user_name,
+            "user_email": profile.git.user_email,
+        },
+        "env": profile.env,
+        "ssh": profile.ssh,
+        "expiration": profile.expiration,
+        "warnings": warnings,
+        "is_default": default_id == Some(id),
+    })
+}
+
+fn api_profile_list() -> Response {
+    let registry = match unterm_profile::ProfileRegistry::load() {
+        Ok(r) => r,
+        Err(e) => return Response::err(500, "Internal Error", &e.to_string()),
+    };
+    let default = registry.default_id().map(str::to_string);
+    let profiles: Vec<Value> = registry
+        .iter_ordered()
+        .into_iter()
+        .map(|(id, p)| profile_summary_json(id, p, default.as_deref()))
+        .collect();
+    Response::ok_json(json!({
+        "profiles": profiles,
+        "default": default,
+    }))
+}
+
+fn api_profile_create(body: &[u8]) -> Response {
+    let v = parse_json_body(body);
+    let display_name = match v.get("display_name").and_then(|x| x.as_str()) {
+        Some(s) if !s.trim().is_empty() => s.to_string(),
+        _ => return Response::err(400, "Bad Request", "display_name required"),
+    };
+    let accent = v.get("accent_color").and_then(|x| x.as_str());
+    let mut registry = match unterm_profile::ProfileRegistry::load() {
+        Ok(r) => r,
+        Err(e) => return Response::err(500, "Internal Error", &e.to_string()),
+    };
+    match registry.create(&display_name, accent) {
+        Ok(id) => Response::ok_json(json!({"id": id, "display_name": display_name})),
+        Err(e) => Response::err(500, "Internal Error", &e.to_string()),
+    }
+}
+
+fn api_profile_delete(id: &str) -> Response {
+    use unterm_profile::SecretKey;
+    let mut registry = match unterm_profile::ProfileRegistry::load() {
+        Ok(r) => r,
+        Err(e) => return Response::err(500, "Internal Error", &e.to_string()),
+    };
+    let Some(profile) = registry.get(id).cloned() else {
+        return Response::err(404, "Not Found", "profile not found");
+    };
+    // Best-effort keychain cleanup before removing the TOML.
+    if let Ok(store) = unterm_profile::default_store() {
+        for env in profile.secrets.keys() {
+            let _ = store.delete(&SecretKey::new(id, env));
+        }
+    }
+    if let Err(e) = std::fs::remove_file(unterm_profile::profile_path(id)) {
+        return Response::err(500, "Internal Error", &format!("remove profile: {e}"));
+    }
+    // Reload registry so sync_ssh_config regenerates from current state.
+    let reloaded = unterm_profile::ProfileRegistry::load()
+        .unwrap_or_else(|_| unterm_profile::ProfileRegistry::empty());
+    let _ = reloaded.sync_ssh_config();
+    Response::ok_json(json!({"ok": true}))
+}
+
+fn api_profile_update(id: &str, body: &[u8]) -> Response {
+    let v = parse_json_body(body);
+    let mut registry = match unterm_profile::ProfileRegistry::load() {
+        Ok(r) => r,
+        Err(e) => return Response::err(500, "Internal Error", &e.to_string()),
+    };
+    let Some(mut profile) = registry.get(id).cloned() else {
+        return Response::err(404, "Not Found", "profile not found");
+    };
+    // Patch only the fields present in the body — partial update.
+    if let Some(s) = v.get("display_name").and_then(|x| x.as_str()) {
+        profile.display_name = s.to_string();
+    }
+    if let Some(s) = v.get("accent_color").and_then(|x| x.as_str()) {
+        profile.accent_color = s.to_string();
+    }
+    if let Some(s) = v.get("description").and_then(|x| x.as_str()) {
+        profile.description = s.to_string();
+    }
+    if let Some(g) = v.get("git").and_then(|x| x.as_object()) {
+        if let Some(s) = g.get("user_name").and_then(|x| x.as_str()) {
+            profile.git.user_name = s.to_string();
+        }
+        if let Some(s) = g.get("user_email").and_then(|x| x.as_str()) {
+            profile.git.user_email = s.to_string();
+        }
+    }
+    if let Some(map) = v.get("ssh").and_then(|x| x.as_object()) {
+        profile.ssh.clear();
+        for (k, val) in map {
+            if let Some(s) = val.as_str() {
+                profile.ssh.insert(k.clone(), s.to_string());
+            }
+        }
+    }
+    if let Some(map) = v.get("env").and_then(|x| x.as_object()) {
+        profile.env.clear();
+        for (k, val) in map {
+            if let Some(s) = val.as_str() {
+                profile.env.insert(k.clone(), s.to_string());
+            }
+        }
+    }
+    if let Err(e) = registry.save_profile(id, profile) {
+        return Response::err(500, "Internal Error", &e.to_string());
+    }
+    Response::ok_json(json!({"ok": true}))
+}
+
+fn api_profile_set_secret(id: &str, body: &[u8]) -> Response {
+    let v = parse_json_body(body);
+    let env_name = match v.get("env_name").and_then(|x| x.as_str()) {
+        Some(s) if !s.is_empty() => s.to_string(),
+        _ => return Response::err(400, "Bad Request", "env_name required"),
+    };
+    let value = match v.get("value").and_then(|x| x.as_str()) {
+        Some(s) if !s.is_empty() => s.to_string(),
+        _ => return Response::err(400, "Bad Request", "non-empty value required"),
+    };
+    let mut registry = match unterm_profile::ProfileRegistry::load() {
+        Ok(r) => r,
+        Err(e) => return Response::err(500, "Internal Error", &e.to_string()),
+    };
+    let store = match unterm_profile::default_store() {
+        Ok(s) => s,
+        Err(e) => return Response::err(500, "Internal Error", &format!("keychain: {e}")),
+    };
+    if let Err(e) = registry.set_secret(store.as_ref(), id, &env_name, &value) {
+        return Response::err(500, "Internal Error", &e.to_string());
+    }
+    Response::ok_json(json!({"ok": true, "env_name": env_name}))
+}
+
+fn api_profile_delete_secret(id: &str, env_name: &str) -> Response {
+    use unterm_profile::SecretKey;
+    let mut registry = match unterm_profile::ProfileRegistry::load() {
+        Ok(r) => r,
+        Err(e) => return Response::err(500, "Internal Error", &e.to_string()),
+    };
+    let Some(mut profile) = registry.get(id).cloned() else {
+        return Response::err(404, "Not Found", "profile not found");
+    };
+    if profile.secrets.remove(env_name).is_none() {
+        return Response::err(404, "Not Found", "secret not on this profile");
+    }
+    // Drop the keychain entry too. Idempotent — if it was already
+    // removed out-of-band, the delete returns Ok.
+    if let Ok(store) = unterm_profile::default_store() {
+        let _ = store.delete(&SecretKey::new(id, env_name));
+    }
+    profile.expiration.remove(env_name);
+    if let Err(e) = registry.save_profile(id, profile) {
+        return Response::err(500, "Internal Error", &e.to_string());
+    }
+    Response::ok_json(json!({"ok": true}))
+}
+
+fn api_profile_set_default(body: &[u8]) -> Response {
+    let v = parse_json_body(body);
+    let id = v
+        .get("id")
+        .and_then(|x| x.as_str())
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    let mut registry = match unterm_profile::ProfileRegistry::load() {
+        Ok(r) => r,
+        Err(e) => return Response::err(500, "Internal Error", &e.to_string()),
+    };
+    if let Err(e) = registry.set_default(id.clone()) {
+        return Response::err(500, "Internal Error", &e.to_string());
+    }
+    Response::ok_json(json!({"ok": true, "default": id}))
+}
+
+fn api_profile_import_scan() -> Response {
+    let candidates = unterm_profile::sniff::scan_all();
+    let json_list: Vec<Value> = candidates
+        .into_iter()
+        .map(|c| {
+            json!({
+                "source": c.source.as_str(),
+                "label": c.label,
+                "suggested_env_name": c.suggested_env_name,
+                "has_value": c.suggested_value.is_some(),
+                // We deliberately DON'T return `suggested_value` here even
+                // though the sniffer has it — the SPA shouldn't display
+                // raw tokens, and shipping them over HTTP (even on
+                // localhost) is an unnecessary exposure. The wizard
+                // passes the candidate identity (source/label/env_name)
+                // back to the server, which re-runs the sniffer just for
+                // that source to get a fresh value. See
+                // api_profile_import_scan_value.
+                "host": c.host,
+                "user": c.user,
+            })
+        })
+        .collect();
+    Response::ok_json(json!({"candidates": json_list}))
+}
+
+fn api_profile_ssh_include_status() -> Response {
+    Response::ok_json(json!({
+        "installed": unterm_profile::ssh::user_config_has_include(),
+        "user_config_path": unterm_profile::ssh::user_ssh_config_path()
+            .map(|p| p.display().to_string()),
+        "include_path": unterm_profile::ssh::ssh_config_unterm_path()
+            .display()
+            .to_string(),
+    }))
+}
+
+fn api_profile_install_ssh_include() -> Response {
+    let Some(path) = unterm_profile::ssh::user_ssh_config_path() else {
+        return Response::err(500, "Internal Error", "no home dir");
+    };
+    // Read existing content (if any) and check for the Include line.
+    let existing = std::fs::read_to_string(&path).unwrap_or_default();
+    if existing
+        .lines()
+        .any(|l| l.trim().starts_with("Include") && l.contains("config.unterm"))
+    {
+        return Response::ok_json(json!({"ok": true, "already_present": true}));
+    }
+    if let Some(parent) = path.parent() {
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            return Response::err(500, "Internal Error", &format!("create dir: {e}"));
+        }
+    }
+    // Append (or create) — leading newline so we don't fuse with the
+    // previous line if the file didn't end with one. The header
+    // comment is preserved so the user knows where the line came from.
+    let mut appended = existing;
+    if !appended.is_empty() && !appended.ends_with('\n') {
+        appended.push('\n');
+    }
+    appended.push_str(
+        "\n# Added by Unterm — exposes per-profile SSH key routing.\n\
+         Include ~/.unterm/ssh/config.unterm\n",
+    );
+    if let Err(e) = std::fs::write(&path, appended) {
+        return Response::err(500, "Internal Error", &format!("write ssh config: {e}"));
+    }
+    Response::ok_json(json!({"ok": true, "already_present": false}))
 }
 
 // --- i18n endpoints --------------------------------------------------------

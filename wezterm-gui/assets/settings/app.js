@@ -31,6 +31,39 @@ function untermSettings() {
     },
     proxyForm: { http_proxy: '', socks_proxy: '', no_proxy: '' },
     recording: { active: false },
+
+    // Identity profiles state. Backed by /api/profile/*. Loaded on first
+    // visit to the Profiles tab (lazy — most users won't touch profiles).
+    profiles: {
+      loaded: false,
+      loading: false,
+      list: [],
+      defaultId: null,
+      sshInclude: { installed: false, user_config_path: '', include_path: '' },
+      newForm: { open: false, display_name: '', accent_color: '#10b981' },
+      expandedId: null,
+      // Per-profile inline forms keyed by profile id. We keep them
+      // distinct per profile rather than a single global so expanding
+      // two cards doesn't crosswire their inputs.
+      secretForms: {},    // id -> { env_name: '', value: '' }
+      gitForms: {},       // id -> { user_name: '', user_email: '' }
+      sshForms: {},       // id -> { host: '', key_path: '' }
+    },
+
+    // Onboarding wizard state. Used by both first-launch detection and
+    // the manual "Run wizard" button. One-step UI: scan, present
+    // candidates with checkboxes + paste boxes, click "Create".
+    wizard: {
+      active: false,
+      loading: false,
+      candidates: [],
+      // Index → boolean. Default true for candidates with values, false
+      // for those needing manual paste (avoids accidental empty submit).
+      selected: {},
+      manualValues: {},   // index → user-entered value for has_value=false candidates
+      profileName: 'Personal',
+      accentColor: '#10b981',
+    },
     sessions: [],
     sessionMarkdown: null,
     currentSessionId: null,
@@ -46,6 +79,7 @@ function untermSettings() {
     get nav() {
       return [
         { id: 'general', label: this.t('web.nav.general') },
+        { id: 'profiles', label: this.t('web.nav.profiles') },
         { id: 'appearance', label: this.t('web.nav.appearance') },
         { id: 'proxy', label: this.t('web.nav.proxy') },
         { id: 'scrollback', label: this.t('web.nav.scrollback') },
@@ -359,6 +393,273 @@ function untermSettings() {
     select(id) {
       this.active = id;
       if (id === 'recording') this._recordingSeen = true;
+      // Lazy-load profiles on first visit so users who never touch the
+      // tab don't pay for the registry-load + sniffer scan.
+      if (id === 'profiles' && !this.profiles.loaded) this.loadProfiles();
+    },
+
+    // ---- Identity profiles ----
+    //
+    // All mutations re-fetch the full list afterward rather than
+    // optimistically patching local state. Profile data is small (one
+    // TOML file per profile) and the registry-load on the server side
+    // is fast, so the safety of "what's displayed always matches what's
+    // on disk" wins over micro-optimization.
+
+    async loadProfiles() {
+      this.profiles.loading = true;
+      try {
+        const [data, ssh] = await Promise.all([
+          this.api('GET', '/api/profile/list'),
+          this.api('GET', '/api/profile/ssh-include-status'),
+        ]);
+        this.profiles.list = data.profiles || [];
+        this.profiles.defaultId = data.default;
+        this.profiles.sshInclude = ssh;
+        // Seed inline forms for each profile so x-model bindings have
+        // something to write into. Missing entries → empty defaults.
+        for (const p of this.profiles.list) {
+          if (!this.profiles.secretForms[p.id]) this.profiles.secretForms[p.id] = { env_name: '', value: '' };
+          if (!this.profiles.gitForms[p.id]) this.profiles.gitForms[p.id] = { user_name: p.git.user_name, user_email: p.git.user_email };
+          if (!this.profiles.sshForms[p.id]) this.profiles.sshForms[p.id] = { host: '', key_path: '' };
+        }
+        this.profiles.loaded = true;
+      } catch (e) {
+        this.toast(this.t('web.toast.profile_load_failed').replace('{err}', e.message), 'error');
+      } finally {
+        this.profiles.loading = false;
+      }
+    },
+
+    async createProfile() {
+      const dn = this.profiles.newForm.display_name.trim();
+      if (!dn) {
+        this.toast(this.t('web.profiles.toast.name_required'), 'error');
+        return;
+      }
+      try {
+        await this.api('POST', '/api/profile/create', {
+          display_name: dn,
+          accent_color: this.profiles.newForm.accent_color || undefined,
+        });
+        this.profiles.newForm = { open: false, display_name: '', accent_color: '#10b981' };
+        await this.loadProfiles();
+        this.toast(this.t('web.profiles.toast.created').replace('{name}', dn));
+      } catch (e) {
+        this.toast(this.t('web.profiles.toast.create_failed').replace('{err}', e.message), 'error');
+      }
+    },
+
+    async deleteProfile(id, displayName) {
+      if (!confirm(this.t('web.profiles.confirm.delete').replace('{name}', displayName))) return;
+      try {
+        await this.api('DELETE', '/api/profile/' + encodeURIComponent(id));
+        await this.loadProfiles();
+        this.toast(this.t('web.profiles.toast.deleted').replace('{name}', displayName));
+      } catch (e) {
+        this.toast(this.t('web.profiles.toast.delete_failed').replace('{err}', e.message), 'error');
+      }
+    },
+
+    async setProfileAsDefault(id) {
+      try {
+        await this.api('POST', '/api/profile/set-default', { id });
+        await this.loadProfiles();
+        this.toast(this.t('web.profiles.toast.default_set'));
+      } catch (e) {
+        this.toast(this.t('web.profiles.toast.default_failed').replace('{err}', e.message), 'error');
+      }
+    },
+
+    async addSecret(id) {
+      const f = this.profiles.secretForms[id];
+      if (!f || !f.env_name.trim() || !f.value) {
+        this.toast(this.t('web.profiles.toast.secret_required'), 'error');
+        return;
+      }
+      try {
+        await this.api('POST', '/api/profile/' + encodeURIComponent(id) + '/secret', {
+          env_name: f.env_name.trim(),
+          value: f.value,
+        });
+        this.profiles.secretForms[id] = { env_name: '', value: '' };
+        await this.loadProfiles();
+        this.toast(this.t('web.profiles.toast.secret_saved'));
+      } catch (e) {
+        this.toast(this.t('web.profiles.toast.secret_failed').replace('{err}', e.message), 'error');
+      }
+    },
+
+    async deleteSecret(id, envName) {
+      if (!confirm(this.t('web.profiles.confirm.secret_delete').replace('{env}', envName))) return;
+      try {
+        await this.api(
+          'DELETE',
+          '/api/profile/' + encodeURIComponent(id) + '/secret/' + encodeURIComponent(envName),
+        );
+        await this.loadProfiles();
+      } catch (e) {
+        this.toast(this.t('web.profiles.toast.secret_failed').replace('{err}', e.message), 'error');
+      }
+    },
+
+    async saveGitIdentity(id) {
+      const g = this.profiles.gitForms[id] || {};
+      try {
+        await this.api('PUT', '/api/profile/' + encodeURIComponent(id), {
+          git: { user_name: g.user_name || '', user_email: g.user_email || '' },
+        });
+        await this.loadProfiles();
+        this.toast(this.t('web.profiles.toast.git_saved'));
+      } catch (e) {
+        this.toast(this.t('web.profiles.toast.git_failed').replace('{err}', e.message), 'error');
+      }
+    },
+
+    async addSshRoute(id, profile) {
+      const f = this.profiles.sshForms[id];
+      if (!f || !f.host.trim() || !f.key_path.trim()) {
+        this.toast(this.t('web.profiles.toast.ssh_required'), 'error');
+        return;
+      }
+      const merged = Object.assign({}, profile.ssh, { [f.host.trim()]: f.key_path.trim() });
+      try {
+        await this.api('PUT', '/api/profile/' + encodeURIComponent(id), { ssh: merged });
+        this.profiles.sshForms[id] = { host: '', key_path: '' };
+        await this.loadProfiles();
+        this.toast(this.t('web.profiles.toast.ssh_saved'));
+      } catch (e) {
+        this.toast(this.t('web.profiles.toast.ssh_failed').replace('{err}', e.message), 'error');
+      }
+    },
+
+    async removeSshRoute(id, profile, host) {
+      const next = Object.assign({}, profile.ssh);
+      delete next[host];
+      try {
+        await this.api('PUT', '/api/profile/' + encodeURIComponent(id), { ssh: next });
+        await this.loadProfiles();
+      } catch (e) {
+        this.toast(this.t('web.profiles.toast.ssh_failed').replace('{err}', e.message), 'error');
+      }
+    },
+
+    async installSshInclude() {
+      try {
+        const r = await this.api('POST', '/api/profile/install-ssh-include');
+        await this.loadProfiles();
+        this.toast(
+          r.already_present
+            ? this.t('web.profiles.toast.ssh_include_already')
+            : this.t('web.profiles.toast.ssh_include_installed'),
+        );
+      } catch (e) {
+        this.toast(this.t('web.profiles.toast.ssh_include_failed').replace('{err}', e.message), 'error');
+      }
+    },
+
+    // ---- Onboarding wizard ----
+
+    async runImportWizard() {
+      this.wizard.active = true;
+      this.wizard.loading = true;
+      this.wizard.candidates = [];
+      this.wizard.selected = {};
+      this.wizard.manualValues = {};
+      try {
+        const r = await this.api('GET', '/api/profile/import-scan');
+        this.wizard.candidates = r.candidates || [];
+        // Default-select candidates whose values we can extract; leave
+        // manual-paste candidates unchecked so the user has to opt in.
+        for (let i = 0; i < this.wizard.candidates.length; i++) {
+          this.wizard.selected[i] = this.wizard.candidates[i].has_value;
+        }
+      } catch (e) {
+        this.toast(this.t('web.profiles.toast.scan_failed').replace('{err}', e.message), 'error');
+      } finally {
+        this.wizard.loading = false;
+      }
+    },
+
+    cancelWizard() {
+      this.wizard.active = false;
+    },
+
+    async finalizeWizard() {
+      const profileName = this.wizard.profileName.trim() || 'Personal';
+      const picks = this.wizard.candidates
+        .map((c, i) => ({ c, i }))
+        .filter(({ i }) => this.wizard.selected[i]);
+
+      if (picks.length === 0) {
+        this.toast(this.t('web.profiles.wizard.toast.nothing_selected'), 'error');
+        return;
+      }
+
+      // Validate: every selected has-no-value candidate needs a manual
+      // value the user pasted in. Surface ALL missing in one go so they
+      // can fill them and resubmit, rather than fighting one at a time.
+      const missing = picks.filter(({ c, i }) => !c.has_value && !this.wizard.manualValues[i]);
+      if (missing.length > 0) {
+        this.toast(
+          this.t('web.profiles.wizard.toast.missing_value').replace('{count}', missing.length),
+          'error',
+        );
+        return;
+      }
+
+      try {
+        // Step 1: create the profile.
+        const created = await this.api('POST', '/api/profile/create', {
+          display_name: profileName,
+          accent_color: this.wizard.accentColor,
+        });
+        const id = created.id;
+
+        // Step 2: for each picked candidate that has a value, we have
+        // to fetch it from the server now (the scan API doesn't return
+        // raw values for safety). For has_value=false, use the manual
+        // paste. For has_value=true, run a single-source rescan and
+        // match by env_name to pull the value out.
+        // Simplification: in the SPA, has_value=true candidates send
+        // env_name to the server which re-runs the matching sniffer
+        // and stores the value directly (server already has access).
+        // For now, since /api/profile/import-scan doesn't expose
+        // values, has_value=true picks need a follow-up "import-fetch"
+        // call. Wire that in when the time comes. v1 simpler path:
+        // ONLY accept manual paste, so we don't need the value-fetch
+        // endpoint. has_value=true serves as a discovery hint only.
+        for (const { c, i } of picks) {
+          if (!this.wizard.manualValues[i]) continue; // need a value to store
+          await this.api('POST', '/api/profile/' + encodeURIComponent(id) + '/secret', {
+            env_name: c.suggested_env_name,
+            value: this.wizard.manualValues[i],
+          });
+        }
+
+        // Step 3: for SSH-type candidates, also write the host→key
+        // routing into the profile's [ssh] table.
+        const sshPicks = picks.filter(({ c }) => c.source === 'ssh' && c.host);
+        if (sshPicks.length > 0) {
+          const sshMap = {};
+          for (const { c } of sshPicks) {
+            // c.label includes the key path after the arrow; pull it.
+            const m = c.label.match(/→\s+(.+)$/);
+            if (m && c.host) sshMap[c.host] = m[1];
+          }
+          if (Object.keys(sshMap).length > 0) {
+            await this.api('PUT', '/api/profile/' + encodeURIComponent(id), { ssh: sshMap });
+          }
+        }
+
+        this.wizard.active = false;
+        await this.loadProfiles();
+        this.toast(
+          this.t('web.profiles.wizard.toast.success').replace('{name}', profileName),
+        );
+      } catch (e) {
+        this.toast(this.t('web.profiles.wizard.toast.failed').replace('{err}', e.message), 'error');
+      }
     },
 
     async applyTheme(id) {
