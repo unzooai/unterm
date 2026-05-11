@@ -19,23 +19,22 @@ publish = false
 [dependencies]
 anyhow.workspace = true
 serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+# Need `std` (which implies `alloc`) so the `Engine::decode -> Vec<u8>`
+# convenience is available — workspace-level base64 turns default-features
+# off for binary size, but the sniffer code needs Vec output for the
+# Docker auth base64-decode path.
+base64 = { workspace = true, features = ["std"] }
 toml.workspace = true
 thiserror.workspace = true
 unicode-segmentation.workspace = true
 dirs-next.workspace = true
 log.workspace = true
-
-# Platform-specific secret-store backends are pulled in only on their
-# target OS. The trait `SecretStore` lives in `store.rs` regardless of
-# platform; the impl modules are cfg-gated and added in a subsequent
-# step as part of v0.13.
-[target.'cfg(target_os = "macos")'.dependencies]
-security-framework.workspace = true
-
-[target.'cfg(target_os = "windows")'.dependencies]
-# windows-rs Credential APIs added when store_windows.rs lands.
-
-[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
-# secret-service crate added when store_linux.rs lands.
+# Cross-platform OS keychain. Backend selection is at compile time via
+# `keyring` feature flags in the workspace Cargo.toml — Keychain on
+# macOS, Credential Manager on Windows, Secret Service (D-Bus +
+# libsecret) on Linux. One trait impl (`store_keyring.rs`) covers all
+# three; no per-OS module needed.
+keyring.workspace = true
 
 [dev-dependencies]

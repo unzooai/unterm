@@ -22,11 +22,10 @@
 pub mod config;
 pub mod registry;
 pub mod slugify;
+pub mod sniff;
 pub mod ssh;
 pub mod store;
-
-#[cfg(target_os = "macos")]
-pub mod store_macos;
+pub mod store_keyring;
 
 pub use config::{GitIdentity, IndexFile, NpmConfig, ProfileFile};
 pub use registry::ProfileRegistry;

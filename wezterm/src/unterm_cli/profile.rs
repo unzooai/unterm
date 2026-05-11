@@ -107,6 +107,19 @@ pub enum ProfileSubCommand {
         #[arg(long, value_hint = ValueHint::DirPath)]
         cwd: Option<PathBuf>,
     },
+
+    /// Scan the local filesystem for credentials already configured in
+    /// `gh` / `aws` / `npm` / `ssh` / `docker` / `gcloud` / `.netrc`
+    /// and list them. Read-only — does NOT modify any source files
+    /// and does NOT touch the keychain. Pair with `profile create` +
+    /// `profile set-secret` to bring discovered credentials under
+    /// Unterm management.
+    Import {
+        /// Restrict to a single source. Default: all 7 sniffers.
+        #[arg(long, value_name = "SOURCE",
+              value_parser = ["gh","aws","npm","ssh","docker","gcloud","netrc"])]
+        source: Option<String>,
+    },
 }
 
 pub fn run(cmd: ProfileCommand, json_out: bool) -> Result<()> {
@@ -127,7 +140,67 @@ pub fn run(cmd: ProfileCommand, json_out: bool) -> Result<()> {
         ProfileSubCommand::Edit { name } => run_edit(&name),
         ProfileSubCommand::Export { name } => run_export(&name),
         ProfileSubCommand::Spawn { name, cwd } => run_spawn(&name, cwd),
+        ProfileSubCommand::Import { source } => run_import(source.as_deref(), json_out),
     }
+}
+
+fn run_import(source: Option<&str>, json_out: bool) -> Result<()> {
+    use unterm_profile::sniff;
+    let candidates: Vec<sniff::Candidate> = match source {
+        Some("gh") => sniff::gh::sniff()?,
+        Some("aws") => sniff::aws::sniff()?,
+        Some("npm") => sniff::npm::sniff()?,
+        Some("ssh") => sniff::ssh::sniff()?,
+        Some("docker") => sniff::docker::sniff()?,
+        Some("gcloud") => sniff::gcloud::sniff()?,
+        Some("netrc") => sniff::netrc::sniff()?,
+        None => sniff::scan_all(),
+        Some(other) => anyhow::bail!("unknown source: {other}"),
+    };
+
+    if json_out {
+        println!("{}", serde_json::to_string_pretty(&candidates)?);
+        return Ok(());
+    }
+
+    if candidates.is_empty() {
+        println!("No credentials found in any of the 7 supported sources.");
+        println!("Tools we look at:");
+        println!("  gh      ~/.config/gh/hosts.yml");
+        println!("  aws     ~/.aws/credentials");
+        println!("  npm     ~/.npmrc");
+        println!("  ssh     ~/.ssh/{{config, id_*}}");
+        println!("  docker  ~/.docker/config.json");
+        println!("  gcloud  `gcloud config configurations list`");
+        println!("  netrc   ~/.netrc");
+        return Ok(());
+    }
+
+    // Group by source for a tidy listing.
+    let mut by_source: std::collections::BTreeMap<&str, Vec<&sniff::Candidate>> =
+        std::collections::BTreeMap::new();
+    for c in &candidates {
+        by_source.entry(c.source.as_str()).or_default().push(c);
+    }
+    for (src, list) in by_source {
+        println!("\n{} ({} found):", src, list.len());
+        for c in list {
+            let value_hint = match &c.suggested_value {
+                Some(_) => "value available",
+                None => "needs manual paste",
+            };
+            let env = if c.suggested_env_name.is_empty() {
+                String::from("(no env)")
+            } else {
+                format!("→ ${}", c.suggested_env_name)
+            };
+            println!("  {:<40}  {:<32}  [{value_hint}]", c.label, env);
+        }
+    }
+    println!("\nNext: create a profile and import the values you want with");
+    println!("  unterm-cli profile create \"My Profile\"");
+    println!("  echo <value> | unterm-cli profile set-secret \"My Profile\" <ENV_NAME> --from-stdin");
+    Ok(())
 }
 
 fn load_registry() -> Result<ProfileRegistry> {

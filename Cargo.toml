@@ -192,12 +192,22 @@ rusqlite = "0.32"
 # macOS Keychain access for unterm-profile's identity secret store.
 # Pinned to 2.x; the 3.x line dropped the simple `passwords` module that
 # wraps SecKeychain generic-password APIs we rely on.
+# Cross-platform OS keychain access for unterm-profile's SecretStore.
+# Uses Keychain on macOS, Credential Manager on Windows, libsecret /
+# Secret Service via D-Bus on Linux. We picked keyring over wiring
+# three platform crates by hand so all the SecretStore impls stay in
+# one ~100-line file; the crate already handles the wide-string
+# encoding on Windows and the D-Bus session connection on Linux.
+keyring = { version = "2.3", default-features = false, features = [
+  "platform-macos",
+  "platform-windows",
+  "linux-secret-service-rt-async-io-crypto-rust",
+] }
 # Hidden-prompt input for `unterm-cli profile set-secret` so vibe coders
 # don't accidentally paste a token into shell history. Reads from /dev/tty
 # (not stdin) so pipe-driven non-interactive flows can route around it
 # via the `--from-stdin` flag in the subcommand.
 rpassword = "7.3"
-security-framework = "2.11"
 serde = {version="1.0", default-features=false, features = ["derive"]}
 serde-funcs = { path = "lua-api-crates/serde-funcs" }
 serde_json = "1.0"

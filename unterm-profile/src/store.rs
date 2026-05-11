@@ -106,27 +106,13 @@ pub trait SecretStore: Send + Sync {
 
 /// Returns the platform-default secret store.
 ///
-/// Selection is cfg-driven:
-/// - macOS → [`crate::store_macos`] using `security-framework`'s
-///   generic-password API.
-/// - Windows → `store_windows` (lands with task #18; until then this
-///   returns [`SecretError::BackendUnavailable`]).
-/// - Linux → `store_linux` (lands with task #19; same fallback).
+/// Backed by [`crate::store_keyring::KeyringStore`], which selects the
+/// native vault at compile time via `keyring` feature flags:
+/// Keychain on macOS, Credential Manager on Windows, Secret Service /
+/// libsecret on Linux. A single implementation now covers all three
+/// platforms, so the caller doesn't need to know what's underneath.
 pub fn default_store() -> Result<Box<dyn SecretStore>> {
-    #[cfg(target_os = "macos")]
-    {
-        return crate::store_macos::open();
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        Err(SecretError::BackendUnavailable(
-            "no SecretStore backend compiled in for this platform yet \
-             (Windows + Linux backends land in tasks #18/#19)"
-                .to_string(),
-        )
-        .into())
-    }
+    crate::store_keyring::open()
 }
 
 #[cfg(test)]
