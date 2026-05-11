@@ -33,6 +33,15 @@ pub fn start_mcp_server() -> (u16, String) {
         }
     };
 
+    // If we were launched with `--profile X` (which sets
+    // UNTERM_STARTUP_PROFILE in main.rs), resolve it against the
+    // profile registry and stamp the resulting ID into this
+    // instance's JSON now — before any pane gets spawned, so the
+    // very first shell already inherits the profile's env. Failures
+    // log a warning and the window just starts un-bound, which is
+    // strictly better than blocking startup.
+    apply_startup_profile_binding();
+
     let token = info.auth_token.clone();
     let token_for_thread = token.clone();
     thread::Builder::new()
@@ -46,6 +55,40 @@ pub fn start_mcp_server() -> (u16, String) {
 
     log::info!("MCP server listening on {}:{}", SERVER_BIND, port);
     (port, token)
+}
+
+/// Honor the `UNTERM_STARTUP_PROFILE` env var (set by `unterm --profile X`)
+/// by resolving the name through the profile registry and persisting
+/// the matched ID into this instance's JSON. Failures degrade
+/// gracefully: a missing registry, a typo in the name, or a keychain
+/// hiccup all just log a warning. We *always* clear the env var
+/// afterward so child processes spawned inside Unterm don't inherit
+/// the marker and re-attempt to claim the profile.
+fn apply_startup_profile_binding() {
+    let want = std::env::var("UNTERM_STARTUP_PROFILE").unwrap_or_default();
+    std::env::remove_var("UNTERM_STARTUP_PROFILE");
+    if want.is_empty() {
+        return;
+    }
+    let registry = match unterm_profile::ProfileRegistry::load() {
+        Ok(r) => r,
+        Err(e) => {
+            log::warn!("startup profile {want:?}: registry load failed: {e:#}");
+            return;
+        }
+    };
+    let Some((id, _)) = registry.resolve(&want) else {
+        log::warn!(
+            "startup profile {want:?}: no match (try `unterm-cli profile list`)"
+        );
+        return;
+    };
+    let id_owned = id.to_string();
+    if let Err(e) = server_info::set_profile(Some(id_owned.clone())) {
+        log::warn!("startup profile {want:?}: set_profile failed: {e:#}");
+        return;
+    }
+    log::info!("Instance bound to profile {id_owned}");
 }
 
 fn run_server(listener: TcpListener, auth_token: &str) -> Result<()> {

@@ -12,9 +12,10 @@
 //! alongside the MCP `profile.*` namespace and are wired separately.
 
 use anyhow::{Context, Result};
-use clap::Parser;
+use clap::{Parser, ValueHint};
 use std::io::IsTerminal;
 use std::io::Read;
+use std::path::PathBuf;
 use unterm_profile::{default_store, profile_path, ProfileFile, ProfileRegistry, SecretKey};
 
 #[derive(Debug, Parser, Clone)]
@@ -93,6 +94,19 @@ pub enum ProfileSubCommand {
         /// Display name or ID. Unique-prefix matching is allowed.
         name: String,
     },
+
+    /// Open a new Unterm window bound to this profile. Resolves to the
+    /// matching ID and execs `unterm --profile <id>`, which writes the
+    /// binding into the new instance's JSON file before the first pane
+    /// spawns. The Unterm window's panes then inherit the profile's
+    /// keychain-backed env (UNTERM_PROFILE, GITHUB_TOKEN, GIT_AUTHOR_*, ...).
+    Spawn {
+        /// Display name or ID of the profile. Unique-prefix matching allowed.
+        name: String,
+        /// Working directory for the first pane.
+        #[arg(long, value_hint = ValueHint::DirPath)]
+        cwd: Option<PathBuf>,
+    },
 }
 
 pub fn run(cmd: ProfileCommand, json_out: bool) -> Result<()> {
@@ -112,6 +126,7 @@ pub fn run(cmd: ProfileCommand, json_out: bool) -> Result<()> {
         ProfileSubCommand::Audit => run_audit(json_out),
         ProfileSubCommand::Edit { name } => run_edit(&name),
         ProfileSubCommand::Export { name } => run_export(&name),
+        ProfileSubCommand::Spawn { name, cwd } => run_spawn(&name, cwd),
     }
 }
 
@@ -407,6 +422,53 @@ fn run_export(name: &str) -> Result<()> {
         let escaped = v.replace('\'', "'\\''");
         println!("export {k}='{escaped}'");
     }
+    Ok(())
+}
+
+fn run_spawn(name: &str, cwd: Option<PathBuf>) -> Result<()> {
+    let r = load_registry()?;
+    let id = resolve_id(&r, name)?;
+
+    // Locate the `unterm` binary. We're a sibling binary in the same
+    // target directory (release artifacts ship them together), so look
+    // alongside our own path first. Falls back to bare "unterm" on
+    // PATH if the sibling lookup fails — useful in development setups
+    // where unterm-cli might be launched via `cargo run` from a
+    // workspace that puts artifacts in a different dir.
+    let unterm_exe = match std::env::current_exe() {
+        Ok(self_path) => self_path
+            .parent()
+            .map(|dir| {
+                dir.join(if cfg!(windows) {
+                    "unterm.exe"
+                } else {
+                    "unterm"
+                })
+            })
+            .filter(|p| p.exists())
+            .unwrap_or_else(|| PathBuf::from("unterm")),
+        Err(_) => PathBuf::from("unterm"),
+    };
+
+    let mut cmd = std::process::Command::new(&unterm_exe);
+    cmd.arg("--profile").arg(&id);
+    if let Some(dir) = cwd {
+        // `start --cwd` is wezterm-gui's existing convention for
+        // setting the first pane's working directory. The flag MUST
+        // come *after* the subcommand, hence the explicit `start`.
+        cmd.arg("start").arg("--cwd").arg(dir);
+    }
+
+    // Spawn detached: we don't want unterm-cli to block on the GUI
+    // window's lifetime. On Unix, dropping the Child handle is enough;
+    // on Windows the default process creation is also background-safe.
+    let child = cmd
+        .spawn()
+        .with_context(|| format!("exec {} --profile {id}", unterm_exe.display()))?;
+    println!(
+        "Spawning Unterm window with profile {id:?} (pid {})",
+        child.id()
+    );
     Ok(())
 }
 

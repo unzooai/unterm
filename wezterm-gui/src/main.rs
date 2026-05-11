@@ -107,6 +107,21 @@ struct Opt {
     #[allow(dead_code)]
     attach_parent_console: bool,
 
+    /// Bind this Unterm window to the named identity profile. Accepts
+    /// display name OR slugified ID OR a unique case-insensitive
+    /// prefix (same matching as `unterm-cli profile spawn`). Every
+    /// pane in this window will then have the profile's `[secrets]`
+    /// resolved from the OS keychain and injected as env vars
+    /// (`UNTERM_PROFILE`, `GITHUB_TOKEN`, `GIT_AUTHOR_*`, etc.).
+    ///
+    /// Implementation note: this flag is forwarded to the spawn
+    /// pipeline via the `UNTERM_STARTUP_PROFILE` env var, which the
+    /// MCP server clears once it's been written into the per-instance
+    /// JSON. Subprocesses spawned inside the window therefore don't
+    /// inherit the marker — only the parent Unterm process acts on it.
+    #[arg(long = "profile", value_name = "NAME")]
+    profile: Option<String>,
+
     #[command(subcommand)]
     cmd: Option<SubCommand>,
 }
@@ -1270,6 +1285,15 @@ fn run() -> anyhow::Result<()> {
     env_bootstrap::bootstrap();
 
     let opts = Opt::parse();
+
+    // Hand the --profile choice off to the MCP server startup path
+    // via an env var. Doing this *before* env_bootstrap-ish work or
+    // any subprocess fork-off avoids the marker leaking into spawned
+    // shells. The MCP server reads, resolves to an ID, persists it
+    // into `~/.unterm/instances/<id>.json`, and unsets the var.
+    if let Some(profile) = opts.profile.as_deref() {
+        std::env::set_var("UNTERM_STARTUP_PROFILE", profile);
+    }
 
     // This is a bit gross.
     // In order to not to automatically open a standard windows console when

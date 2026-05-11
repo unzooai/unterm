@@ -164,6 +164,14 @@ impl McpHandler {
             "instance.info" => self.instance_info(),
             "instance.set_title" => self.instance_set_title(params),
             "instance.focus" => self.instance_focus(params),
+            // Identity profiles: read-only surface for agents. Writes
+            // (create / set-secret / delete) and `profile.spawn` (which
+            // would have to open a new GUI window) are intentionally
+            // CLI-only — that keeps the agent-facing surface narrow
+            // and means no plausible MCP call can write to keychain.
+            "profile.list" => self.profile_list(),
+            "profile.current" => self.profile_current(),
+            "profile.audit" => self.profile_audit(),
             "selftest.run" => self.selftest_run(params),
             // Session recording
             "session.recording_start" => self.session_recording_start(params),
@@ -436,6 +444,83 @@ impl McpHandler {
         Ok(json!({
             "ok": true,
             "note": "OS-level window raise not yet implemented — call returns ok so callers can rely on the shape"
+        }))
+    }
+
+    /// `profile.list` — every identity profile on disk plus a hint at
+    /// which one is the registered default. We deliberately do NOT
+    /// expose `secrets` values here — only counts and metadata, so an
+    /// over-eager agent can't drain the keychain through one call.
+    fn profile_list(&self) -> Result<Value> {
+        let registry = unterm_profile::ProfileRegistry::load()
+            .context("load profile registry")?;
+        let default = registry.default_id().map(str::to_string);
+        let profiles: Vec<Value> = registry
+            .iter_ordered()
+            .into_iter()
+            .map(|(id, p)| {
+                json!({
+                    "id": id,
+                    "display_name": p.display_name,
+                    "accent_color": p.accent_color,
+                    "description": p.description,
+                    "secret_count": p.secrets.len(),
+                    "expiration_count": p.expiration.len(),
+                    "is_default": default.as_deref() == Some(id),
+                })
+            })
+            .collect();
+        Ok(json!({
+            "profiles": profiles,
+            "default": default,
+        }))
+    }
+
+    /// `profile.current` — which profile is bound to THIS Unterm
+    /// window (the one running the MCP server the caller connected
+    /// to). Agents use this to know "what identity will my next
+    /// command run under?" before triggering destructive ops.
+    fn profile_current(&self) -> Result<Value> {
+        let info = crate::server_info::read_current();
+        Ok(json!({
+            "instance": info.id,
+            "profile": info.profile,
+        }))
+    }
+
+    /// `profile.audit` — list secrets expiring within 7 days plus a
+    /// healthy count for the rest. Lets agents proactively warn users
+    /// (or surface a "rotate your GitHub PAT" reminder) without the
+    /// user having to remember to check.
+    fn profile_audit(&self) -> Result<Value> {
+        let registry = unterm_profile::ProfileRegistry::load()
+            .context("load profile registry")?;
+        let today = chrono::Local::now().date_naive();
+        let mut warnings = Vec::new();
+        let mut healthy = 0usize;
+        for (id, p) in registry.iter_ordered() {
+            for (env_name, date_str) in &p.expiration {
+                let Ok(date) = chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d")
+                else {
+                    continue;
+                };
+                let days = (date - today).num_days();
+                if days <= 7 {
+                    warnings.push(json!({
+                        "profile": id,
+                        "display_name": p.display_name,
+                        "env_name": env_name,
+                        "expires_on": date_str,
+                        "days_remaining": days,
+                    }));
+                } else {
+                    healthy += 1;
+                }
+            }
+        }
+        Ok(json!({
+            "warnings": warnings,
+            "healthy_count": healthy,
         }))
     }
 
