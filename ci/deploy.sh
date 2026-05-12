@@ -89,6 +89,20 @@ case ${OSTYPE:-} in
        assets/windows/angle/libEGL.dll \
        assets/windows/angle/libGLESv2.dll \
        "$stagedir/"
+    # Bundle MSVC .pdb files when present. On Windows the toolchain
+    # emits debug info as separate .pdb files next to the .exe rather
+    # than embedding it; backtrace::Backtrace at runtime needs the
+    # .pdb adjacent to the binary to resolve frames to real Rust
+    # symbols + file:line. Without them every frame shows up as the
+    # nearest exported C function (cairo_/git_*) — useless. Bundle
+    # them in the zip whenever they exist (they're absent when
+    # Cargo.toml has `strip = "symbols"`, present when debug info is
+    # enabled).
+    for pdb in unterm.pdb unterm-cli.pdb unterm-mux.pdb; do
+      if [ -f "$TARGET_DIR/release/$pdb" ]; then
+        cp "$TARGET_DIR/release/$pdb" "$stagedir/"
+      fi
+    done
     mkdir -p "$stagedir/mesa"
     cp "$TARGET_DIR/release/mesa/opengl32.dll" "$stagedir/mesa/" || \
       cp assets/windows/mesa/opengl32.dll "$stagedir/mesa/"
