@@ -221,7 +221,7 @@ Response:
 {"jsonrpc":"2.0","id":4,"result":{"ok":true,"note":"stub in v0.9..."}}
 ```
 
-The current implementation returns `ok: true` so agents can rely on the call shape, but the OS-level window-raise side effect is a stub. Scheduled for v0.13+. Workaround for now: the agent can spawn a pane via `session.create` in the target instance, which triggers WezTerm's existing focus behavior, or trip the user's `Cmd-` ` shortcut. Or just rely on the user to alt-tab when the title says it's the right one.
+The current implementation returns `ok: true` so agents can rely on the call shape, but the OS-level window-raise side effect is a stub. Scheduled for v0.14+. Workaround for now: the agent can spawn a pane via `session.create` in the target instance, which triggers WezTerm's existing focus behavior, or trip the user's `Cmd-` ` shortcut. Or just rely on the user to alt-tab when the title says it's the right one.
 
 ## Four orchestration patterns
 

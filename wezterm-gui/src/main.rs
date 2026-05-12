@@ -905,9 +905,24 @@ fn fatal_toast_notification(title: &str, message: &str) {
 fn notify_on_panic() {
     let default_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        if let Some(s) = info.payload().downcast_ref::<&str>() {
-            fatal_toast_notification("Unterm panic", s);
-        }
+        // Capture both &'static str payloads (panic!("literal")) and
+        // String payloads (panic!("formatted {}", x), unwrap(), expect()).
+        // The previous version only checked &str and silently dropped
+        // every formatted panic — which masked the v0.13 Windows AUMID
+        // unwrap as the generic "cannot unwind" abort message.
+        let payload = info.payload();
+        let msg = payload
+            .downcast_ref::<&str>()
+            .map(|s| s.to_string())
+            .or_else(|| payload.downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "<non-string panic>".to_string());
+        // Include location so the toast is actually useful for triage.
+        let toast = if let Some(loc) = info.location() {
+            format!("{} at {}:{}:{}", msg, loc.file(), loc.line(), loc.column())
+        } else {
+            msg
+        };
+        fatal_toast_notification("Unterm panic", &toast);
         default_hook(info);
     }));
 }
@@ -1269,16 +1284,32 @@ pub fn run_ls_fonts(config: config::ConfigHandle, cmd: &LsFontsCommand) -> anyho
 }
 
 fn run() -> anyhow::Result<()> {
-    // Inform the system of our AppUserModelID.
-    // Without this, our toast notifications won't be correctly
-    // attributed to our application.
+    // Inform the system of our AppUserModelID. Without this our toast
+    // notifications won't be correctly attributed to Unterm — but
+    // failing to set it is NOT a reason to refuse to start. Some
+    // Windows configurations (Citrix sandboxing, MSIX deployments
+    // that already pin the AUMID, certain enterprise group policies)
+    // make this call fail with E_ACCESSDENIED or E_INVALIDARG; in
+    // v0.13 we `.unwrap()`'d that result, which panicked here before
+    // env_bootstrap had a chance to install its panic hook — so the
+    // user saw a black window plus a generic "cannot unwind" toast
+    // with no clue what blew up. Now we just log and continue; the
+    // worst case is that toast notifications get attributed to
+    // "unterm.exe" generically instead of "Unterm".
     #[cfg(windows)]
     {
-        unsafe {
+        let aumid = wide_string("com.unzoo.unterm");
+        let result = unsafe {
             ::windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID(
-                ::windows::core::PCWSTR(wide_string("com.unzoo.unterm").as_ptr()),
+                ::windows::core::PCWSTR(aumid.as_ptr()),
             )
-            .unwrap();
+        };
+        // Can't `log::warn!` yet (env_bootstrap hasn't set up the
+        // logger). Use eprintln so anyone running from a console
+        // sees the diagnostic. Logger-based dups land later via the
+        // hook chain once bootstrap() runs.
+        if let Err(e) = result {
+            eprintln!("SetCurrentProcessExplicitAppUserModelID failed: {e:?}");
         }
     }
 

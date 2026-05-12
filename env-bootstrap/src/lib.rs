@@ -166,8 +166,19 @@ pub fn set_lang_from_locale() {
 fn register_panic_hook() {
     let default_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
+        // Cover both &'static str (panic!("literal")) AND String
+        // (panic!("fmt {}", x), unwrap, expect) payloads. Before v0.14
+        // we only handled &str and lost every formatted panic message
+        // to a placeholder — which made unwrap()-style failures on
+        // Windows (where the toast hook also misses String) effectively
+        // invisible and produced spurious "cannot unwind" abort logs
+        // with no root cause.
         let payload = info.payload();
-        let payload = payload.downcast_ref::<&str>().unwrap_or(&"!?");
+        let msg = payload
+            .downcast_ref::<&str>()
+            .map(|s| s.to_string())
+            .or_else(|| payload.downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "<non-string panic>".to_string());
         let bt = backtrace::Backtrace::new();
         if let Some(loc) = info.location() {
             log::error!(
@@ -175,11 +186,11 @@ fn register_panic_hook() {
                 loc.file(),
                 loc.line(),
                 loc.column(),
-                payload,
+                msg,
                 bt
             );
         } else {
-            log::error!("panic - {}\n{:?}", payload, bt);
+            log::error!("panic - {}\n{:?}", msg, bt);
         }
         default_hook(info);
     }));
