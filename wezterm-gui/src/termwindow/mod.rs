@@ -2882,10 +2882,13 @@ impl TermWindow {
         }
     }
 
-    /// Open the Unterm Web Settings UI in the user's default browser. The
-    /// HTTP-Settings server's bound port lives in `~/.unterm/server.json`.
+    /// Open the Unterm Web Settings UI in the user's default browser.
+    /// Uses THIS instance's port (via `read_current`), not whichever
+    /// instance owns active.json — otherwise clicking the chip in
+    /// bravo's status bar opens alpha's web settings, which is
+    /// confusing and reaches the wrong process's state.
     pub(crate) fn open_web_settings(&mut self) {
-        let info = crate::server_info::read();
+        let info = crate::server_info::read_current();
         if info.http_port == 0 {
             log::warn!("web settings: http_port not yet bound; cannot open browser");
             return;

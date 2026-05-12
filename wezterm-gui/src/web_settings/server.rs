@@ -284,9 +284,23 @@ fn route(req: &Request, auth_token: &str, handler: &McpHandler) -> Response {
         return Response::text(204, "No Content", "image/x-icon", Vec::new());
     }
     if req.method == "GET" && path == "/bootstrap.json" {
-        // Re-read from disk so the response always matches the on-disk
-        // server.json (in case anything edits it externally).
-        let info = server_info::read();
+        // Return THIS instance's token + ports, not whichever instance
+        // happens to be the registered "active" pointer. Critical for
+        // multi-instance: when alpha is the active pointer and bravo's
+        // Web Settings page bootstraps, it must get bravo's token —
+        // otherwise the SPA tries to talk to its own HTTP server with
+        // alpha's token and every subsequent /api/* call 401s.
+        //
+        // `read_current()` reads this process's per-instance JSON file
+        // (`~/.unterm/instances/<id>.json`), so the answer is always
+        // self-consistent with the server actually handling the
+        // request. We deliberately do NOT fall back to the active
+        // pointer when read_current fails — that would re-introduce
+        // the cross-instance leak. An empty token field is the safer
+        // failure mode: the SPA shows its bootstrap-failed error and
+        // the user can investigate, rather than silently auth'ing
+        // against the wrong instance.
+        let info = server_info::read_current();
         return Response::ok_json(json!({
             "auth_token": info.auth_token,
             "mcp_port": info.mcp_port,
@@ -758,7 +772,14 @@ fn parse_json_body(body: &[u8]) -> Value {
 // --- API implementations --------------------------------------------------
 
 fn api_state(handler: &McpHandler) -> Response {
-    let info = server_info::read();
+    // Same instance-locality requirement as /bootstrap.json: each Web
+    // Settings server must surface ITS OWN pid / started_at / ports,
+    // not whichever instance happens to own active.json. The "Status"
+    // line in the SPA header otherwise reads e.g. `127.0.0.1:19877`
+    // (alpha) while the page is actually being served by bravo on
+    // 19879, which is both confusing and breaks the "click to copy
+    // a working /api/health curl command" affordance.
+    let info = server_info::read_current();
     let proxy = handler
         .handle("proxy.status", &json!({}))
         .unwrap_or_else(|e| json!({"error": e.to_string()}));
