@@ -113,9 +113,16 @@ fn config_builder_new_index<'lua>(
     let mt = myself
         .get_metatable()
         .ok_or_else(|| mlua::Error::external("impossible that we have no metatable"))?;
+    // Default to non-strict so that unknown config fields produce
+    // warnings instead of errors.  In release builds (panic = abort)
+    // a Deny error here propagates through the Lua C FFI callback
+    // boundary and triggers an unrecoverable "panic in a function
+    // that cannot unwind" abort — making the app completely
+    // unlaunchable for anyone with a stale or experimental key in
+    // their config file.
     let strict = match mt.get("__strict_mode") {
         Ok(Value::Boolean(b)) => b,
-        _ => true,
+        _ => false,
     };
 
     let options = FromDynamicOptions {

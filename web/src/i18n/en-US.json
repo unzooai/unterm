@@ -10,7 +10,7 @@
   "nav.download": "Download",
   "nav.faq": "FAQ",
 
-  "hero.badge": "v0.14 — signed, notarized, ready for agents",
+  "hero.badge": "v0.15 — signed, notarized, ready for agents",
   "hero.title.1": "A terminal",
   "hero.title.2": "AI agents can control.",
   "hero.subtitle": "Drive panes, shells, cwd, screenshots, and session state through MCP, HTTP, and CLI so Claude Code, Cursor, or your own agent can run the whole terminal.",
@@ -92,8 +92,10 @@
   "features.engine.title": "GPU rendering",
   "features.engine.body": "Built on a customized WezTerm engine — Metal on macOS, OpenGL on Linux, DirectX via ANGLE on Windows.",
 
-  "whatsnew.title": "What's new in v0.14",
-  "whatsnew.subtitle": "Identity profiles land: one window per identity, OS-native keychain, seven auto-discovery sniffers. The terminal AI agents can drive — now it knows whose credentials it's driving with.",
+  "whatsnew.title": "What's new in v0.15",
+  "whatsnew.subtitle": "Config resilience: unknown Lua config fields no longer crash the app on Windows. Plus all v0.14 identity-profile features.",
+  "whatsnew.configfix.title": "Config resilience — unknown fields no longer crash",
+  "whatsnew.configfix.body": "Setting an unrecognized key in your <code class=\"font-mono text-xs\">unterm.lua</code> (e.g. a future or experimental option) used to abort the process on Windows release builds. The Lua FFI callback crossed a <code class=\"font-mono text-xs\">panic = abort</code> boundary and triggered an unrecoverable crash with no diagnostic. v0.15 defaults <code class=\"font-mono text-xs\">config_builder()</code> to non-strict mode: unknown fields produce a visible warning and the app continues to start normally.",
   "whatsnew.profiles.title": "Identity profiles — one window per identity",
   "whatsnew.profiles.body": "Bind a window to a coherent developer identity in one shot: GitHub PAT, AWS keys, npm token, OpenAI key, git author, SSH key routing. Tokens live in the OS-native vault (Keychain / Credential Manager / libsecret), never in <code class=\"font-mono text-xs\">~/.unterm/</code>. Seven sniffers (<code class=\"font-mono text-xs\">gh / aws / npm / ssh / docker / gcloud / netrc</code>) discover existing credentials read-only. CLI + read-only MCP namespace expose the system to agents that need to know which identity is running. New chip in the status bar tells you at a glance — click to spawn a new window in the next profile.",
   "whatsnew.flash.title": "Sync pre-show paint kills the Windows white flash",
@@ -130,9 +132,9 @@
   "cmp.intentional": "✗ (by design)",
   "cmp.note": "Comparison reflects publicly documented features as of 2026-05-01. Other terminals may have closed-source or roadmap items not listed.",
 
-  "dl.title": "Get Unterm 0.14",
+  "dl.title": "Get Unterm 0.15",
   "dl.subtitle": "macOS bundle is signed with a Developer ID and Apple-notarized. Linux .deb / AppImage and Windows .msi / .zip are also published.",
-  "dl.cta": "Open the v0.14 release",
+  "dl.cta": "Open the v0.15 release",
 
   "faq.title": "Frequently asked",
   "faq.what.q": "What is Unterm?",
