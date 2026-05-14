@@ -28,15 +28,14 @@ opt-level = 3
 lto = "thin"
 codegen-units = 1
 # strip symbols by default to keep release artifacts small (~50% smaller).
-# We temporarily switch to "none" + line-tables to debug the v0.14-rc1
-# Windows startup panic: with `strip = "symbols"` every frame in
-# `backtrace::Backtrace` lookups up as `<unknown>` or the nearest
-# C export (cairo_/git_*), giving a backtrace that points at random
-# parts of the binary instead of the actual panicking Rust function.
-# Keep this commented-out pair handy for next time we need it.
-# strip = "symbols"
-strip = "none"
-debug = "line-tables-only"
+# To debug a panic with useful backtraces, temporarily flip to:
+#   strip = "none"
+#   debug = "line-tables-only"
+# and rebuild. backtrace::Backtrace::new() then resolves frames to real
+# Rust function names and file:line locations (verified against v0.14-rc3
+# during the v0.15 config_builder hunt). Flip back before tagging or the
+# release zip grows ~40 MB from .pdb / DWARF tables.
+strip = "symbols"
 panic = "abort"
 
 [profile.dev]
