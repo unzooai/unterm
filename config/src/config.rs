@@ -908,6 +908,44 @@ pub struct Config {
     #[dynamic(default = "default_mcp_port")]
     pub mcp_port: u16,
 
+    /// How aggressively MCP `session.input` / `exec.send` writes are
+    /// confirmed with the user. `FirstTimePerAgent` (the default)
+    /// blocks the first write by each agent on a confirmation banner;
+    /// later writes by that agent pass through. `Always` blocks every
+    /// write; `Never` skips confirmation entirely (audit still
+    /// happens).
+    #[dynamic(default)]
+    pub mcp_input_confirmation: McpInputConfirmation,
+
+    /// How long the confirmation banner waits for the user before
+    /// auto-denying the MCP call. Defaults to 30 s — long enough that
+    /// the user can read the preview but short enough that an
+    /// abandoned banner doesn't leave the agent hung indefinitely.
+    #[dynamic(default = "default_mcp_confirmation_timeout_ms")]
+    pub mcp_confirmation_timeout_ms: u64,
+
+    /// Maximum number of audit entries kept in memory. Older entries
+    /// are dropped in batches once the cap is exceeded.
+    #[dynamic(default = "default_mcp_audit_log_capacity")]
+    pub mcp_audit_log_capacity: usize,
+
+    /// Maximum number of suggestions tracked across all panes.
+    #[dynamic(default = "default_mcp_suggest_queue_capacity")]
+    pub mcp_suggest_queue_capacity: usize,
+
+    /// Fallback TTL applied to suggestions that don't specify their
+    /// own `ttl_ms`.
+    #[dynamic(default = "default_mcp_suggest_default_ttl_ms")]
+    pub mcp_suggest_default_ttl_ms: u64,
+
+    /// Agent names that are pre-trusted: confirmation banner is
+    /// skipped for these agents regardless of `mcp_input_confirmation`
+    /// (audit still happens). Use carefully — anything that can talk
+    /// to the MCP port can call `agent.identify` with whatever name
+    /// it likes, so this is convenience not security.
+    #[dynamic(default)]
+    pub mcp_trusted_agents: Vec<String>,
+
     /// Show Unterm's compact bottom status bar.
     #[dynamic(default = "default_true")]
     pub show_unterm_status_bar: bool,
@@ -916,6 +954,37 @@ impl_lua_conversion_dynamic!(Config);
 
 fn default_one() -> usize {
     1
+}
+
+fn default_mcp_confirmation_timeout_ms() -> u64 {
+    30_000
+}
+
+fn default_mcp_audit_log_capacity() -> usize {
+    1000
+}
+
+fn default_mcp_suggest_queue_capacity() -> usize {
+    256
+}
+
+fn default_mcp_suggest_default_ttl_ms() -> u64 {
+    60_000
+}
+
+/// Policy for when MCP PTY-writing methods (`session.input`,
+/// `exec.send`) need explicit user approval before they take effect.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, FromDynamic, ToDynamic)]
+pub enum McpInputConfirmation {
+    /// Block every call on a confirmation banner.
+    Always,
+    /// Block the first call by each new agent name; subsequent calls
+    /// by that agent pass without prompting. This is the default —
+    /// the trade-off between visibility and not nagging the user.
+    #[default]
+    FirstTimePerAgent,
+    /// Skip confirmation entirely. Audit still records every call.
+    Never,
 }
 
 fn default_ulimit_nofile() -> u64 {

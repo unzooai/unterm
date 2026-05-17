@@ -115,6 +115,25 @@ impl InputMap {
                 },
             });
 
+        // MCP confirmation bindings — Enter / Alt+A become "allow" /
+        // "always allow" whenever a confirmation banner is showing.
+        // Same Unhandled-when-no-pending escape hatch as the suggest
+        // bindings, so Enter still submits the shell prompt and
+        // Alt+A still inserts whatever the user typed when no
+        // banner is up. Esc (already bound to DismissSuggestion) is
+        // overloaded to also block the banner — see dispatch in
+        // termwindow/mod.rs.
+        keys.default
+            .entry((KeyCode::Char('\r'), Modifiers::NONE))
+            .or_insert(KeyTableEntry {
+                action: KeyAssignment::McpConfirmAllow,
+            });
+        keys.default
+            .entry((KeyCode::Char('a'), Modifiers::ALT))
+            .or_insert(KeyTableEntry {
+                action: KeyAssignment::McpConfirmAlwaysAllow,
+            });
+
         if !config.disable_default_mouse_bindings {
             m!(
                 [

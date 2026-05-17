@@ -164,6 +164,50 @@ impl ConnectionContext {
     }
 }
 
+/// Decision the user (or a timeout) returns to a pending MCP
+/// confirmation. `AlwaysAllow` additionally remembers the agent so
+/// future calls by the same agent bypass the banner.
+#[derive(Debug, Clone, Copy)]
+pub enum ConfirmationDecision {
+    Allow,
+    Block,
+    AlwaysAllow,
+}
+
+/// Internal result of `gate_pty_write`. Callers either proceed (with
+/// audit + write) or return an error to the MCP client.
+enum GateOutcome {
+    Allow,
+    Block,
+}
+
+/// Pending confirmation request. The MCP-worker thread parks on
+/// `responder.recv_timeout(...)` waiting for the GUI thread to take
+/// this off the queue and `send` a decision.
+struct PendingConfirmation {
+    id: u64,
+    agent: String,
+    input_preview: String,
+    pane_id: u64,
+    method: String,
+    requested_at: String,
+    responder: std::sync::mpsc::SyncSender<ConfirmationDecision>,
+}
+
+/// Read-only view of a pending confirmation for the GUI. Doesn't
+/// carry the `SyncSender` (it's neither Clone nor Send-friendly to
+/// share), so the resolve API is paired: read with
+/// `pending_confirmation_view`, decide via `resolve_confirmation`.
+#[derive(Clone, serde::Serialize)]
+pub struct ConfirmationView {
+    pub id: u64,
+    pub agent: String,
+    pub input_preview: String,
+    pub pane_id: u64,
+    pub method: String,
+    pub requested_at: String,
+}
+
 /// Lifecycle state for a single `session.suggest` suggestion. Stored
 /// alongside the suggestion so `session.suggest_status` can report what
 /// happened to a previously-posted suggestion (and so the suggest UI
@@ -232,11 +276,20 @@ struct McpState {
     known_agents: HashMap<String, String>,
     /// Names of agents that have ever called `session.input` /
     /// `exec.send` since startup. Used to flag "first PTY write by
-    /// this agent" in the audit log — that's the moment the
-    /// (future) per-agent confirmation banner would interrupt the
-    /// user; for now it just stamps `first_input=true` so audit
-    /// readers can see it stand out.
+    /// this agent" in the audit log.
     agents_with_input_history: std::collections::HashSet<String>,
+    /// Agents the user has explicitly elected to skip future
+    /// confirmation banners for (via the "Always allow this agent"
+    /// affordance on a banner). Distinct from the static
+    /// `mcp_trusted_agents` config — this list is session-only and
+    /// only ever grows via user action.
+    confirmed_agents: std::collections::HashSet<String>,
+    /// Banners parked waiting for the user to allow/block. Each
+    /// element carries a `SyncSender` the MCP worker is blocked on;
+    /// the GUI thread fulfils it by sending a `ConfirmationDecision`.
+    pending_confirmations: Vec<PendingConfirmation>,
+    /// Monotonic id allocator for pending confirmations.
+    confirmation_seq: u64,
     /// All suggestions posted via `session.suggest`, indexed by id.
     /// Both live (pending) and dead (accepted/dismissed/expired) are
     /// kept so `session.suggest_status` can return a lifecycle
@@ -267,6 +320,51 @@ pub fn recent_mcp_input_activity() -> McpInputActivity {
         count: state.input_event_count,
         seconds_since_last: state.last_input_at.map(|t| t.elapsed().as_secs_f32()),
     }
+}
+
+/// Oldest pending confirmation as a UI-friendly view. Returns `None`
+/// when nothing is waiting. The GUI paints a banner whenever this is
+/// `Some` and routes Enter/Esc/Ctrl-A to `resolve_confirmation`.
+pub fn pending_confirmation_view() -> Option<ConfirmationView> {
+    let state = mcp_state().lock();
+    state.pending_confirmations.first().map(|p| ConfirmationView {
+        id: p.id,
+        agent: p.agent.clone(),
+        input_preview: p.input_preview.clone(),
+        pane_id: p.pane_id,
+        method: p.method.clone(),
+        requested_at: p.requested_at.clone(),
+    })
+}
+
+/// Number of pending confirmations. Cheaper than `pending_confirmation_view`
+/// when the caller only needs to know "is the banner needed?".
+pub fn pending_confirmation_count() -> usize {
+    mcp_state().lock().pending_confirmations.len()
+}
+
+/// Fulfil a pending confirmation. Returns true if the id was found
+/// and the worker thread was unblocked. `AlwaysAllow` additionally
+/// remembers the agent so future calls by that agent name bypass the
+/// banner for the rest of the session.
+pub fn resolve_confirmation(id: u64, decision: ConfirmationDecision) -> bool {
+    let mut state = mcp_state().lock();
+    let Some(idx) = state.pending_confirmations.iter().position(|p| p.id == id) else {
+        return false;
+    };
+    let pending = state.pending_confirmations.remove(idx);
+    if matches!(decision, ConfirmationDecision::AlwaysAllow) {
+        state.confirmed_agents.insert(pending.agent.clone());
+    }
+    // Drop the lock before sending so the waiting worker can
+    // re-acquire it on its own audit/write path.
+    drop(state);
+    // `send` returns Err only if the receiver was dropped (the
+    // worker timed out and gave up). That's fine — the audit will
+    // already show the timeout entry, and the worker has returned
+    // an error to its MCP client.
+    let _ = pending.responder.send(decision);
+    true
 }
 
 /// Snapshot the audit log as a pretty-printed JSON string. Used by
@@ -445,6 +543,9 @@ fn mcp_state() -> &'static Mutex<McpState> {
             agents_by_connection: HashMap::new(),
             known_agents: HashMap::new(),
             agents_with_input_history: std::collections::HashSet::new(),
+            confirmed_agents: std::collections::HashSet::new(),
+            pending_confirmations: Vec::new(),
+            confirmation_seq: 0,
             suggestions: HashMap::new(),
             suggestion_order: Vec::new(),
             suggestion_seq: 0,
@@ -1035,6 +1136,16 @@ impl McpHandler {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing 'input' parameter"))?;
 
+        // Gate the write on a user confirmation banner if policy
+        // demands it. `Allow` continues to the audit + write below;
+        // `Block` returns -32004 to the agent.
+        match self.gate_pty_write("session.input", &pane, input)? {
+            GateOutcome::Allow => {}
+            GateOutcome::Block => {
+                return Err(anyhow!("user denied"));
+            }
+        }
+
         // PTY 字节流一旦写下去就和用户手敲不可区分，必须留下审计痕迹。
         self.audit(
             "session.input",
@@ -1043,6 +1154,120 @@ impl McpHandler {
         );
         pane.writer().write_all(input.as_bytes())?;
         Ok(json!({"status": "ok"}))
+    }
+
+    /// Decide whether a PTY-writing MCP call should proceed and, when
+    /// required, park the worker on a confirmation banner.
+    ///
+    /// Returns `GateOutcome::Allow` when the call may proceed (either
+    /// because policy is `Never`, the agent is on the trusted list,
+    /// the user already picked "always allow" this session, or
+    /// because they just clicked Allow on the banner). Returns
+    /// `GateOutcome::Block` when the user denied (or the banner
+    /// timed out).
+    fn gate_pty_write(
+        &self,
+        method: &str,
+        pane: &Arc<dyn Pane>,
+        input: &str,
+    ) -> Result<GateOutcome> {
+        let cfg = config::configuration();
+        let agent = current_agent_label();
+        let preview = input_preview(input);
+
+        // 1) Configured `Never` → no banner ever.
+        // 2) Agent name on the static trust list → skip.
+        // 3) User previously chose AlwaysAllow this session → skip.
+        let policy = cfg.mcp_input_confirmation;
+        let trusted_static = cfg.mcp_trusted_agents.iter().any(|n| n == &agent);
+        let already_confirmed = {
+            let state = mcp_state().lock();
+            state.confirmed_agents.contains(&agent)
+        };
+        let needs_banner = if trusted_static || already_confirmed {
+            false
+        } else {
+            match policy {
+                config::McpInputConfirmation::Never => false,
+                config::McpInputConfirmation::Always => true,
+                config::McpInputConfirmation::FirstTimePerAgent => {
+                    // The first PTY write by this agent triggers a
+                    // banner; once allowed, that decision sticks for
+                    // the session via `confirmed_agents`. So this
+                    // arm is only reached on the *very first* write.
+                    let state = mcp_state().lock();
+                    !state.agents_with_input_history.contains(&agent)
+                }
+            }
+        };
+        if !needs_banner {
+            return Ok(GateOutcome::Allow);
+        }
+
+        // Park on a confirmation banner. Capacity is intentionally
+        // small (1 slot) — the worker thread blocks until the GUI
+        // resolves it.
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        let id = {
+            let mut state = mcp_state().lock();
+            state.confirmation_seq = state.confirmation_seq.saturating_add(1);
+            let id = state.confirmation_seq;
+            state.pending_confirmations.push(PendingConfirmation {
+                id,
+                agent: agent.clone(),
+                input_preview: preview.clone(),
+                pane_id: pane.pane_id() as u64,
+                method: method.to_string(),
+                requested_at: chrono::Local::now().to_rfc3339(),
+                responder: tx,
+            });
+            id
+        };
+
+        let timeout_ms = cfg.mcp_confirmation_timeout_ms.max(1000);
+        let decision = rx.recv_timeout(std::time::Duration::from_millis(timeout_ms));
+        match decision {
+            Ok(ConfirmationDecision::Allow) => {
+                self.audit(
+                    "mcp.confirm.allow",
+                    Some(&pane.pane_id().to_string()),
+                    &format!("agent={} {}", agent, preview),
+                );
+                Ok(GateOutcome::Allow)
+            }
+            Ok(ConfirmationDecision::AlwaysAllow) => {
+                self.audit(
+                    "mcp.confirm.always_allow",
+                    Some(&pane.pane_id().to_string()),
+                    &format!("agent={} {}", agent, preview),
+                );
+                Ok(GateOutcome::Allow)
+            }
+            Ok(ConfirmationDecision::Block) => {
+                self.audit(
+                    "mcp.confirm.block",
+                    Some(&pane.pane_id().to_string()),
+                    &format!("agent={} {}", agent, preview),
+                );
+                Ok(GateOutcome::Block)
+            }
+            Err(_) => {
+                // Timeout: clean up the still-queued banner (the
+                // GUI may not have rendered it yet) and treat as
+                // block. The receiver going out of scope makes
+                // future GUI `send`s no-op, which is fine.
+                {
+                    let mut state = mcp_state().lock();
+                    state.pending_confirmations.retain(|p| p.id != id);
+                }
+                self.audit(
+                    "mcp.confirm.timeout",
+                    Some(&pane.pane_id().to_string()),
+                    &format!("agent={} {}", agent, preview),
+                );
+                Ok(GateOutcome::Block)
+            }
+        }
     }
 
     fn session_resize(&self, params: &Value) -> Result<Value> {
@@ -1281,7 +1506,7 @@ impl McpHandler {
         let ttl_ms = params
             .get("ttl_ms")
             .and_then(|v| v.as_u64())
-            .unwrap_or(60_000);
+            .unwrap_or_else(|| config::configuration().mcp_suggest_default_ttl_ms);
         let source: SuggestionSource = params
             .get("source")
             .cloned()
@@ -1314,13 +1539,13 @@ impl McpHandler {
             posted_by_agent: agent_label.clone(),
         };
 
+        let suggest_max = config::configuration().mcp_suggest_queue_capacity.max(8);
         {
             let mut state = mcp_state().lock();
             state.suggestions.insert(id.clone(), suggestion);
             state.suggestion_order.push(id.clone());
-            const SUGGEST_MAX: usize = 256;
-            if state.suggestion_order.len() > SUGGEST_MAX {
-                let drop_n = SUGGEST_MAX / 8;
+            if state.suggestion_order.len() > suggest_max {
+                let drop_n = (suggest_max / 8).max(1);
                 for old_id in state.suggestion_order.drain(..drop_n).collect::<Vec<_>>() {
                     state.suggestions.remove(&old_id);
                 }
@@ -1393,14 +1618,14 @@ impl McpHandler {
             allowed: true,
             agent: current_agent_label(),
         };
+        let audit_max = config::configuration().mcp_audit_log_capacity.max(16);
         let mut state = mcp_state().lock();
         state.audit_log.push(entry);
         // Cap the in-memory log so a chatty agent can't OOM us. Drop the
         // oldest 10% in one shot so we amortize the shift cost instead of
         // re-shifting every push.
-        const AUDIT_MAX: usize = 1000;
-        if state.audit_log.len() > AUDIT_MAX {
-            let drop = AUDIT_MAX / 10;
+        if state.audit_log.len() > audit_max {
+            let drop = audit_max / 10;
             state.audit_log.drain(..drop);
         }
         // Bump the activity counter so the status bar chip can surface

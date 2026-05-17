@@ -662,6 +662,14 @@ pub enum KeyAssignment {
     /// Dismiss the oldest pending MCP suggestion on the active pane
     /// without touching the PTY.
     DismissSuggestion,
+    /// Allow the oldest pending MCP input confirmation (one-shot).
+    /// No-op (returns Unhandled) when no banner is showing — so the
+    /// default Enter binding still passes through to the shell.
+    McpConfirmAllow,
+    /// Allow the oldest pending MCP input confirmation AND remember
+    /// the calling agent for the rest of the session, so subsequent
+    /// PTY writes by that agent skip the banner.
+    McpConfirmAlwaysAllow,
 }
 impl_lua_conversion_dynamic!(KeyAssignment);
 

@@ -22,11 +22,14 @@ impl crate::TermWindow {
         }
     }
 
-    /// Height of the suggest bar in pixels. Zero when no active-pane
-    /// suggestion is pending. The pane layout subtracts this so the
-    /// suggest bar doesn't overlap the terminal output.
+    /// Height of the MCP banner row in pixels. Zero unless either a
+    /// pending confirmation OR a pending suggestion is showing for
+    /// the active pane. The pane layout subtracts this so the banner
+    /// doesn't overlap the terminal output.
     pub fn suggest_bar_pixel_height(&self) -> f32 {
-        if self.active_pane_first_pending_suggestion().is_some() {
+        if crate::mcp::handler::pending_confirmation_count() > 0
+            || self.active_pane_first_pending_suggestion().is_some()
+        {
             self.render_metrics.cell_size.height as f32
         } else {
             0.0
@@ -42,15 +45,19 @@ impl crate::TermWindow {
             .next()
     }
 
-    /// Render a one-row banner above the status bar showing the
-    /// oldest pending MCP suggestion on the active pane. The user
-    /// accepts/dismisses it via the AcceptSuggestion /
-    /// DismissSuggestion key assignments (default Tab / Esc, set in
-    /// the default keymap).
+    /// Render a one-row banner above the status bar. Two modes share
+    /// the row, with confirmation winning when both are pending:
+    /// * MCP **confirmation** banner — a worker thread is parked
+    ///   waiting for the user to allow/block a PTY-writing call.
+    /// * MCP **suggestion** bar — non-blocking proposal the user can
+    ///   accept (Tab/Alt+Enter) or dismiss (Esc).
     pub fn paint_suggest_bar(
         &mut self,
         layers: &mut TripleLayerQuadAllocator,
     ) -> anyhow::Result<()> {
+        if let Some(view) = crate::mcp::handler::pending_confirmation_view() {
+            return self.paint_confirmation_banner(layers, &view);
+        }
         let Some(suggestion) = self.active_pane_first_pending_suggestion() else {
             return Ok(());
         };
@@ -333,6 +340,159 @@ impl crate::TermWindow {
                 pane_id: None,
                 item_type: region.item_type,
             });
+        }
+
+        Ok(())
+    }
+
+    /// Render the MCP **confirmation** banner — a worker thread is
+    /// blocked waiting for the user to allow/block this. Same row +
+    /// width as the suggestion bar but uses a warning palette so the
+    /// user notices a *blocking* prompt vs a passive suggestion.
+    fn paint_confirmation_banner(
+        &mut self,
+        layers: &mut TripleLayerQuadAllocator,
+        view: &crate::mcp::handler::ConfirmationView,
+    ) -> anyhow::Result<()> {
+        let cell_height = self.render_metrics.cell_size.height as f32;
+        let cell_width = self.render_metrics.cell_size.width as f32;
+        let border = self.get_os_border();
+
+        let bar_height = cell_height;
+        let status_height = self.status_bar_pixel_height();
+        let bar_y = self.dimensions.pixel_height as f32
+            - status_height
+            - bar_height
+            - border.bottom.get() as f32;
+        let bar_width = self.dimensions.pixel_width as f32;
+
+        let (bar_bg_rgb, sep_rgb, fg_rgb) = confirm_banner_theme_colors();
+        let bar_bg = LinearRgba::with_components(
+            bar_bg_rgb.0 as f32 / 255.0,
+            bar_bg_rgb.1 as f32 / 255.0,
+            bar_bg_rgb.2 as f32 / 255.0,
+            0.96,
+        );
+
+        self.filled_rectangle(
+            layers,
+            0,
+            euclid::rect(0., bar_y, bar_width, bar_height),
+            bar_bg,
+        )?;
+
+        let sep_color = LinearRgba::with_components(
+            sep_rgb.0 as f32 / 255.0,
+            sep_rgb.1 as f32 / 255.0,
+            sep_rgb.2 as f32 / 255.0,
+            1.0,
+        );
+        self.filled_rectangle(
+            layers,
+            0,
+            euclid::rect(0., bar_y, bar_width, 1.0),
+            sep_color,
+        )?;
+
+        // Compose banner text.
+        let agent_label = if view.agent == "anonymous" {
+            "agent".to_string()
+        } else {
+            view.agent.clone()
+        };
+        let main = format!(
+            " ⚠ {} wants to write to pane #{}: {}",
+            agent_label, view.pane_id, view.input_preview
+        );
+        let hint = "  [Enter] allow   [Esc] block   [Alt+A] always allow ";
+
+        let total_cols = (bar_width / cell_width) as usize;
+        let hint_cols = unicode_column_width(hint, None);
+        let max_main = total_cols.saturating_sub(hint_cols + 2);
+        let truncated_main = truncate_to_width(&main, max_main);
+
+        let mut text = String::new();
+        text.push_str(&truncated_main);
+        let pad_cols = total_cols
+            .saturating_sub(unicode_column_width(&text, None) + hint_cols);
+        for _ in 0..pad_cols {
+            text.push(' ');
+        }
+        text.push_str(hint);
+
+        let mut attrs = CellAttributes::blank();
+        attrs.set_foreground(ColorAttribute::TrueColorWithDefaultFallback(SrgbaTuple(
+            fg_rgb.0 as f32 / 255.0,
+            fg_rgb.1 as f32 / 255.0,
+            fg_rgb.2 as f32 / 255.0,
+            1.0,
+        )));
+
+        let palette = self.palette().clone();
+        let window_is_transparent =
+            !self.window_background.is_empty() || self.config.window_background_opacity != 1.0;
+        let gl_state = self.render_state.as_ref().unwrap();
+        let white_space = gl_state.util_sprites.white_space.texture_coords();
+        let filled_box = gl_state.util_sprites.filled_box.texture_coords();
+        let fg = LinearRgba::with_components(
+            fg_rgb.0 as f32 / 255.0,
+            fg_rgb.1 as f32 / 255.0,
+            fg_rgb.2 as f32 / 255.0,
+            1.0,
+        );
+
+        let line = Line::from_text(&text, &attrs, 0, None);
+
+        self.render_screen_line(
+            RenderScreenLineParams {
+                top_pixel_y: bar_y + 1.0,
+                left_pixel_x: 0.0,
+                pixel_width: bar_width,
+                stable_line_idx: None,
+                line: &line,
+                selection: 0..0,
+                cursor: &Default::default(),
+                palette: &palette,
+                dims: &RenderableDimensions {
+                    cols: total_cols,
+                    physical_top: 0,
+                    scrollback_rows: 0,
+                    scrollback_top: 0,
+                    viewport_rows: 1,
+                    dpi: self.terminal_size.dpi,
+                    pixel_height: cell_height as usize,
+                    pixel_width: bar_width as usize,
+                    reverse_video: false,
+                },
+                config: &self.config,
+                cursor_border_color: LinearRgba::default(),
+                foreground: fg,
+                pane: None,
+                is_active: true,
+                selection_fg: LinearRgba::default(),
+                selection_bg: LinearRgba::default(),
+                cursor_fg: LinearRgba::default(),
+                cursor_bg: LinearRgba::default(),
+                cursor_is_default_color: true,
+                white_space,
+                filled_box,
+                window_is_transparent,
+                default_bg: bar_bg,
+                style: None,
+                font: None,
+                use_pixel_positioning: self.config.experimental_pixel_positioning,
+                render_metrics: self.render_metrics,
+                shape_key: None,
+                password_input: false,
+            },
+            layers,
+        )?;
+
+        // Keep repainting while the banner is up so any slow-arriving
+        // animation can register; otherwise the banner will sit
+        // statically (acceptable) until the user keys something.
+        if let Some(window) = self.window.as_ref() {
+            window.invalidate();
         }
 
         Ok(())
@@ -713,6 +873,19 @@ fn status_bar_theme_colors() -> ((u8, u8, u8), (u8, u8, u8), (u8, u8, u8)) {
         "daylight" => ((0xee, 0xec, 0xdd), (0x93, 0xa1, 0xa1), (0x58, 0x6e, 0x75)),
         "classic" => ((0x20, 0x20, 0x20), (0x55, 0x55, 0x55), (0xd0, 0xd0, 0xd0)),
         _ => ((0x1e, 0x1e, 0x1e), (0x3a, 0x3a, 0x3a), (0xa0, 0xa0, 0xa0)),
+    }
+}
+
+/// Alert palette for the **confirmation** banner. Hotter / more
+/// saturated than the suggest bar — a worker thread is parked and
+/// the user *has* to decide. Same shape as the other theme tuples:
+/// (background, separator, foreground).
+fn confirm_banner_theme_colors() -> ((u8, u8, u8), (u8, u8, u8), (u8, u8, u8)) {
+    match crate::overlay::theme_selector::read_theme_id().as_str() {
+        "midnight" => ((0x3a, 0x18, 0x18), (0xc8, 0x44, 0x44), (0xff, 0xe2, 0xc0)),
+        "daylight" => ((0xff, 0xe0, 0xd0), (0xc8, 0x35, 0x10), (0x40, 0x18, 0x0a)),
+        "classic" => ((0x40, 0x20, 0x18), (0xb0, 0x40, 0x20), (0xff, 0xd6, 0x88)),
+        _ => ((0x33, 0x14, 0x0d), (0xa8, 0x3a, 0x20), (0xff, 0xc8, 0x78)),
     }
 }
 

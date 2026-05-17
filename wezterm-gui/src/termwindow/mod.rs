@@ -3786,14 +3786,46 @@ impl TermWindow {
                 }
             }
             DismissSuggestion => {
-                let pane_id = pane.pane_id() as u64;
-                let suggestions = crate::mcp::handler::pending_suggestions_for_pane(pane_id);
-                let Some(first) = suggestions.first() else {
+                // Esc has two jobs on a single key when MCP UI is up:
+                // 1) Block a pending confirmation banner (more urgent
+                //    — a worker thread is parked on it).
+                // 2) Dismiss the oldest pending suggestion.
+                // Try (1) first. If neither is pending, fall through
+                // so Esc reaches vim / less / etc.
+                if let Some(view) = crate::mcp::handler::pending_confirmation_view() {
+                    crate::mcp::handler::resolve_confirmation(
+                        view.id,
+                        crate::mcp::handler::ConfirmationDecision::Block,
+                    );
+                } else {
+                    let pane_id = pane.pane_id() as u64;
+                    let suggestions =
+                        crate::mcp::handler::pending_suggestions_for_pane(pane_id);
+                    let Some(first) = suggestions.first() else {
+                        return Ok(PerformAssignmentResult::Unhandled);
+                    };
+                    if let Err(e) = crate::mcp::handler::dismiss_suggestion(&first.id) {
+                        log::warn!("dismiss_suggestion failed: {e}");
+                    }
+                }
+            }
+            McpConfirmAllow => {
+                let Some(view) = crate::mcp::handler::pending_confirmation_view() else {
                     return Ok(PerformAssignmentResult::Unhandled);
                 };
-                if let Err(e) = crate::mcp::handler::dismiss_suggestion(&first.id) {
-                    log::warn!("dismiss_suggestion failed: {e}");
-                }
+                crate::mcp::handler::resolve_confirmation(
+                    view.id,
+                    crate::mcp::handler::ConfirmationDecision::Allow,
+                );
+            }
+            McpConfirmAlwaysAllow => {
+                let Some(view) = crate::mcp::handler::pending_confirmation_view() else {
+                    return Ok(PerformAssignmentResult::Unhandled);
+                };
+                crate::mcp::handler::resolve_confirmation(
+                    view.id,
+                    crate::mcp::handler::ConfirmationDecision::AlwaysAllow,
+                );
             }
         };
         Ok(PerformAssignmentResult::Handled)
