@@ -279,6 +279,9 @@ impl crate::TermWindow {
             self.paint_tab_bar(&mut layers).context("paint_tab_bar")?;
         }
 
+        self.paint_suggest_bar(&mut layers)
+            .context("paint_suggest_bar")?;
+
         self.paint_status_bar(&mut layers)
             .context("paint_status_bar")?;
 

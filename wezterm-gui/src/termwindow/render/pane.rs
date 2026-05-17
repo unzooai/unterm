@@ -142,10 +142,15 @@ impl crate::TermWindow {
                 } else {
                     (pos.width as f32 * cell_width) + width_delta
                 },
-                // Go to the bottom, but stop above the status bar
+                // Go to the bottom, but stop above the status bar and
+                // the suggest bar (the bar is dynamic — height is 0
+                // unless there's a pending MCP suggestion on this
+                // pane, so the layout shrinks the pane only while a
+                // suggestion is actually visible).
                 if pos.top + pos.height >= self.terminal_size.rows as usize {
-                    let bottom =
-                        self.dimensions.pixel_height as f32 - self.status_bar_pixel_height();
+                    let bottom = self.dimensions.pixel_height as f32
+                        - self.status_bar_pixel_height()
+                        - self.suggest_bar_pixel_height();
                     bottom - y
                 } else {
                     (pos.height as f32 * cell_height) + height_delta as f32

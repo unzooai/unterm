@@ -86,6 +86,35 @@ impl InputMap {
             }
         }
 
+        // MCP suggest bindings — Tab/Esc/Alt+Enter become "accept" /
+        // "dismiss" / "accept & run" whenever a `session.suggest`
+        // suggestion is pending on the active pane. When no suggestion
+        // is pending, `perform_key_assignment` returns `Unhandled` so
+        // the key still falls through to the shell (Tab completion,
+        // Esc to leave insert mode in vim, etc.). Always installed —
+        // even when `disable_default_key_bindings = true` — because
+        // disabling them would silently kill the only way the user
+        // has to act on AI suggestions.
+        keys.default
+            .entry((KeyCode::Char('\t'), Modifiers::NONE))
+            .or_insert(KeyTableEntry {
+                action: KeyAssignment::AcceptSuggestion {
+                    run_immediately: false,
+                },
+            });
+        keys.default
+            .entry((KeyCode::Char('\u{1b}'), Modifiers::NONE))
+            .or_insert(KeyTableEntry {
+                action: KeyAssignment::DismissSuggestion,
+            });
+        keys.default
+            .entry((KeyCode::Char('\r'), Modifiers::ALT))
+            .or_insert(KeyTableEntry {
+                action: KeyAssignment::AcceptSuggestion {
+                    run_immediately: true,
+                },
+            });
+
         if !config.disable_default_mouse_bindings {
             m!(
                 [

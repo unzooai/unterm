@@ -2039,6 +2039,30 @@ pub fn derive_command_from_key_assignment(action: &KeyAssignment) -> Option<Comm
             menubar: &["Edit"],
             icon: None,
         },
+        AcceptSuggestion { run_immediately } => CommandDef {
+            brief: if *run_immediately {
+                "Accept MCP suggestion and run".into()
+            } else {
+                "Accept MCP suggestion".into()
+            },
+            doc: "Accept the oldest pending MCP `session.suggest` proposal on the active pane".into(),
+            // Real default bindings (Tab / Alt+Enter) are installed in
+            // `inputmap.rs` so they pass through to the shell whenever
+            // no suggestion is pending. Leave the palette/menubar
+            // keys empty so the command still surfaces by name.
+            keys: vec![],
+            args: &[ArgType::ActivePane],
+            menubar: &["Edit"],
+            icon: None,
+        },
+        DismissSuggestion => CommandDef {
+            brief: "Dismiss MCP suggestion".into(),
+            doc: "Dismiss the oldest pending MCP `session.suggest` proposal on the active pane".into(),
+            keys: vec![],
+            args: &[ArgType::ActivePane],
+            menubar: &["Edit"],
+            icon: None,
+        },
     })
 }
 

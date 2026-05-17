@@ -3761,6 +3761,40 @@ impl TermWindow {
             PromptInputLine(args) => self.show_prompt_input_line(args),
             InputSelector(args) => self.show_input_selector(args),
             Confirmation(args) => self.show_confirmation(args),
+            AcceptSuggestion { run_immediately } => {
+                // Suggest bindings are conditional: if no suggestion
+                // is pending on the active pane, fall through to the
+                // pane's default handling so Tab still triggers shell
+                // completion, Esc still goes to vim, etc.
+                let pane_id = pane.pane_id() as u64;
+                let suggestions = crate::mcp::handler::pending_suggestions_for_pane(pane_id);
+                let Some(first) = suggestions.first() else {
+                    return Ok(PerformAssignmentResult::Unhandled);
+                };
+                match crate::mcp::handler::accept_suggestion(&first.id, *run_immediately) {
+                    Ok(mut text) => {
+                        if *run_immediately {
+                            text.push('\n');
+                        }
+                        if let Err(e) = pane.writer().write_all(text.as_bytes()) {
+                            log::error!("accept_suggestion write_all failed: {e:#}");
+                        }
+                    }
+                    Err(e) => {
+                        log::warn!("accept_suggestion failed: {e}");
+                    }
+                }
+            }
+            DismissSuggestion => {
+                let pane_id = pane.pane_id() as u64;
+                let suggestions = crate::mcp::handler::pending_suggestions_for_pane(pane_id);
+                let Some(first) = suggestions.first() else {
+                    return Ok(PerformAssignmentResult::Unhandled);
+                };
+                if let Err(e) = crate::mcp::handler::dismiss_suggestion(&first.id) {
+                    log::warn!("dismiss_suggestion failed: {e}");
+                }
+            }
         };
         Ok(PerformAssignmentResult::Handled)
     }

@@ -651,6 +651,17 @@ pub enum KeyAssignment {
     PromptInputLine(PromptInputLine),
     InputSelector(InputSelector),
     Confirmation(Confirmation),
+    /// Accept the oldest pending MCP suggestion on the active pane.
+    /// Writes the suggestion's text to the pane's PTY. When
+    /// `run_immediately` is true (Alt+Enter binding), `\n` is appended
+    /// so the shell executes immediately.
+    AcceptSuggestion {
+        #[dynamic(default)]
+        run_immediately: bool,
+    },
+    /// Dismiss the oldest pending MCP suggestion on the active pane
+    /// without touching the PTY.
+    DismissSuggestion,
 }
 impl_lua_conversion_dynamic!(KeyAssignment);
 
