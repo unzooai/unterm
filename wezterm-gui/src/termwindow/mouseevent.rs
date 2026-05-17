@@ -58,6 +58,7 @@ impl super::TermWindow {
             | UIItemType::StatusBarCaptureExclude
             | UIItemType::StatusBarCaptureInclude
             | UIItemType::StatusBarProxy
+            | UIItemType::StatusBarMcpAudit
             | UIItemType::CloseSplitPane(_) => {}
         }
     }
@@ -77,6 +78,7 @@ impl super::TermWindow {
             | UIItemType::StatusBarCaptureExclude
             | UIItemType::StatusBarCaptureInclude
             | UIItemType::StatusBarProxy
+            | UIItemType::StatusBarMcpAudit
             | UIItemType::CloseSplitPane(_) => {}
         }
     }
@@ -430,6 +432,9 @@ impl super::TermWindow {
             UIItemType::StatusBarProfile => {
                 self.mouse_event_status_bar_profile(event, context);
             }
+            UIItemType::StatusBarMcpAudit => {
+                self.mouse_event_status_bar_mcp_audit(event, context);
+            }
             UIItemType::CloseSplitPane(pane_id) => {
                 self.mouse_event_close_split_pane(pane_id, event, context);
             }
@@ -638,6 +643,26 @@ impl crate::TermWindow {
                 context.invalidate();
             }
             _ => {}
+        }
+        context.set_cursor(Some(MouseCursor::Hand));
+    }
+
+    /// Click on the MCP activity chip. Until the full audit overlay
+    /// lands, the action is "copy a JSON snapshot of recent audit
+    /// entries to the clipboard" — that's enough to let a suspicious
+    /// user paste it into a text editor and see who wrote what.
+    fn mouse_event_status_bar_mcp_audit(
+        &mut self,
+        event: MouseEvent,
+        context: &dyn WindowOps,
+    ) {
+        if matches!(event.kind, WMEK::Press(MousePress::Left)) {
+            let snapshot = crate::mcp::handler::audit_log_snapshot_json(200);
+            self.copy_to_clipboard(
+                config::keyassignment::ClipboardCopyDestination::ClipboardAndPrimarySelection,
+                snapshot,
+            );
+            log::info!("MCP audit log snapshot copied to clipboard");
         }
         context.set_cursor(Some(MouseCursor::Hand));
     }

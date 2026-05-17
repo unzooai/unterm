@@ -181,6 +181,10 @@ pub enum UIItemType {
     /// Region screenshot, include-Unterm-window mode (left-click = trigger).
     StatusBarCaptureInclude,
     StatusBarProxy,
+    /// MCP activity indicator: shows `mcp:N` (and a `⚡` flash for ~5s
+    /// after each write). Click opens the audit log overlay so the
+    /// user can see *what* an AI client just wrote to a pane.
+    StatusBarMcpAudit,
     /// `×` button rendered in the top-right corner of every pane when the
     /// active tab has 2+ panes. Click closes the specific pane.
     CloseSplitPane(mux::pane::PaneId),

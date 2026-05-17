@@ -22,6 +22,194 @@ impl crate::TermWindow {
         }
     }
 
+    /// Height of the suggest bar in pixels. Zero when no active-pane
+    /// suggestion is pending. The pane layout subtracts this so the
+    /// suggest bar doesn't overlap the terminal output.
+    pub fn suggest_bar_pixel_height(&self) -> f32 {
+        if self.active_pane_first_pending_suggestion().is_some() {
+            self.render_metrics.cell_size.height as f32
+        } else {
+            0.0
+        }
+    }
+
+    fn active_pane_first_pending_suggestion(
+        &self,
+    ) -> Option<crate::mcp::handler::Suggestion> {
+        let pane = self.get_active_pane_no_overlay()?;
+        crate::mcp::handler::pending_suggestions_for_pane(pane.pane_id() as u64)
+            .into_iter()
+            .next()
+    }
+
+    /// Render a one-row banner above the status bar showing the
+    /// oldest pending MCP suggestion on the active pane. The user
+    /// accepts/dismisses it via the AcceptSuggestion /
+    /// DismissSuggestion key assignments (default Tab / Esc, set in
+    /// the default keymap).
+    pub fn paint_suggest_bar(
+        &mut self,
+        layers: &mut TripleLayerQuadAllocator,
+    ) -> anyhow::Result<()> {
+        let Some(suggestion) = self.active_pane_first_pending_suggestion() else {
+            return Ok(());
+        };
+
+        let cell_height = self.render_metrics.cell_size.height as f32;
+        let cell_width = self.render_metrics.cell_size.width as f32;
+        let border = self.get_os_border();
+
+        let bar_height = self.suggest_bar_pixel_height();
+        if bar_height <= 0.0 {
+            return Ok(());
+        }
+        // Sit directly above the status bar — single row, full width.
+        let status_height = self.status_bar_pixel_height();
+        let bar_y = self.dimensions.pixel_height as f32
+            - status_height
+            - bar_height
+            - border.bottom.get() as f32;
+        let bar_width = self.dimensions.pixel_width as f32;
+
+        // Distinct accent palette so the suggest bar visually reads as
+        // "AI is asking" rather than blending into the chrome.
+        let (bar_bg_rgb, sep_rgb, fg_rgb) = suggest_bar_theme_colors();
+        let bar_bg = LinearRgba::with_components(
+            bar_bg_rgb.0 as f32 / 255.0,
+            bar_bg_rgb.1 as f32 / 255.0,
+            bar_bg_rgb.2 as f32 / 255.0,
+            0.92,
+        );
+
+        self.filled_rectangle(
+            layers,
+            0,
+            euclid::rect(0., bar_y, bar_width, bar_height),
+            bar_bg,
+        )?;
+
+        let sep_color = LinearRgba::with_components(
+            sep_rgb.0 as f32 / 255.0,
+            sep_rgb.1 as f32 / 255.0,
+            sep_rgb.2 as f32 / 255.0,
+            1.0,
+        );
+        self.filled_rectangle(
+            layers,
+            0,
+            euclid::rect(0., bar_y, bar_width, 1.0),
+            sep_color,
+        )?;
+
+        // Compose the bar text. Newlines in the suggestion text are
+        // collapsed to `␤` so a multi-line snippet still renders on
+        // one row — the full text appears once the user accepts and
+        // it actually lands in the PTY.
+        let agent = if suggestion.posted_by_agent == "anonymous" {
+            "agent".to_string()
+        } else {
+            suggestion.posted_by_agent.clone()
+        };
+        let one_line: String = suggestion
+            .text
+            .chars()
+            .map(|c| match c {
+                '\n' => '␤',
+                '\r' => '␍',
+                '\t' => ' ',
+                c if c.is_control() => '·',
+                c => c,
+            })
+            .collect();
+        let main = format!(" ✨ {}: {}", agent, one_line);
+        let hint = "  [Tab] accept   [Esc] dismiss   [Alt+Enter] accept & run ";
+
+        // Truncate the main segment so the hint always fits.
+        let total_cols = (bar_width / cell_width) as usize;
+        let hint_cols = unicode_column_width(hint, None);
+        let max_main = total_cols.saturating_sub(hint_cols + 2);
+        let truncated_main = truncate_to_width(&main, max_main);
+
+        let mut text = String::new();
+        text.push_str(&truncated_main);
+        let pad_cols = total_cols
+            .saturating_sub(unicode_column_width(&text, None) + hint_cols);
+        for _ in 0..pad_cols {
+            text.push(' ');
+        }
+        text.push_str(hint);
+
+        let mut attrs = CellAttributes::blank();
+        attrs.set_foreground(ColorAttribute::TrueColorWithDefaultFallback(SrgbaTuple(
+            fg_rgb.0 as f32 / 255.0,
+            fg_rgb.1 as f32 / 255.0,
+            fg_rgb.2 as f32 / 255.0,
+            1.0,
+        )));
+
+        let palette = self.palette().clone();
+        let window_is_transparent =
+            !self.window_background.is_empty() || self.config.window_background_opacity != 1.0;
+        let gl_state = self.render_state.as_ref().unwrap();
+        let white_space = gl_state.util_sprites.white_space.texture_coords();
+        let filled_box = gl_state.util_sprites.filled_box.texture_coords();
+        let fg = LinearRgba::with_components(
+            fg_rgb.0 as f32 / 255.0,
+            fg_rgb.1 as f32 / 255.0,
+            fg_rgb.2 as f32 / 255.0,
+            1.0,
+        );
+
+        let line = Line::from_text(&text, &attrs, 0, None);
+
+        self.render_screen_line(
+            RenderScreenLineParams {
+                top_pixel_y: bar_y + 1.0,
+                left_pixel_x: 0.0,
+                pixel_width: bar_width,
+                stable_line_idx: None,
+                line: &line,
+                selection: 0..0,
+                cursor: &Default::default(),
+                palette: &palette,
+                dims: &RenderableDimensions {
+                    cols: total_cols,
+                    physical_top: 0,
+                    scrollback_rows: 0,
+                    scrollback_top: 0,
+                    viewport_rows: 1,
+                    dpi: self.terminal_size.dpi,
+                    pixel_height: cell_height as usize,
+                    pixel_width: bar_width as usize,
+                    reverse_video: false,
+                },
+                config: &self.config,
+                cursor_border_color: LinearRgba::default(),
+                foreground: fg,
+                pane: None,
+                is_active: true,
+                selection_fg: LinearRgba::default(),
+                selection_bg: LinearRgba::default(),
+                cursor_fg: LinearRgba::default(),
+                cursor_bg: LinearRgba::default(),
+                cursor_is_default_color: true,
+                white_space,
+                filled_box,
+                window_is_transparent,
+                default_bg: bar_bg,
+                style: None,
+                font: None,
+                use_pixel_positioning: self.config.experimental_pixel_positioning,
+                render_metrics: self.render_metrics,
+                shape_key: None,
+                password_input: false,
+            },
+            layers,
+        )?;
+
+        Ok(())
+    }
+
     pub fn paint_status_bar(
         &mut self,
         layers: &mut TripleLayerQuadAllocator,
@@ -216,6 +404,23 @@ impl crate::TermWindow {
         };
         let theme = crate::overlay::theme_selector::read_theme_id();
 
+        // MCP activity chip. Always rendered so the position is stable
+        // (a chip that appears/disappears would shift every neighboring
+        // segment's click hit-test). `⚡` suffix marks "writes recently"
+        // so the user notices a flash without having to compare counts.
+        let mcp_activity = crate::mcp::handler::recent_mcp_input_activity();
+        let mcp_part = {
+            let flash = mcp_activity
+                .seconds_since_last
+                .map(|s| s < 5.0)
+                .unwrap_or(false);
+            format!(
+                "mcp:{}{}",
+                mcp_activity.count,
+                if flash { "⚡" } else { "" }
+            )
+        };
+
         // Identity profile chip (window=identity model). The chip lives
         // in the bottom status bar rather than the top tabbar so it
         // shares space with the other context indicators (cwd / project /
@@ -255,6 +460,9 @@ impl crate::TermWindow {
         let proxy_offset = cw(&text);
         text.push_str(&proxy);
         text.push_str(" | ");
+        let mcp_offset = cw(&text);
+        text.push_str(&mcp_part);
+        text.push_str(" | ");
         let theme_offset = cw(&text);
         let theme_part = format!("theme:{theme}");
         text.push_str(&theme_part);
@@ -290,6 +498,11 @@ impl crate::TermWindow {
                     offset: proxy_offset,
                     len: cw(&proxy),
                     item_type: UIItemType::StatusBarProxy,
+                },
+                StatusRegion {
+                    offset: mcp_offset,
+                    len: cw(&mcp_part),
+                    item_type: UIItemType::StatusBarMcpAudit,
                 },
                 StatusRegion {
                     offset: theme_offset,
@@ -501,4 +714,41 @@ fn status_bar_theme_colors() -> ((u8, u8, u8), (u8, u8, u8), (u8, u8, u8)) {
         "classic" => ((0x20, 0x20, 0x20), (0x55, 0x55, 0x55), (0xd0, 0xd0, 0xd0)),
         _ => ((0x1e, 0x1e, 0x1e), (0x3a, 0x3a, 0x3a), (0xa0, 0xa0, 0xa0)),
     }
+}
+
+/// Accent palette for the suggest bar. Deliberately warmer than the
+/// regular status bar so a pending suggestion catches the eye without
+/// being alarming.
+fn suggest_bar_theme_colors() -> ((u8, u8, u8), (u8, u8, u8), (u8, u8, u8)) {
+    match crate::overlay::theme_selector::read_theme_id().as_str() {
+        "midnight" => ((0x1a, 0x24, 0x3a), (0x4a, 0x6f, 0xa8), (0xc8, 0xdb, 0xf5)),
+        "daylight" => ((0xff, 0xf3, 0xc4), (0xd0, 0xa0, 0x33), (0x40, 0x32, 0x10)),
+        "classic" => ((0x2a, 0x24, 0x18), (0x88, 0x66, 0x33), (0xff, 0xd6, 0x88)),
+        _ => ((0x24, 0x1f, 0x14), (0x70, 0x55, 0x2a), (0xff, 0xc6, 0x70)),
+    }
+}
+
+/// Truncate `text` so its display *width* (CJK = 2 cells, etc.) does
+/// not exceed `max_cols`. Adds `…` when truncation happens. Used by
+/// the suggest bar to keep the hint segment visible no matter how
+/// long the suggestion text is.
+fn truncate_to_width(text: &str, max_cols: usize) -> String {
+    if max_cols == 0 {
+        return String::new();
+    }
+    if unicode_column_width(text, None) <= max_cols {
+        return text.to_string();
+    }
+    let mut out = String::new();
+    let mut used = 0usize;
+    for c in text.chars() {
+        let w = unicode_column_width(&c.to_string(), None);
+        if used + w + 1 > max_cols {
+            break;
+        }
+        out.push(c);
+        used += w;
+    }
+    out.push('…');
+    out
 }

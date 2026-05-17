@@ -780,8 +780,9 @@ fn api_state(handler: &McpHandler) -> Response {
     // 19879, which is both confusing and breaks the "click to copy
     // a working /api/health curl command" affordance.
     let info = server_info::read_current();
+    let ctx = crate::mcp::handler::ConnectionContext::internal("web_settings");
     let proxy = handler
-        .handle("proxy.status", &json!({}))
+        .handle(&ctx, "proxy.status", &json!({}))
         .unwrap_or_else(|e| json!({"error": e.to_string()}));
 
     let theme = current_theme_id();
@@ -985,8 +986,9 @@ fn api_proxy(handler: &McpHandler, body: &[u8]) -> Response {
         .get("enabled")
         .and_then(|v| v.as_bool())
         .unwrap_or(true);
+    let ctx = crate::mcp::handler::ConnectionContext::internal("web_settings");
     let result = if !enabled {
-        handler.handle("proxy.disable", &json!({}))
+        handler.handle(&ctx, "proxy.disable", &json!({}))
     } else {
         let mut params = serde_json::Map::new();
         params.insert("enabled".into(), Value::Bool(true));
@@ -1001,7 +1003,7 @@ fn api_proxy(handler: &McpHandler, body: &[u8]) -> Response {
                 params.insert(k.into(), v.clone());
             }
         }
-        handler.handle("proxy.configure", &Value::Object(params))
+        handler.handle(&ctx, "proxy.configure", &Value::Object(params))
     };
     match result {
         Ok(v) => Response::ok_json(v),
@@ -1040,7 +1042,8 @@ fn api_recording(handler: &McpHandler, body: &[u8], start: bool) -> Response {
     } else {
         "session.recording_stop"
     };
-    match handler.handle(method, &json!({"id": pane_id})) {
+    let ctx = crate::mcp::handler::ConnectionContext::internal("web_settings");
+    match handler.handle(&ctx, method, &json!({"id": pane_id})) {
         Ok(v) => Response::ok_json(v),
         Err(e) => Response::err(500, "Internal Error", &e.to_string()),
     }
@@ -1051,7 +1054,8 @@ fn api_sessions(handler: &McpHandler, query: &str) -> Response {
     if let Some(p) = parse_query(query, "project") {
         params.insert("project".into(), Value::String(p));
     }
-    match handler.handle("session.recording_list", &Value::Object(params)) {
+    let ctx = crate::mcp::handler::ConnectionContext::internal("web_settings");
+    match handler.handle(&ctx, "session.recording_list", &Value::Object(params)) {
         // The MCP method returns an array directly; wrap it for the SPA so
         // it can grow `total`/etc. fields later without breaking clients.
         Ok(v) => Response::ok_json(json!({"sessions": v})),
@@ -1073,7 +1077,8 @@ fn api_session_markdown(handler: &McpHandler, path: &str) -> Response {
         Some(s) => s,
         None => return Response::err(400, "Bad Request", "invalid session id encoding"),
     };
-    match handler.handle("session.recording_read", &json!({"session_id": id})) {
+    let ctx = crate::mcp::handler::ConnectionContext::internal("web_settings");
+    match handler.handle(&ctx, "session.recording_read", &json!({"session_id": id})) {
         Ok(v) => {
             let md = v
                 .get("markdown")

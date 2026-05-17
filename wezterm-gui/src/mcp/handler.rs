@@ -8,6 +8,7 @@ use mux::pane::Pane;
 use mux::Mux;
 use parking_lot::Mutex;
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::net::ToSocketAddrs;
 use std::sync::Arc;
 
@@ -19,6 +20,56 @@ struct AuditEntry {
     session_id: Option<String>,
     detail: String,
     allowed: bool,
+    /// Agent label captured at audit time — either the value the
+    /// client set via `agent.identify` or `"anonymous"` if it never
+    /// identified itself. Lets the audit UI group by agent without
+    /// having to cross-reference connection IDs.
+    agent: String,
+}
+
+std::thread_local! {
+    /// Connection ID of the request currently being handled on this
+    /// thread. `handle()` writes this on entry and clears it on exit
+    /// (via the RAII guard below). Audit-writing helpers read it to
+    /// stamp entries with the calling agent's name.
+    static CURRENT_CONN_ID: std::cell::RefCell<Option<u64>> =
+        std::cell::RefCell::new(None);
+}
+
+/// RAII guard that clears the thread-local connection ID even if the
+/// handler panics. Keeps audit attribution from leaking between
+/// successive requests on the same thread.
+struct ConnectionScope;
+
+impl Drop for ConnectionScope {
+    fn drop(&mut self) {
+        CURRENT_CONN_ID.with(|cell| *cell.borrow_mut() = None);
+    }
+}
+
+fn current_agent_label() -> String {
+    let conn_id = CURRENT_CONN_ID.with(|cell| *cell.borrow());
+    if let Some(id) = conn_id {
+        let state = mcp_state().lock();
+        if let Some(identity) = state.agents_by_connection.get(&id) {
+            return identity.name.clone();
+        }
+    }
+    "anonymous".to_string()
+}
+
+/// Pull the agent label off the most recent audit entry. Used in
+/// `audit()` to mark "first PTY write from this agent" — by the time
+/// we get here, the new entry has already been pushed with its
+/// `agent` field set by `current_agent_label()`, so re-doing the
+/// thread-local lookup would just produce the same value at the cost
+/// of re-acquiring the same lock.
+fn entry_agent_from_last_audit(state: &McpState) -> String {
+    state
+        .audit_log
+        .last()
+        .map(|e| e.agent.clone())
+        .unwrap_or_else(|| "anonymous".to_string())
 }
 
 /// Command execution policy
@@ -73,11 +124,313 @@ impl Default for ProxySettings {
     }
 }
 
+/// What an MCP client tells us about itself via `agent.identify`.
+/// Identity is *self-asserted* — no cryptographic verification, just a
+/// label the agent uses so audit logs and the (future) confirmation
+/// flow can group by "claude-code" vs "unterm-cli" vs "anonymous".
+#[derive(Clone, serde::Serialize)]
+pub struct AgentIdentity {
+    pub name: String,
+    pub version: Option<String>,
+    pub capabilities: Vec<String>,
+    /// Source address of the TCP connection (`127.0.0.1:port`). Useful
+    /// for distinguishing two concurrent connections claiming the same
+    /// agent name.
+    pub peer_addr: String,
+    /// RFC3339 timestamp of when `agent.identify` was called on this
+    /// connection.
+    pub identified_at: String,
+}
+
+/// Per-connection context passed in to every `handle()` call. Lets
+/// methods that need it (`agent.identify`, audit annotators) tie the
+/// request back to a specific TCP connection without resorting to
+/// thread-locals at the call site.
+pub struct ConnectionContext {
+    pub conn_id: u64,
+    pub peer_addr: String,
+}
+
+impl ConnectionContext {
+    /// Synthetic context for in-process callers that aren't talking to
+    /// the MCP TCP server — e.g. the web settings HTTP handlers that
+    /// dispatch via the same `McpHandler` instance. `conn_id` 0 is
+    /// reserved (the TCP server starts allocating at 1).
+    pub fn internal(source: &str) -> Self {
+        Self {
+            conn_id: 0,
+            peer_addr: format!("internal:{source}"),
+        }
+    }
+}
+
+/// Lifecycle state for a single `session.suggest` suggestion. Stored
+/// alongside the suggestion so `session.suggest_status` can report what
+/// happened to a previously-posted suggestion (and so the suggest UI
+/// can decide whether to render it).
+#[derive(Clone, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SuggestionState {
+    Pending,
+    Accepted { at: String, ran_immediately: bool },
+    Dismissed { at: String },
+    Expired { at: String },
+    Cancelled { at: String },
+}
+
+/// Where a suggestion came from. All fields optional — anonymous agents
+/// can still post suggestions, and `agent.identify` is the
+/// recommended-but-not-required way to provide a recognizable label.
+#[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct SuggestionSource {
+    pub agent: Option<String>,
+    pub session: Option<String>,
+}
+
+/// One MCP-driven suggestion. The text is **not** written to PTY at
+/// post time — only when the user actively accepts it via the
+/// suggest UI (or programmatically via `accept_suggestion`).
+#[derive(Clone, serde::Serialize)]
+pub struct Suggestion {
+    pub id: String,
+    pub pane_id: u64,
+    pub text: String,
+    pub rationale: Option<String>,
+    pub source: SuggestionSource,
+    pub created_at: String,
+    pub ttl_ms: u64,
+    pub state: SuggestionState,
+    /// Connection ID of the agent that posted this suggestion. Used to
+    /// stamp accept/dismiss audit entries with the originating agent
+    /// (even after the connection has disconnected).
+    pub posted_by_conn: u64,
+    /// Cached agent label from `agent.identify`, so the suggest UI can
+    /// render "from claude-code" even after the connection drops.
+    pub posted_by_agent: String,
+}
+
 /// Global state for audit + policy + workspace
 struct McpState {
     audit_log: Vec<AuditEntry>,
     policy: CommandPolicy,
     proxy: ProxySettings,
+    /// Monotonically-increasing count of PTY writes that came from an
+    /// MCP client (session.input / exec.send). Surfaced in the status
+    /// bar so the user can see "AI just wrote N times" at a glance.
+    input_event_count: u64,
+    /// When the most recent MCP-origin PTY write happened. Status bar
+    /// uses this for a short flash effect after each event.
+    last_input_at: Option<std::time::Instant>,
+    /// Per-connection agent identity. Connections that never called
+    /// `agent.identify` are absent from the map and rendered as
+    /// "anonymous" in audit views. Cleared when the connection drops.
+    agents_by_connection: HashMap<u64, AgentIdentity>,
+    /// First time we ever saw a given agent name (across all
+    /// connections). Used by the (future, P0.3) "first-time per agent"
+    /// confirmation flow to decide whether this agent is novel enough
+    /// to interrupt the user.
+    known_agents: HashMap<String, String>,
+    /// Names of agents that have ever called `session.input` /
+    /// `exec.send` since startup. Used to flag "first PTY write by
+    /// this agent" in the audit log — that's the moment the
+    /// (future) per-agent confirmation banner would interrupt the
+    /// user; for now it just stamps `first_input=true` so audit
+    /// readers can see it stand out.
+    agents_with_input_history: std::collections::HashSet<String>,
+    /// All suggestions posted via `session.suggest`, indexed by id.
+    /// Both live (pending) and dead (accepted/dismissed/expired) are
+    /// kept so `session.suggest_status` can return a lifecycle
+    /// answer. Capped at SUGGEST_MAX entries — oldest dropped first.
+    suggestions: HashMap<String, Suggestion>,
+    /// Insertion order of suggestion ids, used for FIFO eviction when
+    /// the map exceeds SUGGEST_MAX.
+    suggestion_order: Vec<String>,
+    /// Monotonically-increasing suffix appended to suggestion ids so
+    /// they're unique even when the system clock has poor resolution.
+    suggestion_seq: u64,
+}
+
+/// Snapshot of MCP input activity for UI surfaces. Returned by
+/// `recent_mcp_input_activity()` so renderers don't need to know about
+/// the global state Mutex.
+pub struct McpInputActivity {
+    pub count: u64,
+    pub seconds_since_last: Option<f32>,
+}
+
+/// Read-only view of how often MCP clients have written to PTYs since
+/// startup, plus how long ago the last write was. The status bar polls
+/// this on every paint to decide whether to render the `⚡` flash.
+pub fn recent_mcp_input_activity() -> McpInputActivity {
+    let state = mcp_state().lock();
+    McpInputActivity {
+        count: state.input_event_count,
+        seconds_since_last: state.last_input_at.map(|t| t.elapsed().as_secs_f32()),
+    }
+}
+
+/// Snapshot the audit log as a pretty-printed JSON string. Used by
+/// the status bar chip click (until P1.3's proper overlay lands) so
+/// the user can paste the log into any text editor for review.
+/// Returns at most `limit` most-recent entries, newest first.
+pub fn audit_log_snapshot_json(limit: usize) -> String {
+    let state = mcp_state().lock();
+    let recent: Vec<&AuditEntry> = state.audit_log.iter().rev().take(limit).collect();
+    serde_json::to_string_pretty(&recent).unwrap_or_else(|_| "[]".to_string())
+}
+
+/// Pending suggestions for a specific pane, ordered oldest-first.
+/// Called by the suggest UI on every paint to decide what to render.
+/// Side-effect: lazily flips suggestions whose TTL has elapsed from
+/// `Pending` to `Expired` — keeps the queue from showing stale text.
+pub fn pending_suggestions_for_pane(pane_id: u64) -> Vec<Suggestion> {
+    let mut state = mcp_state().lock();
+    let now = chrono::Local::now();
+    let ids_to_check: Vec<String> = state
+        .suggestions
+        .iter()
+        .filter(|(_, s)| s.pane_id == pane_id && matches!(s.state, SuggestionState::Pending))
+        .map(|(id, _)| id.clone())
+        .collect();
+    for id in ids_to_check {
+        let expired = {
+            let s = &state.suggestions[&id];
+            chrono::DateTime::parse_from_rfc3339(&s.created_at)
+                .map(|created| {
+                    let elapsed = now.signed_duration_since(created.with_timezone(&chrono::Local));
+                    elapsed.num_milliseconds() as u64 > s.ttl_ms
+                })
+                .unwrap_or(false)
+        };
+        if expired {
+            if let Some(s) = state.suggestions.get_mut(&id) {
+                s.state = SuggestionState::Expired {
+                    at: now.to_rfc3339(),
+                };
+            }
+        }
+    }
+    let mut out: Vec<Suggestion> = state
+        .suggestions
+        .values()
+        .filter(|s| s.pane_id == pane_id && matches!(s.state, SuggestionState::Pending))
+        .cloned()
+        .collect();
+    out.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+    out
+}
+
+/// Mark a suggestion as accepted and return the text the caller (the
+/// suggest UI) should write to the pane's PTY. `run_immediately = true`
+/// means the user hit `Alt+Enter`, so the UI is expected to append
+/// `\n` after writing the text. Audit is stamped here so the lifecycle
+/// trail captures *who accepted* (the user — represented as
+/// `agent="user"`), distinct from *who posted* (the agent label
+/// frozen on the suggestion when it was created).
+pub fn accept_suggestion(id: &str, run_immediately: bool) -> Result<String, String> {
+    let mut state = mcp_state().lock();
+    let suggestion = state
+        .suggestions
+        .get_mut(id)
+        .ok_or_else(|| format!("unknown suggestion_id: {id}"))?;
+    if !matches!(suggestion.state, SuggestionState::Pending) {
+        return Err(format!("suggestion {id} is not pending"));
+    }
+    let text = suggestion.text.clone();
+    let posted_by = suggestion.posted_by_agent.clone();
+    let pane_id = suggestion.pane_id;
+    suggestion.state = SuggestionState::Accepted {
+        at: chrono::Local::now().to_rfc3339(),
+        ran_immediately: run_immediately,
+    };
+    // Drop the lock before audit — `audit()` re-acquires it.
+    drop(state);
+    let entry = AuditEntry {
+        timestamp: chrono::Local::now().to_rfc3339(),
+        method: "session.suggest.accept".to_string(),
+        session_id: Some(pane_id.to_string()),
+        detail: format!(
+            "id={} posted_by={} run={} {}",
+            id,
+            posted_by,
+            run_immediately,
+            input_preview(&text)
+        ),
+        allowed: true,
+        agent: "user".to_string(),
+    };
+    let mut state = mcp_state().lock();
+    state.audit_log.push(entry);
+    Ok(text)
+}
+
+/// Mark a suggestion dismissed. Symmetric with `accept_suggestion` —
+/// the UI calls this when the user hits Esc (or clicks the dismiss
+/// affordance). Returns an error if the id is unknown or already
+/// resolved.
+pub fn dismiss_suggestion(id: &str) -> Result<(), String> {
+    let mut state = mcp_state().lock();
+    let suggestion = state
+        .suggestions
+        .get_mut(id)
+        .ok_or_else(|| format!("unknown suggestion_id: {id}"))?;
+    if !matches!(suggestion.state, SuggestionState::Pending) {
+        return Err(format!("suggestion {id} is not pending"));
+    }
+    let pane_id = suggestion.pane_id;
+    let posted_by = suggestion.posted_by_agent.clone();
+    suggestion.state = SuggestionState::Dismissed {
+        at: chrono::Local::now().to_rfc3339(),
+    };
+    drop(state);
+    let entry = AuditEntry {
+        timestamp: chrono::Local::now().to_rfc3339(),
+        method: "session.suggest.dismiss".to_string(),
+        session_id: Some(pane_id.to_string()),
+        detail: format!("id={} posted_by={}", id, posted_by),
+        allowed: true,
+        agent: "user".to_string(),
+    };
+    mcp_state().lock().audit_log.push(entry);
+    Ok(())
+}
+
+/// Render an `input` payload as a single-line audit-friendly summary.
+/// Truncates to MAX_LEN graphemes, escapes ASCII control chars, and tags
+/// whether the original contained any non-printable bytes — so log
+/// readers can spot `\x03` (Ctrl-C) injection without us dumping every
+/// raw keystroke (which could include passwords).
+fn input_preview(input: &str) -> String {
+    const MAX_LEN: usize = 80;
+    let total_len = input.len();
+    let mut has_ctrl = false;
+    let mut rendered = String::with_capacity(input.len().min(MAX_LEN * 4) + 16);
+    for c in input.chars() {
+        if c == '\n' || c == '\r' || c == '\t' {
+            // Keep whitespace visible but readable.
+            match c {
+                '\n' => rendered.push_str("\\n"),
+                '\r' => rendered.push_str("\\r"),
+                '\t' => rendered.push_str("\\t"),
+                _ => {}
+            }
+        } else if c.is_control() {
+            has_ctrl = true;
+            rendered.push_str(&format!("\\x{:02x}", c as u32));
+        } else {
+            rendered.push(c);
+        }
+        if rendered.chars().count() >= MAX_LEN {
+            rendered.push('…');
+            break;
+        }
+    }
+    format!(
+        "len={}{} {}",
+        total_len,
+        if has_ctrl { " [ctrl]" } else { "" },
+        rendered
+    )
 }
 
 fn mcp_state() -> &'static Mutex<McpState> {
@@ -87,6 +440,14 @@ fn mcp_state() -> &'static Mutex<McpState> {
             audit_log: Vec::new(),
             policy: CommandPolicy::default(),
             proxy: load_proxy_settings(),
+            input_event_count: 0,
+            last_input_at: None,
+            agents_by_connection: HashMap::new(),
+            known_agents: HashMap::new(),
+            agents_with_input_history: std::collections::HashSet::new(),
+            suggestions: HashMap::new(),
+            suggestion_order: Vec::new(),
+            suggestion_seq: 0,
         })
     })
 }
@@ -98,8 +459,26 @@ impl McpHandler {
         Self
     }
 
-    pub fn handle(&self, method: &str, params: &Value) -> Result<Value> {
+    pub fn handle(
+        &self,
+        ctx: &ConnectionContext,
+        method: &str,
+        params: &Value,
+    ) -> Result<Value> {
+        CURRENT_CONN_ID.with(|cell| *cell.borrow_mut() = Some(ctx.conn_id));
+        let _scope = ConnectionScope;
         match method {
+            // Agent self-identification — call this right after
+            // `auth.login` to tag your connection so audit entries
+            // group by agent name instead of by connection ID.
+            "agent.identify" => self.agent_identify(ctx, params),
+            "agent.whoami" => self.agent_whoami(ctx),
+            // Suggest API — agents propose text; the user decides
+            // whether it reaches the PTY (Tab/Esc in the suggest UI).
+            "session.suggest" => self.session_suggest(ctx, params),
+            "session.suggest_status" => self.session_suggest_status(params),
+            "session.suggest_cancel" => self.session_suggest_cancel(params),
+            "session.suggest_list" => self.session_suggest_list(params),
             // Session management
             "session.list" => self.session_list(),
             "session.get" | "session.status" => self.session_get(params),
@@ -656,6 +1035,12 @@ impl McpHandler {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing 'input' parameter"))?;
 
+        // PTY 字节流一旦写下去就和用户手敲不可区分，必须留下审计痕迹。
+        self.audit(
+            "session.input",
+            Some(&pane.pane_id().to_string()),
+            &input_preview(input),
+        );
         pane.writer().write_all(input.as_bytes())?;
         Ok(json!({"status": "ok"}))
     }
@@ -769,6 +1154,236 @@ impl McpHandler {
         Ok(json!(entries))
     }
 
+    // --- Agent identity ---
+
+    /// Record the calling connection's claimed identity. Self-asserted;
+    /// we trust the agent label only to *group* activity, never to grant
+    /// privileges — the auth token is still what gates access.
+    fn agent_identify(&self, ctx: &ConnectionContext, params: &Value) -> Result<Value> {
+        let name = params
+            .get("name")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing 'name' parameter"))?
+            .trim();
+        if name.is_empty() {
+            return Err(anyhow!("'name' must be non-empty"));
+        }
+        if name.len() > 64 {
+            return Err(anyhow!("'name' must be ≤ 64 chars"));
+        }
+        let version = params
+            .get("version")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let capabilities: Vec<String> = params
+            .get("capabilities")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|c| c.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let now = chrono::Local::now().to_rfc3339();
+        let identity = AgentIdentity {
+            name: name.to_string(),
+            version: version.clone(),
+            capabilities: capabilities.clone(),
+            peer_addr: ctx.peer_addr.clone(),
+            identified_at: now.clone(),
+        };
+
+        let first_time = {
+            let mut state = mcp_state().lock();
+            state
+                .agents_by_connection
+                .insert(ctx.conn_id, identity.clone());
+            // `entry().or_insert` so the timestamp records *first ever*
+            // sighting, not the latest.
+            let entry = state.known_agents.entry(name.to_string());
+            let is_new = matches!(entry, std::collections::hash_map::Entry::Vacant(_));
+            entry.or_insert_with(|| now.clone());
+            is_new
+        };
+
+        // Audit the identification itself — useful for forensics
+        // ("when did claude-code first connect?").
+        self.audit(
+            "agent.identify",
+            None,
+            &format!(
+                "name={} version={} first_time={}",
+                name,
+                version.as_deref().unwrap_or("-"),
+                first_time
+            ),
+        );
+
+        Ok(json!({
+            "status": "ok",
+            "name": name,
+            "first_time": first_time,
+            "identified_at": now,
+        }))
+    }
+
+    /// Echo back the connection's current identity (or "anonymous" if
+    /// `agent.identify` was never called).
+    fn agent_whoami(&self, ctx: &ConnectionContext) -> Result<Value> {
+        let state = mcp_state().lock();
+        match state.agents_by_connection.get(&ctx.conn_id) {
+            Some(identity) => Ok(json!(identity)),
+            None => Ok(json!({
+                "name": "anonymous",
+                "peer_addr": ctx.peer_addr,
+            })),
+        }
+    }
+
+    /// Called by the TCP server when a client connection drops so
+    /// `agents_by_connection` doesn't grow unboundedly. `known_agents`
+    /// is intentionally kept — it's "have we *ever* seen this name?",
+    /// which outlives any single connection.
+    pub fn drop_connection(&self, conn_id: u64) {
+        let mut state = mcp_state().lock();
+        state.agents_by_connection.remove(&conn_id);
+    }
+
+    // --- Suggest API ---
+
+    /// Post a non-PTY-writing suggestion. The text is queued for the
+    /// user to accept (Tab in the suggest UI) or dismiss (Esc); the
+    /// MCP client never gets to inject keystrokes directly when it
+    /// uses this method. Returns a suggestion id the caller can use
+    /// for status / cancel.
+    fn session_suggest(&self, ctx: &ConnectionContext, params: &Value) -> Result<Value> {
+        let pane = self.get_pane(params)?;
+        let pane_id = pane.pane_id() as u64;
+
+        let text = params
+            .get("text")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing 'text' parameter"))?;
+        if text.is_empty() {
+            return Err(anyhow!("'text' must be non-empty"));
+        }
+        if text.len() > 4096 {
+            // A *suggestion* longer than 4KB is almost certainly a bug
+            // — refuse it so a misbehaving agent can't OOM the queue.
+            return Err(anyhow!("'text' too large ({} > 4096 bytes)", text.len()));
+        }
+
+        let rationale = params
+            .get("rationale")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let ttl_ms = params
+            .get("ttl_ms")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(60_000);
+        let source: SuggestionSource = params
+            .get("source")
+            .cloned()
+            .and_then(|v| serde_json::from_value(v).ok())
+            .unwrap_or_default();
+
+        let now = chrono::Local::now().to_rfc3339();
+        let agent_label = current_agent_label();
+
+        let id = {
+            let mut state = mcp_state().lock();
+            state.suggestion_seq = state.suggestion_seq.saturating_add(1);
+            format!(
+                "sg_{}_{}",
+                chrono::Utc::now().timestamp_millis(),
+                state.suggestion_seq
+            )
+        };
+
+        let suggestion = Suggestion {
+            id: id.clone(),
+            pane_id,
+            text: text.to_string(),
+            rationale: rationale.clone(),
+            source: source.clone(),
+            created_at: now.clone(),
+            ttl_ms,
+            state: SuggestionState::Pending,
+            posted_by_conn: ctx.conn_id,
+            posted_by_agent: agent_label.clone(),
+        };
+
+        {
+            let mut state = mcp_state().lock();
+            state.suggestions.insert(id.clone(), suggestion);
+            state.suggestion_order.push(id.clone());
+            const SUGGEST_MAX: usize = 256;
+            if state.suggestion_order.len() > SUGGEST_MAX {
+                let drop_n = SUGGEST_MAX / 8;
+                for old_id in state.suggestion_order.drain(..drop_n).collect::<Vec<_>>() {
+                    state.suggestions.remove(&old_id);
+                }
+            }
+        }
+
+        self.audit(
+            "session.suggest",
+            Some(&pane_id.to_string()),
+            &format!("id={} {}", id, input_preview(text)),
+        );
+
+        Ok(json!({
+            "suggestion_id": id,
+            "status": "queued",
+        }))
+    }
+
+    fn session_suggest_status(&self, params: &Value) -> Result<Value> {
+        let id = params
+            .get("suggestion_id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing 'suggestion_id' parameter"))?;
+        let state = mcp_state().lock();
+        let suggestion = state
+            .suggestions
+            .get(id)
+            .ok_or_else(|| anyhow!("Unknown suggestion_id: {}", id))?;
+        Ok(json!(suggestion))
+    }
+
+    fn session_suggest_cancel(&self, params: &Value) -> Result<Value> {
+        let id = params
+            .get("suggestion_id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing 'suggestion_id' parameter"))?
+            .to_string();
+        let mut state = mcp_state().lock();
+        let suggestion = state
+            .suggestions
+            .get_mut(&id)
+            .ok_or_else(|| anyhow!("Unknown suggestion_id: {}", id))?;
+        if matches!(suggestion.state, SuggestionState::Pending) {
+            suggestion.state = SuggestionState::Cancelled {
+                at: chrono::Local::now().to_rfc3339(),
+            };
+        }
+        Ok(json!({"status": "ok"}))
+    }
+
+    fn session_suggest_list(&self, params: &Value) -> Result<Value> {
+        let pane_filter = params.get("pane_id").and_then(|v| v.as_u64());
+        let state = mcp_state().lock();
+        let mut out: Vec<&Suggestion> = state
+            .suggestions
+            .values()
+            .filter(|s| pane_filter.map_or(true, |p| s.pane_id == p))
+            .filter(|s| matches!(s.state, SuggestionState::Pending))
+            .collect();
+        out.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+        Ok(json!(out))
+    }
+
     fn audit(&self, method: &str, session_id: Option<&str>, detail: &str) {
         let entry = AuditEntry {
             timestamp: chrono::Local::now().to_rfc3339(),
@@ -776,8 +1391,39 @@ impl McpHandler {
             session_id: session_id.map(|s| s.to_string()),
             detail: detail.to_string(),
             allowed: true,
+            agent: current_agent_label(),
         };
-        mcp_state().lock().audit_log.push(entry);
+        let mut state = mcp_state().lock();
+        state.audit_log.push(entry);
+        // Cap the in-memory log so a chatty agent can't OOM us. Drop the
+        // oldest 10% in one shot so we amortize the shift cost instead of
+        // re-shifting every push.
+        const AUDIT_MAX: usize = 1000;
+        if state.audit_log.len() > AUDIT_MAX {
+            let drop = AUDIT_MAX / 10;
+            state.audit_log.drain(..drop);
+        }
+        // Bump the activity counter so the status bar chip can surface
+        // "AI just wrote to a pane" without scanning the whole audit
+        // log. Only PTY-write methods qualify — read-only methods like
+        // screen.read or session.list shouldn't make the chip flash.
+        if method == "session.input" || method == "exec.send" {
+            state.input_event_count = state.input_event_count.saturating_add(1);
+            state.last_input_at = Some(std::time::Instant::now());
+            // Stamp "first PTY write from this agent" — the soft
+            // alternative to the (deferred) blocking confirmation
+            // banner. A reader scanning the audit log sees a clear
+            // signal when a new agent starts driving a terminal.
+            let agent = entry_agent_from_last_audit(&state);
+            if state.agents_with_input_history.insert(agent.clone()) {
+                log::warn!(
+                    "MCP: first PTY write by agent {agent:?} via {method} — review session.audit_log",
+                );
+                if let Some(last) = state.audit_log.last_mut() {
+                    last.detail.push_str(" first_input=true");
+                }
+            }
+        }
     }
 
     // --- Exec methods ---

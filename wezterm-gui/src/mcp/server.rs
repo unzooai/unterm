@@ -5,13 +5,20 @@
 //! to `~/.unterm/server.json`, and dispatches each request to the handler
 //! module.
 
-use super::handler::McpHandler;
+use super::handler::{ConnectionContext, McpHandler};
 use crate::server_info::{self, MCP_PREFERRED_PORT, SERVER_BIND};
 use anyhow::Result;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread;
+
+/// Monotonically-increasing connection ID assigned to each accepted
+/// client. Used by the handler to bind `agent.identify` claims to a
+/// specific TCP connection so two concurrent agents claiming the same
+/// name don't merge their state.
+static NEXT_CONN_ID: AtomicU64 = AtomicU64::new(1);
 
 /// Bind the MCP server, write the initial `server.json`, and start
 /// accepting clients on a background thread. Returns the bound port and the
@@ -156,6 +163,12 @@ fn handle_client(stream: TcpStream, auth_token: &str, handler: &McpHandler) -> R
     let peer = stream.peer_addr()?;
     log::info!("MCP client connected: {}", peer);
 
+    let conn_id = NEXT_CONN_ID.fetch_add(1, Ordering::Relaxed);
+    let ctx = ConnectionContext {
+        conn_id,
+        peer_addr: peer.to_string(),
+    };
+
     let reader = BufReader::new(stream.try_clone()?);
     let mut writer = stream;
     let mut authenticated = false;
@@ -211,7 +224,7 @@ fn handle_client(stream: TcpStream, auth_token: &str, handler: &McpHandler) -> R
         }
 
         // Dispatch to handler
-        let result = handler.handle(method, &params);
+        let result = handler.handle(&ctx, method, &params);
         let resp = match result {
             Ok(value) => make_success_response(id, value),
             Err(e) => make_error_response(id, -32603, &e.to_string()),
@@ -219,6 +232,9 @@ fn handle_client(stream: TcpStream, auth_token: &str, handler: &McpHandler) -> R
         write_response(&mut writer, &resp)?;
     }
 
+    // Free any per-connection state (notably the agent.identify claim)
+    // so we don't leak entries for short-lived clients.
+    handler.drop_connection(conn_id);
     log::info!("MCP client disconnected: {}", peer);
     Ok(())
 }
