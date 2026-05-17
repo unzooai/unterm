@@ -39,6 +39,7 @@ mod commands;
 mod customglyph;
 mod download;
 mod frontend;
+mod ghost_text;
 mod glyphcache;
 mod i18n;
 mod inputmap;

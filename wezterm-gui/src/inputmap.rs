@@ -133,6 +133,20 @@ impl InputMap {
             .or_insert(KeyTableEntry {
                 action: KeyAssignment::McpConfirmAlwaysAllow,
             });
+        // Right Arrow / End — accept the active pane's ghost-text
+        // prediction when one is shown. Returns Unhandled when no
+        // ghost is active so the original cursor-right / end-of-line
+        // navigation still works.
+        keys.default
+            .entry((KeyCode::RightArrow, Modifiers::NONE))
+            .or_insert(KeyTableEntry {
+                action: KeyAssignment::AcceptGhostText,
+            });
+        keys.default
+            .entry((KeyCode::End, Modifiers::NONE))
+            .or_insert(KeyTableEntry {
+                action: KeyAssignment::AcceptGhostText,
+            });
 
         if !config.disable_default_mouse_bindings {
             m!(

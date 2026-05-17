@@ -670,6 +670,11 @@ pub enum KeyAssignment {
     /// the calling agent for the rest of the session, so subsequent
     /// PTY writes by that agent skip the banner.
     McpConfirmAlwaysAllow,
+    /// Accept the currently-shown ghost-text prediction on the
+    /// active pane by writing the continuation to the PTY. When no
+    /// ghost is showing, returns `Unhandled` so the binding (default
+    /// Right Arrow) still moves the terminal cursor.
+    AcceptGhostText,
 }
 impl_lua_conversion_dynamic!(KeyAssignment);
 

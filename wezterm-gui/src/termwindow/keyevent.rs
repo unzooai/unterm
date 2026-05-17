@@ -402,6 +402,18 @@ impl super::TermWindow {
                     };
 
                     if did_encode {
+                        if is_down && !keycode.is_modifier() {
+                            // Update the ghost-text buffer for this
+                            // pane. We mirror the keystrokes the user
+                            // is sending to the PTY so the
+                            // prediction engine can pattern-match
+                            // against earlier commits.
+                            observe_ghost_text_key(
+                                pane.pane_id() as u64,
+                                &term_key,
+                                tw_raw_modifiers,
+                            );
+                        }
                         if is_down
                             && !keycode.is_modifier()
                             && self.pane_state(pane.pane_id()).overlay.is_none()
@@ -866,4 +878,59 @@ impl super::TermWindow {
         };
         Key::Code(code)
     }
+}
+
+/// Translate a termwiz `KeyCode` + modifier set into a ghost-text
+/// input event and feed it through. Lives outside `impl TermWindow`
+/// because it doesn't touch any window state — it just bridges to
+/// the global registry in `crate::ghost_text`.
+fn observe_ghost_text_key(
+    pane_id: u64,
+    key: &termwiz::input::KeyCode,
+    mods: Modifiers,
+) {
+    use crate::ghost_text::InputEvent;
+    use termwiz::input::KeyCode;
+
+    let event = match key {
+        KeyCode::Char(c) => {
+            let c = *c;
+            if mods.contains(Modifiers::CTRL) {
+                // Ctrl-C / Ctrl-G blow away the line; Ctrl-U / Ctrl-W
+                // also reset (close enough to "the user wants to
+                // start over"). All other Ctrl-* combos are
+                // application bindings the shell interprets; leave
+                // the ghost buffer alone.
+                match c.to_ascii_lowercase() {
+                    'c' | 'g' => InputEvent::Cancel,
+                    'u' | 'w' => InputEvent::ClearLine,
+                    _ => return,
+                }
+            } else if mods.intersects(Modifiers::ALT | Modifiers::SUPER) {
+                // Modified character keys (Alt+letter, Super+letter)
+                // tend to be GUI shortcuts, not literal input.
+                return;
+            } else if c == '\r' || c == '\n' {
+                InputEvent::Enter
+            } else if c == '\u{8}' || c == '\u{7f}' {
+                InputEvent::Backspace
+            } else if c.is_control() {
+                return;
+            } else {
+                InputEvent::Char(c)
+            }
+        }
+        KeyCode::Enter => InputEvent::Enter,
+        KeyCode::Backspace => InputEvent::Backspace,
+        KeyCode::Escape | KeyCode::Cancel => InputEvent::Cancel,
+        // Arrow keys, function keys, etc. don't change the buffer —
+        // a moving cursor inside a long command line is something
+        // we can't track without parsing the shell's behavior.
+        _ => return,
+    };
+
+    // No external candidate pool for now — predictions come from
+    // earlier commits captured on this pane. Scrollback scanning can
+    // be wired in later as a richer source.
+    crate::ghost_text::observe(pane_id, event, &[]);
 }

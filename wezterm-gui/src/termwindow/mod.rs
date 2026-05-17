@@ -3827,6 +3827,18 @@ impl TermWindow {
                     crate::mcp::handler::ConfirmationDecision::AlwaysAllow,
                 );
             }
+            AcceptGhostText => {
+                let pane_id = pane.pane_id() as u64;
+                if !crate::ghost_text::has_pending_ghost(pane_id) {
+                    return Ok(PerformAssignmentResult::Unhandled);
+                }
+                let Some(continuation) = crate::ghost_text::accept(pane_id) else {
+                    return Ok(PerformAssignmentResult::Unhandled);
+                };
+                if let Err(e) = pane.writer().write_all(continuation.as_bytes()) {
+                    log::error!("AcceptGhostText write_all failed: {e:#}");
+                }
+            }
         };
         Ok(PerformAssignmentResult::Handled)
     }

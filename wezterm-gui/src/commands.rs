@@ -2079,6 +2079,14 @@ pub fn derive_command_from_key_assignment(action: &KeyAssignment) -> Option<Comm
             menubar: &["Edit"],
             icon: None,
         },
+        AcceptGhostText => CommandDef {
+            brief: "Accept ghost-text prediction".into(),
+            doc: "Write the currently-shown ghost-text continuation to the PTY".into(),
+            keys: vec![],
+            args: &[ArgType::ActivePane],
+            menubar: &["Edit"],
+            icon: None,
+        },
     })
 }
 
