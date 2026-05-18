@@ -10,7 +10,7 @@
   "nav.download": "Download",
   "nav.faq": "FAQ",
 
-  "hero.badge": "v0.15 — signed, notarized, ready for agents",
+  "hero.badge": "v0.16 — signed, notarized, ready for agents",
   "hero.title.1": "A terminal",
   "hero.title.2": "AI agents can control.",
   "hero.subtitle": "Drive panes, shells, cwd, screenshots, and session state through MCP, HTTP, and CLI so Claude Code, Cursor, or your own agent can run the whole terminal.",
@@ -92,8 +92,10 @@
   "features.engine.title": "GPU rendering",
   "features.engine.body": "Built on a customized WezTerm engine — Metal on macOS, OpenGL on Linux, DirectX via ANGLE on Windows.",
 
-  "whatsnew.title": "What's new in v0.15",
-  "whatsnew.subtitle": "Config resilience: unknown Lua config fields no longer crash the app on Windows. Plus all v0.14 identity-profile features.",
+  "whatsnew.title": "What's new in v0.16",
+  "whatsnew.subtitle": "AI integration locks down: every MCP write to the PTY is audited, the first time a new agent writes blocks on a confirmation banner, and proposed text goes through a Tab-to-accept suggest API instead of straight into the shell. Plus fish-style inline ghost text from cross-pane shell history.",
+  "whatsnew.aiterminal.title": "Agent-aware terminal — audit, suggest, ghost text",
+  "whatsnew.aiterminal.body": "Three pieces fall into place to make Unterm a real AI-collaboration terminal. (1) Every <code class=\"font-mono text-xs\">session.input</code> / <code class=\"font-mono text-xs\">exec.send</code> is audited; the first time a new agent writes to a pane, a blocking banner asks the user — <code class=\"font-mono text-xs\">[Enter]</code> allow, <code class=\"font-mono text-xs\">[Esc]</code> block, <code class=\"font-mono text-xs\">[Alt+A]</code> always-allow. The new <code class=\"font-mono text-xs\">mcp:N</code> chip in the status bar tracks cumulative MCP PTY writes; click to copy the audit log. (2) <code class=\"font-mono text-xs\">session.suggest</code> lets agents <em>propose</em> text without ever touching the PTY directly — a ✨ suggest bar sits above the status bar, <code class=\"font-mono text-xs\">[Tab]</code> accepts, <code class=\"font-mono text-xs\">[Esc]</code> dismisses, <code class=\"font-mono text-xs\">[Alt+Enter]</code> accepts and runs. (3) Fish-style grey ghost text continues your input from cross-pane shell history; <code class=\"font-mono text-xs\">[→]</code> / <code class=\"font-mono text-xs\">[End]</code> accepts the prediction. All three keystrokes (<code class=\"font-mono text-xs\">Tab</code>, <code class=\"font-mono text-xs\">Esc</code>, <code class=\"font-mono text-xs\">Enter</code>) pass through to the shell when no banner / suggestion / prediction is showing — vim, less, fzf all keep working unchanged.",
   "whatsnew.configfix.title": "Config resilience — unknown fields no longer crash",
   "whatsnew.configfix.body": "Setting an unrecognized key in your <code class=\"font-mono text-xs\">unterm.lua</code> (e.g. a future or experimental option) used to abort the process on Windows release builds. The Lua FFI callback crossed a <code class=\"font-mono text-xs\">panic = abort</code> boundary and triggered an unrecoverable crash with no diagnostic. v0.15 defaults <code class=\"font-mono text-xs\">config_builder()</code> to non-strict mode: unknown fields produce a visible warning and the app continues to start normally.",
   "whatsnew.profiles.title": "Identity profiles — one window per identity",
@@ -134,7 +136,7 @@
 
   "dl.title": "Get Unterm 0.15",
   "dl.subtitle": "macOS bundle is signed with a Developer ID and Apple-notarized. Linux .deb / AppImage and Windows .msi / .zip are also published.",
-  "dl.cta": "Open the v0.15 release",
+  "dl.cta": "Open the v0.16 release",
 
   "faq.title": "Frequently asked",
   "faq.what.q": "What is Unterm?",
