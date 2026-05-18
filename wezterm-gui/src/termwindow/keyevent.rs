@@ -715,6 +715,20 @@ impl super::TermWindow {
                 };
 
                 if res.is_ok() {
+                    if window_key.key_is_down && !key.is_modifier() {
+                        // Mirror the keystroke into the ghost-text
+                        // buffer so the predictor can match against
+                        // earlier commits. This is the *main* PTY
+                        // write path for normal keystrokes; the
+                        // bypass_compose branch above also calls
+                        // observe, but that path only fires for
+                        // ALT-modified keys.
+                        observe_ghost_text_key(
+                            pane.pane_id() as u64,
+                            &key,
+                            modifiers,
+                        );
+                    }
                     if window_key.key_is_down
                         && !key.is_modifier()
                         && self.pane_state(pane.pane_id()).overlay.is_none()
