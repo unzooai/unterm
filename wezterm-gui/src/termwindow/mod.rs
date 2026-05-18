@@ -2934,6 +2934,60 @@ impl TermWindow {
         }
     }
 
+    fn show_insights_overlay(&mut self) {
+        let mux = Mux::get();
+        let tab = match mux.get_active_tab_for_window(self.mux_window_id) {
+            Some(tab) => tab,
+            None => return,
+        };
+        let Some(pane) = self.get_active_pane_no_overlay() else {
+            return;
+        };
+
+        // Compute the snapshot on the GUI thread BEFORE spawning
+        // the overlay. The overlay runs in a separate task and
+        // shouldn't reach back into Mux state — keeping the
+        // snapshot self-contained avoids cross-thread fragility.
+        let pane_id = pane.pane_id();
+        let shell_name = pane
+            .get_foreground_process_name(mux::pane::CachePolicy::AllowStale)
+            .unwrap_or_else(|| "(unknown)".to_string());
+        let cwd = pane
+            .get_current_working_dir(mux::pane::CachePolicy::AllowStale)
+            .map(|c| {
+                c.to_file_path()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|_| c.as_str().to_string())
+            });
+        let dims = pane.get_dimensions();
+        let recent_commits = crate::ghost_text::recent_global_commits(10);
+        let top_commits = crate::ghost_text::commit_frequency(5);
+        let activity = crate::mcp::handler::recent_mcp_input_activity();
+        let mcp = crate::mcp::handler::insights_mcp_snapshot(8);
+
+        let snap = crate::overlay::InsightsSnapshot {
+            pane_id: pane_id as u64,
+            shell_name,
+            cwd,
+            cols: dims.cols,
+            rows: dims.viewport_rows,
+            recent_commits,
+            top_commits,
+            mcp_input_count: activity.count,
+            seconds_since_last_input: activity.seconds_since_last,
+            recent_audit: mcp.recent_audit,
+            agents_seen: mcp.agents_seen,
+            pending_suggestions: mcp.pending_suggestions,
+            pending_confirmations: mcp.pending_confirmations,
+        };
+
+        let (overlay, future) = start_overlay(self, &tab, move |_tab_id, term| {
+            crate::overlay::show_insights_overlay(term, snap)
+        });
+        self.assign_overlay(tab.tab_id(), overlay);
+        promise::spawn::spawn(future).detach();
+    }
+
     fn show_debug_overlay(&mut self) {
         let mux = Mux::get();
         let tab = match mux.get_active_tab_for_window(self.mux_window_id) {
@@ -3839,6 +3893,7 @@ impl TermWindow {
                     log::error!("AcceptGhostText write_all failed: {e:#}");
                 }
             }
+            ShowInsights => self.show_insights_overlay(),
         };
         Ok(PerformAssignmentResult::Handled)
     }

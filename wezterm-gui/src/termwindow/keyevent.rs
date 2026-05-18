@@ -946,9 +946,34 @@ fn observe_ghost_text_key(
         KeyCode::Enter => InputEvent::Enter,
         KeyCode::Backspace => InputEvent::Backspace,
         KeyCode::Escape | KeyCode::Cancel => InputEvent::Cancel,
-        // Arrow keys, function keys, etc. don't change the buffer —
-        // a moving cursor inside a long command line is something
-        // we can't track without parsing the shell's behavior.
+        // ↑/↓ navigate shell history (PSReadLine, bash readline, zsh
+        // history) by rewriting the visible command line. Our key
+        // observer can't see what the shell rewrites; the safest
+        // recovery is to drop the buffer so the next character the
+        // user types starts a fresh prediction instead of building
+        // on stale state.
+        KeyCode::UpArrow | KeyCode::DownArrow => {
+            crate::ghost_text::cancel_input(pane_id);
+            return;
+        }
+        // ←/→ move the cursor within the line. If the user moves
+        // away from the end-of-line, the buffer length no longer
+        // matches the cursor column and any prediction would render
+        // in the wrong place. Bail out rather than draw garbage.
+        KeyCode::LeftArrow | KeyCode::RightArrow | KeyCode::Home => {
+            crate::ghost_text::cancel_input(pane_id);
+            return;
+        }
+        // Tab triggers shell completion in the shell-without-our-
+        // suggestion case (the suggestion accept binding already
+        // intercepted Tab when a suggestion was pending). After
+        // shell completion, the line is rewritten — buffer is stale.
+        KeyCode::Tab => {
+            crate::ghost_text::cancel_input(pane_id);
+            return;
+        }
+        // Other special keys (function keys, etc.) don't change
+        // the buffer.
         _ => return,
     };
 

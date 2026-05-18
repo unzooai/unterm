@@ -2087,6 +2087,14 @@ pub fn derive_command_from_key_assignment(action: &KeyAssignment) -> Option<Comm
             menubar: &["Edit"],
             icon: None,
         },
+        ShowInsights => CommandDef {
+            brief: "Show pane insights".into(),
+            doc: "Open the read-only Insights overlay for the active pane".into(),
+            keys: vec![(Modifiers::CTRL.union(Modifiers::SHIFT), "i".into())],
+            args: &[ArgType::ActivePane],
+            menubar: &["View"],
+            icon: None,
+        },
     })
 }
 

@@ -42,6 +42,26 @@ impl crate::TermWindow {
         }
 
         let cursor = pos.pane.get_cursor_position();
+
+        // If the shell publishes OSC 133 semantic zones, gate ghost
+        // rendering on the cursor sitting inside an `Input` zone.
+        // That prevents the overlay from leaking into TUI / output
+        // regions where it would be visually wrong (and where the
+        // prediction is meaningless — the user isn't typing a
+        // command). Shells without OSC 133 integration produce an
+        // empty zone list; for them we fall back to "always show"
+        // so they aren't locked out of the feature.
+        if let Ok(zones) = pos.pane.get_semantic_zones() {
+            if !zones.is_empty() {
+                let inside_input = zones.iter().any(|z| {
+                    matches!(z.semantic_type, wezterm_term::SemanticType::Input)
+                        && zone_contains_cell(z, cursor.x as isize, cursor.y)
+                });
+                if !inside_input {
+                    return Ok(());
+                }
+            }
+        }
         let dims = pos.pane.get_dimensions();
         let viewport_top = self
             .get_viewport(pos.pane.pane_id())
@@ -176,6 +196,29 @@ impl crate::TermWindow {
 
         Ok(())
     }
+}
+
+/// True when (x, y) — cell column, stable row — falls inside `zone`.
+/// SemanticZone bounds are inclusive on `start_*` and exclusive at
+/// the end of the LAST row, so we treat the zone as a flat range of
+/// rows: anything between `start_y..=end_y` is inside vertically;
+/// horizontally we accept any column on intermediate rows and bound
+/// the start/end rows by their respective x offsets.
+fn zone_contains_cell(
+    zone: &wezterm_term::SemanticZone,
+    x: isize,
+    y: wezterm_term::StableRowIndex,
+) -> bool {
+    if y < zone.start_y || y > zone.end_y {
+        return false;
+    }
+    if y == zone.start_y && x < zone.start_x as isize {
+        return false;
+    }
+    if y == zone.end_y && x > zone.end_x as isize {
+        return false;
+    }
+    true
 }
 
 /// Truncate ghost text so its column width fits in `max_cols`.

@@ -53,36 +53,10 @@ struct PaneGhostState {
     /// Commits recorded from this pane (oldest → newest), capped to
     /// MAX_COMMITS so a long-running pane doesn't grow forever.
     commits: Vec<String>,
-    /// Wall-clock of the most recent observe() call, used to dedup
-    /// duplicate dispatches of the same physical keystroke (see
-    /// `observe()` for context).
-    last_observed_at: Option<std::time::Instant>,
-    /// A coarse identity for the most recent observed event. Same
-    /// shape as a (kind, payload) tuple but flattened to a tiny
-    /// stack-allocated enum to keep the hot path branch-free.
-    last_observed_key: Option<EventDedupKey>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum EventDedupKey {
-    Char(char),
-    Enter,
-    Backspace,
-    Cancel,
-    ClearLine,
-}
-
-fn event_dedup_key(event: &InputEvent) -> EventDedupKey {
-    match event {
-        InputEvent::Char(c) => EventDedupKey::Char(*c),
-        InputEvent::Enter => EventDedupKey::Enter,
-        InputEvent::Backspace => EventDedupKey::Backspace,
-        InputEvent::Cancel => EventDedupKey::Cancel,
-        InputEvent::ClearLine => EventDedupKey::ClearLine,
-    }
 }
 
 const MAX_COMMITS: usize = 256;
+const MAX_GLOBAL_COMMITS: usize = 512;
 const MAX_INPUT_LEN: usize = 1024;
 const MAX_CANDIDATES_SCANNED: usize = 4096;
 
@@ -95,33 +69,47 @@ fn registry() -> &'static Mutex<HashMap<u64, PaneGhostState>> {
     REG.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+/// Cross-pane command history. Every Enter-commit from any pane is
+/// appended here in addition to the pane's own pool, giving fresh
+/// panes a non-empty prediction source the moment they open. Capped
+/// at MAX_GLOBAL_COMMITS — oldest dropped first.
+///
+/// Lock order: always acquire `registry()` BEFORE `global_commits()`
+/// to avoid deadlock with concurrent observe / debug callers.
+fn global_commits() -> &'static Mutex<Vec<String>> {
+    static G: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
+    G.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+fn push_global_commit(cmd: &str) {
+    let mut g = global_commits().lock();
+    if g.last().map_or(true, |last| last != cmd) {
+        g.push(cmd.to_string());
+        if g.len() > MAX_GLOBAL_COMMITS {
+            let drop = MAX_GLOBAL_COMMITS / 8;
+            g.drain(..drop);
+        }
+    }
+}
+
+fn snapshot_global_commits() -> Vec<String> {
+    global_commits().lock().clone()
+}
+
 /// Record a keyboard event on `pane_id`. `external_candidates` is
 /// merged with the pane's own commit history when recomputing the
 /// ghost — caller typically passes recent scrollback lines so the
 /// pool reflects what's on screen, but it's optional.
 ///
-/// Built-in dedup: the same `(pane_id, event)` arriving within
-/// `DEDUP_WINDOW_MS` of the previous one is silently dropped. This
-/// matters because wezterm dispatches certain keystrokes through
-/// both the `Key::Code` and `Key::Composed` branches (notably on
-/// Windows with an IME loaded), and we observe on both. Without
-/// dedup each character would land in the buffer twice and pollute
-/// the commit pool with `wwhhooaammii`-style garbage.
+/// In real wezterm dispatch, `Key::Code` and `Key::Composed` are
+/// mutually exclusive — a physical key fires exactly one of them —
+/// so observing in both branches still results in exactly one call
+/// per keystroke. (Test harnesses using `PostMessage(WM_KEYDOWN)`
+/// can produce duplicated dispatches; that's a test artifact, not
+/// a real-user concern.)
 pub fn observe(pane_id: u64, event: InputEvent, external_candidates: &[String]) {
-    const DEDUP_WINDOW_MS: u128 = 8;
     let mut reg = registry().lock();
     let state = reg.entry(pane_id).or_default();
-    let now = std::time::Instant::now();
-    let event_key = event_dedup_key(&event);
-    if let (Some(prev_at), Some(prev_key)) = (state.last_observed_at, &state.last_observed_key) {
-        if prev_key == &event_key
-            && now.duration_since(prev_at).as_millis() < DEDUP_WINDOW_MS
-        {
-            return;
-        }
-    }
-    state.last_observed_at = Some(now);
-    state.last_observed_key = Some(event_key);
     match event {
         InputEvent::Char(c) => {
             if state.input.len() < MAX_INPUT_LEN {
@@ -137,16 +125,36 @@ pub fn observe(pane_id: u64, event: InputEvent, external_candidates: &[String]) 
         InputEvent::Enter => {
             let committed = std::mem::take(&mut state.input);
             let trimmed = committed.trim();
-            if !trimmed.is_empty() && state.commits.last().map_or(true, |last| last != trimmed) {
-                state.commits.push(trimmed.to_string());
-                if state.commits.len() > MAX_COMMITS {
-                    let drop = MAX_COMMITS / 8;
-                    state.commits.drain(..drop);
+            if !trimmed.is_empty() {
+                if state.commits.last().map_or(true, |last| last != trimmed) {
+                    state.commits.push(trimmed.to_string());
+                    if state.commits.len() > MAX_COMMITS {
+                        let drop = MAX_COMMITS / 8;
+                        state.commits.drain(..drop);
+                    }
                 }
+                // Share commits cross-pane so newly-opened panes have
+                // a non-empty prediction source from day one. Honours
+                // the documented lock order (registry already held).
+                push_global_commit(trimmed);
             }
         }
     }
     recompute_ghost(state, external_candidates);
+}
+
+/// Drop the current input buffer without committing it. Called from
+/// the key-event path when the user presses Up/Down to navigate
+/// shell history — shell PSReadLine rewrites the visible line, but
+/// we don't see what it wrote, so the safest move is to start fresh.
+/// Idempotent; safe to call on a pane that has no recorded state.
+pub fn cancel_input(pane_id: u64) {
+    let mut reg = registry().lock();
+    let Some(state) = reg.get_mut(&pane_id) else {
+        return;
+    };
+    state.input.clear();
+    state.ghost = None;
 }
 
 /// Best ghost continuation for `pane_id` — the substring to render
@@ -195,6 +203,35 @@ pub fn refresh_candidates(pane_id: u64, external_candidates: &[String]) {
     recompute_ghost(state, external_candidates);
 }
 
+/// Most-frequently-committed commands across all panes since
+/// startup. Returns up to `limit` entries sorted by descending
+/// count. Used by the Insights overlay to show "you keep typing
+/// these — maybe set up an alias".
+pub fn commit_frequency(limit: usize) -> Vec<(String, u32)> {
+    use std::collections::HashMap;
+    let g = global_commits().lock();
+    let mut counts: HashMap<&str, u32> = HashMap::new();
+    for cmd in g.iter() {
+        *counts.entry(cmd.as_str()).or_insert(0) += 1;
+    }
+    let mut ranked: Vec<(String, u32)> = counts
+        .into_iter()
+        .filter(|(_, c)| *c >= 2)
+        .map(|(s, c)| (s.to_string(), c))
+        .collect();
+    ranked.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    ranked.truncate(limit);
+    ranked
+}
+
+/// Most-recent commits across all panes. Returns up to `limit`
+/// entries, newest first. Pane-scoped recent commits are visible in
+/// `debug_snapshot`; this is the cross-pane view used by Insights.
+pub fn recent_global_commits(limit: usize) -> Vec<String> {
+    let g = global_commits().lock();
+    g.iter().rev().take(limit).cloned().collect()
+}
+
 /// Diagnostic snapshot of the ghost-text state for a pane. Returned
 /// by the `ghost.debug` MCP method so a remote debugger can verify
 /// "is the buffer growing as I type?", "are commits landing in the
@@ -206,11 +243,15 @@ pub struct DebugSnapshot {
     pub ghost: Option<String>,
     pub commit_count: usize,
     pub recent_commits: Vec<String>,
+    pub global_commit_count: usize,
+    pub recent_global_commits: Vec<String>,
 }
 
 /// Take a snapshot of the named pane's ghost state. Returns `None`
 /// when the pane has never been seen by the observer (no key events
-/// recorded for it).
+/// recorded for it). Also includes the global cross-pane commit
+/// pool, since that's a candidate source the predictor checks
+/// alongside the pane-local pool.
 pub fn debug_snapshot(pane_id: u64) -> Option<DebugSnapshot> {
     let reg = registry().lock();
     let state = reg.get(&pane_id)?;
@@ -221,12 +262,18 @@ pub fn debug_snapshot(pane_id: u64) -> Option<DebugSnapshot> {
         .take(10)
         .cloned()
         .collect();
+    let global = global_commits().lock();
+    let global_recent: Vec<String> = global.iter().rev().take(10).cloned().collect();
+    let global_count = global.len();
+    drop(global);
     Some(DebugSnapshot {
         input_buffer: state.input.clone(),
         input_buffer_len: state.input.chars().count(),
         ghost: state.ghost.clone(),
         commit_count: state.commits.len(),
         recent_commits: recent,
+        global_commit_count: global_count,
+        recent_global_commits: global_recent,
     })
 }
 
@@ -239,11 +286,19 @@ fn recompute_ghost(state: &mut PaneGhostState, external: &[String]) {
     // Search newest-first: a freshly-typed command is the strongest
     // signal of what the user is about to retype.
     let mut best: Option<String> = None;
-    // Pane-local commits first (most relevant), then external pool.
+    // Priority: pane-local > cross-pane global > caller-supplied
+    // external pool. Pane-local wins because the user has just been
+    // working in this pane; their last commands are the strongest
+    // signal of what they're about to retype.
+    //
+    // We snapshot the global pool to a local Vec to avoid holding
+    // its lock across the loop (registry lock is already held).
+    let global_snapshot = snapshot_global_commits();
     let candidates = state
         .commits
         .iter()
         .rev()
+        .chain(global_snapshot.iter().rev())
         .chain(external.iter().rev())
         .take(MAX_CANDIDATES_SCANNED);
     for candidate in candidates {
@@ -299,6 +354,42 @@ mod tests {
         let pane = 3u64;
         observe(pane, InputEvent::Char('x'), &[]);
         observe(pane, InputEvent::Cancel, &[]);
+        assert!(current_ghost(pane).is_none());
+    }
+
+    #[test]
+    fn commits_propagate_across_panes() {
+        // Pane A commits a distinctive command; pane B opens fresh
+        // (no local history) and should still see it as a prediction.
+        let a = 1001u64;
+        let b = 1002u64;
+        for c in "git fetch --prune-tags".chars() {
+            observe(a, InputEvent::Char(c), &[]);
+        }
+        observe(a, InputEvent::Enter, &[]);
+
+        // Pane B types `git fe` — pane-local pool is empty, so the
+        // prediction has to come from the global pool.
+        for c in "git fe".chars() {
+            observe(b, InputEvent::Char(c), &[]);
+        }
+        let (typed, ghost) = current_ghost(b).expect("cross-pane prediction should land");
+        assert_eq!(typed, "git fe");
+        assert_eq!(ghost, "tch --prune-tags");
+    }
+
+    #[test]
+    fn cancel_input_drops_buffer_and_ghost() {
+        let pane = 4u64;
+        for c in "echo".chars() {
+            observe(pane, InputEvent::Char(c), &[]);
+        }
+        observe(pane, InputEvent::Enter, &[]);
+        for c in "ec".chars() {
+            observe(pane, InputEvent::Char(c), &[]);
+        }
+        assert!(current_ghost(pane).is_some());
+        cancel_input(pane);
         assert!(current_ghost(pane).is_none());
     }
 }

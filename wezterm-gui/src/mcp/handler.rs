@@ -367,6 +367,64 @@ pub fn resolve_confirmation(id: u64, decision: ConfirmationDecision) -> bool {
     true
 }
 
+/// Aggregate counters surfaced in the Insights overlay. Single
+/// snapshot under one Mutex acquire so renderers don't need to make
+/// six separate calls.
+pub struct InsightsMcpSnapshot {
+    pub input_count: u64,
+    pub seconds_since_last_input: Option<f32>,
+    pub agents_seen: usize,
+    pub pending_suggestions: usize,
+    pub pending_confirmations: usize,
+    pub recent_audit: Vec<String>,
+}
+
+/// Read all the MCP-side numbers the Insights overlay needs in one
+/// lock acquisition. `recent_audit_limit` caps how many audit
+/// entries (newest first) are rendered as one-line summaries.
+pub fn insights_mcp_snapshot(recent_audit_limit: usize) -> InsightsMcpSnapshot {
+    let state = mcp_state().lock();
+    let recent_audit: Vec<String> = state
+        .audit_log
+        .iter()
+        .rev()
+        .take(recent_audit_limit)
+        .map(|e| {
+            // Time-of-day extracted from the rfc3339 timestamp; we
+            // don't need full ISO precision in the overlay.
+            let time = e
+                .timestamp
+                .split('T')
+                .nth(1)
+                .and_then(|tail| tail.split('.').next())
+                .unwrap_or(&e.timestamp);
+            format!("{time}  {:<24} {}  agent={}", e.method, truncate(&e.detail, 60), e.agent)
+        })
+        .collect();
+    let pending_suggestions = state
+        .suggestions
+        .values()
+        .filter(|s| matches!(s.state, SuggestionState::Pending))
+        .count();
+    InsightsMcpSnapshot {
+        input_count: state.input_event_count,
+        seconds_since_last_input: state.last_input_at.map(|t| t.elapsed().as_secs_f32()),
+        agents_seen: state.known_agents.len(),
+        pending_suggestions,
+        pending_confirmations: state.pending_confirmations.len(),
+        recent_audit,
+    }
+}
+
+fn truncate(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        return s.to_string();
+    }
+    let mut out: String = s.chars().take(max.saturating_sub(1)).collect();
+    out.push('…');
+    out
+}
+
 /// Snapshot the audit log as a pretty-printed JSON string. Used by
 /// the status bar chip click (until P1.3's proper overlay lands) so
 /// the user can paste the log into any text editor for review.

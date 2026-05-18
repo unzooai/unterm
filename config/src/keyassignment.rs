@@ -675,6 +675,11 @@ pub enum KeyAssignment {
     /// ghost is showing, returns `Unhandled` so the binding (default
     /// Right Arrow) still moves the terminal cursor.
     AcceptGhostText,
+    /// Open the read-only Insights overlay for the active pane
+    /// (default `Ctrl+Shift+I`). Shows shell info, recent commands,
+    /// MCP activity counters — useful for "what's going on in this
+    /// terminal" at-a-glance debugging.
+    ShowInsights,
 }
 impl_lua_conversion_dynamic!(KeyAssignment);
 
