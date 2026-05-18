@@ -574,6 +574,7 @@ impl McpHandler {
             // group by agent name instead of by connection ID.
             "agent.identify" => self.agent_identify(ctx, params),
             "agent.whoami" => self.agent_whoami(ctx),
+            "ghost.debug" => self.ghost_debug(params),
             // Suggest API — agents propose text; the user decides
             // whether it reaches the PTY (Tab/Esc in the suggest UI).
             "session.suggest" => self.session_suggest(ctx, params),
@@ -1473,6 +1474,25 @@ impl McpHandler {
     pub fn drop_connection(&self, conn_id: u64) {
         let mut state = mcp_state().lock();
         state.agents_by_connection.remove(&conn_id);
+    }
+
+    // --- Ghost text debug ---
+
+    /// Read the ghost-text registry's current view of a pane.
+    /// Read-only — never mutates state. Lets a remote debugger see
+    /// whether the buffer is growing as the user types, whether
+    /// commits are landing, and what (if anything) the predictor is
+    /// proposing.
+    fn ghost_debug(&self, params: &Value) -> Result<Value> {
+        let pane_id = params
+            .get("id")
+            .or_else(|| params.get("pane_id"))
+            .and_then(|v| v.as_u64())
+            .ok_or_else(|| anyhow!("Missing 'id' / 'pane_id' parameter"))?;
+        match crate::ghost_text::debug_snapshot(pane_id) {
+            Some(snap) => Ok(serde_json::to_value(snap)?),
+            None => Ok(json!({"empty": true, "pane_id": pane_id})),
+        }
     }
 
     // --- Suggest API ---

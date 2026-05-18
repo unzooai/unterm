@@ -53,6 +53,33 @@ struct PaneGhostState {
     /// Commits recorded from this pane (oldest → newest), capped to
     /// MAX_COMMITS so a long-running pane doesn't grow forever.
     commits: Vec<String>,
+    /// Wall-clock of the most recent observe() call, used to dedup
+    /// duplicate dispatches of the same physical keystroke (see
+    /// `observe()` for context).
+    last_observed_at: Option<std::time::Instant>,
+    /// A coarse identity for the most recent observed event. Same
+    /// shape as a (kind, payload) tuple but flattened to a tiny
+    /// stack-allocated enum to keep the hot path branch-free.
+    last_observed_key: Option<EventDedupKey>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum EventDedupKey {
+    Char(char),
+    Enter,
+    Backspace,
+    Cancel,
+    ClearLine,
+}
+
+fn event_dedup_key(event: &InputEvent) -> EventDedupKey {
+    match event {
+        InputEvent::Char(c) => EventDedupKey::Char(*c),
+        InputEvent::Enter => EventDedupKey::Enter,
+        InputEvent::Backspace => EventDedupKey::Backspace,
+        InputEvent::Cancel => EventDedupKey::Cancel,
+        InputEvent::ClearLine => EventDedupKey::ClearLine,
+    }
 }
 
 const MAX_COMMITS: usize = 256;
@@ -72,9 +99,29 @@ fn registry() -> &'static Mutex<HashMap<u64, PaneGhostState>> {
 /// merged with the pane's own commit history when recomputing the
 /// ghost — caller typically passes recent scrollback lines so the
 /// pool reflects what's on screen, but it's optional.
+///
+/// Built-in dedup: the same `(pane_id, event)` arriving within
+/// `DEDUP_WINDOW_MS` of the previous one is silently dropped. This
+/// matters because wezterm dispatches certain keystrokes through
+/// both the `Key::Code` and `Key::Composed` branches (notably on
+/// Windows with an IME loaded), and we observe on both. Without
+/// dedup each character would land in the buffer twice and pollute
+/// the commit pool with `wwhhooaammii`-style garbage.
 pub fn observe(pane_id: u64, event: InputEvent, external_candidates: &[String]) {
+    const DEDUP_WINDOW_MS: u128 = 8;
     let mut reg = registry().lock();
     let state = reg.entry(pane_id).or_default();
+    let now = std::time::Instant::now();
+    let event_key = event_dedup_key(&event);
+    if let (Some(prev_at), Some(prev_key)) = (state.last_observed_at, &state.last_observed_key) {
+        if prev_key == &event_key
+            && now.duration_since(prev_at).as_millis() < DEDUP_WINDOW_MS
+        {
+            return;
+        }
+    }
+    state.last_observed_at = Some(now);
+    state.last_observed_key = Some(event_key);
     match event {
         InputEvent::Char(c) => {
             if state.input.len() < MAX_INPUT_LEN {
@@ -146,6 +193,41 @@ pub fn refresh_candidates(pane_id: u64, external_candidates: &[String]) {
     let mut reg = registry().lock();
     let state = reg.entry(pane_id).or_default();
     recompute_ghost(state, external_candidates);
+}
+
+/// Diagnostic snapshot of the ghost-text state for a pane. Returned
+/// by the `ghost.debug` MCP method so a remote debugger can verify
+/// "is the buffer growing as I type?", "are commits landing in the
+/// pool?", "why isn't a ghost showing up?".
+#[derive(serde::Serialize)]
+pub struct DebugSnapshot {
+    pub input_buffer: String,
+    pub input_buffer_len: usize,
+    pub ghost: Option<String>,
+    pub commit_count: usize,
+    pub recent_commits: Vec<String>,
+}
+
+/// Take a snapshot of the named pane's ghost state. Returns `None`
+/// when the pane has never been seen by the observer (no key events
+/// recorded for it).
+pub fn debug_snapshot(pane_id: u64) -> Option<DebugSnapshot> {
+    let reg = registry().lock();
+    let state = reg.get(&pane_id)?;
+    let recent: Vec<String> = state
+        .commits
+        .iter()
+        .rev()
+        .take(10)
+        .cloned()
+        .collect();
+    Some(DebugSnapshot {
+        input_buffer: state.input.clone(),
+        input_buffer_len: state.input.chars().count(),
+        ghost: state.ghost.clone(),
+        commit_count: state.commits.len(),
+        recent_commits: recent,
+    })
 }
 
 fn recompute_ghost(state: &mut PaneGhostState, external: &[String]) {

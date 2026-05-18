@@ -402,18 +402,13 @@ impl super::TermWindow {
                     };
 
                     if did_encode {
-                        if is_down && !keycode.is_modifier() {
-                            // Update the ghost-text buffer for this
-                            // pane. We mirror the keystrokes the user
-                            // is sending to the PTY so the
-                            // prediction engine can pattern-match
-                            // against earlier commits.
-                            observe_ghost_text_key(
-                                pane.pane_id() as u64,
-                                &term_key,
-                                tw_raw_modifiers,
-                            );
-                        }
+                        // Note: ghost-text observe is *not* called
+                        // here. This bypass_compose branch can fire
+                        // for the same physical key as the main
+                        // Key::Code path below, which would double-
+                        // count every char in the buffer. Keep
+                        // observe in exactly one place (the main
+                        // Key::Code branch in key_event_impl).
                         if is_down
                             && !keycode.is_modifier()
                             && self.pane_state(pane.pane_id()).overlay.is_none()
@@ -762,6 +757,20 @@ impl super::TermWindow {
                     log::info!("send to pane string={:?}", s);
                 }
                 pane.writer().write_all(s.as_bytes()).ok();
+                // Mirror composed characters into the ghost buffer.
+                // The dedup window inside `observe()` swallows the
+                // overlap when the same physical key also arrives
+                // via Key::Code; IME-only paths (where wezterm
+                // never produces a matching Key::Code) flow through
+                // here cleanly.
+                let pane_id = pane.pane_id() as u64;
+                for c in s.chars() {
+                    observe_ghost_text_key(
+                        pane_id,
+                        &termwiz::input::KeyCode::Char(c),
+                        Modifiers::NONE,
+                    );
+                }
                 self.maybe_scroll_to_bottom_for_input(&pane);
                 context.invalidate();
             }
