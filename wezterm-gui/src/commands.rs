@@ -2234,6 +2234,7 @@ fn compute_default_actions() -> Vec<KeyAssignment> {
         OpenUri("https://github.com/user/unterm/discussions/".to_string()),
         OpenUri("https://github.com/user/unterm/issues/".to_string()),
         ShowDebugOverlay,
+        ShowInsights,
         ShowShellSelector,
         ShowContextMenu,
         // ----------------- Misc
