@@ -643,6 +643,7 @@ impl McpHandler {
             "session.list" => self.session_list(),
             "session.get" | "session.status" => self.session_get(params),
             "session.create" => self.session_create(params),
+            "session.split" => self.session_split(params),
             "session.input" => self.session_input(params),
             "session.resize" => self.session_resize(params),
             "session.destroy" => self.session_destroy(params),
@@ -1116,6 +1117,118 @@ impl McpHandler {
             "domain_id": pane.domain_id(),
             "shell": shell,
         }))
+    }
+
+    /// `session.split` — split an existing pane and return the
+    /// newly-created pane's id. Pairs with `session.create` (new
+    /// tab) and `session.input` (write to pane) to make the full
+    /// "AI drives a side-by-side pane" loop available from MCP.
+    ///
+    /// Params:
+    ///   - `id` or `session_id`  (required) — pane to split
+    ///   - `direction`           "right" (default) | "left" | "down" | "up"
+    ///   - `size_percent`        u8 (0..=100), defaults to 50
+    ///   - `cwd`                 optional working dir for new pane
+    ///
+    /// Returns the same shape as `session.create`.
+    fn session_split(&self, params: &Value) -> Result<Value> {
+        use config::keyassignment::SpawnTabDomain;
+        use mux::domain::SplitSource;
+        use mux::tab::{SplitDirection, SplitRequest, SplitSize};
+
+        // Source pane: accept the same id/session_id duality as get_pane
+        // so callers don't have to remember which method takes which.
+        let src_pane_id = params
+            .get("id")
+            .or_else(|| params.get("session_id"))
+            .and_then(|v| {
+                v.as_u64()
+                    .map(|n| n as usize)
+                    .or_else(|| v.as_str().and_then(|s| s.parse::<usize>().ok()))
+            })
+            .ok_or_else(|| anyhow!("Missing 'id' / 'session_id' (source pane to split)"))?;
+
+        // Take an owned String here so the value can cross the async
+        // closure boundary below — &str borrowed from `params` would
+        // be tied to the request's lifetime which doesn't outlive the
+        // spawned future.
+        let dir_str: String = params
+            .get("direction")
+            .and_then(|v| v.as_str())
+            .unwrap_or("right")
+            .to_string();
+        let (direction, target_is_second) = match dir_str.as_str() {
+            "right" => (SplitDirection::Horizontal, true),
+            "left" => (SplitDirection::Horizontal, false),
+            "down" | "bottom" => (SplitDirection::Vertical, true),
+            "up" | "top" => (SplitDirection::Vertical, false),
+            other => {
+                return Err(anyhow!(
+                    "invalid direction {other:?} (use right|left|down|up)"
+                ))
+            }
+        };
+
+        let size_percent = params
+            .get("size_percent")
+            .and_then(|v| v.as_u64())
+            .map(|n| n.min(100) as u8)
+            .unwrap_or(50);
+
+        let request = SplitRequest {
+            direction,
+            target_is_second,
+            top_level: false,
+            size: SplitSize::Percent(size_percent),
+        };
+
+        let command_dir = params
+            .get("cwd")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+
+        // Same two-level spawn dance as session.create so we get the
+        // async split_pane future back into this sync context. 10s cap
+        // is generous; split should complete in <100ms once Mux is up.
+        let (tx, rx) = std::sync::mpsc::channel();
+        promise::spawn::spawn_into_main_thread(async move {
+            promise::spawn::spawn(async move {
+                let result = async {
+                    let mux = Mux::get();
+                    let (pane, _size) = mux
+                        .split_pane(
+                            src_pane_id,
+                            request,
+                            SplitSource::Spawn {
+                                command: None,
+                                command_dir,
+                            },
+                            SpawnTabDomain::DefaultDomain,
+                        )
+                        .await
+                        .context("split_pane")?;
+                    let dims = pane.get_dimensions();
+                    let pid = pane.pane_id();
+                    Ok::<Value, anyhow::Error>(json!({
+                        "id": pid,
+                        "session_id": pid.to_string(),
+                        "title": pane.get_title(),
+                        "cols": dims.cols,
+                        "rows": dims.viewport_rows,
+                        "direction": dir_str,
+                        "src_pane_id": src_pane_id,
+                        "size_percent": size_percent,
+                    }))
+                }
+                .await;
+                tx.send(result).ok();
+            })
+            .detach();
+        })
+        .detach();
+
+        rx.recv_timeout(std::time::Duration::from_secs(10))
+            .map_err(|_| anyhow!("Timeout waiting for session.split"))?
     }
 
     fn session_create(&self, params: &Value) -> Result<Value> {
