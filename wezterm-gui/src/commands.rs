@@ -8,8 +8,43 @@ use ordered_float::NotNan;
 use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::convert::TryFrom;
+use std::sync::OnceLock;
 use window::{KeyCode, Modifiers};
 use KeyAssignment::*;
+
+/// Snapshot of one agent entry for the "Shell → AI Agents" submenu.
+/// We cache only the bits the menu cares about — id + display label —
+/// to avoid keeping the full Envelope alive for the lifetime of the
+/// process.
+#[derive(Clone, Debug)]
+struct AgentMenuEntry {
+    id: String,
+    label: String,
+}
+
+fn cached_agent_menu_entries() -> &'static [AgentMenuEntry] {
+    static CACHE: OnceLock<Vec<AgentMenuEntry>> = OnceLock::new();
+    CACHE
+        .get_or_init(|| match unterm_agents::fetch_manifests() {
+            Ok(set) => {
+                let mut entries: Vec<AgentMenuEntry> = set
+                    .for_current_platform()
+                    .into_iter()
+                    .map(|m| AgentMenuEntry {
+                        id: m.id.clone(),
+                        label: m.name.clone(),
+                    })
+                    .collect();
+                entries.sort_by(|a, b| a.label.cmp(&b.label));
+                entries
+            }
+            Err(e) => {
+                log::warn!("agent menu build: manifest fetch failed: {e}");
+                Vec::new()
+            }
+        })
+        .as_slice()
+}
 
 /// Describes an argument/parameter/context that is required
 /// in order for the command to have meaning.
@@ -220,6 +255,39 @@ impl CommandDef {
                 action: KeyAssignment::SpawnCommandInNewTab(cmd.clone()),
                 menubar: &["Shell"],
                 icon: Some("md_tab_plus".into()),
+            });
+        }
+
+        // AI Agents submenu — each installed agent gets a "Shell → AI Agents
+        // → <Name>" entry that opens a new tab running the agent via the CLI
+        // shim. The CLI handles env injection (API keys from keychain, agent
+        // identity env vars, profile_home isolation) so this menu wire stays
+        // dumb on the GUI side.
+        //
+        // We cache the manifest fetch behind a OnceLock — verification +
+        // network call costs measurable ms, and the menu is rebuilt on
+        // every palette open / leader-tap. Stale data here means "you'd
+        // need to restart Unterm to see a brand-new agent in the menu",
+        // which is fine for a list that changes maybe weekly.
+        for agent in cached_agent_menu_entries() {
+            let mut spawn = SpawnCommand::default();
+            spawn.label = Some(agent.label.clone());
+            // unterm-cli ships next to the GUI binary; if it isn't on PATH
+            // for some reason, the resulting tab will show a clear error
+            // rather than silently spawning a shell.
+            spawn.args = Some(vec![
+                "unterm-cli".to_string(),
+                "agent".to_string(),
+                "launch".to_string(),
+                agent.id.clone(),
+            ]);
+            result.push(ExpandedCommand {
+                brief: agent.label.clone().into(),
+                doc: format!("Launch {} ({}) in a new tab via unterm-cli", agent.label, agent.id).into(),
+                keys: vec![],
+                action: KeyAssignment::SpawnCommandInNewTab(spawn),
+                menubar: &["Shell", "AI Agents"],
+                icon: Some("md_robot_outline".into()),
             });
         }
 

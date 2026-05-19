@@ -430,6 +430,237 @@
           </div>
         </div>
 
+        <!-- ============ AI Agents ============
+             Lists every agent in the signed manifest envelope + lets the
+             user install/auth/configure/launch each one. Schema-driven so
+             new agents land just by signing + pushing a new envelope —
+             no SPA change needed. -->
+        <div x-show="active==='agents'">
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <h2 class="text-xl font-semibold" x-text="t('web.agents.title')"></h2>
+              <p class="mt-1 text-sm text-zinc-400" x-text="t('web.agents.subtitle')"></p>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="text-xs text-zinc-500" x-text="t('web.agents.envelope.source') + ': ' + (agents.envelope?.envelope_source || '—')"></span>
+              <button
+                class="rounded border border-zinc-700 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
+                @click="refreshAgents()"
+                x-text="t('web.agents.refresh')"
+              ></button>
+            </div>
+          </div>
+
+          <!-- Profile picker: agent settings + secrets are per-(identity profile, agent).
+               Defaults to whatever profile this Unterm window is bound to. -->
+          <div class="mt-4 flex items-center gap-3 text-sm">
+            <span class="text-zinc-400" x-text="t('web.agents.profile')"></span>
+            <select
+              class="rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-zinc-200"
+              x-model="agents.profileId"
+              @change="agents.detail = null; loadAgents()"
+            >
+              <template x-for="p in agents.profiles" :key="p.id">
+                <option :value="p.id" x-text="p.display_name || p.id"></option>
+              </template>
+            </select>
+          </div>
+
+          <!-- Loading / empty / error states -->
+          <div x-show="agents.loading" class="mt-6 text-sm text-zinc-500" x-text="t('web.agents.loading')"></div>
+          <div
+            x-show="!agents.loading && agents.list.length === 0 && !agents.error"
+            class="mt-6 rounded-lg border border-zinc-800 bg-zinc-900 p-6 text-center text-sm text-zinc-400"
+            x-text="t('web.agents.empty')"
+          ></div>
+          <div
+            x-show="agents.error"
+            class="mt-4 rounded border border-rose-700 bg-rose-900/30 px-3 py-2 text-sm text-rose-200"
+            x-text="agents.error"
+          ></div>
+
+          <!-- ====== List view ====== -->
+          <div x-show="!agents.detail && agents.list.length > 0" class="mt-6 grid grid-cols-1 gap-3 md:grid-cols-2">
+            <template x-for="a in agents.list" :key="a.id">
+              <div class="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
+                <div class="flex items-start justify-between gap-3">
+                  <div>
+                    <div class="flex items-center gap-2">
+                      <h3 class="text-sm font-semibold text-zinc-100" x-text="a.name"></h3>
+                      <span class="rounded bg-zinc-800 px-2 py-0.5 text-[10px] uppercase text-zinc-400" x-text="a.vendor"></span>
+                      <span
+                        x-show="a.installed"
+                        class="rounded bg-emerald-900/50 px-2 py-0.5 text-[10px] text-emerald-300"
+                        x-text="'v' + (a.detected_version || '?')"
+                      ></span>
+                      <span
+                        x-show="!a.installed"
+                        class="rounded bg-zinc-800 px-2 py-0.5 text-[10px] text-zinc-400"
+                        x-text="t('web.agents.badge.not_installed')"
+                      ></span>
+                    </div>
+                    <p class="mt-1 text-xs text-zinc-400" x-text="(a.tagline_i18n && (a.tagline_i18n[lang] || a.tagline_i18n['en'])) || ''"></p>
+                  </div>
+                  <span class="text-[10px] text-zinc-500" x-text="'manifest v' + a.manifest_version"></span>
+                </div>
+                <div class="mt-3 flex flex-wrap items-center gap-2">
+                  <button
+                    class="rounded bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-emerald-500"
+                    x-show="!a.installed"
+                    @click="installAgent(a.id)"
+                    :disabled="agents.busyId === a.id"
+                    x-text="agents.busyId === a.id ? t('web.agents.btn.installing') : t('web.agents.btn.install')"
+                  ></button>
+                  <button
+                    class="rounded border border-zinc-700 px-2.5 py-1 text-xs text-zinc-200 hover:bg-zinc-800"
+                    x-show="a.installed"
+                    @click="openAgent(a.id)"
+                    x-text="t('web.agents.btn.configure')"
+                  ></button>
+                  <button
+                    class="rounded border border-zinc-700 px-2.5 py-1 text-xs text-zinc-200 hover:bg-zinc-800"
+                    x-show="a.installed"
+                    @click="copyLaunchCmd(a.id)"
+                    x-text="t('web.agents.btn.launch_cmd')"
+                  ></button>
+                  <a
+                    class="ml-auto text-xs text-zinc-500 hover:text-zinc-300"
+                    :href="a.homepage"
+                    target="_blank"
+                    rel="noopener"
+                    x-text="t('web.agents.docs')"
+                  ></a>
+                </div>
+              </div>
+            </template>
+          </div>
+
+          <!-- ====== Detail / settings view ====== -->
+          <div x-show="agents.detail" class="mt-6 space-y-4">
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <button
+                  class="text-xs text-zinc-400 hover:text-zinc-200"
+                  @click="agents.detail = null"
+                  x-text="'← ' + t('web.agents.back')"
+                ></button>
+                <h3 class="mt-2 text-lg font-semibold" x-text="agents.detail?.manifest?.name"></h3>
+                <p class="text-xs text-zinc-500">
+                  <span x-text="agents.detail?.manifest?.vendor"></span>
+                  ·
+                  <span x-text="'manifest v' + (agents.detail?.manifest?.version)"></span>
+                  ·
+                  <span x-text="(agents.detail?.detect?.ok ? 'installed v' + (agents.detail?.detect?.version || '?') : t('web.agents.badge.not_installed'))"></span>
+                </p>
+              </div>
+              <div class="flex flex-wrap gap-2">
+                <button class="rounded border border-zinc-700 px-2.5 py-1 text-xs hover:bg-zinc-800" @click="importAgent(agents.detail.manifest.id)" x-text="t('web.agents.btn.import')"></button>
+                <button class="rounded border border-zinc-700 px-2.5 py-1 text-xs hover:bg-zinc-800" @click="copyAuthCmd(agents.detail.manifest.id)" x-text="t('web.agents.btn.oauth_cmd')"></button>
+                <button class="rounded border border-zinc-700 px-2.5 py-1 text-xs hover:bg-zinc-800" @click="copyLaunchCmd(agents.detail.manifest.id)" x-text="t('web.agents.btn.launch_cmd')"></button>
+                <button x-show="agents.detail?.detect?.ok" class="rounded border border-rose-700 px-2.5 py-1 text-xs text-rose-300 hover:bg-rose-900/50" @click="uninstallAgent(agents.detail.manifest.id)" x-text="t('web.agents.btn.uninstall')"></button>
+              </div>
+            </div>
+
+            <!-- Schema-driven form. Each setting renders its own editor; we
+                 stage edits locally and write everything on Save so a single
+                 partial write doesn't leak through. -->
+            <div class="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
+              <template x-for="cat in agents.detail.categories" :key="cat">
+                <div class="border-t border-zinc-800 pt-3 first:border-t-0 first:pt-0 mt-3 first:mt-0">
+                  <h4 class="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-500" x-text="cat || t('web.agents.cat.general')"></h4>
+                  <template x-for="spec in agents.detail.schema.filter(s => (s.category || 'general') === cat)" :key="spec.key">
+                    <div class="grid grid-cols-12 items-start gap-3 py-2">
+                      <label class="col-span-4 mt-1.5 text-sm text-zinc-300">
+                        <span x-text="(spec.label_i18n && (spec.label_i18n[lang] || spec.label_i18n['en'])) || spec.key"></span>
+                        <span x-show="spec.required" class="ml-1 text-rose-400" title="required">*</span>
+                      </label>
+                      <div class="col-span-8">
+                        <!-- bool -->
+                        <input type="checkbox" x-show="spec.type==='bool'" class="h-4 w-4" x-model="agents.detail.draft[spec.key]" />
+                        <!-- int / float / string / path / text_long -->
+                        <input
+                          x-show="spec.type==='int' || spec.type==='float'"
+                          type="number"
+                          :min="spec.min" :max="spec.max"
+                          class="w-40 rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-sm text-zinc-200"
+                          x-model.number="agents.detail.draft[spec.key]"
+                        />
+                        <input
+                          x-show="spec.type==='string' || spec.type==='path'"
+                          type="text"
+                          class="w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-sm text-zinc-200"
+                          :placeholder="spec.placeholder || ''"
+                          x-model="agents.detail.draft[spec.key]"
+                        />
+                        <textarea
+                          x-show="spec.type==='text_long'"
+                          rows="4"
+                          class="w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-sm text-zinc-200 font-mono"
+                          :placeholder="spec.placeholder || ''"
+                          x-model="agents.detail.draft[spec.key]"
+                        ></textarea>
+                        <!-- enum -->
+                        <select
+                          x-show="spec.type==='enum'"
+                          class="rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-sm text-zinc-200"
+                          x-model="agents.detail.draft[spec.key]"
+                        >
+                          <template x-for="v in spec.values" :key="JSON.stringify(v.value)">
+                            <option :value="v.value" x-text="v.label || v.value"></option>
+                          </template>
+                        </select>
+                        <!-- multi_enum -->
+                        <div x-show="spec.type==='multi_enum'" class="flex flex-wrap gap-2">
+                          <template x-for="v in spec.values" :key="JSON.stringify(v.value)">
+                            <label class="inline-flex items-center gap-1 rounded border border-zinc-700 px-2 py-0.5 text-xs text-zinc-300">
+                              <input
+                                type="checkbox"
+                                class="h-3.5 w-3.5"
+                                :checked="(agents.detail.draft[spec.key] || []).includes(v.value)"
+                                @change="toggleAgentMultiEnum(spec.key, v.value, $event.target.checked)"
+                              />
+                              <span x-text="v.label || v.value"></span>
+                            </label>
+                          </template>
+                        </div>
+                        <!-- secret -->
+                        <div x-show="spec.type==='secret'" class="flex items-center gap-2">
+                          <input
+                            type="password"
+                            class="w-72 rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-sm text-zinc-200"
+                            :placeholder="agents.detail.values[spec.key]?._secret && agents.detail.values[spec.key]?.is_set ? t('web.agents.secret.set') : t('web.agents.secret.placeholder')"
+                            x-model="agents.detail.draft[spec.key]"
+                          />
+                          <button class="text-xs text-rose-400 hover:text-rose-200" @click="clearSecret(spec.key)" x-show="agents.detail.values[spec.key]?._secret && agents.detail.values[spec.key]?.is_set" x-text="t('web.agents.secret.clear')"></button>
+                        </div>
+                        <p x-show="spec.description_i18n && (spec.description_i18n[lang] || spec.description_i18n['en'])" class="mt-1 text-xs text-zinc-500" x-text="(spec.description_i18n && (spec.description_i18n[lang] || spec.description_i18n['en']))"></p>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </template>
+
+              <div class="mt-4 flex items-center justify-between border-t border-zinc-800 pt-3">
+                <p class="text-xs text-zinc-500" x-text="agents.detail.dirty ? t('web.agents.unsaved') : t('web.agents.saved')"></p>
+                <div class="flex gap-2">
+                  <button class="rounded border border-zinc-700 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800" @click="resetAgentDraft()" x-text="t('web.agents.btn.discard')"></button>
+                  <button class="rounded bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-500" :disabled="!agents.detail.dirty || agents.detail.saving" @click="saveAgent()" x-text="agents.detail.saving ? t('web.agents.btn.saving') : t('web.agents.btn.save')"></button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Storage hint: where this agent's config lives on disk -->
+            <div class="text-xs text-zinc-500">
+              <span x-text="t('web.agents.storage.hint')"></span>
+              <template x-for="f in (agents.detail.manifest.settings_storage?.files || [])" :key="f.path">
+                <code class="ml-1 mr-2 rounded bg-zinc-900 px-1.5 py-0.5 text-[11px] text-zinc-300" x-text="f.path"></code>
+              </template>
+            </div>
+          </div>
+
+          <!-- Toast for copy-cmd / install / save -->
+        </div>
+
         <!-- ============ Profiles ============ -->
         <div x-show="active==='profiles'">
           <div class="flex items-start justify-between gap-4">

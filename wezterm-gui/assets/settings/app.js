@@ -92,6 +92,7 @@ function untermSettings() {
       return [
         { id: 'general', label: this.t('web.nav.general') },
         { id: 'profiles', label: this.t('web.nav.profiles') },
+        { id: 'agents', label: this.t('web.nav.agents'), badge: !this._agentsSeen },
         { id: 'mcp', label: this.t('web.nav.mcp') },
         { id: 'appearance', label: this.t('web.nav.appearance') },
         { id: 'proxy', label: this.t('web.nav.proxy') },
@@ -102,6 +103,7 @@ function untermSettings() {
         { id: 'about', label: this.t('web.nav.about') },
       ];
     },
+    _agentsSeen: false,
     _recordingSeen: false,
 
     // Scrollback config — number of lines kept in each pane's history
@@ -406,10 +408,276 @@ function untermSettings() {
     select(id) {
       this.active = id;
       if (id === 'recording') this._recordingSeen = true;
+      if (id === 'agents') this._agentsSeen = true;
       // Lazy-load profiles on first visit so users who never touch the
       // tab don't pay for the registry-load + sniffer scan.
       if (id === 'profiles' && !this.profiles.loaded) this.loadProfiles();
       if (id === 'mcp' && !this.mcp.loaded) this.loadMcp();
+      if (id === 'agents' && !this.agents.loaded) this.loadAgents();
+    },
+
+    // ---------- AI Agents tab ----------
+    //
+    // Backed entirely by /api/agents/* routes (see web_settings/agents.rs).
+    // The settings form is rendered from the manifest's `settings_schema`
+    // array so adding a new agent or knob doesn't require an SPA change.
+    //
+    // State machine:
+    //   agents.list        ←  GET /api/agents/list  (one row per manifest)
+    //   agents.detail      ←  GET /api/agents/<id>/settings  (when opened)
+    //   agents.detail.draft is a live-edited copy of values; we POST
+    //     PUT /api/agents/<id>/settings only on Save, so partial typing
+    //     doesn't keep landing on disk.
+    //   agents.profileId   ←  identity profile to scope settings + secrets.
+    agents: {
+      loaded: false,
+      loading: false,
+      list: [],
+      profiles: [],
+      profileId: 'default',
+      envelope: null,
+      detail: null,
+      error: null,
+      busyId: null,
+    },
+
+    async loadAgents() {
+      this.agents.loading = true;
+      this.agents.error = null;
+      try {
+        // Pull the identity profile list so the selector has options. We
+        // reuse the existing /api/profile/list route; failure is non-fatal
+        // (we still show 'default').
+        if (this.agents.profiles.length === 0) {
+          try {
+            const p = await this.api('GET', '/api/profile/list');
+            const list = (p.profiles || []).map((x) => ({ id: x.id, display_name: x.display_name }));
+            this.agents.profiles = [{ id: 'default', display_name: this.t('web.agents.profile.default') }].concat(list.filter((x) => x.id !== 'default'));
+          } catch (_) {
+            this.agents.profiles = [{ id: 'default', display_name: 'default' }];
+          }
+        }
+        const res = await this.api('GET', '/api/agents/list');
+        this.agents.envelope = {
+          envelope_source: res.envelope_source,
+          envelope_issued_at: res.envelope_issued_at,
+          envelope_expires_at: res.envelope_expires_at,
+          signing_key_id: res.signing_key_id,
+        };
+        this.agents.list = res.agents || [];
+        this.agents.loaded = true;
+      } catch (e) {
+        this.agents.error = e.message;
+      } finally {
+        this.agents.loading = false;
+      }
+    },
+
+    async refreshAgents() {
+      try {
+        await this.api('POST', '/api/agents/manifest/refresh');
+      } catch (_) {}
+      this.agents.loaded = false;
+      this.agents.detail = null;
+      await this.loadAgents();
+      this.toast(this.t('web.agents.toast.refreshed'), 'info');
+    },
+
+    async openAgent(id) {
+      try {
+        const detail = await this.api(
+          'GET',
+          '/api/agents/' + encodeURIComponent(id) + '/settings?profile=' + encodeURIComponent(this.agents.profileId),
+        );
+        // Build a draft copy. Secret-typed settings come back as
+        // {_secret, is_set}; we keep them in `values` (for the placeholder)
+        // but seed the draft with an empty string so typing replaces.
+        const draft = {};
+        for (const s of detail.schema || []) {
+          const v = (detail.values || {})[s.key];
+          if (s.type === 'secret') {
+            draft[s.key] = '';
+          } else {
+            draft[s.key] = v !== undefined ? this.deepClone(v) : s.default;
+          }
+        }
+        const categories = Array.from(new Set((detail.schema || []).map((s) => s.category || 'general')));
+        this.agents.detail = {
+          manifest: detail.manifest || (await this.api('GET', '/api/agents/' + encodeURIComponent(id))).manifest,
+          schema: detail.schema || [],
+          values: detail.values || {},
+          categories,
+          draft,
+          dirty: false,
+          saving: false,
+        };
+        // Re-fetch manifest for the storage paths + categories — the
+        // /settings response includes a flat schema but not full storage.
+        if (!this.agents.detail.manifest) {
+          const m = await this.api('GET', '/api/agents/' + encodeURIComponent(id));
+          this.agents.detail.manifest = m.manifest;
+        }
+        // Watch draft for dirty flag.
+        this.$watch('agents.detail.draft', () => {
+          if (this.agents.detail) this.agents.detail.dirty = true;
+        }, { deep: true });
+      } catch (e) {
+        this.toast(this.t('web.agents.toast.load_failed').replace('{err}', e.message), 'error');
+      }
+    },
+
+    deepClone(v) {
+      return JSON.parse(JSON.stringify(v));
+    },
+
+    toggleAgentMultiEnum(key, value, checked) {
+      const cur = Array.isArray(this.agents.detail.draft[key]) ? this.agents.detail.draft[key].slice() : [];
+      const idx = cur.indexOf(value);
+      if (checked && idx < 0) cur.push(value);
+      if (!checked && idx >= 0) cur.splice(idx, 1);
+      this.agents.detail.draft[key] = cur;
+      this.agents.detail.dirty = true;
+    },
+
+    resetAgentDraft() {
+      if (!this.agents.detail) return;
+      const schema = this.agents.detail.schema || [];
+      const values = this.agents.detail.values || {};
+      for (const s of schema) {
+        if (s.type === 'secret') {
+          this.agents.detail.draft[s.key] = '';
+        } else {
+          const v = values[s.key];
+          this.agents.detail.draft[s.key] = v !== undefined ? this.deepClone(v) : s.default;
+        }
+      }
+      this.agents.detail.dirty = false;
+    },
+
+    async saveAgent() {
+      if (!this.agents.detail) return;
+      this.agents.detail.saving = true;
+      try {
+        const values = {};
+        for (const s of this.agents.detail.schema) {
+          const d = this.agents.detail.draft[s.key];
+          // Skip empty secret fields — preserves whatever's in the keychain.
+          if (s.type === 'secret') {
+            if (d === '' || d == null) continue;
+            values[s.key] = d;
+            continue;
+          }
+          values[s.key] = d;
+        }
+        const res = await this.api(
+          'PUT',
+          '/api/agents/' + encodeURIComponent(this.agents.detail.manifest.id) + '/settings',
+          { profile: this.agents.profileId, values },
+        );
+        this.toast(this.t('web.agents.toast.saved').replace('{n}', String(res.written_files?.length || 0)), 'success');
+        // Re-open to reflect what landed on disk (incl. preserved-unknown-keys).
+        await this.openAgent(this.agents.detail.manifest.id);
+      } catch (e) {
+        this.toast(this.t('web.agents.toast.save_failed').replace('{err}', e.message), 'error');
+      } finally {
+        if (this.agents.detail) this.agents.detail.saving = false;
+      }
+    },
+
+    async installAgent(id) {
+      this.agents.busyId = id;
+      try {
+        const res = await this.api('POST', '/api/agents/' + encodeURIComponent(id) + '/install');
+        if (res.ok) {
+          this.toast(this.t('web.agents.toast.installed'), 'success');
+          await this.loadAgents();
+        } else {
+          this.toast(this.t('web.agents.toast.install_failed'), 'error');
+        }
+      } catch (e) {
+        this.toast(this.t('web.agents.toast.install_failed') + ': ' + e.message, 'error');
+      } finally {
+        this.agents.busyId = null;
+      }
+    },
+
+    async uninstallAgent(id) {
+      if (!confirm(this.t('web.agents.confirm.uninstall'))) return;
+      try {
+        await this.api('POST', '/api/agents/' + encodeURIComponent(id) + '/uninstall');
+        this.toast(this.t('web.agents.toast.uninstalled'), 'success');
+        this.agents.detail = null;
+        await this.loadAgents();
+      } catch (e) {
+        this.toast(e.message, 'error');
+      }
+    },
+
+    async importAgent(id) {
+      try {
+        const res = await this.api(
+          'GET',
+          '/api/agents/' + encodeURIComponent(id) + '/import?profile=' + encodeURIComponent(this.agents.profileId),
+        );
+        const count = Object.keys(res.imported || {}).length;
+        if (count === 0) {
+          this.toast(this.t('web.agents.toast.import_empty'), 'info');
+          return;
+        }
+        // Merge into the current draft so the user sees the values before saving.
+        for (const [k, v] of Object.entries(res.imported)) {
+          if (v && typeof v === 'object' && v._secret) continue;
+          this.agents.detail.draft[k] = v;
+        }
+        this.agents.detail.dirty = true;
+        this.toast(this.t('web.agents.toast.imported').replace('{n}', String(count)), 'success');
+      } catch (e) {
+        this.toast(e.message, 'error');
+      }
+    },
+
+    async clearSecret(key) {
+      // Erase the keychain entry by PUT-ing an explicit empty value. The
+      // settings_storage adapter doesn't know about secrets — they go
+      // through the secret_store layer; sending value '' tells it to
+      // remove the entry server-side (see registry::apply_updates).
+      try {
+        await this.api(
+          'PUT',
+          '/api/agents/' + encodeURIComponent(this.agents.detail.manifest.id) + '/settings',
+          { profile: this.agents.profileId, values: { [key]: '' } },
+        );
+        await this.openAgent(this.agents.detail.manifest.id);
+        this.toast(this.t('web.agents.toast.secret_cleared'), 'info');
+      } catch (e) {
+        this.toast(e.message, 'error');
+      }
+    },
+
+    copyLaunchCmd(id) {
+      const cmd = 'unterm-cli agent launch ' + id + ' --profile ' + this.agents.profileId;
+      this.copyText(cmd);
+      this.toast(this.t('web.agents.toast.launch_copied'), 'info');
+    },
+
+    copyAuthCmd(id) {
+      const cmd = 'unterm-cli agent auth ' + id + ' --profile ' + this.agents.profileId;
+      this.copyText(cmd);
+      this.toast(this.t('web.agents.toast.auth_copied'), 'info');
+    },
+
+    copyText(s) {
+      try {
+        navigator.clipboard.writeText(s);
+      } catch (_) {
+        // Older browsers / non-https: degrade to a select-and-copy.
+        const ta = document.createElement('textarea');
+        ta.value = s;
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); } catch (_) {}
+        document.body.removeChild(ta);
+      }
     },
 
     async loadMcp() {
