@@ -17,15 +17,20 @@ const t = (k: string) => dict[k] ?? enUS[k] ?? k;
 
 // FAQ entries — shape matches the keys inside the locale JSON.
 const faq = [
-  { q: "faq.what.q",     a: "faq.what.a" },
-  { q: "faq.mcp.q",      a: "faq.mcp.a" },
-  { q: "faq.multi.q",    a: "faq.multi.a" },
-  { q: "faq.warp.q",     a: "faq.warp.a" },
-  { q: "faq.privacy.q",  a: "faq.privacy.a" },
-  { q: "faq.script.q",   a: "faq.script.a" },
-  { q: "faq.platform.q", a: "faq.platform.a" },
-  { q: "faq.opensrc.q",  a: "faq.opensrc.a" },
-  { q: "faq.contrib.q",  a: "faq.contrib.a" },
+  { q: "faq.what.q",        a: "faq.what.a" },
+  { q: "faq.mcp.q",         a: "faq.mcp.a" },
+  { q: "faq.multi.q",       a: "faq.multi.a" },
+  { q: "faq.warp.q",        a: "faq.warp.a" },
+  { q: "faq.privacy.q",     a: "faq.privacy.a" },
+  { q: "faq.telemetry.q",   a: "faq.telemetry.a" },
+  { q: "faq.cost.q",        a: "faq.cost.a" },
+  { q: "faq.size.q",        a: "faq.size.a" },
+  { q: "faq.locale.q",      a: "faq.locale.a" },
+  { q: "faq.agents_run.q",  a: "faq.agents_run.a" },
+  { q: "faq.script.q",      a: "faq.script.a" },
+  { q: "faq.platform.q",    a: "faq.platform.a" },
+  { q: "faq.opensrc.q",     a: "faq.opensrc.a" },
+  { q: "faq.contrib.q",     a: "faq.contrib.a" },
 ];
 
 // Personas section — three columns, each with header + body + 4 bullets.
@@ -73,6 +78,66 @@ const principles = [
   { n: "03", title: "principles.mcp.title",         body: "principles.mcp.body" },
   { n: "04", title: "principles.parity.title",      body: "principles.parity.body" },
   { n: "05", title: "principles.subtraction.title", body: "principles.subtraction.body", wide: true },
+];
+
+// TL;DR spec rows — keep parallel to SoloMD's "what X is, in 60 seconds" table.
+// Each row is one quoted fact a skeptical reader can verify in the source or
+// GitHub Releases.  `valueRaw` is rendered as-is (mixed locale fragments like
+// version + date); plain `value` is an i18n key that goes through t().
+const tldrRows = [
+  { label: "tldr.version",      valueRaw: "v0.17 · 2026-05-04 · MIT" },
+  { label: "tldr.price",        value: "tldr.price.value" },
+  { label: "tldr.platforms",    value: "tldr.platforms.value" },
+  { label: "tldr.size",         value: "tldr.size.value" },
+  { label: "tldr.memory",       value: "tldr.memory.value" },
+  { label: "tldr.languages",    value: "tldr.languages.value" },
+  { label: "tldr.surfaces",     value: "tldr.surfaces.value" },
+  { label: "tldr.engine",       value: "tldr.engine.value" },
+  { label: "tldr.privacy",      value: "tldr.privacy.value" },
+  { label: "tldr.engine_stack", value: "tldr.engine_stack.value" },
+];
+
+// Hero feature pills — colorful 6-icon chip row right under the subtitle.
+// Mirrors SoloMD's "📝 Live preview 🔗 Wiki links 🤖 BYOK AI 🔍 Local RAG 🎨 Themes 📱 Cross-platform" hero row.
+const heroPills = [
+  { icon: "🔌", label: "heropill.mcp" },
+  { icon: "⚡", label: "heropill.cli" },
+  { icon: "🖥️", label: "heropill.web" },
+  { icon: "🎬", label: "heropill.rec" },
+  { icon: "🪟", label: "heropill.split" },
+  { icon: "🔒", label: "heropill.local" },
+];
+
+// "Where Unterm stands out" — 3 strongest differentiators with version chips.
+// SoloMD does the same after the comparison table; we mirror it here as a
+// confidence section after Features.
+const standouts = [
+  { v: "v0.17", icon: "🪟", title: "stand.split.title",   body: "stand.split.body" },
+  { v: "v0.16", icon: "👁️", title: "stand.audit.title",   body: "stand.audit.body" },
+  { v: "v0.14", icon: "🔑", title: "stand.identity.title", body: "stand.identity.body" },
+];
+
+// Quality-of-life touches — minor but delightful features. Pure 4-column grid
+// of icon + short title + 1-sentence body. SoloMD has the same band after
+// its main feature grid for non-headline polish.
+const qol = [
+  { icon: "👻", title: "qol.ghost.title",      body: "qol.ghost.body" },
+  { icon: "✨", title: "qol.suggest.title",    body: "qol.suggest.body" },
+  { icon: "📋", title: "qol.copy.title",       body: "qol.copy.body" },
+  { icon: "🎨", title: "qol.themes.title",     body: "qol.themes.body" },
+  { icon: "📁", title: "qol.finder.title",     body: "qol.finder.body" },
+  { icon: "🪪", title: "qol.profiles.title",   body: "qol.profiles.body" },
+  { icon: "🚦", title: "qol.proxy.title",      body: "qol.proxy.body" },
+  { icon: "🌐", title: "qol.headers.title",    body: "qol.headers.body" },
+];
+
+// Sponsor methods — mirrors SoloMD's "Support" band at the page bottom.
+// Three named channels: GitHub Sponsors (international), PayPal (Chinese-
+// diaspora-friendly worldwide one-tap), and a QR pair (Alipay / WeChat Pay)
+// rendered later as a single card holding both images.
+const sponsors = [
+  { icon: "♥",  title: "sponsor.gh.title",     body: "sponsor.gh.body",     cta: "sponsor.gh.cta",     href: "https://github.com/sponsors/zhitongblog" },
+  { icon: "💸", title: "sponsor.paypal.title", body: "sponsor.paypal.body", cta: "sponsor.paypal.cta", href: "https://paypal.me/solomdapp" },
 ];
 
 const features = [
@@ -168,18 +233,39 @@ const heroDownloads = [
   <div class="relative max-w-6xl mx-auto px-6 pt-20 pb-24">
     <div class="grid lg:grid-cols-2 gap-10 lg:gap-16 items-center">
       <div class="text-center lg:text-left">
-        <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-zinc-900/80 border border-zinc-800 text-xs text-zinc-400 mb-6">
+        <!-- Hero version chip — SoloMD-style: live dot + version + license + platform count.
+             Quick scan signal so visitors don't need to dig to know it's current + open. -->
+        <div class="inline-flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-1 rounded-full bg-zinc-900/80 border border-zinc-800 text-xs text-zinc-400 mb-6">
           <span class="relative flex w-1.5 h-1.5">
             <span class="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 animate-ping"></span>
             <span class="relative inline-flex w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
           </span>
-          <span>{t("hero.badge")}</span>
+          <span class="text-emerald-300 font-medium">v0.17</span>
+          <span class="text-zinc-700">·</span>
+          <span>{t("hero.badge.signed")}</span>
+          <span class="text-zinc-700">·</span>
+          <span>MIT</span>
+          <span class="text-zinc-700">·</span>
+          <span>{t("hero.badge.platforms")}</span>
         </div>
         <h1 class="text-5xl sm:text-6xl lg:text-6xl xl:text-7xl font-bold tracking-tight text-zinc-50 leading-[1.02]">
           <span>{t("hero.title.1")}</span><br/>
           <span class="bg-gradient-to-r from-emerald-300 via-teal-300 to-cyan-300 bg-clip-text text-transparent">{t("hero.title.2")}</span>
         </h1>
         <p class="mt-6 text-lg text-zinc-400 max-w-xl mx-auto lg:mx-0 leading-relaxed">{t("hero.subtitle")}</p>
+
+        <!-- Feature pills — colorful chip row that captures the 6 most
+             scannable identity claims. Same pattern as SoloMD's hero
+             "📝 Live preview 🔗 Wiki links …" strip. -->
+        <div class="mt-6 flex flex-wrap items-center justify-center lg:justify-start gap-1.5 text-xs">
+          {heroPills.map((p) => (
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-zinc-900/70 border border-zinc-800/70 text-zinc-300">
+              <span>{p.icon}</span>
+              <span>{t(p.label)}</span>
+            </span>
+          ))}
+        </div>
+
         <div class="mt-8 flex flex-wrap items-center justify-center lg:justify-start gap-3">
           <a id="smart-download"
              href={dmgUrl}
@@ -288,6 +374,31 @@ const heroDownloads = [
           </div>
         </div>
       </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============== TL;DR ============== -->
+<!-- A scannable 2-column specs table.  Mirrors SoloMD's "TL;DR — what X
+     is, in 60 seconds" band.  Every value is a fact a skeptical visitor
+     can verify (in the source, on GitHub Releases, or in the running app).
+     Sits between hero and tagline so a fast reader gets the elevator
+     pitch before the long prose. -->
+<section class="py-16 border-t border-zinc-900">
+  <div class="max-w-4xl mx-auto px-6">
+    <div class="flex items-baseline gap-3 mb-6">
+      <h2 class="text-xl font-semibold tracking-tight text-zinc-100">{t("tldr.title")}</h2>
+      <span class="text-xs text-zinc-500 font-mono">{t("tldr.subtitle")}</span>
+    </div>
+    <div class="rounded-xl border border-zinc-800 bg-zinc-900/30 overflow-hidden">
+      <dl class="divide-y divide-zinc-800/60">
+        {tldrRows.map((r) => (
+          <div class="grid grid-cols-1 sm:grid-cols-[180px_1fr] gap-x-6 gap-y-1 px-5 py-3">
+            <dt class="text-xs sm:text-sm text-zinc-500 font-mono">{t(r.label)}</dt>
+            <dd class="text-sm text-zinc-200 leading-relaxed" set:html={r.valueRaw ?? t(r.value)}></dd>
+          </div>
+        ))}
+      </dl>
     </div>
   </div>
 </section>
@@ -606,6 +717,50 @@ drwxr-xr-x 6 alexlee staff   192  architecture.md
   </div>
 </section>
 
+<!-- ============== WHERE UNTERM STANDS OUT ============== -->
+<!-- Three biggest differentiators with version chips. Sits between the
+     Features grid and What's-new so a skim-reader hits the strongest
+     claims before the long version-history band. Mirrors SoloMD's
+     "Where SoloMD stands out" trio. -->
+<section class="py-20 border-t border-zinc-900 bg-zinc-950">
+  <div class="max-w-5xl mx-auto px-6">
+    <h2 class="text-3xl font-semibold tracking-tight text-center">{t("stand.title")}</h2>
+    <p class="mt-3 text-center text-zinc-400 max-w-2xl mx-auto">{t("stand.subtitle")}</p>
+    <div class="mt-12 grid md:grid-cols-3 gap-4">
+      {standouts.map((s) => (
+        <div class="bg-zinc-900/40 border border-zinc-800 rounded-xl p-6 flex flex-col">
+          <div class="flex items-center gap-2">
+            <span class="text-2xl">{s.icon}</span>
+            <span class="text-xs font-mono px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-900">{s.v}</span>
+          </div>
+          <div class="mt-3 text-lg font-semibold text-zinc-100">{t(s.title)}</div>
+          <p class="mt-2 text-sm text-zinc-400 leading-relaxed" set:html={t(s.body)}></p>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>
+
+<!-- ============== QUALITY-OF-LIFE TOUCHES ============== -->
+<!-- 4-column grid of minor delights. Same pattern SoloMD uses to surface
+     features that don't headline but make daily use nicer. -->
+<section class="py-20 border-t border-zinc-900">
+  <div class="max-w-6xl mx-auto px-6">
+    <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-zinc-900/80 border border-zinc-800 text-[11px] uppercase tracking-wider text-zinc-500 font-mono mb-6">{t("qol.badge")}</div>
+    <h2 class="text-2xl font-semibold tracking-tight text-zinc-100">{t("qol.title")}</h2>
+    <p class="mt-2 text-zinc-400 max-w-2xl">{t("qol.subtitle")}</p>
+    <div class="mt-10 grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+      {qol.map((q) => (
+        <div class="bg-zinc-900/40 border border-zinc-800 rounded-lg p-4">
+          <div class="text-xl">{q.icon}</div>
+          <div class="mt-2 text-sm font-semibold text-zinc-200">{t(q.title)}</div>
+          <p class="mt-1 text-xs text-zinc-400 leading-relaxed" set:html={t(q.body)}></p>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>
+
 <!-- ============== WHAT'S NEW ============== -->
 <!-- Mirrors SoloMD's "v3.0 sync, encryption, search" highlight band.
      Anchors recent shipping work to specific tagged releases so the
@@ -708,6 +863,34 @@ drwxr-xr-x 6 alexlee staff   192  architecture.md
         </details>
       ))}
     </div>
+  </div>
+</section>
+
+<!-- ============== SPONSOR ============== -->
+<!-- One developer, one project. Sponsor card cluster mirrors SoloMD's
+     "Support" band — two named channels (GitHub Sponsors for monthly
+     international, PayPal for one-tap worldwide) inline. Heavier "scan
+     a QR code" payment paths (Alipay / WeChat Pay) intentionally not
+     embedded — those are reserved for SoloMD (a higher-volume product)
+     and would dilute the page for terminal-first audience here. -->
+<section id="sponsor" class="py-20 border-t border-zinc-900">
+  <div class="max-w-4xl mx-auto px-6">
+    <h2 class="text-3xl font-semibold tracking-tight text-center">{t("sponsor.title")}</h2>
+    <p class="mt-3 text-center text-zinc-400 max-w-2xl mx-auto" set:html={t("sponsor.subtitle")}></p>
+    <div class="mt-10 grid md:grid-cols-2 gap-4">
+      {sponsors.map((s) => (
+        <a href={s.href} target="_blank" rel="noopener"
+           class="group block bg-zinc-900/40 hover:bg-zinc-900 border border-zinc-800 hover:border-zinc-700 rounded-xl p-6 transition">
+          <div class="flex items-center gap-2">
+            <span class="text-2xl text-rose-400">{s.icon}</span>
+            <span class="text-lg font-semibold text-zinc-100">{t(s.title)}</span>
+          </div>
+          <p class="mt-2 text-sm text-zinc-400 leading-relaxed">{t(s.body)}</p>
+          <div class="mt-3 text-xs text-emerald-400 group-hover:text-emerald-300 font-mono">{t(s.cta)} →</div>
+        </a>
+      ))}
+    </div>
+    <p class="mt-6 text-center text-xs text-zinc-500" set:html={t("sponsor.note")}></p>
   </div>
 </section>
 
