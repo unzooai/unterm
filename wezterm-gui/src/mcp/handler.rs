@@ -644,6 +644,7 @@ impl McpHandler {
             "session.get" | "session.status" => self.session_get(params),
             "session.create" => self.session_create(params),
             "session.split" => self.session_split(params),
+            "session.focus" => self.session_focus(params),
             "session.input" => self.session_input(params),
             "session.resize" => self.session_resize(params),
             "session.destroy" => self.session_destroy(params),
@@ -1229,6 +1230,35 @@ impl McpHandler {
 
         rx.recv_timeout(std::time::Duration::from_secs(10))
             .map_err(|_| anyhow!("Timeout waiting for session.split"))?
+    }
+
+    /// `session.focus` — make this pane the active one in its tab
+    /// (and bring its tab to the front of its window). Pairs with
+    /// `session.split` so an agent can split-then-focus the new
+    /// pane to make the side-by-side hand-off visible to the user
+    /// immediately, rather than the new pane being a hidden split.
+    ///
+    /// Params: `id` or `session_id` (required).
+    /// Returns: `{ ok: true, id: <focused-pane-id> }`.
+    fn session_focus(&self, params: &Value) -> Result<Value> {
+        let pane_id = params
+            .get("id")
+            .or_else(|| params.get("session_id"))
+            .and_then(|v| {
+                v.as_u64()
+                    .map(|n| n as usize)
+                    .or_else(|| v.as_str().and_then(|s| s.parse::<usize>().ok()))
+            })
+            .ok_or_else(|| anyhow!("Missing 'id' / 'session_id'"))?;
+
+        // focus_pane_and_containing_tab does the whole work: walks up
+        // to find the owning tab + window, sets the tab's active pane,
+        // and activates the tab inside the window. No need for an
+        // async hop — it's a synchronous Mux operation.
+        let mux = self.get_mux()?;
+        mux.focus_pane_and_containing_tab(pane_id)
+            .with_context(|| format!("focus pane {pane_id}"))?;
+        Ok(json!({ "ok": true, "id": pane_id }))
     }
 
     fn session_create(&self, params: &Value) -> Result<Value> {
