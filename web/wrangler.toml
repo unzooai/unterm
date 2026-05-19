@@ -1,0 +1,50 @@
+# Cloudflare Pages config for unterm.app.
+#
+# This file is optional — Pages picks up `web/functions/**/*.ts` by directory
+# convention and the project itself is configured in the CF dashboard. We
+# commit it here so KV namespace bindings, environment vars, and routing
+# decisions live next to the code (and so a fresh `wrangler deploy` from
+# a new machine doesn't lose configuration).
+#
+# Bindings declared here are *requested* by the local build; the actual
+# namespace IDs come from the dashboard. To wire it up:
+#
+#   1. From the repo root, `cd web/` and run:
+#         wrangler kv namespace create UNTERM_MANIFESTS
+#      Note the returned `id` (looks like `abc123…`).
+#   2. Paste that id below in [[kv_namespaces]] → id.
+#   3. Optional: same for a preview environment with
+#         wrangler kv namespace create UNTERM_MANIFESTS --preview
+#      and put it under preview_id.
+#   4. Sign the manifest envelope locally:
+#         manifest-cli sign --key ~/Documents/unterm-manifests/keys/unterm-2026-1.priv \
+#           --key-id unterm-2026-1 \
+#           --manifests ~/Documents/unterm-manifests/manifests \
+#           --out ./envelope.json
+#   5. Push it to KV:
+#         wrangler kv key put --binding=UNTERM_MANIFESTS current ./envelope.json
+#      (or use `manifest-cli push` which wraps this)
+#
+# After that, /api/agents/manifests on unterm.app serves the envelope.
+
+name = "unterm-app"
+compatibility_date = "2025-05-01"
+pages_build_output_dir = "dist"
+
+# ---- KV: signed manifest envelope storage ------------------------------------
+#
+# Used by /api/agents/manifests and /api/agents/trust. Each KV namespace
+# entry's value is the raw envelope bytes; metadata may carry a precomputed
+# ETag so the function doesn't have to hash every request.
+[[kv_namespaces]]
+binding = "UNTERM_MANIFESTS"
+id = "REPLACE_WITH_YOUR_NAMESPACE_ID"
+# preview_id = "REPLACE_WITH_YOUR_PREVIEW_NAMESPACE_ID"
+
+# ---- Existing /api/stats secret ----------------------------------------------
+#
+# This token is set in the CF dashboard, not here — wrangler wouldn't read
+# it from the .toml anyway (secrets live elsewhere). Listed for reference:
+#
+#   GITHUB_TOKEN  — fine-grained PAT scoped to repo:read for unzooai/unterm
+#                   so api.github.com gives us 5000 req/hr instead of 60.

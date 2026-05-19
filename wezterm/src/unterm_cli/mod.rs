@@ -5,6 +5,7 @@
 //! UUID at `~/.unterm/auth_token`). The intent is "anything you can do via
 //! MCP, you can do from the shell".
 
+mod agent;
 mod client;
 pub mod i18n;
 mod lang;
@@ -17,6 +18,7 @@ mod sessions;
 mod settings;
 mod theme;
 
+pub use agent::AgentCommand;
 pub use lang::LangCommand;
 pub use profile::ProfileCommand;
 pub use proxy::ProxyCommand;
@@ -62,6 +64,10 @@ pub fn run_settings(cmd: SettingsCommand) -> Result<()> {
 
 pub fn run_lang(cmd: LangCommand, json_out: bool) -> Result<()> {
     lang::run(cmd, json_out)
+}
+
+pub fn run_agent(cmd: AgentCommand, json_out: bool) -> Result<()> {
+    agent::run(cmd, json_out)
 }
 
 /// Apply the optional `--lang <code>` flag for the lifetime of this process.

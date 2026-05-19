@@ -237,6 +237,12 @@ impl PaneRecorder {
             redaction_active: load_config().redaction.enabled,
             redaction_count: 0,
             trace_ids: inner.trace_ids.clone(),
+            // Read agent identity from spawn-time env vars; these are set by
+            // unterm-agents::launcher when this pane was started through
+            // `unterm agent launch …`. Bare shells leave them unset.
+            agent_id: std::env::var("UNTERM_AGENT_ID").ok(),
+            agent_manifest_version: std::env::var("UNTERM_AGENT_MANIFEST_VERSION").ok(),
+            agent_profile: std::env::var("UNTERM_PROFILE").ok(),
         }
     }
 
@@ -520,6 +526,9 @@ pub fn start_recording(pane_id: PaneId) -> Result<StartResult> {
         redaction_active: load_config().redaction.enabled,
         redaction_count: 0,
         trace_ids: Vec::new(),
+        agent_id: std::env::var("UNTERM_AGENT_ID").ok(),
+        agent_manifest_version: std::env::var("UNTERM_AGENT_MANIFEST_VERSION").ok(),
+        agent_profile: std::env::var("UNTERM_PROFILE").ok(),
     };
     index::upsert_entry(initial_entry).ok();
 
@@ -762,6 +771,12 @@ pub fn export_pane_markdown(pane_id: PaneId, target: Option<PathBuf>) -> Result<
         redaction_active: cfg.redaction.enabled,
         redaction_count: 0,
         trace_ids: Vec::new(),
+        // User-triggered markdown export from a live pane — there's no
+        // per-pane env capture here, so we fall back to whatever the GUI
+        // process inherited. Usually `None`.
+        agent_id: std::env::var("UNTERM_AGENT_ID").ok(),
+        agent_manifest_version: std::env::var("UNTERM_AGENT_MANIFEST_VERSION").ok(),
+        agent_profile: std::env::var("UNTERM_PROFILE").ok(),
     };
     let out = render::render_log(&log_path, &entry, &render_cfg)?;
     let dest = target.unwrap_or(md_path);

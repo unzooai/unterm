@@ -176,6 +176,12 @@ enum SubCommand {
     )]
     Lang(unterm_cli::LangCommand),
 
+    #[command(
+        name = "agent",
+        about = "Install, authenticate, configure, and launch AI coding-agent CLIs (Claude Code / Codex / Gemini / OpenCode / Aider)"
+    )]
+    Agent(unterm_cli::AgentCommand),
+
     #[command(name = "screenshot", about = "Capture the screen via Unterm's MCP server")]
     Screenshot {
         /// Include Unterm's own window in the capture (default: exclude).
@@ -822,6 +828,7 @@ fn run() -> anyhow::Result<()> {
         } => unterm_cli::run_screenshot(include_window, output, opts.json),
         SubCommand::Settings(cmd) => unterm_cli::run_settings(cmd),
         SubCommand::Lang(cmd) => unterm_cli::run_lang(cmd, opts.json),
+        SubCommand::Agent(cmd) => unterm_cli::run_agent(cmd, opts.json),
         SubCommand::ShellCompletion { shell } => {
             use clap::CommandFactory;
             let mut cmd = Opt::command();

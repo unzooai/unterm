@@ -123,7 +123,7 @@ impl Request {
     }
 }
 
-struct Response {
+pub(crate) struct Response {
     status: u16,
     reason: &'static str,
     content_type: &'static str,
@@ -132,7 +132,7 @@ struct Response {
 }
 
 impl Response {
-    fn json(status: u16, reason: &'static str, value: Value) -> Self {
+    pub(crate) fn json(status: u16, reason: &'static str, value: Value) -> Self {
         Self {
             status,
             reason,
@@ -157,11 +157,11 @@ impl Response {
         }
     }
 
-    fn ok_json(value: Value) -> Self {
+    pub(crate) fn ok_json(value: Value) -> Self {
         Self::json(200, "OK", value)
     }
 
-    fn err(status: u16, reason: &'static str, message: &str) -> Self {
+    pub(crate) fn err(status: u16, reason: &'static str, message: &str) -> Self {
         Self::json(status, reason, json!({"error": message}))
     }
 }
@@ -381,6 +381,52 @@ fn route(req: &Request, auth_token: &str, handler: &McpHandler) -> Response {
                 Response::err(400, "Bad Request", "malformed secret path")
             }
         }
+
+        // ---- AI agent runtime --------------------------------------------
+        // Routes wrap the unterm-agents crate so the Web Settings panel can
+        // list / configure / install / launch every AI CLI in the signed
+        // manifest. See `agents.rs` for the actual handlers.
+        ("GET",  "/api/agents/list")             => super::agents::api_list(&req.query),
+        ("GET",  "/api/agents/manifest")          => super::agents::api_manifest_info(),
+        ("POST", "/api/agents/manifest/refresh")  => super::agents::api_manifest_refresh(),
+        ("GET",  p) if p.starts_with("/api/agents/") && p.ends_with("/settings") => {
+            let id = &p["/api/agents/".len()..p.len() - "/settings".len()];
+            super::agents::api_settings_get(id, &req.query)
+        }
+        ("PUT",  p) if p.starts_with("/api/agents/") && p.ends_with("/settings") => {
+            let id = &p["/api/agents/".len()..p.len() - "/settings".len()];
+            super::agents::api_settings_put(id, &req.body)
+        }
+        ("POST", p) if p.starts_with("/api/agents/") && p.ends_with("/install") => {
+            let id = &p["/api/agents/".len()..p.len() - "/install".len()];
+            super::agents::api_install(id)
+        }
+        ("POST", p) if p.starts_with("/api/agents/") && p.ends_with("/uninstall") => {
+            let id = &p["/api/agents/".len()..p.len() - "/uninstall".len()];
+            super::agents::api_uninstall(id)
+        }
+        ("POST", p) if p.starts_with("/api/agents/") && p.ends_with("/update") => {
+            let id = &p["/api/agents/".len()..p.len() - "/update".len()];
+            super::agents::api_update_agent(id)
+        }
+        ("POST", p) if p.starts_with("/api/agents/") && p.ends_with("/auth") => {
+            let id = &p["/api/agents/".len()..p.len() - "/auth".len()];
+            super::agents::api_auth(id, &req.body)
+        }
+        ("GET",  p) if p.starts_with("/api/agents/") && p.ends_with("/import") => {
+            let id = &p["/api/agents/".len()..p.len() - "/import".len()];
+            super::agents::api_import(id, &req.query)
+        }
+        ("POST", p) if p.starts_with("/api/agents/") && p.ends_with("/launch-plan") => {
+            let id = &p["/api/agents/".len()..p.len() - "/launch-plan".len()];
+            super::agents::api_launch_plan(id, &req.body)
+        }
+        ("GET",  p) if p.starts_with("/api/agents/") && p.matches('/').count() == 2 => {
+            // /api/agents/<id>  (the catch-all GET for showing one agent)
+            let id = &p["/api/agents/".len()..];
+            super::agents::api_show(id)
+        }
+
         _ => Response::err(404, "Not Found", "no such route"),
     }
 }

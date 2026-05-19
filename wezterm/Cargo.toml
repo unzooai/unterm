@@ -38,6 +38,7 @@ smol.workspace = true
 tabout.workspace = true
 tempfile.workspace = true
 unterm-profile.workspace = true
+unterm-agents.workspace = true
 termwiz-funcs.workspace = true
 termwiz.workspace = true
 textwrap.workspace  =true

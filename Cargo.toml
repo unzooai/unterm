@@ -16,6 +16,7 @@ members = [
   "wezterm-surface",
   "wezterm-uds",
   "unterm-profile",
+  "unterm-agents",
 ]
 resolver = "2"
 exclude = [
@@ -222,6 +223,12 @@ serde_with = {version="2.0", features = ["chrono_0_4"]}
 serde_yaml = "0.9"
 serial2 = "0.2"
 sha2 = "0.10"
+# Ed25519 verification for the signed-manifest envelope shipped by the
+# AI-agent integration runtime. Public key is baked into the binary so a
+# compromise of unterm.app DNS / CF account can't push arbitrary install
+# scripts to users — every envelope is verified locally before any shell
+# command from it runs.
+ed25519-dalek = { version = "2.1", default-features = false, features = ["std", "fast", "rand_core"] }
 share-data = { path = "lua-api-crates/share-data" }
 shared_library = "0.1"
 shell-words = "1.1"
@@ -258,6 +265,7 @@ umask = { path = "umask" }
 unicode-normalization = "0.1.24"
 unicode-segmentation = "1.12"
 unterm-profile = { path = "unterm-profile" }
+unterm-agents = { path = "unterm-agents" }
 url = "2"
 url-funcs = { path = "lua-api-crates/url-funcs" }
 utf8parse = "0.2"

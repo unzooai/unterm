@@ -1,0 +1,1836 @@
+{
+  "envelope_version": 1,
+  "issued_at": "2026-05-19T14:52:53Z",
+  "expires_at": "2027-05-19T14:52:53Z",
+  "min_unterm_version": "0.17.0",
+  "manifests": [
+    {
+      "id": "aider",
+      "version": 1,
+      "name": "Aider",
+      "vendor": "paul-gauthier",
+      "category": "first-party",
+      "popularity_rank": 5,
+      "icon_url": "https://unterm.app/agents/aider.svg",
+      "homepage": "https://github.com/paul-gauthier/aider",
+      "tagline_i18n": {
+        "en": "AI pair programming in your terminal",
+        "zh-CN": "终端里的 AI 结对编程"
+      },
+      "description_i18n": {
+        "en": "Model-agnostic git-aware coding assistant. Edits files via SEARCH/REPLACE blocks, runs tests, dirty-commit workflow. Excellent for non-MCP workflows.",
+        "zh-CN": "model-agnostic 的 git 友好编码助手，通过 SEARCH/REPLACE 改文件、跑测试、自动提交。非 MCP 流程的标杆。"
+      },
+      "license": "Apache-2.0",
+      "platforms": [
+        "macos",
+        "linux",
+        "windows"
+      ],
+      "detect": {
+        "command": "aider",
+        "version_args": [
+          "--version"
+        ],
+        "version_regex": "([0-9.]+)",
+        "min_version": null
+      },
+      "install": {
+        "macos": {
+          "steps": [
+            {
+              "type": "shell",
+              "cmd": [
+                "pipx",
+                "install",
+                "aider-chat"
+              ]
+            }
+          ]
+        },
+        "linux": {
+          "steps": [
+            {
+              "type": "shell",
+              "cmd": [
+                "pipx",
+                "install",
+                "aider-chat"
+              ]
+            }
+          ]
+        },
+        "windows": {
+          "steps": [
+            {
+              "type": "shell",
+              "cmd": [
+                "pipx",
+                "install",
+                "aider-chat"
+              ]
+            }
+          ]
+        },
+        "requires": [
+          {
+            "binary": "pipx",
+            "min": null,
+            "install_hint_url": "https://pipx.pypa.io/stable/installation/"
+          },
+          {
+            "binary": "git",
+            "min": null,
+            "install_hint_url": null
+          }
+        ],
+        "update": {
+          "cmd": [
+            "pipx",
+            "upgrade",
+            "aider-chat"
+          ]
+        },
+        "uninstall": {
+          "cmd": [
+            "pipx",
+            "uninstall",
+            "aider-chat"
+          ]
+        }
+      },
+      "auth": {
+        "primary": {
+          "kind": "api_key_env",
+          "env_var": "ANTHROPIC_API_KEY",
+          "key_console_url": "https://console.anthropic.com/settings/keys",
+          "validate": null
+        },
+        "fallback": {
+          "kind": "api_key_env",
+          "env_var": "OPENAI_API_KEY",
+          "key_console_url": "https://platform.openai.com/api-keys",
+          "validate": null
+        }
+      },
+      "launch": {
+        "exec": "aider",
+        "args": [],
+        "args_when_cwd_set": [],
+        "respects_unterm_split": false
+      },
+      "mcp": null,
+      "profile_defaults": {
+        "isolate_env": true,
+        "inherit_env": [
+          "PATH",
+          "HOME",
+          "LANG",
+          "TERM",
+          "SHELL"
+        ],
+        "shell": null,
+        "history_file": null,
+        "starting_cwd": "project_root_or_home",
+        "audit_default": "on"
+      },
+      "settings_schema": [
+        {
+          "key": "model",
+          "type": "string",
+          "category": "model",
+          "default": "sonnet",
+          "required": false,
+          "sensitive": false,
+          "label_i18n": {
+            "en": "Model",
+            "zh-CN": "模型"
+          },
+          "description_i18n": {},
+          "placeholder": "sonnet / opus / gpt-4o / gemini/gemini-2.5-pro / ollama_chat/qwen2.5-coder …",
+          "restart_required": false,
+          "values": [],
+          "min": null,
+          "max": null,
+          "secret_namespace": null,
+          "since_manifest_version": null,
+          "depends_on": null
+        },
+        {
+          "key": "edit_format",
+          "type": "enum",
+          "category": "behavior",
+          "default": "diff",
+          "required": false,
+          "sensitive": false,
+          "label_i18n": {
+            "en": "Edit format",
+            "zh-CN": "编辑格式"
+          },
+          "description_i18n": {},
+          "placeholder": null,
+          "restart_required": false,
+          "values": [
+            {
+              "value": "whole",
+              "label": null
+            },
+            {
+              "value": "diff",
+              "label": null
+            },
+            {
+              "value": "diff-fenced",
+              "label": null
+            },
+            {
+              "value": "udiff",
+              "label": null
+            }
+          ],
+          "min": null,
+          "max": null,
+          "secret_namespace": null,
+          "since_manifest_version": null,
+          "depends_on": null
+        },
+        {
+          "key": "auto_commits",
+          "type": "bool",
+          "category": "behavior",
+          "default": true,
+          "required": false,
+          "sensitive": false,
+          "label_i18n": {
+            "en": "Auto-commit edits",
+            "zh-CN": "自动提交修改"
+          },
+          "description_i18n": {},
+          "placeholder": null,
+          "restart_required": false,
+          "values": [],
+          "min": null,
+          "max": null,
+          "secret_namespace": null,
+          "since_manifest_version": null,
+          "depends_on": null
+        },
+        {
+          "key": "git_dirty_commits",
+          "type": "bool",
+          "category": "behavior",
+          "default": true,
+          "required": false,
+          "sensitive": false,
+          "label_i18n": {},
+          "description_i18n": {},
+          "placeholder": null,
+          "restart_required": false,
+          "values": [],
+          "min": null,
+          "max": null,
+          "secret_namespace": null,
+          "since_manifest_version": null,
+          "depends_on": null
+        },
+        {
+          "key": "auto_test",
+          "type": "bool",
+          "category": "behavior",
+          "default": false,
+          "required": false,
+          "sensitive": false,
+          "label_i18n": {},
+          "description_i18n": {},
+          "placeholder": null,
+          "restart_required": false,
+          "values": [],
+          "min": null,
+          "max": null,
+          "secret_namespace": null,
+          "since_manifest_version": null,
+          "depends_on": null
+        },
+        {
+          "key": "test_cmd",
+          "type": "string",
+          "category": "behavior",
+          "default": "",
+          "required": false,
+          "sensitive": false,
+          "label_i18n": {},
+          "description_i18n": {},
+          "placeholder": "pytest -q",
+          "restart_required": false,
+          "values": [],
+          "min": null,
+          "max": null,
+          "secret_namespace": null,
+          "since_manifest_version": null,
+          "depends_on": null
+        },
+        {
+          "key": "map_tokens",
+          "type": "int",
+          "category": "model",
+          "default": 1024,
+          "required": false,
+          "sensitive": false,
+          "label_i18n": {},
+          "description_i18n": {},
+          "placeholder": null,
+          "restart_required": false,
+          "values": [],
+          "min": 0.0,
+          "max": 32768.0,
+          "secret_namespace": null,
+          "since_manifest_version": null,
+          "depends_on": null
+        },
+        {
+          "key": "anthropic_api_key",
+          "type": "secret",
+          "category": "auth",
+          "default": null,
+          "required": false,
+          "sensitive": true,
+          "label_i18n": {},
+          "description_i18n": {},
+          "placeholder": null,
+          "restart_required": false,
+          "values": [],
+          "min": null,
+          "max": null,
+          "secret_namespace": "anthropic",
+          "since_manifest_version": null,
+          "depends_on": null
+        },
+        {
+          "key": "openai_api_key",
+          "type": "secret",
+          "category": "auth",
+          "default": null,
+          "required": false,
+          "sensitive": true,
+          "label_i18n": {},
+          "description_i18n": {},
+          "placeholder": null,
+          "restart_required": false,
+          "values": [],
+          "min": null,
+          "max": null,
+          "secret_namespace": "openai",
+          "since_manifest_version": null,
+          "depends_on": null
+        }
+      ],
+      "settings_storage": {
+        "files": [
+          {
+            "path": "{{HOME}}/.aider.conf.yml",
+            "format": "yaml",
+            "merge": "preserve_unknown_keys",
+            "atomic_write": true,
+            "key_map": {
+              "auto_commits": ".auto-commits",
+              "auto_test": ".auto-test",
+              "edit_format": ".edit-format",
+              "git_dirty_commits": ".dirty-commits",
+              "map_tokens": ".map-tokens",
+              "model": ".model",
+              "test_cmd": ".test-cmd"
+            },
+            "single_key": null
+          }
+        ],
+        "env_at_launch": {
+          "ANTHROPIC_API_KEY": {
+            "from": "secret:anthropic"
+          },
+          "OPENAI_API_KEY": {
+            "from": "secret:openai"
+          }
+        },
+        "live_reload": false,
+        "validate_after_write": null
+      },
+      "telemetry_notice": {
+        "vendor_dials_home": false,
+        "privacy_url": "https://aider.chat/docs/legal/privacy.html",
+        "opt_out_env": null
+      }
+    },
+    {
+      "id": "claude-code",
+      "version": 1,
+      "name": "Claude Code",
+      "vendor": "Anthropic",
+      "category": "first-party",
+      "popularity_rank": 1,
+      "icon_url": "https://unterm.app/agents/claude-code.svg",
+      "homepage": "https://github.com/anthropics/claude-code",
+      "tagline_i18n": {
+        "en": "Anthropic's official agentic coder",
+        "zh-CN": "Anthropic 官方编码 agent"
+      },
+      "description_i18n": {
+        "en": "Native CLI for Claude models with edit/read/bash tools, slash commands, MCP support, and project-aware context. The reference Anthropic agent.",
+        "zh-CN": "运行在终端里的 Claude 编码 agent，支持文件编辑、shell 执行、斜杠命令、MCP，并能感知项目结构。"
+      },
+      "license": "proprietary",
+      "platforms": [
+        "macos",
+        "linux",
+        "windows"
+      ],
+      "detect": {
+        "command": "claude",
+        "version_args": [
+          "--version"
+        ],
+        "version_regex": "([0-9.]+)",
+        "min_version": null
+      },
+      "install": {
+        "macos": {
+          "steps": [
+            {
+              "type": "shell",
+              "cmd": [
+                "npm",
+                "install",
+                "-g",
+                "@anthropic-ai/claude-code"
+              ]
+            }
+          ]
+        },
+        "linux": {
+          "steps": [
+            {
+              "type": "shell",
+              "cmd": [
+                "npm",
+                "install",
+                "-g",
+                "@anthropic-ai/claude-code"
+              ]
+            }
+          ]
+        },
+        "windows": {
+          "steps": [
+            {
+              "type": "shell",
+              "cmd": [
+                "npm",
+                "install",
+                "-g",
+                "@anthropic-ai/claude-code"
+              ]
+            }
+          ]
+        },
+        "requires": [
+          {
+            "binary": "node",
+            "min": "18",
+            "install_hint_url": "https://nodejs.org"
+          }
+        ],
+        "update": {
+          "cmd": [
+            "npm",
+            "update",
+            "-g",
+            "@anthropic-ai/claude-code"
+          ]
+        },
+        "uninstall": {
+          "cmd": [
+            "npm",
+            "uninstall",
+            "-g",
+            "@anthropic-ai/claude-code"
+          ]
+        }
+      },
+      "auth": {
+        "primary": {
+          "kind": "oauth_browser",
+          "trigger": {
+            "cmd": [
+              "claude",
+              "login"
+            ]
+          },
+          "ready_marker": "Logged in",
+          "timeout_s": 180
+        },
+        "fallback": {
+          "kind": "api_key_env",
+          "env_var": "ANTHROPIC_API_KEY",
+          "key_console_url": "https://console.anthropic.com/settings/keys",
+          "validate": null
+        }
+      },
+      "launch": {
+        "exec": "claude",
+        "args": [],
+        "args_when_cwd_set": [
+          "--cwd",
+          "{{CWD}}"
+        ],
+        "respects_unterm_split": true
+      },
+      "mcp": {
+        "client_supports_mcp": true,
+        "auto_register_unterm": {
+          "config_path": "{{HOME}}/.config/claude-code/mcp.json",
+          "format": "claude_code_v1",
+          "server_name": "unterm",
+          "transport": "stdio",
+          "scopes_default": [
+            "read"
+          ],
+          "scopes_optional": [
+            "write"
+          ]
+        }
+      },
+      "profile_defaults": {
+        "isolate_env": true,
+        "inherit_env": [
+          "PATH",
+          "HOME",
+          "LANG",
+          "TERM",
+          "SHELL"
+        ],
+        "shell": null,
+        "history_file": null,
+        "starting_cwd": "project_root_or_home",
+        "audit_default": "on"
+      },
+      "settings_schema": [
+        {
+          "key": "model",
+          "type": "enum",
+          "category": "model",
+          "default": "claude-sonnet-4-6",
+          "required": false,
+          "sensitive": false,
+          "label_i18n": {
+            "en": "Default model",
+            "zh-CN": "默认模型"
+          },
+          "description_i18n": {},
+          "placeholder": null,
+          "restart_required": true,
+          "values": [
+            {
+              "value": "claude-opus-4-7",
+              "label": "Opus 4.7 (1M)"
+            },
+            {
+              "value": "claude-sonnet-4-6",
+              "label": "Sonnet 4.6"
+            },
+            {
+              "value": "claude-haiku-4-5",
+              "label": "Haiku 4.5"
+            }
+          ],
+          "min": null,
+          "max": null,
+          "secret_namespace": null,
+          "since_manifest_version": null,
+          "depends_on": null
+        },
+        {
+          "key": "max_tokens",
+          "type": "int",
+          "category": "model",
+          "default": 8192,
+          "required": false,
+          "sensitive": false,
+          "label_i18n": {
+            "en": "Max output tokens",
+            "zh-CN": "最大输出 token"
+          },
+          "description_i18n": {},
+          "placeholder": null,
+          "restart_required": false,
+          "values": [],
+          "min": 1024.0,
+          "max": 1048576.0,
+          "secret_namespace": null,
+          "since_manifest_version": null,
+          "depends_on": null
+        },
+        {
+          "key": "system_prompt",
+          "type": "text_long",
+          "category": "behavior",
+          "default": "",
+          "required": false,
+          "sensitive": false,
+          "label_i18n": {
+            "en": "System prompt (CLAUDE.md)",
+            "zh-CN": "系统提示（CLAUDE.md）"
+          },
+          "description_i18n": {},
+          "placeholder": null,
+          "restart_required": false,
+          "values": [],
+          "min": null,
+          "max": null,
+          "secret_namespace": null,
+          "since_manifest_version": null,
+          "depends_on": null
+        },
+        {
+          "key": "allowed_tools",
+          "type": "multi_enum",
+          "category": "permissions",
+          "default": [
+            "bash",
+            "edit",
+            "read",
+            "write"
+          ],
+          "required": false,
+          "sensitive": false,
+          "label_i18n": {
+            "en": "Allowed tools",
+            "zh-CN": "允许的工具"
+          },
+          "description_i18n": {},
+          "placeholder": null,
+          "restart_required": false,
+          "values": [
+            {
+              "value": "bash",
+              "label": null
+            },
+            {
+              "value": "edit",
+              "label": null
+            },
+            {
+              "value": "read",
+              "label": null
+            },
+            {
+              "value": "write",
+              "label": null
+            },
+            {
+              "value": "web_fetch",
+              "label": null
+            },
+            {
+              "value": "computer_use",
+              "label": null
+            }
+          ],
+          "min": null,
+          "max": null,
+          "secret_namespace": null,
+          "since_manifest_version": null,
+          "depends_on": null
+        },
+        {
+          "key": "auto_approve_safe",
+          "type": "bool",
+          "category": "permissions",
+          "default": true,
+          "required": false,
+          "sensitive": false,
+          "label_i18n": {
+            "en": "Auto-approve safe tools",
+            "zh-CN": "自动放行安全工具"
+          },
+          "description_i18n": {},
+          "placeholder": null,
+          "restart_required": false,
+          "values": [],
+          "min": null,
+          "max": null,
+          "secret_namespace": null,
+          "since_manifest_version": null,
+          "depends_on": null
+        },
+        {
+          "key": "telemetry_enabled",
+          "type": "bool",
+          "category": "privacy",
+          "default": false,
+          "required": false,
+          "sensitive": false,
+          "label_i18n": {
+            "en": "Vendor telemetry",
+            "zh-CN": "厂商遥测"
+          },
+          "description_i18n": {},
+          "placeholder": null,
+          "restart_required": false,
+          "values": [],
+          "min": null,
+          "max": null,
+          "secret_namespace": null,
+          "since_manifest_version": null,
+          "depends_on": null
+        },
+        {
+          "key": "base_url_override",
+          "type": "string",
+          "category": "advanced",
+          "default": "",
+          "required": false,
+          "sensitive": false,
+          "label_i18n": {
+            "en": "Base URL override",
+            "zh-CN": "API 基础 URL 覆盖"
+          },
+          "description_i18n": {},
+          "placeholder": "https://gateway.example.com/v1",
+          "restart_required": false,
+          "values": [],
+          "min": null,
+          "max": null,
+          "secret_namespace": null,
+          "since_manifest_version": null,
+          "depends_on": null
+        },
+        {
+          "key": "api_key",
+          "type": "secret",
+          "category": "auth",
+          "default": null,
+          "required": true,
+          "sensitive": true,
+          "label_i18n": {
+            "en": "API key",
+            "zh-CN": "API 密钥"
+          },
+          "description_i18n": {},
+          "placeholder": null,
+          "restart_required": false,
+          "values": [],
+          "min": null,
+          "max": null,
+          "secret_namespace": "anthropic",
+          "since_manifest_version": null,
+          "depends_on": null
+        }
+      ],
+      "settings_storage": {
+        "files": [
+          {
+            "path": "{{HOME}}/.config/claude-code/config.json",
+            "format": "json",
+            "merge": "preserve_unknown_keys",
+            "atomic_write": true,
+            "key_map": {
+              "allowed_tools": ".tools.allowed",
+              "auto_approve_safe": ".tools.auto_approve_safe",
+              "base_url_override": ".endpoints.base_url",
+              "max_tokens": ".max_tokens",
+              "model": ".model",
+              "telemetry_enabled": ".telemetry.enabled"
+            },
+            "single_key": null
+          },
+          {
+            "path": "{{PROFILE_HOME}}/CLAUDE.md",
+            "format": "raw_text",
+            "merge": "preserve_unknown_keys",
+            "atomic_write": true,
+            "key_map": {},
+            "single_key": "system_prompt"
+          }
+        ],
+        "env_at_launch": {
+          "ANTHROPIC_API_KEY": {
+            "from": "secret:anthropic"
+          },
+          "ANTHROPIC_BASE_URL": {
+            "from_setting": "base_url_override",
+            "skip_if_empty": true
+          }
+        },
+        "live_reload": false,
+        "validate_after_write": null
+      },
+      "telemetry_notice": {
+        "vendor_dials_home": true,
+        "privacy_url": "https://www.anthropic.com/legal/privacy",
+        "opt_out_env": null
+      }
+    },
+    {
+      "id": "codex-cli",
+      "version": 1,
+      "name": "Codex CLI",
+      "vendor": "OpenAI",
+      "category": "first-party",
+      "popularity_rank": 2,
+      "icon_url": "https://unterm.app/agents/codex-cli.svg",
+      "homepage": "https://github.com/openai/codex",
+      "tagline_i18n": {
+        "en": "OpenAI's agentic coding CLI",
+        "zh-CN": "OpenAI 官方编码 agent"
+      },
+      "description_i18n": {
+        "en": "OpenAI's TUI coding agent for GPT-class models. Sandboxed exec, approval gates, MCP support, repository-aware context.",
+        "zh-CN": "OpenAI 的 TUI 编码 agent，支持沙盒执行、审批流、MCP，repo-aware。"
+      },
+      "license": "Apache-2.0",
+      "platforms": [
+        "macos",
+        "linux",
+        "windows"
+      ],
+      "detect": {
+        "command": "codex",
+        "version_args": [
+          "--version"
+        ],
+        "version_regex": "([0-9.]+)",
+        "min_version": null
+      },
+      "install": {
+        "macos": {
+          "steps": [
+            {
+              "type": "shell",
+              "cmd": [
+                "npm",
+                "install",
+                "-g",
+                "@openai/codex"
+              ]
+            }
+          ]
+        },
+        "linux": {
+          "steps": [
+            {
+              "type": "shell",
+              "cmd": [
+                "npm",
+                "install",
+                "-g",
+                "@openai/codex"
+              ]
+            }
+          ]
+        },
+        "windows": {
+          "steps": [
+            {
+              "type": "shell",
+              "cmd": [
+                "npm",
+                "install",
+                "-g",
+                "@openai/codex"
+              ]
+            }
+          ]
+        },
+        "requires": [
+          {
+            "binary": "node",
+            "min": "20",
+            "install_hint_url": "https://nodejs.org"
+          }
+        ],
+        "update": {
+          "cmd": [
+            "npm",
+            "update",
+            "-g",
+            "@openai/codex"
+          ]
+        },
+        "uninstall": {
+          "cmd": [
+            "npm",
+            "uninstall",
+            "-g",
+            "@openai/codex"
+          ]
+        }
+      },
+      "auth": {
+        "primary": {
+          "kind": "oauth_browser",
+          "trigger": {
+            "cmd": [
+              "codex",
+              "login"
+            ]
+          },
+          "ready_marker": "Signed in",
+          "timeout_s": 180
+        },
+        "fallback": {
+          "kind": "api_key_env",
+          "env_var": "OPENAI_API_KEY",
+          "key_console_url": "https://platform.openai.com/api-keys",
+          "validate": null
+        }
+      },
+      "launch": {
+        "exec": "codex",
+        "args": [],
+        "args_when_cwd_set": [],
+        "respects_unterm_split": true
+      },
+      "mcp": {
+        "client_supports_mcp": true,
+        "auto_register_unterm": {
+          "config_path": "{{HOME}}/.codex/config.toml",
+          "format": "codex_v1",
+          "server_name": "unterm",
+          "transport": "stdio",
+          "scopes_default": [
+            "read"
+          ],
+          "scopes_optional": [
+            "write"
+          ]
+        }
+      },
+      "profile_defaults": {
+        "isolate_env": true,
+        "inherit_env": [
+          "PATH",
+          "HOME",
+          "LANG",
+          "TERM",
+          "SHELL"
+        ],
+        "shell": null,
+        "history_file": null,
+        "starting_cwd": "project_root_or_home",
+        "audit_default": "on"
+      },
+      "settings_schema": [
+        {
+          "key": "model",
+          "type": "enum",
+          "category": "model",
+          "default": "gpt-5-codex-medium",
+          "required": false,
+          "sensitive": false,
+          "label_i18n": {
+            "en": "Default model",
+            "zh-CN": "默认模型"
+          },
+          "description_i18n": {},
+          "placeholder": null,
+          "restart_required": true,
+          "values": [
+            {
+              "value": "gpt-5-codex-high",
+              "label": "GPT-5 Codex (high reasoning)"
+            },
+            {
+              "value": "gpt-5-codex-medium",
+              "label": "GPT-5 Codex (medium)"
+            },
+            {
+              "value": "o4-mini",
+              "label": "o4-mini"
+            }
+          ],
+          "min": null,
+          "max": null,
+          "secret_namespace": null,
+          "since_manifest_version": null,
+          "depends_on": null
+        },
+        {
+          "key": "approval_mode",
+          "type": "enum",
+          "category": "permissions",
+          "default": "auto-edit",
+          "required": false,
+          "sensitive": false,
+          "label_i18n": {
+            "en": "Approval mode",
+            "zh-CN": "审批策略"
+          },
+          "description_i18n": {},
+          "placeholder": null,
+          "restart_required": false,
+          "values": [
+            {
+              "value": "suggest",
+              "label": "Suggest (review every action)"
+            },
+            {
+              "value": "auto-edit",
+              "label": "Auto-edit (safe edits free, shell asks)"
+            },
+            {
+              "value": "full-auto",
+              "label": "Full-auto (just go)"
+            }
+          ],
+          "min": null,
+          "max": null,
+          "secret_namespace": null,
+          "since_manifest_version": null,
+          "depends_on": null
+        },
+        {
+          "key": "sandbox_mode",
+          "type": "enum",
+          "category": "permissions",
+          "default": "workspace-write",
+          "required": false,
+          "sensitive": false,
+          "label_i18n": {
+            "en": "Sandbox mode",
+            "zh-CN": "沙盒模式"
+          },
+          "description_i18n": {},
+          "placeholder": null,
+          "restart_required": false,
+          "values": [
+            {
+              "value": "read-only",
+              "label": null
+            },
+            {
+              "value": "workspace-write",
+              "label": null
+            },
+            {
+              "value": "danger-full-access",
+              "label": null
+            }
+          ],
+          "min": null,
+          "max": null,
+          "secret_namespace": null,
+          "since_manifest_version": null,
+          "depends_on": null
+        },
+        {
+          "key": "reasoning_effort",
+          "type": "enum",
+          "category": "model",
+          "default": "medium",
+          "required": false,
+          "sensitive": false,
+          "label_i18n": {},
+          "description_i18n": {},
+          "placeholder": null,
+          "restart_required": false,
+          "values": [
+            {
+              "value": "minimal",
+              "label": null
+            },
+            {
+              "value": "low",
+              "label": null
+            },
+            {
+              "value": "medium",
+              "label": null
+            },
+            {
+              "value": "high",
+              "label": null
+            }
+          ],
+          "min": null,
+          "max": null,
+          "secret_namespace": null,
+          "since_manifest_version": null,
+          "depends_on": null
+        },
+        {
+          "key": "telemetry_enabled",
+          "type": "bool",
+          "category": "privacy",
+          "default": false,
+          "required": false,
+          "sensitive": false,
+          "label_i18n": {},
+          "description_i18n": {},
+          "placeholder": null,
+          "restart_required": false,
+          "values": [],
+          "min": null,
+          "max": null,
+          "secret_namespace": null,
+          "since_manifest_version": null,
+          "depends_on": null
+        },
+        {
+          "key": "system_prompt",
+          "type": "text_long",
+          "category": "behavior",
+          "default": "",
+          "required": false,
+          "sensitive": false,
+          "label_i18n": {},
+          "description_i18n": {},
+          "placeholder": null,
+          "restart_required": false,
+          "values": [],
+          "min": null,
+          "max": null,
+          "secret_namespace": null,
+          "since_manifest_version": null,
+          "depends_on": null
+        },
+        {
+          "key": "api_key",
+          "type": "secret",
+          "category": "auth",
+          "default": null,
+          "required": true,
+          "sensitive": true,
+          "label_i18n": {},
+          "description_i18n": {},
+          "placeholder": null,
+          "restart_required": false,
+          "values": [],
+          "min": null,
+          "max": null,
+          "secret_namespace": "openai",
+          "since_manifest_version": null,
+          "depends_on": null
+        }
+      ],
+      "settings_storage": {
+        "files": [
+          {
+            "path": "{{HOME}}/.codex/config.toml",
+            "format": "toml",
+            "merge": "preserve_unknown_keys",
+            "atomic_write": true,
+            "key_map": {
+              "approval_mode": ".approval_mode",
+              "model": ".model",
+              "reasoning_effort": ".model_reasoning_effort",
+              "sandbox_mode": ".sandbox_mode"
+            },
+            "single_key": null
+          },
+          {
+            "path": "{{HOME}}/.codex/AGENTS.md",
+            "format": "raw_text",
+            "merge": "preserve_unknown_keys",
+            "atomic_write": true,
+            "key_map": {},
+            "single_key": "system_prompt"
+          }
+        ],
+        "env_at_launch": {
+          "CODEX_TELEMETRY_OPT_OUT": {
+            "from_setting": "telemetry_enabled",
+            "skip_if_empty": true
+          },
+          "OPENAI_API_KEY": {
+            "from": "secret:openai"
+          }
+        },
+        "live_reload": false,
+        "validate_after_write": null
+      },
+      "telemetry_notice": {
+        "vendor_dials_home": true,
+        "privacy_url": "https://openai.com/policies/privacy-policy",
+        "opt_out_env": "CODEX_TELEMETRY_OPT_OUT"
+      }
+    },
+    {
+      "id": "gemini-cli",
+      "version": 1,
+      "name": "Gemini CLI",
+      "vendor": "Google",
+      "category": "first-party",
+      "popularity_rank": 3,
+      "icon_url": "https://unterm.app/agents/gemini-cli.svg",
+      "homepage": "https://github.com/google-gemini/gemini-cli",
+      "tagline_i18n": {
+        "en": "Google's official Gemini agent CLI",
+        "zh-CN": "Google 官方 Gemini agent CLI"
+      },
+      "description_i18n": {
+        "en": "TUI agent for Gemini models. ReAct loop, function calling, repo-aware tools, MCP roadmap.",
+        "zh-CN": "运行在终端的 Gemini agent，支持 ReAct、function calling、repo-aware 工具，MCP 在 roadmap 上。"
+      },
+      "license": "Apache-2.0",
+      "platforms": [
+        "macos",
+        "linux",
+        "windows"
+      ],
+      "detect": {
+        "command": "gemini",
+        "version_args": [
+          "--version"
+        ],
+        "version_regex": "([0-9.]+)",
+        "min_version": null
+      },
+      "install": {
+        "macos": {
+          "steps": [
+            {
+              "type": "shell",
+              "cmd": [
+                "npm",
+                "install",
+                "-g",
+                "@google/gemini-cli"
+              ]
+            }
+          ]
+        },
+        "linux": {
+          "steps": [
+            {
+              "type": "shell",
+              "cmd": [
+                "npm",
+                "install",
+                "-g",
+                "@google/gemini-cli"
+              ]
+            }
+          ]
+        },
+        "windows": {
+          "steps": [
+            {
+              "type": "shell",
+              "cmd": [
+                "npm",
+                "install",
+                "-g",
+                "@google/gemini-cli"
+              ]
+            }
+          ]
+        },
+        "requires": [
+          {
+            "binary": "node",
+            "min": "20",
+            "install_hint_url": "https://nodejs.org"
+          }
+        ],
+        "update": {
+          "cmd": [
+            "npm",
+            "update",
+            "-g",
+            "@google/gemini-cli"
+          ]
+        },
+        "uninstall": {
+          "cmd": [
+            "npm",
+            "uninstall",
+            "-g",
+            "@google/gemini-cli"
+          ]
+        }
+      },
+      "auth": {
+        "primary": {
+          "kind": "oauth_browser",
+          "trigger": {
+            "cmd": [
+              "gemini",
+              "auth",
+              "login"
+            ]
+          },
+          "ready_marker": "Authenticated",
+          "timeout_s": 180
+        },
+        "fallback": {
+          "kind": "api_key_env",
+          "env_var": "GEMINI_API_KEY",
+          "key_console_url": "https://aistudio.google.com/app/apikey",
+          "validate": null
+        }
+      },
+      "launch": {
+        "exec": "gemini",
+        "args": [],
+        "args_when_cwd_set": [],
+        "respects_unterm_split": true
+      },
+      "mcp": null,
+      "profile_defaults": {
+        "isolate_env": true,
+        "inherit_env": [
+          "PATH",
+          "HOME",
+          "LANG",
+          "TERM",
+          "SHELL"
+        ],
+        "shell": null,
+        "history_file": null,
+        "starting_cwd": "project_root_or_home",
+        "audit_default": "on"
+      },
+      "settings_schema": [
+        {
+          "key": "model",
+          "type": "enum",
+          "category": "model",
+          "default": "gemini-2.5-pro",
+          "required": false,
+          "sensitive": false,
+          "label_i18n": {},
+          "description_i18n": {},
+          "placeholder": null,
+          "restart_required": true,
+          "values": [
+            {
+              "value": "gemini-2.5-pro",
+              "label": "Gemini 2.5 Pro"
+            },
+            {
+              "value": "gemini-2.5-flash",
+              "label": "Gemini 2.5 Flash"
+            }
+          ],
+          "min": null,
+          "max": null,
+          "secret_namespace": null,
+          "since_manifest_version": null,
+          "depends_on": null
+        },
+        {
+          "key": "thinking_budget",
+          "type": "int",
+          "category": "model",
+          "default": 8192,
+          "required": false,
+          "sensitive": false,
+          "label_i18n": {},
+          "description_i18n": {},
+          "placeholder": null,
+          "restart_required": false,
+          "values": [],
+          "min": 0.0,
+          "max": 1048576.0,
+          "secret_namespace": null,
+          "since_manifest_version": null,
+          "depends_on": null
+        },
+        {
+          "key": "system_prompt",
+          "type": "text_long",
+          "category": "behavior",
+          "default": "",
+          "required": false,
+          "sensitive": false,
+          "label_i18n": {},
+          "description_i18n": {},
+          "placeholder": null,
+          "restart_required": false,
+          "values": [],
+          "min": null,
+          "max": null,
+          "secret_namespace": null,
+          "since_manifest_version": null,
+          "depends_on": null
+        },
+        {
+          "key": "telemetry_enabled",
+          "type": "bool",
+          "category": "privacy",
+          "default": false,
+          "required": false,
+          "sensitive": false,
+          "label_i18n": {},
+          "description_i18n": {},
+          "placeholder": null,
+          "restart_required": false,
+          "values": [],
+          "min": null,
+          "max": null,
+          "secret_namespace": null,
+          "since_manifest_version": null,
+          "depends_on": null
+        },
+        {
+          "key": "api_key",
+          "type": "secret",
+          "category": "auth",
+          "default": null,
+          "required": true,
+          "sensitive": true,
+          "label_i18n": {},
+          "description_i18n": {},
+          "placeholder": null,
+          "restart_required": false,
+          "values": [],
+          "min": null,
+          "max": null,
+          "secret_namespace": "google",
+          "since_manifest_version": null,
+          "depends_on": null
+        }
+      ],
+      "settings_storage": {
+        "files": [
+          {
+            "path": "{{HOME}}/.gemini/settings.json",
+            "format": "json",
+            "merge": "preserve_unknown_keys",
+            "atomic_write": true,
+            "key_map": {
+              "model": ".model",
+              "telemetry_enabled": ".telemetry.enabled",
+              "thinking_budget": ".thinking.budget"
+            },
+            "single_key": null
+          },
+          {
+            "path": "{{HOME}}/.gemini/GEMINI.md",
+            "format": "raw_text",
+            "merge": "preserve_unknown_keys",
+            "atomic_write": true,
+            "key_map": {},
+            "single_key": "system_prompt"
+          }
+        ],
+        "env_at_launch": {
+          "GEMINI_API_KEY": {
+            "from": "secret:google"
+          }
+        },
+        "live_reload": false,
+        "validate_after_write": null
+      },
+      "telemetry_notice": {
+        "vendor_dials_home": true,
+        "privacy_url": "https://policies.google.com/privacy",
+        "opt_out_env": null
+      }
+    },
+    {
+      "id": "opencode",
+      "version": 1,
+      "name": "OpenCode",
+      "vendor": "SST",
+      "category": "first-party",
+      "popularity_rank": 4,
+      "icon_url": "https://unterm.app/agents/opencode.svg",
+      "homepage": "https://github.com/sst/opencode",
+      "tagline_i18n": {
+        "en": "Open-source provider-agnostic coding agent with native MCP",
+        "zh-CN": "开源、provider-agnostic、原生 MCP 的编码 agent"
+      },
+      "description_i18n": {
+        "en": "Pure-TUI coding agent. Native MCP server + client, swap providers (Anthropic / OpenAI / Google / OpenRouter / local) per session, share sessions over the web.",
+        "zh-CN": "纯 TUI 编码 agent，原生 MCP，跨 provider 自由切换，可分享 session 到 web。"
+      },
+      "license": "MIT",
+      "platforms": [
+        "macos",
+        "linux",
+        "windows"
+      ],
+      "detect": {
+        "command": "opencode",
+        "version_args": [
+          "--version"
+        ],
+        "version_regex": "([0-9.]+)",
+        "min_version": null
+      },
+      "install": {
+        "macos": {
+          "steps": [
+            {
+              "type": "shell",
+              "cmd": [
+                "npm",
+                "install",
+                "-g",
+                "opencode-ai"
+              ]
+            }
+          ]
+        },
+        "linux": {
+          "steps": [
+            {
+              "type": "shell",
+              "cmd": [
+                "npm",
+                "install",
+                "-g",
+                "opencode-ai"
+              ]
+            }
+          ]
+        },
+        "windows": {
+          "steps": [
+            {
+              "type": "shell",
+              "cmd": [
+                "npm",
+                "install",
+                "-g",
+                "opencode-ai"
+              ]
+            }
+          ]
+        },
+        "requires": [
+          {
+            "binary": "node",
+            "min": "18",
+            "install_hint_url": "https://nodejs.org"
+          }
+        ],
+        "update": {
+          "cmd": [
+            "npm",
+            "update",
+            "-g",
+            "opencode-ai"
+          ]
+        },
+        "uninstall": {
+          "cmd": [
+            "npm",
+            "uninstall",
+            "-g",
+            "opencode-ai"
+          ]
+        }
+      },
+      "auth": {
+        "primary": {
+          "kind": "api_key_env",
+          "env_var": "ANTHROPIC_API_KEY",
+          "key_console_url": "https://console.anthropic.com/settings/keys",
+          "validate": null
+        },
+        "fallback": {
+          "kind": "api_key_env",
+          "env_var": "OPENAI_API_KEY",
+          "key_console_url": "https://platform.openai.com/api-keys",
+          "validate": null
+        }
+      },
+      "launch": {
+        "exec": "opencode",
+        "args": [],
+        "args_when_cwd_set": [],
+        "respects_unterm_split": true
+      },
+      "mcp": {
+        "client_supports_mcp": true,
+        "auto_register_unterm": {
+          "config_path": "{{HOME}}/.config/opencode/opencode.json",
+          "format": "opencode_v1",
+          "server_name": "unterm",
+          "transport": "stdio",
+          "scopes_default": [
+            "read"
+          ],
+          "scopes_optional": [
+            "write"
+          ]
+        }
+      },
+      "profile_defaults": {
+        "isolate_env": true,
+        "inherit_env": [
+          "PATH",
+          "HOME",
+          "LANG",
+          "TERM",
+          "SHELL"
+        ],
+        "shell": null,
+        "history_file": null,
+        "starting_cwd": "project_root_or_home",
+        "audit_default": "on"
+      },
+      "settings_schema": [
+        {
+          "key": "provider",
+          "type": "enum",
+          "category": "model",
+          "default": "anthropic",
+          "required": false,
+          "sensitive": false,
+          "label_i18n": {
+            "en": "Provider",
+            "zh-CN": "Provider"
+          },
+          "description_i18n": {},
+          "placeholder": null,
+          "restart_required": false,
+          "values": [
+            {
+              "value": "anthropic",
+              "label": null
+            },
+            {
+              "value": "openai",
+              "label": null
+            },
+            {
+              "value": "google",
+              "label": null
+            },
+            {
+              "value": "openrouter",
+              "label": null
+            },
+            {
+              "value": "groq",
+              "label": null
+            },
+            {
+              "value": "deepseek",
+              "label": null
+            },
+            {
+              "value": "ollama",
+              "label": null
+            }
+          ],
+          "min": null,
+          "max": null,
+          "secret_namespace": null,
+          "since_manifest_version": null,
+          "depends_on": null
+        },
+        {
+          "key": "model",
+          "type": "string",
+          "category": "model",
+          "default": "claude-sonnet-4-6",
+          "required": false,
+          "sensitive": false,
+          "label_i18n": {},
+          "description_i18n": {},
+          "placeholder": "claude-sonnet-4-6 / gpt-5-codex / gemini-2.5-pro …",
+          "restart_required": false,
+          "values": [],
+          "min": null,
+          "max": null,
+          "secret_namespace": null,
+          "since_manifest_version": null,
+          "depends_on": null
+        },
+        {
+          "key": "system_prompt",
+          "type": "text_long",
+          "category": "behavior",
+          "default": "",
+          "required": false,
+          "sensitive": false,
+          "label_i18n": {},
+          "description_i18n": {},
+          "placeholder": null,
+          "restart_required": false,
+          "values": [],
+          "min": null,
+          "max": null,
+          "secret_namespace": null,
+          "since_manifest_version": null,
+          "depends_on": null
+        },
+        {
+          "key": "theme",
+          "type": "enum",
+          "category": "ui",
+          "default": "system",
+          "required": false,
+          "sensitive": false,
+          "label_i18n": {},
+          "description_i18n": {},
+          "placeholder": null,
+          "restart_required": false,
+          "values": [
+            {
+              "value": "system",
+              "label": null
+            },
+            {
+              "value": "dark",
+              "label": null
+            },
+            {
+              "value": "light",
+              "label": null
+            }
+          ],
+          "min": null,
+          "max": null,
+          "secret_namespace": null,
+          "since_manifest_version": null,
+          "depends_on": null
+        },
+        {
+          "key": "telemetry_enabled",
+          "type": "bool",
+          "category": "privacy",
+          "default": false,
+          "required": false,
+          "sensitive": false,
+          "label_i18n": {},
+          "description_i18n": {},
+          "placeholder": null,
+          "restart_required": false,
+          "values": [],
+          "min": null,
+          "max": null,
+          "secret_namespace": null,
+          "since_manifest_version": null,
+          "depends_on": null
+        },
+        {
+          "key": "anthropic_api_key",
+          "type": "secret",
+          "category": "auth",
+          "default": null,
+          "required": false,
+          "sensitive": true,
+          "label_i18n": {},
+          "description_i18n": {},
+          "placeholder": null,
+          "restart_required": false,
+          "values": [],
+          "min": null,
+          "max": null,
+          "secret_namespace": "anthropic",
+          "since_manifest_version": null,
+          "depends_on": null
+        },
+        {
+          "key": "openai_api_key",
+          "type": "secret",
+          "category": "auth",
+          "default": null,
+          "required": false,
+          "sensitive": true,
+          "label_i18n": {},
+          "description_i18n": {},
+          "placeholder": null,
+          "restart_required": false,
+          "values": [],
+          "min": null,
+          "max": null,
+          "secret_namespace": "openai",
+          "since_manifest_version": null,
+          "depends_on": null
+        },
+        {
+          "key": "google_api_key",
+          "type": "secret",
+          "category": "auth",
+          "default": null,
+          "required": false,
+          "sensitive": true,
+          "label_i18n": {},
+          "description_i18n": {},
+          "placeholder": null,
+          "restart_required": false,
+          "values": [],
+          "min": null,
+          "max": null,
+          "secret_namespace": "google",
+          "since_manifest_version": null,
+          "depends_on": null
+        },
+        {
+          "key": "openrouter_api_key",
+          "type": "secret",
+          "category": "auth",
+          "default": null,
+          "required": false,
+          "sensitive": true,
+          "label_i18n": {},
+          "description_i18n": {},
+          "placeholder": null,
+          "restart_required": false,
+          "values": [],
+          "min": null,
+          "max": null,
+          "secret_namespace": "openrouter",
+          "since_manifest_version": null,
+          "depends_on": null
+        }
+      ],
+      "settings_storage": {
+        "files": [
+          {
+            "path": "{{HOME}}/.config/opencode/opencode.json",
+            "format": "json",
+            "merge": "preserve_unknown_keys",
+            "atomic_write": true,
+            "key_map": {
+              "model": ".model",
+              "provider": ".provider",
+              "telemetry_enabled": ".telemetry.enabled",
+              "theme": ".theme"
+            },
+            "single_key": null
+          },
+          {
+            "path": "{{HOME}}/.config/opencode/AGENTS.md",
+            "format": "raw_text",
+            "merge": "preserve_unknown_keys",
+            "atomic_write": true,
+            "key_map": {},
+            "single_key": "system_prompt"
+          }
+        ],
+        "env_at_launch": {
+          "ANTHROPIC_API_KEY": {
+            "from": "secret:anthropic"
+          },
+          "GEMINI_API_KEY": {
+            "from": "secret:google"
+          },
+          "OPENAI_API_KEY": {
+            "from": "secret:openai"
+          },
+          "OPENROUTER_API_KEY": {
+            "from": "secret:openrouter"
+          }
+        },
+        "live_reload": true,
+        "validate_after_write": null
+      },
+      "telemetry_notice": {
+        "vendor_dials_home": false,
+        "privacy_url": "https://opencode.ai/privacy",
+        "opt_out_env": null
+      }
+    }
+  ],
+  "signature": {
+    "alg": "ed25519",
+    "key_id": "unterm-2026-1",
+    "sig": "hVL+Sqe+xbdhTTwWzCDITh/+eC3/oibe/Q37FnyBbcYUiJMLIHKm4aHfHRAT8YhyvIWKJWfrXbDcrg+hfkeiBw=="
+  }
+}

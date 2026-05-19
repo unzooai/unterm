@@ -1,0 +1,11 @@
+{
+  "_comment": "Ed25519 public keys trusted by the Unterm AI-agent runtime. Each entry is baked into the binary at build time; rotating keys means cutting a new Unterm release. Old keys can stay until every active install has upgraded — set `expires_at` so the runtime ignores them automatically after that date.",
+  "keys": [
+    {
+      "key_id": "unterm-2026-1",
+      "public_key_b64": "/2BgjjkE/BJZd7TDozgtewcSjl332JkT3TCkZ4w9rOk=",
+      "expires_at": null,
+      "note": "Primary signing key, generated 2026-05-19. Private half lives in alex's macOS Keychain + an offline backup; the on-disk priv file under ~/Documents/unterm-manifests/keys/ should be moved to Keychain after first signing run."
+    }
+  ]
+}

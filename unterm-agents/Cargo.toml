@@ -1,0 +1,51 @@
+[package]
+name = "unterm-agents"
+version = "0.17.0"
+edition = "2021"
+description = "Unterm AI-agent integration runtime: signed manifest fetch + verify, install/auth/launch runners, config storage adapters."
+license = "MIT"
+
+[dependencies]
+anyhow = { workspace = true }
+base64 = { workspace = true }
+chrono = { workspace = true, features = ["clock"] }
+dirs-next = { workspace = true }
+ed25519-dalek = { workspace = true }
+log = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+sha2 = { workspace = true }
+tempfile = { workspace = true }
+thiserror = { workspace = true }
+toml = { workspace = true }
+unterm-profile = { workspace = true }
+url = { workspace = true }
+
+[dev-dependencies]
+assert_fs = { workspace = true }
+
+# Maintainer-only signing/publishing tool.
+#
+# This binary is gated behind a feature so the (much smaller) library
+# build that ships with Unterm doesn't pull in clap / rand / the rest
+# of the signing-only dependencies. End users never run `manifest-cli`;
+# only the project maintainer does, from this repo.
+[features]
+default = []
+manifest-cli = ["dep:clap", "dep:rand"]
+
+[dependencies.clap]
+workspace = true
+optional = true
+
+[dependencies.rand]
+version = "0.8"
+optional = true
+
+[[bin]]
+name = "manifest-cli"
+path = "src/bin/manifest_cli.rs"
+required-features = ["manifest-cli"]
+

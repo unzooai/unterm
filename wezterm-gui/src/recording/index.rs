@@ -28,6 +28,22 @@ pub struct IndexEntry {
     pub redaction_active: bool,
     pub redaction_count: u64,
     pub trace_ids: Vec<String>,
+    /// AI-agent integration metadata (v0.18+). Populated when the pane was
+    /// spawned through `unterm agent launch` or the Web Settings agent
+    /// picker — the `unterm-agents` runtime sets `UNTERM_AGENT_ID` /
+    /// `UNTERM_AGENT_MANIFEST_VERSION` in the child env at spawn time, and
+    /// the recorder copies them onto the IndexEntry on first OSC-133.
+    ///
+    /// All three are `Option` so existing IndexEntries from older Unterm
+    /// versions still deserialize (serde defaults to `None` on missing).
+    /// Filter Sessions UI by `agent_id == "claude-code"` to surface "every
+    /// Claude Code session I've run."
+    #[serde(default)]
+    pub agent_id: Option<String>,
+    #[serde(default)]
+    pub agent_manifest_version: Option<String>,
+    #[serde(default)]
+    pub agent_profile: Option<String>,
 }
 
 fn index_lock() -> &'static Mutex<()> {

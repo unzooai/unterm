@@ -6,7 +6,8 @@
 //! workspace deps; ~/.unterm/server.json carries the bound port and the
 //! shared auth token.
 
+mod agents;
 mod assets;
-mod server;
+pub(crate) mod server;
 
 pub use server::start_web_settings_server;

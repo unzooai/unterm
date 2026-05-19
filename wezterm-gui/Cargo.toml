@@ -91,6 +91,7 @@ terminfo.workspace = true
 termwiz-funcs.workspace = true
 termwiz.workspace = true
 unterm-profile.workspace = true
+unterm-agents.workspace = true
 textwrap.workspace = true
 thiserror.workspace = true
 tiny-skia.workspace = true
