@@ -10,7 +10,7 @@
   "nav.download": "Download",
   "nav.faq": "FAQ",
 
-  "hero.badge": "v0.16 — signed, notarized, ready for agents",
+  "hero.badge": "v0.17 — signed, notarized, ready for agents",
   "hero.title.1": "A terminal",
   "hero.title.2": "AI agents can control.",
   "hero.subtitle": "Drive panes, shells, cwd, screenshots, and session state through MCP, HTTP, and CLI so Claude Code, Cursor, or your own agent can run the whole terminal.",
@@ -36,7 +36,7 @@
   "reflexive.badge": "Live snippet · same socket, both directions",
   "reflexive.title": "The terminal AI agents drive — including their own.",
   "reflexive.subtitle": "Below is a real session from this Unterm window. Claude Code, running in pane <code class=\"font-mono text-zinc-300\">#0</code>, called <code class=\"font-mono text-zinc-300\">session.split</code> over MCP to put pane <code class=\"font-mono text-zinc-300\">#5</code> on the right half, <code class=\"font-mono text-zinc-300\">session.focus</code> to make it active, then typed commands into it character-by-character with <code class=\"font-mono text-zinc-300\">session.input</code>. Same TCP socket reads what the shell echoed back via <code class=\"font-mono text-zinc-300\">screen.text</code>. No special agent integration — vanilla JSON-RPC, ~30 lines of Python.",
-  "reflexive.caption": "The agent that wrote this section ran exactly that snippet, then used <code class=\"font-mono text-zinc-200\">screen.text</code> to copy the right-hand output back into this HTML. The <code class=\"font-mono text-zinc-200\">v0.16</code> tag visible above? Same agent pushed it 30 minutes ago. Read AND write on the same socket — that's the whole story.",
+  "reflexive.caption": "The agent that wrote this section ran exactly that snippet, then used <code class=\"font-mono text-zinc-200\">screen.text</code> to copy the right-hand output back into this HTML. The <code class=\"font-mono text-zinc-200\">v0.17</code> tag visible above? Same agent pushed it 30 minutes ago. Read AND write on the same socket — that's the whole story.",
   "persona.title": "Three ways to use Unterm",
   "persona.subtitle": "We didn't build for one workflow. The MCP surface means each persona gets the same control plane through different entry points.",
   "persona.ai.title": "AI engineers",
@@ -96,8 +96,10 @@
   "features.engine.title": "GPU rendering",
   "features.engine.body": "Built on a customized WezTerm engine — Metal on macOS, OpenGL on Linux, DirectX via ANGLE on Windows.",
 
-  "whatsnew.title": "What's new in v0.16",
-  "whatsnew.subtitle": "AI integration locks down: every MCP write to the PTY is audited, the first time a new agent writes blocks on a confirmation banner, and proposed text goes through a Tab-to-accept suggest API instead of straight into the shell. Plus fish-style inline ghost text from cross-pane shell history.",
+  "whatsnew.title": "What's new in v0.17",
+  "whatsnew.subtitle": "Reflexive control closes the loop: agents can split + focus panes from MCP without simulating keystrokes, and a new MCP tab in Web Settings makes trust persistent + revocable. Builds on the v0.16 audit + suggest foundation.",
+  "whatsnew.reflexive.title": "session.split + session.focus + an MCP trust panel",
+  "whatsnew.reflexive.body": "Three pieces that close the loop on \"AI drives the terminal — including its own.\" <code class=\"font-mono text-xs\">session.split</code> lets an agent split a pane left/right/up/down without simulating a keystroke; <code class=\"font-mono text-xs\">session.focus</code> makes the new pane active so the hand-off is visible to the user. Both are exercised in the live snippet above. Web Settings gains a new <strong>MCP</strong> tab: a runtime trust list (with per-agent write counts and one-click revoke) plus the last 80 audited write attempts in a sortable table. Trust persists to <code class=\"font-mono text-xs\">~/.unterm/trusted_agents.json</code> so Alt+A survives a restart. New <a href=\"/docs/agent-recipes\" class=\"underline\">/docs/agent-recipes</a> page collects 9 copy-pastable Python snippets.",
   "whatsnew.aiterminal.title": "Agent-aware terminal — audit, suggest, ghost text",
   "whatsnew.aiterminal.body": "Three pieces fall into place to make Unterm a real AI-collaboration terminal. (1) Every <code class=\"font-mono text-xs\">session.input</code> / <code class=\"font-mono text-xs\">exec.send</code> is audited; the first time a new agent writes to a pane, a blocking banner asks the user — <code class=\"font-mono text-xs\">[Enter]</code> allow, <code class=\"font-mono text-xs\">[Esc]</code> block, <code class=\"font-mono text-xs\">[Alt+A]</code> always-allow. The new <code class=\"font-mono text-xs\">mcp:N</code> chip in the status bar tracks cumulative MCP PTY writes; click to copy the audit log. (2) <code class=\"font-mono text-xs\">session.suggest</code> lets agents <em>propose</em> text without ever touching the PTY directly — a ✨ suggest bar sits above the status bar, <code class=\"font-mono text-xs\">[Tab]</code> accepts, <code class=\"font-mono text-xs\">[Esc]</code> dismisses, <code class=\"font-mono text-xs\">[Alt+Enter]</code> accepts and runs. (3) Fish-style grey ghost text continues your input from cross-pane shell history; <code class=\"font-mono text-xs\">[→]</code> / <code class=\"font-mono text-xs\">[End]</code> accepts the prediction. All three keystrokes (<code class=\"font-mono text-xs\">Tab</code>, <code class=\"font-mono text-xs\">Esc</code>, <code class=\"font-mono text-xs\">Enter</code>) pass through to the shell when no banner / suggestion / prediction is showing — vim, less, fzf all keep working unchanged.",
   "whatsnew.configfix.title": "Config resilience — unknown fields no longer crash",
@@ -138,9 +140,9 @@
   "cmp.intentional": "✗ (by design)",
   "cmp.note": "Comparison reflects publicly documented features as of 2026-05-01. Other terminals may have closed-source or roadmap items not listed.",
 
-  "dl.title": "Get Unterm 0.15",
+  "dl.title": "Get Unterm 0.17",
   "dl.subtitle": "macOS bundle is signed with a Developer ID and Apple-notarized. Linux .deb / AppImage and Windows .msi / .zip are also published.",
-  "dl.cta": "Open the v0.16 release",
+  "dl.cta": "Open the v0.17 release",
 
   "faq.title": "Frequently asked",
   "faq.what.q": "What is Unterm?",

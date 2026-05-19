@@ -167,7 +167,7 @@ For a richer search API see `screen.search` in the [MCP reference](/docs/mcp-ref
 
 ---
 
-## 6. Propose text without writing it (v0.16+)
+## 6. Propose text without writing it (v0.17+)
 
 `session.suggest` is for when you want to offer a command to the user without injecting it. The user accepts with `Tab` (or rejects with `Esc`). The shell never sees the text unless the user explicitly accepts.
 

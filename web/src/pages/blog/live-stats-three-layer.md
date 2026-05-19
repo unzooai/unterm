@@ -70,7 +70,7 @@ async function doFetch(): Promise<Stats> {
   }
 }
 
-const FALLBACK: Stats = { stars: null, downloads: null, release: "v0.16" };
+const FALLBACK: Stats = { stars: null, downloads: null, release: "v0.17" };
 ```
 
 Then in your Astro page frontmatter:
