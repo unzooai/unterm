@@ -1,7 +1,8 @@
 #!/bin/bash
 # Regenerate platform icons from the source 512x512 PNG (or SVG fallback).
 # Run from any cwd. Output:
-#   assets/icon/terminal.png                                  — 128x128 (Linux .desktop)
+#   assets/icon/terminal.png                                  — 128x128 (Linux .desktop legacy path)
+#   assets/icon/hicolor/<size>x<size>/ai.unzoo.unterm.png     — Linux hicolor theme PNGs
 #   assets/macos/Unterm.app/Contents/Resources/terminal.icns  — macOS bundle icon
 #   assets/windows/terminal.ico                               — Windows .exe + MSI shortcut
 set -euo pipefail
@@ -15,17 +16,38 @@ SRC_SVG=unterm-icon.svg
 # Dependency check
 have() { command -v "$1" >/dev/null 2>&1; }
 
-# Linux .desktop / .deb icon — 128x128 + 256x256 derived from the UT source.
-if have magick ; then
-  magick "$SRC_PNG" -resize 128x128 terminal.png
-  magick "$SRC_PNG" -resize 256x256 terminal@2x.png
-elif have convert ; then
-  convert "$SRC_PNG" -resize 128x128 terminal.png
-  convert "$SRC_PNG" -resize 256x256 terminal@2x.png
-elif have sips ; then
-  cp "$SRC_PNG" terminal.png       && sips -Z 128 terminal.png       >/dev/null
-  cp "$SRC_PNG" terminal@2x.png    && sips -Z 256 terminal@2x.png    >/dev/null
-fi
+resize_to() {
+  local size=$1 out=$2
+  if have magick ; then
+    magick "$SRC_PNG" -resize "${size}x${size}" "$out"
+  elif have convert ; then
+    convert "$SRC_PNG" -resize "${size}x${size}" "$out"
+  elif have sips ; then
+    cp "$SRC_PNG" "$out" && sips -Z "$size" "$out" >/dev/null
+  else
+    echo "ERROR: need 'magick', 'convert', or 'sips' to resize PNG" >&2
+    exit 1
+  fi
+}
+
+# Linux .desktop / .deb icon — primary 128x128 + the @2x fallback are kept for
+# backward compat with older packaging scripts that reference these paths.
+resize_to 128 terminal.png
+resize_to 256 terminal@2x.png
+
+# Linux hicolor ladder — install one PNG per standard icon size so the desktop
+# environment can pick a crisp raster at every spot (taskbar=16/24, app
+# launcher=48/64, file dialog=96/128, Activities/grid=256/512). Without this,
+# DEs end up scaling the 128 PNG or — worse — falling back to the SVG, which
+# renders our font-dependent text glyphs with whatever monospace the system
+# has (often the wrong shape). PNGs are font-independent rasters, so this is
+# the safest cross-distro path.
+rm -rf hicolor
+for s in 16 24 32 48 64 96 128 256 512 ; do
+  out="hicolor/${s}x${s}/ai.unzoo.unterm.png"
+  mkdir -p "$(dirname "$out")"
+  resize_to "$s" "$out"
+done
 
 # macOS .icns
 ICONSET=$(mktemp -d)/Unterm.iconset

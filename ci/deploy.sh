@@ -165,7 +165,14 @@ EOF
     install -Dsm755 -t "$debroot/usr/bin" "$TARGET_DIR/release/unterm-cli"
     install -Dsm755 -t "$debroot/usr/bin" "$TARGET_DIR/release/unterm-mux"
     install -Dsm755 -t "$debroot/usr/bin" "$TARGET_DIR/release/strip-ansi-escapes"
-    install -Dm644 assets/icon/terminal.png "$debroot/usr/share/icons/hicolor/128x128/apps/ai.unzoo.unterm.png"
+    # Install one PNG per standard hicolor size — taskbars (16/24), launchers
+    # (48/64), file dialogs (96/128), Activities/grid (256/512). Skipping sizes
+    # forces the DE to either scale the 128 PNG or fall back to the SVG, both
+    # of which look worse than a properly-sized raster.
+    for s in 16 24 32 48 64 96 128 256 512 ; do
+      install -Dm644 "assets/icon/hicolor/${s}x${s}/ai.unzoo.unterm.png" \
+        "$debroot/usr/share/icons/hicolor/${s}x${s}/apps/ai.unzoo.unterm.png"
+    done
     install -Dm644 assets/icon/unterm-icon.svg "$debroot/usr/share/icons/hicolor/scalable/apps/ai.unzoo.unterm.svg"
     install -Dm644 assets/unterm.desktop "$debroot/usr/share/applications/ai.unzoo.unterm.desktop"
     install -Dm644 assets/unterm.appdata.xml "$debroot/usr/share/metainfo/ai.unzoo.unterm.appdata.xml"
