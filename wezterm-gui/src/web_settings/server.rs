@@ -347,6 +347,13 @@ fn route(req: &Request, auth_token: &str, handler: &McpHandler) -> Response {
         // Identity profile management — backs the Settings panel and the
         // onboarding wizard. List/get are pure reads; the rest mutate
         // `~/.unterm/profiles/` and (for secrets) the OS keychain.
+        // MCP trust + audit surface for the Settings panel. Read endpoints
+        // are cheap (one lock acquire each); write endpoints persist to
+        // ~/.unterm/trusted_agents.json synchronously.
+        ("GET", "/api/mcp/trusted") => Response::ok_json(crate::mcp::handler::trust_snapshot()),
+        ("POST", "/api/mcp/trust") => api_mcp_trust(&req.body),
+        ("POST", "/api/mcp/untrust") => api_mcp_untrust(&req.body),
+        ("GET", "/api/mcp/audit") => api_mcp_audit(&req.query),
         ("GET", "/api/profile/list") => api_profile_list(),
         ("POST", "/api/profile/create") => api_profile_create(&req.body),
         ("GET", "/api/profile/import-scan") => api_profile_import_scan(),
@@ -432,6 +439,45 @@ fn profile_summary_json(
         "warnings": warnings,
         "is_default": default_id == Some(id),
     })
+}
+
+// --- MCP trust + audit endpoints ------------------------------------------
+
+fn api_mcp_trust(body: &[u8]) -> Response {
+    let v = parse_json_body(body);
+    let name = match v.get("name").and_then(|x| x.as_str()) {
+        Some(s) if !s.trim().is_empty() => s.to_string(),
+        _ => return Response::err(400, "Bad Request", "name required"),
+    };
+    let added = crate::mcp::handler::grant_trust(&name);
+    Response::ok_json(json!({ "ok": true, "name": name, "added": added }))
+}
+
+fn api_mcp_untrust(body: &[u8]) -> Response {
+    let v = parse_json_body(body);
+    let name = match v.get("name").and_then(|x| x.as_str()) {
+        Some(s) if !s.trim().is_empty() => s.to_string(),
+        _ => return Response::err(400, "Bad Request", "name required"),
+    };
+    let removed = crate::mcp::handler::revoke_trust(&name);
+    Response::ok_json(json!({ "ok": true, "name": name, "removed": removed }))
+}
+
+fn api_mcp_audit(query: &str) -> Response {
+    // ?limit=N caps the response. Default 100, max 1000 so the SPA
+    // can't accidentally request the whole 1000-entry log on every
+    // refresh. The audit log itself is already capped at the
+    // mcp_audit_log_capacity config knob (default 1000).
+    let limit = query
+        .split('&')
+        .filter_map(|pair| pair.split_once('='))
+        .find_map(|(k, v)| (k == "limit").then(|| v.parse::<usize>().ok()).flatten())
+        .unwrap_or(100)
+        .min(1000);
+    let payload_str = crate::mcp::handler::audit_log_snapshot_json(limit);
+    // audit_log_snapshot_json already returns a complete JSON value; we
+    // serve it as-is rather than re-parsing + re-serializing.
+    Response::text(200, "OK", "application/json; charset=utf-8", payload_str.into_bytes())
 }
 
 fn api_profile_list() -> Response {

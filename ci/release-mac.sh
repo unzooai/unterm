@@ -43,9 +43,24 @@ fi
 
 if ! xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1; then
   echo "ERROR: Notary profile '$NOTARY_PROFILE' not found in Keychain." >&2
-  echo "Run once:" >&2
-  echo "  xcrun notarytool store-credentials $NOTARY_PROFILE \\" >&2
-  echo "    --apple-id <your-apple-id> --team-id 6NQM3XP5RF" >&2
+  echo >&2
+  echo "This has been observed to happen between releases — the macOS" >&2
+  echo "keychain occasionally prunes the notarytool credential. To" >&2
+  echo "restore it:" >&2
+  echo >&2
+  echo "  1. Get the app-specific password from:" >&2
+  echo "     https://account.apple.com/account/manage" >&2
+  echo "     → Sign-In and Security → App-Specific Passwords" >&2
+  echo >&2
+  echo "  2. Run:" >&2
+  echo "       xcrun notarytool store-credentials $NOTARY_PROFILE \\" >&2
+  echo "         --apple-id lixd220@gmail.com \\" >&2
+  echo "         --team-id 6NQM3XP5RF \\" >&2
+  echo "         --password \"<paste-the-16-char-password>\"" >&2
+  echo >&2
+  echo "  3. Re-run: make release-mac" >&2
+  echo >&2
+  echo "(See ci/release-mac.sh:44 for the pre-check that raised this.)" >&2
   exit 1
 fi
 

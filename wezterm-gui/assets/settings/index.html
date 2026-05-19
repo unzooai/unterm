@@ -300,6 +300,136 @@
           </details>
         </div>
 
+        <!-- ============ MCP (Trust + Audit) ============ -->
+        <div x-show="active==='mcp'">
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <h2 class="text-xl font-semibold" x-text="t('web.mcp.title')"></h2>
+              <p class="mt-1 text-sm text-zinc-400" x-text="t('web.mcp.subtitle')"></p>
+            </div>
+            <button
+              type="button"
+              class="rounded border border-zinc-700 px-3 py-1.5 text-xs hover:bg-zinc-800"
+              @click="loadMcp()"
+              x-text="t('web.mcp.refresh')"
+            ></button>
+          </div>
+
+          <!-- Trust card -->
+          <div class="mt-6 rounded-lg border border-zinc-800 bg-zinc-900 p-4">
+            <div class="flex items-center justify-between">
+              <div>
+                <h3 class="text-sm font-semibold" x-text="t('web.mcp.trust.title')"></h3>
+                <p class="mt-1 text-xs text-zinc-500" x-text="t('web.mcp.trust.help')"></p>
+              </div>
+            </div>
+
+            <!-- Runtime trust list -->
+            <div class="mt-4">
+              <div class="text-[10px] uppercase tracking-wider text-zinc-500 mb-2" x-text="t('web.mcp.trust.runtime_header')"></div>
+              <div
+                x-show="mcp.trusted.runtime.length === 0"
+                class="rounded border border-dashed border-zinc-800 p-3 text-xs text-zinc-500"
+                x-text="t('web.mcp.trust.runtime_empty')"
+              ></div>
+              <ul x-show="mcp.trusted.runtime.length > 0" class="divide-y divide-zinc-800 rounded border border-zinc-800">
+                <template x-for="agent in mcp.trusted.runtime" :key="agent">
+                  <li class="flex items-center gap-3 px-3 py-2 text-sm">
+                    <span class="inline-block h-2 w-2 rounded-full bg-emerald-400"></span>
+                    <span class="font-mono text-xs text-zinc-200" x-text="agent"></span>
+                    <span
+                      class="text-xs text-zinc-500"
+                      x-text="(mcp.trusted.audit_counts.find(a => a.agent === agent)?.writes ?? 0) + ' ' + t('web.mcp.trust.writes')"
+                    ></span>
+                    <button
+                      type="button"
+                      class="ml-auto text-xs text-red-400 hover:text-red-300"
+                      @click="untrustAgent(agent)"
+                      x-text="t('web.mcp.trust.action.revoke')"
+                    ></button>
+                  </li>
+                </template>
+              </ul>
+            </div>
+
+            <!-- Static config note (read-only — has to be edited in unterm.lua) -->
+            <div x-show="mcp.trusted.static_config.length > 0" class="mt-4">
+              <div class="text-[10px] uppercase tracking-wider text-zinc-500 mb-2" x-text="t('web.mcp.trust.static_header')"></div>
+              <div class="rounded border border-zinc-800 bg-zinc-950 p-3">
+                <p class="text-xs text-zinc-500" x-text="t('web.mcp.trust.static_note')"></p>
+                <div class="mt-2 flex flex-wrap gap-1.5">
+                  <template x-for="agent in mcp.trusted.static_config" :key="agent">
+                    <span class="inline-flex items-center gap-1 rounded bg-zinc-800 px-2 py-0.5 text-xs font-mono text-zinc-300">
+                      <span class="inline-block h-1.5 w-1.5 rounded-full bg-amber-400"></span>
+                      <span x-text="agent"></span>
+                    </span>
+                  </template>
+                </div>
+              </div>
+            </div>
+
+            <!-- Add new agent to trust list -->
+            <div class="mt-4 flex gap-2">
+              <input
+                type="text"
+                x-model="mcp.newAgentInput"
+                :placeholder="t('web.mcp.trust.new_placeholder')"
+                @keydown.enter="trustAgent()"
+                class="flex-1 rounded border border-zinc-700 bg-zinc-950 px-3 py-1.5 font-mono text-xs"
+              />
+              <button
+                type="button"
+                class="rounded bg-emerald-500/90 px-3 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-emerald-400"
+                @click="trustAgent()"
+                x-text="t('web.mcp.trust.action.add')"
+              ></button>
+            </div>
+          </div>
+
+          <!-- Audit log card -->
+          <div class="mt-6 rounded-lg border border-zinc-800 bg-zinc-900 p-4">
+            <h3 class="text-sm font-semibold" x-text="t('web.mcp.audit.title')"></h3>
+            <p class="mt-1 text-xs text-zinc-500" x-text="t('web.mcp.audit.help')"></p>
+
+            <div
+              x-show="mcp.loaded && mcp.audit.length === 0"
+              class="mt-4 rounded border border-dashed border-zinc-800 p-6 text-center text-xs text-zinc-500"
+              x-text="t('web.mcp.audit.empty')"
+            ></div>
+
+            <div x-show="mcp.audit.length > 0" class="mt-4 overflow-x-auto rounded border border-zinc-800">
+              <table class="w-full text-xs">
+                <thead class="bg-zinc-950">
+                  <tr class="text-left text-[10px] uppercase tracking-wider text-zinc-500">
+                    <th class="px-3 py-2" x-text="t('web.mcp.audit.col.time')"></th>
+                    <th class="px-3 py-2" x-text="t('web.mcp.audit.col.agent')"></th>
+                    <th class="px-3 py-2" x-text="t('web.mcp.audit.col.method')"></th>
+                    <th class="px-3 py-2" x-text="t('web.mcp.audit.col.detail')"></th>
+                    <th class="px-3 py-2 text-right" x-text="t('web.mcp.audit.col.outcome')"></th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-zinc-800/60">
+                  <template x-for="entry in mcp.audit" :key="entry.timestamp + ':' + entry.method + ':' + (entry.detail || '')">
+                    <tr class="hover:bg-zinc-800/40">
+                      <td class="px-3 py-2 font-mono text-[10px] text-zinc-500 whitespace-nowrap" x-text="(entry.timestamp || '').slice(11,19)"></td>
+                      <td class="px-3 py-2 font-mono text-zinc-300 whitespace-nowrap" x-text="entry.agent || 'anonymous'"></td>
+                      <td class="px-3 py-2 font-mono text-zinc-400 whitespace-nowrap" x-text="entry.method"></td>
+                      <td class="px-3 py-2 font-mono text-zinc-400 truncate max-w-xs" x-text="entry.detail || ''"></td>
+                      <td class="px-3 py-2 text-right">
+                        <span
+                          class="inline-block rounded px-2 py-0.5 text-[10px] font-medium"
+                          :class="entry.allowed ? 'bg-emerald-500/10 text-emerald-300' : 'bg-red-500/10 text-red-300'"
+                          x-text="entry.allowed ? t('web.mcp.audit.allowed') : t('web.mcp.audit.blocked')"
+                        ></span>
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
         <!-- ============ Profiles ============ -->
         <div x-show="active==='profiles'">
           <div class="flex items-start justify-between gap-4">

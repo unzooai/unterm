@@ -32,6 +32,18 @@ function untermSettings() {
     proxyForm: { http_proxy: '', socks_proxy: '', no_proxy: '' },
     recording: { active: false },
 
+    // MCP trust + audit state. Backed by /api/mcp/*. Same lazy-load
+    // pattern as profiles — only fetched when the user navigates to
+    // the MCP tab. Two cards: trust list (runtime + static lua
+    // config) and recent audit log (last N writes per agent).
+    mcp: {
+      loading: false,
+      loaded: false,
+      trusted: { runtime: [], static_config: [], audit_counts: [] },
+      audit: [],
+      newAgentInput: '',
+    },
+
     // Identity profiles state. Backed by /api/profile/*. Loaded on first
     // visit to the Profiles tab (lazy — most users won't touch profiles).
     profiles: {
@@ -80,6 +92,7 @@ function untermSettings() {
       return [
         { id: 'general', label: this.t('web.nav.general') },
         { id: 'profiles', label: this.t('web.nav.profiles') },
+        { id: 'mcp', label: this.t('web.nav.mcp') },
         { id: 'appearance', label: this.t('web.nav.appearance') },
         { id: 'proxy', label: this.t('web.nav.proxy') },
         { id: 'scrollback', label: this.t('web.nav.scrollback') },
@@ -396,6 +409,57 @@ function untermSettings() {
       // Lazy-load profiles on first visit so users who never touch the
       // tab don't pay for the registry-load + sniffer scan.
       if (id === 'profiles' && !this.profiles.loaded) this.loadProfiles();
+      if (id === 'mcp' && !this.mcp.loaded) this.loadMcp();
+    },
+
+    async loadMcp() {
+      this.mcp.loading = true;
+      try {
+        const [trusted, audit] = await Promise.all([
+          this.api('GET', '/api/mcp/trusted'),
+          this.api('GET', '/api/mcp/audit?limit=80'),
+        ]);
+        this.mcp.trusted = trusted;
+        // audit endpoint returns { recent: [...], total: N } per
+        // audit_log_snapshot_json's shape. Tolerate both arr-only and
+        // wrapped shapes.
+        this.mcp.audit = Array.isArray(audit) ? audit
+          : Array.isArray(audit.recent) ? audit.recent
+          : Array.isArray(audit.entries) ? audit.entries
+          : [];
+        this.mcp.loaded = true;
+      } catch (e) {
+        this.toast(this.t('web.mcp.toast.load_failed').replace('{err}', e.message), 'error');
+      } finally {
+        this.mcp.loading = false;
+      }
+    },
+
+    async trustAgent(name) {
+      const nm = (name || this.mcp.newAgentInput).trim();
+      if (!nm) {
+        this.toast(this.t('web.mcp.toast.name_required'), 'error');
+        return;
+      }
+      try {
+        await this.api('POST', '/api/mcp/trust', { name: nm });
+        this.mcp.newAgentInput = '';
+        await this.loadMcp();
+        this.toast(this.t('web.mcp.toast.trusted').replace('{name}', nm));
+      } catch (e) {
+        this.toast(this.t('web.mcp.toast.trust_failed').replace('{err}', e.message), 'error');
+      }
+    },
+
+    async untrustAgent(name) {
+      if (!confirm(this.t('web.mcp.confirm.untrust').replace('{name}', name))) return;
+      try {
+        await this.api('POST', '/api/mcp/untrust', { name });
+        await this.loadMcp();
+        this.toast(this.t('web.mcp.toast.untrusted').replace('{name}', name));
+      } catch (e) {
+        this.toast(this.t('web.mcp.toast.trust_failed').replace('{err}', e.message), 'error');
+      }
     },
 
     // ---- Identity profiles ----

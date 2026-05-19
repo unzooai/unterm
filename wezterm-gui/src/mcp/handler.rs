@@ -355,6 +355,12 @@ pub fn resolve_confirmation(id: u64, decision: ConfirmationDecision) -> bool {
     let pending = state.pending_confirmations.remove(idx);
     if matches!(decision, ConfirmationDecision::AlwaysAllow) {
         state.confirmed_agents.insert(pending.agent.clone());
+        // Persist immediately so the choice survives a restart. The
+        // snapshot is small (~few-KB JSON); the cost of writing on
+        // every Alt+A is negligible compared to user surprise on
+        // re-prompt after restart.
+        let snapshot = state.confirmed_agents.clone();
+        save_persisted_trusted(&snapshot);
     }
     // Drop the lock before sending so the waiting worker can
     // re-acquire it on its own audit/write path.
@@ -429,6 +435,66 @@ fn truncate(s: &str, max: usize) -> String {
 /// the status bar chip click (until P1.3's proper overlay lands) so
 /// the user can paste the log into any text editor for review.
 /// Returns at most `limit` most-recent entries, newest first.
+/// Read-only snapshot of the trust state for the Web Settings panel.
+/// `runtime` is the union of (loaded-from-disk) ∪ (Alt+A this session).
+/// `static_config` is the user's `mcp_trusted_agents` Lua config.
+/// `audit_counts` is a per-agent write count derived from `audit_log`
+/// so the panel can show "claude-code: 47 writes" alongside the trust
+/// toggle. Single lock acquire.
+pub fn trust_snapshot() -> Value {
+    let state = mcp_state().lock();
+    let mut runtime: Vec<&String> = state.confirmed_agents.iter().collect();
+    runtime.sort();
+    let cfg = config::configuration();
+    let mut static_config: Vec<&String> = cfg.mcp_trusted_agents.iter().collect();
+    static_config.sort();
+    let mut counts: HashMap<String, u64> = HashMap::new();
+    for entry in &state.audit_log {
+        // entry.agent is a plain String, defaulting to "anonymous"
+        // when the connection hadn't called agent.identify yet.
+        if !entry.agent.is_empty() {
+            *counts.entry(entry.agent.clone()).or_insert(0) += 1;
+        }
+    }
+    let mut count_list: Vec<(&String, &u64)> = counts.iter().collect();
+    count_list.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
+    json!({
+        "runtime": runtime,
+        "static_config": static_config,
+        "audit_counts": count_list
+            .into_iter()
+            .map(|(a, c)| json!({ "agent": a, "writes": c }))
+            .collect::<Vec<_>>(),
+    })
+}
+
+/// Revoke trust at runtime. Removes from `confirmed_agents` AND from
+/// the persisted JSON so the next session also sees the agent as
+/// "needs confirmation". Returns `true` if the name was present.
+/// Note: this can't remove an entry from `mcp_trusted_agents` Lua
+/// config — that's static and the user has to edit unterm.lua. The
+/// Web Settings panel surfaces both lists so the user can see why
+/// removal from runtime didn't actually un-trust.
+pub fn revoke_trust(agent: &str) -> bool {
+    let mut state = mcp_state().lock();
+    let was = state.confirmed_agents.remove(agent);
+    let snapshot = state.confirmed_agents.clone();
+    drop(state);
+    save_persisted_trusted(&snapshot);
+    was
+}
+
+/// Promote an agent to trust without going through the banner. Used
+/// by the Web Settings panel's "trust this agent now" button.
+pub fn grant_trust(agent: &str) -> bool {
+    let mut state = mcp_state().lock();
+    let was_new = state.confirmed_agents.insert(agent.to_string());
+    let snapshot = state.confirmed_agents.clone();
+    drop(state);
+    save_persisted_trusted(&snapshot);
+    was_new
+}
+
 pub fn audit_log_snapshot_json(limit: usize) -> String {
     let state = mcp_state().lock();
     let recent: Vec<&AuditEntry> = state.audit_log.iter().rev().take(limit).collect();
@@ -589,9 +655,80 @@ fn input_preview(input: &str) -> String {
     )
 }
 
+/// Path of the persistent trust list. Trust state survives Unterm
+/// restarts so the user doesn't have to Alt+A their preferred agent
+/// once per session.
+fn trusted_agents_path() -> std::path::PathBuf {
+    dirs_next::home_dir()
+        .unwrap_or_default()
+        .join(".unterm")
+        .join("trusted_agents.json")
+}
+
+/// Load the persisted trust list. Schema:
+///   { "agents": ["claude-code", "cursor", ...] }
+/// Missing file / unreadable file / bad JSON → empty list. Silent
+/// degradation is correct here: the worst case is the user has to
+/// Alt+A again, which is one keystroke.
+fn load_persisted_trusted() -> std::collections::HashSet<String> {
+    let Ok(text) = std::fs::read_to_string(trusted_agents_path()) else {
+        return std::collections::HashSet::new();
+    };
+    let Ok(value) = serde_json::from_str::<Value>(&text) else {
+        return std::collections::HashSet::new();
+    };
+    value
+        .get("agents")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Atomic write of the trust list. Tempfile + rename so a concurrent
+/// reader sees either the old set or the new set, never half-written.
+/// Errors logged but not propagated: a missing rename succeeds for
+/// the in-memory state, which is what matters for the current
+/// session — the next restart just won't remember.
+fn save_persisted_trusted(agents: &std::collections::HashSet<String>) {
+    let path = trusted_agents_path();
+    if let Some(parent) = path.parent() {
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            log::warn!("save trusted_agents.json: create_dir_all: {e:#}");
+            return;
+        }
+    }
+    let mut sorted: Vec<&String> = agents.iter().collect();
+    sorted.sort();
+    let body = json!({ "agents": sorted });
+    let pretty = match serde_json::to_string_pretty(&body) {
+        Ok(s) => s,
+        Err(e) => {
+            log::warn!("save trusted_agents.json: serialize: {e:#}");
+            return;
+        }
+    };
+    let tmp = path.with_extension("json.tmp");
+    if let Err(e) = std::fs::write(&tmp, pretty) {
+        log::warn!("save trusted_agents.json: write temp: {e:#}");
+        return;
+    }
+    if let Err(e) = std::fs::rename(&tmp, &path) {
+        log::warn!("save trusted_agents.json: rename: {e:#}");
+    }
+}
+
 fn mcp_state() -> &'static Mutex<McpState> {
     static STATE: std::sync::OnceLock<Mutex<McpState>> = std::sync::OnceLock::new();
     STATE.get_or_init(|| {
+        // Load persisted trust at startup so the user's choice from
+        // last session survives. confirmed_agents is the merged set
+        // (persisted + this-session-Alt+A); save_persisted_trusted
+        // re-snapshots the whole thing on every mutation.
+        let confirmed_agents = load_persisted_trusted();
         Mutex::new(McpState {
             audit_log: Vec::new(),
             policy: CommandPolicy::default(),
@@ -601,7 +738,7 @@ fn mcp_state() -> &'static Mutex<McpState> {
             agents_by_connection: HashMap::new(),
             known_agents: HashMap::new(),
             agents_with_input_history: std::collections::HashSet::new(),
-            confirmed_agents: std::collections::HashSet::new(),
+            confirmed_agents,
             pending_confirmations: Vec::new(),
             confirmation_seq: 0,
             suggestions: HashMap::new(),
@@ -632,6 +769,9 @@ impl McpHandler {
             // group by agent name instead of by connection ID.
             "agent.identify" => self.agent_identify(ctx, params),
             "agent.whoami" => self.agent_whoami(ctx),
+            "agent.list_trusted" => Ok(crate::mcp::handler::trust_snapshot()),
+            "agent.trust" => self.agent_trust(params),
+            "agent.untrust" => self.agent_untrust(params),
             "ghost.debug" => self.ghost_debug(params),
             // Suggest API — agents propose text; the user decides
             // whether it reaches the PTY (Tab/Esc in the suggest UI).
@@ -1666,6 +1806,39 @@ impl McpHandler {
                 "peer_addr": ctx.peer_addr,
             })),
         }
+    }
+
+    /// `agent.trust` — programmatically promote an agent to the
+    /// persistent trust list. Equivalent to the user pressing Alt+A
+    /// on a confirmation banner. Intended for the Web Settings UI
+    /// (where the click happens server-side via HTTP) more than for
+    /// random agents trusting themselves — but we don't ACL-gate it
+    /// here because the MCP token is already an auth boundary;
+    /// anyone with the token can write to a pane anyway, so trust
+    /// management isn't a stronger capability.
+    fn agent_trust(&self, params: &Value) -> Result<Value> {
+        let name = params
+            .get("name")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| anyhow!("Missing or empty 'name'"))?;
+        let added = grant_trust(name);
+        Ok(json!({ "ok": true, "name": name, "added": added }))
+    }
+
+    /// `agent.untrust` — remove an agent from the persistent trust
+    /// list. Subsequent writes from that agent will trigger the
+    /// confirmation banner again. Does NOT touch the static lua
+    /// `mcp_trusted_agents` config (the user has to edit the file
+    /// for that — surfaced in the Web Settings panel UI).
+    fn agent_untrust(&self, params: &Value) -> Result<Value> {
+        let name = params
+            .get("name")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| anyhow!("Missing or empty 'name'"))?;
+        let was = revoke_trust(name);
+        Ok(json!({ "ok": true, "name": name, "removed": was }))
     }
 
     /// Called by the TCP server when a client connection drops so
