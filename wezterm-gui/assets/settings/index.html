@@ -535,8 +535,16 @@
             </template>
           </div>
 
-          <!-- ====== Detail / settings view ====== -->
-          <div x-show="agents.detail" class="mt-6 space-y-4">
+          <!-- ====== Detail / settings view ======
+               Wrapped in x-if (not x-show) because every child binding
+               touches `agents.detail.*`; with x-show, Alpine keeps the
+               subtree present in the DOM and re-evaluates child x-text
+               etc. each reactivity tick, which throws TypeError when
+               agents.detail is null. x-if removes the subtree from the
+               DOM entirely, so the bindings never run unless we're
+               actually in detail view. -->
+          <template x-if="agents.detail">
+          <div class="mt-6 space-y-4">
             <div class="flex items-start justify-between gap-3">
               <div>
                 <button
@@ -657,6 +665,7 @@
               </template>
             </div>
           </div>
+          </template>
 
           <!-- Toast for copy-cmd / install / save -->
         </div>
