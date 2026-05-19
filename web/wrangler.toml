@@ -38,7 +38,7 @@ pages_build_output_dir = "dist"
 # ETag so the function doesn't have to hash every request.
 [[kv_namespaces]]
 binding = "UNTERM_MANIFESTS"
-id = "REPLACE_WITH_YOUR_NAMESPACE_ID"
+id = "155122c6346a41f38ba41fd2075b0da2"
 # preview_id = "REPLACE_WITH_YOUR_PREVIEW_NAMESPACE_ID"
 
 # ---- Existing /api/stats secret ----------------------------------------------
