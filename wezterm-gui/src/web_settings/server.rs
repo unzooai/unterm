@@ -301,10 +301,25 @@ fn route(req: &Request, auth_token: &str, handler: &McpHandler) -> Response {
         // the user can investigate, rather than silently auth'ing
         // against the wrong instance.
         let info = server_info::read_current();
+        // unterm_cli_path is the absolute path to the unterm-cli binary
+        // sibling of this running GUI executable. The SPA emits this in
+        // "Copy launch command" so it works even when the user's $PATH
+        // doesn't include the .app bundle's MacOS dir (every fresh DMG
+        // install on macOS hits this — there's no automatic symlink to
+        // /usr/local/bin). Falls back to bare `unterm-cli` if we can't
+        // resolve the executable path (extremely unlikely on Unix; might
+        // matter for Wine / weird mount scenarios).
+        let unterm_cli_path = std::env::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(|d| d.join("unterm-cli")))
+            .filter(|p| p.exists())
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|| "unterm-cli".to_string());
         return Response::ok_json(json!({
             "auth_token": info.auth_token,
             "mcp_port": info.mcp_port,
             "http_port": info.http_port,
+            "unterm_cli_path": unterm_cli_path,
         }));
     }
     if req.method == "GET" {

@@ -10,6 +10,10 @@
 function untermSettings() {
   return {
     token: '',
+    // Absolute path to the unterm-cli binary sibling of the running GUI,
+    // injected by /bootstrap.json. Used by copyLaunchCmd / copyAuthCmd so
+    // the copied command works even without the .app's MacOS dir on $PATH.
+    untermCliPath: '',
     health: { ok: false },
     state: {
       version: '',
@@ -192,6 +196,7 @@ function untermSettings() {
         const res = await fetch('/bootstrap.json');
         const j = await res.json();
         this.token = j.auth_token || '';
+        this.untermCliPath = j.unterm_cli_path || '';
       } catch (e) {
         this.toast('Could not load bootstrap.json — backend offline?', 'error');
       }
@@ -679,14 +684,27 @@ function untermSettings() {
       }
     },
 
+    // Build the unterm-cli command prefix using the absolute path the
+    // backend told us about at bootstrap. Falls back to bare "unterm-cli"
+    // if the field is missing (older Unterm builds). Shell-quote the path
+    // because the .app bundle on macOS lives under /Applications/Unterm.app/…
+    // which has no spaces today, but if a user renames the app or installs
+    // to a path with spaces we don't want the copied command to break.
+    _cliPrefix() {
+      const p = this.untermCliPath || 'unterm-cli';
+      if (p === 'unterm-cli') return p;
+      // Single-quote-wrap, escape any embedded single quotes the POSIX way.
+      return "'" + p.replace(/'/g, "'\\''") + "'";
+    },
+
     copyLaunchCmd(id) {
-      const cmd = 'unterm-cli agent launch ' + id + ' --profile ' + this.agents.profileId;
+      const cmd = this._cliPrefix() + ' agent launch ' + id + ' --profile ' + this.agents.profileId;
       this.copyText(cmd);
       this.toast(this.t('web.agents.toast.launch_copied'), 'info');
     },
 
     copyAuthCmd(id) {
-      const cmd = 'unterm-cli agent auth ' + id + ' --profile ' + this.agents.profileId;
+      const cmd = this._cliPrefix() + ' agent auth ' + id + ' --profile ' + this.agents.profileId;
       this.copyText(cmd);
       this.toast(this.t('web.agents.toast.auth_copied'), 'info');
     },
