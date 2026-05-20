@@ -222,10 +222,27 @@ pub fn api_settings_get(id: &str, query: &str) -> Response {
         display.insert(k.clone(), redacted);
     }
 
+    // Re-run detect so the detail card shows the right install badge.
+    // /api/agents/list already pays for this on the way in, but the
+    // SPA opens a detail view potentially minutes later and we don't
+    // want to render "not installed" while the user can see the binary
+    // perfectly fine via `which` in another tab.
+    let detect = installer::detect(&manifest.detect);
+
     Response::ok_json(json!({
         "agent": manifest.id,
         "profile": profile_id,
         "manifest_version": state.manifest_version,
+        // Embed the full manifest so the SPA can render storage paths,
+        // category metadata, and MCP info without a second round-trip
+        // to /api/agents/<id> (which was silently 404'ing because of an
+        // off-by-one slash check until 2026-05-20).
+        "manifest": &manifest,
+        "detect": {
+            "ok": detect.ok,
+            "version": detect.version,
+            "binary_path": detect.binary_path,
+        },
         "schema": manifest.settings_schema,
         "values": Value::Object(display),
     }))

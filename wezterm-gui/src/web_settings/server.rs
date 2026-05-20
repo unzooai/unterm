@@ -421,8 +421,13 @@ fn route(req: &Request, auth_token: &str, handler: &McpHandler) -> Response {
             let id = &p["/api/agents/".len()..p.len() - "/launch-plan".len()];
             super::agents::api_launch_plan(id, &req.body)
         }
-        ("GET",  p) if p.starts_with("/api/agents/") && p.matches('/').count() == 2 => {
-            // /api/agents/<id>  (the catch-all GET for showing one agent)
+        ("GET",  p) if p.starts_with("/api/agents/") && !p[("/api/agents/".len())..].contains('/') => {
+            // /api/agents/<id>  — catch-all GET for one agent's full manifest.
+            // Match by "no further slash after /api/agents/"; the previous
+            // p.matches('/').count() == 2 check was off-by-one (the string
+            // has 3 slashes once the trailing id segment is present) and
+            // silently 404'd, which made the SPA's openAgent() throw on
+            // manifest fetch.
             let id = &p["/api/agents/".len()..];
             super::agents::api_show(id)
         }

@@ -504,6 +504,11 @@ function untermSettings() {
         const categories = Array.from(new Set((detail.schema || []).map((s) => s.category || 'general')));
         this.agents.detail = {
           manifest: detail.manifest || (await this.api('GET', '/api/agents/' + encodeURIComponent(id))).manifest,
+          // Detect comes back inline now (the /settings handler re-runs it on
+          // every open). Older builds didn't include it; default to a not-ok
+          // shape so the card just shows "not installed" rather than blowing
+          // up on undefined access.
+          detect: detail.detect || { ok: false, version: null, binary_path: null },
           schema: detail.schema || [],
           values: detail.values || {},
           categories,
