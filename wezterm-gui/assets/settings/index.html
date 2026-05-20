@@ -617,8 +617,11 @@
                         <span x-show="spec.required" class="ml-1 text-rose-400" title="required">*</span>
                       </label>
                       <div class="col-span-8">
-                        <!-- bool -->
-                        <input type="checkbox" x-show="spec.type==='bool'" class="h-4 w-4" x-model="agents.detail.draft[spec.key]" />
+                        <!-- bool — single native checkbox, sized up + colored
+                             so the indeterminate macOS Chrome rendering doesn't
+                             collide with the right-hand label (which itself
+                             sits in col-span-4 to the left). -->
+                        <input type="checkbox" x-show="spec.type==='bool'" class="h-4 w-4 cursor-pointer accent-emerald-500" x-model="agents.detail.draft[spec.key]" />
                         <!-- int / float / string / path / text_long -->
                         <input
                           x-show="spec.type==='int' || spec.type==='float'"
@@ -651,17 +654,33 @@
                             <option :value="v.value" x-text="v.label || v.value"></option>
                           </template>
                         </select>
-                        <!-- multi_enum -->
+                        <!-- multi_enum — toggle pills.
+                             Native checkbox is visually hidden (peer + sr-only)
+                             but stays keyboard-accessible; the visible <span>
+                             is the styled pill that changes state via peer-
+                             checked: variants. Previous design rendered the
+                             native checkbox NEXT to the label and the macOS
+                             Chrome default look collided with the label's
+                             border, making letters look chopped (b[as]h,
+                             ed[i]t). The "checked" state now shows as a green
+                             filled pill with a left dot; "unchecked" as a
+                             muted outlined pill. Reads at a glance. -->
                         <div x-show="spec.type==='multi_enum'" class="flex flex-wrap gap-2">
                           <template x-for="v in spec.values" :key="JSON.stringify(v.value)">
-                            <label class="inline-flex items-center gap-1 rounded border border-zinc-700 px-2 py-0.5 text-xs text-zinc-300">
+                            <label class="cursor-pointer select-none">
                               <input
                                 type="checkbox"
-                                class="h-3.5 w-3.5"
+                                class="peer sr-only"
                                 :checked="(agents.detail.draft[spec.key] || []).includes(v.value)"
                                 @change="toggleAgentMultiEnum(spec.key, v.value, $event.target.checked)"
                               />
-                              <span x-text="v.label || v.value"></span>
+                              <!-- peer-checked targets siblings of `.peer`,
+                                   so any state change must live on this outer
+                                   <span>. We drop the inner dot since its
+                                   peer-checked: was a no-op (not a sibling). -->
+                              <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ring-1 ring-zinc-700 bg-zinc-900 text-zinc-400 transition peer-checked:ring-emerald-500/70 peer-checked:bg-emerald-900/40 peer-checked:text-emerald-100">
+                                <span x-text="v.label || v.value"></span>
+                              </span>
                             </label>
                           </template>
                         </div>
