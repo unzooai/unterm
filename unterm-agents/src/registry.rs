@@ -78,8 +78,14 @@ pub fn apply_updates(
     let mut written_secrets = Vec::new();
     let mut skipped_unknown = Vec::new();
 
-    // Step 1: validate every update against schema.
+    // Step 1: validate every update against schema. Underscore-prefixed
+    // keys are synthetic Unterm-managed settings (e.g. `_auth_mode`) that
+    // live in the per-profile JSON state but never hit the agent's own
+    // config file — pass them through without schema validation.
     for (key, value) in &updates {
+        if key.starts_with('_') {
+            continue;
+        }
         let spec = manifest.settings_schema.iter().find(|s| s.key == *key);
         match spec {
             None => skipped_unknown.push(key.clone()),
@@ -87,10 +93,16 @@ pub fn apply_updates(
         }
     }
 
-    // Step 2: split into (file-keys) and (secret-keys).
+    // Step 2: split into (file-keys) and (secret-keys). Synthetic
+    // `_*` keys (e.g. `_auth_mode`) are persisted only into the
+    // per-profile JSON state; they never reach a storage adapter or
+    // the OS keychain.
     let mut file_updates: BTreeMap<String, Value> = BTreeMap::new();
     let mut secret_updates: BTreeMap<String, String> = BTreeMap::new();
     for (key, value) in updates.iter() {
+        if key.starts_with('_') {
+            continue;
+        }
         let Some(spec) = manifest.settings_schema.iter().find(|s| s.key == *key) else {
             continue;
         };

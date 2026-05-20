@@ -513,6 +513,14 @@ function untermSettings() {
             draft[s.key] = v !== undefined ? this.deepClone(v) : s.default;
           }
         }
+        // Seed the auth_mode selection. Order: existing stored value →
+        // recommended mode → first declared mode → empty string.
+        const manifestForMode = detail.manifest;
+        const modes = (manifestForMode && manifestForMode.auth_modes) || [];
+        const storedMode = (detail.values && detail.values._auth_mode) || '';
+        const defaultMode =
+          (modes.length && (modes.find((m) => m.recommended) || modes[0]).id) || '';
+        draft._auth_mode = storedMode || defaultMode;
         const categories = Array.from(new Set((detail.schema || []).map((s) => s.category || 'general')));
         this.agents.detail = {
           manifest: detail.manifest || (await this.api('GET', '/api/agents/' + encodeURIComponent(id))).manifest,
@@ -547,6 +555,26 @@ function untermSettings() {
       return JSON.parse(JSON.stringify(v));
     },
 
+    // Whether a settings_schema entry should be shown given the current
+    // auth_mode selection. Rules:
+    //   * Settings in non-auth categories are always visible (model,
+    //     behavior, permissions, privacy, etc. — they're orthogonal to
+    //     who pays for the calls).
+    //   * Settings in the "auth" category are visible only if the
+    //     currently-selected auth_mode lists their key in reveals_settings.
+    //   * If no auth_modes are declared (legacy v0.18.0 manifests), we
+    //     fall back to showing all settings — keeps the panel usable
+    //     across mixed manifest versions.
+    specVisibleInMode(spec) {
+      const modes = this.agents.detail?.manifest?.auth_modes || [];
+      if (!modes.length) return true;
+      const cat = spec.category || 'general';
+      if (cat !== 'auth') return true;
+      const currentId = this.agents.detail?.draft?._auth_mode;
+      const current = modes.find((m) => m.id === currentId) || modes.find((m) => m.recommended) || modes[0];
+      return (current?.reveals_settings || []).includes(spec.key);
+    },
+
     toggleAgentMultiEnum(key, value, checked) {
       const cur = Array.isArray(this.agents.detail.draft[key]) ? this.agents.detail.draft[key].slice() : [];
       const idx = cur.indexOf(value);
@@ -576,6 +604,11 @@ function untermSettings() {
       this.agents.detail.saving = true;
       try {
         const values = {};
+        // Always persist the auth_mode selection so the launcher reads
+        // back the right mode next time the user spawns this agent.
+        if (this.agents.detail.draft._auth_mode) {
+          values._auth_mode = this.agents.detail.draft._auth_mode;
+        }
         for (const s of this.agents.detail.schema) {
           const d = this.agents.detail.draft[s.key];
           // Skip empty secret fields — preserves whatever's in the keychain.

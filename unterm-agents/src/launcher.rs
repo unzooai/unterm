@@ -55,9 +55,23 @@ pub fn build_launch_plan(inputs: &LaunchInputs<'_>) -> Result<LaunchPlan> {
     );
     env_set.insert("UNTERM_PROFILE".into(), inputs.profile_id.into());
 
+    // Determine current auth mode for this (profile, agent). Settings store
+    // it under the synthetic key "_auth_mode"; falls back to the manifest's
+    // first declared mode, or "subscription" if no modes are declared (which
+    // would be a malformed v0.18+ manifest but we don't want to panic on it).
+    let current_mode = current_auth_mode(inputs.manifest, inputs.settings);
+    env_set.insert("UNTERM_AGENT_AUTH_MODE".into(), current_mode.clone());
+
     if let Some(storage) = &inputs.manifest.settings_storage {
         let store = AgentSecretStore::open().ok();
         for (env_name, binding) in &storage.env_at_launch {
+            // Critical: only inject env vars whose binding lists the current
+            // auth_mode (or has no filter). This is what stops Claude Code's
+            // ANTHROPIC_API_KEY from leaking into a subscription-mode session
+            // and silently flipping the user off their Pro plan.
+            if !binding.applies_to_mode(&current_mode) {
+                continue;
+            }
             let resolved = resolve_env_binding(binding, inputs.profile_id, inputs.settings, store.as_ref())?;
             if let Some(v) = resolved {
                 env_set.insert(env_name.clone(), v);
@@ -91,10 +105,11 @@ fn resolve_env_binding(
     secret_store: Option<&AgentSecretStore>,
 ) -> Result<Option<String>> {
     match binding {
-        EnvBinding::Literal { literal } => Ok(Some(literal.clone())),
+        EnvBinding::Literal { literal, .. } => Ok(Some(literal.clone())),
         EnvBinding::Setting {
             from_setting,
             skip_if_empty,
+            ..
         } => {
             let val = settings.values.get(from_setting);
             match val {
@@ -109,7 +124,7 @@ fn resolve_env_binding(
                 None => Ok(None),
             }
         }
-        EnvBinding::Secret { from } => {
+        EnvBinding::Secret { from, .. } => {
             let Some(ns) = from.strip_prefix("secret:") else {
                 return Ok(None);
             };
@@ -120,6 +135,30 @@ fn resolve_env_binding(
             store.get(profile_id, &env_var)
         }
     }
+}
+
+/// Selected auth mode for the (profile, agent). Reads
+/// `settings.values["_auth_mode"]`; falls back to the first `recommended`
+/// mode in the manifest, then the first declared mode, then "subscription"
+/// as a last-resort sentinel.
+pub fn current_auth_mode(manifest: &crate::manifest::AgentManifest, settings: &SettingsState) -> String {
+    if let Some(serde_json::Value::String(s)) = settings.values.get("_auth_mode") {
+        if !s.is_empty() {
+            // Only honour if the mode still exists in the current manifest;
+            // otherwise the agent's manifest was updated and our stored
+            // mode no longer exists — fall through to the default.
+            if manifest.auth_modes.iter().any(|m| m.id == *s) {
+                return s.clone();
+            }
+        }
+    }
+    if let Some(recommended) = manifest.auth_modes.iter().find(|m| m.recommended) {
+        return recommended.id.clone();
+    }
+    if let Some(first) = manifest.auth_modes.first() {
+        return first.id.clone();
+    }
+    "subscription".into()
 }
 
 fn resolve_cwd(setting: &Option<String>, inputs: &LaunchInputs<'_>) -> Option<String> {

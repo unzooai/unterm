@@ -569,14 +569,48 @@
               </div>
             </div>
 
+            <!-- Auth mode picker. Sits above the schema form because it
+                 gates which settings are visible. Default = first auth_mode
+                 declared by the manifest (which is also the safest one —
+                 vendor subscription where applicable). When the user picks
+                 a non-default mode, we surface a short risk note ("this
+                 bypasses your subscription and bills your API key") so the
+                 choice isn't silent. -->
+            <div x-show="(agents.detail.manifest.auth_modes || []).length > 0" class="rounded-lg border border-amber-900/40 bg-amber-950/20 p-4 mb-4">
+              <h4 class="mb-2 text-xs font-semibold uppercase tracking-wider text-amber-200" x-text="t('web.agents.authmode.title')"></h4>
+              <p class="text-xs text-zinc-400 mb-3" x-text="t('web.agents.authmode.subtitle')"></p>
+              <template x-for="mode in (agents.detail.manifest.auth_modes || [])" :key="mode.id">
+                <label class="flex items-start gap-3 py-2 cursor-pointer">
+                  <input type="radio" :name="'authmode-' + agents.detail.manifest.id" :value="mode.id"
+                    class="mt-1 h-4 w-4"
+                    x-model="agents.detail.draft._auth_mode" />
+                  <div class="flex-1">
+                    <div class="flex items-center gap-2 text-sm">
+                      <span class="font-medium text-zinc-100" x-text="(mode.label_i18n && (mode.label_i18n[lang] || mode.label_i18n['en'])) || mode.id"></span>
+                      <span x-show="mode.recommended" class="rounded bg-emerald-900/50 px-1.5 py-0.5 text-[10px] text-emerald-300" x-text="t('web.agents.authmode.recommended')"></span>
+                    </div>
+                    <p class="mt-1 text-xs text-zinc-400" x-text="(mode.description_i18n && (mode.description_i18n[lang] || mode.description_i18n['en'])) || ''"></p>
+                    <a x-show="mode.console_url" :href="mode.console_url" target="_blank" rel="noopener" class="mt-1 inline-block text-xs text-emerald-400 hover:underline" x-text="t('web.agents.authmode.console_link')"></a>
+                  </div>
+                </label>
+              </template>
+            </div>
+
             <!-- Schema-driven form. Each setting renders its own editor; we
                  stage edits locally and write everything on Save so a single
-                 partial write doesn't leak through. -->
+                 partial write doesn't leak through.
+
+                 Setting visibility is filtered by the current auth_mode's
+                 reveals_settings list (plus settings without a category
+                 of "auth" which are always shown). This is how "Anthropic
+                 API key" disappears when the user has the "subscription"
+                 mode selected — we never tempt them to fill in a field
+                 we wouldn't actually inject. -->
             <div class="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
               <template x-for="cat in agents.detail.categories" :key="cat">
                 <div class="border-t border-zinc-800 pt-3 first:border-t-0 first:pt-0 mt-3 first:mt-0">
                   <h4 class="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-500" x-text="cat || t('web.agents.cat.general')"></h4>
-                  <template x-for="spec in agents.detail.schema.filter(s => (s.category || 'general') === cat)" :key="spec.key">
+                  <template x-for="spec in agents.detail.schema.filter(s => (s.category || 'general') === cat && specVisibleInMode(s))" :key="spec.key">
                     <div class="grid grid-cols-12 items-start gap-3 py-2">
                       <label class="col-span-4 mt-1.5 text-sm text-zinc-300">
                         <span x-text="(spec.label_i18n && (spec.label_i18n[lang] || spec.label_i18n['en'])) || spec.key"></span>

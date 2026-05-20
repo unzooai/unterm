@@ -65,6 +65,12 @@ pub struct AgentManifest {
     pub mcp: Option<McpSpec>,
     #[serde(default)]
     pub profile_defaults: ProfileDefaults,
+    /// Auth modes the user can pick from. First entry is the default if
+    /// the per-profile settings haven't recorded a selection yet. Empty
+    /// `auth_modes` falls back to the legacy `auth.primary/fallback`
+    /// shape so manifests authored before v0.18.1 still parse.
+    #[serde(default)]
+    pub auth_modes: Vec<AuthModeSpec>,
     #[serde(default)]
     pub settings_schema: Vec<SettingSpec>,
     #[serde(default)]
@@ -137,6 +143,47 @@ pub struct BinaryRequirement {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ShellCmd {
     pub cmd: Vec<String>,
+}
+
+/// One user-selectable auth mode for an agent (e.g., "official subscription
+/// OAuth", "bring your own API key", "custom gateway/endpoint").
+///
+/// The current selection is stored as the synthetic setting key
+/// `_auth_mode` per (profile, agent) — see SettingsState.values. The
+/// launcher filters `settings_storage.env_at_launch` entries by the
+/// `only_if_auth_mode` field so that, for example, ANTHROPIC_API_KEY is
+/// NEVER injected when the user has picked the "subscription" mode for
+/// Claude Code (otherwise we'd silently bypass their Pro subscription
+/// and bill their API key — exactly the operational footgun we want
+/// to avoid).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthModeSpec {
+    pub id: String,
+    #[serde(default)]
+    pub recommended: bool,
+    #[serde(default)]
+    pub label_i18n: BTreeMap<String, String>,
+    #[serde(default)]
+    pub description_i18n: BTreeMap<String, String>,
+    /// If present, this mode requires the user to run an interactive
+    /// OAuth login (typically `<agent> login`). When the user picks
+    /// this mode, the SPA + CLI prompt them to run this command in a
+    /// real terminal.
+    #[serde(default)]
+    pub oauth_trigger: Option<ShellCmd>,
+    #[serde(default)]
+    pub oauth_ready_marker: Option<String>,
+    #[serde(default = "default_oauth_timeout")]
+    pub oauth_timeout_s: u64,
+    /// External console URL for getting an API key (BYO mode) or signing
+    /// up for a subscription. Pure UX hint; ignored by the launcher.
+    #[serde(default)]
+    pub console_url: Option<String>,
+    /// Setting keys to show in the UI only when this mode is active.
+    /// (Inverse of `only_if_auth_mode` on env_at_launch — this is the
+    /// UI side.) E.g., custom_endpoint mode reveals "base_url".
+    #[serde(default)]
+    pub reveals_settings: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -349,18 +396,45 @@ fn default_merge() -> String {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum EnvBinding {
-    /// `{ "from": "secret:<namespace>" }` reads from the OS keychain.
-    Secret { from: String },
-    /// `{ "from_setting": "<key>", "skip_if_empty": true }` sources from
-    /// a settings_schema entry; supports `skip_if_empty` to drop the env
-    /// var entirely when the setting is unset / empty string.
+    /// `{ "from": "secret:<namespace>", "only_if_auth_mode": ["byo_key"] }`
+    /// reads from the OS keychain. Empty or missing `only_if_auth_mode`
+    /// = inject under every mode (the default).
+    Secret {
+        from: String,
+        #[serde(default)]
+        only_if_auth_mode: Vec<String>,
+    },
+    /// `{ "from_setting": "<key>", "skip_if_empty": true,
+    ///    "only_if_auth_mode": ["custom_endpoint"] }`
+    /// sources from a settings_schema entry.
     Setting {
         from_setting: String,
         #[serde(default)]
         skip_if_empty: bool,
+        #[serde(default)]
+        only_if_auth_mode: Vec<String>,
     },
-    /// `{ "literal": "..." }` for things like `RUST_LOG=info`.
-    Literal { literal: String },
+    /// `{ "literal": "...", "only_if_auth_mode": [...] }` for things like
+    /// `RUST_LOG=info`.
+    Literal {
+        literal: String,
+        #[serde(default)]
+        only_if_auth_mode: Vec<String>,
+    },
+}
+
+impl EnvBinding {
+    /// Returns whether this binding should be injected given the user's
+    /// currently selected auth_mode. Bindings without a filter always
+    /// inject; with a filter, only when the mode is listed.
+    pub fn applies_to_mode(&self, mode: &str) -> bool {
+        let filter = match self {
+            EnvBinding::Secret { only_if_auth_mode, .. } => only_if_auth_mode,
+            EnvBinding::Setting { only_if_auth_mode, .. } => only_if_auth_mode,
+            EnvBinding::Literal { only_if_auth_mode, .. } => only_if_auth_mode,
+        };
+        filter.is_empty() || filter.iter().any(|m| m == mode)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

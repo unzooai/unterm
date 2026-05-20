@@ -1,12 +1,12 @@
 {
   "envelope_version": 1,
-  "issued_at": "2026-05-19T14:52:53Z",
-  "expires_at": "2027-05-19T14:52:53Z",
+  "issued_at": "2026-05-20T08:28:59Z",
+  "expires_at": "2027-05-20T08:28:59Z",
   "min_unterm_version": "0.17.0",
   "manifests": [
     {
       "id": "aider",
-      "version": 1,
+      "version": 2,
       "name": "Aider",
       "vendor": "paul-gauthier",
       "category": "first-party",
@@ -134,6 +134,47 @@
         "starting_cwd": "project_root_or_home",
         "audit_default": "on"
       },
+      "auth_modes": [
+        {
+          "id": "byo_key",
+          "recommended": true,
+          "label_i18n": {
+            "en": "Bring your own provider API keys",
+            "zh-CN": "自带 provider API key"
+          },
+          "description_i18n": {
+            "en": "Aider has no subscription tier — supply keys for whichever providers your selected model uses (Anthropic / OpenAI / Google / DeepSeek / OpenRouter / etc.).",
+            "zh-CN": "Aider 没有订阅版，需要你提供所选模型对应 provider 的 API key（Anthropic / OpenAI / Google / DeepSeek / OpenRouter 等）。"
+          },
+          "oauth_trigger": null,
+          "oauth_ready_marker": null,
+          "oauth_timeout_s": 180,
+          "console_url": null,
+          "reveals_settings": [
+            "anthropic_api_key",
+            "openai_api_key"
+          ]
+        },
+        {
+          "id": "local",
+          "recommended": false,
+          "label_i18n": {
+            "en": "Local Ollama / LM Studio",
+            "zh-CN": "本地 Ollama / LM Studio"
+          },
+          "description_i18n": {
+            "en": "Use a local Ollama or any OpenAI-compatible local server. Free + offline; quality depends on model.",
+            "zh-CN": "用本地 Ollama 或任意 OpenAI 兼容的本地服务。免费 + 离线，效果取决于模型。"
+          },
+          "oauth_trigger": null,
+          "oauth_ready_marker": null,
+          "oauth_timeout_s": 180,
+          "console_url": null,
+          "reveals_settings": [
+            "local_base_url"
+          ]
+        }
+      ],
       "settings_schema": [
         {
           "key": "model",
@@ -322,6 +363,24 @@
           "secret_namespace": "openai",
           "since_manifest_version": null,
           "depends_on": null
+        },
+        {
+          "key": "local_base_url",
+          "type": "string",
+          "category": "auth",
+          "default": "http://localhost:11434/v1",
+          "required": false,
+          "sensitive": false,
+          "label_i18n": {},
+          "description_i18n": {},
+          "placeholder": "http://localhost:11434/v1",
+          "restart_required": false,
+          "values": [],
+          "min": null,
+          "max": null,
+          "secret_namespace": null,
+          "since_manifest_version": null,
+          "depends_on": null
         }
       ],
       "settings_storage": {
@@ -336,6 +395,7 @@
               "auto_test": ".auto-test",
               "edit_format": ".edit-format",
               "git_dirty_commits": ".dirty-commits",
+              "local_base_url": ".openai-api-base",
               "map_tokens": ".map-tokens",
               "model": ".model",
               "test_cmd": ".test-cmd"
@@ -345,10 +405,23 @@
         ],
         "env_at_launch": {
           "ANTHROPIC_API_KEY": {
-            "from": "secret:anthropic"
+            "from": "secret:anthropic",
+            "only_if_auth_mode": [
+              "byo_key"
+            ]
+          },
+          "OPENAI_API_BASE": {
+            "from_setting": "local_base_url",
+            "skip_if_empty": true,
+            "only_if_auth_mode": [
+              "local"
+            ]
           },
           "OPENAI_API_KEY": {
-            "from": "secret:openai"
+            "from": "secret:openai",
+            "only_if_auth_mode": [
+              "byo_key"
+            ]
           }
         },
         "live_reload": false,
@@ -362,7 +435,7 @@
     },
     {
       "id": "claude-code",
-      "version": 1,
+      "version": 2,
       "name": "Claude Code",
       "vendor": "Anthropic",
       "category": "first-party",
@@ -512,6 +585,69 @@
         "starting_cwd": "project_root_or_home",
         "audit_default": "on"
       },
+      "auth_modes": [
+        {
+          "id": "subscription",
+          "recommended": true,
+          "label_i18n": {
+            "en": "Anthropic subscription (OAuth) — default",
+            "zh-CN": "Anthropic 官方订阅 (OAuth) — 默认"
+          },
+          "description_i18n": {
+            "en": "Sign in with your claude.ai account. Uses your Pro / Team subscription quota. No API key is injected; no per-token billing.",
+            "zh-CN": "用你的 claude.ai 账号登录，走你已购的 Pro / Team 订阅额度。不注入任何 API key，不按 token 计费。"
+          },
+          "oauth_trigger": {
+            "cmd": [
+              "claude",
+              "login"
+            ]
+          },
+          "oauth_ready_marker": "Logged in",
+          "oauth_timeout_s": 180,
+          "console_url": null,
+          "reveals_settings": []
+        },
+        {
+          "id": "byo_key",
+          "recommended": false,
+          "label_i18n": {
+            "en": "Bring your own Anthropic API key",
+            "zh-CN": "自带 Anthropic API key"
+          },
+          "description_i18n": {
+            "en": "Bypass the subscription and bill calls to your console.anthropic.com API key. Per-token pricing applies.",
+            "zh-CN": "跳过订阅，按 token 计费到你 console.anthropic.com 的 API key。"
+          },
+          "oauth_trigger": null,
+          "oauth_ready_marker": null,
+          "oauth_timeout_s": 180,
+          "console_url": "https://console.anthropic.com/settings/keys",
+          "reveals_settings": [
+            "api_key"
+          ]
+        },
+        {
+          "id": "custom_endpoint",
+          "recommended": false,
+          "label_i18n": {
+            "en": "Custom endpoint / gateway",
+            "zh-CN": "自定义端点 / 网关"
+          },
+          "description_i18n": {
+            "en": "OpenRouter, AWS Bedrock, Google Vertex, a corporate proxy, or any Anthropic-compatible endpoint. You supply the base URL + a key valid for that endpoint.",
+            "zh-CN": "OpenRouter / AWS Bedrock / Google Vertex / 公司 gateway / 任意 Anthropic 兼容端点。需要你提供 base URL 和对应的 API key。"
+          },
+          "oauth_trigger": null,
+          "oauth_ready_marker": null,
+          "oauth_timeout_s": 180,
+          "console_url": null,
+          "reveals_settings": [
+            "base_url_override",
+            "api_key"
+          ]
+        }
+      ],
       "settings_schema": [
         {
           "key": "model",
@@ -685,16 +821,16 @@
         {
           "key": "base_url_override",
           "type": "string",
-          "category": "advanced",
+          "category": "auth",
           "default": "",
           "required": false,
           "sensitive": false,
           "label_i18n": {
-            "en": "Base URL override",
-            "zh-CN": "API 基础 URL 覆盖"
+            "en": "Endpoint base URL",
+            "zh-CN": "端点 base URL"
           },
           "description_i18n": {},
-          "placeholder": "https://gateway.example.com/v1",
+          "placeholder": "https://openrouter.ai/api/v1   ·   https://bedrock.us-east-1.amazonaws.com   ·   https://your-proxy/v1",
           "restart_required": false,
           "values": [],
           "min": null,
@@ -708,11 +844,11 @@
           "type": "secret",
           "category": "auth",
           "default": null,
-          "required": true,
+          "required": false,
           "sensitive": true,
           "label_i18n": {
-            "en": "API key",
-            "zh-CN": "API 密钥"
+            "en": "Anthropic-compatible API key",
+            "zh-CN": "Anthropic 兼容 API key"
           },
           "description_i18n": {},
           "placeholder": null,
@@ -753,11 +889,18 @@
         ],
         "env_at_launch": {
           "ANTHROPIC_API_KEY": {
-            "from": "secret:anthropic"
+            "from": "secret:anthropic",
+            "only_if_auth_mode": [
+              "byo_key",
+              "custom_endpoint"
+            ]
           },
           "ANTHROPIC_BASE_URL": {
             "from_setting": "base_url_override",
-            "skip_if_empty": true
+            "skip_if_empty": true,
+            "only_if_auth_mode": [
+              "custom_endpoint"
+            ]
           }
         },
         "live_reload": false,
@@ -771,7 +914,7 @@
     },
     {
       "id": "codex-cli",
-      "version": 1,
+      "version": 2,
       "name": "Codex CLI",
       "vendor": "OpenAI",
       "category": "first-party",
@@ -918,6 +1061,69 @@
         "starting_cwd": "project_root_or_home",
         "audit_default": "on"
       },
+      "auth_modes": [
+        {
+          "id": "subscription",
+          "recommended": true,
+          "label_i18n": {
+            "en": "ChatGPT subscription (OAuth) — default",
+            "zh-CN": "ChatGPT 官方订阅 (OAuth) — 默认"
+          },
+          "description_i18n": {
+            "en": "Sign in with your ChatGPT account. Uses your Plus / Pro / Team subscription quota. No API key injected; no per-token billing.",
+            "zh-CN": "用你的 ChatGPT 账号登录，走 Plus / Pro / Team 订阅额度。不注入 API key，不按 token 计费。"
+          },
+          "oauth_trigger": {
+            "cmd": [
+              "codex",
+              "login"
+            ]
+          },
+          "oauth_ready_marker": "Signed in",
+          "oauth_timeout_s": 180,
+          "console_url": null,
+          "reveals_settings": []
+        },
+        {
+          "id": "byo_key",
+          "recommended": false,
+          "label_i18n": {
+            "en": "Bring your own OpenAI API key",
+            "zh-CN": "自带 OpenAI API key"
+          },
+          "description_i18n": {
+            "en": "Bypass the subscription and bill calls to your platform.openai.com API key. Per-token pricing.",
+            "zh-CN": "跳过订阅，按 token 计费到你 platform.openai.com 的 API key。"
+          },
+          "oauth_trigger": null,
+          "oauth_ready_marker": null,
+          "oauth_timeout_s": 180,
+          "console_url": "https://platform.openai.com/api-keys",
+          "reveals_settings": [
+            "api_key"
+          ]
+        },
+        {
+          "id": "custom_endpoint",
+          "recommended": false,
+          "label_i18n": {
+            "en": "Custom endpoint / OpenAI-compatible gateway",
+            "zh-CN": "自定义端点 / OpenAI 兼容网关"
+          },
+          "description_i18n": {
+            "en": "Azure OpenAI, OpenRouter, a corporate proxy, or any OpenAI-compatible endpoint. Supply base URL + endpoint key.",
+            "zh-CN": "Azure OpenAI / OpenRouter / 公司 gateway / 任意 OpenAI 兼容端点。需要 base URL 和对应 key。"
+          },
+          "oauth_trigger": null,
+          "oauth_ready_marker": null,
+          "oauth_timeout_s": 180,
+          "console_url": null,
+          "reveals_settings": [
+            "base_url",
+            "api_key"
+          ]
+        }
+      ],
       "settings_schema": [
         {
           "key": "model",
@@ -1093,11 +1299,32 @@
           "depends_on": null
         },
         {
+          "key": "base_url",
+          "type": "string",
+          "category": "auth",
+          "default": "",
+          "required": false,
+          "sensitive": false,
+          "label_i18n": {
+            "en": "Endpoint base URL",
+            "zh-CN": "端点 base URL"
+          },
+          "description_i18n": {},
+          "placeholder": "https://openrouter.ai/api/v1 · https://your-azure-resource.openai.azure.com/openai/deployments/<deploy>",
+          "restart_required": false,
+          "values": [],
+          "min": null,
+          "max": null,
+          "secret_namespace": null,
+          "since_manifest_version": null,
+          "depends_on": null
+        },
+        {
           "key": "api_key",
           "type": "secret",
           "category": "auth",
           "default": null,
-          "required": true,
+          "required": false,
           "sensitive": true,
           "label_i18n": {},
           "description_i18n": {},
@@ -1120,6 +1347,7 @@
             "atomic_write": true,
             "key_map": {
               "approval_mode": ".approval_mode",
+              "base_url": ".model_provider.base_url",
               "model": ".model",
               "reasoning_effort": ".model_reasoning_effort",
               "sandbox_mode": ".sandbox_mode"
@@ -1138,10 +1366,22 @@
         "env_at_launch": {
           "CODEX_TELEMETRY_OPT_OUT": {
             "from_setting": "telemetry_enabled",
-            "skip_if_empty": true
+            "skip_if_empty": true,
+            "only_if_auth_mode": []
           },
           "OPENAI_API_KEY": {
-            "from": "secret:openai"
+            "from": "secret:openai",
+            "only_if_auth_mode": [
+              "byo_key",
+              "custom_endpoint"
+            ]
+          },
+          "OPENAI_BASE_URL": {
+            "from_setting": "base_url",
+            "skip_if_empty": true,
+            "only_if_auth_mode": [
+              "custom_endpoint"
+            ]
           }
         },
         "live_reload": false,
@@ -1155,7 +1395,7 @@
     },
     {
       "id": "gemini-cli",
-      "version": 1,
+      "version": 2,
       "name": "Gemini CLI",
       "vendor": "Google",
       "category": "first-party",
@@ -1289,6 +1529,70 @@
         "starting_cwd": "project_root_or_home",
         "audit_default": "on"
       },
+      "auth_modes": [
+        {
+          "id": "subscription",
+          "recommended": true,
+          "label_i18n": {
+            "en": "Google account (OAuth) — default",
+            "zh-CN": "Google 账号 (OAuth) — 默认"
+          },
+          "description_i18n": {
+            "en": "Sign in with your Google account. Uses the free tier / AI Pro / Gemini Advanced quota tied to that account.",
+            "zh-CN": "用 Google 账号登录，走该账号的免费层 / AI Pro / Gemini Advanced 额度。"
+          },
+          "oauth_trigger": {
+            "cmd": [
+              "gemini",
+              "auth",
+              "login"
+            ]
+          },
+          "oauth_ready_marker": "Authenticated",
+          "oauth_timeout_s": 180,
+          "console_url": null,
+          "reveals_settings": []
+        },
+        {
+          "id": "byo_key",
+          "recommended": false,
+          "label_i18n": {
+            "en": "Bring your own Gemini API key",
+            "zh-CN": "自带 Gemini API key"
+          },
+          "description_i18n": {
+            "en": "Use a key from Google AI Studio. Per-token pricing.",
+            "zh-CN": "用 Google AI Studio 申请的 API key，按 token 计费。"
+          },
+          "oauth_trigger": null,
+          "oauth_ready_marker": null,
+          "oauth_timeout_s": 180,
+          "console_url": "https://aistudio.google.com/app/apikey",
+          "reveals_settings": [
+            "api_key"
+          ]
+        },
+        {
+          "id": "vertex_ai",
+          "recommended": false,
+          "label_i18n": {
+            "en": "Google Cloud Vertex AI",
+            "zh-CN": "Google Cloud Vertex AI"
+          },
+          "description_i18n": {
+            "en": "Route through Vertex AI in a GCP project. Uses gcloud auth — no API key needed if `gcloud auth application-default login` is set up.",
+            "zh-CN": "通过 GCP 项目的 Vertex AI 走，用 gcloud 凭证，配好 `gcloud auth application-default login` 即可无需 API key。"
+          },
+          "oauth_trigger": null,
+          "oauth_ready_marker": null,
+          "oauth_timeout_s": 180,
+          "console_url": "https://console.cloud.google.com/vertex-ai",
+          "reveals_settings": [
+            "vertex_project",
+            "vertex_location"
+          ]
+        }
+      ],
       "settings_schema": [
         {
           "key": "model",
@@ -1372,11 +1676,53 @@
           "depends_on": null
         },
         {
+          "key": "vertex_project",
+          "type": "string",
+          "category": "auth",
+          "default": "",
+          "required": false,
+          "sensitive": false,
+          "label_i18n": {
+            "en": "Vertex GCP project id",
+            "zh-CN": "Vertex GCP project id"
+          },
+          "description_i18n": {},
+          "placeholder": "my-gcp-project-id",
+          "restart_required": false,
+          "values": [],
+          "min": null,
+          "max": null,
+          "secret_namespace": null,
+          "since_manifest_version": null,
+          "depends_on": null
+        },
+        {
+          "key": "vertex_location",
+          "type": "string",
+          "category": "auth",
+          "default": "us-central1",
+          "required": false,
+          "sensitive": false,
+          "label_i18n": {
+            "en": "Vertex location",
+            "zh-CN": "Vertex location"
+          },
+          "description_i18n": {},
+          "placeholder": "us-central1",
+          "restart_required": false,
+          "values": [],
+          "min": null,
+          "max": null,
+          "secret_namespace": null,
+          "since_manifest_version": null,
+          "depends_on": null
+        },
+        {
           "key": "api_key",
           "type": "secret",
           "category": "auth",
           "default": null,
-          "required": true,
+          "required": false,
           "sensitive": true,
           "label_i18n": {},
           "description_i18n": {},
@@ -1400,7 +1746,9 @@
             "key_map": {
               "model": ".model",
               "telemetry_enabled": ".telemetry.enabled",
-              "thinking_budget": ".thinking.budget"
+              "thinking_budget": ".thinking.budget",
+              "vertex_location": ".vertex.location",
+              "vertex_project": ".vertex.project"
             },
             "single_key": null
           },
@@ -1415,7 +1763,30 @@
         ],
         "env_at_launch": {
           "GEMINI_API_KEY": {
-            "from": "secret:google"
+            "from": "secret:google",
+            "only_if_auth_mode": [
+              "byo_key"
+            ]
+          },
+          "GOOGLE_CLOUD_LOCATION": {
+            "from_setting": "vertex_location",
+            "skip_if_empty": true,
+            "only_if_auth_mode": [
+              "vertex_ai"
+            ]
+          },
+          "GOOGLE_CLOUD_PROJECT": {
+            "from_setting": "vertex_project",
+            "skip_if_empty": true,
+            "only_if_auth_mode": [
+              "vertex_ai"
+            ]
+          },
+          "GOOGLE_GENAI_USE_VERTEXAI": {
+            "literal": "true",
+            "only_if_auth_mode": [
+              "vertex_ai"
+            ]
           }
         },
         "live_reload": false,
@@ -1429,7 +1800,7 @@
     },
     {
       "id": "opencode",
-      "version": 1,
+      "version": 2,
       "name": "OpenCode",
       "vendor": "SST",
       "category": "first-party",
@@ -1571,6 +1942,49 @@
         "starting_cwd": "project_root_or_home",
         "audit_default": "on"
       },
+      "auth_modes": [
+        {
+          "id": "byo_key",
+          "recommended": true,
+          "label_i18n": {
+            "en": "Bring your own provider API keys (recommended)",
+            "zh-CN": "自带 provider API key (推荐)"
+          },
+          "description_i18n": {
+            "en": "OpenCode has no subscription tier — you supply keys directly for whichever providers you want to use (Anthropic / OpenAI / Google / OpenRouter / etc.). Keys land in the OS keychain; OpenCode reads them from env at launch.",
+            "zh-CN": "OpenCode 没有订阅版，需要你自己提供 provider 的 API key（Anthropic / OpenAI / Google / OpenRouter 等）。Key 存进系统 keychain，OpenCode 启动时从环境变量读取。"
+          },
+          "oauth_trigger": null,
+          "oauth_ready_marker": null,
+          "oauth_timeout_s": 180,
+          "console_url": null,
+          "reveals_settings": [
+            "anthropic_api_key",
+            "openai_api_key",
+            "google_api_key",
+            "openrouter_api_key"
+          ]
+        },
+        {
+          "id": "local",
+          "recommended": false,
+          "label_i18n": {
+            "en": "Local model server (Ollama / LM Studio)",
+            "zh-CN": "本地模型服务 (Ollama / LM Studio)"
+          },
+          "description_i18n": {
+            "en": "Point OpenCode at a locally-running OpenAI-compatible endpoint. Free, fully local, no key.",
+            "zh-CN": "OpenCode 指向本地跑的 OpenAI 兼容端点。免费，完全本地，无需 API key。"
+          },
+          "oauth_trigger": null,
+          "oauth_ready_marker": null,
+          "oauth_timeout_s": 180,
+          "console_url": null,
+          "reveals_settings": [
+            "local_base_url"
+          ]
+        }
+      ],
       "settings_schema": [
         {
           "key": "provider",
@@ -1631,7 +2045,7 @@
           "sensitive": false,
           "label_i18n": {},
           "description_i18n": {},
-          "placeholder": "claude-sonnet-4-6 / gpt-5-codex / gemini-2.5-pro …",
+          "placeholder": "claude-sonnet-4-6 / gpt-5-codex / gemini-2.5-pro / qwen2.5-coder …",
           "restart_required": false,
           "values": [],
           "min": null,
@@ -1778,6 +2192,24 @@
           "secret_namespace": "openrouter",
           "since_manifest_version": null,
           "depends_on": null
+        },
+        {
+          "key": "local_base_url",
+          "type": "string",
+          "category": "auth",
+          "default": "http://localhost:11434/v1",
+          "required": false,
+          "sensitive": false,
+          "label_i18n": {},
+          "description_i18n": {},
+          "placeholder": "http://localhost:11434/v1 (Ollama)  ·  http://localhost:1234/v1 (LM Studio)",
+          "restart_required": false,
+          "values": [],
+          "min": null,
+          "max": null,
+          "secret_namespace": null,
+          "since_manifest_version": null,
+          "depends_on": null
         }
       ],
       "settings_storage": {
@@ -1788,6 +2220,7 @@
             "merge": "preserve_unknown_keys",
             "atomic_write": true,
             "key_map": {
+              "local_base_url": ".providers.local.base_url",
               "model": ".model",
               "provider": ".provider",
               "telemetry_enabled": ".telemetry.enabled",
@@ -1806,16 +2239,35 @@
         ],
         "env_at_launch": {
           "ANTHROPIC_API_KEY": {
-            "from": "secret:anthropic"
+            "from": "secret:anthropic",
+            "only_if_auth_mode": [
+              "byo_key"
+            ]
           },
           "GEMINI_API_KEY": {
-            "from": "secret:google"
+            "from": "secret:google",
+            "only_if_auth_mode": [
+              "byo_key"
+            ]
           },
           "OPENAI_API_KEY": {
-            "from": "secret:openai"
+            "from": "secret:openai",
+            "only_if_auth_mode": [
+              "byo_key"
+            ]
+          },
+          "OPENAI_BASE_URL": {
+            "from_setting": "local_base_url",
+            "skip_if_empty": true,
+            "only_if_auth_mode": [
+              "local"
+            ]
           },
           "OPENROUTER_API_KEY": {
-            "from": "secret:openrouter"
+            "from": "secret:openrouter",
+            "only_if_auth_mode": [
+              "byo_key"
+            ]
           }
         },
         "live_reload": true,
@@ -1831,6 +2283,6 @@
   "signature": {
     "alg": "ed25519",
     "key_id": "unterm-2026-1",
-    "sig": "hVL+Sqe+xbdhTTwWzCDITh/+eC3/oibe/Q37FnyBbcYUiJMLIHKm4aHfHRAT8YhyvIWKJWfrXbDcrg+hfkeiBw=="
+    "sig": "u2p+wDw4oe6FL4L28fzEP5KTiAzX0IG1gZWBkuntRED6i4izOaoxo4FCkjceMnNII1Thw4vVvmZoOzNviSVtBw=="
   }
 }
