@@ -111,18 +111,57 @@ fn which(bin: &str) -> Option<String> {
     if bin.contains('/') {
         return std::path::Path::new(bin).exists().then(|| bin.to_string());
     }
-    let path = std::env::var_os("PATH")?;
-    for dir in std::env::split_paths(&path) {
-        let p = dir.join(bin);
-        if p.is_file() {
-            return Some(p.to_string_lossy().to_string());
-        }
-        #[cfg(windows)]
-        for ext in ["exe", "cmd", "bat", "ps1"] {
-            let p2 = dir.join(format!("{bin}.{ext}"));
-            if p2.is_file() {
-                return Some(p2.to_string_lossy().to_string());
+    // Primary lookup: $PATH as inherited from the parent process.
+    if let Some(path) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&path) {
+            if let Some(found) = check_dir(&dir, bin) {
+                return Some(found);
             }
+        }
+    }
+    // Fallback lookup: common per-user bin dirs that macOS GUI processes
+    // (launched from Finder / Launchpad / Dock) don't inherit. Without this,
+    // an agent like Claude Code installed via `npm install -g` to
+    // ~/.npm-global/bin shows as "not installed" in the AI Agents panel
+    // even though `which claude` works from a shell. We've watched users
+    // get tripped up by this twice; the fallback is cheap so we just do it.
+    if let Some(home) = dirs_next::home_dir() {
+        for sub in [
+            ".local/bin",
+            ".npm-global/bin",
+            ".cargo/bin",
+            ".pyenv/shims",
+            ".rye/shims",
+            ".bun/bin",
+            ".deno/bin",
+            ".volta/bin",
+            "Library/Python/3.13/bin",
+            "Library/Python/3.12/bin",
+            "Library/Python/3.11/bin",
+        ] {
+            if let Some(found) = check_dir(&home.join(sub), bin) {
+                return Some(found);
+            }
+        }
+    }
+    for sys in ["/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin"] {
+        if let Some(found) = check_dir(std::path::Path::new(sys), bin) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+fn check_dir(dir: &std::path::Path, bin: &str) -> Option<String> {
+    let p = dir.join(bin);
+    if p.is_file() {
+        return Some(p.to_string_lossy().to_string());
+    }
+    #[cfg(windows)]
+    for ext in ["exe", "cmd", "bat", "ps1"] {
+        let p2 = dir.join(format!("{bin}.{ext}"));
+        if p2.is_file() {
+            return Some(p2.to_string_lossy().to_string());
         }
     }
     None

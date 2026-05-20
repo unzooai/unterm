@@ -158,6 +158,7 @@
   "web.agents.toast.save_failed": "Save failed: {err}",
   "web.agents.toast.load_failed": "Couldn't load agent: {err}",
   "web.agents.toast.installed": "Installed.",
+  "web.agents.toast.already_installed": "Already installed (v{v}) — skipped install.",
   "web.agents.toast.install_failed": "Install failed",
   "web.agents.toast.uninstalled": "Uninstalled.",
   "web.agents.toast.import_empty": "Nothing on disk to import.",

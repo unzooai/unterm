@@ -413,7 +413,14 @@ function untermSettings() {
       // tab don't pay for the registry-load + sniffer scan.
       if (id === 'profiles' && !this.profiles.loaded) this.loadProfiles();
       if (id === 'mcp' && !this.mcp.loaded) this.loadMcp();
-      if (id === 'agents' && !this.agents.loaded) this.loadAgents();
+      if (id === 'agents') {
+        // Re-detect every time the tab is opened, not just the first time.
+        // Otherwise a binary the user installs in a shell side-by-side won't
+        // show up here without a full panel reload, and worse: a stale "not
+        // installed" can lead them to click Install for something that's
+        // already on PATH (we hit this on 2026-05-20 with Claude Code).
+        this.loadAgents();
+      }
     },
 
     // ---------- AI Agents tab ----------
@@ -591,6 +598,19 @@ function untermSettings() {
 
     async installAgent(id) {
       this.agents.busyId = id;
+      // Pre-check: re-detect right now before we shell out to npm/pipx.
+      // The list view's `installed` flag could be from an earlier page load
+      // when PATH was incomplete (macOS Finder-launch problem). If we now
+      // see it on PATH, skip install and surface "already installed."
+      try {
+        const fresh = await this.api('GET', '/api/agents/' + encodeURIComponent(id));
+        if (fresh && fresh.detect && fresh.detect.ok) {
+          this.toast(this.t('web.agents.toast.already_installed').replace('{v}', fresh.detect.version || '?'), 'info');
+          await this.loadAgents();
+          this.agents.busyId = null;
+          return;
+        }
+      } catch (_) { /* fall through to actual install */ }
       try {
         const res = await this.api('POST', '/api/agents/' + encodeURIComponent(id) + '/install');
         if (res.ok) {

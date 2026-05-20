@@ -158,6 +158,7 @@
   "web.agents.toast.save_failed": "保存失败：{err}",
   "web.agents.toast.load_failed": "加载 agent 失败：{err}",
   "web.agents.toast.installed": "已安装。",
+  "web.agents.toast.already_installed": "本机已装 (v{v})，跳过安装。",
   "web.agents.toast.install_failed": "安装失败",
   "web.agents.toast.uninstalled": "已卸载。",
   "web.agents.toast.import_empty": "本地没有可导入的现有配置。",
