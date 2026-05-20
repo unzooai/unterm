@@ -12,7 +12,7 @@
   "nav.faq": "FAQ",
   "nav.sponsor": "Sponsor",
 
-  "hero.badge": "v0.17 — signed, notarized, ready for agents",
+  "hero.badge": "v0.18 — install Claude Code / Codex / Gemini / OpenCode / Aider in one click",
   "hero.badge.signed": "signed + notarized",
   "hero.badge.platforms": "4 platforms",
 
@@ -47,6 +47,8 @@
 
   "stand.title": "Where Unterm stands out",
   "stand.subtitle": "Three claims you can grep, build, or run yourself. No marketing fog.",
+  "stand.agents.title": "The terminal you boot every AI coding CLI from",
+  "stand.agents.body": "v0.18 makes Unterm a one-click launcher for Claude Code, Codex CLI, Gemini CLI, OpenCode, and Aider. Each agent's install command, OAuth flow, API key, and native config file are described by a signed manifest fetched from <code class=\"font-mono text-xs\">unterm.app</code>; the runtime drops the key into your OS keychain, writes the agent's own JSON/TOML/YAML config (preserving unknown fields), exposes Unterm itself to the agent as an MCP server, and records the session into audit — all reachable from the CLI and the new <em>AI Agents</em> Web Settings tab.",
   "stand.split.title": "AI splits panes from outside the terminal",
   "stand.split.body": "<code class=\"font-mono text-xs\">session.split</code> + <code class=\"font-mono text-xs\">session.focus</code> over MCP let an external agent (Claude Code, Cursor, your script) carve the active window left / right / up / down and hand focus to the new pane — without simulating any keystroke. Built into the Python snippet on the hero. No other terminal exposes pane geometry to outside processes this way.",
   "stand.audit.title": "Every agent write is auditable, revocable, reviewable",
@@ -168,8 +170,10 @@
   "features.engine.title": "GPU rendering",
   "features.engine.body": "Built on a customized WezTerm engine — Metal on macOS, OpenGL on Linux, DirectX via ANGLE on Windows.",
 
-  "whatsnew.title": "What's new in v0.17",
+  "whatsnew.title": "What's new in v0.18",
   "whatsnew.subtitle": "Reflexive control closes the loop: agents can split + focus panes from MCP without simulating keystrokes, and a new MCP tab in Web Settings makes trust persistent + revocable. Builds on the v0.16 audit + suggest foundation.",
+  "whatsnew.agents.title": "AI Agent integration: 5 first-party CLIs, one click each",
+  "whatsnew.agents.body": "Install / authenticate / configure / launch any of Claude Code, Codex CLI, Gemini CLI, OpenCode, or Aider directly from Unterm's Web Settings or `unterm-cli agent ...`. Each agent is described by a signed manifest (Ed25519, served from unterm.app/api/agents/manifests, with a baked fallback so offline installs still work). Settings are schema-driven: edit them in a typed form and Unterm writes the agent's native config file with `preserve_unknown_keys` semantics; API keys land in the OS keychain via the existing identity profile. New <code class=\"font-mono text-xs\">Shell → AI Agents</code> menu spawns each one in a fresh tab with the right env injected. Every launched session lands in the audit index tagged <code class=\"font-mono text-xs\">agent_id / manifest_version / profile</code>.",
   "whatsnew.reflexive.title": "session.split + session.focus + an MCP trust panel",
   "whatsnew.reflexive.body": "Three pieces that close the loop on \"AI drives the terminal — including its own.\" <code class=\"font-mono text-xs\">session.split</code> lets an agent split a pane left/right/up/down without simulating a keystroke; <code class=\"font-mono text-xs\">session.focus</code> makes the new pane active so the hand-off is visible to the user. Both are exercised in the live snippet above. Web Settings gains a new <strong>MCP</strong> tab: a runtime trust list (with per-agent write counts and one-click revoke) plus the last 80 audited write attempts in a sortable table. Trust persists to <code class=\"font-mono text-xs\">~/.unterm/trusted_agents.json</code> so Alt+A survives a restart. New <a href=\"/docs/agent-recipes\" class=\"underline\">/docs/agent-recipes</a> page collects 9 copy-pastable Python snippets.",
   "whatsnew.aiterminal.title": "Agent-aware terminal — audit, suggest, ghost text",
@@ -214,7 +218,7 @@
 
   "dl.title": "Get Unterm 0.17",
   "dl.subtitle": "macOS bundle is signed with a Developer ID and Apple-notarized. Linux .deb / AppImage and Windows .msi / .zip are also published.",
-  "dl.cta": "Open the v0.17 release",
+  "dl.cta": "Open the v0.18 release",
 
   "faq.title": "Frequently asked",
   "faq.what.q": "What is Unterm?",

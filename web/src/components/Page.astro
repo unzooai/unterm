@@ -66,10 +66,10 @@ const demoFlow = [
 // features but with a "v0.12" version chip and a denser tech-paragraph
 // body (these are about what changed, not what exists).
 const whatsnew = [
+  { v: "v0.18", title: "whatsnew.agents.title",     body: "whatsnew.agents.body" },
   { v: "v0.17", title: "whatsnew.reflexive.title",  body: "whatsnew.reflexive.body" },
   { v: "v0.16", title: "whatsnew.aiterminal.title", body: "whatsnew.aiterminal.body" },
   { v: "v0.15", title: "whatsnew.configfix.title",  body: "whatsnew.configfix.body" },
-  { v: "v0.14", title: "whatsnew.profiles.title",   body: "whatsnew.profiles.body" },
 ];
 
 const principles = [
@@ -85,7 +85,7 @@ const principles = [
 // GitHub Releases.  `valueRaw` is rendered as-is (mixed locale fragments like
 // version + date); plain `value` is an i18n key that goes through t().
 const tldrRows = [
-  { label: "tldr.version",      valueRaw: "v0.17 · 2026-05-04 · MIT" },
+  { label: "tldr.version",      valueRaw: "v0.18 · 2026-05-20 · MIT" },
   { label: "tldr.price",        value: "tldr.price.value" },
   { label: "tldr.platforms",    value: "tldr.platforms.value" },
   { label: "tldr.size",         value: "tldr.size.value" },
@@ -112,9 +112,9 @@ const heroPills = [
 // SoloMD does the same after the comparison table; we mirror it here as a
 // confidence section after Features.
 const standouts = [
-  { v: "v0.17", icon: "🪟", title: "stand.split.title",   body: "stand.split.body" },
-  { v: "v0.16", icon: "👁️", title: "stand.audit.title",   body: "stand.audit.body" },
-  { v: "v0.14", icon: "🔑", title: "stand.identity.title", body: "stand.identity.body" },
+  { v: "v0.18", icon: "🤖", title: "stand.agents.title",   body: "stand.agents.body" },
+  { v: "v0.17", icon: "🪟", title: "stand.split.title",    body: "stand.split.body" },
+  { v: "v0.16", icon: "👁️", title: "stand.audit.title",    body: "stand.audit.body" },
 ];
 
 // Quality-of-life touches — minor but delightful features. Pure 4-column grid
@@ -162,7 +162,7 @@ const cmpRows = [
 ];
 
 const dlBaseUrl = "https://github.com/unzooai/unterm/releases";
-const releaseTag = "v0.17";
+const releaseTag = "v0.18";
 
 // Download links use the version pinned for this site build, not
 // `stats.release`. The stats call can legitimately see the previous GitHub

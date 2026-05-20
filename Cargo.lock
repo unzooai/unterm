@@ -6517,7 +6517,7 @@ checksum = "673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861"
 
 [[package]]
 name = "unterm"
-version = "0.17.0"
+version = "0.18.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -6612,7 +6612,7 @@ dependencies = [
 
 [[package]]
 name = "unterm-agents"
-version = "0.17.0"
+version = "0.18.0"
 dependencies = [
  "anyhow",
  "assert_fs",
@@ -6637,7 +6637,7 @@ dependencies = [
 
 [[package]]
 name = "unterm-cli"
-version = "0.17.0"
+version = "0.18.0"
 dependencies = [
  "anyhow",
  "cc",
@@ -6682,7 +6682,7 @@ dependencies = [
 
 [[package]]
 name = "unterm-mux"
-version = "0.17.0"
+version = "0.18.0"
 dependencies = [
  "anyhow",
  "async_ossl",
@@ -6708,7 +6708,7 @@ dependencies = [
 
 [[package]]
 name = "unterm-profile"
-version = "0.17.0"
+version = "0.18.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -7201,7 +7201,7 @@ dependencies = [
 
 [[package]]
 name = "wezterm-dynamic"
-version = "0.17.0"
+version = "0.18.0"
 dependencies = [
  "log",
  "maplit",
