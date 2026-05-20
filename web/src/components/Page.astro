@@ -240,7 +240,7 @@ const heroDownloads = [
             <span class="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 animate-ping"></span>
             <span class="relative inline-flex w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
           </span>
-          <span class="text-emerald-300 font-medium">v0.17</span>
+          <span class="text-emerald-300 font-medium">v0.18</span>
           <span class="text-zinc-700">·</span>
           <span>{t("hero.badge.signed")}</span>
           <span class="text-zinc-700">·</span>
@@ -515,7 +515,7 @@ s = socket.create_connection((<span class="text-emerald-300">"127.0.0.1"</span>,
 s.sendall(<span class="text-emerald-300">b</span><span class="text-emerald-300">'&#123;"jsonrpc":"2.0","id":1,"method":"auth.login",'</span>
           <span class="text-emerald-300">b</span><span class="text-emerald-300">'"params":&#123;"token":"…"&#125;&#125;\n'</span>)
 
-<span class="text-zinc-500"># 2. split CURRENT pane right-half (since v0.17) — true side-by-side, not a new tab</span>
+<span class="text-zinc-500"># 2. split CURRENT pane right-half (since v0.17) · also `agent.launch` (v0.18) — true side-by-side, not a new tab</span>
 s.sendall(<span class="text-emerald-300">b</span><span class="text-emerald-300">'&#123;"jsonrpc":"2.0","id":2,"method":"session.split",'</span>
           <span class="text-emerald-300">b</span><span class="text-emerald-300">'"params":&#123;"id":0,"direction":"right","cwd":"/path/to/repo"&#125;&#125;\n'</span>)
 new_pane_id = …  <span class="text-zinc-500"># parse response → e.g. 5</span>
@@ -550,11 +550,11 @@ s.sendall(<span class="text-emerald-300">b</span><span class="text-emerald-300">
 <span class="text-emerald-400">alexlee@192 unterm %</span> pwd
 /Volumes/Dev/code/unterm
 <span class="text-emerald-400">alexlee@192 unterm %</span> git log --oneline -5
-<span class="text-amber-300">70f099f</span> <span class="text-cyan-300">(HEAD -&gt; master, tag: v0.17)</span> release: prep v0.17 — sweep version refs + add WhatsNew card
-<span class="text-amber-300">22c8854</span> fix(insights): add ShowInsights 进 compute_default_actions 让默认绑定生效
-<span class="text-amber-300">a721298</span> chore: gitignore scratch scripts + Cargo.lock 同步 v0.17.0
-<span class="text-amber-300">5a62d3d</span> release: bump workspace to v0.17.0 + 写 CHANGELOG
-<span class="text-amber-300">d7e276d</span> feat(v0.17): Ghost Text 跨 pane 历史 + ↑↓ 同步 + OSC 133 + Insights 面板
+<span class="text-amber-300">5f44d15</span> <span class="text-cyan-300">(HEAD -&gt; master, tag: v0.18)</span> release: prep v0.18 — AI agent integration
+<span class="text-amber-300">8ae3786</span> agents tab: fix detail view (route + detect plumbing)
+<span class="text-amber-300">7c18235</span> agents tab: wrap detail view in x-if so child bindings only run when open
+<span class="text-amber-300">6ff27a9</span> AI agents: Web Settings tab + 'Shell → AI Agents' submenu
+<span class="text-amber-300">6d22e2f</span> AI agent integration: signed manifests + install/auth/configure/launch runtime
 <span class="text-emerald-400">alexlee@192 unterm %</span> echo '↑ 5 个 commit 都是 Claude 用 unterm-cli + MCP 推的'
 ↑ 5 个 commit 都是 Claude 用 unterm-cli + MCP 推的
 <span class="text-emerald-400">alexlee@192 unterm %</span> ls -la web/src/pages/docs/ | head -10
