@@ -27,16 +27,22 @@ pub struct DetectOutcome {
 /// failure to detect is just `ok: false`.
 pub fn detect(spec: &DetectSpec) -> DetectOutcome {
     let binary_path = which(&spec.command);
-    if binary_path.is_none() {
+    let Some(resolved) = binary_path.clone() else {
         return DetectOutcome {
             ok: false,
             version: None,
             binary_path: None,
             stderr_sample: None,
         };
-    }
+    };
 
-    let mut cmd = Command::new(&spec.command);
+    // Spawn the resolved absolute path, not just `spec.command`. which()'s
+    // fallback may have found the binary in ~/.local/bin (etc.) even when
+    // $PATH inherited by this process doesn't list that dir; running
+    // `Command::new("claude")` in that case would fail to spawn at all,
+    // and we'd report `installed=false` despite knowing where the binary
+    // lives. Resolve once, exec once.
+    let mut cmd = Command::new(&resolved);
     for a in &spec.version_args {
         cmd.arg(a);
     }
