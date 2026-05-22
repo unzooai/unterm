@@ -2167,7 +2167,7 @@ impl TermWindow {
                     .map(|p| p.display().to_string())
                     .unwrap_or_else(|_| c.to_string())
             });
-        let _ = crate::server_info::set_cwd(cwd_for_storage);
+        let _ = crate::server_info::set_cwd(cwd_for_storage.clone());
 
         let border = self.get_os_border();
         let tab_bar_height = self.tab_bar_pixel_height().unwrap_or(0.);
@@ -2250,44 +2250,72 @@ impl TermWindow {
             }
         };
 
-        // Window title pattern: `Unterm — <instance> — <pane title>`.
-        // The instance segment is the NATO-phonetic name (alpha, bravo, …)
-        // assigned at MCP startup so users (and AI agents using
-        // screenshot OCR) can visually map a window back to its
-        // `~/.unterm/instances/<name>.json` metadata. If the instance
-        // file has a user-set `title` override, use that segment
-        // instead; otherwise fall back to plain `Unterm` if no
-        // instance has been assigned yet (very early startup).
+        // Window title — optimized for Dock / Cmd-Tab / Mission Control
+        // distinguishability when multiple Unterm windows are open.
         //
-        // Lua-supplied `format-window-title` callbacks still win and
-        // bypass all of this — power users can format however they like.
-        let instance_segment: Option<String> = {
-            let info = crate::server_info::read_current();
-            info.title
-                .clone()
-                .filter(|t| !t.is_empty())
-                .or_else(|| Some(info.id).filter(|s| !s.is_empty()))
-        };
+        // Pattern (Apple convention `<Document> — <App>`):
+        //     [Z] [i/N] <project> — Unterm (<instance>)
+        //
+        // Why <project> leads:
+        //   The user (and the user's eyes scanning the Dock window-list
+        //   or Cmd-Tab thumbnails) thinks in project names, not in
+        //   "Unterm window #3". Leading the title with the cwd basename
+        //   lets you tell `~/code/unterm` apart from `~/code/solomd`
+        //   at a glance.
+        //
+        // Document segment resolution order:
+        //   1. `info.title` — explicit user-set override
+        //      (`unterm-cli instance set-title …` / set in MCP).
+        //   2. cwd basename — the "project name" for vibe-coders.
+        //   3. `pane.title` — shell-supplied title (OSC 0/2), used as
+        //      a last resort when we can't compute a cwd (e.g. very
+        //      early startup or a remote pane).
+        //
+        // Instance segment (NATO phonetic id) is kept as a trailing
+        // `(alpha)` so AI agents doing screenshot-OCR can still map
+        // a window back to `~/.unterm/instances/<id>.json` metadata.
+        //
+        // Lua `format-window-title` callbacks still win and bypass
+        // all of this — power users can format however they like.
+        let info = crate::server_info::read_current();
+        let user_title_override = info.title.clone().filter(|t| !t.is_empty());
+        let instance_id_segment = Some(info.id).filter(|s| !s.is_empty());
+
+        let project_segment: Option<String> = cwd_for_storage
+            .as_deref()
+            .and_then(|p| std::path::Path::new(p).file_name())
+            .and_then(|n| n.to_str())
+            .map(|s| s.to_string())
+            .filter(|s| !s.is_empty());
 
         let title = match title {
             Some(title) => title,
             None => {
-                if let (Some(pos), Some(tab)) = (active_pane, active_tab) {
-                    let zoom = if pos.is_zoomed { "[Z] " } else { "" };
-                    let body = if num_tabs == 1 {
-                        format!("{}{}", zoom, pos.title)
-                    } else {
-                        format!("{}[{}/{}] {}", zoom, tab.tab_index + 1, num_tabs, pos.title)
-                    };
-                    match instance_segment.as_deref() {
-                        Some(seg) => format!("Unterm — {} — {}", seg, body),
-                        None => format!("Unterm — {}", body),
+                let zoom = active_pane
+                    .as_ref()
+                    .map(|p| if p.is_zoomed { "[Z] " } else { "" })
+                    .unwrap_or("");
+                let tabs_prefix = match &active_tab {
+                    Some(tab) if num_tabs > 1 => {
+                        format!("[{}/{}] ", tab.tab_index + 1, num_tabs)
                     }
+                    _ => String::new(),
+                };
+                let doc = user_title_override
+                    .clone()
+                    .or_else(|| project_segment.clone())
+                    .or_else(|| active_pane.as_ref().map(|p| p.title.clone()))
+                    .unwrap_or_default();
+
+                let head = format!("{}{}{}", zoom, tabs_prefix, doc);
+                let body = if head.trim().is_empty() {
+                    "Unterm".to_string()
                 } else {
-                    match instance_segment.as_deref() {
-                        Some(seg) => format!("Unterm — {}", seg),
-                        None => "Unterm".to_string(),
-                    }
+                    format!("{} — Unterm", head)
+                };
+                match instance_id_segment.as_deref() {
+                    Some(seg) => format!("{} ({})", body, seg),
+                    None => body,
                 }
             }
         };
