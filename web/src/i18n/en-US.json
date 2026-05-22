@@ -183,7 +183,9 @@
   "features.engine.title": "GPU rendering",
   "features.engine.body": "Built on a customized WezTerm engine — Metal on macOS, OpenGL on Linux, DirectX via ANGLE on Windows.",
 
-  "whatsnew.title": "What's new in v0.18",
+  "whatsnew.title": "What's new in v0.19",
+  "whatsnew.windowtitle.title": "Window titles lead with project name",
+  "whatsnew.windowtitle.body": "Open three Unterm windows for three projects and the Dock / Cmd-Tab / Mission Control window-list used to show <code class=\"font-mono text-xs\">Unterm — alpha — zsh</code> for all of them — same prefix, indistinguishable. v0.19 flips to Apple's <code class=\"font-mono text-xs\">&lt;Document&gt; — &lt;App&gt;</code> convention and leads with the project directory basename: <code class=\"font-mono text-xs\">unterm — Unterm (alpha)</code>, <code class=\"font-mono text-xs\">solomd — Unterm (bravo)</code>. The NATO instance id moves to a trailing parenthesis so screenshot-OCR agents still get the mapping back to <code class=\"font-mono text-xs\">~/.unterm/instances/&lt;id&gt;.json</code>. Explicit user overrides (set via <code class=\"font-mono text-xs\">unterm-cli instance set-title</code> or MCP) still take priority.",
   "whatsnew.subtitle": "Reflexive control closes the loop: agents can split + focus panes from MCP without simulating keystrokes, and a new MCP tab in Web Settings makes trust persistent + revocable. Builds on the v0.16 audit + suggest foundation.",
   "whatsnew.agents.title": "AI Agent integration: 5 first-party CLIs, one click each",
   "whatsnew.agents.body": "Install / authenticate / configure / launch any of Claude Code, Codex CLI, Gemini CLI, OpenCode, or Aider directly from Unterm's Web Settings or `unterm-cli agent ...`. Each agent is described by a signed manifest (Ed25519, served from unterm.app/api/agents/manifests, with a baked fallback so offline installs still work). Settings are schema-driven: edit them in a typed form and Unterm writes the agent's native config file with `preserve_unknown_keys` semantics; API keys land in the OS keychain via the existing identity profile. New <code class=\"font-mono text-xs\">Shell → AI Agents</code> menu spawns each one in a fresh tab with the right env injected. Every launched session lands in the audit index tagged <code class=\"font-mono text-xs\">agent_id / manifest_version / profile</code>.",
@@ -231,9 +233,9 @@
   "cmp.intentional": "✗ (by design)",
   "cmp.note": "Comparison reflects publicly documented features as of 2026-05-01. Other terminals may have closed-source or roadmap items not listed.",
 
-  "dl.title": "Get Unterm 0.17",
+  "dl.title": "Get Unterm 0.19",
   "dl.subtitle": "macOS bundle is signed with a Developer ID and Apple-notarized. Linux .deb / AppImage and Windows .msi / .zip are also published.",
-  "dl.cta": "Open the v0.18 release",
+  "dl.cta": "Open the v0.19 release",
 
   "faq.title": "Frequently asked",
   "faq.what.q": "What is Unterm?",

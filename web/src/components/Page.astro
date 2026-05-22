@@ -66,10 +66,10 @@ const demoFlow = [
 // features but with a "v0.12" version chip and a denser tech-paragraph
 // body (these are about what changed, not what exists).
 const whatsnew = [
+  { v: "v0.19", title: "whatsnew.windowtitle.title", body: "whatsnew.windowtitle.body" },
   { v: "v0.18", title: "whatsnew.agents.title",     body: "whatsnew.agents.body" },
   { v: "v0.17", title: "whatsnew.reflexive.title",  body: "whatsnew.reflexive.body" },
   { v: "v0.16", title: "whatsnew.aiterminal.title", body: "whatsnew.aiterminal.body" },
-  { v: "v0.15", title: "whatsnew.configfix.title",  body: "whatsnew.configfix.body" },
 ];
 
 const principles = [
@@ -86,7 +86,7 @@ const principles = [
 // GitHub Releases.  `valueRaw` is rendered as-is (mixed locale fragments like
 // version + date); plain `value` is an i18n key that goes through t().
 const tldrRows = [
-  { label: "tldr.version",         valueRaw: "v0.18 · 2026-05-20 · MIT" },
+  { label: "tldr.version",         valueRaw: "v0.19 · 2026-05-22 · MIT" },
   { label: "tldr.bundled_agents",  value:    "tldr.bundled_agents.value" },
   { label: "tldr.price",        value: "tldr.price.value" },
   { label: "tldr.platforms",    value: "tldr.platforms.value" },
@@ -164,7 +164,7 @@ const cmpRows = [
 ];
 
 const dlBaseUrl = "https://github.com/unzooai/unterm/releases";
-const releaseTag = "v0.18";
+const releaseTag = "v0.19";
 
 // Download links use the version pinned for this site build, not
 // `stats.release`. The stats call can legitimately see the previous GitHub
