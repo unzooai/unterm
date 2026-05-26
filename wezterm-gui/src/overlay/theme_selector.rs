@@ -266,8 +266,20 @@ fn theme_presets() -> Vec<ThemePreset> {
         ThemePreset {
             id: "classic",
             name: "Classic",
-            scheme: "Builtin Tango Dark",
+            scheme: "Classic Dark",
             desc: "Plain high-contrast terminal colors",
+        },
+        ThemePreset {
+            id: "notion-dark",
+            name: "Notion Dark",
+            scheme: "Notion Dark",
+            desc: "Notion-inspired warm dark",
+        },
+        ThemePreset {
+            id: "notion-light",
+            name: "Notion Light",
+            scheme: "Notion Light",
+            desc: "Notion-inspired clean light",
         },
     ]
 }

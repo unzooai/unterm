@@ -158,6 +158,41 @@ impl crate::TermWindow {
             )
         };
 
+        // Unterm: 活动分屏高亮边框 —— 仅在分屏(≥2 pane)时给活动 pane 描边,
+        // 与 inactive_pane_hsb 的背景变暗互补,让焦点一眼可辨(纯黑背景下变暗
+        // 失效时,边框仍能可靠区分焦点)。判断"是否分屏"用 pane 是否占满整个
+        // 终端区域,避免为拿总 pane 数而改函数签名。
+        let pane_is_split = pos.left != 0
+            || pos.top != 0
+            || (pos.width as usize) < self.terminal_size.cols as usize
+            || (pos.height as usize) < self.terminal_size.rows as usize;
+        if pos.is_active && pane_is_split {
+            let thickness = (self.render_metrics.underline_height as f32).max(2.0);
+            let bx = padding_left + border.left.get() as f32 + pos.left as f32 * cell_width;
+            let by = top_pixel_y + pos.top as f32 * cell_height;
+            let bw = pos.width as f32 * cell_width;
+            let bh = pos.height as f32 * cell_height;
+            let active_border = palette.cursor_bg.to_linear();
+            // 上边
+            self.filled_rectangle(layers, 2, euclid::rect(bx, by, bw, thickness), active_border)?;
+            // 下边
+            self.filled_rectangle(
+                layers,
+                2,
+                euclid::rect(bx, by + bh - thickness, bw, thickness),
+                active_border,
+            )?;
+            // 左边
+            self.filled_rectangle(layers, 2, euclid::rect(bx, by, thickness, bh), active_border)?;
+            // 右边
+            self.filled_rectangle(
+                layers,
+                2,
+                euclid::rect(bx + bw - thickness, by, thickness, bh),
+                active_border,
+            )?;
+        }
+
         if self.window_background.is_empty() {
             // Per-pane, palette-specified background
 

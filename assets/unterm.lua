@@ -9,7 +9,9 @@ local act = wezterm.action
 -- 基础设置
 -------------------------------------------------
 config.check_for_updates = false
-config.color_scheme = 'Catppuccin Mocha'
+-- 配色由主题系统(~/.unterm/theme.json,见状态栏 theme: / `unterm-cli theme`)决定,
+-- 不在此硬设 color_scheme,否则会覆盖「选主题」。需要固定配色时取消下一行注释:
+-- config.color_scheme = 'Catppuccin Mocha'
 config.font = wezterm.font('Cascadia Code')
 config.font_size = 12
 config.line_height = 1.0
@@ -79,6 +81,13 @@ config.colors = {
     },
   },
 }
+
+-------------------------------------------------
+-- 分屏焦点区分
+-- 非活动分屏明显变暗（亮度降到 60%、饱和度 80%），
+-- 一眼就能看出当前焦点在哪个分屏（引擎默认 0.8/0.9 对比太弱）
+-------------------------------------------------
+config.inactive_pane_hsb = { brightness = 0.55, saturation = 0.8 }
 
 -------------------------------------------------
 -- Tab 标题：只显示 Shell 名称

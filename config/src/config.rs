@@ -1500,23 +1500,11 @@ impl Config {
             cfg.resolved_palette = cfg.resolved_palette.overlay_with(colors);
         }
 
-        // Unterm: 终端区域使用纯黑背景，与灰色标题栏形成对�?        // 用户如果�?colors.background 中显式设置了颜色，则保留用户设置
-        let user_set_bg = self
-            .colors
-            .as_ref()
-            .and_then(|c| c.background.as_ref())
-            .is_some();
-        if !user_set_bg {
-            cfg.resolved_palette.background = Some(
-                SrgbaTuple(
-                    0x0c as f32 / 255.0,
-                    0x0c as f32 / 255.0,
-                    0x0c as f32 / 255.0,
-                    1.0,
-                )
-                .into(),
-            );
-        }
+        // Unterm: 背景由当前主题(color_scheme)决定,不再强制纯黑。
+        // 这样多套主题(含浅色 Notion Light / daylight)能正确显示各自背景,
+        // 且 inactive_pane_hsb 的变暗对非活动分屏在所有主题下都可见
+        // (纯黑背景会让亮度乘法变暗失效)。用户在 colors.background 的
+        // 显式设置已在上方 overlay_with 生效。
 
         if let Some(bg) = BackgroundLayer::with_legacy(self) {
             cfg.background.insert(0, bg);
@@ -1917,7 +1905,21 @@ fn default_mcp_port() -> u16 {
 }
 
 fn default_color_scheme() -> Option<String> {
-    Some("Catppuccin Mocha".to_string())
+    // Unterm: 优先采用主题选择器写入 ~/.unterm/theme.json 的 color_scheme,
+    // 让「选主题」成为可靠的全局配色来源;无文件时回退 Catppuccin Mocha。
+    // 用户在 unterm.lua 显式设置 color_scheme 仍会覆盖此默认值。
+    read_theme_json_scheme().or_else(|| Some("Catppuccin Mocha".to_string()))
+}
+
+/// 读取 `~/.unterm/theme.json` 里 `color_scheme` 字段(主题选择器写入)。
+fn read_theme_json_scheme() -> Option<String> {
+    let path = HOME_DIR.join(".unterm").join("theme.json");
+    let content = std::fs::read_to_string(path).ok()?;
+    let value: serde_json::Value = serde_json::from_str(&content).ok()?;
+    value
+        .get("color_scheme")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
 }
 
 fn default_default_prog() -> Option<Vec<String>> {

@@ -35,6 +35,7 @@ pub mod lua;
 pub mod meta;
 mod scheme_data;
 mod serial;
+mod unterm_schemes;
 mod ssh;
 mod terminal;
 mod tls;
@@ -163,6 +164,16 @@ pub fn build_default_schemes() -> HashMap<String, Palette> {
     for (scheme_name, data) in scheme_data::SCHEMES.iter() {
         let scheme_name = scheme_name.to_string();
         let scheme = ColorSchemeFile::from_toml_str(data).unwrap();
+        color_schemes.insert(scheme_name, scheme.colors.clone());
+        for alias in scheme.metadata.aliases {
+            color_schemes.insert(alias, scheme.colors.clone());
+        }
+    }
+    // Unterm 内置方案(在 WezTerm 内置之后注册,同名则覆盖)。
+    for (scheme_name, data) in unterm_schemes::UNTERM_SCHEMES.iter() {
+        let scheme_name = scheme_name.to_string();
+        let scheme = ColorSchemeFile::from_toml_str(data)
+            .unwrap_or_else(|e| panic!("invalid unterm scheme {scheme_name:?}: {e}"));
         color_schemes.insert(scheme_name, scheme.colors.clone());
         for alias in scheme.metadata.aliases {
             color_schemes.insert(alias, scheme.colors.clone());
