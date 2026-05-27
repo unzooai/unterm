@@ -13,19 +13,23 @@ mod output;
 mod profile;
 mod proxy;
 mod screenshot;
+mod scrollback;
 mod session;
 mod sessions;
 mod settings;
 mod theme;
+mod upload;
 
 pub use agent::AgentCommand;
 pub use lang::LangCommand;
 pub use profile::ProfileCommand;
 pub use proxy::ProxyCommand;
+pub use scrollback::ScrollbackCommand;
 pub use session::SessionCommand;
 pub use sessions::SessionsCommand;
 pub use settings::SettingsCommand;
 pub use theme::ThemeCommand;
+pub use upload::UploadCommand;
 
 use anyhow::Result;
 use std::path::PathBuf;
@@ -68,6 +72,14 @@ pub fn run_lang(cmd: LangCommand, json_out: bool) -> Result<()> {
 
 pub fn run_agent(cmd: AgentCommand, json_out: bool) -> Result<()> {
     agent::run(cmd, json_out)
+}
+
+pub fn run_upload(cmd: UploadCommand, json_out: bool) -> Result<()> {
+    upload::run(cmd, json_out)
+}
+
+pub fn run_scrollback(cmd: ScrollbackCommand, json_out: bool) -> Result<()> {
+    scrollback::run(cmd, json_out)
 }
 
 /// Apply the optional `--lang <code>` flag for the lifetime of this process.

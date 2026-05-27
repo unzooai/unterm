@@ -1314,6 +1314,45 @@ fn run() -> anyhow::Result<()> {
         }
     }
 
+    // PSReadLine refuses to load when Windows' SPI_GETSCREENREADER flag
+    // is TRUE, leaving PowerShell in cooked line mode with no Ctrl+V
+    // binding and no bracketed paste (DECSET 2004) — so multi-line or
+    // mixed pastes arrive mangled. The flag is a per-user-session global
+    // that a number of unrelated apps (some IMEs, screen-share /
+    // remote-control utilities, briefly-opened Narrator, etc.) set TRUE
+    // and forget to clear on exit. Once that happens every shell in the
+    // session loses its line editor until logout. Clear it for the
+    // current session (no SPIF_UPDATEINIFILE, so we don't touch the
+    // user's persisted accessibility prefs) so shells we spawn get a
+    // working line editor regardless of what other apps left behind.
+    #[cfg(windows)]
+    unsafe {
+        use winapi::um::winuser::{
+            SystemParametersInfoW, SPIF_SENDCHANGE, SPI_GETSCREENREADER, SPI_SETSCREENREADER,
+        };
+        let mut active: i32 = 0;
+        SystemParametersInfoW(
+            SPI_GETSCREENREADER,
+            0,
+            &mut active as *mut _ as *mut _,
+            0,
+        );
+        if active != 0 {
+            let res = SystemParametersInfoW(
+                SPI_SETSCREENREADER,
+                0,
+                std::ptr::null_mut(),
+                SPIF_SENDCHANGE,
+            );
+            if res == 0 {
+                eprintln!(
+                    "SPI_SETSCREENREADER reset failed: {}",
+                    std::io::Error::last_os_error()
+                );
+            }
+        }
+    }
+
     env_bootstrap::bootstrap();
 
     let opts = Opt::parse();

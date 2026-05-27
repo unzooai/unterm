@@ -192,6 +192,20 @@ enum SubCommand {
         output: Option<std::path::PathBuf>,
     },
 
+    #[command(
+        name = "upload",
+        about = "Upload a local file to your configured object storage \
+                 (Aliyun OSS / Tencent COS / Qiniu Kodo) and print the public URL"
+    )]
+    Upload(unterm_cli::UploadCommand),
+
+    #[command(
+        name = "scrollback",
+        about = "Dump the full scrollback + viewport of a pane as text \
+                 (AI-friendly alternative to a rendered long screenshot)"
+    )]
+    Scrollback(unterm_cli::ScrollbackCommand),
+
     /// Generate shell completion information
     #[command(name = "shell-completion")]
     ShellCompletion {
@@ -826,6 +840,8 @@ fn run() -> anyhow::Result<()> {
             include_window,
             output,
         } => unterm_cli::run_screenshot(include_window, output, opts.json),
+        SubCommand::Upload(cmd) => unterm_cli::run_upload(cmd, opts.json),
+        SubCommand::Scrollback(cmd) => unterm_cli::run_scrollback(cmd, opts.json),
         SubCommand::Settings(cmd) => unterm_cli::run_settings(cmd),
         SubCommand::Lang(cmd) => unterm_cli::run_lang(cmd, opts.json),
         SubCommand::Agent(cmd) => unterm_cli::run_agent(cmd, opts.json),

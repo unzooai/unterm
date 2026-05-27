@@ -183,7 +183,9 @@
   "features.engine.title": "GPU rendering",
   "features.engine.body": "Built on a customized WezTerm engine — Metal on macOS, OpenGL on Linux, DirectX via ANGLE on Windows.",
 
-  "whatsnew.title": "What's new in v0.19",
+  "whatsnew.title": "What's new in v0.20",
+  "whatsnew.agentdump.title": "Two more ways to hand a pane to an AI",
+  "whatsnew.agentdump.body": "Two paired pieces that close the agent-handoff loop without dragging files around. (1) <code class=\"font-mono text-xs\">screen.scrollback_text</code> MCP + <code class=\"font-mono text-xs\">unterm-cli scrollback</code> dump the full pane history + viewport as a single string — strictly better than a rendered \"long screenshot\" for LLM hand-off: parses natively, no OCR, no font fidelity loss, optional ANSI escapes for color-aware analysis. (2) <code class=\"font-mono text-xs\">upload.file</code> MCP + <code class=\"font-mono text-xs\">unterm-cli upload &lt;file&gt;</code> push a local file to your own Aliyun OSS / Tencent COS / Qiniu Kodo bucket and return a public URL. Credentials live in <code class=\"font-mono text-xs\">~/.unterm/upload.json</code> and never leave the box — signing is hand-rolled HMAC-SHA1 so we don't drag in any vendor SDK. Together with <code class=\"font-mono text-xs\">capture.window</code>, an agent can screenshot → upload → embed the URL in one round trip. Plus: new Notion Light / Notion Dark / Classic Dark color schemes with an active-pane outline that survives split focus, and a Windows fix that clears a stuck <code class=\"font-mono text-xs\">SPI_SETSCREENREADER</code> flag so PSReadLine and bracketed paste keep working when another app forgets to reset it.",
   "whatsnew.windowtitle.title": "Window titles lead with project name",
   "whatsnew.windowtitle.body": "Open three Unterm windows for three projects and the Dock / Cmd-Tab / Mission Control window-list used to show <code class=\"font-mono text-xs\">Unterm — alpha — zsh</code> for all of them — same prefix, indistinguishable. v0.19 flips to Apple's <code class=\"font-mono text-xs\">&lt;Document&gt; — &lt;App&gt;</code> convention and leads with the project directory basename: <code class=\"font-mono text-xs\">unterm — Unterm (alpha)</code>, <code class=\"font-mono text-xs\">solomd — Unterm (bravo)</code>. The NATO instance id moves to a trailing parenthesis so screenshot-OCR agents still get the mapping back to <code class=\"font-mono text-xs\">~/.unterm/instances/&lt;id&gt;.json</code>. Explicit user overrides (set via <code class=\"font-mono text-xs\">unterm-cli instance set-title</code> or MCP) still take priority.",
   "whatsnew.subtitle": "Reflexive control closes the loop: agents can split + focus panes from MCP without simulating keystrokes, and a new MCP tab in Web Settings makes trust persistent + revocable. Builds on the v0.16 audit + suggest foundation.",
@@ -233,9 +235,9 @@
   "cmp.intentional": "✗ (by design)",
   "cmp.note": "Comparison reflects publicly documented features as of 2026-05-01. Other terminals may have closed-source or roadmap items not listed.",
 
-  "dl.title": "Get Unterm 0.19",
+  "dl.title": "Get Unterm 0.20",
   "dl.subtitle": "macOS bundle is signed with a Developer ID and Apple-notarized. Linux .deb / AppImage and Windows .msi / .zip are also published.",
-  "dl.cta": "Open the v0.19 release",
+  "dl.cta": "Open the v0.20 release",
 
   "faq.title": "Frequently asked",
   "faq.what.q": "What is Unterm?",

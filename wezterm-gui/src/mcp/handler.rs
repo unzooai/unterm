@@ -803,6 +803,12 @@ impl McpHandler {
             // Screen
             "screen.read" => self.screen_read(params),
             "screen.text" => self.screen_text(params),
+            // Full scrollback + viewport as text. AI-friendly alternative to a
+            // rendered "long screenshot" — for long terminal output you want
+            // to hand off to an LLM, this is strictly better than a PNG
+            // (parses natively, no OCR, no font fidelity loss). Pass
+            // `escapes: true` to preserve ANSI styling, otherwise plain text.
+            "screen.scrollback_text" => self.screen_scrollback_text(params),
             "screen.cursor" => self.screen_cursor(params),
             "screen.scroll" => self.screen_scroll(params),
             "screen.search" => self.screen_search(params),
@@ -830,6 +836,11 @@ impl McpHandler {
             "capture.window" => self.capture_window(params),
             "capture.select" => self.capture_select(),
             "capture.clipboard" => self.capture_clipboard(),
+            // Upload to user-configured object storage. Credentials live in
+            // ~/.unterm/upload.json (OSS / COS / Qiniu) and never leave the
+            // local machine. Pairs with `capture.*` so an AI agent can
+            // screenshot → upload → embed the URL without dragging files.
+            "upload.file" => crate::mcp::upload::upload(params),
             // Policy
             "policy.set" => self.policy_set(params),
             "policy.check" => self.policy_check(params),
@@ -998,6 +1009,7 @@ impl McpHandler {
             "screen": [
                 "screen.read",
                 "screen.text",
+                "screen.scrollback_text",
                 "screen.cursor",
                 "screen.scroll",
                 "screen.search",
@@ -1013,6 +1025,9 @@ impl McpHandler {
                 "capture.window",
                 "capture.select",
                 "capture.clipboard"
+            ],
+            "upload": [
+                "upload.file"
             ],
             "proxy": [
                 "proxy.status",
@@ -2888,6 +2903,104 @@ impl McpHandler {
             "cols": dims.cols,
             "rows": dims.viewport_rows,
         }))
+    }
+
+    /// Full scrollback + viewport as a single string, optionally with ANSI
+    /// styling preserved. For long terminal output you want to feed to an
+    /// LLM, this is strictly better than a rendered "long screenshot": no
+    /// OCR step, no font fidelity loss, no encoding back to text on the
+    /// other side. Pairs with `capture.*` for the human-consumption path.
+    ///
+    /// Params:
+    /// - `pane_id` / `session_id` (optional): standard pane resolution.
+    /// - `escapes` (bool, default false): if true, returns text with
+    ///   embedded ANSI color/style escapes. If false, plain text only.
+    /// - `start_line` (int, optional): clamp the start. Default: scrollback_top.
+    /// - `end_line` (int, optional): clamp the end (exclusive). Default: bottom of viewport.
+    ///   Both are absolute StableRowIndex values (negatives are allowed; the
+    ///   server clamps to the actual scrollback range).
+    fn screen_scrollback_text(&self, params: &Value) -> Result<Value> {
+        // Unlike the other screen.* methods we let callers omit pane_id and
+        // fall back to the active pane of the first window — the typical
+        // agent intent is "dump *this* terminal," not "dump some specific
+        // session id I don't know yet."
+        let pane = match self.get_pane(params) {
+            Ok(p) => p,
+            Err(_) => {
+                let mux = self.get_mux()?;
+                mux.iter_windows()
+                    .into_iter()
+                    .find_map(|wid| mux.get_active_tab_for_window(wid))
+                    .and_then(|tab| tab.get_active_pane())
+                    .ok_or_else(|| anyhow!("no active pane available"))?
+            }
+        };
+        let dims = pane.get_dimensions();
+        let want_escapes = params
+            .get("escapes")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        let viewport_bottom = dims.physical_top + dims.viewport_rows as isize;
+        let start = params
+            .get("start_line")
+            .and_then(|v| v.as_i64())
+            .map(|n| n as isize)
+            .unwrap_or(dims.scrollback_top)
+            .max(dims.scrollback_top);
+        let end = params
+            .get("end_line")
+            .and_then(|v| v.as_i64())
+            .map(|n| n as isize)
+            .unwrap_or(viewport_bottom)
+            .min(viewport_bottom);
+
+        if end <= start {
+            return Ok(json!({
+                "text": "",
+                "lines": Vec::<String>::new(),
+                "first_row": start,
+                "row_count": 0,
+                "cols": dims.cols,
+                "escapes": want_escapes,
+                "scrollback_top": dims.scrollback_top,
+                "physical_top": dims.physical_top,
+                "viewport_rows": dims.viewport_rows,
+            }));
+        }
+
+        let (first, lines) = pane.get_lines(start..end);
+
+        if want_escapes {
+            let text = termwiz_funcs::lines_to_escapes(lines).map_err(|e| anyhow!(e))?;
+            Ok(json!({
+                "text": text,
+                "first_row": first,
+                "row_count": (end - start) as i64,
+                "cols": dims.cols,
+                "escapes": true,
+                "scrollback_top": dims.scrollback_top,
+                "physical_top": dims.physical_top,
+                "viewport_rows": dims.viewport_rows,
+            }))
+        } else {
+            let text_lines: Vec<String> = lines
+                .iter()
+                .map(|line| line.as_str().trim_end().to_string())
+                .collect();
+            let text = text_lines.join("\n");
+            Ok(json!({
+                "text": text,
+                "lines": text_lines,
+                "first_row": first,
+                "row_count": (end - start) as i64,
+                "cols": dims.cols,
+                "escapes": false,
+                "scrollback_top": dims.scrollback_top,
+                "physical_top": dims.physical_top,
+                "viewport_rows": dims.viewport_rows,
+            }))
+        }
     }
 
     fn screen_cursor(&self, params: &Value) -> Result<Value> {

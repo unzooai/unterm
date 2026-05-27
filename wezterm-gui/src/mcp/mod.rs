@@ -6,5 +6,6 @@
 
 pub mod handler;
 mod server;
+pub mod upload;
 
 pub use server::start_mcp_server;

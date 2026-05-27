@@ -222,7 +222,9 @@ serde_json = "1.0"
 serde_with = {version="2.0", features = ["chrono_0_4"]}
 serde_yaml = "0.9"
 serial2 = "0.2"
+sha1 = "0.10"
 sha2 = "0.10"
+hmac = "0.12"
 # Ed25519 verification for the signed-manifest envelope shipped by the
 # AI-agent integration runtime. Public key is baked into the binary so a
 # compromise of unterm.app DNS / CF account can't push arbitrary install
@@ -285,7 +287,7 @@ wezterm-char-props = { path = "wezterm-char-props", default-features=false }
 wezterm-client = { path = "wezterm-client" }
 wezterm-color-types = { version="0.3", path = "color-types", default-features=false }
 wezterm-config-derive = { version="0.1", path="config/derive" }
-wezterm-dynamic = { version = "0.19.0", path = "wezterm-dynamic", default-features=false }
+wezterm-dynamic = { version = "0.20.0", path = "wezterm-dynamic", default-features=false }
 wezterm-dynamic-derive = { version="0.1.1", path="wezterm-dynamic/derive" }
 wezterm-escape-parser = { version="0.1.0", path="wezterm-escape-parser" }
 wezterm-font = { path = "wezterm-font" }
