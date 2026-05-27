@@ -347,14 +347,14 @@ const heroDownloads = [
             <div class="ml-auto text-zinc-600">agent-ready</div>
           </div>
           <div class="px-4 py-4 font-mono text-[12.5px] leading-relaxed bg-zinc-950 min-h-[300px] space-y-1.5">
-            <div class="text-zinc-500"><span class="text-emerald-400">→</span> claude: open /work/auth-service and switch cwd</div>
-            <div class="text-zinc-300"><span class="text-cyan-400">unterm</span> mcp.pane.set_cwd <span class="text-zinc-500">{`{ pane_id: 7, cwd: "/work/auth-service" }`}</span></div>
-            <div class="text-zinc-500">     → <span class="text-emerald-400">{`{ ok: true }`}</span></div>
-            <div class="text-zinc-300"><span class="text-cyan-400">unterm</span> mcp.exec.run <span class="text-zinc-500">{`{ pane_id: 7, cmd: "cargo test" }`}</span></div>
+            <div class="text-zinc-500"><span class="text-emerald-400">→</span> claude: open /work/auth-service in a new tab</div>
+            <div class="text-zinc-300"><span class="text-cyan-400">unterm</span> session.create <span class="text-zinc-500">{`{ cwd: "/work/auth-service" }`}</span></div>
+            <div class="text-zinc-500">     → <span class="text-emerald-400">{`{ session_id: "7", pid: 41208 }`}</span></div>
+            <div class="text-zinc-300"><span class="text-cyan-400">unterm</span> exec.run <span class="text-zinc-500">{`{ id: "7", command: "cargo test" }`}</span></div>
             <div class="text-zinc-500">     <span class="text-zinc-400">running 142 tests</span></div>
             <div class="text-zinc-500">     <span class="text-emerald-400">test result: ok. 142 passed; 0 failed</span></div>
-            <div class="text-zinc-300"><span class="text-cyan-400">unterm</span> mcp.screen.read <span class="text-zinc-500">{`{ pane_id: 7, lines: 5 }`}</span></div>
-            <div class="text-zinc-500">     → <span class="text-zinc-300">"cwd switched, build is green"</span></div>
+            <div class="text-zinc-300"><span class="text-cyan-400">unterm</span> screen.scrollback_text <span class="text-zinc-500">{`{ id: "7" }`}</span></div>
+            <div class="text-zinc-500">     → <span class="text-zinc-300">{`{ text: "…build is green", row_count: 142 }`}</span></div>
             <div class="text-zinc-500"><span class="text-emerald-400">←</span> claude: commit and open the release branch.</div>
             <div class="flex items-center gap-1 mt-2">
               <span class="text-emerald-400">$</span>
