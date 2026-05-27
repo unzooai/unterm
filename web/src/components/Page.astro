@@ -508,29 +508,29 @@ const heroDownloads = [
             <div class="text-xs font-mono text-zinc-600">demo</div>
           </div>
           <div class="px-4 py-4 font-mono text-[12.5px] leading-relaxed bg-zinc-950 space-y-1.5 min-h-[320px]">
-            <div class="text-zinc-500"><span class="text-emerald-400">→</span> open /work/auth-service and start a worker pane</div>
-            <div class="text-zinc-300"><span class="text-cyan-400">unterm</span> mcp.pane.set_cwd <span class="text-zinc-500">{`{ pane_id: 7, cwd: "/work/auth-service" }`}</span></div>
-            <div class="text-zinc-500">     → <span class="text-emerald-400">{`{ ok: true }`}</span></div>
-            <div class="text-zinc-300"><span class="text-cyan-400">unterm</span> mcp.exec.run <span class="text-zinc-500">{`{ pane_id: 7, cmd: "claude code" }`}</span></div>
+            <div class="text-zinc-500"><span class="text-emerald-400">→</span> open /work/auth-service in a new tab and start a coding agent</div>
+            <div class="text-zinc-300"><span class="text-cyan-400">unterm</span> session.create <span class="text-zinc-500">{`{ cwd: "/work/auth-service" }`}</span></div>
+            <div class="text-zinc-500">     → <span class="text-emerald-400">{`{ session_id: "7", pid: 41208 }`}</span></div>
+            <div class="text-zinc-300"><span class="text-cyan-400">unterm</span> exec.run <span class="text-zinc-500">{`{ id: "7", command: "claude" }`}</span></div>
             <div class="text-zinc-500">     → <span class="text-zinc-300">inner agent ready</span></div>
-            <div class="text-zinc-300"><span class="text-cyan-400">unterm</span> mcp.exec.run <span class="text-zinc-500">{`{ pane_id: 7, cmd: "cargo test" }`}</span></div>
+            <div class="text-zinc-300"><span class="text-cyan-400">unterm</span> exec.run <span class="text-zinc-500">{`{ id: "7", command: "cargo test" }`}</span></div>
             <div class="text-zinc-500">     <span class="text-zinc-400">running 142 tests</span></div>
             <div class="text-zinc-500">     <span class="text-emerald-400">test result: ok. 142 passed; 0 failed</span></div>
-            <div class="text-zinc-300"><span class="text-cyan-400">unterm</span> mcp.screen.read <span class="text-zinc-500">{`{ pane_id: 7, lines: 5 }`}</span></div>
-            <div class="text-zinc-500">     → <span class="text-zinc-300">"build is green, commit the fix"</span></div>
+            <div class="text-zinc-300"><span class="text-cyan-400">unterm</span> screen.scrollback_text <span class="text-zinc-500">{`{ id: "7" }`}</span></div>
+            <div class="text-zinc-500">     → <span class="text-zinc-300">{`{ text: "…build is green, commit the fix", row_count: 142 }`}</span></div>
             <div class="flex items-center gap-1 mt-2">
               <span class="text-emerald-400">$</span>
               <span class="inline-block w-2 h-4 bg-emerald-400 animate-pulse"></span>
             </div>
           </div>
           <div class="flex flex-wrap items-center gap-2 text-[11px] font-mono text-zinc-400 bg-zinc-900/60 border-t border-zinc-800 px-3 py-1.5">
-            <span>pane: 7</span>
-            <span class="text-zinc-700">|</span>
-            <span class="text-emerald-400">cwd: /work/auth-service</span>
-            <span class="text-zinc-700">|</span>
-            <span>worker: claude code</span>
-            <span class="text-zinc-700">|</span>
-            <span>tests: green</span>
+            <span>zsh</span>
+            <span class="text-zinc-700">·</span>
+            <span class="text-emerald-400">~/work/auth-service</span>
+            <span class="text-zinc-700">·</span>
+            <span>80×24</span>
+            <span class="text-zinc-700">·</span>
+            <span class="text-amber-300">mcp:4</span>
           </div>
         </div>
       </div>

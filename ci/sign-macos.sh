@@ -34,6 +34,22 @@ mkdir -p "$stagedir/Unterm.app/Contents/Resources"
 cp -r assets/shell-integration/* "$stagedir/Unterm.app/Contents/Resources"
 cp -r assets/shell-completion "$stagedir/Unterm.app/Contents/Resources"
 tic -xe wezterm -o "$stagedir/Unterm.app/Contents/Resources/terminfo" termwiz/data/wezterm.terminfo
+
+# Stamp CFBundleShortVersionString on the main app from the tag, so Finder
+# Get Info shows the real release version instead of the stale literal in
+# the template Info.plist. build-macos-finder-sync.sh does the same for the
+# appex; we just mirror that pattern here for the outer bundle.
+if [ -n "${TAG_NAME:-}" ]; then
+  short_version="${TAG_NAME#v}"
+  # Pad "0.20" → "0.20.0" so Finder shows a three-part SemVer that matches
+  # Cargo.toml + Unterm.wxs, rather than the abbreviated tag.
+  if [[ "$short_version" =~ ^[0-9]+\.[0-9]+$ ]]; then
+    short_version="${short_version}.0"
+  fi
+  /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $short_version" \
+    "$stagedir/Unterm.app/Contents/Info.plist"
+fi
+
 bash ci/build-macos-finder-sync.sh "$stagedir/Unterm.app"
 
 for bin in unterm unterm-cli unterm-mux strip-ansi-escapes ; do
@@ -107,6 +123,10 @@ mkdir "$dmg_stage"
 cp -R "$stagedir/Unterm.app" "$dmg_stage/Unterm.app"
 cp -R "assets/macos/Repair Finder Integration.app" "$dmg_stage/"
 chmod +x "$dmg_stage/Repair Finder Integration.app/Contents/MacOS/repair-finder-integration"
+if [ -n "${TAG_NAME:-}" ]; then
+  /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $short_version" \
+    "$dmg_stage/Repair Finder Integration.app/Contents/Info.plist"
+fi
 /usr/bin/codesign --force --options runtime --timestamp \
   --sign "$DEV_ID" "$dmg_stage/Repair Finder Integration.app"
 ln -s /Applications "$dmg_stage/Applications"
