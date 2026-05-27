@@ -850,6 +850,10 @@ impl McpHandler {
             "server.info" => self.server_info(),
             "server.health" => self.server_health(),
             "server.capabilities" => self.server_capabilities(),
+            // Single-call discovery surface for AI agents and the Web Settings
+            // "Reference" tab: MCP methods + CLI subcommands + live keybindings
+            // in one round trip. See `meta.rs` for the source of truth list.
+            "meta.surface" => crate::mcp::meta::surface(params),
             // Multi-instance discovery (one Unterm process = one instance,
             // each with a NATO-phonetic name like "alpha", "bravo", ...)
             "instance.list" => self.instance_list(),
@@ -978,85 +982,16 @@ impl McpHandler {
     }
 
     fn server_capabilities(&self) -> Result<Value> {
-        Ok(json!({
-            "session": [
-                "session.list",
-                "session.create",
-                "session.status",
-                "session.input",
-                "session.resize",
-                "session.destroy",
-                "session.idle",
-                "session.cwd",
-                "session.history",
-                "session.audit_log",
-                "session.recording_start",
-                "session.recording_stop",
-                "session.recording_status",
-                "session.recording_list",
-                "session.recording_read",
-                "session.recording_attach_trace",
-                "session.export_markdown"
-            ],
-            "exec": [
-                "exec.run",
-                "exec.send",
-                "exec.run_wait",
-                "exec.status",
-                "exec.cancel",
-                "signal.send"
-            ],
-            "screen": [
-                "screen.read",
-                "screen.text",
-                "screen.scrollback_text",
-                "screen.cursor",
-                "screen.scroll",
-                "screen.search",
-                "screen.detect_errors"
-            ],
-            "workspace": [
-                "workspace.save",
-                "workspace.restore",
-                "workspace.list"
-            ],
-            "capture": [
-                "capture.screen",
-                "capture.window",
-                "capture.select",
-                "capture.clipboard"
-            ],
-            "upload": [
-                "upload.file"
-            ],
-            "proxy": [
-                "proxy.status",
-                "proxy.nodes",
-                "proxy.switch",
-                "proxy.speedtest",
-                "proxy.configure",
-                "proxy.disable",
-                "proxy.env"
-            ],
-            "governance": [
-                "policy.set",
-                "policy.check",
-                "server.info",
-                "server.health",
-                "server.capabilities",
-                "selftest.run"
-            ],
-            "system": [
-                "system.info",
-                "system.launch_admin"
-            ],
-            "instance": [
-                "instance.list",
-                "instance.info",
-                "instance.set_title",
-                "instance.focus"
-            ]
-        }))
+        // Derive the namespace → methods map from meta::MCP_METHODS so this
+        // listing can never drift from what dispatch actually accepts.
+        // Kept around for back-compat with agents that already learned to
+        // call `server.capabilities`; new agents should prefer `meta.surface`.
+        let mut grouped: std::collections::BTreeMap<&'static str, Vec<&'static str>> =
+            std::collections::BTreeMap::new();
+        for m in crate::mcp::meta::MCP_METHODS {
+            grouped.entry(m.namespace).or_default().push(m.name);
+        }
+        Ok(serde_json::to_value(&grouped)?)
     }
 
     /// Enumerate every live Unterm instance on this machine. An "instance"

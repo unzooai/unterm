@@ -353,6 +353,7 @@ fn route(req: &Request, auth_token: &str, handler: &McpHandler) -> Response {
         ("GET", p) if p.starts_with("/api/sessions/") && p.ends_with("/markdown") => {
             api_session_markdown(handler, p)
         }
+        ("GET", "/api/reference") => api_reference(),
         ("GET", "/api/i18n") => api_i18n_state(),
         ("POST", "/api/i18n") => api_i18n_set(&req.body),
         ("GET", p) if p.starts_with("/api/i18n/") => {
@@ -788,6 +789,18 @@ fn api_profile_install_ssh_include() -> Response {
         return Response::err(500, "Internal Error", &format!("write ssh config: {e}"));
     }
     Response::ok_json(json!({"ok": true, "already_present": false}))
+}
+
+// --- reference endpoint ----------------------------------------------------
+
+/// `GET /api/reference` — proxies the `meta.surface` MCP method so the
+/// Reference tab in Web Settings renders the same inventory an agent
+/// would receive. No params, no auth state — pure read.
+fn api_reference() -> Response {
+    match crate::mcp::meta::surface(&serde_json::Value::Null) {
+        Ok(v) => Response::ok_json(v),
+        Err(e) => Response::err(500, "Internal Server Error", &e.to_string()),
+    }
 }
 
 // --- i18n endpoints --------------------------------------------------------

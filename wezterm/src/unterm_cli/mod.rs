@@ -12,6 +12,7 @@ mod lang;
 mod output;
 mod profile;
 mod proxy;
+mod reference;
 mod screenshot;
 mod scrollback;
 mod session;
@@ -24,6 +25,7 @@ pub use agent::AgentCommand;
 pub use lang::LangCommand;
 pub use profile::ProfileCommand;
 pub use proxy::ProxyCommand;
+pub use reference::ReferenceCommand;
 pub use scrollback::ScrollbackCommand;
 pub use session::SessionCommand;
 pub use sessions::SessionsCommand;
@@ -80,6 +82,10 @@ pub fn run_upload(cmd: UploadCommand, json_out: bool) -> Result<()> {
 
 pub fn run_scrollback(cmd: ScrollbackCommand, json_out: bool) -> Result<()> {
     scrollback::run(cmd, json_out)
+}
+
+pub fn run_reference(cmd: ReferenceCommand, json_out: bool) -> Result<()> {
+    reference::run(cmd, json_out)
 }
 
 /// Apply the optional `--lang <code>` flag for the lifetime of this process.

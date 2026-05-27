@@ -206,6 +206,13 @@ enum SubCommand {
     )]
     Scrollback(unterm_cli::ScrollbackCommand),
 
+    #[command(
+        name = "reference",
+        about = "Print MCP methods, CLI subcommands, and live keybindings \
+                 (one-call surface inventory for agents and operators)"
+    )]
+    Reference(unterm_cli::ReferenceCommand),
+
     /// Generate shell completion information
     #[command(name = "shell-completion")]
     ShellCompletion {
@@ -842,6 +849,7 @@ fn run() -> anyhow::Result<()> {
         } => unterm_cli::run_screenshot(include_window, output, opts.json),
         SubCommand::Upload(cmd) => unterm_cli::run_upload(cmd, opts.json),
         SubCommand::Scrollback(cmd) => unterm_cli::run_scrollback(cmd, opts.json),
+        SubCommand::Reference(cmd) => unterm_cli::run_reference(cmd, opts.json),
         SubCommand::Settings(cmd) => unterm_cli::run_settings(cmd),
         SubCommand::Lang(cmd) => unterm_cli::run_lang(cmd, opts.json),
         SubCommand::Agent(cmd) => unterm_cli::run_agent(cmd, opts.json),

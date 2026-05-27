@@ -183,7 +183,9 @@
   "features.engine.title": "GPU rendering",
   "features.engine.body": "Built on a customized WezTerm engine — Metal on macOS, OpenGL on Linux, DirectX via ANGLE on Windows.",
 
-  "whatsnew.title": "What's new in v0.20",
+  "whatsnew.title": "What's new in v0.21",
+  "whatsnew.reference.title": "One MCP call now returns every method, every CLI, every shortcut",
+  "whatsnew.reference.body": "A new <code class=\"font-mono text-xs\">meta.surface</code> MCP method + <code class=\"font-mono text-xs\">unterm-cli reference</code> + a Reference tab in Web Settings — same JSON behind all three. An agent that just connected gets the full surface (60+ MCP methods with param schemas, 22 CLI subcommands, every currently-bound keybinding read live from your unterm.lua) in one round trip; users can search it locally without leaving Settings. The MCP method list is now the source of truth for both <code class=\"font-mono text-xs\">server.capabilities</code> and dispatch — adding a new method requires updating one registry, no more drift between dispatch and the published catalog. <code class=\"font-mono text-xs\">unterm-cli reference --section keys --filter copy</code> for a quick local cheatsheet; <code class=\"font-mono text-xs\">--section mcp</code> / <code class=\"font-mono text-xs\">cli</code> for the others.",
   "whatsnew.agentdump.title": "Two more ways to hand a pane to an AI",
   "whatsnew.agentdump.body": "Two paired pieces that close the agent-handoff loop without dragging files around. (1) <code class=\"font-mono text-xs\">screen.scrollback_text</code> MCP + <code class=\"font-mono text-xs\">unterm-cli scrollback</code> dump the full pane history + viewport as a single string — strictly better than a rendered \"long screenshot\" for LLM hand-off: parses natively, no OCR, no font fidelity loss, optional ANSI escapes for color-aware analysis. (2) <code class=\"font-mono text-xs\">upload.file</code> MCP + <code class=\"font-mono text-xs\">unterm-cli upload &lt;file&gt;</code> push a local file to your own Aliyun OSS / Tencent COS / Qiniu Kodo bucket and return a public URL. Credentials live in <code class=\"font-mono text-xs\">~/.unterm/upload.json</code> and never leave the box — signing is hand-rolled HMAC-SHA1 so we don't drag in any vendor SDK. Together with <code class=\"font-mono text-xs\">capture.window</code>, an agent can screenshot → upload → embed the URL in one round trip. Plus: new Notion Light / Notion Dark / Classic Dark color schemes with an active-pane outline that survives split focus, and a Windows fix that clears a stuck <code class=\"font-mono text-xs\">SPI_SETSCREENREADER</code> flag so PSReadLine and bracketed paste keep working when another app forgets to reset it.",
   "whatsnew.windowtitle.title": "Window titles lead with project name",
@@ -235,9 +237,9 @@
   "cmp.intentional": "✗ (by design)",
   "cmp.note": "Comparison reflects publicly documented features as of 2026-05-01. Other terminals may have closed-source or roadmap items not listed.",
 
-  "dl.title": "Get Unterm 0.20",
+  "dl.title": "Get Unterm 0.21",
   "dl.subtitle": "macOS bundle is signed with a Developer ID and Apple-notarized. Linux .deb / AppImage and Windows .msi / .zip are also published.",
-  "dl.cta": "Open the v0.20 release",
+  "dl.cta": "Open the v0.21 release",
 
   "faq.title": "Frequently asked",
   "faq.what.q": "What is Unterm?",

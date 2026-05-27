@@ -48,6 +48,17 @@ function untermSettings() {
       newAgentInput: '',
     },
 
+    // Reference tab — live surface inventory from /api/reference, which
+    // proxies the `meta.surface` MCP method. Loaded lazily on first visit.
+    reference: {
+      loading: false,
+      loaded: false,
+      error: null,
+      filter: '',
+      section: 'all',
+      data: { version: '', mcp_methods: [], cli_commands: [], keybindings: [] },
+    },
+
     // Identity profiles state. Backed by /api/profile/*. Loaded on first
     // visit to the Profiles tab (lazy — most users won't touch profiles).
     profiles: {
@@ -104,6 +115,7 @@ function untermSettings() {
         { id: 'compat', label: this.t('web.nav.compat') },
         { id: 'recording', label: this.t('web.nav.recording'), badge: !this._recordingSeen },
         { id: 'project', label: this.t('web.nav.project') },
+        { id: 'reference', label: this.t('web.nav.reference') },
         { id: 'about', label: this.t('web.nav.about') },
       ];
     },
@@ -418,6 +430,7 @@ function untermSettings() {
       // tab don't pay for the registry-load + sniffer scan.
       if (id === 'profiles' && !this.profiles.loaded) this.loadProfiles();
       if (id === 'mcp' && !this.mcp.loaded) this.loadMcp();
+      if (id === 'reference' && !this.reference.loaded) this.loadReference();
       if (id === 'agents') {
         // Re-detect every time the tab is opened, not just the first time.
         // Otherwise a binary the user installs in a shell side-by-side won't
@@ -754,6 +767,61 @@ function untermSettings() {
         try { document.execCommand('copy'); } catch (_) {}
         document.body.removeChild(ta);
       }
+    },
+
+    async loadReference() {
+      this.reference.loading = true;
+      this.reference.error = null;
+      try {
+        const data = await this.api('GET', '/api/reference');
+        this.reference.data = data;
+        this.reference.loaded = true;
+      } catch (e) {
+        this.reference.error = e.message || String(e);
+      } finally {
+        this.reference.loading = false;
+      }
+    },
+
+    filteredMcp() {
+      const items = this.reference.data.mcp_methods || [];
+      const f = (this.reference.filter || '').toLowerCase();
+      if (!f) return items;
+      return items.filter((m) =>
+        (m.name + ' ' + (m.summary || '') + ' ' + (m.namespace || ''))
+          .toLowerCase()
+          .includes(f)
+      );
+    },
+
+    filteredCli() {
+      const items = this.reference.data.cli_commands || [];
+      const f = (this.reference.filter || '').toLowerCase();
+      if (!f) return items;
+      return items.filter((c) =>
+        (c.name + ' ' + (c.summary || '') + ' ' + ((c.subcommands || []).join(' ')))
+          .toLowerCase()
+          .includes(f)
+      );
+    },
+
+    filteredKeys() {
+      const items = this.reference.data.keybindings || [];
+      const f = (this.reference.filter || '').toLowerCase();
+      if (!f) return items;
+      return items.filter((k) =>
+        (this.formatKey(k) + ' ' + (k.action || '') + ' ' + (k.table || ''))
+          .toLowerCase()
+          .includes(f)
+      );
+    },
+
+    formatKey(k) {
+      // mods are formatted by the server as bitflags-debug like `CTRL | SHIFT`
+      // or `NONE`. Clean those up for display.
+      const m = (k.mods || '').replace(/\s*\|\s*/g, '+').replace(/^NONE$/i, '');
+      const key = k.key || '';
+      return m ? `${m} ${key}` : key;
     },
 
     async loadMcp() {

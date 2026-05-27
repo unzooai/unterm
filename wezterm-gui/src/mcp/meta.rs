@@ -1,0 +1,477 @@
+//! `meta.surface` — single-call inventory of everything an agent can drive
+//! Unterm with: MCP methods, CLI subcommands, and current keybindings.
+//!
+//! Designed for two consumers:
+//!   1. AI agents that just connected and want one round-trip discovery
+//!      of "what can I do here?" without scraping --help output.
+//!   2. The Reference tab in Web Settings — the same JSON renders into a
+//!      searchable in-app cheatsheet, so users discover the surface area
+//!      without having to read external docs.
+//!
+//! The MCP method list is the source of truth: dispatch in `handler.rs`
+//! reads from `MCP_METHODS` so adding a new method in one place is
+//! enough. The CLI list is currently a separate maintained array because
+//! the GUI binary can't directly introspect the CLI binary's clap tree;
+//! discipline (and the matching `unterm-cli reference` self-test) keeps
+//! it honest. Keybindings are read live from the current `InputMap`,
+//! so they never drift.
+//!
+//! Keep `summary` strings short and imperative — they show up in the
+//! Reference UI as a one-line description next to each entry.
+use anyhow::Result;
+use serde::Serialize;
+use serde_json::{json, Value};
+
+#[derive(Debug, Clone, Serialize)]
+pub struct McpMethod {
+    pub name: &'static str,
+    pub namespace: &'static str,
+    pub summary: &'static str,
+    pub params: &'static [Param],
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Param {
+    pub name: &'static str,
+    pub kind: &'static str,
+    pub required: bool,
+    pub summary: &'static str,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CliCommand {
+    pub name: &'static str,
+    pub summary: &'static str,
+    pub subcommands: &'static [&'static str],
+}
+
+const P_PANE_ID: Param = Param {
+    name: "pane_id",
+    kind: "string|int",
+    required: false,
+    summary: "Target pane; defaults to active pane where applicable.",
+};
+const P_SESSION_ID: Param = Param {
+    name: "session_id",
+    kind: "string",
+    required: false,
+    summary: "Alias for pane_id.",
+};
+const NO_PARAMS: &[Param] = &[];
+
+// Single source of truth for MCP methods. `handler.rs` dispatch reads from
+// this list to assert each name has a match arm; introspection callers
+// read it for surface discovery. Adding a new method: write the match
+// arm AND add an entry here, otherwise the dispatch self-check trips in
+// debug builds.
+pub const MCP_METHODS: &[McpMethod] = &[
+    // ---- meta ----
+    McpMethod {
+        name: "meta.surface",
+        namespace: "meta",
+        summary: "Inventory of MCP methods + CLI subcommands + keybindings.",
+        params: NO_PARAMS,
+    },
+    // ---- session ----
+    McpMethod {
+        name: "session.list",
+        namespace: "session",
+        summary: "List every live pane with its title, cwd, and shell.",
+        params: NO_PARAMS,
+    },
+    McpMethod {
+        name: "session.create",
+        namespace: "session",
+        summary: "Spawn a new tab; optionally specify cwd, command, or profile.",
+        params: &[
+            Param { name: "cwd", kind: "string", required: false, summary: "Working directory." },
+            Param { name: "command", kind: "string", required: false, summary: "Override shell command." },
+            Param { name: "profile", kind: "string", required: false, summary: "Identity profile name." },
+        ],
+    },
+    McpMethod {
+        name: "session.status",
+        namespace: "session",
+        summary: "Get pane state: title, cwd, shell, dims, busy flag.",
+        params: &[P_PANE_ID, P_SESSION_ID],
+    },
+    McpMethod {
+        name: "session.get",
+        namespace: "session",
+        summary: "Alias for session.status.",
+        params: &[P_PANE_ID, P_SESSION_ID],
+    },
+    McpMethod {
+        name: "session.split",
+        namespace: "session",
+        summary: "Split the current pane left/right/up/down.",
+        params: &[
+            P_PANE_ID,
+            Param { name: "direction", kind: "string", required: true, summary: "left|right|up|down" },
+        ],
+    },
+    McpMethod {
+        name: "session.focus",
+        namespace: "session",
+        summary: "Bring a pane into focus.",
+        params: &[P_PANE_ID, P_SESSION_ID],
+    },
+    McpMethod {
+        name: "session.input",
+        namespace: "session",
+        summary: "Send a keystroke or text into the pane (audited; subject to confirmation).",
+        params: &[
+            P_PANE_ID,
+            Param { name: "text", kind: "string", required: true, summary: "Raw bytes to inject." },
+        ],
+    },
+    McpMethod {
+        name: "session.resize",
+        namespace: "session",
+        summary: "Resize a pane to the given cols/rows.",
+        params: &[P_PANE_ID, Param { name: "cols", kind: "int", required: true, summary: "" }, Param { name: "rows", kind: "int", required: true, summary: "" }],
+    },
+    McpMethod {
+        name: "session.destroy",
+        namespace: "session",
+        summary: "Close a pane.",
+        params: &[P_PANE_ID, P_SESSION_ID],
+    },
+    McpMethod {
+        name: "session.idle",
+        namespace: "session",
+        summary: "Idle/activity stats for a pane.",
+        params: &[P_PANE_ID, P_SESSION_ID],
+    },
+    McpMethod {
+        name: "session.cwd",
+        namespace: "session",
+        summary: "Read a pane's current working directory.",
+        params: &[P_PANE_ID, P_SESSION_ID],
+    },
+    McpMethod {
+        name: "session.history",
+        namespace: "session",
+        summary: "Shell history for a pane (when shell integration is on).",
+        params: &[P_PANE_ID, P_SESSION_ID],
+    },
+    McpMethod {
+        name: "session.audit_log",
+        namespace: "session",
+        summary: "Last N audited MCP/CLI write actions on this instance.",
+        params: NO_PARAMS,
+    },
+    McpMethod {
+        name: "session.suggest",
+        namespace: "session",
+        summary: "Propose text without touching the PTY — user accepts with Tab.",
+        params: &[P_PANE_ID, Param { name: "text", kind: "string", required: true, summary: "" }, Param { name: "ttl_ms", kind: "int", required: false, summary: "" }],
+    },
+    McpMethod {
+        name: "session.suggest_status",
+        namespace: "session",
+        summary: "Lifecycle state of a pending suggest.",
+        params: &[Param { name: "id", kind: "string", required: true, summary: "" }],
+    },
+    McpMethod {
+        name: "session.suggest_cancel",
+        namespace: "session",
+        summary: "Withdraw a pending suggest.",
+        params: &[Param { name: "id", kind: "string", required: true, summary: "" }],
+    },
+    McpMethod {
+        name: "session.suggest_list",
+        namespace: "session",
+        summary: "List active suggests across all panes.",
+        params: NO_PARAMS,
+    },
+    McpMethod {
+        name: "session.recording_start",
+        namespace: "session",
+        summary: "Begin recording the active pane as an asciicast.",
+        params: &[P_PANE_ID],
+    },
+    McpMethod {
+        name: "session.recording_stop",
+        namespace: "session",
+        summary: "Stop recording.",
+        params: &[P_PANE_ID],
+    },
+    McpMethod {
+        name: "session.recording_status",
+        namespace: "session",
+        summary: "Recording state for a pane.",
+        params: &[P_PANE_ID],
+    },
+    McpMethod {
+        name: "session.recording_list",
+        namespace: "session",
+        summary: "List recorded sessions in <project>/.unterm/sessions/.",
+        params: NO_PARAMS,
+    },
+    McpMethod {
+        name: "session.recording_read",
+        namespace: "session",
+        summary: "Read the asciicast bytes of a recorded session.",
+        params: &[Param { name: "id", kind: "string", required: true, summary: "Recording id." }],
+    },
+    McpMethod {
+        name: "session.export_markdown",
+        namespace: "session",
+        summary: "Render a recorded session as Markdown.",
+        params: &[Param { name: "id", kind: "string", required: true, summary: "" }],
+    },
+    // ---- exec ----
+    McpMethod {
+        name: "exec.run",
+        namespace: "exec",
+        summary: "Fire-and-forget command in a pane (returns immediately).",
+        params: &[P_PANE_ID, Param { name: "command", kind: "string", required: true, summary: "" }],
+    },
+    McpMethod {
+        name: "exec.send",
+        namespace: "exec",
+        summary: "Send raw bytes to a pane's PTY (audited).",
+        params: &[P_PANE_ID, Param { name: "bytes", kind: "string", required: true, summary: "" }],
+    },
+    McpMethod {
+        name: "exec.run_wait",
+        namespace: "exec",
+        summary: "Run a command and block until it exits, returning output.",
+        params: &[P_PANE_ID, Param { name: "command", kind: "string", required: true, summary: "" }, Param { name: "timeout_ms", kind: "int", required: false, summary: "" }],
+    },
+    McpMethod {
+        name: "exec.status",
+        namespace: "exec",
+        summary: "Poll a running exec.run command.",
+        params: &[Param { name: "id", kind: "string", required: true, summary: "Exec id." }],
+    },
+    McpMethod {
+        name: "exec.cancel",
+        namespace: "exec",
+        summary: "Cancel a running exec.run command.",
+        params: &[Param { name: "id", kind: "string", required: true, summary: "" }],
+    },
+    McpMethod {
+        name: "signal.send",
+        namespace: "exec",
+        summary: "Deliver a signal to a pane's foreground process.",
+        params: &[P_PANE_ID, Param { name: "signal", kind: "string", required: true, summary: "INT|TERM|KILL|HUP|USR1|USR2" }],
+    },
+    // ---- screen ----
+    McpMethod {
+        name: "screen.read",
+        namespace: "screen",
+        summary: "Read the visible viewport as a cell grid (rows of cells with style).",
+        params: &[P_PANE_ID, P_SESSION_ID],
+    },
+    McpMethod {
+        name: "screen.text",
+        namespace: "screen",
+        summary: "Read the visible viewport as plain text lines.",
+        params: &[P_PANE_ID, P_SESSION_ID],
+    },
+    McpMethod {
+        name: "screen.scrollback_text",
+        namespace: "screen",
+        summary: "Dump the entire scrollback + viewport as text (LLM hand-off).",
+        params: &[
+            P_PANE_ID,
+            P_SESSION_ID,
+            Param { name: "escapes", kind: "bool", required: false, summary: "Preserve ANSI escapes." },
+            Param { name: "start_line", kind: "int", required: false, summary: "Absolute StableRowIndex." },
+            Param { name: "end_line", kind: "int", required: false, summary: "Absolute StableRowIndex (exclusive)." },
+        ],
+    },
+    McpMethod {
+        name: "screen.cursor",
+        namespace: "screen",
+        summary: "Read the cursor position + shape.",
+        params: &[P_PANE_ID, P_SESSION_ID],
+    },
+    McpMethod {
+        name: "screen.scroll",
+        namespace: "screen",
+        summary: "Scroll the pane's viewport.",
+        params: &[P_PANE_ID, Param { name: "lines", kind: "int", required: true, summary: "Positive scrolls down; negative scrolls up." }],
+    },
+    McpMethod {
+        name: "screen.search",
+        namespace: "screen",
+        summary: "Find a substring in the scrollback.",
+        params: &[P_PANE_ID, Param { name: "pattern", kind: "string", required: true, summary: "" }],
+    },
+    McpMethod {
+        name: "screen.detect_errors",
+        namespace: "screen",
+        summary: "Heuristic scan for error-shaped lines in recent output.",
+        params: &[P_PANE_ID, P_SESSION_ID],
+    },
+    // ---- workspace ----
+    McpMethod {
+        name: "workspace.save",
+        namespace: "workspace",
+        summary: "Persist current window/tab/pane layout as a named workspace.",
+        params: &[Param { name: "name", kind: "string", required: true, summary: "" }],
+    },
+    McpMethod {
+        name: "workspace.restore",
+        namespace: "workspace",
+        summary: "Re-create panes from a saved workspace.",
+        params: &[Param { name: "name", kind: "string", required: true, summary: "" }],
+    },
+    McpMethod {
+        name: "workspace.list",
+        namespace: "workspace",
+        summary: "Names of saved workspaces.",
+        params: NO_PARAMS,
+    },
+    // ---- capture ----
+    McpMethod {
+        name: "capture.screen",
+        namespace: "capture",
+        summary: "PNG of the whole screen (multi-monitor aware).",
+        params: NO_PARAMS,
+    },
+    McpMethod {
+        name: "capture.window",
+        namespace: "capture",
+        summary: "PNG of a specific window matched by title/pid.",
+        params: &[
+            Param { name: "title", kind: "string", required: false, summary: "" },
+            Param { name: "pid", kind: "int", required: false, summary: "" },
+            Param { name: "include_base64", kind: "bool", required: false, summary: "" },
+        ],
+    },
+    McpMethod {
+        name: "capture.select",
+        namespace: "capture",
+        summary: "Interactive region select (headless falls back to screen).",
+        params: NO_PARAMS,
+    },
+    McpMethod {
+        name: "capture.clipboard",
+        namespace: "capture",
+        summary: "Snapshot the user's clipboard (text or image).",
+        params: NO_PARAMS,
+    },
+    // ---- upload ----
+    McpMethod {
+        name: "upload.file",
+        namespace: "upload",
+        summary: "PUT a local file to user-configured OSS/COS/Qiniu; return public URL.",
+        params: &[
+            Param { name: "path", kind: "string", required: true, summary: "Absolute local path." },
+            Param { name: "provider", kind: "string", required: false, summary: "oss|cos|qiniu (default from config)." },
+            Param { name: "key", kind: "string", required: false, summary: "Destination object key." },
+        ],
+    },
+    // ---- proxy ----
+    McpMethod { name: "proxy.status", namespace: "proxy", summary: "Current OS proxy + Unterm overrides.", params: NO_PARAMS },
+    McpMethod { name: "proxy.nodes", namespace: "proxy", summary: "Known proxy nodes from the user's config.", params: NO_PARAMS },
+    McpMethod { name: "proxy.switch", namespace: "proxy", summary: "Switch to a named proxy node.", params: &[Param { name: "node", kind: "string", required: true, summary: "" }] },
+    McpMethod { name: "proxy.speedtest", namespace: "proxy", summary: "Latency test against known proxy endpoints.", params: NO_PARAMS },
+    McpMethod { name: "proxy.configure", namespace: "proxy", summary: "Apply proxy settings to the OS (macOS scutil / Windows reg / Linux env).", params: &[Param { name: "url", kind: "string", required: true, summary: "" }] },
+    McpMethod { name: "proxy.disable", namespace: "proxy", summary: "Clear all OS proxy overrides.", params: NO_PARAMS },
+    McpMethod { name: "proxy.env", namespace: "proxy", summary: "Effective proxy-related env vars.", params: NO_PARAMS },
+    // ---- governance ----
+    McpMethod { name: "policy.set", namespace: "governance", summary: "Update MCP write-confirmation policy.", params: NO_PARAMS },
+    McpMethod { name: "policy.check", namespace: "governance", summary: "Test whether a command would be allowed by policy.", params: &[Param { name: "command", kind: "string", required: true, summary: "" }] },
+    McpMethod { name: "server.info", namespace: "governance", summary: "Server version, uptime, instance id.", params: NO_PARAMS },
+    McpMethod { name: "server.health", namespace: "governance", summary: "Liveness + readiness flags.", params: NO_PARAMS },
+    McpMethod { name: "server.capabilities", namespace: "governance", summary: "Method namespace map (back-compat — prefer meta.surface).", params: NO_PARAMS },
+    McpMethod { name: "selftest.run", namespace: "governance", summary: "Run the built-in MCP self-test suite.", params: NO_PARAMS },
+    McpMethod { name: "agent.identify", namespace: "governance", summary: "Self-tag the calling agent for audit grouping.", params: &[Param { name: "name", kind: "string", required: true, summary: "" }] },
+    McpMethod { name: "agent.whoami", namespace: "governance", summary: "Read the calling agent's self-tag.", params: NO_PARAMS },
+    // ---- system ----
+    McpMethod { name: "system.info", namespace: "system", summary: "OS, arch, hostname, locale.", params: NO_PARAMS },
+    McpMethod { name: "system.launch_admin", namespace: "system", summary: "Re-launch Unterm with elevated privileges (UAC/sudo prompt).", params: NO_PARAMS },
+    // ---- instance ----
+    McpMethod { name: "instance.list", namespace: "instance", summary: "Enumerate live Unterm instances on this machine.", params: NO_PARAMS },
+    McpMethod { name: "instance.info", namespace: "instance", summary: "Details for one instance (this one by default).", params: &[Param { name: "id", kind: "string", required: false, summary: "alpha|bravo|charlie…" }] },
+    McpMethod { name: "instance.set_title", namespace: "instance", summary: "Override the instance window title.", params: &[Param { name: "title", kind: "string", required: true, summary: "" }] },
+    McpMethod { name: "instance.focus", namespace: "instance", summary: "Bring this instance's main window to the front.", params: NO_PARAMS },
+];
+
+// CLI inventory. The MCP server runs in a different binary than the CLI,
+// so we can't introspect clap directly — keep this list in sync with
+// `wezterm/src/main.rs`'s `SubCommand` enum. The `unterm-cli reference`
+// command round-trips through this, so a mismatched entry is visible
+// in the self-test.
+pub const CLI_COMMANDS: &[CliCommand] = &[
+    CliCommand { name: "start", summary: "Launch the Unterm GUI.", subcommands: &[] },
+    CliCommand { name: "cli", summary: "Drive a running Unterm via its mux protocol.", subcommands: &["list", "list-clients", "proxy", "spawn", "split-pane", "send-text", "get-text", "activate-pane", "tlscreds"] },
+    CliCommand { name: "session", summary: "Operate on a single live pane via MCP.", subcommands: &["status", "input", "create", "destroy", "history"] },
+    CliCommand { name: "sessions", summary: "Browse the recorded session archive.", subcommands: &["list", "read", "export"] },
+    CliCommand { name: "screenshot", summary: "Capture the screen or active window.", subcommands: &[] },
+    CliCommand { name: "upload", summary: "Upload a file to your configured object storage.", subcommands: &["config-path"] },
+    CliCommand { name: "scrollback", summary: "Dump the pane scrollback + viewport as text.", subcommands: &[] },
+    CliCommand { name: "reference", summary: "List MCP methods, CLI commands, and keybindings.", subcommands: &[] },
+    CliCommand { name: "settings", summary: "Open Web Settings or print its URL.", subcommands: &["url", "open"] },
+    CliCommand { name: "proxy", summary: "Manage Unterm's proxy via the MCP server.", subcommands: &["status", "switch", "nodes", "speedtest"] },
+    CliCommand { name: "theme", summary: "List or switch Unterm theme presets.", subcommands: &["list", "set"] },
+    CliCommand { name: "profile", summary: "Identity profiles — bind credentials to a window.", subcommands: &["list", "current", "create", "switch", "delete"] },
+    CliCommand { name: "agent", summary: "Install / authenticate / launch AI coding agents.", subcommands: &["list", "install", "auth", "launch", "config"] },
+    CliCommand { name: "lang", summary: "Set or query the UI language.", subcommands: &["get", "set", "list"] },
+    CliCommand { name: "show-keys", summary: "Print every keybinding (effective from config).", subcommands: &[] },
+    CliCommand { name: "ls-fonts", summary: "List available fonts.", subcommands: &[] },
+    CliCommand { name: "imgcat", summary: "Render an image inline in the terminal.", subcommands: &[] },
+    CliCommand { name: "record", summary: "Record a terminal session as an asciicast.", subcommands: &[] },
+    CliCommand { name: "replay", summary: "Replay an asciicast.", subcommands: &[] },
+    CliCommand { name: "ssh", summary: "Open an SSH session inside Unterm.", subcommands: &[] },
+    CliCommand { name: "connect", summary: "Connect to a Unterm mux server.", subcommands: &[] },
+    CliCommand { name: "shell-completion", summary: "Emit shell completion for a given shell.", subcommands: &[] },
+];
+
+/// Read the effective keybindings from the current config and return them
+/// as serializable rows. The InputMap is built fresh from `config::configuration()`
+/// so the listing reflects the user's actual unterm.lua at call time.
+pub fn keybindings_inventory() -> Vec<Value> {
+    use crate::inputmap::InputMap;
+
+    let config = config::configuration();
+    let map = InputMap::new(&config);
+    let mut out = Vec::new();
+
+    // (InputMap.leader is private; we surface it indirectly by listing
+    // entries whose mods contain LEADER. The default table iteration
+    // below picks those up alongside everything else.)
+
+    // Default key table
+    for ((key, mods), entry) in &map.keys.default {
+        out.push(json!({
+            "table": "default",
+            "key": format!("{key:?}"),
+            "mods": format!("{mods:?}"),
+            "action": format!("{:?}", entry.action),
+        }));
+    }
+
+    // Named key tables (vi-mode, etc.)
+    let mut named_tables: Vec<_> = map.keys.by_name.keys().collect();
+    named_tables.sort();
+    for table_name in named_tables {
+        if let Some(table) = map.keys.by_name.get(table_name) {
+            for ((key, mods), entry) in table {
+                out.push(json!({
+                    "table": table_name,
+                    "key": format!("{key:?}"),
+                    "mods": format!("{mods:?}"),
+                    "action": format!("{:?}", entry.action),
+                }));
+            }
+        }
+    }
+
+    out
+}
+
+/// `meta.surface` MCP handler.
+pub fn surface(_params: &Value) -> Result<Value> {
+    Ok(json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "mcp_methods": MCP_METHODS,
+        "cli_commands": CLI_COMMANDS,
+        "keybindings": keybindings_inventory(),
+    }))
+}

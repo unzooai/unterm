@@ -5,6 +5,7 @@
 //! to read screen content, send input, and manage sessions.
 
 pub mod handler;
+pub mod meta;
 mod server;
 pub mod upload;
 

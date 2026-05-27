@@ -1283,6 +1283,137 @@
         </div>
 
         <!-- About -->
+        <!-- =================== REFERENCE =================== -->
+        <!-- Live inventory of every MCP method, every CLI subcommand, and
+             every currently-bound keyboard shortcut. Driven by /api/reference
+             which proxies the `meta.surface` MCP method — the same JSON an
+             agent would receive, rendered here for humans. Filter box does
+             case-insensitive substring match across name + summary + action. -->
+        <div x-show="active==='reference'">
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <h2 class="text-xl font-semibold" x-text="t('web.reference.title')"></h2>
+              <p class="mt-1 text-sm text-zinc-400" x-text="t('web.reference.subtitle')"></p>
+            </div>
+            <div class="flex items-center gap-2">
+              <button
+                class="rounded border border-zinc-700 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
+                @click="loadReference()"
+                x-text="t('web.reference.refresh')"
+              ></button>
+            </div>
+          </div>
+
+          <div class="mt-4">
+            <input
+              type="text"
+              class="w-full rounded border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:border-emerald-500 focus:outline-none"
+              x-model="reference.filter"
+              :placeholder="t('web.reference.filter_placeholder')"
+            />
+          </div>
+
+          <div class="mt-3 flex gap-2 text-xs">
+            <button
+              :class="reference.section==='all' ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50' : 'border-zinc-700 text-zinc-400 hover:text-zinc-200'"
+              class="rounded border px-3 py-1"
+              @click="reference.section='all'"
+              x-text="t('web.reference.section.all')"
+            ></button>
+            <button
+              :class="reference.section==='mcp' ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50' : 'border-zinc-700 text-zinc-400 hover:text-zinc-200'"
+              class="rounded border px-3 py-1"
+              @click="reference.section='mcp'"
+            >MCP <span class="text-zinc-500" x-text="'(' + (reference.data.mcp_methods?.length || 0) + ')'"></span></button>
+            <button
+              :class="reference.section==='cli' ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50' : 'border-zinc-700 text-zinc-400 hover:text-zinc-200'"
+              class="rounded border px-3 py-1"
+              @click="reference.section='cli'"
+            >CLI <span class="text-zinc-500" x-text="'(' + (reference.data.cli_commands?.length || 0) + ')'"></span></button>
+            <button
+              :class="reference.section==='keys' ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50' : 'border-zinc-700 text-zinc-400 hover:text-zinc-200'"
+              class="rounded border px-3 py-1"
+              @click="reference.section='keys'"
+            >Keys <span class="text-zinc-500" x-text="'(' + (reference.data.keybindings?.length || 0) + ')'"></span></button>
+          </div>
+
+          <div x-show="reference.loading" class="mt-6 text-sm text-zinc-500" x-text="t('web.reference.loading')"></div>
+          <div x-show="reference.error" class="mt-6 text-sm text-red-400" x-text="reference.error"></div>
+
+          <!-- MCP methods section -->
+          <div x-show="!reference.loading && !reference.error && (reference.section==='all' || reference.section==='mcp')" class="mt-6">
+            <h3 class="text-sm font-semibold text-zinc-200 mb-2" x-text="t('web.reference.mcp.header')"></h3>
+            <div class="rounded border border-zinc-800 divide-y divide-zinc-800">
+              <template x-for="m in filteredMcp()" :key="m.name">
+                <div class="px-3 py-2">
+                  <div class="flex items-baseline justify-between gap-3">
+                    <code class="text-sm font-mono text-emerald-300" x-text="m.name"></code>
+                    <span class="text-[10px] uppercase tracking-wider text-zinc-500" x-text="m.namespace"></span>
+                  </div>
+                  <div class="mt-0.5 text-sm text-zinc-400" x-text="m.summary"></div>
+                  <div x-show="m.params && m.params.length > 0" class="mt-1 text-xs font-mono text-zinc-500">
+                    <template x-for="p in m.params" :key="p.name">
+                      <span class="mr-3">
+                        <span x-text="p.name"></span><span class="text-zinc-600" x-text="p.required ? '*' : '?'"></span>
+                        <span class="text-zinc-600" x-text="':' + p.kind"></span>
+                      </span>
+                    </template>
+                  </div>
+                </div>
+              </template>
+              <div x-show="filteredMcp().length === 0" class="px-3 py-4 text-center text-xs text-zinc-500" x-text="t('web.reference.empty')"></div>
+            </div>
+          </div>
+
+          <!-- CLI subcommands section -->
+          <div x-show="!reference.loading && !reference.error && (reference.section==='all' || reference.section==='cli')" class="mt-6">
+            <h3 class="text-sm font-semibold text-zinc-200 mb-2" x-text="t('web.reference.cli.header')"></h3>
+            <div class="rounded border border-zinc-800 divide-y divide-zinc-800">
+              <template x-for="c in filteredCli()" :key="c.name">
+                <div class="px-3 py-2">
+                  <div class="flex items-baseline justify-between gap-3">
+                    <code class="text-sm font-mono text-cyan-300">unterm-cli <span x-text="c.name"></span></code>
+                  </div>
+                  <div class="mt-0.5 text-sm text-zinc-400" x-text="c.summary"></div>
+                  <div x-show="c.subcommands && c.subcommands.length > 0" class="mt-1 text-xs font-mono text-zinc-500">
+                    └── <span x-text="c.subcommands.join(', ')"></span>
+                  </div>
+                </div>
+              </template>
+              <div x-show="filteredCli().length === 0" class="px-3 py-4 text-center text-xs text-zinc-500" x-text="t('web.reference.empty')"></div>
+            </div>
+          </div>
+
+          <!-- Keybindings section -->
+          <div x-show="!reference.loading && !reference.error && (reference.section==='all' || reference.section==='keys')" class="mt-6">
+            <h3 class="text-sm font-semibold text-zinc-200 mb-2" x-text="t('web.reference.keys.header')"></h3>
+            <p class="text-xs text-zinc-500 mb-2" x-text="t('web.reference.keys.hint')"></p>
+            <div class="rounded border border-zinc-800 overflow-hidden">
+              <table class="w-full text-left text-xs">
+                <thead class="bg-zinc-900/60 text-zinc-400">
+                  <tr>
+                    <th class="px-3 py-2 font-medium" x-text="t('web.reference.keys.col_keys')"></th>
+                    <th class="px-3 py-2 font-medium" x-text="t('web.reference.keys.col_action')"></th>
+                    <th class="px-3 py-2 font-medium" x-text="t('web.reference.keys.col_table')"></th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-zinc-800">
+                  <template x-for="(k, i) in filteredKeys()" :key="i">
+                    <tr class="hover:bg-zinc-900/40">
+                      <td class="px-3 py-1.5 font-mono text-zinc-200" x-text="formatKey(k)"></td>
+                      <td class="px-3 py-1.5 text-zinc-300" x-text="k.action"></td>
+                      <td class="px-3 py-1.5 text-zinc-500" x-text="k.table"></td>
+                    </tr>
+                  </template>
+                  <tr x-show="filteredKeys().length === 0">
+                    <td colspan="3" class="px-3 py-4 text-center text-xs text-zinc-500" x-text="t('web.reference.empty')"></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
         <div x-show="active==='about'">
           <h2 class="text-xl font-semibold" x-text="t('web.about.title')"></h2>
           <div class="mt-4 space-y-2 text-sm text-zinc-300">
