@@ -341,6 +341,9 @@ pub fn api_launch_plan(id: &str, body: &[u8]) -> Response {
             settings: &state,
             cwd: cwd.as_deref(),
             project_root: cwd.as_deref(),
+            // Preview only — never write MCP config files as a side effect of
+            // rendering the launch plan for the SPA. Real launch (CLI) wires it.
+            mcp: None,
         },
     ) {
         Ok(p) => p,

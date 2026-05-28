@@ -2215,9 +2215,13 @@ fn default_clean_exits() -> Vec<u32> {
 }
 
 fn default_inactive_pane_hsb() -> HsbTransform {
+    // Identity (no dimming). Dimming inactive panes leaves a visible
+    // brightness step along the split seam that runs down into the status
+    // bar; Unterm distinguishes the focused pane by its solid (vs hollow)
+    // cursor instead. Users can re-enable dimming in their config.
     HsbTransform {
-        brightness: 0.8,
-        saturation: 0.9,
+        brightness: 1.0,
+        saturation: 1.0,
         hue: 1.0,
     }
 }

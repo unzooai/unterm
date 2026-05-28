@@ -9,6 +9,7 @@ mod agent;
 mod client;
 pub mod i18n;
 mod lang;
+mod mcp_stdio;
 mod output;
 mod profile;
 mod proxy;
@@ -86,6 +87,10 @@ pub fn run_scrollback(cmd: ScrollbackCommand, json_out: bool) -> Result<()> {
 
 pub fn run_reference(cmd: ReferenceCommand, json_out: bool) -> Result<()> {
     reference::run(cmd, json_out)
+}
+
+pub fn run_mcp_stdio() -> Result<()> {
+    mcp_stdio::run()
 }
 
 /// Apply the optional `--lang <code>` flag for the lifetime of this process.

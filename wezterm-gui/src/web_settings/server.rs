@@ -1267,6 +1267,11 @@ struct ThemePreset {
 }
 
 fn theme_presets() -> &'static [ThemePreset] {
+    // Must stay in sync with the CLI's PRESETS (wezterm/src/unterm_cli/theme.rs)
+    // and the SPA's themes array (assets/settings/app.js). All three list the
+    // same 6 presets; this is the one the /api/theme write path resolves
+    // against, so a missing entry here makes "apply" silently 400 even though
+    // the SPA shows the swatch.
     &[
         ThemePreset {
             id: "standard",
@@ -1286,7 +1291,17 @@ fn theme_presets() -> &'static [ThemePreset] {
         ThemePreset {
             id: "classic",
             name: "Classic",
-            scheme: "Builtin Tango Dark",
+            scheme: "Classic Dark",
+        },
+        ThemePreset {
+            id: "notion-dark",
+            name: "Notion Dark",
+            scheme: "Notion Dark",
+        },
+        ThemePreset {
+            id: "notion-light",
+            name: "Notion Light",
+            scheme: "Notion Light",
         },
     ]
 }

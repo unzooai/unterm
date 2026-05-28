@@ -23,6 +23,13 @@ pub struct TemplateCtx {
     pub profile_id: String,
     pub agent_id: String,
     pub cwd: Option<String>,
+    /// Absolute path to the unterm-cli binary (used to wire agents at the
+    /// `unterm-cli mcp-stdio` bridge). Empty when MCP auto-wire is off.
+    pub unterm_cli: Option<String>,
+    /// MCP control-server connection details for the current instance.
+    pub mcp_host: Option<String>,
+    pub mcp_port: Option<u16>,
+    pub mcp_token: Option<String>,
 }
 
 impl TemplateCtx {
@@ -40,6 +47,13 @@ impl TemplateCtx {
         vars.insert("PROFILE_ID", self.profile_id.clone());
         vars.insert("AGENT_ID", self.agent_id.clone());
         vars.insert("CWD", self.cwd.clone().unwrap_or_default());
+        vars.insert("UNTERM_CLI", self.unterm_cli.clone().unwrap_or_default());
+        vars.insert("MCP_HOST", self.mcp_host.clone().unwrap_or_default());
+        vars.insert(
+            "MCP_PORT",
+            self.mcp_port.map(|p| p.to_string()).unwrap_or_default(),
+        );
+        vars.insert("MCP_TOKEN", self.mcp_token.clone().unwrap_or_default());
         Ok(vars)
     }
 }
@@ -80,6 +94,7 @@ mod tests {
             profile_id: "work".into(),
             agent_id: "claude-code".into(),
             cwd: Some("/tmp/proj".into()),
+            ..Default::default()
         };
         let out = expand("agent={{AGENT_ID}} cwd={{CWD}}", &ctx).unwrap();
         assert_eq!(out, "agent=claude-code cwd=/tmp/proj");

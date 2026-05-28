@@ -23,19 +23,41 @@ pub struct LaunchPlan {
     pub cwd: Option<String>,
 }
 
+/// Connection details for the running Unterm instance's MCP control server,
+/// plus the path to the unterm-cli binary that fronts it via the stdio
+/// bridge. Supplied by the caller (GUI spawn / CLI launch) so the launcher
+/// can auto-wire an agent at `unterm-cli mcp-stdio`. When `None`, MCP
+/// auto-registration is skipped entirely.
+#[derive(Debug, Clone)]
+pub struct McpWireInfo {
+    pub host: String,
+    pub port: u16,
+    pub token: String,
+    pub unterm_cli_path: String,
+}
+
 pub struct LaunchInputs<'a> {
     pub manifest: &'a AgentManifest,
     pub profile_id: &'a str,
     pub settings: &'a SettingsState,
     pub cwd: Option<&'a str>,
     pub project_root: Option<&'a str>,
+    /// Present when the caller wants launched agents auto-wired to Unterm's
+    /// MCP. The launcher writes the agent's native MCP config (per the
+    /// manifest's `mcp.auto_register_unterm` descriptor) pointing at the
+    /// `unterm-cli mcp-stdio` bridge.
+    pub mcp: Option<&'a McpWireInfo>,
 }
 
 pub fn build_launch_plan(inputs: &LaunchInputs<'_>) -> Result<LaunchPlan> {
-    let ctx = TemplateCtx {
+    let mut ctx = TemplateCtx {
         profile_id: inputs.profile_id.to_string(),
         agent_id: inputs.manifest.id.clone(),
         cwd: inputs.cwd.map(|s| s.to_string()),
+        unterm_cli: inputs.mcp.map(|m| m.unterm_cli_path.clone()),
+        mcp_host: inputs.mcp.map(|m| m.host.clone()),
+        mcp_port: inputs.mcp.map(|m| m.port),
+        mcp_token: inputs.mcp.map(|m| m.token.clone()),
     };
 
     let exec = expand(&inputs.manifest.launch.exec, &ctx)?;
@@ -88,7 +110,44 @@ pub fn build_launch_plan(inputs: &LaunchInputs<'_>) -> Result<LaunchPlan> {
         env_unset.push("__UNTERM_ISOLATE__".into()); // sentinel
     }
 
+    // Also surface the MCP connection as env vars so user scripts inside the
+    // agent's pane can reach Unterm even for agents that don't speak MCP.
+    if let Some(mcp) = inputs.mcp {
+        env_set.insert("UNTERM_MCP_HOST".into(), mcp.host.clone());
+        env_set.insert("UNTERM_MCP_PORT".into(), mcp.port.to_string());
+        env_set.insert("UNTERM_MCP_TOKEN".into(), mcp.token.clone());
+        env_set.insert("UNTERM_CLI".into(), mcp.unterm_cli_path.clone());
+    }
+
     let cwd = resolve_cwd(&inputs.manifest.profile_defaults.starting_cwd, inputs);
+
+    // Auto-wire the agent at `unterm-cli mcp-stdio` by writing its native MCP
+    // config — but only if the caller supplied MCP info AND the manifest opts
+    // in via `mcp.auto_register_unterm`. Write failures are non-fatal: the
+    // agent still launches, just without the Unterm toolset pre-registered.
+    if let (Some(mcp), Some(reg)) = (
+        inputs.mcp,
+        inputs
+            .manifest
+            .mcp
+            .as_ref()
+            .and_then(|m| m.auto_register_unterm.as_ref()),
+    ) {
+        // Point {{CWD}} at the *resolved* cwd (which falls back to home) so a
+        // `{{CWD}}/.mcp.json` template can never expand to a bare `/.mcp.json`
+        // when the agent is launched without an explicit cwd.
+        if ctx.cwd.is_none() {
+            ctx.cwd = cwd.clone();
+        }
+        if let Err(e) = write_mcp_config(reg, &ctx, mcp, cwd.as_deref()) {
+            log::warn!(
+                "agent {}: MCP auto-register skipped: {}",
+                inputs.manifest.id,
+                e
+            );
+        }
+    }
+
     Ok(LaunchPlan {
         exec,
         args,
@@ -96,6 +155,149 @@ pub fn build_launch_plan(inputs: &LaunchInputs<'_>) -> Result<LaunchPlan> {
         env_unset,
         cwd,
     })
+}
+
+/// Write (read-merge-write) the agent's native MCP config so it spawns
+/// `unterm-cli mcp-stdio` as a stdio MCP server named `reg.server_name`.
+///
+/// We never blind-overwrite: an existing config is parsed, our single server
+/// entry is set/replaced, and the rest of the user's file is preserved. The
+/// `format` selects both the on-disk syntax (JSON / TOML) and the schema
+/// shape each agent expects.
+fn write_mcp_config(
+    reg: &crate::manifest::McpAutoRegister,
+    ctx: &TemplateCtx,
+    mcp: &McpWireInfo,
+    cwd: Option<&str>,
+) -> Result<()> {
+    use crate::errors::AgentError;
+    use std::path::PathBuf;
+
+    // config_path may be relative (e.g. ".mcp.json"); anchor it at cwd.
+    let raw = expand(&reg.config_path, ctx)?;
+    let path = {
+        let p = PathBuf::from(&raw);
+        if p.is_absolute() {
+            p
+        } else if let Some(c) = cwd {
+            PathBuf::from(c).join(p)
+        } else {
+            p
+        }
+    };
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).ok();
+    }
+
+    let cli = if mcp.unterm_cli_path.is_empty() {
+        "unterm-cli".to_string()
+    } else {
+        mcp.unterm_cli_path.clone()
+    };
+    let server = reg.server_name.clone();
+
+    match reg.format.as_str() {
+        // Claude Code (.mcp.json) and Gemini CLI (~/.gemini/settings.json)
+        // both use a top-level `mcpServers` map. Claude requires an explicit
+        // `"type": "stdio"`; Gemini infers stdio from the presence of
+        // `command`, but tolerates the field, so we emit it for both.
+        "claude_code_v1" | "generic_mcp_json" => {
+            let mut root = read_json(&path);
+            let servers = root
+                .as_object_mut()
+                .and_then(|o| {
+                    o.entry("mcpServers")
+                        .or_insert_with(|| serde_json::json!({}))
+                        .as_object_mut()
+                })
+                .ok_or_else(|| AgentError::ParseFailed("mcpServers not an object".into()))?;
+            servers.insert(
+                server,
+                serde_json::json!({
+                    "type": "stdio",
+                    "command": cli,
+                    "args": ["mcp-stdio"],
+                }),
+            );
+            let text = serde_json::to_string_pretty(&root)
+                .map_err(|e| AgentError::ParseFailed(format!("serialize mcp json: {e}")))?;
+            std::fs::write(&path, text)
+                .map_err(|e| AgentError::ParseFailed(format!("write {}: {e}", path.display())))?;
+        }
+        // OpenCode (opencode.json) uses a *different* shape: the top-level key
+        // is `mcp` (not `mcpServers`), each server has `type: "local"`,
+        // `enabled: true`, and a single `command` ARRAY that fuses the binary
+        // and its args — not a command string + separate args list.
+        "opencode_v1" => {
+            let mut root = read_json(&path);
+            let servers = root
+                .as_object_mut()
+                .and_then(|o| {
+                    o.entry("mcp")
+                        .or_insert_with(|| serde_json::json!({}))
+                        .as_object_mut()
+                })
+                .ok_or_else(|| AgentError::ParseFailed("opencode `mcp` not an object".into()))?;
+            servers.insert(
+                server,
+                serde_json::json!({
+                    "type": "local",
+                    "enabled": true,
+                    "command": [cli, "mcp-stdio"],
+                }),
+            );
+            let text = serde_json::to_string_pretty(&root)
+                .map_err(|e| AgentError::ParseFailed(format!("serialize opencode json: {e}")))?;
+            std::fs::write(&path, text)
+                .map_err(|e| AgentError::ParseFailed(format!("write {}: {e}", path.display())))?;
+        }
+        // Codex CLI (~/.codex/config.toml) — [mcp_servers.<name>] table.
+        "codex_v1" => {
+            let mut doc = read_toml(&path);
+            let tbl = doc
+                .as_table_mut()
+                .ok_or_else(|| AgentError::ParseFailed("codex config not a table".into()))?;
+            let servers = tbl
+                .entry("mcp_servers")
+                .or_insert_with(|| toml::Value::Table(Default::default()))
+                .as_table_mut()
+                .ok_or_else(|| AgentError::ParseFailed("mcp_servers not a table".into()))?;
+            let mut entry = toml::value::Table::new();
+            entry.insert("command".into(), toml::Value::String(cli));
+            entry.insert(
+                "args".into(),
+                toml::Value::Array(vec![toml::Value::String("mcp-stdio".into())]),
+            );
+            servers.insert(server, toml::Value::Table(entry));
+            let text = toml::to_string_pretty(&doc)
+                .map_err(|e| AgentError::ParseFailed(format!("serialize codex toml: {e}")))?;
+            std::fs::write(&path, text)
+                .map_err(|e| AgentError::ParseFailed(format!("write {}: {e}", path.display())))?;
+        }
+        other => {
+            return Err(AgentError::ParseFailed(format!(
+                "unknown mcp config format {other:?}"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Read a JSON file into a Value, returning an empty object if it's missing
+/// or unparseable (we don't want a corrupt user file to abort the launch —
+/// but we also won't clobber a parseable one; the caller merges into it).
+fn read_json(path: &std::path::Path) -> serde_json::Value {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_else(|| serde_json::json!({}))
+}
+
+fn read_toml(path: &std::path::Path) -> toml::Value {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|s| s.parse::<toml::Value>().ok())
+        .unwrap_or_else(|| toml::Value::Table(Default::default()))
 }
 
 fn resolve_env_binding(
@@ -172,5 +374,137 @@ fn resolve_cwd(setting: &Option<String>, inputs: &LaunchInputs<'_>) -> Option<St
             .map(|s| s.to_string())
             .or_else(|| dirs_next::home_dir().map(|p| p.to_string_lossy().to_string())),
         _ => inputs.cwd.map(|s| s.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod mcp_config_tests {
+    use super::*;
+    use crate::manifest::McpAutoRegister;
+    use crate::template::TemplateCtx;
+
+    fn reg(format: &str, config_path: &str) -> McpAutoRegister {
+        McpAutoRegister {
+            config_path: config_path.into(),
+            format: format.into(),
+            server_name: "unterm".into(),
+            transport: "stdio".into(),
+            scopes_default: vec!["read".into()],
+            scopes_optional: vec!["write".into()],
+        }
+    }
+
+    fn wire(cli: &str) -> McpWireInfo {
+        McpWireInfo {
+            host: "127.0.0.1".into(),
+            port: 19876,
+            token: "tok".into(),
+            unterm_cli_path: cli.into(),
+        }
+    }
+
+    fn ctx() -> TemplateCtx {
+        TemplateCtx {
+            unterm_cli: Some("/opt/unterm-cli".into()),
+            mcp_host: Some("127.0.0.1".into()),
+            mcp_port: Some(19876),
+            mcp_token: Some("tok".into()),
+            ..Default::default()
+        }
+    }
+
+    // Claude Code: project-scope .mcp.json with mcpServers + type:stdio.
+    #[test]
+    fn claude_code_mcp_json_shape() {
+        let dir = std::env::temp_dir().join(format!("uw-claude-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let cwd = dir.to_string_lossy().to_string();
+        let mut c = ctx();
+        c.cwd = Some(cwd.clone());
+        write_mcp_config(
+            &reg("claude_code_v1", "{{CWD}}/.mcp.json"),
+            &c,
+            &wire("/opt/unterm-cli"),
+            Some(&cwd),
+        )
+        .unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join(".mcp.json")).unwrap()).unwrap();
+        let s = &v["mcpServers"]["unterm"];
+        assert_eq!(s["type"], "stdio");
+        assert_eq!(s["command"], "/opt/unterm-cli");
+        assert_eq!(s["args"][0], "mcp-stdio");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // OpenCode: top-level `mcp` (not mcpServers), command is a fused ARRAY,
+    // type:"local", enabled:true. This is the conflict the web check caught.
+    #[test]
+    fn opencode_mcp_shape() {
+        let dir = std::env::temp_dir().join(format!("uw-oc-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("opencode.json");
+        write_mcp_config(
+            &reg("opencode_v1", &path.to_string_lossy()),
+            &ctx(),
+            &wire("/opt/unterm-cli"),
+            None,
+        )
+        .unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert!(v.get("mcpServers").is_none(), "opencode must not use mcpServers");
+        let s = &v["mcp"]["unterm"];
+        assert_eq!(s["type"], "local");
+        assert_eq!(s["enabled"], true);
+        assert_eq!(s["command"][0], "/opt/unterm-cli");
+        assert_eq!(s["command"][1], "mcp-stdio");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // Codex: TOML [mcp_servers.unterm] with command + args.
+    #[test]
+    fn codex_toml_shape() {
+        let dir = std::env::temp_dir().join(format!("uw-codex-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        write_mcp_config(
+            &reg("codex_v1", &path.to_string_lossy()),
+            &ctx(),
+            &wire("/opt/unterm-cli"),
+            None,
+        )
+        .unwrap();
+        let doc: toml::Value = std::fs::read_to_string(&path).unwrap().parse().unwrap();
+        let s = &doc["mcp_servers"]["unterm"];
+        assert_eq!(s["command"].as_str(), Some("/opt/unterm-cli"));
+        assert_eq!(s["args"][0].as_str(), Some("mcp-stdio"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // Merge, don't clobber: an existing unrelated server survives our write.
+    #[test]
+    fn merge_preserves_existing_servers() {
+        let dir = std::env::temp_dir().join(format!("uw-merge-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(".mcp.json");
+        std::fs::write(
+            &path,
+            r#"{"mcpServers":{"other":{"command":"x","args":[]}},"extra":42}"#,
+        )
+        .unwrap();
+        write_mcp_config(
+            &reg("claude_code_v1", &path.to_string_lossy()),
+            &ctx(),
+            &wire("/opt/unterm-cli"),
+            None,
+        )
+        .unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(v["mcpServers"]["other"]["command"], "x", "existing server clobbered");
+        assert_eq!(v["mcpServers"]["unterm"]["type"], "stdio", "our server missing");
+        assert_eq!(v["extra"], 42, "unrelated key dropped");
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

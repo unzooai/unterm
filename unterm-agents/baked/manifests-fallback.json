@@ -1,7 +1,7 @@
 {
   "envelope_version": 1,
-  "issued_at": "2026-05-20T08:28:59Z",
-  "expires_at": "2027-05-20T08:28:59Z",
+  "issued_at": "2026-05-28T05:15:49Z",
+  "expires_at": "2027-05-28T05:15:49Z",
   "min_unterm_version": "0.17.0",
   "manifests": [
     {
@@ -435,7 +435,7 @@
     },
     {
       "id": "claude-code",
-      "version": 2,
+      "version": 3,
       "name": "Claude Code",
       "vendor": "Anthropic",
       "category": "first-party",
@@ -559,7 +559,7 @@
       "mcp": {
         "client_supports_mcp": true,
         "auto_register_unterm": {
-          "config_path": "{{HOME}}/.config/claude-code/mcp.json",
+          "config_path": "{{CWD}}/.mcp.json",
           "format": "claude_code_v1",
           "server_name": "unterm",
           "transport": "stdio",
@@ -1395,7 +1395,7 @@
     },
     {
       "id": "gemini-cli",
-      "version": 2,
+      "version": 3,
       "name": "Gemini CLI",
       "vendor": "Google",
       "category": "first-party",
@@ -1514,7 +1514,21 @@
         "args_when_cwd_set": [],
         "respects_unterm_split": true
       },
-      "mcp": null,
+      "mcp": {
+        "client_supports_mcp": true,
+        "auto_register_unterm": {
+          "config_path": "{{HOME}}/.gemini/settings.json",
+          "format": "generic_mcp_json",
+          "server_name": "unterm",
+          "transport": "stdio",
+          "scopes_default": [
+            "read"
+          ],
+          "scopes_optional": [
+            "write"
+          ]
+        }
+      },
       "profile_defaults": {
         "isolate_env": true,
         "inherit_env": [
@@ -2283,6 +2297,6 @@
   "signature": {
     "alg": "ed25519",
     "key_id": "unterm-2026-1",
-    "sig": "u2p+wDw4oe6FL4L28fzEP5KTiAzX0IG1gZWBkuntRED6i4izOaoxo4FCkjceMnNII1Thw4vVvmZoOzNviSVtBw=="
+    "sig": "nYGTkpryH2qTkZBuTW3SjDmxI/t735a0+SPd9X1u7TSxWt4b2qtYwEsCWLDiAzo4cakUGIudQN7Q9PrwZ5DMDw=="
   }
 }

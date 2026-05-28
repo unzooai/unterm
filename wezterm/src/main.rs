@@ -213,6 +213,14 @@ enum SubCommand {
     )]
     Reference(unterm_cli::ReferenceCommand),
 
+    #[command(
+        name = "mcp-stdio",
+        about = "Run an MCP (Model Context Protocol) stdio server that bridges \
+                 an AI agent to this Unterm instance. Spawned automatically by \
+                 the agent launcher; rarely run by hand."
+    )]
+    McpStdio,
+
     /// Generate shell completion information
     #[command(name = "shell-completion")]
     ShellCompletion {
@@ -850,6 +858,7 @@ fn run() -> anyhow::Result<()> {
         SubCommand::Upload(cmd) => unterm_cli::run_upload(cmd, opts.json),
         SubCommand::Scrollback(cmd) => unterm_cli::run_scrollback(cmd, opts.json),
         SubCommand::Reference(cmd) => unterm_cli::run_reference(cmd, opts.json),
+        SubCommand::McpStdio => unterm_cli::run_mcp_stdio(),
         SubCommand::Settings(cmd) => unterm_cli::run_settings(cmd),
         SubCommand::Lang(cmd) => unterm_cli::run_lang(cmd, opts.json),
         SubCommand::Agent(cmd) => unterm_cli::run_agent(cmd, opts.json),

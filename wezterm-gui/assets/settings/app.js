@@ -190,9 +190,23 @@ function untermSettings() {
       {
         id: 'classic',
         name: 'Classic',
-        scheme: 'Builtin Tango Dark',
+        scheme: 'Classic Dark',
         desc: 'Plain high-contrast terminal colors',
-        swatches: ['#000000', '#3465a4', '#4e9a06', '#c4a000', '#cc0000'],
+        swatches: ['#14141a', '#3465a4', '#4e9a06', '#c4a000', '#cc0000'],
+      },
+      {
+        id: 'notion-dark',
+        name: 'Notion Dark',
+        scheme: 'Notion Dark',
+        desc: 'Notion-inspired warm dark',
+        swatches: ['#191919', '#529cca', '#4dab9a', '#ffd666', '#ff7369'],
+      },
+      {
+        id: 'notion-light',
+        name: 'Notion Light',
+        scheme: 'Notion Light',
+        desc: 'Notion-inspired clean light',
+        swatches: ['#f7f6f3', '#337ea9', '#448361', '#cb912f', '#e03e3e'],
       },
     ],
 

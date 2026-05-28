@@ -407,6 +407,7 @@ pub const CLI_COMMANDS: &[CliCommand] = &[
     CliCommand { name: "upload", summary: "Upload a file to your configured object storage.", subcommands: &["config-path"] },
     CliCommand { name: "scrollback", summary: "Dump the pane scrollback + viewport as text.", subcommands: &[] },
     CliCommand { name: "reference", summary: "List MCP methods, CLI commands, and keybindings.", subcommands: &[] },
+    CliCommand { name: "mcp-stdio", summary: "Run an MCP stdio bridge so an AI agent can drive this instance.", subcommands: &[] },
     CliCommand { name: "settings", summary: "Open Web Settings or print its URL.", subcommands: &["url", "open"] },
     CliCommand { name: "proxy", summary: "Manage Unterm's proxy via the MCP server.", subcommands: &["status", "switch", "nodes", "speedtest"] },
     CliCommand { name: "theme", summary: "List or switch Unterm theme presets.", subcommands: &["list", "set"] },

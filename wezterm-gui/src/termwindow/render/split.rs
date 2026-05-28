@@ -29,14 +29,30 @@ impl crate::TermWindow {
         let pos_x = split.left as f32 * cell_width + padding_left + border.left.get() as f32;
 
         if split.direction == SplitDirection::Horizontal {
+            // The divider is drawn ~1 cell taller than the pane rows (the
+            // `1. +` plus the half-cell start offset) so it visually bridges
+            // the half-cell gutter the pane backgrounds use. Upstream WezTerm
+            // has no bottom chrome, but Unterm paints a status bar (and an
+            // optional suggest bar) below the panes — left unclamped, that
+            // extra half-cell punches a vertical line straight through the
+            // status-bar text. Clamp the bottom to the top of the status bar.
+            // End the divider at the pane's actual content bottom
+            // (pos_y + rows·cell), not the upstream `(1.+size)·cell` height.
+            // That extra cell — plus Unterm's status bar sitting one cell off
+            // the window bottom — made the divider's tail land right on the
+            // status-bar text row, slicing through it (e.g. "t|heme:classic").
+            // Clamping to the content bottom leaves the status bar untouched.
+            let divider_top = pos_y - (cell_height / 2.0);
+            let pane_content_bottom = pos_y + split.size as f32 * cell_height;
+            let divider_h = (pane_content_bottom - divider_top).max(0.0);
             self.filled_rectangle(
                 layers,
                 2,
                 euclid::rect(
                     pos_x + (cell_width / 2.0),
-                    pos_y - (cell_height / 2.0),
+                    divider_top,
                     self.render_metrics.underline_height as f32,
-                    (1. + split.size as f32) * cell_height,
+                    divider_h,
                 ),
                 foreground,
             )?;

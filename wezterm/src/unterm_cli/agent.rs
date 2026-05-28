@@ -583,6 +583,8 @@ fn run_plan(id: &str, profile: Option<&str>, cwd: Option<&str>, json_out: bool) 
         settings: &state,
         cwd,
         project_root: cwd, // CLI doesn't compute project root; GUI does.
+        // `plan` is a dry-run preview; don't write MCP config files here.
+        mcp: None,
     })
     .map_err(|e| anyhow!(e.to_string()))?;
     if json_out {
@@ -614,18 +616,40 @@ fn run_plan(id: &str, profile: Option<&str>, cwd: Option<&str>, json_out: bool) 
     Ok(())
 }
 
+/// Resolve the running instance's MCP endpoint + this binary's path into the
+/// shape the launcher needs to auto-wire an agent at `unterm-cli mcp-stdio`.
+/// Returns None if the GUI isn't reachable (launch proceeds without wiring).
+fn mcp_wire_info() -> Option<unterm_agents::launcher::McpWireInfo> {
+    let ep = super::client::ServerEndpoint::resolve().ok()?;
+    let cli = std::env::current_exe()
+        .ok()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|| "unterm-cli".to_string());
+    Some(unterm_agents::launcher::McpWireInfo {
+        host: "127.0.0.1".to_string(),
+        port: ep.port,
+        token: ep.token,
+        unterm_cli_path: cli,
+    })
+}
+
 fn run_launch(id: &str, profile: Option<&str>, cwd: Option<&str>) -> Result<()> {
     let (_, manifest) = lookup(id)?;
     let profile_id = profile_or_default(profile)?;
     let mut state = SettingsState::load(&profile_id, &manifest.id)
         .map_err(|e| anyhow!(e.to_string()))?;
     state.merge_defaults(&manifest.settings_schema);
+    // Resolve the running instance's MCP endpoint + our own binary path so the
+    // launcher can auto-wire the agent at `unterm-cli mcp-stdio`. Best-effort:
+    // if the GUI isn't reachable we still launch, just without MCP wiring.
+    let wire = mcp_wire_info();
     let plan = unterm_agents::launcher::build_launch_plan(&unterm_agents::launcher::LaunchInputs {
         manifest: &manifest,
         profile_id: &profile_id,
         settings: &state,
         cwd,
         project_root: cwd,
+        mcp: wire.as_ref(),
     })
     .map_err(|e| anyhow!(e.to_string()))?;
 

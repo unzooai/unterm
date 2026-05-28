@@ -241,9 +241,15 @@ impl crate::TermWindow {
             1.0,
         );
 
+        // Draw the bar background on layer 1 (not 0) so it fully occludes
+        // everything beneath it at the bottom of the window — in particular
+        // the faint 1px seam where two adjacent pane backgrounds overlap by
+        // half a cell at the split column. On layer 0 that seam bleeds up
+        // through the status-bar text ("t|heme:classic"); a layer-1 fill
+        // composites cleanly over it. The bar text renders after, on top.
         self.filled_rectangle(
             layers,
-            0,
+            1,
             euclid::rect(0., bar_y, bar_width, bar_height),
             bar_bg,
         )?;
@@ -257,7 +263,7 @@ impl crate::TermWindow {
         );
         self.filled_rectangle(
             layers,
-            0,
+            1,
             euclid::rect(0., bar_y, bar_width, 1.0),
             sep_color,
         )?;

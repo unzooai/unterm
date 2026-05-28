@@ -133,6 +133,7 @@ pub fn apply_updates(
             profile_id: profile_id.into(),
             agent_id: manifest.id.clone(),
             cwd: None,
+            ..Default::default()
         };
         for file_spec in &storage.files {
             // Build a view of just the updates that touch this file's key_map.
@@ -207,6 +208,7 @@ pub fn snapshot_existing(
         profile_id: profile_id.into(),
         agent_id: manifest.id.clone(),
         cwd: None,
+        ..Default::default()
     };
     if let Some(storage) = &manifest.settings_storage {
         for file_spec in &storage.files {

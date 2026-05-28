@@ -20,6 +20,21 @@ use wezterm_term::color::{ColorAttribute, ColorPalette};
 use wezterm_term::{Line, StableRowIndex};
 use window::color::LinearRgba;
 
+/// Returns `Some(hsb)` only when the transform actually changes the pixels.
+/// An identity transform (all components 1.0) is returned as `None` so the
+/// quad skips the HSV shader path entirely — that path, when two adjacent
+/// pane backgrounds (which overlap by half a cell) both run through it,
+/// leaves a faint vertical seam at the split column that bleeds down into
+/// the status bar. No-op dimming therefore must mean *no* set_hsv, not
+/// set_hsv(identity).
+fn non_identity_hsb(hsb: config::HsbTransform) -> Option<config::HsbTransform> {
+    if hsb.brightness == 1.0 && hsb.saturation == 1.0 && hsb.hue == 1.0 {
+        None
+    } else {
+        Some(hsb)
+    }
+}
+
 impl crate::TermWindow {
     fn paint_pane_box_model(&mut self, pos: &PositionedPane) -> anyhow::Result<()> {
         let computed = self.build_pane(pos)?;
@@ -158,39 +173,24 @@ impl crate::TermWindow {
             )
         };
 
-        // Unterm: 活动分屏高亮边框 —— 仅在分屏(≥2 pane)时给活动 pane 描边,
-        // 与 inactive_pane_hsb 的背景变暗互补,让焦点一眼可辨(纯黑背景下变暗
-        // 失效时,边框仍能可靠区分焦点)。判断"是否分屏"用 pane 是否占满整个
-        // 终端区域,避免为拿总 pane 数而改函数签名。
+        // Active-pane focus accent: a single thin horizontal bar along the TOP
+        // edge of the focused pane (like a browser's active-tab underline).
+        // Only when split. A full 4-sided frame was tried and rejected — it
+        // read as a harsh white box, left a black ring when inset, doubled the
+        // divider, and bled into the status bar. A top-only bar avoids all of
+        // that: it never touches the split divider (it's horizontal) or the
+        // status bar (it's at the top), so there's no seam to chase.
         let pane_is_split = pos.left != 0
             || pos.top != 0
             || (pos.width as usize) < self.terminal_size.cols as usize
             || (pos.height as usize) < self.terminal_size.rows as usize;
         if pos.is_active && pane_is_split {
-            let thickness = (self.render_metrics.underline_height as f32).max(2.0);
+            let thickness = (self.render_metrics.underline_height as f32 * 2.0).max(2.5);
             let bx = padding_left + border.left.get() as f32 + pos.left as f32 * cell_width;
             let by = top_pixel_y + pos.top as f32 * cell_height;
             let bw = pos.width as f32 * cell_width;
-            let bh = pos.height as f32 * cell_height;
-            let active_border = palette.cursor_bg.to_linear();
-            // 上边
-            self.filled_rectangle(layers, 2, euclid::rect(bx, by, bw, thickness), active_border)?;
-            // 下边
-            self.filled_rectangle(
-                layers,
-                2,
-                euclid::rect(bx, by + bh - thickness, bw, thickness),
-                active_border,
-            )?;
-            // 左边
-            self.filled_rectangle(layers, 2, euclid::rect(bx, by, thickness, bh), active_border)?;
-            // 右边
-            self.filled_rectangle(
-                layers,
-                2,
-                euclid::rect(bx + bw - thickness, by, thickness, bh),
-                active_border,
-            )?;
+            let accent = palette.cursor_bg.to_linear();
+            self.filled_rectangle(layers, 2, euclid::rect(bx, by, bw, thickness), accent)?;
         }
 
         if self.window_background.is_empty() {
@@ -210,7 +210,7 @@ impl crate::TermWindow {
             quad.set_hsv(if pos.is_active {
                 None
             } else {
-                Some(config.inactive_pane_hsb)
+                non_identity_hsb(config.inactive_pane_hsb)
             });
         }
 
@@ -258,7 +258,7 @@ impl crate::TermWindow {
                 quad.set_hsv(if pos.is_active {
                     None
                 } else {
-                    Some(config.inactive_pane_hsb)
+                    non_identity_hsb(config.inactive_pane_hsb)
                 });
             }
         }
@@ -268,11 +268,21 @@ impl crate::TermWindow {
 
             let min_height = self.min_scroll_bar_height();
 
+            // Reserve the status bar + (when shown) the suggest bar at the
+            // bottom. Upstream only subtracts the bottom tab-bar, so the
+            // scrollbar track ran the full window height. In a split, the
+            // inner pane's scrollbar sits at the split column (window centre),
+            // and that overshoot drew the gray thumb strip straight down
+            // through the status-bar text. Subtracting the bars keeps the
+            // thumb above the status bar.
+            let bottom_chrome = bottom_bar_height as usize
+                + self.status_bar_pixel_height() as usize
+                + self.suggest_bar_pixel_height() as usize;
             let info = ScrollHit::thumb(
                 &*pos.pane,
                 current_viewport,
                 self.dimensions.pixel_height.saturating_sub(
-                    thumb_y_offset + border.bottom.get() + bottom_bar_height as usize,
+                    thumb_y_offset + border.bottom.get() + bottom_chrome,
                 ),
                 min_height as usize,
             );
@@ -743,6 +753,14 @@ impl crate::TermWindow {
         pos: &PositionedPane,
         layers: &mut TripleLayerQuadAllocator,
     ) -> anyhow::Result<()> {
+        // Only the active pane gets a close affordance. An inactive pane's
+        // top-right corner is, in a left/right split, the middle of the
+        // window — a `×` floating there reads as misplaced. Showing it only
+        // on the focused pane keeps exactly one `×`, always at a sensible
+        // corner; closing another pane is a focus-then-close away.
+        if !pos.is_active {
+            return Ok(());
+        }
         let cell_width = self.render_metrics.cell_size.width as f32;
         let cell_height = self.render_metrics.cell_size.height as f32;
         let (padding_left, padding_top) = self.padding_left_top();
@@ -781,55 +799,68 @@ impl crate::TermWindow {
         let button_x = (pane_right - button_w).max(0.0);
         let button_y = pane_top;
 
-        // Solid red close button drawn entirely in layer 2 so it sits above
-        // the pane's text glyphs (which live in layer 1). render_screen_line
-        // would have stuffed our `×` glyph back into layer 1 where it'd be
-        // masked by anything we drew in layer 2 above it, so we draw the
-        // `×` mark with axis-aligned rectangles in layer 2 too.
-        let bg_rgba = if pos.is_active {
-            LinearRgba::with_components(0.82, 0.22, 0.24, 1.0)
-        } else {
-            LinearRgba::with_components(0.55, 0.20, 0.22, 0.95)
-        };
-        self.filled_rectangle(
-            layers,
-            2,
-            euclid::rect(button_x, button_y, button_w, button_h),
-            bg_rgba,
-        )
-        .context("filled_rectangle for pane close button bg")?;
+        // Notion-style close affordance. A faint `×` is ALWAYS visible (so
+        // the button is discoverable — "几乎看不见" but never gone); hovering
+        // adds a soft gray chip behind it and brightens the mark. The 3-cell
+        // hit region (the UIItem pushed below) stays generous for easy
+        // clicking. Entering/leaving the region triggers a repaint
+        // (mouseevent.rs), so the hover emphasis tracks the cursor.
+        //
+        // Everything is drawn in layer 2 so it sits above the pane's glyphs
+        // (which live in layer 1); a font `×` glyph would get stuffed back into
+        // layer 1 and masked, so the mark is hand-stroked with thin rects.
+        let palette = pos.pane.palette();
+        let fg = palette.foreground.to_linear();
+        // Hover state comes from the frontend's own UIItem tracking: when the
+        // cursor is over this pane's close button, `last_ui_item` holds the
+        // matching CloseSplitPane item (and entering/leaving it triggers a
+        // repaint — see mouseevent.rs). This is reliable; trying to re-derive
+        // hover from raw mouse coords is brittle (cell-vs-pixel spaces).
+        let hovered = matches!(
+            self.last_ui_item.as_ref().map(|i| &i.item_type),
+            Some(crate::termwindow::UIItemType::CloseSplitPane(pid)) if *pid == pos.pane.pane_id()
+        );
 
-        // Draw the `×` mark as two diagonal strokes, each made of small
-        // 2x2 px squares stepping along the diagonal. Crude, but readable
-        // at every DPI and self-contained in layer 2.
-        let white = LinearRgba::with_components(0.98, 0.98, 0.98, 1.0);
+        let chip = (button_h * 0.82).min(button_w * 0.82);
+        if hovered {
+            // Soft hover chip — a centered, inset square reads as a rounded
+            // "pill" without real corner rounding. Low alpha keeps it muted.
+            let chip_x = button_x + (button_w - chip) / 2.0;
+            let chip_y = button_y + (button_h - chip) / 2.0;
+            self.filled_rectangle(
+                layers,
+                2,
+                euclid::rect(chip_x, chip_y, chip, chip),
+                fg.mul_alpha(0.16),
+            )
+            .context("filled_rectangle for close hover chip")?;
+        }
+
+        // Fine `×`: thin strokes, dense steps. Faint when idle, bright on hover.
+        let mark = fg.mul_alpha(if hovered { 0.85 } else { 0.32 });
         let cx = button_x + button_w / 2.0;
         let cy = button_y + button_h / 2.0;
-        // Half-extent of each diagonal arm — fits within the cell without
-        // hugging the edge.
-        let arm = (button_h * 0.30).max(4.0);
-        // Stroke thickness in pixels (DPI-aware via cell_height).
-        let thick = (button_h / 9.0).max(1.5);
-        // Number of squares per arm — denser = smoother diagonal.
-        let steps = ((arm * 2.0).round() as i32).max(8);
+        let arm = (chip * 0.26).max(3.0);
+        let thick = (button_h / 14.0).max(1.0);
+        let steps = ((arm * 3.0).round() as i32).max(14);
         for i in -steps..=steps {
             let t = i as f32 / steps as f32; // -1..=1
             let dx = t * arm;
             let dy = t * arm;
-            // `\` stroke: top-left to bottom-right.
+            // `\` stroke
             self.filled_rectangle(
                 layers,
                 2,
                 euclid::rect(cx + dx - thick / 2.0, cy + dy - thick / 2.0, thick, thick),
-                white,
+                mark,
             )
             .context("filled_rectangle for close x stroke 1")?;
-            // `/` stroke: top-right to bottom-left.
+            // `/` stroke
             self.filled_rectangle(
                 layers,
                 2,
                 euclid::rect(cx + dx - thick / 2.0, cy - dy - thick / 2.0, thick, thick),
-                white,
+                mark,
             )
             .context("filled_rectangle for close x stroke 2")?;
         }
