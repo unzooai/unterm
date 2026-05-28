@@ -173,25 +173,14 @@ impl crate::TermWindow {
             )
         };
 
-        // Active-pane focus accent: a single thin horizontal bar along the TOP
-        // edge of the focused pane (like a browser's active-tab underline).
-        // Only when split. A full 4-sided frame was tried and rejected — it
-        // read as a harsh white box, left a black ring when inset, doubled the
-        // divider, and bled into the status bar. A top-only bar avoids all of
-        // that: it never touches the split divider (it's horizontal) or the
-        // status bar (it's at the top), so there's no seam to chase.
-        let pane_is_split = pos.left != 0
-            || pos.top != 0
-            || (pos.width as usize) < self.terminal_size.cols as usize
-            || (pos.height as usize) < self.terminal_size.rows as usize;
-        if pos.is_active && pane_is_split {
-            let thickness = (self.render_metrics.underline_height as f32 * 2.0).max(2.5);
-            let bx = padding_left + border.left.get() as f32 + pos.left as f32 * cell_width;
-            let by = top_pixel_y + pos.top as f32 * cell_height;
-            let bw = pos.width as f32 * cell_width;
-            let accent = palette.cursor_bg.to_linear();
-            self.filled_rectangle(layers, 2, euclid::rect(bx, by, bw, thickness), accent)?;
-        }
+        // Pane areas are distinguished by a thickened split divider (see
+        // paint_split), not by any per-pane decoration. A top accent bar and a
+        // 4-sided active-pane frame were both tried and removed: each had
+        // theme- and geometry-dependent edge cases (overlapping the divider at
+        // the corner, abutting the dark tab bar in light themes, bleeding into
+        // the status bar). The divider is a single, theme-stable element with
+        // no corners to fight. Focus itself is shown by the cursor: solid in
+        // the active pane, hollow in the inactive one.
 
         if self.window_background.is_empty() {
             // Per-pane, palette-specified background
@@ -785,10 +774,15 @@ impl crate::TermWindow {
                 + border.left.get() as f32
                 + ((pos.left + pos.width) as f32 * cell_width)
         };
+        // Top of the pane's black background (mirrors background_rect): for the
+        // topmost pane that's a padding-height above the first text row, for a
+        // lower pane it's half a cell into the gutter. Anchoring the close
+        // button here puts the × right at the top edge, aligned with the
+        // active-pane accent bar, instead of floating on the first prompt row.
         let pane_top = if pos.top == 0 {
-            top_pixel_y
+            top_pixel_y - padding_top
         } else {
-            top_pixel_y + (pos.top as f32 * cell_height)
+            top_pixel_y + (pos.top as f32 * cell_height) - (cell_height / 2.0)
         };
 
         // 3-cell button " × " — wide enough to click reliably even on small
