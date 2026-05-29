@@ -3050,12 +3050,17 @@ impl McpHandler {
         }));
 
         let admin = self.system_launch_admin(&json!({"dry_run": true, "shell": "pwsh"}));
+        // `system.launch_admin` is Windows-only (UAC elevation). Off Windows it
+        // returns Err by design, so treating that as a failed check made
+        // selftest.run always report ok:false on macOS/Linux. Score the Err as
+        // "skipped" (n/a) on non-Windows so the suite reflects real health.
+        let admin_ok = admin.is_ok() || cfg!(not(windows));
         checks.push(json!({
             "name": "system.launch_admin",
-            "ok": admin.is_ok(),
+            "ok": admin_ok,
             "detail": match admin {
                 Ok(value) => value,
-                Err(err) => json!({"error": err.to_string()}),
+                Err(err) => json!({"skipped": true, "reason": err.to_string()}),
             },
         }));
 
