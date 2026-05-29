@@ -1,0 +1,37 @@
+# Unterm
+
+> Unterm is "the terminal AI agents can drive." It is a free, open-source (MIT), cross-platform terminal emulator (macOS, Linux, Windows) built on a customized WezTerm engine. Its product thesis is the inverse of AI-in-the-terminal products: instead of embedding an AI chatbox inside the terminal, Unterm exposes the terminal itself as a controllable surface that any external AI agent (Claude Code, Codex CLI, Gemini CLI, Cursor, or a custom script) can drive from the outside.
+
+## What it does
+
+- **Four control surfaces, one engine.** Every window starts a local MCP server (line-delimited JSON-RPC over TCP, bound to 127.0.0.1, auth-token gated), an HTTP Web Settings server, a CLI (`unterm-cli`), and the GUI — all read/write the same JSON state.
+- **65 MCP methods across 11 namespaces** plus **22 CLI commands**. An agent calls `meta.surface` (or runs `unterm-cli reference`) once to receive the entire API live: every method with param schemas, every CLI subcommand, and every currently-bound keybinding.
+- **Pane control without keystroke simulation.** `session.split` / `session.focus` / `session.input` let an external agent carve panes, hand focus, and type character-by-character. `screen.text` / `screen.scrollback_text` read pane output back on the same socket.
+- **Built-in AI coding-agent launcher.** Install, authenticate, configure, and launch Claude Code, Codex CLI, Gemini CLI, OpenCode, and Aider — one click each. Launched agents auto-wire back to that terminal's MCP server via the `unterm-cli mcp-stdio` bridge, with each agent's native config written in its own schema (`.mcp.json`, `~/.codex/config.toml`, `~/.gemini/settings.json`, `opencode.json`).
+- **Auditable & revocable.** Every agent write is logged with the calling agent's identity; the first write from a new agent triggers an Allow / Block / Always-allow prompt; trust is one-click revocable.
+
+## Key facts
+
+- License: MIT (open-source client). Price: $0 forever — no paid tier, no subscription, no in-app purchase.
+- Privacy: zero telemetry, no account, no analytics; every server bound to 127.0.0.1.
+- Platforms: macOS (universal, signed + Apple-notarized DMG), Linux x86_64 (.deb + AppImage), Windows 10/11 (.msi + portable .zip).
+- UI languages: 9 (English, 简体中文, 繁體中文, 日本語, 한국어, Deutsch, Français, Italiano, हिन्दी) with system-locale auto-detect.
+- Tech stack: Rust, customized WezTerm engine (GPU rendering: Metal / OpenGL / DirectX), MCP, Tailwind + Alpine for Web Settings.
+- How it differs from Warp: Warp embeds AI inside a closed cloud orchestrator and cannot be driven from outside; Unterm keeps AI outside and exposes the terminal as the MCP-controllable surface. Unterm is local-first with no cloud and no login.
+
+## Docs
+
+- [MCP reference](https://unterm.app/docs/mcp-reference): every MCP method, namespace, and param schema.
+- [CLI reference](https://unterm.app/docs/cli-reference): the `unterm-cli` command surface.
+- [Agent integration](https://unterm.app/docs/agent-integration): connecting Claude Code / Cursor / custom agents.
+- [Agent recipes](https://unterm.app/docs/agent-recipes): copy-pastable Python snippets for driving panes.
+- [Multi-instance](https://unterm.app/docs/multi-instance): NATO-named instances and cross-window routing.
+- [Identity profiles](https://unterm.app/docs/profiles): binding credentials to a window.
+- [Configuration](https://unterm.app/docs/configuration): `unterm.lua` options.
+- [Architecture](https://unterm.app/docs/architecture): how the control surfaces fit together.
+
+## Links
+
+- Homepage: https://unterm.app/
+- Source & releases: https://github.com/unzooai/unterm
+- Download (latest): https://github.com/unzooai/unterm/releases/latest

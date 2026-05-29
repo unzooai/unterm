@@ -33,6 +33,22 @@ const faq = [
   { q: "faq.contrib.q",     a: "faq.contrib.a" },
 ];
 
+// FAQPage structured data — drives Google "People also ask" rich results
+// and gives answer engines (ChatGPT, Perplexity, AI Overviews) clean,
+// attributable Q&A pairs. Built from the same `faq` array; answer HTML is
+// stripped to plain text since schema.org wants prose, not markup.
+const stripHtml = (s: string) =>
+  s.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+const faqJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: faq.map((f) => ({
+    "@type": "Question",
+    name: stripHtml(t(f.q)),
+    acceptedAnswer: { "@type": "Answer", text: stripHtml(t(f.a)) },
+  })),
+};
+
 // Personas section — three columns, each with header + body + 4 bullets.
 // The bullet keys follow the persona prefix so locale files can stay flat.
 const personas = [
@@ -1013,6 +1029,7 @@ drwxr-xr-x 6 alexlee staff   192  architecture.md
 
 <!-- ============== FAQ ============== -->
 <section id="faq" class="py-20 border-t border-zinc-900">
+  <script type="application/ld+json" set:html={JSON.stringify(faqJsonLd)} />
   <div class="max-w-3xl mx-auto px-6">
     <h2 class="text-3xl font-semibold tracking-tight text-center">{t("faq.title")}</h2>
     <div class="mt-10 divide-y divide-zinc-800 border border-zinc-800 rounded-xl bg-zinc-900/40">

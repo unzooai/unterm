@@ -29,6 +29,48 @@ import enUS from "../i18n/en-US.json";
 
 const t = (k: string) => dict[k] ?? enUS[k] ?? k;
 const canonical = `https://unterm.app${pathPrefix || "/"}`;
+
+// og:locale wants underscore form (en_US, zh_CN). Build the active locale +
+// every other locale as og:locale:alternate so each translated page declares
+// its siblings to social / answer-engine crawlers.
+const ogLocale = lang.replace("-", "_");
+const ogAltLocales = alternates
+  .map((a) => a.code.replace("-", "_"))
+  .filter((c) => c !== ogLocale);
+
+const ogImage = "https://unterm.app/assets/og.png";
+
+// Structured data (SEO rich results + GEO / answer-engine extraction).
+// SoftwareApplication is the primary entity; WebSite + Organization give
+// crawlers the publisher graph. Rendered once per page in <head>.
+const jsonLd = [
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    name: "Unterm",
+    alternateName: "Unterm — the terminal AI agents can drive",
+    applicationCategory: "DeveloperApplication",
+    operatingSystem: "macOS, Linux, Windows",
+    softwareVersion: "0.22",
+    url: "https://unterm.app/",
+    downloadUrl: "https://github.com/unzooai/unterm/releases/latest",
+    description: t("meta.desc"),
+    license: "https://opensource.org/licenses/MIT",
+    image: ogImage,
+    offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+    author: { "@type": "Person", name: "Alex Lee" },
+    publisher: { "@type": "Organization", name: "Unzoo", url: "https://unterm.app/" },
+    sameAs: ["https://github.com/unzooai/unterm"],
+  },
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    name: "Unterm",
+    url: "https://unterm.app/",
+    description: t("meta.desc"),
+    inLanguage: lang,
+  },
+];
 ---
 
 <!doctype html>
@@ -44,15 +86,32 @@ const canonical = `https://unterm.app${pathPrefix || "/"}`;
     ))}
     <link rel="alternate" hreflang="x-default" href="https://unterm.app/" />
 
+    <meta name="theme-color" content="#10b981" />
+
     <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Unterm" />
     <meta property="og:title" content={t("meta.title")} />
     <meta property="og:description" content={t("meta.desc")} />
     <meta property="og:url" content={canonical} />
-    <meta property="og:image" content="https://unterm.app/assets/icon-512.png" />
-    <meta name="twitter:card" content="summary" />
+    <meta property="og:image" content={ogImage} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content={t("meta.title")} />
+    <meta property="og:locale" content={ogLocale} />
+    {ogAltLocales.map((c) => (
+      <meta property="og:locale:alternate" content={c} />
+    ))}
+    <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content={t("meta.title")} />
     <meta name="twitter:description" content={t("meta.desc")} />
-    <meta name="twitter:image" content="https://unterm.app/assets/icon-512.png" />
+    <meta name="twitter:image" content={ogImage} />
+    <meta name="twitter:image:alt" content={t("meta.title")} />
+
+    {jsonLd.map((schema) => (
+      <script type="application/ld+json" set:html={JSON.stringify(schema)} />
+    ))}
+
+    <link rel="sitemap" type="application/xml" href="/sitemap.xml" />
 
     <link rel="icon" type="image/png" sizes="32x32" href="/assets/icon-32.png" />
     <link rel="icon" type="image/png" sizes="256x256" href="/assets/icon-256.png" />
