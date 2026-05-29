@@ -1149,6 +1149,13 @@ fn api_theme(body: &[u8]) -> Response {
     if let Err(e) = save_theme_to_disk(&preset) {
         return Response::err(500, "Internal Error", &e.to_string());
     }
+    // Apply immediately instead of waiting for the config file-watcher to
+    // notice theme.json changed. We run inside the GUI process, so a direct
+    // config::reload() re-reads theme.json (default_color_scheme) and notifies
+    // the window to repaint right away (~35ms). Relying on the watcher added a
+    // visible lag — macOS FSEvents can take a second-plus to fire, on top of
+    // the watcher's 200ms settle delay — which is why theme switches felt slow.
+    config::reload();
     Response::ok_json(json!({
         "applied": true,
         "theme": preset.id,

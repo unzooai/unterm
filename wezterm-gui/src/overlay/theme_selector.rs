@@ -240,6 +240,9 @@ pub(crate) fn cycle_theme() -> anyhow::Result<(String, String)> {
 
 fn apply_theme_preset(preset: &ThemePreset) -> anyhow::Result<()> {
     save_theme(preset)?;
+    // Apply now rather than waiting for the file-watcher to notice theme.json
+    // (macOS FSEvents lag + the watcher's settle delay made this feel slow).
+    config::reload();
     Ok(())
 }
 
