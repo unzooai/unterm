@@ -43,6 +43,7 @@ pub fn detect(spec: &DetectSpec) -> DetectOutcome {
     // and we'd report `installed=false` despite knowing where the binary
     // lives. Resolve once, exec once.
     let mut cmd = Command::new(&resolved);
+    cmd.env("PATH", enriched_path());
     for a in &spec.version_args {
         cmd.arg(a);
     }
@@ -113,24 +114,14 @@ fn regex_first_capture(pat: &str, hay: &str) -> Option<String> {
     hay.split_whitespace().next().map(|s| s.to_string())
 }
 
-fn which(bin: &str) -> Option<String> {
-    if bin.contains('/') {
-        return std::path::Path::new(bin).exists().then(|| bin.to_string());
-    }
-    // Primary lookup: $PATH as inherited from the parent process.
-    if let Some(path) = std::env::var_os("PATH") {
-        for dir in std::env::split_paths(&path) {
-            if let Some(found) = check_dir(&dir, bin) {
-                return Some(found);
-            }
-        }
-    }
-    // Fallback lookup: common per-user bin dirs that macOS GUI processes
-    // (launched from Finder / Launchpad / Dock) don't inherit. Without this,
-    // an agent like Claude Code installed via `npm install -g` to
-    // ~/.npm-global/bin shows as "not installed" in the AI Agents panel
-    // even though `which claude` works from a shell. We've watched users
-    // get tripped up by this twice; the fallback is cheap so we just do it.
+/// Directories where user-installed CLIs commonly live but that macOS GUI
+/// processes don't get on `$PATH`. launchd hands an app launched from Finder /
+/// Launchpad / Dock a minimal `/usr/bin:/bin:/usr/sbin:/sbin`, so `npm` /
+/// `pipx` / `node` (Homebrew, nvm, the user's `~/.local/bin`, …) are invisible
+/// — both for *detecting* a binary and for *spawning* an install step.
+fn extra_path_dirs() -> Vec<std::path::PathBuf> {
+    use std::path::PathBuf;
+    let mut dirs: Vec<PathBuf> = Vec::new();
     if let Some(home) = dirs_next::home_dir() {
         for sub in [
             ".local/bin",
@@ -145,13 +136,67 @@ fn which(bin: &str) -> Option<String> {
             "Library/Python/3.12/bin",
             "Library/Python/3.11/bin",
         ] {
-            if let Some(found) = check_dir(&home.join(sub), bin) {
-                return Some(found);
+            dirs.push(home.join(sub));
+        }
+        // Version managers put node/npm under a per-version bin dir that isn't
+        // a fixed path; glob the common ones so nvm / fnm users get the same
+        // GUI-launch fallback. (nvm: <ver>/bin · fnm: <ver>/installation/bin)
+        for vm in [".nvm/versions/node", ".local/share/fnm/node-versions"] {
+            if let Ok(entries) = std::fs::read_dir(home.join(vm)) {
+                for e in entries.flatten() {
+                    dirs.push(e.path().join("bin"));
+                    dirs.push(e.path().join("installation").join("bin"));
+                }
             }
         }
     }
     for sys in ["/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin"] {
-        if let Some(found) = check_dir(std::path::Path::new(sys), bin) {
+        dirs.push(PathBuf::from(sys));
+    }
+    dirs
+}
+
+/// `$PATH` as inherited, enriched with [`extra_path_dirs`] and deduped. A child
+/// we spawn (npm, pipx, or the resolved agent binary) gets this so it can find
+/// its own sub-tools (e.g. `npm` finding `node`) even when this process was
+/// started by launchd with the bare GUI PATH.
+pub(crate) fn enriched_path() -> std::ffi::OsString {
+    use std::collections::HashSet;
+    let mut seen: HashSet<std::path::PathBuf> = HashSet::new();
+    let mut dirs: Vec<std::path::PathBuf> = Vec::new();
+    if let Some(path) = std::env::var_os("PATH") {
+        for d in std::env::split_paths(&path) {
+            if seen.insert(d.clone()) {
+                dirs.push(d);
+            }
+        }
+    }
+    for d in extra_path_dirs() {
+        if seen.insert(d.clone()) {
+            dirs.push(d);
+        }
+    }
+    std::env::join_paths(dirs).unwrap_or_else(|_| std::env::var_os("PATH").unwrap_or_default())
+}
+
+pub(crate) fn which(bin: &str) -> Option<String> {
+    if bin.contains('/') {
+        return std::path::Path::new(bin).exists().then(|| bin.to_string());
+    }
+    // Primary lookup: $PATH as inherited from the parent process.
+    if let Some(path) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&path) {
+            if let Some(found) = check_dir(&dir, bin) {
+                return Some(found);
+            }
+        }
+    }
+    // Fallback lookup: the GUI-unreachable dirs (see extra_path_dirs()).
+    // Without this, an agent like Claude Code installed via `npm install -g`
+    // shows as "not installed" in the AI Agents panel even though `which
+    // claude` works from a shell.
+    for dir in extra_path_dirs() {
+        if let Some(found) = check_dir(&dir, bin) {
             return Some(found);
         }
     }
@@ -274,13 +319,20 @@ fn run_shell(cmd: &[String], label: &str) -> Result<StepReport> {
             exit: None,
             detail: format!("{label}: empty command"),
         })?;
-    let mut child = Command::new(bin);
+    // Resolve to an absolute path with the same GUI-aware lookup detect()
+    // uses, and run with an enriched PATH. A Dock-launched Unterm otherwise
+    // spawns `npm`/`pipx` against launchd's minimal PATH and the install step
+    // dies with "spawn failed: No such file or directory" even though the
+    // tool is on the user's shell PATH.
+    let resolved = which(bin).unwrap_or_else(|| bin.to_string());
+    let mut child = Command::new(&resolved);
+    child.env("PATH", enriched_path());
     for a in iter {
         child.arg(a);
     }
     let output = child.output().map_err(|e| AgentError::InstallFailed {
         exit: None,
-        detail: format!("{label}: spawn failed: {e}"),
+        detail: format!("{label}: spawn failed ({resolved}): {e}"),
     })?;
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -308,11 +360,13 @@ fn run_script_text(interpreter: &str, text: &str, expected_sha256: &str, label: 
         });
     }
 
-    let mut child = Command::new(interpreter);
+    let resolved = which(interpreter).unwrap_or_else(|| interpreter.to_string());
+    let mut child = Command::new(&resolved);
+    child.env("PATH", enriched_path());
     child.arg("-c").arg(text);
     let output = child.output().map_err(|e| AgentError::InstallFailed {
         exit: None,
-        detail: format!("{label}: spawn failed: {e}"),
+        detail: format!("{label}: spawn failed ({resolved}): {e}"),
     })?;
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -397,4 +451,32 @@ fn hex_lower(bytes: &[u8]) -> String {
         let _ = write!(&mut s, "{:02x}", b);
     }
     s
+}
+
+#[cfg(test)]
+mod path_fallback_tests {
+    use super::*;
+
+    #[test]
+    fn enriched_path_includes_gui_unreachable_dirs() {
+        // launchd hands a Dock-launched app a bare PATH; enriched_path must
+        // always re-add the dirs where node/npm/pipx actually live, so an
+        // install step can find them. /opt/homebrew/bin (Apple silicon) and
+        // /usr/local/bin (Intel brew) are the canonical examples.
+        let s = enriched_path().to_string_lossy().to_string();
+        assert!(
+            s.contains("/opt/homebrew/bin") || s.contains("/usr/local/bin"),
+            "enriched_path missing brew dirs: {s}"
+        );
+    }
+
+    #[test]
+    fn fallback_dirs_resolve_npm_when_present() {
+        // If npm is installed under one of the GUI-unreachable dirs, the
+        // fallback lookup must find it there — i.e. a restricted-PATH install
+        // would still resolve the binary. Skips on hosts without it (CI).
+        if let Some(p) = extra_path_dirs().iter().find_map(|d| check_dir(d, "npm")) {
+            assert!(std::path::Path::new(&p).exists(), "resolved npm gone: {p}");
+        }
+    }
 }

@@ -43,13 +43,17 @@ pub fn run_oauth_browser(auth: &AuthSpec) -> Result<AuthOutcome> {
     let bin = iter
         .next()
         .ok_or_else(|| AgentError::AuthFailed("oauth trigger has empty command".into()))?;
-    let mut child = Command::new(bin)
+    // Resolve + enrich PATH the same way install/detect do, so a Dock-launched
+    // Unterm (minimal launchd PATH) can still find the vendor login binary.
+    let resolved = crate::installer::which(bin).unwrap_or_else(|| bin.to_string());
+    let mut child = Command::new(&resolved)
+        .env("PATH", crate::installer::enriched_path())
         .args(iter)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .stdin(Stdio::null())
         .spawn()
-        .map_err(|e| AgentError::AuthFailed(format!("spawn {bin}: {e}")))?;
+        .map_err(|e| AgentError::AuthFailed(format!("spawn {resolved}: {e}")))?;
 
     let (tx, rx) = mpsc::channel();
     let stdout = child.stdout.take().expect("piped");
@@ -139,7 +143,9 @@ pub fn run_api_key(
         let bin = iter
             .next()
             .ok_or_else(|| AgentError::AuthFailed("validate cmd is empty".into()))?;
-        let mut child = Command::new(bin);
+        let resolved = crate::installer::which(bin).unwrap_or_else(|| bin.to_string());
+        let mut child = Command::new(&resolved);
+        child.env("PATH", crate::installer::enriched_path());
         for a in iter {
             child.arg(a);
         }
