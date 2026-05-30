@@ -327,13 +327,13 @@ const heroDownloads = [
         </div>
 
         <div class="mt-8 flex flex-wrap items-center justify-center lg:justify-start gap-3">
-          <a id="smart-download"
-             href={dmgUrl}
-             data-macos={dmgUrl}
-             data-linux={appimageUrl}
-             data-windows={msiUrl}
-             data-fallback={dmgUrl}
-             data-fallback-label={t("hero.cta.download_fallback")}
+          <!-- /api/download is a Pages Function that 302-redirects to the
+               correct platform's release artifact based on User-Agent at the
+               edge. Doing this server-side eliminates the race that used to
+               give Windows users the macOS DMG (the page's inline <script>
+               at the bottom didn't always run before the click). Works
+               without JS and survives strict-mode browsers / extensions. -->
+          <a href={`/api/download?v=${releaseTag}`}
              class="inline-flex items-center gap-2 px-5 py-3 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-semibold transition shadow-lg shadow-emerald-500/20 hover:shadow-emerald-400/30">
             <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M12 4v12m0 0l-4-4m4 4l4-4M5 20h14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
             <span>{t("hero.cta.download")}</span>
@@ -1140,30 +1140,10 @@ drwxr-xr-x 6 alexlee staff   192  architecture.md
   // first tab's <pre> is visible by default and users can still copy with
   // their own select/cmd+c. The script just upgrades the experience.
   (function () {
-    const smartDownload = document.getElementById("smart-download");
-    if (smartDownload) {
-      const platform = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";
-      const p = platform.toLowerCase();
-      let href = smartDownload.dataset.fallback;
-      let label = smartDownload.dataset.fallbackLabel || smartDownload.textContent.trim();
-      if (p.includes("win")) {
-        href = smartDownload.dataset.windows;
-        label = "Download for Windows";
-      } else if (p.includes("mac") || p.includes("iphone") || p.includes("ipad") || p.includes("ipod")) {
-        href = smartDownload.dataset.macos;
-        label = "Download for macOS";
-      } else if (p.includes("linux")) {
-        href = smartDownload.dataset.linux;
-        label = "Download for Linux";
-      }
-      if (href) {
-        smartDownload.href = href;
-      }
-      const span = smartDownload.querySelector("span");
-      if (span) {
-        span.textContent = label;
-      }
-    }
+    // Hero download CTA is now server-side via /api/download (a Cloudflare
+    // Pages Function), so no JS smart-swap is needed. The function detects
+    // the User-Agent at the edge and 302-redirects to the right artifact —
+    // no race between page paint and inline-script execution.
 
     const tabs = document.querySelectorAll(".install-tab");
     const panes = document.querySelectorAll(".install-pane");
