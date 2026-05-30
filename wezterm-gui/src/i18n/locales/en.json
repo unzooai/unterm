@@ -171,6 +171,8 @@
   "web.agents.btn.discard": "Discard",
   "web.agents.unsaved": "You have unsaved changes",
   "web.agents.saved": "Up to date",
+  "web.agents.launchflags.title": "Launch options",
+  "web.agents.launchflags.hint": "Optional flags appended to this agent's launch command, saved per profile. Flags marked ⚠ auto-approve actions and bypass Unterm's audit — use with care.",
   "web.agents.secret.placeholder": "Paste API key here…",
   "web.agents.secret.set": "(stored in OS keychain — paste to replace)",
   "web.agents.secret.clear": "Clear from keychain",

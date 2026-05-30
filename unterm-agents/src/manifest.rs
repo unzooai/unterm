@@ -229,6 +229,64 @@ pub struct LaunchSpec {
     pub args_when_cwd_set: Vec<String>,
     #[serde(default)]
     pub respects_unterm_split: bool,
+    /// Optional launch flags the user can pick from in Web Settings or have
+    /// auto-completed in the terminal. Never applied unless the user selects
+    /// them (or `default_on` for the few safe ones). `#[serde(default)]` so
+    /// older envelopes without this field still parse.
+    #[serde(default)]
+    pub flag_catalog: Vec<FlagSpec>,
+}
+
+/// One selectable launch flag for an agent. The catalog is the single source
+/// of truth consumed by the Web Settings picker, the in-terminal ghost-text
+/// completion, and the launch-command composer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FlagSpec {
+    /// Stable id used to persist the user's selection (survives label edits).
+    pub id: String,
+    /// Argument template. Toggles use the literal flag ("--skip-trust").
+    /// Value/choice flags use a "{value}" placeholder ("--model {value}");
+    /// the composer substitutes the chosen value and splits on spaces.
+    pub arg: String,
+    #[serde(default)]
+    pub label_i18n: BTreeMap<String, String>,
+    #[serde(default)]
+    pub description_i18n: BTreeMap<String, String>,
+    #[serde(default)]
+    pub kind: FlagKind,
+    /// Allowed values when `kind == Choice`.
+    #[serde(default)]
+    pub choices: Vec<String>,
+    #[serde(default)]
+    pub risk: FlagRisk,
+    /// Pre-selected when true. Only ever set for `Safe` flags.
+    #[serde(default)]
+    pub default_on: bool,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum FlagKind {
+    /// A bare on/off flag (`--skip-trust`).
+    #[default]
+    Toggle,
+    /// Takes a free-text value (`--model gpt-5`).
+    Value,
+    /// Takes one of `choices` (`--approval-mode auto_edit`).
+    Choice,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum FlagRisk {
+    /// No destructive effect (cwd, trust-this-folder, model selection).
+    #[default]
+    Safe,
+    /// Changes behavior but not destructive (auto-approve edits only).
+    Caution,
+    /// Auto-approves destructive actions (yolo / skip-permissions). Never
+    /// default_on; rendered with a warning in the picker.
+    Danger,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -61,7 +61,23 @@ impl SettingsState {
             }
         }
     }
+
+    /// The user's selected launch flags, stored under the synthetic
+    /// `_launch_flags` key (a `_`-prefixed value persists in this JSON state
+    /// only — never written to the agent's own config). Shape:
+    /// `{ "<flag_id>": true }` for toggles, `{ "<flag_id>": "value" }` for
+    /// value/choice flags. Empty when the user hasn't picked any.
+    pub fn launch_flags(&self) -> BTreeMap<String, Value> {
+        self.values
+            .get(LAUNCH_FLAGS_KEY)
+            .and_then(|v| v.as_object())
+            .map(|o| o.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+            .unwrap_or_default()
+    }
 }
+
+/// Synthetic settings key holding the user's per-agent launch-flag selection.
+pub const LAUNCH_FLAGS_KEY: &str = "_launch_flags";
 
 /// Apply a set of pending updates onto disk: per-file write via storage
 /// adapters + per-key keychain writes for `Secret`-typed updates.

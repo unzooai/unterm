@@ -171,6 +171,8 @@
   "web.agents.btn.discard": "丢弃",
   "web.agents.unsaved": "有未保存的修改",
   "web.agents.saved": "已是最新",
+  "web.agents.launchflags.title": "启动选项",
+  "web.agents.launchflags.hint": "追加到该 agent 启动命令的可选 flag，按 profile 记住。标 ⚠ 的会自动批准操作、绕过 Unterm 审计，请谨慎使用。",
   "web.agents.secret.placeholder": "在此粘贴 API key …",
   "web.agents.secret.set": "（已存入 keychain — 粘贴即替换）",
   "web.agents.secret.clear": "从 keychain 清除",

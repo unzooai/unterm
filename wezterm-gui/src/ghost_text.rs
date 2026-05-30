@@ -315,7 +315,72 @@ fn recompute_ghost(state: &mut PaneGhostState, external: &[String]) {
         best = Some(rest.to_string());
         break;
     }
+    // Fallback: if shell history didn't predict anything and the user is
+    // typing a known AI coding-CLI, offer a flag completion from that CLI's
+    // manifest flag_catalog (e.g. `gemini --sk` → `ip-trust`). History wins
+    // when present so a command you actually ran still takes priority.
+    if best.is_none() {
+        best = agent_flag_ghost(prefix);
+    }
     state.ghost = best;
+}
+
+/// Map of agent exec name → flag completion tokens, built lazily from the
+/// offline manifest set (baked / on-disk cache — never hits the network).
+/// `OnceLock` so the disk read happens at most once per process; flag
+/// catalogs don't change mid-session in practice.
+fn agent_flag_tokens() -> &'static HashMap<String, Vec<String>> {
+    static MAP: OnceLock<HashMap<String, Vec<String>>> = OnceLock::new();
+    MAP.get_or_init(|| {
+        let mut m: HashMap<String, Vec<String>> = HashMap::new();
+        if let Ok(set) = unterm_agents::fetch_manifests_offline() {
+            for manifest in set.for_current_platform() {
+                let toks: Vec<String> = manifest
+                    .launch
+                    .flag_catalog
+                    .iter()
+                    .map(|f| flag_completion_token(&f.arg))
+                    .collect();
+                if !toks.is_empty() {
+                    m.entry(manifest.launch.exec.clone())
+                        .or_default()
+                        .extend(toks);
+                }
+            }
+        }
+        m
+    })
+}
+
+/// The completion token for a flag arg template:
+/// `"--model {value}"` → `"--model "` (ready for the value),
+/// `"--skip-trust"` → `"--skip-trust"`.
+fn flag_completion_token(arg: &str) -> String {
+    match arg.split_once("{value}") {
+        Some((before, _)) => format!("{} ", before.trim_end()),
+        None => arg.trim().to_string(),
+    }
+}
+
+/// Ghost continuation from the agent flag catalog. Fires only when the input's
+/// first token is a known AI CLI exec and there's a space after it (so we
+/// never interrupt typing the binary name itself). Matches the token currently
+/// being typed (the substring after the last space) against the catalog.
+fn agent_flag_ghost(input: &str) -> Option<String> {
+    let exec = input.split(' ').next()?;
+    if exec.is_empty() {
+        return None;
+    }
+    let map = agent_flag_tokens();
+    let flags = map.get(exec)?;
+    let last_space = input.rfind(' ')?;
+    let current = &input[last_space + 1..];
+    for tok in flags {
+        if tok.len() > current.len() && tok.starts_with(current) {
+            return Some(tok[current.len()..].to_string());
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -376,6 +441,13 @@ mod tests {
         let (typed, ghost) = current_ghost(b).expect("cross-pane prediction should land");
         assert_eq!(typed, "git fe");
         assert_eq!(ghost, "tch --prune-tags");
+    }
+
+    #[test]
+    fn flag_completion_token_strips_value_placeholder() {
+        assert_eq!(flag_completion_token("--model {value}"), "--model ");
+        assert_eq!(flag_completion_token("--skip-trust"), "--skip-trust");
+        assert_eq!(flag_completion_token("--approval-mode {value}"), "--approval-mode ");
     }
 
     #[test]

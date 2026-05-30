@@ -701,6 +701,37 @@
                 </div>
               </template>
 
+              <!-- Launch options: optional CLI flags appended to this agent's
+                   launch command. Backed by the manifest flag_catalog; the
+                   selection is saved under the synthetic _launch_flags key and
+                   composed by the launcher. Risk-colored — danger flags (yolo /
+                   skip-permissions) warn and are never pre-checked. -->
+              <div x-show="(agents.detail.manifest.launch?.flag_catalog || []).length" class="border-t border-zinc-800 pt-3 mt-3">
+                <h4 class="mb-1 text-xs font-semibold uppercase tracking-wider text-zinc-500" x-text="t('web.agents.launchflags.title')"></h4>
+                <p class="mb-2 text-xs text-zinc-500" x-text="t('web.agents.launchflags.hint')"></p>
+                <template x-for="flag in (agents.detail.manifest.launch?.flag_catalog || [])" :key="flag.id">
+                  <div class="grid grid-cols-12 items-start gap-3 py-1.5">
+                    <label class="col-span-5 mt-1.5 flex items-center gap-1.5 text-sm"
+                           :class="flag.risk==='danger' ? 'text-rose-300' : (flag.risk==='caution' ? 'text-amber-300' : 'text-zinc-300')">
+                      <span x-text="(flag.label_i18n && (flag.label_i18n[lang] || flag.label_i18n['en'])) || flag.id"></span>
+                      <span x-show="flag.risk==='danger'" class="rounded bg-rose-900/50 px-1 text-[10px] text-rose-300" title="danger">⚠</span>
+                    </label>
+                    <div class="col-span-7">
+                      <input type="checkbox" x-show="flag.kind==='toggle'" class="h-4 w-4 cursor-pointer accent-emerald-500" x-model="agents.detail.draft._launch_flags[flag.id]" />
+                      <input type="text" x-show="flag.kind==='value'" class="w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-sm text-zinc-200" :placeholder="flag.arg" x-model="agents.detail.draft._launch_flags[flag.id]" />
+                      <select x-show="flag.kind==='choice'" class="rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-sm text-zinc-200" x-model="agents.detail.draft._launch_flags[flag.id]">
+                        <option value="">—</option>
+                        <template x-for="c in (flag.choices || [])" :key="c"><option :value="c" x-text="c"></option></template>
+                      </select>
+                      <p class="mt-1 text-xs text-zinc-500">
+                        <code class="text-[11px] text-zinc-400" x-text="flag.arg"></code>
+                        <span x-show="(flag.description_i18n && (flag.description_i18n[lang] || flag.description_i18n['en']))"> · <span x-text="(flag.description_i18n && (flag.description_i18n[lang] || flag.description_i18n['en']))"></span></span>
+                      </p>
+                    </div>
+                  </div>
+                </template>
+              </div>
+
               <div class="mt-4 flex items-center justify-between border-t border-zinc-800 pt-3">
                 <p class="text-xs text-zinc-500" x-text="agents.detail.dirty ? t('web.agents.unsaved') : t('web.agents.saved')"></p>
                 <div class="flex gap-2">

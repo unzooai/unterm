@@ -6,10 +6,11 @@
 //! Unterm doesn't sit around as a parent process.
 
 use crate::errors::Result;
-use crate::manifest::{AgentManifest, EnvBinding};
+use crate::manifest::{AgentManifest, EnvBinding, FlagSpec};
 use crate::registry::SettingsState;
 use crate::secrets::AgentSecretStore;
 use crate::template::{expand, expand_args, TemplateCtx};
+use serde_json::Value;
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone)]
@@ -49,6 +50,43 @@ pub struct LaunchInputs<'a> {
     pub mcp: Option<&'a McpWireInfo>,
 }
 
+/// Turn the user's selected launch flags into argv tokens, in catalog order
+/// (deterministic). `selected` maps flag_id -> `true` (toggle on) or a string
+/// (the value for value/choice flags). The arg template is split into tokens
+/// first so a `{value}` containing spaces stays a single argv entry; `{{VAR}}`
+/// template vars (e.g. `{{CWD}}`) are then expanded per token.
+fn compose_flag_args(
+    catalog: &[FlagSpec],
+    selected: &BTreeMap<String, Value>,
+    ctx: &TemplateCtx,
+) -> Result<Vec<String>> {
+    let mut out = Vec::new();
+    for spec in catalog {
+        let Some(val) = selected.get(&spec.id) else {
+            continue;
+        };
+        let value_str: Option<String> = match val {
+            Value::Bool(true) => None,
+            Value::String(s) if !s.is_empty() => Some(s.clone()),
+            // false toggle, empty string, or unexpected type → not applied.
+            _ => continue,
+        };
+        for token in spec.arg.split_whitespace() {
+            // A lone `{value}` token with no value (a misconfigured toggle)
+            // would otherwise emit a literal "{value}" arg — drop it.
+            if value_str.is_none() && token.contains("{value}") {
+                continue;
+            }
+            let substituted = match &value_str {
+                Some(v) => token.replace("{value}", v),
+                None => token.to_string(),
+            };
+            out.push(expand(&substituted, ctx)?);
+        }
+    }
+    Ok(out)
+}
+
 pub fn build_launch_plan(inputs: &LaunchInputs<'_>) -> Result<LaunchPlan> {
     let mut ctx = TemplateCtx {
         profile_id: inputs.profile_id.to_string(),
@@ -68,6 +106,13 @@ pub fn build_launch_plan(inputs: &LaunchInputs<'_>) -> Result<LaunchPlan> {
             &ctx,
         )?);
     }
+    // Append the user's selected launch flags (from the Web Settings picker or
+    // an in-terminal selection), composed from the manifest's flag_catalog.
+    args.extend(compose_flag_args(
+        &inputs.manifest.launch.flag_catalog,
+        &inputs.settings.launch_flags(),
+        &ctx,
+    )?);
 
     let mut env_set: BTreeMap<String, String> = BTreeMap::new();
     env_set.insert("UNTERM_AGENT_ID".into(), inputs.manifest.id.clone());
@@ -411,6 +456,46 @@ mod mcp_config_tests {
             mcp_token: Some("tok".into()),
             ..Default::default()
         }
+    }
+
+    fn fspec(id: &str, arg: &str, kind: crate::manifest::FlagKind) -> FlagSpec {
+        FlagSpec {
+            id: id.into(),
+            arg: arg.into(),
+            label_i18n: Default::default(),
+            description_i18n: Default::default(),
+            kind,
+            choices: vec![],
+            risk: crate::manifest::FlagRisk::Safe,
+            default_on: false,
+        }
+    }
+
+    #[test]
+    fn compose_flag_args_toggle_value_and_unselected() {
+        use crate::manifest::FlagKind;
+        let cat = vec![
+            fspec("skip-trust", "--skip-trust", FlagKind::Toggle),
+            fspec("model", "--model {value}", FlagKind::Value),
+            fspec("add-dir", "--add-dir {value}", FlagKind::Value),
+        ];
+        let mut sel = BTreeMap::new();
+        sel.insert("skip-trust".into(), Value::Bool(true));
+        // A value containing a space must stay a single argv token.
+        sel.insert("model".into(), Value::String("gpt-5 pro".into()));
+        // "add-dir" not selected → omitted; catalog order is preserved.
+        let args = compose_flag_args(&cat, &sel, &TemplateCtx::default()).unwrap();
+        assert_eq!(args, vec!["--skip-trust", "--model", "gpt-5 pro"]);
+    }
+
+    #[test]
+    fn compose_flag_args_skips_false_toggle() {
+        use crate::manifest::FlagKind;
+        let cat = vec![fspec("yolo", "--yolo", FlagKind::Toggle)];
+        let mut sel = BTreeMap::new();
+        sel.insert("yolo".into(), Value::Bool(false));
+        let args = compose_flag_args(&cat, &sel, &TemplateCtx::default()).unwrap();
+        assert!(args.is_empty(), "false toggle must not emit args");
     }
 
     // Claude Code: project-scope .mcp.json with mcpServers + type:stdio.

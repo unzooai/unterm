@@ -1,7 +1,7 @@
 {
   "envelope_version": 1,
-  "issued_at": "2026-05-28T05:15:49Z",
-  "expires_at": "2027-05-28T05:15:49Z",
+  "issued_at": "2026-05-29T15:52:28Z",
+  "expires_at": "2027-05-29T15:52:28Z",
   "min_unterm_version": "0.17.0",
   "manifests": [
     {
@@ -117,7 +117,57 @@
         "exec": "aider",
         "args": [],
         "args_when_cwd_set": [],
-        "respects_unterm_split": false
+        "respects_unterm_split": false,
+        "flag_catalog": [
+          {
+            "id": "model",
+            "arg": "--model {value}",
+            "label_i18n": {
+              "en": "Model",
+              "zh-CN": "指定模型"
+            },
+            "description_i18n": {
+              "en": "Set the model",
+              "zh-CN": "指定模型"
+            },
+            "kind": "value",
+            "choices": [],
+            "risk": "safe",
+            "default_on": false
+          },
+          {
+            "id": "no-auto-commits",
+            "arg": "--no-auto-commits",
+            "label_i18n": {
+              "en": "No auto-commit",
+              "zh-CN": "禁用自动提交"
+            },
+            "description_i18n": {
+              "en": "Don't let aider commit changes automatically",
+              "zh-CN": "不让 aider 自动提交改动"
+            },
+            "kind": "toggle",
+            "choices": [],
+            "risk": "caution",
+            "default_on": false
+          },
+          {
+            "id": "yes-always",
+            "arg": "--yes-always",
+            "label_i18n": {
+              "en": "Auto-confirm all ⚠",
+              "zh-CN": "自动确认全部 ⚠"
+            },
+            "description_i18n": {
+              "en": "Say yes to every prompt — bypasses confirmations",
+              "zh-CN": "对所有提示自动确认——绕过确认"
+            },
+            "kind": "toggle",
+            "choices": [],
+            "risk": "danger",
+            "default_on": false
+          }
+        ]
       },
       "mcp": null,
       "profile_defaults": {
@@ -554,7 +604,111 @@
           "--cwd",
           "{{CWD}}"
         ],
-        "respects_unterm_split": true
+        "respects_unterm_split": true,
+        "flag_catalog": [
+          {
+            "id": "continue",
+            "arg": "-c",
+            "label_i18n": {
+              "en": "Continue last session",
+              "zh-CN": "继续上次对话"
+            },
+            "description_i18n": {
+              "en": "Resume the most recent conversation in this directory",
+              "zh-CN": "继续当前目录最近一次对话"
+            },
+            "kind": "toggle",
+            "choices": [],
+            "risk": "safe",
+            "default_on": false
+          },
+          {
+            "id": "model",
+            "arg": "--model {value}",
+            "label_i18n": {
+              "en": "Model",
+              "zh-CN": "指定模型"
+            },
+            "description_i18n": {
+              "en": "Set the model for this session",
+              "zh-CN": "为本次会话指定模型"
+            },
+            "kind": "value",
+            "choices": [],
+            "risk": "safe",
+            "default_on": false
+          },
+          {
+            "id": "permission-mode",
+            "arg": "--permission-mode {value}",
+            "label_i18n": {
+              "en": "Permission mode",
+              "zh-CN": "权限模式"
+            },
+            "description_i18n": {
+              "en": "How tool use is approved",
+              "zh-CN": "工具调用的批准方式"
+            },
+            "kind": "choice",
+            "choices": [
+              "default",
+              "acceptEdits",
+              "plan",
+              "dontAsk",
+              "bypassPermissions"
+            ],
+            "risk": "caution",
+            "default_on": false
+          },
+          {
+            "id": "add-dir",
+            "arg": "--add-dir {value}",
+            "label_i18n": {
+              "en": "Extra dir",
+              "zh-CN": "额外目录"
+            },
+            "description_i18n": {
+              "en": "Additional directory the agent may access",
+              "zh-CN": "额外允许访问的目录"
+            },
+            "kind": "value",
+            "choices": [],
+            "risk": "safe",
+            "default_on": false
+          },
+          {
+            "id": "bare",
+            "arg": "--bare",
+            "label_i18n": {
+              "en": "Minimal mode",
+              "zh-CN": "极简模式"
+            },
+            "description_i18n": {
+              "en": "Skip hooks, LSP, plugins, auto-memory, CLAUDE.md",
+              "zh-CN": "跳过 hooks/LSP/插件/auto-memory/CLAUDE.md"
+            },
+            "kind": "toggle",
+            "choices": [],
+            "risk": "caution",
+            "default_on": false
+          },
+          {
+            "id": "skip-perms",
+            "arg": "--dangerously-skip-permissions",
+            "label_i18n": {
+              "en": "Skip all permissions ⚠",
+              "zh-CN": "跳过所有权限 ⚠"
+            },
+            "description_i18n": {
+              "en": "Auto-approve every action — bypasses Unterm's audit",
+              "zh-CN": "自动批准所有操作——绕过 Unterm 审计"
+            },
+            "kind": "toggle",
+            "choices": [],
+            "risk": "danger",
+            "default_on": false
+          }
+        ]
       },
       "mcp": {
         "client_supports_mcp": true,
@@ -1030,7 +1184,98 @@
         "exec": "codex",
         "args": [],
         "args_when_cwd_set": [],
-        "respects_unterm_split": true
+        "respects_unterm_split": true,
+        "flag_catalog": [
+          {
+            "id": "model",
+            "arg": "--model {value}",
+            "label_i18n": {
+              "en": "Model",
+              "zh-CN": "指定模型"
+            },
+            "description_i18n": {
+              "en": "Set the model",
+              "zh-CN": "指定模型"
+            },
+            "kind": "value",
+            "choices": [],
+            "risk": "safe",
+            "default_on": false
+          },
+          {
+            "id": "sandbox",
+            "arg": "--sandbox {value}",
+            "label_i18n": {
+              "en": "Sandbox",
+              "zh-CN": "沙箱模式"
+            },
+            "description_i18n": {
+              "en": "Sandbox policy for model-run shell commands",
+              "zh-CN": "模型执行 shell 命令的沙箱策略"
+            },
+            "kind": "choice",
+            "choices": [
+              "read-only",
+              "workspace-write",
+              "danger-full-access"
+            ],
+            "risk": "caution",
+            "default_on": false
+          },
+          {
+            "id": "approval",
+            "arg": "--ask-for-approval {value}",
+            "label_i18n": {
+              "en": "Approval policy",
+              "zh-CN": "批准策略"
+            },
+            "description_i18n": {
+              "en": "When Codex asks before running commands",
+              "zh-CN": "Codex 运行命令前何时征求批准"
+            },
+            "kind": "choice",
+            "choices": [
+              "untrusted",
+              "on-request",
+              "on-failure",
+              "never"
+            ],
+            "risk": "caution",
+            "default_on": false
+          },
+          {
+            "id": "search",
+            "arg": "--search",
+            "label_i18n": {
+              "en": "Web search",
+              "zh-CN": "联网搜索"
+            },
+            "description_i18n": {
+              "en": "Enable web search",
+              "zh-CN": "启用联网搜索"
+            },
+            "kind": "toggle",
+            "choices": [],
+            "risk": "safe",
+            "default_on": false
+          },
+          {
+            "id": "bypass",
+            "arg": "--dangerously-bypass-approvals-and-sandbox",
+            "label_i18n": {
+              "en": "Bypass approvals+sandbox ⚠",
+              "zh-CN": "绕过批准与沙箱 ⚠"
+            },
+            "description_i18n": {
+              "en": "Auto-run everything with no sandbox — bypasses Unterm's audit",
+              "zh-CN": "无沙箱自动执行一切——绕过 Unterm 审计"
+            },
+            "kind": "toggle",
+            "choices": [],
+            "risk": "danger",
+            "default_on": false
+          }
+        ]
       },
       "mcp": {
         "client_supports_mcp": true,
@@ -1512,7 +1757,110 @@
         "exec": "gemini",
         "args": [],
         "args_when_cwd_set": [],
-        "respects_unterm_split": true
+        "respects_unterm_split": true,
+        "flag_catalog": [
+          {
+            "id": "skip-trust",
+            "arg": "--skip-trust",
+            "label_i18n": {
+              "en": "Trust this folder",
+              "zh-CN": "信任当前目录"
+            },
+            "description_i18n": {
+              "en": "Skip the 'trust this workspace?' prompt for this session",
+              "zh-CN": "跳过本次会话的'信任此工作区?'提示"
+            },
+            "kind": "toggle",
+            "choices": [],
+            "risk": "safe",
+            "default_on": false
+          },
+          {
+            "id": "model",
+            "arg": "--model {value}",
+            "label_i18n": {
+              "en": "Model",
+              "zh-CN": "指定模型"
+            },
+            "description_i18n": {
+              "en": "Set the model",
+              "zh-CN": "指定模型"
+            },
+            "kind": "value",
+            "choices": [],
+            "risk": "safe",
+            "default_on": false
+          },
+          {
+            "id": "approval-mode",
+            "arg": "--approval-mode {value}",
+            "label_i18n": {
+              "en": "Approval mode",
+              "zh-CN": "批准模式"
+            },
+            "description_i18n": {
+              "en": "How tool actions are approved",
+              "zh-CN": "工具操作的批准方式"
+            },
+            "kind": "choice",
+            "choices": [
+              "default",
+              "auto_edit",
+              "plan",
+              "yolo"
+            ],
+            "risk": "caution",
+            "default_on": false
+          },
+          {
+            "id": "sandbox",
+            "arg": "--sandbox",
+            "label_i18n": {
+              "en": "Sandbox",
+              "zh-CN": "沙箱"
+            },
+            "description_i18n": {
+              "en": "Run in a sandbox",
+              "zh-CN": "在沙箱中运行"
+            },
+            "kind": "toggle",
+            "choices": [],
+            "risk": "caution",
+            "default_on": false
+          },
+          {
+            "id": "resume",
+            "arg": "--resume {value}",
+            "label_i18n": {
+              "en": "Resume session",
+              "zh-CN": "恢复会话"
+            },
+            "description_i18n": {
+              "en": "Resume a previous session ('latest' or index)",
+              "zh-CN": "恢复之前的会话('latest' 或序号)"
+            },
+            "kind": "value",
+            "choices": [],
+            "risk": "safe",
+            "default_on": false
+          },
+          {
+            "id": "yolo",
+            "arg": "--yolo",
+            "label_i18n": {
+              "en": "YOLO (auto-accept all) ⚠",
+              "zh-CN": "YOLO(自动接受全部) ⚠"
+            },
+            "description_i18n": {
+              "en": "Auto-accept every action — bypasses Unterm's audit",
+              "zh-CN": "自动接受所有操作——绕过 Unterm 审计"
+            },
+            "kind": "toggle",
+            "choices": [],
+            "risk": "danger",
+            "default_on": false
+          }
+        ]
       },
       "mcp": {
         "client_supports_mcp": true,
@@ -1925,7 +2273,41 @@
         "exec": "opencode",
         "args": [],
         "args_when_cwd_set": [],
-        "respects_unterm_split": true
+        "respects_unterm_split": true,
+        "flag_catalog": [
+          {
+            "id": "model",
+            "arg": "--model {value}",
+            "label_i18n": {
+              "en": "Model",
+              "zh-CN": "指定模型"
+            },
+            "description_i18n": {
+              "en": "Set the model (provider/model)",
+              "zh-CN": "指定模型(provider/model)"
+            },
+            "kind": "value",
+            "choices": [],
+            "risk": "safe",
+            "default_on": false
+          },
+          {
+            "id": "continue",
+            "arg": "--continue",
+            "label_i18n": {
+              "en": "Continue last session",
+              "zh-CN": "继续上次会话"
+            },
+            "description_i18n": {
+              "en": "Continue the last session in this directory",
+              "zh-CN": "继续当前目录的上次会话"
+            },
+            "kind": "toggle",
+            "choices": [],
+            "risk": "safe",
+            "default_on": false
+          }
+        ]
       },
       "mcp": {
         "client_supports_mcp": true,
@@ -2297,6 +2679,6 @@
   "signature": {
     "alg": "ed25519",
     "key_id": "unterm-2026-1",
-    "sig": "nYGTkpryH2qTkZBuTW3SjDmxI/t735a0+SPd9X1u7TSxWt4b2qtYwEsCWLDiAzo4cakUGIudQN7Q9PrwZ5DMDw=="
+    "sig": "Rnyx3unsYsZQeAZVIearLKNL1F05QHjagnddH9YFfQn4iMgwOpDTIH+3i/InodXLBbSNi3umKfdxKNdwNWlPDQ=="
   }
 }

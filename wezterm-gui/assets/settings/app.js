@@ -548,6 +548,18 @@ function untermSettings() {
         const defaultMode =
           (modes.length && (modes.find((m) => m.recommended) || modes[0]).id) || '';
         draft._auth_mode = storedMode || defaultMode;
+        // Seed launch-flag selection from the saved _launch_flags, pre-creating
+        // an entry for every catalog flag so the Alpine x-model bindings are
+        // reactive from the first render (toggles -> bool, value/choice -> str).
+        const savedFlags = (detail.values && detail.values._launch_flags) || {};
+        const flagCatalog = (manifestForMode && manifestForMode.launch && manifestForMode.launch.flag_catalog) || [];
+        draft._launch_flags = {};
+        for (const f of flagCatalog) {
+          const sv = savedFlags[f.id];
+          draft._launch_flags[f.id] = f.kind === 'toggle'
+            ? (sv === true)
+            : (typeof sv === 'string' ? sv : '');
+        }
         const categories = Array.from(new Set((detail.schema || []).map((s) => s.category || 'general')));
         this.agents.detail = {
           manifest: detail.manifest || (await this.api('GET', '/api/agents/' + encodeURIComponent(id))).manifest,
@@ -635,6 +647,11 @@ function untermSettings() {
         // back the right mode next time the user spawns this agent.
         if (this.agents.detail.draft._auth_mode) {
           values._auth_mode = this.agents.detail.draft._auth_mode;
+        }
+        // Persist the launch-flag selection (synthetic key — stays in Unterm's
+        // per-profile state, never written to the agent's own config file).
+        if (this.agents.detail.draft._launch_flags) {
+          values._launch_flags = this.agents.detail.draft._launch_flags;
         }
         for (const s of this.agents.detail.schema) {
           const d = this.agents.detail.draft[s.key];
