@@ -88,7 +88,14 @@ for bin in "${HELPERS[@]}" ; do
 done
 
 if [[ -d "$stagedir/Unterm.app/Contents/PlugIns/UntermFinderSync.appex" ]] ; then
+  # App Sandbox entitlement is MANDATORY for FinderSync extensions; without it
+  # pluginkit silently refuses to register the appex and the right-click
+  # "Open in Unterm" never appears. We shipped the appex with no entitlements
+  # through v0.23 and the Repair Finder Integration script could never recover
+  # — only re-signing with --entitlements (and fixing the principal class
+  # name in assets/macos/FinderSync/Info.plist) makes the extension load.
   /usr/bin/codesign --force --options runtime --timestamp \
+    --entitlements ci/macos-finder-sync-entitlement.plist \
     --sign "$DEV_ID" "$stagedir/Unterm.app/Contents/PlugIns/UntermFinderSync.appex"
 fi
 

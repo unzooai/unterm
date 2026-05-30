@@ -28,8 +28,14 @@
 	<dict>
 		<key>NSExtensionPointIdentifier</key>
 		<string>com.apple.FinderSync</string>
+		<!-- The Swift class declares `@objc(FinderSyncExtension)`, so the Obj-C
+		     runtime knows it as the bare name `FinderSyncExtension`. The earlier
+		     `UntermFinderSync.FinderSyncExtension` form silently failed to load
+		     (Obj-C runtime can't find a non-existent class name) and pluginkit
+		     never registered the extension — that's why "Open in Unterm" never
+		     appeared in Finder. -->
 		<key>NSExtensionPrincipalClass</key>
-		<string>UntermFinderSync.FinderSyncExtension</string>
+		<string>FinderSyncExtension</string>
 	</dict>
 </dict>
 </plist>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- App Sandbox is MANDATORY for Finder Sync extensions; without it
+	     pluginkit silently refuses to register the appex and the right-click
+	     "Open in Unterm" never appears, no matter how many times the Repair
+	     app re-runs lsregister + pluginkit. The main Unterm.app isn't
+	     sandboxed (Developer ID, not App Store), but the appex must be — App
+	     Extensions live in their own sandbox process regardless. -->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+</dict>
+</plist>
