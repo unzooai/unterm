@@ -82,10 +82,10 @@ const demoFlow = [
 // features but with a "v0.12" version chip and a denser tech-paragraph
 // body (these are about what changed, not what exists).
 const whatsnew = [
-  { v: "v0.22", title: "whatsnew.autowire.title",   body: "whatsnew.autowire.body" },
-  { v: "v0.21", title: "whatsnew.reference.title",  body: "whatsnew.reference.body" },
-  { v: "v0.20", title: "whatsnew.agentdump.title",  body: "whatsnew.agentdump.body" },
-  { v: "v0.19", title: "whatsnew.windowtitle.title", body: "whatsnew.windowtitle.body" },
+  { v: "v0.23", title: "whatsnew.launchflags.title", body: "whatsnew.launchflags.body" },
+  { v: "v0.22", title: "whatsnew.autowire.title",    body: "whatsnew.autowire.body" },
+  { v: "v0.21", title: "whatsnew.reference.title",   body: "whatsnew.reference.body" },
+  { v: "v0.20", title: "whatsnew.agentdump.title",   body: "whatsnew.agentdump.body" },
 ];
 
 const principles = [
@@ -102,7 +102,7 @@ const principles = [
 // GitHub Releases.  `valueRaw` is rendered as-is (mixed locale fragments like
 // version + date); plain `value` is an i18n key that goes through t().
 const tldrRows = [
-  { label: "tldr.version",         valueRaw: "v0.22 · 2026-05-28 · MIT" },
+  { label: "tldr.version",         valueRaw: "v0.23 · 2026-05-30 · MIT" },
   { label: "tldr.bundled_agents",  value:    "tldr.bundled_agents.value" },
   { label: "tldr.price",        value: "tldr.price.value" },
   { label: "tldr.platforms",    value: "tldr.platforms.value" },
@@ -222,7 +222,7 @@ const capabilities = [
 ];
 
 const dlBaseUrl = "https://github.com/unzooai/unterm/releases";
-const releaseTag = "v0.22";
+const releaseTag = "v0.23";
 
 // Download links use the version pinned for this site build, not
 // `stats.release`. The stats call can legitimately see the previous GitHub
@@ -300,7 +300,7 @@ const heroDownloads = [
             <span class="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 animate-ping"></span>
             <span class="relative inline-flex w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
           </span>
-          <span class="text-emerald-300 font-medium">v0.22</span>
+          <span class="text-emerald-300 font-medium">v0.23</span>
           <span class="text-zinc-700">·</span>
           <span>{t("hero.badge.signed")}</span>
           <span class="text-zinc-700">·</span>
