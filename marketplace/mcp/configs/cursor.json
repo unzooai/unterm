@@ -1,0 +1,29 @@
+// Cursor config snippet — Unterm MCP server.
+//
+// PREREQUISITE: install the Unterm desktop app first. Download:
+//
+//     https://unterm.app/api/download
+//
+// Open Unterm once so its MCP server boots and writes ~/.unterm/active.json.
+//
+// File to paste into:
+//   ~/.cursor/mcp.json
+//
+// Or via UI: Cursor → Settings → MCP → "Add new MCP server" → paste this
+// JSON. Restart Cursor's MCP runtime (Settings → MCP → Reload).
+//
+// Once connected, Cursor will list 67 Unterm tools. Common picks for chat:
+//   - session.create / session.split / session.focus    (carve panes)
+//   - session.input                                       (type into a pane)
+//   - screen.scrollback_text                              (dump full pane history)
+//   - exec.run_wait                                       (run + get exit code)
+//   - capture.window                                      (screenshot)
+
+{
+  "mcpServers": {
+    "unterm": {
+      "command": "unterm-cli",
+      "args": ["mcp-stdio"]
+    }
+  }
+}

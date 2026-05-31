@@ -1,0 +1,27 @@
+// Claude Code config snippet — Unterm MCP server (project-scoped .mcp.json).
+//
+// PREREQUISITE: install the Unterm desktop app first (it ships the
+// `unterm-cli mcp-stdio` bridge this config invokes). Download:
+//
+//     https://unterm.app/api/download
+//
+// Open Unterm once after install so its MCP server boots.
+//
+// File: drop this as `.mcp.json` in your project root. Claude Code picks it
+// up automatically on the next session (project-scoped servers); for global,
+// merge the mcpServers block into ~/.claude/.mcp.json (or whatever Claude
+// Code uses on your platform — see https://docs.claude.com/claude-code).
+//
+// NOTE: if you launched Claude Code FROM inside an Unterm pane (Shell →
+// AI Agents → Claude Code, or `unterm-cli agent launch claude-code`),
+// Unterm auto-wires this config for you — you don't need to paste it.
+
+{
+  "mcpServers": {
+    "unterm": {
+      "type": "stdio",
+      "command": "unterm-cli",
+      "args": ["mcp-stdio"]
+    }
+  }
+}

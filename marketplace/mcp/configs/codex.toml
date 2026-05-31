@@ -1,0 +1,19 @@
+# Codex CLI config snippet — Unterm MCP server.
+#
+# PREREQUISITE: install the Unterm desktop app first (it ships the
+# `unterm-cli mcp-stdio` bridge this entry invokes). Download:
+#
+#     https://unterm.app/api/download
+#
+# Open Unterm once so its MCP server boots.
+#
+# File: append the [mcp_servers.unterm] block below to ~/.codex/config.toml
+# (create the file if it doesn't exist). Restart codex.
+#
+# Auto-wire shortcut: if you launch Codex from Unterm itself
+# (`unterm-cli agent launch codex-cli`, or Shell → AI Agents → Codex CLI in
+# the Unterm menu), this config is written for you automatically.
+
+[mcp_servers.unterm]
+command = "unterm-cli"
+args = ["mcp-stdio"]

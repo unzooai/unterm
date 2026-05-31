@@ -1,0 +1,29 @@
+// Claude Desktop config snippet — Unterm MCP server.
+//
+// PREREQUISITE: install the Unterm desktop app first (it carries the
+// `unterm-cli` binary this snippet invokes). Download for your OS:
+//
+//     https://unterm.app/api/download
+//
+// (macOS .dmg / Linux .deb + .AppImage / Windows .msi + .zip — Apple-
+//  notarized, MIT, $0.) Open Unterm once after install so the MCP server
+// boots and writes ~/.unterm/active.json with the port + auth token; the
+// stdio bridge below picks them up transparently.
+//
+// File to paste this into:
+//   macOS:    ~/Library/Application Support/Claude/claude_desktop_config.json
+//   Windows:  %APPDATA%\Claude\claude_desktop_config.json
+//   Linux:    ~/.config/Claude/claude_desktop_config.json
+//
+// Restart Claude Desktop after editing. Claude will then have 67 methods to
+// drive your terminal (spawn panes, type into them, read scrollback, etc.).
+// Discover the full surface by asking Claude to call `meta.surface`.
+
+{
+  "mcpServers": {
+    "unterm": {
+      "command": "unterm-cli",
+      "args": ["mcp-stdio"]
+    }
+  }
+}

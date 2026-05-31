@@ -1,0 +1,126 @@
+{
+  "$schema": "https://smithery.ai/schemas/mcp-server.json",
+  "name": "unterm",
+  "displayName": "Unterm",
+  "description": "The terminal AI agents can drive. Spawn, focus, split, and type into terminal panes from any MCP-speaking agent — 67 methods across 11 namespaces. Local-first (127.0.0.1 only, auth-token gated), per-call audit, $0, MIT.",
+  "tagline": "Drive a real macOS / Linux / Windows terminal from any AI agent",
+  "homepage": "https://unterm.app",
+  "repository": "https://github.com/unzooai/unterm",
+  "license": "MIT",
+  "author": {
+    "name": "Alex Lee",
+    "url": "https://github.com/unzooai"
+  },
+  "version": "0.23.0",
+  "categories": [
+    "developer-tools",
+    "terminal",
+    "automation",
+    "agent-orchestration"
+  ],
+  "tags": [
+    "terminal",
+    "tty",
+    "pty",
+    "shell",
+    "wezterm",
+    "macos",
+    "linux",
+    "windows",
+    "agent",
+    "claude-code",
+    "codex",
+    "gemini",
+    "audit"
+  ],
+  "platforms": ["macos", "linux", "windows"],
+  "transports": [
+    {
+      "type": "stdio",
+      "command": "unterm-cli",
+      "args": ["mcp-stdio"],
+      "description": "Recommended. The unterm-cli mcp-stdio bridge proxies to the local Unterm GUI's TCP server. Auto-discovers the running instance via ~/.unterm/active.json."
+    },
+    {
+      "type": "tcp",
+      "host": "127.0.0.1",
+      "portFile": "~/.unterm/active.json",
+      "tokenFile": "~/.unterm/active.json",
+      "protocol": "Line-delimited JSON-RPC 2.0",
+      "description": "Direct TCP. Each Unterm window publishes its port + auth_token in ~/.unterm/active.json (single instance) and ~/.unterm/instances/<name>.json (multi-instance, NATO-named: alpha / bravo / charlie ...)."
+    }
+  ],
+  "install": {
+    "binary": "https://unterm.app/api/download",
+    "macos": {
+      "dmg": "https://github.com/unzooai/unterm/releases/latest/download/Unterm-macos-v0.23.dmg",
+      "size_mb": 97
+    },
+    "linux": {
+      "deb": "https://github.com/unzooai/unterm/releases/latest/download/unterm-v0.23.deb",
+      "appimage": "https://github.com/unzooai/unterm/releases/latest/download/Unterm-v0.23-x86_64.AppImage",
+      "size_mb": 35
+    },
+    "windows": {
+      "msi": "https://github.com/unzooai/unterm/releases/latest/download/Unterm-0.23.0-x64.msi",
+      "zip": "https://github.com/unzooai/unterm/releases/latest/download/Unterm-windows-v0.23.zip",
+      "size_mb": 44
+    },
+    "homebrew": null,
+    "winget": null,
+    "after_install": [
+      "Open Unterm.app once so the MCP server boots and writes ~/.unterm/active.json.",
+      "Drop the mcp-stdio config snippet from marketplace/mcp/configs/<your-client>.json into your MCP client.",
+      "The client then has 67 methods to drive your terminal."
+    ]
+  },
+  "discovery": {
+    "describe_method": "meta.surface",
+    "describe_method_description": "Calling meta.surface returns the full live API (every method with its param schema, every CLI subcommand, every currently-bound keybinding) — the same JSON `unterm-cli reference` prints. Agents that just connected learn the entire surface in one round-trip without docs.",
+    "list_method": "instance.list",
+    "self_test_method": "selftest.run"
+  },
+  "capabilities": {
+    "method_count": 67,
+    "namespace_count": 11,
+    "namespaces": [
+      { "name": "session",   "methods": 23, "summary": "Spawn, split, focus, resize, destroy panes; type into them; read cwd / history / idle state." },
+      { "name": "screen",    "methods": 7,  "summary": "Live viewport text, full scrollback as a single string, cursor position, regex search, error detection." },
+      { "name": "exec",      "methods": 6,  "summary": "Run, run_wait, send bytes, status, cancel, POSIX signal — structured results, no screen-scraping." },
+      { "name": "capture",   "methods": 4,  "summary": "Screenshot screen / window / drag-selected region; read the clipboard." },
+      { "name": "upload",    "methods": 1,  "summary": "Push a local file to your own object storage (Aliyun OSS / Tencent COS / Qiniu) and return a public URL." },
+      { "name": "proxy",     "methods": 7,  "summary": "Read/switch OS proxy state, latency-test endpoints, apply/clear overrides." },
+      { "name": "instance",  "methods": 4,  "summary": "Enumerate every live Unterm on the machine (NATO-named: alpha/bravo/charlie...), focus one, retitle, info." },
+      { "name": "workspace", "methods": 3,  "summary": "Save / list / restore the current window's full pane+tab layout." },
+      { "name": "system",    "methods": 2,  "summary": "OS / arch / locale; launch with elevated privileges (Windows-only)." },
+      { "name": "governance",  "methods": 8,  "summary": "Audit log, policy check/set, agent.identify/whoami, self-test, server.health/info/capabilities." },
+      { "name": "meta",      "methods": 1,  "summary": "meta.surface — one call returns every method + CLI subcommand + live keybinding (the self-describing surface)." }
+    ]
+  },
+  "security": {
+    "bind_address": "127.0.0.1",
+    "auth": "Bearer token written to ~/.unterm/active.json on launch (chmod 600). The mcp-stdio bridge reads it transparently; raw TCP clients send `{\"method\":\"auth.login\",\"params\":{\"token\":\"<value>\"}}` first.",
+    "audit": "Every session.input / exec.send is logged with the calling agent's identity. First write from a new agent triggers a blocking Allow / Block / Always-allow banner. Trust persists in ~/.unterm/trusted_agents.json and is one-click revocable from Web Settings.",
+    "telemetry": "None. Zero outbound HTTP at runtime; everything stays on 127.0.0.1.",
+    "sandbox": "FinderSync extension is app-sandboxed (Apple Developer ID signed + notarized). The main app is signed but not sandboxed (needs full file access to drive the terminal)."
+  },
+  "skills_bundled": [
+    "marketplace/skills/terminal-control",
+    "marketplace/skills/release-engineer",
+    "marketplace/skills/parallel-agents"
+  ],
+  "screenshots": [
+    {
+      "url": "https://unterm.app/assets/og.png",
+      "caption": "The terminal AI agents can drive — 67 MCP methods, $0, MIT."
+    }
+  ],
+  "links": {
+    "homepage": "https://unterm.app",
+    "docs": "https://unterm.app/docs/mcp-reference",
+    "agent_integration": "https://unterm.app/docs/agent-integration",
+    "recipes": "https://unterm.app/docs/agent-recipes",
+    "issues": "https://github.com/unzooai/unterm/issues",
+    "releases": "https://github.com/unzooai/unterm/releases/latest"
+  }
+}

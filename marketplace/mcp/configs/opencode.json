@@ -1,0 +1,24 @@
+// OpenCode config snippet — Unterm MCP server.
+//
+// PREREQUISITE: install the Unterm desktop app first. Download:
+//
+//     https://unterm.app/api/download
+//
+// Open Unterm once so its MCP server boots.
+//
+// File: merge the `mcp` block below into your `opencode.json` (per-project,
+// or the global one under ~/.config/opencode/opencode.json — OpenCode looks
+// at both). Note OpenCode's MCP block is `mcp` (not `mcpServers`), the
+// command is an ARRAY, and the type is `local` (stdio).
+//
+// Auto-wire shortcut: launching OpenCode from Unterm
+// (`unterm-cli agent launch opencode`) writes this entry for you.
+
+{
+  "mcp": {
+    "unterm": {
+      "type": "local",
+      "command": ["unterm-cli", "mcp-stdio"]
+    }
+  }
+}

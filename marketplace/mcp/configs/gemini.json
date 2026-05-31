@@ -1,0 +1,23 @@
+// Gemini CLI config snippet — Unterm MCP server.
+//
+// PREREQUISITE: install the Unterm desktop app first. Download:
+//
+//     https://unterm.app/api/download
+//
+// Open Unterm once so its MCP server boots.
+//
+// File: merge the mcpServers block below into ~/.gemini/settings.json
+// (preserve any other top-level keys you already have there).
+//
+// Auto-wire shortcut: launching Gemini from Unterm
+// (`unterm-cli agent launch gemini-cli` or Shell → AI Agents → Gemini CLI)
+// writes this entry for you automatically.
+
+{
+  "mcpServers": {
+    "unterm": {
+      "command": "unterm-cli",
+      "args": ["mcp-stdio"]
+    }
+  }
+}
