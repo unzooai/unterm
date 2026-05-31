@@ -1,0 +1,50 @@
+# Smithery auto-discovery manifest. When Smithery indexes a repo it looks
+# for this file at the root and uses it to populate the listing — much
+# faster than re-uploading the longer marketplace/mcp/manifest.json by
+# hand. See https://smithery.ai/docs/build/server-config for the spec.
+#
+# This file is intentionally short: the long-form descriptor lives at
+# marketplace/mcp/manifest.json. Smithery reads the basics from here and
+# links out to the repo for everything else.
+
+name: unterm
+displayName: Unterm
+description: |
+  The terminal AI agents can drive. A cross-platform (macOS / Linux /
+  Windows) terminal that exposes itself as an MCP-controllable surface —
+  67 methods across 11 namespaces let any external agent spawn shells,
+  split panes, type into them, read scrollback, take screenshots, manage
+  sessions, run AI coding agents in side-by-side panes. Local-first
+  (127.0.0.1 only, auth-token gated, per-call audit), $0, MIT, signed +
+  Apple-notarized on macOS.
+
+  IMPORTANT: this is not a standalone npm package. The MCP server ships
+  inside the Unterm desktop app. Install Unterm first from
+  https://unterm.app/api/download (UA-aware redirect to the right
+  artifact for your OS), then open it once so it writes
+  ~/.unterm/active.json with the port and auth token. The `unterm-cli
+  mcp-stdio` bridge below reads that file transparently.
+
+homepage: https://unterm.app
+repository: https://github.com/unzooai/unterm
+license: MIT
+
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    properties: {}
+  commandFunction: |-
+    () => ({
+      command: 'unterm-cli',
+      args: ['mcp-stdio'],
+    })
+
+prerequisites:
+  - type: binary
+    name: unterm-cli
+    install_url: https://unterm.app/api/download
+    install_hint: |
+      Install the Unterm desktop app from https://unterm.app/api/download
+      (auto-detects your OS). The unterm-cli binary ships with it.
+      Launch Unterm once after install so the MCP server boots.
