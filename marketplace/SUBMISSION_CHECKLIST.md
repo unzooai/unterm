@@ -10,15 +10,15 @@ Legend: ☐ not yet submitted · ⏳ submitted, awaiting review · ✅ live
 
 | Status | Marketplace | URL | Submission method | Required materials |
 | :-: | --- | --- | --- | --- |
-| ☐ | **Anthropic / MCP official registry** | <https://github.com/modelcontextprotocol/servers> | Open a PR adding `Unterm` to the README's "Community servers" table, link to <https://unterm.app> + this repo. They don't host binaries; they index. | `marketplace/README.md` quick-pitch + capability table. |
-| ☐ | **Smithery.ai** | <https://smithery.ai/new> | Sign in with GitHub, point at this repo, paste `mcp/manifest.json` content (or let it auto-discover via `smithery.yaml` at repo root — TODO add that file). | `mcp/manifest.json`. |
-| ☐ | **mcp.so** | <https://mcp.so/submit> | Form submission. Needs: name, tagline, repo, homepage, transports, install command. | Manifest + 1-line tagline + `mcp/configs/README.md`. |
-| ☐ | **Glama.ai / mcp** | <https://glama.ai/mcp/servers> | They auto-index from GitHub topic `mcp-server` — add that topic to the repo. Manual submission also possible via their Discord. | GitHub topic `mcp-server` on `unzooai/unterm`. |
-| ☐ | **mcpservers.org** | <https://github.com/wong2/awesome-mcp-servers> | PR to the `README.md` adding an entry under "Terminal" or "System Tools" category. | One-line description + repo link. |
-| ☐ | **awesome-mcp-servers** (punkpeye) | <https://github.com/punkpeye/awesome-mcp-servers> | PR adding an entry under "🤖 AI" or "💻 Command Line" (probably the latter — Unterm is a terminal). | One-line + repo link + emoji platform tag. |
-| ☐ | **Claude Desktop catalog** | Built-in: Settings → MCP → Browse | Auto-discovers from official Anthropic registry. Submit there (row 1) and Claude Desktop picks it up. | (same as row 1) |
-| ☐ | **Cursor MCP directory** | <https://cursor.com/mcp> | Cursor curates manually; reach out via their Discord / `mcp@cursor.com` with the manifest URL. | `mcp/manifest.json` + `mcp/configs/cursor.json`. |
-| ☐ | **OpenAI / ChatGPT MCP catalog** | <https://platform.openai.com/docs/mcp> (when public submission opens) | Currently invite-only / partner-only. Hold. | TBD when GA. |
+| n/a | **Anthropic / MCP official registry** | <https://github.com/modelcontextprotocol/servers> | Checked — repo README only lists Anthropic-authored reference servers, no community section. Community discovery happens at the awesome-* lists below. Skip. | — |
+| ☐ | **Smithery.ai** | <https://smithery.ai/new> | `smithery.yaml` already at repo root for auto-discovery — see [submissions/01-smithery.md](submissions/01-smithery.md) for the sign-in + claim flow. | `smithery.yaml` (root) + `submissions/01-smithery.md` |
+| ☐ | **mcp.so** | <https://mcp.so/submit> | Form submission — paste-ready field values in [submissions/02-mcp-so.md](submissions/02-mcp-so.md) | `submissions/02-mcp-so.md` |
+| ☐ | **Glama.ai / mcp** | <https://glama.ai/mcp/servers> | Auto-indexes from GitHub topic `mcp-server`. Set repo topics first (see [submissions/00-github-repo-metadata.md](submissions/00-github-repo-metadata.md)). | GitHub topics — admin only, see `00-...md` |
+| n/a | **wong2/awesome-mcp-servers** | <https://github.com/wong2/awesome-mcp-servers> | PRs disabled on repo (zero PR history of any state; `has_issues: false` too — maintainer accepts direct pushes only). Skip. | — |
+| ⏳ | **awesome-mcp-servers** (punkpeye) | <https://github.com/punkpeye/awesome-mcp-servers> | PR #7166 opened — adds Unterm to the Command Line section. <https://github.com/punkpeye/awesome-mcp-servers/pull/7166> | (auto) |
+| ☐ | **Claude Desktop catalog** | Built-in: Settings → MCP → Browse | Auto-discovers from `claude_desktop_config.json` snippet users paste in. No separate submission. | `marketplace/mcp/configs/claude-desktop.json` |
+| ☐ | **Cursor MCP directory** | <https://cursor.com/mcp> | Editorial — email or Discord. Drafts in [submissions/03-cursor.md](submissions/03-cursor.md) | `submissions/03-cursor.md` |
+| ☐ | **OpenAI / ChatGPT MCP catalog** | <https://platform.openai.com/docs/mcp> | Currently invite-only / partner-only. Hold. | TBD when GA. |
 
 ### GitHub repo prep (one-time)
 
@@ -39,8 +39,8 @@ via GitHub repos rather than a single registry. Two paths:
 
 | Status | Where | How |
 | :-: | --- | --- |
-| ☐ | **In-repo `skills/` directory** (this kit) | Users `git clone unzooai/unterm` and copy `marketplace/skills/<name>/` into `~/.claude/skills/<name>/`. Document in main README. | already done — files are at `marketplace/skills/` |
-| ☐ | **awesome-claude-skills (community list)** | <https://github.com/anthropics/anthropic-cookbook> (Skills section) — PR adding our three SKILL.md links | the three `SKILL.md` files + 1-line description each |
+| ✅ | **In-repo `skills/` directory** (this kit) | Users `git clone unzooai/unterm` and copy `marketplace/skills/<name>/` into `~/.claude/skills/<name>/`. | files are at `marketplace/skills/` |
+| ⏳ | **ComposioHQ/awesome-claude-skills** | PR #960 — adds the 3 skills to "Development & Code Tools" section. <https://github.com/ComposioHQ/awesome-claude-skills/pull/960> | (auto) |
 | ☐ | **Claude.ai shared skills** (when sharing opens GA) | Upload via Claude Settings → Skills → Share | each `SKILL.md` text |
 
 The three Skills authored:
