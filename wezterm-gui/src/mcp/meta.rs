@@ -374,6 +374,7 @@ pub const MCP_METHODS: &[McpMethod] = &[
     McpMethod { name: "proxy.configure", namespace: "proxy", summary: "Apply proxy settings to the OS (macOS scutil / Windows reg / Linux env).", params: &[Param { name: "url", kind: "string", required: true, summary: "" }] },
     McpMethod { name: "proxy.disable", namespace: "proxy", summary: "Clear all OS proxy overrides.", params: NO_PARAMS },
     McpMethod { name: "proxy.env", namespace: "proxy", summary: "Effective proxy-related env vars.", params: NO_PARAMS },
+    McpMethod { name: "proxy.rotation", namespace: "proxy", summary: "Get/set endpoint-level auto-rotation: fail over to the fastest live node in a pool when the active one dies.", params: &[Param { name: "enabled", kind: "bool", required: false, summary: "Turn auto-rotation on/off." }, Param { name: "pool", kind: "string", required: false, summary: "List of node names eligible for rotation." }, Param { name: "interval_secs", kind: "int", required: false, summary: "Health-check cadence (min 5)." }] },
     // ---- governance ----
     McpMethod { name: "policy.set", namespace: "governance", summary: "Update MCP write-confirmation policy.", params: NO_PARAMS },
     McpMethod { name: "policy.check", namespace: "governance", summary: "Test whether a command would be allowed by policy.", params: &[Param { name: "command", kind: "string", required: true, summary: "" }] },
@@ -409,7 +410,7 @@ pub const CLI_COMMANDS: &[CliCommand] = &[
     CliCommand { name: "reference", summary: "Print MCP methods, CLI subcommands, and live keybindings.", subcommands: &[] },
     CliCommand { name: "mcp-stdio", summary: "Run an MCP stdio bridge so an AI agent can drive this instance.", subcommands: &[] },
     CliCommand { name: "settings", summary: "Open the Unterm Web Settings UI in your browser.", subcommands: &["open"] },
-    CliCommand { name: "proxy", summary: "Manage Unterm's proxy via the MCP server.", subcommands: &["status", "nodes", "switch", "disable", "env"] },
+    CliCommand { name: "proxy", summary: "Manage Unterm's proxy via the MCP server.", subcommands: &["status", "nodes", "switch", "disable", "env", "rotation"] },
     CliCommand { name: "theme", summary: "List / switch Unterm theme presets.", subcommands: &["list", "switch"] },
     CliCommand { name: "profile", summary: "Manage identity profiles (GitHub / AWS / npm tokens, git identity, SSH keys).", subcommands: &["list", "create", "show", "set-secret", "delete", "audit", "edit", "export", "spawn", "import", "set-default", "shell-integration"] },
     CliCommand { name: "agent", summary: "Install, authenticate, configure, and launch AI coding-agent CLIs.", subcommands: &["list", "show", "install", "update", "uninstall", "auth", "configure", "import", "plan", "launch", "manifest"] },

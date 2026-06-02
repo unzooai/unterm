@@ -28,6 +28,22 @@ pub enum ProxySubCommand {
     Disable,
     /// Print proxy environment variables (HTTP_PROXY etc.).
     Env,
+    /// Endpoint-level auto-rotation: fail over to the fastest live node in a
+    /// pool when the active one dies. With no flags, prints current settings.
+    Rotation {
+        /// Turn auto-rotation on.
+        #[arg(long, conflicts_with = "off")]
+        on: bool,
+        /// Turn auto-rotation off.
+        #[arg(long)]
+        off: bool,
+        /// Node names to rotate among (repeat or comma-separate). Sets the pool.
+        #[arg(long, value_delimiter = ',')]
+        pool: Vec<String>,
+        /// Health-check interval in seconds (min 5).
+        #[arg(long)]
+        interval: Option<u64>,
+    },
 }
 
 pub fn run(cmd: ProxyCommand, json_out: bool) -> Result<()> {
@@ -160,6 +176,48 @@ pub fn run(cmd: ProxyCommand, json_out: bool) -> Result<()> {
                             println!("export {}={}", k, shell_quote(s));
                         }
                     }
+                }
+            }
+        }
+        ProxySubCommand::Rotation {
+            on,
+            off,
+            pool,
+            interval,
+        } => {
+            // Build the params map from only the flags the user passed, so a
+            // bare `proxy rotation` is a pure read.
+            let mut params = serde_json::Map::new();
+            if on {
+                params.insert("enabled".into(), json!(true));
+            } else if off {
+                params.insert("enabled".into(), json!(false));
+            }
+            if !pool.is_empty() {
+                params.insert("pool".into(), json!(pool));
+            }
+            if let Some(iv) = interval {
+                params.insert("interval_secs".into(), json!(iv));
+            }
+            let result = client.call("proxy.rotation", serde_json::Value::Object(params))?;
+            if json_out {
+                print_json(&result);
+            } else {
+                let enabled = result
+                    .get("enabled")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                print_kv("rotation", if enabled { "on" } else { "off" });
+                if let Some(p) = result.get("pool").and_then(|v| v.as_array()) {
+                    let names: Vec<String> =
+                        p.iter().filter_map(|v| v.as_str().map(String::from)).collect();
+                    print_kv("pool", &names.join(", "));
+                }
+                if let Some(iv) = result.get("interval_secs").and_then(|v| v.as_u64()) {
+                    print_kv("interval_secs", &iv.to_string());
+                }
+                if let Some(cur) = result.get("current_node").and_then(|v| v.as_str()) {
+                    print_kv("current_node", cur);
                 }
             }
         }

@@ -98,6 +98,30 @@ struct ProxyNodeConfig {
     available: bool,
 }
 
+/// Auto-rotation: keep a user-chosen pool of nodes healthy. A background
+/// monitor probes the current node every `interval_secs`; when it goes
+/// unreachable, it probes the whole pool and switches to the fastest live one.
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+struct RotationSettings {
+    enabled: bool,
+    /// Node names eligible for rotation. Empty pool disables rotation even if
+    /// `enabled` (nothing to rotate to).
+    pool: Vec<String>,
+    /// Seconds between health checks of the active node.
+    interval_secs: u64,
+}
+
+impl Default for RotationSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            pool: Vec::new(),
+            interval_secs: 30,
+        }
+    }
+}
+
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 struct ProxySettings {
@@ -108,6 +132,7 @@ struct ProxySettings {
     no_proxy: String,
     current_node: Option<String>,
     nodes: Vec<ProxyNodeConfig>,
+    rotation: RotationSettings,
 }
 
 impl Default for ProxySettings {
@@ -120,6 +145,7 @@ impl Default for ProxySettings {
             no_proxy: "localhost,127.0.0.1,::1".to_string(),
             current_node: None,
             nodes: Vec::new(),
+            rotation: RotationSettings::default(),
         }
     }
 }
@@ -827,6 +853,7 @@ impl McpHandler {
             "proxy.configure" => self.proxy_configure(params),
             "proxy.disable" => self.proxy_disable(),
             "proxy.env" => self.proxy_env(),
+            "proxy.rotation" => self.proxy_rotation(params),
             // Workspace
             "workspace.save" => self.workspace_save(params),
             "workspace.restore" => self.workspace_restore(params),
@@ -2374,6 +2401,51 @@ impl McpHandler {
         Ok(json!({"disabled": true}))
     }
 
+    /// Get or set endpoint-level auto-rotation. With no params, returns the
+    /// current rotation config; otherwise updates `enabled` / `pool` /
+    /// `interval_secs` and persists. The background monitor (started at GUI
+    /// boot) picks up changes on its next tick. Software-agnostic — the pool is
+    /// just node names that resolve to HTTP/SOCKS URLs.
+    fn proxy_rotation(&self, params: &Value) -> Result<Value> {
+        let mut state = mcp_state().lock();
+        let mut settings = state.proxy.clone();
+        let mut changed = false;
+        if let Some(enabled) = params.get("enabled").and_then(|v| v.as_bool()) {
+            settings.rotation.enabled = enabled;
+            changed = true;
+        }
+        if let Some(pool) = params.get("pool").and_then(|v| v.as_array()) {
+            settings.rotation.pool = pool
+                .iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect();
+            changed = true;
+        }
+        if let Some(iv) = params.get("interval_secs").and_then(|v| v.as_u64()) {
+            settings.rotation.interval_secs = iv.max(5);
+            changed = true;
+        }
+        if changed {
+            save_proxy_settings(&settings)?;
+            state.proxy = settings.clone();
+        }
+        // Report which pool nodes are known vs missing so a caller can spot a
+        // typo'd pool entry.
+        let known: Vec<&String> = settings
+            .rotation
+            .pool
+            .iter()
+            .filter(|name| settings.nodes.iter().any(|n| &n.name == *name))
+            .collect();
+        Ok(json!({
+            "enabled": settings.rotation.enabled,
+            "pool": settings.rotation.pool,
+            "interval_secs": settings.rotation.interval_secs,
+            "pool_resolved": known.len(),
+            "current_node": settings.current_node,
+        }))
+    }
+
     fn proxy_switch(&self, params: &Value) -> Result<Value> {
         let node_name = params
             .get("node_name")
@@ -3360,6 +3432,134 @@ fn probe_proxy_endpoint(url: &str, timeout_ms: u64) -> bool {
     addrs
         .into_iter()
         .any(|addr| std::net::TcpStream::connect_timeout(&addr, timeout).is_ok())
+}
+
+/// Pick the fastest reachable node named in `pool` from `nodes`. `probe`
+/// returns `Some(latency_ms)` if a node's URL is reachable, `None` if it's
+/// down. Pure selection so it's unit-testable without touching the network.
+fn select_fastest_node<'a>(
+    nodes: &'a [ProxyNodeConfig],
+    pool: &[String],
+    probe: impl Fn(&str) -> Option<u64>,
+) -> Option<&'a ProxyNodeConfig> {
+    let mut best: Option<(&ProxyNodeConfig, u64)> = None;
+    for name in pool {
+        if let Some(node) = nodes.iter().find(|n| &n.name == name) {
+            if let Some(latency) = probe(&node.url) {
+                if best.as_ref().map_or(true, |(_, b)| latency < *b) {
+                    best = Some((node, latency));
+                }
+            }
+        }
+    }
+    best.map(|(n, _)| n)
+}
+
+#[cfg(test)]
+mod proxy_rotation_tests {
+    use super::*;
+
+    fn node(name: &str, url: &str) -> ProxyNodeConfig {
+        ProxyNodeConfig {
+            name: name.into(),
+            url: url.into(),
+            latency_ms: None,
+            available: false,
+        }
+    }
+
+    #[test]
+    fn picks_fastest_reachable_skips_down_and_unknown() {
+        let nodes = vec![
+            node("a", "http://a:1"),
+            node("b", "http://b:2"),
+            node("c", "http://c:3"),
+        ];
+        // pool includes a missing name; "a" is down, "b" slow, "c" fastest.
+        let pool = vec!["a".into(), "b".into(), "missing".into(), "c".into()];
+        let pick = select_fastest_node(&nodes, &pool, |url| match url {
+            "http://a:1" => None,      // unreachable → skipped
+            "http://b:2" => Some(80),  // reachable, slower
+            "http://c:3" => Some(20),  // reachable, fastest → winner
+            _ => None,
+        });
+        assert_eq!(pick.map(|n| n.name.as_str()), Some("c"));
+    }
+
+    #[test]
+    fn none_when_pool_all_down_or_empty() {
+        let nodes = vec![node("a", "http://a:1")];
+        assert!(select_fastest_node(&nodes, &["a".into()], |_| None).is_none());
+        assert!(select_fastest_node(&nodes, &[], |_| Some(5)).is_none());
+        // a pool name that isn't in nodes resolves to nothing.
+        assert!(select_fastest_node(&nodes, &["ghost".into()], |_| Some(5)).is_none());
+    }
+}
+
+/// Endpoint-level proxy failover (one check). If auto-rotation is on and the
+/// active node is unreachable, probe the pool and switch to the fastest live
+/// node. Software-agnostic: a "node" is just an HTTP/SOCKS URL, probed by TCP —
+/// works with any proxy app (Clash/Mihomo, V2Ray, sing-box, remote SOCKS, …).
+/// Reuses the same probe + persistence as the manual proxy methods so a rotated
+/// switch is indistinguishable from a hand switch. Returns the node switched to.
+pub fn proxy_rotation_tick() -> Option<String> {
+    const PROBE_TIMEOUT_MS: u64 = 3000;
+    let mut state = mcp_state().lock();
+    let mut settings = state.proxy.clone();
+    if !settings.rotation.enabled || settings.rotation.pool.is_empty() {
+        return None;
+    }
+
+    // Active node still reachable? Then nothing to do.
+    let current_ok = settings
+        .current_node
+        .as_ref()
+        .and_then(|cn| settings.nodes.iter().find(|n| &n.name == cn))
+        .map(|n| probe_proxy_endpoint(&n.url, PROBE_TIMEOUT_MS))
+        .unwrap_or(false);
+    if current_ok {
+        return None;
+    }
+
+    // Active node down (or unset): probe the pool, pick the fastest reachable.
+    let target = select_fastest_node(&settings.nodes, &settings.rotation.pool, |url| {
+        let start = std::time::Instant::now();
+        probe_proxy_endpoint(url, PROBE_TIMEOUT_MS)
+            .then(|| start.elapsed().as_millis() as u64)
+    });
+    let (name, url) = match target {
+        Some(node) => (node.name.clone(), node.url.clone()),
+        None => return None, // nothing in the pool is reachable — stay put
+    };
+
+    settings.enabled = true;
+    settings.mode = "auto".to_string();
+    settings.current_node = Some(name.clone());
+    settings.http_proxy = Some(url.clone());
+    if url.starts_with("socks") {
+        settings.socks_proxy = Some(url.clone());
+    }
+    if save_proxy_settings(&settings).is_ok() {
+        state.proxy = settings;
+        log::info!("proxy auto-rotation: active node unreachable → switched to '{name}' ({url})");
+        Some(name)
+    } else {
+        None
+    }
+}
+
+/// Spawn the background auto-rotation monitor. Re-reads the interval each cycle
+/// so live config changes take effect; cheap when disabled (a lock + two field
+/// reads). Min 5s to avoid hammering. Started once at GUI startup.
+pub fn start_proxy_rotation_monitor() {
+    std::thread::Builder::new()
+        .name("proxy-rotation".into())
+        .spawn(|| loop {
+            let interval = mcp_state().lock().proxy.rotation.interval_secs.max(5);
+            std::thread::sleep(std::time::Duration::from_secs(interval));
+            proxy_rotation_tick();
+        })
+        .ok();
 }
 
 

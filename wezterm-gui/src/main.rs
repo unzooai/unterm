@@ -467,6 +467,11 @@ async fn async_run_terminal_gui(
     // GitHub.
     update_check::start_background_poller();
 
+    // Endpoint-level proxy auto-rotation: a background monitor that, when
+    // enabled, probes the active proxy node and fails over to the fastest live
+    // node in the configured pool. No-op (cheap) unless the user turned it on.
+    mcp::handler::start_proxy_rotation_monitor();
+
     if !opts.no_auto_connect {
         connect_to_auto_connect_domains().await?;
     }
