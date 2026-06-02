@@ -82,10 +82,10 @@ const demoFlow = [
 // features but with a "v0.12" version chip and a denser tech-paragraph
 // body (these are about what changed, not what exists).
 const whatsnew = [
+  { v: "v0.24", title: "whatsnew.autodiscovery.title", body: "whatsnew.autodiscovery.body" },
   { v: "v0.23", title: "whatsnew.launchflags.title", body: "whatsnew.launchflags.body" },
   { v: "v0.22", title: "whatsnew.autowire.title",    body: "whatsnew.autowire.body" },
   { v: "v0.21", title: "whatsnew.reference.title",   body: "whatsnew.reference.body" },
-  { v: "v0.20", title: "whatsnew.agentdump.title",   body: "whatsnew.agentdump.body" },
 ];
 
 const principles = [
@@ -102,7 +102,7 @@ const principles = [
 // GitHub Releases.  `valueRaw` is rendered as-is (mixed locale fragments like
 // version + date); plain `value` is an i18n key that goes through t().
 const tldrRows = [
-  { label: "tldr.version",         valueRaw: "v0.23 · 2026-05-30 · MIT" },
+  { label: "tldr.version",         valueRaw: "v0.24 · 2026-06-02 · MIT" },
   { label: "tldr.bundled_agents",  value:    "tldr.bundled_agents.value" },
   { label: "tldr.price",        value: "tldr.price.value" },
   { label: "tldr.platforms",    value: "tldr.platforms.value" },
@@ -250,7 +250,8 @@ const dmgUrl      = `${dlBaseUrl}/latest/download/Unterm-macos-${releaseTag}.dmg
 const debUrl      = `${dlBaseUrl}/latest/download/unterm-${releaseTag}.deb`;
 const appimageUrl = `${dlBaseUrl}/latest/download/Unterm-${releaseTag}-x86_64.AppImage`;
 const msiUrl      = `${dlBaseUrl}/latest/download/Unterm-${releaseSemver}-x64.msi`;
-const winZipUrl   = `${dlBaseUrl}/latest/download/Unterm-windows-${releaseTag}.zip`;
+const msiArmUrl   = `${dlBaseUrl}/latest/download/Unterm-${releaseSemver}-arm64.msi`;
+const winZipUrl   = `${dlBaseUrl}/latest/download/Unterm-windows-x64-${releaseTag}.zip`;
 const heroDownloads = [
   {
     href: dmgUrl,
@@ -809,7 +810,11 @@ drwxr-xr-x 6 alexlee staff   192  architecture.md
         <div class="mt-3 flex flex-wrap gap-2">
           <a href={msiUrl}
              class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-mono bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 hover:text-emerald-200 border border-emerald-500/20 hover:border-emerald-500/40 transition">
-            .msi →
+            .msi x64 →
+          </a>
+          <a href={msiArmUrl}
+             class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-mono bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 hover:text-emerald-200 border border-emerald-500/20 hover:border-emerald-500/40 transition">
+            .msi Arm64 →
           </a>
           <a href={winZipUrl}
              class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-mono bg-zinc-800/60 hover:bg-zinc-800 text-zinc-300 hover:text-zinc-100 border border-zinc-700/50 hover:border-zinc-700 transition">
@@ -1113,13 +1118,13 @@ drwxr-xr-x 6 alexlee staff   192  architecture.md
     <h2 class="text-3xl font-semibold tracking-tight text-center">{t("sister.title")}</h2>
     <p class="mt-3 text-center text-zinc-400 max-w-2xl mx-auto">{t("sister.subtitle")}</p>
     <div class="mt-10 grid md:grid-cols-2 gap-4">
-      <a href="https://solomd.app" target="_blank" rel="noopener"
+      <a href="https://doaipm.com" target="_blank" rel="noopener"
          class="group block bg-zinc-900/60 hover:bg-zinc-900 border border-zinc-800 hover:border-zinc-700 rounded-xl p-6 transition">
         <div class="flex items-center justify-between">
-          <div class="text-xl font-semibold">SoloMD</div>
+          <div class="text-xl font-semibold">DO AI PM</div>
           <svg class="w-4 h-4 text-zinc-500 group-hover:text-zinc-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 17L17 7M17 7H8M17 7v9"/></svg>
         </div>
-        <p class="mt-2 text-sm text-zinc-400">{t("sister.solomd")}</p>
+        <p class="mt-2 text-sm text-zinc-400">{t("sister.doaipm")}</p>
       </a>
       <a href="https://unflick.app" target="_blank" rel="noopener"
          class="group block bg-zinc-900/60 hover:bg-zinc-900 border border-zinc-800 hover:border-zinc-700 rounded-xl p-6 transition">

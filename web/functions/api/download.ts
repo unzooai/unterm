@@ -39,6 +39,12 @@ function targetForUA(ua: string, v: string): string {
     return `${BASE}/latest`;
   }
   if (/Windows|Win64|Win32|WOW64/i.test(ua)) {
+    // Windows on ARM: the UA carries "ARM64" (Edge/Chrome on Snapdragon /
+    // Surface) or a bare "ARM;". Serve the native arm64 MSI; everything else
+    // gets x64 (which also runs on ARM via emulation, so it's a safe default).
+    if (/ARM64|aarch64|ARM;/i.test(ua)) {
+      return `${latest}/Unterm-${semver}-arm64.msi`;
+    }
     return `${latest}/Unterm-${semver}-x64.msi`;
   }
   if (/Mac OS X|Macintosh/i.test(ua)) {
