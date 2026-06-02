@@ -38,23 +38,30 @@ $stage = Join-Path $OutDir ("unterm-stage-" + $Version)
 if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
 New-Item -ItemType Directory -Path $stage | Out-Null
 
+# Native helper DLLs must match the build arch: x64 under assets\windows,
+# arm64 under assets\windows\arm64.
+$helpers = if ($Arch -eq "arm64") { "assets\windows\arm64" } else { "assets\windows" }
 $payload = @(
   "$TargetDir\unterm.exe",
   "$TargetDir\unterm-cli.exe",
   "$TargetDir\unterm-mux.exe",
   "$TargetDir\strip-ansi-escapes.exe",
-  "assets\windows\conhost\conpty.dll",
-  "assets\windows\conhost\OpenConsole.exe",
-  "assets\windows\angle\libEGL.dll",
-  "assets\windows\angle\libGLESv2.dll"
+  "$helpers\conhost\conpty.dll",
+  "$helpers\conhost\OpenConsole.exe",
+  "$helpers\angle\libEGL.dll",
+  "$helpers\angle\libGLESv2.dll"
 )
 foreach ($f in $payload) {
   if (-not (Test-Path $f)) { throw "missing: $f" }
   Copy-Item $f $stage
 }
-$mesa = Join-Path $stage "mesa"
-New-Item -ItemType Directory -Path $mesa | Out-Null
-Copy-Item "assets\windows\mesa\opengl32.dll" $mesa
+# Mesa software-GL fallback is x64-only (no arm64 prebuilt); the WiX Mesa
+# component is gated on $(sys.BUILDARCH), so skip staging it for arm64.
+if ($Arch -ne "arm64") {
+  $mesa = Join-Path $stage "mesa"
+  New-Item -ItemType Directory -Path $mesa | Out-Null
+  Copy-Item "assets\windows\mesa\opengl32.dll" $mesa
+}
 
 if (-not (Test-Path $WixPath)) {
   throw "WiX not found at $WixPath. Download wix.exe from https://github.com/wixtoolset/wix and place it there."

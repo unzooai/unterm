@@ -80,14 +80,18 @@ case ${OSTYPE:-} in
     stagedir=unterm-release-stage/unterm
     rm -rf unterm-release-stage
     mkdir -p "$stagedir"
+    # Native helper DLLs (conpty/OpenConsole/ANGLE) must match the build arch.
+    # x64 lives in assets/windows/{conhost,angle}; arm64 in assets/windows/arm64/.
+    helpers=assets/windows
+    [ "${UNTERM_ARCH:-x64}" = "arm64" ] && helpers=assets/windows/arm64
     cp "$TARGET_DIR/release/unterm.exe" \
        "$TARGET_DIR/release/unterm-cli.exe" \
        "$TARGET_DIR/release/unterm-mux.exe" \
        "$TARGET_DIR/release/strip-ansi-escapes.exe" \
-       assets/windows/conhost/conpty.dll \
-       assets/windows/conhost/OpenConsole.exe \
-       assets/windows/angle/libEGL.dll \
-       assets/windows/angle/libGLESv2.dll \
+       "$helpers/conhost/conpty.dll" \
+       "$helpers/conhost/OpenConsole.exe" \
+       "$helpers/angle/libEGL.dll" \
+       "$helpers/angle/libGLESv2.dll" \
        "$stagedir/"
     # Bundle MSVC .pdb files when present. On Windows the toolchain
     # emits debug info as separate .pdb files next to the .exe rather
@@ -103,9 +107,14 @@ case ${OSTYPE:-} in
         cp "$TARGET_DIR/release/$pdb" "$stagedir/"
       fi
     done
-    mkdir -p "$stagedir/mesa"
-    cp "$TARGET_DIR/release/mesa/opengl32.dll" "$stagedir/mesa/" || \
-      cp assets/windows/mesa/opengl32.dll "$stagedir/mesa/"
+    # Mesa software-GL fallback is x64-only — no maintained Windows-arm64
+    # prebuilt; arm64 relies on ANGLE (D3D-backed). The MSI drops its Mesa
+    # component for arm64 via the $(sys.BUILDARCH) guard in Unterm.wxs.
+    if [ "${UNTERM_ARCH:-x64}" != "arm64" ]; then
+      mkdir -p "$stagedir/mesa"
+      cp "$TARGET_DIR/release/mesa/opengl32.dll" "$stagedir/mesa/" || \
+        cp assets/windows/mesa/opengl32.dll "$stagedir/mesa/"
+    fi
     # Plain zip (MSI is produced by build-msi.ps1). Arch in the name so the
     # x64 and arm64 matrix jobs don't upload colliding assets to one release.
     # UNTERM_ARCH is set by the workflow matrix; default x64 for local runs.

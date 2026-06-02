@@ -31,7 +31,10 @@
 
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLFOLDER" Name="Unterm">
+        <!-- Mesa software-GL is x64-only; no arm64 prebuilt exists. -->
+        <?if $(sys.BUILDARCH) != "arm64" ?>
         <Directory Id="MesaFolder" Name="mesa" />
+        <?endif?>
       </Directory>
     </StandardDirectory>
 
@@ -64,9 +67,12 @@
       <Component Id="OpenConsoleExe" Guid="31E6F6F2-74DE-4576-BC35-3E4D2E66E84F">
         <File Source="$(var.SourceDir)\OpenConsole.exe" KeyPath="yes" />
       </Component>
+      <!-- x64-only: arm64 has no Mesa software-GL fallback (ANGLE is primary). -->
+      <?if $(sys.BUILDARCH) != "arm64" ?>
       <Component Id="MesaOpenGlDll" Directory="MesaFolder" Guid="6E9F2F00-7795-4D4B-B910-660306DC1220">
         <File Source="$(var.SourceDir)\mesa\opengl32.dll" KeyPath="yes" />
       </Component>
+      <?endif?>
     </ComponentGroup>
 
     <DirectoryRef Id="ApplicationProgramsFolder">
