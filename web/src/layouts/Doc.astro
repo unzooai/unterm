@@ -33,40 +33,40 @@ const { frontmatter } = Astro.props as Props;
   pathPrefix=""
 >
   <article class="max-w-3xl mx-auto px-6 py-16">
-    <header class="border-b border-zinc-900 pb-8 mb-10">
+    <header class="border-b border-notion-border pb-8 mb-10">
       {frontmatter.kicker && (
-        <div class="text-xs text-zinc-500 mb-3">
-          <a href="/" class="hover:text-zinc-300">Unterm</a>
+        <div class="text-xs text-notion-faint mb-3">
+          <a href="/" class="hover:text-notion-ink">Unterm</a>
           <span class="mx-1">/</span>
-          <span class="text-zinc-300">{frontmatter.kicker}</span>
+          <span class="text-notion-ink">{frontmatter.kicker}</span>
         </div>
       )}
       <h1 class="text-4xl sm:text-5xl font-semibold tracking-tight text-zinc-50 leading-tight">{frontmatter.title}</h1>
       {frontmatter.subtitle && (
-        <p class="mt-4 text-lg text-zinc-400">{frontmatter.subtitle}</p>
+        <p class="mt-4 text-lg text-notion-muted">{frontmatter.subtitle}</p>
       )}
       {frontmatter.date && (
-        <p class="mt-3 text-xs text-zinc-500">{frontmatter.date}</p>
+        <p class="mt-3 text-xs text-notion-faint">{frontmatter.date}</p>
       )}
     </header>
 
     <div
-      class="prose-doc text-zinc-300 leading-relaxed
-             [&_h2]:text-2xl [&_h2]:font-semibold [&_h2]:text-zinc-100 [&_h2]:mt-12 [&_h2]:mb-4
-             [&_h3]:text-lg  [&_h3]:font-semibold [&_h3]:text-zinc-100 [&_h3]:mt-8  [&_h3]:mb-3
+      class="prose-doc text-notion-ink leading-relaxed
+             [&_h2]:text-2xl [&_h2]:font-semibold [&_h2]:text-notion-ink [&_h2]:mt-12 [&_h2]:mb-4
+             [&_h3]:text-lg  [&_h3]:font-semibold [&_h3]:text-notion-ink [&_h3]:mt-8  [&_h3]:mb-3
              [&_p]:my-4
              [&_ul]:my-4 [&_ul]:ml-6 [&_ul]:list-disc [&_ul]:space-y-2
              [&_ol]:my-4 [&_ol]:ml-6 [&_ol]:list-decimal [&_ol]:space-y-2
-             [&_strong]:text-zinc-100
+             [&_strong]:text-notion-ink
              [&_em]:italic
-             [&_a]:text-emerald-400 [&_a:hover]:text-emerald-300 [&_a]:underline [&_a]:underline-offset-2
-             [&_pre]:font-mono [&_pre]:text-sm [&_pre]:bg-zinc-900 [&_pre]:border [&_pre]:border-zinc-800 [&_pre]:rounded-lg [&_pre]:p-4 [&_pre]:overflow-x-auto [&_pre]:my-4
-             [&_:not(pre)>code]:font-mono [&_:not(pre)>code]:text-sm [&_:not(pre)>code]:bg-zinc-900 [&_:not(pre)>code]:rounded [&_:not(pre)>code]:px-1.5 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:text-zinc-300
-             [&_table]:w-full [&_table]:my-4 [&_table]:text-sm [&_table]:border [&_table]:border-zinc-800 [&_table]:rounded-lg [&_table]:overflow-hidden
-             [&_thead]:bg-zinc-900 [&_thead]:text-zinc-400
+             [&_a]:text-notion-green [&_a:hover]:text-notion-teal [&_a]:underline [&_a]:underline-offset-2
+             [&_pre]:font-mono [&_pre]:text-sm [&_pre]:bg-notion-surface [&_pre]:border [&_pre]:border-notion-border [&_pre]:rounded-lg [&_pre]:p-4 [&_pre]:overflow-x-auto [&_pre]:my-4
+             [&_:not(pre)>code]:font-mono [&_:not(pre)>code]:text-sm [&_:not(pre)>code]:bg-notion-surface [&_:not(pre)>code]:rounded [&_:not(pre)>code]:px-1.5 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:text-notion-ink
+             [&_table]:w-full [&_table]:my-4 [&_table]:text-sm [&_table]:border [&_table]:border-notion-border [&_table]:rounded-lg [&_table]:overflow-hidden
+             [&_thead]:bg-notion-surface [&_thead]:text-notion-muted
              [&_th]:text-left [&_th]:px-4 [&_th]:py-2 [&_th]:font-medium
-             [&_td]:px-4 [&_td]:py-2 [&_td]:border-t [&_td]:border-zinc-800
-             [&_blockquote]:border-l-2 [&_blockquote]:border-zinc-700 [&_blockquote]:pl-4 [&_blockquote]:text-zinc-400 [&_blockquote]:my-4"
+             [&_td]:px-4 [&_td]:py-2 [&_td]:border-t [&_td]:border-notion-border
+             [&_blockquote]:border-l-2 [&_blockquote]:border-notion-borderStrong [&_blockquote]:pl-4 [&_blockquote]:text-notion-muted [&_blockquote]:my-4"
     >
       <slot />
     </div>

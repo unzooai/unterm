@@ -222,7 +222,7 @@ const capabilities = [
 ];
 
 const dlBaseUrl = "https://github.com/unzooai/unterm/releases";
-const releaseTag = "v0.23";
+const releaseTag = "v0.24";
 
 // Download links use the version pinned for this site build, not
 // `stats.release`. The stats call can legitimately see the previous GitHub
@@ -280,12 +280,35 @@ const heroDownloads = [
 ];
 ---
 
+<!-- ============== PARTNER ADS (top strip) ============== -->
+<!-- The two sister products, moved up from the old bottom band: compact but
+     eye-catching (logo + brand-colored hover glow), at the very top. -->
+<section class="border-b border-notion-border bg-notion-bg">
+  <div class="max-w-6xl mx-auto px-6 py-2 flex items-center justify-center gap-x-3 gap-y-2 flex-wrap">
+    <span class="text-[10px] uppercase tracking-[0.15em] text-notion-muted font-mono">{t("ads.label")}</span>
+    <a href="https://doaipm.com" target="_blank" rel="noopener"
+       class="group inline-flex items-center gap-2 rounded-full pl-1.5 pr-3 py-1 bg-blue-500/10 ring-1 ring-blue-400/30 hover:ring-blue-400/70 hover:bg-blue-500/20 transition">
+      <img src="/assets/ads/doaipm.svg" width="22" height="22" alt="DO AI PM logo" class="rounded-md" />
+      <span class="text-xs font-bold text-white">DO AI PM</span>
+      <span class="text-[11px] text-blue-200/90 hidden sm:inline">{t("ads.doaipm")}</span>
+      <span class="text-[11px] text-blue-300">↗</span>
+    </a>
+    <a href="https://unflick.app" target="_blank" rel="noopener"
+       class="group inline-flex items-center gap-2 rounded-full pl-1.5 pr-3 py-1 bg-fuchsia-500/10 ring-1 ring-fuchsia-400/30 hover:ring-fuchsia-400/70 hover:bg-fuchsia-500/20 transition">
+      <img src="/assets/ads/unflick.svg" width="22" height="22" alt="Unflick logo" class="rounded-md" />
+      <span class="text-xs font-bold text-white">Unflick</span>
+      <span class="text-[11px] text-fuchsia-200/90 hidden sm:inline">{t("ads.unflick")}</span>
+      <span class="text-[11px] text-fuchsia-300">↗</span>
+    </a>
+  </div>
+</section>
+
 <!-- ============== HERO ============== -->
 <!-- Two-column on desktop, stacked on mobile. Left: product claim,
      download rail, and primary CTAs. Right: a CSS-rendered terminal
      scene showing an agent controlling the app through MCP. -->
 <section class="relative overflow-hidden">
-  <div class="absolute inset-0 bg-gradient-to-b from-emerald-950/35 via-zinc-950 to-zinc-950"></div>
+  <div class="absolute inset-0 bg-gradient-to-b from-notion-bg/35 via-notion-bg to-notion-bg"></div>
   <div class="absolute inset-0 opacity-[0.04]"
        style="background-image: radial-gradient(rgb(160 240 200) 1px, transparent 1px); background-size: 28px 28px;"></div>
   <div class="absolute pointer-events-none -top-40 left-1/2 -translate-x-1/2 w-[900px] h-[900px] rounded-full"
@@ -296,12 +319,12 @@ const heroDownloads = [
       <div class="text-center lg:text-left">
         <!-- Hero version chip — SoloMD-style: live dot + version + license + platform count.
              Quick scan signal so visitors don't need to dig to know it's current + open. -->
-        <div class="inline-flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-1 rounded-full bg-zinc-900/80 border border-zinc-800 text-xs text-zinc-400 mb-6">
+        <div class="inline-flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-1 rounded-full bg-notion-surface/80 border border-notion-border text-xs text-notion-muted mb-6">
           <span class="relative flex w-1.5 h-1.5">
-            <span class="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 animate-ping"></span>
-            <span class="relative inline-flex w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+            <span class="absolute inline-flex h-full w-full rounded-full bg-notion-teal opacity-75 animate-ping"></span>
+            <span class="relative inline-flex w-1.5 h-1.5 rounded-full bg-notion-teal"></span>
           </span>
-          <span class="text-emerald-300 font-medium">v0.23</span>
+          <span class="text-notion-teal font-medium">v0.24</span>
           <span class="text-zinc-700">·</span>
           <span>{t("hero.badge.signed")}</span>
           <span class="text-zinc-700">·</span>
@@ -313,14 +336,14 @@ const heroDownloads = [
           <span>{t("hero.title.1")}</span><br/>
           <span class="bg-gradient-to-r from-emerald-300 via-teal-300 to-cyan-300 bg-clip-text text-transparent">{t("hero.title.2")}</span>
         </h1>
-        <p class="mt-6 text-lg text-zinc-400 max-w-xl mx-auto lg:mx-0 leading-relaxed">{t("hero.subtitle")}</p>
+        <p class="mt-6 text-lg text-notion-muted max-w-xl mx-auto lg:mx-0 leading-relaxed">{t("hero.subtitle")}</p>
 
         <!-- Feature pills — colorful chip row that captures the 6 most
              scannable identity claims. Same pattern as SoloMD's hero
              "📝 Live preview 🔗 Wiki links …" strip. -->
         <div class="mt-6 flex flex-wrap items-center justify-center lg:justify-start gap-1.5 text-xs">
           {heroPills.map((p) => (
-            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-zinc-900/70 border border-zinc-800/70 text-zinc-300">
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-notion-surface/70 border border-notion-border/70 text-notion-ink">
               <span>{p.icon}</span>
               <span>{t(p.label)}</span>
             </span>
@@ -335,46 +358,46 @@ const heroDownloads = [
                at the bottom didn't always run before the click). Works
                without JS and survives strict-mode browsers / extensions. -->
           <a href={`/api/download?v=${releaseTag}`}
-             class="inline-flex items-center gap-2 px-5 py-3 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-semibold transition shadow-lg shadow-emerald-500/20 hover:shadow-emerald-400/30">
+             class="inline-flex items-center gap-2 px-5 py-3 rounded-lg bg-notion-green hover:bg-notion-teal text-zinc-950 font-semibold transition shadow-lg shadow-emerald-500/20 hover:shadow-emerald-400/30">
             <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M12 4v12m0 0l-4-4m4 4l4-4M5 20h14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
             <span>{t("hero.cta.download")}</span>
           </a>
           <a href={dlBaseUrl + "/latest"}
-             class="inline-flex items-center gap-2 px-5 py-3 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 hover:border-zinc-700 text-zinc-100 font-medium transition">
+             class="inline-flex items-center gap-2 px-5 py-3 rounded-lg bg-notion-surface hover:bg-notion-sunken border border-notion-border hover:border-notion-borderStrong text-notion-ink font-medium transition">
             <span>{t("hero.cta.other")}</span>
           </a>
           <a href="https://github.com/unzooai/unterm" target="_blank" rel="noopener"
-             class="inline-flex items-center gap-2 px-5 py-3 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 hover:border-zinc-700 text-zinc-100 font-medium transition">
+             class="inline-flex items-center gap-2 px-5 py-3 rounded-lg bg-notion-surface hover:bg-notion-sunken border border-notion-border hover:border-notion-borderStrong text-notion-ink font-medium transition">
             <span>{t("hero.cta.github")}</span>
           </a>
         </div>
         <div class="mt-6 flex flex-wrap items-center justify-center lg:justify-start gap-2 text-xs">
           <a href="https://github.com/unzooai/unterm/stargazers" target="_blank" rel="noopener"
-             class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-zinc-900/80 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 transition">
+             class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-notion-surface/80 hover:bg-notion-sunken border border-notion-border text-notion-ink transition">
             <svg class="w-3.5 h-3.5 text-yellow-400" fill="currentColor" viewBox="0 0 24 24"><path d="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>
             <span class="font-semibold" data-stat="stars">{formatCount(stats.stars)}</span>
-            <span class="text-zinc-500">stars</span>
+            <span class="text-notion-faint">stars</span>
           </a>
           <a href="https://github.com/unzooai/unterm/releases" target="_blank" rel="noopener"
-             class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-zinc-900/80 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 transition">
-            <svg class="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" stroke-width="2.4" viewBox="0 0 24 24"><path d="M12 4v12m0 0l-4-4m4 4l4-4M5 20h14"/></svg>
+             class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-notion-surface/80 hover:bg-notion-sunken border border-notion-border text-notion-ink transition">
+            <svg class="w-3.5 h-3.5 text-notion-green" fill="none" stroke="currentColor" stroke-width="2.4" viewBox="0 0 24 24"><path d="M12 4v12m0 0l-4-4m4 4l4-4M5 20h14"/></svg>
             <span class="font-semibold" data-stat="downloads">{formatCount(stats.downloads)}</span>
-            <span class="text-zinc-500">downloads</span>
+            <span class="text-notion-faint">downloads</span>
           </a>
         </div>
-        <p class="mt-6 text-xs text-zinc-500">{t("hero.meta")}</p>
+        <p class="mt-6 text-xs text-notion-faint">{t("hero.meta")}</p>
 
         <div class="mt-8 grid sm:grid-cols-3 gap-3">
           {heroDownloads.map((d) => (
             <a href={d.href}
-               class="group flex flex-col gap-3 bg-zinc-900/70 hover:bg-zinc-900 border border-zinc-800 hover:border-zinc-700 rounded-xl p-4 text-left transition">
+               class="group flex flex-col gap-3 bg-notion-surface/70 hover:bg-notion-surface border border-notion-border hover:border-notion-borderStrong rounded-xl p-4 text-left transition">
               <div class="flex items-center justify-between">
                 <div class="text-2xl">{d.icon}</div>
-                <span class="text-[11px] font-mono text-zinc-500">{t(d.size)}</span>
+                <span class="text-[11px] font-mono text-notion-faint">{t(d.size)}</span>
               </div>
-              <div class="font-semibold text-zinc-100">{t(d.title)}</div>
-              <div class="text-sm text-zinc-400 leading-relaxed">{t(d.detail)}</div>
-              <div class="text-xs text-emerald-400 group-hover:text-emerald-300 font-mono">{t(d.action)}</div>
+              <div class="font-semibold text-notion-ink">{t(d.title)}</div>
+              <div class="text-sm text-notion-muted leading-relaxed">{t(d.detail)}</div>
+              <div class="text-xs text-notion-green group-hover:text-notion-teal font-mono">{t(d.action)}</div>
             </a>
           ))}
         </div>
@@ -382,48 +405,48 @@ const heroDownloads = [
 
       <div class="relative">
         <div class="absolute -inset-4 bg-gradient-to-r from-emerald-500/20 via-teal-500/10 to-cyan-500/20 blur-2xl rounded-2xl"></div>
-        <div class="relative rounded-xl overflow-hidden border border-zinc-800 shadow-2xl shadow-black/60 bg-zinc-950">
-          <div class="flex items-center gap-2 px-4 py-2.5 bg-zinc-900/80 border-b border-zinc-800">
+        <div class="relative rounded-xl overflow-hidden border border-notion-border shadow-2xl shadow-black/60 bg-notion-bg">
+          <div class="flex items-center gap-2 px-4 py-2.5 bg-notion-surface/80 border-b border-notion-border">
             <div class="flex gap-1.5">
               <span class="w-3 h-3 rounded-full bg-red-500/80"></span>
               <span class="w-3 h-3 rounded-full bg-yellow-500/80"></span>
               <span class="w-3 h-3 rounded-full bg-green-500/80"></span>
             </div>
-            <div class="flex-1 text-center text-xs font-mono text-zinc-400">Unterm — <span class="text-emerald-400">alpha</span> — /work/auth-service</div>
-            <span class="text-xs font-mono text-zinc-600">MCP on</span>
+            <div class="flex-1 text-center text-xs font-mono text-notion-muted">Unterm — <span class="text-notion-green">alpha</span> — /work/auth-service</div>
+            <span class="text-xs font-mono text-notion-faint">MCP on</span>
           </div>
-          <div class="flex items-center gap-1 px-2 py-1.5 bg-zinc-900/40 border-b border-zinc-800/60 text-xs font-mono">
-            <div class="flex items-center gap-1.5 px-2.5 py-1 rounded bg-zinc-800/60 text-zinc-200">
-              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+          <div class="flex items-center gap-1 px-2 py-1.5 bg-notion-surface/40 border-b border-notion-border/60 text-xs font-mono">
+            <div class="flex items-center gap-1.5 px-2.5 py-1 rounded bg-notion-sunken/60 text-notion-ink">
+              <span class="w-1.5 h-1.5 rounded-full bg-notion-teal"></span>
               <span>claude code</span>
             </div>
-            <div class="flex items-center gap-1.5 px-2.5 py-1 text-zinc-500 hover:text-zinc-300">
+            <div class="flex items-center gap-1.5 px-2.5 py-1 text-notion-faint hover:text-notion-ink">
               <span>build</span>
             </div>
-            <div class="flex items-center gap-1.5 px-2.5 py-1 text-zinc-500 hover:text-zinc-300">
+            <div class="flex items-center gap-1.5 px-2.5 py-1 text-notion-faint hover:text-notion-ink">
               <span>logs</span>
             </div>
-            <div class="ml-auto text-zinc-600">agent-ready</div>
+            <div class="ml-auto text-notion-faint">agent-ready</div>
           </div>
-          <div class="px-4 py-4 font-mono text-[12.5px] leading-relaxed bg-zinc-950 min-h-[300px] space-y-1.5">
-            <div class="text-zinc-500"><span class="text-emerald-400">→</span> claude: open /work/auth-service in a new tab</div>
-            <div class="text-zinc-300"><span class="text-cyan-400">unterm</span> session.create <span class="text-zinc-500">{`{ cwd: "/work/auth-service" }`}</span></div>
-            <div class="text-zinc-500">     → <span class="text-emerald-400">{`{ session_id: "7", pid: 41208 }`}</span></div>
-            <div class="text-zinc-300"><span class="text-cyan-400">unterm</span> exec.run <span class="text-zinc-500">{`{ id: "7", command: "cargo test" }`}</span></div>
-            <div class="text-zinc-500">     <span class="text-zinc-400">running 142 tests</span></div>
-            <div class="text-zinc-500">     <span class="text-emerald-400">test result: ok. 142 passed; 0 failed</span></div>
-            <div class="text-zinc-300"><span class="text-cyan-400">unterm</span> screen.scrollback_text <span class="text-zinc-500">{`{ id: "7" }`}</span></div>
-            <div class="text-zinc-500">     → <span class="text-zinc-300">{`{ text: "…build is green", row_count: 142 }`}</span></div>
-            <div class="text-zinc-500"><span class="text-emerald-400">←</span> claude: commit and open the release branch.</div>
+          <div class="px-4 py-4 font-mono text-[12.5px] leading-relaxed bg-notion-bg min-h-[300px] space-y-1.5">
+            <div class="text-notion-faint"><span class="text-notion-green">→</span> claude: open /work/auth-service in a new tab</div>
+            <div class="text-notion-ink"><span class="text-cyan-400">unterm</span> session.create <span class="text-notion-faint">{`{ cwd: "/work/auth-service" }`}</span></div>
+            <div class="text-notion-faint">     → <span class="text-notion-green">{`{ session_id: "7", pid: 41208 }`}</span></div>
+            <div class="text-notion-ink"><span class="text-cyan-400">unterm</span> exec.run <span class="text-notion-faint">{`{ id: "7", command: "cargo test" }`}</span></div>
+            <div class="text-notion-faint">     <span class="text-notion-muted">running 142 tests</span></div>
+            <div class="text-notion-faint">     <span class="text-notion-green">test result: ok. 142 passed; 0 failed</span></div>
+            <div class="text-notion-ink"><span class="text-cyan-400">unterm</span> screen.scrollback_text <span class="text-notion-faint">{`{ id: "7" }`}</span></div>
+            <div class="text-notion-faint">     → <span class="text-notion-ink">{`{ text: "…build is green", row_count: 142 }`}</span></div>
+            <div class="text-notion-faint"><span class="text-notion-green">←</span> claude: commit and open the release branch.</div>
             <div class="flex items-center gap-1 mt-2">
-              <span class="text-emerald-400">$</span>
-              <span class="inline-block w-2 h-4 bg-emerald-400 animate-pulse"></span>
+              <span class="text-notion-green">$</span>
+              <span class="inline-block w-2 h-4 bg-notion-teal animate-pulse"></span>
             </div>
           </div>
-          <div class="flex items-center text-[11px] font-mono text-zinc-400 bg-zinc-900/60 border-t border-zinc-800 px-3 py-1.5 gap-2 overflow-hidden">
+          <div class="flex items-center text-[11px] font-mono text-notion-muted bg-notion-surface/60 border-t border-notion-border px-3 py-1.5 gap-2 overflow-hidden">
             <span>pwsh 7</span>
             <span class="text-zinc-700">|</span>
-            <span class="text-emerald-400">~/work/auth-service</span>
+            <span class="text-notion-green">~/work/auth-service</span>
             <span class="text-zinc-700">|</span>
             <span>120×32</span>
             <span class="text-zinc-700">|</span>
@@ -445,18 +468,18 @@ const heroDownloads = [
      can verify (in the source, on GitHub Releases, or in the running app).
      Sits between hero and tagline so a fast reader gets the elevator
      pitch before the long prose. -->
-<section class="py-16 border-t border-zinc-900">
+<section class="py-16 border-t border-notion-border">
   <div class="max-w-4xl mx-auto px-6">
     <div class="flex items-baseline gap-3 mb-6">
-      <h2 class="text-xl font-semibold tracking-tight text-zinc-100">{t("tldr.title")}</h2>
-      <span class="text-xs text-zinc-500 font-mono">{t("tldr.subtitle")}</span>
+      <h2 class="text-xl font-semibold tracking-tight text-notion-ink">{t("tldr.title")}</h2>
+      <span class="text-xs text-notion-faint font-mono">{t("tldr.subtitle")}</span>
     </div>
-    <div class="rounded-xl border border-zinc-800 bg-zinc-900/30 overflow-hidden">
+    <div class="rounded-xl border border-notion-border bg-notion-surface/30 overflow-hidden">
       <dl class="divide-y divide-zinc-800/60">
         {tldrRows.map((r) => (
           <div class="grid grid-cols-1 sm:grid-cols-[180px_1fr] gap-x-6 gap-y-1 px-5 py-3">
-            <dt class="text-xs sm:text-sm text-zinc-500 font-mono">{t(r.label)}</dt>
-            <dd class="text-sm text-zinc-200 leading-relaxed" set:html={r.valueRaw ?? t(r.value)}></dd>
+            <dt class="text-xs sm:text-sm text-notion-faint font-mono">{t(r.label)}</dt>
+            <dd class="text-sm text-notion-ink leading-relaxed" set:html={r.valueRaw ?? t(r.value)}></dd>
           </div>
         ))}
       </dl>
@@ -469,91 +492,91 @@ const heroDownloads = [
      v0.18 story before any of the older v0.16/v0.17 angles. Mirrors the
      SoloMD pattern of "feature-grid card with screenshot on the right"
      so the page rhythm stays consistent. -->
-<section id="agents" class="py-20 border-t border-zinc-900 bg-gradient-to-b from-emerald-950/20 via-zinc-950 to-zinc-950">
+<section id="agents" class="py-20 border-t border-notion-border bg-gradient-to-b from-notion-bg/20 via-notion-bg to-notion-bg">
   <div class="max-w-6xl mx-auto px-6">
-    <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-900/30 border border-emerald-800/50 text-xs text-emerald-300 mb-4">
-      <span class="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+    <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-900/30 border border-emerald-800/50 text-xs text-notion-teal mb-4">
+      <span class="inline-block h-1.5 w-1.5 rounded-full bg-notion-teal animate-pulse"></span>
       <span set:html={t("agents.tag")}></span>
     </div>
-    <h2 class="text-3xl sm:text-4xl font-semibold tracking-tight text-zinc-100 leading-tight max-w-3xl">{t("agents.title")}</h2>
-    <p class="mt-4 text-lg text-zinc-400 leading-relaxed max-w-3xl" set:html={t("agents.subtitle")}></p>
+    <h2 class="text-3xl sm:text-4xl font-semibold tracking-tight text-notion-ink leading-tight max-w-3xl">{t("agents.title")}</h2>
+    <p class="mt-4 text-lg text-notion-muted leading-relaxed max-w-3xl" set:html={t("agents.subtitle")}></p>
 
     <!-- Five agent cards in a horizontal strip. Each shows vendor name, the
          install command, and an auth-mode summary. Pure HTML, no JS. -->
     <!-- Five agent cards. We hard-code dot color classes per agent because
          Tailwind's JIT scanner can't see `bg-${a.color}-400` interpolated
          strings — it only picks up classes that appear literally somewhere
-         in the source. Listed verbatim below: bg-amber-400 bg-emerald-400
+         in the source. Listed verbatim below: bg-amber-400 bg-notion-teal
          bg-sky-400 bg-violet-400 bg-rose-400. -->
     <div class="mt-10 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
       {[
         { id: "claude-code", name: "Claude Code",  vendor: "Anthropic",    dot: "bg-amber-400",   modes: "OAuth · BYO key · gateway" },
-        { id: "codex-cli",   name: "Codex CLI",    vendor: "OpenAI",       dot: "bg-emerald-400", modes: "ChatGPT OAuth · BYO key · gateway" },
+        { id: "codex-cli",   name: "Codex CLI",    vendor: "OpenAI",       dot: "bg-notion-teal", modes: "ChatGPT OAuth · BYO key · gateway" },
         { id: "gemini-cli",  name: "Gemini CLI",   vendor: "Google",       dot: "bg-sky-400",     modes: "Google OAuth · BYO key · Vertex" },
         { id: "opencode",    name: "OpenCode",     vendor: "SST",          dot: "bg-violet-400",  modes: "BYO key · local" },
         { id: "aider",       name: "Aider",        vendor: "Open-source",  dot: "bg-rose-400",    modes: "BYO key · local" },
       ].map((a) => (
-        <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 hover:border-zinc-700 transition">
+        <div class="rounded-xl border border-notion-border bg-notion-surface/60 p-4 hover:border-notion-borderStrong transition">
           <div class="flex items-center gap-2 mb-2">
             <span class={`inline-block h-2 w-2 rounded-full ${a.dot}`}></span>
-            <div class="text-sm font-semibold text-zinc-100">{a.name}</div>
+            <div class="text-sm font-semibold text-notion-ink">{a.name}</div>
           </div>
-          <div class="text-xs text-zinc-500 mb-3">{a.vendor}</div>
-          <div class="text-[11px] text-zinc-400 font-mono leading-snug">{a.modes}</div>
+          <div class="text-xs text-notion-faint mb-3">{a.vendor}</div>
+          <div class="text-[11px] text-notion-muted font-mono leading-snug">{a.modes}</div>
         </div>
       ))}
     </div>
 
     <!-- 3 bullet "what you get" cards underneath -->
     <div class="mt-10 grid grid-cols-1 md:grid-cols-3 gap-4">
-      <div class="rounded-xl border border-zinc-800 bg-zinc-900/40 p-5">
-        <div class="text-emerald-300 text-xs font-mono mb-2">01 · one click</div>
-        <h3 class="text-base font-semibold text-zinc-100 mb-1">{t("agents.card.install.title")}</h3>
-        <p class="text-sm text-zinc-400 leading-relaxed" set:html={t("agents.card.install.body")}></p>
+      <div class="rounded-xl border border-notion-border bg-notion-surface/40 p-5">
+        <div class="text-notion-teal text-xs font-mono mb-2">01 · one click</div>
+        <h3 class="text-base font-semibold text-notion-ink mb-1">{t("agents.card.install.title")}</h3>
+        <p class="text-sm text-notion-muted leading-relaxed" set:html={t("agents.card.install.body")}></p>
       </div>
-      <div class="rounded-xl border border-zinc-800 bg-zinc-900/40 p-5">
-        <div class="text-emerald-300 text-xs font-mono mb-2">02 · subscription-safe</div>
-        <h3 class="text-base font-semibold text-zinc-100 mb-1">{t("agents.card.auth.title")}</h3>
-        <p class="text-sm text-zinc-400 leading-relaxed" set:html={t("agents.card.auth.body")}></p>
+      <div class="rounded-xl border border-notion-border bg-notion-surface/40 p-5">
+        <div class="text-notion-teal text-xs font-mono mb-2">02 · subscription-safe</div>
+        <h3 class="text-base font-semibold text-notion-ink mb-1">{t("agents.card.auth.title")}</h3>
+        <p class="text-sm text-notion-muted leading-relaxed" set:html={t("agents.card.auth.body")}></p>
       </div>
-      <div class="rounded-xl border border-zinc-800 bg-zinc-900/40 p-5">
-        <div class="text-emerald-300 text-xs font-mono mb-2">03 · signed catalog</div>
-        <h3 class="text-base font-semibold text-zinc-100 mb-1">{t("agents.card.signed.title")}</h3>
-        <p class="text-sm text-zinc-400 leading-relaxed" set:html={t("agents.card.signed.body")}></p>
+      <div class="rounded-xl border border-notion-border bg-notion-surface/40 p-5">
+        <div class="text-notion-teal text-xs font-mono mb-2">03 · signed catalog</div>
+        <h3 class="text-base font-semibold text-notion-ink mb-1">{t("agents.card.signed.title")}</h3>
+        <p class="text-sm text-notion-muted leading-relaxed" set:html={t("agents.card.signed.body")}></p>
       </div>
     </div>
   </div>
 </section>
 
 <!-- ============== TAGLINE ============== -->
-<section class="py-20 border-t border-zinc-900">
+<section class="py-20 border-t border-notion-border">
   <div class="max-w-3xl mx-auto px-6 text-center">
-    <h2 class="text-3xl sm:text-4xl font-semibold tracking-tight text-zinc-100 leading-tight">{t("tagline.title")}</h2>
-    <p class="mt-6 text-lg text-zinc-400 leading-relaxed" set:html={t("tagline.body")}></p>
+    <h2 class="text-3xl sm:text-4xl font-semibold tracking-tight text-notion-ink leading-tight">{t("tagline.title")}</h2>
+    <p class="mt-6 text-lg text-notion-muted leading-relaxed" set:html={t("tagline.body")}></p>
   </div>
 </section>
 
 <!-- ============== DEMO ============== -->
-<section id="demo" class="py-20 border-t border-zinc-900 bg-zinc-950">
+<section id="demo" class="py-20 border-t border-notion-border bg-notion-bg">
   <div class="max-w-6xl mx-auto px-6">
-    <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-zinc-900/80 border border-zinc-800 text-xs text-zinc-400">
-      <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+    <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-notion-surface/80 border border-notion-border text-xs text-notion-muted">
+      <span class="w-1.5 h-1.5 rounded-full bg-notion-teal"></span>
       <span>{t("demo.badge")}</span>
     </div>
     <div class="mt-8 grid lg:grid-cols-2 gap-10 lg:gap-12 items-start">
       <div>
-        <h2 class="text-3xl sm:text-4xl font-semibold tracking-tight text-zinc-100 leading-tight max-w-xl">
+        <h2 class="text-3xl sm:text-4xl font-semibold tracking-tight text-notion-ink leading-tight max-w-xl">
           {t("demo.title")}
         </h2>
-        <p class="mt-5 text-lg text-zinc-400 leading-relaxed max-w-2xl">
+        <p class="mt-5 text-lg text-notion-muted leading-relaxed max-w-2xl">
           {t("demo.subtitle")}
         </p>
         <div class="mt-8 grid gap-4">
           {demoFlow.map((step) => (
-            <div class="bg-zinc-900/50 border border-zinc-800 rounded-xl p-5">
-              <div class="text-xs font-mono text-emerald-400">{step.n}</div>
-              <div class="mt-2 font-semibold text-zinc-100">{t(step.title)}</div>
-              <p class="mt-2 text-sm text-zinc-400 leading-relaxed">{t(step.body)}</p>
+            <div class="bg-notion-surface/50 border border-notion-border rounded-xl p-5">
+              <div class="text-xs font-mono text-notion-green">{step.n}</div>
+              <div class="mt-2 font-semibold text-notion-ink">{t(step.title)}</div>
+              <p class="mt-2 text-sm text-notion-muted leading-relaxed">{t(step.body)}</p>
             </div>
           ))}
         </div>
@@ -561,31 +584,31 @@ const heroDownloads = [
 
       <div class="relative">
         <div class="absolute -inset-4 bg-gradient-to-r from-cyan-500/10 via-emerald-500/10 to-teal-500/10 blur-2xl rounded-2xl"></div>
-        <div class="relative rounded-xl overflow-hidden border border-zinc-800 bg-zinc-950 shadow-2xl shadow-black/50">
-          <div class="flex items-center justify-between gap-3 px-4 py-2.5 bg-zinc-900/80 border-b border-zinc-800">
-            <div class="text-xs font-mono text-zinc-400">outer agent → inner agent</div>
-            <div class="text-xs font-mono text-zinc-600">demo</div>
+        <div class="relative rounded-xl overflow-hidden border border-notion-border bg-notion-bg shadow-2xl shadow-black/50">
+          <div class="flex items-center justify-between gap-3 px-4 py-2.5 bg-notion-surface/80 border-b border-notion-border">
+            <div class="text-xs font-mono text-notion-muted">outer agent → inner agent</div>
+            <div class="text-xs font-mono text-notion-faint">demo</div>
           </div>
-          <div class="px-4 py-4 font-mono text-[12.5px] leading-relaxed bg-zinc-950 space-y-1.5 min-h-[320px]">
-            <div class="text-zinc-500"><span class="text-emerald-400">→</span> open /work/auth-service in a new tab and start a coding agent</div>
-            <div class="text-zinc-300"><span class="text-cyan-400">unterm</span> session.create <span class="text-zinc-500">{`{ cwd: "/work/auth-service" }`}</span></div>
-            <div class="text-zinc-500">     → <span class="text-emerald-400">{`{ session_id: "7", pid: 41208 }`}</span></div>
-            <div class="text-zinc-300"><span class="text-cyan-400">unterm</span> exec.run <span class="text-zinc-500">{`{ id: "7", command: "claude" }`}</span></div>
-            <div class="text-zinc-500">     → <span class="text-zinc-300">inner agent ready</span></div>
-            <div class="text-zinc-300"><span class="text-cyan-400">unterm</span> exec.run <span class="text-zinc-500">{`{ id: "7", command: "cargo test" }`}</span></div>
-            <div class="text-zinc-500">     <span class="text-zinc-400">running 142 tests</span></div>
-            <div class="text-zinc-500">     <span class="text-emerald-400">test result: ok. 142 passed; 0 failed</span></div>
-            <div class="text-zinc-300"><span class="text-cyan-400">unterm</span> screen.scrollback_text <span class="text-zinc-500">{`{ id: "7" }`}</span></div>
-            <div class="text-zinc-500">     → <span class="text-zinc-300">{`{ text: "…build is green, commit the fix", row_count: 142 }`}</span></div>
+          <div class="px-4 py-4 font-mono text-[12.5px] leading-relaxed bg-notion-bg space-y-1.5 min-h-[320px]">
+            <div class="text-notion-faint"><span class="text-notion-green">→</span> open /work/auth-service in a new tab and start a coding agent</div>
+            <div class="text-notion-ink"><span class="text-cyan-400">unterm</span> session.create <span class="text-notion-faint">{`{ cwd: "/work/auth-service" }`}</span></div>
+            <div class="text-notion-faint">     → <span class="text-notion-green">{`{ session_id: "7", pid: 41208 }`}</span></div>
+            <div class="text-notion-ink"><span class="text-cyan-400">unterm</span> exec.run <span class="text-notion-faint">{`{ id: "7", command: "claude" }`}</span></div>
+            <div class="text-notion-faint">     → <span class="text-notion-ink">inner agent ready</span></div>
+            <div class="text-notion-ink"><span class="text-cyan-400">unterm</span> exec.run <span class="text-notion-faint">{`{ id: "7", command: "cargo test" }`}</span></div>
+            <div class="text-notion-faint">     <span class="text-notion-muted">running 142 tests</span></div>
+            <div class="text-notion-faint">     <span class="text-notion-green">test result: ok. 142 passed; 0 failed</span></div>
+            <div class="text-notion-ink"><span class="text-cyan-400">unterm</span> screen.scrollback_text <span class="text-notion-faint">{`{ id: "7" }`}</span></div>
+            <div class="text-notion-faint">     → <span class="text-notion-ink">{`{ text: "…build is green, commit the fix", row_count: 142 }`}</span></div>
             <div class="flex items-center gap-1 mt-2">
-              <span class="text-emerald-400">$</span>
-              <span class="inline-block w-2 h-4 bg-emerald-400 animate-pulse"></span>
+              <span class="text-notion-green">$</span>
+              <span class="inline-block w-2 h-4 bg-notion-teal animate-pulse"></span>
             </div>
           </div>
-          <div class="flex flex-wrap items-center gap-2 text-[11px] font-mono text-zinc-400 bg-zinc-900/60 border-t border-zinc-800 px-3 py-1.5">
+          <div class="flex flex-wrap items-center gap-2 text-[11px] font-mono text-notion-muted bg-notion-surface/60 border-t border-notion-border px-3 py-1.5">
             <span>zsh</span>
             <span class="text-zinc-700">·</span>
-            <span class="text-emerald-400">~/work/auth-service</span>
+            <span class="text-notion-green">~/work/auth-service</span>
             <span class="text-zinc-700">·</span>
             <span>80×24</span>
             <span class="text-zinc-700">·</span>
@@ -603,83 +626,83 @@ const heroDownloads = [
      pane-5 output on the right. Both are real bytes — the agent
      that wrote this page ran exactly this code and screenshotted
      the output. -->
-<section id="reflexive" class="py-20 border-t border-zinc-900">
+<section id="reflexive" class="py-20 border-t border-notion-border">
   <div class="max-w-6xl mx-auto px-6">
     <div class="max-w-2xl mb-12">
-      <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-xs text-emerald-300 mb-4">
+      <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-notion-green/10 border border-notion-green/30 text-xs text-notion-teal mb-4">
         <span class="relative flex w-1.5 h-1.5">
-          <span class="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 animate-ping"></span>
-          <span class="relative inline-flex w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+          <span class="absolute inline-flex h-full w-full rounded-full bg-notion-teal opacity-75 animate-ping"></span>
+          <span class="relative inline-flex w-1.5 h-1.5 rounded-full bg-notion-teal"></span>
         </span>
         <span set:html={t("reflexive.badge")}></span>
       </div>
-      <h2 class="text-3xl sm:text-4xl font-semibold tracking-tight text-zinc-100 leading-tight">{t("reflexive.title")}</h2>
-      <p class="mt-4 text-lg text-zinc-400 leading-relaxed" set:html={t("reflexive.subtitle")}></p>
+      <h2 class="text-3xl sm:text-4xl font-semibold tracking-tight text-notion-ink leading-tight">{t("reflexive.title")}</h2>
+      <p class="mt-4 text-lg text-notion-muted leading-relaxed" set:html={t("reflexive.subtitle")}></p>
     </div>
 
     <div class="grid lg:grid-cols-2 gap-6">
       <!-- LEFT: the Python snippet -->
-      <div class="rounded-2xl border border-zinc-800 bg-zinc-950 overflow-hidden shadow-2xl">
-        <div class="flex items-center gap-2 px-4 py-3 border-b border-zinc-800/80 bg-zinc-900/40">
+      <div class="rounded-2xl border border-notion-border bg-notion-bg overflow-hidden shadow-2xl">
+        <div class="flex items-center gap-2 px-4 py-3 border-b border-notion-border/80 bg-notion-surface/40">
           <span class="w-3 h-3 rounded-full bg-red-500/70"></span>
           <span class="w-3 h-3 rounded-full bg-yellow-500/70"></span>
           <span class="w-3 h-3 rounded-full bg-green-500/70"></span>
-          <span class="ml-3 text-xs text-zinc-400 font-mono">claude_drives_pane.py</span>
+          <span class="ml-3 text-xs text-notion-muted font-mono">claude_drives_pane.py</span>
         </div>
-        <pre class="px-5 py-4 text-[12px] leading-relaxed font-mono text-zinc-200 overflow-x-auto"><code><span class="text-zinc-500"># Claude Code, running in pane 0 of this very Unterm window.</span>
-<span class="text-zinc-500"># Tells its own MCP server to spawn a new tab, then types into it.</span>
+        <pre class="px-5 py-4 text-[12px] leading-relaxed font-mono text-notion-ink overflow-x-auto"><code><span class="text-notion-faint"># Claude Code, running in pane 0 of this very Unterm window.</span>
+<span class="text-notion-faint"># Tells its own MCP server to spawn a new tab, then types into it.</span>
 
 <span class="text-purple-300">import</span> socket, json, time
 
-s = socket.create_connection((<span class="text-emerald-300">"127.0.0.1"</span>, <span class="text-amber-300">19876</span>))
+s = socket.create_connection((<span class="text-notion-teal">"127.0.0.1"</span>, <span class="text-amber-300">19876</span>))
 
-<span class="text-zinc-500"># 1. auth — token is in ~/.unterm/instances/&lt;name&gt;.json</span>
-s.sendall(<span class="text-emerald-300">b</span><span class="text-emerald-300">'&#123;"jsonrpc":"2.0","id":1,"method":"auth.login",'</span>
-          <span class="text-emerald-300">b</span><span class="text-emerald-300">'"params":&#123;"token":"…"&#125;&#125;\n'</span>)
+<span class="text-notion-faint"># 1. auth — token is in ~/.unterm/instances/&lt;name&gt;.json</span>
+s.sendall(<span class="text-notion-teal">b</span><span class="text-notion-teal">'&#123;"jsonrpc":"2.0","id":1,"method":"auth.login",'</span>
+          <span class="text-notion-teal">b</span><span class="text-notion-teal">'"params":&#123;"token":"…"&#125;&#125;\n'</span>)
 
-<span class="text-zinc-500"># 2. split CURRENT pane right-half (since v0.17) · also `agent.launch` (v0.18) — true side-by-side, not a new tab</span>
-s.sendall(<span class="text-emerald-300">b</span><span class="text-emerald-300">'&#123;"jsonrpc":"2.0","id":2,"method":"session.split",'</span>
-          <span class="text-emerald-300">b</span><span class="text-emerald-300">'"params":&#123;"id":0,"direction":"right","cwd":"/path/to/repo"&#125;&#125;\n'</span>)
-new_pane_id = …  <span class="text-zinc-500"># parse response → e.g. 5</span>
+<span class="text-notion-faint"># 2. split CURRENT pane right-half (since v0.17) · also `agent.launch` (v0.18) — true side-by-side, not a new tab</span>
+s.sendall(<span class="text-notion-teal">b</span><span class="text-notion-teal">'&#123;"jsonrpc":"2.0","id":2,"method":"session.split",'</span>
+          <span class="text-notion-teal">b</span><span class="text-notion-teal">'"params":&#123;"id":0,"direction":"right","cwd":"/path/to/repo"&#125;&#125;\n'</span>)
+new_pane_id = …  <span class="text-notion-faint"># parse response → e.g. 5</span>
 
-<span class="text-zinc-500"># 3. focus it so the user sees the new pane immediately</span>
-s.sendall(<span class="text-emerald-300">b</span><span class="text-emerald-300">'&#123;"jsonrpc":"2.0","id":3,"method":"session.focus",'</span>
-          <span class="text-emerald-300">b</span><span class="text-emerald-300">'"params":&#123;"id":new_pane_id&#125;&#125;\n'</span>)
+<span class="text-notion-faint"># 3. focus it so the user sees the new pane immediately</span>
+s.sendall(<span class="text-notion-teal">b</span><span class="text-notion-teal">'&#123;"jsonrpc":"2.0","id":3,"method":"session.focus",'</span>
+          <span class="text-notion-teal">b</span><span class="text-notion-teal">'"params":&#123;"id":new_pane_id&#125;&#125;\n'</span>)
 
-<span class="text-zinc-500"># 4. type, character by character, with human rhythm</span>
-<span class="text-purple-300">for</span> ch <span class="text-purple-300">in</span> <span class="text-emerald-300">"git log --oneline -5\n"</span>:
+<span class="text-notion-faint"># 4. type, character by character, with human rhythm</span>
+<span class="text-purple-300">for</span> ch <span class="text-purple-300">in</span> <span class="text-notion-teal">"git log --oneline -5\n"</span>:
     payload = json.dumps(&#123;
-        <span class="text-emerald-300">"jsonrpc"</span>: <span class="text-emerald-300">"2.0"</span>, <span class="text-emerald-300">"id"</span>: <span class="text-amber-300">4</span>,
-        <span class="text-emerald-300">"method"</span>: <span class="text-emerald-300">"session.input"</span>,
-        <span class="text-emerald-300">"params"</span>: &#123;<span class="text-emerald-300">"id"</span>: new_pane_id, <span class="text-emerald-300">"input"</span>: ch&#125;
+        <span class="text-notion-teal">"jsonrpc"</span>: <span class="text-notion-teal">"2.0"</span>, <span class="text-notion-teal">"id"</span>: <span class="text-amber-300">4</span>,
+        <span class="text-notion-teal">"method"</span>: <span class="text-notion-teal">"session.input"</span>,
+        <span class="text-notion-teal">"params"</span>: &#123;<span class="text-notion-teal">"id"</span>: new_pane_id, <span class="text-notion-teal">"input"</span>: ch&#125;
     &#125;)
-    s.sendall((payload + <span class="text-emerald-300">"\n"</span>).encode())
+    s.sendall((payload + <span class="text-notion-teal">"\n"</span>).encode())
     time.sleep(<span class="text-amber-300">0.03</span>)
 
-<span class="text-zinc-500"># 5. read what the shell echoed back — same socket, opposite direction</span>
-<span class="text-zinc-500"># s.sendall(... method "screen.text", params &#123;"id": new_pane_id&#125;)</span></code></pre>
+<span class="text-notion-faint"># 5. read what the shell echoed back — same socket, opposite direction</span>
+<span class="text-notion-faint"># s.sendall(... method "screen.text", params &#123;"id": new_pane_id&#125;)</span></code></pre>
       </div>
 
       <!-- RIGHT: actual pane output -->
-      <div class="rounded-2xl border border-zinc-800 bg-zinc-950 overflow-hidden shadow-2xl">
-        <div class="flex items-center gap-2 px-4 py-3 border-b border-zinc-800/80 bg-zinc-900/40">
+      <div class="rounded-2xl border border-notion-border bg-notion-bg overflow-hidden shadow-2xl">
+        <div class="flex items-center gap-2 px-4 py-3 border-b border-notion-border/80 bg-notion-surface/40">
           <span class="w-3 h-3 rounded-full bg-red-500/70"></span>
           <span class="w-3 h-3 rounded-full bg-yellow-500/70"></span>
           <span class="w-3 h-3 rounded-full bg-green-500/70"></span>
-          <span class="ml-3 text-xs text-zinc-400 font-mono">pane #5 — driven by pane #0</span>
+          <span class="ml-3 text-xs text-notion-muted font-mono">pane #5 — driven by pane #0</span>
         </div>
-        <pre class="px-5 py-4 text-[12px] leading-relaxed font-mono text-zinc-300 overflow-x-auto"><code><span class="text-emerald-400">alexlee@192 unterm %</span> <span class="text-zinc-500"># 👋 Claude 通过 MCP 实时打字进来 ↓</span>
-<span class="text-emerald-400">alexlee@192 unterm %</span> pwd
+        <pre class="px-5 py-4 text-[12px] leading-relaxed font-mono text-notion-ink overflow-x-auto"><code><span class="text-notion-green">alexlee@192 unterm %</span> <span class="text-notion-faint"># 👋 Claude 通过 MCP 实时打字进来 ↓</span>
+<span class="text-notion-green">alexlee@192 unterm %</span> pwd
 /Volumes/Dev/code/unterm
-<span class="text-emerald-400">alexlee@192 unterm %</span> git log --oneline -5
+<span class="text-notion-green">alexlee@192 unterm %</span> git log --oneline -5
 <span class="text-amber-300">5f44d15</span> <span class="text-cyan-300">(HEAD -&gt; master, tag: v0.18)</span> release: prep v0.18 — AI agent integration
 <span class="text-amber-300">8ae3786</span> agents tab: fix detail view (route + detect plumbing)
 <span class="text-amber-300">7c18235</span> agents tab: wrap detail view in x-if so child bindings only run when open
 <span class="text-amber-300">6ff27a9</span> AI agents: Web Settings tab + 'Shell → AI Agents' submenu
 <span class="text-amber-300">6d22e2f</span> AI agent integration: signed manifests + install/auth/configure/launch runtime
-<span class="text-emerald-400">alexlee@192 unterm %</span> echo '↑ 5 个 commit 都是 Claude 用 unterm-cli + MCP 推的'
+<span class="text-notion-green">alexlee@192 unterm %</span> echo '↑ 5 个 commit 都是 Claude 用 unterm-cli + MCP 推的'
 ↑ 5 个 commit 都是 Claude 用 unterm-cli + MCP 推的
-<span class="text-emerald-400">alexlee@192 unterm %</span> ls -la web/src/pages/docs/ | head -10
+<span class="text-notion-green">alexlee@192 unterm %</span> ls -la web/src/pages/docs/ | head -10
 total 368
 drwxr-xr-x 9 alexlee staff   288  agent-integration.md
 drwxr-xr-x 6 alexlee staff   192  architecture.md
@@ -688,11 +711,11 @@ drwxr-xr-x 6 alexlee staff   192  architecture.md
 -rw-r--r-- 1 alexlee staff 25587  mcp-reference.md
 -rw-r--r-- 1 alexlee staff 39507  multi-instance.md
 -rw-r--r-- 1 alexlee staff 23827  profiles.md
-<span class="text-emerald-400">alexlee@192 unterm %</span> <span class="inline-block w-2 h-4 bg-emerald-300/80 align-middle animate-pulse"></span></code></pre>
+<span class="text-notion-green">alexlee@192 unterm %</span> <span class="inline-block w-2 h-4 bg-emerald-300/80 align-middle animate-pulse"></span></code></pre>
       </div>
     </div>
 
-    <p class="mt-8 text-sm text-zinc-500 max-w-3xl" set:html={t("reflexive.caption")}></p>
+    <p class="mt-8 text-sm text-notion-faint max-w-3xl" set:html={t("reflexive.caption")}></p>
   </div>
 </section>
 
@@ -701,20 +724,20 @@ drwxr-xr-x 6 alexlee staff   192  architecture.md
      "header + 50-80 word body + 4 bullets" shape SoloMD uses for its
      Writers / Researchers / Developers section, adapted to our
      audience: AI engineers, DevOps, OSS hackers. -->
-<section class="py-20 border-t border-zinc-900 bg-zinc-950">
+<section class="py-20 border-t border-notion-border bg-notion-bg">
   <div class="max-w-6xl mx-auto px-6">
     <h2 class="text-3xl font-semibold tracking-tight text-center">{t("persona.title")}</h2>
-    <p class="mt-3 text-center text-zinc-400 max-w-2xl mx-auto">{t("persona.subtitle")}</p>
+    <p class="mt-3 text-center text-notion-muted max-w-2xl mx-auto">{t("persona.subtitle")}</p>
     <div class="mt-12 grid md:grid-cols-3 gap-5">
       {personas.map((p) => (
-        <div class="bg-zinc-900/40 border border-zinc-800 rounded-xl p-6 flex flex-col">
+        <div class="bg-notion-surface/40 border border-notion-border rounded-xl p-6 flex flex-col">
           <div class="text-3xl">{p.icon}</div>
-          <div class="mt-3 text-lg font-semibold text-zinc-100">{t(p.title)}</div>
-          <p class="mt-2 text-sm text-zinc-400 leading-relaxed" set:html={t(p.body)}></p>
-          <ul class="mt-4 space-y-1.5 text-sm text-zinc-300">
+          <div class="mt-3 text-lg font-semibold text-notion-ink">{t(p.title)}</div>
+          <p class="mt-2 text-sm text-notion-muted leading-relaxed" set:html={t(p.body)}></p>
+          <ul class="mt-4 space-y-1.5 text-sm text-notion-ink">
             {p.bullets.map((b) => (
               <li class="flex items-start gap-2">
-                <span class="mt-1 w-1 h-1 rounded-full bg-emerald-400 shrink-0"></span>
+                <span class="mt-1 w-1 h-1 rounded-full bg-notion-teal shrink-0"></span>
                 <span>{t(b)}</span>
               </li>
             ))}
@@ -726,37 +749,37 @@ drwxr-xr-x 6 alexlee staff   192  architecture.md
 </section>
 
 <!-- ============== INSTALL ============== -->
-<section id="install" class="py-20 border-t border-zinc-900">
+<section id="install" class="py-20 border-t border-notion-border">
   <div class="max-w-4xl mx-auto px-6">
     <h2 class="text-3xl font-semibold tracking-tight text-center">{t("install.title")}</h2>
-    <p class="mt-3 text-center text-zinc-400">{t("install.subtitle")}</p>
+    <p class="mt-3 text-center text-notion-muted">{t("install.subtitle")}</p>
 
     <!-- One-shot installer commands. Tabs are pure CSS (radio + :checked
          siblings) so JavaScript is optional — copy still works without JS. -->
-    <div class="mt-10 rounded-xl border border-zinc-800 bg-zinc-900/40 overflow-hidden">
-      <div class="flex border-b border-zinc-800 text-sm font-medium">
+    <div class="mt-10 rounded-xl border border-notion-border bg-notion-surface/40 overflow-hidden">
+      <div class="flex border-b border-notion-border text-sm font-medium">
         <button type="button" data-tab="unix"
-          class="install-tab px-5 py-3 text-zinc-100 bg-zinc-800/60 border-r border-zinc-800">
+          class="install-tab px-5 py-3 text-notion-ink bg-notion-sunken/60 border-r border-notion-border">
           🍎 macOS · 🐧 Linux
         </button>
         <button type="button" data-tab="win"
-          class="install-tab px-5 py-3 text-zinc-400 hover:text-zinc-100">
+          class="install-tab px-5 py-3 text-notion-muted hover:text-notion-ink">
           🪟 Windows
         </button>
-        <div class="ml-auto text-xs text-zinc-500 self-center pr-4 hidden sm:block">{t("install.copy_hint")}</div>
+        <div class="ml-auto text-xs text-notion-faint self-center pr-4 hidden sm:block">{t("install.copy_hint")}</div>
       </div>
 
       <div class="install-pane" data-pane="unix">
-        <pre class="font-mono text-sm text-zinc-200 px-5 py-5 overflow-x-auto"><code>curl -fsSL https://unterm.app/install.sh | sh</code></pre>
-        <p class="text-xs text-zinc-500 px-5 pb-4" set:html={t("install.unix_detail")}></p>
+        <pre class="font-mono text-sm text-notion-ink px-5 py-5 overflow-x-auto"><code>curl -fsSL https://unterm.app/install.sh | sh</code></pre>
+        <p class="text-xs text-notion-faint px-5 pb-4" set:html={t("install.unix_detail")}></p>
       </div>
       <div class="install-pane hidden" data-pane="win">
-        <pre class="font-mono text-sm text-zinc-200 px-5 py-5 overflow-x-auto"><code>irm https://unterm.app/install.ps1 | iex</code></pre>
-        <p class="text-xs text-zinc-500 px-5 pb-4" set:html={t("install.win_detail")}></p>
+        <pre class="font-mono text-sm text-notion-ink px-5 py-5 overflow-x-auto"><code>irm https://unterm.app/install.ps1 | iex</code></pre>
+        <p class="text-xs text-notion-faint px-5 pb-4" set:html={t("install.win_detail")}></p>
       </div>
     </div>
 
-    <p class="mt-6 text-center text-xs text-zinc-500">{t("install.or_manual")}</p>
+    <p class="mt-6 text-center text-xs text-notion-faint">{t("install.or_manual")}</p>
 
     <!-- Platform cards. macOS has one artifact (DMG) so the whole card
          is one link. Linux + Windows ship two artifacts each (deb +
@@ -769,55 +792,55 @@ drwxr-xr-x 6 alexlee staff   192  architecture.md
     <div class="mt-4 grid sm:grid-cols-3 gap-4">
       <!-- macOS — single artifact -->
       <a href={dmgUrl}
-         class="group block bg-zinc-900/60 hover:bg-zinc-900 border border-zinc-800 hover:border-zinc-700 rounded-xl p-5 transition">
+         class="group block bg-notion-surface/60 hover:bg-notion-surface border border-notion-border hover:border-notion-borderStrong rounded-xl p-5 transition">
         <div class="flex items-center justify-between">
           <div class="text-3xl">🍎</div>
-          <span class="text-xs font-mono text-zinc-500">{t("install.macos.size")}</span>
+          <span class="text-xs font-mono text-notion-faint">{t("install.macos.size")}</span>
         </div>
         <div class="mt-3 font-semibold">{t("install.macos.title")}</div>
-        <div class="text-sm text-zinc-400 mt-1">{t("install.macos.detail")}</div>
-        <div class="mt-3 text-xs text-emerald-400 group-hover:text-emerald-300">{t("install.macos.action")}</div>
+        <div class="text-sm text-notion-muted mt-1">{t("install.macos.detail")}</div>
+        <div class="mt-3 text-xs text-notion-green group-hover:text-notion-teal">{t("install.macos.action")}</div>
       </a>
 
       <!-- Linux — two artifacts: .deb + AppImage -->
-      <div class="bg-zinc-900/60 hover:bg-zinc-900 border border-zinc-800 hover:border-zinc-700 rounded-xl p-5 transition flex flex-col">
+      <div class="bg-notion-surface/60 hover:bg-notion-surface border border-notion-border hover:border-notion-borderStrong rounded-xl p-5 transition flex flex-col">
         <div class="flex items-center justify-between">
           <div class="text-3xl">🐧</div>
-          <span class="text-xs font-mono text-zinc-500">{t("install.linux.size")}</span>
+          <span class="text-xs font-mono text-notion-faint">{t("install.linux.size")}</span>
         </div>
         <div class="mt-3 font-semibold">{t("install.linux.title")}</div>
-        <div class="text-sm text-zinc-400 mt-1 flex-1">{t("install.linux.detail")}</div>
+        <div class="text-sm text-notion-muted mt-1 flex-1">{t("install.linux.detail")}</div>
         <div class="mt-3 flex flex-wrap gap-2">
           <a href={debUrl}
-             class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-mono bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 hover:text-emerald-200 border border-emerald-500/20 hover:border-emerald-500/40 transition">
+             class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-mono bg-notion-green/10 hover:bg-notion-green/20 text-notion-teal hover:text-notion-teal border border-notion-green/20 hover:border-notion-green/40 transition">
             .deb →
           </a>
           <a href={appimageUrl}
-             class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-mono bg-zinc-800/60 hover:bg-zinc-800 text-zinc-300 hover:text-zinc-100 border border-zinc-700/50 hover:border-zinc-700 transition">
+             class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-mono bg-notion-sunken/60 hover:bg-notion-sunken text-notion-ink hover:text-notion-ink border border-notion-borderStrong/50 hover:border-notion-borderStrong transition">
             .AppImage →
           </a>
         </div>
       </div>
 
       <!-- Windows — two artifacts: MSI + portable .zip -->
-      <div class="bg-zinc-900/60 hover:bg-zinc-900 border border-zinc-800 hover:border-zinc-700 rounded-xl p-5 transition flex flex-col">
+      <div class="bg-notion-surface/60 hover:bg-notion-surface border border-notion-border hover:border-notion-borderStrong rounded-xl p-5 transition flex flex-col">
         <div class="flex items-center justify-between">
           <div class="text-3xl">🪟</div>
-          <span class="text-xs font-mono text-zinc-500">{t("install.windows.size")}</span>
+          <span class="text-xs font-mono text-notion-faint">{t("install.windows.size")}</span>
         </div>
         <div class="mt-3 font-semibold">{t("install.windows.title")}</div>
-        <div class="text-sm text-zinc-400 mt-1 flex-1">{t("install.windows.detail")}</div>
+        <div class="text-sm text-notion-muted mt-1 flex-1">{t("install.windows.detail")}</div>
         <div class="mt-3 flex flex-wrap gap-2">
           <a href={msiUrl}
-             class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-mono bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 hover:text-emerald-200 border border-emerald-500/20 hover:border-emerald-500/40 transition">
+             class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-mono bg-notion-green/10 hover:bg-notion-green/20 text-notion-teal hover:text-notion-teal border border-notion-green/20 hover:border-notion-green/40 transition">
             .msi x64 →
           </a>
           <a href={msiArmUrl}
-             class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-mono bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 hover:text-emerald-200 border border-emerald-500/20 hover:border-emerald-500/40 transition">
+             class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-mono bg-notion-green/10 hover:bg-notion-green/20 text-notion-teal hover:text-notion-teal border border-notion-green/20 hover:border-notion-green/40 transition">
             .msi Arm64 →
           </a>
           <a href={winZipUrl}
-             class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-mono bg-zinc-800/60 hover:bg-zinc-800 text-zinc-300 hover:text-zinc-100 border border-zinc-700/50 hover:border-zinc-700 transition">
+             class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-mono bg-notion-sunken/60 hover:bg-notion-sunken text-notion-ink hover:text-notion-ink border border-notion-borderStrong/50 hover:border-notion-borderStrong transition">
             portable .zip →
           </a>
         </div>
@@ -827,16 +850,16 @@ drwxr-xr-x 6 alexlee staff   192  architecture.md
 </section>
 
 <!-- ============== FEATURES ============== -->
-<section id="features" class="py-20 border-t border-zinc-900">
+<section id="features" class="py-20 border-t border-notion-border">
   <div class="max-w-6xl mx-auto px-6">
     <h2 class="text-3xl font-semibold tracking-tight text-center">{t("features.title")}</h2>
-    <p class="mt-3 text-center text-zinc-400 max-w-2xl mx-auto">{t("features.subtitle")}</p>
+    <p class="mt-3 text-center text-notion-muted max-w-2xl mx-auto">{t("features.subtitle")}</p>
     <div class="mt-12 grid md:grid-cols-2 lg:grid-cols-4 gap-4">
       {features.map((f) => (
-        <div class="bg-zinc-900/60 border border-zinc-800 rounded-xl p-5">
+        <div class="bg-notion-surface/60 border border-notion-border rounded-xl p-5">
           <div class="text-2xl">{f.icon}</div>
           <div class="mt-3 font-semibold">{t(f.title)}</div>
-          <p class="mt-2 text-sm text-zinc-400" set:html={t(f.body)}></p>
+          <p class="mt-2 text-sm text-notion-muted" set:html={t(f.body)}></p>
         </div>
       ))}
     </div>
@@ -849,41 +872,41 @@ drwxr-xr-x 6 alexlee staff   192  architecture.md
      surfaces actually expose: 65 MCP methods across 11 namespaces + 22
      CLI commands. Each card is one namespace/feature family with its
      method count chip and representative call names (never translated). -->
-<section id="capabilities" class="py-20 border-t border-zinc-900 bg-gradient-to-b from-zinc-950 via-emerald-950/10 to-zinc-950">
+<section id="capabilities" class="py-20 border-t border-notion-border bg-gradient-to-b from-notion-bg via-notion-bg/10 to-notion-bg">
   <div class="max-w-6xl mx-auto px-6">
     <div class="text-center max-w-2xl mx-auto">
-      <h2 class="text-3xl font-semibold tracking-tight text-zinc-100">{t("cap.title")}</h2>
-      <p class="mt-3 text-zinc-400">{t("cap.subtitle")}</p>
+      <h2 class="text-3xl font-semibold tracking-tight text-notion-ink">{t("cap.title")}</h2>
+      <p class="mt-3 text-notion-muted">{t("cap.subtitle")}</p>
     </div>
 
     <!-- Headline stat strip — the numbers a skeptic can verify with
          `unterm-cli reference` or one `meta.surface` MCP call. -->
     <div class="mt-10 grid grid-cols-2 sm:grid-cols-4 gap-3">
       {capStats.map((s) => (
-        <div class="rounded-xl border border-zinc-800 bg-zinc-900/40 px-4 py-5 text-center">
-          <div class="text-3xl font-bold text-emerald-300 tabular-nums">{s.n}</div>
-          <div class="mt-1 text-xs text-zinc-500 uppercase tracking-wider">{t(s.label)}</div>
+        <div class="rounded-xl border border-notion-border bg-notion-surface/40 px-4 py-5 text-center">
+          <div class="text-3xl font-bold text-notion-teal tabular-nums">{s.n}</div>
+          <div class="mt-1 text-xs text-notion-faint uppercase tracking-wider">{t(s.label)}</div>
         </div>
       ))}
     </div>
 
     <div class="mt-6 grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
       {capabilities.map((c) => (
-        <div class="rounded-xl border border-zinc-800 bg-zinc-900/40 p-5 hover:border-zinc-700 transition flex flex-col">
+        <div class="rounded-xl border border-notion-border bg-notion-surface/40 p-5 hover:border-notion-borderStrong transition flex flex-col">
           <div class="flex items-center justify-between gap-2">
             <div class="flex items-center gap-2">
               <span class="text-xl">{c.icon}</span>
-              <span class="font-semibold text-zinc-100">{t(c.title)}</span>
+              <span class="font-semibold text-notion-ink">{t(c.title)}</span>
             </div>
-            <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-900 whitespace-nowrap">{c.meta}</span>
+            <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-notion-bg/60 text-notion-teal border border-emerald-900 whitespace-nowrap">{c.meta}</span>
           </div>
-          <p class="mt-2 text-sm text-zinc-400 leading-relaxed flex-1" set:html={t(c.body)}></p>
-          <div class="mt-3 text-[11px] font-mono text-zinc-500 leading-relaxed border-t border-zinc-800/60 pt-2">{c.items}</div>
+          <p class="mt-2 text-sm text-notion-muted leading-relaxed flex-1" set:html={t(c.body)}></p>
+          <div class="mt-3 text-[11px] font-mono text-notion-faint leading-relaxed border-t border-notion-border/60 pt-2">{c.items}</div>
         </div>
       ))}
     </div>
 
-    <p class="mt-6 text-center text-sm text-zinc-500" set:html={t("cap.surfaces.note")}></p>
+    <p class="mt-6 text-center text-sm text-notion-faint" set:html={t("cap.surfaces.note")}></p>
   </div>
 </section>
 
@@ -892,19 +915,19 @@ drwxr-xr-x 6 alexlee staff   192  architecture.md
      Features grid and What's-new so a skim-reader hits the strongest
      claims before the long version-history band. Mirrors SoloMD's
      "Where SoloMD stands out" trio. -->
-<section class="py-20 border-t border-zinc-900 bg-zinc-950">
+<section class="py-20 border-t border-notion-border bg-notion-bg">
   <div class="max-w-5xl mx-auto px-6">
     <h2 class="text-3xl font-semibold tracking-tight text-center">{t("stand.title")}</h2>
-    <p class="mt-3 text-center text-zinc-400 max-w-2xl mx-auto">{t("stand.subtitle")}</p>
+    <p class="mt-3 text-center text-notion-muted max-w-2xl mx-auto">{t("stand.subtitle")}</p>
     <div class="mt-12 grid md:grid-cols-3 gap-4">
       {standouts.map((s) => (
-        <div class="bg-zinc-900/40 border border-zinc-800 rounded-xl p-6 flex flex-col">
+        <div class="bg-notion-surface/40 border border-notion-border rounded-xl p-6 flex flex-col">
           <div class="flex items-center gap-2">
             <span class="text-2xl">{s.icon}</span>
-            <span class="text-xs font-mono px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-900">{s.v}</span>
+            <span class="text-xs font-mono px-2 py-0.5 rounded bg-notion-bg/60 text-notion-teal border border-emerald-900">{s.v}</span>
           </div>
-          <div class="mt-3 text-lg font-semibold text-zinc-100">{t(s.title)}</div>
-          <p class="mt-2 text-sm text-zinc-400 leading-relaxed" set:html={t(s.body)}></p>
+          <div class="mt-3 text-lg font-semibold text-notion-ink">{t(s.title)}</div>
+          <p class="mt-2 text-sm text-notion-muted leading-relaxed" set:html={t(s.body)}></p>
         </div>
       ))}
     </div>
@@ -914,17 +937,17 @@ drwxr-xr-x 6 alexlee staff   192  architecture.md
 <!-- ============== QUALITY-OF-LIFE TOUCHES ============== -->
 <!-- 4-column grid of minor delights. Same pattern SoloMD uses to surface
      features that don't headline but make daily use nicer. -->
-<section class="py-20 border-t border-zinc-900">
+<section class="py-20 border-t border-notion-border">
   <div class="max-w-6xl mx-auto px-6">
-    <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-zinc-900/80 border border-zinc-800 text-[11px] uppercase tracking-wider text-zinc-500 font-mono mb-6">{t("qol.badge")}</div>
-    <h2 class="text-2xl font-semibold tracking-tight text-zinc-100">{t("qol.title")}</h2>
-    <p class="mt-2 text-zinc-400 max-w-2xl">{t("qol.subtitle")}</p>
+    <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-notion-surface/80 border border-notion-border text-[11px] uppercase tracking-wider text-notion-faint font-mono mb-6">{t("qol.badge")}</div>
+    <h2 class="text-2xl font-semibold tracking-tight text-notion-ink">{t("qol.title")}</h2>
+    <p class="mt-2 text-notion-muted max-w-2xl">{t("qol.subtitle")}</p>
     <div class="mt-10 grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
       {qol.map((q) => (
-        <div class="bg-zinc-900/40 border border-zinc-800 rounded-lg p-4">
+        <div class="bg-notion-surface/40 border border-notion-border rounded-lg p-4">
           <div class="text-xl">{q.icon}</div>
-          <div class="mt-2 text-sm font-semibold text-zinc-200">{t(q.title)}</div>
-          <p class="mt-1 text-xs text-zinc-400 leading-relaxed" set:html={t(q.body)}></p>
+          <div class="mt-2 text-sm font-semibold text-notion-ink">{t(q.title)}</div>
+          <p class="mt-1 text-xs text-notion-muted leading-relaxed" set:html={t(q.body)}></p>
         </div>
       ))}
     </div>
@@ -936,37 +959,37 @@ drwxr-xr-x 6 alexlee staff   192  architecture.md
      Anchors recent shipping work to specific tagged releases so the
      page reads as actively maintained, not a static brochure. The
      version chip on each card is the tag the change first shipped in. -->
-<section class="py-20 border-t border-zinc-900">
+<section class="py-20 border-t border-notion-border">
   <div class="max-w-5xl mx-auto px-6">
     <h2 class="text-3xl font-semibold tracking-tight text-center">{t("whatsnew.title")}</h2>
-    <p class="mt-3 text-center text-zinc-400 max-w-2xl mx-auto">{t("whatsnew.subtitle")}</p>
+    <p class="mt-3 text-center text-notion-muted max-w-2xl mx-auto">{t("whatsnew.subtitle")}</p>
     <div class="mt-12 grid md:grid-cols-2 gap-4">
       {whatsnew.map((w) => (
-        <div class="bg-zinc-900/40 border border-zinc-800 rounded-xl p-6">
+        <div class="bg-notion-surface/40 border border-notion-border rounded-xl p-6">
           <div class="flex items-center gap-2">
-            <span class="text-xs font-mono px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-900">{w.v}</span>
+            <span class="text-xs font-mono px-2 py-0.5 rounded bg-notion-bg/60 text-notion-teal border border-emerald-900">{w.v}</span>
             <span class="font-semibold">{t(w.title)}</span>
           </div>
-          <p class="mt-3 text-sm text-zinc-400 leading-relaxed" set:html={t(w.body)}></p>
+          <p class="mt-3 text-sm text-notion-muted leading-relaxed" set:html={t(w.body)}></p>
         </div>
       ))}
     </div>
-    <p class="mt-6 text-center text-xs text-zinc-500">
-      <a href="https://github.com/unzooai/unterm/releases" target="_blank" rel="noopener" class="hover:text-zinc-300">View all releases on GitHub →</a>
+    <p class="mt-6 text-center text-xs text-notion-faint">
+      <a href="https://github.com/unzooai/unterm/releases" target="_blank" rel="noopener" class="hover:text-notion-ink">View all releases on GitHub →</a>
     </p>
   </div>
 </section>
 
 <!-- ============== PRINCIPLES ============== -->
-<section id="principles" class="py-20 border-t border-zinc-900 bg-zinc-950">
+<section id="principles" class="py-20 border-t border-notion-border bg-notion-bg">
   <div class="max-w-5xl mx-auto px-6">
     <h2 class="text-3xl font-semibold tracking-tight text-center">{t("principles.title")}</h2>
     <div class="mt-12 grid md:grid-cols-2 gap-4">
       {principles.map((p) => (
-        <div class={"bg-zinc-900/40 border border-zinc-800 rounded-xl p-6" + (p.wide ? " md:col-span-2" : "")}>
-          <div class="text-emerald-400 font-mono text-xs">{p.n}</div>
+        <div class={"bg-notion-surface/40 border border-notion-border rounded-xl p-6" + (p.wide ? " md:col-span-2" : "")}>
+          <div class="text-notion-green font-mono text-xs">{p.n}</div>
           <div class="mt-2 font-semibold">{t(p.title)}</div>
-          <p class="mt-2 text-sm text-zinc-400">{t(p.body)}</p>
+          <p class="mt-2 text-sm text-notion-muted">{t(p.body)}</p>
         </div>
       ))}
     </div>
@@ -974,77 +997,77 @@ drwxr-xr-x 6 alexlee staff   192  architecture.md
 </section>
 
 <!-- ============== COMPARISON ============== -->
-<section id="compare" class="py-20 border-t border-zinc-900">
+<section id="compare" class="py-20 border-t border-notion-border">
   <div class="max-w-5xl mx-auto px-6">
     <h2 class="text-3xl font-semibold tracking-tight text-center">{t("cmp.title")}</h2>
-    <p class="mt-3 text-center text-zinc-400 max-w-2xl mx-auto">{t("cmp.subtitle")}</p>
-    <div class="mt-10 overflow-x-auto rounded-xl border border-zinc-800">
+    <p class="mt-3 text-center text-notion-muted max-w-2xl mx-auto">{t("cmp.subtitle")}</p>
+    <div class="mt-10 overflow-x-auto rounded-xl border border-notion-border">
       <table class="w-full text-sm">
-        <thead class="bg-zinc-900/80 text-zinc-400">
+        <thead class="bg-notion-surface/80 text-notion-muted">
           <tr>
             <th class="text-left px-4 pt-3 pb-1 font-medium align-bottom" rowspan="2">{t("cmp.h.feature")}</th>
-            <th class="px-3 pt-3 pb-0.5 font-semibold text-emerald-400 border-l border-zinc-800">Unterm</th>
-            <th class="px-3 pt-3 pb-0.5 font-medium border-l border-zinc-800">Terminal.app</th>
-            <th class="px-3 pt-3 pb-0.5 font-medium border-l border-zinc-800">Warp</th>
-            <th class="px-3 pt-3 pb-0.5 font-medium border-l border-zinc-800">iTerm2</th>
-            <th class="px-3 pt-3 pb-0.5 font-medium border-l border-zinc-800">Ghostty</th>
+            <th class="px-3 pt-3 pb-0.5 font-semibold text-notion-green border-l border-notion-border">Unterm</th>
+            <th class="px-3 pt-3 pb-0.5 font-medium border-l border-notion-border">Terminal.app</th>
+            <th class="px-3 pt-3 pb-0.5 font-medium border-l border-notion-border">Warp</th>
+            <th class="px-3 pt-3 pb-0.5 font-medium border-l border-notion-border">iTerm2</th>
+            <th class="px-3 pt-3 pb-0.5 font-medium border-l border-notion-border">Ghostty</th>
           </tr>
           <tr class="text-[10px] uppercase tracking-wider">
-            <th class="px-3 pb-2 font-mono text-emerald-500/80 border-l border-zinc-800">{t("cmp.cat.agentfirst")}</th>
-            <th class="px-3 pb-2 font-mono text-zinc-600 border-l border-zinc-800">{t("cmp.cat.native")}</th>
-            <th class="px-3 pb-2 font-mono text-amber-500/70 border-l border-zinc-800">{t("cmp.cat.paid")}</th>
-            <th class="px-3 pb-2 font-mono text-zinc-600 border-l border-zinc-800">{t("cmp.cat.free")}</th>
-            <th class="px-3 pb-2 font-mono text-zinc-600 border-l border-zinc-800">{t("cmp.cat.free")}</th>
+            <th class="px-3 pb-2 font-mono text-notion-green/80 border-l border-notion-border">{t("cmp.cat.agentfirst")}</th>
+            <th class="px-3 pb-2 font-mono text-notion-faint border-l border-notion-border">{t("cmp.cat.native")}</th>
+            <th class="px-3 pb-2 font-mono text-amber-500/70 border-l border-notion-border">{t("cmp.cat.paid")}</th>
+            <th class="px-3 pb-2 font-mono text-notion-faint border-l border-notion-border">{t("cmp.cat.free")}</th>
+            <th class="px-3 pb-2 font-mono text-notion-faint border-l border-notion-border">{t("cmp.cat.free")}</th>
           </tr>
         </thead>
-        <tbody class="text-zinc-200">
+        <tbody class="text-notion-ink">
           {cmpRows.map((r) => (
-            <tr class="border-t border-zinc-800">
+            <tr class="border-t border-notion-border">
               <td class="px-4 py-3">{t(r.row)}</td>
-              <td class="text-center text-emerald-400 font-medium border-l border-zinc-800/60 bg-emerald-950/10">{t(r.unterm)}</td>
-              <td class="text-center text-zinc-400 border-l border-zinc-800/60">{r.native}</td>
-              <td class="text-center text-zinc-400 border-l border-zinc-800/60">{t(r.warp)}</td>
-              <td class="text-center text-zinc-400 border-l border-zinc-800/60">{r.iterm}</td>
-              <td class="text-center text-zinc-400 border-l border-zinc-800/60">{r.ghostty}</td>
+              <td class="text-center text-notion-green font-medium border-l border-notion-border/60 bg-notion-bg/10">{t(r.unterm)}</td>
+              <td class="text-center text-notion-muted border-l border-notion-border/60">{r.native}</td>
+              <td class="text-center text-notion-muted border-l border-notion-border/60">{t(r.warp)}</td>
+              <td class="text-center text-notion-muted border-l border-notion-border/60">{r.iterm}</td>
+              <td class="text-center text-notion-muted border-l border-notion-border/60">{r.ghostty}</td>
             </tr>
           ))}
         </tbody>
       </table>
     </div>
-    <p class="mt-4 text-xs text-zinc-500 text-center" set:html={t("cmp.legend")}></p>
-    <p class="mt-2 text-xs text-zinc-500 text-center">{t("cmp.note")}</p>
+    <p class="mt-4 text-xs text-notion-faint text-center" set:html={t("cmp.legend")}></p>
+    <p class="mt-2 text-xs text-notion-faint text-center">{t("cmp.note")}</p>
   </div>
 </section>
 
 <!-- ============== DOWNLOAD ============== -->
-<section id="download" class="py-20 border-t border-zinc-900 bg-gradient-to-b from-zinc-950 via-emerald-950/10 to-zinc-950">
+<section id="download" class="py-20 border-t border-notion-border bg-gradient-to-b from-notion-bg via-notion-bg/10 to-notion-bg">
   <div class="max-w-3xl mx-auto px-6 text-center">
     <h2 class="text-3xl font-semibold tracking-tight">{t("dl.title")}</h2>
-    <p class="mt-3 text-zinc-400">{t("dl.subtitle")}</p>
+    <p class="mt-3 text-notion-muted">{t("dl.subtitle")}</p>
     <!-- One central download CTA. We use a `latest` redirect rather than
          pinning the tag in the href so this never goes stale again — the
          previous v0.17 hard-code outlived the v0.18 release until a user
          caught it. -->
     <a href={`${dlBaseUrl}/latest`}
-       class="mt-8 inline-flex items-center gap-2 px-5 py-3 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-semibold transition">
+       class="mt-8 inline-flex items-center gap-2 px-5 py-3 rounded-lg bg-notion-green hover:bg-notion-teal text-zinc-950 font-semibold transition">
       <span>{t("dl.cta")}</span>
     </a>
   </div>
 </section>
 
 <!-- ============== FAQ ============== -->
-<section id="faq" class="py-20 border-t border-zinc-900">
+<section id="faq" class="py-20 border-t border-notion-border">
   <script type="application/ld+json" set:html={JSON.stringify(faqJsonLd)} />
   <div class="max-w-3xl mx-auto px-6">
     <h2 class="text-3xl font-semibold tracking-tight text-center">{t("faq.title")}</h2>
-    <div class="mt-10 divide-y divide-zinc-800 border border-zinc-800 rounded-xl bg-zinc-900/40">
+    <div class="mt-10 divide-y divide-zinc-800 border border-notion-border rounded-xl bg-notion-surface/40">
       {faq.map((q) => (
         <details class="group">
-          <summary class="cursor-pointer flex items-center justify-between px-5 py-4 hover:bg-zinc-900 select-none">
+          <summary class="cursor-pointer flex items-center justify-between px-5 py-4 hover:bg-notion-surface select-none">
             <span class="font-medium pr-4">{t(q.q)}</span>
-            <svg class="w-4 h-4 shrink-0 text-zinc-500 group-open:rotate-180 transition" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+            <svg class="w-4 h-4 shrink-0 text-notion-faint group-open:rotate-180 transition" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
           </summary>
-          <p class="px-5 pb-5 text-sm text-zinc-400 leading-relaxed" set:html={t(q.a)}></p>
+          <p class="px-5 pb-5 text-sm text-notion-muted leading-relaxed" set:html={t(q.a)}></p>
         </details>
       ))}
     </div>
@@ -1058,24 +1081,24 @@ drwxr-xr-x 6 alexlee staff   192  architecture.md
      a QR code" payment paths (Alipay / WeChat Pay) intentionally not
      embedded — those are reserved for SoloMD (a higher-volume product)
      and would dilute the page for terminal-first audience here. -->
-<section id="sponsor" class="py-20 border-t border-zinc-900">
+<section id="sponsor" class="py-20 border-t border-notion-border">
   <div class="max-w-4xl mx-auto px-6">
     <h2 class="text-3xl font-semibold tracking-tight text-center">{t("sponsor.title")}</h2>
-    <p class="mt-3 text-center text-zinc-400 max-w-2xl mx-auto" set:html={t("sponsor.subtitle")}></p>
+    <p class="mt-3 text-center text-notion-muted max-w-2xl mx-auto" set:html={t("sponsor.subtitle")}></p>
     <div class="mt-10 grid md:grid-cols-2 gap-4">
       {sponsors.map((s) => (
         <a href={s.href} target="_blank" rel="noopener"
-           class="group block bg-zinc-900/40 hover:bg-zinc-900 border border-zinc-800 hover:border-zinc-700 rounded-xl p-6 transition">
+           class="group block bg-notion-surface/40 hover:bg-notion-surface border border-notion-border hover:border-notion-borderStrong rounded-xl p-6 transition">
           <div class="flex items-center gap-2">
             <span class="text-2xl text-rose-400">{s.icon}</span>
-            <span class="text-lg font-semibold text-zinc-100">{t(s.title)}</span>
+            <span class="text-lg font-semibold text-notion-ink">{t(s.title)}</span>
           </div>
-          <p class="mt-2 text-sm text-zinc-400 leading-relaxed">{t(s.body)}</p>
-          <div class="mt-3 text-xs text-emerald-400 group-hover:text-emerald-300 font-mono">{t(s.cta)} →</div>
+          <p class="mt-2 text-sm text-notion-muted leading-relaxed">{t(s.body)}</p>
+          <div class="mt-3 text-xs text-notion-green group-hover:text-notion-teal font-mono">{t(s.cta)} →</div>
         </a>
       ))}
     </div>
-    <p class="mt-6 text-center text-xs text-zinc-500" set:html={t("sponsor.note")}></p>
+    <p class="mt-6 text-center text-xs text-notion-faint" set:html={t("sponsor.note")}></p>
   </div>
 </section>
 
@@ -1085,54 +1108,28 @@ drwxr-xr-x 6 alexlee staff   192  architecture.md
      guidance: which channel for which type of question. The email is
      spelled out in the dict so user keeps it scrapeable but the
      surrounding copy frames it as last-resort. -->
-<section id="community" class="py-20 border-t border-zinc-900 bg-zinc-950">
+<section id="community" class="py-20 border-t border-notion-border bg-notion-bg">
   <div class="max-w-5xl mx-auto px-6">
     <h2 class="text-3xl font-semibold tracking-tight text-center">{t("community.title")}</h2>
-    <p class="mt-3 text-center text-zinc-400 max-w-2xl mx-auto">{t("community.subtitle")}</p>
+    <p class="mt-3 text-center text-notion-muted max-w-2xl mx-auto">{t("community.subtitle")}</p>
     <div class="mt-12 grid md:grid-cols-3 gap-4">
       <a href="https://github.com/unzooai/unterm/issues" target="_blank" rel="noopener"
-         class="group block bg-zinc-900/40 hover:bg-zinc-900 border border-zinc-800 hover:border-zinc-700 rounded-xl p-6 transition">
+         class="group block bg-notion-surface/40 hover:bg-notion-surface border border-notion-border hover:border-notion-borderStrong rounded-xl p-6 transition">
         <div class="text-xl font-semibold">{t("community.github.title")}</div>
-        <p class="mt-2 text-sm text-zinc-400 leading-relaxed">{t("community.github.body")}</p>
-        <div class="mt-3 text-xs text-emerald-400 group-hover:text-emerald-300 font-mono">{t("community.github.cta")} →</div>
+        <p class="mt-2 text-sm text-notion-muted leading-relaxed">{t("community.github.body")}</p>
+        <div class="mt-3 text-xs text-notion-green group-hover:text-notion-teal font-mono">{t("community.github.cta")} →</div>
       </a>
       <a href="https://github.com/unzooai/unterm/discussions" target="_blank" rel="noopener"
-         class="group block bg-zinc-900/40 hover:bg-zinc-900 border border-zinc-800 hover:border-zinc-700 rounded-xl p-6 transition">
+         class="group block bg-notion-surface/40 hover:bg-notion-surface border border-notion-border hover:border-notion-borderStrong rounded-xl p-6 transition">
         <div class="text-xl font-semibold">{t("community.discussions.title")}</div>
-        <p class="mt-2 text-sm text-zinc-400 leading-relaxed">{t("community.discussions.body")}</p>
-        <div class="mt-3 text-xs text-emerald-400 group-hover:text-emerald-300 font-mono">{t("community.discussions.cta")} →</div>
+        <p class="mt-2 text-sm text-notion-muted leading-relaxed">{t("community.discussions.body")}</p>
+        <div class="mt-3 text-xs text-notion-green group-hover:text-notion-teal font-mono">{t("community.discussions.cta")} →</div>
       </a>
       <a href={`mailto:${t("community.email.cta")}`}
-         class="group block bg-zinc-900/40 hover:bg-zinc-900 border border-zinc-800 hover:border-zinc-700 rounded-xl p-6 transition">
+         class="group block bg-notion-surface/40 hover:bg-notion-surface border border-notion-border hover:border-notion-borderStrong rounded-xl p-6 transition">
         <div class="text-xl font-semibold">{t("community.email.title")}</div>
-        <p class="mt-2 text-sm text-zinc-400 leading-relaxed">{t("community.email.body")}</p>
-        <div class="mt-3 text-xs text-emerald-400 group-hover:text-emerald-300 font-mono">{t("community.email.cta")} →</div>
-      </a>
-    </div>
-  </div>
-</section>
-
-<!-- ============== SISTER PROJECTS ============== -->
-<section class="py-20 border-t border-zinc-900">
-  <div class="max-w-5xl mx-auto px-6">
-    <h2 class="text-3xl font-semibold tracking-tight text-center">{t("sister.title")}</h2>
-    <p class="mt-3 text-center text-zinc-400 max-w-2xl mx-auto">{t("sister.subtitle")}</p>
-    <div class="mt-10 grid md:grid-cols-2 gap-4">
-      <a href="https://doaipm.com" target="_blank" rel="noopener"
-         class="group block bg-zinc-900/60 hover:bg-zinc-900 border border-zinc-800 hover:border-zinc-700 rounded-xl p-6 transition">
-        <div class="flex items-center justify-between">
-          <div class="text-xl font-semibold">DO AI PM</div>
-          <svg class="w-4 h-4 text-zinc-500 group-hover:text-zinc-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 17L17 7M17 7H8M17 7v9"/></svg>
-        </div>
-        <p class="mt-2 text-sm text-zinc-400">{t("sister.doaipm")}</p>
-      </a>
-      <a href="https://unflick.app" target="_blank" rel="noopener"
-         class="group block bg-zinc-900/60 hover:bg-zinc-900 border border-zinc-800 hover:border-zinc-700 rounded-xl p-6 transition">
-        <div class="flex items-center justify-between">
-          <div class="text-xl font-semibold">Unflick</div>
-          <svg class="w-4 h-4 text-zinc-500 group-hover:text-zinc-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 17L17 7M17 7H8M17 7v9"/></svg>
-        </div>
-        <p class="mt-2 text-sm text-zinc-400">{t("sister.unflick")}</p>
+        <p class="mt-2 text-sm text-notion-muted leading-relaxed">{t("community.email.body")}</p>
+        <div class="mt-3 text-xs text-notion-green group-hover:text-notion-teal font-mono">{t("community.email.cta")} →</div>
       </a>
     </div>
   </div>
@@ -1155,9 +1152,9 @@ drwxr-xr-x 6 alexlee staff   192  architecture.md
     function activate(name) {
       tabs.forEach((t) => {
         const on = t.dataset.tab === name;
-        t.classList.toggle("text-zinc-100", on);
-        t.classList.toggle("bg-zinc-800/60", on);
-        t.classList.toggle("text-zinc-400", !on);
+        t.classList.toggle("text-notion-ink", on);
+        t.classList.toggle("bg-notion-sunken/60", on);
+        t.classList.toggle("text-notion-muted", !on);
       });
       panes.forEach((p) => {
         p.classList.toggle("hidden", p.dataset.pane !== name);
