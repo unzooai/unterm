@@ -78,9 +78,19 @@ fn libpng() {
         match arch.as_str() {
             "aarch64" | "arm" => {
                 cfg.file("libpng/arm/arm_init.c")
-                    .file("libpng/arm/filter_neon.S")
                     .file("libpng/arm/filter_neon_intrinsics.c")
                     .file("libpng/arm/palette_neon_intrinsics.c");
+                // libpng's NEON row filter ships in two forms: a GNU-assembly
+                // file (filter_neon.S, faster) and a C-intrinsics file. MSVC —
+                // i.e. Windows on ARM — can't assemble the GNU-syntax .S, so
+                // there we force libpng's intrinsics implementation
+                // (PNG_ARM_NEON_IMPLEMENTATION=1) and omit the .S. Every other
+                // aarch64 target (Linux, macOS) keeps the assembly path.
+                if env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
+                    cfg.define("PNG_ARM_NEON_IMPLEMENTATION", Some("1"));
+                } else {
+                    cfg.file("libpng/arm/filter_neon.S");
+                }
             }
             _ => {}
         }
