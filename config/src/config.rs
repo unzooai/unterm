@@ -516,13 +516,13 @@ pub struct Config {
     #[dynamic(default)]
     pub hide_tab_bar_if_only_one_tab: bool,
 
-    // Default OFF (upstream WezTerm defaults it on). Unterm's shipped
-    // unterm.lua already disabled it, but the code default leaked through on
-    // dev builds / configs without that line: an inner pane's scrollbar sits
-    // at the split column and, being a dark thumb, drew a black band down the
-    // gutter in light themes. Matching the default to the shipped config keeps
-    // behavior consistent everywhere.
-    #[dynamic(default)]
+    // Default ON. It was disabled because an inner split pane's scrollbar sat
+    // at the split column (window centre) and drew a band down the middle. Now
+    // fixed two ways: the renderer only draws the bar for a pane at the window's
+    // right edge (never at a split column — see render/pane.rs), and every
+    // Unterm scheme defines a theme-matched `scrollbar_thumb`, so the thumb is a
+    // subtle visible gutter rather than an invisible-or-black strip.
+    #[dynamic(default = "default_true")]
     pub enable_scroll_bar: bool,
 
     #[dynamic(try_from = "crate::units::PixelUnit", default = "default_half_cell")]
