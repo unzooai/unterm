@@ -170,6 +170,22 @@ Pass `--json` to any subcommand for raw JSON-RPC output (suitable for scripts). 
 
 Multi-instance discovery is exposed over MCP rather than as a CLI subcommand — call `instance.list` against any running Unterm's MCP port, or just `ls ~/.unterm/instances/`.
 
+## AI agent auto-discovery
+
+Unterm makes every AI coding agent on the machine aware of it, so they can drive the terminal without manual setup. On first launch (per version) the GUI runs `unterm-cli setup-ai`, which detects installed agents — **Claude Code, Codex, Gemini CLI, Cursor, Windsurf, OpenCode** — and, for each:
+
+- registers the `unterm` MCP server into the agent's *global* config (merging into existing config, never clobbering), so the agent can list/run/read/screenshot the real terminal the moment it starts;
+- drops a short, marker-delimited Unterm note into the agent's global context file (`CLAUDE.md` / `AGENTS.md` / `GEMINI.md`) so even an agent that never loads the MCP server knows Unterm is here.
+
+The registered bridge (`unterm-cli mcp-stdio`) self-discovers the live instance at connect time, so a static registration keeps working across restarts and multiple windows. Agents that connect also receive a usage brief via the MCP `initialize` `instructions` field.
+
+```bash
+unterm-cli setup-ai              # detect agents + register (idempotent; safe to re-run)
+unterm-cli setup-ai --dry-run    # show what would change, write nothing
+unterm-cli setup-ai --no-context # register the MCP server only, don't touch context files
+unterm-cli setup-ai --remove     # undo: strip the server entry + context block from every agent
+```
+
 ---
 
 ## Configuration

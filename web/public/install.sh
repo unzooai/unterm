@@ -116,15 +116,20 @@ fi
 
 # --- Linux ----------------------------------------------------------------
 if [ "$os" = "linux" ]; then
-  if [ "$arch" != "x86_64" ]; then
-    die "Linux currently ships x86_64 only (arch=$arch). Build from source: https://github.com/$REPO"
-  fi
+  # x86_64 and arm64 both ship. Map the normalized arch to the per-arch asset
+  # naming the release pipeline produces: .deb tags non-amd64 with `.arm64`
+  # (ci/deploy.sh), AppImage names carry `uname -m` (ci/appimage.sh).
+  case "$arch" in
+    x86_64) deb_suffix=""; appimage_arch="x86_64" ;;
+    arm64)  deb_suffix=".arm64"; appimage_arch="aarch64" ;;
+    *) die "Linux ships x86_64 and arm64 (arch=$arch). Build from source: https://github.com/$REPO" ;;
+  esac
 
   # Prefer .deb when dpkg + apt exist (Debian/Ubuntu/Mint/Pop!_OS); apt
   # resolves runtime deps, integrates with system, gets a `unterm`
   # command on PATH automatically.
   if command -v dpkg >/dev/null 2>&1 && command -v apt >/dev/null 2>&1; then
-    asset="unterm-$UNTERM_VERSION.deb"
+    asset="unterm-$UNTERM_VERSION$deb_suffix.deb"
     url="$DL_BASE/$asset"
     tmp=$(mktemp -d)
     trap 'rm -rf "$tmp"' EXIT
@@ -147,7 +152,7 @@ if [ "$os" = "linux" ]; then
 
   # Fallback: AppImage into ~/.local/bin/unterm. No deps assumed beyond
   # what every desktop Linux ships; AppImage bundles its own libraries.
-  asset="Unterm-$UNTERM_VERSION-x86_64.AppImage"
+  asset="Unterm-$UNTERM_VERSION-$appimage_arch.AppImage"
   url="$DL_BASE/$asset"
   dest_dir="$HOME/.local/bin"
   dest="$dest_dir/unterm"

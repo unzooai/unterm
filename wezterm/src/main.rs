@@ -214,6 +214,15 @@ enum SubCommand {
     Reference(unterm_cli::ReferenceCommand),
 
     #[command(
+        name = "setup-ai",
+        about = "Register Unterm with every AI coding agent on this machine \
+                 (Claude Code / Codex / Gemini / Cursor / Windsurf / OpenCode) \
+                 so they auto-discover and can drive the terminal. Idempotent; \
+                 use --remove to undo."
+    )]
+    SetupAi(unterm_cli::SetupAiCommand),
+
+    #[command(
         name = "mcp-stdio",
         about = "Run an MCP (Model Context Protocol) stdio server that bridges \
                  an AI agent to this Unterm instance. Spawned automatically by \
@@ -858,6 +867,7 @@ fn run() -> anyhow::Result<()> {
         SubCommand::Upload(cmd) => unterm_cli::run_upload(cmd, opts.json),
         SubCommand::Scrollback(cmd) => unterm_cli::run_scrollback(cmd, opts.json),
         SubCommand::Reference(cmd) => unterm_cli::run_reference(cmd, opts.json),
+        SubCommand::SetupAi(cmd) => unterm_cli::run_setup_ai(cmd, opts.json),
         SubCommand::McpStdio => unterm_cli::run_mcp_stdio(),
         SubCommand::Settings(cmd) => unterm_cli::run_settings(cmd),
         SubCommand::Lang(cmd) => unterm_cli::run_lang(cmd, opts.json),

@@ -93,6 +93,12 @@ pub fn run() -> Result<()> {
                         "protocolVersion": PROTOCOL_VERSION,
                         "capabilities": { "tools": { "listChanged": false } },
                         "serverInfo": { "name": "unterm", "version": env!("CARGO_PKG_VERSION") },
+                        // Injected into the connecting agent's context by most
+                        // MCP clients — this is where we teach it what Unterm
+                        // is and which tools drive it. Shared with the text
+                        // `setup-ai` writes into context files, so the two
+                        // discovery channels stay in sync.
+                        "instructions": super::setup_ai::MCP_INSTRUCTIONS,
                     }),
                 )?;
             }

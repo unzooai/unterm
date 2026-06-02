@@ -37,18 +37,19 @@ if (-not $version) { Die 'tag_name was empty in API response' }
 Ok "Unterm $version"
 
 # --- Architecture check ----------------------------------------------------
-# Windows ships x64 only for now. ARM64 Windows users can run x64 via
-# Microsoft's emulation layer; native ARM64 builds are a roadmap item.
-$arch = $env:PROCESSOR_ARCHITECTURE
-if ($arch -ne 'AMD64') {
-  Warn "Architecture is $arch; the x64 installer will run via emulation."
-}
+# Native ARM64 and x64 builds both ship. PROCESSOR_ARCHITECTURE is the
+# *process* arch; under x64 emulation on an ARM device PowerShell reports
+# AMD64 but sets PROCESSOR_ARCHITEW6432=ARM64 — prefer that so an ARM machine
+# gets the native arm64 MSI even when the shell is emulated.
+$nativeArch = $env:PROCESSOR_ARCHITEW6432
+if (-not $nativeArch) { $nativeArch = $env:PROCESSOR_ARCHITECTURE }
+if ($nativeArch -eq 'ARM64') { $msiArch = 'arm64' } else { $msiArch = 'x64' }
 
 # --- Download MSI ----------------------------------------------------------
 # Strip leading 'v' for the Debian-style filename (Unterm-0.5.2-x64.msi),
 # but keep it on the GitHub-style download URL component.
 $verNoV = $version -replace '^v',''
-$asset  = "Unterm-$verNoV-x64.msi"
+$asset  = "Unterm-$verNoV-$msiArch.msi"
 $url    = "https://github.com/$repo/releases/download/$version/$asset"
 $dest   = Join-Path $env:TEMP $asset
 

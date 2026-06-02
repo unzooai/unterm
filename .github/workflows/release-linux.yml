@@ -8,13 +8,28 @@ on:
       tag:
         description: "tag override"
         required: false
+      draft:
+        description: "publish the release as a draft (for test dispatches; 'true'/'false')"
+        required: false
+        default: "false"
 
 permissions:
   contents: write
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    # amd64 on the standard runner, arm64 on GitHub's native ubuntu arm runner.
+    # The .deb arch (dpkg-architecture) and AppImage arch (uname -m) follow the
+    # build host automatically, so the packaging scripts need no arch arg.
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-22.04
+          - arch: arm64
+            runner: ubuntu-22.04-arm
     steps:
       - uses: actions/checkout@v4
         with:
@@ -47,7 +62,9 @@ jobs:
         run: ci/appimage.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: linux-artifacts
+          # Per-arch name: upload-artifact@v4 rejects duplicate names across
+          # matrix jobs.
+          name: linux-artifacts-${{ matrix.arch }}
           path: |
             unterm-*.deb
             Unterm-*.AppImage
@@ -59,6 +76,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.name }}
+          draft: ${{ inputs.draft == 'true' }}
           files: |
             unterm-*.deb
             Unterm-*.AppImage

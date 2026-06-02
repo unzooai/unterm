@@ -37,6 +37,7 @@ shell-words.workspace = true
 smol.workspace = true
 tabout.workspace = true
 tempfile.workspace = true
+toml.workspace = true
 unterm-profile.workspace = true
 unterm-agents.workspace = true
 termwiz-funcs.workspace = true

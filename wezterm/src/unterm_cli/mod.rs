@@ -17,6 +17,7 @@ mod reference;
 mod screenshot;
 mod scrollback;
 mod session;
+mod setup_ai;
 mod sessions;
 mod settings;
 mod theme;
@@ -30,6 +31,7 @@ pub use reference::ReferenceCommand;
 pub use scrollback::ScrollbackCommand;
 pub use session::SessionCommand;
 pub use sessions::SessionsCommand;
+pub use setup_ai::SetupAiCommand;
 pub use settings::SettingsCommand;
 pub use theme::ThemeCommand;
 pub use upload::UploadCommand;
@@ -87,6 +89,10 @@ pub fn run_scrollback(cmd: ScrollbackCommand, json_out: bool) -> Result<()> {
 
 pub fn run_reference(cmd: ReferenceCommand, json_out: bool) -> Result<()> {
     reference::run(cmd, json_out)
+}
+
+pub fn run_setup_ai(cmd: SetupAiCommand, json_out: bool) -> Result<()> {
+    setup_ai::run(cmd, json_out)
 }
 
 pub fn run_mcp_stdio() -> Result<()> {

@@ -19,7 +19,12 @@ param(
   [string]$Version,
   [string]$OutDir = "dist",
   [string]$TargetDir = "target\release",
-  [string]$WixPath  = ".\.tools\wix.exe"
+  [string]$WixPath  = ".\.tools\wix.exe",
+  # CPU arch of the build: "x64" or "arm64". Drives the MSI filename and WiX's
+  # -arch (component bitness + ProgramFiles64 resolution). Defaults from the
+  # host so a native arm runner produces an arm64 MSI without extra args.
+  [ValidateSet("x64", "arm64")]
+  [string]$Arch = $(if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" } else { "x64" })
 )
 $ErrorActionPreference = "Stop"
 
@@ -60,13 +65,13 @@ if (-not (Test-Path $WixPath)) {
 # `wix extension add` is idempotent; it noops if already added.
 & $WixPath extension add -g WixToolset.UI.wixext/6.0.1 | Out-Null
 
-$msiName = "Unterm-$Version-x64.msi"
+$msiName = "Unterm-$Version-$Arch.msi"
 $msiPath = Join-Path $OutDir $msiName
 
 & $WixPath build installer\Unterm.wxs `
   -ext WixToolset.UI.wixext `
   -d "SourceDir=$stage" `
-  -arch x64 `
+  -arch $Arch `
   -o $msiPath
 
 Write-Host "MSI: $msiPath"

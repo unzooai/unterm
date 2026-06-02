@@ -49,6 +49,14 @@ pub fn start_mcp_server() -> (u16, String) {
     // strictly better than blocking startup.
     apply_startup_profile_binding();
 
+    // First-run discovery: make every AI agent on this machine aware of
+    // Unterm (register the `unterm` MCP server + drop a context-file note)
+    // without the user having to do anything. Best-effort, detached, and
+    // gated by a per-version stamp so it does real work only on first launch
+    // of each new version. The spawned `unterm-cli setup-ai` is purely local
+    // file I/O — it doesn't need this server to be up.
+    maybe_register_ai_agents();
+
     let token = info.auth_token.clone();
     let token_for_thread = token.clone();
     thread::Builder::new()
@@ -62,6 +70,62 @@ pub fn start_mcp_server() -> (u16, String) {
 
     log::info!("MCP server listening on {}:{}", SERVER_BIND, port);
     (port, token)
+}
+
+/// Once per version, spawn `unterm-cli setup-ai` to auto-register Unterm with
+/// the AI agents installed on this machine. Runs on a detached thread so the
+/// stamp read + process spawn never touch the window-display startup path.
+/// Gated by `~/.unterm/setup-ai.stamp` (written by setup-ai on a clean run) so
+/// a steady-state launch does nothing. Entirely best-effort: any failure is
+/// logged and ignored — discovery is a convenience, never a reason to block.
+fn maybe_register_ai_agents() {
+    let Some(home) = dirs_next::home_dir() else {
+        return;
+    };
+    thread::Builder::new()
+        .name("setup-ai-register".into())
+        .spawn(move || {
+            let stamp = home.join(".unterm").join("setup-ai.stamp");
+            let current = env!("CARGO_PKG_VERSION");
+            if std::fs::read_to_string(&stamp)
+                .map(|s| s.trim() == current)
+                .unwrap_or(false)
+            {
+                return; // already registered for this version
+            }
+
+            // The CLI bridge ships as a sibling of this GUI binary (same
+            // pattern as the Web Settings "copy launch command" path).
+            // EXE_SUFFIX makes this find `unterm-cli.exe` on Windows, not just
+            // bare `unterm-cli`. Fall back to a PATH lookup otherwise.
+            let cli_name = format!("unterm-cli{}", std::env::consts::EXE_SUFFIX);
+            let cli = std::env::current_exe()
+                .ok()
+                .and_then(|exe| exe.parent().map(|d| d.join(&cli_name)))
+                .filter(|p| p.exists())
+                .map(|p| p.into_os_string())
+                .unwrap_or_else(|| std::ffi::OsString::from(cli_name));
+
+            let mut cmd = std::process::Command::new(&cli);
+            cmd.arg("setup-ai")
+                // Stamp the value WE gate on, so the first-run check stays
+                // consistent even if the GUI and CLI crate versions diverge.
+                .env("UNTERM_SETUP_AI_STAMP", current)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null());
+            match cmd.spawn() {
+                // Wait so the thread (and any test harness) can observe the
+                // child finished; on the GUI it's a detached worker thread so
+                // this blocks nothing the user sees.
+                Ok(mut child) => {
+                    log::info!("setup-ai: registering Unterm with AI agents (first run for v{current})");
+                    let _ = child.wait();
+                }
+                Err(e) => log::warn!("setup-ai: could not spawn {:?}: {}", cli, e),
+            }
+        })
+        .ok();
 }
 
 /// Honor the `UNTERM_STARTUP_PROFILE` env var (set by `unterm --profile X`)

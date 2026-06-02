@@ -19,10 +19,14 @@ install -Dm644 assets/icon/unterm-icon.svg AppDir/usr/share/icons/hicolor/scalab
 install -Dm644 assets/unterm.desktop AppDir/usr/share/applications/ai.unzoo.unterm.desktop
 install -Dm644 assets/unterm.appdata.xml AppDir/usr/share/metainfo/ai.unzoo.unterm.appdata.xml
 
-[ -x /tmp/linuxdeploy ] || ( curl -L 'https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage' -o /tmp/linuxdeploy && chmod +x /tmp/linuxdeploy )
+# Arch follows the build host (native runner): x86_64 or aarch64. linuxdeploy
+# ships a per-arch AppImage; the output filename carries the arch so x64 and
+# arm64 release artifacts don't collide.
+ARCH=$(uname -m)
+[ -x /tmp/linuxdeploy ] || ( curl -L "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-${ARCH}.AppImage" -o /tmp/linuxdeploy && chmod +x /tmp/linuxdeploy )
 
 TAG_NAME=${TAG_NAME:-$(git -c "core.abbrev=8" show -s "--format=%cd-%h" "--date=format:%Y%m%d-%H%M%S")}
-OUTPUT=Unterm-$TAG_NAME-x86_64.AppImage
+OUTPUT=Unterm-$TAG_NAME-$ARCH.AppImage
 
 VERSION="$TAG_NAME" \
 UPDATE_INFORMATION="gh-releases-zsync|unzooai|unterm|latest|Unterm-*.AppImage.zsync" \

@@ -106,8 +106,10 @@ case ${OSTYPE:-} in
     mkdir -p "$stagedir/mesa"
     cp "$TARGET_DIR/release/mesa/opengl32.dll" "$stagedir/mesa/" || \
       cp assets/windows/mesa/opengl32.dll "$stagedir/mesa/"
-    # Plain zip (MSI is produced by build-msi.ps1)
-    zipname=Unterm-windows-$TAG_NAME.zip
+    # Plain zip (MSI is produced by build-msi.ps1). Arch in the name so the
+    # x64 and arm64 matrix jobs don't upload colliding assets to one release.
+    # UNTERM_ARCH is set by the workflow matrix; default x64 for local runs.
+    zipname=Unterm-windows-${UNTERM_ARCH:-x64}-$TAG_NAME.zip
     rm -f "$zipname"
     7z a -tzip "$zipname" "$stagedir/"*
     ;;
