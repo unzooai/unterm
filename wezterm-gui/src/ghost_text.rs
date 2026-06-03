@@ -322,6 +322,13 @@ fn recompute_ghost(state: &mut PaneGhostState, external: &[String]) {
     if best.is_none() {
         best = agent_flag_ghost(prefix);
     }
+    // Last fallback: complete the AI agent's *name* itself from the manifest,
+    // so `cla` → `claude` even on a fresh shell you've never run it in. Without
+    // this, command completion only kicked in for agents already in history,
+    // which is why it felt like it "didn't work for everything".
+    if best.is_none() {
+        best = agent_exec_ghost(prefix);
+    }
     state.ghost = best;
 }
 
@@ -360,6 +367,28 @@ fn flag_completion_token(arg: &str) -> String {
         Some((before, _)) => format!("{} ", before.trim_end()),
         None => arg.trim().to_string(),
     }
+}
+
+/// Ghost continuation that completes a known AI agent's exec name from the
+/// manifest set, while the user is still typing the first token (no space yet).
+/// `cla` → `ude` (claude), `cod` → `ex` (codex), `gem` → `ini` (gemini). Picks
+/// the alphabetically-first match for determinism when several agents share a
+/// prefix. This is what makes "type an AI command, it completes" work even
+/// before that command is in history.
+fn agent_exec_ghost(input: &str) -> Option<String> {
+    if input.is_empty() || input.contains(' ') {
+        return None;
+    }
+    let map = agent_flag_tokens();
+    let mut best: Option<&str> = None;
+    for exec in map.keys() {
+        if exec.len() > input.len() && exec.starts_with(input) {
+            if best.map_or(true, |b| exec.as_str() < b) {
+                best = Some(exec.as_str());
+            }
+        }
+    }
+    best.map(|e| e[input.len()..].to_string())
 }
 
 /// Ghost continuation from the agent flag catalog. Fires only when the input's
@@ -441,6 +470,17 @@ mod tests {
         let (typed, ghost) = current_ghost(b).expect("cross-pane prediction should land");
         assert_eq!(typed, "git fe");
         assert_eq!(ghost, "tch --prune-tags");
+    }
+
+    #[test]
+    fn agent_exec_ghost_completes_agent_names() {
+        // From the baked manifest set: claude / codex / gemini / aider / opencode.
+        assert_eq!(agent_exec_ghost("cla").as_deref(), Some("ude"));
+        assert_eq!(agent_exec_ghost("gem").as_deref(), Some("ini"));
+        // Don't fire once a space is typed (that's flag territory).
+        assert_eq!(agent_exec_ghost("claude "), None);
+        // Unknown prefix → nothing.
+        assert_eq!(agent_exec_ghost("zzz"), None);
     }
 
     #[test]

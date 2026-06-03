@@ -71,6 +71,19 @@ pub fn discover() -> Option<ClashEndpoint> {
     None
 }
 
+/// Build a TCP endpoint from a user-supplied controller address + secret
+/// (the manual override escape hatch when auto-discovery can't find it).
+pub fn manual_endpoint(addr: &str, secret: &str) -> ClashEndpoint {
+    ClashEndpoint::Tcp {
+        addr: normalize_addr(addr),
+        secret: if secret.trim().is_empty() {
+            None
+        } else {
+            Some(secret.trim().to_string())
+        },
+    }
+}
+
 static CACHED: std::sync::Mutex<Option<ClashEndpoint>> = std::sync::Mutex::new(None);
 
 /// Like [`discover`] but remembers the last working endpoint so the status
@@ -163,6 +176,25 @@ fn scan_configs() -> Vec<(Option<String>, Option<String>, Option<String>)> {
     paths.push(verge.join("clash-verge.yaml"));
     paths.push(verge.join("config.yaml"));
     paths.push(home.join(".local/share/io.github.clash-verge-rev.clash-verge-rev/clash-verge.yaml"));
+
+    // Windows: Clash Verge / Clash / mihomo keep their config under %APPDATA%
+    // (Roaming) or %LOCALAPPDATA%. Windows has no unix socket, so finding the
+    // TCP external-controller + secret here is the *only* way to connect.
+    for var in ["APPDATA", "LOCALAPPDATA"] {
+        if let Ok(base) = std::env::var(var) {
+            let base = PathBuf::from(base);
+            for app in [
+                "io.github.clash-verge-rev.clash-verge-rev",
+                "clash-verge",
+                "Clash Verge",
+                "clash",
+                "mihomo",
+            ] {
+                paths.push(base.join(app).join("clash-verge.yaml"));
+                paths.push(base.join(app).join("config.yaml"));
+            }
+        }
+    }
 
     for p in paths {
         let Ok(text) = std::fs::read_to_string(&p) else { continue };

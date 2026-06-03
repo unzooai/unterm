@@ -344,6 +344,7 @@ fn route(req: &Request, auth_token: &str, handler: &McpHandler) -> Response {
         ("POST", "/api/proxy/nodes") => api_proxy_set_nodes(handler, &req.body),
         ("GET", "/api/proxy/clash") => api_proxy_clash_status(handler),
         ("POST", "/api/proxy/clash/select") => api_proxy_clash_select(handler, &req.body),
+        ("POST", "/api/proxy/clash/controller") => api_proxy_clash_controller(handler, &req.body),
         ("POST", "/api/theme") => api_theme(&req.body),
         ("GET", "/api/scrollback") => api_scrollback_get(),
         ("POST", "/api/scrollback") => api_scrollback_set(&req.body),
@@ -1153,6 +1154,23 @@ fn api_proxy_rotation(handler: &McpHandler, body: &[u8]) -> Response {
     }
     let ctx = crate::mcp::handler::ConnectionContext::internal("web_settings");
     match handler.handle(&ctx, "proxy.rotation", &Value::Object(params)) {
+        Ok(v) => Response::ok_json(v),
+        Err(e) => Response::err(400, "Bad Request", &e.to_string()),
+    }
+}
+
+/// POST /api/proxy/clash/controller — set/clear the manual Clash controller
+/// (host:port + secret) for when auto-discovery can't find it.
+fn api_proxy_clash_controller(handler: &McpHandler, body: &[u8]) -> Response {
+    let body = parse_json_body(body);
+    let mut params = serde_json::Map::new();
+    for k in ["controller", "secret"] {
+        if let Some(v) = body.get(k) {
+            params.insert(k.into(), v.clone());
+        }
+    }
+    let ctx = crate::mcp::handler::ConnectionContext::internal("web_settings");
+    match handler.handle(&ctx, "proxy.clash_set_controller", &Value::Object(params)) {
         Ok(v) => Response::ok_json(v),
         Err(e) => Response::err(400, "Bad Request", &e.to_string()),
     }

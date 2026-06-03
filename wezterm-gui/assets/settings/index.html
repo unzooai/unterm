@@ -403,9 +403,22 @@
                 </div>
               </template>
 
-              <!-- Not connected: fall back to manual endpoint nodes. -->
+              <!-- Not connected: offer a manual controller, then fall back to
+                   manual endpoint nodes. -->
               <template x-if="!clash.connected">
                 <div class="space-y-3">
+                  <!-- Manual controller override (e.g. Windows: no unix socket). -->
+                  <div class="rounded border border-notion-border bg-notion-bg p-3 space-y-2">
+                    <div class="text-xs text-notion-muted" x-text="t('web.proxy.clash.manual_hint')"></div>
+                    <div class="flex flex-wrap items-center gap-2">
+                      <input type="text" x-model="clashCtl.controller" placeholder="127.0.0.1:9097"
+                        class="w-40 rounded border border-notion-borderStrong bg-notion-bg px-2 py-1 font-mono text-xs text-notion-ink" />
+                      <input type="text" x-model="clashCtl.secret" :placeholder="t('web.proxy.clash.secret_ph')"
+                        class="w-40 rounded border border-notion-borderStrong bg-notion-bg px-2 py-1 font-mono text-xs text-notion-ink" />
+                      <button type="button" class="rounded bg-notion-green px-3 py-1 text-xs font-medium text-notion-bg hover:opacity-90"
+                        @click="setClashController()" x-text="t('web.proxy.clash.connect')"></button>
+                    </div>
+                  </div>
                   <div class="text-xs text-notion-faint" x-text="t('web.proxy.clash.fallback')"></div>
                   <div class="grid grid-cols-2 gap-2">
                     <template x-for="n in (proxy.nodes || [])" :key="n.name">

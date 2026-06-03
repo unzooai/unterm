@@ -158,6 +158,14 @@ struct ProxySettings {
     current_node: Option<String>,
     nodes: Vec<ProxyNodeConfig>,
     rotation: RotationSettings,
+    /// Manual Clash/mihomo controller override (host:port) for when
+    /// auto-discovery can't find it — e.g. on Windows where there's no Unix
+    /// socket and the controller isn't in a scanned config. Empty = auto.
+    #[serde(default)]
+    clash_controller: String,
+    /// Bearer secret for the manual controller (if the API requires one).
+    #[serde(default)]
+    clash_secret: String,
 }
 
 impl Default for ProxySettings {
@@ -171,6 +179,8 @@ impl Default for ProxySettings {
             current_node: None,
             nodes: Vec::new(),
             rotation: RotationSettings::default(),
+            clash_controller: String::new(),
+            clash_secret: String::new(),
         }
     }
 }
@@ -882,6 +892,7 @@ impl McpHandler {
             "proxy.set_nodes" => self.proxy_set_nodes(params),
             "proxy.clash_status" => self.proxy_clash_status(),
             "proxy.clash_select" => self.proxy_clash_select(params),
+            "proxy.clash_set_controller" => self.proxy_clash_set_controller(params),
             // Workspace
             "workspace.save" => self.workspace_save(params),
             "workspace.restore" => self.workspace_restore(params),
@@ -2459,6 +2470,18 @@ impl McpHandler {
         let mut changed = false;
         if let Some(enabled) = params.get("enabled").and_then(|v| v.as_bool()) {
             settings.rotation.enabled = enabled;
+            // Turning rotation on implies the proxy is in use — enable injection
+            // too so spawned shells actually route through it and the status bar
+            // reads "proxy:on" instead of confusingly showing "off". (The
+            // spawn-time liveness probe still guards against a dead endpoint.)
+            // We never auto-disable the proxy when rotation goes off — the user
+            // may still want the proxy on its own.
+            if enabled && !settings.enabled {
+                settings.enabled = true;
+                if settings.mode.is_empty() || settings.mode == "off" {
+                    settings.mode = "auto".to_string();
+                }
+            }
             changed = true;
         }
         if let Some(group) = params.get("group").and_then(|v| v.as_str()) {
@@ -2502,8 +2525,13 @@ impl McpHandler {
     /// (with live alive/delay pulled from the proxies snapshot). This is what
     /// powers "read the nodes, you tick boxes" — no hand-typed URLs.
     fn proxy_clash_status(&self) -> Result<Value> {
-        let Some(ep) = crate::clash_api::discover_cached() else {
-            return Ok(json!({ "connected": false }));
+        let settings = self.refresh_proxy_state();
+        let Some(ep) = resolve_clash_endpoint(&settings) else {
+            return Ok(json!({
+                "connected": false,
+                "controller": settings.clash_controller,
+                "secret_set": !settings.clash_secret.is_empty(),
+            }));
         };
         let version = crate::clash_api::version(&ep).unwrap_or_default();
         let proxies = match crate::clash_api::proxies(&ep) {
@@ -2550,6 +2578,7 @@ impl McpHandler {
             "connected": true,
             "version": version,
             "controller": ep.label(),
+            "manual": !settings.clash_controller.is_empty(),
             "groups": groups,
         }))
     }
@@ -2566,10 +2595,38 @@ impl McpHandler {
             .get("name")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("`name` required"))?;
-        let ep = crate::clash_api::discover_cached()
+        let settings = mcp_state().lock().proxy.clone();
+        let ep = resolve_clash_endpoint(&settings)
             .ok_or_else(|| anyhow::anyhow!("no Clash/mihomo controller found"))?;
         crate::clash_api::select(&ep, group, name)?;
         Ok(json!({ "group": group, "now": name }))
+    }
+
+    /// Set (or clear) the manual Clash controller override — the escape hatch
+    /// for platforms/setups where auto-discovery can't find the controller
+    /// (notably Windows, which has no Unix socket). Returns fresh clash status.
+    fn proxy_clash_set_controller(&self, params: &Value) -> Result<Value> {
+        let controller = params
+            .get("controller")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        let secret = params
+            .get("secret")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        {
+            let mut state = mcp_state().lock();
+            let mut settings = state.proxy.clone();
+            settings.clash_controller = controller;
+            settings.clash_secret = secret;
+            save_proxy_settings(&settings)?;
+            state.proxy = settings;
+        }
+        self.proxy_clash_status()
     }
 
     /// Replace the configured node list (name + url pairs) from the GUI, so the
@@ -3739,6 +3796,19 @@ fn node_health(obj: &Value) -> (bool, Option<u64>) {
     (alive, delay)
 }
 
+/// Resolve the Clash/mihomo controller to talk to: the user's manual override
+/// (if set and reachable) wins, otherwise fall back to auto-discovery. The
+/// manual override is the escape hatch for Windows / non-standard setups.
+fn resolve_clash_endpoint(settings: &ProxySettings) -> Option<crate::clash_api::ClashEndpoint> {
+    if !settings.clash_controller.trim().is_empty() {
+        let ep = crate::clash_api::manual_endpoint(&settings.clash_controller, &settings.clash_secret);
+        if crate::clash_api::version(&ep).is_ok() {
+            return Some(ep);
+        }
+    }
+    crate::clash_api::discover_cached()
+}
+
 /// One clash-mode failover cycle: if the group's current node is unreachable,
 /// delay-test the pool and switch the group to the fastest live node.
 fn clash_rotation_tick(settings: &ProxySettings) -> Option<String> {
@@ -3748,7 +3818,7 @@ fn clash_rotation_tick(settings: &ProxySettings) -> Option<String> {
     if pool.is_empty() {
         return None;
     }
-    let ep = crate::clash_api::discover_cached()?;
+    let ep = resolve_clash_endpoint(settings)?;
     let url = crate::clash_api::DELAY_TEST_URL;
 
     // Current selection of the group.

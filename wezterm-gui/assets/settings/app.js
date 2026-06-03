@@ -37,6 +37,7 @@ function untermSettings() {
     newNode: { name: '', url: '' },
     clash: { connected: false, version: '', controller: '', groups: [] },
     clashGroup: '',
+    clashCtl: { controller: '', secret: '' },
     nodeFilter: '',
     recording: { active: false },
 
@@ -1216,6 +1217,9 @@ function untermSettings() {
         const r = await this.api('POST', '/api/proxy/rotation', { enabled });
         if (!this.proxy.rotation) this.proxy.rotation = {};
         this.proxy.rotation = r;
+        // Enabling rotation also turns the proxy on server-side; refresh so the
+        // main proxy toggle + status reflect it (and the status bar reads on).
+        if (enabled) await this.refresh();
         this.toast(enabled ? this.t('web.toast.rotation_on') : this.t('web.toast.rotation_off'));
       } catch (e) {
         this.toast(this.t('web.toast.proxy_failed').replace('{err}', e.message), 'error');
@@ -1269,6 +1273,24 @@ function untermSettings() {
       const pool = (named.length ? named : groups.filter((g) => g.name !== 'GLOBAL'));
       const candidates = pool.length ? pool : groups;
       return candidates.slice().sort((a, b) => b.nodes.length - a.nodes.length)[0].name;
+    },
+
+    async setClashController() {
+      try {
+        const c = await this.api('POST', '/api/proxy/clash/controller', {
+          controller: (this.clashCtl.controller || '').trim(),
+          secret: (this.clashCtl.secret || '').trim(),
+        });
+        this.clash = { connected: !!c.connected, version: c.version || '', controller: c.controller || '', groups: c.groups || [] };
+        if (this.clash.connected) {
+          if (this.clash.groups.length) this.clashGroup = this.pickDefaultGroup();
+          this.toast(this.t('web.toast.clash_connected'));
+        } else {
+          this.toast(this.t('web.toast.clash_failed'), 'error');
+        }
+      } catch (e) {
+        this.toast(this.t('web.toast.proxy_failed').replace('{err}', e.message), 'error');
+      }
     },
 
     clashGroupObj() {
