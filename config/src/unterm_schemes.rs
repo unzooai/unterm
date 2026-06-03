@@ -66,7 +66,7 @@ cursor_border = "#d4d4d4"
 selection_bg = "#2c2c2c"
 selection_fg = "#d4d4d4"
 split = "#373737"
-scrollbar_thumb = "#4d4c48"
+scrollbar_thumb = "#807f77"
 ansi = [
     "#2e2e2e",
     "#ff7369",
@@ -108,7 +108,7 @@ cursor_border = "#d3d7cf"
 selection_bg = "#444444"
 selection_fg = "#d3d7cf"
 split = "#5b5b66"
-scrollbar_thumb = "#4a4a55"
+scrollbar_thumb = "#6f6f80"
 ansi = [
     "#2e2e2e",
     "#cc0000",
