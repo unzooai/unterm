@@ -91,11 +91,29 @@ impl Default for CommandPolicy {
 }
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 struct ProxyNodeConfig {
     name: String,
     url: String,
+    /// Transient probe results — recomputed on every `proxy.status`, never
+    /// trusted from disk (a node's reachability/latency now has nothing to do
+    /// with what was true last time it was written). `skip_serializing` keeps
+    /// proxy.json to just name+url so hand-edits stay clean.
+    #[serde(skip_serializing)]
     latency_ms: Option<u64>,
+    #[serde(skip_serializing)]
     available: bool,
+}
+
+impl Default for ProxyNodeConfig {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            url: String::new(),
+            latency_ms: None,
+            available: false,
+        }
+    }
 }
 
 /// Auto-rotation: keep a user-chosen pool of nodes healthy. A background
@@ -2303,6 +2321,23 @@ impl McpHandler {
         } else {
             None
         };
+        // Live-probe each node so the Web Settings availability dots and the
+        // rotation pool reflect reality right now, not a stale persisted flag.
+        // Built explicitly (not via ProxyNodeConfig's Serialize) because the
+        // transient probe fields are `skip_serializing` to keep proxy.json clean.
+        let nodes: Vec<Value> = settings
+            .nodes
+            .iter()
+            .map(|n| {
+                let (available, latency_ms) = probe_node_latency(&n.url, 300);
+                json!({
+                    "name": n.name,
+                    "url": n.url,
+                    "available": available,
+                    "latency_ms": latency_ms,
+                })
+            })
+            .collect();
         Ok(json!({
             "enabled": settings.enabled,
             "mode": settings.mode,
@@ -2310,7 +2345,9 @@ impl McpHandler {
             "socks_proxy": settings.socks_proxy,
             "no_proxy": settings.no_proxy,
             "current_node": settings.current_node,
-            "node_count": settings.nodes.len(),
+            "node_count": nodes.len(),
+            "nodes": nodes,
+            "rotation": settings.rotation,
             "health": health,
         }))
     }
@@ -3432,6 +3469,38 @@ fn probe_proxy_endpoint(url: &str, timeout_ms: u64) -> bool {
     addrs
         .into_iter()
         .any(|addr| std::net::TcpStream::connect_timeout(&addr, timeout).is_ok())
+}
+
+/// Probe a node URL, returning `(reachable, latency_ms)`. Latency is the TCP
+/// connect time in milliseconds, or `None` when unreachable. Used to fill the
+/// live availability/latency the Web Settings rotation pool shows.
+fn probe_node_latency(url: &str, timeout_ms: u64) -> (bool, Option<u64>) {
+    let Some(rest) = url.split("://").nth(1) else {
+        return (false, None);
+    };
+    let host_port = rest
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or(rest)
+        .rsplit('@')
+        .next()
+        .unwrap_or(rest);
+    let mut parts = host_port.rsplitn(2, ':');
+    let Some(port) = parts.next().and_then(|p| p.parse::<u16>().ok()) else {
+        return (false, None);
+    };
+    let host = parts.next().unwrap_or("127.0.0.1");
+    let Ok(addrs) = (host, port).to_socket_addrs() else {
+        return (false, None);
+    };
+    let timeout = std::time::Duration::from_millis(timeout_ms);
+    for addr in addrs {
+        let start = std::time::Instant::now();
+        if std::net::TcpStream::connect_timeout(&addr, timeout).is_ok() {
+            return (true, Some(start.elapsed().as_millis() as u64));
+        }
+    }
+    (false, None)
 }
 
 /// Pick the fastest reachable node named in `pool` from `nodes`. `probe`

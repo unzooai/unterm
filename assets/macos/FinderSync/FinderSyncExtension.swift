@@ -7,9 +7,22 @@ final class FinderSyncExtension: FIFinderSync {
         super.init()
 
         // Finder Sync requires at least one observed directory before Finder
-        // asks the extension for contextual menus. Watching "/" makes the
-        // menu available throughout Finder without adding badges.
-        FIFinderSyncController.default().directoryURLs = [URL(fileURLWithPath: "/")]
+        // asks the extension for contextual menus. We used to watch "/" as
+        // a catch-all but macOS 26 (Tahoe) silently stopped honouring it —
+        // the extension loaded, the process spawned, but `menu(for:)` was
+        // never called, so the right-click menu never appeared anywhere.
+        // Listing common roots explicitly works on Tahoe; subfolders are
+        // inherited automatically (right-click in ~/Desktop/foo/bar still
+        // fires because ~/Desktop is under NSHomeDirectory()).
+        let roots: Set<URL> = [
+            URL(fileURLWithPath: NSHomeDirectory()),
+            URL(fileURLWithPath: "/Volumes"),
+            URL(fileURLWithPath: "/Users"),
+            URL(fileURLWithPath: "/Applications"),
+            URL(fileURLWithPath: "/private/tmp"),
+            URL(fileURLWithPath: "/tmp"),
+        ]
+        FIFinderSyncController.default().directoryURLs = roots
     }
 
     override var toolbarItemName: String {

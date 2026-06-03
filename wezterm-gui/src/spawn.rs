@@ -483,6 +483,24 @@ fn read_unterm_proxy_env() -> Option<Vec<(String, String)>> {
         (http, socks, no_proxy)
     };
 
+    // Safety guard: never inject a dead proxy. A proxy URL piped into a shell
+    // that points at a port nothing is listening on turns every command in
+    // that terminal into a connection failure — which reads to the user as
+    // "Unterm broke my VPN". So we TCP-probe each endpoint and drop any that
+    // isn't accepting connections right now. If nothing is reachable we inject
+    // nothing, and the shell talks to the network directly, exactly as if the
+    // proxy toggle were off. (Auto mode still re-detects on the next spawn, so
+    // the proxy reattaches automatically once the software is back up.)
+    let http = http.filter(|u| proxy_endpoint_reachable(u));
+    let socks = socks.filter(|u| proxy_endpoint_reachable(u));
+    if http.is_none() && socks.is_none() {
+        log::warn!(
+            "Unterm proxy is enabled but no configured/detected proxy endpoint is reachable; \
+             leaving this shell on a direct connection so it isn't cut off from the network"
+        );
+        return None;
+    }
+
     let mut env = Vec::new();
     if let Some(http) = &http {
         env.push(("HTTP_PROXY".to_string(), http.clone()));
@@ -507,5 +525,64 @@ fn read_unterm_proxy_env() -> Option<Vec<(String, String)>> {
         None
     } else {
         Some(env)
+    }
+}
+
+/// TCP-probe a proxy endpoint so we never inject a dead proxy into a shell.
+/// Returns false fast (250 ms) if nothing is listening on `host:port` — the
+/// caller then skips injecting that URL, leaving the shell on a direct
+/// connection instead of routing every command into a black hole.
+fn proxy_endpoint_reachable(url: &str) -> bool {
+    use std::net::{TcpStream, ToSocketAddrs};
+    use std::time::Duration;
+    // Strip scheme (http://, socks5://) and any trailing path, leaving host:port.
+    let host_port = url
+        .split("://")
+        .nth(1)
+        .unwrap_or(url)
+        .split('/')
+        .next()
+        .unwrap_or(url);
+    // Without an explicit port we can't probe; don't block injection in that case.
+    if !host_port.contains(':') {
+        return true;
+    }
+    match host_port.to_socket_addrs() {
+        Ok(addrs) => addrs
+            .into_iter()
+            .any(|addr| TcpStream::connect_timeout(&addr, Duration::from_millis(250)).is_ok()),
+        Err(_) => false,
+    }
+}
+
+#[cfg(test)]
+mod proxy_guard_tests {
+    use super::proxy_endpoint_reachable;
+    use std::net::TcpListener;
+
+    #[test]
+    fn reachable_when_something_is_listening() {
+        // Bind an ephemeral port so the probe has a live endpoint to find.
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        assert!(proxy_endpoint_reachable(&format!("http://127.0.0.1:{port}")));
+        assert!(proxy_endpoint_reachable(&format!("socks5://127.0.0.1:{port}")));
+    }
+
+    #[test]
+    fn unreachable_when_nothing_is_listening() {
+        // Bind then drop, so the port is almost certainly free again — a dead
+        // proxy must NOT be injected (this is the "don't break the terminal" guard).
+        let port = {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.local_addr().unwrap().port()
+        };
+        assert!(!proxy_endpoint_reachable(&format!("http://127.0.0.1:{port}")));
+    }
+
+    #[test]
+    fn does_not_block_when_url_has_no_port() {
+        // No port to probe → assume reachable rather than silently dropping it.
+        assert!(proxy_endpoint_reachable("http://proxy.example.com"));
     }
 }

@@ -277,16 +277,18 @@ impl MenuState {
     /// so we need `4 + label.len + 2 + hint.len + 2` chars (the +2 covers the
     /// gap padding between label and hint that always renders).
     fn auto_card_width(&self) -> usize {
-        const MIN_GAP: usize = 2;
-        const CHROME: usize = 4 + 2; // "│ " + " │" + 2 badge slot
+        // Generous gap between label and hint, plus side insets so text never
+        // sits flush against the card borders.
+        const MIN_GAP: usize = 5;
+        const CHROME: usize = 4 + 2 + 4; // borders(4) + badge(2) + side insets(4)
         let widest = self
             .items
             .iter()
             .filter(|item| !item.is_separator)
             .map(|item| cw(&item.label) + cw(&item.hint) + MIN_GAP + CHROME)
             .max()
-            .unwrap_or(40);
-        widest.max(40)
+            .unwrap_or(46);
+        widest.max(46)
     }
 
     fn render(&mut self, term: &mut TermWizTerminal) -> termwiz::Result<()> {
@@ -295,13 +297,59 @@ impl MenuState {
         let term_h = size.rows;
 
         let card_w = self.auto_card_width().min(term_w.saturating_sub(4));
-        let card_h = self.items.len() + 5;
+
+        // Build the card as an explicit list of rows so spacing is obvious and
+        // the y-offset math can't drift. A blank Spacer row sits between every
+        // pair of items in the same group so each line has room to breathe;
+        // group separators and the close button get their own padding too.
+        enum Row {
+            TopBorder,
+            Title,
+            TitleSep,
+            Item(usize),
+            GroupSep,
+            Close,
+            BottomBorder,
+            Blank,
+        }
+        let mut rows = vec![Row::TopBorder, Row::Title, Row::TitleSep, Row::Blank];
+        let item_count = self.items.len();
+        for (idx, item) in self.items.iter().enumerate() {
+            if item.is_separator {
+                rows.push(Row::Blank);
+                rows.push(Row::GroupSep);
+                rows.push(Row::Blank);
+                continue;
+            }
+            rows.push(Row::Item(idx));
+            // Spacer between consecutive items in the same group. Skip it before
+            // a group separator (which brings its own padding) and after the
+            // last item (the pre-close blank handles that).
+            let next_is_sep = self
+                .items
+                .get(idx + 1)
+                .map_or(false, |x| x.is_separator);
+            let is_last = idx + 1 == item_count;
+            if !is_last && !next_is_sep {
+                rows.push(Row::Blank);
+            }
+        }
+        // Two blank rows above the close button so it sits lower, clearly
+        // separated from the last menu item.
+        rows.push(Row::Blank);
+        rows.push(Row::Blank);
+        rows.push(Row::Close);
+        rows.push(Row::Blank);
+        rows.push(Row::BottomBorder);
+
+        let card_h = rows.len();
         let start_x = (term_w.saturating_sub(card_w)) / 2;
         let start_y = (term_h.saturating_sub(card_h)) / 3;
 
         let mut changes: Vec<Change> =
             vec![Change::ClearScreen(termwiz::color::ColorAttribute::Default)];
 
+        // Dim backdrop behind the card.
         for y in 0..term_h {
             changes.push(Change::CursorPosition {
                 x: Position::Absolute(0),
@@ -309,7 +357,7 @@ impl MenuState {
             });
             changes.push(fg_bg(" ".repeat(term_w), CRUST, CRUST));
         }
-
+        // Card background fill.
         for y in 0..card_h {
             changes.push(Change::CursorPosition {
                 x: Position::Absolute(start_x),
@@ -318,108 +366,109 @@ impl MenuState {
             changes.push(fg_bg(" ".repeat(card_w), TEXT, MANTLE));
         }
 
-        let top = format!("╭{}╮", "─".repeat(card_w.saturating_sub(2)));
-        changes.push(Change::CursorPosition {
-            x: Position::Absolute(start_x),
-            y: Position::Absolute(start_y),
-        });
-        changes.push(fg_bg(top, SURFACE1, MANTLE));
-
-        let title_inner = crate::i18n::t("settings.title");
-        let title = format!("  {}", title_inner);
-        let right_pad = card_w.saturating_sub(cw(&title) + 5);
-        changes.push(Change::CursorPosition {
-            x: Position::Absolute(start_x),
-            y: Position::Absolute(start_y + 1),
-        });
-        changes.push(fg_bg("│ ".to_string(), SURFACE1, MANTLE));
-        changes.push(fg_bg("◆".to_string(), MAUVE, MANTLE));
-        changes.push(fg_bg(title.clone(), TEXT, MANTLE));
-        changes.push(fg_bg(
-            format!("{} │", " ".repeat(right_pad)),
-            SURFACE1,
-            MANTLE,
-        ));
-
-        let sep = format!("├{}┤", "─".repeat(card_w.saturating_sub(2)));
-        changes.push(Change::CursorPosition {
-            x: Position::Absolute(start_x),
-            y: Position::Absolute(start_y + 2),
-        });
-        changes.push(fg_bg(sep, SURFACE1, MANTLE));
-
-        // Orange "new feature" dot.
+        // Orange "new feature" dot; red close-button pill.
         const ORANGE: (u8, u8, u8) = (0xfa, 0x9f, 0x4d);
+        let red = (0xe0, 0x6c, 0x75);
 
-        for (idx, item) in self.items.iter().enumerate() {
-            let y = start_y + 3 + idx;
+        for (i, row) in rows.iter().enumerate() {
+            let y = start_y + i;
             changes.push(Change::CursorPosition {
                 x: Position::Absolute(start_x),
                 y: Position::Absolute(y),
             });
-
-            if item.is_separator {
-                let line = format!("│ {} │", "─".repeat(card_w.saturating_sub(4)));
-                changes.push(fg_bg(line, SURFACE1, MANTLE));
-                continue;
+            match row {
+                Row::TopBorder => {
+                    changes.push(fg_bg(
+                        format!("╭{}╮", "─".repeat(card_w.saturating_sub(2))),
+                        SURFACE1,
+                        MANTLE,
+                    ));
+                }
+                Row::BottomBorder => {
+                    changes.push(fg_bg(
+                        format!("╰{}╯", "─".repeat(card_w.saturating_sub(2))),
+                        SURFACE1,
+                        MANTLE,
+                    ));
+                }
+                Row::TitleSep => {
+                    changes.push(fg_bg(
+                        format!("├{}┤", "─".repeat(card_w.saturating_sub(2))),
+                        SURFACE1,
+                        MANTLE,
+                    ));
+                }
+                Row::Blank => {
+                    changes.push(fg_bg("│".to_string(), SURFACE1, MANTLE));
+                    changes.push(fg_bg(" ".repeat(card_w.saturating_sub(2)), TEXT, MANTLE));
+                    changes.push(fg_bg("│".to_string(), SURFACE1, MANTLE));
+                }
+                Row::Title => {
+                    let title = format!("  {}", crate::i18n::t("settings.title"));
+                    let right_pad = card_w.saturating_sub(cw(&title) + 5);
+                    changes.push(fg_bg("│ ".to_string(), SURFACE1, MANTLE));
+                    changes.push(fg_bg("◆".to_string(), MAUVE, MANTLE));
+                    changes.push(fg_bg(title, TEXT, MANTLE));
+                    changes.push(fg_bg(
+                        format!("{} │", " ".repeat(right_pad)),
+                        SURFACE1,
+                        MANTLE,
+                    ));
+                }
+                Row::GroupSep => {
+                    // Inset divider — reads as a soft group break, not a hard rule.
+                    let inset = 3;
+                    let rule = card_w.saturating_sub(4 + inset * 2);
+                    changes.push(fg_bg("│ ".to_string(), SURFACE1, MANTLE));
+                    changes.push(fg_bg(" ".repeat(inset), TEXT, MANTLE));
+                    changes.push(fg_bg("─".repeat(rule), SURFACE1, MANTLE));
+                    changes.push(fg_bg(" ".repeat(inset), TEXT, MANTLE));
+                    changes.push(fg_bg(" │".to_string(), SURFACE1, MANTLE));
+                }
+                Row::Item(idx) => {
+                    let idx = *idx;
+                    let item = &self.items[idx];
+                    let is_selected = idx == self.active;
+                    let (row_fg, row_bg, hint_fg) = if is_selected {
+                        (TEXT, SURFACE0, MAUVE)
+                    } else {
+                        (SUBTEXT0, MANTLE, OVERLAY0)
+                    };
+                    if is_selected {
+                        changes.push(fg_bg("│".to_string(), SURFACE1, MANTLE));
+                        changes.push(fg_bg("▎".to_string(), MAUVE, row_bg));
+                    } else {
+                        changes.push(fg_bg("│ ".to_string(), SURFACE1, row_bg));
+                    }
+                    // 3-space left inset + 2-space tail so text sits off the
+                    // borders, with a wide gap auto-filled between label & hint.
+                    let left = format!("   {}", item.label);
+                    let right = format!("{}  ", item.hint);
+                    let badge = if item.new_badge { "● " } else { "  " };
+                    let pad = card_w.saturating_sub(cw(&left) + cw(&right) + cw(badge) + 4);
+                    changes.push(fg_bg(left, row_fg, row_bg));
+                    changes.push(fg_bg(" ".repeat(pad), row_fg, row_bg));
+                    changes.push(fg_bg(badge.to_string(), ORANGE, row_bg));
+                    changes.push(fg_bg(right, hint_fg, row_bg));
+                    changes.push(fg_bg(" │".to_string(), SURFACE1, MANTLE));
+                }
+                Row::Close => {
+                    // Interior spaces give the red pill horizontal breathing room.
+                    let close_pill =
+                        format!("   {}   ", crate::i18n::t("settings.menu.close").trim());
+                    let close_pad = card_w.saturating_sub(cw(&close_pill) + 4);
+                    let lp = close_pad / 2;
+                    let rp = close_pad - lp;
+                    changes.push(fg_bg("│".to_string(), SURFACE1, MANTLE));
+                    changes.push(fg_bg(" ".repeat(lp), TEXT, MANTLE));
+                    changes.push(fg_bg(close_pill, MANTLE, red));
+                    changes.push(fg_bg(" ".repeat(rp), TEXT, MANTLE));
+                    changes.push(fg_bg("│".to_string(), SURFACE1, MANTLE));
+                }
             }
-
-            let is_selected = idx == self.active;
-            let (row_fg, row_bg, hint_fg) = if is_selected {
-                (TEXT, SURFACE0, MAUVE)
-            } else {
-                (SUBTEXT0, MANTLE, OVERLAY0)
-            };
-
-            if is_selected {
-                changes.push(fg_bg("│".to_string(), SURFACE1, MANTLE));
-                changes.push(fg_bg("▎".to_string(), MAUVE, row_bg));
-            } else {
-                changes.push(fg_bg("│ ".to_string(), SURFACE1, row_bg));
-            }
-            let left = format!("  {}", item.label);
-            let right = format!("{} ", item.hint);
-            let badge = if item.new_badge { "● " } else { "  " };
-            let pad = card_w.saturating_sub(cw(&left) + cw(&right) + cw(badge) + 4);
-            changes.push(fg_bg(left, row_fg, row_bg));
-            changes.push(fg_bg(" ".repeat(pad), row_fg, row_bg));
-            changes.push(fg_bg(badge.to_string(), ORANGE, row_bg));
-            changes.push(fg_bg(right, hint_fg, row_bg));
-            changes.push(fg_bg(" │".to_string(), SURFACE1, MANTLE));
         }
 
-        // Close button row, sits above the bottom border so it's clearly
-        // *inside* the card and clickable. ESC still works; the button is
-        // for users who don't know the shortcut.
-        let close_row_y = start_y + 3 + self.items.len();
-        let close_label = crate::i18n::t("settings.menu.close");
-        let close_pad = card_w.saturating_sub(cw(&close_label) + 4);
-        let close_left_pad = close_pad / 2;
-        let close_right_pad = close_pad - close_left_pad;
-        changes.push(Change::CursorPosition {
-            x: Position::Absolute(start_x),
-            y: Position::Absolute(close_row_y),
-        });
-        changes.push(fg_bg("│ ".to_string(), SURFACE1, MANTLE));
-        changes.push(fg_bg(" ".repeat(close_left_pad), TEXT, MANTLE));
-        // Reverse-video so the button reads as a button.
-        let red = (0xe0, 0x6c, 0x75);
-        changes.push(fg_bg(close_label.clone(), MANTLE, red));
-        changes.push(fg_bg(" ".repeat(close_right_pad), TEXT, MANTLE));
-        changes.push(fg_bg(" │".to_string(), SURFACE1, MANTLE));
-
-        let footer_y = close_row_y + 1;
-        let bottom = format!("╰{}╯", "─".repeat(card_w.saturating_sub(2)));
-        changes.push(Change::CursorPosition {
-            x: Position::Absolute(start_x),
-            y: Position::Absolute(footer_y),
-        });
-        changes.push(fg_bg(bottom, SURFACE1, MANTLE));
-
-        // Brand + version, centered together on the same row. If a newer
-        // tag is available (Web Settings background poller wrote a flag
-        // to ~/.unterm/update_check.json), append a tiny green dot so
-        // the user sees "upgrade pending" without opening the browser.
+        // Brand + version, centered one row below the card on the backdrop.
         let version = config::wezterm_version();
         let upgrade_pending = check_update_flag();
         let suffix = if upgrade_pending { " ●" } else { "" };
@@ -428,15 +477,12 @@ impl MenuState {
         let line_x = start_x + (card_w.saturating_sub(line_w)) / 2;
         changes.push(Change::CursorPosition {
             x: Position::Absolute(line_x),
-            y: Position::Absolute(footer_y + 1),
+            y: Position::Absolute(start_y + card_h),
         });
-        // The brand name itself stays muted; the version is dimmer; the
-        // upgrade dot, if present, is the only thing that pops.
         changes.push(fg_bg("Unterm  ".to_string(), SURFACE2, CRUST));
         changes.push(fg_bg(format!("v{}", version), OVERLAY0, CRUST));
         if upgrade_pending {
-            // Catppuccin green — same green used for the menu's selected-row
-            // accent, signals "good thing available".
+            // Catppuccin green — signals "good thing available".
             const GREEN: (u8, u8, u8) = (0xa6, 0xe3, 0xa1);
             changes.push(fg_bg(suffix.to_string(), GREEN, CRUST));
         }

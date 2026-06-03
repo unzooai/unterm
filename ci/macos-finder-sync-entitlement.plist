@@ -10,5 +10,12 @@
 	     Extensions live in their own sandbox process regardless. -->
 	<key>com.apple.security.app-sandbox</key>
 	<true/>
+	<!-- Required so the sandboxed extension can read the URLs Finder hands
+	     it via FIFinderSyncController.selectedItemURLs() / targetedURL().
+	     Without this, on macOS 26 the extension loads but Finder filters
+	     out its menu contributions because the file-access promise is
+	     missing. (DingTalk's working FinderSync extension carries it.) -->
+	<key>com.apple.security.files.user-selected.read-only</key>
+	<true/>
 </dict>
 </plist>

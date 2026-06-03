@@ -1204,6 +1204,40 @@ function untermSettings() {
       }
     },
 
+    async toggleRotation(enabled) {
+      try {
+        const r = await this.api('POST', '/api/proxy/rotation', { enabled });
+        if (!this.proxy.rotation) this.proxy.rotation = {};
+        this.proxy.rotation = r;
+        this.toast(enabled ? this.t('web.toast.rotation_on') : this.t('web.toast.rotation_off'));
+      } catch (e) {
+        this.toast(this.t('web.toast.proxy_failed').replace('{err}', e.message), 'error');
+      }
+    },
+
+    async toggleNodeInPool(name, checked) {
+      const pool = ((this.proxy.rotation && this.proxy.rotation.pool) || []).slice();
+      const idx = pool.indexOf(name);
+      if (checked && idx === -1) pool.push(name);
+      else if (!checked && idx !== -1) pool.splice(idx, 1);
+      try {
+        const r = await this.api('POST', '/api/proxy/rotation', { pool });
+        this.proxy.rotation = r;
+      } catch (e) {
+        this.toast(this.t('web.toast.proxy_failed').replace('{err}', e.message), 'error');
+      }
+    },
+
+    async setRotationInterval(val) {
+      const interval_secs = Math.max(5, parseInt(val, 10) || 30);
+      try {
+        const r = await this.api('POST', '/api/proxy/rotation', { interval_secs });
+        this.proxy.rotation = r;
+      } catch (e) {
+        this.toast(this.t('web.toast.proxy_failed').replace('{err}', e.message), 'error');
+      }
+    },
+
     async openSession(s) {
       try {
         const md = await this.api(

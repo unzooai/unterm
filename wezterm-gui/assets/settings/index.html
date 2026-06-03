@@ -307,6 +307,61 @@
               ></button>
             </div>
           </details>
+
+          <!-- ============ Auto-rotation: pool checkboxes + toggle ============ -->
+          <div class="mt-4 rounded-lg border border-notion-border bg-notion-surface p-5">
+            <label class="flex items-center justify-between gap-4">
+              <span>
+                <span class="font-medium" x-text="t('web.proxy.rotation.label')"></span>
+                <span class="block text-xs text-notion-faint" x-text="t('web.proxy.rotation.hint')"></span>
+              </span>
+              <input
+                type="checkbox"
+                class="h-5 w-9 cursor-pointer appearance-none rounded-full bg-notion-borderStrong transition-all checked:bg-notion-green"
+                style="position:relative"
+                :checked="proxy.rotation?.enabled"
+                @change="toggleRotation($event.target.checked)"
+              />
+            </label>
+
+            <template x-if="proxy.rotation?.enabled">
+              <div class="mt-4 space-y-3">
+                <div class="text-xs uppercase tracking-wider text-notion-faint" x-text="t('web.proxy.rotation.pool')"></div>
+                <template x-if="!proxy.nodes || proxy.nodes.length === 0">
+                  <div class="text-xs text-notion-faint" x-text="t('web.proxy.rotation.no_nodes')"></div>
+                </template>
+                <div class="grid grid-cols-2 gap-2">
+                  <template x-for="n in (proxy.nodes || [])" :key="n.name">
+                    <label class="flex items-center gap-2.5 rounded border border-notion-border bg-notion-bg px-3 py-2 text-sm cursor-pointer hover:border-notion-borderStrong">
+                      <input
+                        type="checkbox"
+                        class="h-4 w-4 m-0 shrink-0 cursor-pointer accent-notion-green"
+                        :checked="(proxy.rotation?.pool || []).includes(n.name)"
+                        @change="toggleNodeInPool(n.name, $event.target.checked)"
+                      />
+                      <span class="truncate" x-text="n.name"></span>
+                      <span
+                        class="ml-auto h-1.5 w-1.5 shrink-0 rounded-full"
+                        :class="n.available ? 'bg-notion-green' : 'bg-notion-faint'"
+                        :title="n.available ? t('web.proxy.yes') : t('web.proxy.no')"
+                      ></span>
+                    </label>
+                  </template>
+                </div>
+                <label class="flex items-center gap-2 text-xs text-notion-faint">
+                  <span x-text="t('web.proxy.rotation.interval')"></span>
+                  <input
+                    type="number"
+                    min="5"
+                    class="w-20 rounded border border-notion-borderStrong bg-notion-bg px-2 py-1 font-mono text-xs text-notion-ink"
+                    :value="proxy.rotation?.interval_secs || 30"
+                    @change="setRotationInterval($event.target.value)"
+                  />
+                  <span>s</span>
+                </label>
+              </div>
+            </template>
+          </div>
         </div>
 
         <!-- ============ MCP (Trust + Audit) ============ -->
