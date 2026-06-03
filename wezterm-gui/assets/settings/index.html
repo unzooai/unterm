@@ -324,43 +324,119 @@
               />
             </label>
 
-            <template x-if="proxy.rotation?.enabled">
-              <div class="mt-4 space-y-3">
-                <div class="text-xs uppercase tracking-wider text-notion-faint" x-text="t('web.proxy.rotation.pool')"></div>
-                <template x-if="!proxy.nodes || proxy.nodes.length === 0">
-                  <div class="text-xs text-notion-faint" x-text="t('web.proxy.rotation.no_nodes')"></div>
-                </template>
-                <div class="grid grid-cols-2 gap-2">
-                  <template x-for="n in (proxy.nodes || [])" :key="n.name">
-                    <label class="flex items-center gap-2.5 rounded border border-notion-border bg-notion-bg px-3 py-2 text-sm cursor-pointer hover:border-notion-borderStrong">
-                      <input
-                        type="checkbox"
-                        class="h-4 w-4 m-0 shrink-0 cursor-pointer accent-notion-green"
-                        :checked="(proxy.rotation?.pool || []).includes(n.name)"
-                        @change="toggleNodeInPool(n.name, $event.target.checked)"
-                      />
-                      <span class="truncate" x-text="n.name"></span>
-                      <span
-                        class="ml-auto h-1.5 w-1.5 shrink-0 rounded-full"
-                        :class="n.available ? 'bg-notion-green' : 'bg-notion-faint'"
-                        :title="n.available ? t('web.proxy.yes') : t('web.proxy.no')"
-                      ></span>
-                    </label>
-                  </template>
-                </div>
-                <label class="flex items-center gap-2 text-xs text-notion-faint">
-                  <span x-text="t('web.proxy.rotation.interval')"></span>
-                  <input
-                    type="number"
-                    min="5"
-                    class="w-20 rounded border border-notion-borderStrong bg-notion-bg px-2 py-1 font-mono text-xs text-notion-ink"
-                    :value="proxy.rotation?.interval_secs || 30"
-                    @change="setRotationInterval($event.target.value)"
-                  />
-                  <span>s</span>
-                </label>
+            <div class="mt-4 space-y-3">
+              <!-- Controller status: Unterm reads nodes from your proxy software. -->
+              <div class="flex items-center gap-2 text-xs">
+                <span class="h-2 w-2 shrink-0 rounded-full" :class="clash.connected ? 'bg-notion-green' : 'bg-notion-faint'"></span>
+                <span x-show="clash.connected" class="text-notion-muted">
+                  <span x-text="t('web.proxy.clash.connected')"></span>
+                  <span class="font-mono" x-text="clash.version"></span>
+                </span>
+                <span x-show="!clash.connected" class="text-notion-faint" x-text="t('web.proxy.clash.none')"></span>
+                <button
+                  type="button"
+                  class="ml-auto rounded border border-notion-borderStrong px-2 py-0.5 text-[11px] text-notion-muted hover:bg-notion-sunken"
+                  @click="loadClash()"
+                  x-text="t('web.proxy.clash.refresh')"
+                ></button>
               </div>
-            </template>
+
+              <!-- Connected: pick a group, tick the nodes to rotate among. -->
+              <template x-if="clash.connected">
+                <div class="space-y-3">
+                  <label class="flex items-center gap-2 text-xs text-notion-faint">
+                    <span class="shrink-0" x-text="t('web.proxy.clash.group')"></span>
+                    <select
+                      class="min-w-0 flex-1 rounded border border-notion-borderStrong bg-notion-bg px-2 py-1 text-xs text-notion-ink"
+                      x-model="clashGroup"
+                      @change="onGroupChange()"
+                    >
+                      <template x-for="g in clash.groups" :key="g.name">
+                        <option :value="g.name" x-text="g.name + '  (' + g.nodes.length + ')'"></option>
+                      </template>
+                    </select>
+                  </label>
+
+                  <input
+                    type="text"
+                    x-model="nodeFilter"
+                    :placeholder="t('web.proxy.clash.filter')"
+                    class="w-full rounded border border-notion-borderStrong bg-notion-bg px-2 py-1 text-xs text-notion-ink"
+                  />
+
+                  <div class="max-h-64 grid grid-cols-2 gap-2 overflow-y-auto pr-1">
+                    <template x-for="n in filteredNodes()" :key="n.name">
+                      <label class="flex items-center gap-2 rounded border border-notion-border bg-notion-bg px-2.5 py-1.5 text-sm hover:border-notion-borderStrong">
+                        <input
+                          type="checkbox"
+                          class="h-4 w-4 m-0 shrink-0 cursor-pointer accent-notion-green"
+                          :checked="(proxy.rotation?.pool || []).includes(n.name)"
+                          @change="toggleNodeInPool(n.name, $event.target.checked)"
+                        />
+                        <span
+                          class="truncate"
+                          :class="n.name === clashNow() ? 'font-medium text-notion-green' : ''"
+                          :title="n.name === clashNow() ? t('web.proxy.clash.current') : n.name"
+                          x-text="n.name"
+                        ></span>
+                        <span class="ml-auto shrink-0 font-mono text-[10px] text-notion-faint" x-text="n.delay ? (n.delay + 'ms') : '—'"></span>
+                        <span
+                          class="h-1.5 w-1.5 shrink-0 rounded-full"
+                          :class="n.alive ? 'bg-notion-green' : 'bg-notion-faint'"
+                        ></span>
+                      </label>
+                    </template>
+                  </div>
+                  <div class="text-[11px] text-notion-faint" x-text="t('web.proxy.clash.pool_hint')"></div>
+
+                  <label class="flex items-center gap-2 text-xs text-notion-faint" x-show="proxy.rotation?.enabled">
+                    <span x-text="t('web.proxy.rotation.interval')"></span>
+                    <input
+                      type="number"
+                      min="5"
+                      class="w-20 rounded border border-notion-borderStrong bg-notion-bg px-2 py-1 font-mono text-xs text-notion-ink"
+                      :value="proxy.rotation?.interval_secs || 30"
+                      @change="setRotationInterval($event.target.value)"
+                    />
+                    <span>s</span>
+                  </label>
+                </div>
+              </template>
+
+              <!-- Not connected: fall back to manual endpoint nodes. -->
+              <template x-if="!clash.connected">
+                <div class="space-y-3">
+                  <div class="text-xs text-notion-faint" x-text="t('web.proxy.clash.fallback')"></div>
+                  <div class="grid grid-cols-2 gap-2">
+                    <template x-for="n in (proxy.nodes || [])" :key="n.name">
+                      <div class="flex items-center gap-2.5 rounded border border-notion-border bg-notion-bg px-3 py-2 text-sm">
+                        <input
+                          type="checkbox"
+                          class="h-4 w-4 m-0 shrink-0 cursor-pointer accent-notion-green"
+                          :checked="(proxy.rotation?.pool || []).includes(n.name)"
+                          @change="toggleNodeInPool(n.name, $event.target.checked)"
+                        />
+                        <span class="truncate" :title="n.url" x-text="n.name"></span>
+                        <button
+                          type="button"
+                          class="ml-auto shrink-0 text-base leading-none text-notion-faint hover:text-red-400"
+                          @click="removeNode(n.name)"
+                          :title="t('web.proxy.rotation.remove')"
+                        >&times;</button>
+                      </div>
+                    </template>
+                  </div>
+                  <div class="flex flex-wrap items-center gap-2">
+                    <input type="text" x-model="newNode.name" :placeholder="t('web.proxy.rotation.name_ph')"
+                      class="w-28 rounded border border-notion-borderStrong bg-notion-bg px-2 py-1 text-xs text-notion-ink" @keydown.enter="addNode()" />
+                    <input type="text" x-model="newNode.url" :placeholder="t('web.proxy.rotation.url_ph')"
+                      class="min-w-[10rem] flex-1 rounded border border-notion-borderStrong bg-notion-bg px-2 py-1 font-mono text-xs text-notion-ink" @keydown.enter="addNode()" />
+                    <button type="button" class="rounded bg-notion-green px-3 py-1 text-xs font-medium text-notion-bg hover:opacity-90"
+                      @click="addNode()" x-text="t('web.proxy.rotation.add')"></button>
+                  </div>
+                </div>
+              </template>
+            </div>
           </div>
         </div>
 

@@ -341,6 +341,9 @@ fn route(req: &Request, auth_token: &str, handler: &McpHandler) -> Response {
         ("GET", "/api/state") => api_state(handler),
         ("POST", "/api/proxy") => api_proxy(handler, &req.body),
         ("POST", "/api/proxy/rotation") => api_proxy_rotation(handler, &req.body),
+        ("POST", "/api/proxy/nodes") => api_proxy_set_nodes(handler, &req.body),
+        ("GET", "/api/proxy/clash") => api_proxy_clash_status(handler),
+        ("POST", "/api/proxy/clash/select") => api_proxy_clash_select(handler, &req.body),
         ("POST", "/api/theme") => api_theme(&req.body),
         ("GET", "/api/scrollback") => api_scrollback_get(),
         ("POST", "/api/scrollback") => api_scrollback_set(&req.body),
@@ -1150,6 +1153,48 @@ fn api_proxy_rotation(handler: &McpHandler, body: &[u8]) -> Response {
     }
     let ctx = crate::mcp::handler::ConnectionContext::internal("web_settings");
     match handler.handle(&ctx, "proxy.rotation", &Value::Object(params)) {
+        Ok(v) => Response::ok_json(v),
+        Err(e) => Response::err(400, "Bad Request", &e.to_string()),
+    }
+}
+
+/// POST /api/proxy/nodes — replace the rotation node list. Body forwards
+/// `{nodes: [{name, url}, …]}` to the `proxy.set_nodes` MCP method so the pool
+/// can be built from the GUI instead of hand-editing proxy.json.
+fn api_proxy_set_nodes(handler: &McpHandler, body: &[u8]) -> Response {
+    let body = parse_json_body(body);
+    let mut params = serde_json::Map::new();
+    if let Some(nodes) = body.get("nodes") {
+        params.insert("nodes".into(), nodes.clone());
+    }
+    let ctx = crate::mcp::handler::ConnectionContext::internal("web_settings");
+    match handler.handle(&ctx, "proxy.set_nodes", &Value::Object(params)) {
+        Ok(v) => Response::ok_json(v),
+        Err(e) => Response::err(400, "Bad Request", &e.to_string()),
+    }
+}
+
+/// GET /api/proxy/clash — controller status + switchable groups and their
+/// nodes (alive + delay), read from the Clash/mihomo controller.
+fn api_proxy_clash_status(handler: &McpHandler) -> Response {
+    let ctx = crate::mcp::handler::ConnectionContext::internal("web_settings");
+    match handler.handle(&ctx, "proxy.clash_status", &json!({})) {
+        Ok(v) => Response::ok_json(v),
+        Err(e) => Response::err(400, "Bad Request", &e.to_string()),
+    }
+}
+
+/// POST /api/proxy/clash/select — switch a Selector group to a node.
+fn api_proxy_clash_select(handler: &McpHandler, body: &[u8]) -> Response {
+    let body = parse_json_body(body);
+    let mut params = serde_json::Map::new();
+    for k in ["group", "name"] {
+        if let Some(v) = body.get(k) {
+            params.insert(k.into(), v.clone());
+        }
+    }
+    let ctx = crate::mcp::handler::ConnectionContext::internal("web_settings");
+    match handler.handle(&ctx, "proxy.clash_select", &Value::Object(params)) {
         Ok(v) => Response::ok_json(v),
         Err(e) => Response::err(400, "Bad Request", &e.to_string()),
     }

@@ -252,14 +252,13 @@ impl crate::TermWindow {
             }
         }
 
-        // Only draw the scrollbar for a pane whose right edge IS the window's
-        // right edge. A left split pane's right edge is the split column (window
-        // centre), where the thumb used to draw a band straight down the middle.
-        // Window-edge-only: non-rightmost panes get no scrollbar at all, so a
-        // split never shows a centre band — the bar always sits cleanly at the
-        // far-right gutter.
-        let pane_at_window_right = pos.left + pos.width >= self.terminal_size.cols as usize;
-        if self.show_scroll_bar && pane_at_window_right {
+        // Draw the scrollbar on the ACTIVE pane only — it follows focus. In a
+        // split, the scrollbar appears at the focused pane's own right edge
+        // (the split column for a left pane, the window edge for a right pane);
+        // inactive panes show no scrollbar, so a split never renders more than
+        // one bar or a stray centre band. (The x-position math below already
+        // resolves a non-rightmost pane's right edge to the split column.)
+        if self.show_scroll_bar && pos.is_active {
             let thumb_y_offset = top_bar_height as usize + border.top.get();
 
             let min_height = self.min_scroll_bar_height();

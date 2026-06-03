@@ -123,6 +123,12 @@ impl Default for ProxyNodeConfig {
 #[serde(default)]
 struct RotationSettings {
     enabled: bool,
+    /// Clash/mihomo Selector group to rotate within. When non-empty, rotation
+    /// runs in *clash mode*: `pool` holds node names inside this group and we
+    /// fail over by switching the group's selection via the controller API.
+    /// When empty, rotation runs in legacy *endpoint mode* (`pool` holds
+    /// `proxy.nodes` names and we swap the injected HTTP_PROXY url).
+    group: String,
     /// Node names eligible for rotation. Empty pool disables rotation even if
     /// `enabled` (nothing to rotate to).
     pool: Vec<String>,
@@ -134,6 +140,7 @@ impl Default for RotationSettings {
     fn default() -> Self {
         Self {
             enabled: false,
+            group: String::new(),
             pool: Vec::new(),
             interval_secs: 30,
         }
@@ -872,6 +879,9 @@ impl McpHandler {
             "proxy.disable" => self.proxy_disable(),
             "proxy.env" => self.proxy_env(),
             "proxy.rotation" => self.proxy_rotation(params),
+            "proxy.set_nodes" => self.proxy_set_nodes(params),
+            "proxy.clash_status" => self.proxy_clash_status(),
+            "proxy.clash_select" => self.proxy_clash_select(params),
             // Workspace
             "workspace.save" => self.workspace_save(params),
             "workspace.restore" => self.workspace_restore(params),
@@ -2451,6 +2461,10 @@ impl McpHandler {
             settings.rotation.enabled = enabled;
             changed = true;
         }
+        if let Some(group) = params.get("group").and_then(|v| v.as_str()) {
+            settings.rotation.group = group.to_string();
+            changed = true;
+        }
         if let Some(pool) = params.get("pool").and_then(|v| v.as_array()) {
             settings.rotation.pool = pool
                 .iter()
@@ -2476,11 +2490,148 @@ impl McpHandler {
             .collect();
         Ok(json!({
             "enabled": settings.rotation.enabled,
+            "group": settings.rotation.group,
             "pool": settings.rotation.pool,
             "interval_secs": settings.rotation.interval_secs,
             "pool_resolved": known.len(),
             "current_node": settings.current_node,
         }))
+    }
+
+    /// Clash/mihomo controller status + switchable groups and their nodes
+    /// (with live alive/delay pulled from the proxies snapshot). This is what
+    /// powers "read the nodes, you tick boxes" — no hand-typed URLs.
+    fn proxy_clash_status(&self) -> Result<Value> {
+        let Some(ep) = crate::clash_api::discover_cached() else {
+            return Ok(json!({ "connected": false }));
+        };
+        let version = crate::clash_api::version(&ep).unwrap_or_default();
+        let proxies = match crate::clash_api::proxies(&ep) {
+            Ok(p) => p,
+            Err(e) => return Ok(json!({ "connected": false, "error": e.to_string() })),
+        };
+        let map = proxies.as_object().cloned().unwrap_or_default();
+        let mut groups: Vec<Value> = Vec::new();
+        for (name, v) in &map {
+            if v.get("type").and_then(|t| t.as_str()) != Some("Selector") {
+                continue;
+            }
+            let now = v.get("now").and_then(|n| n.as_str()).unwrap_or("").to_string();
+            let all = v
+                .get("all")
+                .and_then(|a| a.as_array())
+                .cloned()
+                .unwrap_or_default();
+            let nodes: Vec<Value> = all
+                .iter()
+                .filter_map(|opt| {
+                    let nm = opt.as_str()?;
+                    let obj = map.get(nm);
+                    // You rotate among *leaf* nodes — drop options that are
+                    // themselves groups (rotating "to a group" is meaningless).
+                    let ty = obj.and_then(|o| o.get("type")).and_then(|t| t.as_str());
+                    if matches!(
+                        ty,
+                        Some("Selector") | Some("URLTest") | Some("Fallback") | Some("LoadBalance")
+                    ) {
+                        return None;
+                    }
+                    let (alive, delay) = obj.map(node_health).unwrap_or((false, None));
+                    Some(json!({ "name": nm, "alive": alive, "delay": delay }))
+                })
+                .collect();
+            groups.push(json!({ "name": name, "now": now, "nodes": nodes }));
+        }
+        groups.sort_by(|a, b| {
+            a.get("name").and_then(|v| v.as_str()).unwrap_or("")
+                .cmp(b.get("name").and_then(|v| v.as_str()).unwrap_or(""))
+        });
+        Ok(json!({
+            "connected": true,
+            "version": version,
+            "controller": ep.label(),
+            "groups": groups,
+        }))
+    }
+
+    /// Point a Clash Selector group at a specific node (manual switch from the
+    /// node checkboxes' "use now" affordance, and what rotation calls on
+    /// failover).
+    fn proxy_clash_select(&self, params: &Value) -> Result<Value> {
+        let group = params
+            .get("group")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("`group` required"))?;
+        let name = params
+            .get("name")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("`name` required"))?;
+        let ep = crate::clash_api::discover_cached()
+            .ok_or_else(|| anyhow::anyhow!("no Clash/mihomo controller found"))?;
+        crate::clash_api::select(&ep, group, name)?;
+        Ok(json!({ "group": group, "now": name }))
+    }
+
+    /// Replace the configured node list (name + url pairs) from the GUI, so the
+    /// rotation pool can be built by clicking instead of hand-editing
+    /// proxy.json. Prunes any rotation-pool entry or current_node whose node
+    /// was removed. Returns the freshly probed list so the UI dots are correct.
+    fn proxy_set_nodes(&self, params: &Value) -> Result<Value> {
+        let incoming = params
+            .get("nodes")
+            .and_then(|v| v.as_array())
+            .ok_or_else(|| anyhow::anyhow!("`nodes` array required"))?;
+        let mut nodes: Vec<ProxyNodeConfig> = Vec::new();
+        for n in incoming {
+            let name = n
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            let url = n
+                .get("url")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            // Skip blanks and duplicate names (first wins).
+            if name.is_empty() || url.is_empty() || nodes.iter().any(|x| x.name == name) {
+                continue;
+            }
+            nodes.push(ProxyNodeConfig {
+                name,
+                url,
+                latency_ms: None,
+                available: false,
+            });
+        }
+
+        let mut state = mcp_state().lock();
+        let mut settings = state.proxy.clone();
+        settings.nodes = nodes;
+        // Drop pool entries / current_node that no longer name a real node.
+        let node_names: std::collections::HashSet<String> =
+            settings.nodes.iter().map(|n| n.name.clone()).collect();
+        settings.rotation.pool.retain(|name| node_names.contains(name));
+        if let Some(cur) = settings.current_node.clone() {
+            if !node_names.contains(&cur) {
+                settings.current_node = None;
+            }
+        }
+        save_proxy_settings(&settings)?;
+        state.proxy = settings.clone();
+        drop(state); // release lock before network probes
+
+        let probed: Vec<Value> = settings
+            .nodes
+            .iter()
+            .map(|n| {
+                let (available, latency_ms) = probe_node_latency(&n.url, 300);
+                json!({ "name": n.name, "url": n.url, "available": available, "latency_ms": latency_ms })
+            })
+            .collect();
+        Ok(json!({ "nodes": probed, "pool": settings.rotation.pool }))
     }
 
     fn proxy_switch(&self, params: &Value) -> Result<Value> {
@@ -3571,11 +3722,85 @@ mod proxy_rotation_tests {
 /// works with any proxy app (Clash/Mihomo, V2Ray, sing-box, remote SOCKS, …).
 /// Reuses the same probe + persistence as the manual proxy methods so a rotated
 /// switch is indistinguishable from a hand switch. Returns the node switched to.
+/// Extract `(alive, last_delay_ms)` from a Clash proxy node object. A node with
+/// a last-history delay of 0 (mihomo's "timed out" sentinel) reads as down.
+fn node_health(obj: &Value) -> (bool, Option<u64>) {
+    let delay = obj
+        .get("history")
+        .and_then(|h| h.as_array())
+        .and_then(|arr| arr.last())
+        .and_then(|e| e.get("delay"))
+        .and_then(|d| d.as_u64())
+        .filter(|d| *d > 0);
+    let alive = obj
+        .get("alive")
+        .and_then(|a| a.as_bool())
+        .unwrap_or(delay.is_some());
+    (alive, delay)
+}
+
+/// One clash-mode failover cycle: if the group's current node is unreachable,
+/// delay-test the pool and switch the group to the fastest live node.
+fn clash_rotation_tick(settings: &ProxySettings) -> Option<String> {
+    const PROBE_TIMEOUT_MS: u64 = 3000;
+    let group = &settings.rotation.group;
+    let pool = &settings.rotation.pool;
+    if pool.is_empty() {
+        return None;
+    }
+    let ep = crate::clash_api::discover_cached()?;
+    let url = crate::clash_api::DELAY_TEST_URL;
+
+    // Current selection of the group.
+    let proxies = crate::clash_api::proxies(&ep).ok()?;
+    let now = proxies
+        .get(group)
+        .and_then(|g| g.get("now"))
+        .and_then(|n| n.as_str())
+        .map(str::to_string);
+
+    // If the current node is in the pool AND still responds, stay put.
+    if let Some(cur) = &now {
+        if pool.contains(cur) {
+            if let Ok(d) = crate::clash_api::delay(&ep, cur, url, PROBE_TIMEOUT_MS) {
+                if d > 0 {
+                    return None;
+                }
+            }
+        }
+    }
+
+    // Pick the fastest live node in the pool.
+    let mut best: Option<(String, u64)> = None;
+    for name in pool {
+        if let Ok(d) = crate::clash_api::delay(&ep, name, url, PROBE_TIMEOUT_MS) {
+            if d > 0 && best.as_ref().map_or(true, |(_, b)| d < *b) {
+                best = Some((name.clone(), d));
+            }
+        }
+    }
+    let (pick, ms) = best?;
+    if now.as_deref() == Some(pick.as_str()) {
+        return None; // already on the fastest
+    }
+    crate::clash_api::select(&ep, group, &pick).ok()?;
+    log::info!("proxy auto-rotation (clash): group '{group}' → '{pick}' ({ms}ms)");
+    Some(pick)
+}
+
 pub fn proxy_rotation_tick() -> Option<String> {
     const PROBE_TIMEOUT_MS: u64 = 3000;
     let mut state = mcp_state().lock();
     let mut settings = state.proxy.clone();
-    if !settings.rotation.enabled || settings.rotation.pool.is_empty() {
+    if !settings.rotation.enabled {
+        return None;
+    }
+    // Clash mode: rotation is driven through the proxy software's controller.
+    if !settings.rotation.group.is_empty() {
+        drop(state); // network I/O; don't hold the state lock
+        return clash_rotation_tick(&settings);
+    }
+    if settings.rotation.pool.is_empty() {
         return None;
     }
 

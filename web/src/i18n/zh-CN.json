@@ -292,6 +292,8 @@
   "install.linux.size": "35 / 46 MB",
   "install.windows.size": "44 / 64 MB",
   "whatsnew.title": "v0.23 新增",
+  "whatsnew.clashrotate.title": "代理轮换会读出你的节点 —— 你只管勾选",
+  "whatsnew.clashrotate.body": "v0.30 做了端点级轮换；v0.31 才真正好用。Unterm 现在直接对接你代理软件的 <strong>Clash / mihomo 控制接口</strong>（Unix socket 或 TCP API —— Clash、Clash&nbsp;Verge、ClashX、mihomo、sing-box 都支持），读出你真实的节点组和节点，带<strong>实时延迟与可达状态</strong>，让你<strong>勾选要参与轮换的节点</strong> —— 不用再手填任何端点 URL。当前节点失效时，Unterm 会对池里的节点测延迟、把该组切换到最快的可用节点，全程走控制接口。非 Clash 环境回退到手填端点。v0.31 还有：分屏里滚动条<strong>跟随活动窗口</strong> —— 焦点在哪个 pane，滚动条就在哪个 pane，不再永远固定在窗口边缘。",
   "whatsnew.rotation.title": "代理自动轮换 —— 让终端永远不会悄悄掉线",
   "whatsnew.rotation.body": "v0.30 加入<strong>端点级代理自动轮换</strong>：在代理面板里勾选一组节点，Unterm 会持续健康检查当前节点，一旦失效就自动切到<em>最快的可达</em>节点。它是软件无关的 —— 端点级故障转移，兼容任意 Clash / V2Ray / sing-box，换代理软件也不会失效。同样关键的是，代理注入现在会<strong>先探测端口存活再写进 shell</strong>：如果配置的代理端口没在监听，Unterm 就什么都不注入、终端保持直连，而不是把每条命令都送进黑洞 —— 死代理再也不会被误以为是「VPN 坏了」。这一切都能在 Web 设置的勾选池里操作，或用 <code class=\"font-mono text-xs\">unterm-cli proxy rotation</code>。v0.30 还带来：干净的<strong>窗口边缘滚动条</strong>（默认开启、主题化滑块）、贯穿整个应用和官网的暖色 <strong>Notion-Dark</strong> 主题，以及更宽松的设置菜单。",
   "whatsnew.autodiscovery.title": "本机每个 AI agent 都自动发现 Unterm —— 还原生支持 ARM 了",

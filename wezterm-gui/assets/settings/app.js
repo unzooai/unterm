@@ -34,6 +34,10 @@ function untermSettings() {
       health: null,
     },
     proxyForm: { http_proxy: '', socks_proxy: '', no_proxy: '' },
+    newNode: { name: '', url: '' },
+    clash: { connected: false, version: '', controller: '', groups: [] },
+    clashGroup: '',
+    nodeFilter: '',
     recording: { active: false },
 
     // MCP trust + audit state. Backed by /api/mcp/*. Same lazy-load
@@ -294,6 +298,9 @@ function untermSettings() {
             socks_proxy: s.proxy.socks_proxy || '',
             no_proxy: s.proxy.no_proxy || '',
           };
+          // Read the Clash/mihomo controller so the rotation pool shows real
+          // nodes to tick (non-blocking; updates this.clash reactively).
+          this.loadClash();
         }
         if (s.recording) this.recording = s.recording;
         if (s.scrollback) {
@@ -1220,8 +1227,77 @@ function untermSettings() {
       const idx = pool.indexOf(name);
       if (checked && idx === -1) pool.push(name);
       else if (!checked && idx !== -1) pool.splice(idx, 1);
+      // In clash mode, the pool is node names *within* the selected group, so
+      // we pin the group alongside the pool.
+      const body = this.clash.connected ? { pool, group: this.clashGroup } : { pool };
       try {
-        const r = await this.api('POST', '/api/proxy/rotation', { pool });
+        const r = await this.api('POST', '/api/proxy/rotation', body);
+        this.proxy.rotation = r;
+      } catch (e) {
+        this.toast(this.t('web.toast.proxy_failed').replace('{err}', e.message), 'error');
+      }
+    },
+
+    // ---- Clash/mihomo: read groups + nodes, you tick boxes ----
+    async loadClash() {
+      try {
+        const c = await this.api('GET', '/api/proxy/clash');
+        this.clash = { connected: !!c.connected, version: c.version || '', controller: c.controller || '', groups: c.groups || [] };
+        if (this.clash.connected && this.clash.groups.length) {
+          // Default the dropdown to the saved rotation group; otherwise pick a
+          // sensible "manual select" group: prefer one whose name reads like a
+          // node picker, skip the GLOBAL meta-group, and fall back to the
+          // largest remaining group.
+          const saved = this.proxy.rotation && this.proxy.rotation.group;
+          if (saved && this.clash.groups.some((g) => g.name === saved)) {
+            this.clashGroup = saved;
+          } else if (!this.clashGroup || !this.clash.groups.some((g) => g.name === this.clashGroup)) {
+            this.clashGroup = this.pickDefaultGroup();
+          }
+        }
+      } catch (e) {
+        this.clash = { connected: false, version: '', controller: '', groups: [] };
+      }
+    },
+
+    pickDefaultGroup() {
+      const groups = this.clash.groups || [];
+      if (!groups.length) return '';
+      // Prefer a group that reads like a manual node picker.
+      const prefer = /选择|节点|proxy|select|🚀|手动/i;
+      const named = groups.filter((g) => prefer.test(g.name));
+      const pool = (named.length ? named : groups.filter((g) => g.name !== 'GLOBAL'));
+      const candidates = pool.length ? pool : groups;
+      return candidates.slice().sort((a, b) => b.nodes.length - a.nodes.length)[0].name;
+    },
+
+    clashGroupObj() {
+      return (this.clash.groups || []).find((g) => g.name === this.clashGroup) || null;
+    },
+
+    clashNow() {
+      const g = this.clashGroupObj();
+      return g ? g.now : '';
+    },
+
+    filteredNodes() {
+      const g = this.clashGroupObj();
+      if (!g) return [];
+      const f = (this.nodeFilter || '').trim().toLowerCase();
+      const nodes = f ? g.nodes.filter((n) => n.name.toLowerCase().includes(f)) : g.nodes;
+      // Alive + lowest latency first; unknown/dead sink to the bottom.
+      return nodes.slice().sort((a, b) => {
+        const da = a.delay || (a.alive ? 99998 : 99999);
+        const db = b.delay || (b.alive ? 99998 : 99999);
+        return da - db;
+      });
+    },
+
+    async onGroupChange() {
+      // Switching the group resets the pool to that group's checked nodes —
+      // persist the new group so rotation operates on it.
+      try {
+        const r = await this.api('POST', '/api/proxy/rotation', { group: this.clashGroup, pool: [] });
         this.proxy.rotation = r;
       } catch (e) {
         this.toast(this.t('web.toast.proxy_failed').replace('{err}', e.message), 'error');
@@ -1233,6 +1309,61 @@ function untermSettings() {
       try {
         const r = await this.api('POST', '/api/proxy/rotation', { interval_secs });
         this.proxy.rotation = r;
+      } catch (e) {
+        this.toast(this.t('web.toast.proxy_failed').replace('{err}', e.message), 'error');
+      }
+    },
+
+    // Persist the node list (name+url pairs) so the rotation pool can be built
+    // from the GUI. The server returns the freshly probed list + pruned pool.
+    async saveNodes(nodes) {
+      const r = await this.api('POST', '/api/proxy/nodes', { nodes });
+      this.proxy.nodes = r.nodes || [];
+      if (this.proxy.rotation) this.proxy.rotation.pool = r.pool || [];
+    },
+
+    async addNode() {
+      const name = (this.newNode.name || '').trim();
+      const url = (this.newNode.url || '').trim();
+      if (!name || !url) {
+        this.toast(this.t('web.toast.node_need_both'), 'error');
+        return;
+      }
+      const nodes = [...(this.proxy.nodes || []).map((n) => ({ name: n.name, url: n.url })), { name, url }];
+      try {
+        await this.saveNodes(nodes);
+        this.newNode = { name: '', url: '' };
+        this.toast(this.t('web.toast.node_added'));
+      } catch (e) {
+        this.toast(this.t('web.toast.proxy_failed').replace('{err}', e.message), 'error');
+      }
+    },
+
+    async addCurrentProxyNode() {
+      const url = this.proxy.http_proxy || this.proxy.socks_proxy;
+      if (!url) return;
+      // Derive a name from the port, keeping it unique.
+      const port = (url.match(/:(\d+)/) || [])[1] || 'proxy';
+      let name = 'proxy-' + port;
+      const taken = new Set((this.proxy.nodes || []).map((n) => n.name));
+      let i = 2;
+      while (taken.has(name)) name = 'proxy-' + port + '-' + i++;
+      const nodes = [...(this.proxy.nodes || []).map((n) => ({ name: n.name, url: n.url })), { name, url }];
+      try {
+        await this.saveNodes(nodes);
+        this.toast(this.t('web.toast.node_added'));
+      } catch (e) {
+        this.toast(this.t('web.toast.proxy_failed').replace('{err}', e.message), 'error');
+      }
+    },
+
+    async removeNode(name) {
+      const nodes = (this.proxy.nodes || [])
+        .filter((n) => n.name !== name)
+        .map((n) => ({ name: n.name, url: n.url }));
+      try {
+        await this.saveNodes(nodes);
+        this.toast(this.t('web.toast.node_removed'));
       } catch (e) {
         this.toast(this.t('web.toast.proxy_failed').replace('{err}', e.message), 'error');
       }

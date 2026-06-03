@@ -82,10 +82,10 @@ const demoFlow = [
 // features but with a "v0.12" version chip and a denser tech-paragraph
 // body (these are about what changed, not what exists).
 const whatsnew = [
+  { v: "v0.31", title: "whatsnew.clashrotate.title", body: "whatsnew.clashrotate.body" },
   { v: "v0.30", title: "whatsnew.rotation.title",    body: "whatsnew.rotation.body" },
   { v: "v0.24", title: "whatsnew.autodiscovery.title", body: "whatsnew.autodiscovery.body" },
   { v: "v0.23", title: "whatsnew.launchflags.title", body: "whatsnew.launchflags.body" },
-  { v: "v0.22", title: "whatsnew.autowire.title",    body: "whatsnew.autowire.body" },
 ];
 
 const principles = [
@@ -102,7 +102,7 @@ const principles = [
 // GitHub Releases.  `valueRaw` is rendered as-is (mixed locale fragments like
 // version + date); plain `value` is an i18n key that goes through t().
 const tldrRows = [
-  { label: "tldr.version",         valueRaw: "v0.30 · 2026-06-03 · MIT" },
+  { label: "tldr.version",         valueRaw: "v0.31 · 2026-06-03 · MIT" },
   { label: "tldr.bundled_agents",  value:    "tldr.bundled_agents.value" },
   { label: "tldr.price",        value: "tldr.price.value" },
   { label: "tldr.platforms",    value: "tldr.platforms.value" },
@@ -222,7 +222,7 @@ const capabilities = [
 ];
 
 const dlBaseUrl = "https://github.com/unzooai/unterm/releases";
-const releaseTag = "v0.30";
+const releaseTag = "v0.31";
 
 // Download links use the version pinned for this site build, not
 // `stats.release`. The stats call can legitimately see the previous GitHub
@@ -324,7 +324,7 @@ const heroDownloads = [
             <span class="absolute inline-flex h-full w-full rounded-full bg-notion-teal opacity-75 animate-ping"></span>
             <span class="relative inline-flex w-1.5 h-1.5 rounded-full bg-notion-teal"></span>
           </span>
-          <span class="text-notion-teal font-medium">v0.30</span>
+          <span class="text-notion-teal font-medium">v0.31</span>
           <span class="text-zinc-700">·</span>
           <span>{t("hero.badge.signed")}</span>
           <span class="text-zinc-700">·</span>
