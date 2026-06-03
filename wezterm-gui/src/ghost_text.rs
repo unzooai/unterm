@@ -340,6 +340,7 @@ fn agent_flag_tokens() -> &'static HashMap<String, Vec<String>> {
     static MAP: OnceLock<HashMap<String, Vec<String>>> = OnceLock::new();
     MAP.get_or_init(|| {
         let mut m: HashMap<String, Vec<String>> = HashMap::new();
+        // 1) Whatever the signed manifest set offers (may be a small subset).
         if let Ok(set) = unterm_agents::fetch_manifests_offline() {
             for manifest in set.for_current_platform() {
                 let toks: Vec<String> = manifest
@@ -355,9 +356,124 @@ fn agent_flag_tokens() -> &'static HashMap<String, Vec<String>> {
                 }
             }
         }
+        // 2) Merge a built-in, comprehensive flag set per known agent so
+        // argument completion is full — the manifest's flag_catalog only ever
+        // carried a handful, which is why completion felt partial. Independent
+        // of the signed manifest (no re-signing needed).
+        for (exec, args) in BUILTIN_AGENT_FLAGS {
+            let bucket = m.entry((*exec).to_string()).or_default();
+            for arg in *args {
+                let tok = flag_completion_token(arg);
+                if !bucket.contains(&tok) {
+                    bucket.push(tok);
+                }
+            }
+        }
         m
     })
 }
+
+/// Built-in flag templates per AI coding-CLI, kept current with the tools'
+/// documented options. `{value}` marks a flag that takes an argument (the
+/// completion stops at the space, ready for the value). Order matters only as
+/// a tie-break for which single ghost we surface for a bare `--` prefix.
+const BUILTIN_AGENT_FLAGS: &[(&str, &[&str])] = &[
+    (
+        "claude",
+        &[
+            "--continue",
+            "--resume {value}",
+            "--print",
+            "--model {value}",
+            "--permission-mode {value}",
+            "--dangerously-skip-permissions",
+            "--add-dir {value}",
+            "--allowed-tools {value}",
+            "--disallowed-tools {value}",
+            "--mcp-config {value}",
+            "--strict-mcp-config",
+            "--append-system-prompt {value}",
+            "--output-format {value}",
+            "--input-format {value}",
+            "--settings {value}",
+            "--session-id {value}",
+            "--fork-session",
+            "--agents {value}",
+            "--ide",
+            "--verbose",
+            "--debug",
+            "--help",
+            "--version",
+        ],
+    ),
+    (
+        "codex",
+        &[
+            "--model {value}",
+            "--ask-for-approval {value}",
+            "--sandbox {value}",
+            "--config {value}",
+            "--cd {value}",
+            "--profile {value}",
+            "--image {value}",
+            "--full-auto",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--search",
+            "--oss",
+            "--help",
+            "--version",
+        ],
+    ),
+    (
+        "gemini",
+        &[
+            "--model {value}",
+            "--prompt {value}",
+            "--sandbox",
+            "--yolo",
+            "--all-files",
+            "--approval-mode {value}",
+            "--include-directories {value}",
+            "--extensions {value}",
+            "--checkpointing",
+            "--proxy {value}",
+            "--debug",
+            "--help",
+            "--version",
+        ],
+    ),
+    (
+        "aider",
+        &[
+            "--model {value}",
+            "--message {value}",
+            "--architect",
+            "--edit-format {value}",
+            "--yes-always",
+            "--no-auto-commits",
+            "--auto-commits",
+            "--read {value}",
+            "--file {value}",
+            "--no-stream",
+            "--map-tokens {value}",
+            "--cache-prompts",
+            "--dry-run",
+            "--commit",
+            "--help",
+        ],
+    ),
+    (
+        "opencode",
+        &[
+            "--model {value}",
+            "--continue",
+            "--prompt {value}",
+            "--mode {value}",
+            "--help",
+            "--version",
+        ],
+    ),
+];
 
 /// The completion token for a flag arg template:
 /// `"--model {value}"` → `"--model "` (ready for the value),
@@ -481,6 +597,18 @@ mod tests {
         assert_eq!(agent_exec_ghost("claude "), None);
         // Unknown prefix → nothing.
         assert_eq!(agent_exec_ghost("zzz"), None);
+    }
+
+    #[test]
+    fn agent_flag_ghost_completes_full_flag_set() {
+        // Built-in catalog: claude --mod → "el " (--model ).
+        assert_eq!(agent_flag_ghost("claude --mod").as_deref(), Some("el "));
+        // codex --sand → "box " (--sandbox ).
+        assert_eq!(agent_flag_ghost("codex --sand").as_deref(), Some("box "));
+        // gemini --yo → "lo" (--yolo, no value).
+        assert_eq!(agent_flag_ghost("gemini --yo").as_deref(), Some("lo"));
+        // Only fires for a known agent exec.
+        assert_eq!(agent_flag_ghost("ls --mod"), None);
     }
 
     #[test]
