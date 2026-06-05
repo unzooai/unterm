@@ -41,6 +41,18 @@ impl super::TermWindow {
             log::trace!("new dimensions are zero: NOP!");
             return;
         }
+        // Catch the trigger for the "window shrinks to a tiny size" bug: log at
+        // warn level (visible without trace logging) whenever we're asked to
+        // resize below a usable floor, so the originating event is identifiable.
+        if dimensions.pixel_width < 400 || dimensions.pixel_height < 300 {
+            log::warn!(
+                "suspiciously small resize: new dims {:?} (was {:?}), window_state={:?}, live_resizing={}",
+                dimensions,
+                self.dimensions,
+                window_state,
+                live_resizing,
+            );
+        }
         if self.dimensions == dimensions && self.window_state == window_state {
             // It didn't really change
             log::trace!("dimensions didn't change NOP!");

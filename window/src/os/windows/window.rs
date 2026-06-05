@@ -1218,6 +1218,31 @@ unsafe fn wm_nccalcsize(hwnd: HWND, _msg: UINT, wparam: WPARAM, lparam: LPARAM) 
     Some(0)
 }
 
+/// Enforce a minimum window size so a stray resize, DPI/monitor change, or
+/// font-size shrink can never collapse the window to a size where the
+/// integrated title buttons and resize borders become unusable — i.e. the
+/// "window goes tiny and can't be made larger again" failure. The guard in
+/// `session_state.rs` only covers relaunch; this covers live operation.
+unsafe fn wm_getminmaxinfo(
+    hwnd: HWND,
+    _msg: UINT,
+    _wparam: WPARAM,
+    lparam: LPARAM,
+) -> Option<LRESULT> {
+    // Logical minimum, scaled to physical pixels for the window's current DPI.
+    const MIN_LOGICAL_W: f64 = 400.0;
+    const MIN_LOGICAL_H: f64 = 300.0;
+
+    let mmi = (lparam as *mut MINMAXINFO).as_mut()?;
+    let dpi = GetDpiForWindow(hwnd);
+    let scale = if dpi == 0 { 1.0 } else { dpi as f64 / 96.0 };
+
+    mmi.ptMinTrackSize.x = (MIN_LOGICAL_W * scale).round() as i32;
+    mmi.ptMinTrackSize.y = (MIN_LOGICAL_H * scale).round() as i32;
+
+    Some(0)
+}
+
 unsafe fn wm_nchittest(hwnd: HWND, msg: UINT, wparam: WPARAM, lparam: LPARAM) -> Option<LRESULT> {
     let inner = rc_from_hwnd(hwnd)?;
     let inner = match inner.try_borrow() {
@@ -3040,6 +3065,7 @@ unsafe fn do_wnd_proc(hwnd: HWND, msg: UINT, wparam: WPARAM, lparam: LPARAM) -> 
             crate::spawn::SPAWN_QUEUE.run();
             None
         }
+        WM_GETMINMAXINFO => wm_getminmaxinfo(hwnd, msg, wparam, lparam),
         WM_SETTINGCHANGE | WM_DWMCOMPOSITIONCHANGED => apply_theme(hwnd),
         WM_IME_SETCONTEXT => ime_set_context(hwnd, msg, wparam, lparam),
         WM_IME_COMPOSITION => ime_composition(hwnd, msg, wparam, lparam),
