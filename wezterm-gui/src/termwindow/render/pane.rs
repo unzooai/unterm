@@ -273,17 +273,23 @@ impl crate::TermWindow {
             let bottom_chrome = bottom_bar_height as usize
                 + self.status_bar_pixel_height() as usize
                 + self.suggest_bar_pixel_height() as usize;
+            let track_height = self.dimensions.pixel_height.saturating_sub(
+                thumb_y_offset + border.bottom.get() + bottom_chrome,
+            );
             let info = ScrollHit::thumb(
                 &*pos.pane,
                 current_viewport,
-                self.dimensions.pixel_height.saturating_sub(
-                    thumb_y_offset + border.bottom.get() + bottom_chrome,
-                ),
+                track_height,
                 min_height as usize,
             );
             let abs_thumb_top = thumb_y_offset + info.top;
             let thumb_size = info.height;
             let color = palette.scrollbar_thumb.to_linear();
+            // Faint full-height track so the scrollbar's location is always
+            // visible — even when the thumb is full-height (no scrollback) or
+            // the theme's thumb color is low-contrast. Without it the bar read
+            // as "missing" on some themes/displays.
+            let track_color = color.mul_alpha(0.32);
 
             // Adjust the scrollbar thumb position
             let config = &self.config;
@@ -295,14 +301,18 @@ impl crate::TermWindow {
                     + border.left.get() as f32
                     + ((pos.left + pos.width) as f32 * self.render_metrics.cell_size.width as f32)
             };
+            // Guarantee a visible width: a half-cell padding produced a ~3-4px
+            // sliver most people couldn't see. Draw the bar at least 7px wide,
+            // anchored to the pane's right edge.
+            let bar_w = (padding).max(7.0);
             let thumb_x = (pane_right.max(0.0).round() as usize)
-                .saturating_sub(padding as usize + border.right.get());
+                .saturating_sub(bar_w as usize + border.right.get());
             let pane_id = pos.pane.pane_id();
 
             // Register the scroll bar location
             self.ui_items.push(UIItem {
                 x: thumb_x,
-                width: padding as usize,
+                width: bar_w as usize,
                 y: thumb_y_offset,
                 height: info.top,
                 pane_id: Some(pane_id),
@@ -310,7 +320,7 @@ impl crate::TermWindow {
             });
             self.ui_items.push(UIItem {
                 x: thumb_x,
-                width: padding as usize,
+                width: bar_w as usize,
                 y: abs_thumb_top,
                 height: thumb_size,
                 pane_id: Some(pane_id),
@@ -318,7 +328,7 @@ impl crate::TermWindow {
             });
             self.ui_items.push(UIItem {
                 x: thumb_x,
-                width: padding as usize,
+                width: bar_w as usize,
                 y: abs_thumb_top + thumb_size,
                 height: self
                     .dimensions
@@ -328,13 +338,26 @@ impl crate::TermWindow {
                 item_type: UIItemType::BelowScrollThumb,
             });
 
+            // Track first (faint, full height), then the thumb on top.
+            self.filled_rectangle(
+                layers,
+                2,
+                euclid::rect(
+                    thumb_x as f32,
+                    thumb_y_offset as f32,
+                    bar_w,
+                    track_height as f32,
+                ),
+                track_color,
+            )
+            .context("scrollbar track")?;
             self.filled_rectangle(
                 layers,
                 2,
                 euclid::rect(
                     thumb_x as f32,
                     abs_thumb_top as f32,
-                    padding,
+                    bar_w,
                     thumb_size as f32,
                 ),
                 color,
