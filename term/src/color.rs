@@ -174,7 +174,11 @@ impl ColorPalette {
         let selection_fg = SrgbaTuple(0., 0., 0., 0.);
         let selection_bg = SrgbaTuple(0.5, 0.4, 0.6, 0.5);
 
-        let scrollbar_thumb = RgbColor::new_8bpc(0x22, 0x22, 0x22).into();
+        // Default thumb is a mid-grey that stands off both dark and light
+        // backgrounds. The upstream default (#222) was invisible on the dark
+        // themes most people run, so the scrollbar looked absent on any theme
+        // that didn't define its own scrollbar_thumb.
+        let scrollbar_thumb = RgbColor::new_8bpc(0x6a, 0x6a, 0x6a).into();
         let split = RgbColor::new_8bpc(0x44, 0x44, 0x44).into();
 
         ColorPalette {
