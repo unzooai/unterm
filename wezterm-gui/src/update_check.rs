@@ -25,7 +25,7 @@ use std::time::Duration;
 
 const POLL_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60); // 6h
 const FIRST_CHECK_DELAY: Duration = Duration::from_secs(20); // give the GUI a moment to settle
-const REPO: &str = "unzooai/unterm";
+const REPO: &str = "zhitongblog/unterm";
 
 static STARTED: AtomicBool = AtomicBool::new(false);
 

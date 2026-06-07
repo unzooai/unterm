@@ -403,4 +403,4 @@ The reference implementation lives at `wezterm-gui/src/server_info.rs` (storage 
 
 ---
 
-Source for everything described here lives at [github.com/unzooai/unterm](https://github.com/unzooai/unterm) under MIT. File issues / PRs there.
+Source for everything described here lives at [github.com/zhitongblog/unterm](https://github.com/zhitongblog/unterm) under MIT. File issues / PRs there.

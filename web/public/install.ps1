@@ -15,7 +15,7 @@
 
 $ErrorActionPreference = 'Stop'
 
-$repo    = 'unzooai/unterm'
+$repo    = 'zhitongblog/unterm'
 $version = $env:UNTERM_VERSION
 
 function Say  ($m) { Write-Host "» $m" -ForegroundColor Blue }

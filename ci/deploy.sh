@@ -153,7 +153,7 @@ Source: $pkgname
 Section: utils
 Priority: optional
 Maintainer: Alex <lixd220@gmail.com>
-Homepage: https://github.com/unzooai/unterm
+Homepage: https://github.com/zhitongblog/unterm
 EOF
 
     cat > "$debroot/DEBIAN/control" <<EOF
@@ -163,7 +163,7 @@ Architecture: $arch
 Maintainer: Alex <lixd220@gmail.com>
 Section: utils
 Priority: optional
-Homepage: https://github.com/unzooai/unterm
+Homepage: https://github.com/zhitongblog/unterm
 Description: Unterm terminal emulator
  Unterm is a GPU-accelerated cross-platform terminal emulator
  built on a customized WezTerm engine, with project-aware tabs,

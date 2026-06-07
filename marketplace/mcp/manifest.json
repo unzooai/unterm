@@ -5,11 +5,11 @@
   "description": "The terminal AI agents can drive. Spawn, focus, split, and type into terminal panes from any MCP-speaking agent — 67 methods across 11 namespaces. Local-first (127.0.0.1 only, auth-token gated), per-call audit, $0, MIT.",
   "tagline": "Drive a real macOS / Linux / Windows terminal from any AI agent",
   "homepage": "https://unterm.app",
-  "repository": "https://github.com/unzooai/unterm",
+  "repository": "https://github.com/zhitongblog/unterm",
   "license": "MIT",
   "author": {
     "name": "Alex Lee",
-    "url": "https://github.com/unzooai"
+    "url": "https://github.com/zhitongblog"
   },
   "version": "0.23.0",
   "categories": [
@@ -53,17 +53,17 @@
   "install": {
     "binary": "https://unterm.app/api/download",
     "macos": {
-      "dmg": "https://github.com/unzooai/unterm/releases/latest/download/Unterm-macos-v0.23.dmg",
+      "dmg": "https://github.com/zhitongblog/unterm/releases/latest/download/Unterm-macos-v0.23.dmg",
       "size_mb": 97
     },
     "linux": {
-      "deb": "https://github.com/unzooai/unterm/releases/latest/download/unterm-v0.23.deb",
-      "appimage": "https://github.com/unzooai/unterm/releases/latest/download/Unterm-v0.23-x86_64.AppImage",
+      "deb": "https://github.com/zhitongblog/unterm/releases/latest/download/unterm-v0.23.deb",
+      "appimage": "https://github.com/zhitongblog/unterm/releases/latest/download/Unterm-v0.23-x86_64.AppImage",
       "size_mb": 35
     },
     "windows": {
-      "msi": "https://github.com/unzooai/unterm/releases/latest/download/Unterm-0.23.0-x64.msi",
-      "zip": "https://github.com/unzooai/unterm/releases/latest/download/Unterm-windows-v0.23.zip",
+      "msi": "https://github.com/zhitongblog/unterm/releases/latest/download/Unterm-0.23.0-x64.msi",
+      "zip": "https://github.com/zhitongblog/unterm/releases/latest/download/Unterm-windows-v0.23.zip",
       "size_mb": 44
     },
     "homebrew": null,
@@ -120,7 +120,7 @@
     "docs": "https://unterm.app/docs/mcp-reference",
     "agent_integration": "https://unterm.app/docs/agent-integration",
     "recipes": "https://unterm.app/docs/agent-recipes",
-    "issues": "https://github.com/unzooai/unterm/issues",
-    "releases": "https://github.com/unzooai/unterm/releases/latest"
+    "issues": "https://github.com/zhitongblog/unterm/issues",
+    "releases": "https://github.com/zhitongblog/unterm/releases/latest"
   }
 }

@@ -113,7 +113,7 @@ If you commit it to a public repo, the worst case is local-machine attack — th
 
 ### `update_check.json` — GitHub release poll cache
 
-Written by a background thread that hits `api.github.com/repos/unzooai/unterm/releases/latest` every six hours (first check 20s after launch). Three UI surfaces — the ▼ menu, Web Settings, and the status bar — read this same file rather than each polling GitHub independently.
+Written by a background thread that hits `api.github.com/repos/zhitongblog/unterm/releases/latest` every six hours (first check 20s after launch). Three UI surfaces — the ▼ menu, Web Settings, and the status bar — read this same file rather than each polling GitHub independently.
 
 ```json
 {
@@ -408,4 +408,4 @@ For each schema above, the load-bearing source files in the repo are:
 - `wezterm-gui/src/web_settings/server.rs` — writes `scrollback.json` and `compat.json` from the web UI.
 - `wezterm-gui/src/recording/recorder.rs` — `RecordingConfig` / `RecordingFlags` / `RedactionFlags` structs.
 
-Issues, schema additions, or doc fixes welcome at [github.com/unzooai/unterm](https://github.com/unzooai/unterm).
+Issues, schema additions, or doc fixes welcome at [github.com/zhitongblog/unterm](https://github.com/zhitongblog/unterm).

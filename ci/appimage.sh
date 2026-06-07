@@ -29,7 +29,7 @@ TAG_NAME=${TAG_NAME:-$(git -c "core.abbrev=8" show -s "--format=%cd-%h" "--date=
 OUTPUT=Unterm-$TAG_NAME-$ARCH.AppImage
 
 VERSION="$TAG_NAME" \
-UPDATE_INFORMATION="gh-releases-zsync|unzooai|unterm|latest|Unterm-*.AppImage.zsync" \
+UPDATE_INFORMATION="gh-releases-zsync|zhitongblog|unterm|latest|Unterm-*.AppImage.zsync" \
 OUTPUT="$OUTPUT" \
   /tmp/linuxdeploy \
   --exclude-library='libwayland-client.so.0' \

@@ -23,7 +23,7 @@ Built on top of the WezTerm engine for renderer / font / TUI / SSH / mux work, w
 
 Pre-built artifacts are published on GitHub Releases:
 
-https://github.com/unzooai/unterm/releases
+https://github.com/zhitongblog/unterm/releases
 
 | Platform | Artifact                                                    |
 | -------- | ----------------------------------------------------------- |
@@ -286,6 +286,6 @@ macOS sits out of CI by design — see above.
 
 This repository is the main Unterm project:
 
-https://github.com/unzooai/unterm
+https://github.com/zhitongblog/unterm
 
 Unterm includes modified WezTerm components. Upstream WezTerm remains a separate project by Wez Furlong and contributors.

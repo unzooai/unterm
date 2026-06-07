@@ -650,4 +650,4 @@ If you need machine-readable failure detail, use `--json` and inspect the result
 
 ---
 
-Source for everything described here lives at [github.com/unzooai/unterm](https://github.com/unzooai/unterm) under `wezterm/src/unterm_cli/`. Open issues / PRs there if a method exists on MCP that you'd like surfaced as a first-class CLI subcommand.
+Source for everything described here lives at [github.com/zhitongblog/unterm](https://github.com/zhitongblog/unterm) under `wezterm/src/unterm_cli/`. Open issues / PRs there if a method exists on MCP that you'd like surfaced as a first-class CLI subcommand.

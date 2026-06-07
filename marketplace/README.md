@@ -49,7 +49,7 @@ marketplace/
 | Price | $0 forever — no paid tier, no subscription, no in-app purchase |
 | Telemetry | None |
 | Bundled agents | Claude Code · Codex CLI · Gemini CLI · OpenCode · Aider (one-click install + OAuth/BYO-key + auto-wire to this terminal's MCP) |
-| Repo | <https://github.com/unzooai/unterm> |
+| Repo | <https://github.com/zhitongblog/unterm> |
 | Homepage | <https://unterm.app> |
 | Docs | <https://unterm.app/docs/mcp-reference> |
 

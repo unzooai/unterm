@@ -8,7 +8,7 @@
 // We memoize across calls within a single build so all 9 locale pages
 // share one fetch round-trip rather than hammering GitHub nine times.
 
-const REPO = "unzooai/unterm";
+const REPO = "zhitongblog/unterm";
 const HEADERS: Record<string, string> = {
   "User-Agent": "unterm-site-build",
   Accept: "application/vnd.github+json",

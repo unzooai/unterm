@@ -46,5 +46,5 @@ id = "155122c6346a41f38ba41fd2075b0da2"
 # This token is set in the CF dashboard, not here — wrangler wouldn't read
 # it from the .toml anyway (secrets live elsewhere). Listed for reference:
 #
-#   GITHUB_TOKEN  — fine-grained PAT scoped to repo:read for unzooai/unterm
+#   GITHUB_TOKEN  — fine-grained PAT scoped to repo:read for zhitongblog/unterm
 #                   so api.github.com gives us 5000 req/hr instead of 60.

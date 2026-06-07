@@ -20,7 +20,7 @@
 
 interface Env {}
 
-const BASE = "https://github.com/unzooai/unterm/releases";
+const BASE = "https://github.com/zhitongblog/unterm/releases";
 
 function targetForUA(ua: string, v: string): string {
   // Construct the filenames the way Page.astro does — keep them in sync

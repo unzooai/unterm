@@ -33,5 +33,5 @@
 ## Links
 
 - Homepage: https://unterm.app/
-- Source & releases: https://github.com/unzooai/unterm
-- Download (latest): https://github.com/unzooai/unterm/releases/latest
+- Source & releases: https://github.com/zhitongblog/unterm
+- Download (latest): https://github.com/zhitongblog/unterm/releases/latest

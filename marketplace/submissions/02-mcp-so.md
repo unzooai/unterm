@@ -9,7 +9,7 @@ mcp.so is a directory site; submission is a form at <https://mcp.so/submit>
 | --- | --- |
 | **Name** | `Unterm` |
 | **Tagline** | `The terminal AI agents can drive — 67 MCP methods.` |
-| **Repository** | `https://github.com/unzooai/unterm` |
+| **Repository** | `https://github.com/zhitongblog/unterm` |
 | **Homepage** | `https://unterm.app` |
 | **Logo URL** | `https://unterm.app/assets/icon-256.png` |
 | **Screenshot URL** | `https://unterm.app/assets/og.png` |
@@ -61,5 +61,5 @@ mcp.so is a directory site; submission is a form at <https://mcp.so/submit>
 ## Links to include in the listing
 
 - Docs: <https://unterm.app/docs/mcp-reference>
-- Per-client config snippets: <https://github.com/unzooai/unterm/tree/master/marketplace/mcp/configs>
-- 3 ready-made Skills: <https://github.com/unzooai/unterm/tree/master/marketplace/skills>
+- Per-client config snippets: <https://github.com/zhitongblog/unterm/tree/master/marketplace/mcp/configs>
+- 3 ready-made Skills: <https://github.com/zhitongblog/unterm/tree/master/marketplace/skills>

@@ -17,7 +17,7 @@
 
 set -eu
 
-REPO="unzooai/unterm"
+REPO="zhitongblog/unterm"
 DRY_RUN=0
 UNTERM_VERSION=${UNTERM_VERSION:-}
 

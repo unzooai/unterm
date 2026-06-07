@@ -1,7 +1,7 @@
 # GitHub repo metadata (manual — admin-only)
 
 I tried to set these via `gh api PATCH` but my collaborator token returns 404.
-**You need to do this once** at <https://github.com/unzooai/unterm/settings>
+**You need to do this once** at <https://github.com/zhitongblog/unterm/settings>
 (takes 30 s and is the highest-leverage step — it auto-feeds Glama, drives
 GitHub Topics discovery, and improves every marketplace listing).
 
@@ -27,7 +27,7 @@ mcp, mcp-server, model-context-protocol, terminal, tty, pty, claude, claude-code
 
 ## 4. Releases — confirm latest is pinned
 
-The Releases page (<https://github.com/unzooai/unterm/releases>) should show
+The Releases page (<https://github.com/zhitongblog/unterm/releases>) should show
 **v0.23** at top with all 5 platform artifacts. The smart-download function
 at `unterm.app/api/download` already routes here.
 

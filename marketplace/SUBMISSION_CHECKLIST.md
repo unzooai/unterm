@@ -22,7 +22,7 @@ Legend: ☐ not yet submitted · ⏳ submitted, awaiting review · ✅ live
 
 ### GitHub repo prep (one-time)
 
-Before submitting anywhere, set on `github.com/unzooai/unterm`:
+Before submitting anywhere, set on `github.com/zhitongblog/unterm`:
 
 - **Topics**: `mcp`, `mcp-server`, `model-context-protocol`, `terminal`,
   `tty`, `claude`, `cursor`, `agent-tools`, `wezterm` (auto-picked by
@@ -39,7 +39,7 @@ via GitHub repos rather than a single registry. Two paths:
 
 | Status | Where | How |
 | :-: | --- | --- |
-| ✅ | **In-repo `skills/` directory** (this kit) | Users `git clone unzooai/unterm` and copy `marketplace/skills/<name>/` into `~/.claude/skills/<name>/`. | files are at `marketplace/skills/` |
+| ✅ | **In-repo `skills/` directory** (this kit) | Users `git clone zhitongblog/unterm` and copy `marketplace/skills/<name>/` into `~/.claude/skills/<name>/`. | files are at `marketplace/skills/` |
 | ⏳ | **ComposioHQ/awesome-claude-skills** | PR #960 — adds the 3 skills to "Development & Code Tools" section. <https://github.com/ComposioHQ/awesome-claude-skills/pull/960> | (auto) |
 | ☐ | **Claude.ai shared skills** (when sharing opens GA) | Upload via Claude Settings → Skills → Share | each `SKILL.md` text |
 

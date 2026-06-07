@@ -1,7 +1,7 @@
 # Smithery submission
 
 Smithery auto-discovers from `smithery.yaml` at the repo root, which is
-already committed (see <https://github.com/unzooai/unterm/blob/master/smithery.yaml>).
+already committed (see <https://github.com/zhitongblog/unterm/blob/master/smithery.yaml>).
 You just need to claim the listing.
 
 ## Steps
@@ -9,7 +9,7 @@ You just need to claim the listing.
 1. Go to <https://smithery.ai>.
 2. Click **Sign in** → **Continue with GitHub**.
 3. Click **Add Server** (or **Submit a Server**).
-4. Paste the GitHub URL: `https://github.com/unzooai/unterm`.
+4. Paste the GitHub URL: `https://github.com/zhitongblog/unterm`.
 5. Smithery reads `smithery.yaml` and pre-fills name / description / install
    command. Confirm the prerequisite text (the "this needs the Unterm
    desktop app installed first" callout) is visible — that's the most
@@ -18,7 +18,7 @@ You just need to claim the listing.
 7. Submit.
 
 Smithery's review usually takes hours. They'll list it under your
-GitHub account; you can later transfer ownership to an `unzooai` org page
+GitHub account; you can later transfer ownership to a `zhitongblog` org page
 if you set one up on Smithery.
 
 ## What to verify after listing goes live

@@ -24,7 +24,7 @@ mod unterm_cli;
 
 #[derive(Debug, Parser)]
 #[command(
-    about = "Unterm — cross-platform terminal\nhttps://github.com/unzooai/unterm",
+    about = "Unterm — cross-platform terminal\nhttps://github.com/zhitongblog/unterm",
     version = wezterm_version()
 )]
 pub struct Opt {

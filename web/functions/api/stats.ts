@@ -25,7 +25,7 @@ interface Env {
   GITHUB_TOKEN?: string;
 }
 
-const REPO = "unzooai/unterm";
+const REPO = "zhitongblog/unterm";
 const SUCCESS_MAX_AGE = 300; // 5 min
 const FAILURE_MAX_AGE = 30; // 30 s
 

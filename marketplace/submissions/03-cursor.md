@@ -32,11 +32,11 @@ Settings → MCP → Add), prerequisite is the Unterm desktop app
 (https://unterm.app/api/download — UA-aware redirect).
 
 Links:
-- Repo:       https://github.com/unzooai/unterm
+- Repo:       https://github.com/zhitongblog/unterm
 - Homepage:   https://unterm.app
 - Docs:       https://unterm.app/docs/mcp-reference
-- Cursor-specific config: https://github.com/unzooai/unterm/blob/master/marketplace/mcp/configs/cursor.json
-- Full marketplace kit:   https://github.com/unzooai/unterm/tree/master/marketplace
+- Cursor-specific config: https://github.com/zhitongblog/unterm/blob/master/marketplace/mcp/configs/cursor.json
+- Full marketplace kit:   https://github.com/zhitongblog/unterm/tree/master/marketplace
 
 Happy to provide screenshots, a 60s screen recording, or a longer
 write-up — let me know what format fits your directory.
@@ -56,11 +56,11 @@ Channel: `#mcp` or `#showcase` (whichever is more active when you check)
 > per-call audit). MIT, $0.
 >
 > Cursor config snippet:
-> https://github.com/unzooai/unterm/blob/master/marketplace/mcp/configs/cursor.json
+> https://github.com/zhitongblog/unterm/blob/master/marketplace/mcp/configs/cursor.json
 >
 > Would love a spot in the official MCP directory — pinging here
 > per the community-submit norm. Repo / docs / screenshots:
-> https://github.com/unzooai/unterm
+> https://github.com/zhitongblog/unterm
 
 Attach the OG card image (`https://unterm.app/assets/og.png`) to the
 Discord post — Discord auto-renders it as a preview, much higher

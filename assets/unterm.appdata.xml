@@ -14,8 +14,8 @@
     </p>
   </description>
   <launchable type="desktop-id">ai.unzoo.unterm.desktop</launchable>
-  <url type="homepage">https://github.com/unzooai/unterm</url>
-  <url type="bugtracker">https://github.com/unzooai/unterm/issues</url>
+  <url type="homepage">https://github.com/zhitongblog/unterm</url>
+  <url type="bugtracker">https://github.com/zhitongblog/unterm/issues</url>
   <provides>
     <binary>unterm</binary>
   </provides>

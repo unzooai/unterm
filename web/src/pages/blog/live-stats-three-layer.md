@@ -3,7 +3,7 @@ layout: ../../layouts/Doc.astro
 title: Live ⭐ + ↓ on a static product site, three layers
 subtitle: How to put a real-time GitHub star count and aggregate download count on a marketing page without a single point of failure. Three small layers, two specific footguns we've eaten before.
 kicker: Blog / Live stats, three layers
-date: 2026-05-02 · Reference impl in [github.com/unzooai/unterm/tree/master/web](https://github.com/unzooai/unterm/tree/master/web) · MIT
+date: 2026-05-02 · Reference impl in [github.com/zhitongblog/unterm/tree/master/web](https://github.com/zhitongblog/unterm/tree/master/web) · MIT
 ---
 
 ## Why naive doesn't work
@@ -32,7 +32,7 @@ Run during the static-site build. We're using Astro 4 here but the pattern is th
 
 ```ts
 // web/src/lib/stats.ts
-const REPO = "unzooai/unterm";
+const REPO = "zhitongblog/unterm";
 
 export interface Stats {
   // null means "no trustworthy answer yet" — render as em dash, not 0.
@@ -200,4 +200,4 @@ A desktop app's auto-update check should hit your `/api/stats` (or a sibling `/a
 
 ---
 
-Reference implementation lives in [github.com/unzooai/unterm/tree/master/web](https://github.com/unzooai/unterm/tree/master/web) — `functions/api/stats.ts` for Layer 2, `src/lib/stats.ts` for Layer 1, `src/layouts/Base.astro` for the inline Layer 3 script. MIT-licensed, copy what you need.
+Reference implementation lives in [github.com/zhitongblog/unterm/tree/master/web](https://github.com/zhitongblog/unterm/tree/master/web) — `functions/api/stats.ts` for Layer 2, `src/lib/stats.ts` for Layer 1, `src/layouts/Base.astro` for the inline Layer 3 script. MIT-licensed, copy what you need.
