@@ -2496,7 +2496,7 @@ impl McpHandler {
             changed = true;
         }
         if let Some(iv) = params.get("interval_secs").and_then(|v| v.as_u64()) {
-            settings.rotation.interval_secs = iv.max(5);
+            settings.rotation.interval_secs = iv.max(10);
             changed = true;
         }
         if changed {
@@ -3771,6 +3771,48 @@ mod proxy_rotation_tests {
         // a pool name that isn't in nodes resolves to nothing.
         assert!(select_fastest_node(&nodes, &["ghost".into()], |_| Some(5)).is_none());
     }
+
+    /// The core of the "rotation keeps dropping my network" fix: a single missed
+    /// health check must NOT cross the failover threshold; only repeated misses
+    /// on the same node do, and any success / node change resets the count.
+    #[test]
+    fn failover_debounces_until_consecutive_failures() {
+        // The fix only makes sense if more than one miss is required.
+        assert!(
+            ROTATION_FAILS_BEFORE_SWITCH >= 2,
+            "a single jittery probe must never trigger a switch"
+        );
+        rotation_reset_failure();
+
+        // One miss: recorded, but below the switch threshold → hold, don't switch.
+        let first = rotation_note_failure("node-A");
+        assert_eq!(first, 1);
+        assert!(first < ROTATION_FAILS_BEFORE_SWITCH);
+
+        // Consecutive misses on the same node accumulate up to the threshold.
+        let mut count = first;
+        while count < ROTATION_FAILS_BEFORE_SWITCH {
+            count = rotation_note_failure("node-A");
+        }
+        assert!(count >= ROTATION_FAILS_BEFORE_SWITCH, "repeated misses must fail over");
+
+        // A healthy probe (or a completed switch) clears the strike count.
+        rotation_reset_failure();
+        assert_eq!(
+            rotation_note_failure("node-A"),
+            1,
+            "reset must wipe accumulated failures"
+        );
+
+        // A different active node starts fresh — it inherits no strikes from the
+        // node we just left, so it can't be condemned on its first miss.
+        assert_eq!(
+            rotation_note_failure("node-B"),
+            1,
+            "a new active node starts with a clean slate"
+        );
+        rotation_reset_failure();
+    }
 }
 
 /// Endpoint-level proxy failover (one check). If auto-rotation is on and the
@@ -3809,10 +3851,62 @@ fn resolve_clash_endpoint(settings: &ProxySettings) -> Option<crate::clash_api::
     crate::clash_api::discover_cached()
 }
 
+/// Consecutive failed health-check ticks for the rotation's *current* node.
+/// Reset to 0 the instant a probe succeeds or we switch. This is the guard that
+/// keeps a single slow/jittery probe from yanking the proxy exit out from under
+/// live connections — the root cause of "rotation keeps dropping my network."
+/// Only the single rotation-monitor thread touches it, so a plain Mutex is fine.
+static ROTATION_FAILS: std::sync::Mutex<(String, u32)> =
+    std::sync::Mutex::new((String::new(), 0));
+
+/// How many consecutive ticks (each already retried within the tick) the active
+/// node must miss before we fail over. With the default 30s interval that's a
+/// ~1 min grace window — long enough to ride out latency spikes, short enough
+/// to recover from a genuinely dead node.
+const ROTATION_FAILS_BEFORE_SWITCH: u32 = 2;
+
+/// Note a failed health-check tick for `node`; returns the new consecutive
+/// count. Resets first when the active node changed since the last tick (so a
+/// new node starts with a clean slate). Fails open (returns the switch
+/// threshold) if the lock is poisoned, so a poisoned mutex can't wedge failover.
+fn rotation_note_failure(node: &str) -> u32 {
+    let Ok(mut g) = ROTATION_FAILS.lock() else {
+        return ROTATION_FAILS_BEFORE_SWITCH;
+    };
+    if g.0 != node {
+        g.0 = node.to_string();
+        g.1 = 0;
+    }
+    g.1 += 1;
+    g.1
+}
+
+/// Clear the failure counter — the active node is healthy again, or we just
+/// switched to a fresh one.
+fn rotation_reset_failure() {
+    if let Ok(mut g) = ROTATION_FAILS.lock() {
+        g.0.clear();
+        g.1 = 0;
+    }
+}
+
+/// Delay-test a clash node, retrying once so a single jittery probe doesn't read
+/// as "dead." Alive if any attempt returns a positive delay. A genuinely dead
+/// node fails both attempts within the same tick; a merely slow one usually
+/// passes on the retry.
+fn clash_node_alive(
+    ep: &crate::clash_api::ClashEndpoint,
+    name: &str,
+    url: &str,
+    timeout_ms: u64,
+) -> bool {
+    (0..2).any(|_| matches!(crate::clash_api::delay(ep, name, url, timeout_ms), Ok(d) if d > 0))
+}
+
 /// One clash-mode failover cycle: if the group's current node is unreachable,
 /// delay-test the pool and switch the group to the fastest live node.
 fn clash_rotation_tick(settings: &ProxySettings) -> Option<String> {
-    const PROBE_TIMEOUT_MS: u64 = 3000;
+    const PROBE_TIMEOUT_MS: u64 = 5000;
     let group = &settings.rotation.group;
     let pool = &settings.rotation.pool;
     if pool.is_empty() {
@@ -3829,14 +3923,28 @@ fn clash_rotation_tick(settings: &ProxySettings) -> Option<String> {
         .and_then(|n| n.as_str())
         .map(str::to_string);
 
-    // If the current node is in the pool AND still responds, stay put.
+    // If the current node is in the pool, only fail over once it has missed its
+    // health check on REPEATED ticks. Switching a selector changes the exit for
+    // every connection routed through it, so a single slow probe must never
+    // trigger a switch — that is precisely the "rotation dropped my network"
+    // symptom. Retry within the tick (clash_node_alive) to absorb jitter, then
+    // require ROTATION_FAILS_BEFORE_SWITCH consecutive failing ticks.
     if let Some(cur) = &now {
         if pool.contains(cur) {
-            if let Ok(d) = crate::clash_api::delay(&ep, cur, url, PROBE_TIMEOUT_MS) {
-                if d > 0 {
-                    return None;
-                }
+            if clash_node_alive(&ep, cur, url, PROBE_TIMEOUT_MS) {
+                rotation_reset_failure();
+                return None; // healthy — stay put
             }
+            let fails = rotation_note_failure(cur);
+            if fails < ROTATION_FAILS_BEFORE_SWITCH {
+                log::debug!(
+                    "proxy rotation (clash): '{cur}' missed health check {fails}/{ROTATION_FAILS_BEFORE_SWITCH}, holding"
+                );
+                return None; // give it another tick before yanking the exit
+            }
+            log::info!(
+                "proxy rotation (clash): '{cur}' failed {fails} consecutive checks → failing over"
+            );
         }
     }
 
@@ -3851,15 +3959,17 @@ fn clash_rotation_tick(settings: &ProxySettings) -> Option<String> {
     }
     let (pick, ms) = best?;
     if now.as_deref() == Some(pick.as_str()) {
-        return None; // already on the fastest
+        rotation_reset_failure(); // current is still the fastest live node
+        return None;
     }
     crate::clash_api::select(&ep, group, &pick).ok()?;
+    rotation_reset_failure();
     log::info!("proxy auto-rotation (clash): group '{group}' → '{pick}' ({ms}ms)");
     Some(pick)
 }
 
 pub fn proxy_rotation_tick() -> Option<String> {
-    const PROBE_TIMEOUT_MS: u64 = 3000;
+    const PROBE_TIMEOUT_MS: u64 = 5000;
     let mut state = mcp_state().lock();
     let mut settings = state.proxy.clone();
     if !settings.rotation.enabled {
@@ -3874,15 +3984,27 @@ pub fn proxy_rotation_tick() -> Option<String> {
         return None;
     }
 
-    // Active node still reachable? Then nothing to do.
-    let current_ok = settings
+    // Active node still reachable? Retry once to ride out transient jitter, and
+    // require ROTATION_FAILS_BEFORE_SWITCH consecutive failing ticks before
+    // swapping the injected proxy — a single missed probe must not flip the
+    // exit out from under the user.
+    if let Some((cur_name, cur_url)) = settings
         .current_node
         .as_ref()
-        .and_then(|cn| settings.nodes.iter().find(|n| &n.name == cn))
-        .map(|n| probe_proxy_endpoint(&n.url, PROBE_TIMEOUT_MS))
-        .unwrap_or(false);
-    if current_ok {
-        return None;
+        .and_then(|cn| settings.nodes.iter().find(|n| &n.name == cn).map(|n| (cn.clone(), n.url.clone())))
+    {
+        if (0..2).any(|_| probe_proxy_endpoint(&cur_url, PROBE_TIMEOUT_MS)) {
+            rotation_reset_failure();
+            return None; // healthy — nothing to do
+        }
+        let fails = rotation_note_failure(&cur_name);
+        if fails < ROTATION_FAILS_BEFORE_SWITCH {
+            log::debug!(
+                "proxy rotation: '{cur_name}' missed health check {fails}/{ROTATION_FAILS_BEFORE_SWITCH}, holding"
+            );
+            return None;
+        }
+        log::info!("proxy rotation: '{cur_name}' failed {fails} consecutive checks → failing over");
     }
 
     // Active node down (or unset): probe the pool, pick the fastest reachable.
@@ -3905,6 +4027,7 @@ pub fn proxy_rotation_tick() -> Option<String> {
     }
     if save_proxy_settings(&settings).is_ok() {
         state.proxy = settings;
+        rotation_reset_failure();
         log::info!("proxy auto-rotation: active node unreachable → switched to '{name}' ({url})");
         Some(name)
     } else {
@@ -3919,7 +4042,7 @@ pub fn start_proxy_rotation_monitor() {
     std::thread::Builder::new()
         .name("proxy-rotation".into())
         .spawn(|| loop {
-            let interval = mcp_state().lock().proxy.rotation.interval_secs.max(5);
+            let interval = mcp_state().lock().proxy.rotation.interval_secs.max(10);
             std::thread::sleep(std::time::Duration::from_secs(interval));
             proxy_rotation_tick();
         })
