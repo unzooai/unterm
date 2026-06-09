@@ -11,7 +11,7 @@
     "name": "Alex Lee",
     "url": "https://github.com/zhitongblog"
   },
-  "version": "0.37.0",
+  "version": "0.38.0",
   "categories": [
     "developer-tools",
     "terminal",
@@ -53,17 +53,17 @@
   "install": {
     "binary": "https://unterm.app/api/download",
     "macos": {
-      "dmg": "https://github.com/zhitongblog/unterm/releases/latest/download/Unterm-macos-v0.37.dmg",
+      "dmg": "https://github.com/zhitongblog/unterm/releases/latest/download/Unterm-macos-v0.38.dmg",
       "size_mb": 98
     },
     "linux": {
-      "deb": "https://github.com/zhitongblog/unterm/releases/latest/download/unterm-v0.37.deb",
-      "appimage": "https://github.com/zhitongblog/unterm/releases/latest/download/Unterm-v0.37-x86_64.AppImage",
+      "deb": "https://github.com/zhitongblog/unterm/releases/latest/download/unterm-v0.38.deb",
+      "appimage": "https://github.com/zhitongblog/unterm/releases/latest/download/Unterm-v0.38-x86_64.AppImage",
       "size_mb": 35
     },
     "windows": {
-      "msi": "https://github.com/zhitongblog/unterm/releases/latest/download/Unterm-0.37.0-x64.msi",
-      "zip": "https://github.com/zhitongblog/unterm/releases/latest/download/Unterm-windows-x64-v0.37.zip",
+      "msi": "https://github.com/zhitongblog/unterm/releases/latest/download/Unterm-0.38.0-x64.msi",
+      "zip": "https://github.com/zhitongblog/unterm/releases/latest/download/Unterm-windows-x64-v0.38.zip",
       "size_mb": 44
     },
     "homebrew": null,

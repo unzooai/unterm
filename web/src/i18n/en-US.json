@@ -216,7 +216,9 @@
   "features.engine.title": "GPU rendering",
   "features.engine.body": "Built on a customized WezTerm engine — Metal on macOS, OpenGL on Linux, DirectX via ANGLE on Windows.",
 
-  "whatsnew.title": "What's new in v0.37",
+  "whatsnew.title": "What's new in v0.38",
+  "whatsnew.uipolish.title": "A more polished look out of the box + a new logo",
+  "whatsnew.uipolish.body": "v0.38 is a visual pass on the defaults. Content gets room to breathe (window padding 4px → 16/16/10/8), the bundled <strong>JetBrains Mono</strong> with ligatures is now the default font (no more falling back to whatever monospace the system happens to have), line-height opens up to 1.15, and the warm <strong>Notion Dark</strong> scheme is the default on fresh installs — window chrome and the tab bar are warmed to the same palette so nothing clashes. The app icon is redesigned too: a warm-black monogram where a teal <strong>U</strong> cradles an amber <strong>T</strong> over a terminal block cursor. Deeper polish — active-pane treatment, status-bar grouping, a tasteful default prompt — is queued for the next round.",
   "whatsnew.rotationfix.title": "Auto-rotation that never drops your network",
   "whatsnew.rotationfix.body": "Proxy auto-rotation used to fail over on a <em>single</em> slow health check — one jittery probe and your exit node got yanked out mid-connection, dropping logged-in sessions, long downloads, and SSH. v0.37 makes failover deliberate: the active node is retried within each check and must miss <strong>two consecutive checks</strong> before Unterm switches; the health-probe timeout widens to 5s and the minimum interval to 10s. A transient hiccup no longer rotates the whole system's proxy out from under your terminal — rotation fires only when a node is genuinely dead. It honors the rule that has governed proxy support from day one: <em>the proxy must never break the terminal.</em> Drive it from the Web Settings rotation pool or <code class=\"font-mono text-xs\">unterm-cli proxy rotation</code>.",
   "whatsnew.aicomplete.title": "Type any AI CLI flag — Unterm finishes it inline",
