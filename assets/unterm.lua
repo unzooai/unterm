@@ -12,9 +12,15 @@ config.check_for_updates = false
 -- 配色由主题系统(~/.unterm/theme.json,见状态栏 theme: / `unterm-cli theme`)决定,
 -- 不在此硬设 color_scheme,否则会覆盖「选主题」。需要固定配色时取消下一行注释:
 -- config.color_scheme = 'Catppuccin Mocha'
-config.font = wezterm.font('Cascadia Code')
-config.font_size = 12
-config.line_height = 1.0
+-- 默认字体:JetBrains Mono(随 Unterm 打包,任何机器都有,不依赖系统已装),
+-- 开 ligatures;图标回退到同样打包的 Nerd Font Symbols。比裸 Cascadia Code
+-- 更精致、更稳定(系统没装 Cascadia 时不会回退到难看的默认字体)。
+config.font = wezterm.font_with_fallback({
+  { family = 'JetBrains Mono', harfbuzz_features = { 'calt=1', 'liga=1', 'clig=1' } },
+  'Symbols Nerd Font Mono',
+})
+config.font_size = 13
+config.line_height = 1.15
 config.enable_scroll_bar = true
 config.scrollback_lines = 100000
 config.window_close_confirmation = 'NeverPrompt'
@@ -28,22 +34,23 @@ config.show_unterm_status_bar = true
 config.window_decorations = 'INTEGRATED_BUTTONS|RESIZE'
 config.integrated_title_button_alignment = 'Right'
 config.integrated_title_button_style = 'Windows'
-config.window_padding = { left = 4, right = 4, top = 4, bottom = 4 }
+config.window_padding = { left = 16, right = 16, top = 10, bottom = 8 }
 config.initial_cols = 120
 config.initial_rows = 30
 
 -- Windows Terminal / PowerShell 标题栏
+-- 暖黑标题栏,跟 Notion Dark 内容底(#191919)统一,避免冷灰 chrome 撞暖黑正文。
 config.window_frame = {
-  inactive_titlebar_bg = '#2b2b2b',
-  active_titlebar_bg = '#2c2c2c',
-  inactive_titlebar_fg = '#a6a6a6',
+  inactive_titlebar_bg = '#1c1c1c',
+  active_titlebar_bg = '#191919',
+  inactive_titlebar_fg = '#8b8b8b',
   active_titlebar_fg = '#ffffff',
-  inactive_titlebar_border_bottom = '#202020',
-  active_titlebar_border_bottom = '#3a3a3a',
+  inactive_titlebar_border_bottom = '#141414',
+  active_titlebar_border_bottom = '#2a2a2a',
   button_fg = '#cccccc',
-  button_bg = '#2c2c2c',
+  button_bg = '#191919',
   button_hover_fg = '#ffffff',
-  button_hover_bg = '#404040',
+  button_hover_bg = '#2f2f2f',
 }
 
 -------------------------------------------------
@@ -55,28 +62,30 @@ config.show_tab_index_in_tab_bar = false
 config.show_new_tab_button_in_tab_bar = true
 config.hide_tab_bar_if_only_one_tab = false
 
+-- Tab 栏暖化到 Notion Dark:活动 tab 与内容底同色(#191919)做无缝过渡,
+-- 非活动 tab 稍亮、文字降为柔和灰,hover 再亮一档。
 config.colors = {
   tab_bar = {
-    background = '#2c2c2c',
+    background = '#191919',
     active_tab = {
-      bg_color = '#0c0c0c',
+      bg_color = '#191919',
       fg_color = '#ffffff',
       intensity = 'Bold',
     },
     inactive_tab = {
-      bg_color = '#2c2c2c',
-      fg_color = '#cccccc',
+      bg_color = '#202020',
+      fg_color = '#8b8b8b',
     },
     inactive_tab_hover = {
-      bg_color = '#3a3a3a',
+      bg_color = '#262626',
       fg_color = '#ffffff',
     },
     new_tab = {
-      bg_color = '#2c2c2c',
-      fg_color = '#cccccc',
+      bg_color = '#191919',
+      fg_color = '#8b8b8b',
     },
     new_tab_hover = {
-      bg_color = '#3a3a3a',
+      bg_color = '#262626',
       fg_color = '#ffffff',
     },
   },
