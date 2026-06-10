@@ -914,9 +914,15 @@ impl crate::TermWindow {
             Some(pane) => pane,
             None => return,
         };
+        // Left click = just open a tab (the universal expectation; routing
+        // it to the keyboard-only shell selector read as "the + button
+        // doesn't work with the mouse"). Power paths stay: right-click ⇒
+        // shell selector, Ctrl+Shift+N unchanged.
         let action = match button {
-            MousePress::Left => Some(KeyAssignment::ShowShellSelector),
-            MousePress::Right => Some(KeyAssignment::ShowLauncher),
+            MousePress::Left => Some(KeyAssignment::SpawnTab(
+                config::keyassignment::SpawnTabDomain::CurrentPaneDomain,
+            )),
+            MousePress::Right => Some(KeyAssignment::ShowShellSelector),
             MousePress::Middle => None,
         };
 
