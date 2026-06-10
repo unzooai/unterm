@@ -607,38 +607,94 @@ impl crate::TermWindow {
 
         let cwd_part = self.active_pane_cwd_for_status();
 
-        let mut text = format!(" {} | ", shell_name);
+        let mut text = format!(" {}   ", shell_name);
         let cwd_offset = cw(&text);
         text.push_str(&cwd_part);
-        text.push_str(" | ");
-        text.push_str(&format!("{}x{} | ", cols, rows));
+        text.push_str("   ");
+        text.push_str(&format!("{}x{}   ", cols, rows));
         let project_offset = cw(&text);
         text.push_str(&project_part);
-        text.push_str(" | ");
+        text.push_str("   ");
         let exclude_offset = cw(&text);
         let exclude_part = "capture:exclude".to_string();
         text.push_str(&exclude_part);
-        text.push_str(" | ");
+        text.push_str("   ");
         let include_offset = cw(&text);
         let include_part = "capture:include".to_string();
         text.push_str(&include_part);
-        text.push_str(" | ");
+        text.push_str("   ");
         let proxy_offset = cw(&text);
         text.push_str(&proxy);
-        text.push_str(" | ");
+        text.push_str("   ");
         let mcp_offset = cw(&text);
         text.push_str(&mcp_part);
-        text.push_str(" | ");
+        text.push_str("   ");
         let theme_offset = cw(&text);
         let theme_part = format!("theme:{theme}");
         text.push_str(&theme_part);
-        text.push_str(" | ");
+        text.push_str("   ");
         let profile_offset = cw(&text);
         text.push_str(&profile_part);
         text.push(' ');
 
+        let mut line = Line::from_text(&text, &attrs, 0, None);
+        {
+            // 分层排版:标签保持基础暗色,值用主题前景提亮;proxy:on 与
+            // mcp 活动值用品牌 teal 点睛(2026-06-10 状态栏精修)。
+            let bright_color: SrgbaTuple = self
+                .config
+                .resolved_palette
+                .foreground
+                .map(|c| c.into())
+                .unwrap_or(SrgbaTuple::from((0xe6u8, 0xe6u8, 0xe4u8)));
+            let teal = SrgbaTuple::from((0x6fu8, 0xccu8, 0xb8u8));
+            let mk = |c: SrgbaTuple| {
+                let mut a = attrs.clone();
+                a.set_foreground(ColorAttribute::TrueColorWithDefaultFallback(c));
+                a
+            };
+            let bright = mk(bright_color);
+            let teal_a = mk(teal);
+            let mut paint = |offset: usize, txt: &str, a: &CellAttributes| {
+                line.overlay_text_with_attribute(offset, txt, a.clone(), 0);
+            };
+            // shell 名 + cwd 提亮(主信息)
+            paint(1, &shell_name, &bright);
+            paint(cwd_offset, &cwd_part, &bright);
+            // 各 chip:label: 后的值提亮;proxy on / mcp 非零用 teal
+            let val = |part: &str| -> (usize, String) {
+                match part.find(':') {
+                    Some(i) => (i + 1, part[i + 1..].to_string()),
+                    None => (0, part.to_string()),
+                }
+            };
+            let (o, v) = val(&project_part);
+            paint(project_offset + o, &v, &bright);
+            let (o, v) = val(&exclude_part);
+            paint(exclude_offset + o, &v, &bright);
+            let (o, v) = val(&include_part);
+            paint(include_offset + o, &v, &bright);
+            let (o, v) = val(&proxy);
+            paint(
+                proxy_offset + o,
+                &v,
+                if proxy_enabled { &teal_a } else { &bright },
+            );
+            let (o, v) = val(&mcp_part);
+            paint(
+                mcp_offset + o,
+                &v,
+                if mcp_activity.count > 0 { &teal_a } else { &bright },
+            );
+            let (o, v) = val(&theme_part);
+            paint(theme_offset + o, &v, &bright);
+            let (o, v) = val(&profile_part);
+            if v != "—" {
+                paint(profile_offset + o, &v, &bright);
+            }
+        }
         (
-            Line::from_text(&text, &attrs, 0, None),
+            line,
             vec![
                 StatusRegion {
                     offset: cwd_offset,
