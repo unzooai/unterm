@@ -64,7 +64,22 @@ for bin in unterm unterm-cli unterm-mux strip-ansi-escapes ; do
   # `cargo build --release` (no --target) when newer per-arch builds are
   # sitting right next to it. (We ate this on 2026-05-01: shipped a v0.5.1
   # DMG whose binary predated the scrollback feature it claimed to include.)
+  # Guard against stale per-arch artifacts (the 2026-05-01 and 2026-06-10
+  # trap): if a plain host-arch build is NEWER than the per-arch ones, the
+  # per-arch dirs are leftovers from an older release — prefer the fresh
+  # build instead of silently shipping outdated binaries.
+  use_per_arch=false
   if compgen -G "$TARGET_DIR/*/release/$bin" >/dev/null ; then
+    use_per_arch=true
+    if [[ -f "$TARGET_DIR/release/$bin" ]]; then
+      newest_arch=$(ls -t "$TARGET_DIR"/*/release/$bin | head -1)
+      if [[ "$TARGET_DIR/release/$bin" -nt "$newest_arch" ]]; then
+        echo "WARNING: $TARGET_DIR/release/$bin is newer than per-arch builds; using it (stale per-arch artifacts ignored)" >&2
+        use_per_arch=false
+      fi
+    fi
+  fi
+  if $use_per_arch ; then
     lipo "$TARGET_DIR"/*/release/$bin -output "$stagedir/Unterm.app/Contents/MacOS/$bin" -create
   elif [[ -f "$TARGET_DIR/release/$bin" ]] ; then
     cp "$TARGET_DIR/release/$bin" "$stagedir/Unterm.app/Contents/MacOS/$bin"
