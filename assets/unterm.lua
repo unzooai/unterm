@@ -70,18 +70,26 @@ config.window_padding = { left = 16, right = 16, top = 10, bottom = 8 }
 config.initial_cols = 120
 config.initial_rows = 30
 
--- 标题栏/顶栏与终端内容同色(theme_bg),随主题走 → 一体不割裂。
+-- 顶栏 = 主题底轻提亮一档(~5%),活动 tab 仍与内容同色 → 层次分明但不割裂
+-- (用户反馈 2026-06-10:完全同色太平,需要一定色差)。
+local bar_bg = theme_bg
+do
+  local ok, c = pcall(function() return wezterm.color.parse(theme_bg) end)
+  if ok and c then bar_bg = tostring(c:lighten(0.05)) end
+end
 config.window_frame = {
-  inactive_titlebar_bg = theme_bg,
-  active_titlebar_bg = theme_bg,
+  inactive_titlebar_bg = bar_bg,
+  active_titlebar_bg = bar_bg,
   inactive_titlebar_fg = theme_fg,
   active_titlebar_fg = theme_fg,
-  inactive_titlebar_border_bottom = theme_bg,
-  active_titlebar_border_bottom = theme_bg,
+  inactive_titlebar_border_bottom = bar_bg,
+  active_titlebar_border_bottom = bar_bg,
   button_fg = theme_fg,
-  button_bg = theme_bg,
+  button_bg = bar_bg,
   button_hover_fg = theme_fg,
-  button_hover_bg = theme_bg,
+  button_hover_bg = bar_bg,
+  -- ① 顶栏加高:标题字号 10 → 12,整条栏随之增高,不再紧凑
+  font_size = 12.0,
 }
 
 -------------------------------------------------
@@ -104,12 +112,12 @@ do
 end
 config.colors = {
   tab_bar = {
-    background = theme_bg,
+    background = bar_bg,
     active_tab = { bg_color = theme_bg, fg_color = theme_fg, intensity = 'Bold' },
-    inactive_tab = { bg_color = theme_bg, fg_color = dim_fg },
-    inactive_tab_hover = { bg_color = theme_bg, fg_color = theme_fg },
-    new_tab = { bg_color = theme_bg, fg_color = dim_fg },
-    new_tab_hover = { bg_color = theme_bg, fg_color = theme_fg },
+    inactive_tab = { bg_color = bar_bg, fg_color = dim_fg },
+    inactive_tab_hover = { bg_color = bar_bg, fg_color = theme_fg },
+    new_tab = { bg_color = bar_bg, fg_color = dim_fg },
+    new_tab_hover = { bg_color = bar_bg, fg_color = theme_fg },
   },
 }
 
@@ -142,7 +150,7 @@ wezterm.on('format-tab-title', function(tab, tabs, panes, cfg, hover, max_width)
   end
   if title == '' then title = 'Terminal' end
 
-  return ' ' .. title .. ' '
+  return '  ' .. title .. '  '
 end)
 
 -------------------------------------------------

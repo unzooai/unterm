@@ -361,6 +361,7 @@ impl crate::TermWindow {
 
         // Clear out UI item positions; we'll rebuild these as we render
         self.ui_items.clear();
+        self.deferred_scrollbar.borrow_mut().clear();
 
         let panes = self.get_panes_to_render();
         let focused = self.focused.is_some();
@@ -464,6 +465,16 @@ impl crate::TermWindow {
             for split in &splits {
                 self.paint_split(&mut layers, split, &pane)
                     .context("paint_split")?;
+            }
+        }
+
+        // Flush scrollbar fills queued during pane painting — drawn after the
+        // splits so the divider-riding inner bar sits on top of the line.
+        {
+            let queued: Vec<_> = self.deferred_scrollbar.borrow_mut().drain(..).collect();
+            for (rect, color) in queued {
+                self.filled_rectangle(&mut layers, 2, rect, color)
+                    .context("deferred scrollbar fill")?;
             }
         }
 

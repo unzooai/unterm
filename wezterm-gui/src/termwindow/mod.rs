@@ -502,6 +502,10 @@ pub struct TermWindow {
     modal: RefCell<Option<Rc<dyn Modal>>>,
     /// v0.40: left directory-tree sidebar; None = closed.
     pub(crate) tree_sidebar: RefCell<Option<crate::termwindow::tree_sidebar::TreeSidebar>>,
+    /// Scrollbar fills deferred until after the splits are painted, so the
+    /// divider-riding inner-pane bar isn't overdrawn by the split line
+    /// (same GL layer — later draw wins).
+    pub(crate) deferred_scrollbar: RefCell<Vec<(::window::RectF, ::window::color::LinearRgba)>>,
 
     event_states: HashMap<String, EventState>,
     pub current_event: Option<Value>,
@@ -953,6 +957,7 @@ impl TermWindow {
             key_table_state: KeyTableState::default(),
             modal: RefCell::new(None),
             tree_sidebar: RefCell::new(None),
+            deferred_scrollbar: RefCell::new(Vec::new()),
             opengl_info: None,
         };
 

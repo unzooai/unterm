@@ -309,8 +309,31 @@ impl crate::TermWindow {
             let pt_scale = self.dimensions.dpi as f32 / 72.0;
             let bar_w = (5.0 * pt_scale).round().max(6.0);
             let hit_w = padding.max(bar_w);
-            let thumb_x = (pane_right.max(0.0).round() as usize)
-                .saturating_sub((bar_w + 2.0 * pt_scale) as usize + border.right.get());
+            // Rightmost pane: center the slim bar inside the right padding
+            // gutter so it breathes evenly between the text column and the
+            // window edge. Inner (left) pane of a split: there is no padding
+            // gutter at the divider, so tuck the bar close to the split line
+            // (2pt) instead of letting it drift into the text column.
+            let is_rightmost = pos.left + pos.width >= self.terminal_size.cols as usize;
+            // Rightmost pane: center the bar in the right padding gutter.
+            // Inner (left) pane: the divider LINE sits half a cell beyond the
+            // last text column (the split occupies a full cell column), so
+            // anchor the bar inside that gutter with its right edge 1.5pt off
+            // the line — measured-not-guessed; eyeballing this cost 3 rounds.
+            let cell_w_px = self.render_metrics.cell_size.width as f32;
+            // Inner (left) pane: ride ON the divider — the bar is centered on
+            // the split line itself (用户拍板: 压在分界线上). Rightmost pane:
+            // centered in the right padding gutter.
+            let thumb_x = if is_rightmost {
+                // 完全贴窗口右缘。
+                (pane_right.max(0.0).round() as usize)
+                    .saturating_sub(bar_w as usize + border.right.get())
+            } else {
+                // 紧贴分隔线左侧 1.5pt:压线方案与「拖线调宽」手势互斥
+                // (同像素双手势),业界无先例正因如此 — 2026-06-10 拍板。
+                let divider_center = pane_right + cell_w_px * 0.5;
+                (divider_center - bar_w - 1.5 * pt_scale).max(0.0).round() as usize
+            };
             let hit_x = (pane_right.max(0.0).round() as usize)
                 .saturating_sub(hit_w as usize + border.right.get());
             let pane_id = pos.pane.pane_id();
@@ -348,57 +371,53 @@ impl crate::TermWindow {
             // The thumb sits 2px off each side of the track so it reads as a
             // floating pill instead of a solid column glued to the edge; the
             // tiny end-caps fake rounded corners without new shader work.
-            self.filled_rectangle(
-                layers,
-                2,
-                euclid::rect(
-                    thumb_x as f32,
-                    thumb_y_offset as f32,
-                    bar_w,
-                    track_height as f32,
-                ),
-                track_color,
-            )
-            .context("scrollbar track")?;
-            let inset = (bar_w * 0.22).clamp(1.5, 3.0);
-            let tw = (bar_w - inset * 2.0).max(3.0);
-            let cap = inset.min(2.0);
-            self.filled_rectangle(
-                layers,
-                2,
-                euclid::rect(
-                    thumb_x as f32 + inset,
-                    abs_thumb_top as f32 + cap,
-                    tw,
-                    (thumb_size as f32 - cap * 2.0).max(2.0),
-                ),
-                color,
-            )
-            .context("scrollbar thumb")?;
-            self.filled_rectangle(
-                layers,
-                2,
-                euclid::rect(
-                    thumb_x as f32 + inset + cap,
-                    abs_thumb_top as f32,
-                    (tw - cap * 2.0).max(1.0),
-                    cap,
-                ),
-                color,
-            )
-            .context("scrollbar thumb cap top")?;
-            self.filled_rectangle(
-                layers,
-                2,
-                euclid::rect(
-                    thumb_x as f32 + inset + cap,
-                    abs_thumb_top as f32 + thumb_size as f32 - cap,
-                    (tw - cap * 2.0).max(1.0),
-                    cap,
-                ),
-                color,
-            )
-            .context("scrollbar thumb cap bottom")?;
+            // Deferred: splits paint after panes on the same layer, so an
+            // inner-pane bar drawn now would be overpainted by the divider.
+            // Queue the fills; paint_pass flushes them right after the splits.
+            {
+                let mut q = self.deferred_scrollbar.borrow_mut();
+                q.push((
+                    euclid::rect(
+                        thumb_x as f32,
+                        thumb_y_offset as f32,
+                        bar_w,
+                        track_height as f32,
+                    ),
+                    track_color,
+                ));
+                let inset = (bar_w * 0.22).clamp(1.5, 3.0);
+                // 最右 pane:右缘不内缩,thumb 顶到窗口边(再贴边一点)。
+                let right_inset = if is_rightmost { 0.0 } else { inset };
+                let tw = (bar_w - inset - right_inset).max(3.0);
+                let cap = inset.min(2.0);
+                q.push((
+                    euclid::rect(
+                        thumb_x as f32 + inset,
+                        abs_thumb_top as f32 + cap,
+                        tw,
+                        (thumb_size as f32 - cap * 2.0).max(2.0),
+                    ),
+                    color,
+                ));
+                q.push((
+                    euclid::rect(
+                        thumb_x as f32 + inset + cap,
+                        abs_thumb_top as f32,
+                        (tw - cap * 2.0).max(1.0),
+                        cap,
+                    ),
+                    color,
+                ));
+                q.push((
+                    euclid::rect(
+                        thumb_x as f32 + inset + cap,
+                        abs_thumb_top as f32 + thumb_size as f32 - cap,
+                        (tw - cap * 2.0).max(1.0),
+                        cap,
+                    ),
+                    color,
+                ));
+            }
         }
 
         let (selrange, rectangular) = {
@@ -881,10 +900,14 @@ impl crate::TermWindow {
         );
 
         let chip = (button_h * 0.82).min(button_w * 0.82);
+        // 提前算 pt 与中心给 chip 用(✕ 已右移贴近滚动条)。
+        let pt_scale_chip = self.dimensions.dpi as f32 / 72.0;
+        let arm_for_chip = (chip * 0.22f32).max(3.0);
+        let cx_chip = (pane_right - (5.0 + 2.0) * pt_scale_chip - arm_for_chip).max(button_x + arm_for_chip);
         if hovered {
             // Soft hover chip — a centered, inset square reads as a rounded
             // "pill" without real corner rounding. Low alpha keeps it muted.
-            let chip_x = button_x + (button_w - chip) / 2.0;
+            let chip_x = cx_chip - chip / 2.0;
             let chip_y = button_y + (button_h - chip) / 2.0;
             self.filled_rectangle(
                 layers,
@@ -899,9 +922,12 @@ impl crate::TermWindow {
         // read as a dotted line — the old "ugly" artifact). Faint when idle,
         // bright on hover.
         let mark = fg.mul_alpha(if hovered { 0.9 } else { 0.26 });
-        let cx = button_x + button_w / 2.0;
-        let cy = button_y + button_h / 2.0;
+        // ✕ 紧挨滚动条:标记中心移到条左侧 ~4pt(条宽 5pt,见 scrollbar 段),
+        // 而不是悬在 3-cell 命中区的正中。
+        let pt_scale = self.dimensions.dpi as f32 / 72.0;
         let arm = (chip * 0.22).max(3.0);
+        let cx = (pane_right - (5.0 + 2.0) * pt_scale - arm).max(button_x + arm);
+        let cy = button_y + button_h / 2.0;
         let thick = (button_h / 12.0).max(1.6);
         let steps = ((arm * 4.0).round() as i32).max(24);
         for i in -steps..=steps {
