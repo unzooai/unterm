@@ -180,11 +180,15 @@ impl PopupMenu {
         let started = std::time::Instant::now();
         let font = term_window
             .fonts
-            .command_palette_font()
-            .expect("to resolve command palette font");
+            .title_font()
+            .expect("to resolve title font");
         let font_ms = started.elapsed().as_millis();
         let metrics = RenderMetrics::with_font_metrics(&font.metrics());
         let hover = *self.hover.borrow();
+        // Warp-derived spec, in points (measured constants: card V-pad 9pt,
+        // row V-pad 5pt / H-pad 14pt with 1.5x left inset, separator margin
+        // 4pt, radius 6pt, shadow #000@19%). Scaled by dpi to physical px.
+        let pt = term_window.dimensions.dpi as f32 / 72.0;
 
         // Explicit high-contrast surface (the command-palette defaults are
         // gray-on-gray and nearly unreadable on a dark theme).
@@ -200,7 +204,13 @@ impl PopupMenu {
                     Element::new(&font, ElementContent::Text(String::new()))
                         .display(DisplayType::Block)
                         .min_width(Some(Dimension::Percent(1.)))
-                        .line_height(Some(0.25))
+                        .line_height(Some(0.12))
+                        .margin(BoxDimension {
+                            left: Dimension::Pixels(0.),
+                            right: Dimension::Pixels(0.),
+                            top: Dimension::Pixels(4. * pt),
+                            bottom: Dimension::Pixels(4. * pt),
+                        })
                         .colors(ElementColors {
                             border: BorderColor::default(),
                             bg: fg.mul_alpha(0.10).into(),
@@ -252,10 +262,10 @@ impl PopupMenu {
                         text: fg.into(),
                     }))
                     .padding(BoxDimension {
-                        left: Dimension::Cells(0.75),
-                        right: Dimension::Cells(0.75),
-                        top: Dimension::Cells(0.15),
-                        bottom: Dimension::Cells(0.15),
+                        left: Dimension::Pixels(21. * pt),
+                        right: Dimension::Pixels(14. * pt),
+                        top: Dimension::Pixels(5. * pt),
+                        bottom: Dimension::Pixels(5. * pt),
                     })
                     .min_width(Some(Dimension::Percent(1.)))
                     .display(DisplayType::Block),
@@ -265,36 +275,36 @@ impl PopupMenu {
         let element = Element::new(&font, ElementContent::Children(rows))
             .item_type(UIItemType::PopupMenuCard)
             .colors(ElementColors {
-                border: BorderColor::new(fg.mul_alpha(0.25)),
+                border: BorderColor::new(LinearRgba::with_srgba(0x00, 0x00, 0x00, 0xb0)),
                 bg: bg.into(),
                 text: fg.into(),
             })
             .padding(BoxDimension {
-                left: Dimension::Cells(0.25),
-                right: Dimension::Cells(0.25),
-                top: Dimension::Cells(0.25),
-                bottom: Dimension::Cells(0.25),
+                left: Dimension::Pixels(0.),
+                right: Dimension::Pixels(0.),
+                top: Dimension::Pixels(9. * pt),
+                bottom: Dimension::Pixels(9. * pt),
             })
             .border(BoxDimension::new(Dimension::Pixels(1.)))
             .border_corners(Some(Corners {
                 top_left: SizedPoly {
-                    width: Dimension::Cells(0.25),
-                    height: Dimension::Cells(0.25),
+                    width: Dimension::Pixels(6. * pt),
+                    height: Dimension::Pixels(6. * pt),
                     poly: TOP_LEFT_ROUNDED_CORNER,
                 },
                 top_right: SizedPoly {
-                    width: Dimension::Cells(0.25),
-                    height: Dimension::Cells(0.25),
+                    width: Dimension::Pixels(6. * pt),
+                    height: Dimension::Pixels(6. * pt),
                     poly: TOP_RIGHT_ROUNDED_CORNER,
                 },
                 bottom_left: SizedPoly {
-                    width: Dimension::Cells(0.25),
-                    height: Dimension::Cells(0.25),
+                    width: Dimension::Pixels(6. * pt),
+                    height: Dimension::Pixels(6. * pt),
                     poly: BOTTOM_LEFT_ROUNDED_CORNER,
                 },
                 bottom_right: SizedPoly {
-                    width: Dimension::Cells(0.25),
-                    height: Dimension::Cells(0.25),
+                    width: Dimension::Pixels(6. * pt),
+                    height: Dimension::Pixels(6. * pt),
                     poly: BOTTOM_RIGHT_ROUNDED_CORNER,
                 },
             }));
