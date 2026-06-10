@@ -1,0 +1,427 @@
+//! Mouse-operable popup menu (v0.40 foundation).
+//!
+//! Replaces the keyboard-only cell-grid settings menu with a real floating
+//! menu: hover highlights, click executes, click-outside or Esc closes, and
+//! ↑/↓/Enter still work. Rendered through the box-model as a Modal, anchored
+//! under the tab bar's ⌄ button. Rows are tagged `UIItemType::PopupMenuRow`
+//! so the existing `ui_items` hit-testing covers them; the actual mouse
+//! routing lives in `mouseevent.rs` (the upstream Modal trait's mouse hook
+//! was never wired, and other modals stay keyboard-only for now).
+
+use crate::termwindow::box_model::*;
+use crate::termwindow::modal::Modal;
+use crate::termwindow::render::corners::{
+    BOTTOM_LEFT_ROUNDED_CORNER, BOTTOM_RIGHT_ROUNDED_CORNER, TOP_LEFT_ROUNDED_CORNER,
+    TOP_RIGHT_ROUNDED_CORNER,
+};
+use crate::termwindow::{DimensionContext, TermWindow, UIItemType};
+use crate::utilsprites::RenderMetrics;
+use config::keyassignment::{KeyAssignment, Pattern, SpawnCommand, SpawnTabDomain};
+use config::Dimension;
+use mux::pane::PaneId;
+use std::cell::{Ref, RefCell};
+use wezterm_term::{KeyCode, KeyModifiers, MouseEvent};
+use window::color::LinearRgba;
+use window::WindowOps;
+
+pub enum MenuAction {
+    Assign(KeyAssignment),
+    ChangeCwd,
+    ToggleRecording,
+    ExportSession,
+    OpenWebSettings,
+}
+
+pub struct MenuEntry {
+    label: String,
+    accel: &'static str,
+    /// `None` renders as a separator line.
+    action: Option<MenuAction>,
+}
+
+pub struct PopupMenu {
+    entries: Vec<MenuEntry>,
+    pane_id: PaneId,
+    element: RefCell<Option<Vec<ComputedElement>>>,
+    hover: RefCell<Option<usize>>,
+}
+
+impl PopupMenu {
+    pub fn build_default(pane_id: PaneId) -> Self {
+        let recording_on = crate::recording::recorder::current_session(pane_id).is_some();
+        let recording_label = if recording_on {
+            crate::i18n::t("settings.menu.recording_on")
+        } else {
+            crate::i18n::t("settings.menu.recording_off")
+        };
+        let entry = |label: String, accel: &'static str, action: MenuAction| MenuEntry {
+            label,
+            accel,
+            action: Some(action),
+        };
+        let sep = || MenuEntry {
+            label: String::new(),
+            accel: "",
+            action: None,
+        };
+        let entries = vec![
+            entry(
+                crate::i18n::t("menu.new_tab"),
+                "Ctrl+Shift+T",
+                MenuAction::Assign(KeyAssignment::SpawnTab(SpawnTabDomain::CurrentPaneDomain)),
+            ),
+            entry(
+                crate::i18n::t("settings.menu.split_right"),
+                "Ctrl+Shift+E",
+                MenuAction::Assign(KeyAssignment::SplitHorizontal(SpawnCommand::default())),
+            ),
+            entry(
+                crate::i18n::t("settings.menu.change_cwd"),
+                "",
+                MenuAction::ChangeCwd,
+            ),
+            entry(
+                crate::i18n::t("menu.find"),
+                "Ctrl+Shift+F",
+                MenuAction::Assign(KeyAssignment::Search(Pattern::CaseSensitiveString(
+                    String::new(),
+                ))),
+            ),
+            sep(),
+            entry(
+                crate::i18n::t("menu.command_palette"),
+                "Ctrl+Shift+P",
+                MenuAction::Assign(KeyAssignment::ActivateCommandPalette),
+            ),
+            sep(),
+            entry(recording_label, "", MenuAction::ToggleRecording),
+            entry(
+                crate::i18n::t("settings.menu.export_session"),
+                "",
+                MenuAction::ExportSession,
+            ),
+            sep(),
+            entry(
+                crate::i18n::t("settings.menu.web_settings"),
+                "",
+                MenuAction::OpenWebSettings,
+            ),
+        ];
+        Self {
+            entries,
+            pane_id,
+            element: RefCell::new(None),
+            hover: RefCell::new(None),
+        }
+    }
+
+    fn first_selectable(&self) -> Option<usize> {
+        self.entries.iter().position(|e| e.action.is_some())
+    }
+
+    fn step_hover(&self, delta: isize) {
+        let len = self.entries.len() as isize;
+        if len == 0 {
+            return;
+        }
+        let mut idx = self
+            .hover
+            .borrow()
+            .map(|i| i as isize)
+            .unwrap_or(if delta > 0 { -1 } else { 0 });
+        for _ in 0..len {
+            idx = (idx + delta).rem_euclid(len);
+            if self.entries[idx as usize].action.is_some() {
+                self.hover.borrow_mut().replace(idx as usize);
+                self.element.borrow_mut().take();
+                return;
+            }
+        }
+    }
+
+    /// Mouse-move hover from mouseevent.rs. Invalidates only on change.
+    pub fn set_hover(&self, idx: Option<usize>, term_window: &TermWindow) {
+        if *self.hover.borrow() == idx {
+            return;
+        }
+        *self.hover.borrow_mut() = idx;
+        self.element.borrow_mut().take();
+        if let Some(window) = term_window.window.as_ref() {
+            window.invalidate();
+        }
+    }
+
+    /// Execute entry `idx` (from click or Enter) and close the menu.
+    pub fn activate(&self, idx: usize, term_window: &mut TermWindow) {
+        let Some(entry) = self.entries.get(idx) else {
+            return;
+        };
+        let Some(action) = &entry.action else {
+            return;
+        };
+        term_window.cancel_modal();
+        let pane_id = self.pane_id;
+        match action {
+            MenuAction::Assign(assignment) => {
+                if let Some(pane) = term_window.get_active_pane_or_overlay() {
+                    if let Err(err) = term_window.perform_key_assignment(&pane, assignment) {
+                        log::error!("popup menu action failed: {err:#}");
+                    }
+                }
+            }
+            MenuAction::ChangeCwd => term_window.change_working_directory_for_pane(pane_id),
+            MenuAction::ToggleRecording => term_window.toggle_session_recording(pane_id),
+            MenuAction::ExportSession => term_window.export_current_session(pane_id),
+            MenuAction::OpenWebSettings => term_window.open_web_settings(),
+        }
+    }
+
+    fn compute(&self, term_window: &mut TermWindow) -> anyhow::Result<Vec<ComputedElement>> {
+        let started = std::time::Instant::now();
+        let font = term_window
+            .fonts
+            .command_palette_font()
+            .expect("to resolve command palette font");
+        let font_ms = started.elapsed().as_millis();
+        let metrics = RenderMetrics::with_font_metrics(&font.metrics());
+        let hover = *self.hover.borrow();
+
+        // Explicit high-contrast surface (the command-palette defaults are
+        // gray-on-gray and nearly unreadable on a dark theme).
+        let bg = LinearRgba::with_srgba(0x20, 0x20, 0x20, 0xff);
+        let fg = LinearRgba::with_srgba(0xf2, 0xf2, 0xf0, 0xff);
+        let accel_fg = LinearRgba::with_srgba(0x9b, 0x9b, 0x98, 0xff);
+        let hover_bg = LinearRgba::with_srgba(0x34, 0x34, 0x34, 0xff);
+
+        let mut rows: Vec<Element> = vec![];
+        for (idx, e) in self.entries.iter().enumerate() {
+            if e.action.is_none() {
+                rows.push(
+                    Element::new(&font, ElementContent::Text(String::new()))
+                        .display(DisplayType::Block)
+                        .min_width(Some(Dimension::Percent(1.)))
+                        .line_height(Some(0.25))
+                        .colors(ElementColors {
+                            border: BorderColor::default(),
+                            bg: fg.mul_alpha(0.10).into(),
+                            text: fg.into(),
+                        }),
+                );
+                continue;
+            }
+            // Keyboard selection paints explicitly; mouse hover is handled by
+            // the renderer via hover_colors (zero recompute, zero lag).
+            let (row_bg, row_fg): (InheritableColor, InheritableColor) = if hover == Some(idx) {
+                (hover_bg.into(), fg.into())
+            } else {
+                (LinearRgba::TRANSPARENT.into(), fg.into())
+            };
+            let mut row = vec![Element::new(
+                &font,
+                ElementContent::Text(e.label.clone()),
+            )];
+            if !e.accel.is_empty() {
+                row.push(
+                    Element::new(&font, ElementContent::Text(e.accel.to_string()))
+                        .float(Float::Right)
+                        .padding(BoxDimension {
+                            left: Dimension::Cells(2.),
+                            right: Dimension::Cells(0.25),
+                            top: Dimension::Cells(0.),
+                            bottom: Dimension::Cells(0.),
+                        })
+                        .zindex(10)
+                        .colors(ElementColors {
+                            border: BorderColor::default(),
+                            bg: row_bg.clone(),
+                            text: accel_fg.into(),
+                        }),
+                );
+            }
+            rows.push(
+                Element::new(&font, ElementContent::Children(row))
+                    .item_type(UIItemType::PopupMenuRow(idx))
+                    .colors(ElementColors {
+                        border: BorderColor::default(),
+                        bg: row_bg,
+                        text: row_fg,
+                    })
+                    .hover_colors(Some(ElementColors {
+                        border: BorderColor::default(),
+                        bg: hover_bg.into(),
+                        text: fg.into(),
+                    }))
+                    .padding(BoxDimension {
+                        left: Dimension::Cells(0.75),
+                        right: Dimension::Cells(0.75),
+                        top: Dimension::Cells(0.15),
+                        bottom: Dimension::Cells(0.15),
+                    })
+                    .min_width(Some(Dimension::Percent(1.)))
+                    .display(DisplayType::Block),
+            );
+        }
+
+        let element = Element::new(&font, ElementContent::Children(rows))
+            .item_type(UIItemType::PopupMenuCard)
+            .colors(ElementColors {
+                border: BorderColor::new(fg.mul_alpha(0.25)),
+                bg: bg.into(),
+                text: fg.into(),
+            })
+            .padding(BoxDimension {
+                left: Dimension::Cells(0.25),
+                right: Dimension::Cells(0.25),
+                top: Dimension::Cells(0.25),
+                bottom: Dimension::Cells(0.25),
+            })
+            .border(BoxDimension::new(Dimension::Pixels(1.)))
+            .border_corners(Some(Corners {
+                top_left: SizedPoly {
+                    width: Dimension::Cells(0.25),
+                    height: Dimension::Cells(0.25),
+                    poly: TOP_LEFT_ROUNDED_CORNER,
+                },
+                top_right: SizedPoly {
+                    width: Dimension::Cells(0.25),
+                    height: Dimension::Cells(0.25),
+                    poly: TOP_RIGHT_ROUNDED_CORNER,
+                },
+                bottom_left: SizedPoly {
+                    width: Dimension::Cells(0.25),
+                    height: Dimension::Cells(0.25),
+                    poly: BOTTOM_LEFT_ROUNDED_CORNER,
+                },
+                bottom_right: SizedPoly {
+                    width: Dimension::Cells(0.25),
+                    height: Dimension::Cells(0.25),
+                    poly: BOTTOM_RIGHT_ROUNDED_CORNER,
+                },
+            }));
+
+        let dimensions = term_window.dimensions;
+        let border = term_window.get_os_border();
+        let top_bar_height = if term_window.show_tab_bar && !term_window.config.tab_bar_at_bottom {
+            term_window.tab_bar_pixel_height().unwrap_or(0.)
+        } else {
+            0.
+        };
+        let top_pixel_y = (top_bar_height + border.top.get() as f32 + 4.).round();
+
+        // Width: longest label + accel estimate, in cells; clamped to window.
+        let max_chars = self
+            .entries
+            .iter()
+            .map(|e| e.label.chars().count() + e.accel.chars().count() + 6)
+            .max()
+            .unwrap_or(24) as f32;
+        let cell_w = metrics.cell_size.width as f32;
+        let desired_pixel_width =
+            (max_chars * cell_w).min(dimensions.pixel_width as f32 - 16.).round();
+        // Anchor under the tab bar's ⌄ button (its ui_item bounds are in
+        // window pixels); fall back to the right edge if it isn't on screen.
+        let anchor_x = term_window
+            .ui_items
+            .iter()
+            .find(|item| {
+                matches!(
+                    item.item_type,
+                    UIItemType::TabBar(crate::tabbar::TabBarItem::MenuButton)
+                )
+            })
+            .map(|item| item.x as f32);
+        let x = anchor_x
+            .unwrap_or(dimensions.pixel_width as f32)
+            .min(dimensions.pixel_width as f32 - border.right.get() as f32 - desired_pixel_width - 8.)
+            .max(8.)
+            .round();
+
+        let computed = term_window.compute_element(
+            &LayoutContext {
+                height: DimensionContext {
+                    dpi: dimensions.dpi as f32,
+                    pixel_max: dimensions.pixel_height as f32,
+                    pixel_cell: metrics.cell_size.height as f32,
+                },
+                width: DimensionContext {
+                    dpi: dimensions.dpi as f32,
+                    pixel_max: dimensions.pixel_width as f32,
+                    pixel_cell: metrics.cell_size.width as f32,
+                },
+                bounds: euclid::rect(
+                    x.max(0.),
+                    top_pixel_y,
+                    desired_pixel_width,
+                    dimensions.pixel_height as f32 - top_pixel_y,
+                ),
+                metrics: &metrics,
+                gl_state: term_window.render_state.as_ref().unwrap(),
+                zindex: 100,
+            },
+            &element,
+        )?;
+
+        log::info!(
+            "popup menu compute: font {font_ms}ms, total {}ms",
+            started.elapsed().as_millis()
+        );
+        Ok(vec![computed])
+    }
+}
+
+impl Modal for PopupMenu {
+    fn mouse_event(&self, _event: MouseEvent, _term_window: &mut TermWindow) -> anyhow::Result<()> {
+        // Real mouse routing happens in mouseevent.rs via ui_items hit-testing.
+        Ok(())
+    }
+
+    fn key_down(
+        &self,
+        key: KeyCode,
+        mods: KeyModifiers,
+        term_window: &mut TermWindow,
+    ) -> anyhow::Result<bool> {
+        match (key, mods) {
+            (KeyCode::Escape, KeyModifiers::NONE) => {
+                term_window.cancel_modal();
+            }
+            (KeyCode::UpArrow, KeyModifiers::NONE) => {
+                self.step_hover(-1);
+                if let Some(window) = term_window.window.as_ref() {
+                    window.invalidate();
+                }
+            }
+            (KeyCode::DownArrow, KeyModifiers::NONE) => {
+                self.step_hover(1);
+                if let Some(window) = term_window.window.as_ref() {
+                    window.invalidate();
+                }
+            }
+            (KeyCode::Enter, KeyModifiers::NONE) => {
+                let idx = self.hover.borrow().or_else(|| self.first_selectable());
+                if let Some(idx) = idx {
+                    self.activate(idx, term_window);
+                }
+            }
+            _ => {}
+        }
+        Ok(true)
+    }
+
+    fn computed_element(
+        &self,
+        term_window: &mut TermWindow,
+    ) -> anyhow::Result<Ref<'_, [ComputedElement]>> {
+        if self.element.borrow().is_none() {
+            let element = self.compute(term_window)?;
+            self.element.borrow_mut().replace(element);
+        }
+        Ok(Ref::map(self.element.borrow(), |v| {
+            v.as_ref().unwrap().as_slice()
+        }))
+    }
+
+    fn reconfigure(&self, _term_window: &mut TermWindow) {
+        self.element.borrow_mut().take();
+    }
+}

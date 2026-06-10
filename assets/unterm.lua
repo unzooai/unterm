@@ -95,14 +95,21 @@ config.hide_tab_bar_if_only_one_tab = false
 
 -- Tab 栏整条 = 内容底(theme_bg),活动 tab 无缝、文字加粗;非活动 tab 同底、
 -- 用 Half 亮度自动变暗(随主题,不需算色)。整条顶栏与内容一体。
+-- 非活动 tab 用「主题前景调暗到 65%」的显式灰,而不是 Half 强度(Half 直接
+-- 砍半,暗主题下几乎看不清——对比度反馈 2026-06-10)。
+local dim_fg = theme_fg
+do
+  local ok, c = pcall(function() return wezterm.color.parse(theme_fg) end)
+  if ok and c then dim_fg = tostring(c:darken(0.35)) end
+end
 config.colors = {
   tab_bar = {
     background = theme_bg,
     active_tab = { bg_color = theme_bg, fg_color = theme_fg, intensity = 'Bold' },
-    inactive_tab = { bg_color = theme_bg, fg_color = theme_fg, intensity = 'Half' },
-    inactive_tab_hover = { bg_color = theme_bg, fg_color = theme_fg, intensity = 'Normal' },
-    new_tab = { bg_color = theme_bg, fg_color = theme_fg, intensity = 'Half' },
-    new_tab_hover = { bg_color = theme_bg, fg_color = theme_fg, intensity = 'Normal' },
+    inactive_tab = { bg_color = theme_bg, fg_color = dim_fg },
+    inactive_tab_hover = { bg_color = theme_bg, fg_color = theme_fg },
+    new_tab = { bg_color = theme_bg, fg_color = dim_fg },
+    new_tab_hover = { bg_color = theme_bg, fg_color = theme_fg },
   },
 }
 

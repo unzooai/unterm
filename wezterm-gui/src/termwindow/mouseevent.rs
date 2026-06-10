@@ -59,7 +59,9 @@ impl super::TermWindow {
             | UIItemType::StatusBarCaptureInclude
             | UIItemType::StatusBarProxy
             | UIItemType::StatusBarMcpAudit
-            | UIItemType::CloseSplitPane(_) => {}
+            | UIItemType::CloseSplitPane(_)
+            | UIItemType::PopupMenuRow(_)
+            | UIItemType::PopupMenuCard => {}
         }
     }
 
@@ -79,7 +81,9 @@ impl super::TermWindow {
             | UIItemType::StatusBarCaptureInclude
             | UIItemType::StatusBarProxy
             | UIItemType::StatusBarMcpAudit
-            | UIItemType::CloseSplitPane(_) => {}
+            | UIItemType::CloseSplitPane(_)
+            | UIItemType::PopupMenuRow(_)
+            | UIItemType::PopupMenuCard => {}
         }
     }
 
@@ -91,6 +95,37 @@ impl super::TermWindow {
         };
 
         self.current_mouse_event.replace(event.clone());
+
+        // v0.40 popup menu: while it is open it owns the mouse. Hover via the
+        // rows' ui_items; click on a row executes; any press outside the card
+        // closes. Other modal types keep their historical (keyboard-only)
+        // behavior untouched.
+        if let Some(modal) = self.get_modal() {
+            if let Some(menu) =
+                modal.downcast_ref::<crate::termwindow::popup_menu::PopupMenu>()
+            {
+                let item = self.resolve_ui_item(&event);
+                match (&event.kind, item.as_ref().map(|i| &i.item_type)) {
+                    // Hover highlight is renderer-native (hover_colors); just
+                    // repaint so the hovered row updates promptly.
+                    (WMEK::Move, _) => {
+                        let _ = &menu;
+                        if let Some(window) = self.window.as_ref() {
+                            window.invalidate();
+                        }
+                    }
+                    (WMEK::Press(MousePress::Left), Some(UIItemType::PopupMenuRow(i))) => {
+                        let i = *i;
+                        menu.activate(i, self);
+                    }
+                    (WMEK::Press(_), Some(UIItemType::PopupMenuCard)) => {}
+                    (WMEK::Press(_), _) => self.cancel_modal(),
+                    _ => {}
+                }
+                context.set_cursor(Some(MouseCursor::Arrow));
+                return;
+            }
+        }
 
         let border = self.get_os_border();
 
@@ -435,6 +470,9 @@ impl super::TermWindow {
             UIItemType::StatusBarMcpAudit => {
                 self.mouse_event_status_bar_mcp_audit(event, context);
             }
+            // Popup menu items are handled by the modal gate at the top of
+            // mouse_event_impl and never reach this dispatcher.
+            UIItemType::PopupMenuRow(_) | UIItemType::PopupMenuCard => {}
             UIItemType::CloseSplitPane(pane_id) => {
                 self.mouse_event_close_split_pane(pane_id, event, context);
             }

@@ -78,6 +78,7 @@ pub mod modal;
 pub(crate) mod mouseevent;
 pub mod palette;
 pub mod paneselect;
+pub mod popup_menu;
 mod prevcursor;
 pub mod render;
 pub mod resize;
@@ -188,6 +189,11 @@ pub enum UIItemType {
     /// `×` button rendered in the top-right corner of every pane when the
     /// active tab has 2+ panes. Click closes the specific pane.
     CloseSplitPane(mux::pane::PaneId),
+    /// A selectable row inside the mouse-operable popup menu (v0.40).
+    PopupMenuRow(usize),
+    /// The popup menu card itself — swallows clicks that miss every row so
+    /// they don't fall through to the pane below.
+    PopupMenuCard,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -2707,22 +2713,15 @@ impl TermWindow {
     /// Directory, Shell Selector). The right-click gesture is reserved for
     /// direct copy/paste, so this is the *only* place a menu surfaces.
     fn show_settings_menu(&mut self) {
-        let mux = Mux::get();
-        let tab = match mux.get_active_tab_for_window(self.mux_window_id) {
-            Some(tab) => tab,
-            None => return,
-        };
+        // v0.40: mouse-operable floating menu (popup_menu.rs) replaces the
+        // keyboard-only cell-grid overlay that used to live here.
         let pane = match self.get_active_pane_or_overlay() {
             Some(pane) => pane,
             None => return,
         };
         let pane_id = pane.pane_id();
-        let window = self.window.as_ref().unwrap().clone();
-        let (overlay, future) = start_overlay(self, &tab, move |_tab_id, mut term| {
-            crate::overlay::settings_menu::settings_menu(&mut term, window, pane_id)
-        });
-        self.assign_overlay(tab.tab_id(), overlay);
-        promise::spawn::spawn(future).detach();
+        let menu = crate::termwindow::popup_menu::PopupMenu::build_default(pane_id);
+        self.set_modal(std::rc::Rc::new(menu));
     }
 
     pub(crate) fn open_project_directory_from_menu(&mut self) {
