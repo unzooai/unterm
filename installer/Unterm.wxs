@@ -68,6 +68,26 @@
       <Component Id="OpenConsoleExe" Guid="31E6F6F2-74DE-4576-BC35-3E4D2E66E84F">
         <File Source="$(var.SourceDir)\OpenConsole.exe" KeyPath="yes" />
       </Component>
+      <!-- Explorer right-click: "Open Unterm here" on folders and folder
+           backgrounds (Warp/WT parity). %V = the clicked directory. -->
+      <Component Id="ExplorerContextMenuDir" Guid="9E84F984-1E7A-4655-ACBE-E689E76E2AB8">
+        <RegistryKey Root="HKCR" Key="Directory\shell\Unterm">
+          <RegistryValue Type="string" Value="Open Unterm here" KeyPath="yes" />
+          <RegistryValue Type="string" Name="Icon" Value="[INSTALLFOLDER]unterm.exe" />
+          <RegistryKey Key="command">
+            <RegistryValue Type="string" Value="&quot;[INSTALLFOLDER]unterm.exe&quot; start --cwd &quot;%V&quot;" />
+          </RegistryKey>
+        </RegistryKey>
+      </Component>
+      <Component Id="ExplorerContextMenuBg" Guid="D26416CF-817A-4DCE-8F8C-FFA87951EA5D">
+        <RegistryKey Root="HKCR" Key="Directory\Background\shell\Unterm">
+          <RegistryValue Type="string" Value="Open Unterm here" KeyPath="yes" />
+          <RegistryValue Type="string" Name="Icon" Value="[INSTALLFOLDER]unterm.exe" />
+          <RegistryKey Key="command">
+            <RegistryValue Type="string" Value="&quot;[INSTALLFOLDER]unterm.exe&quot; start --cwd &quot;%V&quot;" />
+          </RegistryKey>
+        </RegistryKey>
+      </Component>
       <Component Id="DefaultUntermLua" Directory="DefaultsFolder" Guid="F3B2F196-E64A-4045-8B40-490D18018546">
         <File Source="$(var.SourceDir)\defaults\unterm.lua" KeyPath="yes" />
       </Component>

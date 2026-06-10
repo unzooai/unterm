@@ -144,6 +144,182 @@ impl crate::TermWindow {
 
     }
 
+    /// v0.40: left directory-tree sidebar. Painted between the panes and the
+    /// tab bar; the panes have already been shifted right by
+    /// tree_sidebar_pixel_width() via the padding injection, so this draws
+    /// into reserved gutter space.
+    pub fn paint_tree_sidebar(&mut self) -> anyhow::Result<()> {
+        use crate::termwindow::box_model::*;
+        use crate::termwindow::{DimensionContext, UIItemType};
+        use crate::utilsprites::RenderMetrics;
+        use ::window::color::LinearRgba;
+        use config::Dimension;
+
+        let width = self.tree_sidebar_pixel_width();
+        if width <= 0.0 {
+            return Ok(());
+        }
+        // Refresh lazily; redraw is already happening so changed rows just
+        // paint this frame.
+        if let Some(tree) = self.tree_sidebar.borrow_mut().as_mut() {
+            tree.ensure_fresh();
+        }
+
+        let font = self.fonts.title_font().expect("title font");
+        let metrics = RenderMetrics::with_font_metrics(&font.metrics());
+        let pt = self.dimensions.dpi as f32 / 72.0;
+
+        let border = self.get_os_border();
+        let top_bar_height = if self.show_tab_bar && !self.config.tab_bar_at_bottom {
+            self.tab_bar_pixel_height().unwrap_or(0.)
+        } else {
+            0.
+        };
+        let top = top_bar_height + border.top.get() as f32;
+        let status_h = if self.config.show_unterm_status_bar {
+            self.status_bar_pixel_height()
+        } else {
+            0.
+        };
+        let bottom = self.dimensions.pixel_height as f32 - status_h - border.bottom.get() as f32;
+        let row_h = metrics.cell_size.height as f32 + 6. * pt;
+        let visible_rows = (((bottom - top) / row_h).floor() as usize).saturating_sub(1);
+
+        let bg = LinearRgba::with_srgba(0x16, 0x16, 0x16, 0xff);
+        let fg = LinearRgba::with_srgba(0xcf, 0xcf, 0xcd, 0xff);
+        let dim = LinearRgba::with_srgba(0x6f, 0x6f, 0x6c, 0xff);
+        let teal = LinearRgba::with_srgba(0x6f, 0xcc, 0xb8, 0xff);
+        let hover_bg = LinearRgba::with_srgba(0x26, 0x26, 0x26, 0xff);
+
+        let mut children: Vec<Element> = vec![];
+
+        let (root_name, rows_snapshot, scroll_top) = {
+            let tree = self.tree_sidebar.borrow();
+            let tree = tree.as_ref().unwrap();
+            let name = tree
+                .root
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| tree.root.display().to_string());
+            let rows: Vec<(String, usize, bool, bool, bool)> = tree
+                .rows
+                .iter()
+                .map(|r| {
+                    (
+                        r.path
+                            .file_name()
+                            .map(|n| n.to_string_lossy().to_string())
+                            .unwrap_or_default(),
+                        r.depth,
+                        r.is_dir,
+                        r.expanded,
+                        r.is_hidden,
+                    )
+                })
+                .collect();
+            (name, rows, tree.scroll_top)
+        };
+
+        // Header: ▦ root-name
+        children.push(
+            Element::new(&font, ElementContent::Text(format!("▦  {root_name}")))
+                .display(DisplayType::Block)
+                .min_width(Some(Dimension::Percent(1.)))
+                .padding(BoxDimension {
+                    left: Dimension::Pixels(12. * pt),
+                    right: Dimension::Pixels(8. * pt),
+                    top: Dimension::Pixels(6. * pt),
+                    bottom: Dimension::Pixels(6. * pt),
+                })
+                .colors(ElementColors {
+                    border: BorderColor::default(),
+                    bg: LinearRgba::TRANSPARENT.into(),
+                    text: teal.into(),
+                }),
+        );
+
+        for (i, (name, depth, is_dir, expanded, is_hidden)) in rows_snapshot
+            .iter()
+            .enumerate()
+            .skip(scroll_top)
+            .take(visible_rows)
+        {
+            let glyph = if *is_dir {
+                if *expanded {
+                    "▾ "
+                } else {
+                    "▸ "
+                }
+            } else {
+                "  "
+            };
+            let text_color = if *is_hidden { dim } else { fg };
+            children.push(
+                Element::new(
+                    &font,
+                    ElementContent::Text(format!("{glyph}{name}")),
+                )
+                .item_type(UIItemType::TreeSidebarRow(i))
+                .display(DisplayType::Block)
+                .min_width(Some(Dimension::Percent(1.)))
+                .padding(BoxDimension {
+                    left: Dimension::Pixels(12. * pt + (*depth as f32) * 12. * pt),
+                    right: Dimension::Pixels(6. * pt),
+                    top: Dimension::Pixels(3. * pt),
+                    bottom: Dimension::Pixels(3. * pt),
+                })
+                .colors(ElementColors {
+                    border: BorderColor::default(),
+                    bg: LinearRgba::TRANSPARENT.into(),
+                    text: text_color.into(),
+                })
+                .hover_colors(Some(ElementColors {
+                    border: BorderColor::default(),
+                    bg: hover_bg.into(),
+                    text: fg.into(),
+                })),
+            );
+        }
+
+        let container = Element::new(&font, ElementContent::Children(children))
+            .item_type(UIItemType::TreeSidebarBg)
+            .colors(ElementColors {
+                border: BorderColor::default(),
+                bg: bg.into(),
+                text: fg.into(),
+            })
+            .min_width(Some(Dimension::Pixels(width)))
+            .min_height(Some(Dimension::Pixels(bottom - top)));
+
+        let computed = self.compute_element(
+            &LayoutContext {
+                height: DimensionContext {
+                    dpi: self.dimensions.dpi as f32,
+                    pixel_max: self.dimensions.pixel_height as f32,
+                    pixel_cell: metrics.cell_size.height as f32,
+                },
+                width: DimensionContext {
+                    dpi: self.dimensions.dpi as f32,
+                    pixel_max: self.dimensions.pixel_width as f32,
+                    pixel_cell: metrics.cell_size.width as f32,
+                },
+                bounds: euclid::rect(border.left.get() as f32, top, width, bottom - top),
+                metrics: &metrics,
+                gl_state: self.render_state.as_ref().unwrap(),
+                zindex: 20,
+            },
+            &container,
+        )?;
+
+        let mut ui_items = computed.ui_items();
+        {
+            let gl_state = self.render_state.as_ref().unwrap();
+            self.render_element(&computed, gl_state, None)?;
+        }
+        self.ui_items.append(&mut ui_items);
+        Ok(())
+    }
+
     pub fn paint_modal(&mut self) -> anyhow::Result<()> {
         if let Some(modal) = self.get_modal() {
             for computed in modal.computed_element(self)?.iter() {
@@ -274,6 +450,8 @@ impl crate::TermWindow {
                     .context("paint_split")?;
             }
         }
+
+        self.paint_tree_sidebar().context("paint_tree_sidebar")?;
 
         if self.show_tab_bar {
             self.paint_tab_bar(&mut layers).context("paint_tab_bar")?;

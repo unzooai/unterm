@@ -886,6 +886,22 @@ pub fn derive_command_from_key_assignment(action: &KeyAssignment) -> Option<Comm
             menubar: &["Shell"],
             icon: Some("cod_terminal"),
         },
+        ToggleTreeSidebar => CommandDef {
+            brief: "Toggle Directory Tree".into(),
+            doc: "Shows or hides the left directory-tree sidebar".into(),
+            keys: vec![(Modifiers::CTRL.union(Modifiers::SHIFT), "b".into())],
+            args: &[ArgType::ActiveWindow],
+            menubar: &["View"],
+            icon: Some("md_file_tree"),
+        },
+        ShowDirJump => CommandDef {
+            brief: "Go to Directory".into(),
+            doc: "Opens the directory jump palette to cd or open a new tab in a chosen directory".into(),
+            keys: vec![(Modifiers::CTRL.union(Modifiers::SHIFT), "o".into())],
+            args: &[ArgType::ActiveWindow],
+            menubar: &["Shell"],
+            icon: Some("md_folder_search_outline"),
+        },
         ShowContextMenu => CommandDef {
             brief: "Context Menu".into(),
             doc: "Opens the Unterm context menu with common actions".into(),

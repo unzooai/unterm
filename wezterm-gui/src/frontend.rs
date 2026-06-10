@@ -271,6 +271,36 @@ impl GuiFrontEnd {
                 })
                 .detach();
             }
+            ApplicationEvent::OpenDirectoryTab(path) => {
+                promise::spawn::spawn(async move {
+                    use config::keyassignment::SpawnTabDomain;
+                    use wezterm_term::TerminalSize;
+
+                    let mux = Mux::get();
+                    let workspace = mux.active_workspace();
+                    // Prefer a tab in an existing window; fall back to a new
+                    // window when none is open.
+                    let window_id = mux.iter_windows_in_workspace(&workspace).into_iter().next();
+                    let cwd = Some(path.display().to_string());
+
+                    if let Err(err) = mux
+                        .spawn_tab_or_window(
+                            window_id,
+                            SpawnTabDomain::DomainName("local".to_string()),
+                            None,
+                            cwd,
+                            TerminalSize::default(),
+                            None,
+                            workspace,
+                            None,
+                        )
+                        .await
+                    {
+                        log::error!("service tab-here failed: {err:#}");
+                    }
+                })
+                .detach();
+            }
             ApplicationEvent::OpenDirectory(path) => {
                 promise::spawn::spawn(async move {
                     use config::keyassignment::SpawnTabDomain;

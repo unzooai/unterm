@@ -147,16 +147,12 @@ extern "C" fn application_open_file(
     }
 }
 
-extern "C" fn application_open_in_unterm(
-    this: &mut Object,
-    _sel: Sel,
-    pboard: *mut Object,
-    _user_data: *mut Object,
-    _error: *mut Object,
-) {
+/// Pull the first directory out of a Services-invocation pasteboard
+/// (file selections resolve to their parent dir).
+fn service_directory_from_pboard(this: &mut Object, pboard: *mut Object) -> Option<std::path::PathBuf> {
     let launched: BOOL = unsafe { *this.get_ivar("launched") };
     if launched != YES {
-        return;
+        return None;
     }
 
     let paths = unsafe {
@@ -174,22 +170,45 @@ extern "C" fn application_open_in_unterm(
         }
     };
 
-    let path: std::path::PathBuf = match paths.into_iter().next() {
-        Some(path) => {
-            if path.is_dir() {
-                path
-            } else {
-                path.parent()
-                    .map(|p: &std::path::Path| p.to_path_buf())
-                    .unwrap_or(path)
-            }
-        }
-        None => return,
-    };
+    match paths.into_iter().next() {
+        Some(path) => Some(if path.is_dir() {
+            path
+        } else {
+            path.parent()
+                .map(|p: &std::path::Path| p.to_path_buf())
+                .unwrap_or(path)
+        }),
+        None => None,
+    }
+}
 
-    if let Some(conn) = Connection::get() {
-        log::debug!("application_open_in_unterm cwd={}", path.display());
-        conn.dispatch_app_event(ApplicationEvent::OpenDirectory(path));
+extern "C" fn application_open_in_unterm(
+    this: &mut Object,
+    _sel: Sel,
+    pboard: *mut Object,
+    _user_data: *mut Object,
+    _error: *mut Object,
+) {
+    if let Some(path) = service_directory_from_pboard(this, pboard) {
+        if let Some(conn) = Connection::get() {
+            log::debug!("service: new window at {}", path.display());
+            conn.dispatch_app_event(ApplicationEvent::OpenDirectory(path));
+        }
+    }
+}
+
+extern "C" fn application_open_unterm_tab_here(
+    this: &mut Object,
+    _sel: Sel,
+    pboard: *mut Object,
+    _user_data: *mut Object,
+    _error: *mut Object,
+) {
+    if let Some(path) = service_directory_from_pboard(this, pboard) {
+        if let Some(conn) = Connection::get() {
+            log::debug!("service: new tab at {}", path.display());
+            conn.dispatch_app_event(ApplicationEvent::OpenDirectoryTab(path));
+        }
     }
 }
 
@@ -277,6 +296,11 @@ fn get_class() -> &'static Class {
             cls.add_method(
                 sel!(openInUnterm:userData:error:),
                 application_open_in_unterm
+                    as extern "C" fn(&mut Object, Sel, *mut Object, *mut Object, *mut Object),
+            );
+            cls.add_method(
+                sel!(openUntermTabHere:userData:error:),
+                application_open_unterm_tab_here
                     as extern "C" fn(&mut Object, Sel, *mut Object, *mut Object, *mut Object),
             );
             cls.add_method(

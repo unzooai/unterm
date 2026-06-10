@@ -61,6 +61,127 @@ const DROPDOWN_BUTTON: &[Poly] = &[Poly {
     style: PolyStyle::Outline,
 }];
 
+// v0.40 quick-action icons (hand-drawn polys — crisp at any dpi, no font
+// dependency). Order in the bar: tree / split / dir-jump / settings.
+const QUICK_TREE: &[Poly] = &[
+    Poly {
+        path: &[
+            PolyCommand::MoveTo(BlockCoord::Frac(1, 4), BlockCoord::Frac(1, 8)),
+            PolyCommand::LineTo(BlockCoord::Frac(1, 4), BlockCoord::Frac(7, 8)),
+        ],
+        intensity: BlockAlpha::Full,
+        style: PolyStyle::Outline,
+    },
+    Poly {
+        path: &[
+            PolyCommand::MoveTo(BlockCoord::Frac(1, 4), BlockCoord::Frac(1, 4)),
+            PolyCommand::LineTo(BlockCoord::Frac(7, 8), BlockCoord::Frac(1, 4)),
+        ],
+        intensity: BlockAlpha::Full,
+        style: PolyStyle::Outline,
+    },
+    Poly {
+        path: &[
+            PolyCommand::MoveTo(BlockCoord::Frac(1, 4), BlockCoord::Frac(1, 2)),
+            PolyCommand::LineTo(BlockCoord::Frac(7, 8), BlockCoord::Frac(1, 2)),
+        ],
+        intensity: BlockAlpha::Full,
+        style: PolyStyle::Outline,
+    },
+    Poly {
+        path: &[
+            PolyCommand::MoveTo(BlockCoord::Frac(1, 4), BlockCoord::Frac(3, 4)),
+            PolyCommand::LineTo(BlockCoord::Frac(7, 8), BlockCoord::Frac(3, 4)),
+        ],
+        intensity: BlockAlpha::Full,
+        style: PolyStyle::Outline,
+    },
+];
+const QUICK_SPLIT: &[Poly] = &[
+    Poly {
+        path: &[
+            PolyCommand::MoveTo(BlockCoord::Frac(1, 8), BlockCoord::Frac(1, 8)),
+            PolyCommand::LineTo(BlockCoord::Frac(7, 8), BlockCoord::Frac(1, 8)),
+            PolyCommand::LineTo(BlockCoord::Frac(7, 8), BlockCoord::Frac(7, 8)),
+            PolyCommand::LineTo(BlockCoord::Frac(1, 8), BlockCoord::Frac(7, 8)),
+            PolyCommand::Close,
+        ],
+        intensity: BlockAlpha::Full,
+        style: PolyStyle::Outline,
+    },
+    Poly {
+        path: &[
+            PolyCommand::MoveTo(BlockCoord::Frac(1, 2), BlockCoord::Frac(1, 8)),
+            PolyCommand::LineTo(BlockCoord::Frac(1, 2), BlockCoord::Frac(7, 8)),
+        ],
+        intensity: BlockAlpha::Full,
+        style: PolyStyle::Outline,
+    },
+];
+const QUICK_DIRJUMP: &[Poly] = &[Poly {
+    path: &[
+        PolyCommand::MoveTo(BlockCoord::Frac(1, 8), BlockCoord::Frac(1, 4)),
+        PolyCommand::LineTo(BlockCoord::Frac(3, 8), BlockCoord::Frac(1, 4)),
+        PolyCommand::LineTo(BlockCoord::Frac(1, 2), BlockCoord::Frac(3, 8)),
+        PolyCommand::LineTo(BlockCoord::Frac(7, 8), BlockCoord::Frac(3, 8)),
+        PolyCommand::LineTo(BlockCoord::Frac(7, 8), BlockCoord::Frac(3, 4)),
+        PolyCommand::LineTo(BlockCoord::Frac(1, 8), BlockCoord::Frac(3, 4)),
+        PolyCommand::Close,
+    ],
+    intensity: BlockAlpha::Full,
+    style: PolyStyle::Outline,
+}];
+const QUICK_SETTINGS: &[Poly] = &[
+    Poly {
+        path: &[
+            PolyCommand::MoveTo(BlockCoord::Frac(1, 8), BlockCoord::Frac(1, 4)),
+            PolyCommand::LineTo(BlockCoord::Frac(7, 8), BlockCoord::Frac(1, 4)),
+        ],
+        intensity: BlockAlpha::Full,
+        style: PolyStyle::Outline,
+    },
+    Poly {
+        path: &[
+            PolyCommand::MoveTo(BlockCoord::Frac(5, 8), BlockCoord::Frac(1, 8)),
+            PolyCommand::LineTo(BlockCoord::Frac(5, 8), BlockCoord::Frac(3, 8)),
+        ],
+        intensity: BlockAlpha::Full,
+        style: PolyStyle::Outline,
+    },
+    Poly {
+        path: &[
+            PolyCommand::MoveTo(BlockCoord::Frac(1, 8), BlockCoord::Frac(1, 2)),
+            PolyCommand::LineTo(BlockCoord::Frac(7, 8), BlockCoord::Frac(1, 2)),
+        ],
+        intensity: BlockAlpha::Full,
+        style: PolyStyle::Outline,
+    },
+    Poly {
+        path: &[
+            PolyCommand::MoveTo(BlockCoord::Frac(3, 8), BlockCoord::Frac(3, 8)),
+            PolyCommand::LineTo(BlockCoord::Frac(3, 8), BlockCoord::Frac(5, 8)),
+        ],
+        intensity: BlockAlpha::Full,
+        style: PolyStyle::Outline,
+    },
+    Poly {
+        path: &[
+            PolyCommand::MoveTo(BlockCoord::Frac(1, 8), BlockCoord::Frac(3, 4)),
+            PolyCommand::LineTo(BlockCoord::Frac(7, 8), BlockCoord::Frac(3, 4)),
+        ],
+        intensity: BlockAlpha::Full,
+        style: PolyStyle::Outline,
+    },
+    Poly {
+        path: &[
+            PolyCommand::MoveTo(BlockCoord::Frac(11, 16), BlockCoord::Frac(5, 8)),
+            PolyCommand::LineTo(BlockCoord::Frac(11, 16), BlockCoord::Frac(7, 8)),
+        ],
+        intensity: BlockAlpha::Full,
+        style: PolyStyle::Outline,
+    },
+];
+
 impl crate::TermWindow {
     pub fn invalidate_fancy_tab_bar(&mut self) {
         self.fancy_tab_bar.take();
@@ -380,6 +501,55 @@ impl crate::TermWindow {
             }))
         };
 
+        // v0.40 quick actions, right-aligned: tree / split / dir-jump / settings.
+        let quick_button = |poly: &'static [Poly], action: crate::termwindow::QuickAction| {
+            let new_tab = colors.new_tab();
+            let new_tab_hover = colors.new_tab_hover();
+            Element::new(
+                &font,
+                ElementContent::Poly {
+                    line_width: metrics.underline_height.max(2),
+                    poly: SizedPoly {
+                        poly,
+                        width: Dimension::Pixels(metrics.cell_size.height as f32 * 0.62),
+                        height: Dimension::Pixels(metrics.cell_size.height as f32 * 0.62),
+                    },
+                },
+            )
+            .vertical_align(VerticalAlign::Middle)
+            .item_type(UIItemType::QuickAction(action))
+            .margin(BoxDimension {
+                left: Dimension::Cells(0.25),
+                right: Dimension::Cells(0.),
+                top: Dimension::Cells(0.),
+                bottom: Dimension::Cells(0.),
+            })
+            .padding(BoxDimension {
+                left: Dimension::Cells(0.4),
+                right: Dimension::Cells(0.4),
+                top: Dimension::Cells(0.3),
+                bottom: Dimension::Cells(0.3),
+            })
+            .border(BoxDimension::new(Dimension::Pixels(1.)))
+            .colors(ElementColors {
+                border: BorderColor::default(),
+                bg: new_tab.bg_color.to_linear().into(),
+                text: new_tab.fg_color.to_linear().into(),
+            })
+            .hover_colors(Some(ElementColors {
+                border: BorderColor::default(),
+                bg: new_tab_hover.bg_color.to_linear().into(),
+                text: new_tab_hover.fg_color.to_linear().into(),
+            }))
+        };
+        {
+            use crate::termwindow::QuickAction as QA;
+            right_eles.push(quick_button(QUICK_TREE, QA::TreeSidebar));
+            right_eles.push(quick_button(QUICK_SPLIT, QA::SplitRight));
+            right_eles.push(quick_button(QUICK_DIRJUMP, QA::DirJump));
+            right_eles.push(quick_button(QUICK_SETTINGS, QA::Settings));
+        }
+
         for item in items {
             match item.item {
                 TabBarItem::LeftStatus => left_status.push(item_to_elem(item)),
@@ -543,8 +713,8 @@ fn make_x_button(
             line_width: metrics.underline_height.max(2),
             poly: SizedPoly {
                 poly: X_BUTTON,
-                width: Dimension::Pixels(metrics.cell_size.height as f32 / 2.),
-                height: Dimension::Pixels(metrics.cell_size.height as f32 / 2.),
+                width: Dimension::Pixels(metrics.cell_size.height as f32 * 0.42),
+                height: Dimension::Pixels(metrics.cell_size.height as f32 * 0.42),
             },
         },
     )
@@ -553,6 +723,12 @@ fn make_x_button(
     .zindex(1)
     .vertical_align(VerticalAlign::Middle)
     .float(Float::Right)
+    .padding(BoxDimension {
+        left: Dimension::Cells(0.2),
+        right: Dimension::Cells(0.2),
+        top: Dimension::Cells(0.2),
+        bottom: Dimension::Cells(0.2),
+    })
     .item_type(UIItemType::CloseTab(tab_idx))
     .hover_colors({
         let inactive_tab_hover = colors.inactive_tab_hover();

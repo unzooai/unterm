@@ -24,8 +24,11 @@ pub fn shutdown() {
 pub enum ApplicationEvent {
     /// The system wants to open a command in the terminal
     OpenCommandScript(String),
-    /// The system wants to open a directory in a new terminal tab/window.
+    /// The system wants to open a directory in a new terminal window.
     OpenDirectory(PathBuf),
+    /// The system wants to open a directory as a tab in the current window
+    /// (Finder "New Unterm Tab Here" service).
+    OpenDirectoryTab(PathBuf),
     PerformKeyAssignment(KeyAssignment),
 }
 

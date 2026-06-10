@@ -26,10 +26,16 @@ use window::WindowOps;
 
 pub enum MenuAction {
     Assign(KeyAssignment),
+    DirJump,
     ChangeCwd,
     ToggleRecording,
     ExportSession,
     OpenWebSettings,
+    ToggleTreeSidebar,
+    CopyText(String),
+    RevealPath(std::path::PathBuf),
+    NewTabAt(std::path::PathBuf),
+    CdTo(std::path::PathBuf),
 }
 
 pub struct MenuEntry {
@@ -44,6 +50,8 @@ pub struct PopupMenu {
     pane_id: PaneId,
     element: RefCell<Option<Vec<ComputedElement>>>,
     hover: RefCell<Option<usize>>,
+    /// Pixel anchor (window coords). None = under the tab bar's ⌄ button.
+    anchor: Option<(f32, f32)>,
 }
 
 impl PopupMenu {
@@ -76,9 +84,14 @@ impl PopupMenu {
                 MenuAction::Assign(KeyAssignment::SplitHorizontal(SpawnCommand::default())),
             ),
             entry(
-                crate::i18n::t("settings.menu.change_cwd"),
-                "",
-                MenuAction::ChangeCwd,
+                crate::i18n::t("menu.dir_jump"),
+                "Ctrl+Shift+O",
+                MenuAction::DirJump,
+            ),
+            entry(
+                crate::i18n::t("menu.tree_sidebar"),
+                "Ctrl+Shift+B",
+                MenuAction::ToggleTreeSidebar,
             ),
             entry(
                 crate::i18n::t("menu.find"),
@@ -112,6 +125,27 @@ impl PopupMenu {
             pane_id,
             element: RefCell::new(None),
             hover: RefCell::new(None),
+            anchor: None,
+        }
+    }
+
+    /// A context menu with explicit entries, anchored at a pixel position
+    /// (e.g. the right-clicked tree row).
+    pub fn context(pane_id: PaneId, anchor: (f32, f32), items: Vec<(String, MenuAction)>) -> Self {
+        let entries = items
+            .into_iter()
+            .map(|(label, action)| MenuEntry {
+                label,
+                accel: "",
+                action: Some(action),
+            })
+            .collect();
+        Self {
+            entries,
+            pane_id,
+            element: RefCell::new(None),
+            hover: RefCell::new(None),
+            anchor: Some(anchor),
         }
     }
 
@@ -169,10 +203,49 @@ impl PopupMenu {
                     }
                 }
             }
+            MenuAction::DirJump => term_window.show_dir_jump(),
             MenuAction::ChangeCwd => term_window.change_working_directory_for_pane(pane_id),
             MenuAction::ToggleRecording => term_window.toggle_session_recording(pane_id),
             MenuAction::ExportSession => term_window.export_current_session(pane_id),
             MenuAction::OpenWebSettings => term_window.open_web_settings(),
+            MenuAction::ToggleTreeSidebar => term_window.toggle_tree_sidebar(),
+            MenuAction::CopyText(text) => {
+                use config::keyassignment::ClipboardCopyDestination;
+                term_window
+                    .copy_to_clipboard(ClipboardCopyDestination::ClipboardAndPrimarySelection, text.clone());
+            }
+            MenuAction::RevealPath(path) => {
+                #[cfg(target_os = "macos")]
+                let _ = std::process::Command::new("open").arg("-R").arg(path).spawn();
+                #[cfg(all(unix, not(target_os = "macos")))]
+                let _ = std::process::Command::new("xdg-open")
+                    .arg(path.parent().unwrap_or(path))
+                    .spawn();
+                #[cfg(windows)]
+                let _ = std::process::Command::new("explorer")
+                    .arg(format!("/select,{}", path.display()))
+                    .spawn();
+            }
+            MenuAction::NewTabAt(path) => {
+                let spawn = SpawnCommand {
+                    cwd: Some(path.clone()),
+                    ..Default::default()
+                };
+                if let Some(pane) = term_window.get_active_pane_or_overlay() {
+                    let _ = term_window
+                        .perform_key_assignment(&pane, &KeyAssignment::SpawnCommandInNewTab(spawn));
+                }
+            }
+            MenuAction::CdTo(path) => {
+                use std::io::Write as _;
+                if let Some(pane) = term_window.get_active_pane_no_overlay() {
+                    let cmd = super::cd_command_for_pane(&pane, path);
+                    let mut writer = pane.writer();
+                    if let Err(err) = writer.write_all(cmd.as_bytes()) {
+                        log::warn!("context cd failed: {err:#}");
+                    }
+                }
+            }
         }
     }
 
@@ -316,7 +389,10 @@ impl PopupMenu {
         } else {
             0.
         };
-        let top_pixel_y = (top_bar_height + border.top.get() as f32 + 4.).round();
+        let top_pixel_y = match self.anchor {
+            Some((_, y)) => y.round(),
+            None => (top_bar_height + border.top.get() as f32 + 4.).round(),
+        };
 
         // Width: longest label + accel estimate, in cells; clamped to window.
         let max_chars = self
@@ -330,16 +406,18 @@ impl PopupMenu {
             (max_chars * cell_w).min(dimensions.pixel_width as f32 - 16.).round();
         // Anchor under the tab bar's ⌄ button (its ui_item bounds are in
         // window pixels); fall back to the right edge if it isn't on screen.
-        let anchor_x = term_window
-            .ui_items
-            .iter()
-            .find(|item| {
-                matches!(
-                    item.item_type,
-                    UIItemType::TabBar(crate::tabbar::TabBarItem::MenuButton)
-                )
-            })
-            .map(|item| item.x as f32);
+        let anchor_x = self.anchor.map(|(x, _)| x).or_else(|| {
+            term_window
+                .ui_items
+                .iter()
+                .find(|item| {
+                    matches!(
+                        item.item_type,
+                        UIItemType::TabBar(crate::tabbar::TabBarItem::MenuButton)
+                    )
+                })
+                .map(|item| item.x as f32)
+        });
         let x = anchor_x
             .unwrap_or(dimensions.pixel_width as f32)
             .min(dimensions.pixel_width as f32 - border.right.get() as f32 - desired_pixel_width - 8.)

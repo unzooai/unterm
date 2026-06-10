@@ -356,7 +356,8 @@ impl crate::TermWindow {
             .config
             .window_padding
             .left
-            .evaluate_as_pixels(h_context);
+            .evaluate_as_pixels(h_context)
+            + self.tree_sidebar_pixel_width();
         let padding_right = self.config.window_padding.right;
         let padding_top = self.config.window_padding.top.evaluate_as_pixels(v_context);
         let padding_bottom = self

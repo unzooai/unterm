@@ -78,6 +78,8 @@ pub mod modal;
 pub(crate) mod mouseevent;
 pub mod palette;
 pub mod paneselect;
+pub mod dir_jump;
+pub mod tree_sidebar;
 pub mod popup_menu;
 mod prevcursor;
 pub mod render;
@@ -161,6 +163,14 @@ pub enum TermWindowNotif {
     },
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum QuickAction {
+    TreeSidebar,
+    SplitRight,
+    DirJump,
+    Settings,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum UIItemType {
     TabBar(TabBarItem),
@@ -191,6 +201,14 @@ pub enum UIItemType {
     CloseSplitPane(mux::pane::PaneId),
     /// A selectable row inside the mouse-operable popup menu (v0.40).
     PopupMenuRow(usize),
+    /// A selectable row inside the directory-jump palette (v0.40).
+    DirJumpRow(usize),
+    /// A row in the left directory-tree sidebar (v0.40).
+    TreeSidebarRow(usize),
+    /// The tree sidebar's background (swallows clicks, accepts wheel).
+    TreeSidebarBg,
+    /// Top-bar quick action buttons (v0.40 "C").
+    QuickAction(QuickAction),
     /// The popup menu card itself — swallows clicks that miss every row so
     /// they don't fall through to the pane below.
     PopupMenuCard,
@@ -478,6 +496,8 @@ pub struct TermWindow {
     dragging: Option<(UIItem, MouseEvent)>,
 
     modal: RefCell<Option<Rc<dyn Modal>>>,
+    /// v0.40: left directory-tree sidebar; None = closed.
+    pub(crate) tree_sidebar: RefCell<Option<crate::termwindow::tree_sidebar::TreeSidebar>>,
 
     event_states: HashMap<String, EventState>,
     pub current_event: Option<Value>,
@@ -928,6 +948,7 @@ impl TermWindow {
             is_click_to_focus_window: false,
             key_table_state: KeyTableState::default(),
             modal: RefCell::new(None),
+            tree_sidebar: RefCell::new(None),
             opengl_info: None,
         };
 
@@ -2712,6 +2733,54 @@ impl TermWindow {
     /// point for everything configuration-related (Themes, Proxy, Project
     /// Directory, Shell Selector). The right-click gesture is reserved for
     /// direct copy/paste, so this is the *only* place a menu surfaces.
+    /// Width in physical pixels the tree sidebar currently occupies (0 when
+    /// closed). Injected at every window_padding.left evaluation so panes,
+    /// splits, terminal cols and mouse mapping all shift together.
+    pub(crate) fn tree_sidebar_pixel_width(&self) -> f32 {
+        if self.tree_sidebar.borrow().is_some() {
+            (230.0 * self.dimensions.dpi as f32 / 72.0).round()
+        } else {
+            0.0
+        }
+    }
+
+    /// Toggle the directory-tree sidebar, rooted at the active pane's cwd.
+    pub(crate) fn toggle_tree_sidebar(&mut self) {
+        let is_open = self.tree_sidebar.borrow().is_some();
+        if is_open {
+            self.tree_sidebar.borrow_mut().take();
+        } else {
+            let root = self
+                .get_active_pane_or_overlay()
+                .and_then(|pane| pane_cwd_path(&pane))
+                .or_else(dirs_next::home_dir)
+                .unwrap_or_else(|| std::path::PathBuf::from("/"));
+            self.tree_sidebar
+                .borrow_mut()
+                .replace(crate::termwindow::tree_sidebar::TreeSidebar::new(root));
+        }
+        // Reflow the terminal around the new gutter width.
+        if let Some(window) = self.window.as_ref().cloned() {
+            let dims = self.dimensions;
+            self.apply_dimensions(&dims, None, &window);
+            window.invalidate();
+        }
+    }
+
+    /// Open the directory-jump palette (v0.40 "B"): fuzzy go-to-directory
+    /// rooted at the active pane's cwd.
+    pub(crate) fn show_dir_jump(&mut self) {
+        let Some(pane) = self.get_active_pane_or_overlay() else {
+            return;
+        };
+        let pane_id = pane.pane_id();
+        let base = pane_cwd_path(&pane)
+            .or_else(dirs_next::home_dir)
+            .unwrap_or_else(|| std::path::PathBuf::from("/"));
+        let modal = crate::termwindow::dir_jump::DirJump::new(pane_id, base);
+        self.set_modal(std::rc::Rc::new(modal));
+    }
+
     fn show_settings_menu(&mut self) {
         // v0.40: mouse-operable floating menu (popup_menu.rs) replaces the
         // keyboard-only cell-grid overlay that used to live here.
@@ -3456,6 +3525,8 @@ impl TermWindow {
             ShowTabNavigator => self.show_tab_navigator(),
             ShowDebugOverlay => self.show_debug_overlay(),
             ShowShellSelector => self.show_shell_selector(),
+            ShowDirJump => self.show_dir_jump(),
+            ToggleTreeSidebar => self.toggle_tree_sidebar(),
             ShowContextMenu => self.show_context_menu(),
             ShowLauncher => self.show_launcher(),
             ShowLauncherArgs(args) => {

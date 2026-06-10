@@ -217,6 +217,10 @@ config.keys = {
   { key = 'V', mods = 'CTRL|SHIFT', action = act.PasteFrom('Clipboard') },
   -- 搜索
   { key = 'F', mods = 'CTRL|SHIFT', action = act.Search({ CaseSensitiveString = '' }) },
+  -- 目录跳转面板
+  { key = 'O', mods = 'CTRL|SHIFT', action = act.ShowDirJump },
+  -- 目录树侧栏
+  { key = 'B', mods = 'CTRL|SHIFT', action = act.ToggleTreeSidebar },
   -- 字号
   { key = '=', mods = 'CTRL', action = act.IncreaseFontSize },
   { key = '-', mods = 'CTRL', action = act.DecreaseFontSize },

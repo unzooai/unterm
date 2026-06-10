@@ -289,7 +289,7 @@ impl crate::TermWindow {
             // visible — even when the thumb is full-height (no scrollback) or
             // the theme's thumb color is low-contrast. Without it the bar read
             // as "missing" on some themes/displays.
-            let track_color = color.mul_alpha(0.32);
+            let track_color = color.mul_alpha(0.16);
 
             // Adjust the scrollbar thumb position
             let config = &self.config;
@@ -338,7 +338,10 @@ impl crate::TermWindow {
                 item_type: UIItemType::BelowScrollThumb,
             });
 
-            // Track first (faint, full height), then the thumb on top.
+            // Track first (faint, full height), then an inset thumb on top.
+            // The thumb sits 2px off each side of the track so it reads as a
+            // floating pill instead of a solid column glued to the edge; the
+            // tiny end-caps fake rounded corners without new shader work.
             self.filled_rectangle(
                 layers,
                 2,
@@ -351,18 +354,45 @@ impl crate::TermWindow {
                 track_color,
             )
             .context("scrollbar track")?;
+            let inset = (bar_w * 0.22).clamp(1.5, 3.0);
+            let tw = (bar_w - inset * 2.0).max(3.0);
+            let cap = inset.min(2.0);
             self.filled_rectangle(
                 layers,
                 2,
                 euclid::rect(
-                    thumb_x as f32,
-                    abs_thumb_top as f32,
-                    bar_w,
-                    thumb_size as f32,
+                    thumb_x as f32 + inset,
+                    abs_thumb_top as f32 + cap,
+                    tw,
+                    (thumb_size as f32 - cap * 2.0).max(2.0),
                 ),
                 color,
             )
-            .context("filled_rectangle")?;
+            .context("scrollbar thumb")?;
+            self.filled_rectangle(
+                layers,
+                2,
+                euclid::rect(
+                    thumb_x as f32 + inset + cap,
+                    abs_thumb_top as f32,
+                    (tw - cap * 2.0).max(1.0),
+                    cap,
+                ),
+                color,
+            )
+            .context("scrollbar thumb cap top")?;
+            self.filled_rectangle(
+                layers,
+                2,
+                euclid::rect(
+                    thumb_x as f32 + inset + cap,
+                    abs_thumb_top as f32 + thumb_size as f32 - cap,
+                    (tw - cap * 2.0).max(1.0),
+                    cap,
+                ),
+                color,
+            )
+            .context("scrollbar thumb cap bottom")?;
         }
 
         let (selrange, rectangular) = {

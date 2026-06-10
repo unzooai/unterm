@@ -61,6 +61,10 @@ impl super::TermWindow {
             | UIItemType::StatusBarMcpAudit
             | UIItemType::CloseSplitPane(_)
             | UIItemType::PopupMenuRow(_)
+            | UIItemType::DirJumpRow(_)
+            | UIItemType::TreeSidebarRow(_)
+            | UIItemType::TreeSidebarBg
+            | UIItemType::QuickAction(_)
             | UIItemType::PopupMenuCard => {}
         }
     }
@@ -83,6 +87,10 @@ impl super::TermWindow {
             | UIItemType::StatusBarMcpAudit
             | UIItemType::CloseSplitPane(_)
             | UIItemType::PopupMenuRow(_)
+            | UIItemType::DirJumpRow(_)
+            | UIItemType::TreeSidebarRow(_)
+            | UIItemType::TreeSidebarBg
+            | UIItemType::QuickAction(_)
             | UIItemType::PopupMenuCard => {}
         }
     }
@@ -117,6 +125,30 @@ impl super::TermWindow {
                     (WMEK::Press(MousePress::Left), Some(UIItemType::PopupMenuRow(i))) => {
                         let i = *i;
                         menu.activate(i, self);
+                    }
+                    (WMEK::Press(_), Some(UIItemType::PopupMenuCard)) => {}
+                    (WMEK::Press(_), _) => self.cancel_modal(),
+                    _ => {}
+                }
+                context.set_cursor(Some(MouseCursor::Arrow));
+                return;
+            }
+            if let Some(jump) =
+                modal.downcast_ref::<crate::termwindow::dir_jump::DirJump>()
+            {
+                let item = self.resolve_ui_item(&event);
+                match (&event.kind, item.as_ref().map(|i| &i.item_type)) {
+                    (WMEK::Move, _) => {
+                        if let Some(window) = self.window.as_ref() {
+                            window.invalidate();
+                        }
+                    }
+                    (WMEK::Press(MousePress::Left), Some(UIItemType::DirJumpRow(i))) => {
+                        let i = *i;
+                        let new_tab = event
+                            .modifiers
+                            .intersects(::window::Modifiers::SUPER | ::window::Modifiers::CTRL);
+                        jump.activate(i, self, new_tab);
                     }
                     (WMEK::Press(_), Some(UIItemType::PopupMenuCard)) => {}
                     (WMEK::Press(_), _) => self.cancel_modal(),
@@ -473,6 +505,32 @@ impl super::TermWindow {
             // Popup menu items are handled by the modal gate at the top of
             // mouse_event_impl and never reach this dispatcher.
             UIItemType::PopupMenuRow(_) | UIItemType::PopupMenuCard => {}
+            UIItemType::DirJumpRow(_) => {}
+            UIItemType::TreeSidebarRow(row) => {
+                self.mouse_event_tree_sidebar(Some(row), event, context);
+            }
+            UIItemType::TreeSidebarBg => {
+                self.mouse_event_tree_sidebar(None, event, context);
+            }
+            UIItemType::QuickAction(action) => {
+                if let WMEK::Press(MousePress::Left) = event.kind {
+                    use crate::termwindow::QuickAction as QA;
+                    match action {
+                        QA::TreeSidebar => self.toggle_tree_sidebar(),
+                        QA::SplitRight => {
+                            use config::keyassignment::{KeyAssignment, SpawnCommand};
+                            if let Some(pane) = self.get_active_pane_or_overlay() {
+                                let _ = self.perform_key_assignment(
+                                    &pane,
+                                    &KeyAssignment::SplitHorizontal(SpawnCommand::default()),
+                                );
+                            }
+                        }
+                        QA::DirJump => self.show_dir_jump(),
+                        QA::Settings => self.open_web_settings(),
+                    }
+                }
+            }
             UIItemType::CloseSplitPane(pane_id) => {
                 self.mouse_event_close_split_pane(pane_id, event, context);
             }
@@ -882,6 +940,115 @@ impl crate::TermWindow {
             dispatch_new_tab_button(lua, window, pane, button, action)
         }))
         .detach();
+    }
+
+    /// v0.40 tree sidebar interactions.
+    ///   left click dir    → expand/collapse (double-click → cd active pane)
+    ///   left click file   → insert quoted path at the prompt
+    ///                       (double-click → open with system handler)
+    ///   right click       → context popup (copy path / reveal / new tab / cd)
+    ///   wheel             → scroll
+    fn mouse_event_tree_sidebar(
+        &mut self,
+        row: Option<usize>,
+        event: MouseEvent,
+        _context: &dyn WindowOps,
+    ) {
+        use std::io::Write as _;
+
+        let row_info = row.and_then(|i| {
+            let tree = self.tree_sidebar.borrow();
+            tree.as_ref().and_then(|t| {
+                t.rows.get(i).map(|r| (r.path.clone(), r.is_dir))
+            })
+        });
+
+        match event.kind {
+            WMEK::VertWheel(n) => {
+                if let Some(tree) = self.tree_sidebar.borrow_mut().as_mut() {
+                    tree.scroll_by(-(n as isize), 20);
+                }
+                if let Some(window) = self.window.as_ref() {
+                    window.invalidate();
+                }
+            }
+            WMEK::Press(MousePress::Left) => {
+                let Some((path, is_dir)) = row_info else {
+                    return;
+                };
+                let double = self.last_mouse_click.as_ref().map(|c| c.streak) >= Some(2);
+                if is_dir {
+                    if double {
+                        if let Some(pane) = self.get_active_pane_no_overlay() {
+                            let cmd = super::cd_command_for_pane(&pane, &path);
+                            let mut writer = pane.writer();
+                            let _ = writer.write_all(cmd.as_bytes());
+                        }
+                    } else if let Some(tree) = self.tree_sidebar.borrow_mut().as_mut() {
+                        tree.toggle_dir(&path);
+                    }
+                } else if double {
+                    #[cfg(target_os = "macos")]
+                    let _ = std::process::Command::new("open").arg(&path).spawn();
+                    #[cfg(all(unix, not(target_os = "macos")))]
+                    let _ = std::process::Command::new("xdg-open").arg(&path).spawn();
+                    #[cfg(windows)]
+                    let _ = std::process::Command::new("cmd")
+                        .args(["/c", "start", ""])
+                        .arg(&path)
+                        .spawn();
+                } else if let Some(pane) = self.get_active_pane_no_overlay() {
+                    // Insert the quoted path at the prompt (terminal-native).
+                    let raw = path.display().to_string();
+                    let quoted = if cfg!(windows) {
+                        format!("\"{raw}\" ")
+                    } else {
+                        format!("{} ", super::posix_single_quote(&raw))
+                    };
+                    let mut writer = pane.writer();
+                    let _ = writer.write_all(quoted.as_bytes());
+                }
+                if let Some(window) = self.window.as_ref() {
+                    window.invalidate();
+                }
+            }
+            WMEK::Press(MousePress::Right) => {
+                let Some((path, is_dir)) = row_info else {
+                    return;
+                };
+                let Some(pane) = self.get_active_pane_or_overlay() else {
+                    return;
+                };
+                use crate::termwindow::popup_menu::{MenuAction, PopupMenu};
+                let dir_for_tab = if is_dir {
+                    path.clone()
+                } else {
+                    path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| path.clone())
+                };
+                let items = vec![
+                    (
+                        crate::i18n::t("menu.copy_path"),
+                        MenuAction::CopyText(path.display().to_string()),
+                    ),
+                    (
+                        crate::i18n::t("menu.reveal"),
+                        MenuAction::RevealPath(path.clone()),
+                    ),
+                    (
+                        crate::i18n::t("menu.new_tab_here"),
+                        MenuAction::NewTabAt(dir_for_tab.clone()),
+                    ),
+                    (
+                        crate::i18n::t("menu.cd_here"),
+                        MenuAction::CdTo(dir_for_tab),
+                    ),
+                ];
+                let anchor = (event.coords.x as f32, event.coords.y as f32);
+                let menu = PopupMenu::context(pane.pane_id(), anchor, items);
+                self.set_modal(std::rc::Rc::new(menu));
+            }
+            _ => {}
+        }
     }
 
     pub fn mouse_event_tab_bar(
@@ -2371,4 +2538,5 @@ fn copy_image_to_clipboard_unix(path: &std::path::Path) -> anyhow::Result<()> {
         return Ok(());
     }
     Ok(())
+
 }
