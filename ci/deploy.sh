@@ -36,6 +36,7 @@ case ${OSTYPE:-} in
     mkdir -p "$zipdir/Unterm.app/Contents/Resources"
     cp -r assets/shell-integration/* "$zipdir/Unterm.app/Contents/Resources"
     cp -r assets/shell-completion "$zipdir/Unterm.app/Contents/Resources"
+    cp assets/unterm.lua "$zipdir/Unterm.app/Contents/Resources/unterm.lua"
     tic -xe wezterm -o "$zipdir/Unterm.app/Contents/Resources/terminfo" termwiz/data/wezterm.terminfo
 
     for bin in unterm unterm-cli unterm-mux strip-ansi-escapes ; do
@@ -107,6 +108,11 @@ case ${OSTYPE:-} in
         cp "$TARGET_DIR/release/$pdb" "$stagedir/"
       fi
     done
+    # Product-default config. Lives in defaults/ (NOT next to the exe) because
+    # exe_dir/unterm.lua is the high-priority thumb-drive override; the
+    # defaults/ copy is the lowest-priority fallback in config.rs.
+    mkdir -p "$stagedir/defaults"
+    cp assets/unterm.lua "$stagedir/defaults/unterm.lua"
     # Mesa software-GL fallback is x64-only — no maintained Windows-arm64
     # prebuilt; arm64 relies on ANGLE (D3D-backed). The MSI drops its Mesa
     # component for arm64 via the $(sys.BUILDARCH) guard in Unterm.wxs.
@@ -185,6 +191,7 @@ EOF
         "$debroot/usr/share/icons/hicolor/${s}x${s}/apps/ai.unzoo.unterm.png"
     done
     install -Dm644 assets/icon/unterm-icon.svg "$debroot/usr/share/icons/hicolor/scalable/apps/ai.unzoo.unterm.svg"
+    install -Dm644 assets/unterm.lua "$debroot/usr/share/unterm/unterm.lua"
     install -Dm644 assets/unterm.desktop "$debroot/usr/share/applications/ai.unzoo.unterm.desktop"
     install -Dm644 assets/unterm.appdata.xml "$debroot/usr/share/metainfo/ai.unzoo.unterm.appdata.xml"
     install -Dm644 assets/shell-completion/bash "$debroot/usr/share/bash-completion/completions/unterm"

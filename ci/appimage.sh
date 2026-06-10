@@ -11,6 +11,7 @@ install -Dsm755 -t AppDir/usr/bin target/release/unterm
 install -Dsm755 -t AppDir/usr/bin target/release/unterm-cli
 install -Dsm755 -t AppDir/usr/bin target/release/unterm-mux
 install -Dsm755 -t AppDir/usr/bin target/release/strip-ansi-escapes
+install -Dm644 assets/unterm.lua AppDir/usr/bin/unterm.lua
 for s in 16 24 32 48 64 96 128 256 512 ; do
   install -Dm644 "assets/icon/hicolor/${s}x${s}/ai.unzoo.unterm.png" \
     "AppDir/usr/share/icons/hicolor/${s}x${s}/apps/ai.unzoo.unterm.png"

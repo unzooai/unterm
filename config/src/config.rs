@@ -1132,6 +1132,36 @@ impl Config {
                 }
             }
         }
+
+        // Unterm: bundled product-default config, LOWEST priority — any config
+        // the user writes above always wins. This is how the out-of-box look
+        // (unified top bar, font, padding, keys in assets/unterm.lua) reaches
+        // installed apps; without it, installs silently run on bare compiled
+        // defaults (the packaging gap that shipped through v0.39).
+        if let Ok(exe_name) = std::env::current_exe() {
+            if let Some(exe_dir) = exe_name.parent() {
+                // macOS .app: Contents/MacOS/unterm → Contents/Resources/unterm.lua
+                #[cfg(target_os = "macos")]
+                paths.push(PathPossibility::optional(
+                    exe_dir.join("../Resources/unterm.lua"),
+                ));
+                // Linux AppImage / portable unpack: next to the executable.
+                #[cfg(all(unix, not(target_os = "macos")))]
+                paths.push(PathPossibility::optional(exe_dir.join("unterm.lua")));
+                // Windows: exe_dir/unterm.lua above is the HIGH-priority
+                // thumb-drive override, so the shipped default lives in a
+                // separate defaults/ subdir to stay lowest priority.
+                #[cfg(windows)]
+                paths.push(PathPossibility::optional(
+                    exe_dir.join("defaults/unterm.lua"),
+                ));
+            }
+        }
+        // Linux deb/system install location.
+        #[cfg(all(unix, not(target_os = "macos")))]
+        paths.push(PathPossibility::optional(PathBuf::from(
+            "/usr/share/unterm/unterm.lua",
+        )));
         if let Some(path) = std::env::var_os("WEZTERM_CONFIG_FILE") {
             log::trace!("Note: WEZTERM_CONFIG_FILE is set in the environment");
             paths.insert(0, PathPossibility::required(path.into()));

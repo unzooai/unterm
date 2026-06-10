@@ -33,6 +33,10 @@ mkdir -p "$stagedir/Unterm.app/Contents/MacOS"
 mkdir -p "$stagedir/Unterm.app/Contents/Resources"
 cp -r assets/shell-integration/* "$stagedir/Unterm.app/Contents/Resources"
 cp -r assets/shell-completion "$stagedir/Unterm.app/Contents/Resources"
+# Product-default config: config.rs looks up Contents/Resources/unterm.lua as
+# the LOWEST-priority fallback, so installs get the out-of-box look while any
+# user config still wins. Without this, installs run on bare compiled defaults.
+cp assets/unterm.lua "$stagedir/Unterm.app/Contents/Resources/unterm.lua"
 tic -xe wezterm -o "$stagedir/Unterm.app/Contents/Resources/terminfo" termwiz/data/wezterm.terminfo
 
 # Stamp CFBundleShortVersionString on the main app from the tag, so Finder
