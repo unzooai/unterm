@@ -301,34 +301,40 @@ impl crate::TermWindow {
                     + border.left.get() as f32
                     + ((pos.left + pos.width) as f32 * self.render_metrics.cell_size.width as f32)
             };
-            // Guarantee a visible width: a half-cell padding produced a ~3-4px
-            // sliver most people couldn't see. Draw the bar at least 7px wide,
-            // anchored to the pane's right edge.
-            let bar_w = (padding).max(7.0);
+            // Slim fixed-width bar (5pt), right-aligned inside the padding
+            // gutter with a 2pt edge gap. The HIT area (ui_items below) keeps
+            // the full gutter width so it stays easy to grab; only the drawn
+            // bar is slim. (Earlier code reused the whole right padding as
+            // the bar width — at 16pt padding that drew a 32px slab.)
+            let pt_scale = self.dimensions.dpi as f32 / 72.0;
+            let bar_w = (5.0 * pt_scale).round().max(6.0);
+            let hit_w = padding.max(bar_w);
             let thumb_x = (pane_right.max(0.0).round() as usize)
-                .saturating_sub(bar_w as usize + border.right.get());
+                .saturating_sub((bar_w + 2.0 * pt_scale) as usize + border.right.get());
+            let hit_x = (pane_right.max(0.0).round() as usize)
+                .saturating_sub(hit_w as usize + border.right.get());
             let pane_id = pos.pane.pane_id();
 
             // Register the scroll bar location
             self.ui_items.push(UIItem {
-                x: thumb_x,
-                width: bar_w as usize,
+                x: hit_x,
+                width: hit_w as usize,
                 y: thumb_y_offset,
                 height: info.top,
                 pane_id: Some(pane_id),
                 item_type: UIItemType::AboveScrollThumb,
             });
             self.ui_items.push(UIItem {
-                x: thumb_x,
-                width: bar_w as usize,
+                x: hit_x,
+                width: hit_w as usize,
                 y: abs_thumb_top,
                 height: thumb_size,
                 pane_id: Some(pane_id),
                 item_type: UIItemType::ScrollThumb,
             });
             self.ui_items.push(UIItem {
-                x: thumb_x,
-                width: bar_w as usize,
+                x: hit_x,
+                width: hit_w as usize,
                 y: abs_thumb_top + thumb_size,
                 height: self
                     .dimensions
@@ -884,18 +890,20 @@ impl crate::TermWindow {
                 layers,
                 2,
                 euclid::rect(chip_x, chip_y, chip, chip),
-                fg.mul_alpha(0.16),
+                fg.mul_alpha(0.12),
             )
             .context("filled_rectangle for close hover chip")?;
         }
 
-        // Fine `×`: thin strokes, dense steps. Faint when idle, bright on hover.
-        let mark = fg.mul_alpha(if hovered { 0.85 } else { 0.32 });
+        // Fine `×`: thin strokes with dense overlapping steps (sparse steps
+        // read as a dotted line — the old "ugly" artifact). Faint when idle,
+        // bright on hover.
+        let mark = fg.mul_alpha(if hovered { 0.9 } else { 0.26 });
         let cx = button_x + button_w / 2.0;
         let cy = button_y + button_h / 2.0;
-        let arm = (chip * 0.26).max(3.0);
-        let thick = (button_h / 14.0).max(1.0);
-        let steps = ((arm * 3.0).round() as i32).max(14);
+        let arm = (chip * 0.22).max(3.0);
+        let thick = (button_h / 12.0).max(1.6);
+        let steps = ((arm * 4.0).round() as i32).max(24);
         for i in -steps..=steps {
             let t = i as f32 / steps as f32; // -1..=1
             let dx = t * arm;

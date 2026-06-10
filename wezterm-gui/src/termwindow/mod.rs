@@ -80,6 +80,7 @@ pub mod palette;
 pub mod paneselect;
 pub mod dir_jump;
 pub mod tree_sidebar;
+pub mod ui_icons;
 pub mod popup_menu;
 mod prevcursor;
 pub mod render;
@@ -207,6 +208,9 @@ pub enum UIItemType {
     TreeSidebarRow(usize),
     /// The tree sidebar's background (swallows clicks, accepts wheel).
     TreeSidebarBg,
+    /// The tree sidebar's header (root name); click re-anchors the root to
+    /// the active pane's cwd.
+    TreeSidebarHeader,
     /// Top-bar quick action buttons (v0.40 "C").
     QuickAction(QuickAction),
     /// The popup menu card itself — swallows clicks that miss every row so

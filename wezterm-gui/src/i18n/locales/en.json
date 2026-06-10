@@ -62,6 +62,7 @@
   "cwd.prompt": "Select a folder to cd into the current pane.",
   "dirjump.empty": "No matching directory",
   "dirjump.hints": "↑↓ select · Enter cd · ⌘Enter new tab · Tab descend · ⌫ up · ⌘O picker · Esc",
+  "dirjump.placeholder": "Type to filter directories…",
   "dirjump.recent": "RECENT",
   "dirjump.subdirs": "SUBDIRECTORIES",
   "menu.cd_here": "cd Here",

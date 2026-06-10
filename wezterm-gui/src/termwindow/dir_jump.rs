@@ -279,11 +279,11 @@ impl DirJump {
         let metrics = RenderMetrics::with_font_metrics(&font.metrics());
         let pt = term_window.dimensions.dpi as f32 / 72.0;
 
-        let bg = LinearRgba::with_srgba(0x20, 0x20, 0x20, 0xff);
+        let bg = LinearRgba::with_srgba(0x2a, 0x2a, 0x2a, 0xff);
         let fg = LinearRgba::with_srgba(0xf2, 0xf2, 0xf0, 0xff);
-        let dim = LinearRgba::with_srgba(0x9b, 0x9b, 0x98, 0xff);
+        let dim = LinearRgba::with_srgba(0xac, 0xac, 0xa8, 0xff);
         let teal = LinearRgba::with_srgba(0x6f, 0xcc, 0xb8, 0xff);
-        let hover_bg = LinearRgba::with_srgba(0x34, 0x34, 0x34, 0xff);
+        let hover_bg = LinearRgba::with_srgba(0x3d, 0x3d, 0x3d, 0xff);
 
         let input = self.input.borrow().clone();
         let base = tilde_path(&self.base.borrow());
@@ -291,48 +291,63 @@ impl DirJump {
 
         let mut children: Vec<Element> = vec![];
 
-        // Header: prompt glyph + query + caret, base path right-aligned.
-        let header_row = vec![
-            Element::new(&font, ElementContent::Text("⌸ ".to_string())).colors(ElementColors {
-                border: BorderColor::default(),
-                bg: LinearRgba::TRANSPARENT.into(),
-                text: teal.into(),
-            }),
-            Element::new(&font, ElementContent::Text(format!("{input}▏"))).colors(ElementColors {
-                border: BorderColor::default(),
-                bg: LinearRgba::TRANSPARENT.into(),
-                text: fg.into(),
-            }),
-            Element::new(&font, ElementContent::Text(base))
-                .float(Float::Right)
-                .colors(ElementColors {
+        // Header: a real input field — inset darker box, teal caret, hint
+        // when empty. The browse root moves down into the subdir caption.
+        let field_bg = LinearRgba::with_srgba(0x1c, 0x1c, 0x1c, 0xff);
+        let shown_input = if input.is_empty() {
+            crate::i18n::t("dirjump.placeholder")
+        } else {
+            input.clone()
+        };
+        let input_color = if input.is_empty() { dim } else { fg };
+        let field = Element::new(
+            &font,
+            ElementContent::Children(vec![
+                Element::new(&font, ElementContent::Text("⌕ ".to_string())).colors(
+                    ElementColors {
+                        border: BorderColor::default(),
+                        bg: LinearRgba::TRANSPARENT.into(),
+                        text: teal.into(),
+                    },
+                ),
+                Element::new(&font, ElementContent::Text(shown_input)).colors(ElementColors {
                     border: BorderColor::default(),
                     bg: LinearRgba::TRANSPARENT.into(),
-                    text: dim.into(),
+                    text: input_color.into(),
                 }),
-        ];
+                Element::new(&font, ElementContent::Text("▏".to_string())).colors(
+                    ElementColors {
+                        border: BorderColor::default(),
+                        bg: LinearRgba::TRANSPARENT.into(),
+                        text: teal.into(),
+                    },
+                ),
+            ]),
+        )
+        .colors(ElementColors {
+            border: BorderColor::new(fg.mul_alpha(0.14)),
+            bg: field_bg.into(),
+            text: fg.into(),
+        })
+        .border(BoxDimension::new(Dimension::Pixels(1.)))
+        .padding(BoxDimension {
+            left: Dimension::Pixels(10. * pt),
+            right: Dimension::Pixels(10. * pt),
+            top: Dimension::Pixels(6. * pt),
+            bottom: Dimension::Pixels(6. * pt),
+        })
+        .min_width(Some(Dimension::Percent(1.)))
+        .display(DisplayType::Block);
         children.push(
-            Element::new(&font, ElementContent::Children(header_row))
+            Element::new(&font, ElementContent::Children(vec![field]))
                 .padding(BoxDimension {
-                    left: Dimension::Pixels(14. * pt),
-                    right: Dimension::Pixels(14. * pt),
+                    left: Dimension::Pixels(10. * pt),
+                    right: Dimension::Pixels(10. * pt),
                     top: Dimension::Pixels(8. * pt),
-                    bottom: Dimension::Pixels(8. * pt),
+                    bottom: Dimension::Pixels(6. * pt),
                 })
                 .min_width(Some(Dimension::Percent(1.)))
                 .display(DisplayType::Block),
-        );
-        // Hairline under the header.
-        children.push(
-            Element::new(&font, ElementContent::Text(String::new()))
-                .display(DisplayType::Block)
-                .min_width(Some(Dimension::Percent(1.)))
-                .line_height(Some(0.08))
-                .colors(ElementColors {
-                    border: BorderColor::default(),
-                    bg: fg.mul_alpha(0.12).into(),
-                    text: fg.into(),
-                }),
         );
 
         let visible = self.visible.borrow();
@@ -345,7 +360,11 @@ impl DirJump {
                 last_section = Some(item.section);
                 let caption = match item.section {
                     Section::Recent => crate::i18n::t("dirjump.recent"),
-                    Section::SubDir => crate::i18n::t("dirjump.subdirs"),
+                    Section::SubDir => format!(
+                        "{} — {}",
+                        crate::i18n::t("dirjump.subdirs"),
+                        base
+                    ),
                 };
                 children.push(
                     Element::new(&font, ElementContent::Text(caption))
@@ -370,41 +389,97 @@ impl DirJump {
                 } else {
                     (LinearRgba::TRANSPARENT.into(), fg.into())
                 };
-            let mut row = vec![Element::new(
-                &font,
-                ElementContent::Text(item.name.clone()),
-            )];
-            row.push(
-                Element::new(&font, ElementContent::Text(tilde_path(&item.path)))
-                    .float(Float::Right)
-                    .padding(BoxDimension {
-                        left: Dimension::Pixels(24. * pt),
-                        right: Dimension::Pixels(0.),
-                        top: Dimension::Pixels(0.),
-                        bottom: Dimension::Pixels(0.),
-                    })
-                    .zindex(10)
-                    .colors(ElementColors {
-                        border: BorderColor::default(),
-                        bg: row_bg.clone(),
-                        text: dim.into(),
-                    }),
-            );
+            // Greedy-subsequence match highlight: matched chars in teal.
+            let mut row: Vec<Element> = vec![];
+            if input.is_empty() {
+                row.push(Element::new(
+                    &font,
+                    ElementContent::Text(item.name.clone()),
+                ));
+            } else {
+                let lower_input: Vec<char> =
+                    input.to_lowercase().chars().collect();
+                let mut ii = 0usize;
+                let mut seg = String::new();
+                let mut seg_hit = false;
+                for ch in item.name.chars() {
+                    let hit = ii < lower_input.len()
+                        && ch.to_lowercase().next() == Some(lower_input[ii]);
+                    if hit {
+                        ii += 1;
+                    }
+                    if seg.is_empty() || hit == seg_hit {
+                        seg_hit = hit;
+                        seg.push(ch);
+                    } else {
+                        let color = if seg_hit { teal } else { fg };
+                        row.push(Element::new(&font, ElementContent::Text(seg.clone()))
+                            .colors(ElementColors {
+                                border: BorderColor::default(),
+                                bg: LinearRgba::TRANSPARENT.into(),
+                                text: color.into(),
+                            }));
+                        seg.clear();
+                        seg.push(ch);
+                        seg_hit = hit;
+                    }
+                }
+                if !seg.is_empty() {
+                    let color = if seg_hit { teal } else { fg };
+                    row.push(Element::new(&font, ElementContent::Text(seg))
+                        .colors(ElementColors {
+                            border: BorderColor::default(),
+                            bg: LinearRgba::TRANSPARENT.into(),
+                            text: color.into(),
+                        }));
+                }
+            }
+            // Path shown only for recents (subdir paths are redundant noise).
+            if item.section == Section::Recent {
+                row.push(
+                    Element::new(&font, ElementContent::Text(tilde_path(&item.path)))
+                        .float(Float::Right)
+                        .padding(BoxDimension {
+                            left: Dimension::Pixels(24. * pt),
+                            right: Dimension::Pixels(0.),
+                            top: Dimension::Pixels(0.),
+                            bottom: Dimension::Pixels(0.),
+                        })
+                        .zindex(10)
+                        .colors(ElementColors {
+                            border: BorderColor::default(),
+                            bg: row_bg.clone(),
+                            text: dim.into(),
+                        }),
+                );
+            }
+            let mut row_border = BorderColor::default();
+            if display_idx == selected {
+                row_border.left = teal;
+            }
+            let mut hover_border = BorderColor::default();
+            hover_border.left = teal;
             children.push(
                 Element::new(&font, ElementContent::Children(row))
                     .item_type(UIItemType::DirJumpRow(display_idx))
                     .colors(ElementColors {
-                        border: BorderColor::default(),
+                        border: row_border,
                         bg: row_bg,
                         text: row_fg,
                     })
                     .hover_colors(Some(ElementColors {
-                        border: BorderColor::default(),
+                        border: hover_border,
                         bg: hover_bg.into(),
                         text: fg.into(),
                     }))
+                    .border(BoxDimension {
+                        left: Dimension::Pixels(2. * pt),
+                        right: Dimension::Pixels(0.),
+                        top: Dimension::Pixels(0.),
+                        bottom: Dimension::Pixels(0.),
+                    })
                     .padding(BoxDimension {
-                        left: Dimension::Pixels(21. * pt),
+                        left: Dimension::Pixels(12. * pt),
                         right: Dimension::Pixels(14. * pt),
                         top: Dimension::Pixels(5. * pt),
                         bottom: Dimension::Pixels(5. * pt),

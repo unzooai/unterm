@@ -64,6 +64,7 @@ impl super::TermWindow {
             | UIItemType::DirJumpRow(_)
             | UIItemType::TreeSidebarRow(_)
             | UIItemType::TreeSidebarBg
+            | UIItemType::TreeSidebarHeader
             | UIItemType::QuickAction(_)
             | UIItemType::PopupMenuCard => {}
         }
@@ -90,6 +91,7 @@ impl super::TermWindow {
             | UIItemType::DirJumpRow(_)
             | UIItemType::TreeSidebarRow(_)
             | UIItemType::TreeSidebarBg
+            | UIItemType::TreeSidebarHeader
             | UIItemType::QuickAction(_)
             | UIItemType::PopupMenuCard => {}
         }
@@ -511,6 +513,23 @@ impl super::TermWindow {
             }
             UIItemType::TreeSidebarBg => {
                 self.mouse_event_tree_sidebar(None, event, context);
+            }
+            UIItemType::TreeSidebarHeader => {
+                if let WMEK::Press(MousePress::Left) = event.kind {
+                    // Re-anchor the tree to the active pane's cwd.
+                    let root = self
+                        .get_active_pane_no_overlay()
+                        .and_then(|pane| super::pane_cwd_path(&pane));
+                    if let (Some(root), Some(tree)) =
+                        (root, self.tree_sidebar.borrow_mut().as_mut())
+                    {
+                        tree.root = root;
+                        tree.rebuild();
+                    }
+                    if let Some(window) = self.window.as_ref() {
+                        window.invalidate();
+                    }
+                }
             }
             UIItemType::QuickAction(action) => {
                 if let WMEK::Press(MousePress::Left) = event.kind {

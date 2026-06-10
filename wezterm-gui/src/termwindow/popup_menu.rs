@@ -18,6 +18,8 @@ use crate::termwindow::{DimensionContext, TermWindow, UIItemType};
 use crate::utilsprites::RenderMetrics;
 use config::keyassignment::{KeyAssignment, Pattern, SpawnCommand, SpawnTabDomain};
 use config::Dimension;
+use crate::customglyph::Poly;
+use crate::termwindow::ui_icons;
 use mux::pane::PaneId;
 use std::cell::{Ref, RefCell};
 use wezterm_term::{KeyCode, KeyModifiers, MouseEvent};
@@ -41,6 +43,7 @@ pub enum MenuAction {
 pub struct MenuEntry {
     label: String,
     accel: &'static str,
+    icon: Option<&'static [Poly]>,
     /// `None` renders as a separator line.
     action: Option<MenuAction>,
 }
@@ -62,40 +65,50 @@ impl PopupMenu {
         } else {
             crate::i18n::t("settings.menu.recording_off")
         };
-        let entry = |label: String, accel: &'static str, action: MenuAction| MenuEntry {
+        let entry = |label: String,
+                     accel: &'static str,
+                     icon: &'static [Poly],
+                     action: MenuAction| MenuEntry {
             label,
             accel,
+            icon: Some(icon),
             action: Some(action),
         };
         let sep = || MenuEntry {
             label: String::new(),
             accel: "",
+            icon: None,
             action: None,
         };
         let entries = vec![
             entry(
                 crate::i18n::t("menu.new_tab"),
                 "Ctrl+Shift+T",
+                ui_icons::ICON_PLUS,
                 MenuAction::Assign(KeyAssignment::SpawnTab(SpawnTabDomain::CurrentPaneDomain)),
             ),
             entry(
                 crate::i18n::t("settings.menu.split_right"),
                 "Ctrl+Shift+E",
+                ui_icons::ICON_SPLIT,
                 MenuAction::Assign(KeyAssignment::SplitHorizontal(SpawnCommand::default())),
             ),
             entry(
                 crate::i18n::t("menu.dir_jump"),
                 "Ctrl+Shift+O",
+                ui_icons::ICON_FOLDER,
                 MenuAction::DirJump,
             ),
             entry(
                 crate::i18n::t("menu.tree_sidebar"),
                 "Ctrl+Shift+B",
+                ui_icons::ICON_TREE,
                 MenuAction::ToggleTreeSidebar,
             ),
             entry(
                 crate::i18n::t("menu.find"),
                 "Ctrl+Shift+F",
+                ui_icons::ICON_SEARCH,
                 MenuAction::Assign(KeyAssignment::Search(Pattern::CaseSensitiveString(
                     String::new(),
                 ))),
@@ -104,19 +117,22 @@ impl PopupMenu {
             entry(
                 crate::i18n::t("menu.command_palette"),
                 "Ctrl+Shift+P",
+                ui_icons::ICON_PROMPT,
                 MenuAction::Assign(KeyAssignment::ActivateCommandPalette),
             ),
             sep(),
-            entry(recording_label, "", MenuAction::ToggleRecording),
+            entry(recording_label, "", ui_icons::ICON_RECORD, MenuAction::ToggleRecording),
             entry(
                 crate::i18n::t("settings.menu.export_session"),
                 "",
+                ui_icons::ICON_EXPORT,
                 MenuAction::ExportSession,
             ),
             sep(),
             entry(
                 crate::i18n::t("settings.menu.web_settings"),
                 "",
+                ui_icons::ICON_SLIDERS,
                 MenuAction::OpenWebSettings,
             ),
         ];
@@ -137,6 +153,7 @@ impl PopupMenu {
             .map(|(label, action)| MenuEntry {
                 label,
                 accel: "",
+                icon: None,
                 action: Some(action),
             })
             .collect();
@@ -265,10 +282,11 @@ impl PopupMenu {
 
         // Explicit high-contrast surface (the command-palette defaults are
         // gray-on-gray and nearly unreadable on a dark theme).
-        let bg = LinearRgba::with_srgba(0x20, 0x20, 0x20, 0xff);
+        let bg = LinearRgba::with_srgba(0x2a, 0x2a, 0x2a, 0xff);
         let fg = LinearRgba::with_srgba(0xf2, 0xf2, 0xf0, 0xff);
-        let accel_fg = LinearRgba::with_srgba(0x9b, 0x9b, 0x98, 0xff);
-        let hover_bg = LinearRgba::with_srgba(0x34, 0x34, 0x34, 0xff);
+        let accel_fg = LinearRgba::with_srgba(0xac, 0xac, 0xa8, 0xff);
+        let hover_bg = LinearRgba::with_srgba(0x3d, 0x3d, 0x3d, 0xff);
+        let teal = LinearRgba::with_srgba(0x6f, 0xcc, 0xb8, 0xff);
 
         let mut rows: Vec<Element> = vec![];
         for (idx, e) in self.entries.iter().enumerate() {
@@ -299,10 +317,38 @@ impl PopupMenu {
             } else {
                 (LinearRgba::TRANSPARENT.into(), fg.into())
             };
-            let mut row = vec![Element::new(
+            let mut row: Vec<Element> = vec![];
+            if let Some(icon) = e.icon {
+                row.push(
+                    Element::new(
+                        &font,
+                        ElementContent::Poly {
+                            line_width: metrics.underline_height.max(2),
+                            poly: SizedPoly {
+                                poly: icon,
+                                width: Dimension::Pixels(11. * pt),
+                                height: Dimension::Pixels(11. * pt),
+                            },
+                        },
+                    )
+                    .vertical_align(VerticalAlign::Middle)
+                    .padding(BoxDimension {
+                        left: Dimension::Pixels(0.),
+                        right: Dimension::Pixels(8. * pt),
+                        top: Dimension::Pixels(0.),
+                        bottom: Dimension::Pixels(0.),
+                    })
+                    .colors(ElementColors {
+                        border: BorderColor::default(),
+                        bg: LinearRgba::TRANSPARENT.into(),
+                        text: row_fg.clone(),
+                    }),
+                );
+            }
+            row.push(Element::new(
                 &font,
                 ElementContent::Text(e.label.clone()),
-            )];
+            ));
             if !e.accel.is_empty() {
                 row.push(
                     Element::new(&font, ElementContent::Text(e.accel.to_string()))
@@ -321,21 +367,33 @@ impl PopupMenu {
                         }),
                 );
             }
+            let mut row_border = BorderColor::default();
+            if hover == Some(idx) {
+                row_border.left = teal;
+            }
+            let mut hover_border = BorderColor::default();
+            hover_border.left = teal;
             rows.push(
                 Element::new(&font, ElementContent::Children(row))
                     .item_type(UIItemType::PopupMenuRow(idx))
                     .colors(ElementColors {
-                        border: BorderColor::default(),
+                        border: row_border,
                         bg: row_bg,
                         text: row_fg,
                     })
                     .hover_colors(Some(ElementColors {
-                        border: BorderColor::default(),
+                        border: hover_border,
                         bg: hover_bg.into(),
                         text: fg.into(),
                     }))
+                    .border(BoxDimension {
+                        left: Dimension::Pixels(2. * pt),
+                        right: Dimension::Pixels(0.),
+                        top: Dimension::Pixels(0.),
+                        bottom: Dimension::Pixels(0.),
+                    })
                     .padding(BoxDimension {
-                        left: Dimension::Pixels(21. * pt),
+                        left: Dimension::Pixels(12. * pt),
                         right: Dimension::Pixels(14. * pt),
                         top: Dimension::Pixels(5. * pt),
                         bottom: Dimension::Pixels(5. * pt),
@@ -424,6 +482,31 @@ impl PopupMenu {
             .max(8.)
             .round();
 
+        // Two-step halo approximating a soft drop shadow (no blur shader in
+        // the box model; stepped alpha reads as depth at UI scale).
+        let halo_round = |r: f32| Corners {
+            top_left: SizedPoly { width: Dimension::Pixels(r), height: Dimension::Pixels(r), poly: TOP_LEFT_ROUNDED_CORNER },
+            top_right: SizedPoly { width: Dimension::Pixels(r), height: Dimension::Pixels(r), poly: TOP_RIGHT_ROUNDED_CORNER },
+            bottom_left: SizedPoly { width: Dimension::Pixels(r), height: Dimension::Pixels(r), poly: BOTTOM_LEFT_ROUNDED_CORNER },
+            bottom_right: SizedPoly { width: Dimension::Pixels(r), height: Dimension::Pixels(r), poly: BOTTOM_RIGHT_ROUNDED_CORNER },
+        };
+        let element = Element::new(&font, ElementContent::Children(vec![element]))
+            .padding(BoxDimension::new(Dimension::Pixels(2. * pt)))
+            .colors(ElementColors {
+                border: BorderColor::default(),
+                bg: LinearRgba::with_srgba(0x00, 0x00, 0x00, 0x2e).into(),
+                text: fg.into(),
+            })
+            .border_corners(Some(halo_round(8. * pt)));
+        let element = Element::new(&font, ElementContent::Children(vec![element]))
+            .padding(BoxDimension::new(Dimension::Pixels(2. * pt)))
+            .colors(ElementColors {
+                border: BorderColor::default(),
+                bg: LinearRgba::with_srgba(0x00, 0x00, 0x00, 0x16).into(),
+                text: fg.into(),
+            })
+            .border_corners(Some(halo_round(10. * pt)));
+
         let computed = term_window.compute_element(
             &LayoutContext {
                 height: DimensionContext {
@@ -437,9 +520,9 @@ impl PopupMenu {
                     pixel_cell: metrics.cell_size.width as f32,
                 },
                 bounds: euclid::rect(
-                    x.max(0.),
-                    top_pixel_y,
-                    desired_pixel_width,
+                    (x - 4. * pt).max(0.),
+                    (top_pixel_y - 4. * pt).max(0.),
+                    desired_pixel_width + 8. * pt,
                     dimensions.pixel_height as f32 - top_pixel_y,
                 ),
                 metrics: &metrics,

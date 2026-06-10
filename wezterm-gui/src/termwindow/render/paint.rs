@@ -223,6 +223,12 @@ impl crate::TermWindow {
         // Header: ▦ root-name
         children.push(
             Element::new(&font, ElementContent::Text(format!("▦  {root_name}")))
+                .item_type(UIItemType::TreeSidebarHeader)
+                .hover_colors(Some(ElementColors {
+                    border: BorderColor::default(),
+                    bg: hover_bg.into(),
+                    text: teal.into(),
+                }))
                 .display(DisplayType::Block)
                 .min_width(Some(Dimension::Percent(1.)))
                 .padding(BoxDimension {
@@ -273,11 +279,21 @@ impl crate::TermWindow {
                     bg: LinearRgba::TRANSPARENT.into(),
                     text: text_color.into(),
                 })
-                .hover_colors(Some(ElementColors {
-                    border: BorderColor::default(),
-                    bg: hover_bg.into(),
-                    text: fg.into(),
-                })),
+                .hover_colors(Some({
+                    let mut hb = BorderColor::default();
+                    hb.left = teal;
+                    ElementColors {
+                        border: hb,
+                        bg: hover_bg.into(),
+                        text: fg.into(),
+                    }
+                }))
+                .border(BoxDimension {
+                    left: Dimension::Pixels(2. * pt),
+                    right: Dimension::Pixels(0.),
+                    top: Dimension::Pixels(0.),
+                    bottom: Dimension::Pixels(0.),
+                }),
             );
         }
 
