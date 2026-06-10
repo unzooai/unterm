@@ -5,6 +5,30 @@ local wezterm = require 'wezterm'
 local config = wezterm.config_builder()
 local act = wezterm.action
 
+-- 一体顶栏:让整合标题栏 / tab 栏与终端内容同色,随主题走(Warp 式不割裂)。
+-- 复刻 Rust 默认解析:读 ~/.unterm/theme.json 的 color_scheme,取其 bg/fg;
+-- 取不到就回退暖黑 Notion Dark。
+local function scheme_colors()
+  local name = 'Notion Dark'
+  local home = os.getenv('HOME')
+  if home then
+    local fh = io.open(home .. '/.unterm/theme.json', 'r')
+    if fh then
+      local txt = fh:read('*a')
+      fh:close()
+      name = txt:match('"color_scheme"%s*:%s*"([^"]+)"') or name
+    end
+  end
+  local bg, fg = '#191919', '#d4d4d4'
+  local ok, schemes = pcall(function() return wezterm.color.get_builtin_schemes() end)
+  if ok and schemes[name] then
+    bg = schemes[name].background or bg
+    fg = schemes[name].foreground or fg
+  end
+  return bg, fg
+end
+local theme_bg, theme_fg = scheme_colors()
+
 -------------------------------------------------
 -- 基础设置
 -------------------------------------------------
@@ -32,25 +56,32 @@ config.show_unterm_status_bar = true
 -- 窗口（Windows Terminal 风格单栏）
 -------------------------------------------------
 config.window_decorations = 'INTEGRATED_BUTTONS|RESIZE'
-config.integrated_title_button_alignment = 'Right'
-config.integrated_title_button_style = 'Windows'
+-- 整合标题栏样式按平台:macOS 必须用 MacOsNative,否则 INTEGRATED_BUTTONS 会被
+-- 剥掉(见 window.rs effective_decorations)→ 退回灰色原生标题栏、与内容割裂。
+if wezterm.target_triple:find('darwin') then
+  config.integrated_title_button_style = 'MacOsNative'
+elseif wezterm.target_triple:find('windows') then
+  config.integrated_title_button_style = 'Windows'
+  config.integrated_title_button_alignment = 'Right'
+else
+  config.integrated_title_button_style = 'Gnome'
+end
 config.window_padding = { left = 16, right = 16, top = 10, bottom = 8 }
 config.initial_cols = 120
 config.initial_rows = 30
 
--- Windows Terminal / PowerShell 标题栏
--- 暖黑标题栏,跟 Notion Dark 内容底(#191919)统一,避免冷灰 chrome 撞暖黑正文。
+-- 标题栏/顶栏与终端内容同色(theme_bg),随主题走 → 一体不割裂。
 config.window_frame = {
-  inactive_titlebar_bg = '#1c1c1c',
-  active_titlebar_bg = '#191919',
-  inactive_titlebar_fg = '#8b8b8b',
-  active_titlebar_fg = '#ffffff',
-  inactive_titlebar_border_bottom = '#141414',
-  active_titlebar_border_bottom = '#2a2a2a',
-  button_fg = '#cccccc',
-  button_bg = '#191919',
-  button_hover_fg = '#ffffff',
-  button_hover_bg = '#2f2f2f',
+  inactive_titlebar_bg = theme_bg,
+  active_titlebar_bg = theme_bg,
+  inactive_titlebar_fg = theme_fg,
+  active_titlebar_fg = theme_fg,
+  inactive_titlebar_border_bottom = theme_bg,
+  active_titlebar_border_bottom = theme_bg,
+  button_fg = theme_fg,
+  button_bg = theme_bg,
+  button_hover_fg = theme_fg,
+  button_hover_bg = theme_bg,
 }
 
 -------------------------------------------------
@@ -62,32 +93,16 @@ config.show_tab_index_in_tab_bar = false
 config.show_new_tab_button_in_tab_bar = true
 config.hide_tab_bar_if_only_one_tab = false
 
--- Tab 栏暖化到 Notion Dark:活动 tab 与内容底同色(#191919)做无缝过渡,
--- 非活动 tab 稍亮、文字降为柔和灰,hover 再亮一档。
+-- Tab 栏整条 = 内容底(theme_bg),活动 tab 无缝、文字加粗;非活动 tab 同底、
+-- 用 Half 亮度自动变暗(随主题,不需算色)。整条顶栏与内容一体。
 config.colors = {
   tab_bar = {
-    background = '#191919',
-    active_tab = {
-      bg_color = '#191919',
-      fg_color = '#ffffff',
-      intensity = 'Bold',
-    },
-    inactive_tab = {
-      bg_color = '#202020',
-      fg_color = '#8b8b8b',
-    },
-    inactive_tab_hover = {
-      bg_color = '#262626',
-      fg_color = '#ffffff',
-    },
-    new_tab = {
-      bg_color = '#191919',
-      fg_color = '#8b8b8b',
-    },
-    new_tab_hover = {
-      bg_color = '#262626',
-      fg_color = '#ffffff',
-    },
+    background = theme_bg,
+    active_tab = { bg_color = theme_bg, fg_color = theme_fg, intensity = 'Bold' },
+    inactive_tab = { bg_color = theme_bg, fg_color = theme_fg, intensity = 'Half' },
+    inactive_tab_hover = { bg_color = theme_bg, fg_color = theme_fg, intensity = 'Normal' },
+    new_tab = { bg_color = theme_bg, fg_color = theme_fg, intensity = 'Half' },
+    new_tab_hover = { bg_color = theme_bg, fg_color = theme_fg, intensity = 'Normal' },
   },
 }
 
