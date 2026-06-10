@@ -11,6 +11,9 @@ set -x
 cd "$(git rev-parse --show-toplevel)/assets/icon"
 
 SRC_PNG=unterm-icon-512.png
+# Small-size optical variant: thicker stems + larger cursor so the mark
+# stays legible at Dock/taskbar/favicon sizes. Used for all sizes <= 64.
+SRC_PNG_SMALL=unterm-icon-small-512.png
 SRC_SVG=unterm-icon.svg
 
 # Dependency check
@@ -18,12 +21,16 @@ have() { command -v "$1" >/dev/null 2>&1; }
 
 resize_to() {
   local size=$1 out=$2
+  local src="$SRC_PNG"
+  if [ "$size" -le 64 ] && [ -f "$SRC_PNG_SMALL" ]; then
+    src="$SRC_PNG_SMALL"
+  fi
   if have magick ; then
-    magick "$SRC_PNG" -resize "${size}x${size}" "$out"
+    magick "$src" -resize "${size}x${size}" "$out"
   elif have convert ; then
-    convert "$SRC_PNG" -resize "${size}x${size}" "$out"
+    convert "$src" -resize "${size}x${size}" "$out"
   elif have sips ; then
-    cp "$SRC_PNG" "$out" && sips -Z "$size" "$out" >/dev/null
+    cp "$src" "$out" && sips -Z "$size" "$out" >/dev/null
   else
     echo "ERROR: need 'magick', 'convert', or 'sips' to resize PNG" >&2
     exit 1
@@ -54,14 +61,7 @@ ICONSET=$(mktemp -d)/Unterm.iconset
 mkdir -p "$ICONSET"
 for s in 16 32 64 128 256 512 ; do
   out="$ICONSET/icon_${s}x${s}.png"
-  if have magick ; then
-    magick "$SRC_PNG" -resize ${s}x${s} "$out"
-  elif have convert ; then
-    convert "$SRC_PNG" -resize ${s}x${s} "$out"
-  elif have sips ; then
-    cp "$SRC_PNG" "$out"
-    sips -Z $s "$out" >/dev/null
-  fi
+  resize_to "$s" "$out"
   if [[ $s != 16 ]] ; then
     cp "$out" "$ICONSET/icon_$((s/2))x$((s/2))@2x.png"
   fi

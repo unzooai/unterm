@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Small-size optical variant (used for 64px and below): thicker stems,
+       1.35x cursor so the mark stays legible in Dock/taskbar/favicon. -->
+  <rect width="64" height="64" rx="14.3" fill="#141414"/>
+  <path d="M15 13 h9 v22 a8 8 0 0 0 16 0 V13 h9 v22.5 a16.5 16.5 0 0 1 -34 0 Z" fill="#eceae6"/>
+  <rect x="26" y="19" width="12" height="15" rx="1.8" fill="#6fccb8"/>
+</svg>

@@ -1,9 +1,15 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
-  <!-- Unterm logo — warm-black (Notion Dark) monogram: U cradles T, terminal block cursor.
-       tile #191919 · U teal #6fccb8 · T amber #ffd666 · cursor teal #6fccb8 -->
-  <rect width="64" height="64" rx="15" fill="#191919"/>
-  <rect x="3.5" y="3.5" width="57" height="57" rx="12" fill="none" stroke="#2a2a2a" stroke-width="1"/>
-  <path d="M18 18 V32 a14 14 0 0 0 28 0 V18" fill="none" stroke="#6fccb8" stroke-width="7" stroke-linecap="round"/>
-  <path d="M25 24.5 H39 M32 24.5 V35" fill="none" stroke="#ffd666" stroke-width="5" stroke-linecap="round"/>
-  <rect x="28.4" y="41" width="7.2" height="3.4" rx="1.1" fill="#6fccb8"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Unterm mark — solid negative-space U (the terminal viewport) with the
+       teal block cursor floating at the prompt line inside the counter.
+       Optical: glyph lifted 1u above geometric center; bowl overshoots the
+       stem baseline by 0.5u; tile #171717→#121212 2% top-light. -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#171717"/>
+      <stop offset="1" stop-color="#121212"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14.3" fill="url(#tile)"/>
+  <path d="M15.5 13 h8.5 v22 a8 8 0 0 0 16 0 V13 h8.5 v22.5 a16.5 16.5 0 0 1 -33 0 Z" fill="#eceae6"/>
+  <rect x="27.5" y="20" width="9" height="12" rx="1.4" fill="#6fccb8"/>
 </svg>
