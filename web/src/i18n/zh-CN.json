@@ -279,7 +279,7 @@
   "install.macos.size": "117 MB",
   "install.linux.size": "35 / 46 MB",
   "install.windows.size": "44 / 64 MB",
-  "whatsnew.title": "v0.40 新增",
+  "whatsnew.title": "v0.41 新增",
   "whatsnew.unitop.title": "窗口顶部一体无缝 —— 灰标题栏没了",
   "whatsnew.unitop.body": "macOS 以前会在 Unterm 的 tab 栏上方画一条灰色原生标题栏,跟下面的深色终端撞色、割裂。v0.39 把顶部收成<strong>与内容同色的一条</strong>:交通灯进 tab 行、单独的标题栏消失,整条顶栏<strong>自动跟随当前主题背景</strong> —— 任何主题、明暗都无缝。修复了 macOS 上整合标题按钮被悄悄禁用的问题(标题按钮样式现在按平台解析),窗口终于是一整块,而不是三条撞色的带子。",
   "whatsnew.uipolish.title": "开箱观感更精致 + 全新 logo",
@@ -359,5 +359,7 @@
   "why.unterm.b1": "终端是 MCP 可控面——任何 agent 即插即驱动，今天的或明年的",
   "why.unterm.b2": "你选 agent、你选模型，Unterm 永不绑定",
   "why.unterm.b3": "MIT 全开源，一切都在 127.0.0.1——无登录、无订阅、无遥测",
-  "why.closing": "三十年后你还会在用终端。到时候驱动它的 AI 是哪一个，没人知道——所以唯一面向未来的终端，是把“被驱动”做到极致的那一个。"
+  "why.closing": "三十年后你还会在用终端。到时候驱动它的 AI 是哪一个，没人知道——所以唯一面向未来的终端，是把“被驱动”做到极致的那一个。",
+  "whatsnew.search41.title": "搜索手感重做——人和 agent 都快",
+  "whatsnew.search41.body": "面板内搜索条全面重做:秒开、第一个按键直接替换预填词、匹配切换和光标终于看得清,copy mode 里<strong>点击任意匹配直接跳过去</strong>,tab 栏也加了搜索按钮。同样的能力也给了 agent:<code class=\"font-mono text-xs\">screen.search</code> 学会了 <code class=\"font-mono text-xs\">goto</code>——在回滚区找到字符串后直接把视口跳到那里。另外:修复 Windows 启动时串行代理探测导致的数秒卡死;MCP stdio 桥在 GUI 未启动时也能应答 introspection;新增 GUI 卡顿看门狗。"
 }
