@@ -205,6 +205,78 @@ pub const ICON_RECORD: &[Poly] = &[Poly {
     style: PolyStyle::Fill,
 }];
 
+/// Long screenshot of the scrollback: tall page + down arrow.
+pub const ICON_LONGSHOT: &[Poly] = &[
+    Poly {
+        path: &[
+            PolyCommand::MoveTo(BlockCoord::Frac(5, 16), BlockCoord::Frac(1, 16)),
+            PolyCommand::LineTo(BlockCoord::Frac(11, 16), BlockCoord::Frac(1, 16)),
+            PolyCommand::LineTo(BlockCoord::Frac(11, 16), BlockCoord::Frac(15, 16)),
+            PolyCommand::LineTo(BlockCoord::Frac(5, 16), BlockCoord::Frac(15, 16)),
+            PolyCommand::Close,
+        ],
+        intensity: BlockAlpha::Full,
+        style: PolyStyle::Outline,
+    },
+    Poly {
+        path: &[
+            PolyCommand::MoveTo(BlockCoord::Frac(1, 2), BlockCoord::Frac(5, 16)),
+            PolyCommand::LineTo(BlockCoord::Frac(1, 2), BlockCoord::Frac(11, 16)),
+        ],
+        intensity: BlockAlpha::Full,
+        style: PolyStyle::Outline,
+    },
+    Poly {
+        path: &[
+            PolyCommand::MoveTo(BlockCoord::Frac(6, 16), BlockCoord::Frac(9, 16)),
+            PolyCommand::LineTo(BlockCoord::Frac(1, 2), BlockCoord::Frac(11, 16)),
+            PolyCommand::LineTo(BlockCoord::Frac(10, 16), BlockCoord::Frac(9, 16)),
+        ],
+        intensity: BlockAlpha::Full,
+        style: PolyStyle::Outline,
+    },
+];
+
+/// Long screenshot of another window: window frame + down arrow inside.
+pub const ICON_WINSCROLL: &[Poly] = &[
+    Poly {
+        path: &[
+            PolyCommand::MoveTo(BlockCoord::Frac(1, 8), BlockCoord::Frac(2, 16)),
+            PolyCommand::LineTo(BlockCoord::Frac(7, 8), BlockCoord::Frac(2, 16)),
+            PolyCommand::LineTo(BlockCoord::Frac(7, 8), BlockCoord::Frac(14, 16)),
+            PolyCommand::LineTo(BlockCoord::Frac(1, 8), BlockCoord::Frac(14, 16)),
+            PolyCommand::Close,
+        ],
+        intensity: BlockAlpha::Full,
+        style: PolyStyle::Outline,
+    },
+    Poly {
+        path: &[
+            PolyCommand::MoveTo(BlockCoord::Frac(1, 8), BlockCoord::Frac(5, 16)),
+            PolyCommand::LineTo(BlockCoord::Frac(7, 8), BlockCoord::Frac(5, 16)),
+        ],
+        intensity: BlockAlpha::Full,
+        style: PolyStyle::Outline,
+    },
+    Poly {
+        path: &[
+            PolyCommand::MoveTo(BlockCoord::Frac(1, 2), BlockCoord::Frac(7, 16)),
+            PolyCommand::LineTo(BlockCoord::Frac(1, 2), BlockCoord::Frac(12, 16)),
+        ],
+        intensity: BlockAlpha::Full,
+        style: PolyStyle::Outline,
+    },
+    Poly {
+        path: &[
+            PolyCommand::MoveTo(BlockCoord::Frac(6, 16), BlockCoord::Frac(10, 16)),
+            PolyCommand::LineTo(BlockCoord::Frac(1, 2), BlockCoord::Frac(12, 16)),
+            PolyCommand::LineTo(BlockCoord::Frac(10, 16), BlockCoord::Frac(10, 16)),
+        ],
+        intensity: BlockAlpha::Full,
+        style: PolyStyle::Outline,
+    },
+];
+
 /// Export: up-right arrow.
 pub const ICON_EXPORT: &[Poly] = &[
     Poly {

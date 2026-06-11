@@ -1,7 +1,6 @@
 {
   "meta.title": "Unterm — a terminal AI agents can control",
   "meta.desc": "A cross-platform terminal built for agent control: drive panes, cwd, screenshots, and sessions through MCP, HTTP, and CLI.",
-
   "nav.agents": "AI Agents",
   "nav.features": "Features",
   "nav.demo": "Demo",
@@ -13,7 +12,6 @@
   "nav.faq": "FAQ",
   "nav.sponsor": "Sponsor",
   "nav.capabilities": "Capabilities",
-
   "cap.title": "The complete control surface",
   "cap.subtitle": "Not a screenshot tour — the real surface every agent and script can call. 65 MCP methods across 11 namespaces, plus 22 CLI commands, all returning the same JSON.",
   "cap.stat.methods": "MCP methods",
@@ -45,18 +43,15 @@
   "cap.workspace.body": "Save the current window's full pane / tab layout, list saved layouts, and restore one — an agent can snapshot a working set and bring it back later.",
   "cap.meta.title": "Self-describing surface",
   "cap.meta.body": "<code class=\"font-mono text-xs\">meta.surface</code> returns every MCP method (with param schemas), every CLI subcommand, and every live keybinding in one call — so an agent that just connected learns the whole API without docs.",
-
   "hero.badge": "Install Claude Code / Codex / Gemini / OpenCode / Aider in one click",
   "hero.badge.signed": "signed + notarized",
   "hero.badge.platforms": "4 platforms",
-
   "heropill.mcp": "MCP-controllable",
   "heropill.cli": "Scriptable CLI",
   "heropill.web": "Web Settings",
   "heropill.rec": "Session recording",
   "heropill.split": "Split / focus from MCP",
   "heropill.local": "127.0.0.1 only",
-
   "tldr.title": "What Unterm is, in 60 seconds",
   "tldr.subtitle": "specs you can verify in source · refreshed each release",
   "tldr.version": "Latest version",
@@ -80,7 +75,6 @@
   "tldr.engine_stack.value": "Rust · customized WezTerm engine · MCP (line-delimited JSON-RPC) · Tailwind + Alpine for Web Settings",
   "tldr.bundled_agents": "Bundled AI agents",
   "tldr.bundled_agents.value": "5 signed manifests — Claude Code · Codex CLI · Gemini CLI · OpenCode · Aider. Ed25519-verified envelope from unterm.app/api/agents/manifests; per-agent auth mode picker.",
-
   "stand.title": "Where Unterm stands out",
   "stand.subtitle": "Three claims you can grep, build, or run yourself. No marketing fog.",
   "stand.agents.title": "The terminal you boot every AI coding CLI from",
@@ -91,7 +85,6 @@
   "stand.audit.body": "Each <code class=\"font-mono text-xs\">session.input</code> / <code class=\"font-mono text-xs\">exec.send</code> is logged with the calling agent's identity. First write from a new agent triggers an Allow / Block / Always-allow banner. Trust persists to <code class=\"font-mono text-xs\">~/.unterm/trusted_agents.json</code> and is one click revocable from the Web Settings MCP tab. The status bar shows live MCP write count.",
   "stand.identity.title": "One window per developer identity",
   "stand.identity.body": "Bind a window to a coherent identity in one shot: GitHub PAT, AWS keys, npm token, OpenAI key, SSH key, git author. Credentials live in the OS-native vault (Keychain / Credential Manager / libsecret) — never on disk. Seven sniffers read existing credentials so first-time setup is empty.",
-
   "qol.badge": "Quality-of-life",
   "qol.title": "Small touches that add up",
   "qol.subtitle": "Daily-driver polish — none are headline features, but together they remove friction.",
@@ -111,7 +104,6 @@
   "qol.proxy.body": "Reads macOS scutil / Windows registry / GNOME gsettings / env. One toggle on/off. No URL pasting.",
   "qol.headers.title": "OSC 133 block segmentation",
   "qol.headers.body": "Recordings split on shell prompt boundaries automatically. Each block has its command, output, exit code, duration — searchable.",
-
   "sponsor.title": "Support Unterm",
   "sponsor.subtitle": "One developer builds and maintains Unterm in their spare time. If it speeds up your daily work, a small sponsorship keeps the project alive.",
   "sponsor.note": "Sponsors get listed in the README and the in-app About dialog (with permission). No paywall, no premium tier — everything ships in the same MIT-licensed binary.",
@@ -129,10 +121,8 @@
   "hero.cta.other": "Other platforms",
   "hero.cta.github": "★ Star on GitHub",
   "hero.meta": "Unified AI agent launcher · Local-first · No cloud · No login",
-
   "tagline.title": "AI controls the terminal. MCP makes it real.",
   "tagline.body": "Most terminals embed AI <em>inside</em> the binary. Unterm does the opposite: keep AI outside, expose the terminal as a surface that any external agent can grip via MCP. The terminal is the thing being controlled; the agent is the thing doing the work.",
-
   "agents.tag": "v0.18 · AI Agent Launcher",
   "agents.title": "Install every coding agent. One click each. No setup tax.",
   "agents.subtitle": "If you've ever tried to run more than one AI coding CLI side-by-side, you know the tax: <code class=\"font-mono text-xs\">npm install</code>, OAuth flow, API key, <code class=\"font-mono text-xs\">~/.config/&lt;vendor&gt;/&lt;different format each&gt;</code>, env vars, profile separation. Unterm v0.18 collapses that into one settings tab + a CLI. <strong>No other terminal does this.</strong>",
@@ -142,7 +132,6 @@
   "agents.card.auth.body": "Most agents ship with OAuth tied to a paid subscription (Claude Pro, ChatGPT Plus, Google AI Pro). Unterm defaults to that mode — no API key is ever silently injected. Switch to <em>bring your own key</em> or <em>custom endpoint</em> explicitly in the Configure form when you actually want per-token billing or a corporate gateway.",
   "agents.card.signed.title": "Ed25519-signed manifest catalog",
   "agents.card.signed.body": "The list of agents + their install commands isn't hard-coded into Unterm — it's a signed envelope served from <code class=\"font-mono text-xs\">unterm.app/api/agents/manifests</code>. A compromise of the CDN can't push <code class=\"font-mono text-xs\">curl | sh</code> to your machine; the public key is baked into every Unterm binary.",
-
   "demo.badge": "Typical case",
   "demo.title": "One AI controls another AI through the terminal.",
   "demo.subtitle": "The outer agent owns the terminal session. It switches cwd, launches an inner coding agent in a pane, reads the logs, and keeps iterating until the repository is green.",
@@ -152,7 +141,6 @@
   "demo.flow.2.body": "It spawns a coding agent in a split pane, gives it the task, and lets that agent do the edit loop inside the terminal.",
   "demo.flow.3.title": "Read, retry, release",
   "demo.flow.3.body": "The outer agent reads test output and pane state, retries when needed, and only moves to commit or release when the terminal says the work is done.",
-
   "reflexive.badge": "Live snippet · same socket, both directions",
   "reflexive.title": "The terminal AI agents drive — including their own.",
   "reflexive.subtitle": "Below is a real session from this Unterm window. Claude Code, running in pane <code class=\"font-mono text-zinc-300\">#0</code>, called <code class=\"font-mono text-zinc-300\">session.split</code> over MCP to put pane <code class=\"font-mono text-zinc-300\">#5</code> on the right half, <code class=\"font-mono text-zinc-300\">session.focus</code> to make it active, then typed commands into it character-by-character with <code class=\"font-mono text-zinc-300\">session.input</code>. Same TCP socket reads what the shell echoed back via <code class=\"font-mono text-zinc-300\">screen.text</code>. No special agent integration — vanilla JSON-RPC, ~30 lines of Python.",
@@ -177,7 +165,6 @@
   "persona.power.bullets.2": "Linux .deb (apt) and AppImage (any distro)",
   "persona.power.bullets.3": "Windows MSI with WiX 6 + portable .zip",
   "persona.power.bullets.4": "9 locales out of the box, system locale auto-detect",
-
   "install.title": "Download by platform",
   "install.subtitle": "Pick the signed bundle for your OS. The direct links below go straight to GitHub Releases.",
   "install.copy_hint": "click to copy",
@@ -196,7 +183,6 @@
   "install.windows.detail": ".msi installer or portable .zip, x64.",
   "install.windows.size": "44 / 64 MB",
   "install.windows.action": ".msi · .zip →",
-
   "features.title": "Four control surfaces, one engine",
   "features.subtitle": "Every Unterm window starts a local MCP server and an HTTP settings server. Read and write the same JSON state from any of them.",
   "features.mcp.title": "MCP server",
@@ -215,8 +201,7 @@
   "features.proxy.body": "Reads macOS scutil / Windows registry / GNOME gsettings / env. One-toggle on/off. No URL config.",
   "features.engine.title": "GPU rendering",
   "features.engine.body": "Built on a customized WezTerm engine — Metal on macOS, OpenGL on Linux, DirectX via ANGLE on Windows.",
-
-  "whatsnew.title": "What's new in v0.39",
+  "whatsnew.title": "What's new in v0.40",
   "whatsnew.unitop.title": "A unified window top — the gray title bar is gone",
   "whatsnew.unitop.body": "macOS used to draw a gray native title bar above Unterm's tab strip — a cold band that clashed with the dark terminal below. v0.39 collapses the top into a <strong>single strip the same color as your content</strong>: the traffic-light buttons sit in the tab row, the separate title bar is gone, and the whole top <strong>follows your active theme's background automatically</strong> — any theme, light or dark, stays seamless. Fixes the macOS path where the integrated title buttons were being silently disabled (the title-button style now resolves per-platform), so the window finally reads as one piece instead of three clashing bands.",
   "whatsnew.uipolish.title": "A more polished look out of the box + a new logo",
@@ -262,7 +247,6 @@
   "whatsnew.utf8.body": "PowerShell and cmd.exe spawned by Unterm get UTF-8 output by default — no more mojibake on zh-CN, ja-JP, ko-KR Windows installs. Agents don't have to fix the user's $PROFILE; we wrap at spawn time with chcp 65001 + Console.OutputEncoding setup.",
   "whatsnew.cwd.title": "CWD in the status bar",
   "whatsnew.cwd.body": "Active pane's working directory shows up between the shell name and dimensions, with $HOME → ~ and middle truncation. Click to copy the full path. Works across local panes, mux clients, and SSH-forwarded sessions.",
-
   "principles.title": "Six principles, no exceptions",
   "principles.local.title": "Local-first, no cloud",
   "principles.local.body": "Every server, every API endpoint, every recording lives on 127.0.0.1. No login, no telemetry, no subscription. Your shell history is yours.",
@@ -276,7 +260,6 @@
   "principles.subtraction.body": "When a feature belongs to the OS, use the OS. No in-terminal custom right-click chrome, no Cmd+Q confirmation, no manual proxy URL config — Finder integration now uses the native right-click extension and Services.",
   "principles.subscription.title": "Respect the subscription. Default OAuth.",
   "principles.subscription.body": "When you install an AI agent through Unterm, the default authentication mode is the vendor's official subscription (OAuth) — your Pro / Plus / Team plan. We never silently inject an API key into a session; per-token billing happens only if you explicitly switch the auth mode to 'bring your own API key' or 'custom endpoint' in the Configure form. This is an opt-in, not a footgun.",
-
   "cmp.title": "Unterm vs. a native terminal vs. a paid AI terminal",
   "cmp.subtitle": "The native terminal (Terminal.app) is the baseline you already have. Warp is the paid AI terminal. iTerm2 and Ghostty are the free power terminals. Unterm sits in its own lane: everything an external agent can grip from outside.",
   "cmp.h.feature": "Capability",
@@ -304,11 +287,9 @@
   "cmp.freemium": "freemium $",
   "cmp.legend": "<span class=\"font-mono\">✓</span> yes · <span class=\"font-mono\">✗</span> no · <span class=\"font-mono\">~</span> partial · <span class=\"font-mono\">×N</span> count. The <span class=\"text-emerald-400\">✗ by design</span> on \"AI inside\" is the whole thesis: Unterm keeps the AI <em>outside</em> and exposes the terminal as the surface it grips.",
   "cmp.note": "Reflects publicly documented features as of 2026-05. Warp is closed-source with a cloud-backed free tier + paid Team/Pro plans; iTerm2 ships a Python scripting API and an opt-in AI command plugin; Ghostty has no Windows build yet. Corrections welcome on GitHub.",
-
   "dl.title": "Get Unterm 0.23",
   "dl.subtitle": "macOS bundle is signed with a Developer ID and Apple-notarized. Linux .deb / AppImage and Windows .msi / .zip are also published.",
   "dl.cta": "Open the latest release",
-
   "faq.title": "Frequently asked",
   "faq.what.q": "What is Unterm?",
   "faq.what.a": "A cross-platform terminal emulator with built-in MCP, HTTP, and CLI control surfaces. The product thesis: <em>terminal as MCP-controllable surface</em>, so any external AI agent can drive it from outside instead of having an AI baked into the terminal itself.",
@@ -338,7 +319,6 @@
   "faq.opensrc.a": "Yes — MIT licensed. Built on top of the WezTerm engine for renderer / font / SSH / mux work, with a thin Unterm product layer (MCP, Web Settings, recording, i18n, signing pipeline) on top. Source at <a class=\"text-emerald-400 hover:text-emerald-300\" href=\"https://github.com/zhitongblog/unterm\">github.com/zhitongblog/unterm</a>.",
   "faq.contrib.q": "How do I contribute?",
   "faq.contrib.a": "Open an issue or PR on <a class=\"text-emerald-400 hover:text-emerald-300\" href=\"https://github.com/zhitongblog/unterm\">GitHub</a>. The project tracks bugs, feature requests, and discussion in one queue. We bundle accumulated fixes into minor releases — patch-level versions don't trigger CI builds. Documentation lives in-repo at <code class=\"font-mono\">/docs</code>.",
-
   "community.title": "Community & contact",
   "community.subtitle": "Open queue, no gatekeeping. The right place for your question depends on what kind of question it is.",
   "community.github.title": "GitHub Issues",
@@ -350,7 +330,6 @@
   "community.email.title": "Email the author",
   "community.email.body": "Direct line for security issues, partnerships, or anything that doesn't fit a public forum.",
   "community.email.cta": "lixd220@gmail.com",
-
   "ads.label": "Also from the maker",
   "ads.doaipm": "Become an AI-era PM",
   "ads.unflick": "Video player for humans + AI",
@@ -358,11 +337,14 @@
   "sister.subtitle": "Same author, same build-it-with-AI philosophy, different domains.",
   "sister.doaipm": "DO AI PM — become a product manager for the AI era: the method, and the shipped proof (Unterm included), for turning ideas into real apps with Claude Code. doaipm.com.",
   "sister.unflick": "Video player for humans and AI: GUI, CLI, and an MCP server exposing playback, transcription, and library tools. unflick.app.",
-
   "footer.tag": "— the terminal AI agents can control",
   "footer.releases": "Releases",
   "footer.docs": "Docs",
   "footer.license": "License",
   "footer.copy": "© 2026 Alex · MIT",
-  "footer.stack": "Made with Rust · WezTerm engine · MCP · Tailwind + Alpine"
+  "footer.stack": "Made with Rust · WezTerm engine · MCP · Tailwind + Alpine",
+  "whatsnew.mouseux.title": "The mouse is a first-class citizen now",
+  "whatsnew.mouseux.body": "v0.40 is the interaction release. The ⌄ menu is a real <strong>mouse menu</strong> — icons, hover, shortcuts, instant. <strong>Directory jump</strong> (Ctrl+Shift+O) opens a Warp-grade palette: recent projects + a type-to-filter subdirectory browser; Enter cds, ⌘Enter opens a new tab there. A collapsible <strong>project tree</strong> (Ctrl+Shift+B) docks on the left — click to expand, double-click to cd, click a file to insert its quoted path, right-click for copy/reveal/new-tab. Plus quick-action buttons in the tab bar, slimmer edge-flush scrollbars that no longer fight the split divider, cleaner pane-close buttons, a status bar with real hierarchy, and Finder right-click services (“New Unterm Tab Here”) registered on install — the whole surface finally drives as smoothly with a mouse as with a keyboard.",
+  "whatsnew.scrollshot.title": "Scrolling screenshots — inside and outside the terminal",
+  "whatsnew.scrollshot.body": "Long screenshots, both directions. <strong>Inside:</strong> Unterm owns the text model, so it renders your <strong>entire scrollback</strong> into one tall PNG headlessly — an exact re-render with the same fonts and theme, streaming-encoded so 10,000 rows don’t blow memory, and it works even when the window is occluded. <strong>Outside:</strong> point at any other app’s window and Unterm scrolls it with synthetic wheel events, then stitches the frames by exact row-hash matching with sticky header/footer detection — a CleanShot-style long shot of Safari, Slack, anything. Both live in the ⌄ menu, in the CLI (<code class=\"font-mono text-xs\">unterm-cli screenshot --scrollback</code> / <code class=\"font-mono text-xs\">--scroll-app Safari</code>), and as MCP tools (<code class=\"font-mono text-xs\">capture.scrollback</code>, <code class=\"font-mono text-xs\">capture.window_scroll</code>) so your agents can grab them too."
 }

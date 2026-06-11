@@ -902,6 +902,8 @@ impl McpHandler {
             "capture.window" => self.capture_window(params),
             "capture.select" => self.capture_select(),
             "capture.clipboard" => self.capture_clipboard(),
+            "capture.scrollback" => self.capture_scrollback(params),
+            "capture.window_scroll" => self.capture_window_scroll(params),
             // Upload to user-configured object storage. Credentials live in
             // ~/.unterm/upload.json (OSS / COS / Qiniu) and never leave the
             // local machine. Pairs with `capture.*` so an AI agent can
@@ -2985,6 +2987,122 @@ impl McpHandler {
 
     fn capture_clipboard(&self) -> Result<Value> {
         clipboard_read_any()
+    }
+
+    /// Scrolling screenshot of the terminal itself: headlessly re-render the
+    /// pane's entire scrollback into one tall PNG (no pixel capture, no
+    /// occlusion constraints). `screen.scrollback_text` remains the
+    /// AI-friendly text path; this is the human-shareable image path.
+    fn capture_scrollback(&self, params: &Value) -> Result<Value> {
+        let pane = match self.get_pane(params) {
+            Ok(p) => p,
+            Err(_) => {
+                let mux = self.get_mux()?;
+                mux.iter_windows()
+                    .into_iter()
+                    .find_map(|wid| mux.get_active_tab_for_window(wid))
+                    .and_then(|tab| tab.get_active_pane())
+                    .ok_or_else(|| anyhow!("no active pane available"))?
+            }
+        };
+        let mut opts = crate::scrollshot::ScrollbackPngOptions::default();
+        if let Some(n) = params.get("max_rows").and_then(|v| v.as_u64()) {
+            opts.max_rows = (n as usize).max(1);
+        }
+        if let Some(n) = params.get("dpi").and_then(|v| v.as_u64()) {
+            opts.dpi = (n as usize).clamp(48, 288);
+        }
+        let dir = capture_output_dir()?;
+        let path = dir.join(format!(
+            "scrollback_{}.png",
+            chrono::Local::now().format("%Y%m%d_%H%M%S_%3f")
+        ));
+        let session = pane.pane_id().to_string();
+        self.audit("capture.scrollback", Some(&session), "");
+        let r = crate::scrollshot::render_scrollback_png(&pane, &path, &opts)?;
+        Ok(json!({
+            "path": r.path.display().to_string(),
+            "width": r.width,
+            "height": r.height,
+            "rows": r.rows,
+            "cols": r.cols,
+            "truncated": r.truncated,
+            "first_row": r.first_row,
+            "session_id": session,
+            "type": "image/png",
+        }))
+    }
+
+    /// Scrolling screenshot of ANOTHER app's window (macOS): synthesize
+    /// wheel events and stitch the frames by exact row-hash matching.
+    fn capture_window_scroll(&self, params: &Value) -> Result<Value> {
+        #[cfg(target_os = "macos")]
+        {
+            use crate::scrollshot::external;
+            let pid = params.get("pid").and_then(|v| v.as_u64()).map(|v| v as u32);
+            let app = params.get("app").and_then(|v| v.as_str());
+            let title = params.get("title").and_then(|v| v.as_str());
+            let under_cursor = params
+                .get("under_cursor")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            if pid.is_none() && app.is_none() && title.is_none() && !under_cursor {
+                return Err(anyhow!(
+                    "provide at least one of pid / app / title, or under_cursor=true"
+                ));
+            }
+            let target = if under_cursor {
+                external::window_under_cursor()?
+            } else {
+                external::find_target(pid, app, title)?
+            };
+            let mut opts = external::ScrollCaptureOptions::default();
+            if let Some(n) = params.get("max_frames").and_then(|v| v.as_u64()) {
+                opts.max_frames = (n as usize).clamp(2, 120);
+            }
+            if let Some(n) = params.get("settle_ms").and_then(|v| v.as_u64()) {
+                opts.settle_ms = n.clamp(100, 2000);
+            }
+            if let Some(b) = params.get("activate").and_then(|v| v.as_bool()) {
+                opts.activate = b;
+            }
+            if let Some(b) = params.get("restore_scroll").and_then(|v| v.as_bool()) {
+                opts.restore_scroll = b;
+            }
+            let dir = capture_output_dir()?;
+            let path = dir.join(format!(
+                "windowscroll_{}.png",
+                chrono::Local::now().format("%Y%m%d_%H%M%S_%3f")
+            ));
+            self.audit(
+                "capture.window_scroll",
+                None,
+                &format!("app={} pid={} title={}", target.app, target.pid, target.title),
+            );
+            let r = external::scroll_capture_window(&target, &path, &opts)?;
+            Ok(json!({
+                "path": r.path.display().to_string(),
+                "width": r.width,
+                "height": r.height,
+                "frames": r.frames,
+                "window": {
+                    "app": r.window.app,
+                    "title": r.window.title,
+                    "pid": r.window.pid,
+                    "window_id": r.window.window_id,
+                },
+                "hint": r.hint,
+                "type": "image/png",
+            }))
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = params;
+            Err(anyhow!(
+                "capture.window_scroll is currently macOS-only; \
+                 use capture.window for a single-frame capture"
+            ))
+        }
     }
 
     // --- Policy ---

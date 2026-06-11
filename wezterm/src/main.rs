@@ -182,11 +182,42 @@ enum SubCommand {
     )]
     Agent(unterm_cli::AgentCommand),
 
-    #[command(name = "screenshot", about = "Capture the screen via Unterm's MCP server")]
+    #[command(
+        name = "screenshot",
+        about = "Capture the screen via Unterm's MCP server. \
+                 --scrollback renders a pane's entire history to one tall PNG; \
+                 --scroll-app/--scroll-title long-screenshots another app's window (macOS)"
+    )]
     Screenshot {
         /// Include Unterm's own window in the capture (default: exclude).
         #[arg(long = "include-window")]
         include_window: bool,
+        /// In-terminal long screenshot: render the pane's ENTIRE scrollback
+        /// to one tall PNG (headless re-render; window may be occluded).
+        #[arg(long = "scrollback")]
+        scrollback: bool,
+        /// Pane id for --scrollback (default: the active pane).
+        #[arg(long = "pane")]
+        pane: Option<u64>,
+        /// Row cap for --scrollback; keeps the most recent rows (default 10000).
+        #[arg(long = "max-rows")]
+        max_rows: Option<u64>,
+        /// Raster dpi for --scrollback, 48-288 (default 144 on macOS).
+        #[arg(long = "dpi")]
+        dpi: Option<u64>,
+        /// External long screenshot: scroll + stitch the window of the app
+        /// whose name contains this substring (macOS), e.g. "Safari".
+        #[arg(long = "scroll-app")]
+        scroll_app: Option<String>,
+        /// External long screenshot: match the window by title substring.
+        #[arg(long = "scroll-title")]
+        scroll_title: Option<String>,
+        /// External long screenshot: match the window by owning pid.
+        #[arg(long = "scroll-pid")]
+        scroll_pid: Option<u64>,
+        /// Frame cap for external scroll capture (default 25).
+        #[arg(long = "max-frames")]
+        max_frames: Option<u64>,
         /// Optional output PNG path. If omitted, the MCP-side path is printed.
         #[arg(short = 'o', long = "output", value_hint=ValueHint::FilePath)]
         output: Option<std::path::PathBuf>,
@@ -863,7 +894,29 @@ fn run() -> anyhow::Result<()> {
         SubCommand::Screenshot {
             include_window,
             output,
-        } => unterm_cli::run_screenshot(include_window, output, opts.json),
+            scrollback,
+            pane,
+            max_rows,
+            dpi,
+            scroll_app,
+            scroll_title,
+            scroll_pid,
+            max_frames,
+        } => unterm_cli::run_screenshot(
+            unterm_cli::ScreenshotArgs {
+                include_window,
+                output,
+                scrollback,
+                pane,
+                max_rows,
+                dpi,
+                scroll_app,
+                scroll_title,
+                scroll_pid,
+                max_frames,
+            },
+            opts.json,
+        ),
         SubCommand::Upload(cmd) => unterm_cli::run_upload(cmd, opts.json),
         SubCommand::Scrollback(cmd) => unterm_cli::run_scrollback(cmd, opts.json),
         SubCommand::Reference(cmd) => unterm_cli::run_reference(cmd, opts.json),

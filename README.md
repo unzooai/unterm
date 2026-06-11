@@ -94,6 +94,7 @@ This README is the short version. The site is the long version.
 - **Web Settings UI** on `127.0.0.1:<auto-port>` (default 19877) — open in any browser via `unterm-cli settings open` or the `Settings (Web)` item in the `▼` menu. Tailwind-styled SPA, supports all 9 languages, keyboard + mouse.
 - **Auto proxy detection** — reads macOS System Preferences / Windows registry / GNOME gsettings / `$HTTPS_PROXY`, falls back to scanning common local ports. The single `proxy.json` toggle is `{"enabled": true|false}` — no manual URL configuration needed.
 - **Region screenshots** from the status bar (left-click excludes the Unterm window, right-click includes it). PNG lands on disk under `~/.unterm/screenshots/`, on the system image clipboard, and the path on the text clipboard.
+- **Scrolling (long) screenshots**, both directions: `capture.scrollback` re-renders a pane's *entire* history into one tall PNG headlessly (exact fonts/theme, streaming-encoded, works while occluded); `capture.window_scroll` long-shots *another app's* window by synthesizing wheel events and stitching frames via row-hash matching with sticky-header/footer detection (macOS). Both also in the `▼` menu and `unterm-cli screenshot --scrollback / --scroll-app`.
 - **Session recording → markdown** with OSC 133 block segmentation and built-in redaction (GitHub tokens / `KEY=value` / 40+ char hex/base64 patterns are masked). Recordings are stored in the project directory under `<cwd>/.unterm/sessions/<date>/<tab>-<time>.md`, or in `~/.unterm/sessions/_orphan/` when no writable project context.
 - **Right-click is a direct gesture, not a menu**: with a selection it copies and clears; without selection it pastes.
 - **Slim quick-action overlay** on the tab bar's `▼` button:
@@ -164,6 +165,10 @@ unterm-cli sessions read <session-id>
 
 # Screenshots
 unterm-cli screenshot [--include-window] [-o FILE]
+# Long screenshot of a pane's ENTIRE scrollback (headless re-render -> tall PNG)
+unterm-cli screenshot --scrollback [--pane N] [--max-rows N] [-o FILE]
+# Long screenshot of ANOTHER app's window: scroll + stitch (macOS)
+unterm-cli screenshot --scroll-app Safari [--scroll-title SUBSTR] [--max-frames N] [-o FILE]
 ```
 
 Pass `--json` to any subcommand for raw JSON-RPC output (suitable for scripts). Pass `--lang <code>` to override the locale for one invocation.

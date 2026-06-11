@@ -34,6 +34,10 @@ pub enum MenuAction {
     ExportSession,
     OpenWebSettings,
     ToggleTreeSidebar,
+    /// In-terminal long screenshot: whole scrollback -> one tall PNG.
+    CaptureScrollback,
+    /// External long screenshot: point at another window, scroll + stitch.
+    ScrollShotExternal,
     CopyText(String),
     RevealPath(std::path::PathBuf),
     NewTabAt(std::path::PathBuf),
@@ -127,6 +131,18 @@ impl PopupMenu {
                 "",
                 ui_icons::ICON_EXPORT,
                 MenuAction::ExportSession,
+            ),
+            entry(
+                crate::i18n::t("menu.capture_scrollback"),
+                "",
+                ui_icons::ICON_LONGSHOT,
+                MenuAction::CaptureScrollback,
+            ),
+            entry(
+                crate::i18n::t("menu.scrollshot_window"),
+                "",
+                ui_icons::ICON_WINSCROLL,
+                MenuAction::ScrollShotExternal,
             ),
             sep(),
             entry(
@@ -226,6 +242,16 @@ impl PopupMenu {
             MenuAction::ExportSession => term_window.export_current_session(pane_id),
             MenuAction::OpenWebSettings => term_window.open_web_settings(),
             MenuAction::ToggleTreeSidebar => term_window.toggle_tree_sidebar(),
+            MenuAction::CaptureScrollback => {
+                if let Some(pane) = term_window.get_active_pane_no_overlay() {
+                    super::mouseevent::capture_scrollback_and_announce(&pane);
+                }
+            }
+            MenuAction::ScrollShotExternal => {
+                if let Some(pane) = term_window.get_active_pane_no_overlay() {
+                    super::mouseevent::scrollshot_external_and_announce(&pane);
+                }
+            }
             MenuAction::CopyText(text) => {
                 use config::keyassignment::ClipboardCopyDestination;
                 term_window

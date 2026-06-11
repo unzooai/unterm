@@ -59,12 +59,10 @@ pub fn run_sessions(cmd: SessionsCommand, json_out: bool) -> Result<()> {
     sessions::run(cmd, json_out)
 }
 
-pub fn run_screenshot(
-    include_window: bool,
-    output: Option<PathBuf>,
-    json_out: bool,
-) -> Result<()> {
-    screenshot::run(include_window, output, json_out)
+pub use screenshot::ScreenshotArgs;
+
+pub fn run_screenshot(args: ScreenshotArgs, json_out: bool) -> Result<()> {
+    screenshot::run(args, json_out)
 }
 
 pub fn run_settings(cmd: SettingsCommand) -> Result<()> {

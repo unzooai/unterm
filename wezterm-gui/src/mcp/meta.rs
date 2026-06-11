@@ -355,6 +355,30 @@ pub const MCP_METHODS: &[McpMethod] = &[
         summary: "Snapshot the user's clipboard (text or image).",
         params: NO_PARAMS,
     },
+    McpMethod {
+        name: "capture.scrollback",
+        namespace: "capture",
+        summary: "Scrolling screenshot of a pane: render the ENTIRE scrollback to one tall PNG (headless re-render, works even occluded). Prefer screen.scrollback_text when only the text matters.",
+        params: &[
+            Param { name: "id", kind: "int", required: false, summary: "Pane id (default: active pane)." },
+            Param { name: "max_rows", kind: "int", required: false, summary: "Row cap, keeps the most recent rows (default 10000)." },
+            Param { name: "dpi", kind: "int", required: false, summary: "Raster dpi 48-288 (default 144 on macOS, 96 elsewhere)." },
+        ],
+    },
+    McpMethod {
+        name: "capture.window_scroll",
+        namespace: "capture",
+        summary: "Scrolling (long) screenshot of ANOTHER app's window: synthesize wheel events + stitch frames (macOS).",
+        params: &[
+            Param { name: "app", kind: "string", required: false, summary: "App name substring, e.g. 'Safari'." },
+            Param { name: "title", kind: "string", required: false, summary: "Window title substring." },
+            Param { name: "pid", kind: "int", required: false, summary: "Owning process id." },
+            Param { name: "under_cursor", kind: "bool", required: false, summary: "Target the window under the mouse pointer." },
+            Param { name: "max_frames", kind: "int", required: false, summary: "Frame cap (default 25)." },
+            Param { name: "activate", kind: "bool", required: false, summary: "Raise the target window first (default true)." },
+            Param { name: "restore_scroll", kind: "bool", required: false, summary: "Scroll back up afterwards (default true)." },
+        ],
+    },
     // ---- upload ----
     McpMethod {
         name: "upload.file",
@@ -408,7 +432,7 @@ pub const CLI_COMMANDS: &[CliCommand] = &[
     CliCommand { name: "cli", summary: "Interact with the mux server (panes, tabs, windows).", subcommands: &["list", "list-clients", "proxy", "tlscreds", "move-pane-to-new-tab", "split-pane", "spawn", "send-text", "get-text", "activate-pane-direction", "get-pane-direction", "kill-pane", "activate-pane", "adjust-pane-size", "activate-tab", "set-tab-title", "set-window-title", "rename-workspace", "zoom-pane"] },
     CliCommand { name: "session", summary: "Operate on a single live pane.", subcommands: &["list", "record", "export"] },
     CliCommand { name: "sessions", summary: "Browse the recorded session archive.", subcommands: &["list", "read"] },
-    CliCommand { name: "screenshot", summary: "Capture the screen via Unterm's MCP server.", subcommands: &[] },
+    CliCommand { name: "screenshot", summary: "Capture the screen via Unterm's MCP server. --scrollback = long screenshot of a pane's entire history; --scroll-app/--scroll-title = scroll + stitch another app's window (macOS).", subcommands: &[] },
     CliCommand { name: "upload", summary: "Upload a local file to your configured object storage and print the public URL.", subcommands: &["config-path"] },
     CliCommand { name: "scrollback", summary: "Dump the full scrollback + viewport of a pane as text.", subcommands: &[] },
     CliCommand { name: "reference", summary: "Print MCP methods, CLI subcommands, and live keybindings.", subcommands: &[] },

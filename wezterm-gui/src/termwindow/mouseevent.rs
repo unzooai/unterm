@@ -1748,6 +1748,114 @@ pub(crate) fn capture_and_announce(pane: &Arc<dyn Pane>, hide_window: bool) {
     });
 }
 
+/// In-terminal long screenshot from the menu: render the pane's whole
+/// scrollback to one tall PNG on a worker thread, then announce the path
+/// (clipboard + status line), mirroring the region-screenshot UX.
+pub(crate) fn capture_scrollback_and_announce(pane: &Arc<dyn Pane>) {
+    write_unterm_status_to_pane(pane, &crate::i18n::t("scrollshot.started"));
+    let pane = pane.clone();
+    std::thread::spawn(move || {
+        let result = crate::scrollshot::scrollshot_output_dir().and_then(|dir| {
+            let path = dir.join(format!(
+                "scrollback_{}.png",
+                chrono::Local::now().format("%Y%m%d_%H%M%S_%3f")
+            ));
+            crate::scrollshot::render_scrollback_png(
+                &pane,
+                &path,
+                &crate::scrollshot::ScrollbackPngOptions::default(),
+            )
+        });
+        match result {
+            Ok(r) => {
+                let path_str = r.path.display().to_string();
+                if let Err(err) = copy_text_to_clipboard(&path_str) {
+                    log::warn!("could not copy scrollshot path to clipboard: {err:#}");
+                }
+                write_unterm_status_to_pane(
+                    &pane,
+                    &crate::i18n::t_args(
+                        "scrollshot.saved",
+                        &[("rows", &r.rows.to_string()), ("path", &path_str)],
+                    ),
+                );
+            }
+            Err(err) => {
+                log::error!("scrollback long screenshot failed: {err:#}");
+                write_unterm_status_to_pane(
+                    &pane,
+                    &crate::i18n::t_args("scrollshot.failed", &[("err", &format!("{err:#}"))]),
+                );
+            }
+        }
+    });
+}
+
+/// External long screenshot from the menu: give the user 3 seconds to point
+/// at the target window, then scroll + stitch it (macOS).
+pub(crate) fn scrollshot_external_and_announce(pane: &Arc<dyn Pane>) {
+    #[cfg(target_os = "macos")]
+    {
+        write_unterm_status_to_pane(pane, &crate::i18n::t("scrollshot.point_target"));
+        let pane = pane.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(3));
+            let result = crate::scrollshot::external::window_under_cursor().and_then(|target| {
+                write_unterm_status_to_pane(
+                    &pane,
+                    &crate::i18n::t_args("scrollshot.capturing", &[("app", &target.app)]),
+                );
+                let dir = crate::scrollshot::scrollshot_output_dir()?;
+                let path = dir.join(format!(
+                    "windowscroll_{}.png",
+                    chrono::Local::now().format("%Y%m%d_%H%M%S_%3f")
+                ));
+                crate::scrollshot::external::scroll_capture_window(
+                    &target,
+                    &path,
+                    &crate::scrollshot::external::ScrollCaptureOptions::default(),
+                )
+            });
+            match result {
+                Ok(r) => {
+                    let path_str = r.path.display().to_string();
+                    if let Err(err) = copy_text_to_clipboard(&path_str) {
+                        log::warn!("could not copy scrollshot path to clipboard: {err:#}");
+                    }
+                    let mut msg = crate::i18n::t_args(
+                        "scrollshot.saved_window",
+                        &[("app", &r.window.app), ("path", &path_str)],
+                    );
+                    if let Some(hint) = &r.hint {
+                        msg.push_str(&format!(" ({hint})"));
+                    }
+                    write_unterm_status_to_pane(&pane, &msg);
+                }
+                Err(err) => {
+                    log::error!("external scroll capture failed: {err:#}");
+                    write_unterm_status_to_pane(
+                        &pane,
+                        &crate::i18n::t_args(
+                            "scrollshot.failed",
+                            &[("err", &format!("{err:#}"))],
+                        ),
+                    );
+                }
+            }
+        });
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        write_unterm_status_to_pane(
+            pane,
+            &crate::i18n::t_args(
+                "scrollshot.failed",
+                &[("err", "external window scroll-capture is currently macOS-only")],
+            ),
+        );
+    }
+}
+
 /// Put plain text on the system clipboard so the user can paste it as the
 /// next command (or argument). Each platform has its own command.
 #[cfg(target_os = "macos")]

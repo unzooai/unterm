@@ -12,7 +12,6 @@
   "nav.faq": "FAQ",
   "nav.sponsor": "赞助",
   "nav.capabilities": "能力清单",
-
   "cap.title": "完整的控制面",
   "cap.subtitle": "不是截图导览，而是每个 agent 和脚本都能调用的真实表面：11 个命名空间下 65 个 MCP 方法，外加 22 个 CLI 命令，全部返回同一份 JSON。",
   "cap.stat.methods": "MCP 方法",
@@ -44,18 +43,15 @@
   "cap.workspace.body": "保存当前窗口完整的 pane / tab 布局、列出已存布局、恢复其一 —— agent 可以给一组工作快照，之后再拉回来。",
   "cap.meta.title": "自描述表面",
   "cap.meta.body": "<code class=\"font-mono text-xs\">meta.surface</code> 一次调用返回每个 MCP 方法（含参数 schema）、每个 CLI 子命令、每个生效的快捷键 —— 刚连进来的 agent 不查文档就学会整套 API。",
-
   "hero.badge": "一键安装 Claude Code / Codex / Gemini / OpenCode / Aider",
   "hero.badge.signed": "签名 + 公证",
   "hero.badge.platforms": "4 个平台",
-
   "heropill.mcp": "MCP 可控",
   "heropill.cli": "可脚本化 CLI",
   "heropill.web": "网页设置",
   "heropill.rec": "会话录制",
   "heropill.split": "MCP 分屏 / 聚焦",
   "heropill.local": "仅 127.0.0.1",
-
   "tldr.title": "60 秒看懂 Unterm",
   "tldr.subtitle": "所有数字都能在源码 / Releases 里核对 · 每次发布刷新",
   "tldr.version": "最新版本",
@@ -79,7 +75,6 @@
   "tldr.engine_stack.value": "Rust · 定制版 WezTerm 引擎 · MCP（line-delimited JSON-RPC）· Tailwind + Alpine 做网页设置",
   "tldr.bundled_agents": "内置 AI agent",
   "tldr.bundled_agents.value": "5 个签名 manifest —— Claude Code · Codex CLI · Gemini CLI · OpenCode · Aider。从 unterm.app/api/agents/manifests 拉 Ed25519 签名信封，每个 agent 可选认证模式。",
-
   "stand.title": "Unterm 真正与众不同的地方",
   "stand.subtitle": "三条你自己能 grep / build / run 验证的差异。没营销话术。",
   "stand.agents.title": "你启动每个 AI 编码 agent 的终端",
@@ -90,7 +85,6 @@
   "stand.audit.body": "每一次 <code class=\"font-mono text-xs\">session.input</code> / <code class=\"font-mono text-xs\">exec.send</code> 都记录调用 agent 的身份。新 agent 首次写入会触发 Allow / Block / Always-allow 横幅。信任写到 <code class=\"font-mono text-xs\">~/.unterm/trusted_agents.json</code>，可在网页设置 MCP 标签里一键撤销。状态栏显示实时 MCP 写入次数。",
   "stand.identity.title": "一窗一身份",
   "stand.identity.body": "一次绑定整个开发者身份：GitHub PAT、AWS keys、npm token、OpenAI key、SSH key、git 作者。凭据全部存在 OS 原生 vault（Keychain / Credential Manager / libsecret）—— 永不落盘。7 个嗅探器自动读取已有凭据，首次配置基本是空的。",
-
   "qol.badge": "QUALITY-OF-LIFE",
   "qol.title": "日常用得到的小细节",
   "qol.subtitle": "都不是宣传级特性，但日复一日加起来就是顺手。",
@@ -110,7 +104,6 @@
   "qol.proxy.body": "自动读 macOS scutil / Windows 注册表 / GNOME gsettings / 环境变量。一个开关。不用粘贴 URL。",
   "qol.headers.title": "OSC 133 分块录制",
   "qol.headers.body": "录制按 shell prompt 边界自动切块。每块带命令、输出、退出码、耗时 —— 都可搜。",
-
   "sponsor.title": "支持 Unterm",
   "sponsor.subtitle": "一个开发者业余时间在维护 Unterm。如果它给你的日常加速了，少量赞助能让项目活下去。",
   "sponsor.note": "赞助者会列入 README 和应用内 About 弹窗（征得同意）。没有付费墙、没有 Pro 版 —— 所有功能都在同一个 MIT 二进制里。",
@@ -120,7 +113,6 @@
   "sponsor.paypal.title": "PayPal 一键打赏",
   "sponsor.paypal.body": "全球单次打赏，本币任意金额。",
   "sponsor.paypal.cta": "用 PayPal 打赏",
-
   "faq.telemetry.q": "Unterm 会上报数据吗？",
   "faq.telemetry.a": "不会。默认零遥测 —— 连「请允许收集匿名数据」的弹窗都没有。Unterm 唯一会发出的网络请求是：(1) 你在网页设置里点下载链接时；(2) 你的 shell 自己发的请求 —— 跟其他终端一样。我们不出货任何统计、错误上报、安装回调或更新检查。",
   "faq.cost.q": "有付费版或高级特性吗？",
@@ -131,7 +123,6 @@
   "faq.locale.a": "会。首次启动会读 OS 语言（macOS 上 <code class=\"font-mono\">defaults</code>、Linux 上 <code class=\"font-mono\">$LANG</code>、Windows 上注册表）然后在 9 种界面语言中选最接近的。可以在 Web Settings → Language 按窗口覆盖。翻译文件在 <code class=\"font-mono\">wezterm-gui/src/i18n/locales/*.json</code>，欢迎 PR。",
   "faq.agents_run.q": "能阻止一个失控 agent 在我的仓库里跑 rm -rf 吗？",
   "faq.agents_run.a": "三道闸：(1) MCP 服务只监听 127.0.0.1 —— 没网。(2) 走 auth token；token 在 <code class=\"font-mono\">~/.unterm/instances/&lt;name&gt;.json</code>，没有这个文件的读权限连不上。(3) 新 agent 首次写入会弹 Allow / Block / Always-allow 阻塞条；审计日志记录每一次写入尝试和调用方身份。可以在网页设置 MCP 标签里随时撤销信任。",
-
   "hero.title.1": "启动每个 AI 编码 agent",
   "hero.title.2": "的终端。",
   "hero.subtitle": "一键装、登录、配置、启动 Claude Code、Codex CLI、Gemini CLI、OpenCode、Aider —— 每个 agent 可自选官方订阅 / 自带 API key / 自定义端点。启动的 agent 反过来还能通过 MCP 驱动 Unterm。",
@@ -140,7 +131,6 @@
   "hero.cta.other": "其他平台",
   "hero.cta.github": "★ Star on GitHub",
   "hero.meta": "AI agent 统一启动器 · 本地优先 · 无云端 · 无登录",
-
   "agents.tag": "v0.18 · AI Agent 启动器",
   "agents.title": "每个编码 agent 都能一键装上。零配置门槛。",
   "agents.subtitle": "如果你同时试过多个 AI 编码 CLI，你知道那个税：<code class=\"font-mono text-xs\">npm install</code>、OAuth、申请 API key、<code class=\"font-mono text-xs\">~/.config/&lt;vendor&gt;/&lt;每家格式不同&gt;</code>、环境变量、不同身份隔离。Unterm v0.18 把这一切收进一个设置 tab + 一个 CLI 子命令。<strong>没有任何其它终端在做这件事。</strong>",
@@ -251,8 +241,6 @@
   "footer.docs": "Docs",
   "footer.license": "License",
   "footer.copy": "© 2026 Alex · MIT",
-  "nav.principles": "原则",
-  "nav.compare": "对比",
   "tagline.title": "终端是手柄，AI agent 是手。",
   "tagline.body": "大多数终端把 AI 嵌进二进制里——Warp 的云端编排器、ChatGPT 桌面的侧边栏。Unterm 反向选：AI 完全在外面，终端本身作为可被 MCP 控制的表面，谁来抓握自己定。终端是手，谁握它由你决定。",
   "demo.badge": "典型场景",
@@ -291,7 +279,7 @@
   "install.macos.size": "117 MB",
   "install.linux.size": "35 / 46 MB",
   "install.windows.size": "44 / 64 MB",
-  "whatsnew.title": "v0.39 新增",
+  "whatsnew.title": "v0.40 新增",
   "whatsnew.unitop.title": "窗口顶部一体无缝 —— 灰标题栏没了",
   "whatsnew.unitop.body": "macOS 以前会在 Unterm 的 tab 栏上方画一条灰色原生标题栏,跟下面的深色终端撞色、割裂。v0.39 把顶部收成<strong>与内容同色的一条</strong>:交通灯进 tab 行、单独的标题栏消失,整条顶栏<strong>自动跟随当前主题背景</strong> —— 任何主题、明暗都无缝。修复了 macOS 上整合标题按钮被悄悄禁用的问题(标题按钮样式现在按平台解析),窗口终于是一整块,而不是三条撞色的带子。",
   "whatsnew.uipolish.title": "开箱观感更精致 + 全新 logo",
@@ -350,5 +338,9 @@
   "community.email.title": "邮件作者",
   "community.email.body": "安全问题、合作、不适合公开论坛的事直通线。",
   "community.email.cta": "lixd220@gmail.com",
-  "footer.stack": "用 Rust · WezTerm 引擎 · MCP · Tailwind + Alpine 构建"
+  "footer.stack": "用 Rust · WezTerm 引擎 · MCP · Tailwind + Alpine 构建",
+  "whatsnew.mouseux.title": "鼠标成为一等公民",
+  "whatsnew.mouseux.body": "v0.40 是交互大版本。⌄ 菜单变成真正的<strong>鼠标菜单</strong>——图标、hover、快捷键提示、零延迟。<strong>目录跳转</strong>(Ctrl+Shift+O)是 Warp 级面板:最近项目 + 即输即滤的子目录浏览,Enter 直接 cd,⌘Enter 在那里开新 tab。左侧可收起的<strong>项目目录树</strong>(Ctrl+Shift+B):单击展开、双击 cd、点文件插入带引号的路径、右键复制/定位/新建 tab。还有 tab 栏快捷按钮、更细且贴边的滚动条(不再和分屏拖拽打架)、更干净的关闭按钮、有层次的状态栏,以及安装即注册的 Finder 右键服务(“在此新建 Unterm Tab”)——整个界面终于用鼠标和用键盘一样顺。",
+  "whatsnew.scrollshot.title": "滚屏长截图——终端内外都行",
+  "whatsnew.scrollshot.body": "长截图,两个方向都有。<strong>终端内:</strong>Unterm 拥有文本模型,所以直接把<strong>整个回滚区</strong>无头渲染成一张长 PNG——同字体同主题的精确重绘,流式编码,一万行也不爆内存,窗口被遮挡也照样出图。<strong>终端外:</strong>把鼠标指向任意其他应用的窗口,Unterm 用合成滚轮事件帮它滚动,再按行哈希精确拼接(自动识别吸顶/吸底栏)——Safari、Slack 什么都能出 CleanShot 式长图。两者都在 ⌄ 菜单里,也都有 CLI(<code class=\"font-mono text-xs\">unterm-cli screenshot --scrollback</code> / <code class=\"font-mono text-xs\">--scroll-app Safari</code>)和 MCP 工具(<code class=\"font-mono text-xs\">capture.scrollback</code>、<code class=\"font-mono text-xs\">capture.window_scroll</code>),你的 agent 也能直接调。"
 }
