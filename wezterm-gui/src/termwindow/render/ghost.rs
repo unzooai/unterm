@@ -43,21 +43,28 @@ impl crate::TermWindow {
 
         let cursor = pos.pane.get_cursor_position();
 
-        // If the shell publishes OSC 133 semantic zones, gate ghost
-        // rendering on the cursor sitting inside an `Input` zone.
-        // That prevents the overlay from leaking into TUI / output
-        // regions where it would be visually wrong (and where the
-        // prediction is meaningless — the user isn't typing a
-        // command). Shells without OSC 133 integration produce an
-        // empty zone list; for them we fall back to "always show"
-        // so they aren't locked out of the feature.
+        // If the shell publishes OSC 133 semantic zones, suppress the
+        // ghost only when the cursor clearly sits inside an `Output`
+        // zone — that's the TUI / command-output case where an overlay
+        // would be visually wrong. We deliberately do NOT require the
+        // cursor to be inside an `Input` zone: shell integrations are
+        // wildly inconsistent about marking input (p10k and several
+        // oh-my-zsh setups emit Prompt/Output but never close or even
+        // open the Input zone), and the old require-Input gate made the
+        // whole feature silently dead on exactly those machines while
+        // working fine on shells with no OSC 133 at all ("works on some
+        // computers, not others"). Prompt zones, unmarked cells, and
+        // empty zone lists all show the ghost.
         if let Ok(zones) = pos.pane.get_semantic_zones() {
             if !zones.is_empty() {
-                let inside_input = zones.iter().any(|z| {
-                    matches!(z.semantic_type, wezterm_term::SemanticType::Input)
-                        && zone_contains_cell(z, cursor.x as isize, cursor.y)
-                });
-                if !inside_input {
+                let containing = zones
+                    .iter()
+                    .rev()
+                    .find(|z| zone_contains_cell(z, cursor.x as isize, cursor.y));
+                if matches!(
+                    containing.map(|z| z.semantic_type),
+                    Some(wezterm_term::SemanticType::Output)
+                ) {
                     return Ok(());
                 }
             }
