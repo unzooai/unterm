@@ -1,4 +1,11 @@
 {
+  "search.hint": "Invio/↑↓ salta · Ctrl+R modalità · Esc chiudi",
+  "search.label": "Cerca",
+  "search.mode.case_sensitive": "distingue maiuscole",
+  "search.mode.ignore_case": "ignora maiuscole",
+  "search.mode.regex": "regex",
+  "search.placeholder": "digita per cercare…",
+  "search.searching": "ricerca di {n} righe…",
   "settings.title": "Impostazioni",
   "settings.menu.change_cwd": "Cambia directory di lavoro",
   "settings.menu.change_cwd.hint": "scegli una cartella → cd nel pannello attivo",

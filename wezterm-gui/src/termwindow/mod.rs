@@ -4502,7 +4502,10 @@ impl TermWindow {
                     .next()
                     .map(|s| s.to_string())
                     .unwrap_or_default();
-                MuxPattern::CaseSensitiveString(first_line)
+                // Ignore-case is the friendlier default for interactive
+                // search (toolbar button / Ctrl+Shift+F); Ctrl+R in the
+                // search bar still cycles to exact / regex matching.
+                MuxPattern::CaseInSensitiveString(first_line)
             }
         }
     }

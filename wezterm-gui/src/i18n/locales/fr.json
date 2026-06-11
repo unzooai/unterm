@@ -1,4 +1,11 @@
 {
+  "search.hint": "Entrée/↑↓ sauter · Ctrl+R mode · Échap fermer",
+  "search.label": "Recherche",
+  "search.mode.case_sensitive": "sensible à la casse",
+  "search.mode.ignore_case": "ignore la casse",
+  "search.mode.regex": "regex",
+  "search.placeholder": "tapez pour chercher…",
+  "search.searching": "recherche de {n} lignes…",
   "settings.title": "Paramètres",
   "settings.menu.change_cwd": "Changer le répertoire de travail",
   "settings.menu.change_cwd.hint": "choisir un dossier → cd dans le panneau actif",

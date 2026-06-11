@@ -1,4 +1,11 @@
 {
+  "search.hint": "Enter/↑↓ 跳轉 · Ctrl+R 模式 · Esc 關閉",
+  "search.label": "搜尋",
+  "search.mode.case_sensitive": "區分大小寫",
+  "search.mode.ignore_case": "忽略大小寫",
+  "search.mode.regex": "正則",
+  "search.placeholder": "輸入即搜尋…",
+  "search.searching": "正在搜尋 {n} 行…",
   "settings.title": "設定",
   "settings.menu.change_cwd": "切換工作目錄",
   "settings.menu.change_cwd.hint": "選擇資料夾 → 對目前面板 cd",

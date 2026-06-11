@@ -1,4 +1,11 @@
 {
+  "search.hint": "Enter/↑↓ 移動 · Ctrl+R モード · Esc 閉じる",
+  "search.label": "検索",
+  "search.mode.case_sensitive": "大文字小文字を区別",
+  "search.mode.ignore_case": "大文字小文字を無視",
+  "search.mode.regex": "正規表現",
+  "search.placeholder": "入力して検索…",
+  "search.searching": "{n} 行を検索中…",
   "settings.title": "設定",
   "settings.menu.change_cwd": "作業ディレクトリを変更",
   "settings.menu.change_cwd.hint": "フォルダを選択 → 現在のペインで cd",

@@ -1,4 +1,11 @@
 {
+  "search.hint": "Enter/↑↓ springen · Ctrl+R Modus · Esc schließen",
+  "search.label": "Suche",
+  "search.mode.case_sensitive": "Groß-/Kleinschreibung",
+  "search.mode.ignore_case": "ohne Groß-/Kleinschreibung",
+  "search.mode.regex": "Regex",
+  "search.placeholder": "Tippen zum Suchen…",
+  "search.searching": "durchsuche {n} Zeilen…",
   "settings.title": "Einstellungen",
   "settings.menu.change_cwd": "Arbeitsverzeichnis wechseln",
   "settings.menu.change_cwd.hint": "Ordner wählen → cd im aktiven Bereich",

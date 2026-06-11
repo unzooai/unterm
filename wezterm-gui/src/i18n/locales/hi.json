@@ -1,4 +1,11 @@
 {
+  "search.hint": "Enter/↑↓ जाएँ · Ctrl+R मोड · Esc बंद करें",
+  "search.label": "खोज",
+  "search.mode.case_sensitive": "केस-संवेदनशील",
+  "search.mode.ignore_case": "केस अनदेखा",
+  "search.mode.regex": "रेगेक्स",
+  "search.placeholder": "खोजने के लिए टाइप करें…",
+  "search.searching": "{n} पंक्तियाँ खोजी जा रही हैं…",
   "settings.title": "सेटिंग्स",
   "settings.menu.change_cwd": "कार्य निर्देशिका बदलें",
   "settings.menu.change_cwd.hint": "फ़ोल्डर चुनें → वर्तमान पैनल में cd",

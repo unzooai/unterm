@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::Arc;
 use std::time::Duration;
-use termwiz::cell::{Cell, CellAttributes};
+use termwiz::cell::{Cell, CellAttributes, Intensity};
 use termwiz::color::AnsiColor;
 use termwiz::lineedit::{LineEditBuffer, Movement};
 use termwiz::surface::{CursorVisibility, SequenceNo, SEQ_ZERO};
@@ -37,6 +37,76 @@ lazy_static::lazy_static! {
 }
 
 const SEARCH_CHUNK_SIZE: StableRowIndex = 1000;
+
+/// Localized "Search: " prefix. Rendering and cursor positioning both use
+/// this, and the two must agree on its column width.
+fn search_bar_prefix() -> String {
+    format!("{}: ", crate::i18n::t("search.label"))
+}
+
+/// Paint the search bar over `line`. Layout: the editable pattern on the
+/// left (with a dim placeholder when empty), match count + match mode +
+/// key hints right-aligned. The hint block is dimmed and is the first
+/// thing dropped when the pane is too narrow; the count/mode block goes
+/// next; the input itself always survives.
+fn render_search_bar(renderer: &CopyRenderable, line: &mut Line, cols: usize) {
+    let rev = CellAttributes::default().set_reverse(true).clone();
+    let mut dim = rev.clone();
+    dim.set_intensity(Intensity::Half);
+
+    line.fill_range(0..cols, &Cell::new(' ', rev.clone()), SEQ_ZERO);
+
+    let prefix = search_bar_prefix();
+    let pattern = renderer.get_pattern();
+    let left = if pattern.is_empty() {
+        let placeholder = crate::i18n::t("search.placeholder");
+        line.overlay_text_with_attribute(0, &prefix, rev.clone(), SEQ_ZERO);
+        line.overlay_text_with_attribute(
+            unicode_column_width(&prefix, None),
+            &placeholder,
+            dim.clone(),
+            SEQ_ZERO,
+        );
+        format!("{}{}", prefix, placeholder)
+    } else {
+        let text = format!("{}{}", prefix, *pattern);
+        line.overlay_text_with_attribute(0, &text, rev.clone(), SEQ_ZERO);
+        text
+    };
+
+    let mode = crate::i18n::t(match renderer.pattern_type {
+        PatternType::CaseSensitiveString => "search.mode.case_sensitive",
+        PatternType::CaseInSensitiveString => "search.mode.ignore_case",
+        PatternType::Regex => "search.mode.regex",
+    });
+    let searching = match &renderer.searching {
+        Some(Searching { remain }) => format!(
+            " · {}",
+            crate::i18n::t_args("search.searching", &[("n", &remain.to_string())])
+        ),
+        None => String::new(),
+    };
+    let status = format!(
+        "{}/{} · {}{}",
+        renderer.result_pos.map(|x| x + 1).unwrap_or(0),
+        renderer.results.len(),
+        mode,
+        searching,
+    );
+    let hint = crate::i18n::t("search.hint");
+
+    let left_w = unicode_column_width(&left, None);
+    let status_w = unicode_column_width(&status, None);
+    let hint_w = unicode_column_width(&hint, None);
+
+    if cols > left_w + status_w + hint_w + 6 {
+        let start = cols - (status_w + hint_w + 4);
+        line.overlay_text_with_attribute(start, &status, rev, SEQ_ZERO);
+        line.overlay_text_with_attribute(start + status_w + 3, &hint, dim, SEQ_ZERO);
+    } else if cols > left_w + status_w + 3 {
+        line.overlay_text_with_attribute(cols - status_w - 1, &status, rev, SEQ_ZERO);
+    }
+}
 
 pub struct CopyOverlay {
     delegate: Arc<dyn Pane>,
@@ -1340,15 +1410,15 @@ impl Pane for CopyOverlay {
     fn get_cursor_position(&self) -> StableCursorPosition {
         let renderer = self.render.lock();
         if renderer.editing_search {
-            // place in the search box
-            // Padding between the start of the editable line and the left side of the terminal
-            const SEARCH_CURSOR_PADDING: usize = 8;
+            // Place the cursor in the search box, right after the localized
+            // "Search: " prefix painted by render_search_bar.
+            let padding = unicode_column_width(&search_bar_prefix(), None);
             let cursor = unicode_column_width(
                 &renderer.search_line.get_line()[0..renderer.search_line.get_cursor()],
                 None,
             );
             StableCursorPosition {
-                x: SEARCH_CURSOR_PADDING + cursor,
+                x: padding + cursor,
                 y: renderer.compute_search_row(),
                 shape: termwiz::surface::CursorShape::SteadyBlock,
                 visibility: termwiz::surface::CursorVisibility::Visible,
@@ -1427,34 +1497,7 @@ impl Pane for CopyOverlay {
                     if stable_idx == self.search_row
                         && (self.renderer.editing_search || !pattern.is_empty())
                     {
-                        // Replace with search UI
-                        let rev = CellAttributes::default().set_reverse(true).clone();
-                        line.fill_range(0..self.dims.cols, &Cell::new(' ', rev.clone()), SEQ_ZERO);
-                        let mode = &match pattern {
-                            Pattern::CaseSensitiveString(_) => "case-sensitive",
-                            Pattern::CaseInSensitiveString(_) => "ignore-case",
-                            Pattern::Regex(_) => "regex",
-                        };
-
-                        let remain = match &self.renderer.searching {
-                            Some(Searching { remain, .. }) => {
-                                format!(" searching {remain} lines")
-                            }
-                            None => String::new(),
-                        };
-
-                        line.overlay_text_with_attribute(
-                            0,
-                            &format!(
-                                "Search: {} ({}/{} matches. {}{remain})",
-                                *pattern,
-                                self.renderer.result_pos.map(|x| x + 1).unwrap_or(0),
-                                self.renderer.results.len(),
-                                mode
-                            ),
-                            rev,
-                            SEQ_ZERO,
-                        );
+                        render_search_bar(self.renderer, &mut line, self.dims.cols);
                         self.renderer.last_bar_pos = Some(self.search_row);
                         line.clear_appdata();
                     } else if let Some(matches) = self.renderer.by_line.get(&stable_idx) {
@@ -1528,26 +1571,7 @@ impl Pane for CopyOverlay {
             renderer.dirty_results.remove(stable_idx);
             let pattern = renderer.get_pattern();
             if stable_idx == search_row && (renderer.editing_search || !pattern.is_empty()) {
-                // Replace with search UI
-                let rev = CellAttributes::default().set_reverse(true).clone();
-                line.fill_range(0..dims.cols, &Cell::new(' ', rev.clone()), SEQ_ZERO);
-                let mode = &match pattern {
-                    Pattern::CaseSensitiveString(_) => "case-sensitive",
-                    Pattern::CaseInSensitiveString(_) => "ignore-case",
-                    Pattern::Regex(_) => "regex",
-                };
-                line.overlay_text_with_attribute(
-                    0,
-                    &format!(
-                        "Search: {} ({}/{} matches. {})",
-                        *pattern,
-                        renderer.result_pos.map(|x| x + 1).unwrap_or(0),
-                        renderer.results.len(),
-                        mode
-                    ),
-                    rev,
-                    SEQ_ZERO,
-                );
+                render_search_bar(&renderer, line, dims.cols);
                 renderer.last_bar_pos = Some(search_row);
             } else if let Some(matches) = renderer.by_line.get(&stable_idx) {
                 for m in matches {
@@ -1641,6 +1665,11 @@ pub fn search_key_table() -> KeyTable {
             WKeyCode::Char('\r'),
             Modifiers::NONE,
             KeyAssignment::CopyMode(CopyModeAssignment::PriorMatch),
+        ),
+        (
+            WKeyCode::Char('\r'),
+            Modifiers::SHIFT,
+            KeyAssignment::CopyMode(CopyModeAssignment::NextMatch),
         ),
         (
             WKeyCode::Char('p'),

@@ -21,6 +21,20 @@
   `Cmd+F`) already jumped to matches; this brings the MCP surface to
   parity.
 
+### Changed
+
+- **Search bar UX revamp.** The in-pane search bar (toolbar 🔍 /
+  `Ctrl+Shift+F`) is no longer a cryptic English-only one-liner:
+  - Localized in all 9 languages, with a dim "type to search…"
+    placeholder and the match count + match mode right-aligned so they
+    don't jitter while you type.
+  - Key hints are shown in the bar itself (`Enter/↑↓ jump · Ctrl+R
+    mode · Esc close`) — previously none of the search keys were
+    discoverable. Hints degrade gracefully on narrow panes.
+  - `Shift+Enter` now jumps in the opposite direction of `Enter`.
+  - Interactive search now defaults to **ignore-case** (Ctrl+R still
+    cycles exact / regex). Agent-driven `screen.search` is unchanged.
+
 ### Fixed
 
 - **Windows: multi-second freeze at launch (and on every new tab) when the

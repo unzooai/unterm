@@ -1,4 +1,11 @@
 {
+  "search.hint": "Enter/↑↓ 이동 · Ctrl+R 모드 · Esc 닫기",
+  "search.label": "검색",
+  "search.mode.case_sensitive": "대소문자 구분",
+  "search.mode.ignore_case": "대소문자 무시",
+  "search.mode.regex": "정규식",
+  "search.placeholder": "입력하여 검색…",
+  "search.searching": "{n}줄 검색 중…",
   "settings.title": "설정",
   "settings.menu.change_cwd": "작업 디렉터리 변경",
   "settings.menu.change_cwd.hint": "폴더 선택 → 현재 창에서 cd",
