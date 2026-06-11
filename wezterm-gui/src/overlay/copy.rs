@@ -44,14 +44,15 @@ fn search_bar_prefix() -> String {
     format!("{}: ", crate::i18n::t("search.label"))
 }
 
-/// Every localized string the search bar can render, concatenated.
-/// TermWindow shapes this once at idle to pre-warm the font-fallback
-/// caches: the bar's CJK labels and ↑ ↓ · glyphs usually aren't in the
-/// terminal's primary font, and their first DirectWrite fallback
-/// resolution costs a few hundred ms — which otherwise lands exactly on
-/// the user's first search open.
-pub fn search_bar_prewarm_text() -> String {
-    [
+/// Every localized string the search bar can render. TermWindow shapes
+/// these at idle to pre-warm the font-fallback caches: the bar's CJK
+/// labels and ↑ ↓ · glyphs usually aren't in the terminal's primary
+/// font, and their first DirectWrite fallback resolution costs a few
+/// hundred ms — which otherwise lands exactly on the user's first
+/// search open. Kept as separate strings so the warm-up can be spread
+/// over several small main-thread slices instead of one long stall.
+pub fn search_bar_prewarm_strings() -> Vec<String> {
+    vec![
         search_bar_prefix(),
         crate::i18n::t("search.placeholder"),
         crate::i18n::t("search.hint"),
@@ -61,7 +62,6 @@ pub fn search_bar_prewarm_text() -> String {
         crate::i18n::t("search.searching"),
         "0123456789/".to_string(),
     ]
-    .join(" ")
 }
 
 /// Paint the search bar over `line`. Layout: the editable pattern on the

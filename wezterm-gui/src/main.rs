@@ -431,6 +431,75 @@ fn cell_pixel_dims(config: &ConfigHandle, dpi: f64) -> anyhow::Result<(usize, us
     ))
 }
 
+/// Detect and journal GUI-thread stalls. A helper thread schedules a
+/// trivial task onto the main-thread executor every 250ms and records
+/// when it ran; if the acknowledgement lags by more than 400ms the GUI
+/// was not processing events — exactly what a user reports as "the
+/// terminal is stuck". Stall windows are appended to ~/.unterm/stall.log
+/// with wall-clock timestamps so they can be correlated with the regular
+/// logs and with what the user was doing at the time.
+fn start_gui_stall_watchdog() {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    static LAST_PONG: AtomicU64 = AtomicU64::new(0);
+
+    fn now_ms() -> u64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0)
+    }
+
+    fn journal(text: &str) {
+        use std::io::Write;
+        let Some(home) = dirs_next::home_dir() else {
+            return;
+        };
+        let path = home.join(".unterm").join("stall.log");
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+        {
+            let _ = writeln!(
+                f,
+                "{} {text}",
+                chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f")
+            );
+        }
+    }
+
+    LAST_PONG.store(now_ms(), Ordering::Relaxed);
+
+    if let Err(err) = std::thread::Builder::new()
+        .name("gui-stall-watchdog".into())
+        .spawn(|| {
+            let mut stall_started: Option<u64> = None;
+            loop {
+                promise::spawn::spawn_into_main_thread(async {
+                    LAST_PONG.store(now_ms(), Ordering::Relaxed);
+                })
+                .detach();
+                std::thread::sleep(Duration::from_millis(250));
+
+                let lag = now_ms().saturating_sub(LAST_PONG.load(Ordering::Relaxed));
+                if lag > 400 {
+                    if stall_started.is_none() {
+                        stall_started = Some(now_ms().saturating_sub(lag));
+                    }
+                } else if let Some(start) = stall_started.take() {
+                    let dur = now_ms().saturating_sub(start);
+                    journal(&format!("GUI thread stalled for ~{dur}ms"));
+                    log::warn!("GUI thread stalled for ~{dur}ms (see ~/.unterm/stall.log)");
+                }
+            }
+        })
+    {
+        log::warn!("failed to start gui stall watchdog: {err:#}");
+    }
+}
+
 async fn async_run_terminal_gui(
     cmd: Option<CommandBuilder>,
     opts: StartCommand,
@@ -468,6 +537,12 @@ async fn async_run_terminal_gui(
     // and status bar can all read the same flag without each re-hitting
     // GitHub.
     update_check::start_background_poller();
+
+    // Watchdog for "the terminal freezes for a while" reports: pings the
+    // main-thread executor and journals stalls to ~/.unterm/stall.log so
+    // a user-perceived freeze leaves a timestamped record we can read
+    // after the fact.
+    start_gui_stall_watchdog();
 
     // Endpoint-level proxy auto-rotation: a background monitor that, when
     // enabled, probes the active proxy node and fails over to the fastest live

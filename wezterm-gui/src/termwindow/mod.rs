@@ -753,9 +753,11 @@ impl TermWindow {
 
 impl TermWindow {
     pub async fn new_window(mux_window_id: MuxWindowId) -> anyhow::Result<()> {
+        let startup_span = std::time::Instant::now();
         let config = configuration();
         let dpi = config.dpi.unwrap_or_else(|| ::window::default_dpi()) as usize;
         let fontconfig = Rc::new(FontConfiguration::new(Some(config.clone()), dpi)?);
+        log::info!("startup-span: font config ready {:?}", startup_span.elapsed());
 
         let mux = Mux::get();
         let size = match mux.get_active_tab_for_window(mux_window_id) {
@@ -770,6 +772,7 @@ impl TermWindow {
 
         let render_metrics = RenderMetrics::new(&fontconfig)?;
         log::trace!("using render_metrics {:#?}", render_metrics);
+        log::info!("startup-span: render metrics {:?}", startup_span.elapsed());
 
         // Initially we have only a single tab, so take that into account
         // for the tab bar state.
@@ -1002,6 +1005,7 @@ impl TermWindow {
         };
         log::trace!("{:?}", geometry);
 
+        log::info!("startup-span: pre Window::new_window {:?}", startup_span.elapsed());
         let window = Window::new_window(
             &get_window_class(),
             "unterm",
@@ -1016,18 +1020,23 @@ impl TermWindow {
             },
         )
         .await?;
+        log::info!("startup-span: os window created {:?}", startup_span.elapsed());
         tw.borrow_mut().window.replace(window.clone());
 
         // Pre-warm the search bar's localized glyphs at idle. Their first
         // font-fallback resolution costs a few hundred ms and otherwise
         // lands on the user's first search open, which reads as "the
-        // search box didn't open".
+        // search box didn't open". One string per slice, staggered, so
+        // the warm-up itself never blocks the GUI thread noticeably.
+        for (i, text) in crate::overlay::copy::search_bar_prewarm_strings()
+            .into_iter()
+            .enumerate()
         {
             let window = window.clone();
             promise::spawn::spawn(async move {
-                smol::Timer::after(Duration::from_millis(1500)).await;
-                window.notify(TermWindowNotif::Apply(Box::new(|tw| {
-                    tw.prewarm_search_bar_glyphs();
+                smol::Timer::after(Duration::from_millis(1500 + i as u64 * 250)).await;
+                window.notify(TermWindowNotif::Apply(Box::new(move |tw| {
+                    tw.prewarm_search_bar_glyphs(&text);
                 })));
             })
             .detach();
@@ -2806,15 +2815,15 @@ impl TermWindow {
         self.set_modal(std::rc::Rc::new(modal));
     }
 
-    /// Shape every string the search bar can display so the font-fallback
-    /// caches are hot before the user first opens search. Runs once at
-    /// idle shortly after window creation.
-    fn prewarm_search_bar_glyphs(&mut self) {
-        let text = crate::overlay::copy::search_bar_prewarm_text();
+    /// Shape one of the search bar's strings so the font-fallback caches
+    /// are hot before the user first opens search. Called at idle shortly
+    /// after window creation, one string per call to keep each slice of
+    /// main-thread work small.
+    fn prewarm_search_bar_glyphs(&mut self, text: &str) {
         if let Ok(font) = self.fonts.default_font() {
             let start = std::time::Instant::now();
             let _ = font.shape(
-                &text,
+                text,
                 || {},
                 crate::customglyph::BlockKey::filter_out_synthetic,
                 None,
@@ -2822,7 +2831,7 @@ impl TermWindow {
                 None,
                 None,
             );
-            log::debug!("search bar glyph prewarm took {:?}", start.elapsed());
+            log::debug!("search bar glyph prewarm ({text:?}) took {:?}", start.elapsed());
         }
     }
 
