@@ -252,6 +252,18 @@ impl DirJump {
         };
         let parent_path = PathBuf::from(&parent);
         let pattern = (!frag.is_empty()).then(|| matcher_pattern(&frag));
+        // With a bare `dir/` (no fragment yet), offer the typed directory
+        // itself as the first row so Enter goes exactly where the input
+        // says — completion shouldn't force you one level deeper.
+        let mut head: Vec<DirItem> = vec![];
+        if frag.is_empty() && parent_path.is_dir() {
+            head.push(DirItem {
+                name: crate::i18n::t("dirjump.here"),
+                rel: Some(tilde_path(&parent_path)),
+                path: parent_path.clone(),
+                section: Section::PathComp,
+            });
+        }
         let mut scored: Vec<(u32, DirItem)> = subdirs_of(&parent_path)
             .into_iter()
             .filter_map(|p| {
@@ -272,7 +284,8 @@ impl DirJump {
             })
             .collect();
         scored.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.name.cmp(&b.1.name)));
-        scored.into_iter().map(|(_, it)| it).collect()
+        head.extend(scored.into_iter().map(|(_, it)| it));
+        head
     }
 
     fn refilter(&self) {
@@ -426,13 +439,20 @@ impl DirJump {
         }
     }
 
-    /// Tab: descend into the selected directory and keep browsing.
-    fn descend(&self, term_window: &TermWindow) {
+    /// Tab: shell-style completion. The selected directory's path is written
+    /// into the input field with a trailing `/`, which flips the palette
+    /// into path-completion mode listing its children — exactly the
+    /// `cd dir<Tab>` muscle memory. The input field always shows where you
+    /// are, and Backspace edits it like text (no hidden browse-root jumps).
+    fn complete_selected(&self, term_window: &TermWindow) {
         let sel = *self.selected.borrow();
         if let Some(path) = self.selected_path(sel) {
-            *self.base.borrow_mut() = path;
-            self.input.borrow_mut().clear();
-            self.reload();
+            let mut completed = tilde_path(&path);
+            if !completed.ends_with('/') {
+                completed.push('/');
+            }
+            *self.input.borrow_mut() = completed;
+            self.refilter();
             self.invalidate(term_window);
         }
     }
@@ -836,7 +856,7 @@ impl Modal for DirJump {
             (KeyCode::Escape, KeyModifiers::NONE) => term_window.cancel_modal(),
             (KeyCode::UpArrow, KeyModifiers::NONE) => self.move_selection(-1, term_window),
             (KeyCode::DownArrow, KeyModifiers::NONE) => self.move_selection(1, term_window),
-            (KeyCode::Tab, KeyModifiers::NONE) => self.descend(term_window),
+            (KeyCode::Tab, KeyModifiers::NONE) => self.complete_selected(term_window),
             (KeyCode::Enter, KeyModifiers::NONE) => {
                 let sel = *self.selected.borrow();
                 self.activate(sel, term_window, false);

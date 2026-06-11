@@ -61,7 +61,7 @@
   "confirm.yes": " 是 (Y) ",
   "cwd.prompt": "选择一个文件夹,在当前面板中 cd 进入。",
   "dirjump.empty": "没有匹配的目录",
-  "dirjump.hints": "↑↓ 选择 · Enter 切换 · ⌘Enter 新标签页 · Tab 进入 · ⌫ 上级 · ⌘O 系统选择器 · Esc 关闭",
+  "dirjump.hints": "↑↓ 选择 · Tab 补全 · Enter 切换 · ⌘Enter 新标签页 · ⌫ 删字/上级 · ⌘O 系统选择器 · Esc 关闭",
   "dirjump.placeholder": "输入即可任意深度匹配 · / 或 ~ 走路径补全…",
   "dirjump.recent": "最近",
   "dirjump.subdirs": "子目录",
@@ -469,5 +469,6 @@
   "web.update.available_post": "可用——升级一下吧。",
   "web.update.available_pre": "新版本",
   "web.update.dismiss": "知道了",
-  "web.update.view_release": "查看更新内容 →"
+  "web.update.view_release": "查看更新内容 →",
+  "dirjump.here": "↵ 就进这里"
 }
