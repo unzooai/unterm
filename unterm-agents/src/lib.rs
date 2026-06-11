@@ -25,6 +25,7 @@ pub mod canonical;
 pub mod envelope;
 pub mod errors;
 pub mod fetch;
+pub mod mcp_meta;
 pub mod installer;
 pub mod launcher;
 pub mod manifest;

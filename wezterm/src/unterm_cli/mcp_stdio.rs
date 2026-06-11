@@ -32,21 +32,42 @@ use std::io::{BufRead, Write};
 /// widely-supported revision; clients negotiate down if needed.
 const PROTOCOL_VERSION: &str = "2024-11-05";
 
-pub fn run() -> Result<()> {
-    // Connect to the running Unterm instance up front. If the GUI isn't
-    // running we still want to come up and speak MCP (so the agent gets a
-    // clean error per tools/call) rather than failing to launch — but a
-    // failed connect here is almost always "GUI not running", so surface it
-    // on stderr and exit non-zero so the agent's MCP manager reports it.
-    let mut client = McpClient::connect().map_err(|e| {
-        eprintln!("unterm mcp-stdio: cannot reach Unterm control server: {e}");
-        e
-    })?;
+/// Friendly per-call error when the GUI isn't up. Returned with
+/// `isError: true` so the agent can read it and tell the user.
+const GUI_NOT_RUNNING: &str = "Unterm GUI is not running — open Unterm.app (or run \
+`unterm start`), then retry. The tool surface is still listed so you know what \
+will be available once it's up.";
 
-    // Pull the tool inventory once at startup. tools/list reuses this.
+pub fn run() -> Result<()> {
+    // Connect to the running Unterm instance up front — but if the GUI isn't
+    // running, come up anyway and keep speaking MCP: serve `initialize` and
+    // `tools/list` from the static surface tables baked into this binary,
+    // return a clean per-call error on `tools/call`, and lazily reconnect
+    // when the GUI appears. Exiting here used to break (a) registry health
+    // checks that introspect the server headlessly and (b) agents that start
+    // before the terminal does.
+    let mut client: Option<McpClient> = match McpClient::connect() {
+        Ok(c) => Some(c),
+        Err(e) => {
+            eprintln!(
+                "unterm mcp-stdio: Unterm control server not reachable ({e}); \
+                 serving static tool list, will reconnect on demand"
+            );
+            None
+        }
+    };
+
+    // Tool inventory: prefer the live server's meta.surface (never drifts
+    // from dispatch); fall back to the compiled-in tables.
     let surface = client
-        .call("meta.surface", json!({}))
-        .unwrap_or_else(|_| json!({ "mcp_methods": [] }));
+        .as_mut()
+        .and_then(|c| c.call("meta.surface", json!({})).ok())
+        .unwrap_or_else(|| {
+            json!({
+                "mcp_methods": serde_json::to_value(unterm_agents::mcp_meta::MCP_METHODS)
+                    .unwrap_or_else(|_| json!([]))
+            })
+        });
     let tools = build_tool_list(&surface);
 
     let stdin = std::io::stdin();
@@ -122,7 +143,22 @@ pub fn run() -> Result<()> {
                     .get("arguments")
                     .cloned()
                     .unwrap_or_else(|| json!({}));
-                match client.call(&name, arguments) {
+                // Lazy reconnect: the GUI may have started after us.
+                if client.is_none() {
+                    client = McpClient::connect().ok();
+                }
+                let Some(live) = client.as_mut() else {
+                    respond(
+                        &mut stdout,
+                        id,
+                        json!({
+                            "content": [ { "type": "text", "text": GUI_NOT_RUNNING } ],
+                            "isError": true,
+                        }),
+                    )?;
+                    continue;
+                };
+                match live.call(&name, arguments) {
                     Ok(result) => {
                         let text = serde_json::to_string_pretty(&result)
                             .unwrap_or_else(|_| result.to_string());
