@@ -14,6 +14,24 @@
 set -euo pipefail
 set -x
 
+
+# codesign with retries: the --timestamp flag needs timestamp.apple.com, which
+# flakes behind rotating proxies / spotty networks. A single flake used to
+# kill the whole release run; retry with a pause instead (the timestamp
+# service outages we see are seconds-to-a-minute long).
+codesign_retry() {
+  local i
+  for i in 1 2 3 4 5 6; do
+    if /usr/bin/codesign "$@"; then
+      return 0
+    fi
+    echo "codesign attempt $i failed (timestamp service flake?) — retrying in 20s" >&2
+    sleep 20
+  done
+  echo "codesign failed after 6 attempts" >&2
+  return 1
+}
+
 ROOT=$(git rev-parse --show-toplevel)
 cd "$ROOT"
 
@@ -100,7 +118,7 @@ HELPERS=(unterm-cli unterm-mux strip-ansi-escapes)
 for bin in "${HELPERS[@]}" ; do
   bin_path="$stagedir/Unterm.app/Contents/MacOS/$bin"
   if [[ -f "$bin_path" ]] ; then
-    /usr/bin/codesign --force --options runtime --timestamp \
+    codesign_retry --force --options runtime --timestamp \
       --entitlements ci/macos-entitlement.plist \
       --sign "$DEV_ID" "$bin_path"
   fi
@@ -113,15 +131,15 @@ if [[ -d "$stagedir/Unterm.app/Contents/PlugIns/UntermFinderSync.appex" ]] ; the
   # through v0.23 and the Repair Finder Integration script could never recover
   # — only re-signing with --entitlements (and fixing the principal class
   # name in assets/macos/FinderSync/Info.plist) makes the extension load.
-  /usr/bin/codesign --force --options runtime --timestamp \
+  codesign_retry --force --options runtime --timestamp \
     --entitlements ci/macos-finder-sync-entitlement.plist \
     --sign "$DEV_ID" "$stagedir/Unterm.app/Contents/PlugIns/UntermFinderSync.appex"
 fi
 
-/usr/bin/codesign --force --options runtime --timestamp \
+codesign_retry --force --options runtime --timestamp \
   --entitlements ci/macos-entitlement.plist \
   --sign "$DEV_ID" "$stagedir/Unterm.app/Contents/MacOS/unterm"
-/usr/bin/codesign --force --options runtime --timestamp \
+codesign_retry --force --options runtime --timestamp \
   --entitlements ci/macos-entitlement.plist \
   --sign "$DEV_ID" "$stagedir/Unterm.app"
 
@@ -153,7 +171,7 @@ if [ -n "${TAG_NAME:-}" ]; then
   /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $short_version" \
     "$dmg_stage/Repair Finder Integration.app/Contents/Info.plist"
 fi
-/usr/bin/codesign --force --options runtime --timestamp \
+codesign_retry --force --options runtime --timestamp \
   --sign "$DEV_ID" "$dmg_stage/Repair Finder Integration.app"
 ln -s /Applications "$dmg_stage/Applications"
 hdiutil create -volname "Unterm" -srcfolder "$dmg_stage" \
@@ -163,7 +181,7 @@ rm -rf "$dmg_stage"
 # Sign the DMG so Gatekeeper trusts the container itself, not just the .app
 # inside. `--timestamp` adds an Apple-server timestamp so verification keeps
 # working after the cert eventually expires.
-/usr/bin/codesign --force --sign "$DEV_ID" --timestamp "$dmgname"
+codesign_retry --force --sign "$DEV_ID" --timestamp "$dmgname"
 /usr/bin/codesign --verify --verbose=2 "$dmgname"
 
 if [ -n "$NOTARY_PROFILE" ] ; then
