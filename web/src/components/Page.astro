@@ -996,6 +996,41 @@ drwxr-xr-x 6 alexlee staff   192  architecture.md
   </div>
 </section>
 
+<!-- ============== MANIFESTO: why drivable beats embedded ============== -->
+<section id="why" class="py-20 border-t border-notion-border bg-notion-bg">
+  <div class="max-w-5xl mx-auto px-6">
+    <h2 class="text-3xl md:text-4xl font-semibold tracking-tight text-center leading-tight" set:html={t("why.title")} />
+    <p class="mt-4 text-center text-notion-muted max-w-2xl mx-auto">{t("why.subtitle")}</p>
+    <div class="mt-12 grid md:grid-cols-3 gap-4">
+      {["lifespan", "agents", "surface"].map((k) => (
+        <div class="bg-notion-surface/40 border border-notion-border rounded-xl p-6">
+          <div class="font-semibold">{t(`why.${k}.title`)}</div>
+          <p class="mt-2 text-sm text-notion-muted leading-relaxed">{t(`why.${k}.body`)}</p>
+        </div>
+      ))}
+    </div>
+    <div class="mt-8 grid md:grid-cols-2 gap-4">
+      <div class="border border-notion-border rounded-xl p-6 bg-notion-surface/20">
+        <div class="font-semibold text-notion-faint">{t("why.warp.title")}</div>
+        <ul class="mt-3 space-y-2 text-sm text-notion-muted list-disc list-inside">
+          <li>{t("why.warp.b1")}</li>
+          <li>{t("why.warp.b2")}</li>
+          <li>{t("why.warp.b3")}</li>
+        </ul>
+      </div>
+      <div class="border border-notion-green/40 rounded-xl p-6 bg-notion-surface/40">
+        <div class="font-semibold text-notion-green">{t("why.unterm.title")}</div>
+        <ul class="mt-3 space-y-2 text-sm text-notion-ink list-disc list-inside">
+          <li>{t("why.unterm.b1")}</li>
+          <li>{t("why.unterm.b2")}</li>
+          <li>{t("why.unterm.b3")}</li>
+        </ul>
+      </div>
+    </div>
+    <p class="mt-10 text-center text-notion-muted italic max-w-2xl mx-auto">{t("why.closing")}</p>
+  </div>
+</section>
+
 <!-- ============== COMPARISON ============== -->
 <section id="compare" class="py-20 border-t border-notion-border">
   <div class="max-w-5xl mx-auto px-6">

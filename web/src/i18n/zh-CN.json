@@ -342,5 +342,22 @@
   "whatsnew.mouseux.title": "鼠标成为一等公民",
   "whatsnew.mouseux.body": "v0.40 是交互大版本。⌄ 菜单变成真正的<strong>鼠标菜单</strong>——图标、hover、快捷键提示、零延迟。<strong>目录跳转</strong>(Ctrl+Shift+O)是 Warp 级面板:最近项目 + 即输即滤的子目录浏览,Enter 直接 cd,⌘Enter 在那里开新 tab。左侧可收起的<strong>项目目录树</strong>(Ctrl+Shift+B):单击展开、双击 cd、点文件插入带引号的路径、右键复制/定位/新建 tab。还有 tab 栏快捷按钮、更细且贴边的滚动条(不再和分屏拖拽打架)、更干净的关闭按钮、有层次的状态栏,以及安装即注册的 Finder 右键服务(“在此新建 Unterm Tab”)——整个界面终于用鼠标和用键盘一样顺。",
   "whatsnew.scrollshot.title": "滚屏长截图——终端内外都行",
-  "whatsnew.scrollshot.body": "长截图,两个方向都有。<strong>终端内:</strong>Unterm 拥有文本模型,所以直接把<strong>整个回滚区</strong>无头渲染成一张长 PNG——同字体同主题的精确重绘,流式编码,一万行也不爆内存,窗口被遮挡也照样出图。<strong>终端外:</strong>把鼠标指向任意其他应用的窗口,Unterm 用合成滚轮事件帮它滚动,再按行哈希精确拼接(自动识别吸顶/吸底栏)——Safari、Slack 什么都能出 CleanShot 式长图。两者都在 ⌄ 菜单里,也都有 CLI(<code class=\"font-mono text-xs\">unterm-cli screenshot --scrollback</code> / <code class=\"font-mono text-xs\">--scroll-app Safari</code>)和 MCP 工具(<code class=\"font-mono text-xs\">capture.scrollback</code>、<code class=\"font-mono text-xs\">capture.window_scroll</code>),你的 agent 也能直接调。"
+  "whatsnew.scrollshot.body": "长截图,两个方向都有。<strong>终端内:</strong>Unterm 拥有文本模型,所以直接把<strong>整个回滚区</strong>无头渲染成一张长 PNG——同字体同主题的精确重绘,流式编码,一万行也不爆内存,窗口被遮挡也照样出图。<strong>终端外:</strong>把鼠标指向任意其他应用的窗口,Unterm 用合成滚轮事件帮它滚动,再按行哈希精确拼接(自动识别吸顶/吸底栏)——Safari、Slack 什么都能出 CleanShot 式长图。两者都在 ⌄ 菜单里,也都有 CLI(<code class=\"font-mono text-xs\">unterm-cli screenshot --scrollback</code> / <code class=\"font-mono text-xs\">--scroll-app Safari</code>)和 MCP 工具(<code class=\"font-mono text-xs\">capture.scrollback</code>、<code class=\"font-mono text-xs\">capture.window_scroll</code>),你的 agent 也能直接调。",
+  "why.title": "终端不需要内置 AI。<br/><span class=\"text-notion-green\">终端需要被 AI 控制。</span>",
+  "why.subtitle": "这是 Unterm 和 Warp 的根本分岐——不是功能差距，是方向差别。",
+  "why.lifespan.title": "寿命错配",
+  "why.lifespan.body": "终端是用三十年的工具，AI 模型是六个月一换的组件。把 AI 焊死在终端里，等于让寿命最长的工具被寿命最短的组件定义——模型一过时，整个终端跟着过时。",
+  "why.agents.title": "你已经有 agent 了",
+  "why.agents.body": "Claude Code、Codex、Gemini CLI、Aider——你已经在用世界上最强的编码 agent，它们每个月都在变强。终端里再内置一个聊天框，只是多一个要登录的副驾驶，而且永远不如你正在用的那个。",
+  "why.surface.title": "缺的是“抓手”，不是“大脑”",
+  "why.surface.body": "agent 不缺智能，缺的是看见和操作终端的手。Unterm 把终端做成 MCP 可控面：开 pane、跑命令、读屏、滚屏长截图、改设置、录会话——agent 像人一样用终端，而不是隔着玻璃看。",
+  "why.warp.title": "Warp 的答案：把 AI 装进终端",
+  "why.warp.b1": "AI 内嵌在终端 UI 里，绑定它的云——登录、订阅、配额",
+  "why.warp.b2": "用它选的模型，按它的节奏升级",
+  "why.warp.b3": "AI 核心闭源，你的命令上下文走它的服务器",
+  "why.unterm.title": "Unterm 的答案：把终端交给 AI",
+  "why.unterm.b1": "终端是 MCP 可控面——任何 agent 即插即驱动，今天的或明年的",
+  "why.unterm.b2": "你选 agent、你选模型，Unterm 永不绑定",
+  "why.unterm.b3": "MIT 全开源，一切都在 127.0.0.1——无登录、无订阅、无遥测",
+  "why.closing": "三十年后你还会在用终端。到时候驱动它的 AI 是哪一个，没人知道——所以唯一面向未来的终端，是把“被驱动”做到极致的那一个。"
 }
