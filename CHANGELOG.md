@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Added
+
+- **`screen.search` can now jump to its results.** New `goto: true` /
+  `goto_match: N` params scroll the user-visible viewport so the match is
+  on screen (with a quarter-viewport of context above it) — search-and-
+  locate instead of search-and-report. Matches now carry the stable row
+  index (same coordinate space as `screen.scrollback_text`) plus the
+  match column, so agents can address results even as new output streams
+  in. Previously the returned `row` was a bare enumeration index that
+  drifted once the scrollback was trimmed, and there was no way to bring
+  a match into view. The in-terminal search UI (`Ctrl+Shift+F` /
+  `Cmd+F`) already jumped to matches; this brings the MCP surface to
+  parity.
+
 ### Fixed
 
 - **Windows: multi-second freeze at launch (and on every new tab) when the

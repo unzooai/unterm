@@ -2212,6 +2212,22 @@ impl McpHandler {
         Ok(json!({"lines": text_lines, "offset": offset, "count": text_lines.len()}))
     }
 
+    /// `screen.search` — find `pattern` (case-sensitive substring) in the
+    /// pane's scrollback + viewport.
+    ///
+    /// Params:
+    /// - `pattern` (string, required)
+    /// - `max_results` (int, default 50)
+    /// - `goto` (bool, default false): scroll the GUI viewport so the first
+    ///   match is visible — "search and jump", not just "search".
+    /// - `goto_match` (int): like `goto: true` but jump to the Nth match
+    ///   (0-based, clamped). Lets an agent step through matches by calling
+    ///   again with the next index.
+    ///
+    /// Each match carries the *stable* row index (the same coordinate space
+    /// as `screen.scrollback_text`'s `first_row`/`start_line`), so results
+    /// stay addressable even as new output scrolls in, plus the column of
+    /// the first occurrence in that line.
     fn screen_search(&self, params: &Value) -> Result<Value> {
         let pane = self.get_pane(params)?;
         let pattern = params
@@ -2224,25 +2240,90 @@ impl McpHandler {
             .unwrap_or(50) as usize;
 
         let dims = pane.get_dimensions();
-        let start = 0isize;
+        let start = dims.scrollback_top;
         let end = dims.physical_top + dims.viewport_rows as isize;
-        let (_first, lines) = pane.get_lines(start..end);
+        let (first, lines) = pane.get_lines(start..end);
 
         let mut matches: Vec<Value> = Vec::new();
-        for (row_idx, line) in lines.iter().enumerate() {
+        let mut match_rows: Vec<isize> = Vec::new();
+        for (idx, line) in lines.iter().enumerate() {
             let text = line.as_str().to_string();
-            if text.contains(pattern) {
+            if let Some(byte_off) = text.find(pattern) {
+                let row = first + idx as isize;
                 matches.push(json!({
-                    "row": row_idx,
+                    "row": row,
+                    "col": text[..byte_off].chars().count(),
                     "text": text.trim_end(),
                 }));
+                match_rows.push(row);
                 if matches.len() >= max_results {
                     break;
                 }
             }
         }
 
-        Ok(json!({"matches": matches, "total": matches.len()}))
+        let goto_requested = params
+            .get("goto")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+            || params.get("goto_match").is_some();
+
+        let mut scrolled_to = Value::Null;
+        if goto_requested && !match_rows.is_empty() {
+            let index = params
+                .get("goto_match")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as usize;
+            let index = index.min(match_rows.len() - 1);
+            let target = match_rows[index];
+            self.scroll_pane_viewport_to(pane.pane_id(), target)?;
+            scrolled_to = json!({ "row": target, "match_index": index });
+        }
+
+        Ok(json!({
+            "matches": matches,
+            "total": matches.len(),
+            "scrolled_to": scrolled_to,
+        }))
+    }
+
+    /// Scroll the GUI viewport of `pane_id` so that stable row `target` is
+    /// on screen, with ~1/4 of the viewport above it for context. The
+    /// viewport is per-TermWindow GUI state, not Mux state, so this hops to
+    /// the main thread and applies through the owning window's notify queue.
+    fn scroll_pane_viewport_to(&self, pane_id: usize, target: isize) -> Result<()> {
+        let mux = self.get_mux()?;
+        let (_domain, mux_window_id, _tab) = mux
+            .resolve_pane_id(pane_id)
+            .ok_or_else(|| anyhow!("pane {pane_id} not found in any window"))?;
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        promise::spawn::spawn_into_main_thread(async move {
+            let result = (|| -> Result<()> {
+                use ::window::WindowOps;
+                let gui = crate::frontend::front_end()
+                    .gui_window_for_mux_window(mux_window_id)
+                    .ok_or_else(|| anyhow!("no GUI window for mux window {mux_window_id}"))?;
+                gui.window.notify(crate::termwindow::TermWindowNotif::Apply(
+                    Box::new(move |term_window| {
+                        if let Some(pane) = Mux::get().get_pane(pane_id) {
+                            let dims = pane.get_dimensions();
+                            let top = (target - dims.viewport_rows as isize / 4)
+                                .max(dims.scrollback_top);
+                            // set_viewport itself clamps "past the bottom"
+                            // back to live-follow mode.
+                            term_window.set_viewport(pane_id, Some(top), dims);
+                        }
+                    }),
+                ));
+                Ok(())
+            })();
+            tx.send(result).ok();
+        })
+        .detach();
+
+        rx.recv_timeout(std::time::Duration::from_secs(5))
+            .map_err(|_| anyhow!("timeout scrolling pane {pane_id} to row {target}"))?
     }
 
     // --- Orchestrate ---

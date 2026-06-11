@@ -282,8 +282,13 @@ pub const MCP_METHODS: &[McpMethod] = &[
     McpMethod {
         name: "screen.search",
         namespace: "screen",
-        summary: "Find a substring in the scrollback.",
-        params: &[P_PANE_ID, Param { name: "pattern", kind: "string", required: true, summary: "" }],
+        summary: "Find a substring in the scrollback; optionally jump the viewport to a match.",
+        params: &[
+            P_PANE_ID,
+            Param { name: "pattern", kind: "string", required: true, summary: "" },
+            Param { name: "goto", kind: "bool", required: false, summary: "Scroll the GUI viewport to the first match." },
+            Param { name: "goto_match", kind: "int", required: false, summary: "Jump to the Nth match (0-based; implies goto)." },
+        ],
     },
     McpMethod {
         name: "screen.detect_errors",

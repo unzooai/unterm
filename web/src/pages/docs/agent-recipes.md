@@ -163,7 +163,7 @@ def wait_for_text(s, pid, needle, timeout_s=60):
 wait_for_text(s, 5, "test result: ok.", timeout_s=120)
 ```
 
-For a richer search API see `screen.search` in the [MCP reference](/docs/mcp-reference) — it returns offsets and supports regex.
+For a richer search API see `screen.search` in the [MCP reference](/docs/mcp-reference) — it returns stable row offsets and can jump the user-visible viewport to a match (`goto` / `goto_match`). It is substring-only, not regex.
 
 ---
 

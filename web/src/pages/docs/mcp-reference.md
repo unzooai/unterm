@@ -400,8 +400,15 @@ Substring search across visible viewport + scrollback.
 | `id`/`session_id` | number/string | yes | Target pane |
 | `pattern` | string | yes | Literal substring (not regex) |
 | `max_results` | number | no | Cap on matches, default `50` |
+| `goto` | bool | no | Scroll the GUI viewport to the first match so the user sees it. Default `false`. |
+| `goto_match` | number | no | Jump to the Nth match instead (0-based, clamped; implies `goto`). Call again with the next index to step through matches. |
 
-**Returns:** `{ matches: [{ row, text }, ...], total: number }`
+**Returns:** `{ matches: [{ row, col, text }, ...], total: number, scrolled_to: { row, match_index } | null }`
+
+`row` is the **stable row index** — the same coordinate space as
+`screen.scrollback_text`'s `first_row` / `start_line` — so a match stays
+addressable as new output scrolls in. `col` is the character column of the
+first occurrence in that line.
 
 Match is `String::contains`, case-sensitive, no regex. If you need regex, do it client-side after fetching `screen.text`.
 
