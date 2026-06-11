@@ -548,6 +548,7 @@ impl super::TermWindow {
                         QA::DirJump => self.show_dir_jump(),
                         QA::Search => {
                             use config::keyassignment::{KeyAssignment, Pattern};
+                            log::info!("search-open: toolbar button clicked");
                             if let Some(pane) = self.get_active_pane_or_overlay() {
                                 let _ = self.perform_key_assignment(
                                     &pane,

@@ -48,6 +48,18 @@
     of its highlight color so it stands apart from the other matches.
   - The search-box cursor blinks, so the typing position is findable
     on the reverse-video bar.
+  - **Search opens in one frame, every time.** Two more delays found by
+    instrumenting the open path: (1) the copy/search overlay never
+    reported its own dirty rows through `get_changed_since`, so the
+    renderer's line cache treated the bar, the highlights, and the
+    active-match change as "nothing changed" — the search UI literally
+    waited for an unrelated repaint; keystrokes now also dirty the bar
+    row directly, so typing echoes instantly instead of after the
+    search debounce. (2) The localized bar's CJK + ↑ ↓ · glyphs paid
+    a few hundred ms of first-time font-fallback resolution exactly on
+    first open; those glyphs are now pre-shaped at idle right after the
+    window opens. Measured open-to-painted: 33 ms cold (was 230 ms+,
+    occasionally seconds).
   - **Overlays paint immediately.** Opening search (or quick select /
     any pane overlay) never requested a repaint, so the bar waited for
     the next incidental one — a cursor blink or pane output — which is

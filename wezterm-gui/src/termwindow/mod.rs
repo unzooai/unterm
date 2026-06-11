@@ -1018,6 +1018,21 @@ impl TermWindow {
         .await?;
         tw.borrow_mut().window.replace(window.clone());
 
+        // Pre-warm the search bar's localized glyphs at idle. Their first
+        // font-fallback resolution costs a few hundred ms and otherwise
+        // lands on the user's first search open, which reads as "the
+        // search box didn't open".
+        {
+            let window = window.clone();
+            promise::spawn::spawn(async move {
+                smol::Timer::after(Duration::from_millis(1500)).await;
+                window.notify(TermWindowNotif::Apply(Box::new(|tw| {
+                    tw.prewarm_search_bar_glyphs();
+                })));
+            })
+            .detach();
+        }
+
         Self::apply_icon(&window)?;
 
         let config_subscription = config::subscribe_to_config_reload({
@@ -2791,6 +2806,26 @@ impl TermWindow {
         self.set_modal(std::rc::Rc::new(modal));
     }
 
+    /// Shape every string the search bar can display so the font-fallback
+    /// caches are hot before the user first opens search. Runs once at
+    /// idle shortly after window creation.
+    fn prewarm_search_bar_glyphs(&mut self) {
+        let text = crate::overlay::copy::search_bar_prewarm_text();
+        if let Ok(font) = self.fonts.default_font() {
+            let start = std::time::Instant::now();
+            let _ = font.shape(
+                &text,
+                || {},
+                crate::customglyph::BlockKey::filter_out_synthetic,
+                None,
+                wezterm_bidi::Direction::LeftToRight,
+                None,
+                None,
+            );
+            log::debug!("search bar glyph prewarm took {:?}", start.elapsed());
+        }
+    }
+
     fn show_settings_menu(&mut self) {
         // v0.40: mouse-operable floating menu (popup_menu.rs) replaces the
         // keyboard-only cell-grid overlay that used to live here.
@@ -3619,6 +3654,7 @@ impl TermWindow {
                 window.invalidate();
             }
             Search(pattern) => {
+                log::info!("search-open: Search assignment dispatched");
                 if let Some(pane) = self.get_active_pane_or_overlay() {
                     let mut replace_current = false;
                     if let Some(existing) = pane.downcast_ref::<CopyOverlay>() {
@@ -3640,6 +3676,7 @@ impl TermWindow {
                         )?;
                         self.assign_overlay_for_pane(pane.pane_id(), search);
                     }
+                    log::info!("search-open: overlay assigned");
                     self.pane_state(pane.pane_id())
                         .overlay
                         .as_mut()

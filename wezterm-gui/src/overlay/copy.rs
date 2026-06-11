@@ -44,6 +44,26 @@ fn search_bar_prefix() -> String {
     format!("{}: ", crate::i18n::t("search.label"))
 }
 
+/// Every localized string the search bar can render, concatenated.
+/// TermWindow shapes this once at idle to pre-warm the font-fallback
+/// caches: the bar's CJK labels and ↑ ↓ · glyphs usually aren't in the
+/// terminal's primary font, and their first DirectWrite fallback
+/// resolution costs a few hundred ms — which otherwise lands exactly on
+/// the user's first search open.
+pub fn search_bar_prewarm_text() -> String {
+    [
+        search_bar_prefix(),
+        crate::i18n::t("search.placeholder"),
+        crate::i18n::t("search.hint"),
+        crate::i18n::t("search.mode.ignore_case"),
+        crate::i18n::t("search.mode.case_sensitive"),
+        crate::i18n::t("search.mode.regex"),
+        crate::i18n::t("search.searching"),
+        "0123456789/".to_string(),
+    ]
+    .join(" ")
+}
+
 /// Paint the search bar over `line`. Layout: the editable pattern on the
 /// left (with a dim placeholder when empty), match count + match mode +
 /// key hints right-aligned. The hint block is dimmed and is the first
@@ -393,6 +413,10 @@ impl CopyRenderable {
                     result_index,
                 };
 
+                // Newly highlighted rows must be reported via
+                // get_changed_since or the line cache keeps the
+                // un-highlighted version on screen.
+                self.dirty_results.add(idx);
                 let matches = self.by_line.entry(idx).or_insert_with(|| vec![]);
                 matches.push(result);
 
@@ -580,8 +604,21 @@ impl CopyRenderable {
     }
 
     fn activate_match_number(&mut self, n: usize) {
+        // Both the outgoing and the incoming active match change their
+        // highlight colors; mark their rows dirty or the line cache will
+        // keep showing the old active match.
+        if let Some(prev) = self.result_pos {
+            if let Some(r) = self.results.get(prev) {
+                for y in r.start_y..=r.end_y {
+                    self.dirty_results.add(y);
+                }
+            }
+        }
         self.result_pos.replace(n);
         let result = self.results[n].clone();
+        for y in result.start_y..=result.end_y {
+            self.dirty_results.add(y);
+        }
         self.cursor.y = result.end_y;
         self.cursor.x = result.end_x.saturating_sub(1);
 
@@ -815,6 +852,15 @@ impl CopyRenderable {
     fn clear_pattern(&mut self) {
         self.search_line.clear();
         self.update_search();
+    }
+
+    /// The bar renders the pattern text; any edit must dirty the bar row
+    /// and repaint immediately so keystrokes echo instantly (the actual
+    /// re-search stays behind the debounce in schedule_update_search).
+    fn dirty_search_bar(&mut self) {
+        let row = self.compute_search_row();
+        self.dirty_results.add(row);
+        self.window.invalidate();
     }
 
     fn edit_pattern(&mut self) {
@@ -1279,6 +1325,7 @@ impl Pane for CopyOverlay {
             r.search_line.set_line_and_cursor("", 0);
         }
         r.search_line.insert_text(text);
+        r.dirty_search_bar();
         r.schedule_update_search();
         Ok(())
     }
@@ -1404,6 +1451,9 @@ impl Pane for CopyOverlay {
                 }
                 _ => {}
             }
+            // Echo the keystroke in the bar right away; the re-search
+            // itself stays behind the debounce.
+            render.dirty_search_bar();
         }
 
         Ok(())
@@ -1541,7 +1591,23 @@ impl Pane for CopyOverlay {
         lines: Range<StableRowIndex>,
         seqno: SequenceNo,
     ) -> RangeSet<StableRowIndex> {
-        self.delegate.get_changed_since(lines, seqno)
+        // Overlay-private state — the search bar row, match highlights,
+        // the active match — changes without bumping the delegate's
+        // seqno. The renderer's per-line cache trusts this method, so
+        // failing to report our own dirty rows means the search UI only
+        // shows up when something else happens to repaint those rows:
+        // the bar looked like it didn't open, typed characters echoed
+        // late, and switching matches didn't visibly change anything.
+        let mut changed = self.delegate.get_changed_since(lines.clone(), seqno);
+        let renderer = self.render.lock();
+        for range in renderer.dirty_results.iter() {
+            let start = range.start.max(lines.start);
+            let end = range.end.min(lines.end);
+            if start < end {
+                changed.add_range(start..end);
+            }
+        }
+        changed
     }
 
     fn get_logical_lines(&self, lines: Range<StableRowIndex>) -> Vec<LogicalLine> {
@@ -1601,6 +1667,9 @@ impl Pane for CopyOverlay {
                     if stable_idx == self.search_row
                         && (self.renderer.editing_search || !pattern.is_empty())
                     {
+                        if self.renderer.last_bar_pos.is_none() {
+                            log::info!("search-open: bar first painted");
+                        }
                         render_search_bar(self.renderer, &mut line, self.dims.cols);
                         self.renderer.last_bar_pos = Some(self.search_row);
                         line.clear_appdata();
@@ -1678,6 +1747,9 @@ impl Pane for CopyOverlay {
             renderer.dirty_results.remove(stable_idx);
             let pattern = renderer.get_pattern();
             if stable_idx == search_row && (renderer.editing_search || !pattern.is_empty()) {
+                if renderer.last_bar_pos.is_none() {
+                    log::info!("search-open: bar first painted");
+                }
                 render_search_bar(&renderer, line, dims.cols);
                 renderer.last_bar_pos = Some(search_row);
             } else if let Some(matches) = renderer.by_line.get(&stable_idx) {
@@ -1744,6 +1816,7 @@ impl std::io::Write for SearchOverlayPatternWriter {
             render.search_line.set_line_and_cursor("", 0);
         }
         render.search_line.insert_text(s);
+        render.dirty_search_bar();
         render.schedule_update_search();
         Ok(buf.len())
     }

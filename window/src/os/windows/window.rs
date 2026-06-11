@@ -629,6 +629,7 @@ fn schedule_show_window(hwnd: HWindow, show: ShowWindowCommand) {
     promise::spawn::spawn(async move {
         unsafe {
             log::trace!("applying ShowWindowCommand {show:?}");
+            winlog(hwnd.0, &format!("apply ShowWindowCommand {show:?}"));
             ShowWindow(
                 hwnd.0,
                 match show {
@@ -2949,7 +2950,79 @@ unsafe fn drop_files(hwnd: HWND, _msg: UINT, wparam: WPARAM, _lparam: LPARAM) ->
     Some(0)
 }
 
+/// Append-only journal of window lifecycle messages in
+/// `~/.unterm/winproc.log`. The "minimize then can't restore from the
+/// taskbar" report can't be reproduced under an agent sandbox (separate
+/// desktop, no taskbar), so the shipped binary keeps a low-volume trace
+/// of exactly the messages involved in minimize/restore for postmortem
+/// reading. Only state transitions are logged; steady-state paints and
+/// moves produce nothing.
+fn winlog(hwnd: HWND, text: &str) {
+    use std::io::Write;
+    let Ok(profile) = std::env::var("USERPROFILE") else {
+        return;
+    };
+    let path = std::path::Path::new(&profile)
+        .join(".unterm")
+        .join("winproc.log");
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        let _ = writeln!(f, "{now} hwnd={:?} {text}", hwnd);
+    }
+}
+
+unsafe fn winlog_msg(hwnd: HWND, msg: UINT, wparam: WPARAM) {
+    use std::sync::atomic::{AtomicI8, Ordering};
+    match msg {
+        WM_SYSCOMMAND => {
+            let sc = wparam & 0xFFF0;
+            let name = match sc {
+                SC_MINIMIZE => " SC_MINIMIZE",
+                SC_RESTORE => " SC_RESTORE",
+                SC_MAXIMIZE => " SC_MAXIMIZE",
+                SC_CLOSE => " SC_CLOSE",
+                _ => "",
+            };
+            winlog(hwnd, &format!("WM_SYSCOMMAND {sc:#x}{name}"));
+        }
+        WM_SHOWWINDOW => {
+            winlog(hwnd, &format!("WM_SHOWWINDOW shown={}", wparam != 0));
+        }
+        WM_ACTIVATEAPP => {
+            winlog(hwnd, &format!("WM_ACTIVATEAPP active={}", wparam != 0));
+        }
+        WM_WINDOWPOSCHANGED => {
+            // Only log iconic-state transitions; this message fires for
+            // every move/size and would otherwise flood the journal.
+            static LAST_ICONIC: AtomicI8 = AtomicI8::new(-1);
+            let iconic = if IsIconic(hwnd) != 0 { 1 } else { 0 };
+            if LAST_ICONIC.swap(iconic, Ordering::Relaxed) != iconic {
+                let mut rect: RECT = std::mem::zeroed();
+                GetClientRect(hwnd, &mut rect);
+                winlog(
+                    hwnd,
+                    &format!(
+                        "WM_WINDOWPOSCHANGED iconic={} client={}x{}",
+                        iconic != 0,
+                        rect.right,
+                        rect.bottom
+                    ),
+                );
+            }
+        }
+        _ => {}
+    }
+}
+
 unsafe fn do_wnd_proc(hwnd: HWND, msg: UINT, wparam: WPARAM, lparam: LPARAM) -> Option<LRESULT> {
+    winlog_msg(hwnd, msg, wparam);
     match msg {
         WM_NCCREATE => wm_nccreate(hwnd, msg, wparam, lparam),
         WM_NCDESTROY => wm_ncdestroy(hwnd, msg, wparam, lparam),
