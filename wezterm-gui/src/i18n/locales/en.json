@@ -470,5 +470,7 @@
   "web.update.available_pre": "A new release",
   "web.update.dismiss": "Dismiss",
   "web.update.view_release": "View release →",
-  "dirjump.here": "↵ cd here"
+  "dirjump.here": "↵ cd here",
+  "dirjump.locations": "Locations",
+  "dirjump.more": "… {n} more — keep typing to narrow"
 }

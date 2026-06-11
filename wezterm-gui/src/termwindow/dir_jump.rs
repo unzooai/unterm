@@ -32,6 +32,11 @@ use window::WindowOps;
 #[derive(Copy, Clone, PartialEq)]
 enum Section {
     Recent,
+    /// Mounted volumes (macOS /Volumes, Linux /mnt + /media/$USER) — the
+    /// Finder-sidebar "Locations". Without these, a user whose work lives
+    /// on a second disk (/Volumes/Dev/…) can never reach it by name: typing
+    /// `dev` completes to the system /dev instead.
+    Location,
     SubDir,
     /// Nested directory found by the bounded recursive scan; matched and
     /// displayed by its path relative to the browse root.
@@ -63,6 +68,9 @@ pub struct DirJump {
     visible: RefCell<Vec<usize>>,
     /// Index into `visible`.
     selected: RefCell<usize>,
+    /// How many matches were cut off by MAX_VISIBLE — rendered as a dim
+    /// "… +N" footer so a truncated list never masquerades as complete.
+    overflow: RefCell<usize>,
     element: RefCell<Option<Vec<ComputedElement>>>,
 }
 
@@ -122,6 +130,52 @@ fn deep_scan(base: &Path) -> Vec<(PathBuf, String)> {
             queue.push_back((path, depth + 1));
         }
     }
+    out
+}
+
+/// Mounted volumes / drive locations, Finder-sidebar style.
+fn locations() -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> = vec![];
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(rd) = std::fs::read_dir("/Volumes") {
+            for e in rd.filter_map(|e| e.ok()) {
+                let p = e.path();
+                let name = e.file_name().to_string_lossy().to_string();
+                if name.starts_with('.') {
+                    continue;
+                }
+                // Skip the startup-disk symlink (it just aliases /).
+                if let Ok(target) = std::fs::read_link(&p) {
+                    if target == Path::new("/") {
+                        continue;
+                    }
+                }
+                if p.is_dir() {
+                    out.push(p);
+                }
+            }
+        }
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        for base in ["/mnt".to_string(), {
+            let user = std::env::var("USER").unwrap_or_default();
+            format!("/media/{user}")
+        }] {
+            if let Ok(rd) = std::fs::read_dir(&base) {
+                for e in rd.filter_map(|e| e.ok()) {
+                    let p = e.path();
+                    if p.is_dir()
+                        && !e.file_name().to_string_lossy().starts_with('.')
+                    {
+                        out.push(p);
+                    }
+                }
+            }
+        }
+    }
+    out.sort();
     out
 }
 
@@ -210,6 +264,7 @@ impl DirJump {
             deep: RefCell::new(None),
             visible: RefCell::new(vec![]),
             selected: RefCell::new(0),
+            overflow: RefCell::new(0),
             element: RefCell::new(None),
         };
         me.reload();
@@ -224,6 +279,14 @@ impl DirJump {
                 name: display_name(&p),
                 path: p,
                 section: Section::Recent,
+                rel: None,
+            });
+        }
+        for p in locations() {
+            items.push(DirItem {
+                name: display_name(&p),
+                path: p,
+                section: Section::Location,
                 rel: None,
             });
         }
@@ -296,6 +359,7 @@ impl DirJump {
         if input.starts_with('/') || input.starts_with('~') {
             let comp = self.path_completion_items(&input);
             let visible: Vec<usize> = (0..comp.len().min(MAX_VISIBLE)).collect();
+            *self.overflow.borrow_mut() = comp.len().saturating_sub(MAX_VISIBLE);
             *self.items.borrow_mut() = comp;
             *self.visible.borrow_mut() = visible;
             *self.selected.borrow_mut() = 0;
@@ -320,12 +384,15 @@ impl DirJump {
         let mut visible: Vec<usize> = vec![];
         if input.is_empty() {
             let items = self.items.borrow();
-            // Recents first, then subdirs, natural order.
-            for (i, _) in items.iter().enumerate().filter(|(_, it)| it.section == Section::Recent) {
-                visible.push(i);
-            }
-            for (i, _) in items.iter().enumerate().filter(|(_, it)| it.section == Section::SubDir) {
-                visible.push(i);
+            // Recents, then locations (volumes), then subdirs, natural order.
+            for section in [Section::Recent, Section::Location, Section::SubDir] {
+                for (i, _) in items
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, it)| it.section == section)
+                {
+                    visible.push(i);
+                }
             }
         } else {
             // Lazily build the deep scan and splice it into `items` once per
@@ -365,7 +432,7 @@ impl DirJump {
                 .enumerate()
                 .filter_map(|(i, it)| {
                     let (hay, depth_penalty) = match it.section {
-                        Section::Recent => {
+                        Section::Recent | Section::Location => {
                             (format!("{} {}", it.name, it.path.display()), 0u32)
                         }
                         Section::SubDir => (it.name.clone(), 0),
@@ -385,6 +452,7 @@ impl DirJump {
             scored.sort_by(|a, b| b.0.cmp(&a.0));
             visible = scored.into_iter().map(|(_, i)| i).collect();
         }
+        *self.overflow.borrow_mut() = visible.len().saturating_sub(MAX_VISIBLE);
         visible.truncate(MAX_VISIBLE);
         *self.visible.borrow_mut() = visible;
         *self.selected.borrow_mut() = 0;
@@ -567,6 +635,7 @@ impl DirJump {
                 last_section = Some(item.section);
                 let caption = match item.section {
                     Section::Recent => crate::i18n::t("dirjump.recent"),
+                    Section::Location => crate::i18n::t("dirjump.locations"),
                     Section::SubDir => format!(
                         "{} — {}",
                         crate::i18n::t("dirjump.subdirs"),
@@ -651,7 +720,10 @@ impl DirJump {
             // Dim path hint: recents show where they live; path completion
             // shows the parent being completed in. (SubDir/Deep labels
             // already carry their location.)
-            if matches!(item.section, Section::Recent | Section::PathComp) {
+            if matches!(
+                item.section,
+                Section::Recent | Section::Location | Section::PathComp
+            ) {
                 let hint = match item.section {
                     Section::PathComp => item
                         .rel
@@ -709,6 +781,31 @@ impl DirJump {
                     })
                     .min_width(Some(Dimension::Percent(1.)))
                     .display(DisplayType::Block),
+            );
+        }
+
+        let overflow = *self.overflow.borrow();
+        if overflow > 0 {
+            children.push(
+                Element::new(
+                    &font,
+                    ElementContent::Text(crate::i18n::t_args(
+                        "dirjump.more",
+                        &[("n", &overflow.to_string())],
+                    )),
+                )
+                .display(DisplayType::Block)
+                .padding(BoxDimension {
+                    left: Dimension::Pixels(14. * pt),
+                    right: Dimension::Pixels(14. * pt),
+                    top: Dimension::Pixels(4. * pt),
+                    bottom: Dimension::Pixels(2. * pt),
+                })
+                .colors(ElementColors {
+                    border: BorderColor::default(),
+                    bg: LinearRgba::TRANSPARENT.into(),
+                    text: dim.into(),
+                }),
             );
         }
 
@@ -938,7 +1035,7 @@ mod tests {
         }
         let rels: Vec<String> = deep_scan(&tmp).into_iter().map(|(_, r)| r).collect();
         // nested dirs found by relative path
-        assert!(rels.contains(&"a/b".to_string()), "{rels:?}");
+        assert!(rels.contains(&"a/b".to_string()), "{:?}", rels);
         assert!(rels.contains(&"a/b/c".to_string()));
         assert!(rels.contains(&"src/termwindow".to_string()));
         assert!(rels.contains(&"src/termwindow/render".to_string()));

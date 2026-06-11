@@ -470,5 +470,7 @@
   "web.update.available_pre": "新版本",
   "web.update.dismiss": "知道了",
   "web.update.view_release": "查看更新内容 →",
-  "dirjump.here": "↵ 就进这里"
+  "dirjump.here": "↵ 就进这里",
+  "dirjump.locations": "位置",
+  "dirjump.more": "… 还有 {n} 个,继续输入可筛选"
 }
