@@ -48,6 +48,15 @@
     of its highlight color so it stands apart from the other matches.
   - The search-box cursor blinks, so the typing position is findable
     on the reverse-video bar.
+  - **Overlays paint immediately.** Opening search (or quick select /
+    any pane overlay) never requested a repaint, so the bar waited for
+    the next incidental one — a cursor blink or pane output — which is
+    why it felt slow no matter how fast the search itself got.
+  - **Click a match to jump to it.** Left-clicking any highlighted
+    match makes it the active one and centers it; previously a click
+    silently wiped the match selection. Clicks elsewhere still do
+    normal text selection. Inactive matches render dimmed so the
+    active one stands apart.
 
 ### Fixed
 

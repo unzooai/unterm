@@ -4479,6 +4479,12 @@ impl TermWindow {
             key_table_state: KeyTableState::default(),
         });
         self.update_title();
+        // Paint the overlay NOW. Without this, the overlay (search bar,
+        // quick select, …) only appears on the next incidental repaint —
+        // cursor blink, pane output — which reads as the UI being slow.
+        if let Some(window) = self.window.as_ref() {
+            window.invalidate();
+        }
     }
 
     pub fn assign_overlay(&mut self, tab_id: TabId, overlay: Arc<dyn Pane>) {
@@ -4488,6 +4494,9 @@ impl TermWindow {
             key_table_state: KeyTableState::default(),
         });
         self.update_title();
+        if let Some(window) = self.window.as_ref() {
+            window.invalidate();
+        }
     }
 
     fn resolve_search_pattern(&self, pattern: Pattern, pane: &Arc<dyn Pane>) -> MuxPattern {

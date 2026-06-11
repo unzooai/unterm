@@ -267,6 +267,23 @@ impl CopyOverlay {
         }))
     }
 
+    /// Left-click routed here from the window's mouse dispatch. If the
+    /// click landed on a highlighted match, make it the active match
+    /// (which also centers it). Returns true when the click was consumed;
+    /// false lets the normal selection bindings handle it.
+    pub fn left_click_at(&self, stable_row: StableRowIndex, col: usize) -> bool {
+        let mut render = self.render.lock();
+        let result_index = match render.by_line.get(&stable_row) {
+            Some(matches) => match matches.iter().find(|m| m.range.contains(&col)) {
+                Some(m) => m.result_index,
+                None => return false,
+            },
+            None => return false,
+        };
+        render.activate_match_number(result_index);
+        true
+    }
+
     pub fn get_params(&self) -> CopyModeParams {
         let render = self.render.lock();
         CopyModeParams {
@@ -288,6 +305,9 @@ impl CopyOverlay {
         // Re-opening search re-seeds whatever pattern is in the box;
         // the first typed character should replace it wholesale.
         render.restored_pattern = !render.get_pattern().is_empty();
+        // Show the refreshed bar immediately rather than on the next
+        // incidental repaint.
+        render.window.invalidate();
         let search_row = render.compute_search_row();
         render.dirty_results.add(search_row);
     }
@@ -549,11 +569,13 @@ impl CopyRenderable {
 
     fn clear_selection(&mut self) {
         let pane_id = self.delegate.pane_id();
+        let window = self.window.clone();
         self.window
             .notify(TermWindowNotif::Apply(Box::new(move |term_window| {
                 let mut selection = term_window.selection(pane_id);
                 selection.origin.take();
                 selection.range.take();
+                window.invalidate();
             })));
     }
 
@@ -1616,6 +1638,7 @@ impl Pane for CopyOverlay {
                                                     .copy_mode_inactive_highlight_fg
                                                     .unwrap_or(AnsiColor::Black.into()),
                                             )
+                                            .set_intensity(Intensity::Half)
                                             .set_reverse(false);
                                     }
                                 }
@@ -1690,6 +1713,7 @@ impl Pane for CopyOverlay {
                                             .copy_mode_inactive_highlight_fg
                                             .unwrap_or(AnsiColor::Black.into()),
                                     )
+                                    .set_intensity(Intensity::Half)
                                     .set_reverse(false);
                             }
                         }

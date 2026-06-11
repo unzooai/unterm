@@ -1372,6 +1372,22 @@ impl crate::TermWindow {
             self.current_mouse_capture = Some(MouseCapture::TerminalPane(pane.pane_id()));
         }
 
+        // In copy/search mode, a left click on a highlighted match makes it
+        // the active match (and centers it). Clicks elsewhere fall through
+        // to the normal selection bindings.
+        if let WMEK::Press(MousePress::Left) = &event.kind {
+            if let Some(overlay) = pane.downcast_ref::<crate::overlay::copy::CopyOverlay>() {
+                let viewport_top = self
+                    .get_viewport(pane.pane_id())
+                    .unwrap_or_else(|| pane.get_dimensions().physical_top);
+                let stable_row = viewport_top + row as isize;
+                if overlay.left_click_at(stable_row, column) {
+                    context.invalidate();
+                    return;
+                }
+            }
+        }
+
         let is_focused = if let Some(focused) = self.focused.as_ref() {
             !self.config.swallow_mouse_click_on_window_focus
                 || (focused.elapsed() > Duration::from_millis(200))
