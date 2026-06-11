@@ -148,6 +148,11 @@ struct CopyRenderable {
     width: usize,
     height: usize,
     editing_search: bool,
+    /// True when the pattern was seeded (last search / current selection)
+    /// rather than typed. The first typed character replaces the whole
+    /// seeded pattern instead of appending to it; editing keys (backspace,
+    /// delete, …) keep it and just clear the flag.
+    restored_pattern: bool,
     result_pos: Option<usize>,
     tab_id: TabId,
     /// Used to debounce queries while the user is typing
@@ -208,6 +213,7 @@ impl CopyOverlay {
             params.pattern
         };
         let search_line = LineEditBuffer::new(&pattern, pattern.len());
+        let restored_pattern = !pattern.is_empty();
 
         let mut render = CopyRenderable {
             cursor,
@@ -225,6 +231,7 @@ impl CopyOverlay {
             tab_id,
             pattern_type: PatternType::from(&pattern),
             search_line,
+            restored_pattern,
             editing_search: params.editing_search,
             result_pos: None,
             selection_mode: SelectionMode::Cell,
@@ -268,6 +275,9 @@ impl CopyOverlay {
                 .set_line_and_cursor(&params.pattern, params.pattern.len());
             render.schedule_update_search();
         }
+        // Re-opening search re-seeds whatever pattern is in the box;
+        // the first typed character should replace it wholesale.
+        render.restored_pattern = !render.get_pattern().is_empty();
         let search_row = render.compute_search_row();
         render.dirty_results.add(search_row);
     }
@@ -350,7 +360,11 @@ impl CopyRenderable {
         let pane_id = self.delegate.pane_id();
 
         promise::spawn::spawn(async move {
-            smol::Timer::after(Duration::from_millis(350)).await;
+            // Keep this short: it is the floor on perceived search latency
+            // for every keystroke. The search itself is chunked and starts
+            // from the most recent lines, so even big scrollbacks paint
+            // their first highlights quickly.
+            smol::Timer::after(Duration::from_millis(100)).await;
             window.notify(TermWindowNotif::Apply(Box::new(move |term_window| {
                 let state = term_window.pane_state(pane_id);
                 if let Some(overlay) = state.overlay.as_ref() {
@@ -1182,6 +1196,9 @@ impl Pane for CopyOverlay {
     fn send_paste(&self, text: &str) -> anyhow::Result<()> {
         // paste into the search bar
         let mut r = self.render.lock();
+        if std::mem::take(&mut r.restored_pattern) {
+            r.search_line.set_line_and_cursor("", 0);
+        }
         r.search_line.insert_text(text);
         r.schedule_update_search();
         Ok(())
@@ -1235,13 +1252,18 @@ impl Pane for CopyOverlay {
             match (key, mods) {
                 (KeyCode::Char(c), KeyModifiers::NONE)
                 | (KeyCode::Char(c), KeyModifiers::SHIFT) => {
-                    // Type to add to the pattern
+                    // Type to add to the pattern; the first character
+                    // typed over a seeded pattern replaces it entirely.
+                    if std::mem::take(&mut render.restored_pattern) {
+                        render.search_line.set_line_and_cursor("", 0);
+                    }
                     render.search_line.insert_char(c);
 
                     render.schedule_update_search();
                 }
                 (KeyCode::Char('H'), KeyModifiers::CTRL)
                 | (KeyCode::Backspace, KeyModifiers::NONE) => {
+                    render.restored_pattern = false;
                     render
                         .search_line
                         .kill_text(Movement::BackwardChar(1), Movement::BackwardChar(1));
@@ -1630,6 +1652,9 @@ impl std::io::Write for SearchOverlayPatternWriter {
         let s = std::str::from_utf8(buf).map_err(|err| {
             std::io::Error::new(std::io::ErrorKind::Other, format!("invalid UTF-8: {err:#}"))
         })?;
+        if std::mem::take(&mut render.restored_pattern) {
+            render.search_line.set_line_and_cursor("", 0);
+        }
         render.search_line.insert_text(s);
         render.schedule_update_search();
         Ok(buf.len())

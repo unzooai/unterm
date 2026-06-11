@@ -34,6 +34,11 @@
   - `Shift+Enter` now jumps in the opposite direction of `Enter`.
   - Interactive search now defaults to **ignore-case** (Ctrl+R still
     cycles exact / regex). Agent-driven `screen.search` is unchanged.
+  - Typing latency: the per-keystroke search debounce dropped from
+    350 ms to 100 ms, so first highlights appear ~3× sooner.
+  - The pattern restored from your last search (or seeded from the
+    selection) is replaced wholesale by the first character you type,
+    instead of being appended to — backspace/arrows still edit it.
 
 ### Fixed
 
