@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::Arc;
 use std::time::Duration;
-use termwiz::cell::{Cell, CellAttributes, Intensity};
+use termwiz::cell::{Cell, CellAttributes, Intensity, Underline};
 use termwiz::color::AnsiColor;
 use termwiz::lineedit::{LineEditBuffer, Movement};
 use termwiz::surface::{CursorVisibility, SequenceNo, SEQ_ZERO};
@@ -157,6 +157,12 @@ struct CopyRenderable {
     tab_id: TabId,
     /// Used to debounce queries while the user is typing
     typing_cookie: usize,
+    /// Throttles full re-searches triggered by live pane output, so a
+    /// streaming command doesn't restart the scan on every paint.
+    last_live_update: Option<std::time::Instant>,
+    /// Counts search chunks processed since the last repaint so the
+    /// chunk cascade doesn't queue a full window repaint per 1000 rows.
+    chunks_since_paint: usize,
     searching: Option<Searching>,
     pending_jump: Option<PendingJump>,
     last_jump: Option<Jump>,
@@ -236,6 +242,8 @@ impl CopyOverlay {
             result_pos: None,
             selection_mode: SelectionMode::Cell,
             typing_cookie: 0,
+            last_live_update: None,
+            chunks_since_paint: 0,
             searching: None,
             pending_jump: None,
             last_jump: None,
@@ -243,7 +251,9 @@ impl CopyOverlay {
 
         let search_row = render.compute_search_row();
         render.dirty_results.add(search_row);
-        render.update_search();
+        // Defer the (re-)search of any seeded pattern: the bar must paint
+        // on the very next frame, not after a scrollback scan kicks off.
+        render.schedule_update_search();
 
         let shared_render = Arc::new(Mutex::new(render));
         let writer = SearchOverlayPatternWriter {
@@ -313,9 +323,29 @@ impl CopyRenderable {
         self.width = dims.cols;
         self.height = dims.viewport_rows;
 
+        // check_for_resize runs on the render path; defer the re-search so
+        // a resize doesn't do a synchronous scrollback scan mid-paint.
         let pos = self.result_pos;
-        self.update_search();
+        self.schedule_update_search();
         self.result_pos = pos;
+    }
+
+    /// Re-run the search because the pane emitted new output, but no more
+    /// than twice a second: this is called from the render path, and a
+    /// streaming command would otherwise restart the full scrollback scan
+    /// on every single frame.
+    fn maybe_update_search_for_live_output(&mut self) {
+        const LIVE_RESEARCH_INTERVAL: Duration = Duration::from_millis(500);
+        let now = std::time::Instant::now();
+        if let Some(last) = self.last_live_update {
+            if now.duration_since(last) < LIVE_RESEARCH_INTERVAL {
+                // Skip for now; last_result_seqno stays behind, so a later
+                // frame retries once the interval has elapsed.
+                return;
+            }
+        }
+        self.last_live_update = Some(now);
+        self.update_search();
     }
 
     fn incrementally_recompute_results(&mut self, mut results: Vec<SearchResult>) {
@@ -447,11 +477,12 @@ impl CopyRenderable {
         results: Vec<SearchResult>,
         range: Range<StableRowIndex>,
     ) {
-        self.window.invalidate();
         if pattern != self.get_pattern() {
+            self.window.invalidate();
             return;
         }
         let is_first = self.results.is_empty();
+        let found_new = !results.is_empty();
         self.incrementally_recompute_results(results);
 
         if is_first {
@@ -464,7 +495,20 @@ impl CopyRenderable {
         }
 
         let dims = self.delegate.get_dimensions();
-        if range.start == dims.scrollback_top {
+        let finished = range.start == dims.scrollback_top;
+
+        // A big scrollback produces hundreds of chunks back to back; a
+        // full-window repaint per chunk saturates the GUI thread right
+        // when the user is trying to type. Repaint only when something
+        // visible changed (new matches / done), with a periodic repaint
+        // to keep the "searching N lines" progress in the bar honest.
+        self.chunks_since_paint += 1;
+        if found_new || finished || self.chunks_since_paint >= 16 {
+            self.chunks_since_paint = 0;
+            self.window.invalidate();
+        }
+
+        if finished {
             self.searching.take();
             return;
         }
@@ -523,6 +567,19 @@ impl CopyRenderable {
         let end = SelectionCoordinate::x_y(result.end_x.saturating_sub(1), result.end_y);
         self.start.replace(start);
         self.adjust_selection(start, SelectionRange { start, end });
+        // Center the match so switching results produces an unmistakable
+        // viewport move, instead of the match hugging the screen edge.
+        self.center_cursor_in_viewport();
+    }
+
+    /// Scroll so the cursor row sits in the middle of the viewport.
+    /// TermWindow::set_viewport clamps "past the bottom" back into
+    /// live-follow mode, so matches near the tail behave naturally.
+    fn center_cursor_in_viewport(&self) {
+        let dims = self.delegate.get_dimensions();
+        let half = (dims.viewport_rows as StableRowIndex) / 2;
+        let top = (self.cursor.y - half).max(dims.scrollback_top);
+        self.set_viewport(Some(top));
     }
 
     fn clamp_cursor_to_scrollback(&mut self) {
@@ -1442,7 +1499,10 @@ impl Pane for CopyOverlay {
             StableCursorPosition {
                 x: padding + cursor,
                 y: renderer.compute_search_row(),
-                shape: termwiz::surface::CursorShape::SteadyBlock,
+                // Blinking: a steady block on the reverse-video bar reads
+                // as just another filled cell; the blink is what makes the
+                // input position findable at a glance.
+                shape: termwiz::surface::CursorShape::BlinkingBlock,
                 visibility: termwiz::surface::CursorVisibility::Visible,
             }
         } else {
@@ -1481,7 +1541,7 @@ impl Pane for CopyOverlay {
         // lock erro!
         let mut renderer = self.render.lock();
         if self.delegate.get_current_seqno() > renderer.last_result_seqno {
-            renderer.update_search();
+            renderer.maybe_update_search_for_live_output();
         }
         renderer.check_for_resize();
         let dims = self.get_dimensions();
@@ -1541,6 +1601,8 @@ impl Pane for CopyOverlay {
                                                     .copy_mode_active_highlight_fg
                                                     .unwrap_or(AnsiColor::Black.into()),
                                             )
+                                            .set_intensity(Intensity::Bold)
+                                            .set_underline(Underline::Single)
                                             .set_reverse(false);
                                     } else {
                                         cell.attrs_mut()
@@ -1573,7 +1635,7 @@ impl Pane for CopyOverlay {
     fn get_lines(&self, lines: Range<StableRowIndex>) -> (StableRowIndex, Vec<Line>) {
         let mut renderer = self.render.lock();
         if self.delegate.get_current_seqno() > renderer.last_result_seqno {
-            renderer.update_search();
+            renderer.maybe_update_search_for_live_output();
         }
 
         renderer.check_for_resize();
@@ -1613,6 +1675,8 @@ impl Pane for CopyOverlay {
                                             .copy_mode_active_highlight_fg
                                             .unwrap_or(AnsiColor::Black.into()),
                                     )
+                                    .set_intensity(Intensity::Bold)
+                                    .set_underline(Underline::Single)
                                     .set_reverse(false);
                             } else {
                                 cell.attrs_mut()

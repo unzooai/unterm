@@ -39,6 +39,15 @@
   - The pattern restored from your last search (or seeded from the
     selection) is replaced wholesale by the first character you type,
     instead of being appended to — backspace/arrows still edit it.
+  - The bar now opens instantly: the seeded-pattern re-search is
+    deferred off the open path, live pane output re-triggers the scan
+    at most twice a second instead of every frame, and the chunked
+    scan no longer queues a full window repaint per 1000 rows.
+  - Switching matches centers the hit in the viewport (it used to hug
+    the screen edge), and the active match is bold + underlined on top
+    of its highlight color so it stands apart from the other matches.
+  - The search-box cursor blinks, so the typing position is findable
+    on the reverse-video bar.
 
 ### Fixed
 
