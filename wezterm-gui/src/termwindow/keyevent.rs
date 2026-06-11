@@ -753,6 +753,22 @@ impl super::TermWindow {
                     return;
                 }
                 self.key_table_state.did_process_key();
+                // A modal (dir-jump palette, popup menu, …) owns the
+                // keyboard while it's up. IME-composed text used to bypass
+                // this entirely and land in the shell behind the modal —
+                // with a CJK input method active the palette looked dead
+                // (typed characters never arrived, and Tab got eaten by the
+                // IME candidate UI). Route composed text to the modal the
+                // same way plain Char keys are routed.
+                if let Some(modal) = self.get_modal() {
+                    for c in s.chars() {
+                        modal
+                            .key_down(::termwiz::input::KeyCode::Char(c), Modifiers::NONE, self)
+                            .ok();
+                    }
+                    context.invalidate();
+                    return;
+                }
                 if self.config.debug_key_events {
                     log::info!("send to pane string={:?}", s);
                 }
