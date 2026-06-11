@@ -546,6 +546,17 @@ impl super::TermWindow {
                             }
                         }
                         QA::DirJump => self.show_dir_jump(),
+                        QA::Search => {
+                            use config::keyassignment::{KeyAssignment, Pattern};
+                            if let Some(pane) = self.get_active_pane_or_overlay() {
+                                let _ = self.perform_key_assignment(
+                                    &pane,
+                                    &KeyAssignment::Search(
+                                        Pattern::CurrentSelectionOrEmptyString,
+                                    ),
+                                );
+                            }
+                        }
                         QA::Settings => self.open_web_settings(),
                     }
                 }

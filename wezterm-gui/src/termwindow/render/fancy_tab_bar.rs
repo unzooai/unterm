@@ -131,6 +131,25 @@ const QUICK_DIRJUMP: &[Poly] = &[Poly {
     intensity: BlockAlpha::Full,
     style: PolyStyle::Outline,
 }];
+// Magnifying glass: circle top-left, handle stroke to bottom-right.
+const QUICK_SEARCH: &[Poly] = &[
+    Poly {
+        path: &[PolyCommand::Circle {
+            center: (BlockCoord::Frac(3, 8), BlockCoord::Frac(3, 8)),
+            radius: BlockCoord::Frac(1, 4),
+        }],
+        intensity: BlockAlpha::Full,
+        style: PolyStyle::Outline,
+    },
+    Poly {
+        path: &[
+            PolyCommand::MoveTo(BlockCoord::Frac(9, 16), BlockCoord::Frac(9, 16)),
+            PolyCommand::LineTo(BlockCoord::Frac(7, 8), BlockCoord::Frac(7, 8)),
+        ],
+        intensity: BlockAlpha::Full,
+        style: PolyStyle::Outline,
+    },
+];
 const QUICK_SETTINGS: &[Poly] = &[
     Poly {
         path: &[
@@ -547,6 +566,7 @@ impl crate::TermWindow {
             right_eles.push(quick_button(QUICK_TREE, QA::TreeSidebar));
             right_eles.push(quick_button(QUICK_SPLIT, QA::SplitRight));
             right_eles.push(quick_button(QUICK_DIRJUMP, QA::DirJump));
+            right_eles.push(quick_button(QUICK_SEARCH, QA::Search));
             right_eles.push(quick_button(QUICK_SETTINGS, QA::Settings));
         }
 

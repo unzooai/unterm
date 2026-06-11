@@ -4,6 +4,11 @@
 
 ### Added
 
+- **Search button in the tab bar.** A magnifying-glass quick-action button
+  next to tree / split / dir-jump / settings opens the scrollback search
+  for the active pane — same as `Ctrl+Shift+F` / `Cmd+F`, but
+  discoverable. Search was previously reachable only via keybinding or
+  the Edit menu.
 - **`screen.search` can now jump to its results.** New `goto: true` /
   `goto_match: N` params scroll the user-visible viewport so the match is
   on screen (with a quarter-viewport of context above it) — search-and-

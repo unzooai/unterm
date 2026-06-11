@@ -169,6 +169,7 @@ pub enum QuickAction {
     TreeSidebar,
     SplitRight,
     DirJump,
+    Search,
     Settings,
 }
 
