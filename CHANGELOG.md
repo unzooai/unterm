@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **Windows: multi-second freeze at launch (and on every new tab) when the
+  proxy toggle is on but the proxy app isn't running.** System-proxy
+  auto-detection ran twice on the GUI thread before the first prompt, and
+  each pass swept 8 well-known local proxy ports serially — on Windows a
+  TCP connect to a closed loopback port only fails after winsock's internal
+  retry, so every closed port ate its full 120 ms timeout (~1 s per sweep,
+  ~2.5 s total). Detection stages now run concurrently, the port sweep is
+  parallel, and results are cached for 5 s and shared by the startup,
+  spawn, ▼ menu, and Web Settings paths. Worst-case cold detection is now
+  ~150 ms; spawns within the cache window are free.
+- **Proxy auto-detection no longer scans ports 8080 / 8888.** These are
+  far more often dev servers than proxies, and the scan's only signal is
+  a successful TCP connect — a dev server on 8080 would be "detected" as
+  a proxy and injected as `HTTP_PROXY` into every spawned shell, cutting
+  that shell off from the network. Proxies genuinely listening there can
+  still be configured explicitly in `proxy.json` (manual mode).
+
 ## v0.16.0 — 2026-05-18
 
 Two-stage AI-friendly terminal release: locks down the MCP write

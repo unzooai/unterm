@@ -19,27 +19,68 @@ impl DetectedProxy {
     }
 }
 
-/// Try, in order:
+/// Try, in priority order:
 ///   1. The OS's own configured proxy (`scutil --proxy` on macOS,
 ///      `gsettings`/env on Linux, registry on Windows).
 ///   2. The current process's `HTTPS_PROXY`/`HTTP_PROXY`/`ALL_PROXY` env.
 ///   3. A short scan of the most common local proxy ports.
 /// Return None when nothing is reachable.
+///
+/// Results are cached for a few seconds. detect() is on the spawn path of
+/// every pane/tab AND on the GUI startup path, and each uncached probe pass
+/// costs real wall-clock time when nothing is listening: on Windows a TCP
+/// connect to a closed loopback port only fails after winsock's internal
+/// retry (~2s, clamped by our connect_timeout). Without the cache, a user
+/// whose proxy toggle is on while their proxy app is closed pays that price
+/// twice before the first prompt — the original "Unterm takes seconds to
+/// start on Windows" bug.
 pub fn detect() -> Option<DetectedProxy> {
-    if let Some(found) = detect_os() {
-        if probe_endpoint(&found).unwrap_or(false) {
-            return Some(found);
+    use std::sync::Mutex;
+    use std::time::{Duration, Instant};
+
+    static CACHE: Mutex<Option<(Instant, Option<DetectedProxy>)>> = Mutex::new(None);
+    const TTL: Duration = Duration::from_secs(5);
+
+    if let Some((at, cached)) = CACHE.lock().unwrap().as_ref() {
+        if at.elapsed() < TTL {
+            return cached.clone();
         }
     }
-    if let Some(found) = detect_env() {
-        if probe_endpoint(&found).unwrap_or(false) {
-            return Some(found);
-        }
-    }
-    if let Some(found) = scan_common_ports() {
+    let started = Instant::now();
+    let fresh = detect_uncached();
+    log::debug!(
+        "system proxy detect: {:?} in {:?}",
+        fresh.as_ref().map(|f| f.source),
+        started.elapsed()
+    );
+    *CACHE.lock().unwrap() = Some((Instant::now(), fresh.clone()));
+    fresh
+}
+
+/// The three detection stages are independent, so run them concurrently and
+/// pick the winner by priority (OS > env > scan) when joining. Sequentially
+/// they cost up to probe(150ms) + probe(150ms) + scan(~1s); concurrently the
+/// whole pass is bounded by the slowest single stage (~150ms).
+fn detect_uncached() -> Option<DetectedProxy> {
+    let os = std::thread::spawn(|| {
+        detect_os().filter(|found| probe_endpoint(found).unwrap_or(false))
+    });
+    let env = std::thread::spawn(|| {
+        detect_env().filter(|found| probe_endpoint(found).unwrap_or(false))
+    });
+    let scan = std::thread::spawn(scan_common_ports);
+
+    // Join in priority order and return on the first hit: when the OS proxy
+    // is configured and alive (the everyday Clash/V2Ray case) this returns in
+    // single-digit ms without waiting out the port sweep's timeout. Skipped
+    // joins just leave their thread to expire its own connect_timeout.
+    if let Some(found) = os.join().ok().flatten() {
         return Some(found);
     }
-    None
+    if let Some(found) = env.join().ok().flatten() {
+        return Some(found);
+    }
+    scan.join().ok().flatten()
 }
 
 #[cfg(target_os = "macos")]
@@ -256,27 +297,53 @@ fn detect_env() -> Option<DetectedProxy> {
 
 /// Last-ditch: probe well-known local proxy ports. Order based on what's
 /// popular in the wild — Clash newer / older defaults, V2Ray, Surge, Privoxy.
+///
+/// Deliberately NOT in the list: 8080 and 8888. They're the default ports
+/// of countless dev servers (vite preview, Tomcat, Jupyter, mitmproxy-less
+/// HTTP tools), and a TCP accept is the only signal this scan has — it
+/// can't tell a proxy from a web server. A false positive here injects
+/// `HTTP_PROXY=127.0.0.1:8080` into every spawned shell and silently
+/// routes all of its traffic into someone's dev server, which reads as
+/// "Unterm broke my network". Users who really proxy on those ports can
+/// set the URL explicitly in proxy.json (manual mode).
+///
+/// Ports are probed in parallel: each closed port eats its full 120ms
+/// connect_timeout on Windows (loopback RST is swallowed by winsock's
+/// connect retry, so the timeout always elapses), and a serial sweep
+/// adds ~1s to whatever path called detect(). Priority among
+/// concurrently-open ports is preserved by COMMON's ordering at join time.
 fn scan_common_ports() -> Option<DetectedProxy> {
-    const COMMON: &[u16] = &[7897, 7890, 1087, 7070, 8118, 8888, 8080, 1080];
-    for port in COMMON {
-        let addr = format!("127.0.0.1:{}", port);
-        if std::net::TcpStream::connect_timeout(
-            &addr.parse().ok()?,
-            std::time::Duration::from_millis(120),
-        )
-        .is_ok()
-        {
-            let url = format!("http://{}", addr);
-            return Some(DetectedProxy {
-                http: Some(url.clone()),
-                https: Some(url),
-                socks: Some(format!("socks5://{}", addr)),
-                no_proxy: None,
-                source: Box::leak(format!("scan:{}", port).into_boxed_str()),
-            });
-        }
-    }
-    None
+    const COMMON: &[u16] = &[7897, 7890, 1087, 7070, 8118, 1080];
+    let probes: Vec<std::thread::JoinHandle<bool>> = COMMON
+        .iter()
+        .map(|&port| {
+            std::thread::spawn(move || {
+                let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+                std::net::TcpStream::connect_timeout(
+                    &addr,
+                    std::time::Duration::from_millis(120),
+                )
+                .is_ok()
+            })
+        })
+        .collect();
+    let open: Vec<bool> = probes
+        .into_iter()
+        .map(|h| h.join().unwrap_or(false))
+        .collect();
+    let port = COMMON
+        .iter()
+        .zip(&open)
+        .find_map(|(&port, &is_open)| is_open.then_some(port))?;
+    let addr = format!("127.0.0.1:{}", port);
+    let url = format!("http://{}", addr);
+    Some(DetectedProxy {
+        http: Some(url.clone()),
+        https: Some(url),
+        socks: Some(format!("socks5://{}", addr)),
+        no_proxy: None,
+        source: Box::leak(format!("scan:{}", port).into_boxed_str()),
+    })
 }
 
 /// Verify the detected proxy is actually reachable. Some users have leftover
