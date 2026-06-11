@@ -33,12 +33,20 @@ use window::WindowOps;
 enum Section {
     Recent,
     SubDir,
+    /// Nested directory found by the bounded recursive scan; matched and
+    /// displayed by its path relative to the browse root.
+    Deep,
+    /// Filesystem path completion (query starts with `/` or `~`).
+    PathComp,
 }
 
 struct DirItem {
     name: String,
     path: PathBuf,
     section: Section,
+    /// Deep: path relative to the browse root (main label + match haystack).
+    /// PathComp: the parent directory, for the dim right-hand hint.
+    rel: Option<String>,
 }
 
 pub struct DirJump {
@@ -46,6 +54,11 @@ pub struct DirJump {
     base: RefCell<PathBuf>,
     input: RefCell<String>,
     items: RefCell<Vec<DirItem>>,
+    /// Bounded recursive scan below `base`, built lazily on the first
+    /// non-empty query and reused until the base changes. This is what lets
+    /// a query like `term ren` land on …/termwindow/render in one shot
+    /// instead of Tab-descending level by level.
+    deep: RefCell<Option<Vec<DirItem>>>,
     /// Display order → index into `items`, after fuzzy filtering.
     visible: RefCell<Vec<usize>>,
     /// Index into `visible`.
@@ -54,6 +67,73 @@ pub struct DirJump {
 }
 
 const MAX_VISIBLE: usize = 14;
+const DEEP_MAX_DEPTH: usize = 6;
+const DEEP_MAX_ENTRIES: usize = 3000;
+
+/// Directories that are pure noise in a "jump to directory" flow — huge,
+/// machine-managed, and never a place you cd to on purpose from a picker.
+const DEEP_SKIP: &[&str] = &[
+    ".git",
+    "node_modules",
+    "target",
+    "dist",
+    "build",
+    ".cache",
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".Trash",
+    ".npm",
+    ".cargo",
+];
+
+/// Bounded BFS below `base`: depth ≤ DEEP_MAX_DEPTH, ≤ DEEP_MAX_ENTRIES
+/// total, hidden + noise dirs skipped. Returns (path, path-relative-to-base).
+fn deep_scan(base: &Path) -> Vec<(PathBuf, String)> {
+    let mut out = vec![];
+    let mut queue: std::collections::VecDeque<(PathBuf, usize)> = Default::default();
+    queue.push_back((base.to_path_buf(), 0));
+    while let Some((dir, depth)) = queue.pop_front() {
+        if depth >= DEEP_MAX_DEPTH || out.len() >= DEEP_MAX_ENTRIES {
+            break;
+        }
+        let Ok(rd) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for e in rd.filter_map(|e| e.ok()) {
+            if out.len() >= DEEP_MAX_ENTRIES {
+                break;
+            }
+            if !e.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                continue;
+            }
+            let name = e.file_name().to_string_lossy().to_string();
+            if name.starts_with('.') || DEEP_SKIP.contains(&name.as_str()) {
+                continue;
+            }
+            let path = e.path();
+            if let Ok(rel) = path.strip_prefix(base) {
+                let rel = rel.display().to_string();
+                // depth 0 children are already in the SubDir section
+                if depth > 0 {
+                    out.push((path.clone(), rel));
+                }
+            }
+            queue.push_back((path, depth + 1));
+        }
+    }
+    out
+}
+
+/// Expand a leading `~` to the home directory.
+fn expand_tilde(input: &str) -> String {
+    if let Some(rest) = input.strip_prefix('~') {
+        if let Some(home) = dirs_next::home_dir() {
+            return format!("{}{}", home.display(), rest);
+        }
+    }
+    input.to_string()
+}
 
 fn load_recents() -> Vec<PathBuf> {
     let path = dirs_next::home_dir()
@@ -127,6 +207,7 @@ impl DirJump {
             base: RefCell::new(base),
             input: RefCell::new(String::new()),
             items: RefCell::new(vec![]),
+            deep: RefCell::new(None),
             visible: RefCell::new(vec![]),
             selected: RefCell::new(0),
             element: RefCell::new(None),
@@ -143,6 +224,7 @@ impl DirJump {
                 name: display_name(&p),
                 path: p,
                 section: Section::Recent,
+                rel: None,
             });
         }
         for p in subdirs_of(&base) {
@@ -150,17 +232,81 @@ impl DirJump {
                 name: display_name(&p),
                 path: p,
                 section: Section::SubDir,
+                rel: None,
             });
         }
         *self.items.borrow_mut() = items;
+        self.deep.borrow_mut().take();
         self.refilter();
     }
 
+    /// Rebuild `items` for path-completion mode: the query is an absolute
+    /// (or ~-relative) path; list the directories under its parent and
+    /// filter on the final fragment.
+    fn path_completion_items(&self, input: &str) -> Vec<DirItem> {
+        let expanded = expand_tilde(input);
+        let (parent, frag) = match expanded.rfind('/') {
+            Some(0) => ("/".to_string(), expanded[1..].to_string()),
+            Some(i) => (expanded[..i].to_string(), expanded[i + 1..].to_string()),
+            None => return vec![],
+        };
+        let parent_path = PathBuf::from(&parent);
+        let pattern = (!frag.is_empty()).then(|| matcher_pattern(&frag));
+        let mut scored: Vec<(u32, DirItem)> = subdirs_of(&parent_path)
+            .into_iter()
+            .filter_map(|p| {
+                let name = display_name(&p);
+                let score = match &pattern {
+                    Some(pat) => matcher_score(pat, &name)?,
+                    None => 0,
+                };
+                Some((
+                    score,
+                    DirItem {
+                        name,
+                        rel: Some(tilde_path(&parent_path)),
+                        path: p,
+                        section: Section::PathComp,
+                    },
+                ))
+            })
+            .collect();
+        scored.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.name.cmp(&b.1.name)));
+        scored.into_iter().map(|(_, it)| it).collect()
+    }
+
     fn refilter(&self) {
-        let input = self.input.borrow();
-        let items = self.items.borrow();
+        let input = self.input.borrow().clone();
+
+        // Path-completion mode: typing an absolute or ~ path navigates the
+        // real filesystem instead of fuzzy-matching the browse root.
+        if input.starts_with('/') || input.starts_with('~') {
+            let comp = self.path_completion_items(&input);
+            let visible: Vec<usize> = (0..comp.len().min(MAX_VISIBLE)).collect();
+            *self.items.borrow_mut() = comp;
+            *self.visible.borrow_mut() = visible;
+            *self.selected.borrow_mut() = 0;
+            self.element.borrow_mut().take();
+            return;
+        }
+
+        // (Re)attach the standard item set if a previous keystroke was in
+        // path mode (items were swapped out wholesale).
+        if self
+            .items
+            .borrow()
+            .iter()
+            .any(|it| it.section == Section::PathComp)
+        {
+            // reload() rebuilds recents+subdirs and calls refilter() again.
+            let base_changed_input = self.input.borrow().clone();
+            self.reload();
+            *self.input.borrow_mut() = base_changed_input;
+        }
+
         let mut visible: Vec<usize> = vec![];
         if input.is_empty() {
+            let items = self.items.borrow();
             // Recents first, then subdirs, natural order.
             for (i, _) in items.iter().enumerate().filter(|(_, it)| it.section == Section::Recent) {
                 visible.push(i);
@@ -169,17 +315,58 @@ impl DirJump {
                 visible.push(i);
             }
         } else {
+            // Lazily build the deep scan and splice it into `items` once per
+            // browse root (first filtering keystroke pays the ~tens of ms).
+            if self.deep.borrow().is_none() {
+                let base = self.base.borrow().clone();
+                let scanned: Vec<DirItem> = deep_scan(&base)
+                    .into_iter()
+                    .map(|(path, rel)| DirItem {
+                        name: display_name(&path),
+                        path,
+                        section: Section::Deep,
+                        rel: Some(rel),
+                    })
+                    .collect();
+                self.deep.borrow_mut().replace(scanned);
+                let mut items = self.items.borrow_mut();
+                items.retain(|it| it.section != Section::Deep);
+                items.extend(
+                    self.deep
+                        .borrow()
+                        .as_ref()
+                        .unwrap()
+                        .iter()
+                        .map(|it| DirItem {
+                            name: it.name.clone(),
+                            path: it.path.clone(),
+                            section: it.section,
+                            rel: it.rel.clone(),
+                        }),
+                );
+            }
+            let items = self.items.borrow();
             let pattern = matcher_pattern(&input);
             let mut scored: Vec<(u32, usize)> = items
                 .iter()
                 .enumerate()
                 .filter_map(|(i, it)| {
-                    let hay = if it.section == Section::Recent {
-                        format!("{} {}", it.name, it.path.display())
-                    } else {
-                        it.name.clone()
+                    let (hay, depth_penalty) = match it.section {
+                        Section::Recent => {
+                            (format!("{} {}", it.name, it.path.display()), 0u32)
+                        }
+                        Section::SubDir => (it.name.clone(), 0),
+                        Section::Deep => {
+                            let rel = it.rel.clone().unwrap_or_else(|| it.name.clone());
+                            // Mild shallow-first bias so `src` prefers
+                            // ./src over ./a/b/c/src on equal match quality.
+                            let depth = rel.matches('/').count() as u32;
+                            (rel, depth * 2)
+                        }
+                        Section::PathComp => (it.name.clone(), 0),
                     };
-                    matcher_score(&pattern, &hay).map(|s| (s, i))
+                    matcher_score(&pattern, &hay)
+                        .map(|s| (s.saturating_sub(depth_penalty), i))
                 })
                 .collect();
             scored.sort_by(|a, b| b.0.cmp(&a.0));
@@ -365,6 +552,8 @@ impl DirJump {
                         crate::i18n::t("dirjump.subdirs"),
                         base
                     ),
+                    // Only present while filtering, where captions are off.
+                    Section::Deep | Section::PathComp => continue,
                 };
                 children.push(
                     Element::new(&font, ElementContent::Text(caption))
@@ -389,20 +578,25 @@ impl DirJump {
                 } else {
                     (LinearRgba::TRANSPARENT.into(), fg.into())
                 };
+            // Deep rows are labeled by their path relative to the browse
+            // root — that's both what was matched and what tells the user
+            // where they're jumping. Everything else shows the plain name.
+            let label = if item.section == Section::Deep {
+                item.rel.clone().unwrap_or_else(|| item.name.clone())
+            } else {
+                item.name.clone()
+            };
             // Greedy-subsequence match highlight: matched chars in teal.
             let mut row: Vec<Element> = vec![];
             if input.is_empty() {
-                row.push(Element::new(
-                    &font,
-                    ElementContent::Text(item.name.clone()),
-                ));
+                row.push(Element::new(&font, ElementContent::Text(label)));
             } else {
                 let lower_input: Vec<char> =
                     input.to_lowercase().chars().collect();
                 let mut ii = 0usize;
                 let mut seg = String::new();
                 let mut seg_hit = false;
-                for ch in item.name.chars() {
+                for ch in label.chars() {
                     let hit = ii < lower_input.len()
                         && ch.to_lowercase().next() == Some(lower_input[ii]);
                     if hit {
@@ -434,10 +628,19 @@ impl DirJump {
                         }));
                 }
             }
-            // Path shown only for recents (subdir paths are redundant noise).
-            if item.section == Section::Recent {
+            // Dim path hint: recents show where they live; path completion
+            // shows the parent being completed in. (SubDir/Deep labels
+            // already carry their location.)
+            if matches!(item.section, Section::Recent | Section::PathComp) {
+                let hint = match item.section {
+                    Section::PathComp => item
+                        .rel
+                        .clone()
+                        .unwrap_or_else(|| tilde_path(&item.path)),
+                    _ => tilde_path(&item.path),
+                };
                 row.push(
-                    Element::new(&font, ElementContent::Text(tilde_path(&item.path)))
+                    Element::new(&font, ElementContent::Text(hint))
                         .float(Float::Right)
                         .padding(BoxDimension {
                             left: Dimension::Pixels(24. * pt),
@@ -693,5 +896,47 @@ impl Modal for DirJump {
 
     fn reconfigure(&self, _term_window: &mut TermWindow) {
         self.element.borrow_mut().take();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deep_scan_finds_nested_and_skips_noise() {
+        let tmp = std::env::temp_dir().join(format!("djtest-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        for d in [
+            "a/b/c",
+            "src/termwindow/render",
+            "node_modules/x",
+            ".git/objects",
+            "a/target/debug",
+        ] {
+            std::fs::create_dir_all(tmp.join(d)).unwrap();
+        }
+        let rels: Vec<String> = deep_scan(&tmp).into_iter().map(|(_, r)| r).collect();
+        // nested dirs found by relative path
+        assert!(rels.contains(&"a/b".to_string()), "{rels:?}");
+        assert!(rels.contains(&"a/b/c".to_string()));
+        assert!(rels.contains(&"src/termwindow".to_string()));
+        assert!(rels.contains(&"src/termwindow/render".to_string()));
+        // depth-0 children excluded (SubDir section already lists them)
+        assert!(!rels.contains(&"a".to_string()));
+        assert!(!rels.contains(&"src".to_string()));
+        // noise pruned
+        assert!(!rels.iter().any(|r| r.contains("node_modules")));
+        assert!(!rels.iter().any(|r| r.contains(".git")));
+        assert!(!rels.iter().any(|r| r.contains("target")));
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn tilde_expansion() {
+        if let Some(home) = dirs_next::home_dir() {
+            assert_eq!(expand_tilde("~/x"), format!("{}/x", home.display()));
+        }
+        assert_eq!(expand_tilde("/abs/x"), "/abs/x");
     }
 }
