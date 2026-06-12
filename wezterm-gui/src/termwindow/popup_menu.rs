@@ -34,6 +34,7 @@ pub enum MenuAction {
     ExportSession,
     OpenWebSettings,
     ToggleTreeSidebar,
+    ToggleLeftTabBar,
     /// In-terminal long screenshot: whole scrollback -> one tall PNG.
     CaptureScrollback,
     /// External long screenshot: point at another window, scroll + stitch.
@@ -108,6 +109,12 @@ impl PopupMenu {
                 "Ctrl+Shift+B",
                 ui_icons::ICON_TREE,
                 MenuAction::ToggleTreeSidebar,
+            ),
+            entry(
+                crate::i18n::t("menu.left_tabs"),
+                "",
+                ui_icons::ICON_SPLIT,
+                MenuAction::ToggleLeftTabBar,
             ),
             entry(
                 crate::i18n::t("menu.find"),
@@ -242,6 +249,7 @@ impl PopupMenu {
             MenuAction::ExportSession => term_window.export_current_session(pane_id),
             MenuAction::OpenWebSettings => term_window.open_web_settings(),
             MenuAction::ToggleTreeSidebar => term_window.toggle_tree_sidebar(),
+            MenuAction::ToggleLeftTabBar => term_window.toggle_left_tab_bar(),
             MenuAction::CaptureScrollback => {
                 if let Some(pane) = term_window.get_active_pane_no_overlay() {
                     super::mouseevent::capture_scrollback_and_announce(&pane);

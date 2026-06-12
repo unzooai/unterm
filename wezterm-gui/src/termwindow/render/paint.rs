@@ -319,7 +319,7 @@ impl crate::TermWindow {
                     pixel_max: self.dimensions.pixel_width as f32,
                     pixel_cell: metrics.cell_size.width as f32,
                 },
-                bounds: euclid::rect(border.left.get() as f32, top, width, bottom - top),
+                bounds: euclid::rect(border.left.get() as f32 + self.left_tab_bar_pixel_width(), top, width, bottom - top),
                 metrics: &metrics,
                 gl_state: self.render_state.as_ref().unwrap(),
                 zindex: 20,
@@ -478,6 +478,7 @@ impl crate::TermWindow {
             }
         }
 
+        self.paint_left_tab_bar().context("paint_left_tab_bar")?;
         self.paint_tree_sidebar().context("paint_tree_sidebar")?;
 
         if self.show_tab_bar {

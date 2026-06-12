@@ -894,6 +894,14 @@ pub fn derive_command_from_key_assignment(action: &KeyAssignment) -> Option<Comm
             menubar: &["View"],
             icon: Some("md_file_tree"),
         },
+        ToggleLeftTabBar => CommandDef {
+            brief: "Toggle Left Tab Bar".into(),
+            doc: "Shows or hides the left vertical tab bar (tab_bar_position = \"Left\")".into(),
+            keys: vec![],
+            args: &[ArgType::ActiveWindow],
+            menubar: &["View"],
+            icon: Some("md_dock_left"),
+        },
         ShowDirJump => CommandDef {
             brief: "Go to Directory".into(),
             doc: "Opens the directory jump palette to cd or open a new tab in a chosen directory".into(),

@@ -196,7 +196,7 @@ impl super::TermWindow {
                 pixel_cell: self.render_metrics.cell_size.height as f32,
             };
             let padding_left = config.window_padding.left.evaluate_as_pixels(h_context) as usize
-                + self.tree_sidebar_pixel_width() as usize;
+                + self.left_gutter_pixel_width() as usize;
             let padding_top = config.window_padding.top.evaluate_as_pixels(v_context) as usize;
             let padding_bottom =
                 config.window_padding.bottom.evaluate_as_pixels(v_context) as usize;
@@ -244,7 +244,7 @@ impl super::TermWindow {
                 pixel_cell: self.render_metrics.cell_size.height as f32,
             };
             let padding_left = config.window_padding.left.evaluate_as_pixels(h_context) as usize
-                + self.tree_sidebar_pixel_width() as usize;
+                + self.left_gutter_pixel_width() as usize;
             let padding_top = config.window_padding.top.evaluate_as_pixels(v_context) as usize;
             let padding_bottom =
                 config.window_padding.bottom.evaluate_as_pixels(v_context) as usize;
@@ -512,7 +512,7 @@ impl super::TermWindow {
             pixel_cell: render_metrics.cell_size.height as f32,
         };
         let padding_left = config.window_padding.left.evaluate_as_pixels(h_context) as usize
-                + self.tree_sidebar_pixel_width() as usize;
+                + self.left_gutter_pixel_width() as usize;
         let padding_top = config.window_padding.top.evaluate_as_pixels(v_context) as usize;
         let padding_bottom = config.window_padding.bottom.evaluate_as_pixels(v_context) as usize;
 

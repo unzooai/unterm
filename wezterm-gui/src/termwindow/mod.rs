@@ -79,6 +79,7 @@ pub(crate) mod mouseevent;
 pub mod palette;
 pub mod paneselect;
 pub mod dir_jump;
+pub mod left_tab_bar;
 pub mod tree_sidebar;
 pub mod ui_icons;
 pub mod popup_menu;
@@ -209,6 +210,13 @@ pub enum UIItemType {
     TreeSidebarRow(usize),
     /// The tree sidebar's background (swallows clicks, accepts wheel).
     TreeSidebarBg,
+    /// A tab row in the left vertical tab bar. Click activates; keep
+    /// dragging to reorder; double-click renames; right-click menus.
+    LeftTabBarTab(usize),
+    /// Resize grip on the left tab bar's right edge.
+    LeftTabBarResize,
+    /// The left tab bar's background (swallows clicks, accepts wheel).
+    LeftTabBarBg,
     /// The tree sidebar's header (root name); click re-anchors the root to
     /// the active pane's cwd.
     TreeSidebarHeader,
@@ -503,6 +511,8 @@ pub struct TermWindow {
     modal: RefCell<Option<Rc<dyn Modal>>>,
     /// v0.40: left directory-tree sidebar; None = closed.
     pub(crate) tree_sidebar: RefCell<Option<crate::termwindow::tree_sidebar::TreeSidebar>>,
+    /// Left vertical tab bar state; active when tab_bar_position = Left.
+    pub(crate) left_tab_bar: RefCell<crate::termwindow::left_tab_bar::LeftTabBar>,
     /// Scrollbar fills deferred until after the splits are painted, so the
     /// divider-riding inner-pane bar isn't overdrawn by the split line
     /// (same GL layer — later draw wins).
@@ -961,6 +971,7 @@ impl TermWindow {
             key_table_state: KeyTableState::default(),
             modal: RefCell::new(None),
             tree_sidebar: RefCell::new(None),
+            left_tab_bar: RefCell::new(left_tab_bar::LeftTabBar::default()),
             deferred_scrollbar: RefCell::new(Vec::new()),
             opengl_info: None,
         };
@@ -2778,6 +2789,28 @@ impl TermWindow {
         }
     }
 
+    /// Double-click on a left-bar row: inline rename prompt. An empty
+    /// line resets to auto-titling.
+    pub(crate) fn show_left_tab_rename(&mut self, tab_idx: usize) {
+        let mux = Mux::get();
+        let tab = {
+            let Some(window) = mux.get_window(self.mux_window_id) else {
+                return;
+            };
+            let Some(tab) = window.get_by_idx(tab_idx) else {
+                return;
+            };
+            tab.clone()
+        };
+        let tab_id = tab.tab_id();
+        let initial = tab.get_title();
+        let (overlay, future) = start_overlay(self, &tab, move |_tab_id, term| {
+            crate::overlay::prompt::show_tab_rename_overlay(term, tab_id, initial)
+        });
+        self.assign_overlay(tab_id, overlay);
+        promise::spawn::spawn(future).detach();
+    }
+
     /// Toggle the directory-tree sidebar, rooted at the active pane's cwd.
     pub(crate) fn toggle_tree_sidebar(&mut self) {
         let is_open = self.tree_sidebar.borrow().is_some();
@@ -3581,6 +3614,7 @@ impl TermWindow {
             ShowShellSelector => self.show_shell_selector(),
             ShowDirJump => self.show_dir_jump(),
             ToggleTreeSidebar => self.toggle_tree_sidebar(),
+            ToggleLeftTabBar => self.toggle_left_tab_bar(),
             ShowContextMenu => self.show_context_menu(),
             ShowLauncher => self.show_launcher(),
             ShowLauncherArgs(args) => {

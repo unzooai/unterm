@@ -34,6 +34,13 @@ extern "C" {
 pub struct CoreTextFontLocator {}
 
 fn descriptor_from_attr(attr: &FontAttributes) -> anyhow::Result<CFArray<CTFontDescriptor>> {
+    // The hidden system UI font (SF Pro) is excluded from family-name
+    // matching, so resolve it through CTFontCreateUIFontForLanguage.
+    if attr.family == ".AppleSystemUIFont" {
+        let font = new_ui_font_for_language(kCTFontSystemFontType, 0.0, None);
+        return Ok(CFArray::from_CFTypes(&[font.copy_descriptor()]));
+    }
+
     let family_name = attr
         .family
         .parse::<CFString>()

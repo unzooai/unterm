@@ -339,6 +339,9 @@ struct McpState {
     /// `exec.send` since startup. Used to flag "first PTY write by
     /// this agent" in the audit log.
     agents_with_input_history: std::collections::HashSet<String>,
+    /// pane_id → (agent name, when it last wrote there). Drives the
+    /// left tab bar's "who is driving this pane" subtitle.
+    pane_agents: HashMap<u64, (String, std::time::Instant)>,
     /// Agents the user has explicitly elected to skip future
     /// confirmation banners for (via the "Always allow this agent"
     /// affordance on a banner). Distinct from the static
@@ -566,6 +569,20 @@ pub fn audit_log_snapshot_json(limit: usize) -> String {
 /// Called by the suggest UI on every paint to decide what to render.
 /// Side-effect: lazily flips suggestions whose TTL has elapsed from
 /// `Pending` to `Expired` — keeps the queue from showing stale text.
+/// Name of the agent that most recently drove `pane_id` (PTY write via
+/// MCP), if it was active within the last 15 minutes. Used by the left
+/// tab bar subtitle.
+pub fn agent_for_pane(pane_id: u64) -> Option<String> {
+    let state = mcp_state().lock();
+    state.pane_agents.get(&pane_id).and_then(|(name, at)| {
+        if at.elapsed().as_secs() <= 15 * 60 {
+            Some(name.clone())
+        } else {
+            None
+        }
+    })
+}
+
 pub fn pending_suggestions_for_pane(pane_id: u64) -> Vec<Suggestion> {
     let mut state = mcp_state().lock();
     let now = chrono::Local::now();
@@ -798,6 +815,7 @@ fn mcp_state() -> &'static Mutex<McpState> {
             last_input_at: None,
             agents_by_connection: HashMap::new(),
             known_agents: HashMap::new(),
+            pane_agents: HashMap::new(),
             agents_with_input_history: std::collections::HashSet::new(),
             confirmed_agents,
             pending_confirmations: Vec::new(),
@@ -2044,6 +2062,17 @@ impl McpHandler {
         // "AI just wrote to a pane" without scanning the whole audit
         // log. Only PTY-write methods qualify — read-only methods like
         // screen.read or session.list shouldn't make the chip flash.
+        if matches!(
+            method,
+            "session.input" | "exec.send" | "exec.run" | "exec.run_wait"
+        ) {
+            // Attribute the pane to the writing agent for the left tab
+            // bar's "agent · dir" subtitle.
+            if let Some(pane_id) = session_id.and_then(|s| s.parse::<u64>().ok()) {
+                let agent = entry_agent_from_last_audit(&state);
+                state.pane_agents.insert(pane_id, (agent, std::time::Instant::now()));
+            }
+        }
         if method == "session.input" || method == "exec.send" {
             state.input_event_count = state.input_event_count.saturating_add(1);
             state.last_input_at = Some(std::time::Instant::now());

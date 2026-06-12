@@ -485,6 +485,12 @@ pub struct Config {
     #[dynamic(default)]
     pub tab_bar_at_bottom: bool,
 
+    /// Unterm: where tabs live. `Top` keeps the Windows-Terminal-style
+    /// horizontal row; `Left` moves tabs into a vertical sidebar (the top
+    /// bar then only carries window buttons, the title and quick actions).
+    #[dynamic(default)]
+    pub tab_bar_position: TabBarPosition,
+
     #[dynamic(default = "default_true")]
     pub mouse_wheel_scrolls_tabs: bool,
 
@@ -976,6 +982,14 @@ fn default_mcp_suggest_queue_capacity() -> usize {
 
 fn default_mcp_suggest_default_ttl_ms() -> u64 {
     60_000
+}
+
+/// Where the tab strip lives. `Left` turns it into a vertical sidebar.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, FromDynamic, ToDynamic)]
+pub enum TabBarPosition {
+    #[default]
+    Top,
+    Left,
 }
 
 /// Policy for when MCP PTY-writing methods (`session.input`,
@@ -2219,18 +2233,11 @@ fn default_macos_window_background_blur() -> i64 {
 }
 
 fn default_freetype_load_target() -> FreeTypeLoadTarget {
-    // On macOS Retina screens, the FreeType `Normal` target produces noticeably
-    // softer glyphs than the system's CoreText rendering. `HorizontalLcd` uses
-    // subpixel anti-aliasing and is closer to what users expect from a Mac
-    // terminal. Other platforms keep the unbiased `Normal` default.
-    #[cfg(target_os = "macos")]
-    {
-        FreeTypeLoadTarget::HorizontalLcd
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        FreeTypeLoadTarget::Normal
-    }
+    // Grayscale anti-aliasing everywhere. macOS removed subpixel AA
+    // system-wide in Mojave; the `HorizontalLcd` target we used to default
+    // to there produces color fringing on Retina panels and reads as
+    // "dirty" next to natively rendered text.
+    FreeTypeLoadTarget::Normal
 }
 
 fn default_freetype_render_target() -> Option<FreeTypeLoadTarget> {

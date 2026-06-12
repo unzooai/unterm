@@ -65,6 +65,9 @@ impl super::TermWindow {
             | UIItemType::TreeSidebarRow(_)
             | UIItemType::TreeSidebarBg
             | UIItemType::TreeSidebarHeader
+            | UIItemType::LeftTabBarTab(_)
+            | UIItemType::LeftTabBarResize
+            | UIItemType::LeftTabBarBg
             | UIItemType::QuickAction(_)
             | UIItemType::PopupMenuCard => {}
         }
@@ -92,6 +95,9 @@ impl super::TermWindow {
             | UIItemType::TreeSidebarRow(_)
             | UIItemType::TreeSidebarBg
             | UIItemType::TreeSidebarHeader
+            | UIItemType::LeftTabBarTab(_)
+            | UIItemType::LeftTabBarResize
+            | UIItemType::LeftTabBarBg
             | UIItemType::QuickAction(_)
             | UIItemType::PopupMenuCard => {}
         }
@@ -446,6 +452,12 @@ impl super::TermWindow {
             UIItemType::ScrollThumb => {
                 self.drag_scroll_thumb(item, start_event, event, context);
             }
+            UIItemType::LeftTabBarTab(idx) => {
+                self.drag_left_tab_bar_tab(item, idx, start_event, &event, context);
+            }
+            UIItemType::LeftTabBarResize => {
+                self.drag_left_tab_bar_resize(item, start_event, &event);
+            }
             _ => {
                 log::error!("drag not implemented for {:?}", item);
             }
@@ -565,7 +577,98 @@ impl super::TermWindow {
             UIItemType::CloseSplitPane(pane_id) => {
                 self.mouse_event_close_split_pane(pane_id, event, context);
             }
+            UIItemType::LeftTabBarTab(tab_idx) => {
+                self.mouse_event_left_tab_bar_tab(item, tab_idx, event, context);
+            }
+            UIItemType::LeftTabBarResize => {
+                if let WMEK::Press(MousePress::Left) = event.kind {
+                    // Arm the resize drag; Move events route to
+                    // drag_ui_item until release.
+                    self.dragging.replace((item, event));
+                }
+            }
+            UIItemType::LeftTabBarBg => {
+                if let WMEK::VertWheel(n) = event.kind {
+                    self.left_tab_bar_scroll_by(-(n as isize));
+                }
+                // Clicks are swallowed so they don't reach the pane.
+            }
         }
+    }
+
+    fn mouse_event_left_tab_bar_tab(
+        &mut self,
+        item: UIItem,
+        tab_idx: usize,
+        event: MouseEvent,
+        context: &dyn WindowOps,
+    ) {
+        match event.kind {
+            WMEK::VertWheel(n) => {
+                self.left_tab_bar_scroll_by(-(n as isize));
+            }
+            WMEK::Press(MousePress::Left) => {
+                let double = self.last_mouse_click.as_ref().map(|c| c.streak) >= Some(2);
+                if double {
+                    self.show_left_tab_rename(tab_idx);
+                } else {
+                    let _ = self.activate_tab(tab_idx as isize);
+                    // Keep the press armed as a drag so moving the cursor
+                    // reorders the (now active) tab live.
+                    self.dragging.replace((item, event));
+                }
+                context.invalidate();
+            }
+            WMEK::Press(MousePress::Right) => {
+                self.show_tab_context_menu(tab_idx);
+            }
+            _ => {}
+        }
+    }
+
+    /// Live drag-reorder: while a left-bar row drag is armed, moving the
+    /// cursor over another row moves the active tab to that slot.
+    fn drag_left_tab_bar_tab(
+        &mut self,
+        mut item: UIItem,
+        from_idx: usize,
+        start_event: MouseEvent,
+        event: &MouseEvent,
+        context: &dyn WindowOps,
+    ) {
+        let y = event.coords.y;
+        let target = self
+            .ui_items
+            .iter()
+            .filter_map(|it| match it.item_type {
+                UIItemType::LeftTabBarTab(idx) => {
+                    if y >= it.y as isize && y < (it.y + it.height) as isize {
+                        Some(idx)
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            })
+            .next();
+        if let Some(target) = target {
+            if target != from_idx {
+                let _ = self.move_tab(target);
+                item.item_type = UIItemType::LeftTabBarTab(target);
+                context.invalidate();
+            }
+        }
+        self.dragging.replace((item, start_event));
+    }
+
+    fn drag_left_tab_bar_resize(
+        &mut self,
+        item: UIItem,
+        start_event: MouseEvent,
+        event: &MouseEvent,
+    ) {
+        self.resize_left_tab_bar(event.coords.x as f32);
+        self.dragging.replace((item, start_event));
     }
 
     /// Click on the profile chip = spawn a new Unterm window bound to

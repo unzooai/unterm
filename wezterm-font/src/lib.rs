@@ -565,12 +565,16 @@ impl FontConfigInner {
             }
         }
 
-        // Unterm: use Segoe UI Variable on Windows (matches Windows Terminal),
-        // Roboto as fallback, regular weight for tabs (not bold)
+        // Unterm: platform system fonts for chrome text — SF Pro on macOS
+        // (via the hidden UI-font family), Segoe UI Variable on Windows
+        // (matches Windows Terminal), Noto Sans on Linux. Bundled Roboto is
+        // the last-resort fallback everywhere. Regular weight for tabs.
         let primary_family = if cfg!(windows) {
             "Segoe UI Variable"
+        } else if cfg!(target_os = "macos") {
+            ".AppleSystemUIFont"
         } else {
-            "Roboto"
+            "Noto Sans"
         };
 
         let mut fonts = vec![if make_bold {
@@ -579,17 +583,13 @@ impl FontConfigInner {
             FontAttributes::new(primary_family)
         }];
 
-        // Add Roboto as fallback on Windows
-        if cfg!(windows) {
-            let fallback = if make_bold {
-                bold("Roboto")
-            } else {
-                FontAttributes::new("Roboto")
-            };
-            let mut fb = fallback;
-            fb.is_fallback = true;
-            fonts.push(fb);
-        }
+        let mut fallback = if make_bold {
+            bold("Roboto")
+        } else {
+            FontAttributes::new("Roboto")
+        };
+        fallback.is_fallback = true;
+        fonts.push(fallback);
 
         // Fallback to their main font selection, so that we can pick up
         // any fallback fonts they might have configured in the main
@@ -601,8 +601,7 @@ impl FontConfigInner {
             fonts.push(font);
         }
 
-        // Unterm: match Windows Terminal tab bar font size
-        let font_size = 12.;
+        let font_size = config::ui_tokens::UI_FONT_SIZE;
 
         (
             TextStyle {

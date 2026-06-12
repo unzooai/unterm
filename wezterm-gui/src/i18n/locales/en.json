@@ -76,6 +76,7 @@
   "menu.reveal": "Reveal in File Manager",
   "menu.scrollshot_window": "Long-shot another window…",
   "menu.tree_sidebar": "Directory Tree",
+  "menu.left_tabs": "Left Tab Bar",
   "profile.toast.no_profiles": "No profiles yet. Create one: `unterm-cli profile create \"Work\"`.",
   "profile.toast.opening_window": "Opening new window in {name}",
   "profile.toast.registry_load_failed": "Couldn't load profile registry. Try `unterm-cli profile list`.",

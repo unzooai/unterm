@@ -570,6 +570,11 @@ impl crate::TermWindow {
             right_eles.push(quick_button(QUICK_SETTINGS, QA::Settings));
         }
 
+        // With the left vertical tab bar active, tabs and the + button
+        // live in the sidebar; the top bar keeps window buttons, the
+        // active title, the menu and the quick actions.
+        let tabs_at_left = self.config.tab_bar_position == config::TabBarPosition::Left;
+
         for item in items {
             match item.item {
                 TabBarItem::LeftStatus => left_status.push(item_to_elem(item)),
@@ -581,6 +586,22 @@ impl crate::TermWindow {
                         left_eles.push(item_to_elem(item))
                     } else {
                         right_eles.push(item_to_elem(item))
+                    }
+                }
+                TabBarItem::Tab { active, .. } if tabs_at_left => {
+                    if active {
+                        // Non-interactive active-tab title in the top bar.
+                        left_eles.push(
+                            Element::with_line(&font, &item.title, palette)
+                                .vertical_align(VerticalAlign::Middle)
+                                .padding(BoxDimension {
+                                    left: Dimension::Cells(0.75),
+                                    right: Dimension::Cells(0.5),
+                                    top: Dimension::Cells(0.),
+                                    bottom: Dimension::Cells(0.),
+                                })
+                                .colors(bar_colors.clone()),
+                        );
                     }
                 }
                 TabBarItem::Tab { tab_idx, active } => {
@@ -599,7 +620,9 @@ impl crate::TermWindow {
                     left_eles.push(elem);
                 }
                 TabBarItem::NewTabButton => {
-                    left_eles.push(item_to_elem(item));
+                    if !tabs_at_left {
+                        left_eles.push(item_to_elem(item));
+                    }
                     left_eles.push(menu_button());
                 }
                 _ => left_eles.push(item_to_elem(item)),
@@ -628,7 +651,7 @@ impl crate::TermWindow {
             if self.config.integrated_title_button_style == IntegratedTitleButtonStyle::MacOsNative
             {
                 if !self.window_state.contains(window::WindowState::FULL_SCREEN) {
-                    Dimension::Pixels(70.0)
+                    Dimension::Pixels(config::ui_tokens::MACOS_TRAFFIC_LIGHT_RESERVE)
                 } else {
                     Dimension::Cells(0.5)
                 }
@@ -720,7 +743,7 @@ impl crate::TermWindow {
     }
 }
 
-fn make_x_button(
+pub(crate) fn make_x_button(
     font: &Rc<LoadedFont>,
     metrics: &RenderMetrics,
     colors: &TabBarColors,

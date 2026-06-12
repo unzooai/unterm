@@ -1,0 +1,31 @@
+//! Chrome typography & spacing tokens.
+//!
+//! One scale for every piece of window chrome (tab bar, sidebars, status
+//! bar, popups) so new UI picks up consistent sizing instead of growing
+//! per-site magic numbers. Pixel-ish values are in points; multiply by
+//! `dpi / 72.0` at the render site.
+
+/// Chrome text: tabs, sidebar rows, status bar.
+pub const UI_FONT_SIZE: f64 = 12.0;
+/// Command palette / modal body text.
+pub const PALETTE_FONT_SIZE: f64 = 14.0;
+/// Small overline / badge text.
+pub const OVERLINE_FONT_SIZE: f64 = 10.0;
+/// Modal / section header text.
+pub const HEADER_FONT_SIZE: f64 = 18.0;
+/// Line-height ratio for chrome text.
+pub const UI_LINE_HEIGHT: f64 = 1.2;
+/// Corner radius for selectable rows and buttons.
+pub const CORNER_RADIUS: f32 = 4.0;
+/// Padding inside selectable rows.
+pub const ROW_PADDING: f32 = 8.0;
+/// Width reserved for the macOS traffic-light cluster in the tab bar.
+pub const MACOS_TRAFFIC_LIGHT_RESERVE: f32 = 70.0;
+
+/// Left tab bar geometry.
+pub const LEFT_TAB_BAR_WIDTH: f32 = 248.0;
+pub const LEFT_TAB_BAR_MIN_WIDTH: f32 = 200.0;
+/// Max width as a fraction of the window width.
+pub const LEFT_TAB_BAR_MAX_RATIO: f32 = 0.5;
+/// Width of the resize grip on the bar's right edge.
+pub const LEFT_TAB_BAR_GRIP: f32 = 5.0;

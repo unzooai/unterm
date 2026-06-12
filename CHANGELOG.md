@@ -4,6 +4,17 @@
 
 ### Added
 
+- **Left vertical tab bar** (`tab_bar_position = "Left"`). Tabs become
+  rows in a resizable sidebar (drag the right edge, 200pt–50% window):
+  each row shows the tab title over an `agent · directory` subtitle —
+  which MCP agent is currently driving that pane (15-minute freshness)
+  and the active pane's directory. Click activates, dragging reorders
+  live, double-click renames inline (empty resets to auto-title),
+  right-click opens the tab context menu, ✕ closes, a trailing `+` row
+  spawns, and the wheel scrolls. The top bar stays for window buttons,
+  the active title, the menu and quick actions. Toggleable from the
+  View / window menus; defaults to the classic top strip.
+
 - **Search button in the tab bar.** A magnifying-glass quick-action button
   next to tree / split / dir-jump / settings opens the scrollback search
   for the active pane — same as `Ctrl+Shift+F` / `Cmd+F`, but
@@ -23,6 +34,13 @@
 
 ### Changed
 
+- **Chrome typography uses the platform system font.** Tab bar, sidebar
+  and menu text now renders in SF Pro on macOS (Segoe UI Variable on
+  Windows, Noto Sans on Linux) instead of the bundled Roboto, with the
+  scale collected into `config::ui_tokens`. macOS text rendering also
+  switches from subpixel-LCD to grayscale anti-aliasing — macOS removed
+  subpixel AA system-wide in Mojave, so the old default produced visible
+  red/blue fringing on Retina panels next to natively rendered text.
 - **Search bar UX revamp.** The in-pane search bar (toolbar 🔍 /
   `Ctrl+Shift+F`) is no longer a cryptic English-only one-liner:
   - Localized in all 9 languages, with a dim "type to search…"
