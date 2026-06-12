@@ -205,6 +205,34 @@ fn is_path_query(s: &str) -> bool {
     s.starts_with("\\\\")
 }
 
+/// Split a path-mode query into (parent-to-list, fragment-to-filter),
+/// platform-independently so the Windows rules are unit-testable anywhere.
+/// Windows: backslashes normalized (incl. what Tab writes back), bare "D:"
+/// promoted to the drive root ("D:" alone is cwd-relative in Win32
+/// semantics, never what a picker means), and a parent that collapses to
+/// "D:" gets its slash back so read_dir hits the root.
+fn split_path_query(expanded: &str, windows: bool) -> Option<(String, String)> {
+    let mut expanded = expanded.to_string();
+    if windows {
+        expanded = expanded.replace('\\', "/");
+        let b = expanded.as_bytes();
+        if b.len() == 2 && b[1] == b':' {
+            expanded.push('/');
+        }
+    }
+    let (parent, frag) = match expanded.rfind('/') {
+        Some(0) => ("/".to_string(), expanded[1..].to_string()),
+        Some(i) => (expanded[..i].to_string(), expanded[i + 1..].to_string()),
+        None => return None,
+    };
+    let parent = if windows && parent.len() == 2 && parent.ends_with(':') {
+        format!("{parent}/")
+    } else {
+        parent
+    };
+    Some((parent, frag))
+}
+
 /// Expand a leading `~` to the home directory.
 fn expand_tilde(input: &str) -> String {
     if let Some(rest) = input.strip_prefix('~') {
@@ -333,29 +361,9 @@ impl DirJump {
     /// (or ~-relative) path; list the directories under its parent and
     /// filter on the final fragment.
     fn path_completion_items(&self, input: &str) -> Vec<DirItem> {
-        let mut expanded = expand_tilde(input);
-        // Windows: normalize backslashes (incl. what Tab writes back) so the
-        // single '/' split below covers D:\code\…, and promote a bare drive
-        // "D:" to its root — "D:" alone is cwd-relative in Win32 semantics,
-        // which is never what a picker means.
-        if cfg!(windows) {
-            expanded = expanded.replace('\\', "/");
-            let b = expanded.as_bytes();
-            if b.len() == 2 && b[1] == b':' {
-                expanded.push('/');
-            }
-        }
-        let (parent, frag) = match expanded.rfind('/') {
-            Some(0) => ("/".to_string(), expanded[1..].to_string()),
-            Some(i) => (expanded[..i].to_string(), expanded[i + 1..].to_string()),
-            None => return vec![],
-        };
-        // "D:/" splits to parent "D:" — put the slash back so read_dir hits
-        // the drive root instead of a cwd-relative drive reference.
-        let parent = if cfg!(windows) && parent.len() == 2 && parent.ends_with(':') {
-            format!("{parent}/")
-        } else {
-            parent
+        let Some((parent, frag)) = split_path_query(&expand_tilde(input), cfg!(windows))
+        else {
+            return vec![];
         };
         let parent_path = PathBuf::from(&parent);
         let pattern = (!frag.is_empty()).then(|| matcher_pattern(&frag));
@@ -1106,6 +1114,25 @@ mod tests {
 mod win_tests {
     use super::*;
 
+
+    #[test]
+    fn windows_path_query_splitting() {
+        // bare drive promotes to root
+        assert_eq!(split_path_query("D:", true), Some(("D:/".into(), "".into())));
+        // backslashes normalize; parent keeps the drive-root slash
+        assert_eq!(
+            split_path_query("D:\\code", true),
+            Some(("D:/".into(), "code".into()))
+        );
+        assert_eq!(
+            split_path_query("D:/code/un", true),
+            Some(("D:/code".into(), "un".into()))
+        );
+        // unix splitting unchanged
+        assert_eq!(split_path_query("/usr/lo", false), Some(("/usr".into(), "lo".into())));
+        assert_eq!(split_path_query("/", false), Some(("/".into(), "".into())));
+        assert_eq!(split_path_query("plain", false), None);
+    }
     #[test]
     fn path_query_detection() {
         assert!(is_path_query("/usr"));
