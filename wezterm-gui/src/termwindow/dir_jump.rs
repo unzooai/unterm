@@ -175,8 +175,34 @@ fn locations() -> Vec<PathBuf> {
             }
         }
     }
+    #[cfg(windows)]
+    {
+        // Drive letters are separate roots on Windows: from C:\ you can
+        // never ascend to D:\, so without these a second drive is simply
+        // unreachable from the palette.
+        for letter in b'A'..=b'Z' {
+            let drive = format!("{}:\\", letter as char);
+            if Path::new(&drive).is_dir() {
+                out.push(PathBuf::from(drive));
+            }
+        }
+    }
     out.sort();
     out
+}
+
+/// Is this query an explicit filesystem path (vs a fuzzy fragment)?
+/// Unix absolute (`/…`), home (`~…`), Windows drive (`D:` / `D:\…` / `D:/…`)
+/// and UNC (`\\server\…`) all count.
+fn is_path_query(s: &str) -> bool {
+    if s.starts_with('/') || s.starts_with('~') {
+        return true;
+    }
+    let b = s.as_bytes();
+    if b.len() >= 2 && b[1] == b':' && (b[0] as char).is_ascii_alphabetic() {
+        return true;
+    }
+    s.starts_with("\\\\")
 }
 
 /// Expand a leading `~` to the home directory.
@@ -307,11 +333,29 @@ impl DirJump {
     /// (or ~-relative) path; list the directories under its parent and
     /// filter on the final fragment.
     fn path_completion_items(&self, input: &str) -> Vec<DirItem> {
-        let expanded = expand_tilde(input);
+        let mut expanded = expand_tilde(input);
+        // Windows: normalize backslashes (incl. what Tab writes back) so the
+        // single '/' split below covers D:\code\…, and promote a bare drive
+        // "D:" to its root — "D:" alone is cwd-relative in Win32 semantics,
+        // which is never what a picker means.
+        if cfg!(windows) {
+            expanded = expanded.replace('\\', "/");
+            let b = expanded.as_bytes();
+            if b.len() == 2 && b[1] == b':' {
+                expanded.push('/');
+            }
+        }
         let (parent, frag) = match expanded.rfind('/') {
             Some(0) => ("/".to_string(), expanded[1..].to_string()),
             Some(i) => (expanded[..i].to_string(), expanded[i + 1..].to_string()),
             None => return vec![],
+        };
+        // "D:/" splits to parent "D:" — put the slash back so read_dir hits
+        // the drive root instead of a cwd-relative drive reference.
+        let parent = if cfg!(windows) && parent.len() == 2 && parent.ends_with(':') {
+            format!("{parent}/")
+        } else {
+            parent
         };
         let parent_path = PathBuf::from(&parent);
         let pattern = (!frag.is_empty()).then(|| matcher_pattern(&frag));
@@ -356,7 +400,7 @@ impl DirJump {
 
         // Path-completion mode: typing an absolute or ~ path navigates the
         // real filesystem instead of fuzzy-matching the browse root.
-        if input.starts_with('/') || input.starts_with('~') {
+        if is_path_query(&input) {
             let comp = self.path_completion_items(&input);
             let visible: Vec<usize> = (0..comp.len().min(MAX_VISIBLE)).collect();
             *self.overflow.borrow_mut() = comp.len().saturating_sub(MAX_VISIBLE);
@@ -516,7 +560,7 @@ impl DirJump {
         let sel = *self.selected.borrow();
         if let Some(path) = self.selected_path(sel) {
             let mut completed = tilde_path(&path);
-            if !completed.ends_with('/') {
+            if !completed.ends_with('/') && !completed.ends_with('\\') {
                 completed.push('/');
             }
             *self.input.borrow_mut() = completed;
@@ -1055,5 +1099,22 @@ mod tests {
             assert_eq!(expand_tilde("~/x"), format!("{}/x", home.display()));
         }
         assert_eq!(expand_tilde("/abs/x"), "/abs/x");
+    }
+}
+
+#[cfg(test)]
+mod win_tests {
+    use super::*;
+
+    #[test]
+    fn path_query_detection() {
+        assert!(is_path_query("/usr"));
+        assert!(is_path_query("~/code"));
+        assert!(is_path_query("D:"));
+        assert!(is_path_query("d:\\code"));
+        assert!(is_path_query("D:/code"));
+        assert!(is_path_query("\\\\server\\share"));
+        assert!(!is_path_query("dev"));
+        assert!(!is_path_query("term ren"));
     }
 }
