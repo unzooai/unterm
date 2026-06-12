@@ -488,13 +488,57 @@ impl GuiFrontEnd {
                     .insert(mux_window_id);
                 log::trace!("Creating TermWindow for mux_window_id={}", mux_window_id);
                 if let Err(err) = TermWindow::new_window(mux_window_id).await {
-                    log::error!("Failed to create window: {:#}", err);
-                    let mux = Mux::get();
-                    mux.kill_window(mux_window_id);
-                    front_end()
-                        .spawned_mux_window
-                        .borrow_mut()
-                        .remove(&mux_window_id);
+                    let err_str = format!("{err:#}");
+                    // A failed GL context (no GPU: VMs, RDP sessions, ancient
+                    // drivers — and win-arm64 ships no Mesa fallback) used to
+                    // be a SILENT exit-0: double-click, nothing happens.
+                    // Retry once on the WebGpu backend (D3D12/WARP, Metal,
+                    // Vulkan all provide software paths) before failing
+                    // visibly.
+                    let gl_failed = err_str.contains("OpenGL")
+                        || err_str.contains("glium")
+                        || err_str.contains("EGL");
+                    let cur_fe = config::configuration().front_end;
+                    let mut recovered = false;
+                    if gl_failed
+                        && !matches!(cur_fe, config::FrontEndSelection::WebGpu)
+                    {
+                        log::error!(
+                            "front_end {cur_fe:?} failed ({err_str}); retrying with WebGpu"
+                        );
+                        // Note: replaces any --config CLI overrides for this
+                        // process; acceptable for a last-ditch recovery path.
+                        if config::set_config_overrides(&[(
+                            "front_end".to_string(),
+                            "'WebGpu'".to_string(),
+                        )])
+                        .is_ok()
+                        {
+                            config::reload();
+                            match TermWindow::new_window(mux_window_id).await {
+                                Ok(_) => {
+                                    recovered = true;
+                                    log::warn!(
+                                        "recovered with front_end=WebGpu; consider \
+                                         setting front_end = 'WebGpu' in unterm.lua"
+                                    );
+                                }
+                                Err(err2) => {
+                                    log::error!("WebGpu retry also failed: {err2:#}")
+                                }
+                            }
+                        }
+                    }
+                    if !recovered {
+                        log::error!("Failed to create window: {err_str}");
+                        show_fatal_window_error(&err_str);
+                        let mux = Mux::get();
+                        mux.kill_window(mux_window_id);
+                        front_end()
+                            .spawned_mux_window
+                            .borrow_mut()
+                            .remove(&mux_window_id);
+                    }
                 }
             }
             *front_end().switching_workspaces.borrow_mut() = false;
@@ -614,4 +658,36 @@ pub fn try_new() -> Result<Rc<GuiFrontEnd>, Error> {
         .replace(config_subscription);
 
     Ok(front_end)
+}
+
+/// Make a window-creation failure visible. A GUI launch that exits silently
+/// (no console attached on Windows) reads as "the app is broken"; put up a
+/// native message box there. Elsewhere the launching shell sees stderr.
+fn show_fatal_window_error(msg: &str) {
+    #[cfg(windows)]
+    unsafe {
+        use std::os::windows::ffi::OsStrExt;
+        let text: Vec<u16> = std::ffi::OsStr::new(&format!(
+            "Unterm could not create a graphics context.\n\n{msg}\n\n\
+             Try updating your GPU drivers, or set front_end = 'WebGpu' \
+             in your unterm.lua."
+        ))
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+        let caption: Vec<u16> = std::ffi::OsStr::new("Unterm")
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        winapi::um::winuser::MessageBoxW(
+            std::ptr::null_mut(),
+            text.as_ptr(),
+            caption.as_ptr(),
+            winapi::um::winuser::MB_OK | winapi::um::winuser::MB_ICONERROR,
+        );
+    }
+    #[cfg(not(windows))]
+    {
+        eprintln!("Unterm could not create a graphics context: {msg}");
+    }
 }
