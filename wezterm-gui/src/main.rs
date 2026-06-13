@@ -420,8 +420,18 @@ async fn restore_saved_tabs(workspace: Option<&str>) -> anyhow::Result<()> {
                 builder.cwd(Cow::<std::ffi::OsStr>::Owned(cwd.into_os_string()));
             }
         }
-        if let Err(err) = domain.spawn(size, Some(builder), None, window_id).await {
-            log::warn!("session restore: spawning saved tab failed: {:#}", err);
+        match domain.spawn(size, Some(builder), None, window_id).await {
+            Ok(tab) => {
+                // Carry over any user-set tab title (e.g. set via
+                // `unterm-cli set-tab-title` or the Rename Tab affordance);
+                // the empty default falls through to the live process name.
+                if !tab_state.title.is_empty() {
+                    tab.set_title(&tab_state.title);
+                }
+            }
+            Err(err) => {
+                log::warn!("session restore: spawning saved tab failed: {:#}", err);
+            }
         }
     }
     Ok(())
