@@ -20,6 +20,7 @@
 //!   right-edge grip  → drag to resize, clamped to [200pt, 50% window]
 //!   wheel            → scroll
 
+use crate::customglyph::*;
 use crate::termwindow::box_model::*;
 use crate::termwindow::render::corners::*;
 use crate::termwindow::{UIItem, UIItemType};
@@ -27,9 +28,20 @@ use crate::utilsprites::RenderMetrics;
 use config::ui_tokens;
 use config::{Dimension, DimensionContext};
 use mux::Mux;
-use wezterm_term::Line;
+use wezterm_term::color::ColorAttribute;
 use window::color::LinearRgba;
 use window::WindowOps;
+
+/// Filled status dot drawn at the left of each row. Color carries the
+/// state: cyan when an AI agent is driving the pane, dim grey otherwise.
+const STATUS_DOT: &[Poly] = &[Poly {
+    path: &[PolyCommand::Circle {
+        center: (BlockCoord::Frac(1, 2), BlockCoord::Frac(1, 2)),
+        radius: BlockCoord::Frac(2, 5),
+    }],
+    intensity: BlockAlpha::Full,
+    style: PolyStyle::Fill,
+}];
 
 /// Per-window state. Lives on TermWindow regardless of mode; it only
 /// takes effect while `tab_bar_position = "Left"`.
@@ -44,13 +56,18 @@ pub struct LeftTabBar {
     pub scroll_top: usize,
 }
 
-/// One row's snapshot, captured from mux + tab bar state ahead of
-/// element building so we don't hold borrows across rendering.
+/// One row's snapshot, captured from the mux ahead of element building
+/// so we don't hold borrows across rendering. Pulled straight from the
+/// mux (not the top tab bar) so the sidebar stays populated even when a
+/// single tab would hide the top strip.
 struct RowInfo {
     tab_idx: usize,
     active: bool,
-    title: Line,
-    subtitle: String,
+    title: String,
+    /// AI agent currently driving the tab's active pane, if any.
+    agent: Option<String>,
+    /// Last component of the active pane's working directory.
+    dir: Option<String>,
 }
 
 impl crate::TermWindow {
@@ -126,32 +143,6 @@ impl crate::TermWindow {
         }
     }
 
-    /// `agent · dir` subtitle for a tab: the MCP agent that most
-    /// recently drove the tab's active pane, and the last component of
-    /// that pane's cwd. Either half may be absent.
-    fn left_tab_bar_subtitle(&self, tab_idx: usize) -> String {
-        let mux = Mux::get();
-        let Some(window) = mux.get_window(self.mux_window_id) else {
-            return String::new();
-        };
-        let Some(tab) = window.get_by_idx(tab_idx) else {
-            return String::new();
-        };
-        let Some(pane) = tab.get_active_pane() else {
-            return String::new();
-        };
-        let agent = crate::mcp::handler::agent_for_pane(pane.pane_id() as u64);
-        let dir = super::pane_cwd_path(&pane).and_then(|p| {
-            p.file_name().map(|n| n.to_string_lossy().to_string())
-        });
-        match (agent, dir) {
-            (Some(a), Some(d)) => format!("{a} · {d}"),
-            (None, Some(d)) => d,
-            (Some(a), None) => a,
-            (None, None) => String::new(),
-        }
-    }
-
     /// Paint the bar and register its UI items. Painted into the gutter
     /// the panes have already been shifted out of, below the top bar.
     pub fn paint_left_tab_bar(&mut self) -> anyhow::Result<()> {
@@ -160,7 +151,9 @@ impl crate::TermWindow {
             return Ok(());
         }
 
-        let font = self.fonts.title_font()?;
+        // Monospace terminal font for tab rows — matches Warp's technical,
+        // uniform left-panel typography rather than the proportional UI font.
+        let font = self.fonts.default_font()?;
         let metrics = RenderMetrics::with_font_metrics(&font.metrics());
         let pt = self.dimensions.dpi as f32 / 72.0;
         let palette = self.palette().clone();
@@ -180,8 +173,6 @@ impl crate::TermWindow {
         let bottom =
             self.dimensions.pixel_height as f32 - status_h - border.bottom.get() as f32;
 
-        // Theme-driven colors: the bar shares the titlebar surface so the
-        // chrome reads as one piece; rows use the tab palette.
         let colors = self
             .config
             .colors
@@ -189,17 +180,10 @@ impl crate::TermWindow {
             .and_then(|c| c.tab_bar.as_ref())
             .cloned()
             .unwrap_or_else(config::TabBarColors::default);
-        let bar_bg = if self.focused.is_some() {
-            self.config.window_frame.active_titlebar_bg
-        } else {
-            self.config.window_frame.inactive_titlebar_bg
-        }
-        .to_linear();
-        let active_tab = colors.active_tab();
-        let inactive_tab = colors.inactive_tab();
-        let hover_tab = colors.inactive_tab_hover();
-        let edge = colors.inactive_tab_edge().to_linear();
-
+        // Sidebar background sits flush with the terminal content surface
+        // (not the lifted titlebar color), so it sinks back instead of
+        // floating a shade lighter than the panes — Warp's seamless dock.
+        let bar_bg = palette.background.to_linear();
         let row_pad = ui_tokens::ROW_PADDING * pt;
         let radius = Dimension::Pixels(ui_tokens::CORNER_RADIUS * pt);
         let rounded = || {
@@ -227,21 +211,62 @@ impl crate::TermWindow {
             })
         };
 
-        // Snapshot rows before any element borrows.
-        let rows: Vec<RowInfo> = self
-            .tab_bar
-            .items()
-            .iter()
-            .filter_map(|entry| match entry.item {
-                crate::tabbar::TabBarItem::Tab { tab_idx, active } => Some(RowInfo {
-                    tab_idx,
-                    active,
-                    title: entry.title.clone(),
-                    subtitle: self.left_tab_bar_subtitle(tab_idx),
-                }),
-                _ => None,
-            })
-            .collect();
+        // Color model mirrors Warp's: rows are greyscale foreground-overlay
+        // (5/10/15% opacity); color comes ONLY from the status dot and the
+        // agent name, so it reads clean against any user theme. Title is
+        // full-contrast foreground, subtitle is foreground @ 60% (Warp's
+        // text_sub opacity).
+        let agent_color = palette
+            .resolve_fg(ColorAttribute::PaletteIndex(14))
+            .to_linear();
+        let fg = palette.foreground.to_linear();
+        let dim = fg.mul_alpha(0.6); // subtitle / directory
+        let idle_dot = fg.mul_alpha(0.4); // status dot when no agent
+        let sel_bg = fg.mul_alpha(0.10); // fg_overlay_2 — selected fill
+        let sel_border = fg.mul_alpha(0.15); // fg_overlay_3 — selected border
+        let hover_bg = fg.mul_alpha(0.08);
+
+        // Snapshot rows straight from the mux (not the top tab bar, which
+        // empties out when a lone tab hides the top strip).
+        let rows: Vec<RowInfo> = {
+            let mux = Mux::get();
+            let window = match mux.get_window(self.mux_window_id) {
+                Some(w) => w,
+                None => return Ok(()),
+            };
+            let active_idx = window.get_active_idx();
+            let collected: Vec<RowInfo> = window
+                .iter()
+                .enumerate()
+                .map(|(idx, tab)| {
+                    let pane = tab.get_active_pane();
+                    let title = {
+                        let t = tab.get_title();
+                        if !t.is_empty() {
+                            t
+                        } else {
+                            pane.as_ref().map(|p| p.get_title()).unwrap_or_default()
+                        }
+                    };
+                    let (agent, dir) = match &pane {
+                        Some(p) => (
+                            crate::mcp::handler::agent_for_pane(p.pane_id() as u64),
+                            super::pane_cwd_path(p)
+                                .and_then(|pp| pp.file_name().map(|n| n.to_string_lossy().to_string())),
+                        ),
+                        None => (None, None),
+                    };
+                    RowInfo {
+                        tab_idx: idx,
+                        active: idx == active_idx,
+                        title,
+                        agent,
+                        dir,
+                    }
+                })
+                .collect();
+            collected
+        };
 
         let scroll_top = self.left_tab_bar.borrow().scroll_top.min(
             rows.len().saturating_sub(1),
@@ -253,32 +278,100 @@ impl crate::TermWindow {
         let mut children: Vec<Element> = vec![];
 
         for row in rows.iter().skip(scroll_top).take(visible_rows) {
-            let title_fg = if row.active {
-                active_tab.fg_color.to_linear()
+            let title_fg = if row.active { fg } else { fg.mul_alpha(0.82) };
+
+            // Left status dot: cyan when an agent is driving, else dim grey.
+            let dot_color = if row.agent.is_some() { agent_color } else { idle_dot };
+            let dot = Element::new(
+                &font,
+                ElementContent::Poly {
+                    line_width: 2,
+                    poly: SizedPoly {
+                        poly: STATUS_DOT,
+                        width: Dimension::Pixels(8. * pt),
+                        height: Dimension::Pixels(8. * pt),
+                    },
+                },
+            )
+            .vertical_align(VerticalAlign::Middle)
+            .margin(BoxDimension {
+                left: Dimension::Pixels(0.),
+                right: Dimension::Pixels(8. * pt),
+                top: Dimension::Pixels(0.),
+                bottom: Dimension::Pixels(0.),
+            })
+            .colors(ElementColors {
+                border: BorderColor::default(),
+                bg: LinearRgba::TRANSPARENT.into(),
+                text: dot_color.into(),
+            });
+
+            // Title line: dot + title flow inline; the line itself is a
+            // block so the subtitle drops beneath it.
+            let title_text = if row.title.is_empty() {
+                "shell".to_string()
             } else {
-                inactive_tab.fg_color.to_linear()
+                row.title.clone()
             };
-            let mut kids = vec![Element::with_line(&font, &row.title, &palette)
-                .display(DisplayType::Block)
-                .colors(ElementColors {
+            let title_el = Element::new(&font, ElementContent::Text(title_text)).colors(
+                ElementColors {
                     border: BorderColor::default(),
                     bg: LinearRgba::TRANSPARENT.into(),
                     text: title_fg.into(),
-                })];
-            let subtitle = if row.subtitle.is_empty() {
-                " ".to_string()
-            } else {
-                row.subtitle.clone()
-            };
-            kids.push(
-                Element::new(&font, ElementContent::Text(subtitle))
-                    .display(DisplayType::Block)
-                    .colors(ElementColors {
-                        border: BorderColor::default(),
-                        bg: LinearRgba::TRANSPARENT.into(),
-                        text: title_fg.mul_alpha(0.6).into(),
-                    }),
+                },
             );
+            let title_line = Element::new(&font, ElementContent::Children(vec![dot, title_el]))
+                .display(DisplayType::Block)
+                .min_width(Some(Dimension::Percent(1.)));
+
+            // Subtitle line: "agent · dir", agent in cyan, dir dimmed.
+            // Indented to sit under the title (past the dot column).
+            let indent = 8. * pt + 8. * pt;
+            let mut sub_kids = vec![];
+            if let Some(agent) = &row.agent {
+                sub_kids.push(
+                    Element::new(&font, ElementContent::Text(agent.clone())).colors(
+                        ElementColors {
+                            border: BorderColor::default(),
+                            bg: LinearRgba::TRANSPARENT.into(),
+                            text: agent_color.into(),
+                        },
+                    ),
+                );
+                if row.dir.is_some() {
+                    sub_kids.push(
+                        Element::new(&font, ElementContent::Text(" · ".to_string())).colors(
+                            ElementColors {
+                                border: BorderColor::default(),
+                                bg: LinearRgba::TRANSPARENT.into(),
+                                text: dim.into(),
+                            },
+                        ),
+                    );
+                }
+            }
+            sub_kids.push(
+                Element::new(
+                    &font,
+                    ElementContent::Text(row.dir.clone().unwrap_or_else(|| " ".to_string())),
+                )
+                .colors(ElementColors {
+                    border: BorderColor::default(),
+                    bg: LinearRgba::TRANSPARENT.into(),
+                    text: dim.into(),
+                }),
+            );
+            let subtitle_line = Element::new(&font, ElementContent::Children(sub_kids))
+                .display(DisplayType::Block)
+                .min_width(Some(Dimension::Percent(1.)))
+                .padding(BoxDimension {
+                    left: Dimension::Pixels(indent),
+                    right: Dimension::Pixels(0.),
+                    top: Dimension::Pixels(2. * pt),
+                    bottom: Dimension::Pixels(0.),
+                });
+
+            let mut kids = vec![title_line, subtitle_line];
             if self.config.show_close_tab_button_in_tabs {
                 kids.push(
                     crate::termwindow::render::fancy_tab_bar::make_x_button(
@@ -291,8 +384,11 @@ impl crate::TermWindow {
                 );
             }
 
+            // Selected row: fg_overlay_2 fill + fg_overlay_3 1px border,
+            // rounded — Warp's restrained greyscale selection, not a
+            // saturated block.
             let (row_bg, row_border) = if row.active {
-                (active_tab.bg_color.to_linear(), edge)
+                (sel_bg, sel_border)
             } else {
                 (LinearRgba::TRANSPARENT, LinearRgba::TRANSPARENT)
             };
@@ -310,8 +406,8 @@ impl crate::TermWindow {
                     .padding(BoxDimension {
                         left: Dimension::Pixels(row_pad),
                         right: Dimension::Pixels(row_pad),
-                        top: Dimension::Pixels(row_pad / 2.),
-                        bottom: Dimension::Pixels(row_pad / 2.),
+                        top: Dimension::Pixels(row_pad * 0.6),
+                        bottom: Dimension::Pixels(row_pad * 0.6),
                     })
                     .border(BoxDimension::new(Dimension::Pixels(1.)))
                     .border_corners(rounded())
@@ -324,11 +420,9 @@ impl crate::TermWindow {
                         None
                     } else {
                         Some(ElementColors {
-                            border: BorderColor::new(
-                                hover_tab.bg_color.to_linear(),
-                            ),
-                            bg: hover_tab.bg_color.to_linear().into(),
-                            text: hover_tab.fg_color.to_linear().into(),
+                            border: BorderColor::new(LinearRgba::TRANSPARENT),
+                            bg: hover_bg.into(),
+                            text: fg.into(),
                         })
                     }),
             );
@@ -373,7 +467,7 @@ impl crate::TermWindow {
             .colors(ElementColors {
                 border: BorderColor::default(),
                 bg: bar_bg.into(),
-                text: inactive_tab.fg_color.to_linear().into(),
+                text: fg.into(),
             })
             .min_width(Some(Dimension::Pixels(width)))
             .min_height(Some(Dimension::Pixels(bottom - top)));

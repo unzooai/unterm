@@ -7,9 +7,9 @@ local act = wezterm.action
 
 -- 一体顶栏:让整合标题栏 / tab 栏与终端内容同色,随主题走(Warp 式不割裂)。
 -- 复刻 Rust 默认解析:读 ~/.unterm/theme.json 的 color_scheme,取其 bg/fg;
--- 取不到就回退暖黑 Notion Dark。
+-- 取不到就回退中性高对比 Unterm Dark(开箱默认,接近 Warp 的纯中性深色)。
 local function scheme_colors()
-  local name = 'Notion Dark'
+  local name = 'Unterm Dark'
   local home = os.getenv('HOME')
   if home then
     local fh = io.open(home .. '/.unterm/theme.json', 'r')
@@ -69,6 +69,12 @@ end
 config.window_padding = { left = 16, right = 16, top = 10, bottom = 8 }
 config.initial_cols = 120
 config.initial_rows = 30
+
+-- 左侧垂直 tab 栏(Warp 式):每行是一个 tab,标题下显示
+-- "驱动它的 AI agent · 项目目录",拖右缘改宽,空间足够时比横向 tab 更
+-- 适合"一窗多 agent 各开一摊"的用法。INTEGRATED_BUTTONS 仍把交通灯叠进
+-- 顶栏,所以顶部依旧一行(交通灯 + 标题 + 菜单 + 快捷动作)。
+config.tab_bar_position = 'Left'
 
 -- 顶栏 = 主题底轻提亮一档(~5%),活动 tab 仍与内容同色 → 层次分明但不割裂
 -- (用户反馈 2026-06-10:完全同色太平,需要一定色差)。

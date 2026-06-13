@@ -8,10 +8,11 @@
 //! 亮度变暗(乘法)对非活动分屏才有可见效果——纯黑乘任何系数仍是纯黑。
 
 /// (scheme_name, toml_string),格式与 `scheme_data.rs` 内置方案一致。
-pub const UNTERM_SCHEMES: [(&str, &str); 3] = [
+pub const UNTERM_SCHEMES: [(&str, &str); 4] = [
     ("Notion Light", NOTION_LIGHT),
     ("Notion Dark", NOTION_DARK),
     ("Classic Dark", CLASSIC_DARK),
+    ("Unterm Dark", UNTERM_DARK),
 ];
 
 // Notion 浅色:米白底 + 暖深灰文字,低饱和克制的强调色。
@@ -136,4 +137,50 @@ brights = [
 aliases = []
 author = "unterm"
 name = "Classic Dark"
+"##;
+
+// Unterm Dark: neutral high-contrast (Warp-like). Near-black NEUTRAL
+// background (#101010, no blue/warm tint), near-white foreground (~13:1
+// contrast) for crisp chrome and tab text. Balanced saturated ANSI
+// (Snazzy-derived) so the agent status dot (ANSI bright-cyan) pops while
+// the row greyscale stays clean. Background is not pure black so
+// inactive_pane_hsb dimming still registers.
+const UNTERM_DARK: &str = r##"
+[colors]
+background = "#101010"
+foreground = "#e6e6e6"
+cursor_bg = "#e6e6e6"
+cursor_fg = "#101010"
+cursor_border = "#e6e6e6"
+selection_bg = "#2a2a2a"
+selection_fg = "#e6e6e6"
+split = "#2a2a2a"
+scrollbar_thumb = "#3a3a3a"
+ansi = [
+    "#1a1a1a",
+    "#ff5c57",
+    "#5af78e",
+    "#f3f99d",
+    "#57c7ff",
+    "#ff6ac1",
+    "#9aedfe",
+    "#c0c0c0",
+]
+brights = [
+    "#686868",
+    "#ff5c57",
+    "#5af78e",
+    "#f3f99d",
+    "#57c7ff",
+    "#ff6ac1",
+    "#9aedfe",
+    "#f1f1f0",
+]
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "unterm"
+name = "Unterm Dark"
 "##;

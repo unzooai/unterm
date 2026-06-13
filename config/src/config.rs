@@ -1956,10 +1956,11 @@ fn default_mcp_port() -> u16 {
 
 fn default_color_scheme() -> Option<String> {
     // Unterm: 优先采用主题选择器写入 ~/.unterm/theme.json 的 color_scheme,
-    // 让「选主题」成为可靠的全局配色来源;无文件时回退到自带的暖黑 Notion Dark
-    // (开箱默认观感,比 Catppuccin Mocha 更克制现代)。
+    // 让「选主题」成为可靠的全局配色来源;无文件时回退到中性高对比
+    // Unterm Dark —— 纯中性近黑底 + 纯白字(~14.6:1 对比),复刻 Warp 的
+    // 沉稳清晰,左侧 tab 栏在它下面观感最佳。
     // 用户在 unterm.lua 显式设置 color_scheme 仍会覆盖此默认值。
-    read_theme_json_scheme().or_else(|| Some("Notion Dark".to_string()))
+    read_theme_json_scheme().or_else(|| Some("Unterm Dark".to_string()))
 }
 
 /// 读取 `~/.unterm/theme.json` 里 `color_scheme` 字段(主题选择器写入)。
