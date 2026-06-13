@@ -32,17 +32,6 @@ use wezterm_term::color::ColorAttribute;
 use window::color::LinearRgba;
 use window::WindowOps;
 
-/// Filled status dot drawn at the left of each row. Color carries the
-/// state: cyan when an AI agent is driving the pane, dim grey otherwise.
-const STATUS_DOT: &[Poly] = &[Poly {
-    path: &[PolyCommand::Circle {
-        center: (BlockCoord::Frac(1, 2), BlockCoord::Frac(1, 2)),
-        radius: BlockCoord::Frac(2, 5),
-    }],
-    intensity: BlockAlpha::Full,
-    style: PolyStyle::Fill,
-}];
-
 /// Per-window state. Lives on TermWindow regardless of mode; it only
 /// takes effect while `tab_bar_position = "Left"`.
 #[derive(Default)]
@@ -224,7 +213,6 @@ impl crate::TermWindow {
             .to_linear();
         let fg = palette.foreground.to_linear();
         let dim = fg.mul_alpha(0.6); // subtitle / directory
-        let idle_dot = fg.mul_alpha(0.4); // status dot when no agent
         let sel_bg = fg.mul_alpha(0.10); // fg_overlay_2 — selected fill
         let sel_border = fg.mul_alpha(0.15); // fg_overlay_3 — selected border
         let hover_bg = fg.mul_alpha(0.08);
@@ -283,31 +271,68 @@ impl crate::TermWindow {
         for row in rows.iter().skip(scroll_top).take(visible_rows) {
             let title_fg = if row.active { fg } else { fg.mul_alpha(0.82) };
 
-            // Left status dot: cyan when an agent is driving, else dim grey.
-            let dot_color = if row.agent.is_some() { agent_color } else { idle_dot };
-            let dot = Element::new(
-                &font,
-                ElementContent::Poly {
-                    line_width: 2,
-                    poly: SizedPoly {
-                        poly: STATUS_DOT,
-                        width: Dimension::Pixels(8. * pt),
-                        height: Dimension::Pixels(8. * pt),
+            // Circular icon chip (Warp's 24px icon-with-status, scaled to
+            // 16px here): agent-driven panes get a bright chip with the
+            // agent's initial; idle terminals a neutral chip with a prompt
+            // glyph. The color is the row's only saturated accent.
+            let chip_px = 16. * pt;
+            let chip_radius = Dimension::Pixels(chip_px / 2.);
+            let circle = || {
+                Some(Corners {
+                    top_left: SizedPoly {
+                        width: chip_radius,
+                        height: chip_radius,
+                        poly: TOP_LEFT_ROUNDED_CORNER,
                     },
-                },
-            )
-            .vertical_align(VerticalAlign::Middle)
-            .margin(BoxDimension {
-                left: Dimension::Pixels(0.),
-                right: Dimension::Pixels(8. * pt),
-                top: Dimension::Pixels(0.),
-                bottom: Dimension::Pixels(0.),
-            })
-            .colors(ElementColors {
-                border: BorderColor::default(),
-                bg: LinearRgba::TRANSPARENT.into(),
-                text: dot_color.into(),
-            });
+                    top_right: SizedPoly {
+                        width: chip_radius,
+                        height: chip_radius,
+                        poly: TOP_RIGHT_ROUNDED_CORNER,
+                    },
+                    bottom_left: SizedPoly {
+                        width: chip_radius,
+                        height: chip_radius,
+                        poly: BOTTOM_LEFT_ROUNDED_CORNER,
+                    },
+                    bottom_right: SizedPoly {
+                        width: chip_radius,
+                        height: chip_radius,
+                        poly: BOTTOM_RIGHT_ROUNDED_CORNER,
+                    },
+                })
+            };
+            let (chip_bg, chip_fg, chip_label) = if let Some(agent) = &row.agent {
+                let initial = agent
+                    .chars()
+                    .find(|c| c.is_alphanumeric())
+                    .map(|c| c.to_ascii_uppercase().to_string())
+                    .unwrap_or_else(|| "•".to_string());
+                (agent_color, bg, initial)
+            } else {
+                (fg.mul_alpha(0.14), fg.mul_alpha(0.75), "›".to_string())
+            };
+            let dot = Element::new(&font, ElementContent::Text(chip_label))
+                .vertical_align(VerticalAlign::Middle)
+                .min_width(Some(Dimension::Pixels(chip_px)))
+                .min_height(Some(Dimension::Pixels(chip_px)))
+                .border_corners(circle())
+                .margin(BoxDimension {
+                    left: Dimension::Pixels(0.),
+                    right: Dimension::Pixels(8. * pt),
+                    top: Dimension::Pixels(0.),
+                    bottom: Dimension::Pixels(0.),
+                })
+                .padding(BoxDimension {
+                    left: Dimension::Pixels(5. * pt),
+                    right: Dimension::Pixels(0.),
+                    top: Dimension::Pixels(1.5 * pt),
+                    bottom: Dimension::Pixels(0.),
+                })
+                .colors(ElementColors {
+                    border: BorderColor::default(),
+                    bg: chip_bg.into(),
+                    text: chip_fg.into(),
+                });
 
             // Title line: dot + title flow inline; the line itself is a
             // block so the subtitle drops beneath it.
@@ -338,9 +363,9 @@ impl crate::TermWindow {
                 });
 
             // Subtitle line: "agent · dir", agent in cyan, dir dimmed.
-            // Left-inset to sit under the title text (panel pad 8 + dot 8 +
-            // gap 8 = 24).
-            let indent = 24. * pt;
+            // Left-inset to sit under the title text (panel pad 8 + chip 16
+            // + gap 8 = 32).
+            let indent = 32. * pt;
             let mut sub_kids = vec![];
             if let Some(agent) = &row.agent {
                 sub_kids.push(
