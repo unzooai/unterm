@@ -694,6 +694,9 @@ pub enum FontRasterizerSelection {
     #[default]
     FreeType,
     Harfbuzz,
+    /// Native CoreText rasterizer (macOS only). Matches the system's
+    /// grayscale rendering; falls back to FreeType off macOS.
+    CoreText,
 }
 
 #[derive(Debug, Clone, Copy, FromDynamic, ToDynamic, Default)]

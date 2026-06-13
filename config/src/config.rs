@@ -281,7 +281,7 @@ pub struct Config {
 
     #[dynamic(default)]
     pub font_locator: FontLocatorSelection,
-    #[dynamic(default)]
+    #[dynamic(default = "default_font_rasterizer")]
     pub font_rasterizer: FontRasterizerSelection,
     #[dynamic(default = "default_colr_rasterizer")]
     pub font_colr_rasterizer: FontRasterizerSelection,
@@ -2575,6 +2575,20 @@ pub(crate) fn validate_domain_name(name: &str) -> Result<(), String> {
 /// <https://github.com/wezterm/wezterm/issues/2630>
 fn default_macos_forward_mods() -> Modifiers {
     Modifiers::SHIFT
+}
+
+fn default_font_rasterizer() -> FontRasterizerSelection {
+    // On macOS, render through CoreText so text matches the system's
+    // native grayscale rendering (crisper than FreeType, no LCD color
+    // fringing). Other platforms keep FreeType.
+    #[cfg(target_os = "macos")]
+    {
+        FontRasterizerSelection::CoreText
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        FontRasterizerSelection::FreeType
+    }
 }
 
 fn default_colr_rasterizer() -> FontRasterizerSelection {

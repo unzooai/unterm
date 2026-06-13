@@ -72,7 +72,10 @@ impl FontRasterizer for FreeTypeRasterizer {
 
                     let config = config::configuration();
                     match config.font_colr_rasterizer {
-                        FontRasterizerSelection::FreeType => {
+                        // CoreText has no COLR path here; use FreeType's
+                        // outline rasterizer for COLR glyphs.
+                        FontRasterizerSelection::FreeType
+                        | FontRasterizerSelection::CoreText => {
                             return self.rasterize_outlines(
                                 glyph_pos,
                                 load_flags | FT_LOAD_NO_HINTING as i32,

@@ -8,6 +8,8 @@ use image::{ImageBuffer, Rgba};
 pub(crate) const FAKE_ITALIC_SKEW: f64 = 0.2;
 
 pub mod colr;
+#[cfg(target_os = "macos")]
+pub mod coretext;
 pub mod freetype;
 pub mod harfbuzz;
 
@@ -49,6 +51,23 @@ pub fn new_rasterizer(
         FontRasterizerSelection::Harfbuzz => Ok(Box::new(
             harfbuzz::HarfbuzzRasterizer::from_locator(handle)?,
         )),
+        FontRasterizerSelection::CoreText => {
+            #[cfg(target_os = "macos")]
+            {
+                Ok(Box::new(coretext::CoreTextRasterizer::from_locator(
+                    handle,
+                )?))
+            }
+            // Off macOS there is no CoreText; fall back to FreeType so a
+            // config carried across platforms still works.
+            #[cfg(not(target_os = "macos"))]
+            {
+                Ok(Box::new(freetype::FreeTypeRasterizer::from_locator(
+                    handle,
+                    pixel_geometry,
+                )?))
+            }
+        }
     }
 }
 
