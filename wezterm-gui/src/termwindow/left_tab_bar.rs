@@ -180,10 +180,20 @@ impl crate::TermWindow {
             .and_then(|c| c.tab_bar.as_ref())
             .cloned()
             .unwrap_or_else(config::TabBarColors::default);
-        // Sidebar background sits flush with the terminal content surface
-        // (not the lifted titlebar color), so it sinks back instead of
-        // floating a shade lighter than the panes — Warp's seamless dock.
-        let bar_bg = palette.background.to_linear();
+        // Sidebar surface: the terminal background lifted ~5% toward the
+        // foreground (Warp's fg_overlay_1). Enough to read as a distinct
+        // full-height panel without floating jarringly like the old
+        // titlebar color did. A 1px divider on the right seals the edge.
+        let bg = palette.background.to_linear();
+        let fgc = palette.foreground.to_linear();
+        let lift = 0.05;
+        let bar_bg = LinearRgba::with_components(
+            bg.0 * (1. - lift) + fgc.0 * lift,
+            bg.1 * (1. - lift) + fgc.1 * lift,
+            bg.2 * (1. - lift) + fgc.2 * lift,
+            1.,
+        );
+        let divider = fgc.mul_alpha(0.12);
         let row_pad = ui_tokens::ROW_PADDING * pt;
         let radius = Dimension::Pixels(ui_tokens::CORNER_RADIUS * pt);
         let rounded = || {
@@ -398,8 +408,8 @@ impl crate::TermWindow {
                     .display(DisplayType::Block)
                     .min_width(Some(Dimension::Percent(1.)))
                     .margin(BoxDimension {
-                        left: Dimension::Pixels(6. * pt),
-                        right: Dimension::Pixels(6. * pt),
+                        left: Dimension::Pixels(0.),
+                        right: Dimension::Pixels(0.),
                         top: Dimension::Pixels(2. * pt),
                         bottom: Dimension::Pixels(2. * pt),
                     })
@@ -429,16 +439,14 @@ impl crate::TermWindow {
         }
 
         // Trailing "+" row → existing NewTabButton routing spawns a tab.
-        let new_tab = colors.new_tab();
-        let new_tab_hover = colors.new_tab_hover();
         children.push(
             Element::new(&font, ElementContent::Text("+".to_string()))
                 .item_type(UIItemType::TabBar(crate::tabbar::TabBarItem::NewTabButton))
                 .display(DisplayType::Block)
                 .min_width(Some(Dimension::Percent(1.)))
                 .margin(BoxDimension {
-                    left: Dimension::Pixels(6. * pt),
-                    right: Dimension::Pixels(6. * pt),
+                    left: Dimension::Pixels(0.),
+                    right: Dimension::Pixels(0.),
                     top: Dimension::Pixels(2. * pt),
                     bottom: Dimension::Pixels(2. * pt),
                 })
@@ -450,27 +458,51 @@ impl crate::TermWindow {
                 })
                 .border(BoxDimension::new(Dimension::Pixels(1.)))
                 .border_corners(rounded())
+                // Quiet by default — just the "+" glyph, no heavy filled
+                // bar; a subtle fill appears on hover.
                 .colors(ElementColors {
-                    border: BorderColor::default(),
-                    bg: new_tab.bg_color.to_linear().into(),
-                    text: new_tab.fg_color.to_linear().into(),
+                    border: BorderColor::new(LinearRgba::TRANSPARENT),
+                    bg: LinearRgba::TRANSPARENT.into(),
+                    text: dim.into(),
                 })
                 .hover_colors(Some(ElementColors {
-                    border: BorderColor::default(),
-                    bg: new_tab_hover.bg_color.to_linear().into(),
-                    text: new_tab_hover.fg_color.to_linear().into(),
+                    border: BorderColor::new(LinearRgba::TRANSPARENT),
+                    bg: hover_bg.into(),
+                    text: fg.into(),
                 })),
         );
 
         let container = Element::new(&font, ElementContent::Children(children))
             .item_type(UIItemType::LeftTabBarBg)
+            // Horizontal padding insets the rows from the panel edges and
+            // the divider, so the rounded selection sits inside the panel
+            // instead of overflowing into the terminal.
+            .padding(BoxDimension {
+                left: Dimension::Pixels(7. * pt),
+                right: Dimension::Pixels(7. * pt),
+                top: Dimension::Pixels(6. * pt),
+                bottom: Dimension::Pixels(0.),
+            })
+            .border(BoxDimension {
+                left: Dimension::Pixels(0.),
+                right: Dimension::Pixels(1.),
+                top: Dimension::Pixels(0.),
+                bottom: Dimension::Pixels(0.),
+            })
             .colors(ElementColors {
-                border: BorderColor::default(),
+                border: BorderColor {
+                    left: LinearRgba::TRANSPARENT,
+                    right: divider,
+                    top: LinearRgba::TRANSPARENT,
+                    bottom: LinearRgba::TRANSPARENT,
+                },
                 bg: bar_bg.into(),
                 text: fg.into(),
             })
-            .min_width(Some(Dimension::Pixels(width)))
-            .min_height(Some(Dimension::Pixels(bottom - top)));
+            // Content box shrinks by the padding + divider so the panel
+            // total still fills exactly the reserved `width` gutter.
+            .min_width(Some(Dimension::Pixels(width - 14. * pt - 1.)))
+            .min_height(Some(Dimension::Pixels(bottom - top - 6. * pt)));
 
         let layout = LayoutContext {
             height: DimensionContext {
