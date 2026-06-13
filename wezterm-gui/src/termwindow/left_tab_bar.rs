@@ -151,9 +151,9 @@ impl crate::TermWindow {
             return Ok(());
         }
 
-        // Monospace terminal font for tab rows — matches Warp's technical,
-        // uniform left-panel typography rather than the proportional UI font.
-        let font = self.fonts.default_font()?;
+        // UI font (SF Pro on macOS) for tab rows, 12pt — Warp renders its
+        // vertical-tab text with the proportional UI font, not monospace.
+        let font = self.fonts.title_font()?;
         let metrics = RenderMetrics::with_font_metrics(&font.metrics());
         let pt = self.dimensions.dpi as f32 / 72.0;
         let palette = self.palette().clone();
@@ -173,13 +173,6 @@ impl crate::TermWindow {
         let bottom =
             self.dimensions.pixel_height as f32 - status_h - border.bottom.get() as f32;
 
-        let colors = self
-            .config
-            .colors
-            .as_ref()
-            .and_then(|c| c.tab_bar.as_ref())
-            .cloned()
-            .unwrap_or_else(config::TabBarColors::default);
         // Sidebar surface: the terminal background lifted ~5% toward the
         // foreground (Warp's fg_overlay_1). Enough to read as a distinct
         // full-height panel without floating jarringly like the old
@@ -330,13 +323,24 @@ impl crate::TermWindow {
                     text: title_fg.into(),
                 },
             );
+            // Insets live on the content (not the row) because this box
+            // model's rounded background fills only the content box — row
+            // padding would leave a gap inside the border. 8px left + 6px
+            // top reproduce Warp's uniform-8 breathing room.
             let title_line = Element::new(&font, ElementContent::Children(vec![dot, title_el]))
                 .display(DisplayType::Block)
-                .min_width(Some(Dimension::Percent(1.)));
+                .min_width(Some(Dimension::Percent(1.)))
+                .padding(BoxDimension {
+                    left: Dimension::Pixels(8. * pt),
+                    right: Dimension::Pixels(8. * pt),
+                    top: Dimension::Pixels(6. * pt),
+                    bottom: Dimension::Pixels(0.),
+                });
 
             // Subtitle line: "agent · dir", agent in cyan, dir dimmed.
-            // Indented to sit under the title (past the dot column).
-            let indent = 8. * pt + 8. * pt;
+            // Left-inset to sit under the title text (panel pad 8 + dot 8 +
+            // gap 8 = 24).
+            let indent = 24. * pt;
             let mut sub_kids = vec![];
             if let Some(agent) = &row.agent {
                 sub_kids.push(
@@ -376,23 +380,14 @@ impl crate::TermWindow {
                 .min_width(Some(Dimension::Percent(1.)))
                 .padding(BoxDimension {
                     left: Dimension::Pixels(indent),
-                    right: Dimension::Pixels(0.),
+                    right: Dimension::Pixels(8. * pt),
                     top: Dimension::Pixels(2. * pt),
-                    bottom: Dimension::Pixels(0.),
+                    bottom: Dimension::Pixels(6. * pt),
                 });
 
-            let mut kids = vec![title_line, subtitle_line];
-            if self.config.show_close_tab_button_in_tabs {
-                kids.push(
-                    crate::termwindow::render::fancy_tab_bar::make_x_button(
-                        &font,
-                        &metrics,
-                        &colors,
-                        row.tab_idx,
-                        row.active,
-                    ),
-                );
-            }
+            // No inline close button — Warp's vertical-tab rows have none;
+            // closing is via the right-click context menu.
+            let kids = vec![title_line, subtitle_line];
 
             // Selected row: fg_overlay_2 fill + fg_overlay_3 1px border,
             // rounded — Warp's restrained greyscale selection, not a
@@ -413,11 +408,14 @@ impl crate::TermWindow {
                         top: Dimension::Pixels(2. * pt),
                         bottom: Dimension::Pixels(2. * pt),
                     })
+                    // No row padding — insets live on the content so the
+                    // rounded background fills the whole border box with no
+                    // gap (see title_line/subtitle_line padding above).
                     .padding(BoxDimension {
-                        left: Dimension::Pixels(row_pad),
-                        right: Dimension::Pixels(row_pad),
-                        top: Dimension::Pixels(row_pad * 0.6),
-                        bottom: Dimension::Pixels(row_pad * 0.6),
+                        left: Dimension::Pixels(0.),
+                        right: Dimension::Pixels(0.),
+                        top: Dimension::Pixels(0.),
+                        bottom: Dimension::Pixels(0.),
                     })
                     .border(BoxDimension::new(Dimension::Pixels(1.)))
                     .border_corners(rounded())
