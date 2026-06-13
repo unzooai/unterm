@@ -369,6 +369,64 @@ async fn spawn_tab_in_domain_if_mux_is_empty(
     Ok(())
 }
 
+/// Spawn one extra tab per saved-session entry beyond the first, into
+/// the active workspace's window — finishes the loop that
+/// `session_state::save_session_state` opened on the previous shutdown.
+///
+/// No-op when there's no saved state, fewer than 2 saved tabs, or no
+/// window in the workspace (which would mean the GUI hasn't actually
+/// materialized a window yet — odd, but we shouldn't crash there).
+async fn restore_saved_tabs(workspace: Option<&str>) -> anyhow::Result<()> {
+    let saved = match crate::session_state::load_session_state() {
+        Some(s) => s,
+        None => return Ok(()),
+    };
+    if saved.tabs.len() <= 1 {
+        return Ok(());
+    }
+
+    let mux = Mux::get();
+    let ws = workspace
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| mux.active_workspace());
+    let window_id = match mux.iter_windows_in_workspace(&ws).into_iter().next() {
+        Some(id) => id,
+        None => return Ok(()),
+    };
+
+    let domain = mux.default_domain();
+    let config = config::configuration();
+    let dpi = config.dpi.unwrap_or_else(|| ::window::default_dpi());
+    let size = config.initial_size(dpi as u32, Some(cell_pixel_dims(&config, dpi)?));
+
+    // Skip tabs[0] — the initial tab already spawned for us.
+    for tab_state in saved.tabs.iter().skip(1) {
+        let mut builder = config.build_prog(
+            None,
+            config.default_prog.as_ref(),
+            config.default_cwd.as_ref(),
+        )?;
+        if let Some(cwd) = tab_state
+            .cwd
+            .as_deref()
+            .and_then(|s| url::Url::parse(s).ok())
+            .and_then(|u| u.to_file_path().ok())
+        {
+            // Only use the saved cwd if it still exists; an old session
+            // pointing at a deleted dir would spawn the shell with an
+            // invalid cwd and the user would just see a "no such file"
+            // bounce. Falling back to the default cwd is friendlier.
+            if cwd.is_dir() {
+                builder.cwd(Cow::<std::ffi::OsStr>::Owned(cwd.into_os_string()));
+            }
+        }
+        if let Err(err) = domain.spawn(size, Some(builder), None, window_id).await {
+            log::warn!("session restore: spawning saved tab failed: {:#}", err);
+        }
+    }
+    Ok(())
+}
+
 async fn connect_to_auto_connect_domains() -> anyhow::Result<()> {
     let mux = Mux::get();
     let domains = mux.iter_domains();
@@ -623,7 +681,18 @@ async fn async_run_terminal_gui(
         }
     }
     let result =
-        spawn_tab_in_domain_if_mux_is_empty(cmd, is_connecting, domain, opts.workspace).await;
+        spawn_tab_in_domain_if_mux_is_empty(cmd, is_connecting, domain, opts.workspace.clone())
+            .await;
+
+    // Restore extra tabs from the last session. Geometry was already
+    // restored at GUI-startup; this is the second half of the loop —
+    // spawn one extra tab per saved entry beyond the first, each with
+    // its own saved cwd, so closing + reopening the app picks up where
+    // it left off (Warp-style workspace restore). Failures here are
+    // logged but never block startup.
+    if let Err(err) = restore_saved_tabs(opts.workspace.as_deref()).await {
+        log::warn!("session restore: {:#}", err);
+    }
 
     // First-run onboarding hint — write a single dim status line to the
     // initial pane the first time Unterm launches, so the user discovers the
