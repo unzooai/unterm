@@ -2116,22 +2116,11 @@ impl TryFrom<String> for WindowDecorations {
 
 impl Default for WindowDecorations {
     fn default() -> Self {
-        // Per-platform Unterm defaults:
-        //   Windows: integrated title buttons (Windows Terminal feel)
-        //   macOS:   native title bar + traffic-light buttons
-        //   Linux:   client-side title bar (works on both X11 and Wayland)
-        #[cfg(target_os = "windows")]
-        {
-            WindowDecorations::INTEGRATED_BUTTONS | WindowDecorations::RESIZE
-        }
-        #[cfg(target_os = "macos")]
-        {
-            WindowDecorations::TITLE | WindowDecorations::RESIZE
-        }
-        #[cfg(all(unix, not(target_os = "macos")))]
-        {
-            WindowDecorations::TITLE | WindowDecorations::RESIZE
-        }
+        // Per-platform Unterm defaults — every platform now ships the
+        // integrated Warp-style top bar so the chrome is one panel:
+        // traffic lights / window buttons sit inside the tab bar instead
+        // of in a separate OS-painted title strip.
+        WindowDecorations::INTEGRATED_BUTTONS | WindowDecorations::RESIZE
     }
 }
 

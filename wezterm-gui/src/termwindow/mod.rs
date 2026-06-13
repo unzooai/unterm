@@ -167,6 +167,7 @@ pub enum TermWindowNotif {
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum QuickAction {
+    CommandPalette,
     TreeSidebar,
     SplitRight,
     DirJump,

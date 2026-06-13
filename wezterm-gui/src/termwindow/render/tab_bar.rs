@@ -107,8 +107,10 @@ impl crate::TermWindow {
     ) -> anyhow::Result<f32> {
         if config.use_fancy_tab_bar {
             let font = fontconfig.title_font()?;
-            // Unterm: match Windows Terminal's compact integrated tab row.
-            Ok((font.metrics().cell_height.get() as f32 * (5.0 / 3.0)).ceil())
+            // Match Warp's ~64px integrated chrome — the bar carries traffic
+            // lights, the active tab + close, and 6 quick actions + a ▾ menu,
+            // so the compact 5/3 multiplier we shipped pre-v0.43 felt cramped.
+            Ok((font.metrics().cell_height.get() as f32 * 2.4).ceil())
         } else {
             Ok(render_metrics.cell_size.height as f32)
         }

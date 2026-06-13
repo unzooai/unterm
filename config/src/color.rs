@@ -640,6 +640,25 @@ impl Default for WindowFrameConfig {
     }
 }
 
+impl WindowFrameConfig {
+    // Used by the integrated top bar to detect "user kept the v0.38
+    // hardcoded titlebar default" — in which case the bar follows the
+    // active color scheme background instead, so any theme reads as one
+    // panel from titlebar through pane content.
+    pub fn active_bg_is_default(&self) -> bool {
+        self.active_titlebar_bg == default_active_titlebar_bg()
+    }
+    pub fn inactive_bg_is_default(&self) -> bool {
+        self.inactive_titlebar_bg == default_inactive_titlebar_bg()
+    }
+    pub fn active_fg_is_default(&self) -> bool {
+        self.active_titlebar_fg == default_active_titlebar_fg()
+    }
+    pub fn inactive_fg_is_default(&self) -> bool {
+        self.inactive_titlebar_fg == default_inactive_titlebar_fg()
+    }
+}
+
 // Unterm: Windows Terminal-style dark titlebar.
 fn default_inactive_titlebar_bg() -> RgbaColor {
     RgbColor::new_8bpc(0x2b, 0x2b, 0x2b).into()

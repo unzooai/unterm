@@ -547,6 +547,14 @@ impl super::TermWindow {
                 if let WMEK::Press(MousePress::Left) = event.kind {
                     use crate::termwindow::QuickAction as QA;
                     match action {
+                        QA::CommandPalette => {
+                            if let Some(pane) = self.get_active_pane_or_overlay() {
+                                let _ = self.perform_key_assignment(
+                                    &pane,
+                                    &config::keyassignment::KeyAssignment::ActivateCommandPalette,
+                                );
+                            }
+                        }
                         QA::TreeSidebar => self.toggle_tree_sidebar(),
                         QA::SplitRight => {
                             use config::keyassignment::{KeyAssignment, SpawnCommand};

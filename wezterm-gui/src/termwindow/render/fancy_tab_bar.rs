@@ -118,6 +118,35 @@ const QUICK_SPLIT: &[Poly] = &[
         style: PolyStyle::Outline,
     },
 ];
+// Command palette: three short horizontal lines, distinct from the
+// settings sliders (which add perpendicular dashes). Reads as
+// "list of commands" / hamburger menu.
+const QUICK_COMMAND_PALETTE: &[Poly] = &[
+    Poly {
+        path: &[
+            PolyCommand::MoveTo(BlockCoord::Frac(2, 16), BlockCoord::Frac(5, 16)),
+            PolyCommand::LineTo(BlockCoord::Frac(14, 16), BlockCoord::Frac(5, 16)),
+        ],
+        intensity: BlockAlpha::Full,
+        style: PolyStyle::Outline,
+    },
+    Poly {
+        path: &[
+            PolyCommand::MoveTo(BlockCoord::Frac(2, 16), BlockCoord::Frac(8, 16)),
+            PolyCommand::LineTo(BlockCoord::Frac(14, 16), BlockCoord::Frac(8, 16)),
+        ],
+        intensity: BlockAlpha::Full,
+        style: PolyStyle::Outline,
+    },
+    Poly {
+        path: &[
+            PolyCommand::MoveTo(BlockCoord::Frac(2, 16), BlockCoord::Frac(11, 16)),
+            PolyCommand::LineTo(BlockCoord::Frac(14, 16), BlockCoord::Frac(11, 16)),
+        ],
+        intensity: BlockAlpha::Full,
+        style: PolyStyle::Outline,
+    },
+];
 const QUICK_DIRJUMP: &[Poly] = &[Poly {
     path: &[
         PolyCommand::MoveTo(BlockCoord::Frac(1, 8), BlockCoord::Frac(1, 4)),
@@ -222,22 +251,38 @@ impl crate::TermWindow {
         let mut left_status = vec![];
         let mut left_eles = vec![];
         let mut right_eles = vec![];
+        // Top bar bg/fg follow the active color scheme by default — kept the
+        // bar visually merged with the pane content. The hardcoded
+        // window_frame defaults only fire if the user has explicitly set
+        // those fields (or is on a build that pre-dates this behavior).
+        let scheme_bg = palette.background.to_linear();
+        let scheme_fg = palette.foreground.to_linear();
+        let bar_bg = if self.focused.is_some() {
+            if self.config.window_frame.active_bg_is_default() {
+                scheme_bg
+            } else {
+                self.config.window_frame.active_titlebar_bg.to_linear()
+            }
+        } else if self.config.window_frame.inactive_bg_is_default() {
+            scheme_bg
+        } else {
+            self.config.window_frame.inactive_titlebar_bg.to_linear()
+        };
+        let bar_fg = if self.focused.is_some() {
+            if self.config.window_frame.active_fg_is_default() {
+                scheme_fg
+            } else {
+                self.config.window_frame.active_titlebar_fg.to_linear()
+            }
+        } else if self.config.window_frame.inactive_fg_is_default() {
+            scheme_fg.mul_alpha(0.7)
+        } else {
+            self.config.window_frame.inactive_titlebar_fg.to_linear()
+        };
         let bar_colors = ElementColors {
             border: BorderColor::default(),
-            bg: if self.focused.is_some() {
-                self.config.window_frame.active_titlebar_bg
-            } else {
-                self.config.window_frame.inactive_titlebar_bg
-            }
-            .to_linear()
-            .into(),
-            text: if self.focused.is_some() {
-                self.config.window_frame.active_titlebar_fg
-            } else {
-                self.config.window_frame.inactive_titlebar_fg
-            }
-            .to_linear()
-            .into(),
+            bg: bar_bg.into(),
+            text: bar_fg.into(),
         };
 
         let item_to_elem = |item: &TabEntry| -> Element {
@@ -482,17 +527,10 @@ impl crate::TermWindow {
         let menu_button = || {
             let new_tab = colors.new_tab();
             let new_tab_hover = colors.new_tab_hover();
-            Element::new(
-                &font,
-                ElementContent::Poly {
-                    line_width: metrics.underline_height.max(2),
-                    poly: SizedPoly {
-                        poly: DROPDOWN_BUTTON,
-                        width: Dimension::Pixels(metrics.cell_size.height as f32 * 0.58),
-                        height: Dimension::Pixels(metrics.cell_size.height as f32 * 0.58),
-                    },
-                },
-            )
+            // ▾ chevron — codicon `cod_chevron_down`, rendered through the
+            // bundled SymbolsNerdFontMono so CoreText's rasterizer does the
+            // anti-aliasing (same path Warp uses for SF Symbols).
+            Element::new(&font, ElementContent::Text("\u{eab4}".to_string()))
             .vertical_align(VerticalAlign::Middle)
             .item_type(UIItemType::TabBar(TabBarItem::MenuButton))
             .margin(BoxDimension {
@@ -520,21 +558,15 @@ impl crate::TermWindow {
             }))
         };
 
-        // v0.40 quick actions, right-aligned: tree / split / dir-jump / settings.
-        let quick_button = |poly: &'static [Poly], action: crate::termwindow::QuickAction| {
+        // Quick actions on the right of the top bar. Each button is a
+        // single Nerd Font glyph (Codicons) rendered through the bundled
+        // SymbolsNerdFontMono — CoreText/FreeType does the AA on the
+        // vector outline, so we get Warp-grade crispness instead of the
+        // jaggy geometric polylines we shipped before.
+        let quick_button = |glyph: &'static str, action: crate::termwindow::QuickAction| {
             let new_tab = colors.new_tab();
             let new_tab_hover = colors.new_tab_hover();
-            Element::new(
-                &font,
-                ElementContent::Poly {
-                    line_width: metrics.underline_height.max(2),
-                    poly: SizedPoly {
-                        poly,
-                        width: Dimension::Pixels(metrics.cell_size.height as f32 * 0.62),
-                        height: Dimension::Pixels(metrics.cell_size.height as f32 * 0.62),
-                    },
-                },
-            )
+            Element::new(&font, ElementContent::Text(glyph.to_string()))
             .vertical_align(VerticalAlign::Middle)
             .item_type(UIItemType::QuickAction(action))
             .margin(BoxDimension {
@@ -563,11 +595,19 @@ impl crate::TermWindow {
         };
         {
             use crate::termwindow::QuickAction as QA;
-            right_eles.push(quick_button(QUICK_TREE, QA::TreeSidebar));
-            right_eles.push(quick_button(QUICK_SPLIT, QA::SplitRight));
-            right_eles.push(quick_button(QUICK_DIRJUMP, QA::DirJump));
-            right_eles.push(quick_button(QUICK_SEARCH, QA::Search));
-            right_eles.push(quick_button(QUICK_SETTINGS, QA::Settings));
+            // Codicons — VS Code's single-weight icon family. Same visual
+            // language as Warp's SF Symbols, but bundled cross-platform via
+            // SymbolsNerdFontMono so Win/Linux look identical.
+            right_eles.push(quick_button("\u{eb6a}", QA::CommandPalette)); // cod_three_bars
+            right_eles.push(quick_button("\u{ebf3}", QA::TreeSidebar));    // cod_layout_sidebar_left
+            right_eles.push(quick_button("\u{eb56}", QA::SplitRight));     // cod_split_horizontal
+            right_eles.push(quick_button("\u{ea83}", QA::DirJump));        // cod_folder
+            right_eles.push(quick_button("\u{ea6d}", QA::Search));         // cod_search
+            right_eles.push(quick_button("\u{eb51}", QA::Settings));       // cod_settings_gear
+            // The ▾ menu sits at the far right after the quick actions —
+            // the design doc's "右侧一排动作 + 一个菜单". The menu still
+            // routes through TabBarItem::MenuButton → show_settings_menu.
+            right_eles.push(menu_button());
         }
 
         // With the left vertical tab bar active, tabs and the + button
@@ -623,7 +663,7 @@ impl crate::TermWindow {
                     if !tabs_at_left {
                         left_eles.push(item_to_elem(item));
                     }
-                    left_eles.push(menu_button());
+                    // Menu moved to the right-side action bar (right_eles).
                 }
                 _ => left_eles.push(item_to_elem(item)),
             }
