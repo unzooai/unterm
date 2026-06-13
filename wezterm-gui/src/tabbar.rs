@@ -148,19 +148,37 @@ fn compute_tab_title(
             let mut len = 0;
 
             if let Some(pane) = &tab.active_pane {
-                let mut title = if tab.tab_title.is_empty() {
+                // Warp-style tab label:  [icon] {agent or shell} · {cwd-basename}
+                // - icon: NF glyph chosen by detect_shell_icon — robot for
+                //   AI-driven panes, codicon terminal variant for shells
+                // - shortname: agent name (e.g. "claude") when an AI agent
+                //   has bound this pane, otherwise the pane's own title
+                //   (which on a fresh shell is just the process name)
+                // - cwd-basename: last component of the active pane's cwd
+                //   ("~" for home, omitted for unknown/remote panes)
+                let pane_title = if tab.tab_title.is_empty() {
                     pane.title.clone()
                 } else {
                     tab.tab_title.clone()
                 };
 
-                // Unterm: prepend shell icon based on process name
-                let shell_icon = detect_shell_icon(&title);
+                let agent_name = crate::mcp::handler::agent_for_pane(pane.pane_id as u64);
+                let cwd_short = pane_cwd_basename(pane.pane_id);
+
+                let icon_source = agent_name.as_deref().unwrap_or(&pane_title);
+                let shell_icon = detect_shell_icon(icon_source);
                 if !shell_icon.is_empty() {
                     let icon_text = format!("{} ", shell_icon);
                     len += unicode_column_width(&icon_text, None);
                     items.push(FormatItem::Text(icon_text));
                 }
+
+                let mut title = match (&agent_name, &cwd_short) {
+                    (Some(agent), Some(dir)) => format!("{agent} · {dir}"),
+                    (Some(agent), None) => agent.clone(),
+                    (None, Some(dir)) => format!("{pane_title} · {dir}"),
+                    (None, None) => pane_title,
+                };
 
                 // Unterm: red dot when this pane has an active recording.
                 if crate::recording::recorder::current_session(pane.pane_id).is_some() {
@@ -749,35 +767,57 @@ pub fn parse_status_text(text: &str, default_cell: CellAttributes) -> Line {
     Line::from_cells(cells, SEQ_ZERO)
 }
 
-/// Detect shell type from pane title and return a compact icon.
+/// Warp-style tab leading glyph. Returns a single Nerd Font codepoint
+/// rendered by the bundled SymbolsNerdFontMono — same path as the
+/// quick-action bar so the chrome reads as one consistent family.
+///
+/// AI-driven panes get the robot; everything else maps to a Codicons
+/// terminal variant. Empty string when nothing matches (no icon shown).
 pub fn detect_shell_icon(title: &str) -> &'static str {
     let lower = title.to_lowercase();
-    // Check for common process names in the title
-    if lower.contains("pwsh") || lower.contains("powershell") {
-        "PS"
+    // AI agents — covered here for completeness when the agent registry
+    // hasn't bound the pane yet (e.g. early frames before the MCP
+    // detection lands). Agent-bound panes also flow through this fn.
+    if lower.contains("claude") || lower.contains("codex") || lower.contains("gemini")
+        || lower.contains("aider") || lower.contains("opencode") || lower.contains("cursor agent")
+    {
+        "\u{f06a9}" // md_robot
+    } else if lower.contains("pwsh") || lower.contains("powershell") {
+        "\u{ebc7}" // cod_terminal_powershell
     } else if lower.contains("cmd.exe") || lower.contains("command prompt") {
-        ">_"
+        "\u{ebc4}" // cod_terminal_cmd
     } else if lower.contains("bash") || lower.contains("git bash") {
-        "$"
-    } else if lower.contains("zsh") {
-        "%"
-    } else if lower.contains("fish") {
-        "><"
-    } else if lower.contains("nushell") || lower.contains("nu.exe") || lower.ends_with(" nu") {
-        "nu"
+        "\u{ebca}" // cod_terminal_bash
+    } else if lower.contains("ssh") {
+        "\u{eb3a}" // cod_remote
+    } else if lower.contains("zsh") || lower.contains("fish") || lower.contains("nushell")
+        || lower.contains("nu.exe") || lower.ends_with(" nu") || lower.contains("wsl")
+    {
+        "\u{ea85}" // cod_terminal
     } else if lower.contains("python") || lower.contains("python3") || lower.contains("ipython") {
-        "Py"
+        "\u{ea85}"
     } else if lower.contains("node") || lower.contains("nodejs") {
-        "JS"
+        "\u{ea85}"
     } else if lower.contains("vim") || lower.contains("nvim") || lower.contains("neovim") {
-        "Vi"
+        "\u{ea85}"
     } else if lower.contains("htop") || lower.contains("btop") || lower.contains("top") {
         ""
-    } else if lower.contains("ssh") {
-        "@"
-    } else if lower.contains("wsl") {
-        "~"
     } else {
-        ""
+        "\u{ea85}" // generic terminal — beats an empty leading slot
     }
+}
+
+/// Last component of the active pane's working directory ("~" for the
+/// user's home, None when the cwd is unknown or remote). Used by the
+/// Warp-style tab label so each tab carries its location.
+pub fn pane_cwd_basename(pane_id: mux::pane::PaneId) -> Option<String> {
+    let mux = mux::Mux::get();
+    let pane = mux.get_pane(pane_id)?;
+    let url = pane.get_current_working_dir(mux::pane::CachePolicy::AllowStale)?;
+    let path = url.to_file_path().ok()?;
+    let home = dirs_next::home_dir();
+    if home.as_deref() == Some(path.as_path()) {
+        return Some("~".to_string());
+    }
+    path.file_name().map(|n| n.to_string_lossy().to_string())
 }
