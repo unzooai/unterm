@@ -192,6 +192,11 @@ enum SubCommand {
         /// Include Unterm's own window in the capture (default: exclude).
         #[arg(long = "include-window")]
         include_window: bool,
+        /// Capture only Unterm's own window, not the whole screen. Uses the
+        /// running server's CGWindowID — works even when Unterm isn't the
+        /// frontmost app and never depends on what's behind it.
+        #[arg(long = "self", conflicts_with_all = ["scrollback", "scroll_app", "scroll_title", "scroll_pid"])]
+        self_window: bool,
         /// In-terminal long screenshot: render the pane's ENTIRE scrollback
         /// to one tall PNG (headless re-render; window may be occluded).
         #[arg(long = "scrollback")]
@@ -893,6 +898,7 @@ fn run() -> anyhow::Result<()> {
         SubCommand::Sessions(cmd) => unterm_cli::run_sessions(cmd, opts.json),
         SubCommand::Screenshot {
             include_window,
+            self_window,
             output,
             scrollback,
             pane,
@@ -905,6 +911,7 @@ fn run() -> anyhow::Result<()> {
         } => unterm_cli::run_screenshot(
             unterm_cli::ScreenshotArgs {
                 include_window,
+                self_window,
                 output,
                 scrollback,
                 pane,

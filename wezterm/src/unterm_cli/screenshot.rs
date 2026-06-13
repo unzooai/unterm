@@ -17,6 +17,9 @@ use std::path::PathBuf;
 #[derive(Default)]
 pub struct ScreenshotArgs {
     pub include_window: bool,
+    /// Capture only Unterm's own window via the server's CGWindowID.
+    /// Independent of foreground state — no screencapture(1) framing.
+    pub self_window: bool,
     pub output: Option<PathBuf>,
     // in-terminal long screenshot
     pub scrollback: bool,
@@ -37,7 +40,12 @@ pub fn run(args: ScreenshotArgs, json_out: bool) -> Result<()> {
         || args.scroll_title.is_some()
         || args.scroll_pid.is_some();
 
-    let result = if args.scrollback {
+    let result = if args.self_window {
+        // `capture.window` with no filters defaults to the server's own pid
+        // → captures Unterm's window via CGWindowList without requiring
+        // foreground or any UI framing.
+        client.call("capture.window", json!({ "include_base64": false }))?
+    } else if args.scrollback {
         let mut params = json!({});
         if let Some(id) = args.pane {
             params["id"] = json!(id);
