@@ -279,71 +279,28 @@ impl crate::TermWindow {
         for row in rows.iter().skip(scroll_top).take(visible_rows) {
             let title_fg = if row.active { fg } else { fg.mul_alpha(0.82) };
 
-            // Row-leading indicator. AI-driven panes keep the colored
-            // chip with the agent's initial — that's the row's accent
-            // and the at-a-glance "this one is busy" signal. Idle rows
-            // drop the chip background entirely (it read as a stray "+"
-            // against the dim glyph at small sizes) and just show a
-            // longer "→" arrow, like a list bullet pointing at the
-            // title.
-            let chip_px = 16. * pt;
-            let chip_radius = Dimension::Pixels(chip_px / 2.);
-            let circle = || {
-                Some(Corners {
-                    top_left: SizedPoly {
-                        width: chip_radius,
-                        height: chip_radius,
-                        poly: TOP_LEFT_ROUNDED_CORNER,
-                    },
-                    top_right: SizedPoly {
-                        width: chip_radius,
-                        height: chip_radius,
-                        poly: TOP_RIGHT_ROUNDED_CORNER,
-                    },
-                    bottom_left: SizedPoly {
-                        width: chip_radius,
-                        height: chip_radius,
-                        poly: BOTTOM_LEFT_ROUNDED_CORNER,
-                    },
-                    bottom_right: SizedPoly {
-                        width: chip_radius,
-                        height: chip_radius,
-                        poly: BOTTOM_RIGHT_ROUNDED_CORNER,
-                    },
-                })
-            };
-            let dot = if let Some(agent) = &row.agent {
-                let initial = agent
-                    .chars()
-                    .find(|c| c.is_alphanumeric())
-                    .map(|c| c.to_ascii_uppercase().to_string())
-                    .unwrap_or_else(|| "•".to_string());
-                Element::new(&font, ElementContent::Text(initial))
+            // Row-leading indicator. AI-driven panes show a saturated
+            // bullet `●` in the agent's accent color — same encoding
+            // as before, just stripped of the box/letter scaffolding
+            // that read as "messy" in user feedback. Idle rows keep
+            // the wider `→` arrow.
+            let dot = if row.agent.is_some() {
+                Element::new(&font, ElementContent::Text("●".to_string()))
                     .vertical_align(VerticalAlign::Middle)
-                    .min_width(Some(Dimension::Pixels(chip_px)))
-                    .min_height(Some(Dimension::Pixels(chip_px)))
-                    .border_corners(circle())
                     .margin(BoxDimension {
                         left: Dimension::Pixels(0.),
                         right: Dimension::Pixels(8. * pt),
                         top: Dimension::Pixels(0.),
                         bottom: Dimension::Pixels(0.),
                     })
-                    .padding(BoxDimension {
-                        left: Dimension::Pixels(5. * pt),
-                        right: Dimension::Pixels(0.),
-                        top: Dimension::Pixels(1.5 * pt),
-                        bottom: Dimension::Pixels(0.),
-                    })
                     .colors(ElementColors {
                         border: BorderColor::default(),
-                        bg: agent_color.into(),
-                        text: bg.into(),
+                        bg: LinearRgba::TRANSPARENT.into(),
+                        text: agent_color.into(),
                     })
             } else {
                 Element::new(&font, ElementContent::Text("→".to_string()))
                     .vertical_align(VerticalAlign::Middle)
-                    .min_width(Some(Dimension::Pixels(chip_px)))
                     .margin(BoxDimension {
                         left: Dimension::Pixels(0.),
                         right: Dimension::Pixels(8. * pt),
@@ -357,36 +314,32 @@ impl crate::TermWindow {
                     })
             };
 
-            // Title line: dot + title flow inline; the line itself is a
-            // block so the subtitle drops beneath it.
-            let title_text = if row.title.is_empty() {
+            // Row label: when an AI agent is bound, the agent name
+            // *is* the title — pane.title is usually "Claude Code" or
+            // similar and just duplicates the agent name. Drop the
+            // duplicate; the bullet's accent color encodes "agent",
+            // the agent name carries the wordmark, the cwd trails dim.
+            // Idle rows fall back to the pane title.
+            let primary_text = if let Some(agent) = &row.agent {
+                agent.clone()
+            } else if row.title.is_empty() {
                 "shell".to_string()
             } else {
                 row.title.clone()
             };
-            let title_el = Element::new(&font, ElementContent::Text(title_text)).colors(
+            let primary_color = if row.agent.is_some() {
+                agent_color
+            } else {
+                title_fg
+            };
+            let title_el = Element::new(&font, ElementContent::Text(primary_text)).colors(
                 ElementColors {
                     border: BorderColor::default(),
                     bg: LinearRgba::TRANSPARENT.into(),
-                    text: title_fg.into(),
+                    text: primary_color.into(),
                 },
             );
-            // Single-line row: chip / arrow + title + optional `agent`
-            // + optional `· cwd`, all flowing inline. The earlier
-            // two-line layout left an awkward second indented row when
-            // an agent was bound; one line reads cleaner.
             let mut line_kids: Vec<Element> = vec![dot, title_el];
-            if let Some(agent) = &row.agent {
-                line_kids.push(
-                    Element::new(&font, ElementContent::Text(format!("  {agent}"))).colors(
-                        ElementColors {
-                            border: BorderColor::default(),
-                            bg: LinearRgba::TRANSPARENT.into(),
-                            text: agent_color.into(),
-                        },
-                    ),
-                );
-            }
             if let Some(dir) = &row.dir {
                 line_kids.push(
                     Element::new(&font, ElementContent::Text(format!("  · {dir}"))).colors(

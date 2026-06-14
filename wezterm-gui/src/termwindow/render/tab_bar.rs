@@ -107,11 +107,13 @@ impl crate::TermWindow {
     ) -> anyhow::Result<f32> {
         if config.use_fancy_tab_bar {
             let font = fontconfig.title_font()?;
-            // 1.8× cell_height — combined with the stats bar's 1.0×
-            // this lands at ~2.8× total chrome (~88 px retina @ 13pt),
-            // slightly tighter than Warp's ~100 px. User feedback was
-            // that 2.05+1.15 still felt tall.
-            Ok((font.metrics().cell_height.get() as f32 * 1.8).ceil())
+            // 1.6× cell_height — combined with the stats bar's 1.0×
+            // this caps total chrome at ~2.6× cell (~80 px retina @
+            // 13 pt). Three rounds of user feedback ("还是有点高")
+            // bottomed the multiplier out at "icons still fit and
+            // breathe, nothing else"; lower and the 6 quick actions
+            // start touching the bar's top edge.
+            Ok((font.metrics().cell_height.get() as f32 * 1.6).ceil())
         } else {
             Ok(render_metrics.cell_size.height as f32)
         }
