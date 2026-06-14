@@ -21,11 +21,22 @@
 //! window dominates the cost.
 
 use parking_lot::Mutex;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
+
+/// Set of cache keys currently being refreshed off the render thread.
+/// Stops a paint storm from spawning N threads for the same query.
+fn inflight_git() -> &'static Mutex<HashSet<PathBuf>> {
+    static S: OnceLock<Mutex<HashSet<PathBuf>>> = OnceLock::new();
+    S.get_or_init(|| Mutex::new(HashSet::new()))
+}
+fn inflight_proc() -> &'static Mutex<HashSet<u32>> {
+    static S: OnceLock<Mutex<HashSet<u32>>> = OnceLock::new();
+    S.get_or_init(|| Mutex::new(HashSet::new()))
+}
 
 /// One snapshot of a repo's git status, plus when it was taken.
 #[derive(Clone, Debug)]
@@ -55,22 +66,43 @@ fn git_cache() -> &'static Mutex<GitCache> {
     CACHE.get_or_init(|| Mutex::new(GitCache::default()))
 }
 
-/// Resolve git status for `cwd`. Returns None when the directory is
-/// outside any repo (so the bar can hide the column instead of
-/// showing an empty placeholder).
+/// Resolve git status for `cwd`. Returns whatever's in the cache
+/// immediately (cloned), and kicks a background refresh if the cache
+/// is stale or empty — the render thread never blocks on `git`. The
+/// first paint after a cwd change shows None ("—") for a few ms while
+/// the worker fetches, then subsequent paints pick up the fresh value.
 pub fn git_status_for(cwd: &Path) -> Option<GitStatus> {
+    let need_refresh;
+    let cached;
     {
         let cache = git_cache().lock();
-        if let Some((at, status)) = cache.by_cwd.get(cwd) {
-            if at.elapsed() < GIT_CACHE_TTL {
+        match cache.by_cwd.get(cwd) {
+            Some((at, status)) if at.elapsed() < GIT_CACHE_TTL => {
                 return status.clone();
+            }
+            Some((_, status)) => {
+                cached = status.clone();
+                need_refresh = true;
+            }
+            None => {
+                cached = None;
+                need_refresh = true;
             }
         }
     }
-    let fresh = compute_git_status(cwd);
-    let mut cache = git_cache().lock();
-    cache.by_cwd.insert(cwd.to_path_buf(), (Instant::now(), fresh.clone()));
-    fresh
+    if need_refresh {
+        let mut inflight = inflight_git().lock();
+        if inflight.insert(cwd.to_path_buf()) {
+            let cwd_owned = cwd.to_path_buf();
+            std::thread::spawn(move || {
+                let fresh = compute_git_status(&cwd_owned);
+                let mut cache = git_cache().lock();
+                cache.by_cwd.insert(cwd_owned.clone(), (Instant::now(), fresh));
+                inflight_git().lock().remove(&cwd_owned);
+            });
+        }
+    }
+    cached
 }
 
 fn compute_git_status(cwd: &Path) -> Option<GitStatus> {
@@ -174,20 +206,40 @@ fn proc_cache() -> &'static Mutex<ProcCache> {
     CACHE.get_or_init(|| Mutex::new(ProcCache::default()))
 }
 
-/// Resolve process status for `pid`. Cached for 2 s like git status.
+/// Resolve process status for `pid`. Cached for 2 s; stale lookups
+/// kick a background refresh and return the stale value, so the
+/// render thread never blocks on `ps`.
 pub fn proc_status_for(pid: u32) -> Option<ProcStatus> {
+    let need_refresh;
+    let cached;
     {
         let cache = proc_cache().lock();
-        if let Some((at, status)) = cache.by_pid.get(&pid) {
-            if at.elapsed() < PROC_CACHE_TTL {
+        match cache.by_pid.get(&pid) {
+            Some((at, status)) if at.elapsed() < PROC_CACHE_TTL => {
                 return status.clone();
+            }
+            Some((_, status)) => {
+                cached = status.clone();
+                need_refresh = true;
+            }
+            None => {
+                cached = None;
+                need_refresh = true;
             }
         }
     }
-    let fresh = compute_proc_status(pid);
-    let mut cache = proc_cache().lock();
-    cache.by_pid.insert(pid, (Instant::now(), fresh.clone()));
-    fresh
+    if need_refresh {
+        let mut inflight = inflight_proc().lock();
+        if inflight.insert(pid) {
+            std::thread::spawn(move || {
+                let fresh = compute_proc_status(pid);
+                let mut cache = proc_cache().lock();
+                cache.by_pid.insert(pid, (Instant::now(), fresh));
+                inflight_proc().lock().remove(&pid);
+            });
+        }
+    }
+    cached
 }
 
 fn compute_proc_status(pid: u32) -> Option<ProcStatus> {
