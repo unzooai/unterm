@@ -462,10 +462,48 @@ impl crate::TermWindow {
             );
         }
 
-        // Trailing "+" row → existing NewTabButton routing spawns a tab.
+        // Trailing "+   ▾" row → the "+" spawns a default-shell tab, the
+        // chevron opens the shell selector. Two elements share the row
+        // so the picker is visually discoverable instead of buried behind
+        // right-click muscle memory.
+        let plus_cell = Element::new(&font, ElementContent::Text("+".to_string()))
+            .item_type(UIItemType::TabBar(crate::tabbar::TabBarItem::NewTabButton))
+            .padding(BoxDimension {
+                left: Dimension::Pixels(row_pad),
+                right: Dimension::Pixels(row_pad / 2.),
+                top: Dimension::Pixels(row_pad / 2.),
+                bottom: Dimension::Pixels(row_pad / 2.),
+            })
+            .colors(ElementColors {
+                border: BorderColor::default(),
+                bg: LinearRgba::TRANSPARENT.into(),
+                text: dim.into(),
+            })
+            .hover_colors(Some(ElementColors {
+                border: BorderColor::default(),
+                bg: hover_bg.into(),
+                text: fg.into(),
+            }));
+        let chevron_cell = Element::new(&font, ElementContent::Text("▾".to_string()))
+            .item_type(UIItemType::NewTabShellSelector)
+            .padding(BoxDimension {
+                left: Dimension::Pixels(row_pad / 2.),
+                right: Dimension::Pixels(row_pad),
+                top: Dimension::Pixels(row_pad / 2.),
+                bottom: Dimension::Pixels(row_pad / 2.),
+            })
+            .colors(ElementColors {
+                border: BorderColor::default(),
+                bg: LinearRgba::TRANSPARENT.into(),
+                text: dim.into(),
+            })
+            .hover_colors(Some(ElementColors {
+                border: BorderColor::default(),
+                bg: hover_bg.into(),
+                text: fg.into(),
+            }));
         children.push(
-            Element::new(&font, ElementContent::Text("+".to_string()))
-                .item_type(UIItemType::TabBar(crate::tabbar::TabBarItem::NewTabButton))
+            Element::new(&font, ElementContent::Children(vec![plus_cell, chevron_cell]))
                 .display(DisplayType::Block)
                 .min_width(Some(Dimension::Percent(1.)))
                 .margin(BoxDimension {
@@ -474,26 +512,13 @@ impl crate::TermWindow {
                     top: Dimension::Pixels(2. * pt),
                     bottom: Dimension::Pixels(2. * pt),
                 })
-                .padding(BoxDimension {
-                    left: Dimension::Pixels(row_pad),
-                    right: Dimension::Pixels(row_pad),
-                    top: Dimension::Pixels(row_pad / 2.),
-                    bottom: Dimension::Pixels(row_pad / 2.),
-                })
                 .border(BoxDimension::new(Dimension::Pixels(1.)))
                 .border_corners(rounded())
-                // Quiet by default — just the "+" glyph, no heavy filled
-                // bar; a subtle fill appears on hover.
                 .colors(ElementColors {
                     border: BorderColor::new(LinearRgba::TRANSPARENT),
                     bg: LinearRgba::TRANSPARENT.into(),
                     text: dim.into(),
-                })
-                .hover_colors(Some(ElementColors {
-                    border: BorderColor::new(LinearRgba::TRANSPARENT),
-                    bg: hover_bg.into(),
-                    text: fg.into(),
-                })),
+                }),
         );
 
         let container = Element::new(&font, ElementContent::Children(children))

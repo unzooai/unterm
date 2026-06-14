@@ -223,6 +223,11 @@ pub enum UIItemType {
     TreeSidebarHeader,
     /// Top-bar quick action buttons (v0.40 "C").
     QuickAction(QuickAction),
+    /// The ▾ chevron next to the sidebar's "+" row. Click opens the shell
+    /// selector — same surface as right-click on "+" / Ctrl+Shift+N, just
+    /// visually discoverable. Left-click stays bound to "+" itself, which
+    /// keeps default-shell-new-tab a single click.
+    NewTabShellSelector,
     /// The popup menu card itself — swallows clicks that miss every row so
     /// they don't fall through to the pane below.
     PopupMenuCard,

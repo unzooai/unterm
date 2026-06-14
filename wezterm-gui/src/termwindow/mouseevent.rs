@@ -69,6 +69,7 @@ impl super::TermWindow {
             | UIItemType::LeftTabBarResize
             | UIItemType::LeftTabBarBg
             | UIItemType::QuickAction(_)
+            | UIItemType::NewTabShellSelector
             | UIItemType::PopupMenuCard => {}
         }
     }
@@ -99,6 +100,7 @@ impl super::TermWindow {
             | UIItemType::LeftTabBarResize
             | UIItemType::LeftTabBarBg
             | UIItemType::QuickAction(_)
+            | UIItemType::NewTabShellSelector
             | UIItemType::PopupMenuCard => {}
         }
     }
@@ -580,6 +582,11 @@ impl super::TermWindow {
                         }
                         QA::Settings => self.open_web_settings(),
                     }
+                }
+            }
+            UIItemType::NewTabShellSelector => {
+                if let WMEK::Press(MousePress::Left) = event.kind {
+                    self.show_shell_selector();
                 }
             }
             UIItemType::CloseSplitPane(pane_id) => {
