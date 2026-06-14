@@ -220,5 +220,6 @@
   "settings.menu.open_folder_split": "Ordner in Split öffnen",
   "settings.menu.open_folder_split.hint": "Ordner wählen → rechts mit diesem CWD",
   "project.prompt_split": "Ordner zum Öffnen als Split auswählen.",
-  "menu.about_author": "Über / Autor"
+  "menu.about_author": "Über / Autor",
+  "sidebar.author_caption": "Von DO AI PM"
 }

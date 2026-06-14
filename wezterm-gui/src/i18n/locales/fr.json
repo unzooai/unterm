@@ -220,5 +220,6 @@
   "settings.menu.open_folder_split": "Ouvrir dossier en fractionné",
   "settings.menu.open_folder_split.hint": "choisir un dossier → splitter à droite avec ce CWD",
   "project.prompt_split": "Sélectionnez un dossier à ouvrir en fractionné.",
-  "menu.about_author": "À propos / Auteur"
+  "menu.about_author": "À propos / Auteur",
+  "sidebar.author_caption": "Conçu par DO AI PM"
 }

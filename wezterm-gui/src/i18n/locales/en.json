@@ -78,6 +78,7 @@
   "menu.tree_sidebar": "Directory Tree",
   "menu.left_tabs": "Left Tab Bar",
   "menu.about_author": "About / Author",
+  "sidebar.author_caption": "Made by DO AI PM",
   "profile.toast.no_profiles": "No profiles yet. Create one: `unterm-cli profile create \"Work\"`.",
   "profile.toast.opening_window": "Opening new window in {name}",
   "profile.toast.registry_load_failed": "Couldn't load profile registry. Try `unterm-cli profile list`.",

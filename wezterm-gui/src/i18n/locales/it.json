@@ -220,5 +220,6 @@
   "settings.menu.open_folder_split": "Apri cartella in split",
   "settings.menu.open_folder_split.hint": "scegli cartella → split destro con quel CWD",
   "project.prompt_split": "Seleziona una cartella da aprire come split.",
-  "menu.about_author": "Informazioni / Autore"
+  "menu.about_author": "Informazioni / Autore",
+  "sidebar.author_caption": "Di DO AI PM"
 }

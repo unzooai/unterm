@@ -220,5 +220,6 @@
   "settings.menu.open_folder_split": "फ़ोल्डर को स्प्लिट में खोलें",
   "settings.menu.open_folder_split.hint": "फ़ोल्डर चुनें → उस cwd के साथ दाईं ओर स्प्लिट",
   "project.prompt_split": "स्प्लिट के रूप में खोलने के लिए फ़ोल्डर चुनें।",
-  "menu.about_author": "के बारे में / लेखक"
+  "menu.about_author": "के बारे में / लेखक",
+  "sidebar.author_caption": "DO AI PM द्वारा"
 }
