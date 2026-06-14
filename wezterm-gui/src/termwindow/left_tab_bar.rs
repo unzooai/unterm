@@ -241,11 +241,18 @@ impl crate::TermWindow {
                         }
                     };
                     let (agent, dir) = match &pane {
-                        Some(p) => (
-                            crate::mcp::handler::agent_for_pane(p.pane_id() as u64),
-                            super::pane_cwd_path(p)
-                                .and_then(|pp| pp.file_name().map(|n| n.to_string_lossy().to_string())),
-                        ),
+                        Some(p) => {
+                            let proc_info = p.get_foreground_process_info(
+                                mux::pane::CachePolicy::AllowStale,
+                            );
+                            let agent = crate::mcp::handler::detect_agent_for_pane(
+                                p.pane_id() as u64,
+                                proc_info.as_ref(),
+                            );
+                            let dir = super::pane_cwd_path(p)
+                                .and_then(|pp| pp.file_name().map(|n| n.to_string_lossy().to_string()));
+                            (agent, dir)
+                        }
                         None => (None, None),
                     };
                     RowInfo {

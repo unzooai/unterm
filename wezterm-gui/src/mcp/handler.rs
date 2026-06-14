@@ -583,6 +583,61 @@ pub fn agent_for_pane(pane_id: u64) -> Option<String> {
     })
 }
 
+/// Resolve the AI agent driving a pane. Tries MCP first (an external
+/// agent calling session.input / exec.send registers itself there),
+/// then falls back to inspecting the pane's foreground process tree
+/// — for in-pane CLIs like `claude`, `codex`, `gemini`, `aider`,
+/// `opencode`, `cursor-agent`. The MCP path only fires when an
+/// external agent writes to a pane; an interactive in-tab CLI is
+/// invisible to MCP, so without the process-tree check the chip
+/// never lit up for the most common case.
+pub fn detect_agent_for_pane(
+    pane_id: u64,
+    proc_info: Option<&procinfo::LocalProcessInfo>,
+) -> Option<String> {
+    if let Some(name) = agent_for_pane(pane_id) {
+        return Some(name);
+    }
+    let info = proc_info?;
+    fn match_name(name: &str) -> Option<&'static str> {
+        let lower = name.to_ascii_lowercase();
+        // Strip a leading path / common extensions so "claude.exe" /
+        // "/usr/local/bin/claude" both hit.
+        let bare = std::path::Path::new(&lower)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(&lower);
+        match bare {
+            "claude" => Some("claude"),
+            "codex" => Some("codex"),
+            "gemini" => Some("gemini"),
+            "aider" => Some("aider"),
+            "opencode" => Some("opencode"),
+            "cursor-agent" | "cursoragent" => Some("cursor-agent"),
+            _ => None,
+        }
+    }
+    fn walk(p: &procinfo::LocalProcessInfo) -> Option<String> {
+        if let Some(hit) = match_name(&p.name) {
+            return Some(hit.to_string());
+        }
+        // Also peek the first argv element — some launchers exec a
+        // wrapper script whose process name doesn't match the agent.
+        if let Some(arg0) = p.argv.first() {
+            if let Some(hit) = match_name(arg0) {
+                return Some(hit.to_string());
+            }
+        }
+        for child in p.children.values() {
+            if let Some(hit) = walk(child) {
+                return Some(hit);
+            }
+        }
+        None
+    }
+    walk(info)
+}
+
 pub fn pending_suggestions_for_pane(pane_id: u64) -> Vec<Suggestion> {
     let mut state = mcp_state().lock();
     let now = chrono::Local::now();

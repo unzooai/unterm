@@ -162,7 +162,18 @@ fn compute_tab_title(
                     tab.tab_title.clone()
                 };
 
-                let agent_name = crate::mcp::handler::agent_for_pane(pane.pane_id as u64);
+                // Combine MCP-based detection with foreground-process tree
+                // inspection so in-tab agents (`claude` / `codex` /
+                // `gemini` / `aider` / `opencode` / `cursor-agent`) light
+                // up the chip even when they never call MCP write
+                // methods themselves.
+                let proc_info = mux::Mux::get()
+                    .get_pane(pane.pane_id)
+                    .and_then(|p| p.get_foreground_process_info(mux::pane::CachePolicy::AllowStale));
+                let agent_name = crate::mcp::handler::detect_agent_for_pane(
+                    pane.pane_id as u64,
+                    proc_info.as_ref(),
+                );
                 let cwd_short = pane_cwd_basename(pane.pane_id);
 
                 let icon_source = agent_name.as_deref().unwrap_or(&pane_title);
