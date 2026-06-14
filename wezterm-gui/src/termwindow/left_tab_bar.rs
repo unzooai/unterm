@@ -371,28 +371,14 @@ impl crate::TermWindow {
                     text: title_fg.into(),
                 },
             );
-            // Insets live on the content (not the row) because this box
-            // model's rounded background fills only the content box — row
-            // padding would leave a gap inside the border. 8px left + 6px
-            // top reproduce Warp's uniform-8 breathing room.
-            let title_line = Element::new(&font, ElementContent::Children(vec![dot, title_el]))
-                .display(DisplayType::Block)
-                .min_width(Some(Dimension::Percent(1.)))
-                .padding(BoxDimension {
-                    left: Dimension::Pixels(8. * pt),
-                    right: Dimension::Pixels(8. * pt),
-                    top: Dimension::Pixels(6. * pt),
-                    bottom: Dimension::Pixels(0.),
-                });
-
-            // Subtitle line: "agent · dir", agent in cyan, dir dimmed.
-            // Left-inset to sit under the title text (panel pad 8 + chip 16
-            // + gap 8 = 32).
-            let indent = 32. * pt;
-            let mut sub_kids = vec![];
+            // Single-line row: chip / arrow + title + optional `agent`
+            // + optional `· cwd`, all flowing inline. The earlier
+            // two-line layout left an awkward second indented row when
+            // an agent was bound; one line reads cleaner.
+            let mut line_kids: Vec<Element> = vec![dot, title_el];
             if let Some(agent) = &row.agent {
-                sub_kids.push(
-                    Element::new(&font, ElementContent::Text(agent.clone())).colors(
+                line_kids.push(
+                    Element::new(&font, ElementContent::Text(format!("  {agent}"))).colors(
                         ElementColors {
                             border: BorderColor::default(),
                             bg: LinearRgba::TRANSPARENT.into(),
@@ -400,42 +386,35 @@ impl crate::TermWindow {
                         },
                     ),
                 );
-                if row.dir.is_some() {
-                    sub_kids.push(
-                        Element::new(&font, ElementContent::Text(" · ".to_string())).colors(
-                            ElementColors {
-                                border: BorderColor::default(),
-                                bg: LinearRgba::TRANSPARENT.into(),
-                                text: dim.into(),
-                            },
-                        ),
-                    );
-                }
             }
-            sub_kids.push(
-                Element::new(
-                    &font,
-                    ElementContent::Text(row.dir.clone().unwrap_or_else(|| " ".to_string())),
-                )
-                .colors(ElementColors {
-                    border: BorderColor::default(),
-                    bg: LinearRgba::TRANSPARENT.into(),
-                    text: dim.into(),
-                }),
-            );
-            let subtitle_line = Element::new(&font, ElementContent::Children(sub_kids))
+            if let Some(dir) = &row.dir {
+                line_kids.push(
+                    Element::new(&font, ElementContent::Text(format!("  · {dir}"))).colors(
+                        ElementColors {
+                            border: BorderColor::default(),
+                            bg: LinearRgba::TRANSPARENT.into(),
+                            text: dim.into(),
+                        },
+                    ),
+                );
+            }
+            // Insets live on the content (not the row) because this box
+            // model's rounded background fills only the content box — row
+            // padding would leave a gap inside the border. 8px left + 6px
+            // top reproduce Warp's uniform-8 breathing room.
+            let title_line = Element::new(&font, ElementContent::Children(line_kids))
                 .display(DisplayType::Block)
                 .min_width(Some(Dimension::Percent(1.)))
                 .padding(BoxDimension {
-                    left: Dimension::Pixels(indent),
+                    left: Dimension::Pixels(8. * pt),
                     right: Dimension::Pixels(8. * pt),
-                    top: Dimension::Pixels(2. * pt),
+                    top: Dimension::Pixels(6. * pt),
                     bottom: Dimension::Pixels(6. * pt),
                 });
 
             // No inline close button — Warp's vertical-tab rows have none;
             // closing is via the right-click context menu.
-            let kids = vec![title_line, subtitle_line];
+            let kids = vec![title_line];
 
             // Selected row: fg_overlay_2 fill + fg_overlay_3 1px border,
             // rounded — Warp's restrained greyscale selection, not a

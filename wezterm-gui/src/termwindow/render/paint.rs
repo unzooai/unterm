@@ -197,8 +197,37 @@ impl crate::TermWindow {
             .and_then(|p| top_stats_bar::proc_status_for(p.pid))
             .map(|s| top_stats_bar::render_proc_segment(&Some(s)))
             .unwrap_or_default();
+        // Phase 3 — AI agent indicator. Same detector as the sidebar
+        // chip, so the strip lights up the moment an in-pane CLI
+        // (`claude` / `codex` / …) is foreground.
+        let pane_id = active.as_ref().map(|p| p.pane_id() as u64);
+        let agent_text = pane_id
+            .and_then(|id| {
+                crate::mcp::handler::detect_agent_for_pane(id, proc_info.as_ref())
+            })
+            .map(|name| format!("⚡ {name}"))
+            .unwrap_or_default();
+        // Phase 4 — pane title as proxy for the current command.
+        // Shells with PS1 hooks push the running command's name through
+        // OSC 2, so the title is a cheap "what is this pane doing"
+        // signal. Hidden when it's just the shell name we already
+        // render in the bottom status bar.
+        let title_text = active
+            .as_ref()
+            .map(|p| p.get_title())
+            .map(|t| {
+                let trimmed = t.trim().to_string();
+                if trimmed.is_empty()
+                    || matches!(trimmed.as_str(), "zsh" | "bash" | "fish" | "nu" | "sh")
+                {
+                    String::new()
+                } else {
+                    format!("▶ {trimmed}")
+                }
+            })
+            .unwrap_or_default();
         // Vec, not array — `[T; N].into_iter()` yields &T under edition 2018.
-        let segments: Vec<String> = vec![git_text, proc_text]
+        let segments: Vec<String> = vec![agent_text, git_text, proc_text, title_text]
             .into_iter()
             .filter(|s| !s.is_empty())
             .collect();
