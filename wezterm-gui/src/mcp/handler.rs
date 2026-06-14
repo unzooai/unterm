@@ -4880,9 +4880,39 @@ fn capture_window_image(
     // CGWindowListCopyWindowInfo. If neither filter is supplied, fall back
     // to the calling process's own pid (i.e. capture this Unterm window).
     let target_pid = pid_filter.unwrap_or_else(std::process::id);
-    let window_id = match find_cg_window_id(target_pid, title_filter) {
-        Ok(Some(id)) => id,
-        Ok(None) => {
+    let is_self = target_pid == std::process::id();
+    // Self-capture race: right after window creation, the NSWindow exists
+    // but CGWindowList may not yet flag it onScreen, so find returns None
+    // and the caller silently gets a full-screen fallback instead of their
+    // own chrome. For self-targets we briefly retry — five 120 ms ticks
+    // (~600 ms ceiling) covers every startup we've measured. External-pid
+    // captures still single-shot to avoid blocking on a wrong pid.
+    let attempts = if is_self { 5 } else { 1 };
+    let mut window_id_opt = None;
+    let mut last_err = None;
+    for attempt in 0..attempts {
+        match find_cg_window_id(target_pid, title_filter) {
+            Ok(Some(id)) => {
+                window_id_opt = Some(id);
+                break;
+            }
+            Ok(None) => {
+                if attempt + 1 < attempts {
+                    std::thread::sleep(std::time::Duration::from_millis(120));
+                }
+            }
+            Err(err) => {
+                last_err = Some(err);
+                break;
+            }
+        }
+    }
+    if let Some(err) = last_err {
+        return Err(err);
+    }
+    let window_id = match window_id_opt {
+        Some(id) => id,
+        None => {
             // No matching on-screen window — degrade to full-screen capture so
             // the caller still gets pixels rather than an error.
             let mut value = capture_screen_image(false)?;
@@ -4898,7 +4928,6 @@ fn capture_window_image(
             }
             return append_base64_if_requested(value, include_base64);
         }
-        Err(err) => return Err(err),
     };
 
     let dir = capture_output_dir()?;
