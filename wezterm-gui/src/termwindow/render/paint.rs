@@ -262,27 +262,34 @@ impl crate::TermWindow {
                 text: fg.into(),
             });
 
+        // pixel_cell must be the real cell metrics — box_model uses
+        // them as divisors for relative dimensions, and zero made
+        // text layout silently collapse to width 0 so the strip
+        // looked like an empty stripe. zindex 20 stacks the strip
+        // above the pane content (which paints at the base layer).
         let computed = self.compute_element(
             &LayoutContext {
                 height: DimensionContext {
                     dpi: self.dimensions.dpi as f32,
                     pixel_max: height,
-                    pixel_cell: 0.,
+                    pixel_cell: self.render_metrics.cell_size.height as f32,
                 },
                 width: DimensionContext {
                     dpi: self.dimensions.dpi as f32,
                     pixel_max: self.dimensions.pixel_width as f32,
-                    pixel_cell: 0.,
+                    pixel_cell: self.render_metrics.cell_size.width as f32,
                 },
                 bounds: euclid::rect(
                     border.left.get() as f32,
                     top,
-                    self.dimensions.pixel_width as f32 - border.left.get() as f32 - border.right.get() as f32,
+                    self.dimensions.pixel_width as f32
+                        - border.left.get() as f32
+                        - border.right.get() as f32,
                     height,
                 ),
                 metrics: &self.render_metrics,
                 gl_state: self.render_state.as_ref().unwrap(),
-                zindex: 1,
+                zindex: 20,
             },
             &strip,
         )?;
