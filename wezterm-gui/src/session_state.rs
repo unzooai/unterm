@@ -37,11 +37,43 @@ pub struct SessionState {
     pub saved_at: String,
 }
 
+/// Short stable suffix derived from this process's binary path. Lets
+/// Unterm.app, the dev `target/release/unterm`, and any out-of-tree
+/// build each keep their own session state — otherwise both writers
+/// hammer the same `last_session.json` and the last one to close
+/// silently overwrites everyone else's tab list.
+///
+/// First 8 hex chars of SHA-1(binary_path) — collision-safe at this
+/// scale, short enough to keep filenames readable.
+fn binary_suffix() -> String {
+    use sha1::{Digest, Sha1};
+    let path = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.canonicalize().ok())
+        .map(|p| p.display().to_string())
+        .unwrap_or_default();
+    if path.is_empty() {
+        return String::new();
+    }
+    let digest = Sha1::digest(path.as_bytes());
+    let mut out = String::with_capacity(8);
+    for byte in digest.iter().take(4) {
+        out.push_str(&format!("{:02x}", byte));
+    }
+    out
+}
+
 fn state_path() -> PathBuf {
+    let suffix = binary_suffix();
+    let name = if suffix.is_empty() {
+        "last_session.json".to_string()
+    } else {
+        format!("last_session_{suffix}.json")
+    };
     dirs_next::home_dir()
         .unwrap_or_default()
         .join(".unterm")
-        .join("last_session.json")
+        .join(name)
 }
 
 /// Save session state to disk.
@@ -67,10 +99,24 @@ pub fn load_session_state() -> Option<SessionState> {
     const MIN_H: usize = 480;
 
     let path = state_path();
-    if !path.exists() {
-        return None;
-    }
-    let data = match std::fs::read_to_string(&path) {
+    // Fall back to the pre-per-binary `last_session.json` so first launches
+    // after the upgrade don't lose window position + tabs. Writes always
+    // go to the new per-binary path, so the legacy file gradually goes
+    // cold instead of being silently overwritten.
+    let resolved = if path.exists() {
+        path
+    } else {
+        let legacy = dirs_next::home_dir()
+            .unwrap_or_default()
+            .join(".unterm")
+            .join("last_session.json");
+        if legacy.exists() {
+            legacy
+        } else {
+            return None;
+        }
+    };
+    let data = match std::fs::read_to_string(&resolved) {
         Ok(data) => data,
         Err(e) => {
             log::warn!("Failed to read session state: {}", e);
@@ -92,6 +138,6 @@ pub fn load_session_state() -> Option<SessionState> {
         );
         return None;
     }
-    log::info!("Session state loaded from {}", path.display());
+    log::info!("Session state loaded from {}", resolved.display());
     Some(state)
 }
