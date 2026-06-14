@@ -147,3 +147,127 @@ pub fn render_git_segment(status: &Option<GitStatus>) -> String {
     }
     out
 }
+
+/// One snapshot of an active pane's foreground process: CPU %, RSS,
+/// elapsed wall time. All three come from `ps -p <pid> -o ...`.
+#[derive(Clone, Debug)]
+pub struct ProcStatus {
+    /// CPU percent (0-100 per core; ps reports total).
+    pub cpu_pct: f32,
+    /// Resident memory in bytes.
+    pub rss_bytes: u64,
+    /// Wall-clock seconds since the process started.
+    pub uptime_secs: u64,
+    /// COMM name — shown so the user knows whose CPU it is.
+    pub name: String,
+}
+
+#[derive(Default)]
+struct ProcCache {
+    by_pid: HashMap<u32, (Instant, Option<ProcStatus>)>,
+}
+
+const PROC_CACHE_TTL: Duration = Duration::from_millis(2000);
+
+fn proc_cache() -> &'static Mutex<ProcCache> {
+    static CACHE: OnceLock<Mutex<ProcCache>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(ProcCache::default()))
+}
+
+/// Resolve process status for `pid`. Cached for 2 s like git status.
+pub fn proc_status_for(pid: u32) -> Option<ProcStatus> {
+    {
+        let cache = proc_cache().lock();
+        if let Some((at, status)) = cache.by_pid.get(&pid) {
+            if at.elapsed() < PROC_CACHE_TTL {
+                return status.clone();
+            }
+        }
+    }
+    let fresh = compute_proc_status(pid);
+    let mut cache = proc_cache().lock();
+    cache.by_pid.insert(pid, (Instant::now(), fresh.clone()));
+    fresh
+}
+
+fn compute_proc_status(pid: u32) -> Option<ProcStatus> {
+    // POSIX ps with empty `=` headers prints values only — single
+    // space-separated line. Works the same on macOS, Linux, *BSD.
+    let out = Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "pcpu=,rss=,etime=,comm="])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .stdout(Stdio::piped())
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let line = String::from_utf8_lossy(&out.stdout);
+    let line = line.trim();
+    let mut parts = line.splitn(4, |c: char| c.is_ascii_whitespace());
+    let pcpu: f32 = parts.next()?.parse().ok()?;
+    let rss_kb: u64 = parts.next()?.parse().ok()?;
+    let etime_str = parts.next()?;
+    let name = parts.next().unwrap_or("?").trim().to_string();
+    // etime formats: "MM:SS", "HH:MM:SS", or "DD-HH:MM:SS"
+    let uptime_secs = parse_etime(etime_str);
+    Some(ProcStatus {
+        cpu_pct: pcpu,
+        rss_bytes: rss_kb * 1024,
+        uptime_secs,
+        name,
+    })
+}
+
+fn parse_etime(s: &str) -> u64 {
+    let (days, rest) = match s.split_once('-') {
+        Some((d, r)) => (d.parse::<u64>().unwrap_or(0), r),
+        None => (0, s),
+    };
+    let parts: Vec<u64> = rest.split(':').filter_map(|p| p.parse().ok()).collect();
+    let (h, m, sec) = match parts.as_slice() {
+        [h, m, s] => (*h, *m, *s),
+        [m, s] => (0u64, *m, *s),
+        _ => (0, 0, 0),
+    };
+    days * 86_400 + h * 3_600 + m * 60 + sec
+}
+
+fn format_bytes(b: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = 1024 * KB;
+    const GB: u64 = 1024 * MB;
+    if b >= GB {
+        format!("{:.1}G", b as f64 / GB as f64)
+    } else if b >= MB {
+        format!("{}M", b / MB)
+    } else if b >= KB {
+        format!("{}K", b / KB)
+    } else {
+        format!("{}B", b)
+    }
+}
+
+fn format_etime(secs: u64) -> String {
+    if secs < 60 {
+        format!("{secs}s")
+    } else if secs < 3600 {
+        format!("{}m", secs / 60)
+    } else if secs < 86_400 {
+        format!("{}h{:02}m", secs / 3600, (secs % 3600) / 60)
+    } else {
+        format!("{}d{:02}h", secs / 86_400, (secs % 86_400) / 3600)
+    }
+}
+
+/// `8% CPU 1.4G 4m` — compact process column. Empty when no data.
+pub fn render_proc_segment(status: &Option<ProcStatus>) -> String {
+    let Some(s) = status else { return String::new() };
+    format!(
+        "{:.1}% CPU · {} · {}",
+        s.cpu_pct,
+        format_bytes(s.rss_bytes),
+        format_etime(s.uptime_secs)
+    )
+}

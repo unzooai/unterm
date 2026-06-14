@@ -181,16 +181,34 @@ impl crate::TermWindow {
         let fg = palette.foreground.to_linear();
         let teal = LinearRgba::with_srgba(0x6f, 0xcc, 0xb8, 0xff);
 
-        // Git segment — fed from the active pane's cwd. None when not
-        // in a repo or git isn't available; in that case the strip
-        // renders a single dim hint ("·") so the layout doesn't jump.
-        let git_text = self
-            .get_active_pane_or_overlay()
-            .and_then(|p| crate::termwindow::pane_cwd_path(&p))
-            .and_then(|cwd| top_stats_bar::git_status_for(&cwd).map(|s| top_stats_bar::render_git_segment(&Some(s))))
-            .unwrap_or_else(|| "—".to_string());
+        // Three live segments — all driven off the active pane.
+        // Switching panes refreshes each on the next paint.
+        let active = self.get_active_pane_or_overlay();
+        let cwd = active.as_ref().and_then(|p| crate::termwindow::pane_cwd_path(p));
+        let proc_info = active.as_ref().and_then(|p| {
+            p.get_foreground_process_info(mux::pane::CachePolicy::AllowStale)
+        });
+        let git_text = cwd
+            .and_then(|c| top_stats_bar::git_status_for(&c))
+            .map(|s| top_stats_bar::render_git_segment(&Some(s)))
+            .unwrap_or_default();
+        let proc_text = proc_info
+            .as_ref()
+            .and_then(|p| top_stats_bar::proc_status_for(p.pid))
+            .map(|s| top_stats_bar::render_proc_segment(&Some(s)))
+            .unwrap_or_default();
+        // Vec, not array — `[T; N].into_iter()` yields &T under edition 2018.
+        let segments: Vec<String> = vec![git_text, proc_text]
+            .into_iter()
+            .filter(|s| !s.is_empty())
+            .collect();
+        let display_text = if segments.is_empty() {
+            "—".to_string()
+        } else {
+            segments.join("    ")
+        };
 
-        let segment = Element::new(&font, ElementContent::Text(git_text))
+        let segment = Element::new(&font, ElementContent::Text(display_text))
             .vertical_align(VerticalAlign::Middle)
             .colors(ElementColors {
                 border: BorderColor::default(),

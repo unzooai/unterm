@@ -107,10 +107,10 @@ impl crate::TermWindow {
     ) -> anyhow::Result<f32> {
         if config.use_fancy_tab_bar {
             let font = fontconfig.title_font()?;
-            // Match Warp's ~64px integrated chrome — the bar carries traffic
-            // lights, the active tab + close, and 6 quick actions + a ▾ menu,
-            // so the compact 5/3 multiplier we shipped pre-v0.43 felt cramped.
-            Ok((font.metrics().cell_height.get() as f32 * 2.4).ceil())
+            // 2.05× cell_height — combined with the stats bar's 1.15×
+            // this lands at ~3.2× total, lining up with Warp's ~100 px
+            // retina chrome instead of overshooting to 130 px.
+            Ok((font.metrics().cell_height.get() as f32 * 2.05).ceil())
         } else {
             Ok(render_metrics.cell_size.height as f32)
         }
@@ -143,15 +143,13 @@ impl crate::TermWindow {
     pub fn top_stats_bar_pixel_height_impl(
         fonts: &wezterm_font::FontConfiguration,
     ) -> f32 {
-        // ~24 pt of chrome — height-of-cell × 1.4 lands around 26-30 px
-        // on retina without a separate cell calculation. Always counts
-        // toward the chrome-above-panes height even when no segment has
-        // anything to show, so toggling its data on/off doesn't reflow
-        // the terminal grid.
+        // 1.15× — one line of text + tight padding. Combined with the
+        // tab strip's 2.05× this caps total chrome at ~3.2× cell height
+        // (~100 px retina at 13 pt), matching Warp's chrome posture.
         let font = match fonts.title_font() {
             Ok(f) => f,
             Err(_) => return 0.,
         };
-        (font.metrics().cell_height.get() as f32 * 1.4).ceil()
+        (font.metrics().cell_height.get() as f32 * 1.15).ceil()
     }
 }
