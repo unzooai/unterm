@@ -242,6 +242,7 @@ pub fn proc_status_for(pid: u32) -> Option<ProcStatus> {
     cached
 }
 
+#[cfg(unix)]
 fn compute_proc_status(pid: u32) -> Option<ProcStatus> {
     // POSIX ps with empty `=` headers prints values only — single
     // space-separated line. Works the same on macOS, Linux, *BSD.
@@ -274,6 +275,42 @@ fn compute_proc_status(pid: u32) -> Option<ProcStatus> {
     Some(ProcStatus {
         cpu_pct: pcpu,
         rss_bytes: rss_kb * 1024,
+        uptime_secs,
+        name,
+    })
+}
+
+#[cfg(windows)]
+fn compute_proc_status(pid: u32) -> Option<ProcStatus> {
+    // Windows ps shim — no native `ps`. Use PowerShell's Get-Process
+    // for WS (working set / RSS) + StartTime + ProcessName. CPU%
+    // would need a second sample to compute a delta, which is more
+    // bookkeeping than the column is worth; leave it at 0.0 for now
+    // so the rest of the columns still light up.
+    let script = format!(
+        "$p = Get-Process -Id {pid} -ErrorAction Stop; \
+         $secs = [int](([DateTime]::Now) - $p.StartTime).TotalSeconds; \
+         \"{{0}}|{{1}}|{{2}}\" -f $p.WS, $secs, $p.ProcessName"
+    );
+    let out = Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .stdout(Stdio::piped())
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let line = String::from_utf8_lossy(&out.stdout);
+    let line = line.trim();
+    let mut parts = line.split('|');
+    let rss_bytes: u64 = parts.next()?.trim().parse().ok()?;
+    let uptime_secs: u64 = parts.next()?.trim().parse().ok()?;
+    let name = parts.next().unwrap_or("?").trim().to_string();
+    Some(ProcStatus {
+        cpu_pct: 0.0,
+        rss_bytes,
         uptime_secs,
         name,
     })
