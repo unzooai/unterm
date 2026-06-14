@@ -219,5 +219,6 @@
   "cli.settings.no_port": "Unterm GUI는 실행 중이지만 HTTP 설정 서버가 아직 포트를 공개하지 않았습니다",
   "settings.menu.open_folder_split": "폴더 좌우 분할로 열기",
   "settings.menu.open_folder_split.hint": "폴더 선택 → 해당 cwd로 우측 분할",
-  "project.prompt_split": "분할로 열 폴더를 선택하세요."
+  "project.prompt_split": "분할로 열 폴더를 선택하세요.",
+  "menu.about_author": "정보 · 제작자"
 }

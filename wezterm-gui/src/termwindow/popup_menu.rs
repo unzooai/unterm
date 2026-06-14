@@ -166,7 +166,7 @@ impl PopupMenu {
             // crowds any of the action items above it; kept as a plain
             // link to doaipm.com per the user's request.
             entry(
-                "About / Author".to_string(),
+                crate::i18n::t("menu.about_author"),
                 "",
                 ui_icons::ICON_PROMPT,
                 MenuAction::OpenUrl("https://doaipm.com".to_string()),

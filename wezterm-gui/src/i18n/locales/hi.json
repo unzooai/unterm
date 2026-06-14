@@ -219,5 +219,6 @@
   "cli.settings.no_port": "Unterm GUI चल रहा है, परंतु HTTP-सेटिंग्स सर्वर ने अभी अपना पोर्ट प्रकाशित नहीं किया है",
   "settings.menu.open_folder_split": "फ़ोल्डर को स्प्लिट में खोलें",
   "settings.menu.open_folder_split.hint": "फ़ोल्डर चुनें → उस cwd के साथ दाईं ओर स्प्लिट",
-  "project.prompt_split": "स्प्लिट के रूप में खोलने के लिए फ़ोल्डर चुनें।"
+  "project.prompt_split": "स्प्लिट के रूप में खोलने के लिए फ़ोल्डर चुनें।",
+  "menu.about_author": "के बारे में / लेखक"
 }

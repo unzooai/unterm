@@ -219,5 +219,6 @@
   "cli.settings.no_port": "Unterm GUI 正在執行,但 HTTP 設定伺服器尚未公布其連接埠",
   "settings.menu.open_folder_split": "選目錄並左右分屏",
   "settings.menu.open_folder_split.hint": "選目錄 → 在右側分屏使用該目錄",
-  "project.prompt_split": "選擇要在分屏中打開的目錄。"
+  "project.prompt_split": "選擇要在分屏中打開的目錄。",
+  "menu.about_author": "關於 · 作者"
 }

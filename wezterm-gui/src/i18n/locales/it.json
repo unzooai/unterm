@@ -219,5 +219,6 @@
   "cli.settings.no_port": "Unterm GUI è in esecuzione, ma il server HTTP delle impostazioni non ha ancora pubblicato la sua porta",
   "settings.menu.open_folder_split": "Apri cartella in split",
   "settings.menu.open_folder_split.hint": "scegli cartella → split destro con quel CWD",
-  "project.prompt_split": "Seleziona una cartella da aprire come split."
+  "project.prompt_split": "Seleziona una cartella da aprire come split.",
+  "menu.about_author": "Informazioni / Autore"
 }

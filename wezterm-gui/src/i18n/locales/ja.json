@@ -219,5 +219,6 @@
   "cli.settings.no_port": "Unterm GUI は実行中ですが、HTTP 設定サーバはまだポートを公開していません",
   "settings.menu.open_folder_split": "フォルダを分割で開く",
   "settings.menu.open_folder_split.hint": "フォルダ選択 → そこを cwd に右分割",
-  "project.prompt_split": "分割で開くフォルダを選択してください。"
+  "project.prompt_split": "分割で開くフォルダを選択してください。",
+  "menu.about_author": "概要・作者"
 }

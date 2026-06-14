@@ -219,5 +219,6 @@
   "cli.settings.no_port": "Unterm GUI läuft, aber der HTTP-Einstellungsserver hat seinen Port noch nicht veröffentlicht",
   "settings.menu.open_folder_split": "Ordner in Split öffnen",
   "settings.menu.open_folder_split.hint": "Ordner wählen → rechts mit diesem CWD",
-  "project.prompt_split": "Ordner zum Öffnen als Split auswählen."
+  "project.prompt_split": "Ordner zum Öffnen als Split auswählen.",
+  "menu.about_author": "Über / Autor"
 }

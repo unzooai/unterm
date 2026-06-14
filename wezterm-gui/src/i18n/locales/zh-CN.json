@@ -77,6 +77,7 @@
   "menu.scrollshot_window": "长截图其他窗口…",
   "menu.tree_sidebar": "目录树",
   "menu.left_tabs": "左侧标签栏",
+  "menu.about_author": "关于 · 作者",
   "profile.toast.no_profiles": "还没有 profile。创建一个：`unterm-cli profile create \"工作\"`。",
   "profile.toast.opening_window": "打开新窗口（profile: {name}）",
   "profile.toast.registry_load_failed": "无法加载 profile 注册表。试试 `unterm-cli profile list`。",

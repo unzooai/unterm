@@ -219,5 +219,6 @@
   "cli.settings.no_port": "L'interface Unterm tourne mais le serveur HTTP des paramètres n'a pas encore publié son port",
   "settings.menu.open_folder_split": "Ouvrir dossier en fractionné",
   "settings.menu.open_folder_split.hint": "choisir un dossier → splitter à droite avec ce CWD",
-  "project.prompt_split": "Sélectionnez un dossier à ouvrir en fractionné."
+  "project.prompt_split": "Sélectionnez un dossier à ouvrir en fractionné.",
+  "menu.about_author": "À propos / Auteur"
 }
