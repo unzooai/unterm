@@ -402,6 +402,8 @@ impl super::TermWindow {
         let current_viewport = self.get_viewport(pane.pane_id());
 
         let tab_bar_height = if self.show_tab_bar {
+            // tab_bar_pixel_height() already folds in the stats bar
+            // for the top-positioned variant.
             self.tab_bar_pixel_height().unwrap_or(0.)
         } else {
             0.

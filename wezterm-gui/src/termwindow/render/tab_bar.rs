@@ -117,6 +117,41 @@ impl crate::TermWindow {
     }
 
     pub fn tab_bar_pixel_height(&self) -> anyhow::Result<f32> {
-        Self::tab_bar_pixel_height_impl(&self.config, &self.fonts, &self.render_metrics)
+        // Returned value is the *total* chrome-above-panes height —
+        // tab strip + per-pane stats bar. Other code paths already
+        // treat it as "the height of everything between the OS chrome
+        // and the panes", so folding the stats bar in here lets
+        // every existing pane-layout site (resize, mouse mapping,
+        // popups) shift the pane top down without separate threading.
+        Ok(Self::tab_bar_pixel_height_impl(&self.config, &self.fonts, &self.render_metrics)?
+            + self.top_stats_bar_pixel_height())
+    }
+
+    /// Height of the per-pane stats strip (git / cpu / tokens / last
+    /// command). 0 when disabled or in classic-tab-bar mode (the
+    /// strip is rendered as part of the integrated chrome only).
+    pub fn top_stats_bar_pixel_height(&self) -> f32 {
+        if !self.config.use_fancy_tab_bar || !self.show_tab_bar {
+            return 0.;
+        }
+        Self::top_stats_bar_pixel_height_impl(&self.fonts)
+    }
+
+    /// Static height computation for code paths that don't yet have a
+    /// `&self` (startup mux setup before TermWindow exists). Same
+    /// formula as the instance method.
+    pub fn top_stats_bar_pixel_height_impl(
+        fonts: &wezterm_font::FontConfiguration,
+    ) -> f32 {
+        // ~24 pt of chrome — height-of-cell × 1.4 lands around 26-30 px
+        // on retina without a separate cell calculation. Always counts
+        // toward the chrome-above-panes height even when no segment has
+        // anything to show, so toggling its data on/off doesn't reflow
+        // the terminal grid.
+        let font = match fonts.title_font() {
+            Ok(f) => f,
+            Err(_) => return 0.,
+        };
+        (font.metrics().cell_height.get() as f32 * 1.4).ceil()
     }
 }

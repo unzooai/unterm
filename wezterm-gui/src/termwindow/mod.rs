@@ -81,6 +81,7 @@ pub mod paneselect;
 pub mod dir_jump;
 pub mod left_tab_bar;
 pub mod tree_sidebar;
+pub mod top_stats_bar;
 pub mod ui_icons;
 pub mod popup_menu;
 mod prevcursor;
@@ -794,7 +795,9 @@ impl TermWindow {
         // for the tab bar state.
         let show_tab_bar = config.enable_tab_bar && !config.hide_tab_bar_if_only_one_tab;
         let tab_bar_height = if show_tab_bar {
-            Self::tab_bar_pixel_height_impl(&config, &fontconfig, &render_metrics)? as usize
+            // Static impl includes stats bar height directly.
+            (Self::tab_bar_pixel_height_impl(&config, &fontconfig, &render_metrics)?
+                + Self::top_stats_bar_pixel_height_impl(&fontconfig)) as usize
         } else {
             0
         };

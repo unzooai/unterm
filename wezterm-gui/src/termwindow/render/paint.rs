@@ -144,6 +144,107 @@ impl crate::TermWindow {
 
     }
 
+    /// Per-pane stats bar painted just below the integrated tab bar
+    /// and above the panes (Phase 1: git status only — branch, dirty
+    /// count, ahead/behind). All math is driven off the active pane's
+    /// cwd so switching panes refreshes the line.
+    pub fn paint_top_stats_bar(&mut self) -> anyhow::Result<()> {
+        use crate::termwindow::box_model::*;
+        use crate::termwindow::{top_stats_bar, DimensionContext};
+        use ::window::color::LinearRgba;
+        use config::Dimension;
+
+        let height = self.top_stats_bar_pixel_height();
+        if height <= 0. {
+            return Ok(());
+        }
+        let pt = self.dimensions.dpi as f32 / 72.0;
+        let font = self.fonts.title_font()?;
+        let palette = self.palette().clone();
+        let border = self.get_os_border();
+        // Use the impl directly — instance `tab_bar_pixel_height()` now
+        // includes the stats bar's own height (so pane layout shifts
+        // down), but we need just the tab strip's height to place the
+        // stats bar *underneath* it.
+        let tab_bar_h = crate::TermWindow::tab_bar_pixel_height_impl(
+            &self.config,
+            &self.fonts,
+            &self.render_metrics,
+        )
+        .unwrap_or(0.);
+        let top = tab_bar_h + border.top.get() as f32;
+
+        // Background — same scheme-aware lighten the tab bar uses, but
+        // a touch darker so the strip reads as a sub-tier rather than
+        // a duplicate of the top bar.
+        let bar_bg = palette.background.lighten(0.03).to_linear();
+        let fg = palette.foreground.to_linear();
+        let teal = LinearRgba::with_srgba(0x6f, 0xcc, 0xb8, 0xff);
+
+        // Git segment — fed from the active pane's cwd. None when not
+        // in a repo or git isn't available; in that case the strip
+        // renders a single dim hint ("·") so the layout doesn't jump.
+        let git_text = self
+            .get_active_pane_or_overlay()
+            .and_then(|p| crate::termwindow::pane_cwd_path(&p))
+            .and_then(|cwd| top_stats_bar::git_status_for(&cwd).map(|s| top_stats_bar::render_git_segment(&Some(s))))
+            .unwrap_or_else(|| "—".to_string());
+
+        let segment = Element::new(&font, ElementContent::Text(git_text))
+            .vertical_align(VerticalAlign::Middle)
+            .colors(ElementColors {
+                border: BorderColor::default(),
+                bg: LinearRgba::TRANSPARENT.into(),
+                text: teal.into(),
+            });
+
+        let strip = Element::new(&font, ElementContent::Children(vec![segment]))
+            .display(DisplayType::Block)
+            .vertical_align(VerticalAlign::Middle)
+            .min_width(Some(Dimension::Pixels(self.dimensions.pixel_width as f32)))
+            .min_height(Some(Dimension::Pixels(height)))
+            .padding(BoxDimension {
+                left: Dimension::Pixels(self.left_gutter_pixel_width() + 12. * pt),
+                right: Dimension::Pixels(12. * pt),
+                top: Dimension::Pixels(0.),
+                bottom: Dimension::Pixels(0.),
+            })
+            .colors(ElementColors {
+                border: BorderColor::default(),
+                bg: bar_bg.into(),
+                text: fg.into(),
+            });
+
+        let computed = self.compute_element(
+            &LayoutContext {
+                height: DimensionContext {
+                    dpi: self.dimensions.dpi as f32,
+                    pixel_max: height,
+                    pixel_cell: 0.,
+                },
+                width: DimensionContext {
+                    dpi: self.dimensions.dpi as f32,
+                    pixel_max: self.dimensions.pixel_width as f32,
+                    pixel_cell: 0.,
+                },
+                bounds: euclid::rect(
+                    border.left.get() as f32,
+                    top,
+                    self.dimensions.pixel_width as f32 - border.left.get() as f32 - border.right.get() as f32,
+                    height,
+                ),
+                metrics: &self.render_metrics,
+                gl_state: self.render_state.as_ref().unwrap(),
+                zindex: 1,
+            },
+            &strip,
+        )?;
+        self.ui_items.append(&mut computed.ui_items());
+        let gl_state = self.render_state.as_ref().unwrap();
+        self.render_element(&computed, gl_state, None)?;
+        Ok(())
+    }
+
     /// v0.40: left directory-tree sidebar. Painted between the panes and the
     /// tab bar; the panes have already been shifted right by
     /// tree_sidebar_pixel_width() via the padding injection, so this draws
@@ -508,6 +609,7 @@ impl crate::TermWindow {
 
         if self.show_tab_bar {
             self.paint_tab_bar(&mut layers).context("paint_tab_bar")?;
+            self.paint_top_stats_bar().context("paint_top_stats_bar")?;
         }
 
         self.paint_ghost_text(&mut layers)
