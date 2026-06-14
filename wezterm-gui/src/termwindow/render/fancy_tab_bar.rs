@@ -398,17 +398,20 @@ impl crate::TermWindow {
             Element::new(&font, ElementContent::Text(glyph.to_string()))
             .vertical_align(VerticalAlign::Middle)
             .item_type(UIItemType::QuickAction(action))
+            // Margin doubled (0.25 → 0.5 cells) so icons breathe instead
+            // of clumping at the right edge; padding bumped vertically
+            // so the glyph sits visually centered in the taller bar.
             .margin(BoxDimension {
-                left: Dimension::Cells(0.25),
+                left: Dimension::Cells(0.5),
                 right: Dimension::Cells(0.),
                 top: Dimension::Cells(0.),
                 bottom: Dimension::Cells(0.),
             })
             .padding(BoxDimension {
-                left: Dimension::Cells(0.4),
-                right: Dimension::Cells(0.4),
-                top: Dimension::Cells(0.3),
-                bottom: Dimension::Cells(0.3),
+                left: Dimension::Cells(0.5),
+                right: Dimension::Cells(0.5),
+                top: Dimension::Cells(0.45),
+                bottom: Dimension::Cells(0.45),
             })
             .border(BoxDimension::new(Dimension::Pixels(1.)))
             .colors(ElementColors {
@@ -457,21 +460,13 @@ impl crate::TermWindow {
                         right_eles.push(item_to_elem(item))
                     }
                 }
-                TabBarItem::Tab { active, .. } if tabs_at_left => {
-                    if active {
-                        // Non-interactive active-tab title in the top bar.
-                        left_eles.push(
-                            Element::with_line(&font, &item.title, palette)
-                                .vertical_align(VerticalAlign::Middle)
-                                .padding(BoxDimension {
-                                    left: Dimension::Cells(0.75),
-                                    right: Dimension::Cells(0.5),
-                                    top: Dimension::Cells(0.),
-                                    bottom: Dimension::Cells(0.),
-                                })
-                                .colors(bar_colors.clone()),
-                        );
-                    }
+                TabBarItem::Tab { .. } if tabs_at_left => {
+                    // Sidebar mode: the tab title already lives in the
+                    // sidebar row, so duplicating it in the top bar made
+                    // the chrome read like a hold-over from the top-tab
+                    // design ("标题栏已经不需要那个 zsh 标记了啊"). Skip
+                    // the push — top bar is now just traffic lights +
+                    // window buttons + quick actions.
                 }
                 TabBarItem::Tab { tab_idx, active } => {
                     let mut elem = item_to_elem(item);
