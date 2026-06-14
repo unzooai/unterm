@@ -1,15 +1,55 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <!-- Unterm mark — solid negative-space U (the terminal viewport) with the
-       teal block cursor floating at the prompt line inside the counter.
-       Optical: glyph lifted 1u above geometric center; bowl overshoots the
-       stem baseline by 0.5u; tile #171717→#121212 2% top-light. -->
+  <!--
+    Unterm mark — solid negative-space U (the terminal viewport)
+    with the teal block cursor floating at the prompt line inside
+    the counter. v2 refinements for a more premium feel:
+      • multi-stop tile gradient (warm grey → near-black) instead
+        of the old 2-stop flat slope, giving the bg subtle depth
+      • radial top-light overlay (faint white, ~8% alpha) hinting
+        at an OLED-class screen finish without going skeuomorphic
+      • cursor gets a soft Gaussian-blur glow underneath itself,
+        so the teal reads as luminous against the dark tile
+      • 1% inner stroke softens the corner cut and keeps the tile
+        from looking like a flat sticker on light page backgrounds
+    Optical: glyph still lifted ~1u above geometric center; bowl
+    overshoots the stem baseline by 0.5u.
+  -->
   <defs>
-    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#171717"/>
-      <stop offset="1" stop-color="#121212"/>
+    <linearGradient id="tile" x1="0" y1="0" x2="0.85" y2="1">
+      <stop offset="0" stop-color="#1d1d1d"/>
+      <stop offset="0.55" stop-color="#141414"/>
+      <stop offset="1" stop-color="#0d0d0d"/>
     </linearGradient>
+    <radialGradient id="topLight" cx="0.32" cy="0.12" r="0.85">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.10"/>
+      <stop offset="0.55" stop-color="#ffffff" stop-opacity="0.02"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="uShade" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f4f2ee"/>
+      <stop offset="1" stop-color="#d9d6d0"/>
+    </linearGradient>
+    <filter id="cursorGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="1.8" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
   </defs>
+
+  <!-- tile + top-light overlay + 1% inner stroke -->
   <rect width="64" height="64" rx="14.3" fill="url(#tile)"/>
-  <path d="M15.5 13 h8.5 v22 a8 8 0 0 0 16 0 V13 h8.5 v22.5 a16.5 16.5 0 0 1 -33 0 Z" fill="#eceae6"/>
-  <rect x="27.5" y="20" width="9" height="12" rx="1.4" fill="#6fccb8"/>
+  <rect width="64" height="64" rx="14.3" fill="url(#topLight)"/>
+  <rect x="0.5" y="0.5" width="63" height="63" rx="13.8"
+        fill="none" stroke="#ffffff" stroke-opacity="0.06" stroke-width="1"/>
+
+  <!-- U glyph (terminal viewport) -->
+  <path d="M15.5 13 h8.5 v22 a8 8 0 0 0 16 0 V13 h8.5 v22.5 a16.5 16.5 0 0 1 -33 0 Z"
+        fill="url(#uShade)"/>
+
+  <!-- cursor block + glow -->
+  <g filter="url(#cursorGlow)">
+    <rect x="27.5" y="20" width="9" height="12" rx="1.4" fill="#6fccb8"/>
+  </g>
 </svg>
