@@ -337,7 +337,11 @@ impl crate::TermWindow {
         {
             left_status.push(
                 Element::new(&font, ElementContent::Text("".to_string())).margin(BoxDimension {
-                    left: Dimension::Cells(4.0), // FIXME: determine exact width of macos ... buttons
+                    // Reserve the actual width of the traffic-light cluster —
+                    // shared with the left_eles padding at line ~515 — instead
+                    // of the older 4-cell guess, which under-reserved at large
+                    // font sizes and over-reserved at small ones.
+                    left: Dimension::Pixels(config::ui_tokens::MACOS_TRAFFIC_LIGHT_RESERVE),
                     right: Dimension::Cells(0.),
                     top: Dimension::Cells(0.),
                     bottom: Dimension::Cells(0.),
