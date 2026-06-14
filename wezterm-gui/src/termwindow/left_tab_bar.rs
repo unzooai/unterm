@@ -475,6 +475,32 @@ impl crate::TermWindow {
                 }),
         );
 
+        // Author footer row — dim text at the very bottom of the sidebar.
+        // Click opens https://doaipm.com in the OS browser. Sits below
+        // everything else so it never crowds the tab list.
+        children.push(
+            Element::new(&font, ElementContent::Text("doaipm.com".to_string()))
+                .item_type(UIItemType::LeftTabBarAuthorLink)
+                .display(DisplayType::Block)
+                .min_width(Some(Dimension::Percent(1.)))
+                .padding(BoxDimension {
+                    left: Dimension::Pixels(row_pad),
+                    right: Dimension::Pixels(row_pad),
+                    top: Dimension::Pixels(row_pad / 2.),
+                    bottom: Dimension::Pixels(row_pad / 2.),
+                })
+                .colors(ElementColors {
+                    border: BorderColor::default(),
+                    bg: LinearRgba::TRANSPARENT.into(),
+                    text: fg.mul_alpha(0.45).into(),
+                })
+                .hover_colors(Some(ElementColors {
+                    border: BorderColor::default(),
+                    bg: hover_bg.into(),
+                    text: fg.into(),
+                })),
+        );
+
         let container = Element::new(&font, ElementContent::Children(children))
             .item_type(UIItemType::LeftTabBarBg)
             // Horizontal padding insets the rows from the panel edges and

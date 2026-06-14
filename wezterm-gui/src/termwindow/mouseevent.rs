@@ -70,6 +70,7 @@ impl super::TermWindow {
             | UIItemType::LeftTabBarBg
             | UIItemType::QuickAction(_)
             | UIItemType::NewTabShellSelector
+            | UIItemType::LeftTabBarAuthorLink
             | UIItemType::PopupMenuCard => {}
         }
     }
@@ -101,6 +102,7 @@ impl super::TermWindow {
             | UIItemType::LeftTabBarBg
             | UIItemType::QuickAction(_)
             | UIItemType::NewTabShellSelector
+            | UIItemType::LeftTabBarAuthorLink
             | UIItemType::PopupMenuCard => {}
         }
     }
@@ -589,6 +591,11 @@ impl super::TermWindow {
             UIItemType::NewTabShellSelector => {
                 if let WMEK::Press(MousePress::Left) = event.kind {
                     self.show_shell_selector();
+                }
+            }
+            UIItemType::LeftTabBarAuthorLink => {
+                if let WMEK::Press(MousePress::Left) = event.kind {
+                    wezterm_open_url::open_url("https://doaipm.com");
                 }
             }
             UIItemType::CloseSplitPane(pane_id) => {

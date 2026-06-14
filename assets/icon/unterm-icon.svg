@@ -1,15 +1,54 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <!-- Unterm mark — solid negative-space U (the terminal viewport) with the
-       teal block cursor floating at the prompt line inside the counter.
-       Optical: glyph lifted 1u above geometric center; bowl overshoots the
-       stem baseline by 0.5u; tile #171717→#121212 2% top-light. -->
+  <!--
+    C v2 — refined neon terminal. Same direction (pitch-black tile +
+    glowing teal U + glowing cursor), polished:
+      • bg gets a very subtle radial blue-cyan lift at center so the
+        tile isn't truly flat black — it reads like a tube CRT
+      • U outline gets dual-pass glow (outer halo + inner sharp edge)
+        with a thinner 2.0 stroke instead of 2.4 — cleaner at 16px
+      • cursor is two stacked rects: a soft glowing outer + a crisp
+        bright inner core, like an LED with a halo
+      • a thin teal corner stroke replaces the pure-grey hairline so
+        the edge participates in the neon theme
+  -->
   <defs>
-    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#171717"/>
-      <stop offset="1" stop-color="#121212"/>
-    </linearGradient>
+    <radialGradient id="bgC2" cx="0.5" cy="0.4" r="0.78">
+      <stop offset="0" stop-color="#0a1a22"/>
+      <stop offset="0.55" stop-color="#04080b"/>
+      <stop offset="1" stop-color="#000000"/>
+    </radialGradient>
+    <filter id="uGlow2" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="3.2" result="big"/>
+      <feGaussianBlur in="SourceGraphic" stdDeviation="0.6" result="small"/>
+      <feMerge>
+        <feMergeNode in="big"/>
+        <feMergeNode in="small"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="cursorGlow2" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="2.6"/>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
   </defs>
-  <rect width="64" height="64" rx="14.3" fill="url(#tile)"/>
-  <path d="M15.5 13 h8.5 v22 a8 8 0 0 0 16 0 V13 h8.5 v22.5 a16.5 16.5 0 0 1 -33 0 Z" fill="#eceae6"/>
-  <rect x="27.5" y="20" width="9" height="12" rx="1.4" fill="#6fccb8"/>
+
+  <rect width="64" height="64" rx="14.3" fill="url(#bgC2)"/>
+  <rect x="0.5" y="0.5" width="63" height="63" rx="13.8"
+        fill="none" stroke="#6fccb8" stroke-opacity="0.22" stroke-width="1"/>
+
+  <!-- U outline with halo + crisp edge -->
+  <g filter="url(#uGlow2)">
+    <path d="M15.5 13 h8.5 v22 a8 8 0 0 0 16 0 V13 h8.5 v22.5 a16.5 16.5 0 0 1 -33 0 Z"
+          fill="none" stroke="#6fccb8" stroke-width="2.0" stroke-linejoin="round"/>
+  </g>
+
+  <!-- cursor: soft halo (outer) + bright LED core (inner) -->
+  <g filter="url(#cursorGlow2)">
+    <rect x="26.7" y="19.2" width="10.6" height="13.6" rx="1.8"
+          fill="#6fccb8" fill-opacity="0.45"/>
+    <rect x="27.5" y="20" width="9" height="12" rx="1.4" fill="#c6fce8"/>
+  </g>
 </svg>

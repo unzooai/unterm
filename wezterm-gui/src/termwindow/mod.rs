@@ -229,6 +229,9 @@ pub enum UIItemType {
     /// visually discoverable. Left-click stays bound to "+" itself, which
     /// keeps default-shell-new-tab a single click.
     NewTabShellSelector,
+    /// Dim "doaipm.com" footer row at the bottom of the left tab bar.
+    /// Click opens the author site in the OS browser.
+    LeftTabBarAuthorLink,
     /// The popup menu card itself — swallows clicks that miss every row so
     /// they don't fall through to the pane below.
     PopupMenuCard,
