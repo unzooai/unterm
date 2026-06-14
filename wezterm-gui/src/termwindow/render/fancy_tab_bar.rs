@@ -72,11 +72,15 @@ impl crate::TermWindow {
         let mut left_status = vec![];
         let mut left_eles = vec![];
         let mut right_eles = vec![];
-        // Top bar bg/fg follow the active color scheme by default — kept the
-        // bar visually merged with the pane content. The hardcoded
-        // window_frame defaults only fire if the user has explicitly set
-        // those fields (or is on a build that pre-dates this behavior).
-        let scheme_bg = palette.background.to_linear();
+        // Top bar bg/fg follow the active color scheme by default. The bar
+        // gets a subtle 5% lighten over the scheme background so the
+        // chrome reads as a distinct panel from the pane content (a
+        // user pinged this as "too flat" when chrome and content were
+        // pixel-identical) — same ratio the bundled unterm.lua applies
+        // via `theme_bg:lighten(0.05)`. The hardcoded window_frame
+        // defaults only fire when the user has explicitly set those
+        // fields.
+        let scheme_bg = palette.background.lighten(0.05).to_linear();
         let scheme_fg = palette.foreground.to_linear();
         let bar_bg = if self.focused.is_some() {
             if self.config.window_frame.active_bg_is_default() {

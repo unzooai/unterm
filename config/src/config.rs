@@ -984,11 +984,15 @@ fn default_mcp_suggest_default_ttl_ms() -> u64 {
     60_000
 }
 
-/// Where the tab strip lives. `Left` turns it into a vertical sidebar.
+/// Where the tab strip lives. `Top` is the classic Windows Terminal /
+/// wezterm strip; `Left` turns it into a vertical sidebar — chosen as
+/// the default because Unterm's agent-aware tab rows (chip + title +
+/// `agent · cwd` subtitle) need vertical space that a horizontal strip
+/// can't give them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, FromDynamic, ToDynamic)]
 pub enum TabBarPosition {
-    #[default]
     Top,
+    #[default]
     Left,
 }
 
