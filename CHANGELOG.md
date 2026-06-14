@@ -31,9 +31,42 @@
   a match into view. The in-terminal search UI (`Ctrl+Shift+F` /
   `Cmd+F`) already jumped to matches; this brings the MCP surface to
   parity.
+- **`unterm-cli screenshot --self`.** Capture only Unterm's own window
+  via its CGWindowID — independent of foreground state, never depends
+  on what's behind the window. Goes through the existing `capture.window`
+  MCP method (defaults pid to the running server) so it works without
+  any osascript / activate dance, which lets visual self-tests run
+  headlessly. Pairs with the agent-side self-test workflow the global
+  CLAUDE.md asks every client project to ship.
+- **Workspace restore reopens your tabs, not just the window.**
+  Closing Unterm with three tabs no longer comes up with a single
+  fresh shell at the default cwd. Tabs beyond the first are spawned
+  back into the restored window, each pointing at the cwd they were
+  at on shutdown, and any user-set tab titles ride along. Falls back
+  to the default cwd if the saved directory has since been deleted
+  (no "no such file" bounce). Surfaces per-tab spawn failures via
+  log only — one bad tab doesn't abort the rest.
 
 ### Changed
 
+- **Unified Warp-style top bar by default.** The split chrome (gray
+  native title strip above + dark tab row below) collapses into a
+  single panel that adopts the active color scheme — traffic lights
+  drop into the tab row, the bar tracks `palette.background` so the
+  chrome no longer fights the theme, and height bumps to 2.4× the
+  title cell (~60 px @ 144 dpi) to match Warp's chrome rhythm. On the
+  right of the bar a six-icon action cluster + `▾` menu lands: command
+  palette, tree sidebar, split, dir-jump, search, settings. All icons
+  are Codicons rendered through the bundled SymbolsNerdFontMono so
+  CoreText/FreeType handles the anti-aliasing — vector-grade crispness
+  instead of the previous geometric polylines. Tabs now read
+  `[icon] {agent or shell} · {cwd-basename}` (claude / shell / ssh
+  glyph, AI agent name preferred over raw process title), and the left
+  vertical tab bar's status dot becomes a 16 px circular chip with the
+  agent's initial in its accent color. Users who had explicitly
+  overridden `window_decorations` or `window_frame.titlebar_*` colors
+  keep their overrides — the new defaults only kick in when the field
+  is at its hard-coded value.
 - **Chrome typography uses the platform system font.** Tab bar, sidebar
   and menu text now renders in SF Pro on macOS (Segoe UI Variable on
   Windows, Noto Sans on Linux) instead of the bundled Roboto, with the
@@ -90,6 +123,15 @@
 
 ### Fixed
 
+- **`unterm-cli screenshot --self` no longer falls back to a
+  full-screen capture right after launch.** Immediately after
+  `unterm start`, the NSWindow exists but CGWindowList hasn't yet
+  flagged it onScreen, so the lookup returned None and the MCP
+  handler silently captured the screen instead — agents doing visual
+  self-tests would diff against whatever was behind Unterm. For
+  self-targets the lookup now retries 5× with 120 ms gaps (~600 ms
+  ceiling). External-pid captures still single-shot so a typo'd pid
+  doesn't block.
 - **Windows: multi-second freeze at launch (and on every new tab) when the
   proxy toggle is on but the proxy app isn't running.** System-proxy
   auto-detection ran twice on the GUI thread before the first prompt, and
