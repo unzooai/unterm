@@ -427,6 +427,31 @@ impl crate::TermWindow {
         };
         {
             use crate::termwindow::QuickAction as QA;
+            // Per-pane stats text rides on the same row as the quick
+            // actions — vertically centered with the icons, sitting
+            // just to the left of the action cluster. Rendering it
+            // here (instead of in a separate strip) means the icons
+            // never compete for zindex with the strip and the chrome
+            // stays single-row.
+            let stats_text = compose_top_stats_text(self);
+            if !stats_text.is_empty() {
+                let stats_teal = window::color::LinearRgba::with_srgba(0x6f, 0xcc, 0xb8, 0xff);
+                right_eles.push(
+                    Element::new(&font, ElementContent::Text(stats_text))
+                        .vertical_align(VerticalAlign::Middle)
+                        .margin(BoxDimension {
+                            left: Dimension::Cells(0.),
+                            right: Dimension::Cells(0.75),
+                            top: Dimension::Cells(0.),
+                            bottom: Dimension::Cells(0.),
+                        })
+                        .colors(ElementColors {
+                            border: BorderColor::default(),
+                            bg: window::color::LinearRgba::TRANSPARENT.into(),
+                            text: stats_teal.into(),
+                        }),
+                );
+            }
             // Codicons — VS Code's single-weight icon family. Same visual
             // language as Warp's SF Symbols, but bundled cross-platform via
             // SymbolsNerdFontMono so Win/Linux look identical.
@@ -676,4 +701,57 @@ pub(crate) fn make_x_button(
         top: Dimension::Cells(0.),
         bottom: Dimension::Cells(0.),
     })
+}
+
+
+/// Compose the per-pane stats text rendered in the top bar. Mirrors
+/// what the old paint_top_stats_bar produced — agent, git, CPU/MEM,
+/// pane title — joined by 4-space gaps, with an "—" placeholder when
+/// every segment is empty so the slot stays visible while the async
+/// caches warm.
+fn compose_top_stats_text(win: &crate::TermWindow) -> String {
+    use crate::termwindow::top_stats_bar;
+
+    let active = win.get_active_pane_or_overlay();
+    let cwd = active.as_ref().and_then(|p| crate::termwindow::pane_cwd_path(p));
+    let proc_info = active.as_ref().and_then(|p| {
+        p.get_foreground_process_info(mux::pane::CachePolicy::AllowStale)
+    });
+    let git_text = cwd
+        .and_then(|c| top_stats_bar::git_status_for(&c))
+        .map(|s| top_stats_bar::render_git_segment(&Some(s)))
+        .unwrap_or_default();
+    let proc_text = proc_info
+        .as_ref()
+        .and_then(|p| top_stats_bar::proc_status_for(p.pid))
+        .map(|s| top_stats_bar::render_proc_segment(&Some(s)))
+        .unwrap_or_default();
+    let pane_id = active.as_ref().map(|p| p.pane_id() as u64);
+    let agent_text = pane_id
+        .and_then(|id| crate::mcp::handler::detect_agent_for_pane(id, proc_info.as_ref()))
+        .map(|name| format!("⚡ {name}"))
+        .unwrap_or_default();
+    let title_text = active
+        .as_ref()
+        .map(|p| p.get_title())
+        .map(|t| {
+            let trimmed = t.trim().to_string();
+            if trimmed.is_empty()
+                || matches!(trimmed.as_str(), "zsh" | "bash" | "fish" | "nu" | "sh")
+            {
+                String::new()
+            } else {
+                format!("▶ {trimmed}")
+            }
+        })
+        .unwrap_or_default();
+    let segments: Vec<String> = vec![agent_text, git_text, proc_text, title_text]
+        .into_iter()
+        .filter(|s| !s.is_empty())
+        .collect();
+    if segments.is_empty() {
+        String::new()
+    } else {
+        segments.join("    ")
+    }
 }

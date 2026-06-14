@@ -120,14 +120,11 @@ impl crate::TermWindow {
     }
 
     pub fn tab_bar_pixel_height(&self) -> anyhow::Result<f32> {
-        // Returned value is the *total* chrome-above-panes height —
-        // tab strip + per-pane stats bar. Other code paths already
-        // treat it as "the height of everything between the OS chrome
-        // and the panes", so folding the stats bar in here lets
-        // every existing pane-layout site (resize, mouse mapping,
-        // popups) shift the pane top down without separate threading.
-        Ok(Self::tab_bar_pixel_height_impl(&self.config, &self.fonts, &self.render_metrics)?
-            + self.top_stats_bar_pixel_height())
+        // Stats are now rendered INSIDE the tab bar's middle gap (so
+        // they sit on the same row as the traffic lights / icons,
+        // vertically centered), not as a separate strip beneath the
+        // bar. No extra height contribution from the stats bar.
+        Self::tab_bar_pixel_height_impl(&self.config, &self.fonts, &self.render_metrics)
     }
 
     /// Height of the per-pane stats strip (git / cpu / tokens / last

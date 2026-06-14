@@ -255,13 +255,20 @@ fn compute_proc_status(pid: u32) -> Option<ProcStatus> {
     if !out.status.success() {
         return None;
     }
+    // ps -o … prints fields left-padded with spaces (`  0.0   1712 …`),
+    // so `splitn(4, whitespace_char)` returned empty fragments for the
+    // runs of consecutive spaces and the rss parse failed silently.
+    // `split_whitespace()` collapses any run of whitespace into one
+    // separator, which is what we want.
     let line = String::from_utf8_lossy(&out.stdout);
-    let line = line.trim();
-    let mut parts = line.splitn(4, |c: char| c.is_ascii_whitespace());
+    let mut parts = line.split_whitespace();
     let pcpu: f32 = parts.next()?.parse().ok()?;
     let rss_kb: u64 = parts.next()?.parse().ok()?;
     let etime_str = parts.next()?;
-    let name = parts.next().unwrap_or("?").trim().to_string();
+    // The comm field can contain spaces (e.g. login shells start with
+    // `-` and may have spaces); rejoin the rest of the tokens.
+    let name: String = parts.collect::<Vec<_>>().join(" ");
+    let name = if name.is_empty() { "?".to_string() } else { name };
     // etime formats: "MM:SS", "HH:MM:SS", or "DD-HH:MM:SS"
     let uptime_secs = parse_etime(etime_str);
     Some(ProcStatus {

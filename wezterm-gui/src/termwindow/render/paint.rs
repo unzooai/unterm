@@ -144,165 +144,10 @@ impl crate::TermWindow {
 
     }
 
-    /// Per-pane stats bar painted just below the integrated tab bar
-    /// and above the panes (Phase 1: git status only — branch, dirty
-    /// count, ahead/behind). All math is driven off the active pane's
-    /// cwd so switching panes refreshes the line.
-    pub fn paint_top_stats_bar(&mut self) -> anyhow::Result<()> {
-        use crate::termwindow::box_model::*;
-        use crate::termwindow::{top_stats_bar, DimensionContext};
-        use ::window::color::LinearRgba;
-        use config::Dimension;
-
-        let height = self.top_stats_bar_pixel_height();
-        if height <= 0. {
-            return Ok(());
-        }
-        let pt = self.dimensions.dpi as f32 / 72.0;
-        let font = self.fonts.title_font()?;
-        let palette = self.palette().clone();
-        let border = self.get_os_border();
-        // Use the impl directly — instance `tab_bar_pixel_height()` now
-        // includes the stats bar's own height (so pane layout shifts
-        // down), but we need just the tab strip's height to place the
-        // stats bar *underneath* it.
-        let tab_bar_h = crate::TermWindow::tab_bar_pixel_height_impl(
-            &self.config,
-            &self.fonts,
-            &self.render_metrics,
-        )
-        .unwrap_or(0.);
-        let top = tab_bar_h + border.top.get() as f32;
-
-        // Background — same scheme-aware lighten the tab bar uses, but
-        // a touch darker so the strip reads as a sub-tier rather than
-        // a duplicate of the top bar.
-        let bar_bg = palette.background.lighten(0.03).to_linear();
-        let fg = palette.foreground.to_linear();
-        let teal = LinearRgba::with_srgba(0x6f, 0xcc, 0xb8, 0xff);
-
-        // Three live segments — all driven off the active pane.
-        // Switching panes refreshes each on the next paint.
-        let active = self.get_active_pane_or_overlay();
-        let cwd = active.as_ref().and_then(|p| crate::termwindow::pane_cwd_path(p));
-        let proc_info = active.as_ref().and_then(|p| {
-            p.get_foreground_process_info(mux::pane::CachePolicy::AllowStale)
-        });
-        let git_text = cwd
-            .and_then(|c| top_stats_bar::git_status_for(&c))
-            .map(|s| top_stats_bar::render_git_segment(&Some(s)))
-            .unwrap_or_default();
-        let proc_text = proc_info
-            .as_ref()
-            .and_then(|p| top_stats_bar::proc_status_for(p.pid))
-            .map(|s| top_stats_bar::render_proc_segment(&Some(s)))
-            .unwrap_or_default();
-        // Phase 3 — AI agent indicator. Same detector as the sidebar
-        // chip, so the strip lights up the moment an in-pane CLI
-        // (`claude` / `codex` / …) is foreground.
-        let pane_id = active.as_ref().map(|p| p.pane_id() as u64);
-        let agent_text = pane_id
-            .and_then(|id| {
-                crate::mcp::handler::detect_agent_for_pane(id, proc_info.as_ref())
-            })
-            .map(|name| format!("⚡ {name}"))
-            .unwrap_or_default();
-        // Phase 4 — pane title as proxy for the current command.
-        // Shells with PS1 hooks push the running command's name through
-        // OSC 2, so the title is a cheap "what is this pane doing"
-        // signal. Hidden when it's just the shell name we already
-        // render in the bottom status bar.
-        let title_text = active
-            .as_ref()
-            .map(|p| p.get_title())
-            .map(|t| {
-                let trimmed = t.trim().to_string();
-                if trimmed.is_empty()
-                    || matches!(trimmed.as_str(), "zsh" | "bash" | "fish" | "nu" | "sh")
-                {
-                    String::new()
-                } else {
-                    format!("▶ {trimmed}")
-                }
-            })
-            .unwrap_or_default();
-        // Vec, not array — `[T; N].into_iter()` yields &T under edition 2018.
-        let segments: Vec<String> = vec![agent_text, git_text, proc_text, title_text]
-            .into_iter()
-            .filter(|s| !s.is_empty())
-            .collect();
-        let display_text = if segments.is_empty() {
-            "—".to_string()
-        } else {
-            segments.join("    ")
-        };
-
-        let segment = Element::new(&font, ElementContent::Text(display_text))
-            .vertical_align(VerticalAlign::Middle)
-            .colors(ElementColors {
-                border: BorderColor::default(),
-                bg: LinearRgba::TRANSPARENT.into(),
-                text: teal.into(),
-            });
-
-        let strip = Element::new(&font, ElementContent::Children(vec![segment]))
-            .display(DisplayType::Block)
-            .vertical_align(VerticalAlign::Middle)
-            .min_width(Some(Dimension::Pixels(self.dimensions.pixel_width as f32)))
-            .min_height(Some(Dimension::Pixels(height)))
-            .padding(BoxDimension {
-                left: Dimension::Pixels(self.left_gutter_pixel_width() + 12. * pt),
-                right: Dimension::Pixels(12. * pt),
-                top: Dimension::Pixels(0.),
-                bottom: Dimension::Pixels(0.),
-            })
-            .colors(ElementColors {
-                border: BorderColor::default(),
-                bg: bar_bg.into(),
-                text: fg.into(),
-            });
-
-        // pixel_cell must be the real cell metrics — box_model uses
-        // them as divisors for relative dimensions, and zero made
-        // text layout silently collapse to width 0 so the strip
-        // looked like an empty stripe. zindex 20 stacks the strip
-        // above the pane content (which paints at the base layer).
-        let computed = self.compute_element(
-            &LayoutContext {
-                height: DimensionContext {
-                    dpi: self.dimensions.dpi as f32,
-                    pixel_max: height,
-                    pixel_cell: self.render_metrics.cell_size.height as f32,
-                },
-                width: DimensionContext {
-                    dpi: self.dimensions.dpi as f32,
-                    pixel_max: self.dimensions.pixel_width as f32,
-                    pixel_cell: self.render_metrics.cell_size.width as f32,
-                },
-                bounds: euclid::rect(
-                    border.left.get() as f32,
-                    top,
-                    self.dimensions.pixel_width as f32
-                        - border.left.get() as f32
-                        - border.right.get() as f32,
-                    height,
-                ),
-                metrics: &self.render_metrics,
-                gl_state: self.render_state.as_ref().unwrap(),
-                zindex: 20,
-            },
-            &strip,
-        )?;
-        self.ui_items.append(&mut computed.ui_items());
-        let gl_state = self.render_state.as_ref().unwrap();
-        self.render_element(&computed, gl_state, None)?;
-        Ok(())
-    }
-
-    /// v0.40: left directory-tree sidebar. Painted between the panes and the
-    /// tab bar; the panes have already been shifted right by
-    /// tree_sidebar_pixel_width() via the padding injection, so this draws
-    /// into reserved gutter space.
+    /// v0.40: left directory-tree sidebar. Painted between the panes
+    /// and the tab bar; the panes have already been shifted right by
+    /// tree_sidebar_pixel_width() via the padding injection, so this
+    /// draws into reserved gutter space.
     pub fn paint_tree_sidebar(&mut self) -> anyhow::Result<()> {
         use crate::termwindow::box_model::*;
         use crate::termwindow::{DimensionContext, UIItemType};
@@ -663,7 +508,10 @@ impl crate::TermWindow {
 
         if self.show_tab_bar {
             self.paint_tab_bar(&mut layers).context("paint_tab_bar")?;
-            self.paint_top_stats_bar().context("paint_top_stats_bar")?;
+            // (Stats segments now flow inside the tab bar render —
+            // see fancy_tab_bar.rs — so they share the chrome row
+            // with the icons instead of overlapping them on a
+            // separate zindex.)
         }
 
         self.paint_ghost_text(&mut layers)
