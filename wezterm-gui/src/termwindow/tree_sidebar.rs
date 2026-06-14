@@ -29,6 +29,10 @@ pub struct TreeRow {
     pub is_dir: bool,
     pub expanded: bool,
     pub is_hidden: bool,
+    /// Synthetic "↑ .." row prepended to every non-root tree — clicking
+    /// it re-anchors the sidebar at `root.parent()`. Same shape as a
+    /// real row so we don't fork the click pipeline.
+    pub is_parent: bool,
 }
 
 pub struct TreeSidebar {
@@ -100,6 +104,16 @@ impl TreeSidebar {
 
     pub fn rebuild(&mut self) {
         let mut rows = vec![];
+        if let Some(parent) = self.root.parent() {
+            rows.push(TreeRow {
+                path: parent.to_path_buf(),
+                depth: 0,
+                is_dir: true,
+                expanded: false,
+                is_hidden: false,
+                is_parent: true,
+            });
+        }
         let root = self.root.clone();
         self.walk(&root, 0, &mut rows);
         self.rows = rows;
@@ -107,6 +121,15 @@ impl TreeSidebar {
         let max_top = self.rows.len().saturating_sub(1);
         if self.scroll_top > max_top {
             self.scroll_top = max_top;
+        }
+    }
+
+    /// Move the tree's anchor one level up. No-op at filesystem root.
+    /// Used by clicks on the synthetic "↑ .." row.
+    pub fn navigate_to_parent(&mut self) {
+        if let Some(parent) = self.root.parent() {
+            self.root = parent.to_path_buf();
+            self.rebuild();
         }
     }
 
@@ -122,6 +145,7 @@ impl TreeSidebar {
                 is_dir,
                 expanded,
                 is_hidden,
+                is_parent: false,
             });
             if expanded {
                 self.walk(&path, depth + 1, rows);

@@ -1951,7 +1951,10 @@ fn default_term() -> String {
 }
 
 fn default_font_size() -> f64 {
-    12.0
+    // 13 pt instead of 12 — bundled JetBrains Mono reads thin at 12 on
+    // retina panels (the "终端字体太瘦" reading); 13 matches both Warp's
+    // default and the bundled unterm.lua that's been shipping.
+    13.0
 }
 
 fn default_mcp_port() -> u16 {

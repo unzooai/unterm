@@ -201,19 +201,25 @@ impl crate::TermWindow {
                 .file_name()
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_else(|| tree.root.display().to_string());
-            let rows: Vec<(String, usize, bool, bool, bool)> = tree
+            let rows: Vec<(String, usize, bool, bool, bool, bool)> = tree
                 .rows
                 .iter()
                 .map(|r| {
-                    (
+                    let name = if r.is_parent {
+                        "..".to_string()
+                    } else {
                         r.path
                             .file_name()
                             .map(|n| n.to_string_lossy().to_string())
-                            .unwrap_or_default(),
+                            .unwrap_or_default()
+                    };
+                    (
+                        name,
                         r.depth,
                         r.is_dir,
                         r.expanded,
                         r.is_hidden,
+                        r.is_parent,
                     )
                 })
                 .collect();
@@ -244,13 +250,15 @@ impl crate::TermWindow {
                 }),
         );
 
-        for (i, (name, depth, is_dir, expanded, is_hidden)) in rows_snapshot
+        for (i, (name, depth, is_dir, expanded, is_hidden, is_parent)) in rows_snapshot
             .iter()
             .enumerate()
             .skip(scroll_top)
             .take(visible_rows)
         {
-            let glyph = if *is_dir {
+            let glyph = if *is_parent {
+                "↑ "
+            } else if *is_dir {
                 if *expanded {
                     "▾ "
                 } else {

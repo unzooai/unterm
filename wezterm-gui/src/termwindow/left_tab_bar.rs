@@ -206,13 +206,14 @@ impl crate::TermWindow {
         // Color model mirrors Warp's: rows are greyscale foreground-overlay
         // (5/10/15% opacity); color comes ONLY from the status dot and the
         // agent name, so it reads clean against any user theme. Title is
-        // full-contrast foreground, subtitle is foreground @ 60% (Warp's
-        // text_sub opacity).
+        // full-contrast foreground; subtitle was 60% but read too faint on
+        // dark schemes (rows came across as a single line of title with a
+        // ghost underneath) — 75% holds up as a clear second tier.
         let agent_color = palette
             .resolve_fg(ColorAttribute::PaletteIndex(14))
             .to_linear();
         let fg = palette.foreground.to_linear();
-        let dim = fg.mul_alpha(0.6); // subtitle / directory
+        let dim = fg.mul_alpha(0.75); // subtitle / directory
         let sel_bg = fg.mul_alpha(0.10); // fg_overlay_2 — selected fill
         let sel_border = fg.mul_alpha(0.15); // fg_overlay_3 — selected border
         let hover_bg = fg.mul_alpha(0.08);

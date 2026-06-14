@@ -1107,7 +1107,7 @@ impl crate::TermWindow {
         let row_info = row.and_then(|i| {
             let tree = self.tree_sidebar.borrow();
             tree.as_ref().and_then(|t| {
-                t.rows.get(i).map(|r| (r.path.clone(), r.is_dir))
+                t.rows.get(i).map(|r| (r.path.clone(), r.is_dir, r.is_parent))
             })
         });
 
@@ -1121,11 +1121,26 @@ impl crate::TermWindow {
                 }
             }
             WMEK::Press(MousePress::Left) => {
-                let Some((path, is_dir)) = row_info else {
+                let Some((path, is_dir, is_parent)) = row_info else {
                     return;
                 };
                 let double = self.last_mouse_click.as_ref().map(|c| c.streak) >= Some(2);
-                if is_dir {
+                if is_parent {
+                    // "↑ .." row — single click re-anchors the tree to the
+                    // parent directory. Double-click also `cd`s the active
+                    // pane there, matching the regular-dir double-click
+                    // muscle memory.
+                    if double {
+                        if let Some(pane) = self.get_active_pane_no_overlay() {
+                            let cmd = super::cd_command_for_pane(&pane, &path);
+                            let mut writer = pane.writer();
+                            let _ = writer.write_all(cmd.as_bytes());
+                        }
+                    }
+                    if let Some(tree) = self.tree_sidebar.borrow_mut().as_mut() {
+                        tree.navigate_to_parent();
+                    }
+                } else if is_dir {
                     if double {
                         if let Some(pane) = self.get_active_pane_no_overlay() {
                             let cmd = super::cd_command_for_pane(&pane, &path);
@@ -1161,7 +1176,7 @@ impl crate::TermWindow {
                 }
             }
             WMEK::Press(MousePress::Right) => {
-                let Some((path, is_dir)) = row_info else {
+                let Some((path, is_dir, _is_parent)) = row_info else {
                     return;
                 };
                 let Some(pane) = self.get_active_pane_or_overlay() else {

@@ -577,16 +577,28 @@ impl FontConfigInner {
             "Noto Sans"
         };
 
+        // Title font weight: SemiBold/Medium for tab labels so they hold up
+        // visually next to the heavier Codicon glyphs we render through the
+        // bundled SymbolsNerdFontMono. Regular felt fragile (the "字体太瘦"
+        // complaint that prompted this); SemiBold matches Warp's chrome
+        // weight on macOS without veering into Bold's slab feel.
+        fn medium(family: &str) -> FontAttributes {
+            FontAttributes {
+                family: family.to_string(),
+                weight: FontWeight::MEDIUM,
+                ..Default::default()
+            }
+        }
         let mut fonts = vec![if make_bold {
             bold(primary_family)
         } else {
-            FontAttributes::new(primary_family)
+            medium(primary_family)
         }];
 
         let mut fallback = if make_bold {
             bold("Roboto")
         } else {
-            FontAttributes::new("Roboto")
+            medium("Roboto")
         };
         fallback.is_fallback = true;
         fonts.push(fallback);
