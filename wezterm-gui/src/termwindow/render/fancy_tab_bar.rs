@@ -528,7 +528,11 @@ impl crate::TermWindow {
 
         children.push(
             Element::new(&font, ElementContent::Children(left_eles))
-                .vertical_align(VerticalAlign::Bottom)
+                // Middle, not Bottom — traffic lights sat against the bottom
+                // edge of the 2.4× bar leaving a top gap that read as the
+                // bar being too tall, which it isn't. Center keeps the
+                // whole top strip visually balanced.
+                .vertical_align(VerticalAlign::Middle)
                 .colors(bar_colors.clone())
                 .padding(BoxDimension {
                     left: left_padding,
@@ -540,6 +544,7 @@ impl crate::TermWindow {
         );
         children.push(
             Element::new(&font, ElementContent::Children(right_eles))
+                .vertical_align(VerticalAlign::Middle)
                 .colors(bar_colors.clone())
                 .float(Float::Right),
         );
@@ -551,7 +556,7 @@ impl crate::TermWindow {
             .item_type(UIItemType::TabBar(TabBarItem::None))
             .min_width(Some(Dimension::Pixels(self.dimensions.pixel_width as f32)))
             .min_height(Some(Dimension::Pixels(tab_bar_height)))
-            .vertical_align(VerticalAlign::Bottom)
+            .vertical_align(VerticalAlign::Middle)
             .colors(bar_colors);
 
         let border = self.get_os_border();

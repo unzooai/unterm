@@ -660,8 +660,17 @@ impl crate::TermWindow {
             };
             // shell 名 + cwd 提亮(主信息)
             paint(1, &shell_name, &bright);
-            paint(cwd_offset, &cwd_part, &bright);
-            // 各 chip:label: 后的值提亮;proxy on / mcp 非零用 teal
+            // cwd is clickable (copy on left-click) — teal flag it as actionable.
+            paint(cwd_offset, &cwd_part, &teal_a);
+            // Status bar values fall into three tiers now:
+            //   bright   — read-only display ("89x32", shell name)
+            //   teal     — clickable affordance (everything with a UI handler:
+            //              project, capture modes, theme, profile, cwd)
+            //   active   — currently-on toggles (proxy:on, mcp count > 0)
+            //              kept as teal so the chip still pops, but the same
+            //              hue as plain clickables so the color difference
+            //              doesn't read as a category change.
+            // This gives a single uniform cue for "you can click this".
             let val = |part: &str| -> (usize, String) {
                 match part.find(':') {
                     Some(i) => (i + 1, part[i + 1..].to_string()),
@@ -669,28 +678,22 @@ impl crate::TermWindow {
                 }
             };
             let (o, v) = val(&project_part);
-            paint(project_offset + o, &v, &bright);
+            paint(project_offset + o, &v, &teal_a);
             let (o, v) = val(&exclude_part);
-            paint(exclude_offset + o, &v, &bright);
+            paint(exclude_offset + o, &v, &teal_a);
             let (o, v) = val(&include_part);
-            paint(include_offset + o, &v, &bright);
+            paint(include_offset + o, &v, &teal_a);
             let (o, v) = val(&proxy);
-            paint(
-                proxy_offset + o,
-                &v,
-                if proxy_enabled { &teal_a } else { &bright },
-            );
+            paint(proxy_offset + o, &v, &teal_a);
+            let _ = proxy_enabled;
             let (o, v) = val(&mcp_part);
-            paint(
-                mcp_offset + o,
-                &v,
-                if mcp_activity.count > 0 { &teal_a } else { &bright },
-            );
+            paint(mcp_offset + o, &v, &teal_a);
+            let _ = mcp_activity.count;
             let (o, v) = val(&theme_part);
-            paint(theme_offset + o, &v, &bright);
+            paint(theme_offset + o, &v, &teal_a);
             let (o, v) = val(&profile_part);
             if v != "—" {
-                paint(profile_offset + o, &v, &bright);
+                paint(profile_offset + o, &v, &teal_a);
             }
         }
         (
