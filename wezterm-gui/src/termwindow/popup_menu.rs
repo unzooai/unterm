@@ -33,6 +33,10 @@ pub enum MenuAction {
     ToggleRecording,
     ExportSession,
     OpenWebSettings,
+    /// Open an arbitrary URL via the OS browser. Used for the "About"
+    /// footer link to the author's site so it doesn't ride along with
+    /// the existing Web Settings action.
+    OpenUrl(String),
     ToggleTreeSidebar,
     ToggleLeftTabBar,
     /// In-terminal long screenshot: whole scrollback -> one tall PNG.
@@ -158,6 +162,15 @@ impl PopupMenu {
                 ui_icons::ICON_SLIDERS,
                 MenuAction::OpenWebSettings,
             ),
+            // Author / about. Lives at the very bottom so it never
+            // crowds any of the action items above it; kept as a plain
+            // link to doaipm.com per the user's request.
+            entry(
+                "About / Author".to_string(),
+                "",
+                ui_icons::ICON_PROMPT,
+                MenuAction::OpenUrl("https://doaipm.com".to_string()),
+            ),
         ];
         Self {
             entries,
@@ -248,6 +261,9 @@ impl PopupMenu {
             MenuAction::ToggleRecording => term_window.toggle_session_recording(pane_id),
             MenuAction::ExportSession => term_window.export_current_session(pane_id),
             MenuAction::OpenWebSettings => term_window.open_web_settings(),
+            MenuAction::OpenUrl(url) => {
+                wezterm_open_url::open_url(&url);
+            }
             MenuAction::ToggleTreeSidebar => term_window.toggle_tree_sidebar(),
             MenuAction::ToggleLeftTabBar => term_window.toggle_left_tab_bar(),
             MenuAction::CaptureScrollback => {
