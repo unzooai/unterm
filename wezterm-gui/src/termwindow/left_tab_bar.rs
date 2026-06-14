@@ -272,10 +272,13 @@ impl crate::TermWindow {
         for row in rows.iter().skip(scroll_top).take(visible_rows) {
             let title_fg = if row.active { fg } else { fg.mul_alpha(0.82) };
 
-            // Circular icon chip (Warp's 24px icon-with-status, scaled to
-            // 16px here): agent-driven panes get a bright chip with the
-            // agent's initial; idle terminals a neutral chip with a prompt
-            // glyph. The color is the row's only saturated accent.
+            // Row-leading indicator. AI-driven panes keep the colored
+            // chip with the agent's initial — that's the row's accent
+            // and the at-a-glance "this one is busy" signal. Idle rows
+            // drop the chip background entirely (it read as a stray "+"
+            // against the dim glyph at small sizes) and just show a
+            // longer "→" arrow, like a list bullet pointing at the
+            // title.
             let chip_px = 16. * pt;
             let chip_radius = Dimension::Pixels(chip_px / 2.);
             let circle = || {
@@ -302,38 +305,50 @@ impl crate::TermWindow {
                     },
                 })
             };
-            let (chip_bg, chip_fg, chip_label) = if let Some(agent) = &row.agent {
+            let dot = if let Some(agent) = &row.agent {
                 let initial = agent
                     .chars()
                     .find(|c| c.is_alphanumeric())
                     .map(|c| c.to_ascii_uppercase().to_string())
                     .unwrap_or_else(|| "•".to_string());
-                (agent_color, bg, initial)
+                Element::new(&font, ElementContent::Text(initial))
+                    .vertical_align(VerticalAlign::Middle)
+                    .min_width(Some(Dimension::Pixels(chip_px)))
+                    .min_height(Some(Dimension::Pixels(chip_px)))
+                    .border_corners(circle())
+                    .margin(BoxDimension {
+                        left: Dimension::Pixels(0.),
+                        right: Dimension::Pixels(8. * pt),
+                        top: Dimension::Pixels(0.),
+                        bottom: Dimension::Pixels(0.),
+                    })
+                    .padding(BoxDimension {
+                        left: Dimension::Pixels(5. * pt),
+                        right: Dimension::Pixels(0.),
+                        top: Dimension::Pixels(1.5 * pt),
+                        bottom: Dimension::Pixels(0.),
+                    })
+                    .colors(ElementColors {
+                        border: BorderColor::default(),
+                        bg: agent_color.into(),
+                        text: bg.into(),
+                    })
             } else {
-                (fg.mul_alpha(0.14), fg.mul_alpha(0.75), "›".to_string())
+                Element::new(&font, ElementContent::Text("→".to_string()))
+                    .vertical_align(VerticalAlign::Middle)
+                    .min_width(Some(Dimension::Pixels(chip_px)))
+                    .margin(BoxDimension {
+                        left: Dimension::Pixels(0.),
+                        right: Dimension::Pixels(8. * pt),
+                        top: Dimension::Pixels(0.),
+                        bottom: Dimension::Pixels(0.),
+                    })
+                    .colors(ElementColors {
+                        border: BorderColor::default(),
+                        bg: LinearRgba::TRANSPARENT.into(),
+                        text: fg.mul_alpha(0.6).into(),
+                    })
             };
-            let dot = Element::new(&font, ElementContent::Text(chip_label))
-                .vertical_align(VerticalAlign::Middle)
-                .min_width(Some(Dimension::Pixels(chip_px)))
-                .min_height(Some(Dimension::Pixels(chip_px)))
-                .border_corners(circle())
-                .margin(BoxDimension {
-                    left: Dimension::Pixels(0.),
-                    right: Dimension::Pixels(8. * pt),
-                    top: Dimension::Pixels(0.),
-                    bottom: Dimension::Pixels(0.),
-                })
-                .padding(BoxDimension {
-                    left: Dimension::Pixels(5. * pt),
-                    right: Dimension::Pixels(0.),
-                    top: Dimension::Pixels(1.5 * pt),
-                    bottom: Dimension::Pixels(0.),
-                })
-                .colors(ElementColors {
-                    border: BorderColor::default(),
-                    bg: chip_bg.into(),
-                    text: chip_fg.into(),
-                });
 
             // Title line: dot + title flow inline; the line itself is a
             // block so the subtitle drops beneath it.

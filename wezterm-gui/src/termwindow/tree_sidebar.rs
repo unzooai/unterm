@@ -134,10 +134,24 @@ impl TreeSidebar {
     }
 
     fn walk(&self, dir: &Path, depth: usize, rows: &mut Vec<TreeRow>) {
+        let at_fs_root = dir.parent().is_none();
         for (path, is_dir) in list_dir(dir) {
-            let is_hidden = path
+            let basename = path
                 .file_name()
-                .map_or(false, |n| n.to_string_lossy().starts_with('.'));
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+            // Dotfiles are dimmed at any level; macOS system mounts
+            // (`/dev`, `/proc`, `/sys`, `/private`, `/cores`, `/.vol`)
+            // are dimmed only when they sit at filesystem root, so a
+            // user's `/Volumes/Dev` workspace stays full-strength.
+            let is_dotfile = basename.starts_with('.');
+            let is_system_root = at_fs_root
+                && matches!(
+                    basename.as_str(),
+                    "dev" | "proc" | "sys" | "private" | "cores" | "bin" | "sbin"
+                        | "usr" | "var" | "etc" | "tmp" | "opt" | "lost+found"
+                );
+            let is_hidden = is_dotfile || is_system_root;
             let expanded = is_dir && self.expanded.contains(&path);
             rows.push(TreeRow {
                 path: path.clone(),

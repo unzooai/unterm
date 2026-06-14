@@ -196,11 +196,28 @@ impl crate::TermWindow {
         let (root_name, rows_snapshot, scroll_top) = {
             let tree = self.tree_sidebar.borrow();
             let tree = tree.as_ref().unwrap();
-            let name = tree
-                .root
-                .file_name()
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_else(|| tree.root.display().to_string());
+            // Header shows enough path to disambiguate sibling names:
+            //   `/dev`            → "/dev"        (root-level basename)
+            //   `/Volumes/Dev`    → "Volumes/Dev" (last two components)
+            //   `/Users/alex/Code/x` → "Code/x"   (last two components)
+            // A user pinged this after expanding `/dev` thinking it was
+            // their `/Volumes/Dev` workspace; the lone basename gave no
+            // hint of which one.
+            let name = {
+                let p = tree.root.as_path();
+                let last = p.file_name().map(|n| n.to_string_lossy().to_string());
+                let parent_last = p
+                    .parent()
+                    .and_then(|pp| pp.file_name())
+                    .map(|n| n.to_string_lossy().to_string());
+                match (last, parent_last) {
+                    (Some(last), Some(parent)) if !parent.is_empty() => {
+                        format!("{parent}/{last}")
+                    }
+                    (Some(last), _) => last,
+                    (None, _) => p.display().to_string(),
+                }
+            };
             let rows: Vec<(String, usize, bool, bool, bool, bool)> = tree
                 .rows
                 .iter()
