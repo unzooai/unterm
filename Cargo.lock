@@ -6576,6 +6576,7 @@ dependencies = [
  "parking_lot",
  "png 0.18.0",
  "portable-pty",
+ "procinfo",
  "promise",
  "rangeset",
  "ratelim",
