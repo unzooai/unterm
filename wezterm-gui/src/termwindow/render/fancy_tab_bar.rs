@@ -455,8 +455,16 @@ impl crate::TermWindow {
                 let stats_teal = palette
                     .resolve_fg(ColorAttribute::PaletteIndex(14))
                     .to_linear();
+                // Render in the terminal font (JetBrains Mono) instead
+                // of the chrome title font (SF Pro on macOS). The stats
+                // string mixes letters, digits, Powerline icons and
+                // punctuation — proportional SF Pro hits a different
+                // fallback font per glyph class so the baseline visibly
+                // drifts (`⎇ master 3.7% CPU · 2M` read as misaligned).
+                // JBM carries the whole run at one cell + one baseline.
+                let stats_font = self.fonts.default_font()?;
                 right_eles.push(
-                    Element::new(&font, ElementContent::Text(stats_text))
+                    Element::new(&stats_font, ElementContent::Text(stats_text))
                         .vertical_align(VerticalAlign::Middle)
                         .margin(BoxDimension {
                             left: Dimension::Cells(0.),

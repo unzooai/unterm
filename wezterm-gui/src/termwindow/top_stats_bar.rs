@@ -161,21 +161,33 @@ fn compute_git_status(cwd: &Path) -> Option<GitStatus> {
 
 /// Format the git column compactly. Empty string when not in a repo.
 ///
-///   `⎇ main`            — clean repo
-///   `⎇ main ●3`         — clean branch with 3 dirty files
-///   `⎇ main ↑2`         — 2 ahead of upstream
-///   `⎇ main ●3 ↑2 ↓1`   — all three
+/// The leading icon is the Powerline branch glyph (U+E0A0). It lives in
+/// the bundled `SymbolsNerdFontMono` fallback and shares baseline + cell
+/// width with JetBrains Mono, so a mono-rendered stats string lays out
+/// without the per-glyph baseline drift that the old `⎇` (Apple
+/// Option-key symbol) caused — `⎇` is missing from JBM, so the renderer
+/// fell back to a proportional system font with a different x-height
+/// and the chrome read as misaligned ("ʆ master 3.7% CPU · 2M").
+///
+///   `\u{e0a0} main`            — clean repo
+///   `\u{e0a0} main *3`         — clean branch with 3 dirty files
+///   `\u{e0a0} main +2`         — 2 ahead of upstream
+///   `\u{e0a0} main *3 +2 -1`   — all three
+///
+/// Dirty / ahead / behind markers stay ASCII (`*` / `+` / `-`) on
+/// purpose — the `●` / `↑` / `↓` Unicode set also triggered fallback
+/// in some shipped JBM variants. ASCII keeps a single baseline.
 pub fn render_git_segment(status: &Option<GitStatus>) -> String {
     let Some(s) = status else { return String::new() };
-    let mut out = format!("⎇ {}", s.branch);
+    let mut out = format!("\u{e0a0} {}", s.branch);
     if s.dirty > 0 {
-        out.push_str(&format!(" ●{}", s.dirty));
+        out.push_str(&format!(" *{}", s.dirty));
     }
     if s.ahead > 0 {
-        out.push_str(&format!(" ↑{}", s.ahead));
+        out.push_str(&format!(" +{}", s.ahead));
     }
     if s.behind > 0 {
-        out.push_str(&format!(" ↓{}", s.behind));
+        out.push_str(&format!(" -{}", s.behind));
     }
     out
 }
@@ -357,11 +369,17 @@ fn format_etime(secs: u64) -> String {
     }
 }
 
-/// `8% CPU 1.4G 4m` — compact process column. Empty when no data.
+/// `8% cpu  1.4G  4m` — compact process column. Empty when no data.
+///
+/// Separator is two spaces (not `·`). The middle-dot rendered fine in
+/// SF Pro but didn't share a baseline with the digits when the stats
+/// text moved to JBM, and the two-space gap reads cleaner against the
+/// numeric run anyway. "cpu" is lowercased to keep one all-caps run
+/// out of the bar, which otherwise drew the eye to a single segment.
 pub fn render_proc_segment(status: &Option<ProcStatus>) -> String {
     let Some(s) = status else { return String::new() };
     format!(
-        "{:.1}% CPU · {} · {}",
+        "{:.1}% cpu  {}  {}",
         s.cpu_pct,
         format_bytes(s.rss_bytes),
         format_etime(s.uptime_secs)
