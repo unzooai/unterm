@@ -532,36 +532,37 @@ impl crate::TermWindow {
         }
         self.ui_items.append(&mut ui_items);
 
-        // Author footer — pinned to the absolute bottom of the sidebar
-        // gutter (separate render pass so it doesn't flow with the
-        // tab rows above). One line, localized ("作者：zhitong ·
-        // DOAIPM" / "by zhitong · DOAIPM" / …), painted in the agent
-        // accent so it visibly reads as a clickable link rather than
-        // dim chrome. The whole row is one UIItem; click opens
-        // https://doaipm.com via wezterm_open_url.
-        let caption = crate::i18n::t("sidebar.author_caption");
-        let footer_pad = 8. * pt;
+        // Author footer — pinned to the absolute bottom of the sidebar.
+        // Localized caption + ↗ external-link arrow so the user can
+        // tell at a glance it's a hyperlink, painted in a low-key dim
+        // foreground (matches the status bar's hint tone — saturated
+        // teal here was too loud against the chrome). Click anywhere
+        // on the row opens https://doaipm.com.
+        let caption = format!("{} ↗", crate::i18n::t("sidebar.author_caption"));
+        let link_dim = fg.mul_alpha(0.55);
+        let footer_pad_v = 10. * pt;
+        let footer_pad_h = 12. * pt;
         let footer = Element::new(&font, ElementContent::Text(caption))
             .item_type(UIItemType::LeftTabBarAuthorLink)
             .display(DisplayType::Block)
             .min_width(Some(Dimension::Pixels(width - 14. * pt - 1.)))
             .padding(BoxDimension {
-                left: Dimension::Pixels(footer_pad + 7. * pt),
-                right: Dimension::Pixels(footer_pad + 7. * pt),
-                top: Dimension::Pixels(footer_pad),
-                bottom: Dimension::Pixels(footer_pad),
+                left: Dimension::Pixels(footer_pad_h),
+                right: Dimension::Pixels(footer_pad_h),
+                top: Dimension::Pixels(footer_pad_v),
+                bottom: Dimension::Pixels(footer_pad_v),
             })
             .colors(ElementColors {
                 border: BorderColor::default(),
                 bg: LinearRgba::TRANSPARENT.into(),
-                text: agent_color.into(),
+                text: link_dim.into(),
             })
             .hover_colors(Some(ElementColors {
                 border: BorderColor::default(),
                 bg: hover_bg.into(),
-                text: agent_color.into(),
+                text: fg.into(),
             }));
-        let footer_height = (metrics.cell_size.height as f32 + 2.0 * footer_pad).ceil();
+        let footer_height = (metrics.cell_size.height as f32 + 2.0 * footer_pad_v).ceil();
         let footer_top = bottom - footer_height;
         let footer_layout = LayoutContext {
             height: DimensionContext {
