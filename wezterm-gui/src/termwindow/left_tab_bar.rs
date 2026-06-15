@@ -162,13 +162,16 @@ impl crate::TermWindow {
         let bottom =
             self.dimensions.pixel_height as f32 - status_h - border.bottom.get() as f32;
 
-        // Sidebar surface: the terminal background lifted ~5% toward the
-        // foreground (Warp's fg_overlay_1). Enough to read as a distinct
-        // full-height panel without floating jarringly like the old
-        // titlebar color did. A 1px divider on the right seals the edge.
+        // Sidebar surface: lift the terminal background 10 % toward the
+        // foreground (was 5 %, but at that ratio the sidebar and the
+        // chrome's +5 % HSL lighten landed at near-identical greys —
+        // the seam between them disappeared and the entire left column
+        // read as one panel). 10 % makes the sidebar visibly lighter
+        // than the chrome strip, so the user can tell where the chrome
+        // ends and the sidebar begins without needing to count pixels.
         let bg = palette.background.to_linear();
         let fgc = palette.foreground.to_linear();
-        let lift = 0.05;
+        let lift = 0.10;
         let bar_bg = LinearRgba::with_components(
             bg.0 * (1. - lift) + fgc.0 * lift,
             bg.1 * (1. - lift) + fgc.1 * lift,
