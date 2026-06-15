@@ -449,7 +449,12 @@ impl crate::TermWindow {
             // stays single-row.
             let stats_text = compose_top_stats_text(self);
             if !stats_text.is_empty() {
-                let stats_teal = window::color::LinearRgba::with_srgba(0x6f, 0xcc, 0xb8, 0xff);
+                // Palette-derived accent so the stats text picks up the
+                // scheme's bright-cyan slot instead of a hardcoded
+                // #6fccb8 (which clashed with warm-toned light themes).
+                let stats_teal = palette
+                    .resolve_fg(ColorAttribute::PaletteIndex(14))
+                    .to_linear();
                 right_eles.push(
                     Element::new(&font, ElementContent::Text(stats_text))
                         .vertical_align(VerticalAlign::Middle)

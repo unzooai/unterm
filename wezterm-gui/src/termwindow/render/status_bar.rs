@@ -647,7 +647,19 @@ impl crate::TermWindow {
                 .foreground
                 .map(|c| c.into())
                 .unwrap_or(SrgbaTuple::from((0xe6u8, 0xe6u8, 0xe4u8)));
-            let teal = SrgbaTuple::from((0x6fu8, 0xccu8, 0xb8u8));
+            // Palette-derived accent: ANSI bright cyan (index 14 =
+            // brights[6]) so the actionable chips pick up whatever the
+            // scheme defines for "bright cyan" instead of a hardcoded
+            // #6fccb8 — keeps Solarized Light's warm-teal, Tokyo
+            // Night's icy blue-cyan, etc., in sync with the rest of
+            // the chrome.
+            let teal: SrgbaTuple = self
+                .config
+                .resolved_palette
+                .brights
+                .and_then(|b| b.get(6).copied())
+                .map(|c| c.into())
+                .unwrap_or_else(|| SrgbaTuple::from((0x6fu8, 0xccu8, 0xb8u8)));
             let mk = |c: SrgbaTuple| {
                 let mut a = attrs.clone();
                 a.set_foreground(ColorAttribute::TrueColorWithDefaultFallback(c));

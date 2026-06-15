@@ -188,7 +188,13 @@ impl crate::TermWindow {
         let bg = LinearRgba::with_srgba(0x16, 0x16, 0x16, 0xff);
         let fg = LinearRgba::with_srgba(0xcf, 0xcf, 0xcd, 0xff);
         let dim = LinearRgba::with_srgba(0x6f, 0x6f, 0x6c, 0xff);
-        let teal = LinearRgba::with_srgba(0x6f, 0xcc, 0xb8, 0xff);
+        // Palette-derived accent so the tree sidebar header picks up
+        // the scheme's bright-cyan slot. Falls back to a sane teal if
+        // the scheme didn't define `brights`.
+        let teal = self
+            .palette()
+            .resolve_fg(wezterm_term::color::ColorAttribute::PaletteIndex(14))
+            .to_linear();
         let hover_bg = LinearRgba::with_srgba(0x26, 0x26, 0x26, 0xff);
 
         let mut children: Vec<Element> = vec![];
