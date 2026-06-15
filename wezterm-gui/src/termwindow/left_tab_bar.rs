@@ -552,13 +552,13 @@ impl crate::TermWindow {
         let link_dim = fg.mul_alpha(0.55);
         let footer_pad_v = 10. * pt;
         let footer_pad_h = 12. * pt;
-        // Body font (JetBrains Mono) instead of the title's SF Pro
-        // proportional — the proportional cuts gave visibly uneven
-        // letter spacing and a wobbly baseline at this size. JBM is
-        // monospace with consistent metrics, so DO AI PM · BY ZHITONG
-        // sits on one band with even gaps regardless of glyph.
-        let mono_font = self.fonts.default_font()?;
-        let footer = Element::new(&mono_font, ElementContent::Text(caption))
+        // Back to the title font (SF Pro) — JetBrains Mono's open `O`
+        // didn't sit visually with the rest of the all-caps run.
+        // SF Pro's caps are designed as a single optical family, so
+        // even at small size the `O` shares stroke width and round-
+        // ness with `D`, `B`, `M`. All-caps + the title-font
+        // metrics give the uniform letter band the user asked for.
+        let footer = Element::new(&font, ElementContent::Text(caption))
             .item_type(UIItemType::LeftTabBarAuthorLink)
             .display(DisplayType::Block)
             .min_width(Some(Dimension::Pixels(width - 14. * pt - 1.)))
