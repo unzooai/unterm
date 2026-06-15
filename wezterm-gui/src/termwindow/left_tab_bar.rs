@@ -533,54 +533,35 @@ impl crate::TermWindow {
         self.ui_items.append(&mut ui_items);
 
         // Author footer — pinned to the absolute bottom of the sidebar
-        // gutter (separate render pass so it doesn't flow with the tab
-        // rows above). Two lines: a localized caption ("Made by
-        // DO AI PM" / "作者 · DO AI PM" / …) and the URL below in a
-        // dimmer tone. Click anywhere on the block opens
+        // gutter (separate render pass so it doesn't flow with the
+        // tab rows above). One line, localized ("作者：zhitong ·
+        // DOAIPM" / "by zhitong · DOAIPM" / …), painted in the agent
+        // accent so it visibly reads as a clickable link rather than
+        // dim chrome. The whole row is one UIItem; click opens
         // https://doaipm.com via wezterm_open_url.
         let caption = crate::i18n::t("sidebar.author_caption");
         let footer_pad = 8. * pt;
-        let caption_el = Element::new(&font, ElementContent::Text(caption))
+        let footer = Element::new(&font, ElementContent::Text(caption))
+            .item_type(UIItemType::LeftTabBarAuthorLink)
             .display(DisplayType::Block)
-            .min_width(Some(Dimension::Percent(1.)))
+            .min_width(Some(Dimension::Pixels(width - 14. * pt - 1.)))
+            .padding(BoxDimension {
+                left: Dimension::Pixels(footer_pad + 7. * pt),
+                right: Dimension::Pixels(footer_pad + 7. * pt),
+                top: Dimension::Pixels(footer_pad),
+                bottom: Dimension::Pixels(footer_pad),
+            })
             .colors(ElementColors {
                 border: BorderColor::default(),
                 bg: LinearRgba::TRANSPARENT.into(),
-                text: fg.mul_alpha(0.62).into(),
-            });
-        let url_el = Element::new(&font, ElementContent::Text("doaipm.com".to_string()))
-            .display(DisplayType::Block)
-            .min_width(Some(Dimension::Percent(1.)))
-            .colors(ElementColors {
+                text: agent_color.into(),
+            })
+            .hover_colors(Some(ElementColors {
                 border: BorderColor::default(),
-                bg: LinearRgba::TRANSPARENT.into(),
-                text: fg.mul_alpha(0.38).into(),
-            });
-        let footer = Element::new(
-            &font,
-            ElementContent::Children(vec![caption_el, url_el]),
-        )
-        .item_type(UIItemType::LeftTabBarAuthorLink)
-        .display(DisplayType::Block)
-        .min_width(Some(Dimension::Pixels(width - 14. * pt - 1.)))
-        .padding(BoxDimension {
-            left: Dimension::Pixels(footer_pad + 7. * pt),
-            right: Dimension::Pixels(footer_pad + 7. * pt),
-            top: Dimension::Pixels(footer_pad),
-            bottom: Dimension::Pixels(footer_pad),
-        })
-        .colors(ElementColors {
-            border: BorderColor::default(),
-            bg: LinearRgba::TRANSPARENT.into(),
-            text: fg.into(),
-        })
-        .hover_colors(Some(ElementColors {
-            border: BorderColor::default(),
-            bg: hover_bg.into(),
-            text: fg.into(),
-        }));
-        // Reserve enough room for two rows of title font + the padding.
-        let footer_height = (metrics.cell_size.height as f32 * 2.0 + 2.0 * footer_pad).ceil();
+                bg: hover_bg.into(),
+                text: agent_color.into(),
+            }));
+        let footer_height = (metrics.cell_size.height as f32 + 2.0 * footer_pad).ceil();
         let footer_top = bottom - footer_height;
         let footer_layout = LayoutContext {
             height: DimensionContext {

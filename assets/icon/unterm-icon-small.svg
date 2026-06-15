@@ -1,12 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <!-- Small-size optical variant for neon icon: solid fills only,
-       no blurs (which smudge below 32px). Keeps the dark-with-
-       teal-cursor identity but drops the outline glow so the U
-       and cursor stay crisp at 16/24/32 px (Dock/menubar/taskbar). -->
-  <rect width="64" height="64" rx="14.3" fill="#06141a"/>
+  <!-- Small-size optical variant of soft-V2: keeps the tile + cursor,
+       drops the U haze/blur (smudges below 32px). Solid white U at
+       full opacity so the mark stays legible at 16/24/32 px. -->
+  <rect width="64" height="64" rx="14.3" fill="#141414"/>
   <rect x="0.5" y="0.5" width="63" height="63" rx="13.8"
-        fill="none" stroke="#6fccb8" stroke-opacity="0.30" stroke-width="1"/>
+        fill="none" stroke="#ffffff" stroke-opacity="0.10" stroke-width="1"/>
   <path d="M15 13 h9 v22 a8 8 0 0 0 16 0 V13 h9 v22.5 a16.5 16.5 0 0 1 -34 0 Z"
-        fill="#6fccb8"/>
-  <rect x="26" y="19" width="12" height="15" rx="1.8" fill="#c6fce8"/>
+        fill="#eceae6"/>
+  <rect x="26" y="19" width="12" height="15" rx="1.8" fill="#6fccb8"/>
 </svg>
