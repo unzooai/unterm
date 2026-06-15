@@ -504,7 +504,12 @@ impl crate::TermWindow {
             .padding(BoxDimension {
                 left: Dimension::Pixels(7. * pt),
                 right: Dimension::Pixels(7. * pt),
-                top: Dimension::Pixels(6. * pt),
+                // Top padding bumped 6 → 14 pt so the sidebar's first
+                // row sits clearly below the chrome divider instead
+                // of touching it. User: "这个区域要往下一点" — the
+                // selected tab box was reading as pressed against the
+                // top bar's bottom edge.
+                top: Dimension::Pixels(14. * pt),
                 bottom: Dimension::Pixels(0.),
             })
             .border(BoxDimension {
