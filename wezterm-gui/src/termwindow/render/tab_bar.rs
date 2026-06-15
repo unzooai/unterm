@@ -107,18 +107,21 @@ impl crate::TermWindow {
     ) -> anyhow::Result<f32> {
         if config.use_fancy_tab_bar {
             let font = fontconfig.title_font()?;
-            // 1.3× cell_height (~40 px @ 144 dpi 13 pt). Tightened from
-            // 1.6× after the v0.44 install screenshot showed a visible
-            // dead band BELOW the macOS native traffic lights: macOS
-            // anchors integrated-buttons traffic lights to a fixed
-            // y-offset from the window's top edge, so a 1.6× chrome
-            // leaves the lights pinned near the top with ~25 px of
-            // empty bar underneath. 1.3× brings the bar height down to
-            // match the lights' natural row so the chrome reads as one
-            // tight strip; codicons still clear the top edge at this
-            // height (they ride at ~15 pt with their own internal
-            // padding from the quick-action element).
-            Ok((font.metrics().cell_height.get() as f32 * 1.3).ceil())
+            // 1.6× cell_height (~50 px @ 144 dpi 13 pt). Came back from
+            // a 1.3× experiment that *looked* like it should kill the
+            // dead band below the macOS native traffic lights — but
+            // macOS anchors integrated buttons to a fixed y-offset
+            // *from the window's top edge*, and at 40 px chrome that
+            // offset lands the lights against the bar's bottom edge
+            // (dead band re-appeared, now above). The lights ride at a
+            // y the OS picks based on its own titlebar metrics; at
+            // 1.6× they end up roughly visually centered in the bar
+            // for the current macOS (Tahoe / Sequoia) cohort. Driving
+            // them off macOS's stack and into perfect chrome center
+            // would mean drawing our own dots (new `MacOsCustom`
+            // variant for `IntegratedTitleButtonStyle`) — bigger lift
+            // than this patch wanted.
+            Ok((font.metrics().cell_height.get() as f32 * 1.6).ceil())
         } else {
             Ok(render_metrics.cell_size.height as f32)
         }

@@ -1,5 +1,34 @@
 # Changelog
 
+## v0.44.1 — 2026-06-15
+
+### Added
+
+- **`IntegratedTitleButtonStyle::MacOsCustom`** — three filled circles
+  (Apple-palette red / yellow / green) drawn through our own box-model,
+  so `VerticalAlign::Middle` lands them at pixel-exact chrome center.
+  AppKit's native NSWindowButton widgets are anchored to a fixed
+  y-offset from the window's top edge, not the chrome center, so the
+  unified Warp-style top bar always left the lights off-axis (with a
+  dead band either above or below depending on chrome height). The
+  custom dots route clicks through the existing `TabBarItem::WindowButton`
+  handler — close / minimize / zoom work identically. Default on macOS
+  flipped from `MacOsNative` → `MacOsCustom`; set
+  `integrated_title_button_style = "MacOsNative"` in `unterm.lua` to
+  go back to OS-drawn lights (which include the X / − / + hover
+  glyphs that the custom dots don't reimplement).
+
+### Fixed
+
+- **Stats segment overlapped the traffic lights on narrow windows.**
+  The right-aligned stats text + codicon cluster floats from the right
+  edge; as the window shrank past ~900 px the codicons reached the
+  traffic-light reservation and the stats text started drawing under
+  the lights. The stats composer now early-returns empty when
+  `pixel_width < 900` — codicons stay (they're controls, not status)
+  and the stats segment re-appears as soon as the window widens past
+  the threshold.
+
 ## v0.44.0 — 2026-06-15
 
 ### Added
