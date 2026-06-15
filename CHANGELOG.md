@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.44.3 — 2026-06-15
+
+### Fixed
+
+- **Visible seam between the top bar and the left sidebar.** The
+  v0.44.1 / v0.44.2 attempts (1.3× / 1.0× chrome height) both broke
+  worse than they fixed: shortening the chrome clipped the macOS
+  traffic lights and the terminal's first row, and the user's
+  recurring complaint ("边栏压住顶栏") wasn't a geometry overflow at
+  all — the chrome's background and the sidebar's background both
+  resolved to near-identical greys (sidebar bg lifted only 5 % over
+  chrome bg), so the boundary between them was invisible and the
+  chrome's empty lower region read as a continuation of the sidebar.
+  Restored chrome to 1.6× cell_height (the size everything was
+  designed around) and added a 1 px divider line at the chrome's
+  bottom edge in `bar_fg * 0.12` alpha — matches the divider already
+  drawn at the sidebar's right edge, so the chrome / sidebar /
+  terminal panels each read as their own surface.
+
 ## v0.44.2 — 2026-06-15
 
 ### Fixed
