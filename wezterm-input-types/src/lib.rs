@@ -2161,7 +2161,14 @@ pub enum IntegratedTitleButtonStyle {
 impl Default for IntegratedTitleButtonStyle {
     fn default() -> Self {
         if cfg!(target_os = "macos") {
-            Self::MacOsCustom
+            // Keep AppKit's native traffic lights as the default.
+            // The custom-drawn `MacOsCustom` variant remains available
+            // for users who prefer pixel-exact chrome centering
+            // (opt in via `integrated_title_button_style = "MacOsCustom"`),
+            // but it loses the OS hover glyphs (X / − / +) and accessibility
+            // ties — so the v0.44.0 default of `MacOsNative` stays the
+            // out-of-box choice.
+            Self::MacOsNative
         } else {
             Self::Windows
         }
