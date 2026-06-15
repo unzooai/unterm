@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.44.2 — 2026-06-15
+
+### Fixed
+
+- **macOS chrome dead band below the traffic lights.** v0.44.1's chrome
+  was still 1.6× cell height (~50 px) — the AppKit native traffic
+  lights anchor to a fixed ~14 px y-offset from the window's top edge
+  regardless of chrome height, so the lights sat at the top with ~22 px
+  of empty bar below that nothing filled. Dropped the multiplier to
+  1.0× cell height (~31 px) so the chrome matches the lights' natural
+  row; codicons + stats text now share the same row as the lights and
+  the sidebar's first tab sits flush against the chrome's bottom edge
+  with no visible gap.
+
+### Changed
+
+- **Default `integrated_title_button_style` back to `MacOsNative` on
+  macOS.** v0.44.1 had flipped the default to `MacOsCustom` (the new
+  custom-drawn dots) to chase pixel-exact centering, but that lost the
+  AppKit hover glyphs (X / − / +) and the rendered dots looked flatter
+  than the OS lights. Reverted to `MacOsNative`; `MacOsCustom` stays
+  available for users who explicitly want it via `unterm.lua`.
+
 ## v0.44.1 — 2026-06-15
 
 ### Added
