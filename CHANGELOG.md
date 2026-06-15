@@ -1,9 +1,51 @@
 # Changelog
 
-## Unreleased
+## v0.44.0 — 2026-06-15
 
 ### Added
 
+- **Per-pane top stats bar.** The tab row now carries an inline status
+  strip for the active pane: branch + ahead/behind from `git status`,
+  the foreground process name, its CPU / RSS / uptime, and the active
+  MCP agent if one is driving the pane. Git and process info refresh
+  off the render thread on a short cache so typing isn't slowed; both
+  `ps` parsing (Unix) and a PowerShell `Get-Process` shim (Windows)
+  feed the same pipeline. Agent detection now walks the pane's full
+  process tree, so `claude` / `codex` / `gemini` get picked up even
+  when they're spawned underneath a tmux or shell wrapper.
+- **Sidebar footer linking to doaipm.com.** A pinned link row at the
+  absolute bottom of the left tab bar — `DO AI PM · BY ZHITONG ↗` in
+  the platform UI font (SF Pro on macOS) — opens the project's
+  marketing site via the system browser. Caption is localized across
+  all 9 shipped locales (`sidebar.author_caption`) and rendered as a
+  separate, z-pinned element so it doesn't follow the tab scroll.
+- **`▾` shell selector in the left tab bar.** Next to the trailing
+  `+` row, a discoverable arrow opens the shell picker (login shells,
+  registered profiles, AI agents) so new tabs no longer require the
+  context menu. Both hit targets sized for comfortable click.
+- **`tree '↑ ..' row` for parent navigation.** In tree-sidebar mode
+  the first row is now a real "up one directory" entry — click to
+  re-anchor the tree at the parent. Previously the only way out was
+  to type the parent path manually.
+
+### Changed
+
+- **Chrome height + cluster geometry tightened.** Multiple passes over
+  the unified top bar: traffic-light placement reuses `ui_tokens`
+  instead of guessing macOS widths, the bar is centered vertically,
+  Codicon spacing is even, the duplicate tab-title in sidebar mode is
+  dropped, and the overall chrome height comes down ~15% without
+  losing finger-target area.
+- **Stats / status / tree-sidebar accents derive from the theme's
+  palette.** The chrome's teal accent (clickable chips, git ahead/
+  behind, process CPU/MEM) now reads from `palette.brights[6]` /
+  `palette[14]` so it tracks the active scheme instead of being a
+  hard-coded `#6fccb8`. Top-bar background lightens 5% over the
+  scheme's bg so the chrome lifts off the pane.
+- **`session.create` saved state is per-binary.** Workspace restore
+  now keys session JSON on a sha1 of the running binary path, so
+  the installed `Unterm.app` and the dev binary at `/tmp/Unterm-dev.app`
+  don't trample each other's tabs on simultaneous use.
 - **Left vertical tab bar** (`tab_bar_position = "Left"`). Tabs become
   rows in a resizable sidebar (drag the right edge, 200pt–50% window):
   each row shows the tab title over an `agent · directory` subtitle —
@@ -148,6 +190,19 @@
   a proxy and injected as `HTTP_PROXY` into every spawned shell, cutting
   that shell off from the network. Proxies genuinely listening there can
   still be configured explicitly in `proxy.json` (manual mode).
+- **Top stats bar: invisible-render bugs.** Two issues at once kept the
+  inline strip blank on first paint: the cell width was computed as
+  `pixel_cell = 0` (the strip collapsed to zero-width before text was
+  measured), and the strip's z-index sat under the pane so even a sized
+  strip was painted over by terminal content. Width now uses the real
+  cell metrics; the strip is composed into the chrome row itself
+  (zindex 20) so it draws above the pane and behind the click targets.
+- **`ps` output parsing in the stats bar handled runs of whitespace
+  incorrectly.** `splitn(4, char::is_whitespace)` emits empty fragments
+  for runs of spaces, so the RSS column landed in the comm slot and
+  the process name showed up as a number. Switched to
+  `split_whitespace()`, which collapses runs the way macOS / Linux
+  `ps` formats actually want.
 
 ## v0.16.0 — 2026-05-18
 
