@@ -107,18 +107,20 @@ impl crate::TermWindow {
     ) -> anyhow::Result<f32> {
         if config.use_fancy_tab_bar {
             let font = fontconfig.title_font()?;
-            // 1.0× cell_height (~31 px @ 144 dpi 13 pt). Tightened from
-            // 1.6× because macOS anchors the integrated traffic lights
-            // to a fixed y-offset from the window's top edge (~14 px on
-            // current macOS). At 1.6× the chrome was 50 px and the
-            // lights ended up at y=14–28 with a visible 22 px dead band
-            // underneath; the user diagnosed it as "边框压了顶栏" — the
-            // chrome was carrying empty bottom padding the OS lights
-            // couldn't fill. 1.0× brings the chrome down to roughly the
-            // lights' natural row so codicons sit at the same y as the
-            // lights, and the sidebar's first tab lands flush against
-            // the chrome's bottom edge instead of below a gap.
-            Ok((font.metrics().cell_height.get() as f32 * 1.0).ceil())
+            // 1.6× cell_height (~50 px @ 144 dpi 13 pt). Two rounds of
+            // experimentation (1.3×, 1.0×) both broke worse: macOS
+            // anchors traffic lights to a fixed y-offset and the
+            // codicons / stats text need a full cell height of breathing
+            // room, so any chrome shorter than ~1.5× cell starts
+            // clipping the first terminal row and the right-side action
+            // cluster. The "dead band below the lights" the user saw
+            // at 1.6× wasn't an overflow bug — it was that the chrome
+            // bg and the sidebar bg sit at near-identical greys, so the
+            // sidebar's top edge reads as a continuation of the chrome.
+            // Fixed by `chrome_bottom_divider` in fancy_tab_bar.rs —
+            // a 1 px line that explicitly separates the chrome's
+            // bottom edge from the sidebar's grey panel.
+            Ok((font.metrics().cell_height.get() as f32 * 1.6).ceil())
         } else {
             Ok(render_metrics.cell_size.height as f32)
         }

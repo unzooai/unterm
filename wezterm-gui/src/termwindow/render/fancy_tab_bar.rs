@@ -118,8 +118,21 @@ impl crate::TermWindow {
         } else {
             self.config.window_frame.inactive_titlebar_fg.to_linear()
         };
+        // Explicit bottom border on the chrome row so the chrome / sidebar
+        // boundary is visible even when both panels resolve to nearly
+        // identical greys (user's recurring complaint: "sidebar 压住顶栏"
+        // — sidebar appeared to bleed into the chrome because the two
+        // bg colors were indistinguishable at the boundary). 1 px line
+        // in `bar_fg` at 12% alpha matches the divider already used at
+        // the sidebar's right edge.
+        let chrome_bottom_divider = bar_fg.mul_alpha(0.12);
         let bar_colors = ElementColors {
-            border: BorderColor::default(),
+            border: BorderColor {
+                left: window::color::LinearRgba::TRANSPARENT,
+                right: window::color::LinearRgba::TRANSPARENT,
+                top: window::color::LinearRgba::TRANSPARENT,
+                bottom: chrome_bottom_divider,
+            },
             bg: bar_bg.into(),
             text: bar_fg.into(),
         };
@@ -618,6 +631,16 @@ impl crate::TermWindow {
             .min_width(Some(Dimension::Pixels(self.dimensions.pixel_width as f32)))
             .min_height(Some(Dimension::Pixels(tab_bar_height)))
             .vertical_align(VerticalAlign::Middle)
+            // 1 px bottom border carries the `chrome_bottom_divider`
+            // color set on `bar_colors`. The other three border edges
+            // stay zero-width so we don't paint a frame around the
+            // whole top strip.
+            .border(BoxDimension {
+                left: Dimension::Pixels(0.),
+                right: Dimension::Pixels(0.),
+                top: Dimension::Pixels(0.),
+                bottom: Dimension::Pixels(1.),
+            })
             .colors(bar_colors);
 
         let border = self.get_os_border();
