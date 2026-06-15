@@ -420,13 +420,21 @@ impl crate::TermWindow {
         // chevron opens the shell selector. Two elements share the row
         // so the picker is visually discoverable instead of buried behind
         // right-click muscle memory.
+        // Bigger hit targets — single-glyph cells with the original
+        // tight padding gave ~16-20px click areas, well under the
+        // 32 px tap-target ergonomics target. Doubled vertical
+        // padding + min_width so each half is a comfortable button.
+        let btn_pad_v = row_pad * 1.4;
+        let btn_pad_h = row_pad * 1.8;
         let plus_cell = Element::new(&font, ElementContent::Text("+".to_string()))
             .item_type(UIItemType::TabBar(crate::tabbar::TabBarItem::NewTabButton))
+            .vertical_align(VerticalAlign::Middle)
+            .min_width(Some(Dimension::Pixels(40. * pt)))
             .padding(BoxDimension {
-                left: Dimension::Pixels(row_pad),
-                right: Dimension::Pixels(row_pad / 2.),
-                top: Dimension::Pixels(row_pad / 2.),
-                bottom: Dimension::Pixels(row_pad / 2.),
+                left: Dimension::Pixels(btn_pad_h),
+                right: Dimension::Pixels(btn_pad_h / 2.),
+                top: Dimension::Pixels(btn_pad_v),
+                bottom: Dimension::Pixels(btn_pad_v),
             })
             .colors(ElementColors {
                 border: BorderColor::default(),
@@ -440,11 +448,13 @@ impl crate::TermWindow {
             }));
         let chevron_cell = Element::new(&font, ElementContent::Text("▾".to_string()))
             .item_type(UIItemType::NewTabShellSelector)
+            .vertical_align(VerticalAlign::Middle)
+            .min_width(Some(Dimension::Pixels(40. * pt)))
             .padding(BoxDimension {
-                left: Dimension::Pixels(row_pad / 2.),
-                right: Dimension::Pixels(row_pad),
-                top: Dimension::Pixels(row_pad / 2.),
-                bottom: Dimension::Pixels(row_pad / 2.),
+                left: Dimension::Pixels(btn_pad_h / 2.),
+                right: Dimension::Pixels(btn_pad_h),
+                top: Dimension::Pixels(btn_pad_v),
+                bottom: Dimension::Pixels(btn_pad_v),
             })
             .colors(ElementColors {
                 border: BorderColor::default(),
