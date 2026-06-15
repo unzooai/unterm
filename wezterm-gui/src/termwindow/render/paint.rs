@@ -175,7 +175,11 @@ impl crate::TermWindow {
         } else {
             0.
         };
-        let top = top_bar_height + border.top.get() as f32;
+        // Match the left tab bar / terminal content top so the tree sidebar
+        // also leaves the chrome's bottom seam clear instead of butting
+        // against it (see left_tab_bar.rs / render/pane.rs).
+        let padding_top = self.padding_left_top().1;
+        let top = top_bar_height + padding_top + border.top.get() as f32;
         let status_h = if self.config.show_unterm_status_bar {
             self.status_bar_pixel_height()
         } else {

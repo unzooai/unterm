@@ -153,7 +153,15 @@ impl crate::TermWindow {
         } else {
             0.
         };
-        let top = top_bar_height + border.top.get() as f32;
+        // Align the sidebar's top with the terminal content top, which the
+        // pane renderer places at `tab_bar_height + padding_top + border`
+        // (see render/pane.rs). Omitting `padding_top` here made the grey
+        // panel butt directly against the chrome's bottom edge while the
+        // terminal kept its 10px breathing gap — the asymmetry read as the
+        // sidebar "pressing" / covering the top bar (user report). Adding
+        // the same padding leaves a consistent dark seam below the chrome.
+        let padding_top = self.padding_left_top().1;
+        let top = top_bar_height + padding_top + border.top.get() as f32;
         let status_h = if self.config.show_unterm_status_bar {
             self.status_bar_pixel_height()
         } else {
@@ -546,13 +554,14 @@ impl crate::TermWindow {
         self.ui_items.append(&mut ui_items);
 
         // Author footer — pinned to the absolute bottom of the sidebar.
-        // Localized caption + ↗ external-link arrow so the user can
-        // tell at a glance it's a hyperlink, painted in a low-key dim
-        // foreground (matches the status bar's hint tone — saturated
-        // teal here was too loud against the chrome). Click anywhere
-        // on the row opens https://doaipm.com.
+        // Painted in the palette teal accent (same hue as the row status
+        // dots / agent names) + a ↗ external-link arrow so it unmistakably
+        // reads as a clickable hyperlink — the user asked for the link
+        // affordance to be obvious, so this deliberately drops the old
+        // low-key dim grey. Click anywhere on the row opens
+        // https://doaipm.com.
         let caption = format!("{} ↗", crate::i18n::t("sidebar.author_caption"));
-        let link_dim = fg.mul_alpha(0.55);
+        let link_color = agent_color;
         let footer_pad_v = 10. * pt;
         let footer_pad_h = 12. * pt;
         // Back to the title font (SF Pro) — JetBrains Mono's open `O`
@@ -574,7 +583,7 @@ impl crate::TermWindow {
             .colors(ElementColors {
                 border: BorderColor::default(),
                 bg: LinearRgba::TRANSPARENT.into(),
-                text: link_dim.into(),
+                text: link_color.into(),
             })
             .hover_colors(Some(ElementColors {
                 border: BorderColor::default(),

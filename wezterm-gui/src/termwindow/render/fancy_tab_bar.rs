@@ -80,21 +80,17 @@ impl crate::TermWindow {
         // via `theme_bg:lighten(0.05)`. The hardcoded window_frame
         // defaults only fire when the user has explicitly set those
         // fields.
-        // Theme-aware chrome bg: lighten 5% on dark schemes for the
-        // subtle "panel above content" lift, darken 5% on light
-        // schemes so the chrome still reads as a layer (lighten on
-        // an already-bright bg washes out to near-white). HSL
-        // lightness is the cheapest light/dark detector.
-        let scheme_bg = {
-            let bg = palette.background;
-            let (h, s, l, a) = bg.to_hsla();
-            let new_l = if l > 0.5 {
-                (l - 0.05).max(0.0)
-            } else {
-                (l + 0.05).min(1.0)
-            };
-            termwiz::color::SrgbaTuple::from_hsla(h, s, new_l, a).to_linear()
-        };
+        // Chrome bg = content color (the terminal background), no lift.
+        // The top bar deliberately matches the pane bg so it reads as part
+        // of the content surface; the lifted-grey LEFT SIDEBAR is what now
+        // carries the visual "panel" layer. Previously the chrome got a
+        // +5% lift too, which made it the same grey as the sidebar — the
+        // two merged at their shared edge and the sidebar looked like it
+        // was covering the top bar (user's "sidebar 压住顶栏" report). With
+        // the chrome held at content color, the dark bar and the grey
+        // sidebar sit at clearly different tones; the 1px
+        // `chrome_bottom_divider` still seals the bar's bottom edge.
+        let scheme_bg = palette.background.to_linear();
         let scheme_fg = palette.foreground.to_linear();
         let bar_bg = if self.focused.is_some() {
             if self.config.window_frame.active_bg_is_default() {

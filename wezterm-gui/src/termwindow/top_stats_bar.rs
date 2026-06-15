@@ -27,6 +27,25 @@ use std::process::{Command, Stdio};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
+/// Build a `Command` that won't flash a console window on Windows.
+///
+/// Unterm's GUI is a `windows_subsystem = "windows"` binary with no
+/// console, so launching a console program (git / powershell) makes
+/// Windows briefly pop a cmd-like window. The stats bar refreshes these
+/// on every tab switch, so the flash was very visible. `CREATE_NO_WINDOW`
+/// suppresses it. No-op on non-Windows platforms.
+fn hidden_command(program: &str) -> Command {
+    #[allow(unused_mut)]
+    let mut cmd = Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    cmd
+}
+
 /// Set of cache keys currently being refreshed off the render thread.
 /// Stops a paint storm from spawning N threads for the same query.
 fn inflight_git() -> &'static Mutex<HashSet<PathBuf>> {
@@ -106,7 +125,7 @@ pub fn git_status_for(cwd: &Path) -> Option<GitStatus> {
 }
 
 fn compute_git_status(cwd: &Path) -> Option<GitStatus> {
-    let out = Command::new("git")
+    let out = hidden_command("git")
         .arg("-C")
         .arg(cwd)
         .arg("status")
@@ -258,7 +277,7 @@ pub fn proc_status_for(pid: u32) -> Option<ProcStatus> {
 fn compute_proc_status(pid: u32) -> Option<ProcStatus> {
     // POSIX ps with empty `=` headers prints values only — single
     // space-separated line. Works the same on macOS, Linux, *BSD.
-    let out = Command::new("ps")
+    let out = hidden_command("ps")
         .args(["-p", &pid.to_string(), "-o", "pcpu=,rss=,etime=,comm="])
         .stdin(Stdio::null())
         .stderr(Stdio::null())
@@ -304,7 +323,7 @@ fn compute_proc_status(pid: u32) -> Option<ProcStatus> {
          $secs = [int](([DateTime]::Now) - $p.StartTime).TotalSeconds; \
          \"{{0}}|{{1}}|{{2}}\" -f $p.WS, $secs, $p.ProcessName"
     );
-    let out = Command::new("powershell")
+    let out = hidden_command("powershell")
         .args(["-NoProfile", "-NonInteractive", "-Command", &script])
         .stdin(Stdio::null())
         .stderr(Stdio::null())
