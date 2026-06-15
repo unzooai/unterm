@@ -2142,13 +2142,26 @@ pub enum IntegratedTitleButtonAlignment {
 pub enum IntegratedTitleButtonStyle {
     Windows,
     Gnome,
+    /// macOS system-drawn traffic lights (NSWindowButton). y is anchored
+    /// to a fixed offset from the window's top edge by AppKit; the
+    /// terminal can't vertically center them in a non-standard chrome
+    /// height. Kept as an opt-in for users who want OS-rendered hover
+    /// glyphs (X / − / +) and full system menus.
     MacOsNative,
+    /// Custom-drawn macOS-style traffic lights. Three colored circles
+    /// rendered through our own box-model so they participate in
+    /// `VerticalAlign::Middle` and land at chrome center pixel-perfect.
+    /// Trades off the OS hover glyphs for proper centering; the
+    /// click → close / hide / zoom routing still goes through our
+    /// `TabBarItem::WindowButton` handler (same as the Windows / Gnome
+    /// custom styles).
+    MacOsCustom,
 }
 
 impl Default for IntegratedTitleButtonStyle {
     fn default() -> Self {
         if cfg!(target_os = "macos") {
-            Self::MacOsNative
+            Self::MacOsCustom
         } else {
             Self::Windows
         }
@@ -2170,11 +2183,12 @@ impl FromDynamic for IntegratedTitleButtonStyle {
                 "Windows" => Self::Windows,
                 "Gnome" => Self::Gnome,
                 "MacOsNative" if cfg!(target_os = "macos") => Self::MacOsNative,
+                "MacOsCustom" if cfg!(target_os = "macos") => Self::MacOsCustom,
                 _ => {
                     return Err(wezterm_dynamic::Error::InvalidVariantForType {
                         variant_name: string.to_string(),
                         type_name,
-                        possible: &["Windows", "Gnome", "MacOsNative"],
+                        possible: &["Windows", "Gnome", "MacOsNative", "MacOsCustom"],
                     });
                 }
             };

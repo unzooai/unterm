@@ -504,8 +504,15 @@ impl crate::TermWindow {
                 TabBarItem::LeftStatus => left_status.push(item_to_elem(item)),
                 TabBarItem::None | TabBarItem::RightStatus => right_eles.push(item_to_elem(item)),
                 TabBarItem::WindowButton(_) => {
-                    if self.config.integrated_title_button_alignment
-                        == IntegratedTitleButtonAlignment::Left
+                    // MacOsCustom dots always live on the left, the
+                    // way macOS users expect — irrespective of the
+                    // `integrated_title_button_alignment` default
+                    // (which is `Right`, set for Windows-style chrome).
+                    let force_left = self.config.integrated_title_button_style
+                        == IntegratedTitleButtonStyle::MacOsCustom;
+                    if force_left
+                        || self.config.integrated_title_button_alignment
+                            == IntegratedTitleButtonAlignment::Left
                     {
                         left_eles.push(item_to_elem(item))
                     } else {
@@ -561,7 +568,9 @@ impl crate::TermWindow {
             && (self.config.integrated_title_button_alignment
                 == IntegratedTitleButtonAlignment::Left
                 || self.config.integrated_title_button_style
-                    == IntegratedTitleButtonStyle::MacOsNative);
+                    == IntegratedTitleButtonStyle::MacOsNative
+                || self.config.integrated_title_button_style
+                    == IntegratedTitleButtonStyle::MacOsCustom);
 
         let left_padding = if window_buttons_at_left {
             if self.config.integrated_title_button_style == IntegratedTitleButtonStyle::MacOsNative

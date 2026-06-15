@@ -214,6 +214,77 @@ mod gnome {
     }
 }
 
+mod macos {
+    //! Custom-drawn macOS-style traffic lights. Three filled circles
+    //! that ride in our own box-model so `VerticalAlign::Middle`
+    //! actually centers them in the chrome (the OS native lights
+    //! can't be vertically centered because AppKit anchors them to
+    //! a fixed offset from the window top).
+    //!
+    //! Trade-off: no OS hover glyphs (X / − / +). The dots stay
+    //! solid on hover; the click → close / hide / zoom routing is
+    //! identical to the other custom styles.
+    use super::*;
+
+    /// One filled circle. The circle is drawn at the center of the
+    /// element's bounding box at radius 0.5 in BlockCoord space — the
+    /// rasterizer scales it to whatever `sized_poly` reports.
+    pub const DOT: &[Poly] = &[Poly {
+        path: &[PolyCommand::Circle {
+            center: (BlockCoord::Frac(1, 2), BlockCoord::Frac(1, 2)),
+            radius: BlockCoord::Frac(1, 2),
+        }],
+        intensity: BlockAlpha::Full,
+        style: PolyStyle::Fill,
+    }];
+
+    pub fn sized_poly(poly: &'static [Poly]) -> SizedPoly {
+        // 12 px matches the macOS traffic-light cap diameter on a
+        // standard chrome (~14 px on Retina, scaled here for our
+        // layout grid).
+        let size = Dimension::Pixels(12.);
+        SizedPoly {
+            poly,
+            width: size,
+            height: size,
+        }
+    }
+
+    pub fn window_button_colors(
+        _background_lightness: f64,
+        _foreground: config::IntegratedTitleButtonColor,
+        window_button: IntegratedTitleButton,
+    ) -> WindowButtonColors {
+        // Apple-design palette for the three caps. Values are the
+        // commonly-cited "macOS Big Sur+" hex set, slightly desaturated
+        // so the dots don't out-shout the chrome content.
+        let (r, g, b) = match window_button {
+            IntegratedTitleButton::Close => (0xed, 0x6a, 0x5e),
+            IntegratedTitleButton::Hide => (0xf4, 0xbf, 0x4f),
+            IntegratedTitleButton::Maximize => (0x61, 0xc5, 0x54),
+        };
+        let dot = LinearRgba(
+            (r as f32 / 255.0).powf(2.2),
+            (g as f32 / 255.0).powf(2.2),
+            (b as f32 / 255.0).powf(2.2),
+            1.0,
+        );
+
+        WindowButtonColors {
+            colors: ElementColors {
+                border: BorderColor::new(LinearRgba::TRANSPARENT),
+                bg: LinearRgba::TRANSPARENT.into(),
+                text: dot.into(),
+            },
+            hover_colors: ElementColors {
+                border: BorderColor::new(LinearRgba::TRANSPARENT),
+                bg: LinearRgba::TRANSPARENT.into(),
+                text: dot.into(),
+            },
+        }
+    }
+}
+
 pub fn window_button_element(
     window_button: IntegratedTitleButton,
     is_maximized: bool,
@@ -237,6 +308,11 @@ pub fn window_button_element(
                 use self::gnome::{CLOSE, HIDE, MAXIMIZE, RESTORE};
                 (CLOSE, HIDE, MAXIMIZE, RESTORE)
             }
+            Style::MacOsCustom => {
+                // All three caps share the same filled-circle poly;
+                // the color is picked at `window_button_colors` time.
+                (self::macos::DOT, self::macos::DOT, self::macos::DOT, self::macos::DOT)
+            }
             Style::MacOsNative => unreachable!(),
         };
         let poly = match window_button {
@@ -254,6 +330,7 @@ pub fn window_button_element(
         match style {
             Style::Windows => self::windows::sized_poly(poly),
             Style::Gnome => self::gnome::sized_poly(poly),
+            Style::MacOsCustom => self::macos::sized_poly(poly),
             Style::MacOsNative => unreachable!(),
         }
     };
@@ -326,6 +403,24 @@ pub fn window_button_element(
                     bottom: dim,
                 })
         }
+        Style::MacOsCustom => {
+            // 6 px breathing room around each 12 px dot ⇒ 24 px per
+            // cap. Three caps + the standard 6 px between them give
+            // ~72 px total, lining up with the existing
+            // `MACOS_TRAFFIC_LIGHT_RESERVE` width so layout doesn't
+            // jump when users switch between MacOsNative and
+            // MacOsCustom.
+            let dim = Dimension::Pixels(6.);
+            element
+                .zindex(1)
+                .vertical_align(VerticalAlign::Middle)
+                .padding(BoxDimension {
+                    left: dim,
+                    right: dim,
+                    top: dim,
+                    bottom: dim,
+                })
+        }
         Style::MacOsNative => unreachable!(),
     };
 
@@ -339,6 +434,7 @@ pub fn window_button_element(
     let window_button_colors_fn = match style {
         Style::Windows => self::windows::window_button_colors,
         Style::Gnome => self::gnome::window_button_colors,
+        Style::MacOsCustom => self::macos::window_button_colors,
         Style::MacOsNative => unreachable!(),
     };
 
