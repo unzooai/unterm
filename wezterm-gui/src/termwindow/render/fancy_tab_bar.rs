@@ -739,6 +739,19 @@ pub(crate) fn make_x_button(
 fn compose_top_stats_text(win: &crate::TermWindow) -> String {
     use crate::termwindow::top_stats_bar;
 
+    // Hide the stats segment on narrow windows. The stats text floats
+    // right with the quick-action codicons; as the window shrinks it
+    // slides left until it overlaps the macOS native traffic-light
+    // cluster reserved on the left edge (collision reported on the
+    // installed v0.44 build). Codicons stay — they're controls, not
+    // status, and the user needs them at every width. 900 px is the
+    // empirical threshold below which the codicon row + traffic-light
+    // reserve fully consumes the bar with no comfortable runway for
+    // text. Above the threshold the stats text re-appears.
+    if (win.dimensions.pixel_width as f32) < 900.0 {
+        return String::new();
+    }
+
     let active = win.get_active_pane_or_overlay();
     let cwd = active.as_ref().and_then(|p| crate::termwindow::pane_cwd_path(p));
     let proc_info = active.as_ref().and_then(|p| {

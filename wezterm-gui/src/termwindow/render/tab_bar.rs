@@ -107,13 +107,18 @@ impl crate::TermWindow {
     ) -> anyhow::Result<f32> {
         if config.use_fancy_tab_bar {
             let font = fontconfig.title_font()?;
-            // 1.6× cell_height — combined with the stats bar's 1.0×
-            // this caps total chrome at ~2.6× cell (~80 px retina @
-            // 13 pt). Three rounds of user feedback ("还是有点高")
-            // bottomed the multiplier out at "icons still fit and
-            // breathe, nothing else"; lower and the 6 quick actions
-            // start touching the bar's top edge.
-            Ok((font.metrics().cell_height.get() as f32 * 1.6).ceil())
+            // 1.3× cell_height (~40 px @ 144 dpi 13 pt). Tightened from
+            // 1.6× after the v0.44 install screenshot showed a visible
+            // dead band BELOW the macOS native traffic lights: macOS
+            // anchors integrated-buttons traffic lights to a fixed
+            // y-offset from the window's top edge, so a 1.6× chrome
+            // leaves the lights pinned near the top with ~25 px of
+            // empty bar underneath. 1.3× brings the bar height down to
+            // match the lights' natural row so the chrome reads as one
+            // tight strip; codicons still clear the top edge at this
+            // height (they ride at ~15 pt with their own internal
+            // padding from the quick-action element).
+            Ok((font.metrics().cell_height.get() as f32 * 1.3).ceil())
         } else {
             Ok(render_metrics.cell_size.height as f32)
         }
