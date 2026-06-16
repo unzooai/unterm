@@ -285,12 +285,28 @@ impl crate::TermWindow {
             collected
         };
 
-        let scroll_top = self.left_tab_bar.borrow().scroll_top.min(
-            rows.len().saturating_sub(1),
-        );
         // Uniform two-line rows make the scroll window arithmetic exact.
         let row_h = metrics.cell_size.height as f32 * 2.0 + 2.0 * row_pad + 4.0 * pt;
         let visible_rows = ((bottom - top - row_h) / row_h).floor().max(1.0) as usize;
+        // Keep the active row inside the visible window. Without this
+        // the sidebar painted scroll_top..scroll_top+visible_rows and
+        // never followed the active tab, so spawning a new tab when
+        // the sidebar was already full looked like "添加不了" — the
+        // new tab existed but rendered off-screen.
+        let active_idx = rows.iter().position(|r| r.active).unwrap_or(0);
+        {
+            let mut bar = self.left_tab_bar.borrow_mut();
+            let max_top = rows.len().saturating_sub(visible_rows);
+            if active_idx < bar.scroll_top {
+                bar.scroll_top = active_idx;
+            } else if active_idx >= bar.scroll_top + visible_rows {
+                bar.scroll_top = active_idx + 1 - visible_rows;
+            }
+            bar.scroll_top = bar.scroll_top.min(max_top);
+        }
+        let scroll_top = self.left_tab_bar.borrow().scroll_top.min(
+            rows.len().saturating_sub(1),
+        );
 
         let mut children: Vec<Element> = vec![];
 
@@ -564,6 +580,49 @@ impl crate::TermWindow {
             self.render_element(&computed, gl_state, None)?;
         }
         self.ui_items.append(&mut ui_items);
+
+        // Scrollbar thumb on the right edge of the sidebar — visible only
+        // when there are more rows than fit. Until this landed the user
+        // had no way to tell that a newly-spawned tab existed at all when
+        // the sidebar was already full ("最多那多个 tab"): with the thumb,
+        // the auto-scroll's reposition is immediately legible.
+        if rows.len() > visible_rows {
+            let track_h = bottom - top;
+            let scrollbar_w = 4. * pt;
+            let scrollbar_x = border.left.get() as f32 + width - scrollbar_w - 2.;
+            let thumb_h = (track_h * (visible_rows as f32) / (rows.len() as f32))
+                .max(24. * pt);
+            let max_top = rows.len().saturating_sub(visible_rows).max(1) as f32;
+            let thumb_y = top + (track_h - thumb_h) * (scroll_top as f32 / max_top);
+
+            let thumb = Element::new(&font, ElementContent::Text(String::new()))
+                .colors(ElementColors {
+                    border: BorderColor::default(),
+                    bg: fg.mul_alpha(0.35).into(),
+                    text: LinearRgba::TRANSPARENT.into(),
+                })
+                .min_width(Some(Dimension::Pixels(scrollbar_w)))
+                .min_height(Some(Dimension::Pixels(thumb_h)));
+            let thumb_layout = LayoutContext {
+                height: DimensionContext {
+                    dpi: self.dimensions.dpi as f32,
+                    pixel_max: thumb_h,
+                    pixel_cell: metrics.cell_size.height as f32,
+                },
+                width: DimensionContext {
+                    dpi: self.dimensions.dpi as f32,
+                    pixel_max: scrollbar_w,
+                    pixel_cell: metrics.cell_size.width as f32,
+                },
+                bounds: euclid::rect(scrollbar_x, thumb_y, scrollbar_w, thumb_h),
+                metrics: &metrics,
+                gl_state: self.render_state.as_ref().unwrap(),
+                zindex: 22,
+            };
+            let thumb_computed = self.compute_element(&thumb_layout, &thumb)?;
+            let gl_state = self.render_state.as_ref().unwrap();
+            self.render_element(&thumb_computed, gl_state, None)?;
+        }
 
         // Author footer — pinned to the absolute bottom of the sidebar.
         // Painted in the palette teal accent (same hue as the row status
