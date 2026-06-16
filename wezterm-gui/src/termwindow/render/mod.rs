@@ -397,6 +397,23 @@ impl crate::TermWindow {
         (padding_left + left_gap, padding_top + top_gap)
     }
 
+    /// Bottom window padding in physical pixels — the gap the pane content
+    /// leaves above the status bar. The left tab bar / tree sidebar use it
+    /// so their bottom edge lands at the same height as the terminal
+    /// content, leaving the full-width status bar uncovered (mirrors the
+    /// `padding_top` inset applied at the chrome seam).
+    pub fn padding_bottom_px(&self) -> f32 {
+        let v_context = DimensionContext {
+            dpi: self.dimensions.dpi as f32,
+            pixel_max: self.terminal_size.pixel_height as f32,
+            pixel_cell: self.render_metrics.cell_size.height as f32,
+        };
+        self.config
+            .window_padding
+            .bottom
+            .evaluate_as_pixels(v_context)
+    }
+
     fn resolve_lock_glyph(
         &self,
         style: &TextStyle,

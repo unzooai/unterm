@@ -167,8 +167,15 @@ impl crate::TermWindow {
         } else {
             0.
         };
-        let bottom =
-            self.dimensions.pixel_height as f32 - status_h - border.bottom.get() as f32;
+        // Subtract padding_bottom as well as the status bar so the sidebar
+        // ends level with the terminal content, leaving the full-width
+        // status bar (and its bottom info) uncovered. Without it the panel
+        // ran flush to the status bar's top edge and, with sub-pixel
+        // rounding, bled over it on macOS (user: "边栏压住底部信息区域").
+        let bottom = self.dimensions.pixel_height as f32
+            - status_h
+            - self.padding_bottom_px()
+            - border.bottom.get() as f32;
 
         // Sidebar surface: lift the terminal background 10 % toward the
         // foreground (was 5 %, but at that ratio the sidebar and the

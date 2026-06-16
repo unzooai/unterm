@@ -185,7 +185,10 @@ impl crate::TermWindow {
         } else {
             0.
         };
-        let bottom = self.dimensions.pixel_height as f32 - status_h - border.bottom.get() as f32;
+        let bottom = self.dimensions.pixel_height as f32
+            - status_h
+            - self.padding_bottom_px()
+            - border.bottom.get() as f32;
         let row_h = metrics.cell_size.height as f32 + 6. * pt;
         let visible_rows = (((bottom - top) / row_h).floor() as usize).saturating_sub(1);
 
