@@ -1,6 +1,6 @@
 [package]
 name = "unterm-agents"
-version = "0.44.3"
+version = "0.44.4"
 edition = "2021"
 description = "Unterm AI-agent integration runtime: signed manifest fetch + verify, install/auth/launch runners, config storage adapters."
 license = "MIT"
@@ -48,4 +48,3 @@ optional = true
 name = "manifest-cli"
 path = "src/bin/manifest_cli.rs"
 required-features = ["manifest-cli"]
-

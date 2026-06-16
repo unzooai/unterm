@@ -67,6 +67,8 @@ impl super::TermWindow {
             | UIItemType::TreeSidebarHeader
             | UIItemType::LeftTabBarTab(_)
             | UIItemType::LeftTabBarResize
+            | UIItemType::LeftTabBarScrollTrack { .. }
+            | UIItemType::LeftTabBarScrollThumb { .. }
             | UIItemType::LeftTabBarBg
             | UIItemType::QuickAction(_)
             | UIItemType::NewTabShellSelector
@@ -99,6 +101,8 @@ impl super::TermWindow {
             | UIItemType::TreeSidebarHeader
             | UIItemType::LeftTabBarTab(_)
             | UIItemType::LeftTabBarResize
+            | UIItemType::LeftTabBarScrollTrack { .. }
+            | UIItemType::LeftTabBarScrollThumb { .. }
             | UIItemType::LeftTabBarBg
             | UIItemType::QuickAction(_)
             | UIItemType::NewTabShellSelector
@@ -464,6 +468,38 @@ impl super::TermWindow {
             UIItemType::LeftTabBarResize => {
                 self.drag_left_tab_bar_resize(item, start_event, &event);
             }
+            UIItemType::LeftTabBarScrollThumb {
+                row_count,
+                visible_rows,
+                track_top,
+                track_height,
+            } => {
+                self.drag_left_tab_bar_scroll_thumb(
+                    item,
+                    start_event,
+                    &event,
+                    context,
+                    row_count,
+                    visible_rows,
+                    track_top,
+                    track_height,
+                );
+            }
+            UIItemType::LeftTabBarScrollTrack {
+                row_count,
+                visible_rows,
+                thumb_height,
+            } => {
+                self.drag_left_tab_bar_scroll_track(
+                    item,
+                    start_event,
+                    &event,
+                    context,
+                    row_count,
+                    visible_rows,
+                    thumb_height,
+                );
+            }
             _ => {
                 log::error!("drag not implemented for {:?}", item);
             }
@@ -611,6 +647,23 @@ impl super::TermWindow {
                     self.dragging.replace((item, event));
                 }
             }
+            UIItemType::LeftTabBarScrollTrack {
+                row_count,
+                visible_rows,
+                thumb_height,
+            } => {
+                self.mouse_event_left_tab_bar_scroll_track(
+                    item,
+                    row_count,
+                    visible_rows,
+                    thumb_height,
+                    event,
+                    context,
+                );
+            }
+            UIItemType::LeftTabBarScrollThumb { .. } => {
+                self.mouse_event_left_tab_bar_scroll_thumb(item, event, context);
+            }
             UIItemType::LeftTabBarBg => {
                 if let WMEK::VertWheel(n) = event.kind {
                     self.left_tab_bar_scroll_by(-(n as isize));
@@ -692,6 +745,114 @@ impl super::TermWindow {
         event: &MouseEvent,
     ) {
         self.resize_left_tab_bar(event.coords.x as f32);
+        self.dragging.replace((item, start_event));
+    }
+
+    fn mouse_event_left_tab_bar_scroll_track(
+        &mut self,
+        item: UIItem,
+        row_count: usize,
+        visible_rows: usize,
+        thumb_height: usize,
+        event: MouseEvent,
+        context: &dyn WindowOps,
+    ) {
+        match event.kind {
+            WMEK::VertWheel(n) => {
+                self.left_tab_bar_scroll_by(-(n as isize));
+            }
+            WMEK::Press(MousePress::Left) => {
+                let thumb_top = event
+                    .coords
+                    .y
+                    .saturating_sub((thumb_height / 2) as isize)
+                    .max(item.y as isize) as usize;
+                self.left_tab_bar_scroll_to_thumb_top(
+                    thumb_top,
+                    item.y,
+                    item.height,
+                    thumb_height,
+                    row_count,
+                    visible_rows,
+                );
+                self.dragging.replace((item, event));
+            }
+            _ => {}
+        }
+        context.set_cursor(Some(MouseCursor::Arrow));
+    }
+
+    fn mouse_event_left_tab_bar_scroll_thumb(
+        &mut self,
+        item: UIItem,
+        event: MouseEvent,
+        context: &dyn WindowOps,
+    ) {
+        if let WMEK::Press(MousePress::Left) = event.kind {
+            self.dragging.replace((item, event));
+        } else if let WMEK::VertWheel(n) = event.kind {
+            self.left_tab_bar_scroll_by(-(n as isize));
+        }
+        context.set_cursor(Some(MouseCursor::Arrow));
+    }
+
+    fn drag_left_tab_bar_scroll_thumb(
+        &mut self,
+        item: UIItem,
+        start_event: MouseEvent,
+        event: &MouseEvent,
+        context: &dyn WindowOps,
+        row_count: usize,
+        visible_rows: usize,
+        track_top: usize,
+        track_height: usize,
+    ) {
+        let from_top = start_event
+            .coords
+            .y
+            .saturating_sub(item.y as isize)
+            .max(0) as usize;
+        let thumb_top = event
+            .coords
+            .y
+            .saturating_sub(from_top as isize)
+            .max(track_top as isize) as usize;
+        self.left_tab_bar_scroll_to_thumb_top(
+            thumb_top,
+            track_top,
+            track_height,
+            item.height,
+            row_count,
+            visible_rows,
+        );
+        context.invalidate();
+        self.dragging.replace((item, start_event));
+    }
+
+    fn drag_left_tab_bar_scroll_track(
+        &mut self,
+        item: UIItem,
+        start_event: MouseEvent,
+        event: &MouseEvent,
+        context: &dyn WindowOps,
+        row_count: usize,
+        visible_rows: usize,
+        thumb_height: usize,
+    ) {
+        let thumb_top = event
+            .coords
+            .y
+            .saturating_sub((thumb_height / 2) as isize)
+            .max(item.y as isize) as usize;
+        self.left_tab_bar_scroll_to_thumb_top(
+            thumb_top,
+            item.y,
+            item.height,
+            thumb_height,
+            row_count,
+            visible_rows,
+        );
+        context.invalidate();
         self.dragging.replace((item, start_event));
     }
 

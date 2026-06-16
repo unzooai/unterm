@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.44.4 — 2026-06-16
+
+### Fixed
+
+- **Left sidebar selection now reads as one surface instead of stacked overlays.** The active row uses a deeper neutral fill, the cyan marker is inline with the row content, and the outline was removed so the selection no longer looks like layered gray boxes.
+- **Scrollbar interaction is reliable again.** The left sidebar scrollbar now sits flush against the edge, the thumb track matches the visible rows, and wheel / drag input stays responsive without fighting the row layout.
+- **New tabs activate cleanly.** Spawning a tab no longer does a redundant second activation pass, which keeps focus and scroll position stable.
+
 ## v0.44.3 — 2026-06-15
 
 ### Fixed

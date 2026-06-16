@@ -126,7 +126,7 @@ pub async fn spawn_command_internal(
             }
         }
         _ => {
-            let (tab, pane, window_id) = mux
+            let (_tab, pane, window_id) = mux
                 .spawn_tab_or_window(
                     match spawn_where {
                         SpawnWhere::NewWindow => None,
@@ -148,22 +148,6 @@ pub async fn spawn_command_internal(
             // the new window being created.
             if Some(window_id) == src_window_id {
                 pane.set_config(term_config);
-            }
-
-            // Make the newly-spawned tab the active one. Without this
-            // step `spawn_tab_or_window` just appends to the window's
-            // tabs vec and the previously-active tab stays focused — so
-            // clicking the `+` button at the bottom of the left sidebar
-            // looked like a no-op once the sidebar was full ("最多那多
-            // 个 tab"): the tab existed but rendered off-screen and the
-            // active row didn't move to it, so the auto-scroll hook in
-            // `paint_left_tab_bar` had no signal to follow.
-            if let Some(mut window) = mux.get_window_mut(window_id) {
-                let target_id = tab.tab_id();
-                let new_idx = window.iter().position(|t| t.tab_id() == target_id);
-                if let Some(idx) = new_idx {
-                    window.save_and_then_set_active(idx);
-                }
             }
         }
     };

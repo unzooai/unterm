@@ -43,6 +43,13 @@ pub struct LeftTabBar {
     pub width_pts: Option<f32>,
     /// First visible row index (wheel scrolling).
     pub scroll_top: usize,
+    /// Last painted tab-row count, used to clamp wheel/drag scrolling.
+    pub row_count: usize,
+    /// Last painted number of visible tab rows.
+    pub visible_rows: usize,
+    /// Last active tab index seen by paint. Active changes auto-scroll
+    /// into view; ordinary repaints preserve the user's manual scroll.
+    pub last_active_idx: Option<usize>,
 }
 
 /// One row's snapshot, captured from the mux ahead of element building
@@ -57,6 +64,86 @@ struct RowInfo {
     agent: Option<String>,
     /// Last component of the active pane's working directory.
     dir: Option<String>,
+}
+
+fn scroll_top_for_active(
+    current_scroll_top: usize,
+    row_count: usize,
+    visible_rows: usize,
+    active_idx: usize,
+) -> usize {
+    let mut scroll_top = clamp_scroll_top(current_scroll_top, row_count, visible_rows);
+    if row_count == 0 {
+        return 0;
+    }
+
+    let visible_rows = visible_rows.max(1);
+    let active_idx = active_idx.min(row_count - 1);
+    let max_top = row_count.saturating_sub(visible_rows);
+
+    if active_idx < scroll_top {
+        scroll_top = active_idx;
+    } else if active_idx >= scroll_top.saturating_add(visible_rows) {
+        scroll_top = active_idx.saturating_add(1).saturating_sub(visible_rows);
+    }
+
+    scroll_top.min(max_top)
+}
+
+fn clamp_scroll_top(scroll_top: usize, row_count: usize, visible_rows: usize) -> usize {
+    if row_count == 0 {
+        return 0;
+    }
+    scroll_top.min(row_count.saturating_sub(visible_rows.max(1)))
+}
+
+fn scroll_top_after_active_change(
+    current_scroll_top: usize,
+    row_count: usize,
+    visible_rows: usize,
+    active_idx: usize,
+    last_active_idx: Option<usize>,
+) -> usize {
+    if last_active_idx == Some(active_idx) {
+        clamp_scroll_top(current_scroll_top, row_count, visible_rows)
+    } else {
+        scroll_top_for_active(current_scroll_top, row_count, visible_rows, active_idx)
+    }
+}
+
+fn scroll_top_for_delta(
+    current_scroll_top: usize,
+    row_count: usize,
+    visible_rows: usize,
+    delta: isize,
+) -> usize {
+    let current_scroll_top = clamp_scroll_top(current_scroll_top, row_count, visible_rows);
+    let max_top = row_count.saturating_sub(visible_rows.max(1));
+    (current_scroll_top as isize + delta).clamp(0, max_top as isize) as usize
+}
+
+fn scroll_top_for_thumb_top(
+    thumb_top: usize,
+    track_top: usize,
+    track_height: usize,
+    thumb_height: usize,
+    row_count: usize,
+    visible_rows: usize,
+) -> usize {
+    let max_top = row_count.saturating_sub(visible_rows.max(1));
+    if max_top == 0 {
+        return 0;
+    }
+
+    let max_thumb_top = track_height.saturating_sub(thumb_height);
+    if max_thumb_top == 0 {
+        return 0;
+    }
+
+    let thumb_top = thumb_top
+        .saturating_sub(track_top)
+        .min(max_thumb_top);
+    ((thumb_top as f32 / max_thumb_top as f32) * max_top as f32).round() as usize
 }
 
 impl crate::TermWindow {
@@ -120,13 +207,37 @@ impl crate::TermWindow {
     }
 
     pub(crate) fn left_tab_bar_scroll_by(&mut self, delta: isize) {
-        let row_count = self.tab_bar.items().iter().filter(|e| {
-            matches!(e.item, crate::tabbar::TabBarItem::Tab { .. })
-        }).count();
         let mut bar = self.left_tab_bar.borrow_mut();
-        let max_top = row_count.saturating_sub(1);
-        bar.scroll_top =
-            (bar.scroll_top as isize + delta).clamp(0, max_top as isize) as usize;
+        let next = scroll_top_for_delta(bar.scroll_top, bar.row_count, bar.visible_rows, delta);
+        if next != bar.scroll_top {
+            bar.scroll_top = next;
+            if let Some(window) = self.window.as_ref() {
+                window.invalidate();
+            }
+        }
+    }
+
+    pub(crate) fn left_tab_bar_scroll_to_thumb_top(
+        &mut self,
+        thumb_top: usize,
+        track_top: usize,
+        track_height: usize,
+        thumb_height: usize,
+        row_count: usize,
+        visible_rows: usize,
+    ) {
+        let next = scroll_top_for_thumb_top(
+            thumb_top,
+            track_top,
+            track_height,
+            thumb_height,
+            row_count,
+            visible_rows,
+        );
+        let mut bar = self.left_tab_bar.borrow_mut();
+        if next != bar.scroll_top {
+            bar.scroll_top = next;
+        }
         if let Some(window) = self.window.as_ref() {
             window.invalidate();
         }
@@ -232,8 +343,7 @@ impl crate::TermWindow {
             .to_linear();
         let fg = palette.foreground.to_linear();
         let dim = fg.mul_alpha(0.75); // subtitle / directory
-        let sel_bg = fg.mul_alpha(0.10); // fg_overlay_2 — selected fill
-        let sel_border = fg.mul_alpha(0.15); // fg_overlay_3 — selected border
+        let sel_bg = fg.mul_alpha(0.18);
         let hover_bg = fg.mul_alpha(0.08);
 
         // Snapshot rows straight from the mux (not the top tab bar, which
@@ -288,25 +398,25 @@ impl crate::TermWindow {
         // Uniform two-line rows make the scroll window arithmetic exact.
         let row_h = metrics.cell_size.height as f32 * 2.0 + 2.0 * row_pad + 4.0 * pt;
         let visible_rows = ((bottom - top - row_h) / row_h).floor().max(1.0) as usize;
-        // Keep the active row inside the visible window. Without this
-        // the sidebar painted scroll_top..scroll_top+visible_rows and
-        // never followed the active tab, so spawning a new tab when
-        // the sidebar was already full looked like "添加不了" — the
-        // new tab existed but rendered off-screen.
+        // Keep the active row inside the visible window. Otherwise a
+        // newly-created active tab can exist below the current sidebar
+        // viewport and look like it was never added.
         let active_idx = rows.iter().position(|r| r.active).unwrap_or(0);
-        {
+        let scroll_top = {
             let mut bar = self.left_tab_bar.borrow_mut();
-            let max_top = rows.len().saturating_sub(visible_rows);
-            if active_idx < bar.scroll_top {
-                bar.scroll_top = active_idx;
-            } else if active_idx >= bar.scroll_top + visible_rows {
-                bar.scroll_top = active_idx + 1 - visible_rows;
-            }
-            bar.scroll_top = bar.scroll_top.min(max_top);
-        }
-        let scroll_top = self.left_tab_bar.borrow().scroll_top.min(
-            rows.len().saturating_sub(1),
-        );
+            let next = scroll_top_after_active_change(
+                bar.scroll_top,
+                rows.len(),
+                visible_rows,
+                active_idx,
+                bar.last_active_idx,
+            );
+            bar.row_count = rows.len();
+            bar.visible_rows = visible_rows;
+            bar.scroll_top = next;
+            bar.last_active_idx = rows.get(active_idx).map(|_| active_idx);
+            next
+        };
 
         let mut children: Vec<Element> = vec![];
 
@@ -330,7 +440,11 @@ impl crate::TermWindow {
                     .colors(ElementColors {
                         border: BorderColor::default(),
                         bg: LinearRgba::TRANSPARENT.into(),
-                        text: agent_color.into(),
+                        text: if row.active {
+                            fg.into()
+                        } else {
+                            agent_color.into()
+                        },
                     })
             } else {
                 Element::new(&font, ElementContent::Text("→".to_string()))
@@ -361,7 +475,9 @@ impl crate::TermWindow {
             } else {
                 row.title.clone()
             };
-            let primary_color = if row.agent.is_some() {
+            let primary_color = if row.active {
+                fg
+            } else if row.agent.is_some() {
                 agent_color
             } else {
                 title_fg
@@ -373,7 +489,29 @@ impl crate::TermWindow {
                     text: primary_color.into(),
                 },
             );
-            let mut line_kids: Vec<Element> = vec![dot, title_el];
+            let mut line_kids: Vec<Element> = vec![];
+            if row.active {
+                line_kids.push(
+                    Element::new(&font, ElementContent::Text(String::new()))
+                        .vertical_align(VerticalAlign::Middle)
+                        .min_width(Some(Dimension::Pixels(2. * pt)))
+                        .min_height(Some(Dimension::Pixels(14. * pt)))
+                        .margin(BoxDimension {
+                            left: Dimension::Pixels(0.),
+                            right: Dimension::Pixels(6. * pt),
+                            top: Dimension::Pixels(0.),
+                            bottom: Dimension::Pixels(0.),
+                        })
+                        .border_corners(rounded())
+                        .colors(ElementColors {
+                            border: BorderColor::default(),
+                            bg: agent_color.into(),
+                            text: LinearRgba::TRANSPARENT.into(),
+                        }),
+                );
+            }
+            line_kids.push(dot);
+            line_kids.push(title_el);
             if let Some(dir) = &row.dir {
                 line_kids.push(
                     Element::new(&font, ElementContent::Text(format!("  · {dir}"))).colors(
@@ -401,18 +539,16 @@ impl crate::TermWindow {
 
             // No inline close button — Warp's vertical-tab rows have none;
             // closing is via the right-click context menu.
-            let kids = vec![title_line];
 
-            // Selected row: fg_overlay_2 fill + fg_overlay_3 1px border,
-            // rounded — Warp's restrained greyscale selection, not a
-            // saturated block.
-            let (row_bg, row_border) = if row.active {
-                (sel_bg, sel_border)
+            // Selected row: deeper neutral fill only. No outline; the
+            // active marker and stronger fill carry selection state.
+            let row_bg = if row.active {
+                sel_bg
             } else {
-                (LinearRgba::TRANSPARENT, LinearRgba::TRANSPARENT)
+                LinearRgba::TRANSPARENT
             };
             children.push(
-                Element::new(&font, ElementContent::Children(kids))
+                Element::new(&font, ElementContent::Children(vec![title_line]))
                     .item_type(UIItemType::LeftTabBarTab(row.tab_idx))
                     .display(DisplayType::Block)
                     .min_width(Some(Dimension::Percent(1.)))
@@ -431,10 +567,10 @@ impl crate::TermWindow {
                         top: Dimension::Pixels(0.),
                         bottom: Dimension::Pixels(0.),
                     })
-                    .border(BoxDimension::new(Dimension::Pixels(1.)))
+                    .border(BoxDimension::new(Dimension::Pixels(0.)))
                     .border_corners(rounded())
                     .colors(ElementColors {
-                        border: BorderColor::new(row_border),
+                        border: BorderColor::new(LinearRgba::TRANSPARENT),
                         bg: row_bg.into(),
                         text: title_fg.into(),
                     })
@@ -588,17 +724,49 @@ impl crate::TermWindow {
         // the auto-scroll's reposition is immediately legible.
         if rows.len() > visible_rows {
             let track_h = bottom - top;
-            let scrollbar_w = 4. * pt;
-            let scrollbar_x = border.left.get() as f32 + width - scrollbar_w - 2.;
+            let scrollbar_w = 5. * pt;
+            let bar_right = border.left.get() as f32 + width;
+            let scrollbar_x = bar_right - scrollbar_w;
             let thumb_h = (track_h * (visible_rows as f32) / (rows.len() as f32))
-                .max(24. * pt);
+                .max(28. * pt)
+                .min(track_h);
             let max_top = rows.len().saturating_sub(visible_rows).max(1) as f32;
             let thumb_y = top + (track_h - thumb_h) * (scroll_top as f32 / max_top);
+
+            let track = Element::new(&font, ElementContent::Text(String::new()))
+                .colors(ElementColors {
+                    border: BorderColor::default(),
+                    bg: fg.mul_alpha(0.10).into(),
+                    text: LinearRgba::TRANSPARENT.into(),
+                })
+                .min_width(Some(Dimension::Pixels(scrollbar_w)))
+                .min_height(Some(Dimension::Pixels(track_h)));
+            let track_layout = LayoutContext {
+                height: DimensionContext {
+                    dpi: self.dimensions.dpi as f32,
+                    pixel_max: track_h,
+                    pixel_cell: metrics.cell_size.height as f32,
+                },
+                width: DimensionContext {
+                    dpi: self.dimensions.dpi as f32,
+                    pixel_max: scrollbar_w,
+                    pixel_cell: metrics.cell_size.width as f32,
+                },
+                bounds: euclid::rect(scrollbar_x, top, scrollbar_w, track_h),
+                metrics: &metrics,
+                gl_state: self.render_state.as_ref().unwrap(),
+                zindex: 21,
+            };
+            let track_computed = self.compute_element(&track_layout, &track)?;
+            {
+                let gl_state = self.render_state.as_ref().unwrap();
+                self.render_element(&track_computed, gl_state, None)?;
+            }
 
             let thumb = Element::new(&font, ElementContent::Text(String::new()))
                 .colors(ElementColors {
                     border: BorderColor::default(),
-                    bg: fg.mul_alpha(0.35).into(),
+                    bg: fg.mul_alpha(0.55).into(),
                     text: LinearRgba::TRANSPARENT.into(),
                 })
                 .min_width(Some(Dimension::Pixels(scrollbar_w)))
@@ -622,6 +790,35 @@ impl crate::TermWindow {
             let thumb_computed = self.compute_element(&thumb_layout, &thumb)?;
             let gl_state = self.render_state.as_ref().unwrap();
             self.render_element(&thumb_computed, gl_state, None)?;
+
+            let hit_w = (20. * pt).round().max(scrollbar_w) as usize;
+            let hit_right = bar_right.max(border.left.get() as f32).round() as usize;
+            let hit_x = hit_right.saturating_sub(hit_w);
+            self.ui_items.push(UIItem {
+                x: hit_x,
+                width: hit_w,
+                y: top as usize,
+                height: track_h.max(1.0) as usize,
+                item_type: UIItemType::LeftTabBarScrollTrack {
+                    row_count: rows.len(),
+                    visible_rows,
+                    thumb_height: thumb_h.max(1.0) as usize,
+                },
+                pane_id: None,
+            });
+            self.ui_items.push(UIItem {
+                x: hit_x,
+                width: hit_w,
+                y: thumb_y as usize,
+                height: thumb_h.max(1.0) as usize,
+                item_type: UIItemType::LeftTabBarScrollThumb {
+                    row_count: rows.len(),
+                    visible_rows,
+                    track_top: top as usize,
+                    track_height: track_h.max(1.0) as usize,
+                },
+                pane_id: None,
+            });
         }
 
         // Author footer — pinned to the absolute bottom of the sidebar.
@@ -691,8 +888,14 @@ impl crate::TermWindow {
         // after the rows so it wins hit-testing (resolve_ui_item picks
         // the most recently added item).
         let grip_w = (ui_tokens::LEFT_TAB_BAR_GRIP * pt).round() as usize;
+        let scrollbar_reserved_w = if rows.len() > visible_rows {
+            (5. * pt).round() as usize
+        } else {
+            0
+        };
+        let bar_right = (border.left.get() as f32 + width) as usize;
         self.ui_items.push(UIItem {
-            x: (border.left.get() as f32 + width) as usize - grip_w,
+            x: bar_right.saturating_sub(grip_w + scrollbar_reserved_w),
             width: grip_w,
             y: top as usize,
             height: (bottom - top).max(0.) as usize,
@@ -701,5 +904,62 @@ impl crate::TermWindow {
         });
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        scroll_top_after_active_change, scroll_top_for_active, scroll_top_for_delta,
+        scroll_top_for_thumb_top,
+    };
+
+    #[test]
+    fn scrolls_down_to_keep_active_row_visible() {
+        assert_eq!(scroll_top_for_active(0, 10, 4, 9), 6);
+    }
+
+    #[test]
+    fn scrolls_up_to_keep_active_row_visible() {
+        assert_eq!(scroll_top_for_active(6, 10, 4, 2), 2);
+    }
+
+    #[test]
+    fn keeps_scroll_top_when_active_row_is_already_visible() {
+        assert_eq!(scroll_top_for_active(3, 10, 4, 5), 3);
+    }
+
+    #[test]
+    fn clamps_stale_scroll_after_rows_shrink() {
+        assert_eq!(scroll_top_for_active(99, 3, 10, 1), 0);
+    }
+
+    #[test]
+    fn handles_empty_rows() {
+        assert_eq!(scroll_top_for_active(5, 0, 4, 0), 0);
+    }
+
+    #[test]
+    fn preserves_manual_scroll_when_active_tab_is_unchanged() {
+        assert_eq!(scroll_top_after_active_change(0, 20, 5, 19, Some(19)), 0);
+    }
+
+    #[test]
+    fn auto_scrolls_only_when_active_tab_changes() {
+        assert_eq!(scroll_top_after_active_change(0, 20, 5, 19, Some(18)), 15);
+    }
+
+    #[test]
+    fn wheel_scroll_clamps_to_visible_window() {
+        assert_eq!(scroll_top_for_delta(0, 20, 5, 3), 3);
+        assert_eq!(scroll_top_for_delta(14, 20, 5, 3), 15);
+        assert_eq!(scroll_top_for_delta(2, 20, 5, -5), 0);
+    }
+
+    #[test]
+    fn thumb_top_maps_to_scroll_top() {
+        assert_eq!(scroll_top_for_thumb_top(0, 0, 100, 20, 20, 5), 0);
+        assert_eq!(scroll_top_for_thumb_top(80, 0, 100, 20, 20, 5), 15);
+        assert_eq!(scroll_top_for_thumb_top(40, 0, 100, 20, 20, 5), 8);
     }
 }

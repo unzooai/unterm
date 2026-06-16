@@ -217,6 +217,20 @@ pub enum UIItemType {
     LeftTabBarTab(usize),
     /// Resize grip on the left tab bar's right edge.
     LeftTabBarResize,
+    /// Scroll track inside the left tab bar. Click jumps the thumb;
+    /// wheel scrolls rows.
+    LeftTabBarScrollTrack {
+        row_count: usize,
+        visible_rows: usize,
+        thumb_height: usize,
+    },
+    /// Draggable scroll thumb inside the left tab bar.
+    LeftTabBarScrollThumb {
+        row_count: usize,
+        visible_rows: usize,
+        track_top: usize,
+        track_height: usize,
+    },
     /// The left tab bar's background (swallows clicks, accepts wheel).
     LeftTabBarBg,
     /// The tree sidebar's header (root name); click re-anchors the root to
