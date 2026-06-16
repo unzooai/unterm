@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.44.5 — 2026-06-16
+
+### Changed
+
+- **Official site now tracks the current release.** The homepage hero badge, footer version chip, latest download URLs, and release fallback all point at `v0.44.5`, so visitors and build-time fallbacks stay aligned with the published tag.
+
 ## v0.44.4 — 2026-06-16
 
 ### Fixed
