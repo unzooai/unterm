@@ -29,7 +29,10 @@ unsafe fn nsstring_to_str<'a>(mut ns: *mut Object) -> &'a str {
         ns = msg_send![ns, string];
     }
     let data = NSString::UTF8String(ns as id) as *const u8;
-    let len = NSString::len(ns as id);
-    let bytes = std::slice::from_raw_parts(data, len);
-    std::str::from_utf8_unchecked(bytes)
+    if data.is_null() {
+        return "";
+    }
+    std::ffi::CStr::from_ptr(data.cast())
+        .to_str()
+        .unwrap_or("")
 }

@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.50.1 — 2026-06-17
+
+### Fixed
+
+- **macOS Chinese / IME input no longer flashes garbled text before settling.** The Cocoa string bridge now reads the actual UTF-8 string instead of truncating by UTF-16 code-unit length, so composed CJK text is rendered with complete bytes from the first frame.
+
 ## v0.50.0 — 2026-06-17
 
 ### Changed
