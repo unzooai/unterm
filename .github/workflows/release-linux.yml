@@ -2,7 +2,9 @@ name: release-linux
 
 on:
   push:
-    tags: ["v[0-9]+.[0-9]+"]  # only minor (vX.Y) — patches accumulate on master
+    tags:
+      - "v[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+"
   workflow_dispatch:
     inputs:
       tag:
@@ -60,6 +62,28 @@ jobs:
         env:
           TAG_NAME: ${{ steps.tag.outputs.name }}
         run: ci/appimage.sh
+      - name: Verify Linux release artifacts
+        env:
+          TAG_NAME: ${{ steps.tag.outputs.name }}
+          UNTERM_ARCH: ${{ matrix.arch }}
+        run: |
+          deb="unterm-${TAG_NAME}"
+          if [ "$UNTERM_ARCH" != "amd64" ]; then
+            deb="${deb}.${UNTERM_ARCH}"
+          fi
+          deb="${deb}.deb"
+          appimages=(Unterm-${TAG_NAME}-*.AppImage)
+          if [ ! -f "$deb" ]; then
+            echo "missing Linux deb artifact: $deb" >&2
+            exit 1
+          fi
+          if [ "${#appimages[@]}" -ne 1 ] || [ ! -f "${appimages[0]}" ]; then
+            echo "missing Linux AppImage artifact for ${TAG_NAME}" >&2
+            exit 1
+          fi
+          echo "Verified Linux artifacts:"
+          echo "  $deb"
+          echo "  ${appimages[0]}"
       - uses: actions/upload-artifact@v4
         with:
           # Per-arch name: upload-artifact@v4 rejects duplicate names across
@@ -80,4 +104,4 @@ jobs:
           files: |
             unterm-*.deb
             Unterm-*.AppImage
-          fail_on_unmatched_files: false
+          fail_on_unmatched_files: true

@@ -76,6 +76,7 @@ Run the MSI installer; it places `unterm.exe` in `Program Files\Unterm` and crea
 The full Unterm docs live at **https://unterm.app/docs/**:
 
 - [Agent integration](https://unterm.app/docs/agent-integration) — how to drive Unterm from Claude Code / Cursor / Aider / your own client
+- [Product roadmap](https://unterm.app/docs/product-roadmap) — the five directions we are executing now
 - [MCP reference](https://unterm.app/docs/mcp-reference) — every JSON-RPC method, parameters, return shape
 - [Multi-instance](https://unterm.app/docs/multi-instance) — NATO names, instances directory, picking the right window
 - [Identity profiles](https://unterm.app/docs/profiles) — one window per identity. Bind GitHub / AWS / npm / OpenAI tokens, git identity, SSH key routing all at once. CLI + MCP.
@@ -268,10 +269,10 @@ xcrun notarytool store-credentials UntermNotary \
 
 ### Release tagging
 
-Unterm uses **2-segment minor tags only**: `v0.7`, `v0.9`, `v0.12`. Patches accumulate as commits on `master` between releases — they don't get tagged and don't trigger CI builds. Cut a tag only when a coherent batch of fixes / features is ready to ship.
+Unterm release tags may use either minor tags (`v0.50`) or patch tags (`v0.50.0`). Use the tag form that matches the changelog and package version for the release. Cut a tag only when a coherent batch of fixes / features is ready to ship.
 
 ```bash
-git tag -a vX.Y -m "Unterm vX.Y" && git push origin vX.Y
+git tag -a vX.Y.Z -m "Unterm vX.Y.Z" && git push origin vX.Y.Z
 make release-mac                    # build universal + sign + notarize + upload
 ```
 
@@ -281,7 +282,7 @@ builds universal x86_64+aarch64 binaries, calls `ci/sign-macos.sh` with
 zip to the matching GitHub Release.
 
 CI on every PR runs `cargo check` against macOS, Linux, and Windows.
-Tagged pushes (`vX.Y`) trigger the `release-linux` and `release-windows`
+Tagged pushes (`vX.Y` or `vX.Y.Z`) trigger the `release-linux` and `release-windows`
 workflows that publish those two platforms' artifacts to GitHub Releases.
 macOS sits out of CI by design — see above.
 

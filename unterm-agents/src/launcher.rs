@@ -471,6 +471,67 @@ mod mcp_config_tests {
         }
     }
 
+    fn auth_mode(id: &str, recommended: bool) -> crate::manifest::AuthModeSpec {
+        crate::manifest::AuthModeSpec {
+            id: id.into(),
+            recommended,
+            label_i18n: Default::default(),
+            description_i18n: Default::default(),
+            oauth_trigger: None,
+            oauth_ready_marker: None,
+            oauth_timeout_s: 180,
+            console_url: None,
+            reveals_settings: vec![],
+        }
+    }
+
+    fn manifest_with_modes(auth_modes: Vec<crate::manifest::AuthModeSpec>) -> AgentManifest {
+        AgentManifest {
+            id: "claude-code".into(),
+            version: 1,
+            name: "Claude Code".into(),
+            vendor: "Anthropic".into(),
+            category: "first-party".into(),
+            popularity_rank: 0,
+            icon_url: None,
+            homepage: None,
+            tagline_i18n: Default::default(),
+            description_i18n: Default::default(),
+            license: None,
+            platforms: vec!["macos".into()],
+            detect: crate::manifest::DetectSpec {
+                command: "claude".into(),
+                version_args: vec!["--version".into()],
+                version_regex: None,
+                min_version: None,
+            },
+            install: crate::manifest::InstallSpec::default(),
+            auth: crate::manifest::AuthSpec {
+                primary: crate::manifest::AuthMethod::OauthBrowser {
+                    trigger: crate::manifest::ShellCmd {
+                        cmd: vec!["claude".into(), "login".into()],
+                    },
+                    ready_marker: None,
+                    timeout_s: 180,
+                },
+                fallback: None,
+            },
+            launch: crate::manifest::LaunchSpec {
+                exec: "claude".into(),
+                args: vec![],
+                args_when_cwd_set: vec![],
+                respects_unterm_split: false,
+                flag_catalog: vec![],
+            },
+            mcp: None,
+            profile_defaults: crate::manifest::ProfileDefaults::default(),
+            auth_modes,
+            settings_schema: vec![],
+            settings_storage: None,
+            telemetry_notice: None,
+        }
+    }
+
     #[test]
     fn compose_flag_args_toggle_value_and_unselected() {
         use crate::manifest::FlagKind;
@@ -496,6 +557,42 @@ mod mcp_config_tests {
         sel.insert("yolo".into(), Value::Bool(false));
         let args = compose_flag_args(&cat, &sel, &TemplateCtx::default()).unwrap();
         assert!(args.is_empty(), "false toggle must not emit args");
+    }
+
+    #[test]
+    fn current_auth_mode_prefers_recommended_subscription_mode() {
+        let manifest = manifest_with_modes(vec![
+            auth_mode("subscription", true),
+            auth_mode("byo_key", false),
+        ]);
+        let settings = SettingsState::default();
+        assert_eq!(current_auth_mode(&manifest, &settings), "subscription");
+    }
+
+    #[test]
+    fn current_auth_mode_keeps_existing_mode_when_valid() {
+        let manifest = manifest_with_modes(vec![
+            auth_mode("subscription", true),
+            auth_mode("byo_key", false),
+        ]);
+        let mut settings = SettingsState::default();
+        settings
+            .values
+            .insert("_auth_mode".into(), Value::String("byo_key".into()));
+        assert_eq!(current_auth_mode(&manifest, &settings), "byo_key");
+    }
+
+    #[test]
+    fn current_auth_mode_falls_back_to_recommended_when_stale() {
+        let manifest = manifest_with_modes(vec![
+            auth_mode("subscription", true),
+            auth_mode("byo_key", false),
+        ]);
+        let mut settings = SettingsState::default();
+        settings
+            .values
+            .insert("_auth_mode".into(), Value::String("legacy".into()));
+        assert_eq!(current_auth_mode(&manifest, &settings), "subscription");
     }
 
     // Claude Code: project-scope .mcp.json with mcpServers + type:stdio.

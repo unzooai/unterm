@@ -1951,9 +1951,9 @@ fn default_term() -> String {
 }
 
 fn default_font_size() -> f64 {
-    // 13 pt instead of 12 — bundled JetBrains Mono reads thin at 12 on
-    // retina panels (the "终端字体太瘦" reading); 13 matches both Warp's
-    // default and the bundled unterm.lua that's been shipping.
+    // 13 pt instead of 12 — the bundled mono defaults read thin at 12
+    // on retina panels (the "终端字体太瘦" reading); 13 matches the
+    // shipped defaults and keeps the body text closer to Warp's weight.
     13.0
 }
 

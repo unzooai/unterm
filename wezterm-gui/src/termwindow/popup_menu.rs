@@ -202,6 +202,14 @@ impl PopupMenu {
         }
     }
 
+    pub fn precompute(&self, term_window: &mut TermWindow) -> anyhow::Result<()> {
+        if self.element.borrow().is_none() {
+            let element = self.compute(term_window)?;
+            self.element.borrow_mut().replace(element);
+        }
+        Ok(())
+    }
+
     fn first_selectable(&self) -> Option<usize> {
         self.entries.iter().position(|e| e.action.is_some())
     }
@@ -633,10 +641,7 @@ impl Modal for PopupMenu {
         &self,
         term_window: &mut TermWindow,
     ) -> anyhow::Result<Ref<'_, [ComputedElement]>> {
-        if self.element.borrow().is_none() {
-            let element = self.compute(term_window)?;
-            self.element.borrow_mut().replace(element);
-        }
+        self.precompute(term_window)?;
         Ok(Ref::map(self.element.borrow(), |v| {
             v.as_ref().unwrap().as_slice()
         }))

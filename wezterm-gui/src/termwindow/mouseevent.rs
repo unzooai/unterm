@@ -1385,6 +1385,10 @@ impl crate::TermWindow {
                 ];
                 let anchor = (event.coords.x as f32, event.coords.y as f32);
                 let menu = PopupMenu::context(pane.pane_id(), anchor, items);
+                if let Err(err) = menu.precompute(self) {
+                    log::error!("context menu precompute failed: {err:#}");
+                    return;
+                }
                 self.set_modal(std::rc::Rc::new(menu));
             }
             _ => {}

@@ -2903,6 +2903,10 @@ impl TermWindow {
         };
         let pane_id = pane.pane_id();
         let menu = crate::termwindow::popup_menu::PopupMenu::build_default(pane_id);
+        if let Err(err) = menu.precompute(self) {
+            log::error!("popup menu precompute failed: {err:#}");
+            return;
+        }
         self.set_modal(std::rc::Rc::new(menu));
     }
 

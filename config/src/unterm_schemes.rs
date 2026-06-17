@@ -102,14 +102,14 @@ name = "Notion Dark"
 const CLASSIC_DARK: &str = r##"
 [colors]
 background = "#14141a"
-foreground = "#d3d7cf"
-cursor_bg = "#d3d7cf"
+foreground = "#ececec"
+cursor_bg = "#ececec"
 cursor_fg = "#14141a"
-cursor_border = "#d3d7cf"
-selection_bg = "#444444"
-selection_fg = "#d3d7cf"
-split = "#5b5b66"
-scrollbar_thumb = "#6f6f80"
+cursor_border = "#ececec"
+selection_bg = "#4a4a52"
+selection_fg = "#ffffff"
+split = "#64646f"
+scrollbar_thumb = "#7a7a86"
 ansi = [
     "#2e2e2e",
     "#cc0000",
@@ -121,7 +121,7 @@ ansi = [
     "#d3d7cf",
 ]
 brights = [
-    "#555753",
+    "#6a6a68",
     "#ef2929",
     "#8ae234",
     "#fce94f",

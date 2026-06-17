@@ -40,7 +40,7 @@ config.check_for_updates = false
 -- 开 ligatures;图标回退到同样打包的 Nerd Font Symbols。比裸 Cascadia Code
 -- 更精致、更稳定(系统没装 Cascadia 时不会回退到难看的默认字体)。
 config.font = wezterm.font_with_fallback({
-  { family = 'JetBrains Mono', harfbuzz_features = { 'calt=1', 'liga=1', 'clig=1' } },
+  { family = 'JetBrains Mono', weight = 'Medium', harfbuzz_features = { 'calt=1', 'liga=1', 'clig=1' } },
   'Symbols Nerd Font Mono',
 })
 config.font_size = 13

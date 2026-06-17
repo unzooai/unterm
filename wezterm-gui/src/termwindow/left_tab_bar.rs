@@ -343,8 +343,8 @@ impl crate::TermWindow {
             .to_linear();
         let fg = palette.foreground.to_linear();
         let dim = fg.mul_alpha(0.75); // subtitle / directory
-        let sel_bg = fg.mul_alpha(0.18);
-        let hover_bg = fg.mul_alpha(0.08);
+        let sel_bg = fg.mul_alpha(0.24);
+        let hover_bg = fg.mul_alpha(0.06);
 
         // Snapshot rows straight from the mux (not the top tab bar, which
         // empties out when a lone tab hides the top strip).
@@ -494,11 +494,11 @@ impl crate::TermWindow {
                 line_kids.push(
                     Element::new(&font, ElementContent::Text(String::new()))
                         .vertical_align(VerticalAlign::Middle)
-                        .min_width(Some(Dimension::Pixels(2. * pt)))
-                        .min_height(Some(Dimension::Pixels(14. * pt)))
+                        .min_width(Some(Dimension::Pixels(2.5 * pt)))
+                        .min_height(Some(Dimension::Pixels(12. * pt)))
                         .margin(BoxDimension {
                             left: Dimension::Pixels(0.),
-                            right: Dimension::Pixels(6. * pt),
+                            right: Dimension::Pixels(7. * pt),
                             top: Dimension::Pixels(0.),
                             bottom: Dimension::Pixels(0.),
                         })
@@ -724,7 +724,7 @@ impl crate::TermWindow {
         // the auto-scroll's reposition is immediately legible.
         if rows.len() > visible_rows {
             let track_h = bottom - top;
-            let scrollbar_w = 5. * pt;
+            let scrollbar_w = 3. * pt;
             let bar_right = border.left.get() as f32 + width;
             let scrollbar_x = bar_right - scrollbar_w;
             let thumb_h = (track_h * (visible_rows as f32) / (rows.len() as f32))
@@ -736,7 +736,7 @@ impl crate::TermWindow {
             let track = Element::new(&font, ElementContent::Text(String::new()))
                 .colors(ElementColors {
                     border: BorderColor::default(),
-                    bg: fg.mul_alpha(0.10).into(),
+                    bg: fg.mul_alpha(0.08).into(),
                     text: LinearRgba::TRANSPARENT.into(),
                 })
                 .min_width(Some(Dimension::Pixels(scrollbar_w)))
@@ -766,7 +766,7 @@ impl crate::TermWindow {
             let thumb = Element::new(&font, ElementContent::Text(String::new()))
                 .colors(ElementColors {
                     border: BorderColor::default(),
-                    bg: fg.mul_alpha(0.55).into(),
+                    bg: fg.mul_alpha(0.68).into(),
                     text: LinearRgba::TRANSPARENT.into(),
                 })
                 .min_width(Some(Dimension::Pixels(scrollbar_w)))

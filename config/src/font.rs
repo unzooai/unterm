@@ -430,12 +430,14 @@ impl FontAttributes {
 
 impl Default for FontAttributes {
     fn default() -> Self {
+        let family = "JetBrains Mono";
+        let weight = FontWeight::MEDIUM;
         Self {
-            // JetBrains Mono is vendored into the unterm binary (see
-            // wezterm-gui Cargo features: vendor-jetbrains-font), so this
-            // font is always available regardless of system installation.
-            family: "JetBrains Mono".into(),
-            weight: FontWeight::default(),
+            // JetBrains Mono is bundled with Unterm; using its Medium face
+            // gives the default text more presence without depending on
+            // system-only fonts such as SF Mono.
+            family: family.into(),
+            weight,
             stretch: FontStretch::default(),
             style: FontStyle::Normal,
             is_fallback: false,

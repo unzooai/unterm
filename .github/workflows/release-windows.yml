@@ -2,7 +2,9 @@ name: release-windows
 
 on:
   push:
-    tags: ["v[0-9]+.[0-9]+"]  # only minor (vX.Y) — patches accumulate on master
+    tags:
+      - "v[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+"
   workflow_dispatch:
     inputs:
       tag:
@@ -83,6 +85,24 @@ jobs:
           }
           Write-Host "Package Version = $ver"
           pwsh -File ci\build-msi.ps1 -Version $ver -Arch ${{ matrix.arch }}
+      - name: Verify Windows release artifacts
+        shell: pwsh
+        env:
+          TAG_NAME: ${{ steps.tag.outputs.name }}
+          UNTERM_ARCH: ${{ matrix.arch }}
+        run: |
+          $zip = "Unterm-windows-$env:UNTERM_ARCH-$env:TAG_NAME.zip"
+          $version = ($env:TAG_NAME).TrimStart([char]'v')
+          $msi = "dist\Unterm-$version-$env:UNTERM_ARCH.msi"
+          if (-not (Test-Path $zip)) {
+            throw "missing Windows zip artifact: $zip"
+          }
+          if (-not (Test-Path $msi)) {
+            throw "missing Windows MSI installer: $msi"
+          }
+          Write-Host "Verified Windows artifacts:"
+          Write-Host "  $zip"
+          Write-Host "  $msi"
       - uses: actions/upload-artifact@v4
         with:
           # Per-arch name: upload-artifact@v4 rejects duplicate artifact names
@@ -103,4 +123,4 @@ jobs:
           files: |
             Unterm-windows-*.zip
             dist\Unterm-*.msi
-          fail_on_unmatched_files: false
+          fail_on_unmatched_files: true
