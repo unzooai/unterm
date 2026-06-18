@@ -2883,20 +2883,41 @@ impl TermWindow {
     /// closed). Injected at every window_padding.left evaluation so panes,
     /// splits, terminal cols and mouse mapping all shift together.
     pub(crate) fn tree_sidebar_pixel_width(&self) -> f32 {
+        let Some(raw_width_pts) = self.tree_sidebar_raw_width_pts() else {
+            return 0.0;
+        };
+        let pt = self.dimensions.dpi as f32 / 72.0;
+        let window_pts = self.dimensions.pixel_width as f32 / pt;
+        let max =
+            self.tree_sidebar_max_width_pts(window_pts)
+                .min(self.left_gutter_limited_width_pts(
+                    raw_width_pts,
+                    self.left_tab_bar_raw_width_pts(),
+                    config::ui_tokens::TREE_SIDEBAR_MIN_WIDTH,
+                    config::ui_tokens::LEFT_TAB_BAR_MIN_WIDTH,
+                ));
+        (raw_width_pts.clamp(config::ui_tokens::TREE_SIDEBAR_MIN_WIDTH, max) * pt).round()
+    }
+
+    pub(crate) fn tree_sidebar_raw_width_pts(&self) -> Option<f32> {
         let tree = self.tree_sidebar.borrow();
         let Some(tree) = tree.as_ref() else {
-            return 0.0;
+            return None;
         };
 
         let pt = self.dimensions.dpi as f32 / 72.0;
         let window_pts = self.dimensions.pixel_width as f32 / pt;
-        let max = (window_pts * config::ui_tokens::TREE_SIDEBAR_MAX_RATIO)
-            .max(config::ui_tokens::TREE_SIDEBAR_MIN_WIDTH);
-        let w = tree
-            .width_pts
-            .unwrap_or(config::ui_tokens::TREE_SIDEBAR_WIDTH)
-            .clamp(config::ui_tokens::TREE_SIDEBAR_MIN_WIDTH, max);
-        (w * pt).round()
+        let max = self.tree_sidebar_max_width_pts(window_pts);
+        Some(
+            tree.width_pts
+                .unwrap_or(config::ui_tokens::TREE_SIDEBAR_WIDTH)
+                .clamp(config::ui_tokens::TREE_SIDEBAR_MIN_WIDTH, max),
+        )
+    }
+
+    fn tree_sidebar_max_width_pts(&self, window_pts: f32) -> f32 {
+        (window_pts * config::ui_tokens::TREE_SIDEBAR_MAX_RATIO)
+            .max(config::ui_tokens::TREE_SIDEBAR_MIN_WIDTH)
     }
 
     pub(crate) fn resize_tree_sidebar(&mut self, x_px: f32) {
@@ -2910,8 +2931,14 @@ impl TermWindow {
         let border = self.get_os_border();
         let left = border.left.get() as f32 + self.left_tab_bar_pixel_width();
         let w_pts = (x_px - left) / pt;
-        let max = (window_pts * config::ui_tokens::TREE_SIDEBAR_MAX_RATIO)
-            .max(config::ui_tokens::TREE_SIDEBAR_MIN_WIDTH);
+        let max =
+            self.tree_sidebar_max_width_pts(window_pts)
+                .min(self.left_gutter_limited_width_pts(
+                    w_pts,
+                    self.left_tab_bar_raw_width_pts(),
+                    config::ui_tokens::TREE_SIDEBAR_MIN_WIDTH,
+                    config::ui_tokens::LEFT_TAB_BAR_MIN_WIDTH,
+                ));
         let clamped = w_pts.clamp(config::ui_tokens::TREE_SIDEBAR_MIN_WIDTH, max);
         if let Some(tree) = self.tree_sidebar.borrow_mut().as_mut() {
             tree.width_pts = Some(clamped);

@@ -1377,9 +1377,7 @@ impl crate::TermWindow {
     fn mouse_event_status_bar_project(&mut self, event: MouseEvent, context: &dyn WindowOps) {
         match event.kind {
             WMEK::Press(MousePress::Left) => {
-                self.show_dir_jump_with_action(
-                    crate::termwindow::dir_jump::DirJumpAction::NewTab,
-                );
+                self.show_dir_jump_with_action(crate::termwindow::dir_jump::DirJumpAction::NewTab);
                 context.invalidate();
             }
             WMEK::Press(MousePress::Right) => {

@@ -39,3 +39,5 @@ pub const TREE_SIDEBAR_WIDTH: f32 = 152.0;
 pub const TREE_SIDEBAR_MIN_WIDTH: f32 = 112.0;
 pub const TREE_SIDEBAR_MAX_RATIO: f32 = 0.30;
 pub const TREE_SIDEBAR_GRIP: f32 = 12.0;
+/// Combined left chrome should never dominate the terminal area.
+pub const LEFT_GUTTER_MAX_RATIO: f32 = 0.42;

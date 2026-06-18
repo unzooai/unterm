@@ -143,46 +143,89 @@ fn scroll_top_for_thumb_top(
     ((thumb_top as f32 / max_thumb_top as f32) * max_top as f32).round() as usize
 }
 
+fn gutter_limited_width_pts(
+    window_pts: f32,
+    desired_pts: f32,
+    other_width_pts: Option<f32>,
+    own_min_pts: f32,
+    other_min_pts: f32,
+    total_max_ratio: f32,
+) -> f32 {
+    let Some(other_width_pts) = other_width_pts else {
+        return desired_pts.max(own_min_pts);
+    };
+    let total_max = (window_pts * total_max_ratio).max(own_min_pts + other_min_pts);
+    (total_max - other_width_pts).max(own_min_pts)
+}
+
 impl crate::TermWindow {
     /// Physical pixels the left tab bar occupies (0 when not in Left
     /// mode or hidden). Clamped to [MIN, MAX_RATIO × window width].
     pub(crate) fn left_tab_bar_pixel_width(&self) -> f32 {
-        if self.config.tab_bar_position != config::TabBarPosition::Left {
+        let Some(raw_width_pts) = self.left_tab_bar_raw_width_pts() else {
             return 0.0;
-        }
-        let bar = self.left_tab_bar.borrow();
-        if bar.hidden {
-            return 0.0;
-        }
+        };
         let pt = self.dimensions.dpi as f32 / 72.0;
         let window_pts = self.dimensions.pixel_width as f32 / pt;
         let max =
-            (window_pts * ui_tokens::LEFT_TAB_BAR_MAX_RATIO).max(ui_tokens::LEFT_TAB_BAR_MIN_WIDTH);
-        let w = bar
-            .width_pts
-            .unwrap_or(ui_tokens::LEFT_TAB_BAR_WIDTH)
-            .clamp(ui_tokens::LEFT_TAB_BAR_MIN_WIDTH, max);
-        (w * pt).round()
+            self.left_tab_bar_max_width_pts(window_pts)
+                .min(self.left_gutter_limited_width_pts(
+                    raw_width_pts,
+                    self.tree_sidebar_raw_width_pts(),
+                    ui_tokens::LEFT_TAB_BAR_MIN_WIDTH,
+                    ui_tokens::TREE_SIDEBAR_MIN_WIDTH,
+                ));
+        (raw_width_pts.clamp(ui_tokens::LEFT_TAB_BAR_MIN_WIDTH, max) * pt).round()
+    }
+
+    pub(crate) fn left_tab_bar_raw_width_pts(&self) -> Option<f32> {
+        if self.config.tab_bar_position != config::TabBarPosition::Left {
+            return None;
+        }
+        let bar = self.left_tab_bar.borrow();
+        if bar.hidden {
+            return None;
+        }
+        let pt = self.dimensions.dpi as f32 / 72.0;
+        let window_pts = self.dimensions.pixel_width as f32 / pt;
+        let max = self.left_tab_bar_max_width_pts(window_pts);
+        Some(
+            bar.width_pts
+                .unwrap_or(ui_tokens::LEFT_TAB_BAR_WIDTH)
+                .clamp(ui_tokens::LEFT_TAB_BAR_MIN_WIDTH, max),
+        )
+    }
+
+    fn left_tab_bar_max_width_pts(&self, window_pts: f32) -> f32 {
+        (window_pts * ui_tokens::LEFT_TAB_BAR_MAX_RATIO).max(ui_tokens::LEFT_TAB_BAR_MIN_WIDTH)
+    }
+
+    pub(crate) fn left_gutter_limited_width_pts(
+        &self,
+        desired_pts: f32,
+        other_width_pts: Option<f32>,
+        own_min_pts: f32,
+        other_min_pts: f32,
+    ) -> f32 {
+        let Some(other_width_pts) = other_width_pts else {
+            return desired_pts.max(own_min_pts);
+        };
+        let pt = self.dimensions.dpi as f32 / 72.0;
+        let window_pts = self.dimensions.pixel_width as f32 / pt;
+        gutter_limited_width_pts(
+            window_pts,
+            desired_pts,
+            Some(other_width_pts),
+            own_min_pts,
+            other_min_pts,
+            ui_tokens::LEFT_GUTTER_MAX_RATIO,
+        )
     }
 
     /// Total left gutter: tree sidebar + left tab bar. This is the value
     /// injected at every window_padding.left evaluation site.
     pub(crate) fn left_gutter_pixel_width(&self) -> f32 {
         self.left_tab_bar_pixel_width() + self.tree_sidebar_pixel_width()
-    }
-
-    /// View-menu / key toggle. Mirrors toggle_tree_sidebar: flip, then
-    /// reflow the terminal around the changed gutter width.
-    pub(crate) fn toggle_left_tab_bar(&mut self) {
-        {
-            let mut bar = self.left_tab_bar.borrow_mut();
-            bar.hidden = !bar.hidden;
-        }
-        if let Some(window) = self.window.as_ref().cloned() {
-            let dims = self.dimensions;
-            self.apply_dimensions(&dims, None, &window);
-            window.invalidate();
-        }
     }
 
     /// Apply a resize-grip drag. `x_px` is the cursor x in window
@@ -198,9 +241,29 @@ impl crate::TermWindow {
         let border = self.get_os_border();
         let w_pts = (x_px - border.left.get() as f32) / pt;
         let max =
-            (window_pts * ui_tokens::LEFT_TAB_BAR_MAX_RATIO).max(ui_tokens::LEFT_TAB_BAR_MIN_WIDTH);
+            self.left_tab_bar_max_width_pts(window_pts)
+                .min(self.left_gutter_limited_width_pts(
+                    w_pts,
+                    self.tree_sidebar_raw_width_pts(),
+                    ui_tokens::LEFT_TAB_BAR_MIN_WIDTH,
+                    ui_tokens::TREE_SIDEBAR_MIN_WIDTH,
+                ));
         let clamped = w_pts.clamp(ui_tokens::LEFT_TAB_BAR_MIN_WIDTH, max);
         self.left_tab_bar.borrow_mut().width_pts = Some(clamped);
+        if let Some(window) = self.window.as_ref().cloned() {
+            let dims = self.dimensions;
+            self.apply_dimensions(&dims, None, &window);
+            window.invalidate();
+        }
+    }
+
+    /// View-menu / key toggle. Mirrors toggle_tree_sidebar: flip, then
+    /// reflow the terminal around the changed gutter width.
+    pub(crate) fn toggle_left_tab_bar(&mut self) {
+        {
+            let mut bar = self.left_tab_bar.borrow_mut();
+            bar.hidden = !bar.hidden;
+        }
         if let Some(window) = self.window.as_ref().cloned() {
             let dims = self.dimensions;
             self.apply_dimensions(&dims, None, &window);
@@ -927,8 +990,8 @@ impl crate::TermWindow {
 #[cfg(test)]
 mod tests {
     use super::{
-        scroll_top_after_active_change, scroll_top_for_active, scroll_top_for_delta,
-        scroll_top_for_thumb_top,
+        gutter_limited_width_pts, scroll_top_after_active_change, scroll_top_for_active,
+        scroll_top_for_delta, scroll_top_for_thumb_top,
     };
 
     #[test]
@@ -978,5 +1041,29 @@ mod tests {
         assert_eq!(scroll_top_for_thumb_top(0, 0, 100, 20, 20, 5), 0);
         assert_eq!(scroll_top_for_thumb_top(80, 0, 100, 20, 20, 5), 15);
         assert_eq!(scroll_top_for_thumb_top(40, 0, 100, 20, 20, 5), 8);
+    }
+
+    #[test]
+    fn gutter_limit_caps_combined_sidebars() {
+        assert_eq!(
+            gutter_limited_width_pts(1000.0, 300.0, Some(260.0), 112.0, 112.0, 0.42),
+            160.0
+        );
+    }
+
+    #[test]
+    fn gutter_limit_keeps_minimums_on_narrow_windows() {
+        assert_eq!(
+            gutter_limited_width_pts(480.0, 260.0, Some(180.0), 112.0, 112.0, 0.42),
+            112.0
+        );
+    }
+
+    #[test]
+    fn gutter_limit_does_not_cap_single_sidebar() {
+        assert_eq!(
+            gutter_limited_width_pts(1000.0, 260.0, None, 112.0, 112.0, 0.42),
+            260.0
+        );
     }
 }
