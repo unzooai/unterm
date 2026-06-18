@@ -8,7 +8,7 @@ date: 2026-05-03
 
 ## Connection model
 
-`unterm-cli` is mostly a thin JSON-RPC client. MCP-backed subcommands open a TCP connection to the running Unterm GUI's MCP server, complete an `auth.login` handshake, and forward the call. A few user-owned settings commands (`theme`, `lang`, and `settings open`) use local config files or the HTTP settings server instead.
+`unterm-cli` is mostly a thin JSON-RPC client. MCP-backed subcommands open a TCP connection to the running Unterm GUI's MCP server, complete an `auth.login` handshake, and forward the call. A few user-owned settings/discovery commands (`theme`, `lang`, `reference`, and `settings open`) use local config files, compiled-in reference tables, or the HTTP settings server instead.
 
 When the GUI starts it writes `~/.unterm/instances/<name>.json`, updates `~/.unterm/active.json`, and mirrors the active endpoint to `~/.unterm/server.json` for older scripts. The compatibility file has three core fields:
 
@@ -39,7 +39,7 @@ These are accepted on every subcommand because they're declared `global = true` 
 
 | Flag | Purpose |
 |---|---|
-| `--json` | Print the raw JSON-RPC `result` payload instead of the human-formatted table. Recognised by `proxy`, `theme`, `session`, `sessions`, `workspace`, `instance`, `screenshot`, `lang`. Ignored by `settings open` (that command never round-trips through MCP). |
+| `--json` | Print the raw JSON-RPC `result` payload instead of the human-formatted table. Recognised by `proxy`, `theme`, `session`, `sessions`, `workspace`, `instance`, `screenshot`, `reference`, and `lang`. Ignored by `settings open` (that command never round-trips through MCP). |
 | `--lang <code>` | Force the CLI's interface locale for this single invocation. Does not write to `~/.unterm/lang.json`. Useful in scripts that need stable English output regardless of how the user has configured the GUI. Codes: `en-US`, `zh-CN`, `zh-TW`, `ja-JP`, `ko-KR`, `de-DE`, `fr-FR`, `it-IT`, `hi-IN`. |
 | `--instance <id>` | Route MCP-backed commands to a specific live Unterm instance, for example `alpha` or `bravo`. Equivalent to setting `UNTERM_INSTANCE=<id>` for the invocation. |
 | `-h`, `--help` | Print help for the current subcommand level. |
@@ -526,6 +526,27 @@ The `--json` form additionally returns `captures[]` with the on-screen text cont
 unterm-cli screenshot --include-window -o "/tmp/ci-failure-${GITHUB_RUN_ID}.png"
 gh run upload-artifact "/tmp/ci-failure-${GITHUB_RUN_ID}.png" --name screenshot
 ```
+
+## reference
+
+Print the MCP methods, CLI subcommands, and live keybindings exposed by the current Unterm build. When the GUI is running, this calls `meta.surface`; when the GUI is not reachable, it falls back to the compiled-in MCP/CLI reference tables and returns an empty `keybindings` list.
+
+```text
+unterm-cli reference [--section mcp|cli|keys] [--filter TEXT]
+```
+
+```sh
+$ unterm-cli reference --section mcp --filter capture.scrollback
+# excerpt
+  capture.scrollback               Scrolling screenshot of a pane: render the ENTIRE scrollback to one tall PNG (headless re-render, works even occluded). Prefer screen.scrollback_text when only the text matters.
+```
+
+```sh
+$ unterm-cli --json reference --section cli --filter agent | jq '.cli_commands[].name'
+"agent"
+```
+
+If the JSON output contains `"source": "static_fallback"`, the GUI was not reachable. The MCP and CLI tables are still useful for onboarding or scripts, but live keybindings require a running GUI.
 
 ## theme
 
