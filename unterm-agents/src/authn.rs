@@ -115,11 +115,7 @@ pub fn run_oauth_browser(auth: &AuthSpec) -> Result<AuthOutcome> {
 /// Set + validate an API key. Always operates on `auth.fallback` if it's
 /// an api_key_env, otherwise on `auth.primary` (some agents make api_key
 /// the only auth, no oauth).
-pub fn run_api_key(
-    auth: &AuthSpec,
-    profile_id: &str,
-    raw_key: &str,
-) -> Result<AuthOutcome> {
+pub fn run_api_key(auth: &AuthSpec, profile_id: &str, raw_key: &str) -> Result<AuthOutcome> {
     let method = match (&auth.primary, &auth.fallback) {
         (AuthMethod::ApiKeyEnv { .. }, _) => &auth.primary,
         (_, Some(AuthMethod::ApiKeyEnv { .. })) => auth.fallback.as_ref().unwrap(),
@@ -186,13 +182,7 @@ fn pump<R: BufRead>(reader: R, marker: Option<&str>, tx: mpsc::Sender<PumpMsg>, 
                 return;
             }
         }
-        if tx
-            .send(PumpMsg::Line {
-                line,
-                is_stderr,
-            })
-            .is_err()
-        {
+        if tx.send(PumpMsg::Line { line, is_stderr }).is_err() {
             return;
         }
     }

@@ -8,44 +8,46 @@
 //! 亮度变暗(乘法)对非活动分屏才有可见效果——纯黑乘任何系数仍是纯黑。
 
 /// (scheme_name, toml_string),格式与 `scheme_data.rs` 内置方案一致。
-pub const UNTERM_SCHEMES: [(&str, &str); 4] = [
+pub const UNTERM_SCHEMES: [(&str, &str); 6] = [
     ("Notion Light", NOTION_LIGHT),
     ("Notion Dark", NOTION_DARK),
     ("Classic Dark", CLASSIC_DARK),
     ("Unterm Dark", UNTERM_DARK),
+    ("Unterm Midnight", UNTERM_MIDNIGHT),
+    ("Unterm Daylight", UNTERM_DAYLIGHT),
 ];
 
 // Notion 浅色:米白底 + 暖深灰文字,低饱和克制的强调色。
 const NOTION_LIGHT: &str = r##"
 [colors]
-background = "#f7f6f3"
-foreground = "#37352f"
-cursor_bg = "#37352f"
-cursor_fg = "#f7f6f3"
-cursor_border = "#37352f"
-selection_bg = "#d3e5ef"
-selection_fg = "#37352f"
-split = "#e9e9e7"
-scrollbar_thumb = "#cdccc6"
+background = "#f8f7f4"
+foreground = "#1f1e1a"
+cursor_bg = "#1f1e1a"
+cursor_fg = "#f8f7f4"
+cursor_border = "#1f1e1a"
+selection_bg = "#b8d4e6"
+selection_fg = "#101315"
+split = "#b8b4a8"
+scrollbar_thumb = "#77736a"
 ansi = [
-    "#37352f",
-    "#e03e3e",
-    "#448361",
-    "#cb912f",
-    "#337ea9",
-    "#9065b0",
-    "#0b6e99",
-    "#9b9a97",
+    "#1f1e1a",
+    "#b83232",
+    "#2f6f4f",
+    "#8b5e12",
+    "#1f6f9f",
+    "#734a9b",
+    "#006f7f",
+    "#5d5b55",
 ]
 brights = [
-    "#787774",
-    "#eb5757",
-    "#0f7b6c",
-    "#dfab01",
-    "#2383e2",
-    "#6940a5",
-    "#0b6e99",
-    "#37352f",
+    "#4f4d47",
+    "#d54848",
+    "#3a8a60",
+    "#a87416",
+    "#2b82ba",
+    "#865bb0",
+    "#00899a",
+    "#0f0f0d",
 ]
 
 [colors.indexed]
@@ -59,33 +61,33 @@ name = "Notion Light"
 // Notion 深色:暖黑底(#191919) + 柔和浅灰文字,强调色取 Notion 暗色模式版本。
 const NOTION_DARK: &str = r##"
 [colors]
-background = "#191919"
-foreground = "#e6e6e4"
-cursor_bg = "#e6e6e4"
-cursor_fg = "#191919"
-cursor_border = "#e6e6e4"
-selection_bg = "#3a3a38"
+background = "#181818"
+foreground = "#eeeeec"
+cursor_bg = "#eeeeec"
+cursor_fg = "#181818"
+cursor_border = "#eeeeec"
+selection_bg = "#363632"
 selection_fg = "#ffffff"
-split = "#373737"
-scrollbar_thumb = "#807f77"
+split = "#4b4a44"
+scrollbar_thumb = "#77736b"
 ansi = [
-    "#2e2e2e",
-    "#ff7369",
-    "#4dab9a",
-    "#ffd666",
-    "#529cca",
-    "#9a6dd7",
-    "#5bbfb5",
-    "#d4d4d4",
+    "#252525",
+    "#ff6f61",
+    "#4fb286",
+    "#e7b84f",
+    "#5aa7d6",
+    "#b083d9",
+    "#5fc6bd",
+    "#d8d8d4",
 ]
 brights = [
-    "#5a5a5a",
-    "#ff9b94",
-    "#6fccb8",
-    "#ffe08c",
-    "#7bb4dd",
-    "#b794e0",
-    "#7fd1c8",
+    "#66635d",
+    "#ff8b80",
+    "#6ed0a2",
+    "#f2cc6b",
+    "#7bc0e6",
+    "#c49be6",
+    "#7de0d7",
     "#ffffff",
 ]
 
@@ -101,34 +103,34 @@ name = "Notion Dark"
 // 让 inactive_pane_hsb 变暗在 classic 主题下也能生效。
 const CLASSIC_DARK: &str = r##"
 [colors]
-background = "#14141a"
-foreground = "#ececec"
-cursor_bg = "#ececec"
-cursor_fg = "#14141a"
-cursor_border = "#ececec"
-selection_bg = "#4a4a52"
+background = "#121212"
+foreground = "#eeeeee"
+cursor_bg = "#eeeeee"
+cursor_fg = "#121212"
+cursor_border = "#eeeeee"
+selection_bg = "#383838"
 selection_fg = "#ffffff"
-split = "#64646f"
-scrollbar_thumb = "#7a7a86"
+split = "#4a4a4a"
+scrollbar_thumb = "#686868"
 ansi = [
-    "#2e2e2e",
-    "#cc0000",
-    "#4e9a06",
-    "#c4a000",
-    "#3465a4",
-    "#75507b",
-    "#06989a",
-    "#d3d7cf",
+    "#1c1c1c",
+    "#ef4444",
+    "#22c55e",
+    "#eab308",
+    "#3b82f6",
+    "#a855f7",
+    "#06b6d4",
+    "#d4d4d4",
 ]
 brights = [
-    "#6a6a68",
-    "#ef2929",
-    "#8ae234",
-    "#fce94f",
-    "#729fcf",
-    "#ad7fa8",
-    "#34e2e2",
-    "#eeeeec",
+    "#737373",
+    "#f87171",
+    "#4ade80",
+    "#facc15",
+    "#60a5fa",
+    "#c084fc",
+    "#22d3ee",
+    "#ffffff",
 ]
 
 [colors.indexed]
@@ -148,33 +150,33 @@ name = "Classic Dark"
 const UNTERM_DARK: &str = r##"
 [colors]
 background = "#101010"
-foreground = "#e6e6e6"
-cursor_bg = "#e6e6e6"
+foreground = "#f2f2f2"
+cursor_bg = "#f2f2f2"
 cursor_fg = "#101010"
-cursor_border = "#e6e6e6"
-selection_bg = "#2a2a2a"
-selection_fg = "#e6e6e6"
-split = "#2a2a2a"
-scrollbar_thumb = "#3a3a3a"
+cursor_border = "#f2f2f2"
+selection_bg = "#333333"
+selection_fg = "#ffffff"
+split = "#3a3a3a"
+scrollbar_thumb = "#666666"
 ansi = [
-    "#1a1a1a",
-    "#ff5c57",
-    "#5af78e",
-    "#f3f99d",
-    "#57c7ff",
-    "#ff6ac1",
-    "#9aedfe",
-    "#c0c0c0",
+    "#1c1c1c",
+    "#ff5f57",
+    "#5fd17a",
+    "#e5c463",
+    "#5aa7ff",
+    "#c678dd",
+    "#4fd6d6",
+    "#d6d6d6",
 ]
 brights = [
-    "#686868",
-    "#ff5c57",
-    "#5af78e",
-    "#f3f99d",
-    "#57c7ff",
-    "#ff6ac1",
-    "#9aedfe",
-    "#f1f1f0",
+    "#737373",
+    "#ff7b72",
+    "#7ee787",
+    "#f2d16b",
+    "#79b8ff",
+    "#d2a8ff",
+    "#77e4e4",
+    "#ffffff",
 ]
 
 [colors.indexed]
@@ -183,4 +185,89 @@ brights = [
 aliases = []
 author = "unterm"
 name = "Unterm Dark"
+"##;
+
+// Unterm Midnight: low-glare blue-black without washed-out inactive
+// greys from older blue tab-bar palettes. Keeps enough cyan
+// energy for agents/status while staying calmer than Standard.
+const UNTERM_MIDNIGHT: &str = r##"
+[colors]
+background = "#0f1420"
+foreground = "#e6edf7"
+cursor_bg = "#e6edf7"
+cursor_fg = "#0f1420"
+cursor_border = "#e6edf7"
+selection_bg = "#263755"
+selection_fg = "#f8fbff"
+split = "#34425c"
+scrollbar_thumb = "#59677f"
+ansi = [
+    "#171d2b",
+    "#ff6b7a",
+    "#8bdc88",
+    "#e6c46a",
+    "#82aaff",
+    "#c99cff",
+    "#72d6e8",
+    "#cbd5e1",
+]
+brights = [
+    "#667085",
+    "#ff8794",
+    "#a7ec9f",
+    "#f0d37a",
+    "#9cc0ff",
+    "#d8b4ff",
+    "#92e5f2",
+    "#ffffff",
+]
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "unterm"
+name = "Unterm Midnight"
+"##;
+
+// Unterm Daylight: neutral light mode with stronger text contrast than
+// Solarized Light and less cream/yellow cast in chrome.
+const UNTERM_DAYLIGHT: &str = r##"
+[colors]
+background = "#fbfbfa"
+foreground = "#0b0f14"
+cursor_bg = "#0b0f14"
+cursor_fg = "#fbfbfa"
+cursor_border = "#0b0f14"
+selection_bg = "#b7cbe6"
+selection_fg = "#07101c"
+split = "#b5beb3"
+scrollbar_thumb = "#737b72"
+ansi = [
+    "#0b0f14",
+    "#b42335",
+    "#17643b",
+    "#7a5200",
+    "#005ea8",
+    "#6537a0",
+    "#006f7f",
+    "#3f4752",
+]
+brights = [
+    "#606975",
+    "#cf3347",
+    "#25824d",
+    "#936300",
+    "#0a74c9",
+    "#7b4cc2",
+    "#00889a",
+    "#020406",
+]
+
+[colors.indexed]
+
+[metadata]
+aliases = []
+author = "unterm"
+name = "Unterm Daylight"
 "##;

@@ -65,6 +65,10 @@ pub struct DirJump {
     /// instead of Tab-descending level by level.
     deep: RefCell<Option<Vec<DirItem>>>,
     /// Display order → index into `items`, after fuzzy filtering.
+    all_visible: RefCell<Vec<usize>>,
+    /// First index from `all_visible` rendered in the current page.
+    page_start: RefCell<usize>,
+    /// Current page's display order → index into `items`.
     visible: RefCell<Vec<usize>>,
     /// Index into `visible`.
     selected: RefCell<usize>,
@@ -166,9 +170,7 @@ fn locations() -> Vec<PathBuf> {
             if let Ok(rd) = std::fs::read_dir(&base) {
                 for e in rd.filter_map(|e| e.ok()) {
                     let p = e.path();
-                    if p.is_dir()
-                        && !e.file_name().to_string_lossy().starts_with('.')
-                    {
+                    if p.is_dir() && !e.file_name().to_string_lossy().starts_with('.') {
                         out.push(p);
                     }
                 }
@@ -280,12 +282,12 @@ fn subdirs_of(base: &Path) -> Vec<PathBuf> {
         .unwrap_or_default();
     dirs.sort_by(|a, b| {
         // dotdirs sort after normal dirs, then lexicographic
-        let ah = a.file_name().map_or(false, |n| {
-            n.to_string_lossy().starts_with('.')
-        });
-        let bh = b.file_name().map_or(false, |n| {
-            n.to_string_lossy().starts_with('.')
-        });
+        let ah = a
+            .file_name()
+            .map_or(false, |n| n.to_string_lossy().starts_with('.'));
+        let bh = b
+            .file_name()
+            .map_or(false, |n| n.to_string_lossy().starts_with('.'));
         ah.cmp(&bh).then_with(|| a.cmp(b))
     });
     dirs
@@ -316,6 +318,8 @@ impl DirJump {
             input: RefCell::new(String::new()),
             items: RefCell::new(vec![]),
             deep: RefCell::new(None),
+            all_visible: RefCell::new(vec![]),
+            page_start: RefCell::new(0),
             visible: RefCell::new(vec![]),
             selected: RefCell::new(0),
             overflow: RefCell::new(0),
@@ -361,8 +365,7 @@ impl DirJump {
     /// (or ~-relative) path; list the directories under its parent and
     /// filter on the final fragment.
     fn path_completion_items(&self, input: &str) -> Vec<DirItem> {
-        let Some((parent, frag)) = split_path_query(&expand_tilde(input), cfg!(windows))
-        else {
+        let Some((parent, frag)) = split_path_query(&expand_tilde(input), cfg!(windows)) else {
             return vec![];
         };
         let parent_path = PathBuf::from(&parent);
@@ -405,15 +408,15 @@ impl DirJump {
 
     fn refilter(&self) {
         let input = self.input.borrow().clone();
+        *self.page_start.borrow_mut() = 0;
 
         // Path-completion mode: typing an absolute or ~ path navigates the
         // real filesystem instead of fuzzy-matching the browse root.
         if is_path_query(&input) {
             let comp = self.path_completion_items(&input);
-            let visible: Vec<usize> = (0..comp.len().min(MAX_VISIBLE)).collect();
-            *self.overflow.borrow_mut() = comp.len().saturating_sub(MAX_VISIBLE);
+            let all_visible: Vec<usize> = (0..comp.len()).collect();
             *self.items.borrow_mut() = comp;
-            *self.visible.borrow_mut() = visible;
+            self.set_all_visible(all_visible);
             *self.selected.borrow_mut() = 0;
             self.element.borrow_mut().take();
             return;
@@ -433,7 +436,7 @@ impl DirJump {
             *self.input.borrow_mut() = base_changed_input;
         }
 
-        let mut visible: Vec<usize> = vec![];
+        let mut all_visible: Vec<usize> = vec![];
         if input.is_empty() {
             let items = self.items.borrow();
             // Recents, then locations (volumes), then subdirs, natural order.
@@ -443,7 +446,7 @@ impl DirJump {
                     .enumerate()
                     .filter(|(_, it)| it.section == section)
                 {
-                    visible.push(i);
+                    all_visible.push(i);
                 }
             }
         } else {
@@ -497,18 +500,45 @@ impl DirJump {
                         }
                         Section::PathComp => (it.name.clone(), 0),
                     };
-                    matcher_score(&pattern, &hay)
-                        .map(|s| (s.saturating_sub(depth_penalty), i))
+                    matcher_score(&pattern, &hay).map(|s| (s.saturating_sub(depth_penalty), i))
                 })
                 .collect();
             scored.sort_by(|a, b| b.0.cmp(&a.0));
-            visible = scored.into_iter().map(|(_, i)| i).collect();
+            all_visible = scored.into_iter().map(|(_, i)| i).collect();
         }
-        *self.overflow.borrow_mut() = visible.len().saturating_sub(MAX_VISIBLE);
-        visible.truncate(MAX_VISIBLE);
-        *self.visible.borrow_mut() = visible;
+        self.set_all_visible(all_visible);
         *self.selected.borrow_mut() = 0;
         self.element.borrow_mut().take();
+    }
+
+    fn set_all_visible(&self, all_visible: Vec<usize>) {
+        *self.all_visible.borrow_mut() = all_visible;
+        self.refresh_visible_page();
+    }
+
+    fn refresh_visible_page(&self) {
+        let all_visible = self.all_visible.borrow();
+        let max_start = all_visible.len().saturating_sub(MAX_VISIBLE);
+        {
+            let mut page_start = self.page_start.borrow_mut();
+            *page_start = (*page_start).min(max_start);
+        }
+        let page_start = *self.page_start.borrow();
+        let visible: Vec<usize> = all_visible
+            .iter()
+            .skip(page_start)
+            .take(MAX_VISIBLE)
+            .copied()
+            .collect();
+        *self.overflow.borrow_mut() = all_visible.len().saturating_sub(page_start + visible.len());
+        *self.visible.borrow_mut() = visible;
+        let len = self.visible.borrow().len();
+        if len == 0 {
+            *self.selected.borrow_mut() = 0;
+        } else {
+            let mut selected = self.selected.borrow_mut();
+            *selected = (*selected).min(len - 1);
+        }
     }
 
     fn invalidate(&self, term_window: &TermWindow) {
@@ -593,8 +623,50 @@ impl DirJump {
             return;
         }
         let cur = *self.selected.borrow() as isize;
-        let next = (cur + delta).rem_euclid(len as isize) as usize;
+        let next = cur + delta;
+        if next < 0 {
+            let mut page_start = self.page_start.borrow_mut();
+            if *page_start > 0 {
+                *page_start = page_start.saturating_sub(1);
+                drop(page_start);
+                self.refresh_visible_page();
+            } else {
+                *self.selected.borrow_mut() = len - 1;
+            }
+            self.invalidate(term_window);
+            return;
+        }
+        if next >= len as isize {
+            let mut page_start = self.page_start.borrow_mut();
+            let all_len = self.all_visible.borrow().len();
+            if *page_start + len < all_len {
+                *page_start += 1;
+                drop(page_start);
+                self.refresh_visible_page();
+            } else {
+                *self.selected.borrow_mut() = 0;
+            }
+            self.invalidate(term_window);
+            return;
+        }
+        let next = next as usize;
         *self.selected.borrow_mut() = next;
+        self.invalidate(term_window);
+    }
+
+    pub fn scroll_results(&self, delta: isize, term_window: &TermWindow) {
+        if delta == 0 || self.all_visible.borrow().len() <= MAX_VISIBLE {
+            return;
+        }
+        let max_start = self.all_visible.borrow().len().saturating_sub(MAX_VISIBLE);
+        let cur = *self.page_start.borrow() as isize;
+        let next = (cur + delta).clamp(0, max_start as isize) as usize;
+        if next == *self.page_start.borrow() {
+            return;
+        }
+        *self.page_start.borrow_mut() = next;
+        *self.selected.borrow_mut() = 0;
+        self.refresh_visible_page();
         self.invalidate(term_window);
     }
 
@@ -630,25 +702,21 @@ impl DirJump {
         let field = Element::new(
             &font,
             ElementContent::Children(vec![
-                Element::new(&font, ElementContent::Text("⌕ ".to_string())).colors(
-                    ElementColors {
-                        border: BorderColor::default(),
-                        bg: LinearRgba::TRANSPARENT.into(),
-                        text: teal.into(),
-                    },
-                ),
+                Element::new(&font, ElementContent::Text("⌕ ".to_string())).colors(ElementColors {
+                    border: BorderColor::default(),
+                    bg: LinearRgba::TRANSPARENT.into(),
+                    text: teal.into(),
+                }),
                 Element::new(&font, ElementContent::Text(shown_input)).colors(ElementColors {
                     border: BorderColor::default(),
                     bg: LinearRgba::TRANSPARENT.into(),
                     text: input_color.into(),
                 }),
-                Element::new(&font, ElementContent::Text("▏".to_string())).colors(
-                    ElementColors {
-                        border: BorderColor::default(),
-                        bg: LinearRgba::TRANSPARENT.into(),
-                        text: teal.into(),
-                    },
-                ),
+                Element::new(&font, ElementContent::Text("▏".to_string())).colors(ElementColors {
+                    border: BorderColor::default(),
+                    bg: LinearRgba::TRANSPARENT.into(),
+                    text: teal.into(),
+                }),
             ]),
         )
         .colors(ElementColors {
@@ -688,11 +756,7 @@ impl DirJump {
                 let caption = match item.section {
                     Section::Recent => crate::i18n::t("dirjump.recent"),
                     Section::Location => crate::i18n::t("dirjump.locations"),
-                    Section::SubDir => format!(
-                        "{} — {}",
-                        crate::i18n::t("dirjump.subdirs"),
-                        base
-                    ),
+                    Section::SubDir => format!("{} — {}", crate::i18n::t("dirjump.subdirs"), base),
                     // Only present while filtering, where captions are off.
                     Section::Deep | Section::PathComp => continue,
                 };
@@ -713,12 +777,12 @@ impl DirJump {
                 );
             }
 
-            let (row_bg, row_fg): (InheritableColor, InheritableColor) =
-                if display_idx == selected {
-                    (hover_bg.into(), fg.into())
-                } else {
-                    (LinearRgba::TRANSPARENT.into(), fg.into())
-                };
+            let (row_bg, row_fg): (InheritableColor, InheritableColor) = if display_idx == selected
+            {
+                (hover_bg.into(), fg.into())
+            } else {
+                (LinearRgba::TRANSPARENT.into(), fg.into())
+            };
             // Deep rows are labeled by their path relative to the browse
             // root — that's both what was matched and what tells the user
             // where they're jumping. Everything else shows the plain name.
@@ -732,14 +796,13 @@ impl DirJump {
             if input.is_empty() {
                 row.push(Element::new(&font, ElementContent::Text(label)));
             } else {
-                let lower_input: Vec<char> =
-                    input.to_lowercase().chars().collect();
+                let lower_input: Vec<char> = input.to_lowercase().chars().collect();
                 let mut ii = 0usize;
                 let mut seg = String::new();
                 let mut seg_hit = false;
                 for ch in label.chars() {
-                    let hit = ii < lower_input.len()
-                        && ch.to_lowercase().next() == Some(lower_input[ii]);
+                    let hit =
+                        ii < lower_input.len() && ch.to_lowercase().next() == Some(lower_input[ii]);
                     if hit {
                         ii += 1;
                     }
@@ -748,12 +811,15 @@ impl DirJump {
                         seg.push(ch);
                     } else {
                         let color = if seg_hit { teal } else { fg };
-                        row.push(Element::new(&font, ElementContent::Text(seg.clone()))
-                            .colors(ElementColors {
-                                border: BorderColor::default(),
-                                bg: LinearRgba::TRANSPARENT.into(),
-                                text: color.into(),
-                            }));
+                        row.push(
+                            Element::new(&font, ElementContent::Text(seg.clone())).colors(
+                                ElementColors {
+                                    border: BorderColor::default(),
+                                    bg: LinearRgba::TRANSPARENT.into(),
+                                    text: color.into(),
+                                },
+                            ),
+                        );
                         seg.clear();
                         seg.push(ch);
                         seg_hit = hit;
@@ -761,12 +827,13 @@ impl DirJump {
                 }
                 if !seg.is_empty() {
                     let color = if seg_hit { teal } else { fg };
-                    row.push(Element::new(&font, ElementContent::Text(seg))
-                        .colors(ElementColors {
+                    row.push(Element::new(&font, ElementContent::Text(seg)).colors(
+                        ElementColors {
                             border: BorderColor::default(),
                             bg: LinearRgba::TRANSPARENT.into(),
                             text: color.into(),
-                        }));
+                        },
+                    ));
                 }
             }
             // Dim path hint: recents show where they live; path completion
@@ -777,10 +844,7 @@ impl DirJump {
                 Section::Recent | Section::Location | Section::PathComp
             ) {
                 let hint = match item.section {
-                    Section::PathComp => item
-                        .rel
-                        .clone()
-                        .unwrap_or_else(|| tilde_path(&item.path)),
+                    Section::PathComp => item.rel.clone().unwrap_or_else(|| tilde_path(&item.path)),
                     _ => tilde_path(&item.path),
                 };
                 row.push(
@@ -863,22 +927,19 @@ impl DirJump {
 
         if visible.is_empty() {
             children.push(
-                Element::new(
-                    &font,
-                    ElementContent::Text(crate::i18n::t("dirjump.empty")),
-                )
-                .display(DisplayType::Block)
-                .padding(BoxDimension {
-                    left: Dimension::Pixels(14. * pt),
-                    right: Dimension::Pixels(14. * pt),
-                    top: Dimension::Pixels(8. * pt),
-                    bottom: Dimension::Pixels(8. * pt),
-                })
-                .colors(ElementColors {
-                    border: BorderColor::default(),
-                    bg: LinearRgba::TRANSPARENT.into(),
-                    text: dim.into(),
-                }),
+                Element::new(&font, ElementContent::Text(crate::i18n::t("dirjump.empty")))
+                    .display(DisplayType::Block)
+                    .padding(BoxDimension {
+                        left: Dimension::Pixels(14. * pt),
+                        right: Dimension::Pixels(14. * pt),
+                        top: Dimension::Pixels(8. * pt),
+                        bottom: Dimension::Pixels(8. * pt),
+                    })
+                    .colors(ElementColors {
+                        border: BorderColor::default(),
+                        bg: LinearRgba::TRANSPARENT.into(),
+                        text: dim.into(),
+                    }),
             );
         }
 
@@ -901,22 +962,19 @@ impl DirJump {
                 }),
         );
         children.push(
-            Element::new(
-                &font,
-                ElementContent::Text(crate::i18n::t("dirjump.hints")),
-            )
-            .display(DisplayType::Block)
-            .padding(BoxDimension {
-                left: Dimension::Pixels(14. * pt),
-                right: Dimension::Pixels(14. * pt),
-                top: Dimension::Pixels(6. * pt),
-                bottom: Dimension::Pixels(2. * pt),
-            })
-            .colors(ElementColors {
-                border: BorderColor::default(),
-                bg: LinearRgba::TRANSPARENT.into(),
-                text: dim.into(),
-            }),
+            Element::new(&font, ElementContent::Text(crate::i18n::t("dirjump.hints")))
+                .display(DisplayType::Block)
+                .padding(BoxDimension {
+                    left: Dimension::Pixels(14. * pt),
+                    right: Dimension::Pixels(14. * pt),
+                    top: Dimension::Pixels(6. * pt),
+                    bottom: Dimension::Pixels(2. * pt),
+                })
+                .colors(ElementColors {
+                    border: BorderColor::default(),
+                    bg: LinearRgba::TRANSPARENT.into(),
+                    text: dim.into(),
+                }),
         );
 
         let card = Element::new(&font, ElementContent::Children(children))
@@ -963,7 +1021,9 @@ impl DirJump {
         } else {
             0.
         };
-        let width = (480. * pt).min(dimensions.pixel_width as f32 - 32. * pt).round();
+        let width = (480. * pt)
+            .min(dimensions.pixel_width as f32 - 32. * pt)
+            .round();
         let x = ((dimensions.pixel_width as f32 - width) / 2.).round();
         let y = (top_bar_height + border.top.get() as f32 + 28. * pt).round();
 
@@ -1005,6 +1065,12 @@ impl Modal for DirJump {
             (KeyCode::Escape, KeyModifiers::NONE) => term_window.cancel_modal(),
             (KeyCode::UpArrow, KeyModifiers::NONE) => self.move_selection(-1, term_window),
             (KeyCode::DownArrow, KeyModifiers::NONE) => self.move_selection(1, term_window),
+            (KeyCode::PageUp, KeyModifiers::NONE) => {
+                self.scroll_results(-(MAX_VISIBLE as isize), term_window)
+            }
+            (KeyCode::PageDown, KeyModifiers::NONE) => {
+                self.scroll_results(MAX_VISIBLE as isize, term_window)
+            }
             (KeyCode::Tab, KeyModifiers::NONE) => self.complete_selected(term_window),
             (KeyCode::Enter, KeyModifiers::NONE) => {
                 let sel = *self.selected.borrow();
@@ -1114,11 +1180,13 @@ mod tests {
 mod win_tests {
     use super::*;
 
-
     #[test]
     fn windows_path_query_splitting() {
         // bare drive promotes to root
-        assert_eq!(split_path_query("D:", true), Some(("D:/".into(), "".into())));
+        assert_eq!(
+            split_path_query("D:", true),
+            Some(("D:/".into(), "".into()))
+        );
         // backslashes normalize; parent keeps the drive-root slash
         assert_eq!(
             split_path_query("D:\\code", true),
@@ -1129,7 +1197,10 @@ mod win_tests {
             Some(("D:/code".into(), "un".into()))
         );
         // unix splitting unchanged
-        assert_eq!(split_path_query("/usr/lo", false), Some(("/usr".into(), "lo".into())));
+        assert_eq!(
+            split_path_query("/usr/lo", false),
+            Some(("/usr".into(), "lo".into()))
+        );
         assert_eq!(split_path_query("/", false), Some(("/".into(), "".into())));
         assert_eq!(split_path_query("plain", false), None);
     }

@@ -61,7 +61,7 @@
   "confirm.yes": " [Y]es ",
   "cwd.prompt": "Select a folder to cd into the current pane.",
   "dirjump.empty": "No matching directory",
-  "dirjump.hints": "↑↓ select · Tab complete · Enter cd · ⌘Enter new tab · ⌫ edit/up · ⌘O picker · Esc",
+  "dirjump.hints": "↑↓ select · scroll wheel or PageUp/PageDown to page · Tab complete · Enter cd · ⌘Enter new tab · ⌫ edit/up · ⌘O picker · Esc",
   "dirjump.placeholder": "Type to match any depth · / or ~ for paths…",
   "dirjump.recent": "RECENT",
   "dirjump.subdirs": "SUBDIRECTORIES",
@@ -167,7 +167,7 @@
   "theme.preset.notion-dark.name": "Notion Dark",
   "theme.preset.notion-light.desc": "Notion-inspired clean light",
   "theme.preset.notion-light.name": "Notion Light",
-  "theme.preset.standard.desc": "Balanced dark terminal style",
+  "theme.preset.standard.desc": "Neutral high-contrast terminal style",
   "theme.preset.standard.name": "Standard",
   "theme.saved_palette_failed": "Theme saved as {name}, palette apply failed: {err}",
   "theme.switch_failed": "Theme switch failed: {err}",
@@ -188,6 +188,7 @@
   "web.agents.btn.installing": "Installing…",
   "web.agents.btn.launch_cmd": "Copy launch cmd",
   "web.agents.btn.oauth_cmd": "Copy login cmd",
+  "web.agents.btn.run_cmd": "Copy headless run",
   "web.agents.btn.save": "Save",
   "web.agents.btn.saving": "Saving…",
   "web.agents.btn.uninstall": "Uninstall",
@@ -216,6 +217,7 @@
   "web.agents.toast.install_failed": "Install failed",
   "web.agents.toast.installed": "Installed.",
   "web.agents.toast.launch_copied": "Launch command copied — paste it in a terminal to start the agent.",
+  "web.agents.toast.run_copied": "Headless run command copied — edit the prompt, then run it in a terminal.",
   "web.agents.toast.load_failed": "Couldn't load agent: {err}",
   "web.agents.toast.refreshed": "Manifest re-fetched.",
   "web.agents.toast.save_failed": "Save failed: {err}",
@@ -475,5 +477,5 @@
   "web.update.view_release": "View release →",
   "dirjump.here": "↵ cd here",
   "dirjump.locations": "Locations",
-  "dirjump.more": "… {n} more — keep typing to narrow"
+  "dirjump.more": "… {n} more — scroll down or press PageDown to show the next page; type to narrow"
 }

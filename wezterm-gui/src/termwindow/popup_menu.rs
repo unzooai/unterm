@@ -8,20 +8,21 @@
 //! routing lives in `mouseevent.rs` (the upstream Modal trait's mouse hook
 //! was never wired, and other modals stay keyboard-only for now).
 
+use crate::customglyph::Poly;
 use crate::termwindow::box_model::*;
 use crate::termwindow::modal::Modal;
 use crate::termwindow::render::corners::{
     BOTTOM_LEFT_ROUNDED_CORNER, BOTTOM_RIGHT_ROUNDED_CORNER, TOP_LEFT_ROUNDED_CORNER,
     TOP_RIGHT_ROUNDED_CORNER,
 };
+use crate::termwindow::ui_icons;
 use crate::termwindow::{DimensionContext, TermWindow, UIItemType};
 use crate::utilsprites::RenderMetrics;
 use config::keyassignment::{KeyAssignment, Pattern, SpawnCommand, SpawnTabDomain};
 use config::Dimension;
-use crate::customglyph::Poly;
-use crate::termwindow::ui_icons;
 use mux::pane::PaneId;
 use std::cell::{Ref, RefCell};
+use wezterm_term::color::ColorAttribute;
 use wezterm_term::{KeyCode, KeyModifiers, MouseEvent};
 use window::color::LinearRgba;
 use window::WindowOps;
@@ -136,7 +137,12 @@ impl PopupMenu {
                 MenuAction::Assign(KeyAssignment::ActivateCommandPalette),
             ),
             sep(),
-            entry(recording_label, "", ui_icons::ICON_RECORD, MenuAction::ToggleRecording),
+            entry(
+                recording_label,
+                "",
+                ui_icons::ICON_RECORD,
+                MenuAction::ToggleRecording,
+            ),
             entry(
                 crate::i18n::t("settings.menu.export_session"),
                 "",
@@ -208,6 +214,10 @@ impl PopupMenu {
             self.element.borrow_mut().replace(element);
         }
         Ok(())
+    }
+
+    pub fn pane_id(&self) -> PaneId {
+        self.pane_id
     }
 
     fn first_selectable(&self) -> Option<usize> {
@@ -286,12 +296,17 @@ impl PopupMenu {
             }
             MenuAction::CopyText(text) => {
                 use config::keyassignment::ClipboardCopyDestination;
-                term_window
-                    .copy_to_clipboard(ClipboardCopyDestination::ClipboardAndPrimarySelection, text.clone());
+                term_window.copy_to_clipboard(
+                    ClipboardCopyDestination::ClipboardAndPrimarySelection,
+                    text.clone(),
+                );
             }
             MenuAction::RevealPath(path) => {
                 #[cfg(target_os = "macos")]
-                let _ = std::process::Command::new("open").arg("-R").arg(path).spawn();
+                let _ = std::process::Command::new("open")
+                    .arg("-R")
+                    .arg(path)
+                    .spawn();
                 #[cfg(all(unix, not(target_os = "macos")))]
                 let _ = std::process::Command::new("xdg-open")
                     .arg(path.parent().unwrap_or(path))
@@ -338,13 +353,39 @@ impl PopupMenu {
         // 4pt, radius 6pt, shadow #000@19%). Scaled by dpi to physical px.
         let pt = term_window.dimensions.dpi as f32 / 72.0;
 
-        // Explicit high-contrast surface (the command-palette defaults are
-        // gray-on-gray and nearly unreadable on a dark theme).
-        let bg = LinearRgba::with_srgba(0x2a, 0x2a, 0x2a, 0xff);
-        let fg = LinearRgba::with_srgba(0xf2, 0xf2, 0xf0, 0xff);
-        let accel_fg = LinearRgba::with_srgba(0xac, 0xac, 0xa8, 0xff);
-        let hover_bg = LinearRgba::with_srgba(0x3d, 0x3d, 0x3d, 0xff);
-        let teal = LinearRgba::with_srgba(0x6f, 0xcc, 0xb8, 0xff);
+        let palette = term_window.palette().clone();
+        let scheme_bg = palette.background.to_linear();
+        let scheme_fg = palette.foreground.to_linear();
+        let luma = |c: LinearRgba| 0.2126 * c.0 + 0.7152 * c.1 + 0.0722 * c.2;
+        let mix = |a: LinearRgba, b: LinearRgba, t: f32| {
+            LinearRgba::with_components(
+                a.0 * (1. - t) + b.0 * t,
+                a.1 * (1. - t) + b.1 * t,
+                a.2 * (1. - t) + b.2 * t,
+                1.,
+            )
+        };
+        let is_light = luma(scheme_bg) > 0.48;
+        let bg = if is_light {
+            mix(scheme_bg, scheme_fg, 0.07)
+        } else {
+            mix(scheme_bg, scheme_fg, 0.10)
+        };
+        let fg = scheme_fg;
+        let accel_fg = fg.mul_alpha(if is_light { 0.62 } else { 0.66 });
+        let hover_bg = if is_light {
+            mix(bg, scheme_fg, 0.11)
+        } else {
+            mix(bg, scheme_fg, 0.16)
+        };
+        let teal = palette
+            .resolve_fg(ColorAttribute::PaletteIndex(14))
+            .to_linear();
+        let border_color = if is_light {
+            fg.mul_alpha(0.16)
+        } else {
+            LinearRgba::with_srgba(0x00, 0x00, 0x00, 0x90)
+        };
 
         let mut rows: Vec<Element> = vec![];
         for (idx, e) in self.entries.iter().enumerate() {
@@ -368,12 +409,10 @@ impl PopupMenu {
                 );
                 continue;
             }
-            // Keyboard selection paints explicitly; mouse hover is handled by
-            // the renderer via hover_colors (zero recompute, zero lag).
             let (row_bg, row_fg): (InheritableColor, InheritableColor) = if hover == Some(idx) {
                 (hover_bg.into(), fg.into())
             } else {
-                (LinearRgba::TRANSPARENT.into(), fg.into())
+                (bg.into(), fg.into())
             };
             let mut row: Vec<Element> = vec![];
             if let Some(icon) = e.icon {
@@ -403,10 +442,7 @@ impl PopupMenu {
                     }),
                 );
             }
-            row.push(Element::new(
-                &font,
-                ElementContent::Text(e.label.clone()),
-            ));
+            row.push(Element::new(&font, ElementContent::Text(e.label.clone())));
             if !e.accel.is_empty() {
                 row.push(
                     Element::new(&font, ElementContent::Text(e.accel.to_string()))
@@ -429,8 +465,6 @@ impl PopupMenu {
             if hover == Some(idx) {
                 row_border.left = teal;
             }
-            let mut hover_border = BorderColor::default();
-            hover_border.left = teal;
             rows.push(
                 Element::new(&font, ElementContent::Children(row))
                     .item_type(UIItemType::PopupMenuRow(idx))
@@ -439,11 +473,6 @@ impl PopupMenu {
                         bg: row_bg,
                         text: row_fg,
                     })
-                    .hover_colors(Some(ElementColors {
-                        border: hover_border,
-                        bg: hover_bg.into(),
-                        text: fg.into(),
-                    }))
                     .border(BoxDimension {
                         left: Dimension::Pixels(2. * pt),
                         right: Dimension::Pixels(0.),
@@ -464,7 +493,7 @@ impl PopupMenu {
         let element = Element::new(&font, ElementContent::Children(rows))
             .item_type(UIItemType::PopupMenuCard)
             .colors(ElementColors {
-                border: BorderColor::new(LinearRgba::with_srgba(0x00, 0x00, 0x00, 0xb0)),
+                border: BorderColor::new(border_color),
                 bg: bg.into(),
                 text: fg.into(),
             })
@@ -518,8 +547,9 @@ impl PopupMenu {
             .max()
             .unwrap_or(24) as f32;
         let cell_w = metrics.cell_size.width as f32;
-        let desired_pixel_width =
-            (max_chars * cell_w).min(dimensions.pixel_width as f32 - 16.).round();
+        let desired_pixel_width = (max_chars * cell_w)
+            .min(dimensions.pixel_width as f32 - 16.)
+            .round();
         // Anchor under the tab bar's ⌄ button (its ui_item bounds are in
         // window pixels); fall back to the right edge if it isn't on screen.
         let anchor_x = self.anchor.map(|(x, _)| x).or_else(|| {
@@ -536,34 +566,14 @@ impl PopupMenu {
         });
         let x = anchor_x
             .unwrap_or(dimensions.pixel_width as f32)
-            .min(dimensions.pixel_width as f32 - border.right.get() as f32 - desired_pixel_width - 8.)
+            .min(
+                dimensions.pixel_width as f32
+                    - border.right.get() as f32
+                    - desired_pixel_width
+                    - 8.,
+            )
             .max(8.)
             .round();
-
-        // Two-step halo approximating a soft drop shadow (no blur shader in
-        // the box model; stepped alpha reads as depth at UI scale).
-        let halo_round = |r: f32| Corners {
-            top_left: SizedPoly { width: Dimension::Pixels(r), height: Dimension::Pixels(r), poly: TOP_LEFT_ROUNDED_CORNER },
-            top_right: SizedPoly { width: Dimension::Pixels(r), height: Dimension::Pixels(r), poly: TOP_RIGHT_ROUNDED_CORNER },
-            bottom_left: SizedPoly { width: Dimension::Pixels(r), height: Dimension::Pixels(r), poly: BOTTOM_LEFT_ROUNDED_CORNER },
-            bottom_right: SizedPoly { width: Dimension::Pixels(r), height: Dimension::Pixels(r), poly: BOTTOM_RIGHT_ROUNDED_CORNER },
-        };
-        let element = Element::new(&font, ElementContent::Children(vec![element]))
-            .padding(BoxDimension::new(Dimension::Pixels(2. * pt)))
-            .colors(ElementColors {
-                border: BorderColor::default(),
-                bg: LinearRgba::with_srgba(0x00, 0x00, 0x00, 0x2e).into(),
-                text: fg.into(),
-            })
-            .border_corners(Some(halo_round(8. * pt)));
-        let element = Element::new(&font, ElementContent::Children(vec![element]))
-            .padding(BoxDimension::new(Dimension::Pixels(2. * pt)))
-            .colors(ElementColors {
-                border: BorderColor::default(),
-                bg: LinearRgba::with_srgba(0x00, 0x00, 0x00, 0x16).into(),
-                text: fg.into(),
-            })
-            .border_corners(Some(halo_round(10. * pt)));
 
         let computed = term_window.compute_element(
             &LayoutContext {
@@ -578,9 +588,9 @@ impl PopupMenu {
                     pixel_cell: metrics.cell_size.width as f32,
                 },
                 bounds: euclid::rect(
-                    (x - 4. * pt).max(0.),
-                    (top_pixel_y - 4. * pt).max(0.),
-                    desired_pixel_width + 8. * pt,
+                    x,
+                    top_pixel_y,
+                    desired_pixel_width,
                     dimensions.pixel_height as f32 - top_pixel_y,
                 ),
                 metrics: &metrics,

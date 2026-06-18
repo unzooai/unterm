@@ -110,16 +110,17 @@ impl ThemeState {
             let bg = if selected { SURFACE0 } else { MANTLE };
             let indicator = if selected { ">" } else { " " };
             let current = if preset.id == self.active { "*" } else { " " };
-            let translated_name =
-                crate::i18n::t(&format!("theme.preset.{}.name", preset.id));
-            let translated_desc =
-                crate::i18n::t(&format!("theme.preset.{}.desc", preset.id));
+            let translated_name = crate::i18n::t(&format!("theme.preset.{}.name", preset.id));
+            let translated_desc = crate::i18n::t(&format!("theme.preset.{}.desc", preset.id));
             text_row(
                 &mut changes,
                 start_x,
                 row,
                 card_w,
-                &format!("{indicator}{current} {} - {}", translated_name, preset.scheme),
+                &format!(
+                    "{indicator}{current} {} - {}",
+                    translated_name, preset.scheme
+                ),
                 if selected { TEXT } else { SUBTEXT0 },
                 bg,
             );
@@ -142,7 +143,15 @@ impl ThemeState {
             .message
             .clone()
             .unwrap_or_else(|| crate::i18n::t("theme.footer.hint"));
-        text_row(&mut changes, start_x, row, card_w, &footer, OVERLAY0, MANTLE);
+        text_row(
+            &mut changes,
+            start_x,
+            row,
+            card_w,
+            &footer,
+            OVERLAY0,
+            MANTLE,
+        );
 
         changes.push(Change::AllAttributes(CellAttributes::default()));
         changes.push(Change::CursorPosition {
@@ -162,8 +171,7 @@ impl ThemeState {
                 return;
             }
             self.active = preset.id.to_string();
-            let translated_name =
-                crate::i18n::t(&format!("theme.preset.{}.name", preset.id));
+            let translated_name = crate::i18n::t(&format!("theme.preset.{}.name", preset.id));
             self.message = Some(crate::i18n::t_args(
                 "theme.applied",
                 &[("name", &translated_name)],
@@ -221,7 +229,12 @@ pub(crate) fn read_theme_id() -> String {
     std::fs::read_to_string(path)
         .ok()
         .and_then(|content| serde_json::from_str::<serde_json::Value>(&content).ok())
-        .and_then(|value| value.get("theme").and_then(|theme| theme.as_str()).map(str::to_string))
+        .and_then(|value| {
+            value
+                .get("theme")
+                .and_then(|theme| theme.as_str())
+                .map(str::to_string)
+        })
         .unwrap_or_else(|| "standard".to_string())
 }
 
@@ -251,19 +264,19 @@ fn theme_presets() -> Vec<ThemePreset> {
         ThemePreset {
             id: "standard",
             name: "Standard",
-            scheme: "Catppuccin Mocha",
-            desc: "Balanced dark terminal style",
+            scheme: "Unterm Dark",
+            desc: "Neutral high-contrast terminal style",
         },
         ThemePreset {
             id: "midnight",
             name: "Midnight",
-            scheme: "Tokyo Night",
+            scheme: "Unterm Midnight",
             desc: "Low-glare blue-black workspace",
         },
         ThemePreset {
             id: "daylight",
             name: "Daylight",
-            scheme: "Builtin Solarized Light",
+            scheme: "Unterm Daylight",
             desc: "Readable light mode for bright rooms",
         },
         ThemePreset {
@@ -331,7 +344,11 @@ fn text_row(
         x: Position::Absolute(start_x),
         y: Position::Absolute(row),
     });
-    changes.push(fg_bg(format!(" {}{}", visible, " ".repeat(pad - 1)), fg, bg));
+    changes.push(fg_bg(
+        format!(" {}{}", visible, " ".repeat(pad - 1)),
+        fg,
+        bg,
+    ));
 }
 
 fn truncate_chars(text: &str, max: usize) -> String {

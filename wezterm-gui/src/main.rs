@@ -46,7 +46,6 @@ mod i18n;
 mod inputmap;
 mod mcp;
 mod overlay;
-mod update_check;
 mod quad;
 mod recording;
 mod renderstate;
@@ -55,6 +54,7 @@ mod scripting;
 mod scrollbar;
 mod scrollshot;
 mod selection;
+mod server_info;
 pub mod session_state;
 mod shapecache;
 mod spawn;
@@ -65,8 +65,8 @@ mod termwindow;
 mod unicode_names;
 mod uniforms;
 mod update;
+mod update_check;
 mod utilsprites;
-mod server_info;
 mod web_settings;
 
 #[cfg(feature = "dhat-heap")]
@@ -74,7 +74,9 @@ mod web_settings;
 static ALLOC: dhat::Alloc = dhat::Alloc;
 
 pub use selection::SelectionMode;
-pub use termwindow::{set_saved_dimensions, set_window_class, set_window_position, TermWindow, ICON_DATA};
+pub use termwindow::{
+    set_saved_dimensions, set_window_class, set_window_position, TermWindow, ICON_DATA,
+};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -726,7 +728,9 @@ async fn async_run_terminal_gui(
                 }
                 let _ = std::fs::write(
                     &path,
-                    serde_json::json!({"first_run": true}).to_string().as_bytes(),
+                    serde_json::json!({"first_run": true})
+                        .to_string()
+                        .as_bytes(),
                 );
             });
         }
@@ -736,7 +740,11 @@ async fn async_run_terminal_gui(
 }
 
 fn first_run_path() -> Option<std::path::PathBuf> {
-    Some(dirs_next::home_dir()?.join(".unterm").join("first_run.json"))
+    Some(
+        dirs_next::home_dir()?
+            .join(".unterm")
+            .join("first_run.json"),
+    )
 }
 
 #[derive(Debug)]
@@ -1492,12 +1500,7 @@ fn run() -> anyhow::Result<()> {
             SystemParametersInfoW, SPIF_SENDCHANGE, SPI_GETSCREENREADER, SPI_SETSCREENREADER,
         };
         let mut active: i32 = 0;
-        SystemParametersInfoW(
-            SPI_GETSCREENREADER,
-            0,
-            &mut active as *mut _ as *mut _,
-            0,
-        );
+        SystemParametersInfoW(SPI_GETSCREENREADER, 0, &mut active as *mut _ as *mut _, 0);
         if active != 0 {
             let res = SystemParametersInfoW(
                 SPI_SETSCREENREADER,

@@ -58,7 +58,11 @@ impl ProfileRegistry {
             if path.extension().and_then(|s| s.to_str()) != Some("toml") {
                 continue;
             }
-            let Some(stem) = path.file_stem().and_then(|s| s.to_str()).map(str::to_string) else {
+            let Some(stem) = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .map(str::to_string)
+            else {
                 continue;
             };
             if stem == "index" {
@@ -175,11 +179,7 @@ impl ProfileRegistry {
     /// non-colliding ID via [`slugify`] + [`disambiguate`], persists
     /// the TOML, and appends the ID to `index.order`. Returns the new
     /// profile's ID.
-    pub fn create(
-        &mut self,
-        display_name: &str,
-        accent_color: Option<&str>,
-    ) -> Result<String> {
+    pub fn create(&mut self, display_name: &str, accent_color: Option<&str>) -> Result<String> {
         let base = slugify(display_name)
             .with_context(|| format!("display_name {display_name:?} slugifies to empty"))?;
         let taken: Vec<String> = self.profiles.keys().cloned().collect();
@@ -238,9 +238,7 @@ impl ProfileRegistry {
             .profiles
             .get_mut(id)
             .with_context(|| format!("profile not found: {id}"))?;
-        profile
-            .secrets
-            .insert(env_name.to_string(), key.to_url());
+        profile.secrets.insert(env_name.to_string(), key.to_url());
         profile.save(&profile_path(id))?;
         Ok(())
     }
@@ -294,9 +292,7 @@ impl ProfileRegistry {
 
         for (env_name, url) in &profile.secrets {
             let Some(key) = SecretKey::from_url(url) else {
-                log::warn!(
-                    "profile {id}: secret {env_name} has malformed reference {url:?}"
-                );
+                log::warn!("profile {id}: secret {env_name} has malformed reference {url:?}");
                 continue;
             };
             match store.get(&key) {
@@ -375,9 +371,7 @@ mod tests {
                 .unwrap()
                 .get(&(k.profile_id.clone(), k.env_name.clone()))
                 .cloned()
-                .ok_or_else(|| {
-                    crate::store::SecretError::NotFound(k.clone()).into()
-                })
+                .ok_or_else(|| crate::store::SecretError::NotFound(k.clone()).into())
         }
         fn set(&self, k: &SecretKey, v: &str) -> Result<()> {
             self.inner
@@ -406,7 +400,8 @@ mod tests {
         };
         work.git.user_name = "Alex Lee".to_string();
         work.git.user_email = "alex@acme.example".to_string();
-        work.env.insert("NODE_ENV".to_string(), "production".to_string());
+        work.env
+            .insert("NODE_ENV".to_string(), "production".to_string());
         work.secrets.insert(
             "GITHUB_TOKEN".to_string(),
             "keychain://unterm/work-acme/GITHUB_TOKEN".to_string(),

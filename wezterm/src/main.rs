@@ -50,8 +50,9 @@ pub struct Opt {
         number_of_values = 1)]
     config_override: Vec<(String, String)>,
 
-    /// Emit raw JSON-RPC `result` payloads for `proxy`, `theme`, `session`,
-    /// `sessions`, and `screenshot` subcommands. Ignored by other commands.
+    /// Emit raw JSON-RPC `result` payloads for MCP-backed subcommands such as
+    /// proxy, theme, session, sessions, workspace, instance, screenshot, and
+    /// lang.
     #[arg(long = "json", global = true)]
     json: bool,
 
@@ -59,6 +60,11 @@ pub struct Opt {
     /// persist). Use `unterm-cli lang set <code>` to make it permanent.
     #[arg(long = "lang", global = true, value_name = "code")]
     lang: Option<String>,
+
+    /// Route MCP-backed CLI commands to a specific running Unterm instance
+    /// such as alpha, bravo, or charlie. Defaults to active/latest.
+    #[arg(long = "instance", global = true, value_name = "id")]
+    instance: Option<String>,
 
     #[command(subcommand)]
     cmd: Option<SubCommand>,
@@ -163,6 +169,15 @@ enum SubCommand {
 
     #[command(name = "sessions", about = "Browse the recorded session archive")]
     Sessions(unterm_cli::SessionsCommand),
+
+    #[command(name = "workspace", about = "Save or restore named pane workspaces")]
+    Workspace(unterm_cli::WorkspaceCommand),
+
+    #[command(
+        name = "instance",
+        about = "List, inspect, label, or focus live Unterm instances"
+    )]
+    Instance(unterm_cli::InstanceCommand),
 
     #[command(
         name = "settings",
@@ -872,6 +887,7 @@ fn run() -> anyhow::Result<()> {
     // CLI subcommands look up translations through `unterm_cli::i18n`, which
     // honours this transient override.
     unterm_cli::apply_transient_lang(opts.lang.as_deref());
+    unterm_cli::set_target_instance(opts.instance.as_deref());
 
     match opts
         .cmd
@@ -896,6 +912,8 @@ fn run() -> anyhow::Result<()> {
         SubCommand::Theme(cmd) => unterm_cli::run_theme(cmd, opts.json),
         SubCommand::Session(cmd) => unterm_cli::run_session(cmd, opts.json),
         SubCommand::Sessions(cmd) => unterm_cli::run_sessions(cmd, opts.json),
+        SubCommand::Workspace(cmd) => unterm_cli::run_workspace(cmd, opts.json),
+        SubCommand::Instance(cmd) => unterm_cli::run_instance(cmd, opts.json),
         SubCommand::Screenshot {
             include_window,
             self_window,

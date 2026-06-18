@@ -235,16 +235,18 @@ The auto-overlay exists to prevent the "I changed Clash from 7890 to 7897 and no
 |---|---|---|---|---|
 | `theme` | string | `"standard"` | `"standard"` / `"midnight"` / `"daylight"` / `"classic"` | Preset id. The other two fields are derived from this — they're written for human readability but `theme` is the authoritative key. |
 | `name` | string | `"Standard"` | Any | Human label of the active preset. Cosmetic. |
-| `color_scheme` | string | `"Catppuccin Mocha"` | Any color scheme name known to Unterm | Underlying termwiz color scheme. Cosmetic when present alongside `theme`. |
+| `color_scheme` | string | `"Unterm Dark"` | Any color scheme name known to Unterm | Underlying termwiz color scheme. Cosmetic when present alongside `theme`. |
 
-The four built-ins:
+The six built-ins:
 
 | `theme` id | `color_scheme` | Description |
 |---|---|---|
-| `standard` | Catppuccin Mocha | Balanced dark terminal style |
-| `midnight` | Tokyo Night | Low-glare blue-black workspace |
-| `daylight` | Builtin Solarized Light | Readable light mode for bright rooms |
+| `standard` | Unterm Dark | Neutral high-contrast terminal style |
+| `midnight` | Unterm Midnight | Low-glare blue-black workspace |
+| `daylight` | Unterm Daylight | Readable light mode for bright rooms |
 | `classic` | Builtin Tango Dark | Plain high-contrast terminal colors |
+| `notion-dark` | Notion Dark | Notion-inspired warm dark |
+| `notion-light` | Notion Light | Notion-inspired clean light |
 
 **When you'd edit by hand:** rarely. The ▼ menu picker, Web Settings, and `unterm-cli theme set midnight` all write this with the three fields in lockstep. Hand-editing `theme` to an unknown value silently falls back to `standard`.
 

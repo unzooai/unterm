@@ -203,11 +203,12 @@ impl super::TermWindow {
                 config.window_padding.bottom.evaluate_as_pixels(v_context) as usize;
             let padding_right = effective_right_padding(&config, h_context);
 
+            let status_bar_height = self.status_bar_pixel_height().ceil() as usize;
             let pixel_height = (rows * self.render_metrics.cell_size.height as usize)
                 + (padding_top + padding_bottom)
                 + (border.top + border.bottom).get() as usize
                 + tab_bar_height as usize
-                + self.render_metrics.cell_size.height as usize; // status bar
+                + status_bar_height;
 
             let pixel_width = (cols * self.render_metrics.cell_size.width as usize)
                 + (padding_left + padding_right)
@@ -256,6 +257,7 @@ impl super::TermWindow {
                     + (border.left + border.right).get() as usize,
             );
 
+            let status_bar_height = self.status_bar_pixel_height().ceil() as usize;
             let avail_height = dimensions
                 .pixel_height
                 .saturating_sub(
@@ -264,7 +266,7 @@ impl super::TermWindow {
                 )
                 .saturating_sub(tab_bar_height as usize)
                 // Unterm: reserve space for the status bar at bottom
-                .saturating_sub(self.render_metrics.cell_size.height as usize);
+                .saturating_sub(status_bar_height);
 
             let rows = avail_height / self.render_metrics.cell_size.height as usize;
             let cols = avail_width / self.render_metrics.cell_size.width as usize;
@@ -514,9 +516,13 @@ impl super::TermWindow {
             pixel_cell: render_metrics.cell_size.height as f32,
         };
         let padding_left = config.window_padding.left.evaluate_as_pixels(h_context) as usize
-                + self.left_gutter_pixel_width() as usize;
+            + self.left_gutter_pixel_width() as usize;
         let padding_top = config.window_padding.top.evaluate_as_pixels(v_context) as usize;
         let padding_bottom = config.window_padding.bottom.evaluate_as_pixels(v_context) as usize;
+
+        let status_bar_height = self
+            .status_bar_pixel_height_for_cell_height(render_metrics.cell_size.height as f32)
+            .ceil() as usize;
 
         let dimensions = Dimensions {
             pixel_width: ((terminal_size.cols as usize * render_metrics.cell_size.width as usize)
@@ -526,7 +532,7 @@ impl super::TermWindow {
                 + padding_top
                 + padding_bottom) as usize
                 + tab_bar_height
-                + render_metrics.cell_size.height as usize, // status bar
+                + status_bar_height,
             dpi: self.dimensions.dpi,
         };
 

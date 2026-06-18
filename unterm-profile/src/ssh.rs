@@ -114,10 +114,8 @@ pub fn write_for_registry(registry: &ProfileRegistry) -> Result<()> {
             .with_context(|| format!("create dir {}", parent.display()))?;
     }
     let tmp = path.with_extension("unterm.tmp");
-    std::fs::write(&tmp, &body)
-        .with_context(|| format!("write temp file {}", tmp.display()))?;
-    std::fs::rename(&tmp, &path)
-        .with_context(|| format!("rename into {}", path.display()))?;
+    std::fs::write(&tmp, &body).with_context(|| format!("write temp file {}", tmp.display()))?;
+    std::fs::rename(&tmp, &path).with_context(|| format!("rename into {}", path.display()))?;
     Ok(())
 }
 

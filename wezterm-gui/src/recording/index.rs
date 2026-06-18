@@ -68,13 +68,12 @@ pub fn load_index() -> Result<Vec<IndexEntry>> {
     if !path.exists() {
         return Ok(Vec::new());
     }
-    let raw = std::fs::read_to_string(&path)
-        .with_context(|| format!("read {}", path.display()))?;
+    let raw = std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
     if raw.trim().is_empty() {
         return Ok(Vec::new());
     }
-    let parsed: Vec<IndexEntry> = serde_json::from_str(&raw)
-        .with_context(|| format!("parse {}", path.display()))?;
+    let parsed: Vec<IndexEntry> =
+        serde_json::from_str(&raw).with_context(|| format!("parse {}", path.display()))?;
     Ok(parsed)
 }
 
@@ -135,5 +134,7 @@ pub fn upsert_entry(entry: IndexEntry) -> Result<()> {
 
 pub fn find_entry(session_id: &str) -> Result<Option<IndexEntry>> {
     let entries = load_index()?;
-    Ok(entries.into_iter().find(|e| e.unterm_session_id == session_id))
+    Ok(entries
+        .into_iter()
+        .find(|e| e.unterm_session_id == session_id))
 }

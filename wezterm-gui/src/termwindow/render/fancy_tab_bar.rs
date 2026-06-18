@@ -50,7 +50,6 @@ const PLUS_BUTTON: &[Poly] = &[
     },
 ];
 
-
 impl crate::TermWindow {
     pub fn invalidate_fancy_tab_bar(&mut self) {
         self.fancy_tab_bar.take();
@@ -382,31 +381,31 @@ impl crate::TermWindow {
             // bundled SymbolsNerdFontMono so CoreText's rasterizer does the
             // anti-aliasing (same path Warp uses for SF Symbols).
             Element::new(&font, ElementContent::Text("\u{eab4}".to_string()))
-            .vertical_align(VerticalAlign::Middle)
-            .item_type(UIItemType::TabBar(TabBarItem::MenuButton))
-            .margin(BoxDimension {
-                left: Dimension::Cells(0.5),
-                right: Dimension::Cells(0.),
-                top: Dimension::Cells(0.),
-                bottom: Dimension::Cells(0.),
-            })
-            .padding(BoxDimension {
-                left: Dimension::Cells(0.5),
-                right: Dimension::Cells(0.5),
-                top: Dimension::Cells(0.3),
-                bottom: Dimension::Cells(0.3),
-            })
-            .border(BoxDimension::new(Dimension::Pixels(1.)))
-            .colors(ElementColors {
-                border: BorderColor::default(),
-                bg: new_tab.bg_color.to_linear().into(),
-                text: new_tab.fg_color.to_linear().into(),
-            })
-            .hover_colors(Some(ElementColors {
-                border: BorderColor::default(),
-                bg: new_tab_hover.bg_color.to_linear().into(),
-                text: new_tab_hover.fg_color.to_linear().into(),
-            }))
+                .vertical_align(VerticalAlign::Middle)
+                .item_type(UIItemType::TabBar(TabBarItem::MenuButton))
+                .margin(BoxDimension {
+                    left: Dimension::Cells(0.5),
+                    right: Dimension::Cells(0.),
+                    top: Dimension::Cells(0.),
+                    bottom: Dimension::Cells(0.),
+                })
+                .padding(BoxDimension {
+                    left: Dimension::Cells(0.5),
+                    right: Dimension::Cells(0.5),
+                    top: Dimension::Cells(0.3),
+                    bottom: Dimension::Cells(0.3),
+                })
+                .border(BoxDimension::new(Dimension::Pixels(1.)))
+                .colors(ElementColors {
+                    border: BorderColor::default(),
+                    bg: new_tab.bg_color.to_linear().into(),
+                    text: new_tab.fg_color.to_linear().into(),
+                })
+                .hover_colors(Some(ElementColors {
+                    border: BorderColor::default(),
+                    bg: new_tab_hover.bg_color.to_linear().into(),
+                    text: new_tab_hover.fg_color.to_linear().into(),
+                }))
         };
 
         // Quick actions on the right of the top bar. Each button is a
@@ -418,34 +417,34 @@ impl crate::TermWindow {
             let new_tab = colors.new_tab();
             let new_tab_hover = colors.new_tab_hover();
             Element::new(&font, ElementContent::Text(glyph.to_string()))
-            .vertical_align(VerticalAlign::Middle)
-            .item_type(UIItemType::QuickAction(action))
-            // Margin doubled (0.25 → 0.5 cells) so icons breathe instead
-            // of clumping at the right edge; padding bumped vertically
-            // so the glyph sits visually centered in the taller bar.
-            .margin(BoxDimension {
-                left: Dimension::Cells(0.5),
-                right: Dimension::Cells(0.),
-                top: Dimension::Cells(0.),
-                bottom: Dimension::Cells(0.),
-            })
-            .padding(BoxDimension {
-                left: Dimension::Cells(0.5),
-                right: Dimension::Cells(0.5),
-                top: Dimension::Cells(0.45),
-                bottom: Dimension::Cells(0.45),
-            })
-            .border(BoxDimension::new(Dimension::Pixels(1.)))
-            .colors(ElementColors {
-                border: BorderColor::default(),
-                bg: new_tab.bg_color.to_linear().into(),
-                text: new_tab.fg_color.to_linear().into(),
-            })
-            .hover_colors(Some(ElementColors {
-                border: BorderColor::default(),
-                bg: new_tab_hover.bg_color.to_linear().into(),
-                text: new_tab_hover.fg_color.to_linear().into(),
-            }))
+                .vertical_align(VerticalAlign::Middle)
+                .item_type(UIItemType::QuickAction(action))
+                // Margin doubled (0.25 → 0.5 cells) so icons breathe instead
+                // of clumping at the right edge; padding bumped vertically
+                // so the glyph sits visually centered in the taller bar.
+                .margin(BoxDimension {
+                    left: Dimension::Cells(0.5),
+                    right: Dimension::Cells(0.),
+                    top: Dimension::Cells(0.),
+                    bottom: Dimension::Cells(0.),
+                })
+                .padding(BoxDimension {
+                    left: Dimension::Cells(0.5),
+                    right: Dimension::Cells(0.5),
+                    top: Dimension::Cells(0.45),
+                    bottom: Dimension::Cells(0.45),
+                })
+                .border(BoxDimension::new(Dimension::Pixels(1.)))
+                .colors(ElementColors {
+                    border: BorderColor::default(),
+                    bg: new_tab.bg_color.to_linear().into(),
+                    text: new_tab.fg_color.to_linear().into(),
+                })
+                .hover_colors(Some(ElementColors {
+                    border: BorderColor::default(),
+                    bg: new_tab_hover.bg_color.to_linear().into(),
+                    text: new_tab_hover.fg_color.to_linear().into(),
+                }))
         };
         {
             use crate::termwindow::QuickAction as QA;
@@ -491,14 +490,14 @@ impl crate::TermWindow {
             // language as Warp's SF Symbols, but bundled cross-platform via
             // SymbolsNerdFontMono so Win/Linux look identical.
             right_eles.push(quick_button("\u{eb6a}", QA::CommandPalette)); // cod_three_bars
-            right_eles.push(quick_button("\u{ebf3}", QA::TreeSidebar));    // cod_layout_sidebar_left
-            right_eles.push(quick_button("\u{eb56}", QA::SplitRight));     // cod_split_horizontal
-            right_eles.push(quick_button("\u{ea83}", QA::DirJump));        // cod_folder
-            right_eles.push(quick_button("\u{ea6d}", QA::Search));         // cod_search
-            right_eles.push(quick_button("\u{eb51}", QA::Settings));       // cod_settings_gear
-            // The ▾ menu sits at the far right after the quick actions —
-            // the design doc's "右侧一排动作 + 一个菜单". The menu still
-            // routes through TabBarItem::MenuButton → show_settings_menu.
+            right_eles.push(quick_button("\u{ebf3}", QA::TreeSidebar)); // cod_layout_sidebar_left
+            right_eles.push(quick_button("\u{eb56}", QA::SplitRight)); // cod_split_horizontal
+            right_eles.push(quick_button("\u{ea83}", QA::DirJump)); // cod_folder
+            right_eles.push(quick_button("\u{ea6d}", QA::Search)); // cod_search
+            right_eles.push(quick_button("\u{eb51}", QA::Settings)); // cod_settings_gear
+                                                                     // The ▾ menu sits at the far right after the quick actions —
+                                                                     // the design doc's "右侧一排动作 + 一个菜单". The menu still
+                                                                     // routes through TabBarItem::MenuButton → show_settings_menu.
             right_eles.push(menu_button());
         }
 
@@ -762,7 +761,6 @@ pub(crate) fn make_x_button(
     })
 }
 
-
 /// Compose the per-pane stats text rendered in the top bar. Mirrors
 /// what the old paint_top_stats_bar produced — agent, git, CPU/MEM,
 /// pane title — joined by 4-space gaps, with an "—" placeholder when
@@ -785,10 +783,12 @@ fn compose_top_stats_text(win: &crate::TermWindow) -> String {
     }
 
     let active = win.get_active_pane_or_overlay();
-    let cwd = active.as_ref().and_then(|p| crate::termwindow::pane_cwd_path(p));
-    let proc_info = active.as_ref().and_then(|p| {
-        p.get_foreground_process_info(mux::pane::CachePolicy::AllowStale)
-    });
+    let cwd = active
+        .as_ref()
+        .and_then(|p| crate::termwindow::pane_cwd_path(p));
+    let proc_info = active
+        .as_ref()
+        .and_then(|p| p.get_foreground_process_info(mux::pane::CachePolicy::AllowStale));
     let git_text = cwd
         .and_then(|c| top_stats_bar::git_status_for(&c))
         .map(|s| top_stats_bar::render_git_segment(&Some(s)))

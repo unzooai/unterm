@@ -292,7 +292,12 @@ mod tests {
     #[test]
     fn fish_script_emits_function_definitions() {
         let s = script_for("fish").unwrap();
-        for needle in &["function gh", "function aws", "function npm", "function git"] {
+        for needle in &[
+            "function gh",
+            "function aws",
+            "function npm",
+            "function git",
+        ] {
             assert!(s.contains(needle), "fish wrapper missing: {needle}");
         }
     }

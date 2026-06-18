@@ -603,6 +603,21 @@ impl TextStyle {
         // We bundle this emoji font as an in-memory fallback
         font.push(FontAttributes::new_fallback("Noto Color Emoji"));
 
+        // Keep CJK glyphs out of the asynchronous system-fallback path.
+        // The chrome popup/menu is translated and can be opened before
+        // fallback discovery finishes; explicit platform CJK families avoid
+        // the first-frame "garbled then correct" flash reported on macOS
+        // and Windows. Missing fallback families are harmless; the locator
+        // advances to the next entry.
+        for family in [
+            "PingFang SC",
+            "Microsoft YaHei UI",
+            "Noto Sans CJK SC",
+            "Noto Sans Mono CJK SC",
+        ] {
+            font.push(FontAttributes::new_fallback(family));
+        }
+
         // Add symbols that many people end up using via patched fonts
         font.push(FontAttributes::new_fallback("Symbols Nerd Font Mono"));
 

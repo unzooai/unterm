@@ -58,10 +58,7 @@ pub fn run(cmd: ProxyCommand, json_out: bool) -> Result<()> {
                     .get("enabled")
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
-                let mode = result
-                    .get("mode")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("off");
+                let mode = result.get("mode").and_then(|v| v.as_str()).unwrap_or("off");
                 let none = i18n::t("cli.proxy.value.none");
                 let http = result
                     .get("http_proxy")
@@ -209,8 +206,10 @@ pub fn run(cmd: ProxyCommand, json_out: bool) -> Result<()> {
                     .unwrap_or(false);
                 print_kv("rotation", if enabled { "on" } else { "off" });
                 if let Some(p) = result.get("pool").and_then(|v| v.as_array()) {
-                    let names: Vec<String> =
-                        p.iter().filter_map(|v| v.as_str().map(String::from)).collect();
+                    let names: Vec<String> = p
+                        .iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect();
                     print_kv("pool", &names.join(", "));
                 }
                 if let Some(iv) = result.get("interval_secs").and_then(|v| v.as_u64()) {

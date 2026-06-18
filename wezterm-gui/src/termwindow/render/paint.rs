@@ -141,7 +141,6 @@ impl crate::TermWindow {
                 }
             }
         }
-
     }
 
     /// v0.40: left directory-tree sidebar. Painted between the panes
@@ -150,10 +149,10 @@ impl crate::TermWindow {
     /// draws into reserved gutter space.
     pub fn paint_tree_sidebar(&mut self) -> anyhow::Result<()> {
         use crate::termwindow::box_model::*;
-        use crate::termwindow::{DimensionContext, UIItemType};
+        use crate::termwindow::{DimensionContext, UIItem, UIItemType};
         use crate::utilsprites::RenderMetrics;
         use ::window::color::LinearRgba;
-        use config::Dimension;
+        use config::{ui_tokens, Dimension};
 
         let width = self.tree_sidebar_pixel_width();
         if width <= 0.0 {
@@ -190,25 +189,51 @@ impl crate::TermWindow {
             - self.padding_bottom_px()
             - border.bottom.get() as f32;
         let row_h = metrics.cell_size.height as f32 + 6. * pt;
-        let visible_rows = (((bottom - top) / row_h).floor() as usize).saturating_sub(1);
+        let visible_rows = (((bottom - top) / row_h).floor() as usize)
+            .saturating_sub(1)
+            .max(1);
 
-        let bg = LinearRgba::with_srgba(0x16, 0x16, 0x16, 0xff);
-        let fg = LinearRgba::with_srgba(0xcf, 0xcf, 0xcd, 0xff);
-        let dim = LinearRgba::with_srgba(0x6f, 0x6f, 0x6c, 0xff);
+        let palette = self.palette().clone();
+        let scheme_bg = palette.background.to_linear();
+        let fg = palette.foreground.to_linear();
+        let luma = 0.2126 * scheme_bg.0 + 0.7152 * scheme_bg.1 + 0.0722 * scheme_bg.2;
+        let is_light = luma > 0.48;
+        let mix = |a: LinearRgba, b: LinearRgba, t: f32| {
+            LinearRgba::with_components(
+                a.0 * (1. - t) + b.0 * t,
+                a.1 * (1. - t) + b.1 * t,
+                a.2 * (1. - t) + b.2 * t,
+                1.,
+            )
+        };
+        let bg = if is_light {
+            mix(scheme_bg, fg, 0.075)
+        } else {
+            let lifted = mix(scheme_bg, fg, 0.028);
+            LinearRgba::with_components(lifted.0 * 0.965, lifted.1 * 0.965, lifted.2 * 0.965, 1.)
+        };
+        let dim = fg.mul_alpha(if is_light { 0.70 } else { 0.62 });
         // Palette-derived accent so the tree sidebar header picks up
         // the scheme's bright-cyan slot. Falls back to a sane teal if
         // the scheme didn't define `brights`.
-        let teal = self
-            .palette()
+        let teal = palette
             .resolve_fg(wezterm_term::color::ColorAttribute::PaletteIndex(14))
             .to_linear();
-        let hover_bg = LinearRgba::with_srgba(0x26, 0x26, 0x26, 0xff);
+        let hover_bg = if is_light {
+            mix(scheme_bg, fg, 0.105)
+        } else {
+            mix(bg, fg, 0.07)
+        };
 
         let mut children: Vec<Element> = vec![];
 
         let (root_name, rows_snapshot, scroll_top) = {
-            let tree = self.tree_sidebar.borrow();
-            let tree = tree.as_ref().unwrap();
+            let mut tree = self.tree_sidebar.borrow_mut();
+            let tree = tree.as_mut().unwrap();
+            tree.visible_rows = visible_rows;
+            tree.scroll_top = tree
+                .scroll_top
+                .min(tree.rows.len().saturating_sub(visible_rows));
             // Header shows enough path to disambiguate sibling names:
             //   `/dev`            → "/dev"        (root-level basename)
             //   `/Volumes/Dev`    → "Volumes/Dev" (last two components)
@@ -231,12 +256,14 @@ impl crate::TermWindow {
                     (None, _) => p.display().to_string(),
                 }
             };
-            let rows: Vec<(String, usize, bool, bool, bool, bool)> = tree
+            let rows: Vec<(String, usize, bool, bool, bool, bool, bool)> = tree
                 .rows
                 .iter()
                 .map(|r| {
                     let name = if r.is_parent {
                         "..".to_string()
+                    } else if r.is_drive {
+                        r.path.display().to_string()
                     } else {
                         r.path
                             .file_name()
@@ -249,6 +276,7 @@ impl crate::TermWindow {
                         r.is_dir,
                         r.expanded,
                         r.is_hidden,
+                        r.is_drive,
                         r.is_parent,
                     )
                 })
@@ -280,7 +308,7 @@ impl crate::TermWindow {
                 }),
         );
 
-        for (i, (name, depth, is_dir, expanded, is_hidden, is_parent)) in rows_snapshot
+        for (i, (name, depth, is_dir, expanded, is_hidden, is_drive, is_parent)) in rows_snapshot
             .iter()
             .enumerate()
             .skip(scroll_top)
@@ -288,6 +316,8 @@ impl crate::TermWindow {
         {
             let glyph = if *is_parent {
                 "↑ "
+            } else if *is_drive {
+                "▣ "
             } else if *is_dir {
                 if *expanded {
                     "▾ "
@@ -299,39 +329,36 @@ impl crate::TermWindow {
             };
             let text_color = if *is_hidden { dim } else { fg };
             children.push(
-                Element::new(
-                    &font,
-                    ElementContent::Text(format!("{glyph}{name}")),
-                )
-                .item_type(UIItemType::TreeSidebarRow(i))
-                .display(DisplayType::Block)
-                .min_width(Some(Dimension::Percent(1.)))
-                .padding(BoxDimension {
-                    left: Dimension::Pixels(12. * pt + (*depth as f32) * 12. * pt),
-                    right: Dimension::Pixels(6. * pt),
-                    top: Dimension::Pixels(3. * pt),
-                    bottom: Dimension::Pixels(3. * pt),
-                })
-                .colors(ElementColors {
-                    border: BorderColor::default(),
-                    bg: LinearRgba::TRANSPARENT.into(),
-                    text: text_color.into(),
-                })
-                .hover_colors(Some({
-                    let mut hb = BorderColor::default();
-                    hb.left = teal;
-                    ElementColors {
-                        border: hb,
-                        bg: hover_bg.into(),
-                        text: fg.into(),
-                    }
-                }))
-                .border(BoxDimension {
-                    left: Dimension::Pixels(2. * pt),
-                    right: Dimension::Pixels(0.),
-                    top: Dimension::Pixels(0.),
-                    bottom: Dimension::Pixels(0.),
-                }),
+                Element::new(&font, ElementContent::Text(format!("{glyph}{name}")))
+                    .item_type(UIItemType::TreeSidebarRow(i))
+                    .display(DisplayType::Block)
+                    .min_width(Some(Dimension::Percent(1.)))
+                    .padding(BoxDimension {
+                        left: Dimension::Pixels(12. * pt + (*depth as f32) * 12. * pt),
+                        right: Dimension::Pixels(6. * pt),
+                        top: Dimension::Pixels(3. * pt),
+                        bottom: Dimension::Pixels(3. * pt),
+                    })
+                    .colors(ElementColors {
+                        border: BorderColor::default(),
+                        bg: LinearRgba::TRANSPARENT.into(),
+                        text: text_color.into(),
+                    })
+                    .hover_colors(Some({
+                        let mut hb = BorderColor::default();
+                        hb.left = teal;
+                        ElementColors {
+                            border: hb,
+                            bg: hover_bg.into(),
+                            text: fg.into(),
+                        }
+                    }))
+                    .border(BoxDimension {
+                        left: Dimension::Pixels(2. * pt),
+                        right: Dimension::Pixels(0.),
+                        top: Dimension::Pixels(0.),
+                        bottom: Dimension::Pixels(0.),
+                    }),
             );
         }
 
@@ -357,7 +384,12 @@ impl crate::TermWindow {
                     pixel_max: self.dimensions.pixel_width as f32,
                     pixel_cell: metrics.cell_size.width as f32,
                 },
-                bounds: euclid::rect(border.left.get() as f32 + self.left_tab_bar_pixel_width(), top, width, bottom - top),
+                bounds: euclid::rect(
+                    border.left.get() as f32 + self.left_tab_bar_pixel_width(),
+                    top,
+                    width,
+                    bottom - top,
+                ),
                 metrics: &metrics,
                 gl_state: self.render_state.as_ref().unwrap(),
                 zindex: 20,
@@ -371,6 +403,118 @@ impl crate::TermWindow {
             self.render_element(&computed, gl_state, None)?;
         }
         self.ui_items.append(&mut ui_items);
+
+        let grip_w = (ui_tokens::TREE_SIDEBAR_GRIP * pt).round() as usize;
+        let tree_left = border.left.get() as f32 + self.left_tab_bar_pixel_width();
+        let tree_right_f = tree_left + width;
+        let tree_right = tree_right_f as usize;
+        if rows_snapshot.len() > visible_rows {
+            let track_h = bottom - top;
+            let scrollbar_w = 3. * pt;
+            let scrollbar_x = tree_right_f - scrollbar_w;
+            let thumb_h = (track_h * (visible_rows as f32) / (rows_snapshot.len() as f32))
+                .max(28. * pt)
+                .min(track_h);
+            let max_top = rows_snapshot.len().saturating_sub(visible_rows).max(1) as f32;
+            let thumb_y = top + (track_h - thumb_h) * (scroll_top as f32 / max_top);
+
+            let track = Element::new(&font, ElementContent::Text(String::new()))
+                .colors(ElementColors {
+                    border: BorderColor::default(),
+                    bg: fg.mul_alpha(0.08).into(),
+                    text: LinearRgba::TRANSPARENT.into(),
+                })
+                .min_width(Some(Dimension::Pixels(scrollbar_w)))
+                .min_height(Some(Dimension::Pixels(track_h)));
+            let track_layout = LayoutContext {
+                height: DimensionContext {
+                    dpi: self.dimensions.dpi as f32,
+                    pixel_max: track_h,
+                    pixel_cell: metrics.cell_size.height as f32,
+                },
+                width: DimensionContext {
+                    dpi: self.dimensions.dpi as f32,
+                    pixel_max: scrollbar_w,
+                    pixel_cell: metrics.cell_size.width as f32,
+                },
+                bounds: euclid::rect(scrollbar_x, top, scrollbar_w, track_h),
+                metrics: &metrics,
+                gl_state: self.render_state.as_ref().unwrap(),
+                zindex: 23,
+            };
+            let track_computed = self.compute_element(&track_layout, &track)?;
+            {
+                let gl_state = self.render_state.as_ref().unwrap();
+                self.render_element(&track_computed, gl_state, None)?;
+            }
+
+            let thumb = Element::new(&font, ElementContent::Text(String::new()))
+                .colors(ElementColors {
+                    border: BorderColor::default(),
+                    bg: fg.mul_alpha(0.68).into(),
+                    text: LinearRgba::TRANSPARENT.into(),
+                })
+                .min_width(Some(Dimension::Pixels(scrollbar_w)))
+                .min_height(Some(Dimension::Pixels(thumb_h)));
+            let thumb_layout = LayoutContext {
+                height: DimensionContext {
+                    dpi: self.dimensions.dpi as f32,
+                    pixel_max: thumb_h,
+                    pixel_cell: metrics.cell_size.height as f32,
+                },
+                width: DimensionContext {
+                    dpi: self.dimensions.dpi as f32,
+                    pixel_max: scrollbar_w,
+                    pixel_cell: metrics.cell_size.width as f32,
+                },
+                bounds: euclid::rect(scrollbar_x, thumb_y, scrollbar_w, thumb_h),
+                metrics: &metrics,
+                gl_state: self.render_state.as_ref().unwrap(),
+                zindex: 24,
+            };
+            let thumb_computed = self.compute_element(&thumb_layout, &thumb)?;
+            {
+                let gl_state = self.render_state.as_ref().unwrap();
+                self.render_element(&thumb_computed, gl_state, None)?;
+            }
+
+            let hit_w = (20. * pt).round().max(scrollbar_w) as usize;
+            let hit_x = tree_right.saturating_sub(hit_w);
+            self.ui_items.push(UIItem {
+                x: hit_x,
+                width: hit_w,
+                y: top as usize,
+                height: track_h.max(1.0) as usize,
+                item_type: UIItemType::TreeSidebarScrollTrack {
+                    row_count: rows_snapshot.len(),
+                    visible_rows,
+                    thumb_height: thumb_h.max(1.0) as usize,
+                },
+                pane_id: None,
+            });
+            self.ui_items.push(UIItem {
+                x: hit_x,
+                width: hit_w,
+                y: thumb_y as usize,
+                height: thumb_h.max(1.0) as usize,
+                item_type: UIItemType::TreeSidebarScrollThumb {
+                    row_count: rows_snapshot.len(),
+                    visible_rows,
+                    track_top: top as usize,
+                    track_height: track_h.max(1.0) as usize,
+                },
+                pane_id: None,
+            });
+        }
+
+        self.ui_items.push(UIItem {
+            x: tree_right.saturating_sub(grip_w),
+            width: grip_w,
+            y: top as usize,
+            height: (bottom - top).max(0.) as usize,
+            item_type: UIItemType::TreeSidebarResize,
+            pane_id: None,
+        });
         Ok(())
     }
 

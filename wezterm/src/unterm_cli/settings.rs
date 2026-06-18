@@ -8,7 +8,7 @@
 use super::client::ServerEndpoint;
 use super::i18n;
 use anyhow::{anyhow, Result};
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 
 #[derive(Debug, Parser, Clone)]
 pub struct SettingsCommand {
@@ -20,20 +20,64 @@ pub struct SettingsCommand {
 pub enum SettingsSubCommand {
     /// Print the Web Settings URL and open it in the system browser.
     Open {
+        /// Open Web Settings directly to a specific section.
+        #[arg(long, value_enum)]
+        section: Option<SettingsSection>,
         /// Just print the URL, do not launch a browser.
         #[arg(long)]
         print_only: bool,
     },
 }
 
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum SettingsSection {
+    General,
+    Profiles,
+    Agents,
+    Mcp,
+    Appearance,
+    Proxy,
+    Scrollback,
+    Compat,
+    Recording,
+    Project,
+    Reference,
+    About,
+}
+
+impl SettingsSection {
+    fn hash(self) -> &'static str {
+        match self {
+            SettingsSection::General => "general",
+            SettingsSection::Profiles => "profiles",
+            SettingsSection::Agents => "agents",
+            SettingsSection::Mcp => "mcp",
+            SettingsSection::Appearance => "appearance",
+            SettingsSection::Proxy => "proxy",
+            SettingsSection::Scrollback => "scrollback",
+            SettingsSection::Compat => "compat",
+            SettingsSection::Recording => "recording",
+            SettingsSection::Project => "project",
+            SettingsSection::Reference => "reference",
+            SettingsSection::About => "about",
+        }
+    }
+}
+
 pub fn run(cmd: SettingsCommand) -> Result<()> {
     match cmd.sub {
-        SettingsSubCommand::Open { print_only } => {
+        SettingsSubCommand::Open {
+            section,
+            print_only,
+        } => {
             let info = ServerEndpoint::resolve()?;
             if info.http_port == 0 {
                 return Err(anyhow!("{}", i18n::t("cli.settings.no_port")));
             }
-            let url = format!("http://127.0.0.1:{}", info.http_port);
+            let url = match section {
+                Some(section) => format!("http://127.0.0.1:{}#{}", info.http_port, section.hash()),
+                None => format!("http://127.0.0.1:{}", info.http_port),
+            };
             println!("{}", url);
             if !print_only {
                 open_in_browser(&url)?;

@@ -325,10 +325,7 @@ impl MenuState {
             // Spacer between consecutive items in the same group. Skip it before
             // a group separator (which brings its own padding) and after the
             // last item (the pre-close blank handles that).
-            let next_is_sep = self
-                .items
-                .get(idx + 1)
-                .map_or(false, |x| x.is_separator);
+            let next_is_sep = self.items.get(idx + 1).map_or(false, |x| x.is_separator);
             let is_last = idx + 1 == item_count;
             if !is_last && !next_is_sep {
                 rows.push(Row::Blank);
@@ -550,9 +547,13 @@ fn fg_bg(text: String, fg: (u8, u8, u8), bg: (u8, u8, u8)) -> Change {
 /// `crate::update_check`. Quiet on error — better to under-report
 /// than to render an upgrade dot when there isn't really one.
 fn check_update_flag() -> bool {
-    let Some(home) = dirs_next::home_dir() else { return false; };
+    let Some(home) = dirs_next::home_dir() else {
+        return false;
+    };
     let path = home.join(".unterm").join("update_check.json");
-    let Ok(content) = std::fs::read_to_string(&path) else { return false; };
+    let Ok(content) = std::fs::read_to_string(&path) else {
+        return false;
+    };
     let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) else {
         return false;
     };

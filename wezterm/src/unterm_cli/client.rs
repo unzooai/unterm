@@ -9,9 +9,10 @@ use anyhow::{anyhow, Context, Result};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::fs;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 const MCP_HOST: &str = "127.0.0.1";
@@ -19,11 +20,18 @@ const LEGACY_MCP_PORT: u16 = 19876;
 
 const NOT_RUNNING_HINT: &str =
     "unterm GUI is not running — open Unterm.app to start the MCP server, or run 'unterm start' first";
+static TARGET_INSTANCE: OnceLock<String> = OnceLock::new();
 
 pub struct McpClient {
     reader: BufReader<TcpStream>,
     writer: TcpStream,
     next_id: u64,
+}
+
+pub fn set_target_instance(id: Option<&str>) {
+    if let Some(id) = id.map(str::trim).filter(|id| !id.is_empty()) {
+        let _ = TARGET_INSTANCE.set(id.to_string());
+    }
 }
 
 impl McpClient {
@@ -121,6 +129,8 @@ pub struct ServerEndpoint {
 #[derive(Debug, Clone, Deserialize)]
 struct InstanceRecord {
     pub mcp_port: u16,
+    #[serde(default)]
+    pub http_port: u16,
     pub auth_token: String,
     pub pid: u32,
     #[serde(default)]
@@ -131,11 +141,27 @@ impl ServerEndpoint {
     pub fn resolve() -> Result<Self> {
         let dir = unterm_dir()?;
 
+        if let Some(instance_id) = requested_instance_id() {
+            let path = dir.join("instances").join(format!("{instance_id}.json"));
+            let Some(info) = read_live_record(&path)? else {
+                return Err(anyhow!(
+                    "Unterm instance '{}' was not found or is not running. Use MCP `instance.list`, or inspect {}.",
+                    instance_id,
+                    dir.join("instances").display()
+                ));
+            };
+            return Ok(Self {
+                token: info.auth_token,
+                port: info.mcp_port,
+                http_port: info.http_port,
+            });
+        }
+
         if let Some(info) = resolve_live_instance(&dir)? {
             return Ok(Self {
                 token: info.auth_token,
                 port: info.mcp_port,
-                http_port: 0,
+                http_port: info.http_port,
             });
         }
 
@@ -152,10 +178,7 @@ impl ServerEndpoint {
                     .get("mcp_port")
                     .and_then(|v| v.as_u64())
                     .unwrap_or(LEGACY_MCP_PORT as u64) as u16;
-                let http_port = info
-                    .get("http_port")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0) as u16;
+                let http_port = info.get("http_port").and_then(|v| v.as_u64()).unwrap_or(0) as u16;
                 if !token.is_empty() && port != 0 {
                     return Ok(Self {
                         token,
@@ -184,6 +207,78 @@ impl ServerEndpoint {
             http_port: 0,
         })
     }
+}
+
+pub fn http_post_json(path: &str, body: Value) -> Result<Value> {
+    let info = ServerEndpoint::resolve()?;
+    if info.http_port == 0 {
+        return Err(anyhow!("Unterm HTTP settings server is not available"));
+    }
+
+    let addr = format!("{}:{}", MCP_HOST, info.http_port)
+        .parse::<std::net::SocketAddr>()
+        .expect("static addr");
+    let mut stream = TcpStream::connect_timeout(&addr, Duration::from_secs(2)).map_err(|e| {
+        anyhow!(
+            "HTTP settings server unavailable ({}); {}",
+            e,
+            NOT_RUNNING_HINT
+        )
+    })?;
+    stream.set_read_timeout(Some(Duration::from_secs(10))).ok();
+    stream.set_write_timeout(Some(Duration::from_secs(10))).ok();
+    stream.set_nodelay(true).ok();
+
+    let body = serde_json::to_vec(&body)?;
+    let request = format!(
+        "POST {} HTTP/1.1\r\nHost: {}:{}\r\nAuthorization: Bearer {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        path,
+        MCP_HOST,
+        info.http_port,
+        info.token,
+        body.len()
+    );
+    stream.write_all(request.as_bytes())?;
+    stream.write_all(&body)?;
+    stream.flush().ok();
+
+    let mut response = Vec::new();
+    stream.read_to_end(&mut response)?;
+    let split = response
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .ok_or_else(|| anyhow!("malformed HTTP response from Unterm settings server"))?;
+    let header = String::from_utf8_lossy(&response[..split]);
+    let body = &response[split + 4..];
+    let status = header
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .and_then(|code| code.parse::<u16>().ok())
+        .ok_or_else(|| anyhow!("malformed HTTP status from Unterm settings server"))?;
+
+    let value = if body.is_empty() {
+        Value::Null
+    } else {
+        serde_json::from_slice::<Value>(body).unwrap_or(Value::Null)
+    };
+    if !(200..300).contains(&status) {
+        let message = value
+            .get("error")
+            .and_then(|v| v.as_str())
+            .unwrap_or("HTTP settings request failed");
+        return Err(anyhow!("{}: {}", status, message));
+    }
+    Ok(value)
+}
+
+fn requested_instance_id() -> Option<String> {
+    TARGET_INSTANCE
+        .get()
+        .cloned()
+        .or_else(|| std::env::var("UNTERM_INSTANCE").ok())
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty())
 }
 
 fn resolve_live_instance(dir: &PathBuf) -> Result<Option<InstanceRecord>> {

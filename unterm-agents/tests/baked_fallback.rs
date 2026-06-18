@@ -25,8 +25,19 @@ fn baked_envelope_verifies_and_lists_five_agents() {
 
     // The 5 first-party agents we author by hand. If a release drops one,
     // update both the manifest folder and this test.
-    let ids: Vec<&str> = set.envelope.manifests.iter().map(|m| m.id.as_str()).collect();
-    let must = ["claude-code", "codex-cli", "gemini-cli", "opencode", "aider"];
+    let ids: Vec<&str> = set
+        .envelope
+        .manifests
+        .iter()
+        .map(|m| m.id.as_str())
+        .collect();
+    let must = [
+        "claude-code",
+        "codex-cli",
+        "gemini-cli",
+        "opencode",
+        "aider",
+    ];
     for id in must {
         assert!(
             ids.contains(&id),

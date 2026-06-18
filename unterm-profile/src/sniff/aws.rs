@@ -126,8 +126,10 @@ aws_session_token = sess2
         let path = PathBuf::from("/dev/null/credentials");
         let cs = parse(text, &path);
         assert_eq!(cs.len(), 5); // 2 + 3
-        assert!(cs.iter().any(|c| c.user.as_deref() == Some("default")
-            && c.suggested_env_name == "AWS_ACCESS_KEY_ID"));
+        assert!(cs
+            .iter()
+            .any(|c| c.user.as_deref() == Some("default")
+                && c.suggested_env_name == "AWS_ACCESS_KEY_ID"));
         assert!(cs.iter().any(|c| c.user.as_deref() == Some("work-acme")
             && c.suggested_env_name == "AWS_SESSION_TOKEN"
             && c.suggested_value.as_deref() == Some("sess2")));

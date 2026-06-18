@@ -8,6 +8,7 @@
 mod agent;
 mod client;
 pub mod i18n;
+mod instance;
 mod lang;
 mod mcp_stdio;
 mod output;
@@ -17,13 +18,15 @@ mod reference;
 mod screenshot;
 mod scrollback;
 mod session;
-mod setup_ai;
 mod sessions;
 mod settings;
+mod setup_ai;
 mod theme;
 mod upload;
+mod workspace;
 
 pub use agent::AgentCommand;
+pub use instance::InstanceCommand;
 pub use lang::LangCommand;
 pub use profile::ProfileCommand;
 pub use proxy::ProxyCommand;
@@ -31,13 +34,17 @@ pub use reference::ReferenceCommand;
 pub use scrollback::ScrollbackCommand;
 pub use session::SessionCommand;
 pub use sessions::SessionsCommand;
-pub use setup_ai::SetupAiCommand;
 pub use settings::SettingsCommand;
+pub use setup_ai::SetupAiCommand;
 pub use theme::ThemeCommand;
 pub use upload::UploadCommand;
+pub use workspace::WorkspaceCommand;
 
 use anyhow::Result;
-use std::path::PathBuf;
+
+pub fn set_target_instance(id: Option<&str>) {
+    client::set_target_instance(id);
+}
 
 pub fn run_proxy(cmd: ProxyCommand, json_out: bool) -> Result<()> {
     proxy::run(cmd, json_out)
@@ -77,8 +84,16 @@ pub fn run_agent(cmd: AgentCommand, json_out: bool) -> Result<()> {
     agent::run(cmd, json_out)
 }
 
+pub fn run_instance(cmd: InstanceCommand, json_out: bool) -> Result<()> {
+    instance::run(cmd, json_out)
+}
+
 pub fn run_upload(cmd: UploadCommand, json_out: bool) -> Result<()> {
     upload::run(cmd, json_out)
+}
+
+pub fn run_workspace(cmd: WorkspaceCommand, json_out: bool) -> Result<()> {
+    workspace::run(cmd, json_out)
 }
 
 pub fn run_scrollback(cmd: ScrollbackCommand, json_out: bool) -> Result<()> {

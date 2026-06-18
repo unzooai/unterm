@@ -572,7 +572,7 @@ When disabled, `env` is empty. When enabled, manual URLs win over auto-detected 
 
 ## Workspace
 
-Save and restore named layouts of pane (cwd, title) tuples to `~/.unterm/workspaces/<name>.json`. The current implementation is intentionally minimal — restore returns the saved data but does *not* recreate the panes for you yet.
+Save and restore named layouts of pane (cwd, title) tuples to `~/.unterm/workspaces/<name>.json`. Restore opens new tabs for the saved cwd entries, and also supports `dry_run` when a caller only wants to inspect what would be opened.
 
 ### `workspace.save`
 
@@ -584,13 +584,11 @@ Snapshot the current set of panes.
 
 ### `workspace.restore`
 
-Read back a saved workspace.
+Restore a saved workspace by opening each saved cwd as a new tab. Existing panes are left alone.
 
-**Params:** `name` (string, required).
+**Params:** `name` (string, required), `dry_run` (bool, optional, default `false`).
 
-**Returns:** `{ restored: true, name, workspace: { name, sessions: [{id, title, cwd}], saved_at }, message: "Workspace data loaded. Use session.create with cwd to recreate sessions." }`
-
-The honest "to recreate, call `session.create` yourself for each saved session" message is the API right now. A full auto-restore is on the roadmap.
+**Returns:** `{ restored, dry_run, name, path, workspace, planned: [{ saved_id, title, cwd }], created: [{ saved_id, cwd, created }], failed: [{ saved_id, cwd, error }] }`
 
 ### `workspace.list`
 
@@ -693,7 +691,7 @@ Bring this instance's window to the foreground. **Cross-instance focus is intent
 
 **Params:** ignored.
 
-**Returns:** `{ ok: true, note: "stub in v0.9; OS-level window raise scheduled for v0.10" }`
+**Returns:** `{ ok: true, mux_window_id }`
 
 In v0.9 the actual window-raise side effect is a stub — the call returns `ok: true` so client code doesn't have to special-case it, but the OS-level raise is tracked as a v0.10 polish item.
 
@@ -899,7 +897,7 @@ Every method, alphabetical, with one-line descriptions. Use this as a flat looku
 | `system.info` | Process and platform metadata |
 | `system.launch_admin` | Spawn an elevated Unterm (Windows only) |
 | `workspace.list` | Enumerate saved workspace names |
-| `workspace.restore` | Read back a saved workspace (does not recreate panes) |
+| `workspace.restore` | Open new tabs from a saved workspace; supports dry-run planning |
 | `workspace.save` | Snapshot the current set of panes |
 
 That's 60 methods plus `auth.login`. If you find a method in the codebase that isn't listed here, file an issue — the dispatch table at `wezterm-gui/src/mcp/handler.rs` is the source of truth and this page should track it.

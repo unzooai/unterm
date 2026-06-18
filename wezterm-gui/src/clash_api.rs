@@ -116,7 +116,9 @@ fn candidate_endpoints() -> Vec<ClashEndpoint> {
             "/tmp/verge/verge-mihomo.sock",
         ] {
             if std::path::Path::new(p).exists() {
-                out.push(ClashEndpoint::Unix { path: p.to_string() });
+                out.push(ClashEndpoint::Unix {
+                    path: p.to_string(),
+                });
             }
         }
     }
@@ -126,7 +128,9 @@ fn candidate_endpoints() -> Vec<ClashEndpoint> {
         #[cfg(unix)]
         if let Some(s) = sock {
             if std::path::Path::new(&s).exists()
-                && !out.iter().any(|e| matches!(e, ClashEndpoint::Unix { path } if path == &s))
+                && !out
+                    .iter()
+                    .any(|e| matches!(e, ClashEndpoint::Unix { path } if path == &s))
             {
                 out.push(ClashEndpoint::Unix { path: s });
             }
@@ -135,14 +139,20 @@ fn candidate_endpoints() -> Vec<ClashEndpoint> {
         let _ = sock;
         if let Some(addr) = ctrl.filter(|a| !a.is_empty()) {
             let addr = normalize_addr(&addr);
-            out.push(ClashEndpoint::Tcp { addr, secret: secret.clone() });
+            out.push(ClashEndpoint::Tcp {
+                addr,
+                secret: secret.clone(),
+            });
         }
     }
 
     // 3) Common TCP controller ports (no secret).
     for port in [9090u16, 9097, 9091, 6170] {
         let addr = format!("127.0.0.1:{port}");
-        if !out.iter().any(|e| matches!(e, ClashEndpoint::Tcp { addr: a, .. } if a == &addr)) {
+        if !out
+            .iter()
+            .any(|e| matches!(e, ClashEndpoint::Tcp { addr: a, .. } if a == &addr))
+        {
             out.push(ClashEndpoint::Tcp { addr, secret: None });
         }
     }
@@ -175,7 +185,8 @@ fn scan_configs() -> Vec<(Option<String>, Option<String>, Option<String>)> {
     let verge = home.join("Library/Application Support/io.github.clash-verge-rev.clash-verge-rev");
     paths.push(verge.join("clash-verge.yaml"));
     paths.push(verge.join("config.yaml"));
-    paths.push(home.join(".local/share/io.github.clash-verge-rev.clash-verge-rev/clash-verge.yaml"));
+    paths
+        .push(home.join(".local/share/io.github.clash-verge-rev.clash-verge-rev/clash-verge.yaml"));
 
     // Windows: Clash Verge / Clash / mihomo keep their config under %APPDATA%
     // (Roaming) or %LOCALAPPDATA%. Windows has no unix socket, so finding the
@@ -197,7 +208,9 @@ fn scan_configs() -> Vec<(Option<String>, Option<String>, Option<String>)> {
     }
 
     for p in paths {
-        let Ok(text) = std::fs::read_to_string(&p) else { continue };
+        let Ok(text) = std::fs::read_to_string(&p) else {
+            continue;
+        };
         let mut ctrl = None;
         let mut sock = None;
         let mut secret = None;
@@ -367,9 +380,10 @@ fn parse_response(raw: &[u8]) -> Result<(u16, String)> {
         .and_then(|c| c.parse::<u16>().ok())
         .ok_or_else(|| anyhow!("malformed HTTP status line"))?;
 
-    let chunked = head
-        .lines()
-        .any(|l| l.to_ascii_lowercase().starts_with("transfer-encoding:") && l.to_ascii_lowercase().contains("chunked"));
+    let chunked = head.lines().any(|l| {
+        l.to_ascii_lowercase().starts_with("transfer-encoding:")
+            && l.to_ascii_lowercase().contains("chunked")
+    });
 
     let body = if chunked {
         dechunk(body_bytes)
@@ -384,10 +398,13 @@ fn dechunk(mut data: &[u8]) -> String {
     let mut out = Vec::new();
     loop {
         // chunk-size line up to CRLF
-        let Some(nl) = data.windows(2).position(|w| w == b"\r\n") else { break };
+        let Some(nl) = data.windows(2).position(|w| w == b"\r\n") else {
+            break;
+        };
         let size_str = String::from_utf8_lossy(&data[..nl]);
-        let size = usize::from_str_radix(size_str.trim().split(';').next().unwrap_or("0").trim(), 16)
-            .unwrap_or(0);
+        let size =
+            usize::from_str_radix(size_str.trim().split(';').next().unwrap_or("0").trim(), 16)
+                .unwrap_or(0);
         data = &data[nl + 2..];
         if size == 0 || data.len() < size {
             if size > 0 && !data.is_empty() {

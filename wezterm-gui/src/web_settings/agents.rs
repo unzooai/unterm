@@ -33,7 +33,9 @@ pub fn api_list(query: &str) -> Response {
 
     let set = match fetch_manifests() {
         Ok(s) => s,
-        Err(e) => return Response::err(503, "Service Unavailable", &format!("manifest fetch: {e}")),
+        Err(e) => {
+            return Response::err(503, "Service Unavailable", &format!("manifest fetch: {e}"))
+        }
     };
 
     let rows: Vec<Value> = set
@@ -265,9 +267,7 @@ pub fn api_settings_put(id: &str, body: &[u8]) -> Response {
     let updates_value = parsed.get("values").cloned().unwrap_or(json!({}));
     let updates_map: BTreeMap<String, Value> = match updates_value {
         Value::Object(m) => m.into_iter().collect(),
-        _ => {
-            return Response::err(400, "Bad Request", "`values` must be a JSON object")
-        }
+        _ => return Response::err(400, "Bad Request", "`values` must be a JSON object"),
     };
 
     let mut state = match SettingsState::load(&profile_id, &manifest.id) {
@@ -326,7 +326,10 @@ pub fn api_launch_plan(id: &str, body: &[u8]) -> Response {
         .and_then(|v| v.as_str())
         .unwrap_or("default")
         .to_string();
-    let cwd = parsed.get("cwd").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let cwd = parsed
+        .get("cwd")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
 
     let mut state = match SettingsState::load(&profile_id, &manifest.id) {
         Ok(s) => s,
@@ -334,8 +337,8 @@ pub fn api_launch_plan(id: &str, body: &[u8]) -> Response {
     };
     state.merge_defaults(&manifest.settings_schema);
 
-    let plan = match unterm_agents::launcher::build_launch_plan(
-        &unterm_agents::launcher::LaunchInputs {
+    let plan =
+        match unterm_agents::launcher::build_launch_plan(&unterm_agents::launcher::LaunchInputs {
             manifest: &manifest,
             profile_id: &profile_id,
             settings: &state,
@@ -344,11 +347,10 @@ pub fn api_launch_plan(id: &str, body: &[u8]) -> Response {
             // Preview only — never write MCP config files as a side effect of
             // rendering the launch plan for the SPA. Real launch (CLI) wires it.
             mcp: None,
-        },
-    ) {
-        Ok(p) => p,
-        Err(e) => return Response::err(500, "Plan Failed", &e.to_string()),
-    };
+        }) {
+            Ok(p) => p,
+            Err(e) => return Response::err(500, "Plan Failed", &e.to_string()),
+        };
 
     // Redact secret-looking env vars before sending to the SPA.
     let env_set: BTreeMap<String, String> = plan
@@ -372,6 +374,73 @@ pub fn api_launch_plan(id: &str, body: &[u8]) -> Response {
     }))
 }
 
+pub fn api_run_plan(id: &str, body: &[u8]) -> Response {
+    let manifest = match resolve(id) {
+        Ok(m) => m,
+        Err(r) => return r,
+    };
+    if !supports_headless(&manifest.id) {
+        return Response::err(
+            400,
+            "Bad Request",
+            &format!(
+                "agent {} does not expose a headless run adapter yet",
+                manifest.id
+            ),
+        );
+    }
+
+    let parsed: Value = serde_json::from_slice(body).unwrap_or(json!({}));
+    let profile_id = parsed
+        .get("profile")
+        .and_then(|v| v.as_str())
+        .unwrap_or("default")
+        .to_string();
+    let cwd = parsed
+        .get("cwd")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let prompt = parsed
+        .get("prompt")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| default_headless_prompt(&manifest.id).to_string());
+
+    let cli_path = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|d| d.join("unterm-cli")))
+        .filter(|p| p.exists())
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|| "unterm-cli".to_string());
+
+    let mut argv = vec![
+        "agent".to_string(),
+        "run".to_string(),
+        manifest.id.clone(),
+        "--profile".to_string(),
+        profile_id.clone(),
+    ];
+    if let Some(cwd) = &cwd {
+        argv.push("--cwd".to_string());
+        argv.push(cwd.clone());
+    }
+    argv.push(prompt.clone());
+
+    let mut preview_parts = Vec::with_capacity(argv.len() + 1);
+    preview_parts.push(cli_path.clone());
+    preview_parts.extend(argv.iter().cloned());
+
+    Response::ok_json(json!({
+        "id": manifest.id,
+        "profile": profile_id,
+        "cwd": cwd,
+        "prompt": prompt,
+        "cli_path": cli_path,
+        "argv": argv,
+        "command": shell_join_for_current_platform(&preview_parts),
+    }))
+}
+
 fn resolve(id: &str) -> Result<AgentManifest, Response> {
     match fetch_manifests() {
         Ok(s) => match s.find(id) {
@@ -383,6 +452,88 @@ fn resolve(id: &str) -> Result<AgentManifest, Response> {
             )),
         },
         Err(e) => Err(Response::err(503, "Service Unavailable", &e.to_string())),
+    }
+}
+
+fn supports_headless(id: &str) -> bool {
+    matches!(id, "codex-cli" | "claude-code")
+}
+
+fn default_headless_prompt(id: &str) -> &'static str {
+    match id {
+        "codex-cli" => "review this diff and list risky changes",
+        "claude-code" => "summarise the last failing test output",
+        _ => "summarise the current task",
+    }
+}
+
+fn shell_join_for_current_platform(parts: &[String]) -> String {
+    #[cfg(windows)]
+    {
+        return parts
+            .iter()
+            .map(|part| cmd_quote(part))
+            .collect::<Vec<_>>()
+            .join(" ");
+    }
+    #[cfg(not(windows))]
+    {
+        parts
+            .iter()
+            .map(|part| shell_quote(part))
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+}
+
+#[cfg(windows)]
+fn cmd_quote(s: &str) -> String {
+    if s.is_empty() {
+        return "\"\"".to_string();
+    }
+    if s.chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '/' | '\\' | ':' | '='))
+    {
+        return s.to_string();
+    }
+
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    let mut backslashes = 0;
+    for ch in s.chars() {
+        match ch {
+            '\\' => backslashes += 1,
+            '"' => {
+                out.push_str(&"\\".repeat(backslashes * 2 + 1));
+                out.push('"');
+                backslashes = 0;
+            }
+            _ => {
+                if backslashes > 0 {
+                    out.push_str(&"\\".repeat(backslashes));
+                    backslashes = 0;
+                }
+                out.push(ch);
+            }
+        }
+    }
+    if backslashes > 0 {
+        out.push_str(&"\\".repeat(backslashes * 2));
+    }
+    out.push('"');
+    out
+}
+
+fn shell_quote(s: &str) -> String {
+    if s.is_empty() {
+        return "''".to_string();
+    }
+    if s.chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '/' | ':' | '='))
+    {
+        s.to_string()
+    } else {
+        format!("'{}'", s.replace('\'', "'\\''"))
     }
 }
 

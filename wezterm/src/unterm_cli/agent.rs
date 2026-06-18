@@ -19,6 +19,7 @@
 //!     unterm agent configure <id> --reset          restore manifest defaults
 //!     unterm agent import <id>                     pull existing agent config into Unterm
 //!     unterm agent launch <id>                     exec the agent with all env wired
+//!     unterm agent run <id> <prompt>               run codex/claude headlessly
 //!     unterm agent manifest fetch                  hit the signed envelope endpoint
 //!     unterm agent manifest verify                 verify the on-disk cache / baked fallback
 //!     unterm agent manifest show                   pretty-print the active envelope
@@ -27,6 +28,7 @@ use anyhow::{anyhow, Context, Result};
 use clap::{Parser, Subcommand};
 use serde_json::Value;
 use std::collections::BTreeMap;
+use std::io::Read;
 use unterm_agents::manifest::SettingKind;
 use unterm_agents::{
     fetch_manifests, fetch_or_fallback, installer, registry::SettingsState, AgentManifest,
@@ -50,9 +52,7 @@ pub enum AgentSubCommand {
         installed: bool,
     },
     /// Print a single agent's full manifest + current settings.
-    Show {
-        id: String,
-    },
+    Show { id: String },
     /// Run the platform-specific install steps for an agent.
     Install {
         id: String,
@@ -62,14 +62,10 @@ pub enum AgentSubCommand {
         no_check_requires: bool,
     },
     /// Run the manifest's update command for an installed agent.
-    Update {
-        id: String,
-    },
+    Update { id: String },
     /// Run the uninstall command. Does NOT delete agent settings — use
     /// `unterm agent configure <id> --reset` if you want that.
-    Uninstall {
-        id: String,
-    },
+    Uninstall { id: String },
     /// Authenticate. With no flags, runs the manifest's primary auth
     /// (typically `<bin> login`). Use `--api-key` to skip OAuth and store
     /// a raw key in the keychain.
@@ -125,6 +121,27 @@ pub enum AgentSubCommand {
         #[arg(long)]
         cwd: Option<String>,
     },
+    /// Run an agent task non-interactively and wait for it to finish.
+    ///
+    /// Supported today: `codex-cli` (`codex exec`) and `claude-code`
+    /// (`claude -p`). The command reuses the same profile, auth, launch flags,
+    /// and MCP autowiring as `agent launch`.
+    Run {
+        id: String,
+        #[arg(long)]
+        profile: Option<String>,
+        #[arg(long)]
+        cwd: Option<String>,
+        /// Read the prompt from stdin. Useful for piping diffs, logs, or
+        /// exported sessions into Codex / Claude Code.
+        #[arg(long)]
+        stdin: bool,
+        /// Print the exact command that would run, with sensitive env redacted.
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(trailing_var_arg = true)]
+        prompt: Vec<String>,
+    },
     /// Manifest catalog operations: fetch, verify, show.
     Manifest {
         #[command(subcommand)]
@@ -172,6 +189,21 @@ pub fn run(cmd: AgentCommand, json_out: bool) -> Result<()> {
         AgentSubCommand::Launch { id, profile, cwd } => {
             run_launch(&id, profile.as_deref(), cwd.as_deref())
         }
+        AgentSubCommand::Run {
+            id,
+            profile,
+            cwd,
+            stdin,
+            dry_run,
+            prompt,
+        } => run_headless(
+            &id,
+            profile.as_deref(),
+            cwd.as_deref(),
+            stdin,
+            dry_run,
+            &prompt,
+        ),
         AgentSubCommand::Manifest { sub } => run_manifest(sub, json_out),
     }
 }
@@ -251,7 +283,10 @@ fn run_show(id: &str, json_out: bool) -> Result<()> {
             "{} ({}) — v{}",
             manifest.name, manifest.vendor, manifest.version
         );
-        println!("  homepage: {}", manifest.homepage.as_deref().unwrap_or("-"));
+        println!(
+            "  homepage: {}",
+            manifest.homepage.as_deref().unwrap_or("-")
+        );
         println!("  installed: {}", detect.ok);
         if let Some(v) = &detect.version {
             println!("  detected version: {v}");
@@ -369,11 +404,12 @@ fn run_auth(
             // Prompt on tty (no echo).
             rpassword::prompt_password(format!("API key for {id}: "))?
         };
-        let outcome =
-            unterm_agents::authn::run_api_key(&manifest.auth, &profile_id, &key)
-                .map_err(|e| anyhow!(e.to_string()))?;
+        let outcome = unterm_agents::authn::run_api_key(&manifest.auth, &profile_id, &key)
+            .map_err(|e| anyhow!(e.to_string()))?;
         if json_out {
-            print_json(&serde_json::json!({ "method": outcome.method_used, "profile": profile_id }));
+            print_json(
+                &serde_json::json!({ "method": outcome.method_used, "profile": profile_id }),
+            );
         } else {
             println!(
                 "Stored key for {} in profile {profile_id}'s keychain ({}).",
@@ -381,9 +417,8 @@ fn run_auth(
             );
         }
     } else {
-        let outcome =
-            unterm_agents::authn::run_oauth_browser(&manifest.auth)
-                .map_err(|e| anyhow!(e.to_string()))?;
+        let outcome = unterm_agents::authn::run_oauth_browser(&manifest.auth)
+            .map_err(|e| anyhow!(e.to_string()))?;
         if json_out {
             print_json(&serde_json::json!({ "method": outcome.method_used }));
         } else {
@@ -408,14 +443,15 @@ fn run_configure(
 ) -> Result<()> {
     let (_, manifest) = lookup(id)?;
     let profile_id = profile_or_default(profile)?;
-    let mut state = SettingsState::load(&profile_id, &manifest.id)
-        .map_err(|e| anyhow!(e.to_string()))?;
+    let mut state =
+        SettingsState::load(&profile_id, &manifest.id).map_err(|e| anyhow!(e.to_string()))?;
     state.merge_defaults(&manifest.settings_schema);
 
     if reset {
         let mut fresh = SettingsState::default();
         fresh.merge_defaults(&manifest.settings_schema);
-        fresh.save(&profile_id, &manifest.id)
+        fresh
+            .save(&profile_id, &manifest.id)
             .map_err(|e| anyhow!(e.to_string()))?;
         println!("Reset {} settings to manifest defaults.", manifest.id);
         return Ok(());
@@ -423,13 +459,9 @@ fn run_configure(
 
     if !set.is_empty() {
         let updates = parse_kv_pairs(set, &manifest)?;
-        let outcome = unterm_agents::registry::apply_updates(
-            &manifest,
-            &profile_id,
-            &mut state,
-            updates,
-        )
-        .map_err(|e| anyhow!(e.to_string()))?;
+        let outcome =
+            unterm_agents::registry::apply_updates(&manifest, &profile_id, &mut state, updates)
+                .map_err(|e| anyhow!(e.to_string()))?;
         if json_out {
             print_json(&serde_json::json!({
                 "written_files": outcome.written_files,
@@ -519,7 +551,11 @@ fn parse_value_for_key(manifest: &AgentManifest, key: &str, raw: &str) -> Result
         ),
         SettingKind::MultiEnum => {
             // Comma-separated list of values
-            Value::Array(raw.split(',').map(|s| Value::String(s.trim().into())).collect())
+            Value::Array(
+                raw.split(',')
+                    .map(|s| Value::String(s.trim().into()))
+                    .collect(),
+            )
         }
         SettingKind::KeyValueList => {
             // a=1,b=2 form
@@ -554,12 +590,13 @@ fn run_import(id: &str, profile: Option<&str>, json_out: bool) -> Result<()> {
             manifest.id
         );
     } else {
-        let mut state = SettingsState::load(&profile_id, &manifest.id)
-            .map_err(|e| anyhow!(e.to_string()))?;
+        let mut state =
+            SettingsState::load(&profile_id, &manifest.id).map_err(|e| anyhow!(e.to_string()))?;
         for (k, v) in &snap {
             state.values.insert(k.clone(), v.clone());
         }
-        state.save(&profile_id, &manifest.id)
+        state
+            .save(&profile_id, &manifest.id)
             .map_err(|e| anyhow!(e.to_string()))?;
         println!("Imported {} key(s):", snap.len());
         for (k, _) in &snap {
@@ -574,8 +611,8 @@ fn run_import(id: &str, profile: Option<&str>, json_out: bool) -> Result<()> {
 fn run_plan(id: &str, profile: Option<&str>, cwd: Option<&str>, json_out: bool) -> Result<()> {
     let (_, manifest) = lookup(id)?;
     let profile_id = profile_or_default(profile)?;
-    let mut state = SettingsState::load(&profile_id, &manifest.id)
-        .map_err(|e| anyhow!(e.to_string()))?;
+    let mut state =
+        SettingsState::load(&profile_id, &manifest.id).map_err(|e| anyhow!(e.to_string()))?;
     state.merge_defaults(&manifest.settings_schema);
     let plan = unterm_agents::launcher::build_launch_plan(&unterm_agents::launcher::LaunchInputs {
         manifest: &manifest,
@@ -636,8 +673,8 @@ fn mcp_wire_info() -> Option<unterm_agents::launcher::McpWireInfo> {
 fn run_launch(id: &str, profile: Option<&str>, cwd: Option<&str>) -> Result<()> {
     let (_, manifest) = lookup(id)?;
     let profile_id = profile_or_default(profile)?;
-    let mut state = SettingsState::load(&profile_id, &manifest.id)
-        .map_err(|e| anyhow!(e.to_string()))?;
+    let mut state =
+        SettingsState::load(&profile_id, &manifest.id).map_err(|e| anyhow!(e.to_string()))?;
     state.merge_defaults(&manifest.settings_schema);
     // Resolve the running instance's MCP endpoint + our own binary path so the
     // launcher can auto-wire the agent at `unterm-cli mcp-stdio`. Best-effort:
@@ -675,6 +712,188 @@ fn run_launch(id: &str, profile: Option<&str>, cwd: Option<&str>) -> Result<()> 
     }
 }
 
+fn build_plan_for_run(
+    id: &str,
+    profile: Option<&str>,
+    cwd: Option<&str>,
+) -> Result<unterm_agents::launcher::LaunchPlan> {
+    let (_, manifest) = lookup(id)?;
+    let profile_id = profile_or_default(profile)?;
+    let mut state =
+        SettingsState::load(&profile_id, &manifest.id).map_err(|e| anyhow!(e.to_string()))?;
+    state.merge_defaults(&manifest.settings_schema);
+    let wire = mcp_wire_info();
+    unterm_agents::launcher::build_launch_plan(&unterm_agents::launcher::LaunchInputs {
+        manifest: &manifest,
+        profile_id: &profile_id,
+        settings: &state,
+        cwd,
+        project_root: cwd,
+        mcp: wire.as_ref(),
+    })
+    .map_err(|e| anyhow!(e.to_string()))
+}
+
+fn headless_args(id: &str, mut base_args: Vec<String>, prompt: &str) -> Result<Vec<String>> {
+    match id {
+        "claude-code" => {
+            base_args.push("-p".to_string());
+            base_args.push(prompt.to_string());
+            Ok(base_args)
+        }
+        "codex-cli" => {
+            base_args.push("exec".to_string());
+            base_args.push(prompt.to_string());
+            Ok(base_args)
+        }
+        other => Err(anyhow!(
+            "agent run currently supports codex-cli and claude-code, not {other}"
+        )),
+    }
+}
+
+fn run_headless(
+    id: &str,
+    profile: Option<&str>,
+    cwd: Option<&str>,
+    read_stdin: bool,
+    dry_run: bool,
+    prompt_parts: &[String],
+) -> Result<()> {
+    let mut prompt = prompt_parts.join(" ");
+    if read_stdin {
+        let mut buf = String::new();
+        std::io::stdin()
+            .read_to_string(&mut buf)
+            .context("reading agent run prompt from stdin")?;
+        if !prompt.is_empty() && !buf.trim().is_empty() {
+            prompt.push('\n');
+        }
+        prompt.push_str(&buf);
+    }
+    if prompt.trim().is_empty() {
+        return Err(anyhow!(
+            "agent run needs a prompt argument, or pass --stdin and pipe one in"
+        ));
+    }
+    let plan = build_plan_for_run(id, profile, cwd)?;
+    let args = headless_args(id, plan.args.clone(), &prompt)?;
+
+    if dry_run {
+        println!("$ {} {}", plan.exec, shell_join(&args));
+        if let Some(dir) = &plan.cwd {
+            println!("  cwd: {dir}");
+        }
+        for (k, v) in &plan.env_set {
+            let display = if is_sensitive_env(k) {
+                "***"
+            } else {
+                v.as_str()
+            };
+            println!("  env: {k}={display}");
+        }
+        return Ok(());
+    }
+
+    let mut cmd = std::process::Command::new(&plan.exec);
+    cmd.args(&args);
+    if let Some(dir) = &plan.cwd {
+        cmd.current_dir(dir);
+    }
+    for (k, v) in &plan.env_set {
+        cmd.env(k, v);
+    }
+    let status = cmd.status().with_context(|| {
+        format!(
+            "failed to run headless agent command: {} {}",
+            plan.exec,
+            args.join(" ")
+        )
+    })?;
+    if !status.success() {
+        return Err(anyhow!(
+            "headless agent exited with status {}",
+            status
+                .code()
+                .map(|c| c.to_string())
+                .unwrap_or_else(|| "signal".to_string())
+        ));
+    }
+    Ok(())
+}
+
+fn is_sensitive_env(name: &str) -> bool {
+    name.ends_with("_API_KEY") || name.ends_with("_TOKEN") || name == "UNTERM_MCP_TOKEN"
+}
+
+fn shell_join(args: &[String]) -> String {
+    #[cfg(windows)]
+    {
+        return args
+            .iter()
+            .map(|arg| cmd_quote(arg))
+            .collect::<Vec<_>>()
+            .join(" ");
+    }
+    #[cfg(not(windows))]
+    {
+        args.iter()
+            .map(|arg| shell_quote(arg))
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+}
+
+#[cfg(windows)]
+fn cmd_quote(s: &str) -> String {
+    if s.is_empty() {
+        return "\"\"".to_string();
+    }
+    if s.bytes().all(|b| {
+        b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.' | b'/' | b'\\' | b':' | b'=')
+    }) {
+        return s.to_string();
+    }
+
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    let mut backslashes = 0;
+    for ch in s.chars() {
+        match ch {
+            '\\' => backslashes += 1,
+            '"' => {
+                out.push_str(&"\\".repeat(backslashes * 2 + 1));
+                out.push('"');
+                backslashes = 0;
+            }
+            _ => {
+                if backslashes > 0 {
+                    out.push_str(&"\\".repeat(backslashes));
+                    backslashes = 0;
+                }
+                out.push(ch);
+            }
+        }
+    }
+    if backslashes > 0 {
+        out.push_str(&"\\".repeat(backslashes * 2));
+    }
+    out.push('"');
+    out
+}
+
+fn shell_quote(s: &str) -> String {
+    if s.is_empty() {
+        return "''".to_string();
+    }
+    if s.bytes()
+        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.' | b'/' | b':' | b'='))
+    {
+        return s.to_string();
+    }
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
 // ---------- manifest catalog ----------
 
 fn run_manifest(sub: ManifestSubCommand, json_out: bool) -> Result<()> {
@@ -708,7 +927,10 @@ fn run_manifest(sub: ManifestSubCommand, json_out: bool) -> Result<()> {
                 println!("Issued at:  {}", res.envelope.issued_at);
                 println!("Expires at: {}", res.envelope.expires_at);
                 println!("Min Unterm: {}", res.envelope.min_unterm_version);
-                println!("Signature:  {} ({})", res.envelope.signature.alg, res.envelope.signature.key_id);
+                println!(
+                    "Signature:  {} ({})",
+                    res.envelope.signature.alg, res.envelope.signature.key_id
+                );
                 println!("Agents:");
                 for m in &res.envelope.manifests {
                     println!("  {:<14} v{:<3} {}", m.id, m.version, m.name);

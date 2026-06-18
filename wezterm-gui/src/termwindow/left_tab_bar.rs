@@ -20,7 +20,6 @@
 //!   right-edge grip  → drag to resize, clamped to [200pt, 50% window]
 //!   wheel            → scroll
 
-use crate::customglyph::*;
 use crate::termwindow::box_model::*;
 use crate::termwindow::render::corners::*;
 use crate::termwindow::{UIItem, UIItemType};
@@ -140,9 +139,7 @@ fn scroll_top_for_thumb_top(
         return 0;
     }
 
-    let thumb_top = thumb_top
-        .saturating_sub(track_top)
-        .min(max_thumb_top);
+    let thumb_top = thumb_top.saturating_sub(track_top).min(max_thumb_top);
     ((thumb_top as f32 / max_thumb_top as f32) * max_top as f32).round() as usize
 }
 
@@ -159,8 +156,8 @@ impl crate::TermWindow {
         }
         let pt = self.dimensions.dpi as f32 / 72.0;
         let window_pts = self.dimensions.pixel_width as f32 / pt;
-        let max = (window_pts * ui_tokens::LEFT_TAB_BAR_MAX_RATIO)
-            .max(ui_tokens::LEFT_TAB_BAR_MIN_WIDTH);
+        let max =
+            (window_pts * ui_tokens::LEFT_TAB_BAR_MAX_RATIO).max(ui_tokens::LEFT_TAB_BAR_MIN_WIDTH);
         let w = bar
             .width_pts
             .unwrap_or(ui_tokens::LEFT_TAB_BAR_WIDTH)
@@ -192,11 +189,16 @@ impl crate::TermWindow {
     /// physical pixels; the bar's left edge is the os border.
     pub(crate) fn resize_left_tab_bar(&mut self, x_px: f32) {
         let pt = self.dimensions.dpi as f32 / 72.0;
+        let window_pts = self.dimensions.pixel_width as f32 / pt;
+        let x_px = if pt > 1.0 && x_px <= window_pts + 2.0 {
+            x_px * pt
+        } else {
+            x_px
+        };
         let border = self.get_os_border();
         let w_pts = (x_px - border.left.get() as f32) / pt;
-        let window_pts = self.dimensions.pixel_width as f32 / pt;
-        let max = (window_pts * ui_tokens::LEFT_TAB_BAR_MAX_RATIO)
-            .max(ui_tokens::LEFT_TAB_BAR_MIN_WIDTH);
+        let max =
+            (window_pts * ui_tokens::LEFT_TAB_BAR_MAX_RATIO).max(ui_tokens::LEFT_TAB_BAR_MIN_WIDTH);
         let clamped = w_pts.clamp(ui_tokens::LEFT_TAB_BAR_MIN_WIDTH, max);
         self.left_tab_bar.borrow_mut().width_pts = Some(clamped);
         if let Some(window) = self.window.as_ref().cloned() {
@@ -264,15 +266,10 @@ impl crate::TermWindow {
         } else {
             0.
         };
-        // Align the sidebar's top with the terminal content top, which the
-        // pane renderer places at `tab_bar_height + padding_top + border`
-        // (see render/pane.rs). Omitting `padding_top` here made the grey
-        // panel butt directly against the chrome's bottom edge while the
-        // terminal kept its 10px breathing gap — the asymmetry read as the
-        // sidebar "pressing" / covering the top bar (user report). Adding
-        // the same padding leaves a consistent dark seam below the chrome.
-        let padding_top = self.padding_left_top().1;
-        let top = top_bar_height + padding_top + border.top.get() as f32;
+        // The sidebar is chrome, not terminal content. Its surface and
+        // scrollbar must start exactly at the top bar's bottom edge; adding
+        // terminal padding here creates a visible vertical gap.
+        let top = top_bar_height + border.top.get() as f32;
         let status_h = if self.config.show_unterm_status_bar {
             self.status_bar_pixel_height()
         } else {
@@ -288,25 +285,36 @@ impl crate::TermWindow {
             - self.padding_bottom_px()
             - border.bottom.get() as f32;
 
-        // Sidebar surface: lift the terminal background 10 % toward the
-        // foreground (was 5 %, but at that ratio the sidebar and the
-        // chrome's +5 % HSL lighten landed at near-identical greys —
-        // the seam between them disappeared and the entire left column
-        // read as one panel). 10 % makes the sidebar visibly lighter
-        // than the chrome strip, so the user can tell where the chrome
-        // ends and the sidebar begins without needing to count pixels.
+        // Sidebar surface: keep it close to the terminal background.
+        // A previous 10% lift toward the foreground made dark themes read
+        // as a pale grey slab, especially on Windows where the sidebar can
+        // consume a large fraction of the window. Use a small lift plus a
+        // dark bias so the panel separates quietly without shouting.
         let bg = palette.background.to_linear();
         let fgc = palette.foreground.to_linear();
-        let lift = 0.10;
-        let bar_bg = LinearRgba::with_components(
-            bg.0 * (1. - lift) + fgc.0 * lift,
-            bg.1 * (1. - lift) + fgc.1 * lift,
-            bg.2 * (1. - lift) + fgc.2 * lift,
-            1.,
-        );
-        let divider = fgc.mul_alpha(0.12);
+        let luma = 0.2126 * bg.0 + 0.7152 * bg.1 + 0.0722 * bg.2;
+        let is_light = luma > 0.48;
+        let mix = |a: LinearRgba, b: LinearRgba, t: f32| {
+            LinearRgba::with_components(
+                a.0 * (1. - t) + b.0 * t,
+                a.1 * (1. - t) + b.1 * t,
+                a.2 * (1. - t) + b.2 * t,
+                1.,
+            )
+        };
+        let bar_bg = if is_light {
+            mix(bg, fgc, 0.075)
+        } else {
+            let lifted = mix(bg, fgc, 0.028);
+            LinearRgba::with_components(lifted.0 * 0.965, lifted.1 * 0.965, lifted.2 * 0.965, 1.)
+        };
+        let divider = fgc.mul_alpha(if is_light { 0.24 } else { 0.10 });
         let row_pad = ui_tokens::ROW_PADDING * pt;
+        let content_top_gap = 8. * pt;
         let radius = Dimension::Pixels(ui_tokens::CORNER_RADIUS * pt);
+        let footer_pad_v = 10. * pt;
+        let footer_pad_h = 12. * pt;
+        let footer_height = (metrics.cell_size.height as f32 + 2.0 * footer_pad_v).ceil();
         let rounded = || {
             Some(Corners {
                 top_left: SizedPoly {
@@ -342,9 +350,17 @@ impl crate::TermWindow {
             .resolve_fg(ColorAttribute::PaletteIndex(14))
             .to_linear();
         let fg = palette.foreground.to_linear();
-        let dim = fg.mul_alpha(0.75); // subtitle / directory
-        let sel_bg = fg.mul_alpha(0.24);
-        let hover_bg = fg.mul_alpha(0.06);
+        let dim = fg.mul_alpha(if is_light { 0.76 } else { 0.72 }); // subtitle / directory
+        let sel_bg = if is_light {
+            mix(bg, fg, 0.16)
+        } else {
+            mix(bar_bg, fg, 0.155)
+        };
+        let hover_bg = if is_light {
+            mix(bg, fg, 0.09)
+        } else {
+            mix(bar_bg, fg, 0.07)
+        };
 
         // Snapshot rows straight from the mux (not the top tab bar, which
         // empties out when a lone tab hides the top strip).
@@ -370,15 +386,15 @@ impl crate::TermWindow {
                     };
                     let (agent, dir) = match &pane {
                         Some(p) => {
-                            let proc_info = p.get_foreground_process_info(
-                                mux::pane::CachePolicy::AllowStale,
-                            );
+                            let proc_info =
+                                p.get_foreground_process_info(mux::pane::CachePolicy::AllowStale);
                             let agent = crate::mcp::handler::detect_agent_for_pane(
                                 p.pane_id() as u64,
                                 proc_info.as_ref(),
                             );
-                            let dir = super::pane_cwd_path(p)
-                                .and_then(|pp| pp.file_name().map(|n| n.to_string_lossy().to_string()));
+                            let dir = super::pane_cwd_path(p).and_then(|pp| {
+                                pp.file_name().map(|n| n.to_string_lossy().to_string())
+                            });
                             (agent, dir)
                         }
                         None => (None, None),
@@ -397,7 +413,10 @@ impl crate::TermWindow {
 
         // Uniform two-line rows make the scroll window arithmetic exact.
         let row_h = metrics.cell_size.height as f32 * 2.0 + 2.0 * row_pad + 4.0 * pt;
-        let visible_rows = ((bottom - top - row_h) / row_h).floor().max(1.0) as usize;
+        let content_bottom = (bottom - footer_height).max(top + content_top_gap + row_h);
+        let visible_rows = ((content_bottom - top - content_top_gap) / row_h)
+            .floor()
+            .max(1.0) as usize;
         // Keep the active row inside the visible window. Otherwise a
         // newly-created active tab can exist below the current sidebar
         // viewport and look like it was never added.
@@ -421,7 +440,11 @@ impl crate::TermWindow {
         let mut children: Vec<Element> = vec![];
 
         for row in rows.iter().skip(scroll_top).take(visible_rows) {
-            let title_fg = if row.active { fg } else { fg.mul_alpha(0.82) };
+            let title_fg = if row.active {
+                fg
+            } else {
+                fg.mul_alpha(if is_light { 0.9 } else { 0.82 })
+            };
 
             // Row-leading indicator. AI-driven panes show a saturated
             // bullet `●` in the agent's accent color — same encoding
@@ -482,34 +505,13 @@ impl crate::TermWindow {
             } else {
                 title_fg
             };
-            let title_el = Element::new(&font, ElementContent::Text(primary_text)).colors(
-                ElementColors {
+            let title_el =
+                Element::new(&font, ElementContent::Text(primary_text)).colors(ElementColors {
                     border: BorderColor::default(),
                     bg: LinearRgba::TRANSPARENT.into(),
                     text: primary_color.into(),
-                },
-            );
+                });
             let mut line_kids: Vec<Element> = vec![];
-            if row.active {
-                line_kids.push(
-                    Element::new(&font, ElementContent::Text(String::new()))
-                        .vertical_align(VerticalAlign::Middle)
-                        .min_width(Some(Dimension::Pixels(2.5 * pt)))
-                        .min_height(Some(Dimension::Pixels(12. * pt)))
-                        .margin(BoxDimension {
-                            left: Dimension::Pixels(0.),
-                            right: Dimension::Pixels(7. * pt),
-                            top: Dimension::Pixels(0.),
-                            bottom: Dimension::Pixels(0.),
-                        })
-                        .border_corners(rounded())
-                        .colors(ElementColors {
-                            border: BorderColor::default(),
-                            bg: agent_color.into(),
-                            text: LinearRgba::TRANSPARENT.into(),
-                        }),
-                );
-            }
             line_kids.push(dot);
             line_kids.push(title_el);
             if let Some(dir) = &row.dir {
@@ -523,18 +525,18 @@ impl crate::TermWindow {
                     ),
                 );
             }
-            // Insets live on the content (not the row) because this box
-            // model's rounded background fills only the content box — row
-            // padding would leave a gap inside the border. 8px left + 6px
-            // top reproduce Warp's uniform-8 breathing room.
+            // Insets live on the content (not the row) because row padding
+            // would create a second visible grey layer around the selected
+            // fill. Keep the row as one flat block and align text by giving
+            // every row the same transparent/active left border width.
             let title_line = Element::new(&font, ElementContent::Children(line_kids))
                 .display(DisplayType::Block)
                 .min_width(Some(Dimension::Percent(1.)))
                 .padding(BoxDimension {
-                    left: Dimension::Pixels(8. * pt),
+                    left: Dimension::Pixels(7. * pt),
                     right: Dimension::Pixels(8. * pt),
-                    top: Dimension::Pixels(6. * pt),
-                    bottom: Dimension::Pixels(6. * pt),
+                    top: Dimension::Pixels(5. * pt),
+                    bottom: Dimension::Pixels(5. * pt),
                 });
 
             // No inline close button — Warp's vertical-tab rows have none;
@@ -547,6 +549,16 @@ impl crate::TermWindow {
             } else {
                 LinearRgba::TRANSPARENT
             };
+            let row_border = BorderColor {
+                left: if row.active {
+                    agent_color
+                } else {
+                    LinearRgba::TRANSPARENT
+                },
+                right: LinearRgba::TRANSPARENT,
+                top: LinearRgba::TRANSPARENT,
+                bottom: LinearRgba::TRANSPARENT,
+            };
             children.push(
                 Element::new(&font, ElementContent::Children(vec![title_line]))
                     .item_type(UIItemType::LeftTabBarTab(row.tab_idx))
@@ -555,22 +567,23 @@ impl crate::TermWindow {
                     .margin(BoxDimension {
                         left: Dimension::Pixels(0.),
                         right: Dimension::Pixels(0.),
-                        top: Dimension::Pixels(2. * pt),
-                        bottom: Dimension::Pixels(2. * pt),
+                        top: Dimension::Pixels(1. * pt),
+                        bottom: Dimension::Pixels(1. * pt),
                     })
-                    // No row padding — insets live on the content so the
-                    // rounded background fills the whole border box with no
-                    // gap (see title_line/subtitle_line padding above).
                     .padding(BoxDimension {
                         left: Dimension::Pixels(0.),
                         right: Dimension::Pixels(0.),
                         top: Dimension::Pixels(0.),
                         bottom: Dimension::Pixels(0.),
                     })
-                    .border(BoxDimension::new(Dimension::Pixels(0.)))
-                    .border_corners(rounded())
+                    .border(BoxDimension {
+                        left: Dimension::Pixels(2. * pt),
+                        right: Dimension::Pixels(0.),
+                        top: Dimension::Pixels(0.),
+                        bottom: Dimension::Pixels(0.),
+                    })
                     .colors(ElementColors {
-                        border: BorderColor::new(LinearRgba::TRANSPARENT),
+                        border: row_border,
                         bg: row_bg.into(),
                         text: title_fg.into(),
                     })
@@ -637,22 +650,25 @@ impl crate::TermWindow {
                 text: fg.into(),
             }));
         children.push(
-            Element::new(&font, ElementContent::Children(vec![plus_cell, chevron_cell]))
-                .display(DisplayType::Block)
-                .min_width(Some(Dimension::Percent(1.)))
-                .margin(BoxDimension {
-                    left: Dimension::Pixels(0.),
-                    right: Dimension::Pixels(0.),
-                    top: Dimension::Pixels(2. * pt),
-                    bottom: Dimension::Pixels(2. * pt),
-                })
-                .border(BoxDimension::new(Dimension::Pixels(1.)))
-                .border_corners(rounded())
-                .colors(ElementColors {
-                    border: BorderColor::new(LinearRgba::TRANSPARENT),
-                    bg: LinearRgba::TRANSPARENT.into(),
-                    text: dim.into(),
-                }),
+            Element::new(
+                &font,
+                ElementContent::Children(vec![plus_cell, chevron_cell]),
+            )
+            .display(DisplayType::Block)
+            .min_width(Some(Dimension::Percent(1.)))
+            .margin(BoxDimension {
+                left: Dimension::Pixels(0.),
+                right: Dimension::Pixels(0.),
+                top: Dimension::Pixels(2. * pt),
+                bottom: Dimension::Pixels(2. * pt),
+            })
+            .border(BoxDimension::new(Dimension::Pixels(1.)))
+            .border_corners(rounded())
+            .colors(ElementColors {
+                border: BorderColor::new(LinearRgba::TRANSPARENT),
+                bg: LinearRgba::TRANSPARENT.into(),
+                text: dim.into(),
+            }),
         );
 
         let container = Element::new(&font, ElementContent::Children(children))
@@ -663,12 +679,7 @@ impl crate::TermWindow {
             .padding(BoxDimension {
                 left: Dimension::Pixels(7. * pt),
                 right: Dimension::Pixels(7. * pt),
-                // Top padding bumped 6 → 14 pt so the sidebar's first
-                // row sits clearly below the chrome divider instead
-                // of touching it. User: "这个区域要往下一点" — the
-                // selected tab box was reading as pressed against the
-                // top bar's bottom edge.
-                top: Dimension::Pixels(14. * pt),
+                top: Dimension::Pixels(content_top_gap),
                 bottom: Dimension::Pixels(0.),
             })
             .border(BoxDimension {
@@ -690,7 +701,9 @@ impl crate::TermWindow {
             // Content box shrinks by the padding + divider so the panel
             // total still fills exactly the reserved `width` gutter.
             .min_width(Some(Dimension::Pixels(width - 14. * pt - 1.)))
-            .min_height(Some(Dimension::Pixels(bottom - top - 6. * pt)));
+            .min_height(Some(Dimension::Pixels(
+                content_bottom - top - content_top_gap - 1. * pt,
+            )));
 
         let layout = LayoutContext {
             height: DimensionContext {
@@ -703,7 +716,7 @@ impl crate::TermWindow {
                 pixel_max: self.dimensions.pixel_width as f32,
                 pixel_cell: metrics.cell_size.width as f32,
             },
-            bounds: euclid::rect(border.left.get() as f32, top, width, bottom - top),
+            bounds: euclid::rect(border.left.get() as f32, top, width, content_bottom - top),
             metrics: &metrics,
             gl_state: self.render_state.as_ref().unwrap(),
             zindex: 18,
@@ -717,14 +730,29 @@ impl crate::TermWindow {
         }
         self.ui_items.append(&mut ui_items);
 
+        // Resize grip: a thin strip on the bar's right edge. It is
+        // registered before the scrollbar hit items so that, when a
+        // scrollbar is visible, dragging the edge-most thumb still scrolls
+        // instead of being intercepted as a sidebar resize.
+        let grip_w = (ui_tokens::LEFT_TAB_BAR_GRIP * pt).round() as usize;
+        let bar_right = (border.left.get() as f32 + width) as usize;
+        self.ui_items.push(UIItem {
+            x: bar_right.saturating_sub(grip_w),
+            width: grip_w,
+            y: top as usize,
+            height: (bottom - top).max(0.) as usize,
+            item_type: UIItemType::LeftTabBarResize,
+            pane_id: None,
+        });
+
         // Scrollbar thumb on the right edge of the sidebar — visible only
         // when there are more rows than fit. Until this landed the user
         // had no way to tell that a newly-spawned tab existed at all when
         // the sidebar was already full ("最多那多个 tab"): with the thumb,
         // the auto-scroll's reposition is immediately legible.
         if rows.len() > visible_rows {
-            let track_h = bottom - top;
-            let scrollbar_w = 3. * pt;
+            let track_h = content_bottom - top;
+            let scrollbar_w = 4. * pt;
             let bar_right = border.left.get() as f32 + width;
             let scrollbar_x = bar_right - scrollbar_w;
             let thumb_h = (track_h * (visible_rows as f32) / (rows.len() as f32))
@@ -791,7 +819,7 @@ impl crate::TermWindow {
             let gl_state = self.render_state.as_ref().unwrap();
             self.render_element(&thumb_computed, gl_state, None)?;
 
-            let hit_w = (20. * pt).round().max(scrollbar_w) as usize;
+            let hit_w = (18. * pt).round().max(scrollbar_w) as usize;
             let hit_right = bar_right.max(border.left.get() as f32).round() as usize;
             let hit_x = hit_right.saturating_sub(hit_w);
             self.ui_items.push(UIItem {
@@ -830,8 +858,6 @@ impl crate::TermWindow {
         // https://doaipm.com.
         let caption = format!("{} ↗", crate::i18n::t("sidebar.author_caption"));
         let link_color = agent_color;
-        let footer_pad_v = 10. * pt;
-        let footer_pad_h = 12. * pt;
         // Back to the title font (SF Pro) — JetBrains Mono's open `O`
         // didn't sit visually with the rest of the all-caps run.
         // SF Pro's caps are designed as a single optical family, so
@@ -858,7 +884,6 @@ impl crate::TermWindow {
                 bg: hover_bg.into(),
                 text: fg.into(),
             }));
-        let footer_height = (metrics.cell_size.height as f32 + 2.0 * footer_pad_v).ceil();
         let footer_top = bottom - footer_height;
         let footer_layout = LayoutContext {
             height: DimensionContext {
@@ -883,25 +908,6 @@ impl crate::TermWindow {
         }
         let mut footer_items = footer_computed.ui_items();
         self.ui_items.append(&mut footer_items);
-
-        // Resize grip: a thin strip on the bar's right edge. Registered
-        // after the rows so it wins hit-testing (resolve_ui_item picks
-        // the most recently added item).
-        let grip_w = (ui_tokens::LEFT_TAB_BAR_GRIP * pt).round() as usize;
-        let scrollbar_reserved_w = if rows.len() > visible_rows {
-            (5. * pt).round() as usize
-        } else {
-            0
-        };
-        let bar_right = (border.left.get() as f32 + width) as usize;
-        self.ui_items.push(UIItem {
-            x: bar_right.saturating_sub(grip_w + scrollbar_reserved_w),
-            width: grip_w,
-            y: top as usize,
-            height: (bottom - top).max(0.) as usize,
-            item_type: UIItemType::LeftTabBarResize,
-            pane_id: None,
-        });
 
         Ok(())
     }

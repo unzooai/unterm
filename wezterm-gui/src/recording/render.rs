@@ -81,13 +81,19 @@ pub fn render_log(log_path: &Path, entry: &IndexEntry, cfg: &RenderConfig) -> Re
                     if blocks.is_empty() {
                         blocks.push(Block::default());
                     }
-                    blocks.last_mut().unwrap().output.extend_from_slice(&payload);
+                    blocks
+                        .last_mut()
+                        .unwrap()
+                        .output
+                        .extend_from_slice(&payload);
                 } else if in_prompt {
                     // OSC 133 prompt region: discard the prompt bytes; only
                     // capture the user-typed command bytes (input region).
                 } else if in_input {
                     let cmd = strip_ansi(&payload);
-                    let cmd = cmd.trim_end_matches(|c: char| c == '\n' || c == '\r').to_string();
+                    let cmd = cmd
+                        .trim_end_matches(|c: char| c == '\n' || c == '\r')
+                        .to_string();
                     if !cmd.is_empty() {
                         current.command = Some(match current.command.take() {
                             Some(prev) => format!("{prev}{cmd}"),
@@ -131,7 +137,9 @@ pub fn render_log(log_path: &Path, entry: &IndexEntry, cfg: &RenderConfig) -> Re
                 // the keystrokes as `out`).
                 if osc133_active && in_input && current.command.is_none() {
                     let cmd = strip_ansi(&payload);
-                    let cmd = cmd.trim_end_matches(|c: char| c == '\n' || c == '\r').to_string();
+                    let cmd = cmd
+                        .trim_end_matches(|c: char| c == '\n' || c == '\r')
+                        .to_string();
                     if !cmd.is_empty() {
                         current.command = Some(cmd);
                     }

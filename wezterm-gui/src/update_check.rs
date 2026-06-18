@@ -30,7 +30,11 @@ const REPO: &str = "zhitongblog/unterm";
 static STARTED: AtomicBool = AtomicBool::new(false);
 
 fn state_path() -> Option<PathBuf> {
-    Some(dirs_next::home_dir()?.join(".unterm").join("update_check.json"))
+    Some(
+        dirs_next::home_dir()?
+            .join(".unterm")
+            .join("update_check.json"),
+    )
 }
 
 /// Spawn the background poller. Idempotent — multiple calls are no-ops
@@ -83,7 +87,9 @@ pub fn check_once() -> anyhow::Result<()> {
     std::fs::write(&path, serde_json::to_string_pretty(&body)?)?;
     log::debug!(
         "update_check: pkg={} latest={} upgrade={}",
-        body["current_pkg"], latest, upgrade
+        body["current_pkg"],
+        latest,
+        upgrade
     );
     Ok(())
 }

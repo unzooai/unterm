@@ -58,10 +58,7 @@ pub fn run(cmd: SessionsCommand, json_out: bool) -> Result<()> {
                             .unwrap_or("");
                         let blocks = e.get("block_count").and_then(|v| v.as_u64()).unwrap_or(0);
                         let started = e.get("started_at").and_then(|v| v.as_str()).unwrap_or("");
-                        let proj = e
-                            .get("project_slug")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("");
+                        let proj = e.get("project_slug").and_then(|v| v.as_str()).unwrap_or("");
                         println!("{:<38} {:<6} {:<24} {}", id, blocks, started, proj);
                     }
                 }

@@ -140,7 +140,9 @@ fn load_baked_envelope() -> Result<Envelope> {
 
 fn read_cached_etag() -> Option<String> {
     let path = paths::manifest_etag_path().ok()?;
-    std::fs::read_to_string(path).ok().map(|s| s.trim().to_string())
+    std::fs::read_to_string(path)
+        .ok()
+        .map(|s| s.trim().to_string())
 }
 
 fn persist_cache(raw: &[u8], etag: Option<&str>) -> Result<()> {

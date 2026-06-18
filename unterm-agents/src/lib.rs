@@ -25,10 +25,10 @@ pub mod canonical;
 pub mod envelope;
 pub mod errors;
 pub mod fetch;
-pub mod mcp_meta;
 pub mod installer;
 pub mod launcher;
 pub mod manifest;
+pub mod mcp_meta;
 pub mod paths;
 pub mod registry;
 pub mod secrets;
@@ -38,9 +38,9 @@ pub mod template;
 pub use errors::{AgentError, Result};
 pub use fetch::{fetch_or_fallback, FetchResult, Source};
 pub use manifest::{
-    AgentManifest, AuthMethod, AuthSpec, DetectSpec, EnumValue, EnvBinding, Envelope,
-    InstallSpec, InstallStep, LaunchSpec, McpAutoRegister, McpSpec, PlatformInstall,
-    ProfileDefaults, SettingKind, SettingSpec, Signature, StorageFile, ValidateCmd,
+    AgentManifest, AuthMethod, AuthSpec, DetectSpec, EnumValue, EnvBinding, Envelope, InstallSpec,
+    InstallStep, LaunchSpec, McpAutoRegister, McpSpec, PlatformInstall, ProfileDefaults,
+    SettingKind, SettingSpec, Signature, StorageFile, ValidateCmd,
 };
 
 /// Convenience wrapper: fetch the envelope and index manifests by id.

@@ -58,8 +58,7 @@ pub fn show_tab_rename_overlay(
 ) -> anyhow::Result<()> {
     term.no_grab_mouse_in_raw_mode();
     term.render(&[Change::Text(
-        "Rename tab — Enter applies, empty resets to auto-title, Esc cancels\r\n"
-            .to_string(),
+        "Rename tab — Enter applies, empty resets to auto-title, Esc cancels\r\n".to_string(),
     )])?;
 
     let mut host = PromptHost::new();

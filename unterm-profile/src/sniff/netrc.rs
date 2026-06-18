@@ -133,7 +133,10 @@ machine api.openai.com login token password sk-xyz
 ";
         let cs = parse(text, &PathBuf::from("/dev/null/.netrc"));
         assert_eq!(cs.len(), 2);
-        let gh = cs.iter().find(|c| c.host.as_deref() == Some("github.com")).unwrap();
+        let gh = cs
+            .iter()
+            .find(|c| c.host.as_deref() == Some("github.com"))
+            .unwrap();
         assert_eq!(gh.user.as_deref(), Some("alex"));
         assert_eq!(gh.suggested_value.as_deref(), Some("ghp_abc"));
         assert_eq!(gh.suggested_env_name, "GITHUB_TOKEN");
@@ -156,7 +159,9 @@ machine api.anthropic.com login user password sk-ant-xxx
 ";
         let cs = parse(text, &PathBuf::from("/dev/null/.netrc"));
         assert!(cs.iter().any(|c| c.host.as_deref() == Some("github.com")));
-        assert!(cs.iter().any(|c| c.host.as_deref() == Some("api.anthropic.com")));
+        assert!(cs
+            .iter()
+            .any(|c| c.host.as_deref() == Some("api.anthropic.com")));
         assert!(!cs.iter().any(|c| c.host.is_none()));
     }
 }

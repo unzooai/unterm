@@ -14,15 +14,51 @@ use std::path::PathBuf;
 use std::sync::{OnceLock, RwLock};
 
 const LOCALE_BUNDLES: &[(&str, &str, &str)] = &[
-    ("en-US", "English", include_str!("../../../../wezterm-gui/src/i18n/locales/en.json")),
-    ("zh-CN", "简体中文", include_str!("../../../../wezterm-gui/src/i18n/locales/zh-CN.json")),
-    ("zh-TW", "繁體中文", include_str!("../../../../wezterm-gui/src/i18n/locales/zh-TW.json")),
-    ("ja-JP", "日本語", include_str!("../../../../wezterm-gui/src/i18n/locales/ja.json")),
-    ("ko-KR", "한국어", include_str!("../../../../wezterm-gui/src/i18n/locales/ko.json")),
-    ("de-DE", "Deutsch", include_str!("../../../../wezterm-gui/src/i18n/locales/de.json")),
-    ("fr-FR", "Français", include_str!("../../../../wezterm-gui/src/i18n/locales/fr.json")),
-    ("it-IT", "Italiano", include_str!("../../../../wezterm-gui/src/i18n/locales/it.json")),
-    ("hi-IN", "हिन्दी", include_str!("../../../../wezterm-gui/src/i18n/locales/hi.json")),
+    (
+        "en-US",
+        "English",
+        include_str!("../../../../wezterm-gui/src/i18n/locales/en.json"),
+    ),
+    (
+        "zh-CN",
+        "简体中文",
+        include_str!("../../../../wezterm-gui/src/i18n/locales/zh-CN.json"),
+    ),
+    (
+        "zh-TW",
+        "繁體中文",
+        include_str!("../../../../wezterm-gui/src/i18n/locales/zh-TW.json"),
+    ),
+    (
+        "ja-JP",
+        "日本語",
+        include_str!("../../../../wezterm-gui/src/i18n/locales/ja.json"),
+    ),
+    (
+        "ko-KR",
+        "한국어",
+        include_str!("../../../../wezterm-gui/src/i18n/locales/ko.json"),
+    ),
+    (
+        "de-DE",
+        "Deutsch",
+        include_str!("../../../../wezterm-gui/src/i18n/locales/de.json"),
+    ),
+    (
+        "fr-FR",
+        "Français",
+        include_str!("../../../../wezterm-gui/src/i18n/locales/fr.json"),
+    ),
+    (
+        "it-IT",
+        "Italiano",
+        include_str!("../../../../wezterm-gui/src/i18n/locales/it.json"),
+    ),
+    (
+        "hi-IN",
+        "हिन्दी",
+        include_str!("../../../../wezterm-gui/src/i18n/locales/hi.json"),
+    ),
 ];
 
 const LOCALE_CODES: &[&str] = &[
@@ -81,7 +117,10 @@ fn map_to_canonical(raw: &str) -> Option<&'static str> {
         .unwrap_or("")
         .replace('_', "-");
     let parts: Vec<&str> = main.split('-').collect();
-    let lang = parts.first().map(|s| s.to_ascii_lowercase()).unwrap_or_default();
+    let lang = parts
+        .first()
+        .map(|s| s.to_ascii_lowercase())
+        .unwrap_or_default();
     let script_or_region = parts.get(1).map(|s| s.to_string()).unwrap_or_default();
     let region = parts.get(2).map(|s| s.to_string()).unwrap_or_default();
 
@@ -132,9 +171,7 @@ fn detect_os_locale() -> Option<&'static str> {
         {
             if output.status.success() {
                 let text = String::from_utf8_lossy(&output.stdout);
-                for raw in text.split(|c: char| {
-                    c == ',' || c == '(' || c == ')' || c == '\n'
-                }) {
+                for raw in text.split(|c: char| c == ',' || c == '(' || c == ')' || c == '\n') {
                     let cleaned = raw.trim().trim_matches('"').trim();
                     if !cleaned.is_empty() {
                         if let Some(code) = map_to_canonical(cleaned) {

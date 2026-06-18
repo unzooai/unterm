@@ -147,9 +147,7 @@ impl crate::TermWindow {
     /// Static height computation for code paths that don't yet have a
     /// `&self` (startup mux setup before TermWindow exists). Same
     /// formula as the instance method.
-    pub fn top_stats_bar_pixel_height_impl(
-        fonts: &wezterm_font::FontConfiguration,
-    ) -> f32 {
+    pub fn top_stats_bar_pixel_height_impl(fonts: &wezterm_font::FontConfiguration) -> f32 {
         // 1.0× — just one line of text, no extra padding. Combined
         // with the tab strip's 1.8× this caps total chrome at ~2.8×
         // cell height, tighter than Warp.

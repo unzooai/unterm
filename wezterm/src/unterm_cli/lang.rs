@@ -51,7 +51,10 @@ fn list(json_out: bool) -> Result<()> {
         let head_code = i18n::t("cli.lang.head.code");
         let head_name = i18n::t("cli.lang.head.name");
         let head_active = i18n::t("cli.lang.head.active");
-        println!("{:<3} {:<8} {:<14} {}", "", head_code, head_active, head_name);
+        println!(
+            "{:<3} {:<8} {:<14} {}",
+            "", head_code, head_active, head_name
+        );
         for (code, name) in i18n::available_locales() {
             let marker = if *code == active { "*" } else { " " };
             let yes_no = if *code == active { "*" } else { "" };

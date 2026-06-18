@@ -41,6 +41,10 @@ config.check_for_updates = false
 -- 更精致、更稳定(系统没装 Cascadia 时不会回退到难看的默认字体)。
 config.font = wezterm.font_with_fallback({
   { family = 'JetBrains Mono', weight = 'Medium', harfbuzz_features = { 'calt=1', 'liga=1', 'clig=1' } },
+  'PingFang SC',
+  'Microsoft YaHei UI',
+  'Noto Sans CJK SC',
+  'Noto Sans Mono CJK SC',
   'Symbols Nerd Font Mono',
 })
 config.font_size = 13

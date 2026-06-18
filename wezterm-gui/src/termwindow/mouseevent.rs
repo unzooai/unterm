@@ -24,7 +24,64 @@ use wezterm_term::input::{MouseButton, MouseEventKind as TMEK};
 use wezterm_term::{ClickPosition, LastMouseClick, StableRowIndex};
 
 impl super::TermWindow {
+    fn resolve_left_sidebar_resize_edge(&self, event: &MouseEvent) -> Option<UIItem> {
+        let x = event.coords.x;
+        let y = event.coords.y;
+        let pt = self.dimensions.dpi as f32 / 72.0;
+        let tolerance = (14.0 * pt).round().max(12.0) as isize;
+        let logical_tolerance = 14isize;
+        let border = self.get_os_border();
+        let top = border.top.get() as isize;
+        let bottom = self.dimensions.pixel_height as isize - border.bottom.get() as isize;
+
+        if y < top || y > bottom {
+            return None;
+        }
+
+        let left_width = self.left_tab_bar_pixel_width();
+        if left_width > 0.0 {
+            let tree_width = self.tree_sidebar_pixel_width();
+            if tree_width > 0.0 {
+                let tree_right = border.left.get() as isize + (left_width + tree_width) as isize;
+                let tree_right_logical = (tree_right as f32 / pt).round() as isize;
+                if (x - tree_right).abs() <= tolerance
+                    || (x - tree_right_logical).abs() <= logical_tolerance
+                {
+                    return Some(UIItem {
+                        x: tree_right.saturating_sub(tolerance) as usize,
+                        y: top.max(0) as usize,
+                        width: (tolerance * 2).max(1) as usize,
+                        height: (bottom - top).max(1) as usize,
+                        pane_id: None,
+                        item_type: UIItemType::TreeSidebarResize,
+                    });
+                }
+            }
+
+            let left_right = border.left.get() as isize + left_width as isize;
+            let left_right_logical = (left_right as f32 / pt).round() as isize;
+            if (x - left_right).abs() <= tolerance
+                || (x - left_right_logical).abs() <= logical_tolerance
+            {
+                return Some(UIItem {
+                    x: left_right.saturating_sub(tolerance) as usize,
+                    y: top.max(0) as usize,
+                    width: (tolerance * 2).max(1) as usize,
+                    height: (bottom - top).max(1) as usize,
+                    pane_id: None,
+                    item_type: UIItemType::LeftTabBarResize,
+                });
+            }
+        }
+
+        None
+    }
+
     fn resolve_ui_item(&self, event: &MouseEvent) -> Option<UIItem> {
+        if let Some(item) = self.resolve_left_sidebar_resize_edge(event) {
+            return Some(item);
+        }
+
         let x = event.coords.x;
         let y = event.coords.y;
         self.ui_items
@@ -65,6 +122,9 @@ impl super::TermWindow {
             | UIItemType::TreeSidebarRow(_)
             | UIItemType::TreeSidebarBg
             | UIItemType::TreeSidebarHeader
+            | UIItemType::TreeSidebarResize
+            | UIItemType::TreeSidebarScrollTrack { .. }
+            | UIItemType::TreeSidebarScrollThumb { .. }
             | UIItemType::LeftTabBarTab(_)
             | UIItemType::LeftTabBarResize
             | UIItemType::LeftTabBarScrollTrack { .. }
@@ -99,6 +159,9 @@ impl super::TermWindow {
             | UIItemType::TreeSidebarRow(_)
             | UIItemType::TreeSidebarBg
             | UIItemType::TreeSidebarHeader
+            | UIItemType::TreeSidebarResize
+            | UIItemType::TreeSidebarScrollTrack { .. }
+            | UIItemType::TreeSidebarScrollThumb { .. }
             | UIItemType::LeftTabBarTab(_)
             | UIItemType::LeftTabBarResize
             | UIItemType::LeftTabBarScrollTrack { .. }
@@ -125,9 +188,7 @@ impl super::TermWindow {
         // closes. Other modal types keep their historical (keyboard-only)
         // behavior untouched.
         if let Some(modal) = self.get_modal() {
-            if let Some(menu) =
-                modal.downcast_ref::<crate::termwindow::popup_menu::PopupMenu>()
-            {
+            if let Some(menu) = modal.downcast_ref::<crate::termwindow::popup_menu::PopupMenu>() {
                 let item = self.resolve_ui_item(&event);
                 match (&event.kind, item.as_ref().map(|i| &i.item_type)) {
                     // Hover highlight is renderer-native (hover_colors); just
@@ -149,11 +210,12 @@ impl super::TermWindow {
                 context.set_cursor(Some(MouseCursor::Arrow));
                 return;
             }
-            if let Some(jump) =
-                modal.downcast_ref::<crate::termwindow::dir_jump::DirJump>()
-            {
+            if let Some(jump) = modal.downcast_ref::<crate::termwindow::dir_jump::DirJump>() {
                 let item = self.resolve_ui_item(&event);
                 match (&event.kind, item.as_ref().map(|i| &i.item_type)) {
+                    (WMEK::VertWheel(n), _) => {
+                        jump.scroll_results(-(isize::from(*n)) * 3, self);
+                    }
                     (WMEK::Move, _) => {
                         if let Some(window) = self.window.as_ref() {
                             window.invalidate();
@@ -468,6 +530,41 @@ impl super::TermWindow {
             UIItemType::LeftTabBarResize => {
                 self.drag_left_tab_bar_resize(item, start_event, &event);
             }
+            UIItemType::TreeSidebarResize => {
+                self.drag_tree_sidebar_resize(item, start_event, &event);
+            }
+            UIItemType::TreeSidebarScrollThumb {
+                row_count,
+                visible_rows,
+                track_top,
+                track_height,
+            } => {
+                self.drag_tree_sidebar_scroll_thumb(
+                    item,
+                    start_event,
+                    &event,
+                    context,
+                    row_count,
+                    visible_rows,
+                    track_top,
+                    track_height,
+                );
+            }
+            UIItemType::TreeSidebarScrollTrack {
+                row_count,
+                visible_rows,
+                thumb_height,
+            } => {
+                self.drag_tree_sidebar_scroll_track(
+                    item,
+                    start_event,
+                    &event,
+                    context,
+                    row_count,
+                    visible_rows,
+                    thumb_height,
+                );
+            }
             UIItemType::LeftTabBarScrollThumb {
                 row_count,
                 visible_rows,
@@ -585,6 +682,29 @@ impl super::TermWindow {
                     }
                 }
             }
+            UIItemType::TreeSidebarResize => {
+                context.set_cursor(Some(MouseCursor::SizeLeftRight));
+                if let WMEK::Press(MousePress::Left) = event.kind {
+                    self.dragging.replace((item, event));
+                }
+            }
+            UIItemType::TreeSidebarScrollTrack {
+                row_count,
+                visible_rows,
+                thumb_height,
+            } => {
+                self.mouse_event_tree_sidebar_scroll_track(
+                    item,
+                    row_count,
+                    visible_rows,
+                    thumb_height,
+                    event,
+                    context,
+                );
+            }
+            UIItemType::TreeSidebarScrollThumb { .. } => {
+                self.mouse_event_tree_sidebar_scroll_thumb(item, event, context);
+            }
             UIItemType::QuickAction(action) => {
                 if let WMEK::Press(MousePress::Left) = event.kind {
                     use crate::termwindow::QuickAction as QA;
@@ -614,9 +734,7 @@ impl super::TermWindow {
                             if let Some(pane) = self.get_active_pane_or_overlay() {
                                 let _ = self.perform_key_assignment(
                                     &pane,
-                                    &KeyAssignment::Search(
-                                        Pattern::CurrentSelectionOrEmptyString,
-                                    ),
+                                    &KeyAssignment::Search(Pattern::CurrentSelectionOrEmptyString),
                                 );
                             }
                         }
@@ -641,6 +759,7 @@ impl super::TermWindow {
                 self.mouse_event_left_tab_bar_tab(item, tab_idx, event, context);
             }
             UIItemType::LeftTabBarResize => {
+                context.set_cursor(Some(MouseCursor::SizeLeftRight));
                 if let WMEK::Press(MousePress::Left) = event.kind {
                     // Arm the resize drag; Move events route to
                     // drag_ui_item until release.
@@ -748,6 +867,154 @@ impl super::TermWindow {
         self.dragging.replace((item, start_event));
     }
 
+    fn drag_tree_sidebar_resize(
+        &mut self,
+        item: UIItem,
+        start_event: MouseEvent,
+        event: &MouseEvent,
+    ) {
+        self.resize_tree_sidebar(event.coords.x as f32);
+        self.dragging.replace((item, start_event));
+    }
+
+    fn tree_sidebar_scroll_by(&mut self, delta: isize) {
+        if let Some(tree) = self.tree_sidebar.borrow_mut().as_mut() {
+            let visible_rows = tree.visible_rows;
+            tree.scroll_by(delta, visible_rows);
+        }
+        if let Some(window) = self.window.as_ref() {
+            window.invalidate();
+        }
+    }
+
+    fn tree_sidebar_scroll_to_thumb_top(
+        &mut self,
+        thumb_top: usize,
+        track_top: usize,
+        track_height: usize,
+        thumb_height: usize,
+        row_count: usize,
+        visible_rows: usize,
+    ) {
+        if let Some(tree) = self.tree_sidebar.borrow_mut().as_mut() {
+            tree.scroll_to_thumb_top(
+                thumb_top,
+                track_top,
+                track_height,
+                thumb_height,
+                row_count,
+                visible_rows,
+            );
+        }
+        if let Some(window) = self.window.as_ref() {
+            window.invalidate();
+        }
+    }
+
+    fn mouse_event_tree_sidebar_scroll_track(
+        &mut self,
+        item: UIItem,
+        row_count: usize,
+        visible_rows: usize,
+        thumb_height: usize,
+        event: MouseEvent,
+        context: &dyn WindowOps,
+    ) {
+        match event.kind {
+            WMEK::VertWheel(n) => {
+                self.tree_sidebar_scroll_by(-(n as isize));
+            }
+            WMEK::Press(MousePress::Left) => {
+                let thumb_top = event
+                    .coords
+                    .y
+                    .saturating_sub((thumb_height / 2) as isize)
+                    .max(item.y as isize) as usize;
+                self.tree_sidebar_scroll_to_thumb_top(
+                    thumb_top,
+                    item.y,
+                    item.height,
+                    thumb_height,
+                    row_count,
+                    visible_rows,
+                );
+                self.dragging.replace((item, event));
+            }
+            _ => {}
+        }
+        context.set_cursor(Some(MouseCursor::Arrow));
+    }
+
+    fn mouse_event_tree_sidebar_scroll_thumb(
+        &mut self,
+        item: UIItem,
+        event: MouseEvent,
+        context: &dyn WindowOps,
+    ) {
+        if let WMEK::Press(MousePress::Left) = event.kind {
+            self.dragging.replace((item, event));
+        } else if let WMEK::VertWheel(n) = event.kind {
+            self.tree_sidebar_scroll_by(-(n as isize));
+        }
+        context.set_cursor(Some(MouseCursor::Arrow));
+    }
+
+    fn drag_tree_sidebar_scroll_thumb(
+        &mut self,
+        item: UIItem,
+        start_event: MouseEvent,
+        event: &MouseEvent,
+        context: &dyn WindowOps,
+        row_count: usize,
+        visible_rows: usize,
+        track_top: usize,
+        track_height: usize,
+    ) {
+        let from_top = start_event.coords.y.saturating_sub(item.y as isize).max(0) as usize;
+        let thumb_top = event
+            .coords
+            .y
+            .saturating_sub(from_top as isize)
+            .max(track_top as isize) as usize;
+        self.tree_sidebar_scroll_to_thumb_top(
+            thumb_top,
+            track_top,
+            track_height,
+            item.height,
+            row_count,
+            visible_rows,
+        );
+        context.invalidate();
+        self.dragging.replace((item, start_event));
+    }
+
+    fn drag_tree_sidebar_scroll_track(
+        &mut self,
+        item: UIItem,
+        start_event: MouseEvent,
+        event: &MouseEvent,
+        context: &dyn WindowOps,
+        row_count: usize,
+        visible_rows: usize,
+        thumb_height: usize,
+    ) {
+        let thumb_top = event
+            .coords
+            .y
+            .saturating_sub((thumb_height / 2) as isize)
+            .max(item.y as isize) as usize;
+        self.tree_sidebar_scroll_to_thumb_top(
+            thumb_top,
+            item.y,
+            item.height,
+            thumb_height,
+            row_count,
+            visible_rows,
+        );
+        context.invalidate();
+        self.dragging.replace((item, start_event));
+    }
+
     fn mouse_event_left_tab_bar_scroll_track(
         &mut self,
         item: UIItem,
@@ -807,11 +1074,7 @@ impl super::TermWindow {
         track_top: usize,
         track_height: usize,
     ) {
-        let from_top = start_event
-            .coords
-            .y
-            .saturating_sub(item.y as isize)
-            .max(0) as usize;
+        let from_top = start_event.coords.y.saturating_sub(item.y as isize).max(0) as usize;
         let thumb_top = event
             .coords
             .y
@@ -965,25 +1228,19 @@ impl crate::TermWindow {
             WMEK::Press(MousePress::Left) => {
                 let message = match crate::overlay::theme_selector::cycle_theme() {
                     Ok((name, scheme)) => {
-                        if let Err(err) = self.apply_client_theme_palette(&scheme) {
+                        if let Err(err) = self.apply_theme_palette(&scheme) {
                             log::error!("theme palette apply failed: {err:#}");
                             crate::i18n::t_args(
                                 "theme.saved_palette_failed",
                                 &[("name", &name), ("err", &format!("{err:#}"))],
                             )
                         } else {
-                            crate::i18n::t_args(
-                                "theme.switched_to",
-                                &[("name", &name)],
-                            )
+                            crate::i18n::t_args("theme.switched_to", &[("name", &name)])
                         }
                     }
                     Err(err) => {
                         log::error!("theme cycle failed: {err:#}");
-                        crate::i18n::t_args(
-                            "theme.switch_failed",
-                            &[("err", &format!("{err:#}"))],
-                        )
+                        crate::i18n::t_args("theme.switch_failed", &[("err", &format!("{err:#}"))])
                     }
                 };
                 if let Some(pane) = self.get_active_pane_no_overlay() {
@@ -998,30 +1255,6 @@ impl crate::TermWindow {
             _ => {}
         }
         context.set_cursor(Some(MouseCursor::Hand));
-    }
-
-    fn apply_client_theme_palette(&mut self, scheme: &str) -> anyhow::Result<()> {
-        let mut theme_config: config::Config = (*self.config).clone();
-        theme_config.color_scheme = Some(scheme.to_string());
-        let Some(palette) = theme_config.resolve_color_scheme().cloned() else {
-            anyhow::bail!("unknown color scheme: {scheme}");
-        };
-        let palette: wezterm_term::color::ColorPalette = palette.into();
-        self.palette.replace(palette.clone());
-
-        let term_config = Arc::new(config::TermConfig::with_config(self.config.clone()));
-        term_config.set_client_palette(palette);
-        let term_config: Arc<dyn wezterm_term::config::TerminalConfiguration> = term_config;
-
-        let mux = Mux::get();
-        if let Some(window) = mux.get_window(self.mux_window_id) {
-            for tab in window.iter() {
-                for pane in tab.iter_panes_ignoring_zoom() {
-                    pane.pane.set_config(Arc::clone(&term_config));
-                }
-            }
-        }
-        Ok(())
     }
 
     fn mouse_event_status_bar_capture(
@@ -1046,10 +1279,7 @@ impl crate::TermWindow {
                     Ok(()) => crate::i18n::t("admin.requested"),
                     Err(err) => {
                         log::error!("status bar admin launch failed: {err:#}");
-                        crate::i18n::t_args(
-                            "admin.failed",
-                            &[("err", &format!("{err:#}"))],
-                        )
+                        crate::i18n::t_args("admin.failed", &[("err", &format!("{err:#}"))])
                     }
                 };
                 if let Some(pane) = self.get_active_pane_no_overlay() {
@@ -1066,11 +1296,7 @@ impl crate::TermWindow {
     /// lands, the action is "copy a JSON snapshot of recent audit
     /// entries to the clipboard" — that's enough to let a suspicious
     /// user paste it into a text editor and see who wrote what.
-    fn mouse_event_status_bar_mcp_audit(
-        &mut self,
-        event: MouseEvent,
-        context: &dyn WindowOps,
-    ) {
+    fn mouse_event_status_bar_mcp_audit(&mut self, event: MouseEvent, context: &dyn WindowOps) {
         if matches!(event.kind, WMEK::Press(MousePress::Left)) {
             let snapshot = crate::mcp::handler::audit_log_snapshot_json(200);
             self.copy_to_clipboard(
@@ -1090,10 +1316,7 @@ impl crate::TermWindow {
                     Ok(false) => crate::i18n::t("proxy.disabled_for_new_shells"),
                     Err(err) => {
                         log::error!("proxy toggle failed: {err:#}");
-                        crate::i18n::t_args(
-                            "proxy.toggle_failed",
-                            &[("err", &format!("{err:#}"))],
-                        )
+                        crate::i18n::t_args("proxy.toggle_failed", &[("err", &format!("{err:#}"))])
                     }
                 };
                 if let Some(pane) = self.get_active_pane_no_overlay() {
@@ -1145,10 +1368,7 @@ impl crate::TermWindow {
                 let Some(window) = self.window.as_ref().cloned() else {
                     return;
                 };
-                write_unterm_status_to_pane(
-                    &pane,
-                    &crate::i18n::t("project.prompt_picker"),
-                );
+                write_unterm_status_to_pane(&pane, &crate::i18n::t("project.prompt_picker"));
                 std::thread::spawn(move || {
                     open_project_directory_in_new_tab(window, pane_id, None);
                 });
@@ -1161,10 +1381,7 @@ impl crate::TermWindow {
                     {
                         write_unterm_status_to_pane(
                             &pane,
-                            &crate::i18n::t_args(
-                                "project.current",
-                                &[("path", &cwd.to_string())],
-                            ),
+                            &crate::i18n::t_args("project.current", &[("path", &cwd.to_string())]),
                         );
                     }
                 }
@@ -1284,25 +1501,32 @@ impl crate::TermWindow {
         let row_info = row.and_then(|i| {
             let tree = self.tree_sidebar.borrow();
             tree.as_ref().and_then(|t| {
-                t.rows.get(i).map(|r| (r.path.clone(), r.is_dir, r.is_parent))
+                t.rows
+                    .get(i)
+                    .map(|r| (r.path.clone(), r.is_dir, r.is_drive, r.is_parent))
             })
         });
 
         match event.kind {
             WMEK::VertWheel(n) => {
                 if let Some(tree) = self.tree_sidebar.borrow_mut().as_mut() {
-                    tree.scroll_by(-(n as isize), 20);
+                    let visible_rows = tree.visible_rows;
+                    tree.scroll_by(-(n as isize), visible_rows);
                 }
                 if let Some(window) = self.window.as_ref() {
                     window.invalidate();
                 }
             }
             WMEK::Press(MousePress::Left) => {
-                let Some((path, is_dir, is_parent)) = row_info else {
+                let Some((path, is_dir, is_drive, is_parent)) = row_info else {
                     return;
                 };
                 let double = self.last_mouse_click.as_ref().map(|c| c.streak) >= Some(2);
-                if is_parent {
+                if is_drive {
+                    if let Some(tree) = self.tree_sidebar.borrow_mut().as_mut() {
+                        tree.navigate_to_root(path);
+                    }
+                } else if is_parent {
                     // "↑ .." row — single click re-anchors the tree to the
                     // parent directory. Double-click also `cd`s the active
                     // pane there, matching the regular-dir double-click
@@ -1353,7 +1577,7 @@ impl crate::TermWindow {
                 }
             }
             WMEK::Press(MousePress::Right) => {
-                let Some((path, is_dir, _is_parent)) = row_info else {
+                let Some((path, is_dir, _is_drive, _is_parent)) = row_info else {
                     return;
                 };
                 let Some(pane) = self.get_active_pane_or_overlay() else {
@@ -1363,7 +1587,9 @@ impl crate::TermWindow {
                 let dir_for_tab = if is_dir {
                     path.clone()
                 } else {
-                    path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| path.clone())
+                    path.parent()
+                        .map(std::path::Path::to_path_buf)
+                        .unwrap_or_else(|| path.clone())
                 };
                 let items = vec![
                     (
@@ -2170,10 +2396,7 @@ pub(crate) fn scrollshot_external_and_announce(pane: &Arc<dyn Pane>) {
                     log::error!("external scroll capture failed: {err:#}");
                     write_unterm_status_to_pane(
                         &pane,
-                        &crate::i18n::t_args(
-                            "scrollshot.failed",
-                            &[("err", &format!("{err:#}"))],
-                        ),
+                        &crate::i18n::t_args("scrollshot.failed", &[("err", &format!("{err:#}"))]),
                     );
                 }
             }
@@ -2185,7 +2408,10 @@ pub(crate) fn scrollshot_external_and_announce(pane: &Arc<dyn Pane>) {
             pane,
             &crate::i18n::t_args(
                 "scrollshot.failed",
-                &[("err", "external window scroll-capture is currently macOS-only")],
+                &[(
+                    "err",
+                    "external window scroll-capture is currently macOS-only",
+                )],
             ),
         );
     }
@@ -2211,8 +2437,8 @@ pub(crate) fn copy_text_to_clipboard(text: &str) -> anyhow::Result<()> {
 
 #[cfg(target_os = "windows")]
 pub(crate) fn copy_text_to_clipboard(text: &str) -> anyhow::Result<()> {
-    use std::process::{Command, Stdio};
     use std::os::windows::process::CommandExt;
+    use std::process::{Command, Stdio};
     let mut cmd = Command::new("clip");
     cmd.stdin(Stdio::piped());
     cmd.creation_flags(0x08000000);
@@ -2237,7 +2463,10 @@ pub(crate) fn copy_text_to_clipboard(text: &str) -> anyhow::Result<()> {
         ("xsel", &["--clipboard", "--input"][..]),
     ] {
         let mut cmd = Command::new(bin);
-        cmd.args(*args).stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::null());
+        cmd.args(*args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
         let child = match cmd.spawn() {
             Ok(c) => c,
             Err(_) => continue,
@@ -2404,7 +2633,11 @@ pub(crate) fn pick_project_directory_unix_starting_at(
     if !start_str.is_empty() {
         zenity_filename = format!("--filename={}/", start_str);
     }
-    let kdialog_start: &str = if start_str.is_empty() { "." } else { &start_str };
+    let kdialog_start: &str = if start_str.is_empty() {
+        "."
+    } else {
+        &start_str
+    };
     let candidates: Vec<(&str, Vec<String>)> = vec![
         (
             "zenity",
@@ -2415,7 +2648,10 @@ pub(crate) fn pick_project_directory_unix_starting_at(
                 zenity_filename.clone(),
             ],
         ),
-        ("kdialog", vec!["--getexistingdirectory".into(), kdialog_start.to_string()]),
+        (
+            "kdialog",
+            vec!["--getexistingdirectory".into(), kdialog_start.to_string()],
+        ),
         (
             "yad",
             vec![
@@ -2427,7 +2663,11 @@ pub(crate) fn pick_project_directory_unix_starting_at(
         ),
     ];
     for (bin, args) in &candidates {
-        let args: Vec<&str> = args.iter().filter(|s| !s.is_empty()).map(|s| s.as_str()).collect();
+        let args: Vec<&str> = args
+            .iter()
+            .filter(|s| !s.is_empty())
+            .map(|s| s.as_str())
+            .collect();
         let output = match std::process::Command::new(bin).args(&args).output() {
             Ok(o) => o,
             Err(_) => continue,
@@ -2832,10 +3072,7 @@ pub(crate) fn capture_selected_region_to_file(
     if hide_window {
         // Always try to bring our window back, even on cancel/error.
         let _ = std::process::Command::new("osascript")
-            .args([
-                "-e",
-                "tell application \"unterm\" to activate",
-            ])
+            .args(["-e", "tell application \"unterm\" to activate"])
             .status();
     }
 
@@ -3006,5 +3243,4 @@ fn copy_image_to_clipboard_unix(path: &std::path::Path) -> anyhow::Result<()> {
         return Ok(());
     }
     Ok(())
-
 }

@@ -139,7 +139,8 @@ pub fn build_launch_plan(inputs: &LaunchInputs<'_>) -> Result<LaunchPlan> {
             if !binding.applies_to_mode(&current_mode) {
                 continue;
             }
-            let resolved = resolve_env_binding(binding, inputs.profile_id, inputs.settings, store.as_ref())?;
+            let resolved =
+                resolve_env_binding(binding, inputs.profile_id, inputs.settings, store.as_ref())?;
             if let Some(v) = resolved {
                 env_set.insert(env_name.clone(), v);
             }
@@ -388,7 +389,10 @@ fn resolve_env_binding(
 /// `settings.values["_auth_mode"]`; falls back to the first `recommended`
 /// mode in the manifest, then the first declared mode, then "subscription"
 /// as a last-resort sentinel.
-pub fn current_auth_mode(manifest: &crate::manifest::AgentManifest, settings: &SettingsState) -> String {
+pub fn current_auth_mode(
+    manifest: &crate::manifest::AgentManifest,
+    settings: &SettingsState,
+) -> String {
     if let Some(serde_json::Value::String(s)) = settings.values.get("_auth_mode") {
         if !s.is_empty() {
             // Only honour if the mode still exists in the current manifest;
@@ -635,7 +639,10 @@ mod mcp_config_tests {
         .unwrap();
         let v: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-        assert!(v.get("mcpServers").is_none(), "opencode must not use mcpServers");
+        assert!(
+            v.get("mcpServers").is_none(),
+            "opencode must not use mcpServers"
+        );
         let s = &v["mcp"]["unterm"];
         assert_eq!(s["type"], "local");
         assert_eq!(s["enabled"], true);
@@ -684,8 +691,14 @@ mod mcp_config_tests {
         .unwrap();
         let v: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-        assert_eq!(v["mcpServers"]["other"]["command"], "x", "existing server clobbered");
-        assert_eq!(v["mcpServers"]["unterm"]["type"], "stdio", "our server missing");
+        assert_eq!(
+            v["mcpServers"]["other"]["command"], "x",
+            "existing server clobbered"
+        );
+        assert_eq!(
+            v["mcpServers"]["unterm"]["type"], "stdio",
+            "our server missing"
+        );
         assert_eq!(v["extra"], 42, "unrelated key dropped");
         std::fs::remove_dir_all(&dir).ok();
     }

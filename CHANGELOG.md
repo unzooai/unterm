@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.50.2 — 2026-06-18
+
+### Fixed
+
+- **Theme switching now repaints the active input row immediately.** Runtime theme changes update the window config, terminal palette, and line render caches together, so the prompt no longer stays in the previous theme until Enter is pressed.
+- **Bottom status text is vertically centered.** The status bar now accounts for its own vertical padding in layout and paint, avoiding the old low-sitting text.
+- **Terminal appearance polish.** Refined built-in theme palettes, sidebar spacing, active-tab contrast, and the live settings theme switch path so the UI reads more consistently across light and dark skins.
+
 ## v0.50.1 — 2026-06-17
 
 ### Fixed

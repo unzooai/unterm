@@ -177,7 +177,11 @@ fn env_name_for(host: &str) -> String {
     if host == "github.com" {
         "GITHUB_TOKEN".to_string()
     } else {
-        format!("GH_TOKEN_{}", host.replace(|c: char| !c.is_alphanumeric(), "_").to_uppercase())
+        format!(
+            "GH_TOKEN_{}",
+            host.replace(|c: char| !c.is_alphanumeric(), "_")
+                .to_uppercase()
+        )
     }
 }
 

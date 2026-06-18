@@ -273,12 +273,7 @@ fn respond(out: &mut impl Write, id: Option<Value>, result: Value) -> Result<()>
     )
 }
 
-fn respond_err(
-    out: &mut impl Write,
-    id: Option<Value>,
-    code: i64,
-    message: &str,
-) -> Result<()> {
+fn respond_err(out: &mut impl Write, id: Option<Value>, code: i64, message: &str) -> Result<()> {
     write_msg(
         out,
         &json!({

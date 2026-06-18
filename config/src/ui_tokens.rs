@@ -23,11 +23,19 @@ pub const CORNER_RADIUS: f32 = 4.0;
 pub const ROW_PADDING: f32 = 8.0;
 /// Width reserved for the macOS traffic-light cluster in the tab bar.
 pub const MACOS_TRAFFIC_LIGHT_RESERVE: f32 = 70.0;
+/// Extra vertical breathing room around the bottom status-bar text.
+pub const STATUS_BAR_VERTICAL_PADDING: f32 = 2.0;
 
 /// Left tab bar geometry.
-pub const LEFT_TAB_BAR_WIDTH: f32 = 248.0;
-pub const LEFT_TAB_BAR_MIN_WIDTH: f32 = 200.0;
+pub const LEFT_TAB_BAR_WIDTH: f32 = 180.0;
+pub const LEFT_TAB_BAR_MIN_WIDTH: f32 = 112.0;
 /// Max width as a fraction of the window width.
-pub const LEFT_TAB_BAR_MAX_RATIO: f32 = 0.5;
+pub const LEFT_TAB_BAR_MAX_RATIO: f32 = 0.35;
 /// Width of the resize grip on the bar's right edge.
-pub const LEFT_TAB_BAR_GRIP: f32 = 5.0;
+pub const LEFT_TAB_BAR_GRIP: f32 = 10.0;
+
+/// Directory tree sidebar geometry.
+pub const TREE_SIDEBAR_WIDTH: f32 = 168.0;
+pub const TREE_SIDEBAR_MIN_WIDTH: f32 = 112.0;
+pub const TREE_SIDEBAR_MAX_RATIO: f32 = 0.35;
+pub const TREE_SIDEBAR_GRIP: f32 = 10.0;

@@ -164,6 +164,8 @@ Host gitlab.example
         let cs = parse_ssh_config(text, &PathBuf::from("/dev/null/config"));
         assert_eq!(cs.len(), 2);
         assert!(cs.iter().any(|c| c.host.as_deref() == Some("github.com")));
-        assert!(cs.iter().any(|c| c.host.as_deref() == Some("gitlab.example")));
+        assert!(cs
+            .iter()
+            .any(|c| c.host.as_deref() == Some("gitlab.example")));
     }
 }

@@ -146,8 +146,7 @@ impl ProfileFile {
                 .with_context(|| format!("create dir {}", parent.display()))?;
         }
         let tmp = path.with_extension("toml.tmp");
-        std::fs::write(&tmp, body)
-            .with_context(|| format!("write temp file {}", tmp.display()))?;
+        std::fs::write(&tmp, body).with_context(|| format!("write temp file {}", tmp.display()))?;
         std::fs::rename(&tmp, path)
             .with_context(|| format!("rename temp into {}", path.display()))?;
         Ok(())
@@ -216,7 +215,8 @@ mod tests {
         );
         p.git.user_name = "Alex Lee".to_string();
         p.git.user_email = "alex@acme.example".to_string();
-        p.env.insert("NODE_ENV".to_string(), "production".to_string());
+        p.env
+            .insert("NODE_ENV".to_string(), "production".to_string());
         p.expiration
             .insert("GITHUB_TOKEN".to_string(), "2026-09-15".to_string());
 

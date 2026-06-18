@@ -86,6 +86,9 @@ mod tests {
         assert_eq!(env_var_for_namespace("anthropic"), "ANTHROPIC_API_KEY");
         assert_eq!(env_var_for_namespace("openai"), "OPENAI_API_KEY");
         assert_eq!(env_var_for_namespace("google"), "GEMINI_API_KEY");
-        assert_eq!(env_var_for_namespace("custom-vendor"), "CUSTOM_VENDOR_API_KEY");
+        assert_eq!(
+            env_var_for_namespace("custom-vendor"),
+            "CUSTOM_VENDOR_API_KEY"
+        );
     }
 }

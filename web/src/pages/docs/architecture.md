@@ -211,7 +211,7 @@ On disk:
 └── theme.json, lang.json, proxy.json, update_check.json, …
 ```
 
-The MCP `instance.list` / `instance.info` / `instance.focus` / `instance.set_title` methods enumerate these. `unterm-cli session list` walks the directory and offers each instance to the user. `active.json` is updated only when the previous active instance dies — not on every focus event — so disk IO stays minimal.
+The MCP `instance.list` / `instance.info` / `instance.focus` / `instance.set_title` methods enumerate these. `unterm-cli` follows active/latest by default, and `unterm-cli --instance <id> ...` pins MCP-backed commands to one live instance. `active.json` is updated only when the previous active instance dies — not on every focus event — so disk IO stays minimal.
 
 For more on multi-instance discovery and the active-instance handoff, see the multi-instance doc (separate page).
 

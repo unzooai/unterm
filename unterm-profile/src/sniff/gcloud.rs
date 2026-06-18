@@ -54,11 +54,10 @@ pub fn sniff() -> Result<Vec<Candidate>> {
         return Ok(Vec::new());
     }
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let parsed: Vec<GcloudConfiguration> =
-        match serde_json::from_str(stdout.trim()) {
-            Ok(p) => p,
-            Err(_) => return Ok(Vec::new()),
-        };
+    let parsed: Vec<GcloudConfiguration> = match serde_json::from_str(stdout.trim()) {
+        Ok(p) => p,
+        Err(_) => return Ok(Vec::new()),
+    };
 
     // The configurations file itself lives at this path; we use it
     // as the candidate's origin so wizard tooltips can point users
@@ -104,7 +103,11 @@ pub fn sniff() -> Result<Vec<Candidate>> {
 fn which_gcloud() -> Option<PathBuf> {
     let path_env = std::env::var_os("PATH")?;
     for dir in std::env::split_paths(&path_env) {
-        let candidate = dir.join(if cfg!(windows) { "gcloud.cmd" } else { "gcloud" });
+        let candidate = dir.join(if cfg!(windows) {
+            "gcloud.cmd"
+        } else {
+            "gcloud"
+        });
         if candidate.is_file() {
             return Some(candidate);
         }

@@ -207,9 +207,7 @@ fn apply_unterm_profile_env(cmd_builder: &mut Option<CommandBuilder>) {
     let env = match registry.resolve_env(store.as_ref(), profile_id) {
         Ok(e) => e,
         Err(e) => {
-            log::warn!(
-                "apply_unterm_profile_env: resolve_env({profile_id}) failed: {e:#}"
-            );
+            log::warn!("apply_unterm_profile_env: resolve_env({profile_id}) failed: {e:#}");
             return;
         }
     };
@@ -388,9 +386,7 @@ pub(crate) fn apply_unterm_windows_utf8_to_spawn(spawn: &mut config::keyassignme
 }
 
 #[cfg(not(windows))]
-pub(crate) fn apply_unterm_windows_utf8_to_spawn(
-    _spawn: &mut config::keyassignment::SpawnCommand,
-) {
+pub(crate) fn apply_unterm_windows_utf8_to_spawn(_spawn: &mut config::keyassignment::SpawnCommand) {
 }
 
 fn read_unterm_proxy_env() -> Option<Vec<(String, String)>> {
@@ -565,8 +561,12 @@ mod proxy_guard_tests {
         // Bind an ephemeral port so the probe has a live endpoint to find.
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
-        assert!(proxy_endpoint_reachable(&format!("http://127.0.0.1:{port}")));
-        assert!(proxy_endpoint_reachable(&format!("socks5://127.0.0.1:{port}")));
+        assert!(proxy_endpoint_reachable(&format!(
+            "http://127.0.0.1:{port}"
+        )));
+        assert!(proxy_endpoint_reachable(&format!(
+            "socks5://127.0.0.1:{port}"
+        )));
     }
 
     #[test]
@@ -577,7 +577,9 @@ mod proxy_guard_tests {
             let listener = TcpListener::bind("127.0.0.1:0").unwrap();
             listener.local_addr().unwrap().port()
         };
-        assert!(!proxy_endpoint_reachable(&format!("http://127.0.0.1:{port}")));
+        assert!(!proxy_endpoint_reachable(&format!(
+            "http://127.0.0.1:{port}"
+        )));
     }
 
     #[test]

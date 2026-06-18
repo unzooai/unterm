@@ -245,8 +245,7 @@ fn claim_instance_name() -> Result<String> {
     fs::create_dir_all(&dir).ok();
 
     let alive = live_instances_locked();
-    let taken: std::collections::HashSet<String> =
-        alive.iter().map(|i| i.id.clone()).collect();
+    let taken: std::collections::HashSet<String> = alive.iter().map(|i| i.id.clone()).collect();
 
     // First pass: NATO base names.
     for name in NATO_NAMES {

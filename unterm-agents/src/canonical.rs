@@ -60,7 +60,10 @@ mod tests {
     fn keys_sorted_lexicographically() {
         let v = json!({ "b": 1, "a": 2, "c": 3 });
         let bytes = to_canonical_bytes(&v);
-        assert_eq!(std::str::from_utf8(&bytes).unwrap(), r#"{"a":2,"b":1,"c":3}"#);
+        assert_eq!(
+            std::str::from_utf8(&bytes).unwrap(),
+            r#"{"a":2,"b":1,"c":3}"#
+        );
     }
 
     #[test]

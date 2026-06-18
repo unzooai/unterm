@@ -203,8 +203,8 @@ struct ClientReport {
 }
 
 pub fn run(cmd: SetupAiCommand, json_out: bool) -> Result<()> {
-    let home = dirs_next::home_dir()
-        .ok_or_else(|| anyhow::anyhow!("cannot resolve home directory"))?;
+    let home =
+        dirs_next::home_dir().ok_or_else(|| anyhow::anyhow!("cannot resolve home directory"))?;
     let cli = unterm_cli_path();
 
     let filter: Option<Vec<String>> = if cmd.clients.is_empty() {
@@ -232,14 +232,18 @@ pub fn run(cmd: SetupAiCommand, json_out: bool) -> Result<()> {
             continue;
         }
 
-        let mcp = apply_mcp(&home.join(c.mcp_path), c.mcp_format, &cli, cmd.remove, cmd.dry_run);
+        let mcp = apply_mcp(
+            &home.join(c.mcp_path),
+            c.mcp_format,
+            &cli,
+            cmd.remove,
+            cmd.dry_run,
+        );
 
         let context = match (c.context_path, cmd.no_context) {
             (_, true) => Some(Action::Skipped("--no-context")),
             (None, _) => None,
-            (Some(p), false) => {
-                Some(apply_context(&home.join(p), cmd.remove, cmd.dry_run))
-            }
+            (Some(p), false) => Some(apply_context(&home.join(p), cmd.remove, cmd.dry_run)),
         };
 
         reports.push(ClientReport {
@@ -305,13 +309,7 @@ fn write_stamp(home: &Path) {
 // MCP config registration
 // ---------------------------------------------------------------------------
 
-fn apply_mcp(
-    path: &Path,
-    format: McpFormat,
-    cli: &str,
-    remove: bool,
-    dry_run: bool,
-) -> Action {
+fn apply_mcp(path: &Path, format: McpFormat, cli: &str, remove: bool, dry_run: bool) -> Action {
     match format {
         McpFormat::JsonServers => apply_mcp_json(path, cli, remove, dry_run, "mcpServers", false),
         McpFormat::OpenCode => apply_mcp_json(path, cli, remove, dry_run, "mcp", true),
@@ -410,10 +408,18 @@ fn apply_mcp_toml(path: &Path, cli: &str, remove: bool, dry_run: bool) -> Action
     }
 
     if before == after {
-        return if remove { Action::Removed } else { Action::Unchanged };
+        return if remove {
+            Action::Removed
+        } else {
+            Action::Unchanged
+        };
     }
     if dry_run {
-        return if remove { Action::Removed } else { Action::Wrote };
+        return if remove {
+            Action::Removed
+        } else {
+            Action::Wrote
+        };
     }
     let text = match toml::to_string_pretty(&after) {
         Ok(t) => t,
@@ -431,18 +437,20 @@ fn apply_mcp_toml(path: &Path, cli: &str, remove: bool, dry_run: bool) -> Action
     }
 }
 
-fn commit_json(
-    path: &Path,
-    before: &Value,
-    after: &Value,
-    remove: bool,
-    dry_run: bool,
-) -> Action {
+fn commit_json(path: &Path, before: &Value, after: &Value, remove: bool, dry_run: bool) -> Action {
     if before == after {
-        return if remove { Action::Removed } else { Action::Unchanged };
+        return if remove {
+            Action::Removed
+        } else {
+            Action::Unchanged
+        };
     }
     if dry_run {
-        return if remove { Action::Removed } else { Action::Wrote };
+        return if remove {
+            Action::Removed
+        } else {
+            Action::Wrote
+        };
     }
     let text = match serde_json::to_string_pretty(after) {
         Ok(t) => t,
@@ -476,10 +484,18 @@ fn apply_context(path: &Path, remove: bool, dry_run: bool) -> Action {
     };
 
     if new == existing {
-        return if remove { Action::NotPresent } else { Action::Unchanged };
+        return if remove {
+            Action::NotPresent
+        } else {
+            Action::Unchanged
+        };
     }
     if dry_run {
-        return if remove { Action::Removed } else { Action::Wrote };
+        return if remove {
+            Action::Removed
+        } else {
+            Action::Wrote
+        };
     }
     match write_create(path, &new) {
         Ok(()) => {
@@ -559,19 +575,28 @@ fn read_json(path: &Path) -> std::result::Result<Value, String> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(json!({})),
         Err(e) => Err(format!("read {}: {e}", path.display())),
         Ok(s) if s.trim().is_empty() => Ok(json!({})),
-        Ok(s) => serde_json::from_str(&s)
-            .map_err(|e| format!("{} exists but is not valid JSON ({e}); refusing to overwrite", path.display())),
+        Ok(s) => serde_json::from_str(&s).map_err(|e| {
+            format!(
+                "{} exists but is not valid JSON ({e}); refusing to overwrite",
+                path.display()
+            )
+        }),
     }
 }
 
 fn read_toml(path: &Path) -> std::result::Result<toml::Value, String> {
     match std::fs::read_to_string(path) {
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(toml::Value::Table(Default::default())),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            Ok(toml::Value::Table(Default::default()))
+        }
         Err(e) => Err(format!("read {}: {e}", path.display())),
         Ok(s) if s.trim().is_empty() => Ok(toml::Value::Table(Default::default())),
-        Ok(s) => s
-            .parse::<toml::Value>()
-            .map_err(|e| format!("{} exists but is not valid TOML ({e}); refusing to overwrite", path.display())),
+        Ok(s) => s.parse::<toml::Value>().map_err(|e| {
+            format!(
+                "{} exists but is not valid TOML ({e}); refusing to overwrite",
+                path.display()
+            )
+        }),
     }
 }
 
@@ -582,12 +607,13 @@ fn read_toml(path: &Path) -> std::result::Result<toml::Value, String> {
 /// stays on one filesystem.
 fn write_create(path: &Path, text: &str) -> std::result::Result<(), String> {
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("create {}: {e}", parent.display()))?;
+        std::fs::create_dir_all(parent).map_err(|e| format!("create {}: {e}", parent.display()))?;
     }
     let tmp = path.with_file_name(format!(
         "{}.unterm-tmp",
-        path.file_name().and_then(|n| n.to_str()).unwrap_or("config")
+        path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("config")
     ));
     std::fs::write(&tmp, text).map_err(|e| format!("write {}: {e}", tmp.display()))?;
     std::fs::rename(&tmp, path).map_err(|e| {
@@ -628,7 +654,11 @@ fn render(reports: &[ClientReport], cmd: &SetupAiCommand, cli: &str, json_out: b
     } else {
         "Registering Unterm with"
     };
-    let dry = if cmd.dry_run { "  (dry run — nothing written)" } else { "" };
+    let dry = if cmd.dry_run {
+        "  (dry run — nothing written)"
+    } else {
+        ""
+    };
     println!("{verb} AI agents on this machine{dry}");
     println!("  unterm-cli: {cli}\n");
 
@@ -665,7 +695,8 @@ mod tests {
     use super::*;
 
     fn tmp(name: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("unterm-setupai-{}-{}", name, std::process::id()));
+        let d =
+            std::env::temp_dir().join(format!("unterm-setupai-{}-{}", name, std::process::id()));
         std::fs::create_dir_all(&d).unwrap();
         d
     }
@@ -688,7 +719,10 @@ mod tests {
         let a = apply_mcp_json(&path, "/opt/unterm-cli", false, false, "mcpServers", false);
         assert!(matches!(a, Action::Wrote));
         let v = rj(&path);
-        assert_eq!(v["mcpServers"]["other"]["command"], "x", "clobbered sibling");
+        assert_eq!(
+            v["mcpServers"]["other"]["command"], "x",
+            "clobbered sibling"
+        );
         assert_eq!(v["mcpServers"]["unterm"]["type"], "stdio");
         assert_eq!(v["mcpServers"]["unterm"]["command"], "/opt/unterm-cli");
         assert_eq!(v["mcpServers"]["unterm"]["args"][0], "mcp-stdio");
@@ -696,7 +730,10 @@ mod tests {
 
         // Second run = no change.
         let b = apply_mcp_json(&path, "/opt/unterm-cli", false, false, "mcpServers", false);
-        assert!(matches!(b, Action::Unchanged), "second run should be a no-op");
+        assert!(
+            matches!(b, Action::Unchanged),
+            "second run should be a no-op"
+        );
 
         // Remove pulls our entry, leaves the sibling.
         let c = apply_mcp_json(&path, "/opt/unterm-cli", true, false, "mcpServers", false);
@@ -717,7 +754,10 @@ mod tests {
         let path = dir.join("opencode.json");
         apply_mcp_json(&path, "/opt/unterm-cli", false, false, "mcp", true);
         let v = rj(&path);
-        assert!(v.get("mcpServers").is_none(), "opencode must not use mcpServers");
+        assert!(
+            v.get("mcpServers").is_none(),
+            "opencode must not use mcpServers"
+        );
         assert_eq!(v["mcp"]["unterm"]["type"], "local");
         assert_eq!(v["mcp"]["unterm"]["enabled"], true);
         assert_eq!(v["mcp"]["unterm"]["command"][0], "/opt/unterm-cli");
@@ -733,8 +773,14 @@ mod tests {
         apply_mcp_toml(&path, "/opt/unterm-cli", false, false);
         let doc: toml::Value = std::fs::read_to_string(&path).unwrap().parse().unwrap();
         assert_eq!(doc["model"].as_str(), Some("gpt-5"), "preserved user key");
-        assert_eq!(doc["mcp_servers"]["unterm"]["command"].as_str(), Some("/opt/unterm-cli"));
-        assert_eq!(doc["mcp_servers"]["unterm"]["args"][0].as_str(), Some("mcp-stdio"));
+        assert_eq!(
+            doc["mcp_servers"]["unterm"]["command"].as_str(),
+            Some("/opt/unterm-cli")
+        );
+        assert_eq!(
+            doc["mcp_servers"]["unterm"]["args"][0].as_str(),
+            Some("mcp-stdio")
+        );
 
         assert!(matches!(
             apply_mcp_toml(&path, "/opt/unterm-cli", false, false),
@@ -745,7 +791,10 @@ mod tests {
             Action::Removed
         ));
         let doc: toml::Value = std::fs::read_to_string(&path).unwrap().parse().unwrap();
-        assert!(doc.get("mcp_servers").and_then(|s| s.get("unterm")).is_none());
+        assert!(doc
+            .get("mcp_servers")
+            .and_then(|s| s.get("unterm"))
+            .is_none());
         assert_eq!(doc["model"].as_str(), Some("gpt-5"));
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -758,12 +807,18 @@ mod tests {
 
         assert!(matches!(apply_context(&path, false, false), Action::Wrote));
         let body = std::fs::read_to_string(&path).unwrap();
-        assert!(body.starts_with("# My rules"), "user content preserved at top");
+        assert!(
+            body.starts_with("# My rules"),
+            "user content preserved at top"
+        );
         assert!(body.contains("## Unterm — the terminal you can drive"));
         assert!(body.contains(BLOCK_BEGIN) && body.contains(BLOCK_END));
 
         // Idempotent.
-        assert!(matches!(apply_context(&path, false, false), Action::Unchanged));
+        assert!(matches!(
+            apply_context(&path, false, false),
+            Action::Unchanged
+        ));
 
         // Editing the brief re-syncs in place (simulate drift by mangling block).
         let mangled = body.replace("the terminal you can drive", "OUTDATED");
@@ -779,7 +834,10 @@ mod tests {
         let body = std::fs::read_to_string(&path).unwrap();
         assert!(!body.contains(BLOCK_BEGIN));
         assert!(body.contains("# My rules") && body.contains("Use tabs."));
-        assert!(matches!(apply_context(&path, true, false), Action::NotPresent));
+        assert!(matches!(
+            apply_context(&path, true, false),
+            Action::NotPresent
+        ));
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -823,8 +881,16 @@ mod tests {
         .unwrap();
         assert!(matches!(apply_context(&path, false, false), Action::Wrote));
         let body = std::fs::read_to_string(&path).unwrap();
-        assert_eq!(body.matches(BLOCK_BEGIN).count(), 1, "exactly one block after repair");
-        assert_eq!(body.matches(BLOCK_END).count(), 1, "dangling block got an END");
+        assert_eq!(
+            body.matches(BLOCK_BEGIN).count(),
+            1,
+            "exactly one block after repair"
+        );
+        assert_eq!(
+            body.matches(BLOCK_END).count(),
+            1,
+            "dangling block got an END"
+        );
         assert!(body.starts_with("# rules"), "user text preserved");
         assert!(!body.contains("half written"), "truncated remnant cleared");
 
@@ -845,13 +911,22 @@ mod tests {
         let json = dir.join(".cursor-mcp.json");
         apply_mcp_json(&json, "/opt/unterm-cli", false, false, "mcpServers", false);
         apply_mcp_json(&json, "/opt/unterm-cli", true, false, "mcpServers", false);
-        assert!(rj(&json).get("mcpServers").is_none(), "empty mcpServers pruned");
+        assert!(
+            rj(&json).get("mcpServers").is_none(),
+            "empty mcpServers pruned"
+        );
         // TOML: same for [mcp_servers].
         let toml_path = dir.join("config.toml");
         apply_mcp_toml(&toml_path, "/opt/unterm-cli", false, false);
         apply_mcp_toml(&toml_path, "/opt/unterm-cli", true, false);
-        let doc: toml::Value = std::fs::read_to_string(&toml_path).unwrap().parse().unwrap();
-        assert!(doc.get("mcp_servers").is_none(), "empty [mcp_servers] pruned");
+        let doc: toml::Value = std::fs::read_to_string(&toml_path)
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert!(
+            doc.get("mcp_servers").is_none(),
+            "empty [mcp_servers] pruned"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 

@@ -167,9 +167,9 @@ fn compute_tab_title(
                 // `gemini` / `aider` / `opencode` / `cursor-agent`) light
                 // up the chip even when they never call MCP write
                 // methods themselves.
-                let proc_info = mux::Mux::get()
-                    .get_pane(pane.pane_id)
-                    .and_then(|p| p.get_foreground_process_info(mux::pane::CachePolicy::AllowStale));
+                let proc_info = mux::Mux::get().get_pane(pane.pane_id).and_then(|p| {
+                    p.get_foreground_process_info(mux::pane::CachePolicy::AllowStale)
+                });
                 let agent_name = crate::mcp::handler::detect_agent_for_pane(
                     pane.pane_id as u64,
                     proc_info.as_ref(),
@@ -789,8 +789,12 @@ pub fn detect_shell_icon(title: &str) -> &'static str {
     // AI agents — covered here for completeness when the agent registry
     // hasn't bound the pane yet (e.g. early frames before the MCP
     // detection lands). Agent-bound panes also flow through this fn.
-    if lower.contains("claude") || lower.contains("codex") || lower.contains("gemini")
-        || lower.contains("aider") || lower.contains("opencode") || lower.contains("cursor agent")
+    if lower.contains("claude")
+        || lower.contains("codex")
+        || lower.contains("gemini")
+        || lower.contains("aider")
+        || lower.contains("opencode")
+        || lower.contains("cursor agent")
     {
         "\u{f06a9}" // md_robot
     } else if lower.contains("pwsh") || lower.contains("powershell") {
@@ -801,8 +805,12 @@ pub fn detect_shell_icon(title: &str) -> &'static str {
         "\u{ebca}" // cod_terminal_bash
     } else if lower.contains("ssh") {
         "\u{eb3a}" // cod_remote
-    } else if lower.contains("zsh") || lower.contains("fish") || lower.contains("nushell")
-        || lower.contains("nu.exe") || lower.ends_with(" nu") || lower.contains("wsl")
+    } else if lower.contains("zsh")
+        || lower.contains("fish")
+        || lower.contains("nushell")
+        || lower.contains("nu.exe")
+        || lower.ends_with(" nu")
+        || lower.contains("wsl")
     {
         "\u{ea85}" // cod_terminal
     } else if lower.contains("python") || lower.contains("python3") || lower.contains("ipython") {

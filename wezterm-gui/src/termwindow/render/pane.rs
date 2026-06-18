@@ -273,9 +273,10 @@ impl crate::TermWindow {
             let bottom_chrome = bottom_bar_height as usize
                 + self.status_bar_pixel_height() as usize
                 + self.suggest_bar_pixel_height() as usize;
-            let track_height = self.dimensions.pixel_height.saturating_sub(
-                thumb_y_offset + border.bottom.get() + bottom_chrome,
-            );
+            let track_height = self
+                .dimensions
+                .pixel_height
+                .saturating_sub(thumb_y_offset + border.bottom.get() + bottom_chrome);
             let info = ScrollHit::thumb(
                 &*pos.pane,
                 current_viewport,
@@ -839,7 +840,8 @@ impl crate::TermWindow {
         let (padding_left, padding_top) = self.padding_left_top();
         let border = self.get_os_border();
         let tab_bar_height = if self.show_tab_bar {
-            self.tab_bar_pixel_height().context("tab_bar_pixel_height")?
+            self.tab_bar_pixel_height()
+                .context("tab_bar_pixel_height")?
         } else {
             0.0
         };
@@ -854,9 +856,7 @@ impl crate::TermWindow {
         let pane_right = if pos.left + pos.width >= self.terminal_size.cols as usize {
             self.dimensions.pixel_width as f32
         } else {
-            padding_left
-                + border.left.get() as f32
-                + ((pos.left + pos.width) as f32 * cell_width)
+            padding_left + border.left.get() as f32 + ((pos.left + pos.width) as f32 * cell_width)
         };
         // Top of the pane's black background (mirrors background_rect): for the
         // topmost pane that's a padding-height above the first text row, for a
@@ -903,7 +903,8 @@ impl crate::TermWindow {
         // 提前算 pt 与中心给 chip 用(✕ 已右移贴近滚动条)。
         let pt_scale_chip = self.dimensions.dpi as f32 / 72.0;
         let arm_for_chip = (chip * 0.22f32).max(3.0);
-        let cx_chip = (pane_right - (5.0 + 2.0) * pt_scale_chip - arm_for_chip).max(button_x + arm_for_chip);
+        let cx_chip =
+            (pane_right - (5.0 + 2.0) * pt_scale_chip - arm_for_chip).max(button_x + arm_for_chip);
         if hovered {
             // Soft hover chip — a centered, inset square reads as a rounded
             // "pill" without real corner rounding. Low alpha keeps it muted.

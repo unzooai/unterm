@@ -18,6 +18,22 @@ pub struct SessionCommand {
 pub enum SessionSubCommand {
     /// List live panes (sessions).
     List,
+    /// Spawn a new tab.
+    Create {
+        /// Working directory for the new tab.
+        #[arg(long)]
+        cwd: Option<PathBuf>,
+        /// Identity profile to apply to this tab's environment.
+        #[arg(long)]
+        profile: Option<String>,
+        /// Shell command to run. Use `--` before commands with flags.
+        #[arg(
+            value_name = "COMMAND",
+            trailing_var_arg = true,
+            allow_hyphen_values = true
+        )]
+        command: Vec<String>,
+    },
     /// Manage block recording for a pane.
     Record(RecordCommand),
     /// Export a pane's block log as Markdown.
@@ -93,6 +109,37 @@ pub fn run(cmd: SessionCommand, json_out: bool) -> Result<()> {
                         let title = s.get("title").and_then(|v| v.as_str()).unwrap_or("");
                         println!("{:<5} {:<6} {:<6} {:<10} {}", id, cols, rows, shell, title);
                     }
+                }
+            }
+        }
+        SessionSubCommand::Create {
+            cwd,
+            profile,
+            command,
+        } => {
+            let mut params = json!({});
+            if let Some(cwd) = cwd.as_ref() {
+                params["cwd"] = json!(cwd.display().to_string());
+            }
+            if let Some(profile) = profile.as_ref() {
+                params["profile"] = json!(profile);
+            }
+            let command = command.join(" ");
+            if !command.trim().is_empty() {
+                params["command"] = json!(command);
+            }
+            let result = client.call("session.create", params)?;
+            if json_out {
+                print_json(&result);
+            } else {
+                if let Some(id) = result.get("id").and_then(|v| v.as_u64()) {
+                    print_kv("Pane", &id.to_string());
+                }
+                if let Some(title) = result.get("title").and_then(|v| v.as_str()) {
+                    print_kv("Title", title);
+                }
+                if let Some(profile) = result.get("profile").and_then(|v| v.as_str()) {
+                    print_kv("Profile", profile);
                 }
             }
         }

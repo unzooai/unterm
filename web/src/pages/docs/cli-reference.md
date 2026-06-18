@@ -10,7 +10,7 @@ date: 2026-05-03
 
 `unterm-cli` is a thin JSON-RPC client. It does almost nothing on its own — every subcommand opens a TCP connection to the running Unterm GUI's MCP server, completes an `auth.login` handshake, and forwards the call.
 
-When the GUI starts it writes `~/.unterm/server.json` with three fields:
+When the GUI starts it writes `~/.unterm/instances/<name>.json`, updates `~/.unterm/active.json`, and mirrors the active endpoint to `~/.unterm/server.json` for older scripts. The compatibility file has three core fields:
 
 ```json
 {
@@ -20,14 +20,16 @@ When the GUI starts it writes `~/.unterm/server.json` with three fields:
 }
 ```
 
-The CLI reads that file on every invocation and dials `127.0.0.1:<mcp_port>`. The token is per-launch — it rotates whenever the GUI restarts, and the file is written `0600` so other users on the host cannot read it. There is a fallback to the legacy `~/.unterm/auth_token` + port `19876` for builds that pre-date the multi-instance work, but new builds always use `server.json`.
+By default the CLI resolves the live active instance first, then the newest live instance under `~/.unterm/instances/`, then falls back to `server.json`, and finally to the legacy `~/.unterm/auth_token` + port `19876` for old builds. You can pin a command to one window with `--instance <id>` or `UNTERM_INSTANCE=<id>`.
+
+The token is per-launch — it rotates whenever the GUI restarts, and the files are written `0600` so other users on the host cannot read them.
 
 A few consequences worth knowing before you wire scripts:
 
 - **The GUI must be running.** No GUI, no MCP, no CLI. The error you'll get is `unterm GUI is not running — open Unterm.app to start the MCP server, or run 'unterm start' first`. Cron jobs that fire at boot should depend on the launch agent that owns Unterm.
 - **Everything is local.** Both servers bind `127.0.0.1` only. Nothing on the LAN can reach them. There is no telemetry; the CLI never phones home.
 - **The CLI is exactly the MCP surface, no more.** If a method exists on MCP, it's either reachable from the CLI today or trivially exposable. There is no parallel business logic — `unterm-cli` is a delivery shim.
-- **Multi-instance / `active.json` is not yet wired.** Today there is one server per host; the CLI does not take an `--instance` flag. If you launch two Unterm windows on the same host, the second one's MCP server overwrites `server.json` and the CLI follows it.
+- **Multi-instance is first-class.** Use `unterm-cli --instance alpha session list` to target a specific window, or omit `--instance` to follow active/latest. This keeps agent scripts deterministic when several Unterm windows are open.
 
 The wire format is line-delimited JSON-RPC 2.0 — one request per line, one response per line. If you ever need to bypass the CLI and talk to MCP directly (Python, Node, curl-with-netcat, whatever), the protocol is documented in `wezterm-gui/src/mcp/server.rs`.
 
@@ -37,8 +39,9 @@ These are accepted on every subcommand because they're declared `global = true` 
 
 | Flag | Purpose |
 |---|---|
-| `--json` | Print the raw JSON-RPC `result` payload instead of the human-formatted table. Recognised by `proxy`, `theme`, `session`, `sessions`, `screenshot`, `lang`. Ignored by `settings open` (that command never round-trips through MCP). |
+| `--json` | Print the raw JSON-RPC `result` payload instead of the human-formatted table. Recognised by `proxy`, `theme`, `session`, `sessions`, `workspace`, `instance`, `screenshot`, `lang`. Ignored by `settings open` (that command never round-trips through MCP). |
 | `--lang <code>` | Force the CLI's interface locale for this single invocation. Does not write to `~/.unterm/lang.json`. Useful in scripts that need stable English output regardless of how the user has configured the GUI. Codes: `en-US`, `zh-CN`, `zh-TW`, `ja-JP`, `ko-KR`, `de-DE`, `fr-FR`, `it-IT`, `hi-IN`. |
+| `--instance <id>` | Route MCP-backed commands to a specific live Unterm instance, for example `alpha` or `bravo`. Equivalent to setting `UNTERM_INSTANCE=<id>` for the invocation. |
 | `-h`, `--help` | Print help for the current subcommand level. |
 | `-V`, `--version` | Print the binary version (matches the GUI build, e.g. `unterm-cli 20260503-201120-8ceb3f23`). |
 
@@ -154,10 +157,11 @@ When you flip proxies in Unterm's GUI, you don't have to restart shells — open
 
 ## session
 
-Operates on a single live pane. "Session" here means one terminal tab/pane in the running GUI. The MCP method names are `session.list`, `session.recording_start/stop/status`, and `session.export_markdown`.
+Operates on a single live pane. "Session" here means one terminal tab/pane in the running GUI. The MCP method names are `session.list`, `session.create`, `session.recording_start/stop/status`, and `session.export_markdown`.
 
 ```text
 unterm-cli session list
+unterm-cli session create [--cwd DIR] [--profile NAME] [-- COMMAND]
 unterm-cli session record start [--id <ID>]
 unterm-cli session record stop  [--id <ID>]
 unterm-cli session record status [--id <ID>]
@@ -195,6 +199,29 @@ $ unterm-cli --json session list
 ```
 
 The IDs are stable for the lifetime of a pane and monotonically increasing. They are *not* reused after a pane closes, so a script that snapshots IDs once and replays them later is safe — at worst you'll get "Session 7 not found" rather than acting on the wrong pane.
+
+### `session create`
+
+Creates a new tab in the target instance. With no arguments it opens the default shell. `--cwd` sets the starting directory, `--profile` overlays an identity profile's environment for this tab, and a trailing command runs through the platform shell.
+
+```sh
+$ unterm-cli session create --cwd /tmp -- 'printf "hello from unterm\n"; exec zsh'
+Pane: 12
+Title: zsh
+```
+
+```sh
+$ unterm-cli --instance bravo --json session create --profile work -- 'gh auth status; exec zsh'
+{
+  "command": "gh auth status; exec zsh",
+  "cols": 217,
+  "id": 12,
+  "profile": "work",
+  "rows": 60,
+  "session_id": "12",
+  "title": "zsh"
+}
+```
 
 ### `session record start`
 
@@ -321,16 +348,95 @@ LAST=$(unterm-cli --json sessions list --project unterm | jq -r '.[-1].unterm_se
 unterm-cli sessions read "$LAST" | claude -p "summarise what I did in this session"
 ```
 
+## workspace
+
+Save and restore named pane workspaces. This wraps `workspace.save`, `workspace.restore`, and `workspace.list` on MCP.
+
+```text
+unterm-cli workspace list
+unterm-cli workspace save <NAME>
+unterm-cli workspace restore <NAME> [--dry-run]
+```
+
+`workspace save` snapshots the current panes' titles and working directories into `~/.unterm/workspaces/<NAME>.json`. `workspace restore` opens new tabs for the saved working directories; it does not close or replace the panes you already have open.
+
+Use `--dry-run` before restoring a large workspace:
+
+```sh
+$ unterm-cli --json workspace restore release-train --dry-run | jq '.planned[].cwd'
+```
+
+## instance
+
+List, inspect, label, or focus live Unterm windows. This is the companion to the global `--instance <id>` flag: first discover the instance id, then route future commands to that window.
+
+```text
+unterm-cli instance list
+unterm-cli instance info
+unterm-cli instance set-title "release train"
+unterm-cli instance set-title --clear
+unterm-cli instance focus
+```
+
+`instance list` reads the live instance registry through MCP and omits auth tokens from the table. Use `--json` when a script needs to pick by cwd, title, pid, or port:
+
+```sh
+$ unterm-cli --json instance list | jq '.instances[] | {id,title,cwd,pid}'
+```
+
+Once you know the id, target that window explicitly:
+
+```sh
+$ unterm-cli --instance bravo session create --cwd ~/src/app -- 'cargo test; exec zsh'
+```
+
+## agent
+
+Install, authenticate, configure, launch, or run AI coding-agent CLIs through Unterm's profile and MCP wiring. `agent launch` opens the vendor CLI interactively; `agent run` uses the vendor's non-interactive mode and waits for the task to finish.
+
+```text
+unterm-cli agent run <codex-cli|claude-code> [--profile <id>] [--cwd <path>] [--stdin] [--dry-run] <prompt...>
+```
+
+`agent run` currently supports:
+
+| Agent | Headless command used by Unterm |
+|---|---|
+| `codex-cli` | `codex exec <prompt>` |
+| `claude-code` | `claude -p <prompt>` |
+
+The command reuses the same auth mode and settings as `agent launch`. If the agent is signed in with its official subscription flow in Web Settings -> AI Agents, Unterm does not inject an API key or switch it to per-token billing.
+
+| Flag | Purpose |
+|---|---|
+| `--profile <id>` | Run with a specific Unterm identity profile. |
+| `--cwd <path>` | Run from a specific project directory. |
+| `--stdin` | Read additional prompt text from stdin; useful for diffs, logs, and exported sessions. |
+| `--dry-run` | Print the command and redacted environment instead of starting the agent. |
+
+```sh
+$ unterm-cli agent run codex-cli --cwd ~/src/app "review this diff and list risky changes"
+```
+
+```sh
+$ unterm-cli agent run claude-code --profile work "summarise the last failing test output"
+```
+
+```sh
+$ git diff | unterm-cli agent run codex-cli --stdin "review this diff"
+```
+
 ## settings
 
 Open the Web Settings UI in your default browser. This subcommand does *not* hit MCP — it reads `server.json` directly to find the `http_port` and shells out to `open` / `xdg-open` / `cmd /C start`.
 
 ```text
-unterm-cli settings open [--print-only]
+unterm-cli settings open [--section <name>] [--print-only]
 ```
 
 | Flag | Purpose |
 |---|---|
+| `--section <name>` | Open directly to a Web Settings section: `general`, `profiles`, `agents`, `mcp`, `appearance`, `proxy`, `scrollback`, `compat`, `recording`, `project`, `reference`, or `about`. |
 | `--print-only` | Print the URL and exit; don't launch a browser. |
 
 ```sh
@@ -339,8 +445,13 @@ http://127.0.0.1:19877
 ```
 
 ```sh
-$ unterm-cli settings open
-http://127.0.0.1:19877
+$ unterm-cli settings open --section agents --print-only
+http://127.0.0.1:19877#agents
+```
+
+```sh
+$ unterm-cli settings open --section recording
+http://127.0.0.1:19877#recording
 # (browser tab opens)
 ```
 
@@ -394,23 +505,25 @@ unterm-cli theme list
 unterm-cli theme switch <NAME>   # alias: theme set
 ```
 
-The four built-in presets are `standard`, `midnight`, `daylight`, `classic`.
+The six built-in presets are `standard`, `midnight`, `daylight`, `classic`, `notion-dark`, and `notion-light`.
 
 ```sh
 $ unterm-cli theme list
 Active: classic
 
    ID         NAME           COLOR SCHEME                 DESCRIPTION
-   standard   Standard       Catppuccin Mocha             Balanced dark terminal style
-   midnight   Midnight       Tokyo Night                  Low-glare blue-black workspace
-   daylight   Daylight       Builtin Solarized Light      Readable light mode for bright rooms
+   standard   Standard       Unterm Dark                  Neutral high-contrast terminal style
+   midnight   Midnight       Unterm Midnight              Low-glare blue-black workspace
+   daylight   Daylight       Unterm Daylight              Readable light mode for bright rooms
 *  classic    Classic        Builtin Tango Dark           Plain high-contrast terminal colors
+   notion-dark Notion Dark    Notion Dark                  Notion-inspired warm dark
+   notion-light Notion Light  Notion Light                 Notion-inspired clean light
 ```
 
 ```sh
 $ unterm-cli --json theme switch daylight
 {
-  "color_scheme": "Builtin Solarized Light",
+  "color_scheme": "Unterm Daylight",
   "id": "daylight",
   "name": "Daylight",
   "switched": true

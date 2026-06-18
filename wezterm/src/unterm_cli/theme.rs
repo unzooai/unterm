@@ -4,6 +4,7 @@
 //! No MCP method is involved: theme.json is the single source of truth and
 //! `wezterm-gui/src/overlay/theme_selector.rs` reads/writes the same shape.
 
+use super::client;
 use super::i18n;
 use super::output::print_json;
 use anyhow::{anyhow, Context, Result};
@@ -15,19 +16,19 @@ const PRESETS: &[ThemePreset] = &[
     ThemePreset {
         id: "standard",
         name: "Standard",
-        scheme: "Catppuccin Mocha",
-        desc: "Balanced dark terminal style",
+        scheme: "Unterm Dark",
+        desc: "Neutral high-contrast terminal style",
     },
     ThemePreset {
         id: "midnight",
         name: "Midnight",
-        scheme: "Tokyo Night",
+        scheme: "Unterm Midnight",
         desc: "Low-glare blue-black workspace",
     },
     ThemePreset {
         id: "daylight",
         name: "Daylight",
-        scheme: "Builtin Solarized Light",
+        scheme: "Unterm Daylight",
         desc: "Readable light mode for bright rooms",
     },
     ThemePreset {
@@ -110,11 +111,13 @@ pub fn run(cmd: ThemeCommand, json_out: bool) -> Result<()> {
                     i18n::t("cli.theme.head.desc")
                 );
                 for p in PRESETS {
-                    let marker = if Some(p.id) == active.as_deref() { "*" } else { " " };
-                    let translated_name =
-                        i18n::t(&format!("theme.preset.{}.name", p.id));
-                    let translated_desc =
-                        i18n::t(&format!("theme.preset.{}.desc", p.id));
+                    let marker = if Some(p.id) == active.as_deref() {
+                        "*"
+                    } else {
+                        " "
+                    };
+                    let translated_name = i18n::t(&format!("theme.preset.{}.name", p.id));
+                    let translated_desc = i18n::t(&format!("theme.preset.{}.desc", p.id));
                     println!(
                         "{:<2} {:<10} {:<14} {:<28} {}",
                         marker, p.id, translated_name, p.scheme, translated_desc
@@ -127,18 +130,19 @@ pub fn run(cmd: ThemeCommand, json_out: bool) -> Result<()> {
                 .iter()
                 .find(|p| p.id.eq_ignore_ascii_case(&name))
                 .ok_or_else(|| {
-                    anyhow!(
-                        "{}",
-                        i18n::t_args("cli.theme.unknown", &[("name", &name)])
-                    )
+                    anyhow!("{}", i18n::t_args("cli.theme.unknown", &[("name", &name)]))
                 })?;
-            write_theme(preset)?;
+            let applied_live = apply_theme_live(preset)?;
+            if !applied_live {
+                write_theme(preset)?;
+            }
             if json_out {
                 print_json(&json!({
                     "switched": true,
                     "id": preset.id,
                     "name": preset.name,
                     "color_scheme": preset.scheme,
+                    "applied_live": applied_live,
                 }));
             } else {
                 println!(
@@ -156,6 +160,23 @@ pub fn run(cmd: ThemeCommand, json_out: bool) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn apply_theme_live(preset: &ThemePreset) -> Result<bool> {
+    match client::http_post_json("/api/theme", json!({ "name": preset.id })) {
+        Ok(_) => Ok(true),
+        Err(err) => {
+            let message = err.to_string();
+            if message.contains("not running")
+                || message.contains("not available")
+                || message.contains("unavailable")
+            {
+                Ok(false)
+            } else {
+                Err(err)
+            }
+        }
+    }
 }
 
 fn theme_config_path() -> Result<std::path::PathBuf> {

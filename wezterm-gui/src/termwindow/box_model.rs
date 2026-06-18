@@ -731,7 +731,7 @@ impl super::TermWindow {
                     )?;
                     match child.float {
                         Float::Right => {
-                            float_width += float_width.max(kid.bounds.width());
+                            float_width += kid.bounds.width();
                         }
                         Float::None => {
                             block_pixel_width += kid.bounds.width();

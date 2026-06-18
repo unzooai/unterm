@@ -366,7 +366,13 @@ fn project_info(pane: &Arc<dyn Pane>) -> (Option<String>, String) {
 
 fn sanitize_slug(s: &str) -> String {
     s.chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' || c == '.' { c } else { '-' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' || c == '.' {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect()
 }
 
@@ -396,19 +402,13 @@ fn build_paths(
     (log_path, md_path, iso, stem)
 }
 
-fn preferred_session_dir(
-    project_path: Option<&str>,
-    project_slug: &str,
-    date: &str,
-) -> PathBuf {
+fn preferred_session_dir(project_path: Option<&str>, project_slug: &str, date: &str) -> PathBuf {
     if let Some(p) = project_path {
         let path = PathBuf::from(p);
         let in_project = path.join(".unterm").join("sessions").join(date);
         // Only use project-local storage when we can actually write there.
         // Probe by attempting to create the directory; revert on failure.
-        if std::fs::create_dir_all(&in_project).is_ok()
-            && is_dir_writable(&in_project)
-        {
+        if std::fs::create_dir_all(&in_project).is_ok() && is_dir_writable(&in_project) {
             return in_project;
         }
         log::info!(
@@ -501,7 +501,12 @@ pub fn start_recording(pane_id: PaneId) -> Result<StartResult> {
     let any = pane.clone();
     let local = any
         .downcast_arc::<mux::localpane::LocalPane>()
-        .map_err(|_| anyhow!("Pane {} is not a LocalPane (recording is only supported for local panes)", pane_id))?;
+        .map_err(|_| {
+            anyhow!(
+                "Pane {} is not a LocalPane (recording is only supported for local panes)",
+                pane_id
+            )
+        })?;
     local.set_record_sink(Some(recorder.clone() as Arc<dyn RecordSink>));
 
     registry().lock().insert(pane_id, recorder.clone());
@@ -640,8 +645,7 @@ pub fn list_sessions(project_filter: Option<&str>) -> Result<Vec<IndexEntry>> {
         .into_iter()
         .filter(|e| match project_filter {
             Some(p) => {
-                e.project_slug == p
-                    || e.project_path.as_deref().map(|x| x == p).unwrap_or(false)
+                e.project_slug == p || e.project_path.as_deref().map(|x| x == p).unwrap_or(false)
             }
             None => true,
         })
@@ -666,7 +670,10 @@ pub fn read_session_markdown(session_id: &str) -> Result<String> {
 /// One-shot export from a live pane regardless of whether recording is
 /// active. We use the pane's scrollback + semantic zones to synthesize
 /// markdown directly.
-pub fn export_pane_markdown(pane_id: PaneId, target: Option<PathBuf>) -> Result<(PathBuf, RenderOutput)> {
+pub fn export_pane_markdown(
+    pane_id: PaneId,
+    target: Option<PathBuf>,
+) -> Result<(PathBuf, RenderOutput)> {
     let mux = mux::Mux::try_get().ok_or_else(|| anyhow!("Mux not available"))?;
     let pane = mux
         .get_pane(pane_id)
@@ -682,12 +689,11 @@ pub fn export_pane_markdown(pane_id: PaneId, target: Option<PathBuf>) -> Result<
             redaction_enabled: cfg.redaction.enabled,
             custom_patterns: cfg.redaction.custom_patterns.clone(),
         };
-        let entry = index::find_entry(&session_id)?
-            .ok_or_else(|| anyhow!("session entry missing"))?;
+        let entry =
+            index::find_entry(&session_id)?.ok_or_else(|| anyhow!("session entry missing"))?;
         let out = render::render_log(&log_path, &entry, &render_cfg)?;
-        let dest = target.unwrap_or_else(|| {
-            index::sessions_root().join(format!("export-{}.md", session_id))
-        });
+        let dest = target
+            .unwrap_or_else(|| index::sessions_root().join(format!("export-{}.md", session_id)));
         if let Some(p) = dest.parent() {
             let _ = std::fs::create_dir_all(p);
         }
@@ -699,8 +705,7 @@ pub fn export_pane_markdown(pane_id: PaneId, target: Option<PathBuf>) -> Result<
     // No active recording: synthesize from scrollback + semantic zones.
     let dims = pane.get_dimensions();
     let bottom = dims.physical_top + dims.viewport_rows as isize;
-    let first_row =
-        (bottom - dims.scrollback_rows as isize).max(0);
+    let first_row = (bottom - dims.scrollback_rows as isize).max(0);
     let last_row = bottom;
     let (_first, lines) = pane.get_lines(first_row..last_row);
     let scroll_text = lines

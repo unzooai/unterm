@@ -84,12 +84,14 @@ pub fn verify_envelope(raw: &[u8]) -> Result<Envelope, AgentError> {
     // canonical bytes-to-verify with the `signature` field stripped).
     let value: serde_json::Value =
         serde_json::from_slice(raw).map_err(|e| AgentError::ParseFailed(e.to_string()))?;
-    let envelope: Envelope =
-        serde_json::from_value(value.clone()).map_err(|e| AgentError::ParseFailed(e.to_string()))?;
+    let envelope: Envelope = serde_json::from_value(value.clone())
+        .map_err(|e| AgentError::ParseFailed(e.to_string()))?;
 
     // Step 2: signature alg + key id.
     if envelope.signature.alg != "ed25519" {
-        return Err(AgentError::UnsupportedSigAlg(envelope.signature.alg.clone()));
+        return Err(AgentError::UnsupportedSigAlg(
+            envelope.signature.alg.clone(),
+        ));
     }
     let keys = load_trusted_keys()?;
     let vk = keys
@@ -112,8 +114,8 @@ pub fn verify_envelope(raw: &[u8]) -> Result<Envelope, AgentError> {
         .map_err(|e| AgentError::BadSignature(e.to_string()))?;
 
     // Step 5: freshness.
-    let expires =
-        DateTime::parse_from_rfc3339(&envelope.expires_at).map_err(|e| AgentError::ParseFailed(format!("expires_at: {e}")))?;
+    let expires = DateTime::parse_from_rfc3339(&envelope.expires_at)
+        .map_err(|e| AgentError::ParseFailed(format!("expires_at: {e}")))?;
     if expires < Utc::now() {
         return Err(AgentError::Expired(envelope.expires_at.clone()));
     }

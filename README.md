@@ -157,7 +157,10 @@ unterm-cli proxy status                        # auto-detect health
 unterm-cli proxy nodes / switch <name> / disable / env
 
 # Sessions / panes
-unterm-cli session list                        # list panes
+unterm-cli session list                        # list panes in active/latest instance
+unterm-cli instance list                       # discover alpha/bravo/... windows
+unterm-cli --instance bravo session list       # pin a command to one window
+unterm-cli session create [--cwd DIR] [-- CMD] # spawn a new tab
 unterm-cli session record start [--id N]
 unterm-cli session record stop [--id N]
 unterm-cli session export [--id N] [-o FILE]
@@ -172,9 +175,9 @@ unterm-cli screenshot --scrollback [--pane N] [--max-rows N] [-o FILE]
 unterm-cli screenshot --scroll-app Safari [--scroll-title SUBSTR] [--max-frames N] [-o FILE]
 ```
 
-Pass `--json` to any subcommand for raw JSON-RPC output (suitable for scripts). Pass `--lang <code>` to override the locale for one invocation.
+Pass `--json` to any subcommand for raw JSON-RPC output (suitable for scripts). Pass `--lang <code>` to override the locale for one invocation. Pass `--instance <id>` (or set `UNTERM_INSTANCE=<id>`) when several Unterm windows are open and you need a deterministic target.
 
-Multi-instance discovery is exposed over MCP rather than as a CLI subcommand — call `instance.list` against any running Unterm's MCP port, or just `ls ~/.unterm/instances/`.
+Multi-instance discovery is exposed over MCP rather than as a separate CLI list command — call `instance.list` against any running Unterm's MCP port, or just `ls ~/.unterm/instances/`.
 
 ## AI agent auto-discovery
 

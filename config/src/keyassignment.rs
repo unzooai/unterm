@@ -648,6 +648,16 @@ pub enum KeyAssignment {
     OpenUri(String),
     ShowContextMenu,
     ActivateCommandPalette,
+    /// Toggle session recording for the active pane.
+    ToggleSessionRecording,
+    /// Export the active pane scrollback/session as markdown.
+    ExportSessionMarkdown,
+    /// Open the local Web Settings app.
+    OpenWebSettings,
+    /// Open Web Settings directly to the AI Agents tab.
+    OpenAiAgentsSettings,
+    /// Open Web Settings directly to the session recording tab.
+    OpenRecordingSettings,
     ActivateWindow(usize),
     ActivateWindowRelative(isize),
     ActivateWindowRelativeNoWrap(isize),

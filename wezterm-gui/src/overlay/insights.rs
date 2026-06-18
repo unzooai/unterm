@@ -98,10 +98,7 @@ pub fn show_insights_overlay(
     )));
     match snap.seconds_since_last_input {
         Some(s) if s < 60.0 => {
-            changes.push(Change::Text(format!(
-                "  Last write: {:.1}s ago\r\n",
-                s
-            )));
+            changes.push(Change::Text(format!("  Last write: {:.1}s ago\r\n", s)));
         }
         Some(s) => {
             changes.push(Change::Text(format!(

@@ -16,11 +16,11 @@ pub fn map_to_canonical(raw: &str) -> Option<&'static str> {
         .unwrap_or("")
         .replace('_', "-");
     let parts: Vec<&str> = main.split('-').collect();
-    let lang = parts.first().map(|s| s.to_ascii_lowercase()).unwrap_or_default();
-    let script_or_region = parts
-        .get(1)
-        .map(|s| s.to_string())
+    let lang = parts
+        .first()
+        .map(|s| s.to_ascii_lowercase())
         .unwrap_or_default();
+    let script_or_region = parts.get(1).map(|s| s.to_string()).unwrap_or_default();
     let region = parts.get(2).map(|s| s.to_string()).unwrap_or_default();
 
     match lang.as_str() {

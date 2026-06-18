@@ -268,22 +268,20 @@ mod tests {
     #[test]
     fn disambiguate_returns_base_when_free() {
         assert_eq!(disambiguate("work", &[]), "work");
-        assert_eq!(
-            disambiguate("work", &["other".to_string()]),
-            "work"
-        );
+        assert_eq!(disambiguate("work", &["other".to_string()]), "work");
     }
 
     #[test]
     fn disambiguate_finds_next_free_suffix() {
-        assert_eq!(
-            disambiguate("work", &["work".to_string()]),
-            "work-2"
-        );
+        assert_eq!(disambiguate("work", &["work".to_string()]), "work-2");
         assert_eq!(
             disambiguate(
                 "work",
-                &["work".to_string(), "work-2".to_string(), "work-3".to_string()]
+                &[
+                    "work".to_string(),
+                    "work-2".to_string(),
+                    "work-3".to_string()
+                ]
             ),
             "work-4"
         );

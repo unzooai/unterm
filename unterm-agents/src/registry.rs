@@ -344,4 +344,3 @@ pub fn requires_restart(manifest: &AgentManifest, changed_keys: &[String]) -> bo
         .iter()
         .any(|s| s.restart_required && changed_keys.iter().any(|k| k == &s.key))
 }
-

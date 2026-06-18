@@ -129,14 +129,7 @@ impl BandCanvas {
     /// Monochrome glyphs are tinted with `fg` using linear-light blending
     /// driven by the rasterizer's coverage; color glyphs (emoji) composite
     /// premultiplied-over.
-    fn blit_glyph(
-        &mut self,
-        g: &RasterizedGlyph,
-        x0: f64,
-        y0: f64,
-        fg: (u8, u8, u8),
-        scale: f64,
-    ) {
+    fn blit_glyph(&mut self, g: &RasterizedGlyph, x0: f64, y0: f64, fg: (u8, u8, u8), scale: f64) {
         let fg_lin = [
             self.lut[fg.0 as usize],
             self.lut[fg.1 as usize],
@@ -262,10 +255,7 @@ pub fn render_scrollback_png(
             let cw = (cluster.width as f64 * cell_w).ceil() as isize;
 
             let needs_bg_fill = attrs.reverse()
-                || !matches!(
-                    attrs.background(),
-                    termwiz::color::ColorAttribute::Default
-                );
+                || !matches!(attrs.background(), termwiz::color::ColorAttribute::Default);
             if needs_bg_fill {
                 band.fill_rect(cx0, 0, cw, cell_h as isize, bg);
             }
@@ -330,11 +320,12 @@ pub fn render_scrollback_png(
                         1.0
                     } else {
                         let max_w = num_cells as f64 * cell_w;
-                        (max_w / g.width as f64).min(cell_h / g.height as f64).min(1.0)
+                        (max_w / g.width as f64)
+                            .min(cell_h / g.height as f64)
+                            .min(1.0)
                     };
-                    let x0 = cell_idx as f64 * cell_w
-                        + info.x_offset.get()
-                        + g.bearing_x.get() * scale;
+                    let x0 =
+                        cell_idx as f64 * cell_w + info.x_offset.get() + g.bearing_x.get() * scale;
                     let y0 = baseline - info.y_offset.get() - g.bearing_y.get() * scale;
                     band.blit_glyph(&g, x0, y0, fg, scale);
                 }
@@ -577,7 +568,7 @@ pub mod external {
                 if v.type_of() == CFDictionary::<CFString, CFType>::type_id() {
                     Some(unsafe {
                         CFDictionary::<CFString, CFType>::wrap_under_get_rule(
-                            v.as_CFTypeRef() as core_foundation::dictionary::CFDictionaryRef,
+                            v.as_CFTypeRef() as core_foundation::dictionary::CFDictionaryRef
                         )
                     })
                 } else {
@@ -633,9 +624,7 @@ pub mod external {
                             comm.to_lowercase().contains(&needle)
                         }
                     })
-                    && title.map_or(true, |t| {
-                        w.title.to_lowercase().contains(&t.to_lowercase())
-                    })
+                    && title.map_or(true, |t| w.title.to_lowercase().contains(&t.to_lowercase()))
             })
             .ok_or_else(|| {
                 anyhow!("no on-screen window matched (pid={pid:?} app={app:?} title={title:?})")
@@ -655,9 +644,7 @@ pub mod external {
         list_windows()?
             .into_iter()
             .filter(|w| w.pid != own)
-            .find(|w| {
-                loc.x >= w.x && loc.x < w.x + w.w && loc.y >= w.y && loc.y < w.y + w.h
-            })
+            .find(|w| loc.x >= w.x && loc.x < w.x + w.w && loc.y >= w.y && loc.y < w.y + w.h)
             .ok_or_else(|| anyhow!("no window under the pointer"))
     }
 
@@ -674,15 +661,9 @@ pub mod external {
     }
 
     fn post_scroll(src: &CGEventSource, delta_points: i32) -> Result<()> {
-        let ev = CGEvent::new_scroll_event(
-            src.clone(),
-            ScrollEventUnit::PIXEL,
-            1,
-            delta_points,
-            0,
-            0,
-        )
-        .map_err(|_| anyhow!("CGEvent::new_scroll_event"))?;
+        let ev =
+            CGEvent::new_scroll_event(src.clone(), ScrollEventUnit::PIXEL, 1, delta_points, 0, 0)
+                .map_err(|_| anyhow!("CGEvent::new_scroll_event"))?;
         ev.post(CGEventTapLocation::HID);
         Ok(())
     }
@@ -816,7 +797,10 @@ pub mod external {
                 if cur_img.width() != w || cur_img.height() != h {
                     return Err(anyhow!(
                         "window was resized mid-capture ({}x{} -> {}x{})",
-                        w, h, cur_img.width(), cur_img.height()
+                        w,
+                        h,
+                        cur_img.width(),
+                        cur_img.height()
                     ));
                 }
                 let cur_hash = row_hashes(&cur_img, right_exclude);
@@ -865,8 +849,7 @@ pub mod external {
                 let y_to = h as usize - fixed_bottom;
                 let mut band = Vec::with_capacity((y_to - y_from) * w as usize * 4);
                 for y in y_from..y_to {
-                    let row =
-                        &cur_img.as_raw()[(y * w as usize) * 4..(y + 1) * w as usize * 4];
+                    let row = &cur_img.as_raw()[(y * w as usize) * 4..(y + 1) * w as usize * 4];
                     band.extend_from_slice(row);
                 }
                 bands.push(band);
@@ -878,7 +861,10 @@ pub mod external {
             // footer from the last frame so fixed bottom chrome appears once.
             let head_rows = h as usize - fixed_bottom;
             let total_height = head_rows
-                + bands.iter().map(|b| b.len() / (w as usize * 4)).sum::<usize>()
+                + bands
+                    .iter()
+                    .map(|b| b.len() / (w as usize * 4))
+                    .sum::<usize>()
                 + fixed_bottom;
 
             let f0 = image::open(frame_path(0))?.into_rgba8();
@@ -895,12 +881,18 @@ pub mod external {
             for band in &bands {
                 stream.write_all(band)?;
             }
-            stream
-                .write_all(&prev_img.as_raw()[(h as usize - fixed_bottom) * w as usize * 4..])?;
+            stream.write_all(&prev_img.as_raw()[(h as usize - fixed_bottom) * w as usize * 4..])?;
             stream.finish()?;
 
             let scrolled_points = (total_dy as f64 / scale) as i64;
-            Ok((vec![], w, total_height as u32, frames, hint, scrolled_points))
+            Ok((
+                vec![],
+                w,
+                total_height as u32,
+                frames,
+                hint,
+                scrolled_points,
+            ))
         };
 
         let result = run();

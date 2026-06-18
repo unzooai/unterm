@@ -311,7 +311,12 @@ pub fn window_button_element(
             Style::MacOsCustom => {
                 // All three caps share the same filled-circle poly;
                 // the color is picked at `window_button_colors` time.
-                (self::macos::DOT, self::macos::DOT, self::macos::DOT, self::macos::DOT)
+                (
+                    self::macos::DOT,
+                    self::macos::DOT,
+                    self::macos::DOT,
+                    self::macos::DOT,
+                )
             }
             Style::MacOsNative => unreachable!(),
         };

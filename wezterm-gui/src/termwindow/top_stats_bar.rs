@@ -116,7 +116,9 @@ pub fn git_status_for(cwd: &Path) -> Option<GitStatus> {
             std::thread::spawn(move || {
                 let fresh = compute_git_status(&cwd_owned);
                 let mut cache = git_cache().lock();
-                cache.by_cwd.insert(cwd_owned.clone(), (Instant::now(), fresh));
+                cache
+                    .by_cwd
+                    .insert(cwd_owned.clone(), (Instant::now(), fresh));
                 inflight_git().lock().remove(&cwd_owned);
             });
         }
@@ -197,7 +199,9 @@ fn compute_git_status(cwd: &Path) -> Option<GitStatus> {
 /// purpose — the `●` / `↑` / `↓` Unicode set also triggered fallback
 /// in some shipped JBM variants. ASCII keeps a single baseline.
 pub fn render_git_segment(status: &Option<GitStatus>) -> String {
-    let Some(s) = status else { return String::new() };
+    let Some(s) = status else {
+        return String::new();
+    };
     let mut out = format!("\u{e0a0} {}", s.branch);
     if s.dirty > 0 {
         out.push_str(&format!(" *{}", s.dirty));
@@ -300,7 +304,11 @@ fn compute_proc_status(pid: u32) -> Option<ProcStatus> {
     // The comm field can contain spaces (e.g. login shells start with
     // `-` and may have spaces); rejoin the rest of the tokens.
     let name: String = parts.collect::<Vec<_>>().join(" ");
-    let name = if name.is_empty() { "?".to_string() } else { name };
+    let name = if name.is_empty() {
+        "?".to_string()
+    } else {
+        name
+    };
     // etime formats: "MM:SS", "HH:MM:SS", or "DD-HH:MM:SS"
     let uptime_secs = parse_etime(etime_str);
     Some(ProcStatus {
@@ -396,7 +404,9 @@ fn format_etime(secs: u64) -> String {
 /// numeric run anyway. "cpu" is lowercased to keep one all-caps run
 /// out of the bar, which otherwise drew the eye to a single segment.
 pub fn render_proc_segment(status: &Option<ProcStatus>) -> String {
-    let Some(s) = status else { return String::new() };
+    let Some(s) = status else {
+        return String::new();
+    };
     format!(
         "{:.1}% cpu  {}  {}",
         s.cpu_pct,

@@ -327,10 +327,7 @@ impl GuiFrontEnd {
                         .await
                     {
                         Ok((_tab, pane, _window_id)) => {
-                            log::trace!(
-                                "Opened folder from Finder as pane_id {}",
-                                pane.pane_id()
-                            );
+                            log::trace!("Opened folder from Finder as pane_id {}", pane.pane_id());
                         }
                         Err(err) => {
                             log::error!("Failed to open Finder folder: {err:#?}");
@@ -500,9 +497,7 @@ impl GuiFrontEnd {
                         || err_str.contains("EGL");
                     let cur_fe = config::configuration().front_end;
                     let mut recovered = false;
-                    if gl_failed
-                        && !matches!(cur_fe, config::FrontEndSelection::WebGpu)
-                    {
+                    if gl_failed && !matches!(cur_fe, config::FrontEndSelection::WebGpu) {
                         log::error!(
                             "front_end {cur_fe:?} failed ({err_str}); retrying with WebGpu"
                         );

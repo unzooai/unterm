@@ -718,11 +718,7 @@ impl super::TermWindow {
                         // bypass_compose branch above also calls
                         // observe, but that path only fires for
                         // ALT-modified keys.
-                        observe_ghost_text_key(
-                            pane.pane_id() as u64,
-                            &key,
-                            modifiers,
-                        );
+                        observe_ghost_text_key(pane.pane_id() as u64, &key, modifiers);
                     }
                     if window_key.key_is_down
                         && !key.is_modifier()
@@ -923,11 +919,7 @@ impl super::TermWindow {
 /// input event and feed it through. Lives outside `impl TermWindow`
 /// because it doesn't touch any window state — it just bridges to
 /// the global registry in `crate::ghost_text`.
-fn observe_ghost_text_key(
-    pane_id: u64,
-    key: &termwiz::input::KeyCode,
-    mods: Modifiers,
-) {
+fn observe_ghost_text_key(pane_id: u64, key: &termwiz::input::KeyCode, mods: Modifiers) {
     use crate::ghost_text::InputEvent;
     use termwiz::input::KeyCode;
 

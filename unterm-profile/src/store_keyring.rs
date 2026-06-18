@@ -37,9 +37,8 @@ fn account_for(key: &SecretKey) -> String {
 
 fn entry_for(key: &SecretKey) -> Result<Entry> {
     let account = account_for(key);
-    Entry::new(SERVICE, &account).with_context(|| {
-        format!("construct keyring entry for {SERVICE}/{account}")
-    })
+    Entry::new(SERVICE, &account)
+        .with_context(|| format!("construct keyring entry for {SERVICE}/{account}"))
 }
 
 /// Translate a `keyring::Error` into our typed [`SecretError`].
@@ -137,9 +136,7 @@ mod tests {
     #[test]
     fn round_trip_real_vault() {
         if std::env::var("UNTERM_TEST_KEYCHAIN").is_err() {
-            eprintln!(
-                "skipping real-vault round-trip — set UNTERM_TEST_KEYCHAIN=1 to enable"
-            );
+            eprintln!("skipping real-vault round-trip — set UNTERM_TEST_KEYCHAIN=1 to enable");
             return;
         }
 
@@ -160,9 +157,7 @@ mod tests {
         assert_eq!(store.get(&key).expect("get after rotate"), "rotated");
 
         store.delete(&key).expect("delete");
-        let err = store
-            .get(&key)
-            .expect_err("expected NotFound after delete");
+        let err = store.get(&key).expect_err("expected NotFound after delete");
         let err = err.downcast::<SecretError>().expect("typed error");
         assert!(matches!(err, SecretError::NotFound(_)));
 

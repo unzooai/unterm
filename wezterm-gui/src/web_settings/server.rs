@@ -28,6 +28,7 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
+use window::WindowOps;
 
 const READ_TIMEOUT: Duration = Duration::from_secs(10);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -83,11 +84,7 @@ fn run_server(listener: TcpListener, auth_token: String, handler: Arc<McpHandler
     }
 }
 
-fn handle_client(
-    mut stream: TcpStream,
-    auth_token: &str,
-    handler: &McpHandler,
-) -> Result<()> {
+fn handle_client(mut stream: TcpStream, auth_token: &str, handler: &McpHandler) -> Result<()> {
     stream.set_read_timeout(Some(READ_TIMEOUT)).ok();
     stream.set_write_timeout(Some(WRITE_TIMEOUT)).ok();
     stream.set_nodelay(true).ok();
@@ -142,12 +139,7 @@ impl Response {
         }
     }
 
-    fn text(
-        status: u16,
-        reason: &'static str,
-        content_type: &'static str,
-        body: Vec<u8>,
-    ) -> Self {
+    fn text(status: u16, reason: &'static str, content_type: &'static str, body: Vec<u8>) -> Self {
         Self {
             status,
             reason,
@@ -319,6 +311,7 @@ fn route(req: &Request, auth_token: &str, handler: &McpHandler) -> Response {
             "auth_token": info.auth_token,
             "mcp_port": info.mcp_port,
             "http_port": info.http_port,
+            "platform": std::env::consts::OS,
             "unterm_cli_path": unterm_cli_path,
         }));
     }
@@ -407,14 +400,14 @@ fn route(req: &Request, auth_token: &str, handler: &McpHandler) -> Response {
         // Routes wrap the unterm-agents crate so the Web Settings panel can
         // list / configure / install / launch every AI CLI in the signed
         // manifest. See `agents.rs` for the actual handlers.
-        ("GET",  "/api/agents/list")             => super::agents::api_list(&req.query),
-        ("GET",  "/api/agents/manifest")          => super::agents::api_manifest_info(),
-        ("POST", "/api/agents/manifest/refresh")  => super::agents::api_manifest_refresh(),
-        ("GET",  p) if p.starts_with("/api/agents/") && p.ends_with("/settings") => {
+        ("GET", "/api/agents/list") => super::agents::api_list(&req.query),
+        ("GET", "/api/agents/manifest") => super::agents::api_manifest_info(),
+        ("POST", "/api/agents/manifest/refresh") => super::agents::api_manifest_refresh(),
+        ("GET", p) if p.starts_with("/api/agents/") && p.ends_with("/settings") => {
             let id = &p["/api/agents/".len()..p.len() - "/settings".len()];
             super::agents::api_settings_get(id, &req.query)
         }
-        ("PUT",  p) if p.starts_with("/api/agents/") && p.ends_with("/settings") => {
+        ("PUT", p) if p.starts_with("/api/agents/") && p.ends_with("/settings") => {
             let id = &p["/api/agents/".len()..p.len() - "/settings".len()];
             super::agents::api_settings_put(id, &req.body)
         }
@@ -434,7 +427,7 @@ fn route(req: &Request, auth_token: &str, handler: &McpHandler) -> Response {
             let id = &p["/api/agents/".len()..p.len() - "/auth".len()];
             super::agents::api_auth(id, &req.body)
         }
-        ("GET",  p) if p.starts_with("/api/agents/") && p.ends_with("/import") => {
+        ("GET", p) if p.starts_with("/api/agents/") && p.ends_with("/import") => {
             let id = &p["/api/agents/".len()..p.len() - "/import".len()];
             super::agents::api_import(id, &req.query)
         }
@@ -442,7 +435,13 @@ fn route(req: &Request, auth_token: &str, handler: &McpHandler) -> Response {
             let id = &p["/api/agents/".len()..p.len() - "/launch-plan".len()];
             super::agents::api_launch_plan(id, &req.body)
         }
-        ("GET",  p) if p.starts_with("/api/agents/") && !p[("/api/agents/".len())..].contains('/') => {
+        ("POST", p) if p.starts_with("/api/agents/") && p.ends_with("/run-plan") => {
+            let id = &p["/api/agents/".len()..p.len() - "/run-plan".len()];
+            super::agents::api_run_plan(id, &req.body)
+        }
+        ("GET", p)
+            if p.starts_with("/api/agents/") && !p[("/api/agents/".len())..].contains('/') =>
+        {
             // /api/agents/<id>  — catch-all GET for one agent's full manifest.
             // Match by "no further slash after /api/agents/"; the previous
             // p.matches('/').count() == 2 check was off-by-one (the string
@@ -549,7 +548,12 @@ fn api_mcp_audit(query: &str) -> Response {
     let payload_str = crate::mcp::handler::audit_log_snapshot_json(limit);
     // audit_log_snapshot_json already returns a complete JSON value; we
     // serve it as-is rather than re-parsing + re-serializing.
-    Response::text(200, "OK", "application/json; charset=utf-8", payload_str.into_bytes())
+    Response::text(
+        200,
+        "OK",
+        "application/json; charset=utf-8",
+        payload_str.into_bytes(),
+    )
 }
 
 fn api_profile_list() -> Response {
@@ -841,11 +845,7 @@ fn api_i18n_dict(code: &str) -> Response {
                 .collect();
             Response::ok_json(Value::Object(map))
         }
-        None => Response::err(
-            404,
-            "Not Found",
-            &crate::i18n::t("web.api.unknown_locale"),
-        ),
+        None => Response::err(404, "Not Found", &crate::i18n::t("web.api.unknown_locale")),
     }
 }
 
@@ -853,13 +853,7 @@ fn api_i18n_set(body: &[u8]) -> Response {
     let body = parse_json_body(body);
     let lang = match body.get("lang").and_then(|v| v.as_str()) {
         Some(s) => s.to_string(),
-        None => {
-            return Response::err(
-                400,
-                "Bad Request",
-                &crate::i18n::t("web.api.invalid_lang"),
-            )
-        }
+        None => return Response::err(400, "Bad Request", &crate::i18n::t("web.api.invalid_lang")),
     };
     if !crate::i18n::set_locale(&lang) {
         return Response::err(
@@ -1076,7 +1070,11 @@ fn api_compat_set(body: &[u8]) -> Response {
         Some(s) => {
             let s = s.trim();
             if s.is_empty() {
-                return Response::err(400, "Bad Request", "term_program may not be empty — pass \"Unterm\" to reset to default");
+                return Response::err(
+                    400,
+                    "Bad Request",
+                    "term_program may not be empty — pass \"Unterm\" to reset to default",
+                );
             }
             if s.len() > 64 {
                 return Response::err(400, "Bad Request", "term_program too long (max 64 chars)");
@@ -1085,7 +1083,11 @@ fn api_compat_set(body: &[u8]) -> Response {
             // since this string ends up in an env var passed to child
             // processes — corrupt env breaks downstream shells.
             if s.chars().any(|c| c.is_control()) {
-                return Response::err(400, "Bad Request", "term_program contains control characters");
+                return Response::err(
+                    400,
+                    "Bad Request",
+                    "term_program contains control characters",
+                );
             }
             s.to_string()
         }
@@ -1232,17 +1234,67 @@ fn api_theme(body: &[u8]) -> Response {
         return Response::err(500, "Internal Error", &e.to_string());
     }
     // Apply immediately instead of waiting for the config file-watcher to
-    // notice theme.json changed. We run inside the GUI process, so a direct
-    // config::reload() re-reads theme.json (default_color_scheme) and notifies
-    // the window to repaint right away (~35ms). Relying on the watcher added a
-    // visible lag — macOS FSEvents can take a second-plus to fire, on top of
-    // the watcher's 200ms settle delay — which is why theme switches felt slow.
-    config::reload();
+    // notice theme.json changed. The GUI owns TermWindow palette state, so the
+    // reload and explicit pane-palette refresh are dispatched onto the GUI
+    // thread together.
+    if let Err(e) = apply_theme_to_gui_windows(preset.scheme) {
+        return Response::err(500, "Internal Error", &e.to_string());
+    }
     Response::ok_json(json!({
         "applied": true,
         "theme": preset.id,
         "color_scheme": preset.scheme,
     }))
+}
+
+fn apply_theme_to_gui_windows(scheme: &str) -> Result<()> {
+    let scheme = scheme.to_string();
+    let (count_tx, count_rx) = std::sync::mpsc::channel();
+    let (done_tx, done_rx) = std::sync::mpsc::channel();
+
+    promise::spawn::spawn_into_main_thread(async move {
+        let windows = match crate::frontend::try_front_end() {
+            Some(fe) => fe.gui_windows(),
+            None => {
+                let _ = count_tx.send(Err("front end is not initialized".to_string()));
+                return;
+            }
+        };
+        let count = windows.len();
+        let _ = count_tx.send(Ok(count));
+        for win in windows {
+            let scheme = scheme.clone();
+            let done_tx = done_tx.clone();
+            win.window
+                .notify(crate::termwindow::TermWindowNotif::Apply(Box::new(
+                    move |tw| {
+                        let result = tw
+                            .apply_theme_palette(&scheme)
+                            .map_err(|err| err.to_string());
+                        let _ = done_tx.send(result);
+                    },
+                )));
+        }
+    })
+    .detach();
+
+    let count = count_rx
+        .recv_timeout(std::time::Duration::from_secs(2))
+        .map_err(|_| anyhow::anyhow!("timeout waiting for theme window dispatch"))?
+        .map_err(anyhow::Error::msg)?;
+    if count == 0 {
+        return Err(anyhow::anyhow!(
+            "no GUI window is registered for theme apply"
+        ));
+    }
+
+    for _ in 0..count {
+        done_rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .map_err(|_| anyhow::anyhow!("timeout waiting for theme palette apply"))?
+            .map_err(anyhow::Error::msg)?;
+    }
+    Ok(())
 }
 
 fn api_recording(handler: &McpHandler, body: &[u8], start: bool) -> Response {
@@ -1299,12 +1351,7 @@ fn api_session_markdown(handler: &McpHandler, path: &str) -> Response {
                 .and_then(|s| s.as_str())
                 .unwrap_or("")
                 .to_string();
-            Response::text(
-                200,
-                "OK",
-                "text/plain; charset=utf-8",
-                md.into_bytes(),
-            )
+            Response::text(200, "OK", "text/plain; charset=utf-8", md.into_bytes())
         }
         Err(e) => Response::err(404, "Not Found", &e.to_string()),
     }
@@ -1365,17 +1412,17 @@ fn theme_presets() -> &'static [ThemePreset] {
         ThemePreset {
             id: "standard",
             name: "Standard",
-            scheme: "Catppuccin Mocha",
+            scheme: "Unterm Dark",
         },
         ThemePreset {
             id: "midnight",
             name: "Midnight",
-            scheme: "Tokyo Night",
+            scheme: "Unterm Midnight",
         },
         ThemePreset {
             id: "daylight",
             name: "Daylight",
-            scheme: "Builtin Solarized Light",
+            scheme: "Unterm Daylight",
         },
         ThemePreset {
             id: "classic",

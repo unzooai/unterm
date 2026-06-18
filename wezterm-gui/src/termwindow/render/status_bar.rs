@@ -1,25 +1,42 @@
 use crate::quad::TripleLayerQuadAllocator;
 use crate::termwindow::render::RenderScreenLineParams;
 use crate::termwindow::{UIItem, UIItemType};
+use config::ui_tokens;
 use mux::renderable::RenderableDimensions;
 use termwiz::cell::{unicode_column_width, CellAttributes};
 use termwiz::color::SrgbaTuple;
 use termwiz::surface::line::Line;
 use wezterm_term::color::ColorAttribute;
-use window::WindowOps;
 use window::color::LinearRgba;
+use window::WindowOps;
 
 static DEFER_FIRST_STATUS_TEXT_RENDER: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(true);
 
 impl crate::TermWindow {
-    /// Height of the status bar in pixels (1 row of terminal font).
-    pub fn status_bar_pixel_height(&self) -> f32 {
+    fn status_bar_vertical_padding_px(&self) -> f32 {
+        let pt = self.dimensions.dpi as f32 / 72.0;
+        (ui_tokens::STATUS_BAR_VERTICAL_PADDING * pt)
+            .round()
+            .max(2.0)
+    }
+
+    pub fn status_bar_pixel_height_for_cell_height(&self, cell_height: f32) -> f32 {
         if self.config.show_unterm_status_bar {
-            self.render_metrics.cell_size.height as f32
+            cell_height + self.status_bar_vertical_padding_px() * 2.0
         } else {
             0.0
         }
+    }
+
+    /// Height of the status bar in pixels.
+    pub fn status_bar_pixel_height(&self) -> f32 {
+        self.status_bar_pixel_height_for_cell_height(self.render_metrics.cell_size.height as f32)
+    }
+
+    fn status_bar_text_top_pixel_y(&self, bar_y: f32, bar_height: f32) -> f32 {
+        let cell_height = self.render_metrics.cell_size.height as f32;
+        bar_y + ((bar_height - cell_height) * 0.5).round()
     }
 
     /// Height of the MCP banner row in pixels. Zero unless either a
@@ -36,9 +53,7 @@ impl crate::TermWindow {
         }
     }
 
-    fn active_pane_first_pending_suggestion(
-        &self,
-    ) -> Option<crate::mcp::handler::Suggestion> {
+    fn active_pane_first_pending_suggestion(&self) -> Option<crate::mcp::handler::Suggestion> {
         let pane = self.get_active_pane_no_overlay()?;
         crate::mcp::handler::pending_suggestions_for_pane(pane.pane_id() as u64)
             .into_iter()
@@ -139,8 +154,7 @@ impl crate::TermWindow {
 
         let mut text = String::new();
         text.push_str(&truncated_main);
-        let pad_cols = total_cols
-            .saturating_sub(unicode_column_width(&text, None) + hint_cols);
+        let pad_cols = total_cols.saturating_sub(unicode_column_width(&text, None) + hint_cols);
         for _ in 0..pad_cols {
             text.push(' ');
         }
@@ -294,7 +308,7 @@ impl crate::TermWindow {
 
         self.render_screen_line(
             RenderScreenLineParams {
-                top_pixel_y: bar_y + 1.0, // below separator
+                top_pixel_y: self.status_bar_text_top_pixel_y(bar_y, bar_height),
                 left_pixel_x: 0.0,
                 pixel_width: bar_width,
                 stable_line_idx: None,
@@ -419,8 +433,7 @@ impl crate::TermWindow {
 
         let mut text = String::new();
         text.push_str(&truncated_main);
-        let pad_cols = total_cols
-            .saturating_sub(unicode_column_width(&text, None) + hint_cols);
+        let pad_cols = total_cols.saturating_sub(unicode_column_width(&text, None) + hint_cols);
         for _ in 0..pad_cols {
             text.push(' ');
         }
@@ -781,7 +794,10 @@ impl crate::TermWindow {
                 } else {
                     let s = cwd.as_str();
                     s.strip_prefix("file://")
-                        .and_then(|rest| rest.split_once('/').map(|(_host, path)| format!("/{}", path)))
+                        .and_then(|rest| {
+                            rest.split_once('/')
+                                .map(|(_host, path)| format!("/{}", path))
+                        })
                         .unwrap_or_else(|| s.to_string())
                 }
             });
@@ -812,8 +828,7 @@ impl crate::TermWindow {
         }
         let chars: Vec<char> = with_tilde.chars().collect();
         let head: String = chars.iter().take(24).collect();
-        let mut tail_chars: Vec<char> =
-            chars.iter().rev().take(20).copied().collect();
+        let mut tail_chars: Vec<char> = chars.iter().rev().take(20).copied().collect();
         tail_chars.reverse();
         let tail: String = tail_chars.into_iter().collect();
         format!("{} ... {}", head, tail)
@@ -946,10 +961,12 @@ fn current_profile_display_name() -> String {
 
 fn status_bar_theme_colors() -> ((u8, u8, u8), (u8, u8, u8), (u8, u8, u8)) {
     match crate::overlay::theme_selector::read_theme_id().as_str() {
-        "midnight" => ((0x12, 0x18, 0x24), (0x2f, 0x45, 0x68), (0xb8, 0xc7, 0xe0)),
-        "daylight" => ((0xee, 0xec, 0xdd), (0x93, 0xa1, 0xa1), (0x58, 0x6e, 0x75)),
-        "classic" => ((0x20, 0x20, 0x20), (0x55, 0x55, 0x55), (0xd0, 0xd0, 0xd0)),
-        _ => ((0x1e, 0x1e, 0x1e), (0x3a, 0x3a, 0x3a), (0xa0, 0xa0, 0xa0)),
+        "midnight" => ((0x12, 0x18, 0x24), (0x34, 0x42, 0x5c), (0xc8, 0xd5, 0xe8)),
+        "daylight" => ((0xec, 0xef, 0xeb), (0xa8, 0xb2, 0xa7), (0x1c, 0x24, 0x2d)),
+        "classic" => ((0x1c, 0x1c, 0x1c), (0x4a, 0x4a, 0x4a), (0xdf, 0xdf, 0xdf)),
+        "notion-dark" => ((0x22, 0x22, 0x20), (0x4b, 0x4a, 0x44), (0xd8, 0xd8, 0xd4)),
+        "notion-light" => ((0xee, 0xec, 0xe6), (0xb8, 0xb4, 0xa8), (0x2a, 0x29, 0x24)),
+        _ => ((0x1b, 0x1b, 0x1b), (0x3a, 0x3a, 0x3a), (0xd0, 0xd0, 0xd0)),
     }
 }
 
@@ -959,10 +976,12 @@ fn status_bar_theme_colors() -> ((u8, u8, u8), (u8, u8, u8), (u8, u8, u8)) {
 /// (background, separator, foreground).
 fn confirm_banner_theme_colors() -> ((u8, u8, u8), (u8, u8, u8), (u8, u8, u8)) {
     match crate::overlay::theme_selector::read_theme_id().as_str() {
-        "midnight" => ((0x3a, 0x18, 0x18), (0xc8, 0x44, 0x44), (0xff, 0xe2, 0xc0)),
-        "daylight" => ((0xff, 0xe0, 0xd0), (0xc8, 0x35, 0x10), (0x40, 0x18, 0x0a)),
-        "classic" => ((0x40, 0x20, 0x18), (0xb0, 0x40, 0x20), (0xff, 0xd6, 0x88)),
-        _ => ((0x33, 0x14, 0x0d), (0xa8, 0x3a, 0x20), (0xff, 0xc8, 0x78)),
+        "midnight" => ((0x35, 0x18, 0x22), (0xff, 0x6b, 0x7a), (0xff, 0xe0, 0xd8)),
+        "daylight" => ((0xff, 0xe1, 0xd7), (0xb4, 0x23, 0x35), (0x35, 0x12, 0x18)),
+        "classic" => ((0x3a, 0x20, 0x18), (0xef, 0x44, 0x44), (0xff, 0xdd, 0xb8)),
+        "notion-dark" => ((0x34, 0x1c, 0x18), (0xff, 0x6f, 0x61), (0xff, 0xe0, 0xd6)),
+        "notion-light" => ((0xff, 0xdf, 0xd8), (0xb8, 0x32, 0x32), (0x32, 0x14, 0x12)),
+        _ => ((0x33, 0x14, 0x0d), (0xff, 0x5f, 0x57), (0xff, 0xd8, 0xb8)),
     }
 }
 
@@ -971,10 +990,12 @@ fn confirm_banner_theme_colors() -> ((u8, u8, u8), (u8, u8, u8), (u8, u8, u8)) {
 /// being alarming.
 fn suggest_bar_theme_colors() -> ((u8, u8, u8), (u8, u8, u8), (u8, u8, u8)) {
     match crate::overlay::theme_selector::read_theme_id().as_str() {
-        "midnight" => ((0x1a, 0x24, 0x3a), (0x4a, 0x6f, 0xa8), (0xc8, 0xdb, 0xf5)),
-        "daylight" => ((0xff, 0xf3, 0xc4), (0xd0, 0xa0, 0x33), (0x40, 0x32, 0x10)),
-        "classic" => ((0x2a, 0x24, 0x18), (0x88, 0x66, 0x33), (0xff, 0xd6, 0x88)),
-        _ => ((0x24, 0x1f, 0x14), (0x70, 0x55, 0x2a), (0xff, 0xc6, 0x70)),
+        "midnight" => ((0x1a, 0x24, 0x3a), (0x82, 0xaa, 0xff), (0xd8, 0xe5, 0xff)),
+        "daylight" => ((0xff, 0xf1, 0xc6), (0x93, 0x63, 0x00), (0x32, 0x25, 0x08)),
+        "classic" => ((0x28, 0x24, 0x18), (0xea, 0xb3, 0x08), (0xff, 0xe0, 0xa8)),
+        "notion-dark" => ((0x2c, 0x27, 0x1a), (0xe7, 0xb8, 0x4f), (0xff, 0xdd, 0x98)),
+        "notion-light" => ((0xff, 0xf0, 0xc9), (0x8b, 0x5e, 0x12), (0x32, 0x24, 0x0c)),
+        _ => ((0x24, 0x1f, 0x14), (0xe5, 0xc4, 0x63), (0xff, 0xd8, 0x90)),
     }
 }
 

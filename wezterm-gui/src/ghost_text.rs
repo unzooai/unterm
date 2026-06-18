@@ -255,13 +255,7 @@ pub struct DebugSnapshot {
 pub fn debug_snapshot(pane_id: u64) -> Option<DebugSnapshot> {
     let reg = registry().lock();
     let state = reg.get(&pane_id)?;
-    let recent: Vec<String> = state
-        .commits
-        .iter()
-        .rev()
-        .take(10)
-        .cloned()
-        .collect();
+    let recent: Vec<String> = state.commits.iter().rev().take(10).cloned().collect();
     let global = global_commits().lock();
     let global_recent: Vec<String> = global.iter().rev().take(10).cloned().collect();
     let global_count = global.len();
@@ -615,7 +609,10 @@ mod tests {
     fn flag_completion_token_strips_value_placeholder() {
         assert_eq!(flag_completion_token("--model {value}"), "--model ");
         assert_eq!(flag_completion_token("--skip-trust"), "--skip-trust");
-        assert_eq!(flag_completion_token("--approval-mode {value}"), "--approval-mode ");
+        assert_eq!(
+            flag_completion_token("--approval-mode {value}"),
+            "--approval-mode "
+        );
     }
 
     #[test]

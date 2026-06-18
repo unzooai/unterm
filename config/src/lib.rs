@@ -35,13 +35,13 @@ pub mod lua;
 pub mod meta;
 mod scheme_data;
 mod serial;
-mod unterm_schemes;
 mod ssh;
 mod terminal;
 mod tls;
 pub mod ui_tokens;
 mod units;
 mod unix;
+mod unterm_schemes;
 mod version;
 pub mod window;
 mod wsl;
@@ -801,6 +801,19 @@ impl ConfigHandle {
     /// information from the configuration
     pub fn generation(&self) -> usize {
         self.generation
+    }
+
+    pub fn with_runtime_color_scheme(&self, scheme: &str) -> anyhow::Result<Self> {
+        let mut config = (*self.config).clone();
+        config.color_scheme = Some(scheme.to_string());
+        let Some(palette) = config.resolve_color_scheme().cloned() else {
+            bail!("unknown color scheme: {scheme}");
+        };
+        config.resolved_palette = palette;
+        Ok(Self {
+            config: Arc::new(config),
+            generation: self.generation + 1,
+        })
     }
 
     pub fn default_config() -> Self {

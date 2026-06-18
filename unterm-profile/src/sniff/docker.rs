@@ -116,7 +116,9 @@ fn env_name_for(host: &str) -> String {
         "ghcr.io" => "GHCR_TOKEN".to_string(),
         other => format!(
             "DOCKER_TOKEN_{}",
-            other.replace(|c: char| !c.is_alphanumeric(), "_").to_uppercase()
+            other
+                .replace(|c: char| !c.is_alphanumeric(), "_")
+                .to_uppercase()
         ),
     }
 }
@@ -141,6 +143,9 @@ mod tests {
     fn env_name_specialcases_dockerhub_and_ghcr() {
         assert_eq!(env_name_for("index.docker.io"), "DOCKER_TOKEN");
         assert_eq!(env_name_for("ghcr.io"), "GHCR_TOKEN");
-        assert_eq!(env_name_for("registry.acme.com"), "DOCKER_TOKEN_REGISTRY_ACME_COM");
+        assert_eq!(
+            env_name_for("registry.acme.com"),
+            "DOCKER_TOKEN_REGISTRY_ACME_COM"
+        );
     }
 }

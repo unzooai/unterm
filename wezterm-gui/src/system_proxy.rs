@@ -62,12 +62,10 @@ pub fn detect() -> Option<DetectedProxy> {
 /// they cost up to probe(150ms) + probe(150ms) + scan(~1s); concurrently the
 /// whole pass is bounded by the slowest single stage (~150ms).
 fn detect_uncached() -> Option<DetectedProxy> {
-    let os = std::thread::spawn(|| {
-        detect_os().filter(|found| probe_endpoint(found).unwrap_or(false))
-    });
-    let env = std::thread::spawn(|| {
-        detect_env().filter(|found| probe_endpoint(found).unwrap_or(false))
-    });
+    let os =
+        std::thread::spawn(|| detect_os().filter(|found| probe_endpoint(found).unwrap_or(false)));
+    let env =
+        std::thread::spawn(|| detect_env().filter(|found| probe_endpoint(found).unwrap_or(false)));
     let scan = std::thread::spawn(scan_common_ports);
 
     // Join in priority order and return on the first hit: when the OS proxy
@@ -319,11 +317,8 @@ fn scan_common_ports() -> Option<DetectedProxy> {
         .map(|&port| {
             std::thread::spawn(move || {
                 let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
-                std::net::TcpStream::connect_timeout(
-                    &addr,
-                    std::time::Duration::from_millis(120),
-                )
-                .is_ok()
+                std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(120))
+                    .is_ok()
             })
         })
         .collect();
@@ -350,7 +345,9 @@ fn scan_common_ports() -> Option<DetectedProxy> {
 /// proxy config in OS settings pointing at a dead port.
 fn probe_endpoint(proxy: &DetectedProxy) -> Option<bool> {
     let url = proxy.primary_http()?;
-    let addr = url.strip_prefix("http://").or_else(|| url.strip_prefix("https://"))?;
+    let addr = url
+        .strip_prefix("http://")
+        .or_else(|| url.strip_prefix("https://"))?;
     let socket: std::net::SocketAddr = addr.parse().ok()?;
     Some(
         std::net::TcpStream::connect_timeout(&socket, std::time::Duration::from_millis(150))

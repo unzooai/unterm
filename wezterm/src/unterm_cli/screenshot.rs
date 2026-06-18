@@ -36,9 +36,8 @@ pub struct ScreenshotArgs {
 pub fn run(args: ScreenshotArgs, json_out: bool) -> Result<()> {
     let mut client = McpClient::connect()?;
 
-    let external = args.scroll_app.is_some()
-        || args.scroll_title.is_some()
-        || args.scroll_pid.is_some();
+    let external =
+        args.scroll_app.is_some() || args.scroll_title.is_some() || args.scroll_pid.is_some();
 
     let result = if args.self_window {
         // `capture.window` with no filters defaults to the server's own pid

@@ -6,8 +6,7 @@ use parking_lot::Mutex;
 use regex::Regex;
 use std::sync::OnceLock;
 
-const KV_PATTERN: &str =
-    r"(?i)\b(token|key|secret|password|api[_-]?key|credential)s?\s*[:=]\s*\S+";
+const KV_PATTERN: &str = r"(?i)\b(token|key|secret|password|api[_-]?key|credential)s?\s*[:=]\s*\S+";
 const GITHUB_PATTERN: &str = r"\b(ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9_]{36,}\b";
 const GENERIC_TOKEN_PATTERN: &str = r"\b[A-Za-z0-9+/=_\-]{40,}\b";
 
@@ -56,9 +55,8 @@ pub fn redact(text: &str, custom_patterns: &[String]) -> (String, u64) {
     let mut out = text.to_string();
 
     // KV form: `token: <value>` -> `token: <redacted>`
-    out = c
-        .kv
-        .replace_all(&out, |caps: &regex::Captures| {
+    out =
+        c.kv.replace_all(&out, |caps: &regex::Captures| {
             count += 1;
             let full = caps.get(0).map(|m| m.as_str()).unwrap_or("");
             // Split on first `=` or `:` to keep the key intact

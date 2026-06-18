@@ -7,10 +7,13 @@ use config::keyassignment::SpawnTabDomain;
 use mux::pane::Pane;
 use mux::Mux;
 use parking_lot::Mutex;
+use portable_pty::CommandBuilder;
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::net::ToSocketAddrs;
 use std::sync::Arc;
+use window::WindowOps;
 
 /// Audit log entry
 #[derive(Clone, serde::Serialize)]
@@ -70,6 +73,61 @@ fn entry_agent_from_last_audit(state: &McpState) -> String {
         .last()
         .map(|e| e.agent.clone())
         .unwrap_or_else(|| "anonymous".to_string())
+}
+
+fn shell_command_builder(command: &str) -> CommandBuilder {
+    #[cfg(windows)]
+    {
+        let mut builder = CommandBuilder::new("cmd.exe");
+        builder.arg("/C");
+        builder.arg(command);
+        builder
+    }
+    #[cfg(not(windows))]
+    {
+        let shell = std::env::var_os("SHELL").unwrap_or_else(|| OsString::from("/bin/sh"));
+        let mut builder = CommandBuilder::new(shell);
+        builder.arg("-lc");
+        builder.arg(command);
+        builder
+    }
+}
+
+fn apply_profile_env_to_builder(
+    cmd_builder: &mut Option<CommandBuilder>,
+    profile: &str,
+) -> Result<String> {
+    let registry = unterm_profile::ProfileRegistry::load().context("load profile registry")?;
+    let (profile_id, _) = registry
+        .resolve(profile)
+        .ok_or_else(|| anyhow!("profile not found or ambiguous: {profile}"))?;
+    let profile_id = profile_id.to_string();
+    let store = unterm_profile::default_store().context("open profile secret store")?;
+    let env = registry
+        .resolve_env(store.as_ref(), &profile_id)
+        .with_context(|| format!("resolve profile env for {profile_id}"))?;
+    if !env.is_empty() {
+        let builder = cmd_builder.get_or_insert_with(CommandBuilder::new_default_prog);
+        for (key, value) in env {
+            builder.env(key, value);
+        }
+    }
+    Ok(profile_id)
+}
+
+fn cwd_url_to_path(raw: &str) -> Option<String> {
+    if raw.trim().is_empty() {
+        return None;
+    }
+    if let Ok(url) = url::Url::parse(raw) {
+        if url.scheme() == "file" {
+            return url
+                .to_file_path()
+                .ok()
+                .map(|p| p.to_string_lossy().to_string());
+        }
+    }
+    Some(raw.to_string())
 }
 
 /// Command execution policy
@@ -391,14 +449,17 @@ pub fn recent_mcp_input_activity() -> McpInputActivity {
 /// `Some` and routes Enter/Esc/Ctrl-A to `resolve_confirmation`.
 pub fn pending_confirmation_view() -> Option<ConfirmationView> {
     let state = mcp_state().lock();
-    state.pending_confirmations.first().map(|p| ConfirmationView {
-        id: p.id,
-        agent: p.agent.clone(),
-        input_preview: p.input_preview.clone(),
-        pane_id: p.pane_id,
-        method: p.method.clone(),
-        requested_at: p.requested_at.clone(),
-    })
+    state
+        .pending_confirmations
+        .first()
+        .map(|p| ConfirmationView {
+            id: p.id,
+            agent: p.agent.clone(),
+            input_preview: p.input_preview.clone(),
+            pane_id: p.pane_id,
+            method: p.method.clone(),
+            requested_at: p.requested_at.clone(),
+        })
 }
 
 /// Number of pending confirmations. Cheaper than `pending_confirmation_view`
@@ -468,7 +529,12 @@ pub fn insights_mcp_snapshot(recent_audit_limit: usize) -> InsightsMcpSnapshot {
                 .nth(1)
                 .and_then(|tail| tail.split('.').next())
                 .unwrap_or(&e.timestamp);
-            format!("{time}  {:<24} {}  agent={}", e.method, truncate(&e.detail, 60), e.agent)
+            format!(
+                "{time}  {:<24} {}  agent={}",
+                e.method,
+                truncate(&e.detail, 60),
+                e.agent
+            )
         })
         .collect();
     let pending_suggestions = state
@@ -889,12 +955,7 @@ impl McpHandler {
         Self
     }
 
-    pub fn handle(
-        &self,
-        ctx: &ConnectionContext,
-        method: &str,
-        params: &Value,
-    ) -> Result<Value> {
+    pub fn handle(&self, ctx: &ConnectionContext, method: &str, params: &Value) -> Result<Value> {
         CURRENT_CONN_ID.with(|cell| *cell.borrow_mut() = Some(ctx.conn_id));
         let _scope = ConnectionScope;
         match method {
@@ -1194,8 +1255,7 @@ impl McpHandler {
             .and_then(|v| v.as_str())
             .map(|s| s.to_string())
             .filter(|s| !s.is_empty());
-        crate::server_info::set_title(title.clone())
-            .context("failed to write instance title")?;
+        crate::server_info::set_title(title.clone()).context("failed to write instance title")?;
         Ok(json!({ "ok": true, "title": title }))
     }
 
@@ -1206,17 +1266,29 @@ impl McpHandler {
     /// `instance.focus` there. Keeps the auth model simple (each instance
     /// only ever acts on itself with its own token).
     ///
-    /// The actual window-raise side-effect is a stub today; we return
-    /// `ok: true` so agents can rely on the call shape, but the
-    /// OS-level raise (Win32 SetForegroundWindow / NSApp activate /
-    /// X SubstructureRedirect) is still tracked as a polish item.
-    /// Workaround: agents that need a peer in front can spawn into it
-    /// (or poke its tab bar via `session.list`) and the user Alt-Tabs.
+    /// Runs on the GUI thread because the front-end/window registry is
+    /// thread-local there. We focus the first known OS window for this
+    /// instance; cross-instance focus is still modeled by connecting to that
+    /// peer with `--instance <id>` and calling `instance.focus` there.
     fn instance_focus(&self, _params: &Value) -> Result<Value> {
-        Ok(json!({
-            "ok": true,
-            "note": "OS-level window raise not yet implemented — call returns ok so callers can rely on the shape"
-        }))
+        let (tx, rx) = std::sync::mpsc::channel();
+        promise::spawn::spawn_into_main_thread(async move {
+            let result = crate::frontend::try_front_end()
+                .and_then(|fe| fe.gui_windows().into_iter().next())
+                .map(|win| {
+                    win.window.focus();
+                    json!({
+                        "ok": true,
+                        "mux_window_id": win.mux_window_id,
+                    })
+                })
+                .ok_or_else(|| anyhow!("no GUI window is registered for this instance"));
+            tx.send(result).ok();
+        })
+        .detach();
+
+        rx.recv_timeout(std::time::Duration::from_secs(2))
+            .map_err(|_| anyhow!("Timeout waiting for instance.focus"))?
     }
 
     /// `profile.list` — every identity profile on disk plus a hint at
@@ -1224,8 +1296,7 @@ impl McpHandler {
     /// expose `secrets` values here — only counts and metadata, so an
     /// over-eager agent can't drain the keychain through one call.
     fn profile_list(&self) -> Result<Value> {
-        let registry = unterm_profile::ProfileRegistry::load()
-            .context("load profile registry")?;
+        let registry = unterm_profile::ProfileRegistry::load().context("load profile registry")?;
         let default = registry.default_id().map(str::to_string);
         let profiles: Vec<Value> = registry
             .iter_ordered()
@@ -1265,15 +1336,13 @@ impl McpHandler {
     /// (or surface a "rotate your GitHub PAT" reminder) without the
     /// user having to remember to check.
     fn profile_audit(&self) -> Result<Value> {
-        let registry = unterm_profile::ProfileRegistry::load()
-            .context("load profile registry")?;
+        let registry = unterm_profile::ProfileRegistry::load().context("load profile registry")?;
         let today = chrono::Local::now().date_naive();
         let mut warnings = Vec::new();
         let mut healthy = 0usize;
         for (id, p) in registry.iter_ordered() {
             for (env_name, date_str) in &p.expiration {
-                let Ok(date) = chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d")
-                else {
+                let Ok(date) = chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d") else {
                     continue;
                 };
                 let days = (date - today).num_days();
@@ -1414,10 +1483,7 @@ impl McpHandler {
             size: SplitSize::Percent(size_percent),
         };
 
-        let command_dir = params
-            .get("cwd")
-            .and_then(|v| v.as_str())
-            .map(String::from);
+        let command_dir = params.get("cwd").and_then(|v| v.as_str()).map(String::from);
 
         // Same two-level spawn dance as session.create so we get the
         // async split_pane future back into this sync context. 10s cap
@@ -1499,6 +1565,30 @@ impl McpHandler {
             .get("cwd")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
+        let command = params
+            .get("command")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string());
+        let profile = params
+            .get("profile")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string());
+
+        let mut cmd_builder = command.as_deref().map(shell_command_builder);
+        if let Some(cwd) = command_dir.as_deref() {
+            if let Some(builder) = cmd_builder.as_mut() {
+                builder.cwd(cwd);
+            }
+        }
+        let resolved_profile = if let Some(profile) = profile.as_deref() {
+            Some(apply_profile_env_to_builder(&mut cmd_builder, profile)?)
+        } else {
+            None
+        };
 
         let size = wezterm_term::TerminalSize {
             rows,
@@ -1527,7 +1617,7 @@ impl McpHandler {
                         .spawn_tab_or_window(
                             Some(window_id),
                             SpawnTabDomain::DefaultDomain,
-                            None, // default shell
+                            cmd_builder,
                             command_dir,
                             size,
                             None,
@@ -1545,6 +1635,8 @@ impl McpHandler {
                         "title": pane.get_title(),
                         "cols": dims.cols,
                         "rows": dims.viewport_rows,
+                        "profile": resolved_profile,
+                        "command": command,
                     }))
                 }
                 .await;
@@ -2125,7 +2217,9 @@ impl McpHandler {
             // bar's "agent · dir" subtitle.
             if let Some(pane_id) = session_id.and_then(|s| s.parse::<u64>().ok()) {
                 let agent = entry_agent_from_last_audit(&state);
-                state.pane_agents.insert(pane_id, (agent, std::time::Instant::now()));
+                state
+                    .pane_agents
+                    .insert(pane_id, (agent, std::time::Instant::now()));
             }
         }
         if method == "session.input" || method == "exec.send" {
@@ -2388,18 +2482,19 @@ impl McpHandler {
                 let gui = crate::frontend::front_end()
                     .gui_window_for_mux_window(mux_window_id)
                     .ok_or_else(|| anyhow!("no GUI window for mux window {mux_window_id}"))?;
-                gui.window.notify(crate::termwindow::TermWindowNotif::Apply(
-                    Box::new(move |term_window| {
-                        if let Some(pane) = Mux::get().get_pane(pane_id) {
-                            let dims = pane.get_dimensions();
-                            let top = (target - dims.viewport_rows as isize / 4)
-                                .max(dims.scrollback_top);
-                            // set_viewport itself clamps "past the bottom"
-                            // back to live-follow mode.
-                            term_window.set_viewport(pane_id, Some(top), dims);
-                        }
-                    }),
-                ));
+                gui.window
+                    .notify(crate::termwindow::TermWindowNotif::Apply(Box::new(
+                        move |term_window| {
+                            if let Some(pane) = Mux::get().get_pane(pane_id) {
+                                let dims = pane.get_dimensions();
+                                let top = (target - dims.viewport_rows as isize / 4)
+                                    .max(dims.scrollback_top);
+                                // set_viewport itself clamps "past the bottom"
+                                // back to live-follow mode.
+                                term_window.set_viewport(pane_id, Some(top), dims);
+                            }
+                        },
+                    )));
                 Ok(())
             })();
             tx.send(result).ok();
@@ -2711,7 +2806,11 @@ impl McpHandler {
             if v.get("type").and_then(|t| t.as_str()) != Some("Selector") {
                 continue;
             }
-            let now = v.get("now").and_then(|n| n.as_str()).unwrap_or("").to_string();
+            let now = v
+                .get("now")
+                .and_then(|n| n.as_str())
+                .unwrap_or("")
+                .to_string();
             let all = v
                 .get("all")
                 .and_then(|a| a.as_array())
@@ -2738,7 +2837,9 @@ impl McpHandler {
             groups.push(json!({ "name": name, "now": now, "nodes": nodes }));
         }
         groups.sort_by(|a, b| {
-            a.get("name").and_then(|v| v.as_str()).unwrap_or("")
+            a.get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
                 .cmp(b.get("name").and_then(|v| v.as_str()).unwrap_or(""))
         });
         Ok(json!({
@@ -2837,7 +2938,10 @@ impl McpHandler {
         // Drop pool entries / current_node that no longer name a real node.
         let node_names: std::collections::HashSet<String> =
             settings.nodes.iter().map(|n| n.name.clone()).collect();
-        settings.rotation.pool.retain(|name| node_names.contains(name));
+        settings
+            .rotation
+            .pool
+            .retain(|name| node_names.contains(name));
         if let Some(cur) = settings.current_node.clone() {
             if !node_names.contains(&cur) {
                 settings.current_node = None;
@@ -2895,14 +2999,8 @@ impl McpHandler {
         let mut env = serde_json::Map::new();
         if settings.enabled {
             // Prefer manual override URLs in proxy.json, otherwise auto-detect.
-            let manual_http = settings
-                .http_proxy
-                .clone()
-                .filter(|s| !s.is_empty());
-            let manual_socks = settings
-                .socks_proxy
-                .clone()
-                .filter(|s| !s.is_empty());
+            let manual_http = settings.http_proxy.clone().filter(|s| !s.is_empty());
+            let manual_socks = settings.socks_proxy.clone().filter(|s| !s.is_empty());
             let detected = if manual_http.is_none() && manual_socks.is_none() {
                 crate::system_proxy::detect()
             } else {
@@ -2914,8 +3012,7 @@ impl McpHandler {
                     .as_ref()
                     .and_then(|d| d.primary_http().map(str::to_string))
             });
-            let socks =
-                manual_socks.or_else(|| detected.as_ref().and_then(|d| d.socks.clone()));
+            let socks = manual_socks.or_else(|| detected.as_ref().and_then(|d| d.socks.clone()));
             let no_proxy = detected
                 .as_ref()
                 .and_then(|d| d.no_proxy.clone())
@@ -2991,7 +3088,7 @@ impl McpHandler {
             .map(|pane| {
                 let cwd = pane
                     .get_current_working_dir(mux::pane::CachePolicy::AllowStale)
-                    .map(|u| u.to_string());
+                    .and_then(|u| cwd_url_to_path(&u.to_string()));
                 json!({
                     "id": pane.pane_id(),
                     "title": pane.get_title(),
@@ -3036,14 +3133,73 @@ impl McpHandler {
 
         let data = std::fs::read_to_string(&path)?;
         let workspace: Value = serde_json::from_str(&data)?;
+        let dry_run = params
+            .get("dry_run")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let sessions = workspace
+            .get("sessions")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
 
-        // For now just return the saved info — full restore would need
-        // to create tabs with specified cwds
+        let mut planned = Vec::new();
+        let mut created = Vec::new();
+        let mut failed = Vec::new();
+
+        for session in &sessions {
+            let saved_id = session.get("id").cloned().unwrap_or(Value::Null);
+            let title = session
+                .get("title")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let cwd = session
+                .get("cwd")
+                .and_then(|v| v.as_str())
+                .and_then(cwd_url_to_path);
+
+            planned.push(json!({
+                "saved_id": saved_id,
+                "title": title,
+                "cwd": cwd,
+            }));
+
+            if dry_run {
+                continue;
+            }
+
+            let mut create_params = json!({});
+            if let Some(cwd) = &cwd {
+                create_params["cwd"] = json!(cwd);
+            }
+            match self.session_create(&create_params) {
+                Ok(value) => {
+                    created.push(json!({
+                        "saved_id": saved_id,
+                        "cwd": cwd,
+                        "created": value,
+                    }));
+                }
+                Err(err) => {
+                    failed.push(json!({
+                        "saved_id": saved_id,
+                        "cwd": cwd,
+                        "error": err.to_string(),
+                    }));
+                }
+            }
+        }
+
         Ok(json!({
-            "restored": true,
+            "restored": !dry_run && failed.is_empty(),
+            "dry_run": dry_run,
             "name": name,
+            "path": path,
             "workspace": workspace,
-            "message": "Workspace data loaded. Use session.create with cwd to recreate sessions.",
+            "planned": planned,
+            "created": created,
+            "failed": failed,
         }))
     }
 
@@ -3242,7 +3398,10 @@ impl McpHandler {
             self.audit(
                 "capture.window_scroll",
                 None,
-                &format!("app={} pid={} title={}", target.app, target.pid, target.title),
+                &format!(
+                    "app={} pid={} title={}",
+                    target.app, target.pid, target.title
+                ),
             );
             let r = external::scroll_capture_window(&target, &path, &opts)?;
             Ok(json!({
@@ -3726,8 +3885,8 @@ impl McpHandler {
 
         // Non-mutating recording self-check against pane 0 (or the
         // first available pane). We never start a recording here.
-        let probe_id = Mux::try_get()
-            .and_then(|mux| mux.iter_panes().first().map(|p| p.pane_id() as u64));
+        let probe_id =
+            Mux::try_get().and_then(|mux| mux.iter_panes().first().map(|p| p.pane_id() as u64));
         let rec_status = self.session_recording_status(&json!({"id": probe_id.unwrap_or(0)}));
         checks.push(json!({
             "name": "session.recording_status",
@@ -3771,11 +3930,7 @@ impl McpHandler {
     fn session_recording_stop(&self, params: &Value) -> Result<Value> {
         let pane = self.get_pane(params)?;
         let pane_id = pane.pane_id();
-        self.audit(
-            "session.recording_stop",
-            Some(&pane_id.to_string()),
-            "stop",
-        );
+        self.audit("session.recording_stop", Some(&pane_id.to_string()), "stop");
         let r = crate::recording::stop_recording(pane_id)?;
         Ok(json!({
             "session_id": r.session_id,
@@ -3880,9 +4035,7 @@ fn load_proxy_settings() -> ProxySettings {
         if let Some(found) = crate::system_proxy::detect() {
             settings.http_proxy = found.primary_http().map(|s| s.to_string());
             settings.socks_proxy = found.socks.clone();
-            if !settings.no_proxy.is_empty()
-                && found.no_proxy.as_deref().unwrap_or("").is_empty()
-            {
+            if !settings.no_proxy.is_empty() && found.no_proxy.as_deref().unwrap_or("").is_empty() {
                 // Keep user's no_proxy if set; otherwise take detected.
             } else if let Some(np) = found.no_proxy.clone() {
                 settings.no_proxy = np;
@@ -4038,9 +4191,9 @@ mod proxy_rotation_tests {
         // pool includes a missing name; "a" is down, "b" slow, "c" fastest.
         let pool = vec!["a".into(), "b".into(), "missing".into(), "c".into()];
         let pick = select_fastest_node(&nodes, &pool, |url| match url {
-            "http://a:1" => None,      // unreachable → skipped
-            "http://b:2" => Some(80),  // reachable, slower
-            "http://c:3" => Some(20),  // reachable, fastest → winner
+            "http://a:1" => None,     // unreachable → skipped
+            "http://b:2" => Some(80), // reachable, slower
+            "http://c:3" => Some(20), // reachable, fastest → winner
             _ => None,
         });
         assert_eq!(pick.map(|n| n.name.as_str()), Some("c"));
@@ -4077,7 +4230,10 @@ mod proxy_rotation_tests {
         while count < ROTATION_FAILS_BEFORE_SWITCH {
             count = rotation_note_failure("node-A");
         }
-        assert!(count >= ROTATION_FAILS_BEFORE_SWITCH, "repeated misses must fail over");
+        assert!(
+            count >= ROTATION_FAILS_BEFORE_SWITCH,
+            "repeated misses must fail over"
+        );
 
         // A healthy probe (or a completed switch) clears the strike count.
         rotation_reset_failure();
@@ -4126,7 +4282,8 @@ fn node_health(obj: &Value) -> (bool, Option<u64>) {
 /// manual override is the escape hatch for Windows / non-standard setups.
 fn resolve_clash_endpoint(settings: &ProxySettings) -> Option<crate::clash_api::ClashEndpoint> {
     if !settings.clash_controller.trim().is_empty() {
-        let ep = crate::clash_api::manual_endpoint(&settings.clash_controller, &settings.clash_secret);
+        let ep =
+            crate::clash_api::manual_endpoint(&settings.clash_controller, &settings.clash_secret);
         if crate::clash_api::version(&ep).is_ok() {
             return Some(ep);
         }
@@ -4139,8 +4296,7 @@ fn resolve_clash_endpoint(settings: &ProxySettings) -> Option<crate::clash_api::
 /// keeps a single slow/jittery probe from yanking the proxy exit out from under
 /// live connections — the root cause of "rotation keeps dropping my network."
 /// Only the single rotation-monitor thread touches it, so a plain Mutex is fine.
-static ROTATION_FAILS: std::sync::Mutex<(String, u32)> =
-    std::sync::Mutex::new((String::new(), 0));
+static ROTATION_FAILS: std::sync::Mutex<(String, u32)> = std::sync::Mutex::new((String::new(), 0));
 
 /// How many consecutive ticks (each already retried within the tick) the active
 /// node must miss before we fail over. With the default 30s interval that's a
@@ -4271,11 +4427,13 @@ pub fn proxy_rotation_tick() -> Option<String> {
     // require ROTATION_FAILS_BEFORE_SWITCH consecutive failing ticks before
     // swapping the injected proxy — a single missed probe must not flip the
     // exit out from under the user.
-    if let Some((cur_name, cur_url)) = settings
-        .current_node
-        .as_ref()
-        .and_then(|cn| settings.nodes.iter().find(|n| &n.name == cn).map(|n| (cn.clone(), n.url.clone())))
-    {
+    if let Some((cur_name, cur_url)) = settings.current_node.as_ref().and_then(|cn| {
+        settings
+            .nodes
+            .iter()
+            .find(|n| &n.name == cn)
+            .map(|n| (cn.clone(), n.url.clone()))
+    }) {
         if (0..2).any(|_| probe_proxy_endpoint(&cur_url, PROBE_TIMEOUT_MS)) {
             rotation_reset_failure();
             return None; // healthy — nothing to do
@@ -4293,8 +4451,7 @@ pub fn proxy_rotation_tick() -> Option<String> {
     // Active node down (or unset): probe the pool, pick the fastest reachable.
     let target = select_fastest_node(&settings.nodes, &settings.rotation.pool, |url| {
         let start = std::time::Instant::now();
-        probe_proxy_endpoint(url, PROBE_TIMEOUT_MS)
-            .then(|| start.elapsed().as_millis() as u64)
+        probe_proxy_endpoint(url, PROBE_TIMEOUT_MS).then(|| start.elapsed().as_millis() as u64)
     });
     let (name, url) = match target {
         Some(node) => (node.name.clone(), node.url.clone()),
@@ -4331,7 +4488,6 @@ pub fn start_proxy_rotation_monitor() {
         })
         .ok();
 }
-
 
 #[cfg(windows)]
 fn elevated_unterm_command_args(shell: &str) -> Result<Vec<String>> {
@@ -4527,7 +4683,9 @@ fn clipboard_read_any() -> Result<Value> {
         return clipboard_read_linux();
     }
     #[allow(unreachable_code)]
-    Err(anyhow!("Clipboard reading is not supported on this platform"))
+    Err(anyhow!(
+        "Clipboard reading is not supported on this platform"
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -4629,17 +4787,18 @@ fn clipboard_read_win32() -> Result<Value> {
             }
 
             let pixel_data = unsafe {
-                std::slice::from_raw_parts(
-                    (ptr as *const u8).add(pixel_offset),
-                    total_pixel_bytes,
-                )
+                std::slice::from_raw_parts((ptr as *const u8).add(pixel_offset), total_pixel_bytes)
             };
 
             let mut rgba_buf = vec![0u8; (width * height * 4) as usize];
             let bottom_up = height_signed > 0;
 
             for y in 0..height as usize {
-                let src_y = if bottom_up { height as usize - 1 - y } else { y };
+                let src_y = if bottom_up {
+                    height as usize - 1 - y
+                } else {
+                    y
+                };
                 let src_row = &pixel_data
                     [src_y * row_stride..src_y * row_stride + width as usize * bytes_per_pixel];
                 let dst_offset = y * width as usize * 4;
@@ -5150,11 +5309,11 @@ fn capture_screen_image(include_base64: bool) -> Result<Value> {
     // Probe each tool in order; the first that exists is used. No interactive
     // selection — we want a full-screen PNG.
     let candidates: &[(&str, &[&str])] = &[
-        ("grim", &[]),                    // grim <file>
-        ("gnome-screenshot", &["-f"]),    // gnome-screenshot -f <file>
+        ("grim", &[]),                       // grim <file>
+        ("gnome-screenshot", &["-f"]),       // gnome-screenshot -f <file>
         ("spectacle", &["-bn", "-f", "-o"]), // spectacle -bn -f -o <file>
-        ("scrot", &[]),                   // scrot <file>
-        ("maim", &[]),                    // maim <file>
+        ("scrot", &[]),                      // scrot <file>
+        ("maim", &[]),                       // maim <file>
     ];
 
     let mut last_err: Option<String> = None;

@@ -136,8 +136,7 @@ pub fn upload(params: &Value) -> Result<Value> {
         .map(String::from)
         .unwrap_or_else(|| derive_key(path, &provider_name, &cfg));
 
-    let bytes =
-        fs::read(path).with_context(|| format!("read local file {}", path))?;
+    let bytes = fs::read(path).with_context(|| format!("read local file {}", path))?;
     let content_type = mime_for(path);
 
     let url = match provider_name.as_str() {
@@ -233,12 +232,7 @@ fn mime_for(path: &str) -> String {
 // StringToSign:
 //   PUT\n\n<Content-Type>\n<Date>\n/<bucket>/<key>
 // ============================================================================
-fn upload_oss(
-    cfg: &OssConfig,
-    key: &str,
-    body: &[u8],
-    content_type: &str,
-) -> Result<String> {
+fn upload_oss(cfg: &OssConfig, key: &str, body: &[u8], content_type: &str) -> Result<String> {
     let date = http_date(SystemTime::now());
     let canonical = format!("/{}/{}", cfg.bucket, key);
     let to_sign = format!("PUT\n\n{}\n{}\n{}", content_type, date, canonical);
@@ -290,12 +284,7 @@ fn upload_oss(
 // We pass no extra signed headers / params, so header-list and url-param-list
 // are both empty.
 // ============================================================================
-fn upload_cos(
-    cfg: &CosConfig,
-    key: &str,
-    body: &[u8],
-    content_type: &str,
-) -> Result<String> {
+fn upload_cos(cfg: &CosConfig, key: &str, body: &[u8], content_type: &str) -> Result<String> {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -371,8 +360,8 @@ fn upload_qiniu(cfg: &QiniuConfig, key: &str, body: &[u8]) -> Result<String> {
     let encoded_policy =
         base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(policy_json.as_bytes());
 
-    let mut mac = HmacSha1::new_from_slice(cfg.secret_key.as_bytes())
-        .expect("HMAC accepts any key length");
+    let mut mac =
+        HmacSha1::new_from_slice(cfg.secret_key.as_bytes()).expect("HMAC accepts any key length");
     mac.update(encoded_policy.as_bytes());
     let signature =
         base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes());
@@ -384,8 +373,7 @@ fn upload_qiniu(cfg: &QiniuConfig, key: &str, body: &[u8]) -> Result<String> {
         .text("token", token)
         .part(
             "file",
-            reqwest::blocking::multipart::Part::bytes(body.to_vec())
-                .file_name(key.to_string()),
+            reqwest::blocking::multipart::Part::bytes(body.to_vec()).file_name(key.to_string()),
         );
 
     let client = http_client()?;
@@ -469,10 +457,8 @@ mod tests {
         let mac = hmac_sha1_b64(&[0x0b; 20], b"Hi There");
         // expected = base64(HMAC-SHA1) of the known hex
         // hex: b617318655057264e28bc0b6fb378c8ef146be00
-        let expected =
-            base64::engine::general_purpose::STANDARD.encode(hex_decode(
-                "b617318655057264e28bc0b6fb378c8ef146be00",
-            ));
+        let expected = base64::engine::general_purpose::STANDARD
+            .encode(hex_decode("b617318655057264e28bc0b6fb378c8ef146be00"));
         assert_eq!(mac, expected);
     }
 
@@ -486,10 +472,7 @@ mod tests {
     #[test]
     fn sha1_known_vector() {
         // "abc" → a9993e364706816aba3e25717850c26c9cd0d89d
-        assert_eq!(
-            sha1_hex(b"abc"),
-            "a9993e364706816aba3e25717850c26c9cd0d89d"
-        );
+        assert_eq!(sha1_hex(b"abc"), "a9993e364706816aba3e25717850c26c9cd0d89d");
     }
 
     #[test]

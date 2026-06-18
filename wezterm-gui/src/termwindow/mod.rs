@@ -73,22 +73,22 @@ pub mod background;
 pub mod box_model;
 pub mod charselect;
 pub mod clipboard;
+pub mod dir_jump;
 pub mod keyevent;
+pub mod left_tab_bar;
 pub mod modal;
 pub(crate) mod mouseevent;
 pub mod palette;
 pub mod paneselect;
-pub mod dir_jump;
-pub mod left_tab_bar;
-pub mod tree_sidebar;
-pub mod top_stats_bar;
-pub mod ui_icons;
 pub mod popup_menu;
 mod prevcursor;
 pub mod render;
 pub mod resize;
 mod selection;
 pub mod spawn;
+pub mod top_stats_bar;
+pub mod tree_sidebar;
+pub mod ui_icons;
 pub mod webgpu;
 use crate::spawn::SpawnWhere;
 use prevcursor::PrevCursorPos;
@@ -212,6 +212,21 @@ pub enum UIItemType {
     TreeSidebarRow(usize),
     /// The tree sidebar's background (swallows clicks, accepts wheel).
     TreeSidebarBg,
+    /// Resize grip on the directory tree sidebar's right edge.
+    TreeSidebarResize,
+    /// Scroll track inside the directory tree sidebar.
+    TreeSidebarScrollTrack {
+        row_count: usize,
+        visible_rows: usize,
+        thumb_height: usize,
+    },
+    /// Draggable scroll thumb inside the directory tree sidebar.
+    TreeSidebarScrollThumb {
+        row_count: usize,
+        visible_rows: usize,
+        track_top: usize,
+        track_height: usize,
+    },
     /// A tab row in the left vertical tab bar. Click activates; keep
     /// dragging to reorder; double-click renames; right-click menus.
     LeftTabBarTab(usize),
@@ -533,6 +548,7 @@ pub struct TermWindow {
     dragging: Option<(UIItem, MouseEvent)>,
 
     modal: RefCell<Option<Rc<dyn Modal>>>,
+    prewarmed_settings_menu: RefCell<Option<Rc<crate::termwindow::popup_menu::PopupMenu>>>,
     /// v0.40: left directory-tree sidebar; None = closed.
     pub(crate) tree_sidebar: RefCell<Option<crate::termwindow::tree_sidebar::TreeSidebar>>,
     /// Left vertical tab bar state; active when tab_bar_position = Left.
@@ -614,7 +630,10 @@ fn cd_command_for_pane(pane: &Arc<dyn mux::pane::Pane>, path: &std::path::Path) 
             || shell == "pwsh.exe"
             || shell == "pwsh"
         {
-            return format!("Set-Location -LiteralPath {}\r\n", powershell_single_quote(&raw));
+            return format!(
+                "Set-Location -LiteralPath {}\r\n",
+                powershell_single_quote(&raw)
+            );
         }
 
         if shell == "nu.exe" || shell == "nu" {
@@ -648,12 +667,10 @@ impl TermWindow {
         let mut tabs = Vec::new();
         if let Some(mux_window) = mux.get_window(self.mux_window_id) {
             for tab in mux_window.iter() {
-                let cwd = tab
-                    .get_active_pane()
-                    .and_then(|pane| {
-                        pane.get_current_working_dir(CachePolicy::AllowStale)
-                            .map(|u| u.to_string())
-                    });
+                let cwd = tab.get_active_pane().and_then(|pane| {
+                    pane.get_current_working_dir(CachePolicy::AllowStale)
+                        .map(|u| u.to_string())
+                });
                 let title = tab.get_title();
                 tabs.push(crate::session_state::TabState { cwd, title });
             }
@@ -791,7 +808,10 @@ impl TermWindow {
         let config = configuration();
         let dpi = config.dpi.unwrap_or_else(|| ::window::default_dpi()) as usize;
         let fontconfig = Rc::new(FontConfiguration::new(Some(config.clone()), dpi)?);
-        log::info!("startup-span: font config ready {:?}", startup_span.elapsed());
+        log::info!(
+            "startup-span: font config ready {:?}",
+            startup_span.elapsed()
+        );
 
         let mux = Mux::get();
         let size = match mux.get_active_tab_for_window(mux_window_id) {
@@ -996,6 +1016,7 @@ impl TermWindow {
             is_click_to_focus_window: false,
             key_table_state: KeyTableState::default(),
             modal: RefCell::new(None),
+            prewarmed_settings_menu: RefCell::new(None),
             tree_sidebar: RefCell::new(None),
             left_tab_bar: RefCell::new(left_tab_bar::LeftTabBar::default()),
             deferred_scrollbar: RefCell::new(Vec::new()),
@@ -1023,11 +1044,7 @@ impl TermWindow {
         // otherwise use the computed dimensions from config.
         let (geo_width, geo_height) =
             if let Some((saved_w, saved_h)) = SAVED_DIMENSIONS.lock().unwrap().take() {
-                log::info!(
-                    "Restoring saved window dimensions: {}x{}",
-                    saved_w,
-                    saved_h
-                );
+                log::info!("Restoring saved window dimensions: {}x{}", saved_w, saved_h);
                 (saved_w, saved_h)
             } else {
                 (dimensions.pixel_width, dimensions.pixel_height)
@@ -1042,7 +1059,10 @@ impl TermWindow {
         };
         log::trace!("{:?}", geometry);
 
-        log::info!("startup-span: pre Window::new_window {:?}", startup_span.elapsed());
+        log::info!(
+            "startup-span: pre Window::new_window {:?}",
+            startup_span.elapsed()
+        );
         let window = Window::new_window(
             &get_window_class(),
             "unterm",
@@ -1057,7 +1077,10 @@ impl TermWindow {
             },
         )
         .await?;
-        log::info!("startup-span: os window created {:?}", startup_span.elapsed());
+        log::info!(
+            "startup-span: os window created {:?}",
+            startup_span.elapsed()
+        );
         tw.borrow_mut().window.replace(window.clone());
 
         // Pre-warm the search bar's localized glyphs at idle. Their first
@@ -1074,6 +1097,17 @@ impl TermWindow {
                 smol::Timer::after(Duration::from_millis(1500 + i as u64 * 250)).await;
                 window.notify(TermWindowNotif::Apply(Box::new(move |tw| {
                     tw.prewarm_search_bar_glyphs(&text);
+                })));
+            })
+            .detach();
+        }
+
+        {
+            let window = window.clone();
+            promise::spawn::spawn(async move {
+                smol::Timer::after(Duration::from_millis(700)).await;
+                window.notify(TermWindowNotif::Apply(Box::new(move |tw| {
+                    tw.prewarm_settings_menu();
                 })));
             })
             .detach();
@@ -1973,6 +2007,47 @@ impl TermWindow {
         self.palette.as_ref().unwrap()
     }
 
+    pub(crate) fn apply_theme_palette(&mut self, scheme: &str) -> anyhow::Result<()> {
+        let config = self.config.with_runtime_color_scheme(scheme)?;
+        let palette: wezterm_term::color::ColorPalette = config.resolved_palette.clone().into();
+        self.config = config.clone();
+        self.palette.replace(palette.clone());
+        self.quad_generation += 1;
+        self.line_quad_cache.borrow_mut().clear();
+        self.line_to_ele_shape_cache.borrow_mut().clear();
+        self.fancy_tab_bar.take();
+        self.invalidate_fancy_tab_bar();
+        self.invalidate_modal();
+        self.render_state.as_mut().map(|rs| rs.config_changed());
+
+        let term_config = Arc::new(config::TermConfig::with_config(config));
+        term_config.set_client_palette(palette);
+        let term_config: Arc<dyn wezterm_term::config::TerminalConfiguration> = term_config;
+
+        let mux = Mux::get();
+        if let Some(window) = mux.get_window(self.mux_window_id) {
+            for tab in window.iter() {
+                for pane in tab.iter_panes_ignoring_zoom() {
+                    pane.pane.set_config(Arc::clone(&term_config));
+                }
+            }
+        }
+        for state in self.pane_state.borrow().values() {
+            if let Some(overlay) = &state.overlay {
+                overlay.pane.set_config(Arc::clone(&term_config));
+            }
+        }
+        for state in self.tab_state.borrow().values() {
+            if let Some(overlay) = &state.overlay {
+                overlay.pane.set_config(Arc::clone(&term_config));
+            }
+        }
+        if let Some(window) = self.window.as_ref() {
+            window.invalidate();
+        }
+        Ok(())
+    }
+
     pub fn config_was_reloaded(&mut self) {
         log::debug!(
             "config was reloaded, overrides: {:?}",
@@ -2808,10 +2883,43 @@ impl TermWindow {
     /// closed). Injected at every window_padding.left evaluation so panes,
     /// splits, terminal cols and mouse mapping all shift together.
     pub(crate) fn tree_sidebar_pixel_width(&self) -> f32 {
-        if self.tree_sidebar.borrow().is_some() {
-            (230.0 * self.dimensions.dpi as f32 / 72.0).round()
+        let tree = self.tree_sidebar.borrow();
+        let Some(tree) = tree.as_ref() else {
+            return 0.0;
+        };
+
+        let pt = self.dimensions.dpi as f32 / 72.0;
+        let window_pts = self.dimensions.pixel_width as f32 / pt;
+        let max = (window_pts * config::ui_tokens::TREE_SIDEBAR_MAX_RATIO)
+            .max(config::ui_tokens::TREE_SIDEBAR_MIN_WIDTH);
+        let w = tree
+            .width_pts
+            .unwrap_or(config::ui_tokens::TREE_SIDEBAR_WIDTH)
+            .clamp(config::ui_tokens::TREE_SIDEBAR_MIN_WIDTH, max);
+        (w * pt).round()
+    }
+
+    pub(crate) fn resize_tree_sidebar(&mut self, x_px: f32) {
+        let pt = self.dimensions.dpi as f32 / 72.0;
+        let window_pts = self.dimensions.pixel_width as f32 / pt;
+        let x_px = if pt > 1.0 && x_px <= window_pts + 2.0 {
+            x_px * pt
         } else {
-            0.0
+            x_px
+        };
+        let border = self.get_os_border();
+        let left = border.left.get() as f32 + self.left_tab_bar_pixel_width();
+        let w_pts = (x_px - left) / pt;
+        let max = (window_pts * config::ui_tokens::TREE_SIDEBAR_MAX_RATIO)
+            .max(config::ui_tokens::TREE_SIDEBAR_MIN_WIDTH);
+        let clamped = w_pts.clamp(config::ui_tokens::TREE_SIDEBAR_MIN_WIDTH, max);
+        if let Some(tree) = self.tree_sidebar.borrow_mut().as_mut() {
+            tree.width_pts = Some(clamped);
+        }
+        if let Some(window) = self.window.as_ref().cloned() {
+            let dims = self.dimensions;
+            self.apply_dimensions(&dims, None, &window);
+            window.invalidate();
         }
     }
 
@@ -2890,7 +2998,35 @@ impl TermWindow {
                 None,
                 None,
             );
-            log::debug!("search bar glyph prewarm ({text:?}) took {:?}", start.elapsed());
+            log::debug!(
+                "search bar glyph prewarm ({text:?}) took {:?}",
+                start.elapsed()
+            );
+        }
+    }
+
+    fn prewarm_settings_menu(&mut self) {
+        if self.prewarmed_settings_menu.borrow().is_some() {
+            return;
+        }
+        let Some(pane) = self.get_active_pane_or_overlay() else {
+            return;
+        };
+        let menu = Rc::new(crate::termwindow::popup_menu::PopupMenu::build_default(
+            pane.pane_id(),
+        ));
+        let start = std::time::Instant::now();
+        match menu.precompute(self) {
+            Ok(()) => {
+                self.prewarmed_settings_menu.borrow_mut().replace(menu);
+                if let Some(window) = self.window.as_ref() {
+                    window.invalidate();
+                }
+                log::debug!("settings menu prewarm took {:?}", start.elapsed());
+            }
+            Err(err) => {
+                log::warn!("settings menu prewarm failed: {err:#}");
+            }
         }
     }
 
@@ -2902,12 +3038,36 @@ impl TermWindow {
             None => return,
         };
         let pane_id = pane.pane_id();
-        let menu = crate::termwindow::popup_menu::PopupMenu::build_default(pane_id);
+        let cached_menu = self
+            .prewarmed_settings_menu
+            .borrow_mut()
+            .take()
+            .filter(|menu| menu.pane_id() == pane_id);
+        let has_cached_menu = cached_menu.is_some();
+        let menu = cached_menu.unwrap_or_else(|| {
+            Rc::new(crate::termwindow::popup_menu::PopupMenu::build_default(
+                pane_id,
+            ))
+        });
         if let Err(err) = menu.precompute(self) {
             log::error!("popup menu precompute failed: {err:#}");
             return;
         }
-        self.set_modal(std::rc::Rc::new(menu));
+        if !has_cached_menu {
+            if let Some(window) = self.window.as_ref() {
+                self.prewarmed_settings_menu.borrow_mut().replace(menu);
+                let window = window.clone();
+                promise::spawn::spawn(async move {
+                    smol::Timer::after(Duration::from_millis(120)).await;
+                    window.notify(TermWindowNotif::Apply(Box::new(move |tw| {
+                        tw.show_settings_menu();
+                    })));
+                })
+                .detach();
+                return;
+            }
+        }
+        self.set_modal(menu);
     }
 
     pub(crate) fn open_project_directory_from_menu(&mut self) {
@@ -3045,10 +3205,7 @@ impl TermWindow {
                 Ok(start) => {
                     crate::termwindow::mouseevent::write_unterm_status_to_pane(
                         &pane,
-                        &crate::i18n::t_args(
-                            "recording.started",
-                            &[("path", &start.log_path)],
-                        ),
+                        &crate::i18n::t_args("recording.started", &[("path", &start.log_path)]),
                     );
                 }
                 Err(err) => {
@@ -3074,16 +3231,12 @@ impl TermWindow {
         match crate::recording::recorder::export_pane_markdown(pane_id, None) {
             Ok((path, _output)) => {
                 let path_str = path.display().to_string();
-                if let Err(err) = crate::termwindow::mouseevent::copy_text_to_clipboard(&path_str)
-                {
+                if let Err(err) = crate::termwindow::mouseevent::copy_text_to_clipboard(&path_str) {
                     log::warn!("could not copy export path to clipboard: {err:#}");
                 }
                 crate::termwindow::mouseevent::write_unterm_status_to_pane(
                     &pane,
-                    &crate::i18n::t_args(
-                        "recording.exported",
-                        &[("path", &path_str)],
-                    ),
+                    &crate::i18n::t_args("recording.exported", &[("path", &path_str)]),
                 );
             }
             Err(err) => {
@@ -3105,12 +3258,19 @@ impl TermWindow {
     /// bravo's status bar opens alpha's web settings, which is
     /// confusing and reaches the wrong process's state.
     pub(crate) fn open_web_settings(&mut self) {
+        self.open_web_settings_fragment(None);
+    }
+
+    pub(crate) fn open_web_settings_fragment(&mut self, fragment: Option<&str>) {
         let info = crate::server_info::read_current();
         if info.http_port == 0 {
             log::warn!("web settings: http_port not yet bound; cannot open browser");
             return;
         }
-        let url = format!("http://127.0.0.1:{}", info.http_port);
+        let url = match fragment {
+            Some(fragment) => format!("http://127.0.0.1:{}#{}", info.http_port, fragment),
+            None => format!("http://127.0.0.1:{}", info.http_port),
+        };
 
         #[cfg(target_os = "macos")]
         let opener = "open";
@@ -3646,6 +3806,11 @@ impl TermWindow {
             ToggleTreeSidebar => self.toggle_tree_sidebar(),
             ToggleLeftTabBar => self.toggle_left_tab_bar(),
             ShowContextMenu => self.show_context_menu(),
+            ToggleSessionRecording => self.toggle_session_recording(pane.pane_id()),
+            ExportSessionMarkdown => self.export_current_session(pane.pane_id()),
+            OpenWebSettings => self.open_web_settings(),
+            OpenAiAgentsSettings => self.open_web_settings_fragment(Some("agents")),
+            OpenRecordingSettings => self.open_web_settings_fragment(Some("recording")),
             ShowLauncher => self.show_launcher(),
             ShowLauncherArgs(args) => {
                 let title = args.title.clone().unwrap_or("Launcher".to_string());
@@ -4071,8 +4236,7 @@ impl TermWindow {
                     );
                 } else {
                     let pane_id = pane.pane_id() as u64;
-                    let suggestions =
-                        crate::mcp::handler::pending_suggestions_for_pane(pane_id);
+                    let suggestions = crate::mcp::handler::pending_suggestions_for_pane(pane_id);
                     let Some(first) = suggestions.first() else {
                         return Ok(PerformAssignmentResult::Unhandled);
                     };

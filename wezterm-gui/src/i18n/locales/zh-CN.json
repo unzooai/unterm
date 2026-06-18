@@ -61,7 +61,7 @@
   "confirm.yes": " 是 (Y) ",
   "cwd.prompt": "选择一个文件夹,在当前面板中 cd 进入。",
   "dirjump.empty": "没有匹配的目录",
-  "dirjump.hints": "↑↓ 选择 · Tab 补全 · Enter 切换 · ⌘Enter 新标签页 · ⌫ 删字/上级 · ⌘O 系统选择器 · Esc 关闭",
+  "dirjump.hints": "↑↓ 选择 · 向下滚轮或 PageUp/PageDown 翻页 · Tab 补全 · Enter 切换 · ⌘Enter 新标签页 · ⌫ 删字/上级 · ⌘O 系统选择器 · Esc 关闭",
   "dirjump.placeholder": "输入即可任意深度匹配 · / 或 ~ 走路径补全…",
   "dirjump.recent": "最近",
   "dirjump.subdirs": "子目录",
@@ -167,7 +167,7 @@
   "theme.preset.notion-dark.name": "Notion 深色",
   "theme.preset.notion-light.desc": "Notion 风格的简洁浅色",
   "theme.preset.notion-light.name": "Notion 浅色",
-  "theme.preset.standard.desc": "均衡的深色终端风格",
+  "theme.preset.standard.desc": "中性高对比深色终端",
   "theme.preset.standard.name": "标准",
   "theme.saved_palette_failed": "主题已保存为 {name},但调色板应用失败:{err}",
   "theme.switch_failed": "主题切换失败:{err}",
@@ -188,6 +188,7 @@
   "web.agents.btn.installing": "安装中…",
   "web.agents.btn.launch_cmd": "复制启动命令",
   "web.agents.btn.oauth_cmd": "复制登录命令",
+  "web.agents.btn.run_cmd": "复制后台任务命令",
   "web.agents.btn.save": "保存",
   "web.agents.btn.saving": "保存中…",
   "web.agents.btn.uninstall": "卸载",
@@ -216,6 +217,7 @@
   "web.agents.toast.install_failed": "安装失败",
   "web.agents.toast.installed": "已安装。",
   "web.agents.toast.launch_copied": "启动命令已复制 — 在终端里粘贴即可启动 agent。",
+  "web.agents.toast.run_copied": "后台任务命令已复制 — 修改 prompt 后在终端中运行。",
   "web.agents.toast.load_failed": "加载 agent 失败：{err}",
   "web.agents.toast.refreshed": "Manifest 已重新获取。",
   "web.agents.toast.save_failed": "保存失败：{err}",
@@ -475,5 +477,5 @@
   "web.update.view_release": "查看更新内容 →",
   "dirjump.here": "↵ 就进这里",
   "dirjump.locations": "位置",
-  "dirjump.more": "… 还有 {n} 个,继续输入可筛选"
+  "dirjump.more": "… 还有 {n} 个,向下滚动鼠标滚轮或按 PageDown 查看下一页,输入可筛选"
 }

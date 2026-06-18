@@ -103,9 +103,10 @@ fn parse_to_value(format: &str, bytes: &[u8]) -> Result<Value> {
     match format {
         "json" => serde_json::from_slice(bytes).map_err(AgentError::from),
         "toml" => {
-            let s = std::str::from_utf8(bytes)
-                .map_err(|e| AgentError::ParseFailed(e.to_string()))?;
-            let t: toml::Value = toml::from_str(s).map_err(|e| AgentError::ParseFailed(e.to_string()))?;
+            let s =
+                std::str::from_utf8(bytes).map_err(|e| AgentError::ParseFailed(e.to_string()))?;
+            let t: toml::Value =
+                toml::from_str(s).map_err(|e| AgentError::ParseFailed(e.to_string()))?;
             Ok(toml_value_to_json(t))
         }
         "yaml" => {
@@ -472,11 +473,7 @@ mod tests {
     #[test]
     fn import_reads_known_keys() {
         let tmp = tempfile::NamedTempFile::new().unwrap();
-        std::fs::write(
-            tmp.path(),
-            br#"{"model":"opus","extra":"hidden"}"#,
-        )
-        .unwrap();
+        std::fs::write(tmp.path(), br#"{"model":"opus","extra":"hidden"}"#).unwrap();
         let spec = spec("json", &[("model", ".model")]);
         let imported = read_settings_from_file(&spec, tmp.path()).unwrap();
         assert_eq!(imported.get("model").unwrap(), &json!("opus"));

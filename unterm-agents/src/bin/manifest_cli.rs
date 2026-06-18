@@ -124,7 +124,14 @@ fn main() -> Result<()> {
             out,
             valid_days,
             min_unterm_version,
-        } => sign(&key, &key_id, &manifests, &out, valid_days, &min_unterm_version),
+        } => sign(
+            &key,
+            &key_id,
+            &manifests,
+            &out,
+            valid_days,
+            &min_unterm_version,
+        ),
         Cmd::Diff { envelope, against } => diff(&envelope, &against),
         Cmd::Push {
             envelope,
@@ -303,13 +310,7 @@ fn push(envelope: &Path, binding: &str, key: &str, archive: bool) -> Result<()> 
         envelope.display()
     );
     let status = Command::new("wrangler")
-        .args([
-            "kv",
-            "key",
-            "put",
-            &format!("--binding={binding}"),
-            key,
-        ])
+        .args(["kv", "key", "put", &format!("--binding={binding}"), key])
         .arg(envelope)
         .status()
         .with_context(|| "wrangler not on PATH — install with `npm i -g wrangler`")?;

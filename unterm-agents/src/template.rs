@@ -35,8 +35,8 @@ pub struct TemplateCtx {
 impl TemplateCtx {
     pub fn variables(&self) -> Result<HashMap<&'static str, String>> {
         let mut vars = HashMap::new();
-        let home = dirs_next::home_dir()
-            .ok_or_else(|| AgentError::ParseFailed("$HOME not set".into()))?;
+        let home =
+            dirs_next::home_dir().ok_or_else(|| AgentError::ParseFailed("$HOME not set".into()))?;
         vars.insert("HOME", home.to_string_lossy().to_string());
         vars.insert(
             "PROFILE_HOME",
@@ -65,9 +65,9 @@ pub fn expand(template: &str, ctx: &TemplateCtx) -> Result<String> {
     while let Some(start) = rest.find("{{") {
         out.push_str(&rest[..start]);
         let after = &rest[start + 2..];
-        let end = after
-            .find("}}")
-            .ok_or_else(|| AgentError::ParseFailed(format!("unterminated template in {template:?}")))?;
+        let end = after.find("}}").ok_or_else(|| {
+            AgentError::ParseFailed(format!("unterminated template in {template:?}"))
+        })?;
         let name = after[..end].trim();
         let replacement = vars.get(name).cloned().unwrap_or_else(|| {
             log::warn!("unknown template var {{{{{name}}}}} — left as empty string");

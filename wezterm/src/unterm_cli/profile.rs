@@ -246,7 +246,9 @@ fn run_import(source: Option<&str>, json_out: bool) -> Result<()> {
     }
     println!("\nNext: create a profile and import the values you want with");
     println!("  unterm-cli profile create \"My Profile\"");
-    println!("  echo <value> | unterm-cli profile set-secret \"My Profile\" <ENV_NAME> --from-stdin");
+    println!(
+        "  echo <value> | unterm-cli profile set-secret \"My Profile\" <ENV_NAME> --from-stdin"
+    );
     Ok(())
 }
 
@@ -319,7 +321,10 @@ fn run_create(display_name: &str, accent: Option<&str>, json_out: bool) -> Resul
         println!("  File:  {}", profile_path(&id).display());
         println!();
         println!("Next: add a secret with");
-        println!("  unterm-cli profile set-secret {:?} GITHUB_TOKEN", display_name);
+        println!(
+            "  unterm-cli profile set-secret {:?} GITHUB_TOKEN",
+            display_name
+        );
     }
     Ok(())
 }
@@ -512,7 +517,11 @@ fn run_edit(name: &str) -> Result<()> {
         .unwrap_or_else(|_| {
             // Reasonable default per platform. Vibe coders on macOS who
             // haven't set $EDITOR usually have nano installed.
-            if cfg!(windows) { "notepad".to_string() } else { "nano".to_string() }
+            if cfg!(windows) {
+                "notepad".to_string()
+            } else {
+                "nano".to_string()
+            }
         });
     let status = std::process::Command::new(&editor)
         .arg(&path)
@@ -522,9 +531,8 @@ fn run_edit(name: &str) -> Result<()> {
         anyhow::bail!("{editor} exited with {status}");
     }
     // Reload to validate the edit didn't corrupt the file.
-    ProfileFile::load(&path).with_context(|| {
-        format!("profile {} no longer parses — check syntax", path.display())
-    })?;
+    ProfileFile::load(&path)
+        .with_context(|| format!("profile {} no longer parses — check syntax", path.display()))?;
     // Edits often add or change [ssh] entries — sync the SSH fragment
     // so the user's `ssh foo` command picks up the new routing without
     // having to restart Unterm.

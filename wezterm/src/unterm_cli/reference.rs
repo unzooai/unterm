@@ -40,10 +40,7 @@ pub fn run(cmd: ReferenceCommand, json_out: bool) -> Result<()> {
         return Ok(());
     }
 
-    let filter = cmd
-        .filter
-        .as_deref()
-        .map(|s| s.to_ascii_lowercase());
+    let filter = cmd.filter.as_deref().map(|s| s.to_ascii_lowercase());
     let filter = filter.as_deref();
 
     let want_mcp = matches!(cmd.section, None | Some(Section::Mcp));

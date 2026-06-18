@@ -676,6 +676,12 @@
                     @click="copyLaunchCmd(a.id)"
                     x-text="t('web.agents.btn.launch_cmd')"
                   ></button>
+                  <button
+                    class="rounded border border-notion-green/50 px-2.5 py-1 text-xs text-notion-teal hover:bg-notion-green/10"
+                    x-show="a.installed && supportsHeadlessAgent(a.id)"
+                    @click="copyRunCmd(a.id)"
+                    x-text="t('web.agents.btn.run_cmd')"
+                  ></button>
                   <a
                     class="ml-auto text-xs text-notion-faint hover:text-notion-ink"
                     :href="a.homepage"
@@ -718,6 +724,7 @@
                 <button class="rounded border border-notion-borderStrong px-2.5 py-1 text-xs hover:bg-notion-sunken" @click="importAgent(agents.detail.manifest.id)" x-text="t('web.agents.btn.import')"></button>
                 <button class="rounded border border-notion-borderStrong px-2.5 py-1 text-xs hover:bg-notion-sunken" @click="copyAuthCmd(agents.detail.manifest.id)" x-text="t('web.agents.btn.oauth_cmd')"></button>
                 <button class="rounded border border-notion-borderStrong px-2.5 py-1 text-xs hover:bg-notion-sunken" @click="copyLaunchCmd(agents.detail.manifest.id)" x-text="t('web.agents.btn.launch_cmd')"></button>
+                <button x-show="supportsHeadlessAgent(agents.detail.manifest.id)" class="rounded border border-notion-green/50 px-2.5 py-1 text-xs text-notion-teal hover:bg-notion-green/10" @click="copyRunCmd(agents.detail.manifest.id)" x-text="t('web.agents.btn.run_cmd')"></button>
                 <button x-show="agents.detail?.detect?.ok" class="rounded border border-rose-700 px-2.5 py-1 text-xs text-rose-300 hover:bg-rose-900/50" @click="uninstallAgent(agents.detail.manifest.id)" x-text="t('web.agents.btn.uninstall')"></button>
               </div>
             </div>

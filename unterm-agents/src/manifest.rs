@@ -487,9 +487,15 @@ impl EnvBinding {
     /// inject; with a filter, only when the mode is listed.
     pub fn applies_to_mode(&self, mode: &str) -> bool {
         let filter = match self {
-            EnvBinding::Secret { only_if_auth_mode, .. } => only_if_auth_mode,
-            EnvBinding::Setting { only_if_auth_mode, .. } => only_if_auth_mode,
-            EnvBinding::Literal { only_if_auth_mode, .. } => only_if_auth_mode,
+            EnvBinding::Secret {
+                only_if_auth_mode, ..
+            } => only_if_auth_mode,
+            EnvBinding::Setting {
+                only_if_auth_mode, ..
+            } => only_if_auth_mode,
+            EnvBinding::Literal {
+                only_if_auth_mode, ..
+            } => only_if_auth_mode,
         };
         filter.is_empty() || filter.iter().any(|m| m == mode)
     }

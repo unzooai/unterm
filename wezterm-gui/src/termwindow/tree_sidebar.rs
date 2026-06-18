@@ -29,6 +29,8 @@ pub struct TreeRow {
     pub is_dir: bool,
     pub expanded: bool,
     pub is_hidden: bool,
+    /// Synthetic Windows drive root row (`C:\`, `D:\`, ...).
+    pub is_drive: bool,
     /// Synthetic "↑ .." row prepended to every non-root tree — clicking
     /// it re-anchors the sidebar at `root.parent()`. Same shape as a
     /// real row so we don't fork the click pipeline.
@@ -40,6 +42,9 @@ pub struct TreeSidebar {
     expanded: HashSet<PathBuf>,
     pub rows: Vec<TreeRow>,
     pub scroll_top: usize,
+    pub visible_rows: usize,
+    /// User-resized width in points; None uses the shared UI token.
+    pub width_pts: Option<f32>,
     last_scan: Instant,
 }
 
@@ -60,11 +65,13 @@ fn list_dir(path: &Path) -> Vec<(PathBuf, bool)> {
         .unwrap_or_default();
     // dirs first, dotfiles last within each group, then lexicographic
     out.sort_by(|a, b| {
-        let ha = a.0.file_name().map_or(false, |n| n.to_string_lossy().starts_with('.'));
-        let hb = b.0.file_name().map_or(false, |n| n.to_string_lossy().starts_with('.'));
-        b.1.cmp(&a.1)
-            .then(ha.cmp(&hb))
-            .then_with(|| a.0.cmp(&b.0))
+        let ha =
+            a.0.file_name()
+                .map_or(false, |n| n.to_string_lossy().starts_with('.'));
+        let hb =
+            b.0.file_name()
+                .map_or(false, |n| n.to_string_lossy().starts_with('.'));
+        b.1.cmp(&a.1).then(ha.cmp(&hb)).then_with(|| a.0.cmp(&b.0))
     });
     out
 }
@@ -76,6 +83,8 @@ impl TreeSidebar {
             expanded: HashSet::new(),
             rows: vec![],
             scroll_top: 0,
+            visible_rows: 1,
+            width_pts: None,
             last_scan: Instant::now(),
         };
         me.rebuild();
@@ -111,8 +120,23 @@ impl TreeSidebar {
                 is_dir: true,
                 expanded: false,
                 is_hidden: false,
+                is_drive: false,
                 is_parent: true,
             });
+        }
+        #[cfg(windows)]
+        for drive in windows_drive_roots() {
+            if drive != self.root {
+                rows.push(TreeRow {
+                    path: drive,
+                    depth: 0,
+                    is_dir: true,
+                    expanded: false,
+                    is_hidden: false,
+                    is_drive: true,
+                    is_parent: false,
+                });
+            }
         }
         let root = self.root.clone();
         self.walk(&root, 0, &mut rows);
@@ -129,8 +153,15 @@ impl TreeSidebar {
     pub fn navigate_to_parent(&mut self) {
         if let Some(parent) = self.root.parent() {
             self.root = parent.to_path_buf();
+            self.scroll_top = 0;
             self.rebuild();
         }
+    }
+
+    pub fn navigate_to_root(&mut self, root: PathBuf) {
+        self.root = root;
+        self.scroll_top = 0;
+        self.rebuild();
     }
 
     fn walk(&self, dir: &Path, depth: usize, rows: &mut Vec<TreeRow>) {
@@ -148,8 +179,19 @@ impl TreeSidebar {
             let is_system_root = at_fs_root
                 && matches!(
                     basename.as_str(),
-                    "dev" | "proc" | "sys" | "private" | "cores" | "bin" | "sbin"
-                        | "usr" | "var" | "etc" | "tmp" | "opt" | "lost+found"
+                    "dev"
+                        | "proc"
+                        | "sys"
+                        | "private"
+                        | "cores"
+                        | "bin"
+                        | "sbin"
+                        | "usr"
+                        | "var"
+                        | "etc"
+                        | "tmp"
+                        | "opt"
+                        | "lost+found"
                 );
             let is_hidden = is_dotfile || is_system_root;
             let expanded = is_dir && self.expanded.contains(&path);
@@ -159,6 +201,7 @@ impl TreeSidebar {
                 is_dir,
                 expanded,
                 is_hidden,
+                is_drive: false,
                 is_parent: false,
             });
             if expanded {
@@ -173,4 +216,49 @@ impl TreeSidebar {
         let next = (self.scroll_top as isize + delta).clamp(0, max_top as isize);
         self.scroll_top = next as usize;
     }
+
+    pub fn scroll_to_thumb_top(
+        &mut self,
+        thumb_top: usize,
+        track_top: usize,
+        track_height: usize,
+        thumb_height: usize,
+        row_count: usize,
+        visible_rows: usize,
+    ) {
+        let max_top = row_count.saturating_sub(visible_rows.max(1));
+        if max_top == 0 {
+            self.scroll_top = 0;
+            return;
+        }
+
+        let max_thumb_top = track_height.saturating_sub(thumb_height);
+        if max_thumb_top == 0 {
+            self.scroll_top = 0;
+            return;
+        }
+
+        let thumb_top = thumb_top.saturating_sub(track_top).min(max_thumb_top);
+        self.scroll_top =
+            ((thumb_top as f32 / max_thumb_top as f32) * max_top as f32).round() as usize;
+    }
+}
+
+#[cfg(windows)]
+fn windows_drive_roots() -> Vec<PathBuf> {
+    let mask = unsafe { winapi::um::fileapi::GetLogicalDrives() };
+    if mask == 0 {
+        return vec![];
+    }
+
+    ('A'..='Z')
+        .enumerate()
+        .filter_map(|(idx, drive)| {
+            if (mask & (1 << idx)) == 0 {
+                None
+            } else {
+                Some(PathBuf::from(format!("{drive}:\\")))
+            }
+        })
+        .collect()
 }

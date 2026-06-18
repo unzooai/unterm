@@ -119,7 +119,9 @@ fn maybe_register_ai_agents() {
                 // child finished; on the GUI it's a detached worker thread so
                 // this blocks nothing the user sees.
                 Ok(mut child) => {
-                    log::info!("setup-ai: registering Unterm with AI agents (first run for v{current})");
+                    log::info!(
+                        "setup-ai: registering Unterm with AI agents (first run for v{current})"
+                    );
                     let _ = child.wait();
                 }
                 Err(e) => log::warn!("setup-ai: could not spawn {:?}: {}", cli, e),

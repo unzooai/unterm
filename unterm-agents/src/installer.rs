@@ -228,16 +228,17 @@ pub struct StepReport {
 }
 
 pub fn run_install(manifest: &AgentManifest) -> Result<Vec<StepReport>> {
-    let platform: &PlatformInstall = manifest.platform_install().ok_or_else(|| {
-        AgentError::InstallFailed {
-            exit: None,
-            detail: format!(
-                "agent {:?} has no install steps for this platform ({})",
-                manifest.id,
-                std::env::consts::OS
-            ),
-        }
-    })?;
+    let platform: &PlatformInstall =
+        manifest
+            .platform_install()
+            .ok_or_else(|| AgentError::InstallFailed {
+                exit: None,
+                detail: format!(
+                    "agent {:?} has no install steps for this platform ({})",
+                    manifest.id,
+                    std::env::consts::OS
+                ),
+            })?;
 
     let mut reports = Vec::new();
     for (i, step) in platform.steps.iter().enumerate() {
@@ -313,12 +314,10 @@ fn run_step(step: &InstallStep, label: &str) -> Result<StepReport> {
 
 fn run_shell(cmd: &[String], label: &str) -> Result<StepReport> {
     let mut iter = cmd.iter();
-    let bin = iter
-        .next()
-        .ok_or_else(|| AgentError::InstallFailed {
-            exit: None,
-            detail: format!("{label}: empty command"),
-        })?;
+    let bin = iter.next().ok_or_else(|| AgentError::InstallFailed {
+        exit: None,
+        detail: format!("{label}: empty command"),
+    })?;
     // Resolve to an absolute path with the same GUI-aware lookup detect()
     // uses, and run with an enriched PATH. A Dock-launched Unterm otherwise
     // spawns `npm`/`pipx` against launchd's minimal PATH and the install step
@@ -345,7 +344,12 @@ fn run_shell(cmd: &[String], label: &str) -> Result<StepReport> {
     })
 }
 
-fn run_script_text(interpreter: &str, text: &str, expected_sha256: &str, label: &str) -> Result<StepReport> {
+fn run_script_text(
+    interpreter: &str,
+    text: &str,
+    expected_sha256: &str,
+    label: &str,
+) -> Result<StepReport> {
     let actual = {
         let mut h = Sha256::new();
         h.update(text.as_bytes());
@@ -379,7 +383,13 @@ fn run_script_text(interpreter: &str, text: &str, expected_sha256: &str, label: 
     })
 }
 
-fn download_to(url: &str, sha256: &str, dest: &str, chmod: Option<&str>, label: &str) -> Result<StepReport> {
+fn download_to(
+    url: &str,
+    sha256: &str,
+    dest: &str,
+    chmod: Option<&str>,
+    label: &str,
+) -> Result<StepReport> {
     let resp = reqwest::blocking::get(url).map_err(|e| AgentError::InstallFailed {
         exit: None,
         detail: format!("{label}: download {url}: {e}"),

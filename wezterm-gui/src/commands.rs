@@ -283,7 +283,11 @@ impl CommandDef {
             ]);
             result.push(ExpandedCommand {
                 brief: agent.label.clone().into(),
-                doc: format!("Launch {} ({}) in a new tab via unterm-cli", agent.label, agent.id).into(),
+                doc: format!(
+                    "Launch {} ({}) in a new tab via unterm-cli",
+                    agent.label, agent.id
+                )
+                .into(),
                 keys: vec![],
                 action: KeyAssignment::SpawnCommandInNewTab(spawn),
                 menubar: &["Shell", "AI Agents"],
@@ -917,6 +921,46 @@ pub fn derive_command_from_key_assignment(action: &KeyAssignment) -> Option<Comm
             args: &[ArgType::ActiveWindow],
             menubar: &[],
             icon: Some("cod_menu"),
+        },
+        ToggleSessionRecording => CommandDef {
+            brief: "Toggle Session Recording".into(),
+            doc: "Start or stop markdown session recording for the active pane".into(),
+            keys: vec![],
+            args: &[ArgType::ActivePane],
+            menubar: &["Shell"],
+            icon: Some("cod_record"),
+        },
+        ExportSessionMarkdown => CommandDef {
+            brief: "Export Current Session as Markdown".into(),
+            doc: "Export the active pane scrollback to a markdown file and copy the path".into(),
+            keys: vec![],
+            args: &[ArgType::ActivePane],
+            menubar: &["Shell"],
+            icon: Some("cod_export"),
+        },
+        OpenWebSettings => CommandDef {
+            brief: "Open Web Settings".into(),
+            doc: "Open Unterm's local settings app in the default browser".into(),
+            keys: vec![],
+            args: &[ArgType::ActiveWindow],
+            menubar: &["Unterm"],
+            icon: Some("cod_settings_gear"),
+        },
+        OpenAiAgentsSettings => CommandDef {
+            brief: "Open AI Agents Settings".into(),
+            doc: "Open Web Settings directly to the AI Agents setup and authentication page".into(),
+            keys: vec![],
+            args: &[ArgType::ActiveWindow],
+            menubar: &["Unterm"],
+            icon: Some("cod_hubot"),
+        },
+        OpenRecordingSettings => CommandDef {
+            brief: "Open Recording Settings".into(),
+            doc: "Open Web Settings directly to captured sessions and markdown recordings".into(),
+            keys: vec![],
+            args: &[ArgType::ActiveWindow],
+            menubar: &["Unterm"],
+            icon: Some("cod_record"),
         },
         InputSelector(_) => CommandDef {
             brief: "Prompt the user to choose from a list".into(),
@@ -2197,6 +2241,9 @@ fn compute_default_actions() -> Vec<KeyAssignment> {
     return vec![
         // ----------------- Unterm
         ReloadConfiguration,
+        OpenWebSettings,
+        OpenAiAgentsSettings,
+        OpenRecordingSettings,
         #[cfg(target_os = "macos")]
         HideApplication,
         #[cfg(target_os = "macos")]
@@ -2321,6 +2368,8 @@ fn compute_default_actions() -> Vec<KeyAssignment> {
             ..LauncherActionArgs::default()
         }),
         ShowTabNavigator,
+        ToggleSessionRecording,
+        ExportSessionMarkdown,
         // ----------------- Help
         OpenUri("https://github.com/user/unterm".to_string()),
         OpenUri("https://github.com/user/unterm/discussions/".to_string()),

@@ -14,6 +14,7 @@ function untermSettings() {
     // injected by /bootstrap.json. Used by copyLaunchCmd / copyAuthCmd so
     // the copied command works even without the .app's MacOS dir on $PATH.
     untermCliPath: '',
+    platform: 'unknown',
     health: { ok: false },
     state: {
       version: '',
@@ -174,44 +175,44 @@ function untermSettings() {
       {
         id: 'standard',
         name: 'Standard',
-        scheme: 'Catppuccin Mocha',
-        desc: 'Balanced dark terminal style',
-        swatches: ['#1e1e2e', '#cba6f7', '#a6e3a1', '#f9e2af', '#89b4fa'],
+        scheme: 'Unterm Dark',
+        desc: 'Neutral high-contrast terminal style',
+        swatches: ['#101010', '#f2f2f2', '#4fd6d6', '#5fd17a', '#5aa7ff'],
       },
       {
         id: 'midnight',
         name: 'Midnight',
-        scheme: 'Tokyo Night',
+        scheme: 'Unterm Midnight',
         desc: 'Low-glare blue-black workspace',
-        swatches: ['#1a1b26', '#7aa2f7', '#9ece6a', '#bb9af7', '#f7768e'],
+        swatches: ['#0f1420', '#e6edf7', '#72d6e8', '#8bdc88', '#82aaff'],
       },
       {
         id: 'daylight',
         name: 'Daylight',
-        scheme: 'Builtin Solarized Light',
+        scheme: 'Unterm Daylight',
         desc: 'Readable light mode for bright rooms',
-        swatches: ['#fdf6e3', '#268bd2', '#859900', '#b58900', '#dc322f'],
+        swatches: ['#fbfbfa', '#0b0f14', '#005ea8', '#17643b', '#b42335'],
       },
       {
         id: 'classic',
         name: 'Classic',
         scheme: 'Classic Dark',
         desc: 'Plain high-contrast terminal colors',
-        swatches: ['#14141a', '#3465a4', '#4e9a06', '#c4a000', '#cc0000'],
+        swatches: ['#121212', '#eeeeee', '#3b82f6', '#22c55e', '#ef4444'],
       },
       {
         id: 'notion-dark',
         name: 'Notion Dark',
         scheme: 'Notion Dark',
         desc: 'Notion-inspired warm dark',
-        swatches: ['#191919', '#529cca', '#4dab9a', '#ffd666', '#ff7369'],
+        swatches: ['#181818', '#eeeeec', '#5aa7d6', '#4fb286', '#ff6f61'],
       },
       {
         id: 'notion-light',
         name: 'Notion Light',
         scheme: 'Notion Light',
         desc: 'Notion-inspired clean light',
-        swatches: ['#f7f6f3', '#337ea9', '#448361', '#cb912f', '#e03e3e'],
+        swatches: ['#f8f7f4', '#1f1e1a', '#1f6f9f', '#2f6f4f', '#b83232'],
       },
     ],
 
@@ -228,6 +229,7 @@ function untermSettings() {
         const j = await res.json();
         this.token = j.auth_token || '';
         this.untermCliPath = j.unterm_cli_path || '';
+        this.platform = j.platform || 'unknown';
       } catch (e) {
         this.toast('Could not load bootstrap.json — backend offline?', 'error');
       }
@@ -235,8 +237,20 @@ function untermSettings() {
       // can render translated text.
       await this.loadI18n();
       await this.refresh();
+      const section = this.sectionFromHash();
+      if (section && section !== this.active) this.select(section, false);
+      window.addEventListener('hashchange', () => {
+        const next = this.sectionFromHash();
+        if (next && next !== this.active) this.select(next, false);
+      });
       this.pollHealth();
       setInterval(() => this.pollHealth(), 5000);
+    },
+
+    sectionFromHash() {
+      const id = (window.location.hash || '').replace(/^#/, '').trim();
+      if (!id) return null;
+      return this.nav.some((item) => item.id === id) ? id : null;
     },
 
     async loadI18n() {
@@ -444,8 +458,11 @@ function untermSettings() {
       }
     },
 
-    select(id) {
+    select(id, updateHash = true) {
       this.active = id;
+      if (updateHash && window.location.hash !== '#' + id) {
+        window.history.replaceState(null, '', '#' + id);
+      }
       if (id === 'recording') this._recordingSeen = true;
       if (id === 'agents') this._agentsSeen = true;
       // Lazy-load profiles on first visit so users who never touch the
@@ -778,14 +795,55 @@ function untermSettings() {
     _cliPrefix() {
       const p = this.untermCliPath || 'unterm-cli';
       if (p === 'unterm-cli') return p;
-      // Single-quote-wrap, escape any embedded single quotes the POSIX way.
-      return "'" + p.replace(/'/g, "'\\''") + "'";
+      return this.commandQuote(p);
+    },
+
+    shellQuote(s) {
+      return "'" + String(s).replace(/'/g, "'\\''") + "'";
+    },
+
+    cmdQuote(s) {
+      const raw = String(s);
+      if (raw.length === 0) return '""';
+      if (/^[A-Za-z0-9_./\\:=-]+$/.test(raw)) return raw;
+      return '"' + raw.replace(/(\\*)"/g, '$1$1\\"').replace(/\\+$/g, '$&$&') + '"';
+    },
+
+    commandQuote(s) {
+      return this.platform === 'windows' ? this.cmdQuote(s) : this.shellQuote(s);
+    },
+
+    supportsHeadlessAgent(id) {
+      return id === 'codex-cli' || id === 'claude-code';
     },
 
     copyLaunchCmd(id) {
       const cmd = this._cliPrefix() + ' agent launch ' + id + ' --profile ' + this.agents.profileId;
       this.copyText(cmd);
       this.toast(this.t('web.agents.toast.launch_copied'), 'info');
+    },
+
+    async copyRunCmd(id) {
+      const placeholder = id === 'codex-cli'
+        ? 'review this diff and list risky changes'
+        : 'summarise the last failing test output';
+      let cmd = '';
+      try {
+        const plan = await this.api(
+          'POST',
+          '/api/agents/' + encodeURIComponent(id) + '/run-plan',
+          { profile: this.agents.profileId, prompt: placeholder },
+        );
+        cmd = plan.command || '';
+      } catch (_) {}
+      if (!cmd) {
+        cmd = this._cliPrefix()
+          + ' agent run ' + id
+          + ' --profile ' + this.agents.profileId
+          + ' ' + this.commandQuote(placeholder);
+      }
+      this.copyText(cmd);
+      this.toast(this.t('web.agents.toast.run_copied'), 'info');
     },
 
     copyAuthCmd(id) {
