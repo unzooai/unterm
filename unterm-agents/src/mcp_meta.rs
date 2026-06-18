@@ -499,7 +499,7 @@ pub const CLI_COMMANDS: &[CliCommand] = &[
     CliCommand { name: "proxy", summary: "Manage Unterm's proxy via the MCP server.", subcommands: &["status", "nodes", "switch", "disable", "env", "rotation"] },
     CliCommand { name: "theme", summary: "List / switch Unterm theme presets.", subcommands: &["list", "switch"] },
     CliCommand { name: "profile", summary: "Manage identity profiles (GitHub / AWS / npm tokens, git identity, SSH keys).", subcommands: &["list", "create", "show", "set-secret", "delete", "audit", "edit", "export", "spawn", "import", "set-default", "shell-integration"] },
-    CliCommand { name: "agent", summary: "Install, authenticate, configure, and launch AI coding-agent CLIs.", subcommands: &["list", "show", "install", "update", "uninstall", "auth", "configure", "import", "plan", "launch", "run", "manifest"] },
+    CliCommand { name: "agent", summary: "Install, authenticate, configure, launch, and run AI coding-agent CLIs headlessly.", subcommands: &["list", "show", "install", "update", "uninstall", "auth", "configure", "import", "plan", "launch", "run", "manifest"] },
     CliCommand { name: "lang", summary: "List, set, or print the active interface locale.", subcommands: &["list", "set", "current"] },
     CliCommand { name: "show-keys", summary: "Show key assignments (effective from config).", subcommands: &[] },
     CliCommand { name: "ls-fonts", summary: "Display information about fonts.", subcommands: &[] },
