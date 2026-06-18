@@ -43,6 +43,31 @@ Claude Code is the canonical example because it ships native MCP support. Two mi
 
 Cursor and Aider follow the same pattern — point an MCP client at the local socket described in `server.json`. If you want to drive multiple Unterm windows from one agent, see the [multi-instance guide](/docs/multi-instance) — each window gets its own port and token, and there's a small registry under `~/.unterm/instances/` to enumerate them.
 
+## Headless task runner
+
+For one-shot work, you do not need to open an interactive agent pane first. `unterm-cli agent run` starts a supported coding CLI in its non-interactive mode, waits for it to finish, and still applies the same Unterm profile, cwd, auth mode, launch flags, and MCP bridge wiring as `agent launch`.
+
+```sh
+unterm-cli agent run codex-cli --cwd ~/src/app "review this diff and list risky changes"
+unterm-cli agent run claude-code --profile work "summarise the last failing test output"
+unterm-cli agent run gemini-cli --cwd ~/src/app "summarise this repository and suggest the next useful task"
+unterm-cli agent run opencode --profile work "inspect the current project and suggest the next useful task"
+```
+
+This is the lowest-friction way to let users spend through the official subscriptions they already have. If Codex, Claude Code, or Gemini CLI is signed in through its vendor account flow, Unterm reuses that local CLI state; it does not convert the run into an API-key workflow or inject a per-token credential. API keys remain an explicit fallback inside Web Settings -> AI Agents.
+
+`--stdin` lets an outer workflow feed context without building an MCP client:
+
+```sh
+git diff | unterm-cli agent run codex-cli --stdin "review this diff"
+```
+
+Use `--dry-run` to inspect the exact vendor command and redacted environment before running it:
+
+```sh
+unterm-cli agent run gemini-cli --dry-run "summarise this repository"
+```
+
 ## Pattern 1 — Director and worker
 
 The killer use case for an MCP-controllable terminal: an _outer_ agent supervises an _inner_ agent running inside an Unterm pane. The outer agent dispatches concrete work, the inner agent does the actual coding, the outer one watches progress and steps in when it stalls.
