@@ -539,7 +539,7 @@ name = "Unterm Daylight"
 #[cfg(test)]
 mod tests {
     use super::UNTERM_SCHEMES;
-    use crate::ColorSchemeFile;
+    use crate::{ColorSchemeFile, RgbaColor};
 
     #[test]
     fn unterm_schemes_parse_and_define_chrome_colors() {
@@ -558,5 +558,115 @@ mod tests {
                 name
             );
         }
+    }
+
+    #[test]
+    fn unterm_schemes_keep_core_surfaces_readable() {
+        for (name, toml) in UNTERM_SCHEMES {
+            let scheme = ColorSchemeFile::from_toml_str(toml)
+                .unwrap_or_else(|err| panic!("{} should parse: {}", name, err));
+            let colors = scheme.colors;
+
+            assert_contrast(
+                name,
+                "terminal foreground/background",
+                colors
+                    .foreground
+                    .unwrap_or_else(|| panic!("{} should define foreground", name)),
+                colors
+                    .background
+                    .unwrap_or_else(|| panic!("{} should define background", name)),
+                7.0,
+            );
+            assert_contrast(
+                name,
+                "selection foreground/background",
+                colors
+                    .selection_fg
+                    .unwrap_or_else(|| panic!("{} should define selection_fg", name)),
+                colors
+                    .selection_bg
+                    .unwrap_or_else(|| panic!("{} should define selection_bg", name)),
+                4.5,
+            );
+
+            let tab_bar = colors
+                .tab_bar
+                .unwrap_or_else(|| panic!("{} should define tab_bar colors", name));
+            assert_contrast(
+                name,
+                "active tab foreground/background",
+                tab_bar.active_tab().fg_color,
+                tab_bar.active_tab().bg_color,
+                4.5,
+            );
+            assert_contrast(
+                name,
+                "inactive tab foreground/background",
+                tab_bar.inactive_tab().fg_color,
+                tab_bar.inactive_tab().bg_color,
+                4.5,
+            );
+            assert_contrast(
+                name,
+                "new tab foreground/background",
+                tab_bar.new_tab().fg_color,
+                tab_bar.new_tab().bg_color,
+                4.5,
+            );
+        }
+    }
+
+    fn assert_contrast(
+        scheme_name: &str,
+        surface_name: &str,
+        foreground: RgbaColor,
+        background: RgbaColor,
+        minimum: f64,
+    ) {
+        let ratio = contrast_ratio(foreground, background);
+        assert!(
+            ratio >= minimum,
+            "{} {} contrast {:.2} is below {:.1}",
+            scheme_name,
+            surface_name,
+            ratio,
+            minimum
+        );
+    }
+
+    fn contrast_ratio(foreground: RgbaColor, background: RgbaColor) -> f64 {
+        let fg = relative_luminance(foreground);
+        let bg = relative_luminance(background);
+        let lighter = fg.max(bg);
+        let darker = fg.min(bg);
+        (lighter + 0.05) / (darker + 0.05)
+    }
+
+    fn relative_luminance(color: RgbaColor) -> f64 {
+        let (red, green, blue) = rgb_channels(color);
+        0.2126 * srgb_to_linear(red)
+            + 0.7152 * srgb_to_linear(green)
+            + 0.0722 * srgb_to_linear(blue)
+    }
+
+    fn srgb_to_linear(channel: u8) -> f64 {
+        let channel = channel as f64 / 255.0;
+        if channel <= 0.03928 {
+            channel / 12.92
+        } else {
+            ((channel + 0.055) / 1.055).powf(2.4)
+        }
+    }
+
+    fn rgb_channels(color: RgbaColor) -> (u8, u8, u8) {
+        let hex: String = color.into();
+        let hex = hex
+            .strip_prefix('#')
+            .unwrap_or_else(|| panic!("{} should be a hex color", hex));
+        let red = u8::from_str_radix(&hex[0..2], 16).unwrap();
+        let green = u8::from_str_radix(&hex[2..4], 16).unwrap();
+        let blue = u8::from_str_radix(&hex[4..6], 16).unwrap();
+        (red, green, blue)
     }
 }
