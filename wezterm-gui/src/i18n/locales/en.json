@@ -61,7 +61,7 @@
   "confirm.yes": " [Y]es ",
   "cwd.prompt": "Select a folder to cd into the current pane.",
   "dirjump.empty": "No matching directory",
-  "dirjump.hints": "↑↓ select · scroll wheel or PageUp/PageDown to page · Tab complete · Enter cd · ⌘Enter new tab · ⌫ edit/up · ⌘O picker · Esc",
+  "dirjump.hints": "↑↓ select · scroll wheel or PageUp/PageDown for next page · Tab complete · Enter open · ⌘Enter new tab · ⌫ edit/up · ⌘O system picker · Esc",
   "dirjump.placeholder": "Type to match any depth · / or ~ for paths…",
   "dirjump.recent": "RECENT",
   "dirjump.subdirs": "SUBDIRECTORIES",
@@ -477,6 +477,6 @@
   "web.update.view_release": "View release →",
   "dirjump.here": "↵ cd here",
   "dirjump.locations": "Locations",
-  "dirjump.more": "... {n} more - scroll down or press PageDown to show the next page; type to narrow",
-  "dirjump.page": "Showing {from}-{to} of {total} - scroll down or press PageDown to continue; type to narrow"
+  "dirjump.more": "... {n} more - scroll down or press PageDown for the next page; type to narrow",
+  "dirjump.page": "Showing {from}-{to} of {total} - scroll down or press PageDown for the next page; type to narrow"
 }

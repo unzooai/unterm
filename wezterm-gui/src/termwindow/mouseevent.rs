@@ -1377,17 +1377,9 @@ impl crate::TermWindow {
     fn mouse_event_status_bar_project(&mut self, event: MouseEvent, context: &dyn WindowOps) {
         match event.kind {
             WMEK::Press(MousePress::Left) => {
-                let Some(pane) = self.get_active_pane_no_overlay() else {
-                    return;
-                };
-                let pane_id = pane.pane_id();
-                let Some(window) = self.window.as_ref().cloned() else {
-                    return;
-                };
-                write_unterm_status_to_pane(&pane, &crate::i18n::t("project.prompt_picker"));
-                std::thread::spawn(move || {
-                    open_project_directory_in_new_tab(window, pane_id, None);
-                });
+                self.show_dir_jump_with_action(
+                    crate::termwindow::dir_jump::DirJumpAction::NewTab,
+                );
                 context.invalidate();
             }
             WMEK::Press(MousePress::Right) => {

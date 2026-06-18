@@ -56,6 +56,7 @@ struct DirItem {
 
 pub struct DirJump {
     pane_id: PaneId,
+    action: DirJumpAction,
     base: RefCell<PathBuf>,
     input: RefCell<String>,
     items: RefCell<Vec<DirItem>>,
@@ -76,6 +77,14 @@ pub struct DirJump {
     /// "… +N" footer so a truncated list never masquerades as complete.
     overflow: RefCell<usize>,
     element: RefCell<Option<Vec<ComputedElement>>>,
+}
+
+#[allow(dead_code)]
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub(crate) enum DirJumpAction {
+    ChangeCwd,
+    NewTab,
+    SplitRight,
 }
 
 const MAX_VISIBLE: usize = 14;
@@ -311,9 +320,10 @@ fn tilde_path(p: &Path) -> String {
 }
 
 impl DirJump {
-    pub fn new(pane_id: PaneId, base: PathBuf) -> Self {
+    pub(crate) fn with_action(pane_id: PaneId, base: PathBuf, action: DirJumpAction) -> Self {
         let me = Self {
             pane_id,
+            action,
             base: RefCell::new(base),
             input: RefCell::new(String::new()),
             items: RefCell::new(vec![]),
@@ -557,35 +567,68 @@ impl DirJump {
             .map(|it| it.path.clone())
     }
 
-    /// cd the pane (or spawn a new tab there with `new_tab`) and close.
-    pub fn activate(&self, display_idx: usize, term_window: &mut TermWindow, new_tab: bool) {
+    /// Apply the selected directory and close. Cmd/Ctrl+Enter always opens
+    /// a new tab as an escape hatch; menu-launched palettes can make Enter
+    /// mean new-tab or split directly.
+    pub fn activate(&self, display_idx: usize, term_window: &mut TermWindow, force_new_tab: bool) {
         let Some(path) = self.selected_path(display_idx) else {
             return;
         };
         term_window.cancel_modal();
-        if new_tab {
-            let spawn = SpawnCommand {
-                cwd: Some(path),
-                ..Default::default()
-            };
-            if let Some(pane) = term_window.get_active_pane_or_overlay() {
-                let _ = term_window
-                    .perform_key_assignment(&pane, &KeyAssignment::SpawnCommandInNewTab(spawn));
-            }
-            return;
-        }
-        let Some(pane) = term_window.get_active_pane_no_overlay() else {
-            return;
+        let action = if force_new_tab {
+            DirJumpAction::NewTab
+        } else {
+            self.action
         };
-        if pane.pane_id() != self.pane_id {
-            // The pane we were summoned for is gone; cd the active one.
-        }
-        let cmd = super::cd_command_for_pane(&pane, &path);
-        {
-            let mut writer = pane.writer();
-            if let Err(err) = writer.write_all(cmd.as_bytes()) {
-                log::warn!("dir jump: could not inject cd: {err:#}");
+        match action {
+            DirJumpAction::NewTab => {
+                let spawn = SpawnCommand {
+                    cwd: Some(path),
+                    ..Default::default()
+                };
+                if let Some(pane) = term_window.get_active_pane_or_overlay() {
+                    let _ = term_window
+                        .perform_key_assignment(&pane, &KeyAssignment::SpawnCommandInNewTab(spawn));
+                }
             }
+            DirJumpAction::SplitRight => {
+                let spawn = SpawnCommand {
+                    cwd: Some(path),
+                    ..Default::default()
+                };
+                if let Some(pane) = term_window.get_active_pane_or_overlay() {
+                    let _ = term_window
+                        .perform_key_assignment(&pane, &KeyAssignment::SplitHorizontal(spawn));
+                }
+            }
+            DirJumpAction::ChangeCwd => {
+                let Some(pane) = term_window.get_active_pane_no_overlay() else {
+                    return;
+                };
+                if pane.pane_id() != self.pane_id {
+                    // The pane we were summoned for is gone; cd the active one.
+                }
+                let cmd = super::cd_command_for_pane(&pane, &path);
+                {
+                    let mut writer = pane.writer();
+                    if let Err(err) = writer.write_all(cmd.as_bytes()) {
+                        log::warn!("dir jump: could not inject cd: {err:#}");
+                    }
+                }
+            }
+        }
+    }
+
+    fn open_system_picker(&self, term_window: &mut TermWindow) {
+        let pane_id = self.pane_id;
+        let action = self.action;
+        term_window.cancel_modal();
+        match action {
+            DirJumpAction::ChangeCwd => {
+                term_window.change_working_directory_for_pane_system_picker(pane_id)
+            }
+            DirJumpAction::NewTab => term_window.open_project_directory_from_system_picker(),
+            DirJumpAction::SplitRight => term_window.open_folder_in_split_system_picker(pane_id),
         }
     }
 
@@ -1090,9 +1133,7 @@ impl Modal for DirJump {
                 self.activate(sel, term_window, true);
             }
             (KeyCode::Char('o'), KeyModifiers::SUPER) => {
-                let pane_id = self.pane_id;
-                term_window.cancel_modal();
-                term_window.change_working_directory_for_pane(pane_id);
+                self.open_system_picker(term_window);
             }
             (KeyCode::Char('u'), KeyModifiers::CTRL) => {
                 self.input.borrow_mut().clear();

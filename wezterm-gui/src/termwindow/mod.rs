@@ -2971,6 +2971,13 @@ impl TermWindow {
     /// Open the directory-jump palette (v0.40 "B"): fuzzy go-to-directory
     /// rooted at the active pane's cwd.
     pub(crate) fn show_dir_jump(&mut self) {
+        self.show_dir_jump_with_action(crate::termwindow::dir_jump::DirJumpAction::ChangeCwd);
+    }
+
+    pub(crate) fn show_dir_jump_with_action(
+        &mut self,
+        action: crate::termwindow::dir_jump::DirJumpAction,
+    ) {
         let Some(pane) = self.get_active_pane_or_overlay() else {
             return;
         };
@@ -2978,7 +2985,7 @@ impl TermWindow {
         let base = pane_cwd_path(&pane)
             .or_else(dirs_next::home_dir)
             .unwrap_or_else(|| std::path::PathBuf::from("/"));
-        let modal = crate::termwindow::dir_jump::DirJump::new(pane_id, base);
+        let modal = crate::termwindow::dir_jump::DirJump::with_action(pane_id, base, action);
         self.set_modal(std::rc::Rc::new(modal));
     }
 
@@ -3061,6 +3068,10 @@ impl TermWindow {
     }
 
     pub(crate) fn open_project_directory_from_menu(&mut self) {
+        self.show_dir_jump_with_action(crate::termwindow::dir_jump::DirJumpAction::NewTab);
+    }
+
+    pub(crate) fn open_project_directory_from_system_picker(&mut self) {
         let Some(pane) = self.get_active_pane_no_overlay() else {
             return;
         };
@@ -3083,6 +3094,13 @@ impl TermWindow {
     /// Pop a folder picker, then split the current pane horizontally and
     /// spawn a shell in the picked directory in the new right-side pane.
     pub(crate) fn open_folder_in_split(&mut self, pane_id: mux::pane::PaneId) {
+        let _ = pane_id;
+        self.show_dir_jump_with_action(crate::termwindow::dir_jump::DirJumpAction::SplitRight);
+    }
+
+    /// Pop a native folder picker, then split the current pane horizontally
+    /// and spawn a shell in the picked directory in the new right-side pane.
+    pub(crate) fn open_folder_in_split_system_picker(&mut self, pane_id: mux::pane::PaneId) {
         use config::keyassignment::{KeyAssignment, SpawnCommand};
         let Some(pane) = self.get_active_pane_no_overlay() else {
             return;
@@ -3126,6 +3144,14 @@ impl TermWindow {
     /// no new tab. The cd is shell-quoted and written to the pane's PTY input,
     /// so the user sees and confirms it.
     pub(crate) fn change_working_directory_for_pane(&mut self, _pane_id: mux::pane::PaneId) {
+        self.show_dir_jump_with_action(crate::termwindow::dir_jump::DirJumpAction::ChangeCwd);
+    }
+
+    /// Native folder picker fallback for Cmd+O from the directory jump palette.
+    pub(crate) fn change_working_directory_for_pane_system_picker(
+        &mut self,
+        _pane_id: mux::pane::PaneId,
+    ) {
         let Some(pane) = self.get_active_pane_no_overlay() else {
             return;
         };
