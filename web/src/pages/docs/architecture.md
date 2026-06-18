@@ -163,7 +163,7 @@ GET  /bootstrap.json                — token + ports (no auth — so the SPA ca
 GET  /api/health                    — liveness
 GET  /api/state                     — aggregate snapshot (theme, proxy, recording, instances)
 POST /api/proxy                     — proxy_configure / proxy_disable
-POST /api/theme                     — writes ~/.unterm/theme.json
+POST /api/theme                     — persist theme and repaint GUI windows
 POST /api/recording/start           — recording::start_recording
 POST /api/recording/stop            — recording::stop_recording
 GET  /api/sessions                  — list recorded sessions on disk
@@ -183,16 +183,16 @@ browser POST /api/theme {name: "dracula"}
 HTTP handler thread
             │
             ▼
-write ~/.unterm/theme.json     ← config-watcher in `config/` crate notices
+write ~/.unterm/theme.json     ← cold-start fallback / human-readable intent
             │
             ▼
-ConfigHandle reload fires      ← all subscribers in the GUI get a notification
+config::reload()               ← refresh the active ConfigHandle
             │
             ▼
-GUI repaints with new colors
+apply_theme_to_gui_windows()   ← repaint existing windows immediately
 ```
 
-The HTTP plane never touches GL state directly. It writes a config file; the existing config-reload pipeline does the rest.
+The HTTP thread still does not touch GL state directly. It persists the user's choice, then schedules the palette refresh onto the GUI thread so existing windows repaint immediately instead of waiting for a file watcher.
 
 ## Discovery and multi-instance
 

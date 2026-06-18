@@ -12,7 +12,7 @@
 //!   GET  /api/health                    -> liveness check (auth)
 //!   GET  /api/state                     -> aggregate snapshot (auth)
 //!   POST /api/proxy                     -> proxy_configure / proxy_disable
-//!   POST /api/theme                     -> writes ~/.unterm/theme.json
+//!   POST /api/theme                     -> persist theme + repaint GUI
 //!   POST /api/recording/start           -> recording::start_recording
 //!   POST /api/recording/stop            -> recording::stop_recording
 //!   GET  /api/sessions                  -> recording::list_sessions
