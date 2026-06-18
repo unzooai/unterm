@@ -468,6 +468,39 @@ Used to mean "interactive region selection". In headless MCP mode this is imposs
 
 **Returns:** `{ image: {...}, type: "image/png", mode: "screen_fallback", message: "Interactive region selection is not available in headless MCP mode; captured the screen instead." }`
 
+### `capture.scrollback`
+
+Render a terminal pane's entire scrollback plus viewport into one tall PNG. This is a headless re-render from the pane text model, not a stitched screen capture, so it works while the window is occluded.
+
+**Params:**
+
+| Name | Type | Required | Description |
+|---|---|---|---|
+| `id` | number | no | Pane id. Defaults to the active pane. |
+| `max_rows` | number | no | Cap rows rendered; keeps the most recent rows. |
+| `dpi` | number | no | Raster DPI, clamped to 48-288. |
+
+**Returns:** `{ path, width, height, rows, cols, truncated, first_row, session_id, type: "image/png" }`
+
+### `capture.window_scroll`
+
+Scrolling long screenshot of another app's window. On macOS, Unterm finds the target window, synthesizes wheel events, and stitches frames by row matching. On Windows and Linux this currently returns an error; use `capture.window` for a single-frame capture there.
+
+**Params:**
+
+| Name | Type | Required | Description |
+|---|---|---|---|
+| `app` | string | no | App-name substring. |
+| `title` | string | no | Window-title substring. |
+| `pid` | number | no | Owning process id. |
+| `under_cursor` | bool | no | macOS: target the window under the cursor instead of matching by app/title/pid. |
+| `max_frames` | number | no | Frame cap, clamped to 2-120. |
+| `settle_ms` | number | no | Delay between scroll frames, clamped to 100-2000ms. |
+| `activate` | bool | no | Whether to activate the target window before capture. |
+| `restore_scroll` | bool | no | Whether to restore the target window's scroll position after capture. |
+
+**Returns:** `{ path, width, height, frames, window: { app, title, pid, window_id }, hint, type: "image/png" }`
+
 ### `capture.clipboard`
 
 Read the OS clipboard. Cross-platform: Win32 `OpenClipboard`/`GetClipboardData` on Windows, `pbpaste` on macOS, `xclip`/`wl-paste` on Linux.

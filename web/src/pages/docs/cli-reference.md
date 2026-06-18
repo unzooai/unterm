@@ -469,20 +469,41 @@ The URL also points at a static SPA at `/`, plus a small REST surface for the sa
 
 ## screenshot
 
-Capture the screen and save the PNG. Backed by `capture.screen` over MCP.
+Capture the screen and save the PNG. Backed by the `capture.*` MCP methods.
 
 ```text
 unterm-cli screenshot [--include-window] [-o FILE]
+unterm-cli screenshot --scrollback [--pane N] [--max-rows N] [--dpi N] [-o FILE]
+unterm-cli screenshot --scroll-app APP [--scroll-title TEXT] [--scroll-pid PID] [--max-frames N] [-o FILE]
 ```
 
 | Flag | Purpose |
 |---|---|
 | `--include-window` | Include Unterm's own window in the capture. Default: pass `include_window=false` to MCP, which the GUI honours best-effort (`screencapture` cannot literally exclude one window, so on macOS this currently maps to "capture full screen anyway" — treat the flag as a hint). |
+| `--self` | Capture Unterm's own window instead of the whole screen. |
+| `--scrollback` | Render the active pane's entire scrollback plus viewport into one tall PNG. This is headless re-rendering, not pixel stitching, so it works even when the window is occluded. |
+| `--pane <N>` | Pane id for `--scrollback`; defaults to the active pane. |
+| `--max-rows <N>` | Row cap for `--scrollback`; keeps the most recent rows. |
+| `--dpi <N>` | Raster DPI for `--scrollback`, clamped to 48-288. |
+| `--scroll-app <APP>` | macOS external long screenshot: find another app's window by app-name substring, scroll it, and stitch the frames. |
+| `--scroll-title <TEXT>` | macOS external long screenshot: match the target window by title substring. |
+| `--scroll-pid <PID>` | macOS external long screenshot: match the target window by owning process id. |
+| `--max-frames <N>` | Frame cap for external scroll stitching. |
 | `-o`, `--output <FILE>` | Local path to write the PNG to. The CLI copies from the MCP-side path if MCP writes elsewhere. End state: `FILE` exists. |
 
 ```sh
 $ unterm-cli screenshot --output /tmp/cap.png
 /tmp/cap.png
+```
+
+```sh
+$ unterm-cli screenshot --scrollback --max-rows 20000 --output /tmp/pane-long.png
+/tmp/pane-long.png
+```
+
+```sh
+$ unterm-cli screenshot --scroll-app Safari --scroll-title "Release notes" --max-frames 40 --output /tmp/safari-long.png
+/tmp/safari-long.png
 ```
 
 ```sh
