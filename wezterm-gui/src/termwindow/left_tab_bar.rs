@@ -303,12 +303,12 @@ impl crate::TermWindow {
             )
         };
         let bar_bg = if is_light {
-            mix(bg, fgc, 0.075)
+            mix(bg, fgc, 0.045)
         } else {
             let lifted = mix(bg, fgc, 0.028);
             LinearRgba::with_components(lifted.0 * 0.965, lifted.1 * 0.965, lifted.2 * 0.965, 1.)
         };
-        let divider = fgc.mul_alpha(if is_light { 0.24 } else { 0.10 });
+        let divider = fgc.mul_alpha(if is_light { 0.18 } else { 0.10 });
         let row_pad = ui_tokens::ROW_PADDING * pt;
         let content_top_gap = 8. * pt;
         let radius = Dimension::Pixels(ui_tokens::CORNER_RADIUS * pt);
@@ -352,12 +352,12 @@ impl crate::TermWindow {
         let fg = palette.foreground.to_linear();
         let dim = fg.mul_alpha(if is_light { 0.76 } else { 0.72 }); // subtitle / directory
         let sel_bg = if is_light {
-            mix(bg, fg, 0.16)
+            mix(bg, fg, 0.20)
         } else {
             mix(bar_bg, fg, 0.155)
         };
         let hover_bg = if is_light {
-            mix(bg, fg, 0.09)
+            mix(bg, fg, 0.11)
         } else {
             mix(bar_bg, fg, 0.07)
         };
