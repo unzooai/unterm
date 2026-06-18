@@ -929,7 +929,7 @@ Every method, alphabetical, with one-line descriptions. Use this as a flat looku
 | `signal.send` | Send a control signal as a control character |
 | `system.info` | Process and platform metadata |
 | `system.launch_admin` | Spawn an elevated Unterm (Windows only) |
-| `workspace.list` | Enumerate saved workspace names |
+| `workspace.list` | Enumerate saved workspaces with metadata |
 | `workspace.restore` | Open new tabs from a saved workspace; supports dry-run planning |
 | `workspace.save` | Snapshot the current set of panes |
 

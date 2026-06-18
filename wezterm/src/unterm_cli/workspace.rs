@@ -47,11 +47,20 @@ pub fn run(cmd: WorkspaceCommand, json_out: bool) -> Result<()> {
                 if workspaces.is_empty() {
                     println!("No saved workspaces.");
                 } else {
-                    println!("{:<24}", "NAME");
+                    println!("{:<24} {:>8}  {}", "NAME", "SESSIONS", "SAVED AT");
                     for workspace in &workspaces {
                         println!(
-                            "{:<24}",
-                            workspace.get("name").and_then(|v| v.as_str()).unwrap_or("")
+                            "{:<24} {:>8}  {}",
+                            workspace.get("name").and_then(|v| v.as_str()).unwrap_or(""),
+                            workspace
+                                .get("session_count")
+                                .and_then(|v| v.as_u64())
+                                .map(|v| v.to_string())
+                                .unwrap_or_else(|| "-".to_string()),
+                            workspace
+                                .get("saved_at")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("-")
                         );
                     }
                 }
