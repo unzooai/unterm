@@ -3087,10 +3087,6 @@ impl TermWindow {
             ))
         });
         menu.clear_precomputed();
-        if let Err(err) = menu.precompute(self) {
-            log::error!("popup menu precompute failed: {err:#}");
-            return;
-        }
         self.set_modal(menu);
     }
 
