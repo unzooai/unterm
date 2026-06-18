@@ -360,19 +360,22 @@ pub const MCP_METHODS: &[McpMethod] = &[
     McpMethod {
         name: "workspace.save",
         namespace: "workspace",
-        summary: "Persist current window/tab/pane layout as a named workspace.",
-        params: &[Param { name: "name", kind: "string", required: true, summary: "" }],
+        summary: "Persist current live panes as a named workspace of titles and working directories.",
+        params: &[Param { name: "name", kind: "string", required: true, summary: "Workspace name." }],
     },
     McpMethod {
         name: "workspace.restore",
         namespace: "workspace",
-        summary: "Re-create panes from a saved workspace.",
-        params: &[Param { name: "name", kind: "string", required: true, summary: "" }],
+        summary: "Open new tabs from a saved workspace; supports dry-run planning.",
+        params: &[
+            Param { name: "name", kind: "string", required: true, summary: "Workspace name." },
+            Param { name: "dry_run", kind: "bool", required: false, summary: "Return planned tabs without opening them." },
+        ],
     },
     McpMethod {
         name: "workspace.list",
         namespace: "workspace",
-        summary: "Names of saved workspaces.",
+        summary: "Enumerate saved workspace names.",
         params: NO_PARAMS,
     },
     // ---- capture ----
@@ -591,6 +594,24 @@ mod tests {
             assert!(
                 window_scroll_params.contains(required),
                 "capture.window_scroll params are missing {required}"
+            );
+        }
+    }
+
+    #[test]
+    fn mcp_surface_describes_workspace_restore_planning() {
+        let restore = MCP_METHODS
+            .iter()
+            .find(|m| m.name == "workspace.restore")
+            .expect("MCP_METHODS is missing workspace.restore");
+        assert!(restore.summary.contains("dry-run"));
+        assert!(restore.summary.contains("Open new tabs"));
+
+        let params: std::collections::HashSet<_> = restore.params.iter().map(|p| p.name).collect();
+        for required in ["name", "dry_run"] {
+            assert!(
+                params.contains(required),
+                "workspace.restore params are missing {required}"
             );
         }
     }
