@@ -360,6 +360,8 @@ unterm-cli workspace restore <NAME> [--dry-run]
 
 `workspace save` snapshots the current panes' titles and working directories into `~/.unterm/workspaces/<NAME>.json`. `workspace restore` opens new tabs for the saved working directories; it does not close or replace the panes you already have open.
 
+`workspace list --json` includes `path`, `saved_at`, and `session_count` for each saved workspace, so scripts can pick the newest or largest workspace without reading the JSON files themselves.
+
 Use `--dry-run` before restoring a large workspace:
 
 ```sh

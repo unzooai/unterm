@@ -375,7 +375,7 @@ pub const MCP_METHODS: &[McpMethod] = &[
     McpMethod {
         name: "workspace.list",
         namespace: "workspace",
-        summary: "Enumerate saved workspace names.",
+        summary: "Enumerate saved workspaces with path, saved_at, and session_count metadata.",
         params: NO_PARAMS,
     },
     // ---- capture ----
@@ -614,5 +614,15 @@ mod tests {
                 "workspace.restore params are missing {required}"
             );
         }
+    }
+
+    #[test]
+    fn mcp_surface_describes_workspace_list_metadata() {
+        let list = MCP_METHODS
+            .iter()
+            .find(|m| m.name == "workspace.list")
+            .expect("MCP_METHODS is missing workspace.list");
+        assert!(list.summary.contains("saved_at"));
+        assert!(list.summary.contains("session_count"));
     }
 }

@@ -3220,11 +3220,40 @@ impl McpHandler {
                             .unwrap_or_default()
                             .to_string_lossy()
                             .to_string();
-                        workspaces.push(json!({"name": name}));
+                        let mut item = json!({
+                            "name": name,
+                            "path": path,
+                        });
+                        match std::fs::read_to_string(&path)
+                            .ok()
+                            .and_then(|data| serde_json::from_str::<Value>(&data).ok())
+                        {
+                            Some(workspace) => {
+                                item["saved_at"] =
+                                    workspace.get("saved_at").cloned().unwrap_or(Value::Null);
+                                item["session_count"] = json!(workspace
+                                    .get("sessions")
+                                    .and_then(|v| v.as_array())
+                                    .map(|sessions| sessions.len())
+                                    .unwrap_or(0));
+                            }
+                            None => {
+                                item["saved_at"] = Value::Null;
+                                item["session_count"] = json!(0);
+                                item["error"] = json!("could not read workspace file");
+                            }
+                        }
+                        workspaces.push(item);
                     }
                 }
             }
         }
+        workspaces.sort_by(|a, b| {
+            a.get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .cmp(b.get("name").and_then(|v| v.as_str()).unwrap_or(""))
+        });
 
         Ok(json!({"workspaces": workspaces}))
     }

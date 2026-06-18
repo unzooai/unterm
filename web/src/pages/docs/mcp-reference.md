@@ -625,11 +625,11 @@ Restore a saved workspace by opening each saved cwd as a new tab. Existing panes
 
 ### `workspace.list`
 
-Enumerate available workspace names.
+Enumerate saved workspaces. Each entry includes enough metadata for an agent to pick a candidate without reading files from disk directly.
 
 **Params:** none.
 
-**Returns:** `{ workspaces: [{ name }, ...] }`
+**Returns:** `{ workspaces: [{ name, path, saved_at, session_count, error? }, ...] }`
 
 ---
 
