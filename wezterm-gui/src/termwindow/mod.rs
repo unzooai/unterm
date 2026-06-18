@@ -3047,7 +3047,6 @@ impl TermWindow {
             .borrow_mut()
             .take()
             .filter(|menu| menu.pane_id() == pane_id);
-        let has_cached_menu = cached_menu.is_some();
         let menu = cached_menu.unwrap_or_else(|| {
             Rc::new(crate::termwindow::popup_menu::PopupMenu::build_default(
                 pane_id,
@@ -3057,20 +3056,6 @@ impl TermWindow {
         if let Err(err) = menu.precompute(self) {
             log::error!("popup menu precompute failed: {err:#}");
             return;
-        }
-        if !has_cached_menu {
-            if let Some(window) = self.window.as_ref() {
-                self.prewarmed_settings_menu.borrow_mut().replace(menu);
-                let window = window.clone();
-                promise::spawn::spawn(async move {
-                    smol::Timer::after(Duration::from_millis(120)).await;
-                    window.notify(TermWindowNotif::Apply(Box::new(move |tw| {
-                        tw.show_settings_menu();
-                    })));
-                })
-                .detach();
-                return;
-            }
         }
         self.set_modal(menu);
     }
