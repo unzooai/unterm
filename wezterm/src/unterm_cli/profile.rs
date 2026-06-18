@@ -404,7 +404,7 @@ fn run_set_secret(profile_arg: &str, env_name: &str, from_stdin: bool) -> Result
 }
 
 fn run_delete(name: &str, yes: bool) -> Result<()> {
-    let mut r = load_registry()?;
+    let r = load_registry()?;
     let id = resolve_id(&r, name)?;
     let p = r.get(&id).expect("resolved id must be in registry").clone();
 
