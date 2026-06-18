@@ -9,6 +9,7 @@ use super::client::McpClient;
 use super::output::print_json;
 use anyhow::{anyhow, Result};
 use clap::{Args, ValueEnum};
+use serde_json::json;
 use serde_json::Value;
 
 #[derive(Debug, Args, Clone)]
@@ -31,13 +32,16 @@ pub enum Section {
 }
 
 pub fn run(cmd: ReferenceCommand, json_out: bool) -> Result<()> {
-    let mut client = McpClient::connect()?;
-    let result = client.call("meta.surface", serde_json::json!({}))?;
+    let (result, fallback_reason) = reference_payload();
 
     if json_out {
         let scoped = scope_payload(&result, cmd.section, cmd.filter.as_deref());
         print_json(&scoped);
         return Ok(());
+    }
+
+    if let Some(reason) = fallback_reason {
+        eprintln!("unterm-cli reference: GUI not reachable ({reason}); showing static MCP/CLI reference without live keybindings");
     }
 
     let filter = cmd.filter.as_deref().map(|s| s.to_ascii_lowercase());
@@ -65,12 +69,34 @@ pub fn run(cmd: ReferenceCommand, json_out: bool) -> Result<()> {
     Ok(())
 }
 
+fn reference_payload() -> (Value, Option<String>) {
+    match McpClient::connect().and_then(|mut client| client.call("meta.surface", json!({}))) {
+        Ok(value) => (value, None),
+        Err(err) => (static_reference_payload(), Some(err.to_string())),
+    }
+}
+
+fn static_reference_payload() -> Value {
+    json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "source": "static_fallback",
+        "mcp_methods": serde_json::to_value(unterm_agents::mcp_meta::MCP_METHODS)
+            .unwrap_or_else(|_| json!([])),
+        "cli_commands": serde_json::to_value(unterm_agents::mcp_meta::CLI_COMMANDS)
+            .unwrap_or_else(|_| json!([])),
+        "keybindings": [],
+    })
+}
+
 fn scope_payload(result: &Value, section: Option<Section>, filter: Option<&str>) -> Value {
     let mut out = serde_json::Map::new();
     out.insert(
         "version".to_string(),
         result.get("version").cloned().unwrap_or(Value::Null),
     );
+    if let Some(source) = result.get("source") {
+        out.insert("source".to_string(), source.clone());
+    }
     let fl = filter.map(|s| s.to_ascii_lowercase());
     let fl = fl.as_deref();
     if matches!(section, None | Some(Section::Mcp)) {
@@ -152,6 +178,55 @@ fn print_mcp(result: &Value, filter: Option<&str>) -> Result<()> {
         println!("({} matched)", shown);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{scope_payload, static_reference_payload, Section};
+
+    #[test]
+    fn static_reference_payload_has_mcp_and_cli_without_live_keys() {
+        let payload = static_reference_payload();
+        assert_eq!(
+            payload.get("source").and_then(|v| v.as_str()),
+            Some("static_fallback")
+        );
+        assert!(payload
+            .get("mcp_methods")
+            .and_then(|v| v.as_array())
+            .is_some_and(|items| items
+                .iter()
+                .any(|m| { m.get("name").and_then(|v| v.as_str()) == Some("meta.surface") })));
+        assert!(payload
+            .get("cli_commands")
+            .and_then(|v| v.as_array())
+            .is_some_and(|items| items
+                .iter()
+                .any(|m| { m.get("name").and_then(|v| v.as_str()) == Some("reference") })));
+        assert_eq!(
+            payload
+                .get("keybindings")
+                .and_then(|v| v.as_array())
+                .map(Vec::len),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn scoped_static_reference_keeps_source_marker() {
+        let payload = static_reference_payload();
+        let scoped = scope_payload(&payload, Some(Section::Mcp), Some("capture.scrollback"));
+        assert_eq!(
+            scoped.get("source").and_then(|v| v.as_str()),
+            Some("static_fallback")
+        );
+        assert!(scoped
+            .get("mcp_methods")
+            .and_then(|v| v.as_array())
+            .is_some_and(|items| items.len() == 1));
+        assert!(scoped.get("cli_commands").is_none());
+        assert!(scoped.get("keybindings").is_none());
+    }
 }
 
 fn print_cli(result: &Value, filter: Option<&str>) -> Result<()> {
