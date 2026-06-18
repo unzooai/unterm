@@ -438,6 +438,12 @@ $ unterm-cli agent run opencode --profile work "inspect the current project and 
 $ git diff | unterm-cli agent run codex-cli --stdin "review this diff"
 ```
 
+For automation, combine `--json` with `--dry-run` to get a structured launch preview with `agent`, `profile`, `cwd`, `exec`, `args`, redacted `env_set`, and `prompt_chars`:
+
+```sh
+$ unterm-cli --json agent run claude-code --dry-run "summarise this repo"
+```
+
 ## settings
 
 Open the Web Settings UI in your default browser. This subcommand does *not* hit MCP — it reads `server.json` directly to find the `http_port` and shells out to `open` / `xdg-open` / `cmd /C start`.

@@ -204,6 +204,7 @@ pub fn run(cmd: AgentCommand, json_out: bool) -> Result<()> {
             stdin,
             dry_run,
             &prompt,
+            json_out,
         ),
         AgentSubCommand::Manifest { sub } => run_manifest(sub, json_out),
     }
@@ -770,6 +771,7 @@ fn run_headless(
     read_stdin: bool,
     dry_run: bool,
     prompt_parts: &[String],
+    json_out: bool,
 ) -> Result<()> {
     let mut prompt = prompt_parts.join(" ");
     if read_stdin {
@@ -791,6 +793,33 @@ fn run_headless(
     let args = headless_args(id, plan.args.clone(), &prompt)?;
 
     if dry_run {
+        if json_out {
+            let env_set = plan
+                .env_set
+                .iter()
+                .map(|(k, v)| {
+                    (
+                        k.clone(),
+                        if is_sensitive_env(k) {
+                            Value::String("***".to_string())
+                        } else {
+                            Value::String(v.clone())
+                        },
+                    )
+                })
+                .collect::<serde_json::Map<_, _>>();
+            print_json(&serde_json::json!({
+                "agent": id,
+                "profile": profile_or_default(profile)?,
+                "cwd": plan.cwd,
+                "exec": plan.exec,
+                "args": args,
+                "env_set": env_set,
+                "prompt_chars": prompt.chars().count(),
+                "dry_run": true,
+            }));
+            return Ok(());
+        }
         println!("$ {} {}", plan.exec, shell_join(&args));
         if let Some(dir) = &plan.cwd {
             println!("  cwd: {dir}");
