@@ -19,7 +19,7 @@
 //!     unterm agent configure <id> --reset          restore manifest defaults
 //!     unterm agent import <id>                     pull existing agent config into Unterm
 //!     unterm agent launch <id>                     exec the agent with all env wired
-//!     unterm agent run <id> <prompt>               run codex/claude headlessly
+//!     unterm agent run <id> <prompt>               run supported agents headlessly
 //!     unterm agent manifest fetch                  hit the signed envelope endpoint
 //!     unterm agent manifest verify                 verify the on-disk cache / baked fallback
 //!     unterm agent manifest show                   pretty-print the active envelope
@@ -123,9 +123,10 @@ pub enum AgentSubCommand {
     },
     /// Run an agent task non-interactively and wait for it to finish.
     ///
-    /// Supported today: `codex-cli` (`codex exec`) and `claude-code`
-    /// (`claude -p`). The command reuses the same profile, auth, launch flags,
-    /// and MCP autowiring as `agent launch`.
+    /// Supported today: `codex-cli` (`codex exec`), `claude-code`
+    /// (`claude -p`), `gemini-cli` (`gemini -p`), and `opencode`
+    /// (`opencode run`). The command reuses the same profile, auth, launch
+    /// flags, and MCP autowiring as `agent launch`.
     Run {
         id: String,
         #[arg(long)]
@@ -746,8 +747,18 @@ fn headless_args(id: &str, mut base_args: Vec<String>, prompt: &str) -> Result<V
             base_args.push(prompt.to_string());
             Ok(base_args)
         }
+        "gemini-cli" => {
+            base_args.push("-p".to_string());
+            base_args.push(prompt.to_string());
+            Ok(base_args)
+        }
+        "opencode" => {
+            base_args.push("run".to_string());
+            base_args.push(prompt.to_string());
+            Ok(base_args)
+        }
         other => Err(anyhow!(
-            "agent run currently supports codex-cli and claude-code, not {other}"
+            "agent run currently supports codex-cli, claude-code, gemini-cli, and opencode, not {other}"
         )),
     }
 }
@@ -892,6 +903,54 @@ fn shell_quote(s: &str) -> String {
         return s.to_string();
     }
     format!("'{}'", s.replace('\'', "'\\''"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::headless_args;
+
+    #[test]
+    fn agent_headless_args_cover_supported_adapters() {
+        let prompt = "review this diff";
+        assert_eq!(
+            headless_args("codex-cli", vec!["--model".into(), "gpt-5".into()], prompt).unwrap(),
+            vec!["--model", "gpt-5", "exec", prompt]
+        );
+        assert_eq!(
+            headless_args(
+                "claude-code",
+                vec!["--model".into(), "sonnet".into()],
+                prompt,
+            )
+            .unwrap(),
+            vec!["--model", "sonnet", "-p", prompt]
+        );
+        assert_eq!(
+            headless_args(
+                "gemini-cli",
+                vec!["--model".into(), "gemini-pro".into()],
+                prompt,
+            )
+            .unwrap(),
+            vec!["--model", "gemini-pro", "-p", prompt]
+        );
+        assert_eq!(
+            headless_args(
+                "opencode",
+                vec!["--model".into(), "openai/gpt-5".into()],
+                prompt,
+            )
+            .unwrap(),
+            vec!["--model", "openai/gpt-5", "run", prompt]
+        );
+    }
+
+    #[test]
+    fn agent_headless_args_reject_unknown_agents() {
+        let err = headless_args("aider", Vec::new(), "hello").unwrap_err();
+        assert!(err.to_string().contains("gemini-cli"));
+        assert!(err.to_string().contains("opencode"));
+    }
 }
 
 // ---------- manifest catalog ----------

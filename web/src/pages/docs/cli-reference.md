@@ -395,7 +395,7 @@ $ unterm-cli --instance bravo session create --cwd ~/src/app -- 'cargo test; exe
 Install, authenticate, configure, launch, or run AI coding-agent CLIs through Unterm's profile and MCP wiring. `agent launch` opens the vendor CLI interactively; `agent run` uses the vendor's non-interactive mode and waits for the task to finish.
 
 ```text
-unterm-cli agent run <codex-cli|claude-code> [--profile <id>] [--cwd <path>] [--stdin] [--dry-run] <prompt...>
+unterm-cli agent run <codex-cli|claude-code|gemini-cli|opencode> [--profile <id>] [--cwd <path>] [--stdin] [--dry-run] <prompt...>
 ```
 
 `agent run` currently supports:
@@ -404,6 +404,8 @@ unterm-cli agent run <codex-cli|claude-code> [--profile <id>] [--cwd <path>] [--
 |---|---|
 | `codex-cli` | `codex exec <prompt>` |
 | `claude-code` | `claude -p <prompt>` |
+| `gemini-cli` | `gemini -p <prompt>` |
+| `opencode` | `opencode run <prompt>` |
 
 The command reuses the same auth mode and settings as `agent launch`. If the agent is signed in with its official subscription flow in Web Settings -> AI Agents, Unterm does not inject an API key or switch it to per-token billing.
 
@@ -420,6 +422,14 @@ $ unterm-cli agent run codex-cli --cwd ~/src/app "review this diff and list risk
 
 ```sh
 $ unterm-cli agent run claude-code --profile work "summarise the last failing test output"
+```
+
+```sh
+$ unterm-cli agent run gemini-cli --cwd ~/src/app "summarise this repository and suggest the next useful task"
+```
+
+```sh
+$ unterm-cli agent run opencode --profile work "inspect the current project and suggest the next useful task"
 ```
 
 ```sh

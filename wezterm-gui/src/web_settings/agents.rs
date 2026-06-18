@@ -456,13 +456,15 @@ fn resolve(id: &str) -> Result<AgentManifest, Response> {
 }
 
 fn supports_headless(id: &str) -> bool {
-    matches!(id, "codex-cli" | "claude-code")
+    matches!(id, "codex-cli" | "claude-code" | "gemini-cli" | "opencode")
 }
 
 fn default_headless_prompt(id: &str) -> &'static str {
     match id {
         "codex-cli" => "review this diff and list risky changes",
         "claude-code" => "summarise the last failing test output",
+        "gemini-cli" => "summarise this repository and suggest the next useful task",
+        "opencode" => "inspect the current project and suggest the next useful task",
         _ => "summarise the current task",
     }
 }
