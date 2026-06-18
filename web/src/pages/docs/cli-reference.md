@@ -157,7 +157,7 @@ When you flip proxies in Unterm's GUI, you don't have to restart shells — open
 
 ## session
 
-Operates on a single live pane. "Session" here means one terminal tab/pane in the running GUI. The MCP method names are `session.list`, `session.create`, `session.recording_start/stop/status`, and `session.export_markdown`.
+Operates on a single live pane. "Session" here means one terminal tab/pane in the running GUI. The CLI wraps the MCP methods `session.list`, `session.create`, `session.input`, `screen.text`, `session.recording_start/stop/status`, and `session.export_markdown`.
 
 ```text
 unterm-cli session list
@@ -166,9 +166,11 @@ unterm-cli session record start [--id <ID>]
 unterm-cli session record stop  [--id <ID>]
 unterm-cli session record status [--id <ID>]
 unterm-cli session export       [--id <ID>] [-o FILE]
+unterm-cli session input        [--id <ID>] [--stdin] [--enter] <TEXT...>
+unterm-cli session text         [--id <ID>]
 ```
 
-When `--id` is omitted on any `record` or `export` subcommand, the CLI auto-resolves it to the first pane returned by `session.list`. Convenient if you only have one tab open; brittle if you have several. Pass `--id` explicitly in scripts.
+When `--id` is omitted on any pane-scoped subcommand, the CLI auto-resolves it to the first pane returned by `session.list`. Convenient if you only have one tab open; brittle if you have several. Pass `--id` explicitly in scripts.
 
 ### `session list`
 
@@ -274,6 +276,28 @@ $ unterm-cli session export --id 0 -o /tmp/snapshot.md
 PANE_ID=$(unterm-cli --json session list | jq '.sessions[] | select(.title|test("build|ci")) | .id' | head -1)
 [ -z "$PANE_ID" ] && exit 0
 unterm-cli session export --id "$PANE_ID" -o ".git/last-build.md"
+```
+
+### `session input` / `session text`
+
+`session input` writes text through MCP `session.input`. It does not append a newline unless you pass `--enter`, which appends carriage return to match a real Enter keypress.
+
+```sh
+$ unterm-cli session input --id 0 --enter 'cargo test -p unterm-cli'
+ok
+```
+
+Use `--stdin` when piping generated input:
+
+```sh
+$ printf 'echo from stdin' | unterm-cli session input --id 0 --stdin --enter
+ok
+```
+
+`session text` reads the visible viewport through MCP `screen.text`:
+
+```sh
+$ unterm-cli session text --id 0
 ```
 
 ## sessions
@@ -758,7 +782,7 @@ for id in $(echo "$PANES" | jq '.[]'); do
 done
 ```
 
-A future CLI release will wrap `session.send_text` and `session.read_tail` directly so you don't need the inline Python; the surface is already there on MCP.
+For simple pane IO, prefer `unterm-cli session input` and `unterm-cli session text` over hand-written JSON-RPC snippets.
 
 ### Snapshot pane state into git history
 

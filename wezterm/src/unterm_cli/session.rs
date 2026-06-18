@@ -6,6 +6,7 @@ use super::output::{print_json, print_kv};
 use anyhow::{anyhow, Result};
 use clap::Parser;
 use serde_json::{json, Value};
+use std::io::Read;
 use std::path::PathBuf;
 
 #[derive(Debug, Parser, Clone)]
@@ -44,6 +45,31 @@ pub enum SessionSubCommand {
         /// Optional output file. If omitted, the Unterm-side path is printed.
         #[arg(short = 'o', long = "output")]
         output: Option<PathBuf>,
+    },
+    /// Write text into a pane via MCP `session.input`.
+    Input {
+        /// Target pane id (defaults to the first live pane).
+        #[arg(long)]
+        id: Option<u64>,
+        /// Read additional input from stdin.
+        #[arg(long)]
+        stdin: bool,
+        /// Append carriage return, matching a real Enter keypress.
+        #[arg(long)]
+        enter: bool,
+        /// Text to write. Use `--` before text that starts with a dash.
+        #[arg(
+            value_name = "TEXT",
+            trailing_var_arg = true,
+            allow_hyphen_values = true
+        )]
+        text: Vec<String>,
+    },
+    /// Read the visible pane viewport as plain text.
+    Text {
+        /// Target pane id (defaults to the first live pane).
+        #[arg(long)]
+        id: Option<u64>,
     },
 }
 
@@ -245,6 +271,55 @@ pub fn run(cmd: SessionCommand, json_out: bool) -> Result<()> {
                 println!("{}", output.unwrap().display());
             } else {
                 println!("{}", mcp_path);
+            }
+        }
+        SessionSubCommand::Input {
+            id,
+            stdin,
+            enter,
+            text,
+        } => {
+            let id = resolve_pane_id(&mut client, id)?;
+            let mut input = text.join(" ");
+            if stdin {
+                let mut buf = String::new();
+                std::io::stdin().read_to_string(&mut buf)?;
+                if !input.is_empty() && !buf.is_empty() {
+                    input.push('\n');
+                }
+                input.push_str(&buf);
+            }
+            if enter {
+                input.push('\r');
+            }
+            if input.is_empty() {
+                return Err(anyhow!("session input needs TEXT or --stdin"));
+            }
+            let result = client.call("session.input", json!({ "id": id, "input": input }))?;
+            if json_out {
+                print_json(&result);
+            } else {
+                println!(
+                    "{}",
+                    result.get("status").and_then(Value::as_str).unwrap_or("ok")
+                );
+            }
+        }
+        SessionSubCommand::Text { id } => {
+            let id = resolve_pane_id(&mut client, id)?;
+            let result = client.call("screen.text", json!({ "id": id }))?;
+            if json_out {
+                print_json(&result);
+            } else {
+                let lines = result
+                    .get("lines")
+                    .and_then(Value::as_array)
+                    .ok_or_else(|| anyhow!("screen.text did not return `lines`: {}", result))?;
+                for line in lines {
+                    if let Some(text) = line.as_str() {
+                        println!("{text}");
+                    }
+                }
             }
         }
     }
