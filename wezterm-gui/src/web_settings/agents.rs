@@ -57,6 +57,8 @@ pub fn api_list(query: &str) -> Response {
                 "detected_version": detect.version,
                 "binary_path": detect.binary_path,
                 "mcp_supported": m.mcp.as_ref().map(|x| x.client_supports_mcp).unwrap_or(false),
+                "headless_supported": supports_headless(&m.id),
+                "headless_default_prompt": headless_default_prompt_value(&m.id),
             })
         })
         .filter(|row| !only_installed || row["installed"].as_bool().unwrap_or(false))
@@ -84,6 +86,8 @@ pub fn api_show(id: &str) -> Response {
             "version": detect.version,
             "binary_path": detect.binary_path,
         },
+        "headless_supported": supports_headless(&manifest.id),
+        "headless_default_prompt": headless_default_prompt_value(&manifest.id),
     }))
 }
 
@@ -245,6 +249,8 @@ pub fn api_settings_get(id: &str, query: &str) -> Response {
             "version": detect.version,
             "binary_path": detect.binary_path,
         },
+        "headless_supported": supports_headless(&manifest.id),
+        "headless_default_prompt": headless_default_prompt_value(&manifest.id),
         "schema": manifest.settings_schema,
         "values": Value::Object(display),
     }))
@@ -466,6 +472,14 @@ fn default_headless_prompt(id: &str) -> &'static str {
         "gemini-cli" => "summarise this repository and suggest the next useful task",
         "opencode" => "inspect the current project and suggest the next useful task",
         _ => "summarise the current task",
+    }
+}
+
+fn headless_default_prompt_value(id: &str) -> Value {
+    if supports_headless(id) {
+        json!(default_headless_prompt(id))
+    } else {
+        Value::Null
     }
 }
 

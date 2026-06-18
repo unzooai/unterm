@@ -595,6 +595,8 @@ function untermSettings() {
           detect: detail.detect || { ok: false, version: null, binary_path: null },
           schema: detail.schema || [],
           values: detail.values || {},
+          headless_supported: detail.headless_supported === true,
+          headless_default_prompt: detail.headless_default_prompt || null,
           categories,
           draft,
           dirty: false,
@@ -813,7 +815,19 @@ function untermSettings() {
       return this.platform === 'windows' ? this.cmdQuote(s) : this.shellQuote(s);
     },
 
+    agentSummary(id) {
+      return (this.agents.list || []).find((a) => a.id === id) || null;
+    },
+
     supportsHeadlessAgent(id) {
+      if (this.agents.detail?.manifest?.id === id
+          && this.agents.detail.headless_supported !== undefined) {
+        return this.agents.detail.headless_supported === true;
+      }
+      const summary = this.agentSummary(id);
+      if (summary && summary.headless_supported !== undefined) {
+        return summary.headless_supported === true;
+      }
       return id === 'codex-cli'
         || id === 'claude-code'
         || id === 'gemini-cli'
@@ -821,6 +835,12 @@ function untermSettings() {
     },
 
     defaultHeadlessPrompt(id) {
+      if (this.agents.detail?.manifest?.id === id
+          && this.agents.detail.headless_default_prompt) {
+        return this.agents.detail.headless_default_prompt;
+      }
+      const summary = this.agentSummary(id);
+      if (summary?.headless_default_prompt) return summary.headless_default_prompt;
       if (id === 'codex-cli') return 'review this diff and list risky changes';
       if (id === 'claude-code') return 'summarise the last failing test output';
       if (id === 'gemini-cli') return 'summarise this repository and suggest the next useful task';
