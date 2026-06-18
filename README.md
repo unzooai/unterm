@@ -236,6 +236,7 @@ Prereqs: a recent stable Rust toolchain. Linux additionally needs the system dep
 make build        # all binaries (debug)
 make check        # static checks
 make test         # tests
+make clean-release-artifacts  # remove local dmg/msi/zip/deb/AppImage packages
 ```
 
 Build a release for the current platform:
@@ -282,7 +283,9 @@ make release-mac                    # build universal + sign + notarize + upload
 `make release-mac` reads the tag from `git describe --exact-match HEAD`,
 builds universal x86_64+aarch64 binaries, calls `ci/sign-macos.sh` with
 `NOTARY_PROFILE=UntermNotary`, then `gh release upload`s the resulting
-zip to the matching GitHub Release.
+DMG to the matching GitHub Release. After local validation/upload, run
+`make clean-release-artifacts` to remove root-level release packages while
+keeping build caches intact.
 
 CI on every PR runs `cargo check` against macOS, Linux, and Windows.
 Tagged pushes (`vX.Y` or `vX.Y.Z`) trigger the `release-linux` and `release-windows`
