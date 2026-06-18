@@ -27,8 +27,6 @@ use super::{Candidate, CandidateSource};
 struct GcloudConfiguration {
     name: String,
     #[serde(default)]
-    is_active: bool,
-    #[serde(default)]
     properties: serde_json::Value,
 }
 
