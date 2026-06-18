@@ -134,6 +134,23 @@ pub const MCP_METHODS: &[McpMethod] = &[
         params: &[P_PANE_ID, P_SESSION_ID],
     },
     McpMethod {
+        name: "session.env",
+        namespace: "session",
+        summary: "Read pane environment status; returns an unsupported marker in WezTerm mode.",
+        params: &[P_PANE_ID, P_SESSION_ID],
+    },
+    McpMethod {
+        name: "session.set_env",
+        namespace: "session",
+        summary: "Request pane environment mutation; returns an unsupported marker in WezTerm mode.",
+        params: &[
+            P_PANE_ID,
+            P_SESSION_ID,
+            Param { name: "name", kind: "string", required: false, summary: "Environment variable name." },
+            Param { name: "value", kind: "string", required: false, summary: "Environment variable value." },
+        ],
+    },
+    McpMethod {
         name: "session.history",
         namespace: "session",
         summary: "Shell history for a pane (when shell integration is on).",
@@ -196,14 +213,20 @@ pub const MCP_METHODS: &[McpMethod] = &[
     McpMethod {
         name: "session.recording_read",
         namespace: "session",
-        summary: "Read the asciicast bytes of a recorded session.",
-        params: &[Param { name: "id", kind: "string", required: true, summary: "Recording id." }],
+        summary: "Read a recorded session's rendered Markdown.",
+        params: &[Param { name: "session_id", kind: "string", required: true, summary: "Recording/session id." }],
+    },
+    McpMethod {
+        name: "session.recording_attach_trace",
+        namespace: "session",
+        summary: "Attach an external trace id to the active recording for later correlation.",
+        params: &[P_PANE_ID, Param { name: "trace_id", kind: "string", required: true, summary: "Trace id to associate with the recording." }],
     },
     McpMethod {
         name: "session.export_markdown",
         namespace: "session",
-        summary: "Render a recorded session as Markdown.",
-        params: &[Param { name: "id", kind: "string", required: true, summary: "" }],
+        summary: "Export the active pane scrollback as Markdown.",
+        params: &[P_PANE_ID, Param { name: "path", kind: "string", required: false, summary: "Optional destination file path." }],
     },
     // ---- exec ----
     McpMethod {
@@ -295,6 +318,43 @@ pub const MCP_METHODS: &[McpMethod] = &[
         namespace: "screen",
         summary: "Heuristic scan for error-shaped lines in recent output.",
         params: &[P_PANE_ID, P_SESSION_ID],
+    },
+    // ---- ghost ----
+    McpMethod {
+        name: "ghost.debug",
+        namespace: "ghost",
+        summary: "Read ghost-text predictor/debug state for a pane.",
+        params: &[P_PANE_ID],
+    },
+    // ---- orchestrate ----
+    McpMethod {
+        name: "orchestrate.launch",
+        namespace: "orchestrate",
+        summary: "Create a new tab and optionally run a command in it.",
+        params: &[
+            Param { name: "cwd", kind: "string", required: false, summary: "Working directory." },
+            Param { name: "command", kind: "string", required: false, summary: "Command to run after the shell starts." },
+            Param { name: "profile", kind: "string", required: false, summary: "Identity profile name." },
+        ],
+    },
+    McpMethod {
+        name: "orchestrate.broadcast",
+        namespace: "orchestrate",
+        summary: "Send the same command to multiple panes.",
+        params: &[
+            Param { name: "command", kind: "string", required: true, summary: "Command to send." },
+            Param { name: "sessions", kind: "array", required: true, summary: "Pane/session ids to receive the command." },
+        ],
+    },
+    McpMethod {
+        name: "orchestrate.wait",
+        namespace: "orchestrate",
+        summary: "Wait until a pane's visible text contains a pattern.",
+        params: &[
+            P_PANE_ID,
+            Param { name: "pattern", kind: "string", required: true, summary: "Text to wait for." },
+            Param { name: "timeout_ms", kind: "int", required: false, summary: "Maximum wait time." },
+        ],
     },
     // ---- workspace ----
     McpMethod {
@@ -401,6 +461,12 @@ pub const MCP_METHODS: &[McpMethod] = &[
     McpMethod { name: "selftest.run", namespace: "governance", summary: "Run the built-in MCP self-test suite.", params: NO_PARAMS },
     McpMethod { name: "agent.identify", namespace: "governance", summary: "Self-tag the calling agent for audit grouping.", params: &[Param { name: "name", kind: "string", required: true, summary: "" }] },
     McpMethod { name: "agent.whoami", namespace: "governance", summary: "Read the calling agent's self-tag.", params: NO_PARAMS },
+    McpMethod { name: "agent.list_trusted", namespace: "governance", summary: "List runtime, configured, and persisted trusted agent names.", params: NO_PARAMS },
+    McpMethod { name: "agent.trust", namespace: "governance", summary: "Trust an agent name so future PTY writes skip confirmation.", params: &[Param { name: "agent", kind: "string", required: true, summary: "Agent name to trust." }] },
+    McpMethod { name: "agent.untrust", namespace: "governance", summary: "Remove an agent name from the persistent trust list.", params: &[Param { name: "agent", kind: "string", required: true, summary: "Agent name to revoke." }] },
+    McpMethod { name: "profile.list", namespace: "governance", summary: "List identity profiles without exposing secret values.", params: NO_PARAMS },
+    McpMethod { name: "profile.current", namespace: "governance", summary: "Read the identity profile bound to this Unterm instance.", params: NO_PARAMS },
+    McpMethod { name: "profile.audit", namespace: "governance", summary: "Report expiring profile secrets without revealing secret values.", params: NO_PARAMS },
     // ---- system ----
     McpMethod { name: "system.info", namespace: "system", summary: "OS, arch, hostname, locale.", params: NO_PARAMS },
     McpMethod { name: "system.launch_admin", namespace: "system", summary: "Re-launch Unterm with elevated privileges (UAC/sudo prompt).", params: NO_PARAMS },
@@ -427,6 +493,7 @@ pub const CLI_COMMANDS: &[CliCommand] = &[
     CliCommand { name: "upload", summary: "Upload a local file to your configured object storage and print the public URL.", subcommands: &["config-path"] },
     CliCommand { name: "scrollback", summary: "Dump the full scrollback + viewport of a pane as text.", subcommands: &[] },
     CliCommand { name: "reference", summary: "Print MCP methods, CLI subcommands, and live keybindings.", subcommands: &[] },
+    CliCommand { name: "setup-ai", summary: "Register or unregister Unterm with local AI coding agents.", subcommands: &[] },
     CliCommand { name: "mcp-stdio", summary: "Run an MCP stdio bridge so an AI agent can drive this instance.", subcommands: &[] },
     CliCommand { name: "settings", summary: "Open the Unterm Web Settings UI in your browser.", subcommands: &["open"] },
     CliCommand { name: "proxy", summary: "Manage Unterm's proxy via the MCP server.", subcommands: &["status", "nodes", "switch", "disable", "env", "rotation"] },
@@ -444,3 +511,43 @@ pub const CLI_COMMANDS: &[CliCommand] = &[
     CliCommand { name: "connect", summary: "Connect to a Unterm mux server.", subcommands: &[] },
     CliCommand { name: "shell-completion", summary: "Generate shell completion information.", subcommands: &[] },
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cli_surface_includes_agent_onboarding_entrypoints() {
+        let names: std::collections::HashSet<_> = CLI_COMMANDS.iter().map(|c| c.name).collect();
+        for required in ["reference", "setup-ai", "mcp-stdio", "agent", "settings"] {
+            assert!(
+                names.contains(required),
+                "CLI_COMMANDS is missing {required}"
+            );
+        }
+    }
+
+    #[test]
+    fn mcp_surface_includes_agent_and_profile_discovery() {
+        let names: std::collections::HashSet<_> = MCP_METHODS.iter().map(|m| m.name).collect();
+        for required in [
+            "meta.surface",
+            "agent.identify",
+            "agent.list_trusted",
+            "agent.trust",
+            "agent.untrust",
+            "profile.list",
+            "profile.current",
+            "profile.audit",
+            "orchestrate.launch",
+            "orchestrate.broadcast",
+            "orchestrate.wait",
+            "session.recording_attach_trace",
+        ] {
+            assert!(
+                names.contains(required),
+                "MCP_METHODS is missing {required}"
+            );
+        }
+    }
+}

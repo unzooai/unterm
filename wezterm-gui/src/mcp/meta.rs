@@ -21,7 +21,7 @@
 use anyhow::Result;
 use serde_json::{json, Value};
 
-pub use unterm_agents::mcp_meta::{CliCommand, McpMethod, Param, CLI_COMMANDS, MCP_METHODS};
+pub use unterm_agents::mcp_meta::{CLI_COMMANDS, MCP_METHODS};
 
 /// Read the effective keybindings from the current config and return them
 /// as serializable rows. The InputMap is built fresh from `config::configuration()`
