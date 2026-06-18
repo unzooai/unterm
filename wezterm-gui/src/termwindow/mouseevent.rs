@@ -78,12 +78,29 @@ impl super::TermWindow {
     }
 
     fn resolve_ui_item(&self, event: &MouseEvent) -> Option<UIItem> {
+        let x = event.coords.x;
+        let y = event.coords.y;
+
+        // Sidebar scrollbars live on the same right edge as the resize grip.
+        // Give the explicit scrollbar items first refusal so dragging a thumb
+        // does not get stolen by the wider resize-edge tolerance.
+        if let Some(item) = self.ui_items.iter().rev().find(|item| {
+            item.hit_test(x, y)
+                && matches!(
+                    item.item_type,
+                    UIItemType::TreeSidebarScrollTrack { .. }
+                        | UIItemType::TreeSidebarScrollThumb { .. }
+                        | UIItemType::LeftTabBarScrollTrack { .. }
+                        | UIItemType::LeftTabBarScrollThumb { .. }
+                )
+        }) {
+            return Some(item.clone());
+        }
+
         if let Some(item) = self.resolve_left_sidebar_resize_edge(event) {
             return Some(item);
         }
 
-        let x = event.coords.x;
-        let y = event.coords.y;
         self.ui_items
             .iter()
             .rev()
@@ -191,14 +208,13 @@ impl super::TermWindow {
             if let Some(menu) = modal.downcast_ref::<crate::termwindow::popup_menu::PopupMenu>() {
                 let item = self.resolve_ui_item(&event);
                 match (&event.kind, item.as_ref().map(|i| &i.item_type)) {
-                    // Hover highlight is renderer-native (hover_colors); just
-                    // repaint so the hovered row updates promptly.
-                    (WMEK::Move, _) => {
-                        let _ = &menu;
-                        if let Some(window) = self.window.as_ref() {
-                            window.invalidate();
-                        }
+                    // Keep menu hover as explicit modal state so rebuilding the
+                    // computed element fully clears the previous row.
+                    (WMEK::Move, Some(UIItemType::PopupMenuRow(i))) => {
+                        menu.set_hover(Some(*i), self)
                     }
+                    (WMEK::Move, Some(UIItemType::PopupMenuCard)) => menu.set_hover(None, self),
+                    (WMEK::Move, _) => menu.set_hover(None, self),
                     (WMEK::Press(MousePress::Left), Some(UIItemType::PopupMenuRow(i))) => {
                         let i = *i;
                         menu.activate(i, self);

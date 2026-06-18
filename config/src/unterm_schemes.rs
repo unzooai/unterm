@@ -52,6 +52,50 @@ brights = [
 
 [colors.indexed]
 
+[colors.tab_bar]
+background = "#eeece7"
+inactive_tab_edge = "#d8d4ca"
+
+[colors.tab_bar.active_tab]
+bg_color = "#d9d6ce"
+fg_color = "#171615"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab]
+bg_color = "#eeece7"
+fg_color = "#625f58"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab_hover]
+bg_color = "#e1ded6"
+fg_color = "#1f1e1a"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab]
+bg_color = "#eeece7"
+fg_color = "#625f58"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab_hover]
+bg_color = "#e1ded6"
+fg_color = "#1f1e1a"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
 [metadata]
 aliases = []
 author = "unterm"
@@ -92,6 +136,50 @@ brights = [
 ]
 
 [colors.indexed]
+
+[colors.tab_bar]
+background = "#151515"
+inactive_tab_edge = "#242424"
+
+[colors.tab_bar.active_tab]
+bg_color = "#2d2d2a"
+fg_color = "#ffffff"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab]
+bg_color = "#191919"
+fg_color = "#aaa7a0"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab_hover]
+bg_color = "#252522"
+fg_color = "#eeeeec"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab]
+bg_color = "#151515"
+fg_color = "#aaa7a0"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab_hover]
+bg_color = "#252522"
+fg_color = "#eeeeec"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
 
 [metadata]
 aliases = []
@@ -134,6 +222,50 @@ brights = [
 ]
 
 [colors.indexed]
+
+[colors.tab_bar]
+background = "#101010"
+inactive_tab_edge = "#242424"
+
+[colors.tab_bar.active_tab]
+bg_color = "#303030"
+fg_color = "#ffffff"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab]
+bg_color = "#141414"
+fg_color = "#b8b8b8"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab_hover]
+bg_color = "#242424"
+fg_color = "#eeeeee"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab]
+bg_color = "#101010"
+fg_color = "#a8a8a8"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab_hover]
+bg_color = "#242424"
+fg_color = "#eeeeee"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
 
 [metadata]
 aliases = []
@@ -181,6 +313,50 @@ brights = [
 
 [colors.indexed]
 
+[colors.tab_bar]
+background = "#0d0d0d"
+inactive_tab_edge = "#242424"
+
+[colors.tab_bar.active_tab]
+bg_color = "#2f2f2f"
+fg_color = "#ffffff"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab]
+bg_color = "#101010"
+fg_color = "#bdbdbd"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab_hover]
+bg_color = "#202020"
+fg_color = "#f2f2f2"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab]
+bg_color = "#0d0d0d"
+fg_color = "#a8a8a8"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab_hover]
+bg_color = "#202020"
+fg_color = "#f2f2f2"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
 [metadata]
 aliases = []
 author = "unterm"
@@ -224,6 +400,50 @@ brights = [
 
 [colors.indexed]
 
+[colors.tab_bar]
+background = "#0b1019"
+inactive_tab_edge = "#20283a"
+
+[colors.tab_bar.active_tab]
+bg_color = "#253149"
+fg_color = "#f8fbff"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab]
+bg_color = "#101724"
+fg_color = "#b8c2d3"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab_hover]
+bg_color = "#1c2638"
+fg_color = "#e6edf7"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab]
+bg_color = "#0b1019"
+fg_color = "#aab6c8"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab_hover]
+bg_color = "#1c2638"
+fg_color = "#e6edf7"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
 [metadata]
 aliases = []
 author = "unterm"
@@ -266,8 +486,77 @@ brights = [
 
 [colors.indexed]
 
+[colors.tab_bar]
+background = "#eceeec"
+inactive_tab_edge = "#d3d8d3"
+
+[colors.tab_bar.active_tab]
+bg_color = "#d9dfda"
+fg_color = "#07101c"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab]
+bg_color = "#f3f4f2"
+fg_color = "#58616c"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.inactive_tab_hover]
+bg_color = "#e2e7e2"
+fg_color = "#0b0f14"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab]
+bg_color = "#eceeec"
+fg_color = "#58616c"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
+[colors.tab_bar.new_tab_hover]
+bg_color = "#e2e7e2"
+fg_color = "#0b0f14"
+intensity = "Normal"
+italic = false
+strikethrough = false
+underline = "None"
+
 [metadata]
 aliases = []
 author = "unterm"
 name = "Unterm Daylight"
 "##;
+
+#[cfg(test)]
+mod tests {
+    use super::UNTERM_SCHEMES;
+    use crate::ColorSchemeFile;
+
+    #[test]
+    fn unterm_schemes_parse_and_define_chrome_colors() {
+        for (name, toml) in UNTERM_SCHEMES {
+            let scheme = ColorSchemeFile::from_toml_str(toml)
+                .unwrap_or_else(|err| panic!("{} should parse: {}", name, err));
+            assert_eq!(scheme.metadata.name.as_deref(), Some(name));
+            assert!(
+                scheme.colors.tab_bar.is_some(),
+                "{} should define tab_bar colors",
+                name
+            );
+            assert!(
+                scheme.colors.scrollbar_thumb.is_some(),
+                "{} should define scrollbar_thumb",
+                name
+            );
+        }
+    }
+}

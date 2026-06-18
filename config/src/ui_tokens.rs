@@ -5,10 +5,10 @@
 //! per-site magic numbers. Pixel-ish values are in points; multiply by
 //! `dpi / 72.0` at the render site.
 
-/// Chrome text: tabs, sidebar rows, status bar. Bumped 12 → 13 so the
-/// Codicon glyphs in the action bar carry visible weight and the
-/// Medium-weight title font's apparent x-height matches the body.
-pub const UI_FONT_SIZE: f64 = 13.0;
+/// Chrome text: tabs, sidebar rows, status bar. Keep this close to the
+/// terminal font while using the title/UI font's natural weight; oversizing
+/// chrome makes the app read less precise than Warp.
+pub const UI_FONT_SIZE: f64 = 12.5;
 /// Command palette / modal body text.
 pub const PALETTE_FONT_SIZE: f64 = 14.0;
 /// Small overline / badge text.

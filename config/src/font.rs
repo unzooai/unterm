@@ -431,13 +431,12 @@ impl FontAttributes {
 impl Default for FontAttributes {
     fn default() -> Self {
         let family = "JetBrains Mono";
-        let weight = FontWeight::MEDIUM;
         Self {
-            // JetBrains Mono is bundled with Unterm; using its Medium face
-            // gives the default text more presence without depending on
-            // system-only fonts such as SF Mono.
+            // JetBrains Mono is bundled with Unterm. Use the real Regular
+            // face by default so text stays crisp and does not look heavier
+            // than Warp; bold/half-bright rules below handle emphasis.
             family: family.into(),
-            weight,
+            weight: FontWeight::REGULAR,
             stretch: FontStretch::default(),
             style: FontStyle::Normal,
             is_fallback: false,

@@ -3018,6 +3018,10 @@ impl TermWindow {
         let start = std::time::Instant::now();
         match menu.precompute(self) {
             Ok(()) => {
+                // Prewarm glyph/font fallback, but do not reuse the computed
+                // element. Reusing the first layout can briefly show stale
+                // fallback glyphs or stale theme colors when the menu opens.
+                menu.clear_precomputed();
                 self.prewarmed_settings_menu.borrow_mut().replace(menu);
                 if let Some(window) = self.window.as_ref() {
                     window.invalidate();
@@ -3049,6 +3053,7 @@ impl TermWindow {
                 pane_id,
             ))
         });
+        menu.clear_precomputed();
         if let Err(err) = menu.precompute(self) {
             log::error!("popup menu precompute failed: {err:#}");
             return;

@@ -577,28 +577,26 @@ impl FontConfigInner {
             "Noto Sans"
         };
 
-        // Title font weight: SemiBold tab labels so the weight bump is
-        // unambiguous on macOS (Medium → Regular falls back too easily
-        // through CoreText's hidden-family resolution; SemiBold reliably
-        // picks the heavier cut). Matches Warp's chrome weight without
-        // veering into Bold's slab feel.
-        fn semibold(family: &str) -> FontAttributes {
+        // Chrome text should use the platform UI font at its natural regular
+        // weight. Selection and hover are expressed with color, not a heavier
+        // face, which keeps sidebars and menus crisp.
+        fn regular(family: &str) -> FontAttributes {
             FontAttributes {
                 family: family.to_string(),
-                weight: FontWeight::DEMIBOLD,
+                weight: FontWeight::REGULAR,
                 ..Default::default()
             }
         }
         let mut fonts = vec![if make_bold {
             bold(primary_family)
         } else {
-            semibold(primary_family)
+            regular(primary_family)
         }];
 
         let mut fallback = if make_bold {
             bold("Roboto")
         } else {
-            semibold("Roboto")
+            regular("Roboto")
         };
         fallback.is_fallback = true;
         fonts.push(fallback);
@@ -630,7 +628,7 @@ impl FontConfigInner {
         entity: Entity,
     ) -> anyhow::Result<Rc<LoadedFont>> {
         let config = self.config.borrow();
-        // Unterm: tab titles use semibold (not bold) to match Windows Terminal
+        // Unterm: chrome uses regular UI text; only non-title entities request bold.
         let make_bold = entity != Entity::CommandPalette && entity != Entity::Title;
         let (sys_font, sys_size) = self.compute_title_font(&config, make_bold);
 

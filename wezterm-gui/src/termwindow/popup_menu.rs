@@ -216,6 +216,10 @@ impl PopupMenu {
         Ok(())
     }
 
+    pub fn clear_precomputed(&self) {
+        self.element.borrow_mut().take();
+    }
+
     pub fn pane_id(&self) -> PaneId {
         self.pane_id
     }
