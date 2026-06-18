@@ -8,7 +8,7 @@ date: 2026-05-03
 
 ## Connection model
 
-`unterm-cli` is a thin JSON-RPC client. It does almost nothing on its own — every subcommand opens a TCP connection to the running Unterm GUI's MCP server, completes an `auth.login` handshake, and forwards the call.
+`unterm-cli` is mostly a thin JSON-RPC client. MCP-backed subcommands open a TCP connection to the running Unterm GUI's MCP server, complete an `auth.login` handshake, and forward the call. A few user-owned settings commands (`theme`, `lang`, and `settings open`) use local config files or the HTTP settings server instead.
 
 When the GUI starts it writes `~/.unterm/instances/<name>.json`, updates `~/.unterm/active.json`, and mirrors the active endpoint to `~/.unterm/server.json` for older scripts. The compatibility file has three core fields:
 
@@ -26,9 +26,9 @@ The token is per-launch — it rotates whenever the GUI restarts, and the files 
 
 A few consequences worth knowing before you wire scripts:
 
-- **The GUI must be running.** No GUI, no MCP, no CLI. The error you'll get is `unterm GUI is not running — open Unterm.app to start the MCP server, or run 'unterm start' first`. Cron jobs that fire at boot should depend on the launch agent that owns Unterm.
+- **MCP-backed commands need the GUI.** No GUI means no live MCP server, so commands like `session`, `workspace`, `instance`, and `screenshot` will report `unterm GUI is not running — open Unterm.app to start the MCP server, or run 'unterm start' first`. Settings-style commands can still read or write their local fallback files.
 - **Everything is local.** Both servers bind `127.0.0.1` only. Nothing on the LAN can reach them. There is no telemetry; the CLI never phones home.
-- **The CLI is exactly the MCP surface, no more.** If a method exists on MCP, it's either reachable from the CLI today or trivially exposable. There is no parallel business logic — `unterm-cli` is a delivery shim.
+- **The MCP action surface is mirrored in the CLI.** If a method exists on MCP, it's either reachable from the CLI today or trivially exposable. User settings intentionally stay on the settings/config path, not the agent action path.
 - **Multi-instance is first-class.** Use `unterm-cli --instance alpha session list` to target a specific window, or omit `--instance` to follow active/latest. This keeps agent scripts deterministic when several Unterm windows are open.
 
 The wire format is line-delimited JSON-RPC 2.0 — one request per line, one response per line. If you ever need to bypass the CLI and talk to MCP directly (Python, Node, curl-with-netcat, whatever), the protocol is documented in `wezterm-gui/src/mcp/server.rs`.
