@@ -6,6 +6,7 @@ use termwiz::cell::CellAttributes;
 use termwiz::input::{InputEvent, KeyCode, KeyEvent};
 use termwiz::surface::{Change, Position};
 use termwiz::terminal::Terminal;
+use window::WindowOps;
 
 #[derive(Clone)]
 struct ThemePreset {
@@ -256,6 +257,57 @@ fn apply_theme_preset(preset: &ThemePreset) -> anyhow::Result<()> {
     // Apply now rather than waiting for the file-watcher to notice theme.json
     // (macOS FSEvents lag + the watcher's settle delay made this feel slow).
     config::reload();
+    apply_theme_to_gui_windows(preset.scheme)?;
+    Ok(())
+}
+
+pub(crate) fn apply_theme_to_gui_windows(scheme: &str) -> anyhow::Result<()> {
+    let scheme = scheme.to_string();
+    let (count_tx, count_rx) = std::sync::mpsc::channel();
+    let (done_tx, done_rx) = std::sync::mpsc::channel();
+
+    promise::spawn::spawn_into_main_thread(async move {
+        let windows = match crate::frontend::try_front_end() {
+            Some(fe) => fe.gui_windows(),
+            None => {
+                let _ = count_tx.send(Err("front end is not initialized".to_string()));
+                return;
+            }
+        };
+        let count = windows.len();
+        let _ = count_tx.send(Ok(count));
+        for win in windows {
+            let scheme = scheme.clone();
+            let done_tx = done_tx.clone();
+            win.window
+                .notify(crate::termwindow::TermWindowNotif::Apply(Box::new(
+                    move |tw| {
+                        let result = tw
+                            .apply_theme_palette(&scheme)
+                            .map_err(|err| err.to_string());
+                        let _ = done_tx.send(result);
+                    },
+                )));
+        }
+    })
+    .detach();
+
+    let count = count_rx
+        .recv_timeout(std::time::Duration::from_secs(2))
+        .map_err(|_| anyhow::anyhow!("timeout waiting for theme window dispatch"))?
+        .map_err(anyhow::Error::msg)?;
+    if count == 0 {
+        return Err(anyhow::anyhow!(
+            "no GUI window is registered for theme apply"
+        ));
+    }
+
+    for _ in 0..count {
+        done_rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .map_err(|_| anyhow::anyhow!("timeout waiting for theme palette apply"))?
+            .map_err(anyhow::Error::msg)?;
+    }
     Ok(())
 }
 

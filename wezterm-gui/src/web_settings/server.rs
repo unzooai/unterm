@@ -28,7 +28,6 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
-use window::WindowOps;
 
 const READ_TIMEOUT: Duration = Duration::from_secs(10);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -1237,7 +1236,7 @@ fn api_theme(body: &[u8]) -> Response {
     // notice theme.json changed. The GUI owns TermWindow palette state, so the
     // reload and explicit pane-palette refresh are dispatched onto the GUI
     // thread together.
-    if let Err(e) = apply_theme_to_gui_windows(preset.scheme) {
+    if let Err(e) = crate::overlay::theme_selector::apply_theme_to_gui_windows(preset.scheme) {
         return Response::err(500, "Internal Error", &e.to_string());
     }
     Response::ok_json(json!({
@@ -1245,56 +1244,6 @@ fn api_theme(body: &[u8]) -> Response {
         "theme": preset.id,
         "color_scheme": preset.scheme,
     }))
-}
-
-fn apply_theme_to_gui_windows(scheme: &str) -> Result<()> {
-    let scheme = scheme.to_string();
-    let (count_tx, count_rx) = std::sync::mpsc::channel();
-    let (done_tx, done_rx) = std::sync::mpsc::channel();
-
-    promise::spawn::spawn_into_main_thread(async move {
-        let windows = match crate::frontend::try_front_end() {
-            Some(fe) => fe.gui_windows(),
-            None => {
-                let _ = count_tx.send(Err("front end is not initialized".to_string()));
-                return;
-            }
-        };
-        let count = windows.len();
-        let _ = count_tx.send(Ok(count));
-        for win in windows {
-            let scheme = scheme.clone();
-            let done_tx = done_tx.clone();
-            win.window
-                .notify(crate::termwindow::TermWindowNotif::Apply(Box::new(
-                    move |tw| {
-                        let result = tw
-                            .apply_theme_palette(&scheme)
-                            .map_err(|err| err.to_string());
-                        let _ = done_tx.send(result);
-                    },
-                )));
-        }
-    })
-    .detach();
-
-    let count = count_rx
-        .recv_timeout(std::time::Duration::from_secs(2))
-        .map_err(|_| anyhow::anyhow!("timeout waiting for theme window dispatch"))?
-        .map_err(anyhow::Error::msg)?;
-    if count == 0 {
-        return Err(anyhow::anyhow!(
-            "no GUI window is registered for theme apply"
-        ));
-    }
-
-    for _ in 0..count {
-        done_rx
-            .recv_timeout(std::time::Duration::from_secs(2))
-            .map_err(|_| anyhow::anyhow!("timeout waiting for theme palette apply"))?
-            .map_err(anyhow::Error::msg)?;
-    }
-    Ok(())
 }
 
 fn api_recording(handler: &McpHandler, body: &[u8], start: bool) -> Response {
