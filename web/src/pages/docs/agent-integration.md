@@ -230,7 +230,7 @@ Recordings live under `<cwd>/.unterm/sessions/<date>/` when there's a writable p
 A few things that look like they should be MCP methods aren't, on purpose:
 
 - **Theme, font, profile, keybinding edits.** These live on the HTTP settings server (`/api/theme`, `/api/font`, etc.) and the SPA at `127.0.0.1:<http_port>/`. The `unterm-cli theme list` / `unterm-cli theme switch <name>` commands hit those HTTP endpoints, not the MCP server. The split is deliberate: MCP is the action surface for agents, HTTP is the configuration surface for the user. An agent should not be retheming your terminal mid-session.
-- **Workspace save/restore is on MCP, but workspace _list_ semantics are minimal.** `workspace.save`, `workspace.restore`, `workspace.list` exist. They're scoped to pane layout snapshots, not full settings.
+- **Workspace save/restore is on MCP, scoped to pane layout snapshots.** `workspace.save`, `workspace.restore`, and `workspace.list` exist. `workspace.list` returns the saved workspace path, timestamp, and pane count, but workspaces are still about reopening working directories and titles rather than full settings/profile state.
 - **Cross-instance window focus.** Each Unterm window's MCP server only ever acts on _its own_ window — `instance.focus` brings _this_ window forward. To raise a peer, you connect to that peer's MCP port (discoverable via the [multi-instance registry](/docs/multi-instance)) and call `instance.focus` there. OS-level window raise is scheduled — see the multi-instance guide for the current state.
 
 ## MCP method reference (most-used)
