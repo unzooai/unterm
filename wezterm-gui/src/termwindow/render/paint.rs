@@ -282,9 +282,21 @@ impl crate::TermWindow {
             (name, rows, tree.scroll_top)
         };
 
-        // Header: ▦ root-name
+        let header_text = if rows_snapshot.len() > visible_rows {
+            let from = scroll_top.saturating_add(1).min(rows_snapshot.len());
+            let to = scroll_top
+                .saturating_add(visible_rows)
+                .min(rows_snapshot.len());
+            format!("▦  {root_name}  ↕ {from}-{to}/{}", rows_snapshot.len())
+        } else {
+            format!("▦  {root_name}")
+        };
+
+        // Header: ▦ root-name, with a compact range marker when the
+        // directory has more rows than fit. This makes the wheel/scrollbar
+        // affordance explicit without adding another permanent chrome row.
         children.push(
-            Element::new(&font, ElementContent::Text(format!("▦  {root_name}")))
+            Element::new(&font, ElementContent::Text(header_text))
                 .item_type(UIItemType::TreeSidebarHeader)
                 .hover_colors(Some(ElementColors {
                     border: BorderColor::default(),
@@ -408,7 +420,7 @@ impl crate::TermWindow {
         let tree_right = tree_right_f as usize;
         if rows_snapshot.len() > visible_rows {
             let track_h = bottom - top;
-            let scrollbar_w = 3. * pt;
+            let scrollbar_w = 5. * pt;
             let scrollbar_x = tree_right_f - scrollbar_w;
             let thumb_h = (track_h * (visible_rows as f32) / (rows_snapshot.len() as f32))
                 .max(28. * pt)
@@ -419,7 +431,7 @@ impl crate::TermWindow {
             let track = Element::new(&font, ElementContent::Text(String::new()))
                 .colors(ElementColors {
                     border: BorderColor::default(),
-                    bg: fg.mul_alpha(0.08).into(),
+                    bg: fg.mul_alpha(0.10).into(),
                     text: LinearRgba::TRANSPARENT.into(),
                 })
                 .min_width(Some(Dimension::Pixels(scrollbar_w)))
@@ -449,7 +461,7 @@ impl crate::TermWindow {
             let thumb = Element::new(&font, ElementContent::Text(String::new()))
                 .colors(ElementColors {
                     border: BorderColor::default(),
-                    bg: fg.mul_alpha(0.68).into(),
+                    bg: fg.mul_alpha(0.74).into(),
                     text: LinearRgba::TRANSPARENT.into(),
                 })
                 .min_width(Some(Dimension::Pixels(scrollbar_w)))
