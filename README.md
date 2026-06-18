@@ -149,7 +149,7 @@ The `unterm-cli` binary exposes the full Unterm product surface, transparently r
 ```bash
 # Settings + Web UI
 unterm-cli settings open                       # open the Web Settings page
-unterm-cli theme list / set <id>               # standard / midnight / daylight / classic
+unterm-cli theme list / set <id>               # standard / midnight / daylight / classic / notion-dark / notion-light
 unterm-cli lang list / set <code> / current    # en-US / zh-CN / zh-TW / ja-JP / ko-KR / de-DE / fr-FR / it-IT / hi-IN
 
 # Proxy

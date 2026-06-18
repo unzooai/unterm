@@ -1,8 +1,9 @@
-//! `unterm-cli theme ...` — list/switch the GUI's preset theme by writing
-//! `~/.unterm/theme.json`. The running GUI picks it up via its file watcher.
+//! `unterm-cli theme ...` — list/switch the GUI's preset theme. When Unterm
+//! is running, switch through the HTTP settings API so existing windows repaint
+//! immediately; otherwise write `~/.unterm/theme.json` for next launch.
 //!
-//! No MCP method is involved: theme.json is the single source of truth and
-//! `wezterm-gui/src/overlay/theme_selector.rs` reads/writes the same shape.
+//! No MCP method is involved: the CLI applies live through the same local
+//! settings API as the GUI and uses theme.json as the cold-start fallback.
 
 use super::client;
 use super::i18n;
@@ -71,7 +72,7 @@ pub enum ThemeSubCommand {
     /// Switch to the named theme preset.
     #[command(alias = "set")]
     Switch {
-        /// Preset id (e.g. `standard`, `midnight`, `daylight`, `classic`).
+        /// Preset id (standard, midnight, daylight, classic, notion-dark, notion-light).
         name: String,
     },
 }

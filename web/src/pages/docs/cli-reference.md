@@ -508,7 +508,7 @@ gh run upload-artifact "/tmp/ci-failure-${GITHUB_RUN_ID}.png" --name screenshot
 
 ## theme
 
-List preset themes or switch to one. Backed by `~/.unterm/theme.json`, watched by the running GUI — no MCP round-trip; the CLI writes the file and the GUI picks it up.
+List preset themes or switch to one. When Unterm is running, the CLI uses the local HTTP settings API so existing windows repaint immediately. If no GUI is available, it writes `~/.unterm/theme.json` for the next launch.
 
 ```text
 unterm-cli theme list
@@ -525,7 +525,7 @@ Active: classic
    standard   Standard       Unterm Dark                  Neutral high-contrast terminal style
    midnight   Midnight       Unterm Midnight              Low-glare blue-black workspace
    daylight   Daylight       Unterm Daylight              Readable light mode for bright rooms
-*  classic    Classic        Builtin Tango Dark           Plain high-contrast terminal colors
+*  classic    Classic        Classic Dark                 Plain high-contrast terminal colors
    notion-dark Notion Dark    Notion Dark                  Notion-inspired warm dark
    notion-light Notion Light  Notion Light                 Notion-inspired clean light
 ```
@@ -536,6 +536,7 @@ $ unterm-cli --json theme switch daylight
   "color_scheme": "Unterm Daylight",
   "id": "daylight",
   "name": "Daylight",
+  "applied_live": true,
   "switched": true
 }
 ```
@@ -664,7 +665,7 @@ A cron entry at 3:30am scans the archive, gzips anything older than 30 days. The
 #   0 19 * * * /usr/local/bin/unterm-cli theme switch midnight >/dev/null
 ```
 
-That's it — `theme switch` writes `theme.json`, the running GUI's file watcher picks it up within the next frame, no extra plumbing.
+That's it — if Unterm is running, `theme switch` applies through the local settings API immediately. If it is not running, the command writes `theme.json` and the next launch starts with that theme.
 
 For something fancier (latitude/longitude sunrise rather than wall-clock 7am), wrap a Python `astral` call around the same two CLI invocations.
 
