@@ -477,5 +477,6 @@
   "web.update.view_release": "View release →",
   "dirjump.here": "↵ cd here",
   "dirjump.locations": "Locations",
-  "dirjump.more": "… {n} more — scroll down or press PageDown to show the next page; type to narrow"
+  "dirjump.more": "... {n} more - scroll down or press PageDown to show the next page; type to narrow",
+  "dirjump.page": "Showing {from}-{to} of {total} - scroll down or press PageDown to continue; type to narrow"
 }

@@ -477,5 +477,6 @@
   "web.update.view_release": "查看更新内容 →",
   "dirjump.here": "↵ 就进这里",
   "dirjump.locations": "位置",
-  "dirjump.more": "... 还有 {n} 个未显示 · 向下滚动鼠标滚轮或按 PageDown 继续看 · 输入可筛选"
+  "dirjump.more": "... 还有 {n} 个未显示 · 向下滚动鼠标滚轮或按 PageDown 继续看 · 输入可筛选",
+  "dirjump.page": "正在显示 {from}-{to} / {total} · 向下滚动鼠标滚轮或按 PageDown 继续看 · 输入可筛选"
 }

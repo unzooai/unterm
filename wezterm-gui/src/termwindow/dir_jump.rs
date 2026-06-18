@@ -901,13 +901,22 @@ impl DirJump {
         }
 
         let overflow = *self.overflow.borrow();
-        if overflow > 0 {
+        let total_visible = self.all_visible.borrow().len();
+        if total_visible > MAX_VISIBLE {
+            let page_start = *self.page_start.borrow();
+            let from = page_start + 1;
+            let to = page_start + visible.len();
             children.push(
                 Element::new(
                     &font,
                     ElementContent::Text(crate::i18n::t_args(
-                        "dirjump.more",
-                        &[("n", &overflow.to_string())],
+                        "dirjump.page",
+                        &[
+                            ("from", &from.to_string()),
+                            ("to", &to.to_string()),
+                            ("total", &total_visible.to_string()),
+                            ("more", &overflow.to_string()),
+                        ],
                     )),
                 )
                 .display(DisplayType::Block)
