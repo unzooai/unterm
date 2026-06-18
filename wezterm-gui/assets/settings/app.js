@@ -814,7 +814,18 @@ function untermSettings() {
     },
 
     supportsHeadlessAgent(id) {
-      return id === 'codex-cli' || id === 'claude-code';
+      return id === 'codex-cli'
+        || id === 'claude-code'
+        || id === 'gemini-cli'
+        || id === 'opencode';
+    },
+
+    defaultHeadlessPrompt(id) {
+      if (id === 'codex-cli') return 'review this diff and list risky changes';
+      if (id === 'claude-code') return 'summarise the last failing test output';
+      if (id === 'gemini-cli') return 'summarise this repository and suggest the next useful task';
+      if (id === 'opencode') return 'inspect the current project and suggest the next useful task';
+      return 'summarise the current task';
     },
 
     copyLaunchCmd(id) {
@@ -824,9 +835,7 @@ function untermSettings() {
     },
 
     async copyRunCmd(id) {
-      const placeholder = id === 'codex-cli'
-        ? 'review this diff and list risky changes'
-        : 'summarise the last failing test output';
+      const placeholder = this.defaultHeadlessPrompt(id);
       let cmd = '';
       try {
         const plan = await this.api(
