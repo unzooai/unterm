@@ -438,6 +438,17 @@ impl crate::TermWindow {
         };
 
         let mut children: Vec<Element> = vec![];
+        children.push(
+            Element::new(&font, ElementContent::Text(String::new()))
+                .display(DisplayType::Block)
+                .min_width(Some(Dimension::Percent(1.)))
+                .min_height(Some(Dimension::Pixels(content_top_gap)))
+                .colors(ElementColors {
+                    border: BorderColor::default(),
+                    bg: LinearRgba::TRANSPARENT.into(),
+                    text: LinearRgba::TRANSPARENT.into(),
+                }),
+        );
 
         for row in rows.iter().skip(scroll_top).take(visible_rows) {
             let title_fg = if row.active {
@@ -679,7 +690,7 @@ impl crate::TermWindow {
             .padding(BoxDimension {
                 left: Dimension::Pixels(7. * pt),
                 right: Dimension::Pixels(7. * pt),
-                top: Dimension::Pixels(content_top_gap),
+                top: Dimension::Pixels(0.),
                 bottom: Dimension::Pixels(0.),
             })
             .border(BoxDimension {
