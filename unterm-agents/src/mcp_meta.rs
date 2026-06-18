@@ -189,13 +189,13 @@ pub const MCP_METHODS: &[McpMethod] = &[
     McpMethod {
         name: "session.recording_start",
         namespace: "session",
-        summary: "Begin recording the active pane as an asciicast.",
+        summary: "Begin recording a pane to a redacted Markdown transcript.",
         params: &[P_PANE_ID],
     },
     McpMethod {
         name: "session.recording_stop",
         namespace: "session",
-        summary: "Stop recording.",
+        summary: "Stop recording and render the Markdown transcript.",
         params: &[P_PANE_ID],
     },
     McpMethod {
@@ -424,6 +424,7 @@ pub const MCP_METHODS: &[McpMethod] = &[
             Param { name: "pid", kind: "int", required: false, summary: "Owning process id." },
             Param { name: "under_cursor", kind: "bool", required: false, summary: "Target the window under the mouse pointer." },
             Param { name: "max_frames", kind: "int", required: false, summary: "Frame cap (default 25)." },
+            Param { name: "settle_ms", kind: "int", required: false, summary: "Delay between scroll frames, clamped to 100-2000ms." },
             Param { name: "activate", kind: "bool", required: false, summary: "Raise the target window first (default true)." },
             Param { name: "restore_scroll", kind: "bool", required: false, summary: "Scroll back up afterwards (default true)." },
         ],
@@ -547,6 +548,49 @@ mod tests {
             assert!(
                 names.contains(required),
                 "MCP_METHODS is missing {required}"
+            );
+        }
+    }
+
+    #[test]
+    fn mcp_surface_describes_recording_and_long_screenshot_accurately() {
+        let method = |name| {
+            MCP_METHODS
+                .iter()
+                .find(|m| m.name == name)
+                .unwrap_or_else(|| panic!("MCP_METHODS is missing {name}"))
+        };
+
+        let recording_start = method("session.recording_start");
+        assert!(recording_start.summary.contains("redacted Markdown"));
+        assert!(!recording_start.summary.contains("asciicast"));
+
+        let scrollback = method("capture.scrollback");
+        let scrollback_params: std::collections::HashSet<_> =
+            scrollback.params.iter().map(|p| p.name).collect();
+        for required in ["id", "max_rows", "dpi"] {
+            assert!(
+                scrollback_params.contains(required),
+                "capture.scrollback params are missing {required}"
+            );
+        }
+
+        let window_scroll = method("capture.window_scroll");
+        let window_scroll_params: std::collections::HashSet<_> =
+            window_scroll.params.iter().map(|p| p.name).collect();
+        for required in [
+            "app",
+            "title",
+            "pid",
+            "under_cursor",
+            "max_frames",
+            "settle_ms",
+            "activate",
+            "restore_scroll",
+        ] {
+            assert!(
+                window_scroll_params.contains(required),
+                "capture.window_scroll params are missing {required}"
             );
         }
     }
