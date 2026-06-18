@@ -36,7 +36,7 @@ impl crate::TermWindow {
 
     fn status_bar_text_top_pixel_y(&self, bar_y: f32, bar_height: f32) -> f32 {
         let cell_height = self.render_metrics.cell_size.height as f32;
-        (bar_y + ((bar_height - cell_height) * 0.5).round() - 1.0).max(bar_y)
+        (bar_y + ((bar_height - cell_height) * 0.5).round()).max(bar_y)
     }
 
     /// Height of the MCP banner row in pixels. Zero unless either a
@@ -185,7 +185,7 @@ impl crate::TermWindow {
 
         self.render_screen_line(
             RenderScreenLineParams {
-                top_pixel_y: bar_y + 1.0,
+                top_pixel_y: self.status_bar_text_top_pixel_y(bar_y, bar_height),
                 left_pixel_x: 0.0,
                 pixel_width: bar_width,
                 stable_line_idx: None,
@@ -464,7 +464,7 @@ impl crate::TermWindow {
 
         self.render_screen_line(
             RenderScreenLineParams {
-                top_pixel_y: bar_y + 1.0,
+                top_pixel_y: self.status_bar_text_top_pixel_y(bar_y, bar_height),
                 left_pixel_x: 0.0,
                 pixel_width: bar_width,
                 stable_line_idx: None,
