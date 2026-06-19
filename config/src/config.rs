@@ -290,6 +290,16 @@ pub struct Config {
 
     #[dynamic(default)]
     pub display_pixel_geometry: DisplayPixelGeometry,
+
+    /// macOS only: when the CoreText rasterizer is active, enable the
+    /// system's grayscale font-smoothing (stem darkening). On a dark
+    /// terminal this dilates light-on-dark glyphs the way Terminal.app and
+    /// other native apps do, so text reads as "native" rather than thin.
+    /// Set to `false` for the lighter, Warp-style HiDPI look. No effect on
+    /// the FreeType path (Windows / Linux).
+    #[dynamic(default = "default_font_smoothing")]
+    pub font_smoothing: bool,
+
     #[dynamic(default = "default_freetype_load_target")]
     pub freetype_load_target: FreeTypeLoadTarget,
     #[dynamic(default = "default_freetype_render_target")]
@@ -2238,6 +2248,13 @@ fn default_window_opacity() -> f32 {
 fn default_macos_window_background_blur() -> i64 {
     // Off by default for the same readability reason as window_opacity.
     0
+}
+
+fn default_font_smoothing() -> bool {
+    // Default to the native macOS look: font smoothing on, so terminal and
+    // chrome glyphs get the system's stem-darkening instead of FreeType's
+    // thinner grayscale. Users chasing the Warp HiDPI look can turn it off.
+    true
 }
 
 fn default_freetype_load_target() -> FreeTypeLoadTarget {

@@ -33,13 +33,18 @@ const PAD: usize = 1;
 pub struct CoreTextRasterizer {
     cg_font: CGFont,
     scale: f64,
+    /// Whether to enable the system's grayscale font smoothing (stem
+    /// darkening). On a dark terminal this is what makes glyphs read as
+    /// "native" (Terminal.app-weight) rather than thin; off gives the
+    /// lighter Warp-style HiDPI look. See `config.font_smoothing`.
+    smoothing: bool,
     /// CTFont is size-specific; cache the most recently used pixel size
     /// so a run of same-size glyphs doesn't rebuild it each call.
     cached: RefCell<Option<(u64, CTFont)>>,
 }
 
 impl CoreTextRasterizer {
-    pub fn from_locator(parsed: &ParsedFont) -> anyhow::Result<Self> {
+    pub fn from_locator(parsed: &ParsedFont, smoothing: bool) -> anyhow::Result<Self> {
         let data = parsed.handle.source.load_data()?;
         let provider = CGDataProvider::from_buffer(Arc::new(data.into_owned()));
         let cg_font = CGFont::from_data_provider(provider).map_err(|_| {
@@ -51,6 +56,7 @@ impl CoreTextRasterizer {
         Ok(Self {
             cg_font,
             scale: parsed.scale.unwrap_or(1.),
+            smoothing,
             cached: RefCell::new(None),
         })
     }
@@ -83,7 +89,7 @@ impl FontRasterizer for CoreTextRasterizer {
             return Ok(empty_glyph());
         }
         let ct_font = self.ct_font(pixel_size);
-        raster_glyph(&ct_font, glyph_pos as CGGlyph)
+        raster_glyph(&ct_font, glyph_pos as CGGlyph, self.smoothing)
     }
 }
 
@@ -101,7 +107,7 @@ fn empty_glyph() -> RasterizedGlyph {
 
 /// Rasterize a single glyph from a pixel-sized CTFont into the
 /// premultiplied-RGBA, top-left-origin bitmap the font stack expects.
-fn raster_glyph(ct_font: &CTFont, glyph: CGGlyph) -> anyhow::Result<RasterizedGlyph> {
+fn raster_glyph(ct_font: &CTFont, glyph: CGGlyph, smoothing: bool) -> anyhow::Result<RasterizedGlyph> {
     // Ink bounding box relative to the pen origin on the baseline:
     // origin.x = left bearing, origin.y = descent below baseline
     // (negative for descenders), size = ink extent.
@@ -130,11 +136,16 @@ fn raster_glyph(ct_font: &CTFont, glyph: CGGlyph) -> anyhow::Result<RasterizedGl
         0, // kCGImageAlphaNone
     );
 
-    // Black ground, white ink, native grayscale AA (no subpixel / LCD
-    // smoothing — that's what produces the color fringing we avoid).
+    // Black ground, white ink, native grayscale AA. Font smoothing here is
+    // CoreGraphics' grayscale stem-darkening (NOT subpixel/LCD color
+    // smoothing — this is a device-gray context, so there is no color
+    // fringing either way). With it on, light-on-dark glyphs get the same
+    // dilation Terminal.app applies and read as native weight; with it off
+    // they come out thinner, closer to the Warp HiDPI look. Driven by
+    // `config.font_smoothing`.
     ctx.set_should_antialias(true);
-    ctx.set_should_smooth_fonts(false);
-    ctx.set_allows_font_smoothing(false);
+    ctx.set_should_smooth_fonts(smoothing);
+    ctx.set_allows_font_smoothing(smoothing);
     ctx.set_gray_fill_color(0.0, 1.0);
     ctx.fill_rect(CGRect::new(
         &CGPoint::new(0.0, 0.0),
@@ -207,7 +218,7 @@ mod tests {
         assert!(ok, "glyph lookup for 'F'");
         let glyph = glyphs[0];
 
-        let g = raster_glyph(&ct_font, glyph).expect("raster");
+        let g = raster_glyph(&ct_font, glyph, true).expect("raster");
         eprintln!("F: {}x{}", g.width, g.height);
         for y in 0..g.height {
             let mut line = String::new();

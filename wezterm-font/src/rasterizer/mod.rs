@@ -43,7 +43,9 @@ pub fn new_rasterizer(
     rasterizer: FontRasterizerSelection,
     handle: &ParsedFont,
     pixel_geometry: config::DisplayPixelGeometry,
+    font_smoothing: bool,
 ) -> anyhow::Result<Box<dyn FontRasterizer>> {
+    let _ = font_smoothing; // only consumed by the macOS CoreText rasterizer
     match rasterizer {
         FontRasterizerSelection::FreeType => Ok(Box::new(
             freetype::FreeTypeRasterizer::from_locator(handle, pixel_geometry)?,
@@ -56,6 +58,7 @@ pub fn new_rasterizer(
             {
                 Ok(Box::new(coretext::CoreTextRasterizer::from_locator(
                     handle,
+                    font_smoothing,
                 )?))
             }
             // Off macOS there is no CoreText; fall back to FreeType so a
