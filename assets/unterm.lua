@@ -37,10 +37,10 @@ config.check_for_updates = false
 -- 不在此硬设 color_scheme,否则会覆盖「选主题」。需要固定配色时取消下一行注释:
 -- config.color_scheme = 'Catppuccin Mocha'
 -- 默认字体:JetBrains Mono(随 Unterm 打包,任何机器都有,不依赖系统已装),
--- 开 ligatures;图标回退到同样打包的 Nerd Font Symbols。比裸 Cascadia Code
+-- Regular 字重开 ligatures;图标回退到同样打包的 Nerd Font Symbols。比裸 Cascadia Code
 -- 更精致、更稳定(系统没装 Cascadia 时不会回退到难看的默认字体)。
 config.font = wezterm.font_with_fallback({
-  { family = 'JetBrains Mono', weight = 'Medium', harfbuzz_features = { 'calt=1', 'liga=1', 'clig=1' } },
+  { family = 'JetBrains Mono', weight = 'Regular', harfbuzz_features = { 'calt=1', 'liga=1', 'clig=1' } },
   'PingFang SC',
   'Microsoft YaHei UI',
   'Noto Sans CJK SC',
