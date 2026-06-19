@@ -363,8 +363,14 @@ impl crate::TermWindow {
         let row_pad = ui_tokens::ROW_PADDING * pt;
         let content_top_gap = 12. * pt;
         let radius = Dimension::Pixels(ui_tokens::CORNER_RADIUS * pt);
-        let footer_pad_v = 10. * pt;
+        let footer_pad_v = 9. * pt;
         let footer_pad_h = 12. * pt;
+        // Generous breathing zone between the scrolling tab list (which ends
+        // with the "+" row) and the pinned footer links. The user wants the
+        // add-tab area to have room — better to show a couple fewer tabs than
+        // to crowd the "+" — and the footer must never overlap the tab list.
+        let footer_gap = 40. * pt;
+        // Single-line footer (both links share one row).
         let footer_height = (metrics.cell_size.height as f32 + 2.0 * footer_pad_v).ceil();
         let rounded = || {
             Some(Corners {
@@ -454,9 +460,13 @@ impl crate::TermWindow {
             collected
         };
 
-        // Uniform two-line rows make the scroll window arithmetic exact.
-        let row_h = metrics.cell_size.height as f32 * 2.0 + 2.0 * row_pad + 4.0 * pt;
-        let content_bottom = (bottom - footer_height).max(top + content_top_gap + row_h);
+        // Uniform rows make the scroll window arithmetic exact. Must match the
+        // actual rendered row height below (single text line + the title_line
+        // top/bottom padding + the 1px row margins), or scrolling drifts.
+        let row_text_pad_v = 9.0 * pt;
+        let row_h = metrics.cell_size.height as f32 + 2.0 * row_text_pad_v + 2.0 * pt;
+        let content_bottom =
+            (bottom - footer_height - footer_gap).max(top + content_top_gap + row_h);
         let visible_rows = ((content_bottom - top - content_top_gap) / row_h)
             .floor()
             .max(1.0) as usize;
@@ -589,8 +599,11 @@ impl crate::TermWindow {
                 .padding(BoxDimension {
                     left: Dimension::Pixels(7. * pt),
                     right: Dimension::Pixels(8. * pt),
-                    top: Dimension::Pixels(5. * pt),
-                    bottom: Dimension::Pixels(5. * pt),
+                    // Taller rows (was 5pt) so the sidebar breathes instead of
+                    // reading cramped. Mirrored in `row_text_pad_v` above so
+                    // the scroll-window arithmetic stays exact.
+                    top: Dimension::Pixels(9. * pt),
+                    bottom: Dimension::Pixels(9. * pt),
                 });
 
             // No inline close button — Warp's vertical-tab rows have none;
@@ -918,22 +931,13 @@ impl crate::TermWindow {
             });
         }
 
-        // Author footer — pinned to the absolute bottom of the sidebar.
-        // Painted in the palette teal accent (same hue as the row status
-        // dots / agent names) + a ↗ external-link arrow so it unmistakably
-        // reads as a clickable hyperlink — the user asked for the link
-        // affordance to be obvious, so this deliberately drops the old
-        // low-key dim grey. Click anywhere on the row opens
-        // https://doaipm.com.
-        let caption = format!("{} ↗", crate::i18n::t("sidebar.author_caption"));
-        let link_color = agent_color;
-        // Back to the title font (SF Pro) — JetBrains Mono's open `O`
-        // didn't sit visually with the rest of the all-caps run.
-        // SF Pro's caps are designed as a single optical family, so
-        // even at small size the `O` shares stroke width and round-
-        // ness with `D`, `B`, `M`. All-caps + the title-font
-        // metrics give the uniform letter band the user asked for.
-        let footer = Element::new(&font, ElementContent::Text(caption))
+        // Footer — pinned to the absolute bottom of the sidebar, on the window
+        // background BELOW the tab panel (the footer_gap above guarantees it
+        // never overlaps the tab list). A quiet "DO AI PM" caption: dim grey,
+        // NOT styled as a hyperlink (no teal, no highlight chip) — on hover it
+        // just gently brightens to signal it's clickable. Click opens
+        // doaipm.com (routing in mouseevent.rs).
+        let footer = Element::new(&font, ElementContent::Text("DO AI PM".to_string()))
             .item_type(UIItemType::LeftTabBarAuthorLink)
             .display(DisplayType::Block)
             .min_width(Some(Dimension::Pixels(width - 14. * pt - 1.)))
@@ -946,11 +950,11 @@ impl crate::TermWindow {
             .colors(ElementColors {
                 border: BorderColor::default(),
                 bg: LinearRgba::TRANSPARENT.into(),
-                text: link_color.into(),
+                text: dim.into(),
             })
             .hover_colors(Some(ElementColors {
                 border: BorderColor::default(),
-                bg: hover_bg.into(),
+                bg: LinearRgba::TRANSPARENT.into(),
                 text: fg.into(),
             }));
         let footer_top = bottom - footer_height;

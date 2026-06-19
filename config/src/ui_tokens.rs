@@ -7,20 +7,24 @@
 
 /// Chrome text: tabs, sidebar rows, status bar. Keep this close to the
 /// terminal font while using the title/UI font's natural weight; oversizing
-/// chrome makes the app read less precise than Warp.
-pub const UI_FONT_SIZE: f64 = 12.5;
+/// chrome makes the app read less precise than Warp. Nudged to 13.5 so the
+/// sidebar/tab labels read a touch larger and crisper without ballooning the
+/// chrome.
+pub const UI_FONT_SIZE: f64 = 13.5;
 /// Command palette / modal body text.
 pub const PALETTE_FONT_SIZE: f64 = 14.0;
 /// Small overline / badge text.
 pub const OVERLINE_FONT_SIZE: f64 = 10.0;
 /// Modal / section header text.
 pub const HEADER_FONT_SIZE: f64 = 18.0;
-/// Line-height ratio for chrome text.
-pub const UI_LINE_HEIGHT: f64 = 1.2;
+/// Line-height ratio for chrome text. A touch loose (vs 1.2) so sidebar/tab
+/// rows breathe instead of reading cramped.
+pub const UI_LINE_HEIGHT: f64 = 1.35;
 /// Corner radius for selectable rows and buttons.
 pub const CORNER_RADIUS: f32 = 4.0;
-/// Padding inside selectable rows.
-pub const ROW_PADDING: f32 = 8.0;
+/// Padding inside selectable rows. Generous so sidebar/tab rows don't read
+/// cramped, especially at the slightly larger UI font size.
+pub const ROW_PADDING: f32 = 10.0;
 /// Width reserved for the macOS traffic-light cluster in the tab bar.
 pub const MACOS_TRAFFIC_LIGHT_RESERVE: f32 = 76.0;
 /// Diameter of the custom-drawn macOS traffic-light dots.
