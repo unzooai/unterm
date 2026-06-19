@@ -37,11 +37,14 @@ pub const MCP_INSTRUCTIONS: &str = "\
 Unterm is the terminal you are running inside — and one you can drive directly.
 Use these tools to operate it:
   • session.*  — list / create / focus / split / resize / destroy panes
-  • exec.*     — run shells and one-off commands in a pane
-  • screen.*   — read the visible buffer and scrollback as text
+  • session.suggest/search/history/audit_log — propose commands safely, search scrollback, inspect history/audit
+  • exec.*     — run shells and one-off commands in a pane; signal.send sends terminal control signals
+  • screen.*   — read the visible buffer and scrollback as text; screen.search can jump the GUI viewport
   • capture.*  — screenshot a region of the screen
   • workspace.*— read and write files in the working directory
   • instance.* — enumerate Unterm windows (named alpha, bravo, charlie, …)
+  • server.*   — health/capability probes; selftest.run runs built-in checks
+  • policy.check / agent.list_trusted — inspect write policy and trusted AI agents
 Call meta.surface for the full method catalog, or run `unterm-cli reference`
 in any shell. Multiple Unterm windows may be open at once; tools act on the
 active window unless you target one — use instance.list to see them all.";
@@ -55,6 +58,8 @@ This machine runs **Unterm**, a terminal built for AI agents to operate
 directly. An MCP server named `unterm` should be registered with you: use it to
 list/create/focus panes, run commands, read the screen, take screenshots, and
 read/write files in the real terminal session the user is looking at.
+It also exposes safe suggestion, scrollback search, audit-log, server-health,
+and trusted-agent inspection surfaces for AI workflows.
 
 - If the `unterm` tools aren't loaded, Unterm.app must be running — ask the user
   to open it, then reconnect.
