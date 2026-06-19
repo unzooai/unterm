@@ -411,54 +411,24 @@ impl crate::TermWindow {
         let sel_bg = chrome.selected_bg;
         let hover_bg = chrome.hover_bg;
 
-        // Snapshot rows straight from the mux (not the top tab bar, which
-        // empties out when a lone tab hides the top strip).
-        let rows: Vec<RowInfo> = {
+        // Snapshot just the tab handles (cheap Arc clones) and the active
+        // index. The expensive per-tab metadata (title / agent detection /
+        // cwd) is gathered further down for ONLY the visible rows, so the
+        // sidebar costs O(visible rows) per paint instead of O(total tabs).
+        // The previous all-tabs gather ran on every repaint and bogged the
+        // main thread once a window held dozens of tabs (laggy menus etc.).
+        let (tabs, active_idx) = {
             let mux = Mux::get();
             let window = match mux.get_window(self.mux_window_id) {
                 Some(w) => w,
                 None => return Ok(()),
             };
-            let active_idx = window.get_active_idx();
-            let collected: Vec<RowInfo> = window
-                .iter()
-                .enumerate()
-                .map(|(idx, tab)| {
-                    let pane = tab.get_active_pane();
-                    let title = {
-                        let t = tab.get_title();
-                        if !t.is_empty() {
-                            t
-                        } else {
-                            pane.as_ref().map(|p| p.get_title()).unwrap_or_default()
-                        }
-                    };
-                    let (agent, dir) = match &pane {
-                        Some(p) => {
-                            let proc_info =
-                                p.get_foreground_process_info(mux::pane::CachePolicy::AllowStale);
-                            let agent = crate::mcp::handler::detect_agent_for_pane(
-                                p.pane_id() as u64,
-                                proc_info.as_ref(),
-                            );
-                            let dir = super::pane_cwd_path(p).and_then(|pp| {
-                                pp.file_name().map(|n| n.to_string_lossy().to_string())
-                            });
-                            (agent, dir)
-                        }
-                        None => (None, None),
-                    };
-                    RowInfo {
-                        tab_idx: idx,
-                        active: idx == active_idx,
-                        title,
-                        agent,
-                        dir,
-                    }
-                })
-                .collect();
-            collected
+            (
+                window.iter().cloned().collect::<Vec<_>>(),
+                window.get_active_idx(),
+            )
         };
+        let row_count = tabs.len();
 
         // Uniform rows make the scroll window arithmetic exact. Must match the
         // actual rendered row height below (single text line + the title_line
@@ -473,22 +443,64 @@ impl crate::TermWindow {
         // Keep the active row inside the visible window. Otherwise a
         // newly-created active tab can exist below the current sidebar
         // viewport and look like it was never added.
-        let active_idx = rows.iter().position(|r| r.active).unwrap_or(0);
         let scroll_top = {
             let mut bar = self.left_tab_bar.borrow_mut();
             let next = scroll_top_after_active_change(
                 bar.scroll_top,
-                rows.len(),
+                row_count,
                 visible_rows,
                 active_idx,
                 bar.last_active_idx,
             );
-            bar.row_count = rows.len();
+            bar.row_count = row_count;
             bar.visible_rows = visible_rows;
             bar.scroll_top = next;
-            bar.last_active_idx = rows.get(active_idx).map(|_| active_idx);
+            bar.last_active_idx = (active_idx < row_count).then_some(active_idx);
             next
         };
+
+        // Now gather the expensive per-tab metadata (title / agent / cwd) for
+        // ONLY the visible window of rows — this is the O(visible) work the
+        // cheap handle snapshot above deferred.
+        let rows: Vec<RowInfo> = tabs
+            .iter()
+            .enumerate()
+            .skip(scroll_top)
+            .take(visible_rows)
+            .map(|(idx, tab)| {
+                let pane = tab.get_active_pane();
+                let title = {
+                    let t = tab.get_title();
+                    if !t.is_empty() {
+                        t
+                    } else {
+                        pane.as_ref().map(|p| p.get_title()).unwrap_or_default()
+                    }
+                };
+                let (agent, dir) = match &pane {
+                    Some(p) => {
+                        let proc_info =
+                            p.get_foreground_process_info(mux::pane::CachePolicy::AllowStale);
+                        let agent = crate::mcp::handler::detect_agent_for_pane(
+                            p.pane_id() as u64,
+                            proc_info.as_ref(),
+                        );
+                        let dir = super::pane_cwd_path(p).and_then(|pp| {
+                            pp.file_name().map(|n| n.to_string_lossy().to_string())
+                        });
+                        (agent, dir)
+                    }
+                    None => (None, None),
+                };
+                RowInfo {
+                    tab_idx: idx,
+                    active: idx == active_idx,
+                    title,
+                    agent,
+                    dir,
+                }
+            })
+            .collect();
 
         let mut children: Vec<Element> = vec![];
         children.push(
@@ -503,7 +515,7 @@ impl crate::TermWindow {
                 }),
         );
 
-        for row in rows.iter().skip(scroll_top).take(visible_rows) {
+        for row in rows.iter() {
             let title_fg = if row.active {
                 fg
             } else {
