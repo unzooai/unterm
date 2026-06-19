@@ -292,7 +292,7 @@ pub fn run(cmd: SessionCommand, json_out: bool) -> Result<()> {
             if let Some(profile) = profile.as_ref() {
                 params["profile"] = json!(profile);
             }
-            let command = command.join(" ");
+            let command = shell_command_line(&command);
             if !command.trim().is_empty() {
                 params["command"] = json!(command);
             }
@@ -786,6 +786,43 @@ pub fn run(cmd: SessionCommand, json_out: bool) -> Result<()> {
     Ok(())
 }
 
+fn shell_command_line(parts: &[String]) -> String {
+    if parts.len() <= 1 {
+        return parts.first().cloned().unwrap_or_default();
+    }
+    parts
+        .iter()
+        .map(|part| shell_quote_arg(part))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+#[cfg(not(windows))]
+fn shell_quote_arg(s: &str) -> String {
+    if s.is_empty() {
+        return "''".to_string();
+    }
+    if s.bytes()
+        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.' | b'/' | b':' | b'='))
+    {
+        return s.to_string();
+    }
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
+#[cfg(windows)]
+fn shell_quote_arg(s: &str) -> String {
+    if s.is_empty() {
+        return "\"\"".to_string();
+    }
+    if s.chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '/' | ':' | '=' | '\\'))
+    {
+        return s.to_string();
+    }
+    format!("\"{}\"", s.replace('"', "\\\""))
+}
+
 fn print_suggestion(value: &Value) {
     if let Some(id) = value.get("id").and_then(Value::as_str) {
         print_kv("Suggestion", id);
@@ -828,4 +865,46 @@ fn resolve_pane_id(client: &mut McpClient, id: Option<u64>) -> Result<u64> {
         .get("id")
         .and_then(Value::as_u64)
         .ok_or_else(|| anyhow!("first pane is missing an integer id"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::shell_command_line;
+
+    #[test]
+    fn shell_command_line_preserves_single_shell_string() {
+        let parts = vec!["printf \"hello from unterm\\n\"; exec zsh".to_string()];
+        assert_eq!(
+            shell_command_line(&parts),
+            "printf \"hello from unterm\\n\"; exec zsh"
+        );
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn shell_command_line_quotes_multi_arg_shell_commands() {
+        let parts = vec![
+            "zsh".to_string(),
+            "-lc".to_string(),
+            "printf 'unterm tab 01 ready\\n'; exec zsh".to_string(),
+        ];
+        assert_eq!(
+            shell_command_line(&parts),
+            "zsh -lc 'printf '\\''unterm tab 01 ready\\n'\\''; exec zsh'"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn shell_command_line_quotes_multi_arg_shell_commands() {
+        let parts = vec![
+            "cmd.exe".to_string(),
+            "/C".to_string(),
+            "echo unterm tab 01".to_string(),
+        ];
+        assert_eq!(
+            shell_command_line(&parts),
+            "cmd.exe /C \"echo unterm tab 01\""
+        );
+    }
 }
