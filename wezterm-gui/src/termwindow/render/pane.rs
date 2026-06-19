@@ -860,16 +860,14 @@ impl crate::TermWindow {
         } else {
             padding_left + border.left.get() as f32 + ((pos.left + pos.width) as f32 * cell_width)
         };
-        // Top of the pane's black background (mirrors background_rect): for the
-        // topmost pane that's a padding-height above the first text row, for a
-        // lower pane it's half a cell into the gutter. Anchoring the close
-        // button here puts the × right at the top edge, aligned with the
-        // active-pane accent bar, instead of floating on the first prompt row.
-        let pane_top = if pos.top == 0 {
-            top_pixel_y - padding_top
-        } else {
-            top_pixel_y + (pos.top as f32 * cell_height) - (cell_height / 2.0)
-        };
+        // Anchor the button to the pane's first *content* row, not the top of
+        // its padding. The old `- padding_top` (topmost) / `- cell/2` (lower
+        // pane) placement floated the × up in the window chrome and straddled
+        // the divider seam — it read as "misplaced" and chopped the divider
+        // line. Sitting it on the first row puts the × at the pane's true
+        // top-right corner; the mark is right-aligned and faint-until-hover,
+        // so it clears the (left-aligned) prompt text.
+        let pane_top = top_pixel_y + (pos.top as f32 * cell_height);
 
         // 3-cell button " × " — wide enough to click reliably even on small
         // displays without crowding the corner.
@@ -877,7 +875,12 @@ impl crate::TermWindow {
         let button_w = cell_width * button_cols as f32;
         let button_h = cell_height;
         let button_x = (pane_right - button_w).max(0.0);
-        let button_y = pane_top;
+        // Nudge the button up toward the very top corner (rather than dead
+        // center on the first row). Paired with the tighter horizontal inset
+        // in `cx` below, this tucks the × into the corner, snug against the
+        // top edge and the divider seam, the way the close affordance reads
+        // best.
+        let button_y = pane_top - (cell_height * 0.28);
 
         // Notion-style close affordance. A faint `×` is ALWAYS visible (so
         // the button is discoverable — "几乎看不见" but never gone); hovering
@@ -906,7 +909,7 @@ impl crate::TermWindow {
         let pt_scale_chip = self.dimensions.dpi as f32 / 72.0;
         let arm_for_chip = (chip * 0.22f32).max(3.0);
         let cx_chip =
-            (pane_right - (5.0 + 2.0) * pt_scale_chip - arm_for_chip).max(button_x + arm_for_chip);
+            (pane_right - 5.0 * pt_scale_chip - arm_for_chip).max(button_x + arm_for_chip);
         if hovered {
             // Soft hover chip — a centered, inset square reads as a rounded
             // "pill" without real corner rounding. Low alpha keeps it muted.
@@ -929,7 +932,7 @@ impl crate::TermWindow {
         // 而不是悬在 3-cell 命中区的正中。
         let pt_scale = self.dimensions.dpi as f32 / 72.0;
         let arm = (chip * 0.22).max(3.0);
-        let cx = (pane_right - (5.0 + 2.0) * pt_scale - arm).max(button_x + arm);
+        let cx = (pane_right - 5.0 * pt_scale - arm).max(button_x + arm);
         let cy = button_y + button_h / 2.0;
         let thick = (button_h / 12.0).max(1.6);
         let steps = ((arm * 4.0).round() as i32).max(24);

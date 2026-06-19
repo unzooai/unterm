@@ -75,13 +75,29 @@ impl crate::TermWindow {
                 item_type: UIItemType::Split(split.clone()),
             });
         } else {
+            // Vertical split → horizontal divider. The old `(1. + size)·cell`
+            // width started half a cell left of the content and ran size+1
+            // cells, which left the right end a few pixels short of the
+            // window border (the half-cell tail died inside the right
+            // padding) — the divider visibly "didn't finish". Span instead
+            // from the panes' left content edge to their right edge, and when
+            // the split reaches the rightmost column snap the right end to
+            // the window edge (mirrors paint_pane_close_button's pane_right)
+            // so the line runs cleanly to the border. Centered on the gutter.
+            let divider_left = pos_x;
+            let divider_right = if split.left + split.size >= self.terminal_size.cols as usize {
+                self.dimensions.pixel_width as f32
+            } else {
+                pos_x + split.size as f32 * cell_width
+            };
+            let divider_w = (divider_right - divider_left).max(0.0);
             self.filled_rectangle(
                 layers,
                 2,
                 euclid::rect(
-                    pos_x - (cell_width / 2.0),
+                    divider_left,
                     pos_y + (cell_height / 2.0) - (divider_thickness / 2.0),
-                    (1.0 + split.size as f32) * cell_width,
+                    divider_w,
                     divider_thickness,
                 ),
                 foreground,
