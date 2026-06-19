@@ -72,6 +72,7 @@ use wezterm_term::{Alert, Progress, StableRowIndex, TerminalConfiguration, Termi
 pub mod background;
 pub mod box_model;
 pub mod charselect;
+pub mod chrome_colors;
 pub mod clipboard;
 pub mod dir_jump;
 pub mod keyevent;

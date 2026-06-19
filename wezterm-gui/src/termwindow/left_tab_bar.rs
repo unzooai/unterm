@@ -21,6 +21,7 @@
 //!   wheel            → scroll
 
 use crate::termwindow::box_model::*;
+use crate::termwindow::chrome_colors;
 use crate::termwindow::render::corners::*;
 use crate::termwindow::{UIItem, UIItemType};
 use crate::utilsprites::RenderMetrics;
@@ -355,23 +356,10 @@ impl crate::TermWindow {
         // dark bias so the panel separates quietly without shouting.
         let bg = palette.background.to_linear();
         let fgc = palette.foreground.to_linear();
-        let luma = 0.2126 * bg.0 + 0.7152 * bg.1 + 0.0722 * bg.2;
-        let is_light = luma > 0.48;
-        let mix = |a: LinearRgba, b: LinearRgba, t: f32| {
-            LinearRgba::with_components(
-                a.0 * (1. - t) + b.0 * t,
-                a.1 * (1. - t) + b.1 * t,
-                a.2 * (1. - t) + b.2 * t,
-                1.,
-            )
-        };
-        let bar_bg = if is_light {
-            mix(bg, fgc, 0.045)
-        } else {
-            let lifted = mix(bg, fgc, 0.028);
-            LinearRgba::with_components(lifted.0 * 0.965, lifted.1 * 0.965, lifted.2 * 0.965, 1.)
-        };
-        let divider = fgc.mul_alpha(if is_light { 0.18 } else { 0.10 });
+        let chrome = chrome_colors::sidebar(bg, fgc);
+        let bar_bg = chrome.surface;
+        let divider = chrome.divider;
+        let is_light = chrome.is_light;
         let row_pad = ui_tokens::ROW_PADDING * pt;
         let content_top_gap = 10. * pt;
         let radius = Dimension::Pixels(ui_tokens::CORNER_RADIUS * pt);
@@ -413,17 +401,9 @@ impl crate::TermWindow {
             .resolve_fg(ColorAttribute::PaletteIndex(14))
             .to_linear();
         let fg = palette.foreground.to_linear();
-        let dim = fg.mul_alpha(if is_light { 0.76 } else { 0.72 }); // subtitle / directory
-        let sel_bg = if is_light {
-            mix(bg, fg, 0.20)
-        } else {
-            mix(bar_bg, fg, 0.155)
-        };
-        let hover_bg = if is_light {
-            mix(bg, fg, 0.11)
-        } else {
-            mix(bar_bg, fg, 0.07)
-        };
+        let dim = chrome.dim_text; // subtitle / directory
+        let sel_bg = chrome.selected_bg;
+        let hover_bg = chrome.hover_bg;
 
         // Snapshot rows straight from the mux (not the top tab bar, which
         // empties out when a lone tab hides the top strip).

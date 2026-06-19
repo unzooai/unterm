@@ -149,6 +149,7 @@ impl crate::TermWindow {
     /// draws into reserved gutter space.
     pub fn paint_tree_sidebar(&mut self) -> anyhow::Result<()> {
         use crate::termwindow::box_model::*;
+        use crate::termwindow::chrome_colors;
         use crate::termwindow::{DimensionContext, UIItem, UIItemType};
         use crate::utilsprites::RenderMetrics;
         use ::window::color::LinearRgba;
@@ -194,34 +195,16 @@ impl crate::TermWindow {
         let palette = self.palette().clone();
         let scheme_bg = palette.background.to_linear();
         let fg = palette.foreground.to_linear();
-        let luma = 0.2126 * scheme_bg.0 + 0.7152 * scheme_bg.1 + 0.0722 * scheme_bg.2;
-        let is_light = luma > 0.48;
-        let mix = |a: LinearRgba, b: LinearRgba, t: f32| {
-            LinearRgba::with_components(
-                a.0 * (1. - t) + b.0 * t,
-                a.1 * (1. - t) + b.1 * t,
-                a.2 * (1. - t) + b.2 * t,
-                1.,
-            )
-        };
-        let bg = if is_light {
-            mix(scheme_bg, fg, 0.075)
-        } else {
-            let lifted = mix(scheme_bg, fg, 0.028);
-            LinearRgba::with_components(lifted.0 * 0.965, lifted.1 * 0.965, lifted.2 * 0.965, 1.)
-        };
-        let dim = fg.mul_alpha(if is_light { 0.70 } else { 0.62 });
+        let chrome = chrome_colors::sidebar(scheme_bg, fg);
+        let bg = chrome.surface;
+        let dim = chrome.dim_text;
         // Palette-derived accent so the tree sidebar header picks up
         // the scheme's bright-cyan slot. Falls back to a sane teal if
         // the scheme didn't define `brights`.
         let teal = palette
             .resolve_fg(wezterm_term::color::ColorAttribute::PaletteIndex(14))
             .to_linear();
-        let hover_bg = if is_light {
-            mix(scheme_bg, fg, 0.105)
-        } else {
-            mix(bg, fg, 0.07)
-        };
+        let hover_bg = chrome.hover_bg;
 
         let mut children: Vec<Element> = vec![];
 
