@@ -559,6 +559,34 @@ unterm-cli screenshot --include-window -o "/tmp/ci-failure-${GITHUB_RUN_ID}.png"
 gh run upload-artifact "/tmp/ci-failure-${GITHUB_RUN_ID}.png" --name screenshot
 ```
 
+## upload
+
+Upload a local file through the running Unterm GUI's MCP server. Backed by `upload.file`; credentials stay in `~/.unterm/upload.json`, and the MCP response only returns the public URL, provider, key, and size.
+
+```text
+unterm-cli upload setup [--force]
+unterm-cli upload config-path
+unterm-cli upload <FILE> [--provider oss|cos|qiniu] [--key OBJECT_KEY] [--raw]
+```
+
+Run `setup` once to create a starter config:
+
+```sh
+$ unterm-cli upload setup
+/Users/alexlee/.unterm/upload.json
+```
+
+Edit that file with your OSS, COS, or Qiniu credentials. `setup` refuses to overwrite an existing file unless you pass `--force`.
+
+```sh
+$ unterm-cli upload /tmp/pane-long.png --raw
+https://cdn.example.com/unterm/pane-long_20260619_001122.png
+```
+
+```sh
+$ unterm-cli --json upload /tmp/pane-long.png | jq '{url, provider, key, size}'
+```
+
 ## reference
 
 Print the MCP methods, CLI subcommands, and live keybindings exposed by the current Unterm build. When the GUI is running, this calls `meta.surface`; when the GUI is not reachable, it falls back to the compiled-in MCP/CLI reference tables and returns an empty `keybindings` list.

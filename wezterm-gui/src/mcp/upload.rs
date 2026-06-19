@@ -79,7 +79,7 @@ pub struct QiniuConfig {
 }
 
 /// Location of the persisted config. The user creates this by hand
-/// (or via `unterm-cli upload --setup` — TODO future).
+/// or with `unterm-cli upload setup`.
 pub fn config_path() -> PathBuf {
     dirs_next::home_dir()
         .unwrap_or_default()

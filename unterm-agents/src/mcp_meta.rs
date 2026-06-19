@@ -494,7 +494,7 @@ pub const CLI_COMMANDS: &[CliCommand] = &[
     CliCommand { name: "workspace", summary: "List, save, or restore named pane workspaces with metadata.", subcommands: &["list", "save", "restore"] },
     CliCommand { name: "instance", summary: "List, inspect, label, or focus live Unterm instances.", subcommands: &["list", "info", "set-title", "focus"] },
     CliCommand { name: "screenshot", summary: "Capture the screen via Unterm's MCP server. --scrollback = long screenshot of a pane's entire history; --scroll-app/--scroll-title = scroll + stitch another app's window (macOS).", subcommands: &[] },
-    CliCommand { name: "upload", summary: "Upload a local file to your configured object storage and print the public URL.", subcommands: &["config-path"] },
+    CliCommand { name: "upload", summary: "Upload a local file to your configured object storage and print the public URL.", subcommands: &["config-path", "setup"] },
     CliCommand { name: "scrollback", summary: "Dump the full scrollback + viewport of a pane as text.", subcommands: &[] },
     CliCommand { name: "reference", summary: "Print MCP methods, CLI subcommands, and live keybindings.", subcommands: &[] },
     CliCommand { name: "setup-ai", summary: "Register or unregister Unterm with local AI coding agents.", subcommands: &[] },
