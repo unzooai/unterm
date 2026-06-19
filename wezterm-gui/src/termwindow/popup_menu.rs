@@ -263,7 +263,6 @@ impl PopupMenu {
             return;
         }
         *self.hover.borrow_mut() = idx;
-        self.element.borrow_mut().take();
         if let Some(window) = term_window.window.as_ref() {
             window.invalidate();
         }
@@ -468,7 +467,7 @@ impl PopupMenu {
                         .zindex(10)
                         .colors(ElementColors {
                             border: BorderColor::default(),
-                            bg: row_bg.clone(),
+                            bg: LinearRgba::TRANSPARENT.into(),
                             text: accel_fg.into(),
                         }),
                 );
@@ -484,6 +483,17 @@ impl PopupMenu {
                         border: row_border,
                         bg: row_bg,
                         text: row_fg,
+                    })
+                    .hover_colors(if e.action.is_some() {
+                        let mut hover_border = BorderColor::default();
+                        hover_border.left = teal;
+                        Some(ElementColors {
+                            border: hover_border,
+                            bg: hover_bg.into(),
+                            text: fg.into(),
+                        })
+                    } else {
+                        None
                     })
                     .border(BoxDimension {
                         left: Dimension::Pixels(2. * pt),
