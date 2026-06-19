@@ -819,72 +819,50 @@ impl crate::TermWindow {
             let max_top = rows.len().saturating_sub(visible_rows).max(1) as f32;
             let thumb_y = track_top + (track_h - thumb_h) * (scroll_top as f32 / max_top);
 
-            let thumb_color = palette
-                .scrollbar_thumb
-                .to_linear()
-                .mul_alpha(ui_tokens::CHROME_SCROLLBAR_THUMB_ALPHA);
+            let thumb_color = palette.scrollbar_thumb.to_linear();
             let track_color = palette
                 .scrollbar_thumb
                 .to_linear()
                 .mul_alpha(ui_tokens::CHROME_SCROLLBAR_TRACK_ALPHA);
 
-            let track = Element::new(&font, ElementContent::Text(String::new()))
-                .colors(ElementColors {
-                    border: BorderColor::default(),
-                    bg: track_color.into(),
-                    text: LinearRgba::TRANSPARENT.into(),
-                })
-                .min_width(Some(Dimension::Pixels(scrollbar_w)))
-                .min_height(Some(Dimension::Pixels(track_h)));
-            let track_layout = LayoutContext {
-                height: DimensionContext {
-                    dpi: self.dimensions.dpi as f32,
-                    pixel_max: track_h,
-                    pixel_cell: metrics.cell_size.height as f32,
-                },
-                width: DimensionContext {
-                    dpi: self.dimensions.dpi as f32,
-                    pixel_max: scrollbar_w,
-                    pixel_cell: metrics.cell_size.width as f32,
-                },
-                bounds: euclid::rect(scrollbar_x, track_top, scrollbar_w, track_h),
-                metrics: &metrics,
-                gl_state: self.render_state.as_ref().unwrap(),
-                zindex: 21,
-            };
-            let track_computed = self.compute_element(&track_layout, &track)?;
             {
-                let gl_state = self.render_state.as_ref().unwrap();
-                self.render_element(&track_computed, gl_state, None)?;
+                let mut q = self.deferred_scrollbar.borrow_mut();
+                q.push((
+                    euclid::rect(scrollbar_x, track_top, scrollbar_w, track_h),
+                    track_color,
+                ));
+                let inset = (scrollbar_w * 0.22).clamp(1.5, 3.0);
+                let right_inset = 0.0;
+                let thumb_w = (scrollbar_w - inset - right_inset).max(3.0);
+                let cap = inset.min(2.0);
+                q.push((
+                    euclid::rect(
+                        scrollbar_x + inset,
+                        thumb_y + cap,
+                        thumb_w,
+                        (thumb_h - cap * 2.0).max(2.0),
+                    ),
+                    thumb_color,
+                ));
+                q.push((
+                    euclid::rect(
+                        scrollbar_x + inset + cap,
+                        thumb_y,
+                        (thumb_w - cap * 2.0).max(1.0),
+                        cap,
+                    ),
+                    thumb_color,
+                ));
+                q.push((
+                    euclid::rect(
+                        scrollbar_x + inset + cap,
+                        thumb_y + thumb_h - cap,
+                        (thumb_w - cap * 2.0).max(1.0),
+                        cap,
+                    ),
+                    thumb_color,
+                ));
             }
-
-            let thumb = Element::new(&font, ElementContent::Text(String::new()))
-                .colors(ElementColors {
-                    border: BorderColor::default(),
-                    bg: thumb_color.into(),
-                    text: LinearRgba::TRANSPARENT.into(),
-                })
-                .min_width(Some(Dimension::Pixels(scrollbar_w)))
-                .min_height(Some(Dimension::Pixels(thumb_h)));
-            let thumb_layout = LayoutContext {
-                height: DimensionContext {
-                    dpi: self.dimensions.dpi as f32,
-                    pixel_max: thumb_h,
-                    pixel_cell: metrics.cell_size.height as f32,
-                },
-                width: DimensionContext {
-                    dpi: self.dimensions.dpi as f32,
-                    pixel_max: scrollbar_w,
-                    pixel_cell: metrics.cell_size.width as f32,
-                },
-                bounds: euclid::rect(scrollbar_x, thumb_y, scrollbar_w, thumb_h),
-                metrics: &metrics,
-                gl_state: self.render_state.as_ref().unwrap(),
-                zindex: 22,
-            };
-            let thumb_computed = self.compute_element(&thumb_layout, &thumb)?;
-            let gl_state = self.render_state.as_ref().unwrap();
-            self.render_element(&thumb_computed, gl_state, None)?;
 
             let hit_w = (18. * pt).round().max(scrollbar_w) as usize;
             let hit_right = bar_right.max(border.left.get() as f32).round() as usize;
