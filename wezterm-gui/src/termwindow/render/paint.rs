@@ -422,18 +422,29 @@ impl crate::TermWindow {
             let track_top = top + row_h + 1. * pt;
             let track_bottom = bottom - 1. * pt;
             let track_h = (track_bottom - track_top).max(1.);
-            let scrollbar_w = (5. * pt).round().max(6.);
+            let scrollbar_w = (ui_tokens::CHROME_SCROLLBAR_WIDTH * pt)
+                .round()
+                .max(ui_tokens::CHROME_SCROLLBAR_MIN_WIDTH);
             let scrollbar_x = tree_right_f - scrollbar_w;
             let thumb_h = (track_h * (visible_rows as f32) / (rows_snapshot.len() as f32))
-                .max(28. * pt)
+                .max(ui_tokens::CHROME_SCROLLBAR_MIN_THUMB_HEIGHT * pt)
                 .min(track_h);
             let max_top = rows_snapshot.len().saturating_sub(visible_rows).max(1) as f32;
             let thumb_y = track_top + (track_h - thumb_h) * (scroll_top as f32 / max_top);
 
+            let thumb_color = palette
+                .scrollbar_thumb
+                .to_linear()
+                .mul_alpha(ui_tokens::CHROME_SCROLLBAR_THUMB_ALPHA);
+            let track_color = palette
+                .scrollbar_thumb
+                .to_linear()
+                .mul_alpha(ui_tokens::CHROME_SCROLLBAR_TRACK_ALPHA);
+
             let track = Element::new(&font, ElementContent::Text(String::new()))
                 .colors(ElementColors {
                     border: BorderColor::default(),
-                    bg: fg.mul_alpha(if is_light { 0.10 } else { 0.16 }).into(),
+                    bg: track_color.into(),
                     text: LinearRgba::TRANSPARENT.into(),
                 })
                 .min_width(Some(Dimension::Pixels(scrollbar_w)))
@@ -463,7 +474,7 @@ impl crate::TermWindow {
             let thumb = Element::new(&font, ElementContent::Text(String::new()))
                 .colors(ElementColors {
                     border: BorderColor::default(),
-                    bg: fg.mul_alpha(if is_light { 0.62 } else { 0.74 }).into(),
+                    bg: thumb_color.into(),
                     text: LinearRgba::TRANSPARENT.into(),
                 })
                 .min_width(Some(Dimension::Pixels(scrollbar_w)))

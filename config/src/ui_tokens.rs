@@ -28,6 +28,16 @@ pub const STATUS_BAR_VERTICAL_PADDING: f32 = 2.0;
 /// Visual baseline compensation for one-line chrome text. Terminal cells
 /// include descender space, so geometric centering reads slightly low.
 pub const CHROME_TEXT_BASELINE_NUDGE: f32 = -1.0;
+/// Width of chrome scrollbars; rendered with a minimum physical width.
+pub const CHROME_SCROLLBAR_WIDTH: f32 = 5.0;
+/// Minimum physical scrollbar width, to keep HiDPI and low-DPI output aligned.
+pub const CHROME_SCROLLBAR_MIN_WIDTH: f32 = 6.0;
+/// Minimum scrollbar thumb height.
+pub const CHROME_SCROLLBAR_MIN_THUMB_HEIGHT: f32 = 28.0;
+/// Faint track opacity behind chrome/pane scrollbars.
+pub const CHROME_SCROLLBAR_TRACK_ALPHA: f32 = 0.16;
+/// Thumb opacity for theme-provided scrollbar colors.
+pub const CHROME_SCROLLBAR_THUMB_ALPHA: f32 = 0.74;
 
 /// Left tab bar geometry.
 pub const LEFT_TAB_BAR_WIDTH: f32 = 164.0;

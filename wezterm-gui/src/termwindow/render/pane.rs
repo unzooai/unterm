@@ -9,7 +9,7 @@ use crate::termwindow::{ScrollHit, UIItem, UIItemType};
 use ::window::bitmaps::TextureRect;
 use ::window::DeadKeyStatus;
 use anyhow::Context;
-use config::VisualBellTarget;
+use config::{ui_tokens, VisualBellTarget};
 use mux::pane::{PaneId, WithPaneLines};
 use mux::renderable::{RenderableDimensions, StableCursorPosition};
 use mux::tab::PositionedPane;
@@ -290,7 +290,7 @@ impl crate::TermWindow {
             // visible — even when the thumb is full-height (no scrollback) or
             // the theme's thumb color is low-contrast. Without it the bar read
             // as "missing" on some themes/displays.
-            let track_color = color.mul_alpha(0.16);
+            let track_color = color.mul_alpha(ui_tokens::CHROME_SCROLLBAR_TRACK_ALPHA);
 
             // Adjust the scrollbar thumb position
             let config = &self.config;
@@ -302,13 +302,15 @@ impl crate::TermWindow {
                     + border.left.get() as f32
                     + ((pos.left + pos.width) as f32 * self.render_metrics.cell_size.width as f32)
             };
-            // Slim fixed-width bar (5pt), right-aligned inside the padding
+            // Slim fixed-width bar, right-aligned inside the padding
             // gutter with a 2pt edge gap. The HIT area (ui_items below) keeps
             // the full gutter width so it stays easy to grab; only the drawn
             // bar is slim. (Earlier code reused the whole right padding as
             // the bar width — at 16pt padding that drew a 32px slab.)
             let pt_scale = self.dimensions.dpi as f32 / 72.0;
-            let bar_w = (5.0 * pt_scale).round().max(6.0);
+            let bar_w = (ui_tokens::CHROME_SCROLLBAR_WIDTH * pt_scale)
+                .round()
+                .max(ui_tokens::CHROME_SCROLLBAR_MIN_WIDTH);
             let hit_w = padding.max(bar_w);
             // Rightmost pane: center the slim bar inside the right padding
             // gutter so it breathes evenly between the text column and the

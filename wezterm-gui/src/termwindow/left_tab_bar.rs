@@ -329,9 +329,9 @@ impl crate::TermWindow {
         } else {
             0.
         };
-        // The sidebar is chrome, not terminal content. Its surface and
-        // scrollbar must start exactly at the top bar's bottom edge; adding
-        // terminal padding here creates a visible vertical gap.
+        // The sidebar is chrome, not terminal content. Its surface starts at
+        // the top bar's bottom edge; list content and scrollbar get their own
+        // small breathing room below that chrome boundary.
         let top = top_bar_height + border.top.get() as f32;
         let status_h = if self.config.show_unterm_status_bar {
             self.status_bar_pixel_height()
@@ -828,19 +828,30 @@ impl crate::TermWindow {
             let track_top = top + content_top_gap + 1. * pt;
             let track_bottom = content_bottom - 1. * pt;
             let track_h = (track_bottom - track_top).max(1.);
-            let scrollbar_w = (5. * pt).round().max(6.);
+            let scrollbar_w = (ui_tokens::CHROME_SCROLLBAR_WIDTH * pt)
+                .round()
+                .max(ui_tokens::CHROME_SCROLLBAR_MIN_WIDTH);
             let bar_right = border.left.get() as f32 + width;
             let scrollbar_x = bar_right - scrollbar_w;
             let thumb_h = (track_h * (visible_rows as f32) / (rows.len() as f32))
-                .max(28. * pt)
+                .max(ui_tokens::CHROME_SCROLLBAR_MIN_THUMB_HEIGHT * pt)
                 .min(track_h);
             let max_top = rows.len().saturating_sub(visible_rows).max(1) as f32;
             let thumb_y = track_top + (track_h - thumb_h) * (scroll_top as f32 / max_top);
 
+            let thumb_color = palette
+                .scrollbar_thumb
+                .to_linear()
+                .mul_alpha(ui_tokens::CHROME_SCROLLBAR_THUMB_ALPHA);
+            let track_color = palette
+                .scrollbar_thumb
+                .to_linear()
+                .mul_alpha(ui_tokens::CHROME_SCROLLBAR_TRACK_ALPHA);
+
             let track = Element::new(&font, ElementContent::Text(String::new()))
                 .colors(ElementColors {
                     border: BorderColor::default(),
-                    bg: fg.mul_alpha(if is_light { 0.10 } else { 0.16 }).into(),
+                    bg: track_color.into(),
                     text: LinearRgba::TRANSPARENT.into(),
                 })
                 .min_width(Some(Dimension::Pixels(scrollbar_w)))
@@ -870,7 +881,7 @@ impl crate::TermWindow {
             let thumb = Element::new(&font, ElementContent::Text(String::new()))
                 .colors(ElementColors {
                     border: BorderColor::default(),
-                    bg: fg.mul_alpha(if is_light { 0.62 } else { 0.74 }).into(),
+                    bg: thumb_color.into(),
                     text: LinearRgba::TRANSPARENT.into(),
                 })
                 .min_width(Some(Dimension::Pixels(scrollbar_w)))
