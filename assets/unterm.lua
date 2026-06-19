@@ -60,10 +60,12 @@ config.show_unterm_status_bar = true
 -- 窗口（Windows Terminal 风格单栏）
 -------------------------------------------------
 config.window_decorations = 'INTEGRATED_BUTTONS|RESIZE'
--- 整合标题栏样式按平台:macOS 必须用 MacOsNative,否则 INTEGRATED_BUTTONS 会被
--- 剥掉(见 window.rs effective_decorations)→ 退回灰色原生标题栏、与内容割裂。
+-- macOS 使用自绘三色点:AppKit 原生按钮固定锚在窗口顶部,在 Unterm 的
+-- 一体化顶栏里无法真正上下居中。自绘按钮走同一套 chrome 布局,与
+-- 右侧动作图标、侧栏顶部边界保持一致。
 if wezterm.target_triple:find('darwin') then
-  config.integrated_title_button_style = 'MacOsNative'
+  config.integrated_title_button_style = 'MacOsCustom'
+  config.integrated_title_buttons = { 'Close', 'Hide', 'Maximize' }
 elseif wezterm.target_triple:find('windows') then
   config.integrated_title_button_style = 'Windows'
   config.integrated_title_button_alignment = 'Right'

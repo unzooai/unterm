@@ -22,7 +22,9 @@ pub const CORNER_RADIUS: f32 = 4.0;
 /// Padding inside selectable rows.
 pub const ROW_PADDING: f32 = 8.0;
 /// Width reserved for the macOS traffic-light cluster in the tab bar.
-pub const MACOS_TRAFFIC_LIGHT_RESERVE: f32 = 70.0;
+pub const MACOS_TRAFFIC_LIGHT_RESERVE: f32 = 76.0;
+/// Diameter of the custom-drawn macOS traffic-light dots.
+pub const MACOS_TRAFFIC_LIGHT_DOT: f32 = 12.0;
 /// Extra vertical breathing room around the bottom status-bar text.
 pub const STATUS_BAR_VERTICAL_PADDING: f32 = 2.0;
 /// Visual baseline compensation for one-line chrome text. Terminal cells

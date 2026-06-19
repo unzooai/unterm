@@ -3,7 +3,7 @@ use crate::termwindow::box_model::*;
 use crate::termwindow::render::corners::*;
 use crate::termwindow::{TabBarItem, UIItemType};
 use crate::utilsprites::RenderMetrics;
-use config::{ConfigHandle, Dimension, IntegratedTitleButtonColor};
+use config::{ui_tokens, ConfigHandle, Dimension, IntegratedTitleButtonColor};
 use std::rc::Rc;
 use wezterm_font::LoadedFont;
 use window::color::LinearRgba;
@@ -28,6 +28,15 @@ fn auto_button_color(
             }
         }
     }
+}
+
+fn hover_fill(background_lightness: f64, foreground: LinearRgba) -> LinearRgba {
+    let alpha = if background_lightness > 0.5 {
+        0.14
+    } else {
+        0.11
+    };
+    foreground.mul_alpha(alpha)
 }
 
 mod windows {
@@ -121,13 +130,13 @@ mod windows {
         let hover_colors = if window_button == IntegratedTitleButton::Close {
             ElementColors {
                 border: BorderColor::new(LinearRgba::TRANSPARENT),
-                bg: LinearRgba(1.0, 0.0, 0.0, 1.0).into(),
+                bg: LinearRgba(0.88, 0.05, 0.04, 1.0).into(),
                 text: LinearRgba(1.0, 1.0, 1.0, 1.0).into(),
             }
         } else {
             ElementColors {
                 border: BorderColor::new(LinearRgba::TRANSPARENT),
-                bg: foreground.mul_alpha(0.1).into(),
+                bg: hover_fill(background_lightness, foreground).into(),
                 text: foreground.into(),
             }
         };
@@ -199,15 +208,17 @@ mod gnome {
         _window_button: IntegratedTitleButton,
     ) -> WindowButtonColors {
         let foreground = auto_button_color(background_lightness, foreground);
+        let bg = hover_fill(background_lightness, foreground);
+        let hover_bg = hover_fill(background_lightness, foreground).mul_alpha(1.35);
         WindowButtonColors {
             colors: ElementColors {
-                border: BorderColor::new(foreground.mul_alpha(0.1)),
-                bg: foreground.mul_alpha(0.1).into(),
+                border: BorderColor::new(bg),
+                bg: bg.into(),
                 text: foreground.into(),
             },
             hover_colors: ElementColors {
-                border: BorderColor::new(foreground.mul_alpha(0.15)),
-                bg: foreground.mul_alpha(0.15).into(),
+                border: BorderColor::new(hover_bg),
+                bg: hover_bg.into(),
                 text: foreground.into(),
             },
         }
@@ -239,10 +250,10 @@ mod macos {
     }];
 
     pub fn sized_poly(poly: &'static [Poly]) -> SizedPoly {
-        // 12 px matches the macOS traffic-light cap diameter on a
-        // standard chrome (~14 px on Retina, scaled here for our
-        // layout grid).
-        let size = Dimension::Pixels(12.);
+        // 12 px matches the macOS traffic-light cap diameter on a standard
+        // chrome; keeping it tokenized prevents DPI/font tweaks from drifting
+        // the dot size independently of the reserved cluster width.
+        let size = Dimension::Pixels(ui_tokens::MACOS_TRAFFIC_LIGHT_DOT);
         SizedPoly {
             poly,
             width: size,
@@ -409,21 +420,18 @@ pub fn window_button_element(
                 })
         }
         Style::MacOsCustom => {
-            // 6 px breathing room around each 12 px dot ⇒ 24 px per
-            // cap. Three caps + the standard 6 px between them give
-            // ~72 px total, lining up with the existing
-            // `MACOS_TRAFFIC_LIGHT_RESERVE` width so layout doesn't
-            // jump when users switch between MacOsNative and
-            // MacOsCustom.
-            let dim = Dimension::Pixels(6.);
+            let side = ((ui_tokens::MACOS_TRAFFIC_LIGHT_RESERVE / 3.0
+                - ui_tokens::MACOS_TRAFFIC_LIGHT_DOT)
+                / 2.0)
+                .max(0.0);
             element
                 .zindex(1)
                 .vertical_align(VerticalAlign::Middle)
                 .padding(BoxDimension {
-                    left: dim,
-                    right: dim,
-                    top: dim,
-                    bottom: dim,
+                    left: Dimension::Pixels(side),
+                    right: Dimension::Pixels(side),
+                    top: Dimension::Pixels(0.),
+                    bottom: Dimension::Pixels(0.),
                 })
         }
         Style::MacOsNative => unreachable!(),
