@@ -157,7 +157,7 @@ When you flip proxies in Unterm's GUI, you don't have to restart shells — open
 
 ## session
 
-Operates on a single live pane. "Session" here means one terminal tab/pane in the running GUI. The CLI wraps the MCP methods `session.list`, `session.create`, `session.input`, `screen.text`, `session.cwd`, `exec.status`, `screen.detect_errors`, `session.recording_start/stop/status`, and `session.export_markdown`.
+Operates on a single live pane. "Session" here means one terminal tab/pane in the running GUI. The CLI wraps the MCP methods `session.list`, `session.create`, `session.input`, `screen.text`, `session.cwd`, `exec.status`, `screen.detect_errors`, `session.history`, `session.recording_start/stop/status`, and `session.export_markdown`.
 
 ```text
 unterm-cli session list
@@ -175,6 +175,7 @@ unterm-cli session text         [--id <ID>]
 unterm-cli session cwd          [--id <ID>]
 unterm-cli session status       [--id <ID>]
 unterm-cli session errors       [--id <ID>]
+unterm-cli session history      [--id <ID>] [--limit N]
 ```
 
 When `--id` is omitted on any pane-scoped subcommand, the CLI auto-resolves it to the first pane returned by `session.list`. Convenient if you only have one tab open; brittle if you have several. Pass `--id` explicitly in scripts.
@@ -335,7 +336,7 @@ ok
 $ unterm-cli session text --id 0
 ```
 
-### `session cwd` / `status` / `errors`
+### `session cwd` / `status` / `errors` / `history`
 
 These are read-only probes for scripts and outer agents.
 
@@ -356,7 +357,15 @@ ROW      PATTERN            TEXT
 18291    error:             error: could not compile `unterm-cli`
 ```
 
-Use `--json` for the raw MCP payloads when you need stable fields such as `cwd`, `status`, `foreground_process`, `has_errors`, and `errors[]`.
+```sh
+$ unterm-cli session history --id 0 --limit 50
+cargo test -p unterm-cli
+test result: ok. 4 passed; 0 failed
+```
+
+`history` reads recent non-empty pane scrollback lines through MCP `session.history`; it is not shell history from `~/.zsh_history` or equivalent.
+
+Use `--json` for the raw MCP payloads when you need stable fields such as `cwd`, `status`, `foreground_process`, `has_errors`, `errors[]`, or `entries[]`.
 
 ## exec
 

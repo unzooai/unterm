@@ -126,6 +126,15 @@ pub enum SessionSubCommand {
         #[arg(long)]
         id: Option<u64>,
     },
+    /// Print recent non-empty scrollback lines.
+    History {
+        /// Target pane id (defaults to the first live pane).
+        #[arg(long)]
+        id: Option<u64>,
+        /// Number of trailing rows to inspect.
+        #[arg(long, default_value_t = 100)]
+        limit: u64,
+    },
 }
 
 #[derive(Debug, Parser, Clone)]
@@ -495,6 +504,25 @@ pub fn run(cmd: SessionCommand, json_out: bool) -> Result<()> {
                         let pattern = err.get("pattern").and_then(Value::as_str).unwrap_or("");
                         let text = err.get("text").and_then(Value::as_str).unwrap_or("");
                         println!("{:<8} {:<18} {}", row, pattern, text);
+                    }
+                }
+            }
+        }
+        SessionSubCommand::History { id, limit } => {
+            let id = resolve_pane_id(&mut client, id)?;
+            let result = client.call("session.history", json!({ "id": id, "limit": limit }))?;
+            if json_out {
+                print_json(&result);
+            } else {
+                let entries = result
+                    .get("entries")
+                    .and_then(Value::as_array)
+                    .ok_or_else(|| {
+                        anyhow!("session.history did not return `entries`: {}", result)
+                    })?;
+                for entry in entries {
+                    if let Some(text) = entry.get("text").and_then(Value::as_str) {
+                        println!("{text}");
                     }
                 }
             }

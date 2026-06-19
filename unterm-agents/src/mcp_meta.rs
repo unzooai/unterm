@@ -153,8 +153,8 @@ pub const MCP_METHODS: &[McpMethod] = &[
     McpMethod {
         name: "session.history",
         namespace: "session",
-        summary: "Shell history for a pane (when shell integration is on).",
-        params: &[P_PANE_ID, P_SESSION_ID],
+        summary: "Recent non-empty scrollback lines for a pane; not shell history.",
+        params: &[P_PANE_ID, P_SESSION_ID, Param { name: "limit", kind: "int", required: false, summary: "Trailing rows to inspect, default 100." }],
     },
     McpMethod {
         name: "session.audit_log",
@@ -490,7 +490,7 @@ pub const MCP_METHODS: &[McpMethod] = &[
 pub const CLI_COMMANDS: &[CliCommand] = &[
     CliCommand { name: "start", summary: "Start the GUI, optionally running an alternative program.", subcommands: &[] },
     CliCommand { name: "cli", summary: "Interact with the mux server (panes, tabs, windows).", subcommands: &["list", "list-clients", "proxy", "tlscreds", "move-pane-to-new-tab", "split-pane", "spawn", "send-text", "get-text", "activate-pane-direction", "get-pane-direction", "kill-pane", "activate-pane", "adjust-pane-size", "activate-tab", "set-tab-title", "set-window-title", "rename-workspace", "zoom-pane"] },
-    CliCommand { name: "session", summary: "Operate on a single live pane.", subcommands: &["list", "create", "split", "focus", "resize", "destroy", "record", "export", "input", "text", "cwd", "status", "errors"] },
+    CliCommand { name: "session", summary: "Operate on a single live pane.", subcommands: &["list", "create", "split", "focus", "resize", "destroy", "record", "export", "input", "text", "cwd", "status", "errors", "history"] },
     CliCommand { name: "exec", summary: "Run commands in a live pane via MCP.", subcommands: &["run", "wait", "status", "cancel", "signal"] },
     CliCommand { name: "sessions", summary: "Browse the recorded session archive.", subcommands: &["list", "read"] },
     CliCommand { name: "workspace", summary: "List, save, or restore named pane workspaces with metadata.", subcommands: &["list", "save", "restore"] },
