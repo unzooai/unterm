@@ -2,17 +2,27 @@
 
 [x-cloak] { display: none !important; }
 
-/* Slim scrollbar inside the markdown viewer. */
+/* Chrome scrollbar tokens for the web settings surface. Keep these aligned
+   with the Notion palette in index.html. */
+:root {
+  --unterm-scrollbar-thumb: #494841;
+  --unterm-scrollbar-track: transparent;
+}
+
+/* Slim scrollbar inside scrollable settings surfaces. */
+html,
 pre {
   scrollbar-width: thin;
-  scrollbar-color: #404040 transparent;
+  scrollbar-color: var(--unterm-scrollbar-thumb) var(--unterm-scrollbar-track);
 }
+html::-webkit-scrollbar,
 pre::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
+html::-webkit-scrollbar-thumb,
 pre::-webkit-scrollbar-thumb {
-  background-color: #404040;
+  background-color: var(--unterm-scrollbar-thumb);
   border-radius: 4px;
 }
 
