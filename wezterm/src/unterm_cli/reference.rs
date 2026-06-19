@@ -71,9 +71,21 @@ pub fn run(cmd: ReferenceCommand, json_out: bool) -> Result<()> {
 
 fn reference_payload() -> (Value, Option<String>) {
     match McpClient::connect().and_then(|mut client| client.call("meta.surface", json!({}))) {
-        Ok(value) => (value, None),
+        Ok(value) => (with_local_cli_commands(value), None),
         Err(err) => (static_reference_payload(), Some(err.to_string())),
     }
+}
+
+fn with_local_cli_commands(mut value: Value) -> Value {
+    if let Some(object) = value.as_object_mut() {
+        object.insert(
+            "cli_commands".to_string(),
+            serde_json::to_value(unterm_agents::mcp_meta::CLI_COMMANDS)
+                .unwrap_or_else(|_| json!([])),
+        );
+        object.insert("cli_source".to_string(), json!("local_binary"));
+    }
+    value
 }
 
 fn static_reference_payload() -> Value {
@@ -96,6 +108,9 @@ fn scope_payload(result: &Value, section: Option<Section>, filter: Option<&str>)
     );
     if let Some(source) = result.get("source") {
         out.insert("source".to_string(), source.clone());
+    }
+    if let Some(cli_source) = result.get("cli_source") {
+        out.insert("cli_source".to_string(), cli_source.clone());
     }
     let fl = filter.map(|s| s.to_ascii_lowercase());
     let fl = fl.as_deref();

@@ -776,7 +776,7 @@ $ unterm-cli --json upload /tmp/pane-long.png | jq '{url, provider, key, size}'
 
 ## reference
 
-Print the MCP methods, CLI subcommands, and live keybindings exposed by the current Unterm build. When the GUI is running, this calls `meta.surface`; when the GUI is not reachable, it falls back to the compiled-in MCP/CLI reference tables and returns an empty `keybindings` list.
+Print the MCP methods, CLI subcommands, and live keybindings exposed by Unterm. When the GUI is running, this calls `meta.surface` for MCP methods and live keybindings, while CLI subcommands come from the current `unterm-cli` binary so local help never lags behind an older running GUI. When the GUI is not reachable, it falls back to the compiled-in MCP/CLI reference tables and returns an empty `keybindings` list.
 
 ```text
 unterm-cli reference [--section mcp|cli|keys] [--filter TEXT]
