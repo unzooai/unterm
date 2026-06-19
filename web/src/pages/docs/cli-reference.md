@@ -157,7 +157,7 @@ When you flip proxies in Unterm's GUI, you don't have to restart shells — open
 
 ## session
 
-Operates on a single live pane. "Session" here means one terminal tab/pane in the running GUI. The CLI wraps the MCP methods `session.list`, `session.create`, `session.input`, `screen.text`, `session.cwd`, `exec.status`, `screen.detect_errors`, `session.history`, `screen.search`, `session.recording_start/stop/status`, and `session.export_markdown`.
+Operates on a single live pane. "Session" here means one terminal tab/pane in the running GUI. The CLI wraps the MCP methods `session.list`, `session.create`, `session.input`, `screen.text`, `session.cwd`, `exec.status`, `screen.detect_errors`, `session.history`, `screen.search`, `session.suggest*`, `session.recording_start/stop/status`, and `session.export_markdown`.
 
 ```text
 unterm-cli session list
@@ -178,6 +178,10 @@ unterm-cli session errors       [--id <ID>]
 unterm-cli session history      [--id <ID>] [--limit N]
 unterm-cli session audit-log    [--id <ID>] [--limit N]
 unterm-cli session search       [--id <ID>] [--max-results N] [--goto|--goto-match N] <PATTERN...>
+unterm-cli session suggest post [--id <ID>] [--rationale TEXT] [--ttl-ms N] <TEXT...>
+unterm-cli session suggest status <SUGGESTION_ID>
+unterm-cli session suggest cancel <SUGGESTION_ID>
+unterm-cli session suggest list [--id <ID>]
 ```
 
 When `--id` is omitted on any pane-scoped subcommand, the CLI auto-resolves it to the first pane returned by `session.list`. Convenient if you only have one tab open; brittle if you have several. Pass `--id` explicitly in scripts.
@@ -384,6 +388,24 @@ ROW      COL    TEXT
 `search` scans pane scrollback through MCP `screen.search`. Add `--goto` to move the GUI viewport to the first match, or `--goto-match N` to jump to a specific match index.
 
 Use `--json` for the raw MCP payloads when you need stable fields such as `cwd`, `status`, `foreground_process`, `has_errors`, `errors[]`, `entries[]`, audit fields, or `matches[]`.
+
+### `session suggest`
+
+Queues non-PTY suggestions through MCP `session.suggest`. The CLI does not type the text into the shell; the user accepts or dismisses it in the terminal UI.
+
+```sh
+$ unterm-cli session suggest post --id 0 --rationale "next diagnostic step" -- cargo test -p unterm-cli
+Suggestion: sg_1781805012345_1
+Status:     queued
+```
+
+```sh
+$ unterm-cli session suggest list --id 0
+SUGGESTION               PANE     AGENT      TEXT
+sg_1781805012345_1       0        codex      cargo test -p unterm-cli
+```
+
+Use `status` to inspect a suggestion payload and `cancel` to withdraw a pending suggestion.
 
 ## exec
 

@@ -166,6 +166,8 @@ pub enum SessionSubCommand {
         )]
         pattern: Vec<String>,
     },
+    /// Queue, inspect, or cancel user-accepted suggestions.
+    Suggest(SuggestCommand),
 }
 
 #[derive(Debug, Parser, Clone)]
@@ -189,6 +191,51 @@ pub enum RecordSubCommand {
     },
     /// Show recording status for the target pane.
     Status {
+        #[arg(long)]
+        id: Option<u64>,
+    },
+}
+
+#[derive(Debug, Parser, Clone)]
+pub struct SuggestCommand {
+    #[command(subcommand)]
+    pub sub: SuggestSubCommand,
+}
+
+#[derive(Debug, Parser, Clone)]
+pub enum SuggestSubCommand {
+    /// Queue a suggestion for the user to accept or dismiss.
+    Post {
+        /// Target pane id (defaults to the first live pane).
+        #[arg(long)]
+        id: Option<u64>,
+        /// Optional reason shown to consumers of the suggestion payload.
+        #[arg(long)]
+        rationale: Option<String>,
+        /// Time to keep the suggestion alive.
+        #[arg(long)]
+        ttl_ms: Option<u64>,
+        /// Suggested text. Use `--` before text that starts with a dash.
+        #[arg(
+            value_name = "TEXT",
+            trailing_var_arg = true,
+            allow_hyphen_values = true
+        )]
+        text: Vec<String>,
+    },
+    /// Print one suggestion by id.
+    Status {
+        /// Suggestion id returned by `suggest post`.
+        suggestion_id: String,
+    },
+    /// Cancel a pending suggestion by id.
+    Cancel {
+        /// Suggestion id returned by `suggest post`.
+        suggestion_id: String,
+    },
+    /// List pending suggestions.
+    List {
+        /// Filter to one pane id.
         #[arg(long)]
         id: Option<u64>,
     },
@@ -644,8 +691,123 @@ pub fn run(cmd: SessionCommand, json_out: bool) -> Result<()> {
                 }
             }
         }
+        SessionSubCommand::Suggest(suggest) => match suggest.sub {
+            SuggestSubCommand::Post {
+                id,
+                rationale,
+                ttl_ms,
+                text,
+            } => {
+                let id = resolve_pane_id(&mut client, id)?;
+                let text = text.join(" ");
+                if text.trim().is_empty() {
+                    return Err(anyhow!("session suggest post needs TEXT"));
+                }
+                let mut params = json!({ "id": id, "text": text });
+                if let Some(rationale) = rationale {
+                    params["rationale"] = json!(rationale);
+                }
+                if let Some(ttl_ms) = ttl_ms {
+                    params["ttl_ms"] = json!(ttl_ms);
+                }
+                let result = client.call("session.suggest", params)?;
+                if json_out {
+                    print_json(&result);
+                } else {
+                    if let Some(suggestion_id) = result.get("suggestion_id").and_then(Value::as_str)
+                    {
+                        print_kv("Suggestion", suggestion_id);
+                    }
+                    if let Some(status) = result.get("status").and_then(Value::as_str) {
+                        print_kv("Status", status);
+                    }
+                }
+            }
+            SuggestSubCommand::Status { suggestion_id } => {
+                let result = client.call(
+                    "session.suggest_status",
+                    json!({ "suggestion_id": suggestion_id }),
+                )?;
+                if json_out {
+                    print_json(&result);
+                } else {
+                    print_suggestion(&result);
+                }
+            }
+            SuggestSubCommand::Cancel { suggestion_id } => {
+                let result = client.call(
+                    "session.suggest_cancel",
+                    json!({ "suggestion_id": suggestion_id }),
+                )?;
+                if json_out {
+                    print_json(&result);
+                } else {
+                    println!(
+                        "{}",
+                        result.get("status").and_then(Value::as_str).unwrap_or("ok")
+                    );
+                }
+            }
+            SuggestSubCommand::List { id } => {
+                let mut params = json!({});
+                if let Some(id) = id {
+                    params["pane_id"] = json!(id);
+                }
+                let result = client.call("session.suggest_list", params)?;
+                if json_out {
+                    print_json(&result);
+                } else {
+                    let suggestions = result.as_array().ok_or_else(|| {
+                        anyhow!("session.suggest_list did not return an array: {}", result)
+                    })?;
+                    if suggestions.is_empty() {
+                        println!("No pending suggestions.");
+                    } else {
+                        println!("{:<24} {:<8} {:<10} TEXT", "SUGGESTION", "PANE", "AGENT");
+                        for suggestion in suggestions {
+                            let id = suggestion.get("id").and_then(Value::as_str).unwrap_or("");
+                            let pane = suggestion
+                                .get("pane_id")
+                                .and_then(Value::as_u64)
+                                .map(|id| id.to_string())
+                                .unwrap_or_default();
+                            let agent = suggestion
+                                .get("posted_by_agent")
+                                .and_then(Value::as_str)
+                                .unwrap_or("");
+                            let text = suggestion.get("text").and_then(Value::as_str).unwrap_or("");
+                            println!("{:<24} {:<8} {:<10} {}", id, pane, agent, text);
+                        }
+                    }
+                }
+            }
+        },
     }
     Ok(())
+}
+
+fn print_suggestion(value: &Value) {
+    if let Some(id) = value.get("id").and_then(Value::as_str) {
+        print_kv("Suggestion", id);
+    }
+    if let Some(pane_id) = value.get("pane_id").and_then(Value::as_u64) {
+        print_kv("Pane", &pane_id.to_string());
+    }
+    if let Some(agent) = value.get("posted_by_agent").and_then(Value::as_str) {
+        print_kv("Agent", agent);
+    }
+    if let Some(created_at) = value.get("created_at").and_then(Value::as_str) {
+        print_kv("Created", created_at);
+    }
+    if let Some(state) = value.get("state") {
+        print_kv("State", &state.to_string());
+    }
+    if let Some(text) = value.get("text").and_then(Value::as_str) {
+        print_kv("Text", text);
+    }
+    if let Some(rationale) = value.get("rationale").and_then(Value::as_str) {
+        print_kv("Rationale", rationale);
+    }
 }
 
 /// Pick the user-supplied id, or fall back to the first live pane.
