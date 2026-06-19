@@ -607,10 +607,10 @@ impl PopupMenu {
             &element,
         )?;
 
-        log::info!(
-            "popup menu compute: font {font_ms}ms, total {}ms",
-            started.elapsed().as_millis()
-        );
+        let total_ms = started.elapsed().as_millis();
+        if total_ms > 16 {
+            log::debug!("popup menu compute: font {font_ms}ms, total {total_ms}ms");
+        }
         Ok(vec![computed])
     }
 }
