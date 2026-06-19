@@ -25,11 +25,23 @@ use wezterm_term::{ClickPosition, LastMouseClick, StableRowIndex};
 
 impl super::TermWindow {
     fn resolve_left_sidebar_resize_edge(&self, event: &MouseEvent) -> Option<UIItem> {
+        self.resolve_left_sidebar_resize_edge_with_tolerance(event, 14.0, 14)
+    }
+
+    fn resolve_left_sidebar_resize_divider(&self, event: &MouseEvent) -> Option<UIItem> {
+        self.resolve_left_sidebar_resize_edge_with_tolerance(event, 4.0, 4)
+    }
+
+    fn resolve_left_sidebar_resize_edge_with_tolerance(
+        &self,
+        event: &MouseEvent,
+        tolerance_pts: f32,
+        logical_tolerance: isize,
+    ) -> Option<UIItem> {
         let x = event.coords.x;
         let y = event.coords.y;
         let pt = self.dimensions.dpi as f32 / 72.0;
-        let tolerance = (14.0 * pt).round().max(12.0) as isize;
-        let logical_tolerance = 14isize;
+        let tolerance = (tolerance_pts * pt).round().max(1.0) as isize;
         let border = self.get_os_border();
         let top = border.top.get() as isize;
         let bottom = self.dimensions.pixel_height as isize - border.bottom.get() as isize;
@@ -80,6 +92,14 @@ impl super::TermWindow {
     fn resolve_ui_item(&self, event: &MouseEvent) -> Option<UIItem> {
         let x = event.coords.x;
         let y = event.coords.y;
+
+        // The left sidebars put their scrollbars flush on the divider edge.
+        // Keep the outermost sliver as a resize handle so a natural divider
+        // drag still resizes the sidebar; the wider scrollbar hit area below
+        // remains available just inside that edge.
+        if let Some(item) = self.resolve_left_sidebar_resize_divider(event) {
+            return Some(item);
+        }
 
         // Sidebar scrollbars live on the same right edge as the resize grip.
         // Give the explicit scrollbar items first refusal so dragging a thumb
