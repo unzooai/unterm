@@ -20,6 +20,7 @@ pub struct ScreenshotArgs {
     /// Capture only Unterm's own window via the server's CGWindowID.
     /// Independent of foreground state — no screencapture(1) framing.
     pub self_window: bool,
+    pub base64: bool,
     pub output: Option<PathBuf>,
     // in-terminal long screenshot
     pub scrollback: bool,
@@ -43,7 +44,7 @@ pub fn run(args: ScreenshotArgs, json_out: bool) -> Result<()> {
         // `capture.window` with no filters defaults to the server's own pid
         // → captures Unterm's window via CGWindowList without requiring
         // foreground or any UI framing.
-        client.call("capture.window", json!({ "include_base64": false }))?
+        client.call("capture.window", json!({ "include_base64": args.base64 }))?
     } else if args.scrollback {
         let mut params = json!({});
         if let Some(id) = args.pane {
@@ -77,7 +78,7 @@ pub fn run(args: ScreenshotArgs, json_out: bool) -> Result<()> {
         // the `--include-window` flag for parity / future-proofing.
         client.call(
             "capture.screen",
-            json!({ "include_base64": false, "include_window": args.include_window }),
+            json!({ "include_base64": args.base64, "include_window": args.include_window }),
         )?
     };
 

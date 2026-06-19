@@ -212,6 +212,10 @@ enum SubCommand {
         /// frontmost app and never depends on what's behind it.
         #[arg(long = "self", conflicts_with_all = ["scrollback", "scroll_app", "scroll_title", "scroll_pid"])]
         self_window: bool,
+        /// Include base64 PNG bytes in --json output. Supported for normal
+        /// screen capture and --self; long screenshot modes return paths.
+        #[arg(long = "base64", conflicts_with_all = ["scrollback", "scroll_app", "scroll_title", "scroll_pid"])]
+        base64: bool,
         /// In-terminal long screenshot: render the pane's ENTIRE scrollback
         /// to one tall PNG (headless re-render; window may be occluded).
         #[arg(long = "scrollback")]
@@ -917,6 +921,7 @@ fn run() -> anyhow::Result<()> {
         SubCommand::Screenshot {
             include_window,
             self_window,
+            base64,
             output,
             scrollback,
             pane,
@@ -930,6 +935,7 @@ fn run() -> anyhow::Result<()> {
             unterm_cli::ScreenshotArgs {
                 include_window,
                 self_window,
+                base64,
                 output,
                 scrollback,
                 pane,

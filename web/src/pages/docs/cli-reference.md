@@ -504,7 +504,7 @@ The URL also points at a static SPA at `/`, plus a small REST surface for the sa
 Capture the screen and save the PNG. Backed by the `capture.*` MCP methods.
 
 ```text
-unterm-cli screenshot [--include-window] [-o FILE]
+unterm-cli screenshot [--include-window] [--base64] [-o FILE]
 unterm-cli screenshot --scrollback [--pane N] [--max-rows N] [--dpi N] [-o FILE]
 unterm-cli screenshot --scroll-app APP [--scroll-title TEXT] [--scroll-pid PID] [--max-frames N] [-o FILE]
 ```
@@ -513,6 +513,7 @@ unterm-cli screenshot --scroll-app APP [--scroll-title TEXT] [--scroll-pid PID] 
 |---|---|
 | `--include-window` | Include Unterm's own window in the capture. Default: pass `include_window=false` to MCP, which the GUI honours best-effort (`screencapture` cannot literally exclude one window, so on macOS this currently maps to "capture full screen anyway" — treat the flag as a hint). |
 | `--self` | Capture Unterm's own window instead of the whole screen. |
+| `--base64` | Include `image.base64` in `--json` output for normal screen capture and `--self`. Long screenshot modes still return file paths. |
 | `--scrollback` | Render the active pane's entire scrollback plus viewport into one tall PNG. This is headless re-rendering, not pixel stitching, so it works even when the window is occluded. |
 | `--pane <N>` | Pane id for `--scrollback`; defaults to the active pane. |
 | `--max-rows <N>` | Row cap for `--scrollback`; keeps the most recent rows. |
@@ -549,7 +550,7 @@ $ unterm-cli --json screenshot | jq '.image'
 }
 ```
 
-The `--json` form additionally returns `captures[]` with the on-screen text content of every visible Unterm pane — handy if you want to capture both the pixels and the textual state in one round trip. Set `include_base64=true` directly via MCP if you need the image inline rather than a path; the CLI does not currently surface that flag.
+The `--json` form additionally returns `captures[]` with the on-screen text content of every visible Unterm pane — handy if you want to capture both the pixels and the textual state in one round trip. Add `--base64` when you need the PNG inline rather than only as a path.
 
 **Real-world use case** — a CI step that snaps the screen of a self-hosted runner whenever the build fails, for human triage:
 
