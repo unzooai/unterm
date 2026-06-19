@@ -559,6 +559,23 @@ unterm-cli screenshot --include-window -o "/tmp/ci-failure-${GITHUB_RUN_ID}.png"
 gh run upload-artifact "/tmp/ci-failure-${GITHUB_RUN_ID}.png" --name screenshot
 ```
 
+## scrollback
+
+Dump a pane's scrollback plus visible viewport as text. This is the text-first companion to `screenshot --scrollback` when the next consumer is an LLM or script.
+
+```text
+unterm-cli scrollback [--pane-id ID] [--tail N] [--start-line N] [--end-line N] [--escapes] [-o FILE]
+```
+
+Use `--tail` for the common "give me the recent terminal output" case:
+
+```sh
+$ unterm-cli scrollback --tail 200 -o /tmp/recent-terminal.txt
+/tmp/recent-terminal.txt
+```
+
+`--json` returns the raw `screen.scrollback_text` payload, including `first_row`, `row_count`, `scrollback_top`, and viewport metadata.
+
 ## upload
 
 Upload a local file through the running Unterm GUI's MCP server. Backed by `upload.file`; credentials stay in `~/.unterm/upload.json`, and the MCP response only returns the public URL, provider, key, and size.

@@ -412,6 +412,22 @@ first occurrence in that line.
 
 Match is `String::contains`, case-sensitive, no regex. If you need regex, do it client-side after fetching `screen.text`.
 
+### `screen.scrollback_text`
+
+Dump the scrollback plus visible viewport as text. This is the text-first companion to `capture.scrollback` for LLM hand-off.
+
+**Params:**
+
+| Name | Type | Required | Description |
+|---|---|---|---|
+| `id`/`session_id` | number/string | no | Target pane; defaults to the active pane |
+| `escapes` | bool | no | Preserve ANSI color/style escapes |
+| `start_line` | number | no | Absolute stable row index |
+| `end_line` | number | no | Absolute stable row index, exclusive |
+| `tail_lines` | number | no | Keep only the last N rows in the selected range |
+
+**Returns:** `{ text, lines?, first_row, row_count, cols, escapes, scrollback_top, physical_top, viewport_rows }`
+
 ### `screen.detect_errors`
 
 Run a hardcoded error-pattern scan over the visible viewport.

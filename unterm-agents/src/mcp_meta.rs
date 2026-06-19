@@ -288,6 +288,7 @@ pub const MCP_METHODS: &[McpMethod] = &[
             Param { name: "escapes", kind: "bool", required: false, summary: "Preserve ANSI escapes." },
             Param { name: "start_line", kind: "int", required: false, summary: "Absolute StableRowIndex." },
             Param { name: "end_line", kind: "int", required: false, summary: "Absolute StableRowIndex (exclusive)." },
+            Param { name: "tail_lines", kind: "int", required: false, summary: "Keep only the last N rows in the selected range." },
         ],
     },
     McpMethod {
@@ -577,6 +578,14 @@ mod tests {
                 "capture.scrollback params are missing {required}"
             );
         }
+
+        let scrollback_text = method("screen.scrollback_text");
+        let scrollback_text_params: std::collections::HashSet<_> =
+            scrollback_text.params.iter().map(|p| p.name).collect();
+        assert!(
+            scrollback_text_params.contains("tail_lines"),
+            "screen.scrollback_text params are missing tail_lines"
+        );
 
         let window_scroll = method("capture.window_scroll");
         let window_scroll_params: std::collections::HashSet<_> =

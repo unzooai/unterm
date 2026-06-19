@@ -3642,6 +3642,9 @@ impl McpHandler {
     /// - `end_line` (int, optional): clamp the end (exclusive). Default: bottom of viewport.
     ///   Both are absolute StableRowIndex values (negatives are allowed; the
     ///   server clamps to the actual scrollback range).
+    /// - `tail_lines` (int, optional): keep only the last N rows within the
+    ///   selected range. Useful for LLM hand-offs that need recent output
+    ///   without fetching the entire scrollback.
     fn screen_scrollback_text(&self, params: &Value) -> Result<Value> {
         // Unlike the other screen.* methods we let callers omit pane_id and
         // fall back to the active pane of the first window — the typical
@@ -3665,7 +3668,7 @@ impl McpHandler {
             .unwrap_or(false);
 
         let viewport_bottom = dims.physical_top + dims.viewport_rows as isize;
-        let start = params
+        let mut start = params
             .get("start_line")
             .and_then(|v| v.as_i64())
             .map(|n| n as isize)
@@ -3677,6 +3680,11 @@ impl McpHandler {
             .map(|n| n as isize)
             .unwrap_or(viewport_bottom)
             .min(viewport_bottom);
+        if let Some(tail) = params.get("tail_lines").and_then(|v| v.as_i64()) {
+            if tail > 0 {
+                start = start.max(end.saturating_sub(tail as isize));
+            }
+        }
 
         if end <= start {
             return Ok(json!({

@@ -36,6 +36,10 @@ pub struct ScrollbackCommand {
     /// viewport.
     #[arg(long = "end-line", allow_hyphen_values = true)]
     pub end_line: Option<i64>,
+
+    /// Keep only the last N rows within the selected range.
+    #[arg(long = "tail")]
+    pub tail: Option<u64>,
 }
 
 pub fn run(cmd: ScrollbackCommand, json_out: bool) -> Result<()> {
@@ -48,6 +52,9 @@ pub fn run(cmd: ScrollbackCommand, json_out: bool) -> Result<()> {
     }
     if let Some(n) = cmd.end_line {
         params["end_line"] = Value::Number(n.into());
+    }
+    if let Some(n) = cmd.tail {
+        params["tail_lines"] = Value::Number(n.into());
     }
 
     let mut client = McpClient::connect()?;
