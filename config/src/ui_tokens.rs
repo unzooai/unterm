@@ -25,6 +25,9 @@ pub const ROW_PADDING: f32 = 8.0;
 pub const MACOS_TRAFFIC_LIGHT_RESERVE: f32 = 70.0;
 /// Extra vertical breathing room around the bottom status-bar text.
 pub const STATUS_BAR_VERTICAL_PADDING: f32 = 2.0;
+/// Visual baseline compensation for one-line chrome text. Terminal cells
+/// include descender space, so geometric centering reads slightly low.
+pub const CHROME_TEXT_BASELINE_NUDGE: f32 = -1.0;
 
 /// Left tab bar geometry.
 pub const LEFT_TAB_BAR_WIDTH: f32 = 164.0;

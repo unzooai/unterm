@@ -373,7 +373,7 @@ impl crate::TermWindow {
         };
         let divider = fgc.mul_alpha(if is_light { 0.18 } else { 0.10 });
         let row_pad = ui_tokens::ROW_PADDING * pt;
-        let content_top_gap = 8. * pt;
+        let content_top_gap = 10. * pt;
         let radius = Dimension::Pixels(ui_tokens::CORNER_RADIUS * pt);
         let footer_pad_v = 10. * pt;
         let footer_pad_h = 12. * pt;
@@ -825,20 +825,22 @@ impl crate::TermWindow {
         // the sidebar was already full ("最多那多个 tab"): with the thumb,
         // the auto-scroll's reposition is immediately legible.
         if rows.len() > visible_rows {
-            let track_h = content_bottom - top;
-            let scrollbar_w = 4. * pt;
+            let track_top = top + content_top_gap + 1. * pt;
+            let track_bottom = content_bottom - 1. * pt;
+            let track_h = (track_bottom - track_top).max(1.);
+            let scrollbar_w = (5. * pt).round().max(6.);
             let bar_right = border.left.get() as f32 + width;
             let scrollbar_x = bar_right - scrollbar_w;
             let thumb_h = (track_h * (visible_rows as f32) / (rows.len() as f32))
                 .max(28. * pt)
                 .min(track_h);
             let max_top = rows.len().saturating_sub(visible_rows).max(1) as f32;
-            let thumb_y = top + (track_h - thumb_h) * (scroll_top as f32 / max_top);
+            let thumb_y = track_top + (track_h - thumb_h) * (scroll_top as f32 / max_top);
 
             let track = Element::new(&font, ElementContent::Text(String::new()))
                 .colors(ElementColors {
                     border: BorderColor::default(),
-                    bg: fg.mul_alpha(0.08).into(),
+                    bg: fg.mul_alpha(if is_light { 0.10 } else { 0.16 }).into(),
                     text: LinearRgba::TRANSPARENT.into(),
                 })
                 .min_width(Some(Dimension::Pixels(scrollbar_w)))
@@ -854,7 +856,7 @@ impl crate::TermWindow {
                     pixel_max: scrollbar_w,
                     pixel_cell: metrics.cell_size.width as f32,
                 },
-                bounds: euclid::rect(scrollbar_x, top, scrollbar_w, track_h),
+                bounds: euclid::rect(scrollbar_x, track_top, scrollbar_w, track_h),
                 metrics: &metrics,
                 gl_state: self.render_state.as_ref().unwrap(),
                 zindex: 21,
@@ -868,7 +870,7 @@ impl crate::TermWindow {
             let thumb = Element::new(&font, ElementContent::Text(String::new()))
                 .colors(ElementColors {
                     border: BorderColor::default(),
-                    bg: fg.mul_alpha(0.68).into(),
+                    bg: fg.mul_alpha(if is_light { 0.62 } else { 0.74 }).into(),
                     text: LinearRgba::TRANSPARENT.into(),
                 })
                 .min_width(Some(Dimension::Pixels(scrollbar_w)))
@@ -899,7 +901,7 @@ impl crate::TermWindow {
             self.ui_items.push(UIItem {
                 x: hit_x,
                 width: hit_w,
-                y: top as usize,
+                y: track_top as usize,
                 height: track_h.max(1.0) as usize,
                 item_type: UIItemType::LeftTabBarScrollTrack {
                     row_count: rows.len(),
@@ -916,7 +918,7 @@ impl crate::TermWindow {
                 item_type: UIItemType::LeftTabBarScrollThumb {
                     row_count: rows.len(),
                     visible_rows,
-                    track_top: top as usize,
+                    track_top: track_top as usize,
                     track_height: track_h.max(1.0) as usize,
                 },
                 pane_id: None,

@@ -419,19 +419,21 @@ impl crate::TermWindow {
         let tree_right_f = tree_left + width;
         let tree_right = tree_right_f as usize;
         if rows_snapshot.len() > visible_rows {
-            let track_h = bottom - top;
-            let scrollbar_w = 5. * pt;
+            let track_top = top + row_h + 1. * pt;
+            let track_bottom = bottom - 1. * pt;
+            let track_h = (track_bottom - track_top).max(1.);
+            let scrollbar_w = (5. * pt).round().max(6.);
             let scrollbar_x = tree_right_f - scrollbar_w;
             let thumb_h = (track_h * (visible_rows as f32) / (rows_snapshot.len() as f32))
                 .max(28. * pt)
                 .min(track_h);
             let max_top = rows_snapshot.len().saturating_sub(visible_rows).max(1) as f32;
-            let thumb_y = top + (track_h - thumb_h) * (scroll_top as f32 / max_top);
+            let thumb_y = track_top + (track_h - thumb_h) * (scroll_top as f32 / max_top);
 
             let track = Element::new(&font, ElementContent::Text(String::new()))
                 .colors(ElementColors {
                     border: BorderColor::default(),
-                    bg: fg.mul_alpha(0.10).into(),
+                    bg: fg.mul_alpha(if is_light { 0.10 } else { 0.16 }).into(),
                     text: LinearRgba::TRANSPARENT.into(),
                 })
                 .min_width(Some(Dimension::Pixels(scrollbar_w)))
@@ -447,7 +449,7 @@ impl crate::TermWindow {
                     pixel_max: scrollbar_w,
                     pixel_cell: metrics.cell_size.width as f32,
                 },
-                bounds: euclid::rect(scrollbar_x, top, scrollbar_w, track_h),
+                bounds: euclid::rect(scrollbar_x, track_top, scrollbar_w, track_h),
                 metrics: &metrics,
                 gl_state: self.render_state.as_ref().unwrap(),
                 zindex: 23,
@@ -461,7 +463,7 @@ impl crate::TermWindow {
             let thumb = Element::new(&font, ElementContent::Text(String::new()))
                 .colors(ElementColors {
                     border: BorderColor::default(),
-                    bg: fg.mul_alpha(0.74).into(),
+                    bg: fg.mul_alpha(if is_light { 0.62 } else { 0.74 }).into(),
                     text: LinearRgba::TRANSPARENT.into(),
                 })
                 .min_width(Some(Dimension::Pixels(scrollbar_w)))
@@ -493,7 +495,7 @@ impl crate::TermWindow {
             self.ui_items.push(UIItem {
                 x: hit_x,
                 width: hit_w,
-                y: top as usize,
+                y: track_top as usize,
                 height: track_h.max(1.0) as usize,
                 item_type: UIItemType::TreeSidebarScrollTrack {
                     row_count: rows_snapshot.len(),
@@ -510,7 +512,7 @@ impl crate::TermWindow {
                 item_type: UIItemType::TreeSidebarScrollThumb {
                     row_count: rows_snapshot.len(),
                     visible_rows,
-                    track_top: top as usize,
+                    track_top: track_top as usize,
                     track_height: track_h.max(1.0) as usize,
                 },
                 pane_id: None,

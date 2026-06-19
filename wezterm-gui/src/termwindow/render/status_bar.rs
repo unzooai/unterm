@@ -36,7 +36,9 @@ impl crate::TermWindow {
 
     fn status_bar_text_top_pixel_y(&self, bar_y: f32, bar_height: f32) -> f32 {
         let cell_height = self.render_metrics.cell_size.height as f32;
-        (bar_y + ((bar_height - cell_height) * 0.5).round()).max(bar_y)
+        let pt = self.dimensions.dpi as f32 / 72.0;
+        let nudge = ui_tokens::CHROME_TEXT_BASELINE_NUDGE * pt;
+        (bar_y + ((bar_height - cell_height) * 0.5).round() + nudge).max(bar_y)
     }
 
     /// Height of the MCP banner row in pixels. Zero unless either a
