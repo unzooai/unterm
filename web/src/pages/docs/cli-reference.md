@@ -795,6 +795,34 @@ $ unterm-cli --json reference --section cli --filter agent | jq '.cli_commands[]
 
 If the JSON output contains `"source": "static_fallback"`, the GUI was not reachable. The MCP and CLI tables are still useful for onboarding or scripts, but live keybindings require a running GUI.
 
+## server
+
+Inspect the running MCP server. These commands are useful as preflight checks before an outer agent starts driving panes.
+
+```text
+unterm-cli server info
+unterm-cli server health
+unterm-cli server capabilities
+unterm-cli server selftest [--session-id <ID>]
+```
+
+```sh
+$ unterm-cli server health
+Status:       ok
+Panes:        3
+Term:         xterm-256color
+```
+
+```sh
+$ unterm-cli server selftest
+true
+CHECK                          OK
+mux.available                  true
+server.health                  true
+```
+
+Use `--json` for the full `server.health`, namespace capability map, or self-test check details.
+
 ## theme
 
 List preset themes or switch to one. When Unterm is running, the CLI uses the local HTTP settings API so existing windows repaint immediately. If no GUI is available, it writes `~/.unterm/theme.json` for the next launch.

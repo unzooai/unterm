@@ -18,6 +18,7 @@ mod proxy;
 mod reference;
 mod screenshot;
 mod scrollback;
+mod server;
 mod session;
 mod sessions;
 mod settings;
@@ -34,6 +35,7 @@ pub use profile::ProfileCommand;
 pub use proxy::ProxyCommand;
 pub use reference::ReferenceCommand;
 pub use scrollback::ScrollbackCommand;
+pub use server::ServerCommand;
 pub use session::SessionCommand;
 pub use sessions::SessionsCommand;
 pub use settings::SettingsCommand;
@@ -104,6 +106,10 @@ pub fn run_workspace(cmd: WorkspaceCommand, json_out: bool) -> Result<()> {
 
 pub fn run_scrollback(cmd: ScrollbackCommand, json_out: bool) -> Result<()> {
     scrollback::run(cmd, json_out)
+}
+
+pub fn run_server(cmd: ServerCommand, json_out: bool) -> Result<()> {
+    server::run(cmd, json_out)
 }
 
 pub fn run_reference(cmd: ReferenceCommand, json_out: bool) -> Result<()> {

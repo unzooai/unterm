@@ -272,6 +272,12 @@ enum SubCommand {
     Reference(unterm_cli::ReferenceCommand),
 
     #[command(
+        name = "server",
+        about = "Inspect the running Unterm MCP server health and capabilities"
+    )]
+    Server(unterm_cli::ServerCommand),
+
+    #[command(
         name = "setup-ai",
         about = "Register Unterm with every AI coding agent on this machine \
                  (Claude Code / Codex / Gemini / Cursor / Windsurf / OpenCode) \
@@ -955,6 +961,7 @@ fn run() -> anyhow::Result<()> {
         SubCommand::Upload(cmd) => unterm_cli::run_upload(cmd, opts.json),
         SubCommand::Scrollback(cmd) => unterm_cli::run_scrollback(cmd, opts.json),
         SubCommand::Reference(cmd) => unterm_cli::run_reference(cmd, opts.json),
+        SubCommand::Server(cmd) => unterm_cli::run_server(cmd, opts.json),
         SubCommand::SetupAi(cmd) => unterm_cli::run_setup_ai(cmd, opts.json),
         SubCommand::McpStdio => unterm_cli::run_mcp_stdio(),
         SubCommand::Settings(cmd) => unterm_cli::run_settings(cmd),
