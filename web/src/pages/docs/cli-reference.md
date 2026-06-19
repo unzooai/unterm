@@ -162,6 +162,10 @@ Operates on a single live pane. "Session" here means one terminal tab/pane in th
 ```text
 unterm-cli session list
 unterm-cli session create [--cwd DIR] [--profile NAME] [-- COMMAND]
+unterm-cli session split  [--id <ID>] [--direction right|left|down|up] [--size-percent N] [--cwd DIR]
+unterm-cli session focus  [--id <ID>]
+unterm-cli session resize [--id <ID>] --cols N --rows N
+unterm-cli session destroy --id <ID>
 unterm-cli session record start [--id <ID>]
 unterm-cli session record stop  [--id <ID>]
 unterm-cli session record status [--id <ID>]
@@ -226,6 +230,34 @@ $ unterm-cli --instance bravo --json session create --profile work -- 'gh auth s
   "session_id": "12",
   "title": "zsh"
 }
+```
+
+### `session split` / `focus` / `resize` / `destroy`
+
+Pane lifecycle helpers over MCP `session.split`, `session.focus`, `session.resize`, and `session.destroy`.
+
+```sh
+$ unterm-cli session split --id 0 --direction right --size-percent 40 --cwd /tmp
+Pane:      13
+Title:     zsh
+Direction: right
+```
+
+```sh
+$ unterm-cli session focus --id 13
+true
+```
+
+```sh
+$ unterm-cli session resize --id 13 --cols 120 --rows 40
+ok
+```
+
+`destroy` requires an explicit id so a script cannot accidentally close the first pane by omission:
+
+```sh
+$ unterm-cli session destroy --id 13
+true
 ```
 
 ### `session record start`

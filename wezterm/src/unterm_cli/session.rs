@@ -35,6 +35,43 @@ pub enum SessionSubCommand {
         )]
         command: Vec<String>,
     },
+    /// Split an existing pane and spawn a shell in the new split.
+    Split {
+        /// Source pane id (defaults to the first live pane).
+        #[arg(long)]
+        id: Option<u64>,
+        /// Split direction: right, left, down, or up.
+        #[arg(long, default_value = "right")]
+        direction: String,
+        /// Size of the new pane as a percentage.
+        #[arg(long, default_value_t = 50)]
+        size_percent: u8,
+        /// Working directory for the new split.
+        #[arg(long)]
+        cwd: Option<PathBuf>,
+    },
+    /// Focus a pane and its containing tab.
+    Focus {
+        /// Target pane id (defaults to the first live pane).
+        #[arg(long)]
+        id: Option<u64>,
+    },
+    /// Resize a pane's PTY.
+    Resize {
+        /// Target pane id (defaults to the first live pane).
+        #[arg(long)]
+        id: Option<u64>,
+        #[arg(long)]
+        cols: u64,
+        #[arg(long)]
+        rows: u64,
+    },
+    /// Close a pane. Requires an explicit pane id.
+    Destroy {
+        /// Target pane id.
+        #[arg(long)]
+        id: u64,
+    },
     /// Manage block recording for a pane.
     Record(RecordCommand),
     /// Export a pane's block log as Markdown.
@@ -185,6 +222,77 @@ pub fn run(cmd: SessionCommand, json_out: bool) -> Result<()> {
                 if let Some(profile) = result.get("profile").and_then(|v| v.as_str()) {
                     print_kv("Profile", profile);
                 }
+            }
+        }
+        SessionSubCommand::Split {
+            id,
+            direction,
+            size_percent,
+            cwd,
+        } => {
+            let id = resolve_pane_id(&mut client, id)?;
+            let mut params = json!({
+                "id": id,
+                "direction": direction,
+                "size_percent": size_percent,
+            });
+            if let Some(cwd) = cwd.as_ref() {
+                params["cwd"] = json!(cwd.display().to_string());
+            }
+            let result = client.call("session.split", params)?;
+            if json_out {
+                print_json(&result);
+            } else {
+                if let Some(id) = result.get("id").and_then(Value::as_u64) {
+                    print_kv("Pane", &id.to_string());
+                }
+                if let Some(title) = result.get("title").and_then(Value::as_str) {
+                    print_kv("Title", title);
+                }
+                if let Some(direction) = result.get("direction").and_then(Value::as_str) {
+                    print_kv("Direction", direction);
+                }
+            }
+        }
+        SessionSubCommand::Focus { id } => {
+            let id = resolve_pane_id(&mut client, id)?;
+            let result = client.call("session.focus", json!({ "id": id }))?;
+            if json_out {
+                print_json(&result);
+            } else {
+                println!(
+                    "{}",
+                    result.get("ok").and_then(Value::as_bool).unwrap_or(false)
+                );
+            }
+        }
+        SessionSubCommand::Resize { id, cols, rows } => {
+            let id = resolve_pane_id(&mut client, id)?;
+            let result = client.call(
+                "session.resize",
+                json!({ "id": id, "cols": cols, "rows": rows }),
+            )?;
+            if json_out {
+                print_json(&result);
+            } else {
+                println!(
+                    "{}",
+                    result.get("status").and_then(Value::as_str).unwrap_or("ok")
+                );
+            }
+        }
+        SessionSubCommand::Destroy { id } => {
+            let result = client.call("session.destroy", json!({ "id": id }))?;
+            if json_out {
+                print_json(&result);
+            } else {
+                println!(
+                    "{}",
+                    result
+                        .get("destroyed")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false)
+                );
             }
         }
         SessionSubCommand::Record(rec) => match rec.sub {
