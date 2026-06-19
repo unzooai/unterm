@@ -576,6 +576,10 @@ Install, authenticate, configure, launch, or run AI coding-agent CLIs through Un
 
 ```text
 unterm-cli agent run <codex-cli|claude-code|gemini-cli|opencode> [--profile <id>] [--cwd <path>] [--stdin] [--dry-run] <prompt...>
+unterm-cli agent whoami
+unterm-cli agent trusted
+unterm-cli agent trust <agent-name>
+unterm-cli agent untrust <agent-name>
 ```
 
 `agent run` currently supports:
@@ -620,6 +624,17 @@ For automation, combine `--json` with `--dry-run` to get a structured launch pre
 
 ```sh
 $ unterm-cli --json agent run claude-code --dry-run "summarise this repo"
+```
+
+The trust commands wrap the MCP governance methods `agent.whoami`, `agent.list_trusted`, `agent.trust`, and `agent.untrust`. Use them to inspect or change which local MCP agent names can write to panes without a confirmation banner:
+
+```sh
+$ unterm-cli agent trusted
+Runtime:       codex
+Static config: -
+
+AGENT                    WRITES
+codex                    42
 ```
 
 ## settings

@@ -35,7 +35,8 @@ use unterm_agents::{
     ManifestSet,
 };
 
-use super::output::print_json;
+use super::client::McpClient;
+use super::output::{print_json, print_kv};
 
 #[derive(Debug, Parser, Clone)]
 pub struct AgentCommand {
@@ -148,6 +149,20 @@ pub enum AgentSubCommand {
         #[command(subcommand)]
         sub: ManifestSubCommand,
     },
+    /// Read the current MCP connection's agent identity.
+    Whoami,
+    /// List trusted MCP agent names and recent write counts.
+    Trusted,
+    /// Trust an MCP agent name so future PTY writes skip confirmation.
+    Trust {
+        /// Agent name to trust.
+        agent: String,
+    },
+    /// Revoke runtime/persisted trust for an MCP agent name.
+    Untrust {
+        /// Agent name to revoke.
+        agent: String,
+    },
 }
 
 #[derive(Debug, Subcommand, Clone)]
@@ -207,7 +222,109 @@ pub fn run(cmd: AgentCommand, json_out: bool) -> Result<()> {
             json_out,
         ),
         AgentSubCommand::Manifest { sub } => run_manifest(sub, json_out),
+        AgentSubCommand::Whoami => run_mcp_agent_whoami(json_out),
+        AgentSubCommand::Trusted => run_mcp_agent_trusted(json_out),
+        AgentSubCommand::Trust { agent } => run_mcp_agent_trust(&agent, json_out),
+        AgentSubCommand::Untrust { agent } => run_mcp_agent_untrust(&agent, json_out),
     }
+}
+
+fn run_mcp_agent_whoami(json_out: bool) -> Result<()> {
+    let mut client = McpClient::connect()?;
+    let result = client.call("agent.whoami", serde_json::json!({}))?;
+    if json_out {
+        print_json(&result);
+    } else {
+        print_kv(
+            "Name",
+            result.get("name").and_then(Value::as_str).unwrap_or(""),
+        );
+        if let Some(peer_addr) = result.get("peer_addr").and_then(Value::as_str) {
+            print_kv("Peer", peer_addr);
+        }
+        if let Some(version) = result.get("version").and_then(Value::as_str) {
+            print_kv("Version", version);
+        }
+    }
+    Ok(())
+}
+
+fn run_mcp_agent_trusted(json_out: bool) -> Result<()> {
+    let mut client = McpClient::connect()?;
+    let result = client.call("agent.list_trusted", serde_json::json!({}))?;
+    if json_out {
+        print_json(&result);
+    } else {
+        print_string_list("Runtime", result.get("runtime"));
+        print_string_list("Static config", result.get("static_config"));
+        if let Some(counts) = result.get("audit_counts").and_then(Value::as_array) {
+            if !counts.is_empty() {
+                println!();
+                println!("{:<24} WRITES", "AGENT");
+                for item in counts {
+                    let agent = item.get("agent").and_then(Value::as_str).unwrap_or("");
+                    let writes = item.get("writes").and_then(Value::as_u64).unwrap_or(0);
+                    println!("{:<24} {}", agent, writes);
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn run_mcp_agent_trust(agent: &str, json_out: bool) -> Result<()> {
+    let mut client = McpClient::connect()?;
+    let result = client.call("agent.trust", serde_json::json!({ "agent": agent }))?;
+    if json_out {
+        print_json(&result);
+    } else {
+        print_kv(
+            "Agent",
+            result.get("name").and_then(Value::as_str).unwrap_or(agent),
+        );
+        println!(
+            "{}",
+            result
+                .get("added")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        );
+    }
+    Ok(())
+}
+
+fn run_mcp_agent_untrust(agent: &str, json_out: bool) -> Result<()> {
+    let mut client = McpClient::connect()?;
+    let result = client.call("agent.untrust", serde_json::json!({ "agent": agent }))?;
+    if json_out {
+        print_json(&result);
+    } else {
+        print_kv(
+            "Agent",
+            result.get("name").and_then(Value::as_str).unwrap_or(agent),
+        );
+        println!(
+            "{}",
+            result
+                .get("removed")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        );
+    }
+    Ok(())
+}
+
+fn print_string_list(label: &str, value: Option<&Value>) {
+    let items = value
+        .and_then(Value::as_array)
+        .map(|arr| {
+            arr.iter()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .unwrap_or_default();
+    print_kv(label, if items.is_empty() { "-" } else { &items });
 }
 
 // ---------- list / show ----------
