@@ -176,6 +176,7 @@ unterm-cli session cwd          [--id <ID>]
 unterm-cli session status       [--id <ID>]
 unterm-cli session errors       [--id <ID>]
 unterm-cli session history      [--id <ID>] [--limit N]
+unterm-cli session audit-log    [--id <ID>] [--limit N]
 ```
 
 When `--id` is omitted on any pane-scoped subcommand, the CLI auto-resolves it to the first pane returned by `session.list`. Convenient if you only have one tab open; brittle if you have several. Pass `--id` explicitly in scripts.
@@ -336,7 +337,7 @@ ok
 $ unterm-cli session text --id 0
 ```
 
-### `session cwd` / `status` / `errors` / `history`
+### `session cwd` / `status` / `errors` / `history` / `audit-log`
 
 These are read-only probes for scripts and outer agents.
 
@@ -365,7 +366,15 @@ test result: ok. 4 passed; 0 failed
 
 `history` reads recent non-empty pane scrollback lines through MCP `session.history`; it is not shell history from `~/.zsh_history` or equivalent.
 
-Use `--json` for the raw MCP payloads when you need stable fields such as `cwd`, `status`, `foreground_process`, `has_errors`, `errors[]`, or `entries[]`.
+```sh
+$ unterm-cli session audit-log --limit 20
+TIME                      METHOD                 PANE     AGENT      DETAIL
+2026-06-19T09:50:00+08:00 exec.run               7        codex      cargo test
+```
+
+`audit-log` reads recent mutating MCP/CLI actions from `session.audit_log`; pass `--id` to filter to one pane.
+
+Use `--json` for the raw MCP payloads when you need stable fields such as `cwd`, `status`, `foreground_process`, `has_errors`, `errors[]`, `entries[]`, or audit fields.
 
 ## exec
 

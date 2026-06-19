@@ -135,6 +135,15 @@ pub enum SessionSubCommand {
         #[arg(long, default_value_t = 100)]
         limit: u64,
     },
+    /// Print recent audited MCP/CLI write actions.
+    AuditLog {
+        /// Filter to one pane id.
+        #[arg(long)]
+        id: Option<u64>,
+        /// Maximum number of entries to print.
+        #[arg(long, default_value_t = 50)]
+        limit: u64,
+    },
 }
 
 #[derive(Debug, Parser, Clone)]
@@ -523,6 +532,43 @@ pub fn run(cmd: SessionCommand, json_out: bool) -> Result<()> {
                 for entry in entries {
                     if let Some(text) = entry.get("text").and_then(Value::as_str) {
                         println!("{text}");
+                    }
+                }
+            }
+        }
+        SessionSubCommand::AuditLog { id, limit } => {
+            let mut params = json!({ "limit": limit });
+            if let Some(id) = id {
+                params["session_id"] = json!(id.to_string());
+            }
+            let result = client.call("session.audit_log", params)?;
+            if json_out {
+                print_json(&result);
+            } else {
+                let entries = result.as_array().ok_or_else(|| {
+                    anyhow!("session.audit_log did not return an array: {}", result)
+                })?;
+                if entries.is_empty() {
+                    println!("No audited write actions.");
+                } else {
+                    println!(
+                        "{:<25} {:<22} {:<8} {:<10} DETAIL",
+                        "TIME", "METHOD", "PANE", "AGENT"
+                    );
+                    for entry in entries {
+                        let timestamp =
+                            entry.get("timestamp").and_then(Value::as_str).unwrap_or("");
+                        let method = entry.get("method").and_then(Value::as_str).unwrap_or("");
+                        let pane = entry
+                            .get("session_id")
+                            .and_then(Value::as_str)
+                            .unwrap_or("");
+                        let agent = entry.get("agent").and_then(Value::as_str).unwrap_or("");
+                        let detail = entry.get("detail").and_then(Value::as_str).unwrap_or("");
+                        println!(
+                            "{:<25} {:<22} {:<8} {:<10} {}",
+                            timestamp, method, pane, agent, detail
+                        );
                     }
                 }
             }
