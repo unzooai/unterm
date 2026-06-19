@@ -71,6 +71,24 @@ pub enum SessionSubCommand {
         #[arg(long)]
         id: Option<u64>,
     },
+    /// Print the pane's current working directory.
+    Cwd {
+        /// Target pane id (defaults to the first live pane).
+        #[arg(long)]
+        id: Option<u64>,
+    },
+    /// Print whether the pane appears idle or running.
+    Status {
+        /// Target pane id (defaults to the first live pane).
+        #[arg(long)]
+        id: Option<u64>,
+    },
+    /// Scan the visible viewport for common error patterns.
+    Errors {
+        /// Target pane id (defaults to the first live pane).
+        #[arg(long)]
+        id: Option<u64>,
+    },
 }
 
 #[derive(Debug, Parser, Clone)]
@@ -318,6 +336,57 @@ pub fn run(cmd: SessionCommand, json_out: bool) -> Result<()> {
                 for line in lines {
                     if let Some(text) = line.as_str() {
                         println!("{text}");
+                    }
+                }
+            }
+        }
+        SessionSubCommand::Cwd { id } => {
+            let id = resolve_pane_id(&mut client, id)?;
+            let result = client.call("session.cwd", json!({ "id": id }))?;
+            if json_out {
+                print_json(&result);
+            } else {
+                println!(
+                    "{}",
+                    result.get("cwd").and_then(Value::as_str).unwrap_or("")
+                );
+            }
+        }
+        SessionSubCommand::Status { id } => {
+            let id = resolve_pane_id(&mut client, id)?;
+            let result = client.call("exec.status", json!({ "id": id }))?;
+            if json_out {
+                print_json(&result);
+            } else {
+                print_kv(
+                    "Status",
+                    result.get("status").and_then(Value::as_str).unwrap_or("?"),
+                );
+                if let Some(fg) = result.get("foreground_process").and_then(Value::as_str) {
+                    print_kv("Foreground", fg);
+                }
+            }
+        }
+        SessionSubCommand::Errors { id } => {
+            let id = resolve_pane_id(&mut client, id)?;
+            let result = client.call("screen.detect_errors", json!({ "id": id }))?;
+            if json_out {
+                print_json(&result);
+            } else {
+                let errors = result
+                    .get("errors")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
+                if errors.is_empty() {
+                    println!("No visible errors.");
+                } else {
+                    println!("{:<8} {:<18} TEXT", "ROW", "PATTERN");
+                    for err in errors {
+                        let row = err.get("row").and_then(Value::as_i64).unwrap_or(0);
+                        let pattern = err.get("pattern").and_then(Value::as_str).unwrap_or("");
+                        let text = err.get("text").and_then(Value::as_str).unwrap_or("");
+                        println!("{:<8} {:<18} {}", row, pattern, text);
                     }
                 }
             }

@@ -490,7 +490,7 @@ pub const MCP_METHODS: &[McpMethod] = &[
 pub const CLI_COMMANDS: &[CliCommand] = &[
     CliCommand { name: "start", summary: "Start the GUI, optionally running an alternative program.", subcommands: &[] },
     CliCommand { name: "cli", summary: "Interact with the mux server (panes, tabs, windows).", subcommands: &["list", "list-clients", "proxy", "tlscreds", "move-pane-to-new-tab", "split-pane", "spawn", "send-text", "get-text", "activate-pane-direction", "get-pane-direction", "kill-pane", "activate-pane", "adjust-pane-size", "activate-tab", "set-tab-title", "set-window-title", "rename-workspace", "zoom-pane"] },
-    CliCommand { name: "session", summary: "Operate on a single live pane.", subcommands: &["list", "create", "record", "export", "input", "text"] },
+    CliCommand { name: "session", summary: "Operate on a single live pane.", subcommands: &["list", "create", "record", "export", "input", "text", "cwd", "status", "errors"] },
     CliCommand { name: "sessions", summary: "Browse the recorded session archive.", subcommands: &["list", "read"] },
     CliCommand { name: "workspace", summary: "List, save, or restore named pane workspaces with metadata.", subcommands: &["list", "save", "restore"] },
     CliCommand { name: "instance", summary: "List, inspect, label, or focus live Unterm instances.", subcommands: &["list", "info", "set-title", "focus"] },
