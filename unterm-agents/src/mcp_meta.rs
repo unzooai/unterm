@@ -511,6 +511,7 @@ pub const CLI_COMMANDS: &[CliCommand] = &[
     CliCommand { name: "setup-ai", summary: "Register or unregister Unterm with local AI coding agents.", subcommands: &[] },
     CliCommand { name: "mcp-stdio", summary: "Run an MCP stdio bridge so an AI agent can drive this instance.", subcommands: &[] },
     CliCommand { name: "settings", summary: "Open the Unterm Web Settings UI in your browser.", subcommands: &["open"] },
+    CliCommand { name: "policy", summary: "Inspect MCP write-policy decisions.", subcommands: &["check"] },
     CliCommand { name: "proxy", summary: "Manage Unterm's proxy via the MCP server.", subcommands: &["status", "nodes", "switch", "disable", "env", "rotation"] },
     CliCommand { name: "theme", summary: "List / switch Unterm theme presets.", subcommands: &["list", "switch"] },
     CliCommand { name: "profile", summary: "Manage identity profiles (GitHub / AWS / npm tokens, git identity, SSH keys).", subcommands: &["list", "create", "show", "set-secret", "delete", "audit", "edit", "export", "spawn", "import", "set-default", "shell-integration"] },

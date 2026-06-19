@@ -13,6 +13,7 @@ mod instance;
 mod lang;
 mod mcp_stdio;
 mod output;
+mod policy;
 mod profile;
 mod proxy;
 mod reference;
@@ -31,6 +32,7 @@ pub use agent::AgentCommand;
 pub use exec::ExecCommand;
 pub use instance::InstanceCommand;
 pub use lang::LangCommand;
+pub use policy::PolicyCommand;
 pub use profile::ProfileCommand;
 pub use proxy::ProxyCommand;
 pub use reference::ReferenceCommand;
@@ -82,6 +84,10 @@ pub fn run_settings(cmd: SettingsCommand) -> Result<()> {
 
 pub fn run_lang(cmd: LangCommand, json_out: bool) -> Result<()> {
     lang::run(cmd, json_out)
+}
+
+pub fn run_policy(cmd: PolicyCommand, json_out: bool) -> Result<()> {
+    policy::run(cmd, json_out)
 }
 
 pub fn run_agent(cmd: AgentCommand, json_out: bool) -> Result<()> {

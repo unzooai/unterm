@@ -823,6 +823,22 @@ server.health                  true
 
 Use `--json` for the full `server.health`, namespace capability map, or self-test check details.
 
+## policy
+
+Probe the current MCP write policy without changing it.
+
+```text
+unterm-cli policy check -- <COMMAND...>
+```
+
+```sh
+$ unterm-cli policy check -- rm -rf build
+true
+Reason:       Policy disabled
+```
+
+Use `--json` for `{ allowed, reason }`.
+
 ## theme
 
 List preset themes or switch to one. When Unterm is running, the CLI uses the local HTTP settings API so existing windows repaint immediately. If no GUI is available, it writes `~/.unterm/theme.json` for the next launch.

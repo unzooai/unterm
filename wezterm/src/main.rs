@@ -194,6 +194,9 @@ enum SubCommand {
     )]
     Lang(unterm_cli::LangCommand),
 
+    #[command(name = "policy", about = "Inspect MCP write-policy decisions")]
+    Policy(unterm_cli::PolicyCommand),
+
     #[command(
         name = "agent",
         about = "Install, authenticate, configure, and launch AI coding-agent CLIs (Claude Code / Codex / Gemini / OpenCode / Aider)"
@@ -966,6 +969,7 @@ fn run() -> anyhow::Result<()> {
         SubCommand::McpStdio => unterm_cli::run_mcp_stdio(),
         SubCommand::Settings(cmd) => unterm_cli::run_settings(cmd),
         SubCommand::Lang(cmd) => unterm_cli::run_lang(cmd, opts.json),
+        SubCommand::Policy(cmd) => unterm_cli::run_policy(cmd, opts.json),
         SubCommand::Agent(cmd) => unterm_cli::run_agent(cmd, opts.json),
         SubCommand::ShellCompletion { shell } => {
             use clap::CommandFactory;
