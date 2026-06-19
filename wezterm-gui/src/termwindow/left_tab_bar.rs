@@ -361,7 +361,7 @@ impl crate::TermWindow {
         let divider = chrome.divider;
         let is_light = chrome.is_light;
         let row_pad = ui_tokens::ROW_PADDING * pt;
-        let content_top_gap = 10. * pt;
+        let content_top_gap = 12. * pt;
         let radius = Dimension::Pixels(ui_tokens::CORNER_RADIUS * pt);
         let footer_pad_v = 10. * pt;
         let footer_pad_h = 12. * pt;

@@ -29,7 +29,7 @@ pub const MACOS_TRAFFIC_LIGHT_DOT: f32 = 12.0;
 pub const STATUS_BAR_VERTICAL_PADDING: f32 = 2.0;
 /// Visual baseline compensation for one-line chrome text. Terminal cells
 /// include descender space, so geometric centering reads slightly low.
-pub const CHROME_TEXT_BASELINE_NUDGE: f32 = -1.0;
+pub const CHROME_TEXT_BASELINE_NUDGE: f32 = -2.0;
 /// Width of chrome scrollbars; rendered with a minimum physical width.
 pub const CHROME_SCROLLBAR_WIDTH: f32 = 5.0;
 /// Minimum physical scrollbar width, to keep HiDPI and low-DPI output aligned.
