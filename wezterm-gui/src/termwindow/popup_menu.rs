@@ -22,6 +22,7 @@ use config::keyassignment::{KeyAssignment, Pattern, SpawnCommand, SpawnTabDomain
 use config::Dimension;
 use mux::pane::PaneId;
 use std::cell::{Ref, RefCell};
+use termwiz::cell::unicode_column_width;
 use wezterm_term::color::ColorAttribute;
 use wezterm_term::{KeyCode, KeyModifiers, MouseEvent};
 use window::color::LinearRgba;
@@ -56,6 +57,14 @@ pub struct MenuEntry {
     icon: Option<&'static [Poly]>,
     /// `None` renders as a separator line.
     action: Option<MenuAction>,
+}
+
+fn text_cols(text: &str) -> usize {
+    unicode_column_width(text, None)
+}
+
+fn entry_cols(entry: &MenuEntry) -> usize {
+    text_cols(&entry.label) + text_cols(entry.accel) + 6
 }
 
 pub struct PopupMenu {
@@ -331,7 +340,6 @@ impl PopupMenu {
                 }
             }
             MenuAction::CdTo(path) => {
-                use std::io::Write as _;
                 if let Some(pane) = term_window.get_active_pane_no_overlay() {
                     let cmd = super::cd_command_for_pane(&pane, path);
                     let mut writer = pane.writer();
@@ -347,8 +355,8 @@ impl PopupMenu {
         let started = std::time::Instant::now();
         let font = term_window
             .fonts
-            .title_font()
-            .expect("to resolve title font");
+            .default_font()
+            .expect("to resolve default font");
         let font_ms = started.elapsed().as_millis();
         let metrics = RenderMetrics::with_font_metrics(&font.metrics());
         let hover = *self.hover.borrow();
@@ -544,14 +552,9 @@ impl PopupMenu {
         };
 
         // Width: longest label + accel estimate, in cells; clamped to window.
-        let max_chars = self
-            .entries
-            .iter()
-            .map(|e| e.label.chars().count() + e.accel.chars().count() + 6)
-            .max()
-            .unwrap_or(24) as f32;
+        let max_cols = self.entries.iter().map(entry_cols).max().unwrap_or(24) as f32;
         let cell_w = metrics.cell_size.width as f32;
-        let desired_pixel_width = (max_chars * cell_w)
+        let desired_pixel_width = (max_cols * cell_w)
             .min(dimensions.pixel_width as f32 - 16.)
             .round();
         // Anchor under the tab bar's ⌄ button (its ui_item bounds are in
@@ -663,5 +666,23 @@ impl Modal for PopupMenu {
 
     fn reconfigure(&self, _term_window: &mut TermWindow) {
         self.element.borrow_mut().take();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn menu_width_counts_cjk_as_wide_cells() {
+        let entry = MenuEntry {
+            label: "打开设置".to_string(),
+            accel: "Ctrl+,",
+            icon: None,
+            action: None,
+        };
+
+        assert_eq!(text_cols("打开设置"), 8);
+        assert_eq!(entry_cols(&entry), 8 + 6 + 6);
     }
 }
