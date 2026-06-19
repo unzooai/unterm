@@ -157,7 +157,7 @@ When you flip proxies in Unterm's GUI, you don't have to restart shells — open
 
 ## session
 
-Operates on a single live pane. "Session" here means one terminal tab/pane in the running GUI. The CLI wraps the MCP methods `session.list`, `session.create`, `session.input`, `screen.text`, `session.cwd`, `exec.status`, `screen.detect_errors`, `session.history`, `session.recording_start/stop/status`, and `session.export_markdown`.
+Operates on a single live pane. "Session" here means one terminal tab/pane in the running GUI. The CLI wraps the MCP methods `session.list`, `session.create`, `session.input`, `screen.text`, `session.cwd`, `exec.status`, `screen.detect_errors`, `session.history`, `screen.search`, `session.recording_start/stop/status`, and `session.export_markdown`.
 
 ```text
 unterm-cli session list
@@ -177,6 +177,7 @@ unterm-cli session status       [--id <ID>]
 unterm-cli session errors       [--id <ID>]
 unterm-cli session history      [--id <ID>] [--limit N]
 unterm-cli session audit-log    [--id <ID>] [--limit N]
+unterm-cli session search       [--id <ID>] [--max-results N] [--goto|--goto-match N] <PATTERN...>
 ```
 
 When `--id` is omitted on any pane-scoped subcommand, the CLI auto-resolves it to the first pane returned by `session.list`. Convenient if you only have one tab open; brittle if you have several. Pass `--id` explicitly in scripts.
@@ -337,7 +338,7 @@ ok
 $ unterm-cli session text --id 0
 ```
 
-### `session cwd` / `status` / `errors` / `history` / `audit-log`
+### `session cwd` / `status` / `errors` / `history` / `audit-log` / `search`
 
 These are read-only probes for scripts and outer agents.
 
@@ -374,7 +375,15 @@ TIME                      METHOD                 PANE     AGENT      DETAIL
 
 `audit-log` reads recent mutating MCP/CLI actions from `session.audit_log`; pass `--id` to filter to one pane.
 
-Use `--json` for the raw MCP payloads when you need stable fields such as `cwd`, `status`, `foreground_process`, `has_errors`, `errors[]`, `entries[]`, or audit fields.
+```sh
+$ unterm-cli session search --id 0 --max-results 5 error:
+ROW      COL    TEXT
+18291    0      error: could not compile `unterm-cli`
+```
+
+`search` scans pane scrollback through MCP `screen.search`. Add `--goto` to move the GUI viewport to the first match, or `--goto-match N` to jump to a specific match index.
+
+Use `--json` for the raw MCP payloads when you need stable fields such as `cwd`, `status`, `foreground_process`, `has_errors`, `errors[]`, `entries[]`, audit fields, or `matches[]`.
 
 ## exec
 

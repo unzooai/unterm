@@ -144,6 +144,28 @@ pub enum SessionSubCommand {
         #[arg(long, default_value_t = 50)]
         limit: u64,
     },
+    /// Search pane scrollback for a substring.
+    Search {
+        /// Target pane id (defaults to the first live pane).
+        #[arg(long)]
+        id: Option<u64>,
+        /// Maximum number of matches to return.
+        #[arg(long, default_value_t = 50)]
+        max_results: u64,
+        /// Scroll the GUI viewport to the first match.
+        #[arg(long)]
+        goto: bool,
+        /// Scroll the GUI viewport to the Nth match, 0-based.
+        #[arg(long)]
+        goto_match: Option<u64>,
+        /// Substring to search for. Use `--` before patterns that start with a dash.
+        #[arg(
+            value_name = "PATTERN",
+            trailing_var_arg = true,
+            allow_hyphen_values = true
+        )]
+        pattern: Vec<String>,
+    },
 }
 
 #[derive(Debug, Parser, Clone)]
@@ -569,6 +591,55 @@ pub fn run(cmd: SessionCommand, json_out: bool) -> Result<()> {
                             "{:<25} {:<22} {:<8} {:<10} {}",
                             timestamp, method, pane, agent, detail
                         );
+                    }
+                }
+            }
+        }
+        SessionSubCommand::Search {
+            id,
+            max_results,
+            goto,
+            goto_match,
+            pattern,
+        } => {
+            let id = resolve_pane_id(&mut client, id)?;
+            let pattern = pattern.join(" ");
+            if pattern.trim().is_empty() {
+                return Err(anyhow!("session search needs PATTERN"));
+            }
+            let mut params = json!({
+                "id": id,
+                "pattern": pattern,
+                "max_results": max_results,
+            });
+            if goto {
+                params["goto"] = json!(true);
+            }
+            if let Some(index) = goto_match {
+                params["goto_match"] = json!(index);
+            }
+            let result = client.call("screen.search", params)?;
+            if json_out {
+                print_json(&result);
+            } else {
+                let matches = result
+                    .get("matches")
+                    .and_then(Value::as_array)
+                    .ok_or_else(|| anyhow!("screen.search did not return `matches`: {}", result))?;
+                if matches.is_empty() {
+                    println!("No matches.");
+                } else {
+                    println!("{:<8} {:<6} TEXT", "ROW", "COL");
+                    for item in matches {
+                        let row = item.get("row").and_then(Value::as_i64).unwrap_or(0);
+                        let col = item.get("col").and_then(Value::as_u64).unwrap_or(0);
+                        let text = item.get("text").and_then(Value::as_str).unwrap_or("");
+                        println!("{:<8} {:<6} {}", row, col, text);
+                    }
+                }
+                if let Some(scrolled_to) = result.get("scrolled_to") {
+                    if !scrolled_to.is_null() {
+                        print_kv("Scrolled", &scrolled_to.to_string());
                     }
                 }
             }

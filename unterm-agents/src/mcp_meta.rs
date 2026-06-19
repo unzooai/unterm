@@ -303,8 +303,12 @@ pub const MCP_METHODS: &[McpMethod] = &[
     McpMethod {
         name: "screen.scroll",
         namespace: "screen",
-        summary: "Scroll the pane's viewport.",
-        params: &[P_PANE_ID, Param { name: "lines", kind: "int", required: true, summary: "Positive scrolls down; negative scrolls up." }],
+        summary: "Read a range of pane lines by offset/count.",
+        params: &[
+            P_PANE_ID,
+            Param { name: "offset", kind: "int", required: false, summary: "Starting line offset, default 0." },
+            Param { name: "count", kind: "int", required: false, summary: "Number of lines to return, default 100." },
+        ],
     },
     McpMethod {
         name: "screen.search",
@@ -313,6 +317,7 @@ pub const MCP_METHODS: &[McpMethod] = &[
         params: &[
             P_PANE_ID,
             Param { name: "pattern", kind: "string", required: true, summary: "" },
+            Param { name: "max_results", kind: "int", required: false, summary: "Maximum matches to return, default 50." },
             Param { name: "goto", kind: "bool", required: false, summary: "Scroll the GUI viewport to the first match." },
             Param { name: "goto_match", kind: "int", required: false, summary: "Jump to the Nth match (0-based; implies goto)." },
         ],
@@ -493,7 +498,7 @@ pub const MCP_METHODS: &[McpMethod] = &[
 pub const CLI_COMMANDS: &[CliCommand] = &[
     CliCommand { name: "start", summary: "Start the GUI, optionally running an alternative program.", subcommands: &[] },
     CliCommand { name: "cli", summary: "Interact with the mux server (panes, tabs, windows).", subcommands: &["list", "list-clients", "proxy", "tlscreds", "move-pane-to-new-tab", "split-pane", "spawn", "send-text", "get-text", "activate-pane-direction", "get-pane-direction", "kill-pane", "activate-pane", "adjust-pane-size", "activate-tab", "set-tab-title", "set-window-title", "rename-workspace", "zoom-pane"] },
-    CliCommand { name: "session", summary: "Operate on a single live pane.", subcommands: &["list", "create", "split", "focus", "resize", "destroy", "record", "export", "input", "text", "cwd", "status", "errors", "history", "audit-log"] },
+    CliCommand { name: "session", summary: "Operate on a single live pane.", subcommands: &["list", "create", "split", "focus", "resize", "destroy", "record", "export", "input", "text", "cwd", "status", "errors", "history", "audit-log", "search"] },
     CliCommand { name: "exec", summary: "Run commands in a live pane via MCP.", subcommands: &["run", "wait", "status", "cancel", "signal"] },
     CliCommand { name: "sessions", summary: "Browse the recorded session archive.", subcommands: &["list", "read"] },
     CliCommand { name: "workspace", summary: "List, save, or restore named pane workspaces with metadata.", subcommands: &["list", "save", "restore"] },
