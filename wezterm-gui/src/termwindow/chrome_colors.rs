@@ -27,7 +27,7 @@ pub fn is_light_surface(bg: LinearRgba) -> bool {
 pub fn sidebar(bg: LinearRgba, fg: LinearRgba) -> SidebarChromeColors {
     let is_light = is_light_surface(bg);
     let surface = if is_light {
-        mix(bg, fg, 0.045)
+        mix(bg, fg, 0.065)
     } else {
         let lifted = mix(bg, fg, 0.028);
         LinearRgba::with_components(lifted.0 * 0.965, lifted.1 * 0.965, lifted.2 * 0.965, 1.)
@@ -35,18 +35,38 @@ pub fn sidebar(bg: LinearRgba, fg: LinearRgba) -> SidebarChromeColors {
 
     SidebarChromeColors {
         surface,
-        divider: fg.mul_alpha(if is_light { 0.18 } else { 0.10 }),
-        dim_text: fg.mul_alpha(if is_light { 0.76 } else { 0.72 }),
+        divider: fg.mul_alpha(if is_light { 0.24 } else { 0.10 }),
+        dim_text: fg.mul_alpha(if is_light { 0.82 } else { 0.72 }),
         hover_bg: if is_light {
-            mix(bg, fg, 0.11)
+            mix(bg, fg, 0.145)
         } else {
             mix(surface, fg, 0.07)
         },
         selected_bg: if is_light {
-            mix(bg, fg, 0.20)
+            mix(bg, fg, 0.255)
         } else {
             mix(surface, fg, 0.155)
         },
         is_light,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn light_sidebar_states_step_down_from_surface() {
+        let bg = LinearRgba::with_srgba(0xfb, 0xfb, 0xfa, 0xff);
+        let fg = LinearRgba::with_srgba(0x0b, 0x0f, 0x14, 0xff);
+        let chrome = sidebar(bg, fg);
+
+        assert!(chrome.is_light);
+        assert!(luma(chrome.hover_bg) < luma(chrome.surface));
+        assert!(luma(chrome.selected_bg) < luma(chrome.hover_bg));
+    }
+
+    fn luma(c: LinearRgba) -> f32 {
+        0.2126 * c.0 + 0.7152 * c.1 + 0.0722 * c.2
     }
 }
