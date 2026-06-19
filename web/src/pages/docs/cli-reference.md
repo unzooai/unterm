@@ -326,6 +326,43 @@ ROW      PATTERN            TEXT
 
 Use `--json` for the raw MCP payloads when you need stable fields such as `cwd`, `status`, `foreground_process`, `has_errors`, and `errors[]`.
 
+## exec
+
+Run commands in a live pane through the MCP `exec.*` methods. This is the command-oriented layer above `session input`.
+
+```text
+unterm-cli exec run    [--id <ID>] -- <COMMAND...>
+unterm-cli exec wait   [--id <ID>] [--timeout-ms N] -- <COMMAND...>
+unterm-cli exec status [--id <ID>]
+unterm-cli exec cancel [--id <ID>]
+```
+
+`run` sends the command and returns immediately:
+
+```sh
+$ unterm-cli exec run --id 0 -- cargo test -p unterm-cli
+true
+```
+
+`wait` wraps the command with Unterm's shell-specific sentinel and prints the captured output when the sentinel appears:
+
+```sh
+$ unterm-cli exec wait --id 0 --timeout-ms 60000 -- cargo test -p unterm-cli
+```
+
+`status` and `cancel` are pane-scoped probes/actions:
+
+```sh
+$ unterm-cli exec status --id 0
+Status:     running
+Foreground: cargo
+
+$ unterm-cli exec cancel --id 0
+true
+```
+
+Use `--json` for the raw result fields: `{ sent }`, `{ output, exit_status, timed_out, marker }`, `{ status, foreground_process }`, or `{ cancelled }`.
+
 ## sessions
 
 Browse the persistent recording archive on disk (the markdown files written by `session record stop` and friends). The MCP-side methods are `session.recording_list` and `session.recording_read`.

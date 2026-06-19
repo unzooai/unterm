@@ -167,6 +167,9 @@ enum SubCommand {
     #[command(name = "session", about = "Operate on a single live pane")]
     Session(unterm_cli::SessionCommand),
 
+    #[command(name = "exec", about = "Run commands in a live pane via MCP")]
+    Exec(unterm_cli::ExecCommand),
+
     #[command(name = "sessions", about = "Browse the recorded session archive")]
     Sessions(unterm_cli::SessionsCommand),
 
@@ -915,6 +918,7 @@ fn run() -> anyhow::Result<()> {
         SubCommand::Proxy(cmd) => unterm_cli::run_proxy(cmd, opts.json),
         SubCommand::Theme(cmd) => unterm_cli::run_theme(cmd, opts.json),
         SubCommand::Session(cmd) => unterm_cli::run_session(cmd, opts.json),
+        SubCommand::Exec(cmd) => unterm_cli::run_exec(cmd, opts.json),
         SubCommand::Sessions(cmd) => unterm_cli::run_sessions(cmd, opts.json),
         SubCommand::Workspace(cmd) => unterm_cli::run_workspace(cmd, opts.json),
         SubCommand::Instance(cmd) => unterm_cli::run_instance(cmd, opts.json),

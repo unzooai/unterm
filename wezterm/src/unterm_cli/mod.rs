@@ -7,6 +7,7 @@
 
 mod agent;
 mod client;
+mod exec;
 pub mod i18n;
 mod instance;
 mod lang;
@@ -26,6 +27,7 @@ mod upload;
 mod workspace;
 
 pub use agent::AgentCommand;
+pub use exec::ExecCommand;
 pub use instance::InstanceCommand;
 pub use lang::LangCommand;
 pub use profile::ProfileCommand;
@@ -82,6 +84,10 @@ pub fn run_lang(cmd: LangCommand, json_out: bool) -> Result<()> {
 
 pub fn run_agent(cmd: AgentCommand, json_out: bool) -> Result<()> {
     agent::run(cmd, json_out)
+}
+
+pub fn run_exec(cmd: ExecCommand, json_out: bool) -> Result<()> {
+    exec::run(cmd, json_out)
 }
 
 pub fn run_instance(cmd: InstanceCommand, json_out: bool) -> Result<()> {
