@@ -1128,8 +1128,13 @@ impl DirJump {
                     text: fg.into(),
                 }),
         );
+        let hints_key = if cfg!(target_os = "macos") {
+            "dirjump.hints_macos"
+        } else {
+            "dirjump.hints"
+        };
         children.push(
-            Element::new(&font, ElementContent::Text(crate::i18n::t("dirjump.hints")))
+            Element::new(&font, ElementContent::Text(crate::i18n::t(hints_key)))
                 .display(DisplayType::Block)
                 .padding(BoxDimension {
                     left: Dimension::Pixels(14. * pt),
