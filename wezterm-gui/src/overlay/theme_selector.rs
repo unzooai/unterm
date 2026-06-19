@@ -248,7 +248,8 @@ pub(crate) fn cycle_theme() -> anyhow::Result<(String, String)> {
         .unwrap_or(0);
     let next = (current + 1) % presets.len();
     let preset = &presets[next];
-    apply_theme_preset(preset)?;
+    save_theme(preset)?;
+    config::reload();
     Ok((preset.name.to_string(), preset.scheme.to_string()))
 }
 
