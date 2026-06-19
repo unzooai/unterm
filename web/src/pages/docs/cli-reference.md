@@ -367,6 +367,7 @@ unterm-cli exec run    [--id <ID>] -- <COMMAND...>
 unterm-cli exec wait   [--id <ID>] [--timeout-ms N] -- <COMMAND...>
 unterm-cli exec status [--id <ID>]
 unterm-cli exec cancel [--id <ID>]
+unterm-cli exec signal [--id <ID>] SIGINT|SIGTSTP|SIGQUIT|EOF
 ```
 
 `run` sends the command and returns immediately:
@@ -393,7 +394,16 @@ $ unterm-cli exec cancel --id 0
 true
 ```
 
-Use `--json` for the raw result fields: `{ sent }`, `{ output, exit_status, timed_out, marker }`, `{ status, foreground_process }`, or `{ cancelled }`.
+`signal` exposes MCP `signal.send` directly for the other terminal control characters:
+
+```sh
+$ unterm-cli exec signal --id 0 SIGTSTP
+true
+```
+
+Supported values are `SIGINT`/`INT`, `SIGTSTP`/`TSTP`, `SIGQUIT`/`QUIT`, and `EOF`. These are written as control characters to the PTY; they are not POSIX `kill(2)` signals.
+
+Use `--json` for the raw result fields: `{ sent }`, `{ output, exit_status, timed_out, marker }`, `{ status, foreground_process }`, `{ cancelled }`, or `{ sent, signal }`.
 
 ## sessions
 

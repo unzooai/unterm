@@ -56,6 +56,14 @@ pub enum ExecSubCommand {
         #[arg(long)]
         id: Option<u64>,
     },
+    /// Send a terminal control signal to the pane.
+    Signal {
+        /// Target pane id (defaults to the first live pane).
+        #[arg(long)]
+        id: Option<u64>,
+        /// Signal/control code: SIGINT, INT, SIGTSTP, TSTP, SIGQUIT, QUIT, or EOF.
+        signal: String,
+    },
 }
 
 pub fn run(cmd: ExecCommand, json_out: bool) -> Result<()> {
@@ -130,6 +138,18 @@ pub fn run(cmd: ExecCommand, json_out: bool) -> Result<()> {
                         .get("cancelled")
                         .and_then(Value::as_bool)
                         .unwrap_or(false)
+                );
+            }
+        }
+        ExecSubCommand::Signal { id, signal } => {
+            let id = resolve_pane_id(&mut client, id)?;
+            let result = client.call("signal.send", json!({ "id": id, "signal": signal }))?;
+            if json_out {
+                print_json(&result);
+            } else {
+                println!(
+                    "{}",
+                    result.get("sent").and_then(Value::as_bool).unwrap_or(false)
                 );
             }
         }

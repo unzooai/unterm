@@ -263,7 +263,7 @@ pub const MCP_METHODS: &[McpMethod] = &[
         name: "signal.send",
         namespace: "exec",
         summary: "Deliver a signal to a pane's foreground process.",
-        params: &[P_PANE_ID, Param { name: "signal", kind: "string", required: true, summary: "INT|TERM|KILL|HUP|USR1|USR2" }],
+        params: &[P_PANE_ID, Param { name: "signal", kind: "string", required: true, summary: "SIGINT|INT|SIGTSTP|TSTP|SIGQUIT|QUIT|EOF" }],
     },
     // ---- screen ----
     McpMethod {
@@ -491,7 +491,7 @@ pub const CLI_COMMANDS: &[CliCommand] = &[
     CliCommand { name: "start", summary: "Start the GUI, optionally running an alternative program.", subcommands: &[] },
     CliCommand { name: "cli", summary: "Interact with the mux server (panes, tabs, windows).", subcommands: &["list", "list-clients", "proxy", "tlscreds", "move-pane-to-new-tab", "split-pane", "spawn", "send-text", "get-text", "activate-pane-direction", "get-pane-direction", "kill-pane", "activate-pane", "adjust-pane-size", "activate-tab", "set-tab-title", "set-window-title", "rename-workspace", "zoom-pane"] },
     CliCommand { name: "session", summary: "Operate on a single live pane.", subcommands: &["list", "create", "split", "focus", "resize", "destroy", "record", "export", "input", "text", "cwd", "status", "errors"] },
-    CliCommand { name: "exec", summary: "Run commands in a live pane via MCP.", subcommands: &["run", "wait", "status", "cancel"] },
+    CliCommand { name: "exec", summary: "Run commands in a live pane via MCP.", subcommands: &["run", "wait", "status", "cancel", "signal"] },
     CliCommand { name: "sessions", summary: "Browse the recorded session archive.", subcommands: &["list", "read"] },
     CliCommand { name: "workspace", summary: "List, save, or restore named pane workspaces with metadata.", subcommands: &["list", "save", "restore"] },
     CliCommand { name: "instance", summary: "List, inspect, label, or focus live Unterm instances.", subcommands: &["list", "info", "set-title", "focus"] },
