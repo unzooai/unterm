@@ -209,6 +209,15 @@ pub enum UIItemType {
     PopupMenuRow(usize),
     /// A selectable row inside the directory-jump palette (v0.40).
     DirJumpRow(usize),
+    /// Scroll track inside the directory-jump palette.
+    DirJumpScrollTrack {
+        thumb_height: usize,
+    },
+    /// Draggable scroll thumb inside the directory-jump palette.
+    DirJumpScrollThumb {
+        track_top: usize,
+        track_height: usize,
+    },
     /// A row in the left directory-tree sidebar (v0.40).
     TreeSidebarRow(usize),
     /// The tree sidebar's background (swallows clicks, accepts wheel).

@@ -92,6 +92,8 @@ impl super::TermWindow {
                         | UIItemType::TreeSidebarScrollThumb { .. }
                         | UIItemType::LeftTabBarScrollTrack { .. }
                         | UIItemType::LeftTabBarScrollThumb { .. }
+                        | UIItemType::DirJumpScrollTrack { .. }
+                        | UIItemType::DirJumpScrollThumb { .. }
                 )
         }) {
             return Some(item.clone());
@@ -136,6 +138,8 @@ impl super::TermWindow {
             | UIItemType::CloseSplitPane(_)
             | UIItemType::PopupMenuRow(_)
             | UIItemType::DirJumpRow(_)
+            | UIItemType::DirJumpScrollTrack { .. }
+            | UIItemType::DirJumpScrollThumb { .. }
             | UIItemType::TreeSidebarRow(_)
             | UIItemType::TreeSidebarBg
             | UIItemType::TreeSidebarHeader
@@ -173,6 +177,8 @@ impl super::TermWindow {
             | UIItemType::CloseSplitPane(_)
             | UIItemType::PopupMenuRow(_)
             | UIItemType::DirJumpRow(_)
+            | UIItemType::DirJumpScrollTrack { .. }
+            | UIItemType::DirJumpScrollThumb { .. }
             | UIItemType::TreeSidebarRow(_)
             | UIItemType::TreeSidebarBg
             | UIItemType::TreeSidebarHeader
@@ -231,6 +237,38 @@ impl super::TermWindow {
                 match (&event.kind, item.as_ref().map(|i| &i.item_type)) {
                     (WMEK::VertWheel(n), _) => {
                         jump.scroll_results(-(isize::from(*n)) * 3, self);
+                    }
+                    (
+                        WMEK::Press(MousePress::Left),
+                        Some(UIItemType::DirJumpScrollTrack { thumb_height }),
+                    ) => {
+                        if let Some((track_top, track_height)) = self.dir_jump_scroll_track_bounds()
+                        {
+                            let thumb_top = event
+                                .coords
+                                .y
+                                .saturating_sub((*thumb_height / 2) as isize)
+                                .max(track_top as isize)
+                                as usize;
+                            jump.scroll_to_thumb_top(
+                                thumb_top,
+                                track_top,
+                                track_height,
+                                *thumb_height,
+                                self,
+                            );
+                            if let Some(item) = item {
+                                self.dragging.replace((item, event));
+                            }
+                        }
+                    }
+                    (
+                        WMEK::Press(MousePress::Left),
+                        Some(UIItemType::DirJumpScrollThumb { .. }),
+                    ) => {
+                        if let Some(item) = item {
+                            self.dragging.replace((item, event));
+                        }
                     }
                     (WMEK::Move, _) => {
                         if let Some(window) = self.window.as_ref() {
@@ -613,6 +651,12 @@ impl super::TermWindow {
                     thumb_height,
                 );
             }
+            UIItemType::DirJumpScrollThumb { .. } => {
+                self.drag_dir_jump_scroll_thumb(item, start_event, &event, context);
+            }
+            UIItemType::DirJumpScrollTrack { thumb_height } => {
+                self.drag_dir_jump_scroll_track(item, start_event, &event, context, thumb_height);
+            }
             _ => {
                 log::error!("drag not implemented for {:?}", item);
             }
@@ -674,7 +718,9 @@ impl super::TermWindow {
             // Popup menu items are handled by the modal gate at the top of
             // mouse_event_impl and never reach this dispatcher.
             UIItemType::PopupMenuRow(_) | UIItemType::PopupMenuCard => {}
-            UIItemType::DirJumpRow(_) => {}
+            UIItemType::DirJumpRow(_)
+            | UIItemType::DirJumpScrollTrack { .. }
+            | UIItemType::DirJumpScrollThumb { .. } => {}
             UIItemType::TreeSidebarRow(row) => {
                 self.mouse_event_tree_sidebar(Some(row), event, context);
             }
@@ -890,6 +936,78 @@ impl super::TermWindow {
         event: &MouseEvent,
     ) {
         self.resize_tree_sidebar(event.coords.x as f32);
+        self.dragging.replace((item, start_event));
+    }
+
+    fn dir_jump_scroll_track_bounds(&self) -> Option<(usize, usize)> {
+        let mut top: Option<usize> = None;
+        let mut bottom: Option<usize> = None;
+        for item in &self.ui_items {
+            if matches!(
+                item.item_type,
+                UIItemType::DirJumpScrollTrack { .. } | UIItemType::DirJumpScrollThumb { .. }
+            ) {
+                top = Some(top.map_or(item.y, |t| t.min(item.y)));
+                bottom = Some(bottom.map_or(item.y + item.height, |b| b.max(item.y + item.height)));
+            }
+        }
+        match (top, bottom) {
+            (Some(top), Some(bottom)) if bottom > top => Some((top, bottom - top)),
+            _ => None,
+        }
+    }
+
+    fn drag_dir_jump_scroll_thumb(
+        &mut self,
+        item: UIItem,
+        start_event: MouseEvent,
+        event: &MouseEvent,
+        context: &dyn WindowOps,
+    ) {
+        let Some((track_top, track_height)) = self.dir_jump_scroll_track_bounds() else {
+            return;
+        };
+        let Some(modal) = self.get_modal() else {
+            return;
+        };
+        let Some(jump) = modal.downcast_ref::<crate::termwindow::dir_jump::DirJump>() else {
+            return;
+        };
+        let from_top = start_event.coords.y.saturating_sub(item.y as isize).max(0) as usize;
+        let thumb_top = event
+            .coords
+            .y
+            .saturating_sub(from_top as isize)
+            .max(track_top as isize) as usize;
+        jump.scroll_to_thumb_top(thumb_top, track_top, track_height, item.height, self);
+        context.invalidate();
+        self.dragging.replace((item, start_event));
+    }
+
+    fn drag_dir_jump_scroll_track(
+        &mut self,
+        item: UIItem,
+        start_event: MouseEvent,
+        event: &MouseEvent,
+        context: &dyn WindowOps,
+        thumb_height: usize,
+    ) {
+        let Some((track_top, track_height)) = self.dir_jump_scroll_track_bounds() else {
+            return;
+        };
+        let Some(modal) = self.get_modal() else {
+            return;
+        };
+        let Some(jump) = modal.downcast_ref::<crate::termwindow::dir_jump::DirJump>() else {
+            return;
+        };
+        let thumb_top = event
+            .coords
+            .y
+            .saturating_sub((thumb_height / 2) as isize)
+            .max(track_top as isize) as usize;
+        jump.scroll_to_thumb_top(thumb_top, track_top, track_height, thumb_height, self);
+        context.invalidate();
         self.dragging.replace((item, start_event));
     }
 

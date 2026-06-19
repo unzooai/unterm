@@ -23,7 +23,6 @@ use config::keyassignment::{KeyAssignment, SpawnCommand};
 use config::Dimension;
 use mux::pane::PaneId;
 use std::cell::{Ref, RefCell};
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use wezterm_term::{KeyCode, KeyModifiers, MouseEvent};
 use window::color::LinearRgba;
@@ -90,6 +89,7 @@ pub(crate) enum DirJumpAction {
 const MAX_VISIBLE: usize = 14;
 const DEEP_MAX_DEPTH: usize = 6;
 const DEEP_MAX_ENTRIES: usize = 3000;
+const SCROLLBAR_W: f32 = 8.0;
 
 /// Directories that are pure noise in a "jump to directory" flow — huge,
 /// machine-managed, and never a place you cd to on purpose from a picker.
@@ -317,6 +317,22 @@ fn tilde_path(p: &Path) -> String {
         }
     }
     s
+}
+
+fn page_start_for_thumb_top(
+    thumb_top: usize,
+    track_top: usize,
+    track_height: usize,
+    thumb_height: usize,
+    total: usize,
+) -> usize {
+    if total <= MAX_VISIBLE {
+        return 0;
+    }
+    let max_start = total.saturating_sub(MAX_VISIBLE);
+    let travel = track_height.saturating_sub(thumb_height).max(1);
+    let offset = thumb_top.saturating_sub(track_top).min(travel);
+    ((offset as f32 / travel as f32) * max_start as f32).round() as usize
 }
 
 impl DirJump {
@@ -713,6 +729,30 @@ impl DirJump {
         self.invalidate(term_window);
     }
 
+    pub fn scroll_to_thumb_top(
+        &self,
+        thumb_top: usize,
+        track_top: usize,
+        track_height: usize,
+        thumb_height: usize,
+        term_window: &TermWindow,
+    ) {
+        let all_len = self.all_visible.borrow().len();
+        if all_len <= MAX_VISIBLE {
+            return;
+        }
+        let max_start = all_len.saturating_sub(MAX_VISIBLE);
+        let next =
+            page_start_for_thumb_top(thumb_top, track_top, track_height, thumb_height, all_len);
+        if next == *self.page_start.borrow() {
+            return;
+        }
+        *self.page_start.borrow_mut() = next.min(max_start);
+        *self.selected.borrow_mut() = 0;
+        self.refresh_visible_page();
+        self.invalidate(term_window);
+    }
+
     fn compute(&self, term_window: &mut TermWindow) -> anyhow::Result<Vec<ComputedElement>> {
         let font = term_window
             .fonts
@@ -790,6 +830,82 @@ impl DirJump {
 
         let visible = self.visible.borrow();
         let items = self.items.borrow();
+        let total_visible = self.all_visible.borrow().len();
+        if total_visible > MAX_VISIBLE {
+            let track_height = (MAX_VISIBLE as f32 * 24. * pt).round().max(64.);
+            let thumb_height = ((MAX_VISIBLE as f32 / total_visible as f32) * track_height)
+                .round()
+                .max(24.)
+                .min(track_height);
+            let page_start = *self.page_start.borrow();
+            let max_start = total_visible.saturating_sub(MAX_VISIBLE).max(1);
+            let thumb_top =
+                ((page_start as f32 / max_start as f32) * (track_height - thumb_height)).round();
+            let top_spacer = Element::new(&font, ElementContent::Text(String::new()))
+                .item_type(UIItemType::DirJumpScrollTrack {
+                    thumb_height: thumb_height as usize,
+                })
+                .display(DisplayType::Block)
+                .min_width(Some(Dimension::Pixels(SCROLLBAR_W * pt)))
+                .min_height(Some(Dimension::Pixels(thumb_top)))
+                .colors(ElementColors {
+                    border: BorderColor::default(),
+                    bg: fg.mul_alpha(0.10).into(),
+                    text: fg.into(),
+                });
+            let thumb = Element::new(&font, ElementContent::Text(String::new()))
+                .item_type(UIItemType::DirJumpScrollThumb {
+                    track_top: 0,
+                    track_height: track_height as usize,
+                })
+                .display(DisplayType::Block)
+                .min_width(Some(Dimension::Pixels(SCROLLBAR_W * pt)))
+                .min_height(Some(Dimension::Pixels(thumb_height)))
+                .colors(ElementColors {
+                    border: BorderColor::default(),
+                    bg: teal.mul_alpha(0.78).into(),
+                    text: fg.into(),
+                });
+            let bottom_spacer = Element::new(&font, ElementContent::Text(String::new()))
+                .item_type(UIItemType::DirJumpScrollTrack {
+                    thumb_height: thumb_height as usize,
+                })
+                .display(DisplayType::Block)
+                .min_width(Some(Dimension::Pixels(SCROLLBAR_W * pt)))
+                .min_height(Some(Dimension::Pixels(
+                    (track_height - thumb_top - thumb_height).max(0.),
+                )))
+                .colors(ElementColors {
+                    border: BorderColor::default(),
+                    bg: fg.mul_alpha(0.10).into(),
+                    text: fg.into(),
+                });
+            children.push(
+                Element::new(
+                    &font,
+                    ElementContent::Children(vec![top_spacer, thumb, bottom_spacer]),
+                )
+                .item_type(UIItemType::DirJumpScrollTrack {
+                    thumb_height: thumb_height as usize,
+                })
+                .float(Float::Right)
+                .display(DisplayType::Block)
+                .margin(BoxDimension {
+                    left: Dimension::Pixels(8. * pt),
+                    right: Dimension::Pixels(8. * pt),
+                    top: Dimension::Pixels(6. * pt),
+                    bottom: Dimension::Pixels(0.),
+                })
+                .min_width(Some(Dimension::Pixels(SCROLLBAR_W * pt)))
+                .min_height(Some(Dimension::Pixels(track_height)))
+                .colors(ElementColors {
+                    border: BorderColor::default(),
+                    bg: fg.mul_alpha(0.10).into(),
+                    text: fg.into(),
+                })
+                .zindex(20),
+            );
+        }
         let mut last_section: Option<Section> = None;
         for (display_idx, &item_idx) in visible.iter().enumerate() {
             let item = &items[item_idx];
@@ -944,7 +1060,6 @@ impl DirJump {
         }
 
         let overflow = *self.overflow.borrow();
-        let total_visible = self.all_visible.borrow().len();
         if total_visible > MAX_VISIBLE {
             let page_start = *self.page_start.borrow();
             let from = page_start + 1;
@@ -1223,6 +1338,14 @@ mod tests {
             assert_eq!(expand_tilde("~/x"), format!("{}/x", home.display()));
         }
         assert_eq!(expand_tilde("/abs/x"), "/abs/x");
+    }
+
+    #[test]
+    fn thumb_position_maps_to_result_page() {
+        assert_eq!(page_start_for_thumb_top(0, 0, 140, 40, 34), 0);
+        assert_eq!(page_start_for_thumb_top(100, 0, 140, 40, 34), 20);
+        assert_eq!(page_start_for_thumb_top(240, 40, 180, 40, 54), 40);
+        assert_eq!(page_start_for_thumb_top(0, 0, 140, 40, MAX_VISIBLE), 0);
     }
 }
 
