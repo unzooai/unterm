@@ -3857,6 +3857,7 @@ impl TermWindow {
             ShowContextMenu => self.show_context_menu(),
             ToggleSessionRecording => self.toggle_session_recording(pane.pane_id()),
             ExportSessionMarkdown => self.export_current_session(pane.pane_id()),
+            CaptureScrollbackPng => mouseevent::capture_scrollback_and_announce(pane),
             OpenWebSettings => self.open_web_settings(),
             OpenAiAgentsSettings => self.open_web_settings_fragment(Some("agents")),
             OpenRecordingSettings => self.open_web_settings_fragment(Some("recording")),

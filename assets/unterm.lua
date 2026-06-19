@@ -237,6 +237,8 @@ config.keys = {
   { key = 'V', mods = 'CTRL|SHIFT', action = act.PasteFrom('Clipboard') },
   -- 搜索
   { key = 'F', mods = 'CTRL|SHIFT', action = act.Search({ CaseSensitiveString = '' }) },
+  -- 长截图:当前 pane 的完整 scrollback -> PNG
+  { key = 'S', mods = 'CTRL|SHIFT', action = act.CaptureScrollbackPng },
   -- 目录跳转面板
   { key = 'O', mods = 'CTRL|SHIFT', action = act.ShowDirJump },
   -- 目录树侧栏

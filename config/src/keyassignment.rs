@@ -652,6 +652,8 @@ pub enum KeyAssignment {
     ToggleSessionRecording,
     /// Export the active pane scrollback/session as markdown.
     ExportSessionMarkdown,
+    /// Render the active pane scrollback as one tall PNG.
+    CaptureScrollbackPng,
     /// Open the local Web Settings app.
     OpenWebSettings,
     /// Open Web Settings directly to the AI Agents tab.

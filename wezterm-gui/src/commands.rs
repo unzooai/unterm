@@ -938,6 +938,14 @@ pub fn derive_command_from_key_assignment(action: &KeyAssignment) -> Option<Comm
             menubar: &["Shell"],
             icon: Some("cod_export"),
         },
+        CaptureScrollbackPng => CommandDef {
+            brief: "Capture Scrollback as Long PNG".into(),
+            doc: "Render the active pane scrollback to one tall PNG and copy the path".into(),
+            keys: vec![(Modifiers::CTRL.union(Modifiers::SHIFT), "S".into())],
+            args: &[ArgType::ActivePane],
+            menubar: &["Shell"],
+            icon: Some("cod_file_media"),
+        },
         OpenWebSettings => CommandDef {
             brief: "Open Web Settings".into(),
             doc: "Open Unterm's local settings app in the default browser".into(),
@@ -2370,6 +2378,7 @@ fn compute_default_actions() -> Vec<KeyAssignment> {
         ShowTabNavigator,
         ToggleSessionRecording,
         ExportSessionMarkdown,
+        CaptureScrollbackPng,
         // ----------------- Help
         OpenUri("https://github.com/user/unterm".to_string()),
         OpenUri("https://github.com/user/unterm/discussions/".to_string()),
