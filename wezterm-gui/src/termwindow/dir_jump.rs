@@ -831,6 +831,16 @@ impl DirJump {
         let visible = self.visible.borrow();
         let items = self.items.borrow();
         let total_visible = self.all_visible.borrow().len();
+        // The result rows live in their own container so the floated
+        // scrollbar can sit beside them. The scrollbar must NOT be a leading
+        // block sibling of the rows: box_model adds a float's height to the
+        // current block-row height, so a tall float placed before the rows
+        // shoves every following block down by the scrollbar's height (the
+        // big empty gap users saw). Instead we build it here and append it
+        // AFTER the row container, not marked `display: Block`, so it floats
+        // at the list's top-right and nothing flows below it.
+        let mut list_kids: Vec<Element> = vec![];
+        let mut scrollbar_el: Option<Element> = None;
         if total_visible > MAX_VISIBLE {
             let track_height = (MAX_VISIBLE as f32 * 24. * pt).round().max(64.);
             let thumb_height = ((MAX_VISIBLE as f32 / total_visible as f32) * track_height)
@@ -880,7 +890,7 @@ impl DirJump {
                     bg: fg.mul_alpha(0.10).into(),
                     text: fg.into(),
                 });
-            children.push(
+            scrollbar_el = Some(
                 Element::new(
                     &font,
                     ElementContent::Children(vec![top_spacer, thumb, bottom_spacer]),
@@ -889,7 +899,6 @@ impl DirJump {
                     thumb_height: thumb_height as usize,
                 })
                 .float(Float::Right)
-                .display(DisplayType::Block)
                 .margin(BoxDimension {
                     left: Dimension::Pixels(8. * pt),
                     right: Dimension::Pixels(8. * pt),
@@ -919,7 +928,7 @@ impl DirJump {
                     // Only present while filtering, where captions are off.
                     Section::Deep | Section::PathComp => continue,
                 };
-                children.push(
+                list_kids.push(
                     Element::new(&font, ElementContent::Text(caption))
                         .display(DisplayType::Block)
                         .padding(BoxDimension {
@@ -1029,7 +1038,7 @@ impl DirJump {
             }
             let mut hover_border = BorderColor::default();
             hover_border.left = teal;
-            children.push(
+            list_kids.push(
                 Element::new(&font, ElementContent::Children(row))
                     .item_type(UIItemType::DirJumpRow(display_idx))
                     .colors(ElementColors {
@@ -1064,7 +1073,7 @@ impl DirJump {
             let page_start = *self.page_start.borrow();
             let from = page_start + 1;
             let to = page_start + visible.len();
-            children.push(
+            list_kids.push(
                 Element::new(
                     &font,
                     ElementContent::Text(crate::i18n::t_args(
@@ -1093,7 +1102,7 @@ impl DirJump {
         }
 
         if visible.is_empty() {
-            children.push(
+            list_kids.push(
                 Element::new(&font, ElementContent::Text(crate::i18n::t("dirjump.empty")))
                     .display(DisplayType::Block)
                     .padding(BoxDimension {
@@ -1109,6 +1118,26 @@ impl DirJump {
                     }),
             );
         }
+
+        // Scrollable list area: the rows in a block container, with the
+        // scrollbar floated beside them. Appending the float AFTER the row
+        // container (instead of before, as a block sibling) keeps the box
+        // model from pushing the rows — and the footer — down by the
+        // scrollbar's height.
+        let mut list_area_kids: Vec<Element> = vec![Element::new(
+            &font,
+            ElementContent::Children(std::mem::take(&mut list_kids)),
+        )
+        .display(DisplayType::Block)
+        .min_width(Some(Dimension::Percent(1.)))];
+        if let Some(sb) = scrollbar_el.take() {
+            list_area_kids.push(sb);
+        }
+        children.push(
+            Element::new(&font, ElementContent::Children(list_area_kids))
+                .display(DisplayType::Block)
+                .min_width(Some(Dimension::Percent(1.))),
+        );
 
         // Footer hints.
         children.push(
