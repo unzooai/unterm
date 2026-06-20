@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.51.1 — 2026-06-20
+
+### Fixed
+
+- **Directory-jump finder no longer leaves a big empty gap above the results.** When the finder had more than one page of matches, the scrollbar — a tall floated block placed before the rows — pushed every result and the footer down by its full height, so the matches sat at the bottom under a large blank band. The rows now sit directly under the search field with the scrollbar floated alongside them.
+
 ## v0.51.0 — 2026-06-20
 
 ### Added
