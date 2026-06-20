@@ -996,15 +996,42 @@ impl WindowOps for Window {
     }
 
     fn get_clipboard(&self, _clipboard: Clipboard) -> Future<String> {
-        Future::result(
-            clipboard_win::get_clipboard_string()
-                .map(|s| s.replace("\r\n", "\n"))
-                .context("Error getting clipboard"),
-        )
+        // Windows lets only one process own the clipboard at a time, so
+        // OpenClipboard transiently fails (ACCESS_DENIED) whenever another
+        // app — a clipboard manager, the previous owner, RDP redirection — is
+        // mid-operation. A single attempt is why right-click "paste"
+        // sometimes did nothing; retry briefly before giving up.
+        let mut last_err = None;
+        for attempt in 0..10 {
+            match clipboard_win::get_clipboard_string() {
+                Ok(s) => return Future::result(Ok(s.replace("\r\n", "\n"))),
+                Err(e) => {
+                    last_err = Some(e);
+                    if attempt < 9 {
+                        std::thread::sleep(std::time::Duration::from_millis(10));
+                    }
+                }
+            }
+        }
+        Future::result(Err(anyhow::anyhow!(
+            "Error getting clipboard after retries: {last_err:?}"
+        )))
     }
 
     fn set_clipboard(&self, _clipboard: Clipboard, text: String) {
-        clipboard_win::set_clipboard_string(&text).ok();
+        // Same transient-contention retry as get_clipboard: a single
+        // OpenClipboard attempt often loses the race with a clipboard
+        // manager, which is why right-click "copy" sometimes silently did
+        // nothing (the error was swallowed by `.ok()`).
+        for attempt in 0..10 {
+            if clipboard_win::set_clipboard_string(&text).is_ok() {
+                return;
+            }
+            if attempt < 9 {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+        }
+        log::warn!("set_clipboard: failed to take the Windows clipboard after retries");
     }
 
     fn set_window_drag_position(&self, coords: ScreenPoint) {
