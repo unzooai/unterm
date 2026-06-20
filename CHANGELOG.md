@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.51.0 — 2026-06-20
+
+### Added
+
+- **Native macOS glyph weight (`font_smoothing`).** The CoreText rasterizer now applies the system's grayscale font smoothing by default, so terminal and chrome text pick up the same stem-darkening as Terminal.app instead of rendering thin. New `font_smoothing` option (default on); set it to `false` for the lighter Warp-style HiDPI look. macOS only.
+
+### Changed
+
+- **Sidebar typography breathes.** The chrome UI font is now 13.5pt with looser row leading, so left-tab labels read larger and less cramped. The bottom footer is a single quiet "DO AI PM" caption, with a generous gap above the add-tab `+` row so it is no longer mis-clicked.
+
+### Fixed
+
+- **Split divider draws all the way to the edge; pane close button sits in the corner.** The vertical-split divider now spans the full pane width to the window border instead of stopping a few pixels short, and the per-pane close `×` moved out of the chrome gutter onto the pane's first content row, tucked against the top edge and the divider.
+
+### Performance
+
+- **Left sidebar scales to many tabs.** Per-tab metadata (title / agent / working directory) is gathered only for the visible rows instead of for every tab on every repaint, keeping windows with dozens of sessions responsive.
+
 ## v0.50.2 — 2026-06-18
 
 ### Fixed
