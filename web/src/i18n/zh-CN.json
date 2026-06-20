@@ -280,6 +280,8 @@
   "install.linux.size": "35 / 46 MB",
   "install.windows.size": "44 / 64 MB",
   "whatsnew.title": "v0.44 新增",
+  "whatsnew.native51.title": "macOS 原生字重、更宽松的侧边栏、可扩展的 tab 列表",
+  "whatsnew.native51.body": "字体与 chrome 打磨。<strong>原生字重。</strong>CoreText 光栅器现在默认套用系统的灰度 font smoothing,终端与 chrome 文字获得和 Terminal.app 一样的笔画加粗,不再发细——新增 <code class=\"font-mono text-xs\">font_smoothing</code> 开关(默认开),想要 Warp 那种 HiDPI 细腻感可关掉。<strong>更宽松的左侧栏。</strong>更大的 UI 字号 + 更松的行距,底部只留一条安静的链接,加 tab 的 <code class=\"font-mono text-xs\">+</code> 上方留足空白,不再误点。<strong>多会话可扩展。</strong>每个 tab 的元数据只对可见行采集,开几十个 tab 也不卡。另外分屏中线现在干净地画到窗口边缘,按 pane 的关闭按钮落在 pane 角上。",
   "whatsnew.chrome44.title": "Warp 风格 chrome —— 统一顶栏、左侧 tab 边栏、按 pane 的状态条",
   "whatsnew.chrome44.body": "这一轮 chrome 做了三件一起落地的事。(1) <strong>统一顶栏。</strong>原来灰色原生标题栏 + 深色 tab 行的两段式收成一整条,背景跟随 <code class=\"font-mono text-xs\">palette.background</code>;红绿灯落进 tab 行,chrome 高度对齐 Warp 节奏。右侧动作图标(命令面板、树边栏、拆分、目录跳转、搜索、设置)全部走 <strong>Codicons</strong>,通过随包的 SymbolsNerdFontMono 渲染,跨平台都是矢量级清晰。(2) <strong>左侧竖向 tab 栏</strong>(<code class=\"font-mono text-xs\">tab_bar_position = \"Left\"</code>):每个 tab 是一行,副标题 <code class=\"font-mono text-xs\">agent · 目录</code> 显示当前 MCP agent + 工作目录,拖拽排序、双击重命名,底部钉住一条 <strong>doaipm.com</strong> 链接。(3) <strong>每 pane 的状态条</strong>挂在顶栏右侧:git 分支 + 脏/ahead/behind,前台进程的 CPU / 内存 / 运行时长,以及当前接管该 pane 的 AI agent —— 全部在渲染线程外异步刷新,不影响打字延迟。Workspace 恢复现在会按原 cwd 把所有 tab 都开回来,不再只剩一个干净 shell;并且按二进制路径分别存档,<code class=\"font-mono text-xs\">Unterm.app</code> 跟开发版互不踩对方的状态。",
   "whatsnew.unitop.title": "窗口顶部一体无缝 —— 灰标题栏没了",
