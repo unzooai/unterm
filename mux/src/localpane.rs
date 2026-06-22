@@ -21,6 +21,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::convert::TryInto;
 use std::io::{Result as IoResult, Write};
 use std::ops::Range;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use termwiz::escape::csi::{Sgr, CSI};
@@ -35,7 +36,12 @@ use wezterm_term::{
     SemanticZone, StableRowIndex, Terminal, TerminalConfiguration, TerminalSize,
 };
 
-const PROC_INFO_CACHE_TTL: Duration = Duration::from_millis(300);
+// How long a cached process snapshot is considered fresh. `AllowStale`
+// reads (tab titles, sidebar, cwd display) serve the cached value and
+// refresh in the background past this age, so a longer TTL just means fewer
+// background refreshes — display freshness of ~1.5s is imperceptible.
+// `FetchImmediate` callers ignore this and always re-gather.
+const PROC_INFO_CACHE_TTL: Duration = Duration::from_millis(1500);
 
 #[derive(Debug)]
 enum ProcessState {
@@ -129,7 +135,11 @@ pub struct LocalPane {
     writer: Mutex<Box<dyn Write + Send>>,
     domain_id: DomainId,
     tmux_domain: Mutex<Option<Arc<TmuxDomainState>>>,
-    proc_list: Mutex<Option<CachedProcInfo>>,
+    // `Arc` so a background refresh thread can update it; status-surface
+    // reads (`AllowStale`) never block on a process-table walk.
+    proc_list: Arc<Mutex<Option<CachedProcInfo>>>,
+    // Guards against spawning more than one background refresh at a time.
+    proc_list_refreshing: Arc<AtomicBool>,
     #[cfg(unix)]
     leader: Arc<Mutex<Option<CachedLeaderInfo>>>,
     command_description: String,
@@ -1020,7 +1030,8 @@ impl LocalPane {
             writer: Mutex::new(writer),
             domain_id,
             tmux_domain: Mutex::new(None),
-            proc_list: Mutex::new(None),
+            proc_list: Arc::new(Mutex::new(None)),
+            proc_list_refreshing: Arc::new(AtomicBool::new(false)),
             #[cfg(unix)]
             leader: Arc::new(Mutex::new(None)),
             command_description,
@@ -1084,54 +1095,53 @@ impl LocalPane {
         policy: CachePolicy,
     ) -> Option<MappedMutexGuard<'_, CachedProcInfo>> {
         if let ProcessState::Running { pid: Some(pid), .. } = &*self.process.lock() {
+            let pid = *pid;
             let mut proc_list = self.proc_list.lock();
 
-            let expired = policy == CachePolicy::FetchImmediate
-                || proc_list
-                    .as_ref()
-                    .map(|info| info.updated.elapsed() > PROC_INFO_CACHE_TTL)
-                    .unwrap_or(true);
+            let stale = proc_list
+                .as_ref()
+                .map(|info| info.updated.elapsed() > PROC_INFO_CACHE_TTL)
+                .unwrap_or(true);
 
-            if expired {
-                log::trace!("CachedProcInfo expired, refresh");
-                let root = LocalProcessInfo::with_root_pid(*pid)?;
-
-                // Windows doesn't have any job control or session concept,
-                // so we infer that the equivalent to the process group
-                // leader is the most recently spawned program running
-                // in the console
-                let mut youngest = &root;
-
-                fn find_youngest<'a>(
-                    proc: &'a LocalProcessInfo,
-                    youngest: &mut &'a LocalProcessInfo,
-                ) {
-                    if proc.start_time >= youngest.start_time {
-                        *youngest = proc;
-                    }
-
-                    for child in proc.children.values() {
-                        #[cfg(windows)]
-                        if child.console == 0 {
-                            continue;
+            match policy {
+                // Callers that need an authoritative snapshot right now (e.g.
+                // close-confirmation) block on a fresh gather, as before.
+                CachePolicy::FetchImmediate => {
+                    if stale {
+                        log::trace!("CachedProcInfo expired, refresh (immediate)");
+                        if let Some(info) = build_cached_proc_info(pid) {
+                            proc_list.replace(info);
                         }
-                        find_youngest(child, youngest);
                     }
                 }
-
-                find_youngest(&root, &mut youngest);
-                let mut foreground = youngest.clone();
-                foreground.children.clear();
-
-                proc_list.replace(CachedProcInfo {
-                    root,
-                    foreground,
-                    updated: Instant::now(),
-                });
-                log::trace!("CachedProcInfo updated");
+                // Status surfaces (tab titles, the sidebar, cwd) must NEVER
+                // block the render/switch thread on a process-table walk.
+                // Serve whatever we have and refresh in the background when
+                // stale. The previous synchronous refresh here cost a few ms
+                // per pane and ran for every tab on every `update_title` —
+                // i.e. ~30-50ms of jank on every tab switch once a window
+                // held several tabs.
+                CachePolicy::AllowStale => {
+                    if stale && !self.proc_list_refreshing.swap(true, Ordering::AcqRel) {
+                        let slot = Arc::clone(&self.proc_list);
+                        let flag = Arc::clone(&self.proc_list_refreshing);
+                        std::thread::Builder::new()
+                            .name("proc-info-refresh".into())
+                            .spawn(move || {
+                                if let Some(info) = build_cached_proc_info(pid) {
+                                    *slot.lock() = Some(info);
+                                }
+                                flag.store(false, Ordering::Release);
+                            })
+                            .ok();
+                    }
+                }
             }
 
-            return Some(MutexGuard::map(proc_list, |info| info.as_mut().unwrap()));
+            if proc_list.is_some() {
+                return Some(MutexGuard::map(proc_list, |info| info.as_mut().unwrap()));
+            }
+            return None;
         }
         None
     }
@@ -1144,6 +1154,40 @@ impl LocalPane {
             None
         }
     }
+}
+
+/// Snapshot `pid`'s process subtree and reduce it to a `CachedProcInfo`
+/// (the full tree plus the inferred foreground/youngest process). Pure
+/// syscalls, no shared state — safe to run on a background thread.
+fn build_cached_proc_info(pid: u32) -> Option<CachedProcInfo> {
+    let root = LocalProcessInfo::with_root_pid(pid)?;
+
+    // Windows has no job control / session concept, so the equivalent of the
+    // process-group leader is the most recently spawned program in the
+    // console.
+    fn find_youngest<'a>(proc: &'a LocalProcessInfo, youngest: &mut &'a LocalProcessInfo) {
+        if proc.start_time >= youngest.start_time {
+            *youngest = proc;
+        }
+        for child in proc.children.values() {
+            #[cfg(windows)]
+            if child.console == 0 {
+                continue;
+            }
+            find_youngest(child, youngest);
+        }
+    }
+
+    let mut youngest = &root;
+    find_youngest(&root, &mut youngest);
+    let mut foreground = youngest.clone();
+    foreground.children.clear();
+
+    Some(CachedProcInfo {
+        root,
+        foreground,
+        updated: Instant::now(),
+    })
 }
 
 impl Drop for LocalPane {

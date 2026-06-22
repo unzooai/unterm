@@ -631,8 +631,12 @@ fn cd_command_for_pane(pane: &Arc<dyn mux::pane::Pane>, path: &std::path::Path) 
             .unwrap_or_default()
             .to_ascii_lowercase();
 
+        // End with a bare CR (`\r`) — exactly the byte the Enter key sends.
+        // A trailing `\n` makes PowerShell's PSReadLine treat the write as
+        // multi-line *pasted* text and insert it literally instead of running
+        // it, so the user had to press Enter to actually cd.
         if shell == "cmd.exe" || shell == "cmd" {
-            return format!("cd /d {}\r\n", cmd_double_quote(&raw));
+            return format!("cd /d {}\r", cmd_double_quote(&raw));
         }
 
         if shell == "powershell.exe"
@@ -640,18 +644,15 @@ fn cd_command_for_pane(pane: &Arc<dyn mux::pane::Pane>, path: &std::path::Path) 
             || shell == "pwsh.exe"
             || shell == "pwsh"
         {
-            return format!(
-                "Set-Location -LiteralPath {}\r\n",
-                powershell_single_quote(&raw)
-            );
+            return format!("Set-Location -LiteralPath {}\r", powershell_single_quote(&raw));
         }
 
         if shell == "nu.exe" || shell == "nu" {
-            return format!("cd {}\r\n", powershell_single_quote(&raw));
+            return format!("cd {}\r", powershell_single_quote(&raw));
         }
     }
 
-    format!("cd {}\n", posix_single_quote(&raw))
+    format!("cd {}\r", posix_single_quote(&raw))
 }
 
 impl TermWindow {
@@ -2520,6 +2521,7 @@ impl TermWindow {
                 self.config_was_reloaded();
             }
         }
+
         self.schedule_next_status_update();
     }
 

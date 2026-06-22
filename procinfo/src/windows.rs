@@ -48,6 +48,40 @@ impl Snapshot {
     }
 }
 
+/// How long a captured system process list stays reusable. A single GUI
+/// operation that needs process info for many panes at once — rebuilding
+/// every tab's title on a tab switch, or painting the left sidebar — calls
+/// [`LocalProcessInfo::with_root_pid`] once per pane back-to-back on the
+/// same thread. Each call would otherwise take its own full
+/// `CreateToolhelp32Snapshot` of every process on the machine (the dominant
+/// cost, ~25ms on a busy box), so N panes meant N system snapshots and a
+/// visible GUI stall. One snapshot already contains every process, so we
+/// cache it briefly and let that whole burst share it.
+const SNAPSHOT_CACHE_TTL: std::time::Duration = std::time::Duration::from_millis(250);
+
+thread_local! {
+    static SNAPSHOT_CACHE: std::cell::RefCell<Option<(std::time::Instant, Vec<PROCESSENTRY32W>)>> =
+        std::cell::RefCell::new(None);
+}
+
+/// Toolhelp process list, served from a short-lived per-thread cache so a
+/// burst of `with_root_pid` calls shares a single system snapshot. Stale
+/// entries (older than [`SNAPSHOT_CACHE_TTL`]) trigger a fresh capture.
+fn cached_entries() -> Vec<PROCESSENTRY32W> {
+    SNAPSHOT_CACHE.with(|cell| {
+        if let Some((taken, entries)) = cell.borrow().as_ref() {
+            if taken.elapsed() < SNAPSHOT_CACHE_TTL {
+                log::trace!("process snapshot: reuse cached ({} procs)", entries.len());
+                return entries.clone();
+            }
+        }
+        let entries = Snapshot::entries();
+        log::trace!("process snapshot: fresh capture ({} procs)", entries.len());
+        *cell.borrow_mut() = Some((std::time::Instant::now(), entries.clone()));
+        entries
+    })
+}
+
 impl Drop for Snapshot {
     fn drop(&mut self) {
         unsafe { CloseHandle(self.0) };
@@ -358,7 +392,7 @@ impl LocalProcessInfo {
 
     pub fn with_root_pid(pid: u32) -> Option<Self> {
         log::trace!("LocalProcessInfo::with_root_pid({}), getting snapshot", pid);
-        let procs = Snapshot::entries();
+        let procs = cached_entries();
         log::trace!("Got snapshot");
 
         fn build_proc(info: &PROCESSENTRY32W, procs: &[PROCESSENTRY32W]) -> LocalProcessInfo {

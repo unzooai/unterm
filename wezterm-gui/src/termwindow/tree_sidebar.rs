@@ -19,8 +19,11 @@
 //! every ~2.5s during paints) rather than running a filesystem watcher; a
 //! notify-based watcher is a follow-up.
 
+use parking_lot::Mutex;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::Instant;
 
 pub struct TreeRow {
@@ -46,6 +49,17 @@ pub struct TreeSidebar {
     /// User-resized width in points; None uses the shared UI token.
     pub width_pts: Option<f32>,
     last_scan: Instant,
+    /// Result slot for an in-flight background rescan, tagged with the
+    /// `scan_epoch` it was started under so a result computed before a
+    /// navigation (expand/collapse/cd) is discarded instead of clobbering
+    /// the fresh tree. `None` until a scan finishes.
+    pending: Arc<Mutex<Option<(u64, Vec<TreeRow>)>>>,
+    /// True while a background rescan thread is running, so paints don't
+    /// spawn a second one for the same window.
+    scanning: Arc<AtomicBool>,
+    /// Bumped on every synchronous `rebuild` (navigation). A background
+    /// scan whose epoch no longer matches is dropped on arrival.
+    scan_epoch: Arc<AtomicU64>,
 }
 
 const RESCAN_AFTER_MS: u128 = 2500;
@@ -86,6 +100,9 @@ impl TreeSidebar {
             visible_rows: 1,
             width_pts: None,
             last_scan: Instant::now(),
+            pending: Arc::new(Mutex::new(None)),
+            scanning: Arc::new(AtomicBool::new(false)),
+            scan_epoch: Arc::new(AtomicU64::new(0)),
         };
         me.rebuild();
         me
@@ -100,47 +117,60 @@ impl TreeSidebar {
         self.rebuild();
     }
 
-    /// Rescan if the cache is stale; returns true when rows changed.
+    /// Called from the paint path. Never touches the filesystem itself:
+    /// it adopts a ready background-scan result (if any) and otherwise, when
+    /// the tree is stale, spawns the rescan on a worker thread. This keeps
+    /// `read_dir` of every expanded directory OFF the render thread, which
+    /// previously produced a periodic hitch every `RESCAN_AFTER_MS` while
+    /// the sidebar was open (visible as stutter during terminal output and
+    /// tab switches). Returns true when rows changed this call.
     pub fn ensure_fresh(&mut self) -> bool {
-        if self.last_scan.elapsed().as_millis() < RESCAN_AFTER_MS {
-            return false;
+        // 1. Adopt a finished background scan, if its epoch is still current.
+        let ready = self.pending.lock().take();
+        if let Some((epoch, rows)) = ready {
+            self.scanning.store(false, Ordering::Release);
+            if epoch == self.scan_epoch.load(Ordering::Acquire) {
+                self.rows = rows;
+                self.last_scan = Instant::now();
+                let max_top = self.rows.len().saturating_sub(1);
+                if self.scroll_top > max_top {
+                    self.scroll_top = max_top;
+                }
+                return true;
+            }
+            // Stale (a navigation happened mid-scan); discard and let the
+            // staleness check below kick off a fresh scan.
         }
-        let before: Vec<PathBuf> = self.rows.iter().map(|r| r.path.clone()).collect();
-        self.rebuild();
-        let after: Vec<PathBuf> = self.rows.iter().map(|r| r.path.clone()).collect();
-        before != after
+
+        // 2. Kick off a rescan if due and none is already running.
+        if self.last_scan.elapsed().as_millis() >= RESCAN_AFTER_MS
+            && !self.scanning.swap(true, Ordering::AcqRel)
+        {
+            // Stamp last_scan now so we don't re-spawn on every paint while
+            // the worker runs; the adopt branch refreshes it on completion.
+            self.last_scan = Instant::now();
+            let epoch = self.scan_epoch.load(Ordering::Acquire);
+            let root = self.root.clone();
+            let expanded = self.expanded.clone();
+            let pending = Arc::clone(&self.pending);
+            std::thread::Builder::new()
+                .name("tree-sidebar-scan".into())
+                .spawn(move || {
+                    let rows = build_rows(&root, &expanded);
+                    *pending.lock() = Some((epoch, rows));
+                })
+                .ok();
+        }
+        false
     }
 
+    /// Synchronous rebuild for navigation (expand/collapse/cd/anchor change),
+    /// where the user expects the tree to update on the same frame. Bumps
+    /// `scan_epoch` so any in-flight background scan started against the old
+    /// tree is discarded when it lands.
     pub fn rebuild(&mut self) {
-        let mut rows = vec![];
-        if let Some(parent) = self.root.parent() {
-            rows.push(TreeRow {
-                path: parent.to_path_buf(),
-                depth: 0,
-                is_dir: true,
-                expanded: false,
-                is_hidden: false,
-                is_drive: false,
-                is_parent: true,
-            });
-        }
-        #[cfg(windows)]
-        for drive in windows_drive_roots() {
-            if drive != self.root {
-                rows.push(TreeRow {
-                    path: drive,
-                    depth: 0,
-                    is_dir: true,
-                    expanded: false,
-                    is_hidden: false,
-                    is_drive: true,
-                    is_parent: false,
-                });
-            }
-        }
-        let root = self.root.clone();
-        self.walk(&root, 0, &mut rows);
-        self.rows = rows;
+        self.scan_epoch.fetch_add(1, Ordering::AcqRel);
+        self.rows = build_rows(&self.root, &self.expanded);
         self.last_scan = Instant::now();
         let max_top = self.rows.len().saturating_sub(1);
         if self.scroll_top > max_top {
@@ -164,52 +194,91 @@ impl TreeSidebar {
         self.rebuild();
     }
 
-    fn walk(&self, dir: &Path, depth: usize, rows: &mut Vec<TreeRow>) {
-        let at_fs_root = dir.parent().is_none();
-        for (path, is_dir) in list_dir(dir) {
-            let basename = path
-                .file_name()
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_default();
-            // Dotfiles are dimmed at any level; macOS system mounts
-            // (`/dev`, `/proc`, `/sys`, `/private`, `/cores`, `/.vol`)
-            // are dimmed only when they sit at filesystem root, so a
-            // user's `/Volumes/Dev` workspace stays full-strength.
-            let is_dotfile = basename.starts_with('.');
-            let is_system_root = at_fs_root
-                && matches!(
-                    basename.as_str(),
-                    "dev"
-                        | "proc"
-                        | "sys"
-                        | "private"
-                        | "cores"
-                        | "bin"
-                        | "sbin"
-                        | "usr"
-                        | "var"
-                        | "etc"
-                        | "tmp"
-                        | "opt"
-                        | "lost+found"
-                );
-            let is_hidden = is_dotfile || is_system_root;
-            let expanded = is_dir && self.expanded.contains(&path);
+    // Tree construction lives in the free functions `build_rows` /
+    // `walk_into` below so a background thread (which has no `&self`) can
+    // run the identical scan.
+}
+
+/// Build the full row list for a tree rooted at `root` with the given set
+/// of `expanded` directories. Pure filesystem work — safe to run on any
+/// thread. This is what the background rescan calls.
+fn build_rows(root: &Path, expanded: &HashSet<PathBuf>) -> Vec<TreeRow> {
+    let mut rows = vec![];
+    if let Some(parent) = root.parent() {
+        rows.push(TreeRow {
+            path: parent.to_path_buf(),
+            depth: 0,
+            is_dir: true,
+            expanded: false,
+            is_hidden: false,
+            is_drive: false,
+            is_parent: true,
+        });
+    }
+    #[cfg(windows)]
+    for drive in windows_drive_roots() {
+        if drive != *root {
             rows.push(TreeRow {
-                path: path.clone(),
-                depth,
-                is_dir,
-                expanded,
-                is_hidden,
-                is_drive: false,
+                path: drive,
+                depth: 0,
+                is_dir: true,
+                expanded: false,
+                is_hidden: false,
+                is_drive: true,
                 is_parent: false,
             });
-            if expanded {
-                self.walk(&path, depth + 1, rows);
-            }
         }
     }
+    walk_into(expanded, root, 0, &mut rows);
+    rows
+}
 
+fn walk_into(expanded: &HashSet<PathBuf>, dir: &Path, depth: usize, rows: &mut Vec<TreeRow>) {
+    let at_fs_root = dir.parent().is_none();
+    for (path, is_dir) in list_dir(dir) {
+        let basename = path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+        // Dotfiles are dimmed at any level; macOS system mounts
+        // (`/dev`, `/proc`, `/sys`, `/private`, `/cores`, `/.vol`)
+        // are dimmed only when they sit at filesystem root, so a
+        // user's `/Volumes/Dev` workspace stays full-strength.
+        let is_dotfile = basename.starts_with('.');
+        let is_system_root = at_fs_root
+            && matches!(
+                basename.as_str(),
+                "dev" | "proc"
+                    | "sys"
+                    | "private"
+                    | "cores"
+                    | "bin"
+                    | "sbin"
+                    | "usr"
+                    | "var"
+                    | "etc"
+                    | "tmp"
+                    | "opt"
+                    | "lost+found"
+            );
+        let is_hidden = is_dotfile || is_system_root;
+        let is_expanded = is_dir && expanded.contains(&path);
+        rows.push(TreeRow {
+            path: path.clone(),
+            depth,
+            is_dir,
+            expanded: is_expanded,
+            is_hidden,
+            is_drive: false,
+            is_parent: false,
+        });
+        if is_expanded {
+            walk_into(expanded, &path, depth + 1, rows);
+        }
+    }
+}
+
+impl TreeSidebar {
     pub fn scroll_by(&mut self, delta: isize, visible_rows: usize) {
         let len = self.rows.len();
         let max_top = len.saturating_sub(visible_rows.max(1));

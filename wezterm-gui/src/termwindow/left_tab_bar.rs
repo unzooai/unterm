@@ -56,6 +56,7 @@ pub struct LeftTabBar {
 /// so we don't hold borrows across rendering. Pulled straight from the
 /// mux (not the top tab bar) so the sidebar stays populated even when a
 /// single tab would hide the top strip.
+#[derive(Clone)]
 struct RowInfo {
     tab_idx: usize,
     active: bool,
@@ -64,6 +65,16 @@ struct RowInfo {
     agent: Option<String>,
     /// Last component of the active pane's working directory.
     dir: Option<String>,
+}
+
+/// A single rendered line in the sidebar's scroll window. Tabs are grouped
+/// by project (their cwd basename); when more than one project is present a
+/// `GroupHeader` is emitted before each project's tabs, giving the Warp-style
+/// grouped list — except the grouping here is automatic (derived from the
+/// directory each pane is in) rather than something the user has to set up.
+enum DisplayRow {
+    GroupHeader { label: String, count: usize },
+    Tab(RowInfo),
 }
 
 fn scroll_top_for_active(
@@ -157,6 +168,19 @@ fn gutter_limited_width_pts(
     };
     let total_max = (window_pts * total_max_ratio).max(own_min_pts + other_min_pts);
     (total_max - other_width_pts).max(own_min_pts)
+}
+
+/// Display-friendly process name for a tab row: drop the noisy executable
+/// extension (`powershell.exe` → `powershell`), the way Warp and iTerm show
+/// shells. Anything without a known suffix is returned unchanged.
+fn prettify_proc_title(title: &str) -> String {
+    let lower = title.to_ascii_lowercase();
+    for ext in [".exe", ".com", ".bat", ".cmd"] {
+        if lower.ends_with(ext) {
+            return title[..title.len() - ext.len()].to_string();
+        }
+    }
+    title.to_string()
 }
 
 impl crate::TermWindow {
@@ -333,21 +357,23 @@ impl crate::TermWindow {
         // The sidebar is chrome, not terminal content. Its surface starts at
         // the top bar's bottom edge; list content and scrollbar get their own
         // small breathing room below that chrome boundary.
-        let top = top_bar_height + border.top.get() as f32;
+        // No vertical inset: the surface runs flush from the top bar straight
+        // down to the status bar (same full height as the directory-tree
+        // sidebar), so there is no top/bottom gap to be uneven.
+        let vgap = 0. * pt;
+        let top = top_bar_height + border.top.get() as f32 + vgap;
         let status_h = if self.config.show_unterm_status_bar {
             self.status_bar_pixel_height()
         } else {
             0.
         };
-        // Subtract padding_bottom as well as the status bar so the sidebar
-        // ends level with the terminal content, leaving the full-width
-        // status bar (and its bottom info) uncovered. Without it the panel
-        // ran flush to the status bar's top edge and, with sub-pixel
-        // rounding, bled over it on macOS (user: "边栏压住底部信息区域").
-        let bottom = self.dimensions.pixel_height as f32
-            - status_h
-            - self.padding_bottom_px()
-            - border.bottom.get() as f32;
+        // The sidebar surface runs flush down to the top edge of the status
+        // bar (no terminal-padding gap), so the panel meets the bottom info
+        // bar with no seam. The status bar fills its own rect on a higher
+        // layer *after* the sidebar paints, so it always stays on top — the
+        // surface can reach its edge without covering the info text.
+        let bottom =
+            self.dimensions.pixel_height as f32 - status_h - border.bottom.get() as f32 - vgap;
 
         // Sidebar surface: keep it close to the terminal background.
         // A previous 10% lift toward the foreground made dark themes read
@@ -363,15 +389,13 @@ impl crate::TermWindow {
         let row_pad = ui_tokens::ROW_PADDING * pt;
         let content_top_gap = 12. * pt;
         let radius = Dimension::Pixels(ui_tokens::CORNER_RADIUS * pt);
-        let footer_pad_v = 9. * pt;
-        let footer_pad_h = 12. * pt;
-        // Generous breathing zone between the scrolling tab list (which ends
-        // with the "+" row) and the pinned footer links. The user wants the
-        // add-tab area to have room — better to show a couple fewer tabs than
-        // to crowd the "+" — and the footer must never overlap the tab list.
-        let footer_gap = 40. * pt;
-        // Single-line footer (both links share one row).
-        let footer_height = (metrics.cell_size.height as f32 + 2.0 * footer_pad_v).ceil();
+        // The surface runs the full height down to the status bar (no reserved
+        // gap), so the panel is one continuous fill that meets the bottom info
+        // bar. A leftover gap here used to expose the window background beneath
+        // the surface as a second, slightly different shade — the "two layers"
+        // seam. The empty area below the "+" row is part of the surface (one
+        // colour), not a gap.
+        let content_bottom_gap = 0. * pt;
         let rounded = || {
             Some(Corners {
                 top_left: SizedPoly {
@@ -409,7 +433,11 @@ impl crate::TermWindow {
         let fg = palette.foreground.to_linear();
         let dim = chrome.dim_text; // subtitle / directory
         let sel_bg = chrome.selected_bg;
-        let hover_bg = chrome.hover_bg;
+        // The active row owns the strong fill + accent bar; a merely-hovered
+        // row gets only a whisper of fill. Keeping hover well below the
+        // selected fill means a hover that lingers under the cursor after a
+        // keyboard tab-switch can never be mistaken for a second selection.
+        let hover_bg = chrome_colors::mix(bar_bg, fg, if is_light { 0.07 } else { 0.045 });
 
         // Snapshot just the tab handles (cheap Arc clones) and the active
         // index. The expensive per-tab metadata (title / agent detection /
@@ -428,15 +456,77 @@ impl crate::TermWindow {
                 window.get_active_idx(),
             )
         };
-        let row_count = tabs.len();
+        // Resolve metadata for EVERY tab (cheap now: `agent_and_cwd_for_pane`
+        // is a cached, non-blocking lookup that refreshes off-thread). We need
+        // every tab's project to group them, so the old "visible rows only"
+        // gather no longer applies.
+        let metas: Vec<RowInfo> = tabs
+            .iter()
+            .enumerate()
+            .map(|(idx, tab)| {
+                let pane = tab.get_active_pane();
+                let title = {
+                    let t = tab.get_title();
+                    if !t.is_empty() {
+                        t
+                    } else {
+                        pane.as_ref().map(|p| p.get_title()).unwrap_or_default()
+                    }
+                };
+                let (agent, dir) = match &pane {
+                    Some(p) => crate::mcp::handler::agent_and_cwd_for_pane(p.pane_id() as u64),
+                    None => (None, None),
+                };
+                RowInfo {
+                    tab_idx: idx,
+                    active: idx == active_idx,
+                    title,
+                    agent,
+                    dir,
+                }
+            })
+            .collect();
 
-        // Uniform rows make the scroll window arithmetic exact. Must match the
-        // actual rendered row height below (single text line + the title_line
-        // top/bottom padding + the 1px row margins), or scrolling drifts.
+        // Auto-group tabs by project (cwd basename), preserving the order in
+        // which each project first appears. A tab with no known cwd falls
+        // under "~". Group headers are only emitted when more than one project
+        // is open — a single-project window stays a clean flat list.
+        let group_key = |m: &RowInfo| m.dir.clone().unwrap_or_else(|| "~".to_string());
+        let mut group_order: Vec<String> = vec![];
+        for m in &metas {
+            let k = group_key(m);
+            if !group_order.contains(&k) {
+                group_order.push(k);
+            }
+        }
+        let multi_group = group_order.len() > 1;
+
+        let mut display: Vec<DisplayRow> = vec![];
+        let mut active_pos = 0usize;
+        for g in &group_order {
+            let members: Vec<&RowInfo> =
+                metas.iter().filter(|m| &group_key(m) == g).collect();
+            if multi_group {
+                display.push(DisplayRow::GroupHeader {
+                    label: g.clone(),
+                    count: members.len(),
+                });
+            }
+            for m in members {
+                if m.active {
+                    active_pos = display.len();
+                }
+                display.push(DisplayRow::Tab((*m).clone()));
+            }
+        }
+        let row_count = display.len();
+
+        // Uniform rows make the scroll window arithmetic exact (headers share
+        // the tab row height). Must match the actual rendered row height
+        // below, or scrolling drifts.
         let row_text_pad_v = 9.0 * pt;
         let row_h = metrics.cell_size.height as f32 + 2.0 * row_text_pad_v + 2.0 * pt;
-        let content_bottom =
-            (bottom - footer_height - footer_gap).max(top + content_top_gap + row_h);
+        let content_bottom = (bottom - content_bottom_gap).max(top + content_top_gap + row_h);
         let visible_rows = ((content_bottom - top - content_top_gap) / row_h)
             .floor()
             .max(1.0) as usize;
@@ -449,58 +539,18 @@ impl crate::TermWindow {
                 bar.scroll_top,
                 row_count,
                 visible_rows,
-                active_idx,
+                active_pos,
                 bar.last_active_idx,
             );
             bar.row_count = row_count;
             bar.visible_rows = visible_rows;
             bar.scroll_top = next;
-            bar.last_active_idx = (active_idx < row_count).then_some(active_idx);
+            bar.last_active_idx = (active_pos < row_count).then_some(active_pos);
             next
         };
 
-        // Now gather the expensive per-tab metadata (title / agent / cwd) for
-        // ONLY the visible window of rows — this is the O(visible) work the
-        // cheap handle snapshot above deferred.
-        let rows: Vec<RowInfo> = tabs
-            .iter()
-            .enumerate()
-            .skip(scroll_top)
-            .take(visible_rows)
-            .map(|(idx, tab)| {
-                let pane = tab.get_active_pane();
-                let title = {
-                    let t = tab.get_title();
-                    if !t.is_empty() {
-                        t
-                    } else {
-                        pane.as_ref().map(|p| p.get_title()).unwrap_or_default()
-                    }
-                };
-                let (agent, dir) = match &pane {
-                    Some(p) => {
-                        let proc_info =
-                            p.get_foreground_process_info(mux::pane::CachePolicy::AllowStale);
-                        let agent = crate::mcp::handler::detect_agent_for_pane(
-                            p.pane_id() as u64,
-                            proc_info.as_ref(),
-                        );
-                        let dir = super::pane_cwd_path(p).and_then(|pp| {
-                            pp.file_name().map(|n| n.to_string_lossy().to_string())
-                        });
-                        (agent, dir)
-                    }
-                    None => (None, None),
-                };
-                RowInfo {
-                    tab_idx: idx,
-                    active: idx == active_idx,
-                    title,
-                    agent,
-                    dir,
-                }
-            })
-            .collect();
+        let visible: Vec<&DisplayRow> =
+            display.iter().skip(scroll_top).take(visible_rows).collect();
 
         let mut children: Vec<Element> = vec![];
         children.push(
@@ -515,51 +565,81 @@ impl crate::TermWindow {
                 }),
         );
 
-        for row in rows.iter() {
+        for disp in visible.iter() {
+            // Project group header: a quiet uppercase caption with the tab
+            // count, on the same row pitch as the tabs so the scroll window
+            // arithmetic stays exact.
+            let row = match disp {
+                DisplayRow::GroupHeader { label, count } => {
+                    let label_disp = if label.as_str() == "~" {
+                        "HOME".to_string()
+                    } else {
+                        label.to_uppercase()
+                    };
+                    let header_text = format!("{label_disp}   {count}");
+                    children.push(
+                        Element::new(&font, ElementContent::Text(header_text))
+                            .display(DisplayType::Block)
+                            .min_width(Some(Dimension::Percent(1.)))
+                            .margin(BoxDimension {
+                                left: Dimension::Pixels(0.),
+                                right: Dimension::Pixels(0.),
+                                top: Dimension::Pixels(1. * pt),
+                                bottom: Dimension::Pixels(1. * pt),
+                            })
+                            .padding(BoxDimension {
+                                left: Dimension::Pixels(9. * pt),
+                                right: Dimension::Pixels(8. * pt),
+                                top: Dimension::Pixels(9. * pt),
+                                bottom: Dimension::Pixels(9. * pt),
+                            })
+                            .colors(ElementColors {
+                                border: BorderColor::default(),
+                                bg: LinearRgba::TRANSPARENT.into(),
+                                text: dim.mul_alpha(0.8).into(),
+                            }),
+                    );
+                    continue;
+                }
+                DisplayRow::Tab(r) => r,
+            };
+
             let title_fg = if row.active {
                 fg
             } else {
                 fg.mul_alpha(if is_light { 0.9 } else { 0.82 })
             };
 
-            // Row-leading indicator. AI-driven panes show a saturated
-            // bullet `●` in the agent's accent color — same encoding
-            // as before, just stripped of the box/letter scaffolding
-            // that read as "messy" in user feedback. Idle rows keep
-            // the wider `→` arrow.
-            let dot = if row.agent.is_some() {
-                Element::new(&font, ElementContent::Text("●".to_string()))
-                    .vertical_align(VerticalAlign::Middle)
-                    .margin(BoxDimension {
-                        left: Dimension::Pixels(0.),
-                        right: Dimension::Pixels(8. * pt),
-                        top: Dimension::Pixels(0.),
-                        bottom: Dimension::Pixels(0.),
-                    })
-                    .colors(ElementColors {
-                        border: BorderColor::default(),
-                        bg: LinearRgba::TRANSPARENT.into(),
-                        text: if row.active {
-                            fg.into()
-                        } else {
-                            agent_color.into()
-                        },
-                    })
+            // Row-leading indicator: a real per-program glyph (Nerd Font) —
+            // the PowerShell / cmd / bash terminal mark for shells, a robot
+            // for AI-agent panes — the same icon language as the top tab bar
+            // and as Warp's vertical tabs. The accent color on an agent icon
+            // keeps AI panes recognizable at a glance; shell icons sit at a
+            // calm mid tier. Selection is carried by the row's left accent
+            // bar, not the icon.
+            let icon_glyph = crate::tabbar::detect_shell_icon(
+                row.agent.as_deref().unwrap_or(&row.title),
+            );
+            let icon_color = if row.agent.is_some() {
+                agent_color
+            } else if row.active {
+                fg.mul_alpha(if is_light { 0.85 } else { 0.78 })
             } else {
-                Element::new(&font, ElementContent::Text("→".to_string()))
-                    .vertical_align(VerticalAlign::Middle)
-                    .margin(BoxDimension {
-                        left: Dimension::Pixels(0.),
-                        right: Dimension::Pixels(8. * pt),
-                        top: Dimension::Pixels(0.),
-                        bottom: Dimension::Pixels(0.),
-                    })
-                    .colors(ElementColors {
-                        border: BorderColor::default(),
-                        bg: LinearRgba::TRANSPARENT.into(),
-                        text: fg.mul_alpha(0.6).into(),
-                    })
+                fg.mul_alpha(if is_light { 0.62 } else { 0.55 })
             };
+            let dot = Element::new(&font, ElementContent::Text(icon_glyph.to_string()))
+                .vertical_align(VerticalAlign::Middle)
+                .margin(BoxDimension {
+                    left: Dimension::Pixels(0.),
+                    right: Dimension::Pixels(9. * pt),
+                    top: Dimension::Pixels(0.),
+                    bottom: Dimension::Pixels(0.),
+                })
+                .colors(ElementColors {
+                    border: BorderColor::default(),
+                    bg: LinearRgba::TRANSPARENT.into(),
+                    text: icon_color.into(),
+                });
 
             // Row label: when an AI agent is bound, the agent name
             // *is* the title — pane.title is usually "Claude Code" or
@@ -572,12 +652,15 @@ impl crate::TermWindow {
             } else if row.title.is_empty() {
                 "shell".to_string()
             } else {
-                row.title.clone()
+                prettify_proc_title(&row.title)
             };
-            let primary_color = if row.active {
-                fg
-            } else if row.agent.is_some() {
+            // Agent rows carry the agent's accent color on the name in every
+            // state (the wordmark IS the identity); plain shells use full
+            // foreground when active and a dimmed tier otherwise.
+            let primary_color = if row.agent.is_some() {
                 agent_color
+            } else if row.active {
+                fg
             } else {
                 title_fg
             };
@@ -590,8 +673,13 @@ impl crate::TermWindow {
             let mut line_kids: Vec<Element> = vec![];
             line_kids.push(dot);
             line_kids.push(title_el);
-            if let Some(dir) = &row.dir {
-                line_kids.push(
+            // When the list is grouped, the project already shows in the group
+            // header, so repeating a (truncated) cwd on every row is just
+            // noise — drop it. Ungrouped (single-project) windows keep the cwd
+            // trailing the name so each tab still carries its location.
+            if !multi_group {
+                if let Some(dir) = &row.dir {
+                    line_kids.push(
                     Element::new(&font, ElementContent::Text(format!("  · {dir}"))).colors(
                         ElementColors {
                             border: BorderColor::default(),
@@ -600,6 +688,7 @@ impl crate::TermWindow {
                         },
                     ),
                 );
+                }
             }
             // Insets live on the content (not the row) because row padding
             // would create a second visible grey layer around the selected
@@ -621,16 +710,25 @@ impl crate::TermWindow {
             // No inline close button — Warp's vertical-tab rows have none;
             // closing is via the right-click context menu.
 
-            // Selected row: deeper neutral fill only. No outline; the
-            // active marker and stronger fill carry selection state.
+            // Active row carries TWO distinct cues: a stronger neutral fill
+            // AND a saturated left accent bar (the agent's color for AI
+            // panes, a neutral foreground tint for plain shells). Hover, by
+            // contrast, is only a faint fill with no bar — so an active row
+            // never reads the same as a merely-hovered one. This is what
+            // keeps a lingering hover from looking like a second selection.
             let row_bg = if row.active {
                 sel_bg
             } else {
                 LinearRgba::TRANSPARENT
             };
+            let accent = if row.agent.is_some() {
+                agent_color
+            } else {
+                fg.mul_alpha(0.55)
+            };
             let row_border = BorderColor {
                 left: if row.active {
-                    agent_color
+                    accent
                 } else {
                     LinearRgba::TRANSPARENT
                 },
@@ -752,9 +850,8 @@ impl crate::TermWindow {
 
         let container = Element::new(&font, ElementContent::Children(children))
             .item_type(UIItemType::LeftTabBarBg)
-            // Horizontal padding insets the rows from the panel edges and
-            // the divider, so the rounded selection sits inside the panel
-            // instead of overflowing into the terminal.
+            // Horizontal padding insets the rows from the panel edges so the
+            // selection fill doesn't bleed to the divider.
             .padding(BoxDimension {
                 left: Dimension::Pixels(7. * pt),
                 right: Dimension::Pixels(7. * pt),
@@ -777,12 +874,19 @@ impl crate::TermWindow {
                 bg: bar_bg.into(),
                 text: fg.into(),
             })
-            // Content box shrinks by the padding + divider so the panel
-            // total still fills exactly the reserved `width` gutter.
+            // Full-height panel: the surface fills from the top bar down to the
+            // bottom status bar, so the sidebar reads as one continuous left
+            // panel that meets the info bar — not a short floating card with a
+            // dead band beneath it. The reserved `width` gutter is unchanged
+            // (the terminal still reflows around it).
             .min_width(Some(Dimension::Pixels(width - 14. * pt - 1.)))
-            .min_height(Some(Dimension::Pixels(
-                content_bottom - top - content_top_gap - 1. * pt,
-            )));
+            // Fill the exact span top → content_bottom (no padding/border on
+            // top or bottom), so the window-background gap above the surface
+            // (`vgap` below the top bar) equals the gap below it (`vgap` above
+            // the status bar). content_top_gap is an internal spacer child, so
+            // it must NOT be subtracted here or the surface stops short and the
+            // bottom gap grows.
+            .min_height(Some(Dimension::Pixels(content_bottom - top)));
 
         let layout = LayoutContext {
             height: DimensionContext {
@@ -829,7 +933,7 @@ impl crate::TermWindow {
         // had no way to tell that a newly-spawned tab existed at all when
         // the sidebar was already full ("最多那多个 tab"): with the thumb,
         // the auto-scroll's reposition is immediately legible.
-        if rows.len() > visible_rows {
+        if row_count > visible_rows {
             let track_top = top + content_top_gap;
             let track_bottom = content_bottom - 1. * pt;
             let track_h = (track_bottom - track_top).max(1.);
@@ -838,10 +942,10 @@ impl crate::TermWindow {
                 .max(ui_tokens::CHROME_SCROLLBAR_MIN_WIDTH);
             let bar_right = border.left.get() as f32 + width;
             let scrollbar_x = bar_right - scrollbar_w;
-            let thumb_h = (track_h * (visible_rows as f32) / (rows.len() as f32))
+            let thumb_h = (track_h * (visible_rows as f32) / (row_count as f32))
                 .max(ui_tokens::CHROME_SCROLLBAR_MIN_THUMB_HEIGHT * pt)
                 .min(track_h);
-            let max_top = rows.len().saturating_sub(visible_rows).max(1) as f32;
+            let max_top = row_count.saturating_sub(visible_rows).max(1) as f32;
             let thumb_y = track_top + (track_h - thumb_h) * (scroll_top as f32 / max_top);
 
             let thumb_color = palette
@@ -922,7 +1026,7 @@ impl crate::TermWindow {
                 y: track_top as usize,
                 height: track_h.max(1.0) as usize,
                 item_type: UIItemType::LeftTabBarScrollTrack {
-                    row_count: rows.len(),
+                    row_count: row_count,
                     visible_rows,
                     thumb_height: thumb_h.max(1.0) as usize,
                 },
@@ -934,7 +1038,7 @@ impl crate::TermWindow {
                 y: thumb_y as usize,
                 height: thumb_h.max(1.0) as usize,
                 item_type: UIItemType::LeftTabBarScrollThumb {
-                    row_count: rows.len(),
+                    row_count: row_count,
                     visible_rows,
                     track_top: track_top as usize,
                     track_height: track_h.max(1.0) as usize,
@@ -942,57 +1046,6 @@ impl crate::TermWindow {
                 pane_id: None,
             });
         }
-
-        // Footer — pinned to the absolute bottom of the sidebar, on the window
-        // background BELOW the tab panel (the footer_gap above guarantees it
-        // never overlaps the tab list). A quiet "DO AI PM" caption: dim grey,
-        // NOT styled as a hyperlink (no teal, no highlight chip) — on hover it
-        // just gently brightens to signal it's clickable. Click opens
-        // doaipm.com (routing in mouseevent.rs).
-        let footer = Element::new(&font, ElementContent::Text("DO AI PM".to_string()))
-            .item_type(UIItemType::LeftTabBarAuthorLink)
-            .display(DisplayType::Block)
-            .min_width(Some(Dimension::Pixels(width - 14. * pt - 1.)))
-            .padding(BoxDimension {
-                left: Dimension::Pixels(footer_pad_h),
-                right: Dimension::Pixels(footer_pad_h),
-                top: Dimension::Pixels(footer_pad_v),
-                bottom: Dimension::Pixels(footer_pad_v),
-            })
-            .colors(ElementColors {
-                border: BorderColor::default(),
-                bg: LinearRgba::TRANSPARENT.into(),
-                text: dim.into(),
-            })
-            .hover_colors(Some(ElementColors {
-                border: BorderColor::default(),
-                bg: LinearRgba::TRANSPARENT.into(),
-                text: fg.into(),
-            }));
-        let footer_top = bottom - footer_height;
-        let footer_layout = LayoutContext {
-            height: DimensionContext {
-                dpi: self.dimensions.dpi as f32,
-                pixel_max: footer_height,
-                pixel_cell: metrics.cell_size.height as f32,
-            },
-            width: DimensionContext {
-                dpi: self.dimensions.dpi as f32,
-                pixel_max: width,
-                pixel_cell: metrics.cell_size.width as f32,
-            },
-            bounds: euclid::rect(border.left.get() as f32, footer_top, width, footer_height),
-            metrics: &metrics,
-            gl_state: self.render_state.as_ref().unwrap(),
-            zindex: 19,
-        };
-        let footer_computed = self.compute_element(&footer_layout, &footer)?;
-        {
-            let gl_state = self.render_state.as_ref().unwrap();
-            self.render_element(&footer_computed, gl_state, None)?;
-        }
-        let mut footer_items = footer_computed.ui_items();
-        self.ui_items.append(&mut footer_items);
 
         Ok(())
     }

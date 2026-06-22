@@ -25,6 +25,37 @@ pub struct DetectOutcome {
 
 /// Run the detect command and return a structured outcome. Never errors —
 /// failure to detect is just `ok: false`.
+/// Build a `Command` that can actually execute `resolved` on this platform.
+/// On Windows a `.cmd`/`.bat` is a batch script that `CreateProcess` (and so
+/// `Command::new`) cannot launch directly — it must go through `cmd /c`; a
+/// `.ps1` goes through PowerShell. Native `.exe` and Unix binaries run as-is.
+/// This is what lets npm-installed CLIs (`codex.cmd`, `gemini.cmd`) and `npm`
+/// itself (`npm.cmd`) be detected and run from the GUI.
+fn spawn_command(resolved: &str) -> Command {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let lower = resolved.to_ascii_lowercase();
+        let mut c = if lower.ends_with(".cmd") || lower.ends_with(".bat") {
+            let mut c = Command::new("cmd");
+            c.arg("/c").arg(resolved);
+            c
+        } else if lower.ends_with(".ps1") {
+            let mut c = Command::new("powershell");
+            c.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+                .arg(resolved);
+            c
+        } else {
+            Command::new(resolved)
+        };
+        c.creation_flags(CREATE_NO_WINDOW); // no console flash
+        return c;
+    }
+    #[cfg(not(windows))]
+    Command::new(resolved)
+}
+
 pub fn detect(spec: &DetectSpec) -> DetectOutcome {
     let binary_path = which(&spec.command);
     let Some(resolved) = binary_path.clone() else {
@@ -42,7 +73,7 @@ pub fn detect(spec: &DetectSpec) -> DetectOutcome {
     // `Command::new("claude")` in that case would fail to spawn at all,
     // and we'd report `installed=false` despite knowing where the binary
     // lives. Resolve once, exec once.
-    let mut cmd = Command::new(&resolved);
+    let mut cmd = spawn_command(&resolved);
     cmd.env("PATH", enriched_path());
     for a in &spec.version_args {
         cmd.arg(a);
@@ -119,6 +150,65 @@ fn regex_first_capture(pat: &str, hay: &str) -> Option<String> {
 /// Launchpad / Dock a minimal `/usr/bin:/bin:/usr/sbin:/sbin`, so `npm` /
 /// `pipx` / `node` (Homebrew, nvm, the user's `~/.local/bin`, …) are invisible
 /// — both for *detecting* a binary and for *spawning* an install step.
+/// The user's *actual* npm global prefix(es), resolved from the environment
+/// and `~/.npmrc` rather than assumed. npm lets users relocate the global
+/// prefix (`prefix=...` in `.npmrc`, or `npm_config_prefix`), and on Windows
+/// the value is often a drive-relative POSIX path like `/home/alex/.npm-global`
+/// that resolves to `D:\home\alex\.npm-global`. Global `.cmd` shims live
+/// directly in this dir, so it must be on the search path for detection +
+/// install. Cached — `.npmrc` is read once.
+#[cfg(windows)]
+fn windows_npm_prefixes() -> &'static [std::path::PathBuf] {
+    use std::path::PathBuf;
+    use std::sync::OnceLock;
+    static PREFIXES: OnceLock<Vec<PathBuf>> = OnceLock::new();
+    PREFIXES.get_or_init(|| {
+        let mut out: Vec<PathBuf> = Vec::new();
+        for k in ["npm_config_prefix", "NPM_CONFIG_PREFIX"] {
+            if let Some(v) = std::env::var_os(k) {
+                let p = PathBuf::from(v);
+                if !p.as_os_str().is_empty() {
+                    out.push(p);
+                }
+            }
+        }
+        if let Some(home) = dirs_next::home_dir() {
+            if let Ok(rc) = std::fs::read_to_string(home.join(".npmrc")) {
+                for line in rc.lines() {
+                    let line = line.trim();
+                    if line.starts_with('#') || line.starts_with(';') {
+                        continue;
+                    }
+                    if let Some(rest) = line.strip_prefix("prefix") {
+                        let val = rest
+                            .trim_start()
+                            .trim_start_matches('=')
+                            .trim()
+                            .trim_matches('"');
+                        if val.is_empty() {
+                            continue;
+                        }
+                        let p = PathBuf::from(val);
+                        if p.is_absolute() {
+                            out.push(p);
+                        } else if val.starts_with('/') {
+                            // Drive-relative POSIX path (e.g. /home/alex/...):
+                            // try each drive and keep the one that exists.
+                            for d in 'A'..='Z' {
+                                let cand = PathBuf::from(format!("{d}:{val}"));
+                                if cand.exists() {
+                                    out.push(cand);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        out
+    })
+}
+
 fn extra_path_dirs() -> Vec<std::path::PathBuf> {
     use std::path::PathBuf;
     let mut dirs: Vec<PathBuf> = Vec::new();
@@ -150,9 +240,61 @@ fn extra_path_dirs() -> Vec<std::path::PathBuf> {
             }
         }
     }
+    #[cfg(unix)]
     for sys in ["/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin"] {
         dirs.push(PathBuf::from(sys));
     }
+
+    // Windows package managers don't follow any of the Unix conventions above.
+    // The single biggest miss: npm's global prefix is %APPDATA%\npm, where
+    // `npm install -g @openai/codex` drops `codex.cmd`. An Explorer-launched
+    // GUI usually has a narrower PATH than the user's shell, so without these
+    // a CLI the user installed from a terminal reads as "not installed" — and
+    // install steps fail because even `npm` itself isn't found.
+    #[cfg(windows)]
+    {
+        // The user's real npm prefix (from .npmrc / env) — this is where a
+        // relocated global install actually lives.
+        dirs.extend(windows_npm_prefixes().iter().cloned());
+        if let Some(appdata) = std::env::var_os("APPDATA") {
+            dirs.push(PathBuf::from(&appdata).join("npm")); // default npm -g (codex/claude/...)
+        }
+        if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+            let local = PathBuf::from(&local);
+            dirs.push(local.join("pnpm")); // pnpm global
+            dirs.push(local.join("Microsoft").join("WinGet").join("Links")); // winget shims
+            // CPython installs (PythonXY\python.exe + PythonXY\Scripts\pip.exe);
+            // glob the version dirs so pip/pip-installed CLIs are found.
+            if let Ok(entries) = std::fs::read_dir(local.join("Programs").join("Python")) {
+                for e in entries.flatten() {
+                    dirs.push(e.path()); // python.exe
+                    dirs.push(e.path().join("Scripts")); // pip / console scripts
+                }
+            }
+        }
+        // pip `--user` and pipx land in %APPDATA%\Python\PythonXY\Scripts.
+        if let Some(appdata) = std::env::var_os("APPDATA") {
+            if let Ok(entries) = std::fs::read_dir(PathBuf::from(&appdata).join("Python")) {
+                for e in entries.flatten() {
+                    dirs.push(e.path().join("Scripts"));
+                }
+            }
+        }
+        if let Some(home) = dirs_next::home_dir() {
+            dirs.push(home.join("scoop").join("shims")); // scoop
+            dirs.push(home.join(".bun").join("bin")); // bun
+            dirs.push(home.join(".deno").join("bin")); // deno
+            dirs.push(home.join(".cargo").join("bin")); // cargo (also added above, harmless dup)
+        }
+        // node / npm themselves, so `npm install -g ...` can even run.
+        for p in [
+            r"C:\Program Files\nodejs",
+            r"C:\Program Files (x86)\nodejs",
+        ] {
+            dirs.push(PathBuf::from(p));
+        }
+    }
+
     dirs
 }
 
@@ -204,16 +346,21 @@ pub(crate) fn which(bin: &str) -> Option<String> {
 }
 
 fn check_dir(dir: &std::path::Path, bin: &str) -> Option<String> {
+    // On Windows, PREFER the executable wrapper over the bare file. `npm i -g`
+    // drops both `codex` (a POSIX shebang script that CreateProcess — and thus
+    // `Command::new` — cannot execute) and `codex.cmd`/`codex.exe`/`codex.ps1`.
+    // Returning the bare script made detection and install spawns fail; the
+    // `.cmd`/`.exe` actually runs.
+    #[cfg(windows)]
+    for ext in ["cmd", "exe", "bat", "ps1"] {
+        let p = dir.join(format!("{bin}.{ext}"));
+        if p.is_file() {
+            return Some(p.to_string_lossy().to_string());
+        }
+    }
     let p = dir.join(bin);
     if p.is_file() {
         return Some(p.to_string_lossy().to_string());
-    }
-    #[cfg(windows)]
-    for ext in ["exe", "cmd", "bat", "ps1"] {
-        let p2 = dir.join(format!("{bin}.{ext}"));
-        if p2.is_file() {
-            return Some(p2.to_string_lossy().to_string());
-        }
     }
     None
 }
@@ -225,6 +372,26 @@ pub struct StepReport {
     pub exit_code: Option<i32>,
     pub stdout_tail: String,
     pub stderr_tail: String,
+}
+
+/// If an install plan invokes `pipx` but the machine doesn't have it, install
+/// pipx for the user via `python -m pip install --user pipx`. The pipx shim
+/// then lands in `%APPDATA%\Python\PythonXY\Scripts` (covered by
+/// [`extra_path_dirs`]), so the subsequent `pipx install <app>` step resolves.
+fn ensure_pipx_if_needed(platform: &PlatformInstall) {
+    let needs_pipx = platform.steps.iter().any(|s| {
+        matches!(s, InstallStep::Shell { cmd } if cmd.first().map(|c| c == "pipx").unwrap_or(false))
+    });
+    if !needs_pipx || which("pipx").is_some() {
+        return;
+    }
+    let Some(py) = which("python").or_else(|| which("python3")).or_else(|| which("py")) else {
+        return; // no Python either — let the pipx step report it
+    };
+    let mut c = spawn_command(&py);
+    c.env("PATH", enriched_path())
+        .args(["-m", "pip", "install", "--user", "pipx"]);
+    let _ = c.output();
 }
 
 pub fn run_install(manifest: &AgentManifest) -> Result<Vec<StepReport>> {
@@ -239,6 +406,11 @@ pub fn run_install(manifest: &AgentManifest) -> Result<Vec<StepReport>> {
                     std::env::consts::OS
                 ),
             })?;
+
+    // Non-technical-user nicety: if a step needs `pipx` and it isn't present,
+    // bootstrap it via pip (Python is far more commonly installed than pipx).
+    // Best-effort — if it can't, the real step still reports a clear error.
+    ensure_pipx_if_needed(platform);
 
     let mut reports = Vec::new();
     for (i, step) in platform.steps.iter().enumerate() {
@@ -324,7 +496,7 @@ fn run_shell(cmd: &[String], label: &str) -> Result<StepReport> {
     // dies with "spawn failed: No such file or directory" even though the
     // tool is on the user's shell PATH.
     let resolved = which(bin).unwrap_or_else(|| bin.to_string());
-    let mut child = Command::new(&resolved);
+    let mut child = spawn_command(&resolved);
     child.env("PATH", enriched_path());
     for a in iter {
         child.arg(a);

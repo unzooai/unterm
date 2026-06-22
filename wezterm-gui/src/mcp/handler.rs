@@ -704,6 +704,89 @@ pub fn detect_agent_for_pane(
     walk(info)
 }
 
+/// Cached `(agent, cwd-basename)` for a pane's status surfaces (vertical tab
+/// rows and the top tab titles). Resolving it means a foreground-process
+/// snapshot plus per-process PEB reads (cwd/argv) across the pane's subtree —
+/// tens of milliseconds on Windows. Doing that for every tab on every
+/// `update_title` (i.e. on every tab switch) was the dominant switch latency
+/// once a window held several tabs. We instead serve the last known value
+/// instantly and refresh it on a worker thread, mirroring the stats-bar
+/// caches. ~2s staleness is invisible for an agent/cwd label.
+#[derive(Clone, Default)]
+struct PaneAgentCwd {
+    agent: Option<String>,
+    cwd: Option<String>,
+}
+
+const AGENT_CWD_TTL: std::time::Duration = std::time::Duration::from_millis(2000);
+
+fn agent_cwd_cache() -> &'static Mutex<HashMap<u64, (std::time::Instant, PaneAgentCwd)>> {
+    static C: std::sync::OnceLock<Mutex<HashMap<u64, (std::time::Instant, PaneAgentCwd)>>> =
+        std::sync::OnceLock::new();
+    C.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn agent_cwd_inflight() -> &'static Mutex<std::collections::HashSet<u64>> {
+    static S: std::sync::OnceLock<Mutex<std::collections::HashSet<u64>>> =
+        std::sync::OnceLock::new();
+    S.get_or_init(|| Mutex::new(std::collections::HashSet::new()))
+}
+
+/// Non-blocking `(agent, cwd)` for status surfaces. Returns the cached value
+/// immediately (empty until the first refresh lands) and kicks off an
+/// off-thread refresh when the entry is missing or older than `AGENT_CWD_TTL`.
+/// Safe to call from the render thread — it never touches the filesystem or
+/// the process table itself.
+pub fn agent_and_cwd_for_pane(pane_id: u64) -> (Option<String>, Option<String>) {
+    let (cached, need_refresh) = {
+        let cache = agent_cwd_cache().lock();
+        match cache.get(&pane_id) {
+            Some((at, v)) if at.elapsed() < AGENT_CWD_TTL => {
+                return (v.agent.clone(), v.cwd.clone());
+            }
+            Some((_, v)) => (v.clone(), true),
+            None => (PaneAgentCwd::default(), true),
+        }
+    };
+    if need_refresh && agent_cwd_inflight().lock().insert(pane_id) {
+        std::thread::Builder::new()
+            .name("agent-cwd-refresh".into())
+            .spawn(move || {
+                let fresh = compute_agent_cwd(pane_id);
+                agent_cwd_cache()
+                    .lock()
+                    .insert(pane_id, (std::time::Instant::now(), fresh));
+                agent_cwd_inflight().lock().remove(&pane_id);
+            })
+            .ok();
+    }
+    (cached.agent, cached.cwd)
+}
+
+/// The expensive part, run on a worker thread: snapshot the pane's foreground
+/// process and derive the agent name + cwd basename.
+fn compute_agent_cwd(pane_id: u64) -> PaneAgentCwd {
+    let Some(mux) = Mux::try_get() else {
+        return PaneAgentCwd::default();
+    };
+    let Some(pane) = mux.get_pane(pane_id as mux::pane::PaneId) else {
+        return PaneAgentCwd::default();
+    };
+    let proc_info = pane.get_foreground_process_info(mux::pane::CachePolicy::AllowStale);
+    let agent = detect_agent_for_pane(pane_id, proc_info.as_ref());
+    let cwd = pane
+        .get_current_working_dir(mux::pane::CachePolicy::AllowStale)
+        .and_then(|url| url.to_file_path().ok())
+        .and_then(|p| {
+            if dirs_next::home_dir().as_deref() == Some(p.as_path()) {
+                Some("~".to_string())
+            } else {
+                p.file_name().map(|n| n.to_string_lossy().to_string())
+            }
+        });
+    PaneAgentCwd { agent, cwd }
+}
+
 pub fn pending_suggestions_for_pane(pane_id: u64) -> Vec<Suggestion> {
     let mut state = mcp_state().lock();
     let now = chrono::Local::now();

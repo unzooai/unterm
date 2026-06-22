@@ -166,15 +166,13 @@ fn compute_tab_title(
                 // inspection so in-tab agents (`claude` / `codex` /
                 // `gemini` / `aider` / `opencode` / `cursor-agent`) light
                 // up the chip even when they never call MCP write
-                // methods themselves.
-                let proc_info = mux::Mux::get().get_pane(pane.pane_id).and_then(|p| {
-                    p.get_foreground_process_info(mux::pane::CachePolicy::AllowStale)
-                });
-                let agent_name = crate::mcp::handler::detect_agent_for_pane(
-                    pane.pane_id as u64,
-                    proc_info.as_ref(),
-                );
-                let cwd_short = pane_cwd_basename(pane.pane_id);
+                // methods themselves. Both the agent name and the cwd come
+                // from a non-blocking per-pane cache (refreshed off-thread):
+                // resolving them inline meant a process snapshot per tab on
+                // every `update_title`, i.e. ~50ms of synchronous work on
+                // every tab switch once a window held several tabs.
+                let (agent_name, cwd_short) =
+                    crate::mcp::handler::agent_and_cwd_for_pane(pane.pane_id as u64);
 
                 let icon_source = agent_name.as_deref().unwrap_or(&pane_title);
                 let shell_icon = detect_shell_icon(icon_source);
