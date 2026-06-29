@@ -280,6 +280,8 @@
   "install.linux.size": "35 / 46 MB",
   "install.windows.size": "44 / 64 MB",
   "whatsnew.title": "v0.44 新增",
+  "whatsnew.agents52.title": "开箱即用的 agent 更多、帧更顺、Windows 更稳",
+  "whatsnew.agents52.body": "扩 agent 覆盖 + 稳定性。<strong>首启即识别两款新 agent。</strong>随包 manifest 现在内置 <strong>Kimi Code CLI</strong>(Moonshot 登录或自带 key)和 <strong>Trae Agent</strong>(按 provider / model / config 驱动),无需等 manifest 刷新即可像其它 agent 一样被自动发现并注册。<strong>更少的 GUI 卡顿。</strong>左侧 tab 栏、状态栏、顶部状态条、ghost-text 与 pane 绘制路径都做了重写以削减每帧开销,高负载下窗口依旧跟手。<strong>Windows 更稳。</strong>窗口不会再被缩到小到拖不回来的尺寸;复制粘贴在别的进程短暂占用剪贴板时会自动重试,而不是直接失败。",
   "whatsnew.native51.title": "macOS 原生字重、更宽松的侧边栏、可扩展的 tab 列表",
   "whatsnew.native51.body": "字体与 chrome 打磨。<strong>原生字重。</strong>CoreText 光栅器现在默认套用系统的灰度 font smoothing,终端与 chrome 文字获得和 Terminal.app 一样的笔画加粗,不再发细——新增 <code class=\"font-mono text-xs\">font_smoothing</code> 开关(默认开),想要 Warp 那种 HiDPI 细腻感可关掉。<strong>更宽松的左侧栏。</strong>更大的 UI 字号 + 更松的行距,底部只留一条安静的链接,加 tab 的 <code class=\"font-mono text-xs\">+</code> 上方留足空白,不再误点。<strong>多会话可扩展。</strong>每个 tab 的元数据只对可见行采集,开几十个 tab 也不卡。另外分屏中线现在干净地画到窗口边缘,按 pane 的关闭按钮落在 pane 角上。",
   "whatsnew.chrome44.title": "Warp 风格 chrome —— 统一顶栏、左侧 tab 边栏、按 pane 的状态条",
