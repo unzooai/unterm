@@ -1,7 +1,7 @@
 {
   "envelope_version": 1,
-  "issued_at": "2026-05-29T15:52:28Z",
-  "expires_at": "2027-05-29T15:52:28Z",
+  "issued_at": "2026-06-28T04:15:00Z",
+  "expires_at": "2036-06-25T04:15:00Z",
   "min_unterm_version": "0.17.0",
   "manifests": [
     {
@@ -2161,6 +2161,233 @@
       }
     },
     {
+      "id": "kimi-code",
+      "version": 2,
+      "name": "Kimi Code CLI",
+      "vendor": "Moonshot AI",
+      "category": "first-party",
+      "popularity_rank": 5,
+      "icon_url": "https://unterm.app/agents/kimi-code.svg",
+      "homepage": "https://github.com/MoonshotAI/kimi-code",
+      "tagline_i18n": {
+        "en": "Moonshot's terminal coding agent with subagents and MCP",
+        "zh-CN": "Moonshot 的终端编码 agent，支持 subagent 和 MCP"
+      },
+      "description_i18n": {
+        "en": "Kimi Code CLI runs in your terminal, can read and edit code, run shell commands, search files, fetch web pages, and run one-shot tasks with `kimi -p`. Official installers do not require Node.js.",
+        "zh-CN": "Kimi Code CLI 运行在终端中，可读写代码、执行 shell、搜索文件、抓取网页，并可通过 `kimi -p` 运行一次性任务。官方安装器不需要 Node.js。"
+      },
+      "license": "MIT",
+      "platforms": [
+        "macos",
+        "linux",
+        "windows"
+      ],
+      "detect": {
+        "command": "kimi",
+        "version_args": [
+          "--version"
+        ],
+        "version_regex": "([0-9.]+)",
+        "min_version": null
+      },
+      "install": {
+        "macos": {
+          "steps": [
+            {
+              "type": "shell",
+              "cmd": [
+                "bash",
+                "-lc",
+                "curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash"
+              ]
+            }
+          ]
+        },
+        "linux": {
+          "steps": [
+            {
+              "type": "shell",
+              "cmd": [
+                "bash",
+                "-lc",
+                "curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash"
+              ]
+            }
+          ]
+        },
+        "windows": {
+          "steps": [
+            {
+              "type": "shell",
+              "cmd": [
+                "powershell",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                "irm https://code.kimi.com/kimi-code/install.ps1 | iex"
+              ]
+            }
+          ]
+        },
+        "requires": [],
+        "update": {
+          "cmd": [
+            "kimi",
+            "update"
+          ]
+        },
+        "uninstall": null
+      },
+      "auth": {
+        "primary": {
+          "kind": "api_key_env",
+          "env_var": "MOONSHOT_API_KEY",
+          "key_console_url": "https://platform.kimi.ai/",
+          "validate": null
+        },
+        "fallback": null
+      },
+      "launch": {
+        "exec": "kimi",
+        "args": [],
+        "args_when_cwd_set": [],
+        "respects_unterm_split": true,
+        "flag_catalog": [
+          {
+            "id": "prompt",
+            "arg": "-p {value}",
+            "label_i18n": {
+              "en": "Prompt",
+              "zh-CN": "提示词"
+            },
+            "description_i18n": {
+              "en": "Run a single instruction without entering the interactive UI",
+              "zh-CN": "不进入交互 UI，直接运行一条指令"
+            },
+            "kind": "value",
+            "choices": [],
+            "risk": "safe",
+            "default_on": false
+          },
+          {
+            "id": "continue",
+            "arg": "-C",
+            "label_i18n": {
+              "en": "Continue previous session",
+              "zh-CN": "继续上次会话"
+            },
+            "description_i18n": {
+              "en": "Resume the previous Kimi Code session",
+              "zh-CN": "恢复上一次 Kimi Code 会话"
+            },
+            "kind": "toggle",
+            "choices": [],
+            "risk": "safe",
+            "default_on": false
+          }
+        ]
+      },
+      "mcp": {
+        "client_supports_mcp": true,
+        "auto_register_unterm": null
+      },
+      "profile_defaults": {
+        "isolate_env": true,
+        "inherit_env": [
+          "PATH",
+          "HOME",
+          "LANG",
+          "TERM",
+          "SHELL"
+        ],
+        "shell": null,
+        "history_file": null,
+        "starting_cwd": "project_root_or_home",
+        "audit_default": "on"
+      },
+      "auth_modes": [
+        {
+          "id": "kimi_login",
+          "recommended": true,
+          "label_i18n": {
+            "en": "Kimi Code login",
+            "zh-CN": "Kimi Code 登录"
+          },
+          "description_i18n": {
+            "en": "Run `kimi`, then type `/login` to choose Kimi Code OAuth or a Moonshot API key. This is the native Kimi Code setup path.",
+            "zh-CN": "运行 `kimi` 后输入 `/login`，选择 Kimi Code OAuth 或 Moonshot API key。这是 Kimi Code 原生设置方式。"
+          },
+          "oauth_trigger": null,
+          "oauth_ready_marker": null,
+          "oauth_timeout_s": 180,
+          "console_url": "https://platform.kimi.ai/",
+          "reveals_settings": []
+        },
+        {
+          "id": "moonshot_key",
+          "recommended": false,
+          "label_i18n": {
+            "en": "Moonshot API key env",
+            "zh-CN": "Moonshot API key 环境变量"
+          },
+          "description_i18n": {
+            "en": "Store a Moonshot API key in Unterm's profile keychain and export it as MOONSHOT_API_KEY when launching Kimi Code.",
+            "zh-CN": "把 Moonshot API key 存入 Unterm profile keychain，并在启动 Kimi Code 时以 MOONSHOT_API_KEY 注入。"
+          },
+          "oauth_trigger": null,
+          "oauth_ready_marker": null,
+          "oauth_timeout_s": 180,
+          "console_url": "https://platform.kimi.ai/",
+          "reveals_settings": [
+            "moonshot_api_key"
+          ]
+        }
+      ],
+      "settings_schema": [
+        {
+          "key": "moonshot_api_key",
+          "type": "secret",
+          "category": "auth",
+          "default": null,
+          "required": false,
+          "sensitive": true,
+          "label_i18n": {
+            "en": "Moonshot API key",
+            "zh-CN": "Moonshot API key"
+          },
+          "description_i18n": {},
+          "placeholder": null,
+          "restart_required": false,
+          "values": [],
+          "min": null,
+          "max": null,
+          "secret_namespace": "moonshot",
+          "since_manifest_version": null,
+          "depends_on": null
+        }
+      ],
+      "settings_storage": {
+        "files": [],
+        "env_at_launch": {
+          "MOONSHOT_API_KEY": {
+            "from": "secret:moonshot",
+            "only_if_auth_mode": [
+              "moonshot_key"
+            ]
+          }
+        },
+        "live_reload": false,
+        "validate_after_write": null
+      },
+      "telemetry_notice": {
+        "vendor_dials_home": true,
+        "privacy_url": "https://platform.kimi.ai/",
+        "opt_out_env": null
+      }
+    },
+    {
       "id": "opencode",
       "version": 2,
       "name": "OpenCode",
@@ -2674,11 +2901,331 @@
         "privacy_url": "https://opencode.ai/privacy",
         "opt_out_env": null
       }
+    },
+    {
+      "id": "trae-agent",
+      "version": 1,
+      "name": "Trae Agent",
+      "vendor": "ByteDance",
+      "category": "experimental",
+      "popularity_rank": 6,
+      "icon_url": "https://unterm.app/agents/trae-agent.svg",
+      "homepage": "https://github.com/bytedance/trae-agent",
+      "tagline_i18n": {
+        "en": "Open-source software engineering agent with multi-LLM support",
+        "zh-CN": "开源软件工程 agent，支持多种 LLM provider"
+      },
+      "description_i18n": {
+        "en": "Trae Agent provides a CLI for general-purpose software engineering tasks, with file editing, bash execution, trajectory recording, and provider-agnostic model configuration.",
+        "zh-CN": "Trae Agent 提供面向通用软件工程任务的 CLI，支持文件编辑、bash 执行、轨迹记录和跨 provider 模型配置。"
+      },
+      "license": "MIT",
+      "platforms": [
+        "macos",
+        "linux",
+        "windows"
+      ],
+      "detect": {
+        "command": "trae-cli",
+        "version_args": [
+          "--version"
+        ],
+        "version_regex": "([0-9.]+)",
+        "min_version": null
+      },
+      "install": {
+        "macos": {
+          "steps": [
+            {
+              "type": "shell",
+              "cmd": [
+                "uv",
+                "tool",
+                "install",
+                "git+https://github.com/bytedance/trae-agent.git"
+              ]
+            }
+          ]
+        },
+        "linux": {
+          "steps": [
+            {
+              "type": "shell",
+              "cmd": [
+                "uv",
+                "tool",
+                "install",
+                "git+https://github.com/bytedance/trae-agent.git"
+              ]
+            }
+          ]
+        },
+        "windows": {
+          "steps": [
+            {
+              "type": "shell",
+              "cmd": [
+                "uv",
+                "tool",
+                "install",
+                "git+https://github.com/bytedance/trae-agent.git"
+              ]
+            }
+          ]
+        },
+        "requires": [
+          {
+            "binary": "uv",
+            "min": null,
+            "install_hint_url": "https://docs.astral.sh/uv/getting-started/installation/"
+          },
+          {
+            "binary": "git",
+            "min": null,
+            "install_hint_url": "https://git-scm.com/downloads"
+          }
+        ],
+        "update": {
+          "cmd": [
+            "uv",
+            "tool",
+            "upgrade",
+            "trae-agent"
+          ]
+        },
+        "uninstall": {
+          "cmd": [
+            "uv",
+            "tool",
+            "uninstall",
+            "trae-agent"
+          ]
+        }
+      },
+      "auth": {
+        "primary": {
+          "kind": "api_key_env",
+          "env_var": "OPENAI_API_KEY",
+          "key_console_url": "https://platform.openai.com/api-keys",
+          "validate": null
+        },
+        "fallback": {
+          "kind": "api_key_env",
+          "env_var": "ANTHROPIC_API_KEY",
+          "key_console_url": "https://console.anthropic.com/settings/keys",
+          "validate": null
+        }
+      },
+      "launch": {
+        "exec": "trae-cli",
+        "args": [],
+        "args_when_cwd_set": [],
+        "respects_unterm_split": false,
+        "flag_catalog": [
+          {
+            "id": "provider",
+            "arg": "--provider {value}",
+            "label_i18n": {
+              "en": "Provider",
+              "zh-CN": "Provider"
+            },
+            "description_i18n": {
+              "en": "Select the LLM provider",
+              "zh-CN": "选择 LLM provider"
+            },
+            "kind": "value",
+            "choices": [],
+            "risk": "safe",
+            "default_on": false
+          },
+          {
+            "id": "model",
+            "arg": "--model {value}",
+            "label_i18n": {
+              "en": "Model",
+              "zh-CN": "模型"
+            },
+            "description_i18n": {
+              "en": "Select the model",
+              "zh-CN": "选择模型"
+            },
+            "kind": "value",
+            "choices": [],
+            "risk": "safe",
+            "default_on": false
+          },
+          {
+            "id": "config",
+            "arg": "--config {value}",
+            "label_i18n": {
+              "en": "Config path",
+              "zh-CN": "配置路径"
+            },
+            "description_i18n": {
+              "en": "Use a specific Trae Agent config file",
+              "zh-CN": "使用指定的 Trae Agent 配置文件"
+            },
+            "kind": "value",
+            "choices": [],
+            "risk": "safe",
+            "default_on": false
+          }
+        ]
+      },
+      "mcp": null,
+      "profile_defaults": {
+        "isolate_env": true,
+        "inherit_env": [
+          "PATH",
+          "HOME",
+          "LANG",
+          "TERM",
+          "SHELL"
+        ],
+        "shell": null,
+        "history_file": null,
+        "starting_cwd": "project_root_or_home",
+        "audit_default": "on"
+      },
+      "auth_modes": [
+        {
+          "id": "byo_key",
+          "recommended": true,
+          "label_i18n": {
+            "en": "Bring your own provider API keys",
+            "zh-CN": "自带 provider API key"
+          },
+          "description_i18n": {
+            "en": "Trae Agent supports OpenAI, Anthropic, Doubao, Azure, OpenRouter, Ollama and Gemini. Store whichever keys your selected provider needs.",
+            "zh-CN": "Trae Agent 支持 OpenAI、Anthropic、Doubao、Azure、OpenRouter、Ollama 和 Gemini。请保存所选 provider 需要的 key。"
+          },
+          "oauth_trigger": null,
+          "oauth_ready_marker": null,
+          "oauth_timeout_s": 180,
+          "console_url": null,
+          "reveals_settings": [
+            "openai_api_key",
+            "anthropic_api_key",
+            "google_api_key",
+            "openrouter_api_key"
+          ]
+        }
+      ],
+      "settings_schema": [
+        {
+          "key": "openai_api_key",
+          "type": "secret",
+          "category": "auth",
+          "default": null,
+          "required": false,
+          "sensitive": true,
+          "label_i18n": {},
+          "description_i18n": {},
+          "placeholder": null,
+          "restart_required": false,
+          "values": [],
+          "min": null,
+          "max": null,
+          "secret_namespace": "openai",
+          "since_manifest_version": null,
+          "depends_on": null
+        },
+        {
+          "key": "anthropic_api_key",
+          "type": "secret",
+          "category": "auth",
+          "default": null,
+          "required": false,
+          "sensitive": true,
+          "label_i18n": {},
+          "description_i18n": {},
+          "placeholder": null,
+          "restart_required": false,
+          "values": [],
+          "min": null,
+          "max": null,
+          "secret_namespace": "anthropic",
+          "since_manifest_version": null,
+          "depends_on": null
+        },
+        {
+          "key": "google_api_key",
+          "type": "secret",
+          "category": "auth",
+          "default": null,
+          "required": false,
+          "sensitive": true,
+          "label_i18n": {},
+          "description_i18n": {},
+          "placeholder": null,
+          "restart_required": false,
+          "values": [],
+          "min": null,
+          "max": null,
+          "secret_namespace": "google",
+          "since_manifest_version": null,
+          "depends_on": null
+        },
+        {
+          "key": "openrouter_api_key",
+          "type": "secret",
+          "category": "auth",
+          "default": null,
+          "required": false,
+          "sensitive": true,
+          "label_i18n": {},
+          "description_i18n": {},
+          "placeholder": null,
+          "restart_required": false,
+          "values": [],
+          "min": null,
+          "max": null,
+          "secret_namespace": "openrouter",
+          "since_manifest_version": null,
+          "depends_on": null
+        }
+      ],
+      "settings_storage": {
+        "files": [],
+        "env_at_launch": {
+          "ANTHROPIC_API_KEY": {
+            "from": "secret:anthropic",
+            "only_if_auth_mode": [
+              "byo_key"
+            ]
+          },
+          "GEMINI_API_KEY": {
+            "from": "secret:google",
+            "only_if_auth_mode": [
+              "byo_key"
+            ]
+          },
+          "OPENAI_API_KEY": {
+            "from": "secret:openai",
+            "only_if_auth_mode": [
+              "byo_key"
+            ]
+          },
+          "OPENROUTER_API_KEY": {
+            "from": "secret:openrouter",
+            "only_if_auth_mode": [
+              "byo_key"
+            ]
+          }
+        },
+        "live_reload": false,
+        "validate_after_write": null
+      },
+      "telemetry_notice": {
+        "vendor_dials_home": false,
+        "privacy_url": "https://github.com/bytedance/trae-agent",
+        "opt_out_env": null
+      }
     }
   ],
   "signature": {
     "alg": "ed25519",
-    "key_id": "unterm-2026-1",
-    "sig": "Rnyx3unsYsZQeAZVIearLKNL1F05QHjagnddH9YFfQn4iMgwOpDTIH+3i/InodXLBbSNi3umKfdxKNdwNWlPDQ=="
+    "key_id": "unterm-2026-4",
+    "sig": "m7ssUt6+ah3HeKsEB/WkOKmDyy5T1SMIVTsqYOVDs6Jo/5aQMolfk0pSErzWUvTq5F8yJiempl1KIjTfXMk8BQ=="
   }
 }

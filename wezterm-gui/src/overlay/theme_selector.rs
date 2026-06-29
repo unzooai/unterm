@@ -32,6 +32,19 @@ const SUBTEXT0: (u8, u8, u8) = (0xbb, 0xbb, 0xbb);
 const OVERLAY0: (u8, u8, u8) = (0x80, 0x80, 0x80);
 const BLUE: (u8, u8, u8) = (0x61, 0xaf, 0xef);
 const GREEN: (u8, u8, u8) = (0xa6, 0xe3, 0xa1);
+const THEME_ID_CACHE_TTL: std::time::Duration = std::time::Duration::from_millis(1000);
+
+#[derive(Default)]
+struct ThemeIdCache {
+    value: Option<String>,
+    loaded_at: Option<std::time::Instant>,
+    loading: bool,
+}
+
+fn theme_id_cache() -> &'static std::sync::Mutex<ThemeIdCache> {
+    static CACHE: std::sync::OnceLock<std::sync::Mutex<ThemeIdCache>> = std::sync::OnceLock::new();
+    CACHE.get_or_init(|| std::sync::Mutex::new(ThemeIdCache::default()))
+}
 
 pub fn theme_selector(term: &mut TermWizTerminal) -> anyhow::Result<()> {
     let mut state = ThemeState::load();
@@ -226,6 +239,49 @@ impl ThemeState {
 }
 
 pub(crate) fn read_theme_id() -> String {
+    {
+        let mut cache = theme_id_cache().lock().unwrap();
+        if cache
+            .loaded_at
+            .map(|at| at.elapsed() < THEME_ID_CACHE_TTL)
+            .unwrap_or(false)
+        {
+            if let Some(value) = &cache.value {
+                return value.clone();
+            }
+        }
+        if let Some(value) = &cache.value {
+            let cached = value.clone();
+            if !cache.loading {
+                cache.loading = true;
+                if std::thread::Builder::new()
+                    .name("theme-id-refresh".into())
+                    .spawn(|| {
+                        let refreshed = std::panic::catch_unwind(read_theme_id_uncached);
+                        let mut cache = theme_id_cache().lock().unwrap();
+                        if let Ok(value) = refreshed {
+                            cache.value = Some(value);
+                            cache.loaded_at = Some(std::time::Instant::now());
+                        }
+                        cache.loading = false;
+                    })
+                    .is_err()
+                {
+                    cache.loading = false;
+                }
+            }
+            return cached;
+        }
+    }
+    let value = read_theme_id_uncached();
+    let mut cache = theme_id_cache().lock().unwrap();
+    cache.value = Some(value.clone());
+    cache.loaded_at = Some(std::time::Instant::now());
+    cache.loading = false;
+    value
+}
+
+fn read_theme_id_uncached() -> String {
     let path = theme_config_path();
     std::fs::read_to_string(path)
         .ok()
@@ -364,6 +420,10 @@ fn save_theme(preset: &ThemePreset) -> anyhow::Result<()> {
         "color_scheme": preset.scheme,
     });
     std::fs::write(path, serde_json::to_string_pretty(&value)?)?;
+    let mut cache = theme_id_cache().lock().unwrap();
+    cache.value = Some(preset.id.to_string());
+    cache.loaded_at = Some(std::time::Instant::now());
+    cache.loading = false;
     Ok(())
 }
 

@@ -790,8 +790,12 @@ pub fn detect_shell_icon(title: &str) -> &'static str {
     if lower.contains("claude")
         || lower.contains("codex")
         || lower.contains("gemini")
+        || lower.contains("kimi")
         || lower.contains("aider")
         || lower.contains("opencode")
+        || lower.contains("trae")
+        || lower.contains("zcode")
+        || lower.contains("z code")
         || lower.contains("cursor agent")
     {
         "\u{f06a9}" // md_robot

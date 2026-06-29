@@ -831,7 +831,9 @@ function untermSettings() {
       return id === 'codex-cli'
         || id === 'claude-code'
         || id === 'gemini-cli'
-        || id === 'opencode';
+        || id === 'opencode'
+        || id === 'kimi-code'
+        || id === 'trae-agent';
     },
 
     defaultHeadlessPrompt(id) {
@@ -845,6 +847,8 @@ function untermSettings() {
       if (id === 'claude-code') return 'summarise the last failing test output';
       if (id === 'gemini-cli') return 'summarise this repository and suggest the next useful task';
       if (id === 'opencode') return 'inspect the current project and suggest the next useful task';
+      if (id === 'kimi-code') return 'inspect this project and suggest the next useful task';
+      if (id === 'trae-agent') return 'inspect this project and suggest the next useful task';
       return 'summarise the current task';
     },
 

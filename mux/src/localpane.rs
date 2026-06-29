@@ -59,6 +59,7 @@ enum ProcessState {
 }
 
 struct CachedProcInfo {
+    root_pid: u32,
     root: LocalProcessInfo,
     updated: Instant,
     foreground: LocalProcessInfo,
@@ -86,34 +87,51 @@ struct CachedLeaderInfo {
 
 #[cfg(unix)]
 impl CachedLeaderInfo {
-    fn new(fd: Option<std::os::fd::RawFd>) -> Self {
-        let mut me = Self {
+    fn empty(fd: Option<std::os::fd::RawFd>) -> Self {
+        Self {
             updated: Instant::now(),
             fd: fd.unwrap_or(-1),
             pid: 0,
             path: None,
             current_working_dir: None,
             updating: false,
-        };
-        me.update();
-        me
+        }
+    }
+
+    fn snapshot(
+        fd: std::os::fd::RawFd,
+    ) -> (u32, Option<std::path::PathBuf>, Option<std::path::PathBuf>) {
+        if fd < 0 {
+            return (0, None, None);
+        }
+        let pid = unsafe { libc::tcgetpgrp(fd) };
+        if pid > 0 {
+            let pid = pid as u32;
+            (
+                pid,
+                LocalProcessInfo::executable_path(pid),
+                LocalProcessInfo::current_working_dir(pid),
+            )
+        } else {
+            (0, None, None)
+        }
+    }
+
+    fn new(fd: Option<std::os::fd::RawFd>) -> Self {
+        let fd = fd.unwrap_or(-1);
+        let (pid, path, current_working_dir) = Self::snapshot(fd);
+        Self {
+            updated: Instant::now(),
+            fd,
+            pid,
+            path,
+            current_working_dir,
+            updating: false,
+        }
     }
 
     fn can_update(&self) -> bool {
         self.fd != -1 && !self.updating
-    }
-
-    fn update(&mut self) {
-        self.pid = unsafe { libc::tcgetpgrp(self.fd) } as u32;
-        if self.pid > 0 {
-            self.path = LocalProcessInfo::executable_path(self.pid);
-            self.current_working_dir = LocalProcessInfo::current_working_dir(self.pid);
-        } else {
-            self.path.take();
-            self.current_working_dir.take();
-        }
-        self.updated = Instant::now();
-        self.updating = false;
     }
 
     fn expired(&self) -> bool {
@@ -547,10 +565,21 @@ impl Pane for LocalPane {
 
     fn get_foreground_process_info(&self, policy: CachePolicy) -> Option<LocalProcessInfo> {
         #[cfg(unix)]
-        if let Some(pid) = self.pty.lock().process_group_leader() {
-            return LocalProcessInfo::with_root_pid(pid as u32);
+        {
+            let leader = self.get_leader(policy);
+            if leader.pid > 0 {
+                return self.divine_foreground_process_for_pid(leader.pid, policy);
+            }
+            // Preserve the old fallback for PTYs that cannot expose a
+            // foreground process group, and for explicit immediate callers
+            // where the foreground lookup has already failed synchronously.
+            if leader.fd == -1 || policy == CachePolicy::FetchImmediate {
+                return self.divine_foreground_process(policy);
+            }
+            return None;
         }
 
+        #[allow(unreachable_code)]
         self.divine_foreground_process(policy)
     }
 
@@ -560,6 +589,11 @@ impl Pane for LocalPane {
             let leader = self.get_leader(policy);
             if let Some(path) = &leader.path {
                 return Some(path.to_string_lossy().to_string());
+            }
+            if leader.fd == -1 || policy == CachePolicy::FetchImmediate {
+                return self
+                    .divine_foreground_process(policy)
+                    .map(|fg| fg.executable.to_string_lossy().to_string());
             }
             return None;
         }
@@ -1047,8 +1081,10 @@ impl LocalPane {
 
     #[cfg(unix)]
     fn get_leader(&self, policy: CachePolicy) -> CachedLeaderInfo {
-        let mut leader = self.leader.lock();
+        let mut refresh_fd = None;
+        let result;
 
+        let mut leader = self.leader.lock();
         if policy == CachePolicy::FetchImmediate {
             leader.replace(CachedLeaderInfo::new(self.pty.lock().as_raw_fd()));
         } else if let Some(info) = leader.as_mut() {
@@ -1056,19 +1092,48 @@ impl LocalPane {
             // Right now, we'll return the stale data.
             if info.expired() && info.can_update() {
                 info.updating = true;
-                let leader_ref = Arc::clone(&self.leader);
-                std::thread::spawn(move || {
-                    let mut leader = leader_ref.lock();
-                    if let Some(leader) = leader.as_mut() {
-                        leader.update();
-                    }
-                });
+                refresh_fd = Some(info.fd);
             }
         } else {
-            leader.replace(CachedLeaderInfo::new(self.pty.lock().as_raw_fd()));
+            let mut info = CachedLeaderInfo::empty(self.pty.lock().as_raw_fd());
+            if info.can_update() {
+                info.updating = true;
+                refresh_fd = Some(info.fd);
+            }
+            leader.replace(info);
         }
 
-        (*leader).clone().unwrap()
+        result = (*leader).clone().unwrap();
+        drop(leader);
+
+        if let Some(fd) = refresh_fd {
+            let leader_ref = Arc::clone(&self.leader);
+            if std::thread::Builder::new()
+                .name("leader-refresh".into())
+                .spawn(move || {
+                    let (pid, path, current_working_dir) = CachedLeaderInfo::snapshot(fd);
+                    let mut leader = leader_ref.lock();
+                    if let Some(leader) = leader.as_mut() {
+                        if leader.fd == fd {
+                            leader.pid = pid;
+                            leader.path = path;
+                            leader.current_working_dir = current_working_dir;
+                            leader.updated = Instant::now();
+                        }
+                        leader.updating = false;
+                    }
+                })
+                .is_err()
+            {
+                if let Some(leader) = self.leader.lock().as_mut() {
+                    if leader.fd == fd {
+                        leader.updating = false;
+                    }
+                }
+            }
+        }
+
+        result
     }
 
     fn divine_current_working_dir(&self, policy: CachePolicy) -> Option<Url> {
@@ -1077,6 +1142,11 @@ impl LocalPane {
             let leader = self.get_leader(policy);
             if let Some(path) = &leader.current_working_dir {
                 return Url::from_directory_path(path).ok();
+            }
+            if leader.fd == -1 || policy == CachePolicy::FetchImmediate {
+                return self
+                    .divine_foreground_process(policy)
+                    .and_then(|fg| Url::from_directory_path(fg.cwd).ok());
             }
             return None;
         }
@@ -1090,17 +1160,17 @@ impl LocalPane {
         None
     }
 
-    fn divine_process_list(
+    fn divine_process_list_for_pid(
         &self,
+        pid: u32,
         policy: CachePolicy,
     ) -> Option<MappedMutexGuard<'_, CachedProcInfo>> {
-        if let ProcessState::Running { pid: Some(pid), .. } = &*self.process.lock() {
-            let pid = *pid;
+        if matches!(&*self.process.lock(), ProcessState::Running { .. }) {
             let mut proc_list = self.proc_list.lock();
 
             let stale = proc_list
                 .as_ref()
-                .map(|info| info.updated.elapsed() > PROC_INFO_CACHE_TTL)
+                .map(|info| info.root_pid != pid || info.updated.elapsed() > PROC_INFO_CACHE_TTL)
                 .unwrap_or(true);
 
             match policy {
@@ -1125,7 +1195,7 @@ impl LocalPane {
                     if stale && !self.proc_list_refreshing.swap(true, Ordering::AcqRel) {
                         let slot = Arc::clone(&self.proc_list);
                         let flag = Arc::clone(&self.proc_list_refreshing);
-                        std::thread::Builder::new()
+                        if std::thread::Builder::new()
                             .name("proc-info-refresh".into())
                             .spawn(move || {
                                 if let Some(info) = build_cached_proc_info(pid) {
@@ -1133,12 +1203,19 @@ impl LocalPane {
                                 }
                                 flag.store(false, Ordering::Release);
                             })
-                            .ok();
+                            .is_err()
+                        {
+                            self.proc_list_refreshing.store(false, Ordering::Release);
+                        }
                     }
                 }
             }
 
-            if proc_list.is_some() {
+            if proc_list
+                .as_ref()
+                .map(|info| info.root_pid == pid)
+                .unwrap_or(false)
+            {
                 return Some(MutexGuard::map(proc_list, |info| info.as_mut().unwrap()));
             }
             return None;
@@ -1146,9 +1223,30 @@ impl LocalPane {
         None
     }
 
+    fn divine_process_list(
+        &self,
+        policy: CachePolicy,
+    ) -> Option<MappedMutexGuard<'_, CachedProcInfo>> {
+        if let ProcessState::Running { pid: Some(pid), .. } = &*self.process.lock() {
+            return self.divine_process_list_for_pid(*pid, policy);
+        }
+        None
+    }
+
     #[allow(dead_code)]
     fn divine_foreground_process(&self, policy: CachePolicy) -> Option<LocalProcessInfo> {
-        if let Some(info) = self.divine_process_list(policy) {
+        let ProcessState::Running { pid: Some(pid), .. } = &*self.process.lock() else {
+            return None;
+        };
+        self.divine_foreground_process_for_pid(*pid, policy)
+    }
+
+    fn divine_foreground_process_for_pid(
+        &self,
+        pid: u32,
+        policy: CachePolicy,
+    ) -> Option<LocalProcessInfo> {
+        if let Some(info) = self.divine_process_list_for_pid(pid, policy) {
             Some(info.foreground.clone())
         } else {
             None
@@ -1184,6 +1282,7 @@ fn build_cached_proc_info(pid: u32) -> Option<CachedProcInfo> {
     foreground.children.clear();
 
     Some(CachedProcInfo {
+        root_pid: pid,
         root,
         foreground,
         updated: Instant::now(),

@@ -13,15 +13,14 @@
 //! moves focus. Phase 1 (this commit) wires up the framework and the
 //! Git column; subsequent commits fill in the rest.
 //!
-//! Refresh model: each cell decides its own staleness. Git status
-//! runs `git -C <cwd>` subprocesses; results are cached per-cwd for
-//! ~2 s so painting many panes in quick succession (or repainting at
-//! 60fps) doesn't fork-bomb. Detection runs synchronously on the
-//! render thread for now — git is fast on local SSDs and our cache
-//! window dominates the cost.
+//! Refresh model: each cell decides its own staleness. Git/process stats
+//! return cached values immediately and refresh off the render thread when
+//! stale, with in-flight limits so painting many panes in quick succession
+//! (or repainting at 60fps) doesn't fork-bomb.
 
 use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
+use std::hash::Hash;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::OnceLock;
@@ -79,10 +78,28 @@ struct GitCache {
 }
 
 const GIT_CACHE_TTL: Duration = Duration::from_millis(2000);
+const GIT_CACHE_PRUNE_AFTER: Duration = Duration::from_secs(60);
+const GIT_CACHE_PRUNE_MIN_SIZE: usize = 128;
+const GIT_MAX_INFLIGHT: usize = 8;
+const PROC_CACHE_PRUNE_AFTER: Duration = Duration::from_secs(60);
+const PROC_CACHE_PRUNE_MIN_SIZE: usize = 256;
+const PROC_MAX_INFLIGHT: usize = 16;
 
 fn git_cache() -> &'static Mutex<GitCache> {
     static CACHE: OnceLock<Mutex<GitCache>> = OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(GitCache::default()))
+}
+
+fn prune_stale_cache<K, V>(
+    map: &mut HashMap<K, (Instant, V)>,
+    prune_min_size: usize,
+    prune_after: Duration,
+) where
+    K: Eq + Hash,
+{
+    if map.len() > prune_min_size {
+        map.retain(|_, (at, _)| at.elapsed() < prune_after);
+    }
 }
 
 /// Resolve git status for `cwd`. Returns whatever's in the cache
@@ -94,7 +111,12 @@ pub fn git_status_for(cwd: &Path) -> Option<GitStatus> {
     let need_refresh;
     let cached;
     {
-        let cache = git_cache().lock();
+        let mut cache = git_cache().lock();
+        prune_stale_cache(
+            &mut cache.by_cwd,
+            GIT_CACHE_PRUNE_MIN_SIZE,
+            GIT_CACHE_PRUNE_AFTER,
+        );
         match cache.by_cwd.get(cwd) {
             Some((at, status)) if at.elapsed() < GIT_CACHE_TTL => {
                 return status.clone();
@@ -111,16 +133,22 @@ pub fn git_status_for(cwd: &Path) -> Option<GitStatus> {
     }
     if need_refresh {
         let mut inflight = inflight_git().lock();
-        if inflight.insert(cwd.to_path_buf()) {
+        if inflight.len() < GIT_MAX_INFLIGHT && inflight.insert(cwd.to_path_buf()) {
             let cwd_owned = cwd.to_path_buf();
-            std::thread::spawn(move || {
-                let fresh = compute_git_status(&cwd_owned);
-                let mut cache = git_cache().lock();
-                cache
-                    .by_cwd
-                    .insert(cwd_owned.clone(), (Instant::now(), fresh));
-                inflight_git().lock().remove(&cwd_owned);
-            });
+            if std::thread::Builder::new()
+                .name("top-stats-git".into())
+                .spawn(move || {
+                    let fresh = compute_git_status(&cwd_owned);
+                    let mut cache = git_cache().lock();
+                    cache
+                        .by_cwd
+                        .insert(cwd_owned.clone(), (Instant::now(), fresh));
+                    inflight_git().lock().remove(&cwd_owned);
+                })
+                .is_err()
+            {
+                inflight.remove(cwd);
+            }
         }
     }
     cached
@@ -248,7 +276,12 @@ pub fn proc_status_for(pid: u32) -> Option<ProcStatus> {
     let need_refresh;
     let cached;
     {
-        let cache = proc_cache().lock();
+        let mut cache = proc_cache().lock();
+        prune_stale_cache(
+            &mut cache.by_pid,
+            PROC_CACHE_PRUNE_MIN_SIZE,
+            PROC_CACHE_PRUNE_AFTER,
+        );
         match cache.by_pid.get(&pid) {
             Some((at, status)) if at.elapsed() < PROC_CACHE_TTL => {
                 return status.clone();
@@ -265,13 +298,19 @@ pub fn proc_status_for(pid: u32) -> Option<ProcStatus> {
     }
     if need_refresh {
         let mut inflight = inflight_proc().lock();
-        if inflight.insert(pid) {
-            std::thread::spawn(move || {
-                let fresh = compute_proc_status(pid);
-                let mut cache = proc_cache().lock();
-                cache.by_pid.insert(pid, (Instant::now(), fresh));
-                inflight_proc().lock().remove(&pid);
-            });
+        if inflight.len() < PROC_MAX_INFLIGHT && inflight.insert(pid) {
+            if std::thread::Builder::new()
+                .name("top-stats-proc".into())
+                .spawn(move || {
+                    let fresh = compute_proc_status(pid);
+                    let mut cache = proc_cache().lock();
+                    cache.by_pid.insert(pid, (Instant::now(), fresh));
+                    inflight_proc().lock().remove(&pid);
+                })
+                .is_err()
+            {
+                inflight.remove(&pid);
+            }
         }
     }
     cached
@@ -413,4 +452,42 @@ pub fn render_proc_segment(status: &Option<ProcStatus>) -> String {
         format_bytes(s.rss_bytes),
         format_etime(s.uptime_secs)
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_etime_handles_ps_formats() {
+        assert_eq!(parse_etime("03:04"), 184);
+        assert_eq!(parse_etime("02:03:04"), 7_384);
+        assert_eq!(parse_etime("1-02:03:04"), 93_784);
+        assert_eq!(parse_etime("not-time"), 0);
+    }
+
+    #[test]
+    fn prune_stale_cache_waits_until_threshold() {
+        let mut map = HashMap::new();
+        let old = Instant::now() - Duration::from_secs(120);
+        map.insert(1u32, (old, "old"));
+
+        prune_stale_cache(&mut map, 1, Duration::from_secs(60));
+
+        assert!(map.contains_key(&1));
+    }
+
+    #[test]
+    fn prune_stale_cache_removes_old_entries_when_large() {
+        let mut map = HashMap::new();
+        let old = Instant::now() - Duration::from_secs(120);
+        let fresh = Instant::now();
+        map.insert(1u32, (old, "old"));
+        map.insert(2u32, (fresh, "fresh"));
+
+        prune_stale_cache(&mut map, 1, Duration::from_secs(60));
+
+        assert!(!map.contains_key(&1));
+        assert!(map.contains_key(&2));
+    }
 }

@@ -8,6 +8,7 @@
 use crate::quad::TripleLayerQuadAllocator;
 use crate::termwindow::render::RenderScreenLineParams;
 use mux::renderable::RenderableDimensions;
+use mux::tab::PositionedPane;
 use termwiz::cell::CellAttributes;
 use termwiz::color::SrgbaTuple;
 use termwiz::surface::line::Line;
@@ -24,11 +25,11 @@ impl crate::TermWindow {
     pub fn paint_ghost_text(
         &mut self,
         layers: &mut TripleLayerQuadAllocator,
+        positioned: &[PositionedPane],
     ) -> anyhow::Result<()> {
         // Find the active positioned pane. We need its split
         // offsets to translate cell coords → window pixels;
         // `get_active_pane_or_overlay` alone doesn't give us that.
-        let positioned = self.get_panes_to_render();
         let Some(pos) = positioned.iter().find(|p| p.is_active) else {
             return Ok(());
         };

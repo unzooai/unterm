@@ -875,8 +875,18 @@ fn headless_args(id: &str, mut base_args: Vec<String>, prompt: &str) -> Result<V
             base_args.push(prompt.to_string());
             Ok(base_args)
         }
+        "kimi-code" => {
+            base_args.push("-p".to_string());
+            base_args.push(prompt.to_string());
+            Ok(base_args)
+        }
+        "trae-agent" => {
+            base_args.push("run".to_string());
+            base_args.push(prompt.to_string());
+            Ok(base_args)
+        }
         other => Err(anyhow!(
-            "agent run currently supports codex-cli, claude-code, gemini-cli, and opencode, not {other}"
+            "agent run currently supports codex-cli, claude-code, gemini-cli, opencode, kimi-code, and trae-agent, not {other}"
         )),
     }
 }
@@ -1089,6 +1099,14 @@ mod tests {
             .unwrap(),
             vec!["--model", "openai/gpt-5", "run", prompt]
         );
+        assert_eq!(
+            headless_args("kimi-code", vec!["--continue".into()], prompt).unwrap(),
+            vec!["--continue", "-p", prompt]
+        );
+        assert_eq!(
+            headless_args("trae-agent", vec!["--model".into(), "gpt-5".into()], prompt).unwrap(),
+            vec!["--model", "gpt-5", "run", prompt]
+        );
     }
 
     #[test]
@@ -1096,6 +1114,7 @@ mod tests {
         let err = headless_args("aider", Vec::new(), "hello").unwrap_err();
         assert!(err.to_string().contains("gemini-cli"));
         assert!(err.to_string().contains("opencode"));
+        assert!(err.to_string().contains("kimi-code"));
     }
 }
 

@@ -437,6 +437,17 @@ const BUILTIN_AGENT_FLAGS: &[(&str, &[&str])] = &[
         ],
     ),
     (
+        "kimi",
+        &[
+            "--prompt {value}",
+            "-p {value}",
+            "--continue",
+            "-C",
+            "--help",
+            "--version",
+        ],
+    ),
+    (
         "aider",
         &[
             "--model {value}",
@@ -467,6 +478,18 @@ const BUILTIN_AGENT_FLAGS: &[(&str, &[&str])] = &[
             "--version",
         ],
     ),
+    (
+        "trae-cli",
+        &[
+            "run {value}",
+            "--provider {value}",
+            "--model {value}",
+            "--config {value}",
+            "--help",
+            "--version",
+        ],
+    ),
+    ("zcode", &["--help", "--version"]),
 ];
 
 /// The completion token for a flag arg template:
@@ -584,9 +607,12 @@ mod tests {
 
     #[test]
     fn agent_exec_ghost_completes_agent_names() {
-        // From the baked manifest set: claude / codex / gemini / aider / opencode.
+        // Known terminal agent commands, including baked manifests and runtime-only CLIs.
         assert_eq!(agent_exec_ghost("cla").as_deref(), Some("ude"));
         assert_eq!(agent_exec_ghost("gem").as_deref(), Some("ini"));
+        assert_eq!(agent_exec_ghost("kim").as_deref(), Some("i"));
+        assert_eq!(agent_exec_ghost("tra").as_deref(), Some("e-cli"));
+        assert_eq!(agent_exec_ghost("zc").as_deref(), Some("ode"));
         // Don't fire once a space is typed (that's flag territory).
         assert_eq!(agent_exec_ghost("claude "), None);
         // Unknown prefix → nothing.
@@ -601,6 +627,9 @@ mod tests {
         assert_eq!(agent_flag_ghost("codex --sand").as_deref(), Some("box "));
         // gemini --yo → "lo" (--yolo, no value).
         assert_eq!(agent_flag_ghost("gemini --yo").as_deref(), Some("lo"));
+        // kimi -p → " " (-p takes a prompt value).
+        assert_eq!(agent_flag_ghost("kimi -p").as_deref(), Some(" "));
+        assert_eq!(agent_flag_ghost("zcode --ver").as_deref(), Some("sion"));
         // Only fires for a known agent exec.
         assert_eq!(agent_flag_ghost("ls --mod"), None);
     }

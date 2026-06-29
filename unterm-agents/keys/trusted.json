@@ -6,6 +6,18 @@
       "public_key_b64": "/2BgjjkE/BJZd7TDozgtewcSjl332JkT3TCkZ4w9rOk=",
       "expires_at": null,
       "note": "Primary signing key, generated 2026-05-19. Private half lives in alex's macOS Keychain + an offline backup; the on-disk priv file under ~/Documents/unterm-manifests/keys/ should be moved to Keychain after first signing run."
+    },
+    {
+      "key_id": "unterm-2026-2",
+      "public_key_b64": "4klY5Wp5wMzD/t8IKoVXmIS/YAzxD9DB2twFys8mFW8=",
+      "expires_at": null,
+      "note": "Generated 2026-06-22 to re-sign the baked fallback after adding Kimi Code and Trae Agent manifests."
+    },
+    {
+      "key_id": "unterm-2026-4",
+      "public_key_b64": "Oh76UY5LWRAt7MaiDsDEB6OAezqd/9Dg+BsMgLIgRXo=",
+      "expires_at": null,
+      "note": "Generated 2026-06-28 to re-sign the baked fallback after aligning Kimi Code install steps with the official no-Node installer."
     }
   ]
 }

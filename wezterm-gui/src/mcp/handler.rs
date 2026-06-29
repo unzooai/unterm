@@ -652,8 +652,8 @@ pub fn agent_for_pane(pane_id: u64) -> Option<String> {
 /// Resolve the AI agent driving a pane. Tries MCP first (an external
 /// agent calling session.input / exec.send registers itself there),
 /// then falls back to inspecting the pane's foreground process tree
-/// — for in-pane CLIs like `claude`, `codex`, `gemini`, `aider`,
-/// `opencode`, `cursor-agent`. The MCP path only fires when an
+/// — for in-pane CLIs like `claude`, `codex`, `gemini`, `kimi`, `aider`,
+/// `opencode`, `trae-cli`, `zcode`, `cursor-agent`. The MCP path only fires when an
 /// external agent writes to a pane; an interactive in-tab CLI is
 /// invisible to MCP, so without the process-tree check the chip
 /// never lit up for the most common case.
@@ -677,8 +677,11 @@ pub fn detect_agent_for_pane(
             "claude" => Some("claude"),
             "codex" => Some("codex"),
             "gemini" => Some("gemini"),
+            "kimi" | "kimi-code" => Some("kimi"),
             "aider" => Some("aider"),
             "opencode" => Some("opencode"),
+            "trae" | "trae-cli" | "trae_agent" | "trae-agent" => Some("trae"),
+            "zcode" | "z-code" | "z code" => Some("zcode"),
             "cursor-agent" | "cursoragent" => Some("cursor-agent"),
             _ => None,
         }
@@ -719,6 +722,9 @@ struct PaneAgentCwd {
 }
 
 const AGENT_CWD_TTL: std::time::Duration = std::time::Duration::from_millis(2000);
+const AGENT_CWD_PRUNE_AFTER: std::time::Duration = std::time::Duration::from_secs(60);
+const AGENT_CWD_PRUNE_MIN_SIZE: usize = 128;
+const AGENT_CWD_MAX_INFLIGHT: usize = 16;
 
 fn agent_cwd_cache() -> &'static Mutex<HashMap<u64, (std::time::Instant, PaneAgentCwd)>> {
     static C: std::sync::OnceLock<Mutex<HashMap<u64, (std::time::Instant, PaneAgentCwd)>>> =
@@ -739,7 +745,10 @@ fn agent_cwd_inflight() -> &'static Mutex<std::collections::HashSet<u64>> {
 /// the process table itself.
 pub fn agent_and_cwd_for_pane(pane_id: u64) -> (Option<String>, Option<String>) {
     let (cached, need_refresh) = {
-        let cache = agent_cwd_cache().lock();
+        let mut cache = agent_cwd_cache().lock();
+        if cache.len() > AGENT_CWD_PRUNE_MIN_SIZE {
+            cache.retain(|_, (at, _)| at.elapsed() < AGENT_CWD_PRUNE_AFTER);
+        }
         match cache.get(&pane_id) {
             Some((at, v)) if at.elapsed() < AGENT_CWD_TTL => {
                 return (v.agent.clone(), v.cwd.clone());
@@ -748,8 +757,18 @@ pub fn agent_and_cwd_for_pane(pane_id: u64) -> (Option<String>, Option<String>) 
             None => (PaneAgentCwd::default(), true),
         }
     };
-    if need_refresh && agent_cwd_inflight().lock().insert(pane_id) {
-        std::thread::Builder::new()
+    let should_refresh = if need_refresh {
+        let mut inflight = agent_cwd_inflight().lock();
+        if inflight.len() < AGENT_CWD_MAX_INFLIGHT {
+            inflight.insert(pane_id)
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+    if should_refresh {
+        if std::thread::Builder::new()
             .name("agent-cwd-refresh".into())
             .spawn(move || {
                 let fresh = compute_agent_cwd(pane_id);
@@ -758,7 +777,10 @@ pub fn agent_and_cwd_for_pane(pane_id: u64) -> (Option<String>, Option<String>) 
                     .insert(pane_id, (std::time::Instant::now(), fresh));
                 agent_cwd_inflight().lock().remove(&pane_id);
             })
-            .ok();
+            .is_err()
+        {
+            agent_cwd_inflight().lock().remove(&pane_id);
+        }
     }
     (cached.agent, cached.cwd)
 }
@@ -772,7 +794,10 @@ fn compute_agent_cwd(pane_id: u64) -> PaneAgentCwd {
     let Some(pane) = mux.get_pane(pane_id as mux::pane::PaneId) else {
         return PaneAgentCwd::default();
     };
-    let proc_info = pane.get_foreground_process_info(mux::pane::CachePolicy::AllowStale);
+    // This function already runs off the render thread, so do the real work
+    // here. Using AllowStale on a cold cache only queued another worker and
+    // then stored an empty `(agent, cwd)` result for AGENT_CWD_TTL.
+    let proc_info = pane.get_foreground_process_info(mux::pane::CachePolicy::FetchImmediate);
     let agent = detect_agent_for_pane(pane_id, proc_info.as_ref());
     let cwd = pane
         .get_current_working_dir(mux::pane::CachePolicy::AllowStale)

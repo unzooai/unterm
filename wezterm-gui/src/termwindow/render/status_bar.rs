@@ -97,7 +97,8 @@ impl crate::TermWindow {
 
         // Distinct accent palette so the suggest bar visually reads as
         // "AI is asking" rather than blending into the chrome.
-        let (bar_bg_rgb, sep_rgb, fg_rgb) = suggest_bar_theme_colors();
+        let theme = crate::overlay::theme_selector::read_theme_id();
+        let (bar_bg_rgb, sep_rgb, fg_rgb) = suggest_bar_theme_colors(&theme);
         let bar_bg = LinearRgba::with_components(
             bar_bg_rgb.0 as f32 / 255.0,
             bar_bg_rgb.1 as f32 / 255.0,
@@ -249,7 +250,8 @@ impl crate::TermWindow {
         let bar_y = self.dimensions.pixel_height as f32 - bar_height - border.bottom.get() as f32;
         let bar_width = self.dimensions.pixel_width as f32;
 
-        let (bar_bg_rgb, sep_rgb, fg_rgb) = status_bar_theme_colors();
+        let theme = crate::overlay::theme_selector::read_theme_id();
+        let (bar_bg_rgb, sep_rgb, fg_rgb) = status_bar_theme_colors(&theme);
         let bar_bg = LinearRgba::with_components(
             bar_bg_rgb.0 as f32 / 255.0,
             bar_bg_rgb.1 as f32 / 255.0,
@@ -291,7 +293,7 @@ impl crate::TermWindow {
             return Ok(());
         }
 
-        let (line, regions) = self.build_status_line();
+        let (line, regions) = self.build_status_line(&theme);
         let total_cols = (bar_width / cell_width) as usize;
 
         let palette = self.palette().clone();
@@ -388,7 +390,8 @@ impl crate::TermWindow {
             - border.bottom.get() as f32;
         let bar_width = self.dimensions.pixel_width as f32;
 
-        let (bar_bg_rgb, sep_rgb, fg_rgb) = confirm_banner_theme_colors();
+        let theme = crate::overlay::theme_selector::read_theme_id();
+        let (bar_bg_rgb, sep_rgb, fg_rgb) = confirm_banner_theme_colors(&theme);
         let bar_bg = LinearRgba::with_components(
             bar_bg_rgb.0 as f32 / 255.0,
             bar_bg_rgb.1 as f32 / 255.0,
@@ -519,10 +522,10 @@ impl crate::TermWindow {
         Ok(())
     }
 
-    fn build_status_line(&self) -> (Line, Vec<StatusRegion>) {
+    fn build_status_line(&self, theme: &str) -> (Line, Vec<StatusRegion>) {
         // Status bar text color
         let mut attrs = CellAttributes::blank();
-        let (_, _, fg_rgb) = status_bar_theme_colors();
+        let (_, _, fg_rgb) = status_bar_theme_colors(theme);
         attrs.set_foreground(ColorAttribute::TrueColorWithDefaultFallback(SrgbaTuple(
             fg_rgb.0 as f32 / 255.0,
             fg_rgb.1 as f32 / 255.0,
@@ -530,8 +533,13 @@ impl crate::TermWindow {
             1.0,
         )));
 
+        let active_pane = self.get_active_pane_no_overlay();
+        let active_cwd = active_pane
+            .as_ref()
+            .and_then(|pane| pane.get_current_working_dir(mux::pane::CachePolicy::AllowStale));
+
         // 1. Shell type (with version distinction)
-        let shell_name = if let Some(pane) = self.get_active_pane_no_overlay() {
+        let shell_name = if let Some(pane) = active_pane.as_ref() {
             if let Some(name) = pane.get_foreground_process_name(mux::pane::CachePolicy::AllowStale)
             {
                 let lower = name.to_lowercase();
@@ -583,8 +591,6 @@ impl crate::TermWindow {
         } else {
             "proxy:off".to_string()
         };
-        let theme = crate::overlay::theme_selector::read_theme_id();
-
         // MCP activity chip. Always rendered so the position is stable
         // (a chip that appears/disappears would shift every neighboring
         // segment's click hit-test). `⚡` suffix marks "writes recently"
@@ -614,13 +620,16 @@ impl crate::TermWindow {
         let profile_label = current_profile_display_name();
         let profile_part = format!("profile:{profile_label}");
 
-        let project_part = format!("project:{}", self.active_project_label());
+        let project_part = format!(
+            "project:{}",
+            Self::project_label_for_cwd(active_cwd.as_ref())
+        );
 
         // Use *cell width* (not char count) for offsets so the click hit-test
         // lines up with the rendered glyph. Wide CJK chars take 2 cells.
         let cw = |s: &str| unicode_column_width(s, None);
 
-        let cwd_part = self.active_pane_cwd_for_status();
+        let cwd_part = Self::cwd_for_status(active_cwd.as_ref());
 
         let mut text = format!(" {}   ", shell_name);
         let cwd_offset = cw(&text);
@@ -778,31 +787,28 @@ impl crate::TermWindow {
     ///   - Truncated to ~48 display columns by elision in the *middle*
     ///     (`/Users/me/code/.../wezterm-gui/src`) — keeps both project
     ///     root context and current-directory tail visible.
-    fn active_pane_cwd_for_status(&self) -> String {
-        let raw: Option<String> = self
-            .get_active_pane_no_overlay()
-            .and_then(|pane| pane.get_current_working_dir(mux::pane::CachePolicy::AllowStale))
-            .map(|cwd| {
-                // OSC 7 carries the hostname; on the local machine that's
-                // typically "localhost", but multiplexer-mode and remote
-                // panes (Linux container / SSH host) report a real
-                // hostname like "ubuntu". `to_file_path()` only succeeds
-                // when host is empty/localhost — for everything else it
-                // returns Err and we previously fell back to the raw URL
-                // (ugly: `file://ubuntu/home/alexlee` showing up in the
-                // status bar). Strip to just the path component instead.
-                if let Ok(p) = cwd.to_file_path() {
-                    p.display().to_string()
-                } else {
-                    let s = cwd.as_str();
-                    s.strip_prefix("file://")
-                        .and_then(|rest| {
-                            rest.split_once('/')
-                                .map(|(_host, path)| format!("/{}", path))
-                        })
-                        .unwrap_or_else(|| s.to_string())
-                }
-            });
+    fn cwd_for_status(cwd: Option<&url::Url>) -> String {
+        let raw: Option<String> = cwd.map(|cwd| {
+            // OSC 7 carries the hostname; on the local machine that's
+            // typically "localhost", but multiplexer-mode and remote
+            // panes (Linux container / SSH host) report a real
+            // hostname like "ubuntu". `to_file_path()` only succeeds
+            // when host is empty/localhost — for everything else it
+            // returns Err and we previously fell back to the raw URL
+            // (ugly: `file://ubuntu/home/alexlee` showing up in the
+            // status bar). Strip to just the path component instead.
+            if let Ok(p) = cwd.to_file_path() {
+                p.display().to_string()
+            } else {
+                let s = cwd.as_str();
+                s.strip_prefix("file://")
+                    .and_then(|rest| {
+                        rest.split_once('/')
+                            .map(|(_host, path)| format!("/{}", path))
+                    })
+                    .unwrap_or_else(|| s.to_string())
+            }
+        });
         let Some(path) = raw else {
             return "~".to_string();
         };
@@ -836,11 +842,8 @@ impl crate::TermWindow {
         format!("{} ... {}", head, tail)
     }
 
-    fn active_project_label(&self) -> String {
-        let Some(pane) = self.get_active_pane_no_overlay() else {
-            return "~".to_string();
-        };
-        let Some(cwd) = pane.get_current_working_dir(mux::pane::CachePolicy::AllowStale) else {
+    fn project_label_for_cwd(cwd: Option<&url::Url>) -> String {
+        let Some(cwd) = cwd else {
             return "~".to_string();
         };
         if let Ok(path) = cwd.to_file_path() {
@@ -870,34 +873,58 @@ struct StatusRegion {
 #[derive(Default)]
 struct ProxyStatusCache {
     value: bool,
-    loaded: bool,
+    loaded_at: Option<std::time::Instant>,
     loading: bool,
 }
+
+#[derive(Default)]
+struct ProfileDisplayCache {
+    value: String,
+    loaded_at: Option<std::time::Instant>,
+    loading: bool,
+}
+
+const PROFILE_DISPLAY_TTL: std::time::Duration = std::time::Duration::from_millis(1000);
+const PROXY_STATUS_TTL: std::time::Duration = std::time::Duration::from_millis(1000);
 
 lazy_static::lazy_static! {
     static ref PROXY_STATUS_CACHE: std::sync::Mutex<ProxyStatusCache> =
         std::sync::Mutex::new(ProxyStatusCache::default());
+    static ref PROFILE_DISPLAY_CACHE: std::sync::Mutex<ProfileDisplayCache> =
+        std::sync::Mutex::new(ProfileDisplayCache::default());
 }
 
 fn unterm_proxy_enabled() -> bool {
-    let mut cache = PROXY_STATUS_CACHE.lock().unwrap();
-    if cache.loaded || cache.loading {
-        return cache.value;
+    {
+        let mut cache = PROXY_STATUS_CACHE.lock().unwrap();
+        if cache
+            .loaded_at
+            .map(|at| at.elapsed() < PROXY_STATUS_TTL)
+            .unwrap_or(false)
+            || cache.loading
+        {
+            return cache.value;
+        }
+        cache.loading = true;
     }
 
-    cache.loading = true;
-    let value = cache.value;
-    drop(cache);
+    if std::thread::Builder::new()
+        .name("proxy-status-refresh".into())
+        .spawn(|| {
+            let refreshed = std::panic::catch_unwind(read_unterm_proxy_enabled);
+            let mut cache = PROXY_STATUS_CACHE.lock().unwrap();
+            if let Ok(enabled) = refreshed {
+                cache.value = enabled;
+                cache.loaded_at = Some(std::time::Instant::now());
+            }
+            cache.loading = false;
+        })
+        .is_err()
+    {
+        PROXY_STATUS_CACHE.lock().unwrap().loading = false;
+    }
 
-    std::thread::spawn(|| {
-        let enabled = read_unterm_proxy_enabled();
-        let mut cache = PROXY_STATUS_CACHE.lock().unwrap();
-        cache.value = enabled;
-        cache.loaded = true;
-        cache.loading = false;
-    });
-
-    value
+    PROXY_STATUS_CACHE.lock().unwrap().value
 }
 
 fn read_unterm_proxy_enabled() -> bool {
@@ -928,6 +955,47 @@ fn read_unterm_proxy_enabled() -> bool {
 /// no useful distinction to draw for the user, and the chip should
 /// never visibly error.
 fn current_profile_display_name() -> String {
+    let cached = {
+        let mut cache = PROFILE_DISPLAY_CACHE.lock().unwrap();
+        let fresh = cache
+            .loaded_at
+            .map(|at| at.elapsed() < PROFILE_DISPLAY_TTL)
+            .unwrap_or(false);
+        if fresh || cache.loading {
+            return if cache.value.is_empty() {
+                "—".to_string()
+            } else {
+                cache.value.clone()
+            };
+        }
+        cache.loading = true;
+        if cache.value.is_empty() {
+            "—".to_string()
+        } else {
+            cache.value.clone()
+        }
+    };
+
+    if std::thread::Builder::new()
+        .name("profile-display-refresh".into())
+        .spawn(|| {
+            let refreshed = std::panic::catch_unwind(compute_current_profile_display_name);
+            let mut cache = PROFILE_DISPLAY_CACHE.lock().unwrap();
+            if let Ok(value) = refreshed {
+                cache.value = value;
+                cache.loaded_at = Some(std::time::Instant::now());
+            }
+            cache.loading = false;
+        })
+        .is_err()
+    {
+        PROFILE_DISPLAY_CACHE.lock().unwrap().loading = false;
+    }
+
+    cached
+}
+
+fn compute_current_profile_display_name() -> String {
     let info = crate::server_info::read_current();
     let Some(id) = info.profile.as_deref() else {
         return "—".to_string();
@@ -961,8 +1029,8 @@ fn current_profile_display_name() -> String {
     }
 }
 
-fn status_bar_theme_colors() -> ((u8, u8, u8), (u8, u8, u8), (u8, u8, u8)) {
-    match crate::overlay::theme_selector::read_theme_id().as_str() {
+fn status_bar_theme_colors(theme: &str) -> ((u8, u8, u8), (u8, u8, u8), (u8, u8, u8)) {
+    match theme {
         "midnight" => ((0x11, 0x18, 0x25), (0x43, 0x53, 0x70), (0xe2, 0xea, 0xf7)),
         "daylight" => ((0xd9, 0xdf, 0xd9), (0x82, 0x8d, 0x83), (0x0b, 0x0f, 0x14)),
         "classic" => ((0x18, 0x18, 0x18), (0x60, 0x60, 0x60), (0xf0, 0xf0, 0xf0)),
@@ -976,8 +1044,8 @@ fn status_bar_theme_colors() -> ((u8, u8, u8), (u8, u8, u8), (u8, u8, u8)) {
 /// saturated than the suggest bar — a worker thread is parked and
 /// the user *has* to decide. Same shape as the other theme tuples:
 /// (background, separator, foreground).
-fn confirm_banner_theme_colors() -> ((u8, u8, u8), (u8, u8, u8), (u8, u8, u8)) {
-    match crate::overlay::theme_selector::read_theme_id().as_str() {
+fn confirm_banner_theme_colors(theme: &str) -> ((u8, u8, u8), (u8, u8, u8), (u8, u8, u8)) {
+    match theme {
         "midnight" => ((0x42, 0x20, 0x2e), (0xff, 0x7a, 0x8a), (0xff, 0xed, 0xe8)),
         "daylight" => ((0xff, 0xd0, 0xc4), (0xa5, 0x1d, 0x30), (0x24, 0x0c, 0x12)),
         "classic" => ((0x42, 0x20, 0x18), (0xff, 0x5f, 0x57), (0xff, 0xea, 0xd2)),
@@ -990,8 +1058,8 @@ fn confirm_banner_theme_colors() -> ((u8, u8, u8), (u8, u8, u8), (u8, u8, u8)) {
 /// Accent palette for the suggest bar. Deliberately warmer than the
 /// regular status bar so a pending suggestion catches the eye without
 /// being alarming.
-fn suggest_bar_theme_colors() -> ((u8, u8, u8), (u8, u8, u8), (u8, u8, u8)) {
-    match crate::overlay::theme_selector::read_theme_id().as_str() {
+fn suggest_bar_theme_colors(theme: &str) -> ((u8, u8, u8), (u8, u8, u8), (u8, u8, u8)) {
+    match theme {
         "midnight" => ((0x20, 0x2f, 0x4c), (0x8c, 0xb6, 0xff), (0xec, 0xf4, 0xff)),
         "daylight" => ((0xff, 0xe6, 0xa3), (0x75, 0x4b, 0x00), (0x22, 0x18, 0x02)),
         "classic" => ((0x31, 0x2a, 0x18), (0xf2, 0xc2, 0x3d), (0xff, 0xec, 0xc4)),
@@ -1024,4 +1092,31 @@ fn truncate_to_width(text: &str, max_cols: usize) -> String {
     }
     out.push('…');
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn status_bar_cwd_strips_remote_file_host() {
+        let cwd = url::Url::parse("file://ubuntu/home/alex/project/src").unwrap();
+
+        assert_eq!(
+            crate::TermWindow::cwd_for_status(Some(&cwd)),
+            "/home/alex/project/src"
+        );
+        assert_eq!(crate::TermWindow::project_label_for_cwd(Some(&cwd)), "src");
+    }
+
+    #[test]
+    fn status_bar_cwd_defaults_without_active_cwd() {
+        assert_eq!(crate::TermWindow::cwd_for_status(None), "~");
+        assert_eq!(crate::TermWindow::project_label_for_cwd(None), "~");
+    }
+
+    #[test]
+    fn truncate_to_width_preserves_short_text() {
+        assert_eq!(truncate_to_width("agent:kimi-code", 32), "agent:kimi-code");
+    }
 }

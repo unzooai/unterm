@@ -28,6 +28,7 @@ pub fn env_var_for_namespace(namespace: &str) -> String {
         "anthropic" => "ANTHROPIC_API_KEY".into(),
         "openai" => "OPENAI_API_KEY".into(),
         "google" | "gemini" => "GEMINI_API_KEY".into(),
+        "kimi" | "moonshot" => "MOONSHOT_API_KEY".into(),
         "azure_openai" => "AZURE_OPENAI_API_KEY".into(),
         "openrouter" => "OPENROUTER_API_KEY".into(),
         "deepseek" => "DEEPSEEK_API_KEY".into(),
@@ -86,6 +87,7 @@ mod tests {
         assert_eq!(env_var_for_namespace("anthropic"), "ANTHROPIC_API_KEY");
         assert_eq!(env_var_for_namespace("openai"), "OPENAI_API_KEY");
         assert_eq!(env_var_for_namespace("google"), "GEMINI_API_KEY");
+        assert_eq!(env_var_for_namespace("moonshot"), "MOONSHOT_API_KEY");
         assert_eq!(
             env_var_for_namespace("custom-vendor"),
             "CUSTOM_VENDOR_API_KEY"

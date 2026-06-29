@@ -8,6 +8,8 @@ use crate::termwindow::{UIItem, UIItemType};
 use crate::utilsprites::RenderMetrics;
 use config::{Dimension, DimensionContext, TabBarColors};
 use std::rc::Rc;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 use wezterm_font::LoadedFont;
 use wezterm_term::color::{ColorAttribute, ColorPalette};
 use window::{IntegratedTitleButtonAlignment, IntegratedTitleButtonStyle};
@@ -767,22 +769,57 @@ pub(crate) fn make_x_button(
 /// every segment is empty so the slot stays visible while the async
 /// caches warm.
 fn compose_top_stats_text(win: &crate::TermWindow) -> String {
-    use crate::termwindow::top_stats_bar;
+    const TOP_STATS_TEXT_TTL: Duration = Duration::from_millis(250);
 
-    // Hide the stats segment on narrow windows. The stats text floats
-    // right with the quick-action codicons; as the window shrinks it
-    // slides left until it overlaps the macOS native traffic-light
-    // cluster reserved on the left edge (collision reported on the
-    // installed v0.44 build). Codicons stay — they're controls, not
-    // status, and the user needs them at every width. 900 px is the
-    // empirical threshold below which the codicon row + traffic-light
-    // reserve fully consumes the bar with no comfortable runway for
-    // text. Above the threshold the stats text re-appears.
-    if (win.dimensions.pixel_width as f32) < 900.0 {
+    #[derive(Clone, Default)]
+    struct CachedTopStatsText {
+        pane_id: Option<u64>,
+        width_bucket: u32,
+        value: String,
+        updated: Option<Instant>,
+    }
+
+    fn cache() -> &'static Mutex<CachedTopStatsText> {
+        static CACHE: OnceLock<Mutex<CachedTopStatsText>> = OnceLock::new();
+        CACHE.get_or_init(|| Mutex::new(CachedTopStatsText::default()))
+    }
+
+    let width = win.dimensions.pixel_width as f32;
+    if width < 900.0 {
         return String::new();
     }
 
     let active = win.get_active_pane_or_overlay();
+    let pane_id = active.as_ref().map(|p| p.pane_id() as u64);
+    let width_bucket = (width / 50.0) as u32;
+
+    {
+        let cached = cache().lock().unwrap();
+        if cached.pane_id == pane_id
+            && cached.width_bucket == width_bucket
+            && cached
+                .updated
+                .map(|at| at.elapsed() < TOP_STATS_TEXT_TTL)
+                .unwrap_or(false)
+        {
+            return cached.value.clone();
+        }
+    }
+
+    let value = compute_top_stats_text(active);
+    {
+        let mut cached = cache().lock().unwrap();
+        cached.pane_id = pane_id;
+        cached.width_bucket = width_bucket;
+        cached.value = value.clone();
+        cached.updated = Some(Instant::now());
+    }
+    value
+}
+
+fn compute_top_stats_text(active: Option<std::sync::Arc<dyn mux::pane::Pane>>) -> String {
+    use crate::termwindow::top_stats_bar;
+
     let cwd = active
         .as_ref()
         .and_then(|p| crate::termwindow::pane_cwd_path(p));

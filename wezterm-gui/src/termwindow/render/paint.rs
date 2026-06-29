@@ -6,6 +6,45 @@ use smol::Timer;
 use std::time::{Duration, Instant};
 use wezterm_font::ClearShapeCache;
 
+struct PaintPassTrace {
+    start: Instant,
+    last: Instant,
+    slowest: (&'static str, Duration),
+}
+
+impl PaintPassTrace {
+    fn new() -> Self {
+        let now = Instant::now();
+        Self {
+            start: now,
+            last: now,
+            slowest: ("start", Duration::ZERO),
+        }
+    }
+
+    fn mark(&mut self, label: &'static str) {
+        let now = Instant::now();
+        let elapsed = now.saturating_duration_since(self.last);
+        if elapsed > self.slowest.1 {
+            self.slowest = (label, elapsed);
+        }
+        self.last = now;
+    }
+
+    fn finish(self, pane_count: usize) {
+        let total = self.start.elapsed();
+        if total >= Duration::from_millis(120) || self.slowest.1 >= Duration::from_millis(60) {
+            log::info!(
+                "paint-pass-slow total={:?} slowest={}:{:?} panes={}",
+                total,
+                self.slowest.0,
+                self.slowest.1,
+                pane_count
+            );
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AllowImage {
     Yes,
@@ -186,8 +225,7 @@ impl crate::TermWindow {
         // Flush to the status-bar top (no terminal-padding gap), matching the
         // left tab bar — the status bar paints over its own rect afterward, so
         // the surface can reach its edge.
-        let bottom =
-            self.dimensions.pixel_height as f32 - status_h - border.bottom.get() as f32;
+        let bottom = self.dimensions.pixel_height as f32 - status_h - border.bottom.get() as f32;
         let row_h = metrics.cell_size.height as f32 + 6. * pt;
         let visible_rows = (((bottom - top) / row_h).floor() as usize)
             .saturating_sub(1)
@@ -541,21 +579,25 @@ impl crate::TermWindow {
     }
 
     pub fn paint_pass(&mut self) -> anyhow::Result<()> {
+        let mut trace = PaintPassTrace::new();
         {
             let gl_state = self.render_state.as_ref().unwrap();
             for layer in gl_state.layers.borrow().iter() {
                 layer.clear_quad_allocation();
             }
         }
+        trace.mark("clear_layers");
 
         // Clear out UI item positions; we'll rebuild these as we render
         self.ui_items.clear();
         self.deferred_scrollbar.borrow_mut().clear();
+        trace.mark("clear_ui_items");
 
         let panes = self.get_panes_to_render();
         let focused = self.focused.is_some();
         let window_is_transparent =
             !self.window_background.is_empty() || self.config.window_background_opacity != 1.0;
+        trace.mark("get_panes");
 
         let start = Instant::now();
         let gl_state = self.render_state.as_ref().unwrap();
@@ -565,6 +607,7 @@ impl crate::TermWindow {
         let mut layers = layer.quad_allocator();
         log::trace!("quad map elapsed {:?}", start.elapsed());
         metrics::histogram!("quad.map").record(start.elapsed());
+        trace.mark("quad_allocator");
 
         let mut paint_terminal_background = false;
 
@@ -602,6 +645,7 @@ impl crate::TermWindow {
                 paint_terminal_background = true;
             }
         }
+        trace.mark("background_images");
 
         if paint_terminal_background {
             // Regular window background color
@@ -628,6 +672,7 @@ impl crate::TermWindow {
             )
             .context("filled_rectangle for window background")?;
         }
+        trace.mark("terminal_background");
 
         let multi_pane = panes.len() > 1;
         for pos in &panes {
@@ -640,6 +685,7 @@ impl crate::TermWindow {
             }
             self.paint_pane(pos, &mut layers).context("paint_pane")?;
         }
+        trace.mark("paint_panes");
         if multi_pane {
             // Render the per-pane × close button only when there's >1 pane;
             // a single pane would just have a button no one needs.
@@ -648,6 +694,7 @@ impl crate::TermWindow {
                     .context("paint_pane_close_button")?;
             }
         }
+        trace.mark("pane_close_buttons");
 
         if let Some(pane) = self.get_active_pane_or_overlay() {
             let splits = self.get_splits();
@@ -656,6 +703,7 @@ impl crate::TermWindow {
                     .context("paint_split")?;
             }
         }
+        trace.mark("paint_splits");
 
         // Flush scrollbar fills queued during pane painting — drawn after the
         // splits so the divider-riding inner bar sits on top of the line.
@@ -666,9 +714,12 @@ impl crate::TermWindow {
                     .context("deferred scrollbar fill")?;
             }
         }
+        trace.mark("deferred_scrollbars");
 
         self.paint_left_tab_bar().context("paint_left_tab_bar")?;
+        trace.mark("left_tab_bar");
         self.paint_tree_sidebar().context("paint_tree_sidebar")?;
+        trace.mark("tree_sidebar");
 
         if self.show_tab_bar {
             self.paint_tab_bar(&mut layers).context("paint_tab_bar")?;
@@ -677,20 +728,28 @@ impl crate::TermWindow {
             // with the icons instead of overlapping them on a
             // separate zindex.)
         }
+        trace.mark("tab_bar");
 
-        self.paint_ghost_text(&mut layers)
+        self.paint_ghost_text(&mut layers, &panes)
             .context("paint_ghost_text")?;
+        trace.mark("ghost_text");
 
         self.paint_suggest_bar(&mut layers)
             .context("paint_suggest_bar")?;
+        trace.mark("suggest_bar");
 
         self.paint_status_bar(&mut layers)
             .context("paint_status_bar")?;
+        trace.mark("status_bar");
 
         self.paint_window_borders(&mut layers)
             .context("paint_window_borders")?;
+        trace.mark("window_borders");
         drop(layers);
+        trace.mark("drop_layers");
         self.paint_modal().context("paint_modal")?;
+        trace.mark("modal");
+        trace.finish(panes.len());
 
         Ok(())
     }

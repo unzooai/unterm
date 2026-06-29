@@ -25,7 +25,7 @@ struct AgentMenuEntry {
 fn cached_agent_menu_entries() -> &'static [AgentMenuEntry] {
     static CACHE: OnceLock<Vec<AgentMenuEntry>> = OnceLock::new();
     CACHE
-        .get_or_init(|| match unterm_agents::fetch_manifests() {
+        .get_or_init(|| match unterm_agents::fetch_manifests_offline() {
             Ok(set) => {
                 let mut entries: Vec<AgentMenuEntry> = set
                     .for_current_platform()

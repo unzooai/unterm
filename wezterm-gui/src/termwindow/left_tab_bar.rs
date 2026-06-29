@@ -28,6 +28,7 @@ use crate::utilsprites::RenderMetrics;
 use config::ui_tokens;
 use config::{Dimension, DimensionContext};
 use mux::Mux;
+use std::time::{Duration, Instant};
 use wezterm_term::color::ColorAttribute;
 use window::color::LinearRgba;
 use window::WindowOps;
@@ -50,7 +51,35 @@ pub struct LeftTabBar {
     /// Last active tab index seen by paint. Active changes auto-scroll
     /// into view; ordinary repaints preserve the user's manual scroll.
     pub last_active_idx: Option<usize>,
+    /// Cached layout for the main left-tab-bar container. Hover state is
+    /// resolved during render, so the computed tree can be reused briefly
+    /// across animation/paint ticks when the visible tab rows are unchanged.
+    cached: Option<ComputedElement>,
+    cached_key: Option<LeftTabBarCacheKey>,
+    cached_at: Option<Instant>,
 }
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct LeftTabBarCacheKey {
+    pixel_width: usize,
+    pixel_height: usize,
+    dpi: usize,
+    bar_width_bits: u32,
+    top_bits: u32,
+    content_bottom_bits: u32,
+    active_idx: usize,
+    scroll_top: usize,
+    row_count: usize,
+    visible_rows: usize,
+    visible_rows_sig: Vec<String>,
+}
+
+// `compute_element` shapes every visible row. On windows with many restored
+// tabs that first compute can take hundreds of milliseconds, so a 250ms TTL
+// expires before the next paint and makes the cache effectively useless.
+// The key already captures geometry, active row, scroll position and visible
+// row text; keep the TTL only as a fallback for theme/color changes.
+const LEFT_TAB_BAR_CACHE_TTL: Duration = Duration::from_secs(5);
 
 /// One row's snapshot, captured from the mux ahead of element building
 /// so we don't hold borrows across rendering. Pulled straight from the
@@ -75,6 +104,14 @@ struct RowInfo {
 enum DisplayRow {
     GroupHeader { label: String, count: usize },
     Tab(RowInfo),
+}
+
+impl LeftTabBar {
+    fn invalidate_cache(&mut self) {
+        self.cached = None;
+        self.cached_key = None;
+        self.cached_at = None;
+    }
 }
 
 fn scroll_top_for_active(
@@ -274,7 +311,13 @@ impl crate::TermWindow {
                     ui_tokens::TREE_SIDEBAR_MIN_WIDTH,
                 ));
         let clamped = w_pts.clamp(ui_tokens::LEFT_TAB_BAR_MIN_WIDTH, max);
-        self.left_tab_bar.borrow_mut().width_pts = Some(clamped);
+        {
+            let mut bar = self.left_tab_bar.borrow_mut();
+            if bar.width_pts != Some(clamped) {
+                bar.width_pts = Some(clamped);
+                bar.invalidate_cache();
+            }
+        }
         if let Some(window) = self.window.as_ref().cloned() {
             let dims = self.dimensions;
             self.apply_dimensions(&dims, None, &window);
@@ -288,6 +331,7 @@ impl crate::TermWindow {
         {
             let mut bar = self.left_tab_bar.borrow_mut();
             bar.hidden = !bar.hidden;
+            bar.invalidate_cache();
         }
         if let Some(window) = self.window.as_ref().cloned() {
             let dims = self.dimensions;
@@ -301,6 +345,7 @@ impl crate::TermWindow {
         let next = scroll_top_for_delta(bar.scroll_top, bar.row_count, bar.visible_rows, delta);
         if next != bar.scroll_top {
             bar.scroll_top = next;
+            bar.invalidate_cache();
             if let Some(window) = self.window.as_ref() {
                 window.invalidate();
             }
@@ -327,6 +372,7 @@ impl crate::TermWindow {
         let mut bar = self.left_tab_bar.borrow_mut();
         if next != bar.scroll_top {
             bar.scroll_top = next;
+            bar.invalidate_cache();
         }
         if let Some(window) = self.window.as_ref() {
             window.invalidate();
@@ -336,6 +382,15 @@ impl crate::TermWindow {
     /// Paint the bar and register its UI items. Painted into the gutter
     /// the panes have already been shifted out of, below the top bar.
     pub fn paint_left_tab_bar(&mut self) -> anyhow::Result<()> {
+        let trace_start = Instant::now();
+        let mut trace_last = trace_start;
+        let mut trace_steps: Vec<(&'static str, std::time::Duration)> = Vec::with_capacity(10);
+        let mut trace_mark = |name: &'static str| {
+            let now = Instant::now();
+            trace_steps.push((name, now.saturating_duration_since(trace_last)));
+            trace_last = now;
+        };
+
         let width = self.left_tab_bar_pixel_width();
         if width <= 0.0 {
             return Ok(());
@@ -420,6 +475,7 @@ impl crate::TermWindow {
                 },
             })
         };
+        trace_mark("setup");
 
         // Color model mirrors Warp's: rows are greyscale foreground-overlay
         // (5/10/15% opacity); color comes ONLY from the status dot and the
@@ -456,6 +512,7 @@ impl crate::TermWindow {
                 window.get_active_idx(),
             )
         };
+        trace_mark("tabs");
         // Resolve metadata for EVERY tab (cheap now: `agent_and_cwd_for_pane`
         // is a cached, non-blocking lookup that refreshes off-thread). We need
         // every tab's project to group them, so the old "visible rows only"
@@ -486,26 +543,27 @@ impl crate::TermWindow {
                 }
             })
             .collect();
+        trace_mark("metadata");
 
         // Auto-group tabs by project (cwd basename), preserving the order in
         // which each project first appears. A tab with no known cwd falls
         // under "~". Group headers are only emitted when more than one project
         // is open — a single-project window stays a clean flat list.
-        let group_key = |m: &RowInfo| m.dir.clone().unwrap_or_else(|| "~".to_string());
-        let mut group_order: Vec<String> = vec![];
-        for m in &metas {
-            let k = group_key(m);
-            if !group_order.contains(&k) {
-                group_order.push(k);
+        let mut groups: Vec<(String, Vec<&RowInfo>)> = Vec::new();
+        for meta in &metas {
+            let key = meta.dir.as_deref().unwrap_or("~");
+            if let Some((_, members)) = groups.iter_mut().find(|(group, _)| group == key) {
+                members.push(meta);
+            } else {
+                groups.push((key.to_string(), vec![meta]));
             }
         }
+        let group_order: Vec<String> = groups.iter().map(|(group, _)| group.clone()).collect();
         let multi_group = group_order.len() > 1;
 
         let mut display: Vec<DisplayRow> = vec![];
         let mut active_pos = 0usize;
-        for g in &group_order {
-            let members: Vec<&RowInfo> =
-                metas.iter().filter(|m| &group_key(m) == g).collect();
+        for (g, members) in groups {
             if multi_group {
                 display.push(DisplayRow::GroupHeader {
                     label: g.clone(),
@@ -520,6 +578,7 @@ impl crate::TermWindow {
             }
         }
         let row_count = display.len();
+        trace_mark("group");
 
         // Uniform rows make the scroll window arithmetic exact (headers share
         // the tab row height). Must match the actual rendered row height
@@ -551,367 +610,427 @@ impl crate::TermWindow {
 
         let visible: Vec<&DisplayRow> =
             display.iter().skip(scroll_top).take(visible_rows).collect();
+        trace_mark("scroll");
 
-        let mut children: Vec<Element> = vec![];
-        children.push(
-            Element::new(&font, ElementContent::Text(String::new()))
-                .display(DisplayType::Block)
-                .min_width(Some(Dimension::Percent(1.)))
-                .min_height(Some(Dimension::Pixels(content_top_gap)))
-                .colors(ElementColors {
-                    border: BorderColor::default(),
-                    bg: LinearRgba::TRANSPARENT.into(),
-                    text: LinearRgba::TRANSPARENT.into(),
-                }),
-        );
-
-        for disp in visible.iter() {
-            // Project group header: a quiet uppercase caption with the tab
-            // count, on the same row pitch as the tabs so the scroll window
-            // arithmetic stays exact.
-            let row = match disp {
-                DisplayRow::GroupHeader { label, count } => {
-                    let label_disp = if label.as_str() == "~" {
-                        "HOME".to_string()
-                    } else {
-                        label.to_uppercase()
-                    };
-                    let header_text = format!("{label_disp}   {count}");
-                    children.push(
-                        Element::new(&font, ElementContent::Text(header_text))
-                            .display(DisplayType::Block)
-                            .min_width(Some(Dimension::Percent(1.)))
-                            .margin(BoxDimension {
-                                left: Dimension::Pixels(0.),
-                                right: Dimension::Pixels(0.),
-                                top: Dimension::Pixels(1. * pt),
-                                bottom: Dimension::Pixels(1. * pt),
-                            })
-                            .padding(BoxDimension {
-                                left: Dimension::Pixels(9. * pt),
-                                right: Dimension::Pixels(8. * pt),
-                                top: Dimension::Pixels(9. * pt),
-                                bottom: Dimension::Pixels(9. * pt),
-                            })
-                            .colors(ElementColors {
-                                border: BorderColor::default(),
-                                bg: LinearRgba::TRANSPARENT.into(),
-                                text: dim.mul_alpha(0.8).into(),
-                            }),
-                    );
-                    continue;
-                }
-                DisplayRow::Tab(r) => r,
-            };
-
-            let title_fg = if row.active {
-                fg
-            } else {
-                fg.mul_alpha(if is_light { 0.9 } else { 0.82 })
-            };
-
-            // Row-leading indicator: a real per-program glyph (Nerd Font) —
-            // the PowerShell / cmd / bash terminal mark for shells, a robot
-            // for AI-agent panes — the same icon language as the top tab bar
-            // and as Warp's vertical tabs. The accent color on an agent icon
-            // keeps AI panes recognizable at a glance; shell icons sit at a
-            // calm mid tier. Selection is carried by the row's left accent
-            // bar, not the icon.
-            let icon_glyph = crate::tabbar::detect_shell_icon(
-                row.agent.as_deref().unwrap_or(&row.title),
-            );
-            let icon_color = if row.agent.is_some() {
-                agent_color
-            } else if row.active {
-                fg.mul_alpha(if is_light { 0.85 } else { 0.78 })
-            } else {
-                fg.mul_alpha(if is_light { 0.62 } else { 0.55 })
-            };
-            let dot = Element::new(&font, ElementContent::Text(icon_glyph.to_string()))
-                .vertical_align(VerticalAlign::Middle)
-                .margin(BoxDimension {
-                    left: Dimension::Pixels(0.),
-                    right: Dimension::Pixels(9. * pt),
-                    top: Dimension::Pixels(0.),
-                    bottom: Dimension::Pixels(0.),
-                })
-                .colors(ElementColors {
-                    border: BorderColor::default(),
-                    bg: LinearRgba::TRANSPARENT.into(),
-                    text: icon_color.into(),
-                });
-
-            // Row label: when an AI agent is bound, the agent name
-            // *is* the title — pane.title is usually "Claude Code" or
-            // similar and just duplicates the agent name. Drop the
-            // duplicate; the bullet's accent color encodes "agent",
-            // the agent name carries the wordmark, the cwd trails dim.
-            // Idle rows fall back to the pane title.
-            let primary_text = if let Some(agent) = &row.agent {
-                agent.clone()
-            } else if row.title.is_empty() {
-                "shell".to_string()
-            } else {
-                prettify_proc_title(&row.title)
-            };
-            // Agent rows carry the agent's accent color on the name in every
-            // state (the wordmark IS the identity); plain shells use full
-            // foreground when active and a dimmed tier otherwise.
-            let primary_color = if row.agent.is_some() {
-                agent_color
-            } else if row.active {
-                fg
-            } else {
-                title_fg
-            };
-            let title_el =
-                Element::new(&font, ElementContent::Text(primary_text)).colors(ElementColors {
-                    border: BorderColor::default(),
-                    bg: LinearRgba::TRANSPARENT.into(),
-                    text: primary_color.into(),
-                });
-            let mut line_kids: Vec<Element> = vec![];
-            line_kids.push(dot);
-            line_kids.push(title_el);
-            // When the list is grouped, the project already shows in the group
-            // header, so repeating a (truncated) cwd on every row is just
-            // noise — drop it. Ungrouped (single-project) windows keep the cwd
-            // trailing the name so each tab still carries its location.
-            if !multi_group {
-                if let Some(dir) = &row.dir {
-                    line_kids.push(
-                    Element::new(&font, ElementContent::Text(format!("  · {dir}"))).colors(
-                        ElementColors {
-                            border: BorderColor::default(),
-                            bg: LinearRgba::TRANSPARENT.into(),
-                            text: dim.into(),
-                        },
+        let cache_key = LeftTabBarCacheKey {
+            pixel_width: self.dimensions.pixel_width,
+            pixel_height: self.dimensions.pixel_height,
+            dpi: self.dimensions.dpi,
+            bar_width_bits: width.to_bits(),
+            top_bits: top.to_bits(),
+            content_bottom_bits: content_bottom.to_bits(),
+            active_idx,
+            scroll_top,
+            row_count,
+            visible_rows,
+            visible_rows_sig: visible
+                .iter()
+                .map(|row| match row {
+                    DisplayRow::GroupHeader { label, count } => {
+                        format!("g:{label}:{count}")
+                    }
+                    DisplayRow::Tab(row) => format!(
+                        "t:{}:{}:{}:{}:{}",
+                        row.tab_idx,
+                        row.active,
+                        row.title,
+                        row.agent.as_deref().unwrap_or(""),
+                        row.dir.as_deref().unwrap_or("")
                     ),
-                );
+                })
+                .collect(),
+        };
+        let cached = {
+            let bar = self.left_tab_bar.borrow();
+            match (&bar.cached_key, &bar.cached, bar.cached_at) {
+                (Some(key), Some(computed), Some(cached_at))
+                    if key == &cache_key && cached_at.elapsed() <= LEFT_TAB_BAR_CACHE_TTL =>
+                {
+                    Some(computed.clone())
                 }
+                _ => None,
             }
-            // Insets live on the content (not the row) because row padding
-            // would create a second visible grey layer around the selected
-            // fill. Keep the row as one flat block and align text by giving
-            // every row the same transparent/active left border width.
-            let title_line = Element::new(&font, ElementContent::Children(line_kids))
-                .display(DisplayType::Block)
-                .min_width(Some(Dimension::Percent(1.)))
-                .padding(BoxDimension {
-                    left: Dimension::Pixels(7. * pt),
-                    right: Dimension::Pixels(8. * pt),
-                    // Taller rows (was 5pt) so the sidebar breathes instead of
-                    // reading cramped. Mirrored in `row_text_pad_v` above so
-                    // the scroll-window arithmetic stays exact.
-                    top: Dimension::Pixels(9. * pt),
-                    bottom: Dimension::Pixels(9. * pt),
-                });
+        };
 
-            // No inline close button — Warp's vertical-tab rows have none;
-            // closing is via the right-click context menu.
-
-            // Active row carries TWO distinct cues: a stronger neutral fill
-            // AND a saturated left accent bar (the agent's color for AI
-            // panes, a neutral foreground tint for plain shells). Hover, by
-            // contrast, is only a faint fill with no bar — so an active row
-            // never reads the same as a merely-hovered one. This is what
-            // keeps a lingering hover from looking like a second selection.
-            let row_bg = if row.active {
-                sel_bg
-            } else {
-                LinearRgba::TRANSPARENT
-            };
-            let accent = if row.agent.is_some() {
-                agent_color
-            } else {
-                fg.mul_alpha(0.55)
-            };
-            let row_border = BorderColor {
-                left: if row.active {
-                    accent
-                } else {
-                    LinearRgba::TRANSPARENT
-                },
-                right: LinearRgba::TRANSPARENT,
-                top: LinearRgba::TRANSPARENT,
-                bottom: LinearRgba::TRANSPARENT,
-            };
+        if let Some(computed) = cached {
+            trace_mark("cache_hit");
+            let mut ui_items = computed.ui_items();
+            {
+                let gl_state = self.render_state.as_ref().unwrap();
+                self.render_element(&computed, gl_state, None)?;
+            }
+            trace_mark("render_cached");
+            self.ui_items.append(&mut ui_items);
+        } else {
+            let mut children: Vec<Element> = vec![];
             children.push(
-                Element::new(&font, ElementContent::Children(vec![title_line]))
-                    .item_type(UIItemType::LeftTabBarTab(row.tab_idx))
+                Element::new(&font, ElementContent::Text(String::new()))
                     .display(DisplayType::Block)
                     .min_width(Some(Dimension::Percent(1.)))
+                    .min_height(Some(Dimension::Pixels(content_top_gap)))
+                    .colors(ElementColors {
+                        border: BorderColor::default(),
+                        bg: LinearRgba::TRANSPARENT.into(),
+                        text: LinearRgba::TRANSPARENT.into(),
+                    }),
+            );
+
+            for disp in visible.iter() {
+                // Project group header: a quiet uppercase caption with the tab
+                // count, on the same row pitch as the tabs so the scroll window
+                // arithmetic stays exact.
+                let row = match disp {
+                    DisplayRow::GroupHeader { label, count } => {
+                        let label_disp = if label.as_str() == "~" {
+                            "HOME".to_string()
+                        } else {
+                            label.to_uppercase()
+                        };
+                        let header_text = format!("{label_disp}   {count}");
+                        children.push(
+                            Element::new(&font, ElementContent::Text(header_text))
+                                .display(DisplayType::Block)
+                                .min_width(Some(Dimension::Percent(1.)))
+                                .margin(BoxDimension {
+                                    left: Dimension::Pixels(0.),
+                                    right: Dimension::Pixels(0.),
+                                    top: Dimension::Pixels(1. * pt),
+                                    bottom: Dimension::Pixels(1. * pt),
+                                })
+                                .padding(BoxDimension {
+                                    left: Dimension::Pixels(9. * pt),
+                                    right: Dimension::Pixels(8. * pt),
+                                    top: Dimension::Pixels(9. * pt),
+                                    bottom: Dimension::Pixels(9. * pt),
+                                })
+                                .colors(ElementColors {
+                                    border: BorderColor::default(),
+                                    bg: LinearRgba::TRANSPARENT.into(),
+                                    text: dim.mul_alpha(0.8).into(),
+                                }),
+                        );
+                        continue;
+                    }
+                    DisplayRow::Tab(r) => r,
+                };
+
+                let title_fg = if row.active {
+                    fg
+                } else {
+                    fg.mul_alpha(if is_light { 0.9 } else { 0.82 })
+                };
+
+                // Row-leading indicator: a real per-program glyph (Nerd Font) —
+                // the PowerShell / cmd / bash terminal mark for shells, a robot
+                // for AI-agent panes — the same icon language as the top tab bar
+                // and as Warp's vertical tabs. The accent color on an agent icon
+                // keeps AI panes recognizable at a glance; shell icons sit at a
+                // calm mid tier. Selection is carried by the row's left accent
+                // bar, not the icon.
+                let icon_glyph =
+                    crate::tabbar::detect_shell_icon(row.agent.as_deref().unwrap_or(&row.title));
+                let icon_color = if row.agent.is_some() {
+                    agent_color
+                } else if row.active {
+                    fg.mul_alpha(if is_light { 0.85 } else { 0.78 })
+                } else {
+                    fg.mul_alpha(if is_light { 0.62 } else { 0.55 })
+                };
+                let dot = Element::new(&font, ElementContent::Text(icon_glyph.to_string()))
+                    .vertical_align(VerticalAlign::Middle)
                     .margin(BoxDimension {
                         left: Dimension::Pixels(0.),
-                        right: Dimension::Pixels(0.),
-                        top: Dimension::Pixels(1. * pt),
-                        bottom: Dimension::Pixels(1. * pt),
-                    })
-                    .padding(BoxDimension {
-                        left: Dimension::Pixels(0.),
-                        right: Dimension::Pixels(0.),
-                        top: Dimension::Pixels(0.),
-                        bottom: Dimension::Pixels(0.),
-                    })
-                    .border(BoxDimension {
-                        left: Dimension::Pixels(2. * pt),
-                        right: Dimension::Pixels(0.),
+                        right: Dimension::Pixels(9. * pt),
                         top: Dimension::Pixels(0.),
                         bottom: Dimension::Pixels(0.),
                     })
                     .colors(ElementColors {
-                        border: row_border,
-                        bg: row_bg.into(),
-                        text: title_fg.into(),
-                    })
-                    .hover_colors(if row.active {
-                        None
+                        border: BorderColor::default(),
+                        bg: LinearRgba::TRANSPARENT.into(),
+                        text: icon_color.into(),
+                    });
+
+                // Row label: when an AI agent is bound, the agent name
+                // *is* the title — pane.title is usually "Claude Code" or
+                // similar and just duplicates the agent name. Drop the
+                // duplicate; the bullet's accent color encodes "agent",
+                // the agent name carries the wordmark, the cwd trails dim.
+                // Idle rows fall back to the pane title.
+                let primary_text = if let Some(agent) = &row.agent {
+                    agent.clone()
+                } else if row.title.is_empty() {
+                    "shell".to_string()
+                } else {
+                    prettify_proc_title(&row.title)
+                };
+                // Agent rows carry the agent's accent color on the name in every
+                // state (the wordmark IS the identity); plain shells use full
+                // foreground when active and a dimmed tier otherwise.
+                let primary_color = if row.agent.is_some() {
+                    agent_color
+                } else if row.active {
+                    fg
+                } else {
+                    title_fg
+                };
+                let title_el =
+                    Element::new(&font, ElementContent::Text(primary_text)).colors(ElementColors {
+                        border: BorderColor::default(),
+                        bg: LinearRgba::TRANSPARENT.into(),
+                        text: primary_color.into(),
+                    });
+                let mut line_kids: Vec<Element> = vec![];
+                line_kids.push(dot);
+                line_kids.push(title_el);
+                // When the list is grouped, the project already shows in the group
+                // header, so repeating a (truncated) cwd on every row is just
+                // noise — drop it. Ungrouped (single-project) windows keep the cwd
+                // trailing the name so each tab still carries its location.
+                if !multi_group {
+                    if let Some(dir) = &row.dir {
+                        line_kids.push(
+                            Element::new(&font, ElementContent::Text(format!("  · {dir}"))).colors(
+                                ElementColors {
+                                    border: BorderColor::default(),
+                                    bg: LinearRgba::TRANSPARENT.into(),
+                                    text: dim.into(),
+                                },
+                            ),
+                        );
+                    }
+                }
+                // Insets live on the content (not the row) because row padding
+                // would create a second visible grey layer around the selected
+                // fill. Keep the row as one flat block and align text by giving
+                // every row the same transparent/active left border width.
+                let title_line = Element::new(&font, ElementContent::Children(line_kids))
+                    .display(DisplayType::Block)
+                    .min_width(Some(Dimension::Percent(1.)))
+                    .padding(BoxDimension {
+                        left: Dimension::Pixels(7. * pt),
+                        right: Dimension::Pixels(8. * pt),
+                        // Taller rows (was 5pt) so the sidebar breathes instead of
+                        // reading cramped. Mirrored in `row_text_pad_v` above so
+                        // the scroll-window arithmetic stays exact.
+                        top: Dimension::Pixels(9. * pt),
+                        bottom: Dimension::Pixels(9. * pt),
+                    });
+
+                // No inline close button — Warp's vertical-tab rows have none;
+                // closing is via the right-click context menu.
+
+                // Active row carries TWO distinct cues: a stronger neutral fill
+                // AND a saturated left accent bar (the agent's color for AI
+                // panes, a neutral foreground tint for plain shells). Hover, by
+                // contrast, is only a faint fill with no bar — so an active row
+                // never reads the same as a merely-hovered one. This is what
+                // keeps a lingering hover from looking like a second selection.
+                let row_bg = if row.active {
+                    sel_bg
+                } else {
+                    LinearRgba::TRANSPARENT
+                };
+                let accent = if row.agent.is_some() {
+                    agent_color
+                } else {
+                    fg.mul_alpha(0.55)
+                };
+                let row_border = BorderColor {
+                    left: if row.active {
+                        accent
                     } else {
-                        Some(ElementColors {
-                            border: BorderColor::new(LinearRgba::TRANSPARENT),
-                            bg: hover_bg.into(),
-                            text: fg.into(),
-                        })
-                    }),
-            );
-        }
-
-        // Trailing "+   ▾" row → the "+" spawns a default-shell tab, the
-        // chevron opens the shell selector. Two elements share the row
-        // so the picker is visually discoverable instead of buried behind
-        // right-click muscle memory.
-        // Bigger hit targets — single-glyph cells with the original
-        // tight padding gave ~16-20px click areas, well under the
-        // 32 px tap-target ergonomics target. Doubled vertical
-        // padding + min_width so each half is a comfortable button.
-        let btn_pad_v = row_pad * 1.4;
-        let btn_pad_h = row_pad * 1.8;
-        let plus_cell = Element::new(&font, ElementContent::Text("+".to_string()))
-            .item_type(UIItemType::TabBar(crate::tabbar::TabBarItem::NewTabButton))
-            .vertical_align(VerticalAlign::Middle)
-            .min_width(Some(Dimension::Pixels(40. * pt)))
-            .padding(BoxDimension {
-                left: Dimension::Pixels(btn_pad_h),
-                right: Dimension::Pixels(btn_pad_h / 2.),
-                top: Dimension::Pixels(btn_pad_v),
-                bottom: Dimension::Pixels(btn_pad_v),
-            })
-            .colors(ElementColors {
-                border: BorderColor::default(),
-                bg: LinearRgba::TRANSPARENT.into(),
-                text: dim.into(),
-            })
-            .hover_colors(Some(ElementColors {
-                border: BorderColor::default(),
-                bg: hover_bg.into(),
-                text: fg.into(),
-            }));
-        let chevron_cell = Element::new(&font, ElementContent::Text("▾".to_string()))
-            .item_type(UIItemType::NewTabShellSelector)
-            .vertical_align(VerticalAlign::Middle)
-            .min_width(Some(Dimension::Pixels(40. * pt)))
-            .padding(BoxDimension {
-                left: Dimension::Pixels(btn_pad_h / 2.),
-                right: Dimension::Pixels(btn_pad_h),
-                top: Dimension::Pixels(btn_pad_v),
-                bottom: Dimension::Pixels(btn_pad_v),
-            })
-            .colors(ElementColors {
-                border: BorderColor::default(),
-                bg: LinearRgba::TRANSPARENT.into(),
-                text: dim.into(),
-            })
-            .hover_colors(Some(ElementColors {
-                border: BorderColor::default(),
-                bg: hover_bg.into(),
-                text: fg.into(),
-            }));
-        children.push(
-            Element::new(
-                &font,
-                ElementContent::Children(vec![plus_cell, chevron_cell]),
-            )
-            .display(DisplayType::Block)
-            .min_width(Some(Dimension::Percent(1.)))
-            .margin(BoxDimension {
-                left: Dimension::Pixels(0.),
-                right: Dimension::Pixels(0.),
-                top: Dimension::Pixels(2. * pt),
-                bottom: Dimension::Pixels(2. * pt),
-            })
-            .border(BoxDimension::new(Dimension::Pixels(1.)))
-            .border_corners(rounded())
-            .colors(ElementColors {
-                border: BorderColor::new(LinearRgba::TRANSPARENT),
-                bg: LinearRgba::TRANSPARENT.into(),
-                text: dim.into(),
-            }),
-        );
-
-        let container = Element::new(&font, ElementContent::Children(children))
-            .item_type(UIItemType::LeftTabBarBg)
-            // Horizontal padding insets the rows from the panel edges so the
-            // selection fill doesn't bleed to the divider.
-            .padding(BoxDimension {
-                left: Dimension::Pixels(7. * pt),
-                right: Dimension::Pixels(7. * pt),
-                top: Dimension::Pixels(0.),
-                bottom: Dimension::Pixels(0.),
-            })
-            .border(BoxDimension {
-                left: Dimension::Pixels(0.),
-                right: Dimension::Pixels(1.),
-                top: Dimension::Pixels(0.),
-                bottom: Dimension::Pixels(0.),
-            })
-            .colors(ElementColors {
-                border: BorderColor {
-                    left: LinearRgba::TRANSPARENT,
-                    right: divider,
+                        LinearRgba::TRANSPARENT
+                    },
+                    right: LinearRgba::TRANSPARENT,
                     top: LinearRgba::TRANSPARENT,
                     bottom: LinearRgba::TRANSPARENT,
+                };
+                children.push(
+                    Element::new(&font, ElementContent::Children(vec![title_line]))
+                        .item_type(UIItemType::LeftTabBarTab(row.tab_idx))
+                        .display(DisplayType::Block)
+                        .min_width(Some(Dimension::Percent(1.)))
+                        .margin(BoxDimension {
+                            left: Dimension::Pixels(0.),
+                            right: Dimension::Pixels(0.),
+                            top: Dimension::Pixels(1. * pt),
+                            bottom: Dimension::Pixels(1. * pt),
+                        })
+                        .padding(BoxDimension {
+                            left: Dimension::Pixels(0.),
+                            right: Dimension::Pixels(0.),
+                            top: Dimension::Pixels(0.),
+                            bottom: Dimension::Pixels(0.),
+                        })
+                        .border(BoxDimension {
+                            left: Dimension::Pixels(2. * pt),
+                            right: Dimension::Pixels(0.),
+                            top: Dimension::Pixels(0.),
+                            bottom: Dimension::Pixels(0.),
+                        })
+                        .colors(ElementColors {
+                            border: row_border,
+                            bg: row_bg.into(),
+                            text: title_fg.into(),
+                        })
+                        .hover_colors(if row.active {
+                            None
+                        } else {
+                            Some(ElementColors {
+                                border: BorderColor::new(LinearRgba::TRANSPARENT),
+                                bg: hover_bg.into(),
+                                text: fg.into(),
+                            })
+                        }),
+                );
+            }
+
+            // Trailing "+   ▾" row → the "+" spawns a default-shell tab, the
+            // chevron opens the shell selector. Two elements share the row
+            // so the picker is visually discoverable instead of buried behind
+            // right-click muscle memory.
+            // Bigger hit targets — single-glyph cells with the original
+            // tight padding gave ~16-20px click areas, well under the
+            // 32 px tap-target ergonomics target. Doubled vertical
+            // padding + min_width so each half is a comfortable button.
+            let btn_pad_v = row_pad * 1.4;
+            let btn_pad_h = row_pad * 1.8;
+            let plus_cell = Element::new(&font, ElementContent::Text("+".to_string()))
+                .item_type(UIItemType::TabBar(crate::tabbar::TabBarItem::NewTabButton))
+                .vertical_align(VerticalAlign::Middle)
+                .min_width(Some(Dimension::Pixels(40. * pt)))
+                .padding(BoxDimension {
+                    left: Dimension::Pixels(btn_pad_h),
+                    right: Dimension::Pixels(btn_pad_h / 2.),
+                    top: Dimension::Pixels(btn_pad_v),
+                    bottom: Dimension::Pixels(btn_pad_v),
+                })
+                .colors(ElementColors {
+                    border: BorderColor::default(),
+                    bg: LinearRgba::TRANSPARENT.into(),
+                    text: dim.into(),
+                })
+                .hover_colors(Some(ElementColors {
+                    border: BorderColor::default(),
+                    bg: hover_bg.into(),
+                    text: fg.into(),
+                }));
+            let chevron_cell = Element::new(&font, ElementContent::Text("▾".to_string()))
+                .item_type(UIItemType::NewTabShellSelector)
+                .vertical_align(VerticalAlign::Middle)
+                .min_width(Some(Dimension::Pixels(40. * pt)))
+                .padding(BoxDimension {
+                    left: Dimension::Pixels(btn_pad_h / 2.),
+                    right: Dimension::Pixels(btn_pad_h),
+                    top: Dimension::Pixels(btn_pad_v),
+                    bottom: Dimension::Pixels(btn_pad_v),
+                })
+                .colors(ElementColors {
+                    border: BorderColor::default(),
+                    bg: LinearRgba::TRANSPARENT.into(),
+                    text: dim.into(),
+                })
+                .hover_colors(Some(ElementColors {
+                    border: BorderColor::default(),
+                    bg: hover_bg.into(),
+                    text: fg.into(),
+                }));
+            children.push(
+                Element::new(
+                    &font,
+                    ElementContent::Children(vec![plus_cell, chevron_cell]),
+                )
+                .display(DisplayType::Block)
+                .min_width(Some(Dimension::Percent(1.)))
+                .margin(BoxDimension {
+                    left: Dimension::Pixels(0.),
+                    right: Dimension::Pixels(0.),
+                    top: Dimension::Pixels(2. * pt),
+                    bottom: Dimension::Pixels(2. * pt),
+                })
+                .border(BoxDimension::new(Dimension::Pixels(1.)))
+                .border_corners(rounded())
+                .colors(ElementColors {
+                    border: BorderColor::new(LinearRgba::TRANSPARENT),
+                    bg: LinearRgba::TRANSPARENT.into(),
+                    text: dim.into(),
+                }),
+            );
+
+            let container = Element::new(&font, ElementContent::Children(children))
+                .item_type(UIItemType::LeftTabBarBg)
+                // Horizontal padding insets the rows from the panel edges so the
+                // selection fill doesn't bleed to the divider.
+                .padding(BoxDimension {
+                    left: Dimension::Pixels(7. * pt),
+                    right: Dimension::Pixels(7. * pt),
+                    top: Dimension::Pixels(0.),
+                    bottom: Dimension::Pixels(0.),
+                })
+                .border(BoxDimension {
+                    left: Dimension::Pixels(0.),
+                    right: Dimension::Pixels(1.),
+                    top: Dimension::Pixels(0.),
+                    bottom: Dimension::Pixels(0.),
+                })
+                .colors(ElementColors {
+                    border: BorderColor {
+                        left: LinearRgba::TRANSPARENT,
+                        right: divider,
+                        top: LinearRgba::TRANSPARENT,
+                        bottom: LinearRgba::TRANSPARENT,
+                    },
+                    bg: bar_bg.into(),
+                    text: fg.into(),
+                })
+                // Full-height panel: the surface fills from the top bar down to the
+                // bottom status bar, so the sidebar reads as one continuous left
+                // panel that meets the info bar — not a short floating card with a
+                // dead band beneath it. The reserved `width` gutter is unchanged
+                // (the terminal still reflows around it).
+                .min_width(Some(Dimension::Pixels(width - 14. * pt - 1.)))
+                // Fill the exact span top → content_bottom (no padding/border on
+                // top or bottom), so the window-background gap above the surface
+                // (`vgap` below the top bar) equals the gap below it (`vgap` above
+                // the status bar). content_top_gap is an internal spacer child, so
+                // it must NOT be subtracted here or the surface stops short and the
+                // bottom gap grows.
+                .min_height(Some(Dimension::Pixels(content_bottom - top)));
+
+            let layout = LayoutContext {
+                height: DimensionContext {
+                    dpi: self.dimensions.dpi as f32,
+                    pixel_max: self.dimensions.pixel_height as f32,
+                    pixel_cell: metrics.cell_size.height as f32,
                 },
-                bg: bar_bg.into(),
-                text: fg.into(),
-            })
-            // Full-height panel: the surface fills from the top bar down to the
-            // bottom status bar, so the sidebar reads as one continuous left
-            // panel that meets the info bar — not a short floating card with a
-            // dead band beneath it. The reserved `width` gutter is unchanged
-            // (the terminal still reflows around it).
-            .min_width(Some(Dimension::Pixels(width - 14. * pt - 1.)))
-            // Fill the exact span top → content_bottom (no padding/border on
-            // top or bottom), so the window-background gap above the surface
-            // (`vgap` below the top bar) equals the gap below it (`vgap` above
-            // the status bar). content_top_gap is an internal spacer child, so
-            // it must NOT be subtracted here or the surface stops short and the
-            // bottom gap grows.
-            .min_height(Some(Dimension::Pixels(content_bottom - top)));
+                width: DimensionContext {
+                    dpi: self.dimensions.dpi as f32,
+                    pixel_max: self.dimensions.pixel_width as f32,
+                    pixel_cell: metrics.cell_size.width as f32,
+                },
+                bounds: euclid::rect(border.left.get() as f32, top, width, content_bottom - top),
+                metrics: &metrics,
+                gl_state: self.render_state.as_ref().unwrap(),
+                zindex: 18,
+            };
+            let computed = self.compute_element(&layout, &container)?;
+            trace_mark("compute");
 
-        let layout = LayoutContext {
-            height: DimensionContext {
-                dpi: self.dimensions.dpi as f32,
-                pixel_max: self.dimensions.pixel_height as f32,
-                pixel_cell: metrics.cell_size.height as f32,
-            },
-            width: DimensionContext {
-                dpi: self.dimensions.dpi as f32,
-                pixel_max: self.dimensions.pixel_width as f32,
-                pixel_cell: metrics.cell_size.width as f32,
-            },
-            bounds: euclid::rect(border.left.get() as f32, top, width, content_bottom - top),
-            metrics: &metrics,
-            gl_state: self.render_state.as_ref().unwrap(),
-            zindex: 18,
-        };
-        let computed = self.compute_element(&layout, &container)?;
-
-        let mut ui_items = computed.ui_items();
-        {
-            let gl_state = self.render_state.as_ref().unwrap();
-            self.render_element(&computed, gl_state, None)?;
+            let mut ui_items = computed.ui_items();
+            trace_mark("ui_items");
+            {
+                let mut bar = self.left_tab_bar.borrow_mut();
+                bar.cached_key = Some(cache_key);
+                bar.cached_at = Some(Instant::now());
+                bar.cached = Some(computed.clone());
+            }
+            {
+                let gl_state = self.render_state.as_ref().unwrap();
+                self.render_element(&computed, gl_state, None)?;
+            }
+            trace_mark("render");
+            self.ui_items.append(&mut ui_items);
         }
-        self.ui_items.append(&mut ui_items);
 
         // Resize grip: a thin strip on the bar's right edge. It is
         // registered before the scrollbar hit items so that, when a
@@ -957,64 +1076,27 @@ impl crate::TermWindow {
                 .to_linear()
                 .mul_alpha(ui_tokens::CHROME_SCROLLBAR_TRACK_ALPHA);
 
-            let track = Element::new(&font, ElementContent::Text(String::new()))
-                .colors(ElementColors {
-                    border: BorderColor::default(),
-                    bg: track_color.into(),
-                    text: LinearRgba::TRANSPARENT.into(),
-                })
-                .min_width(Some(Dimension::Pixels(scrollbar_w)))
-                .min_height(Some(Dimension::Pixels(track_h)));
-            let track_layout = LayoutContext {
-                height: DimensionContext {
-                    dpi: self.dimensions.dpi as f32,
-                    pixel_max: track_h,
-                    pixel_cell: metrics.cell_size.height as f32,
-                },
-                width: DimensionContext {
-                    dpi: self.dimensions.dpi as f32,
-                    pixel_max: scrollbar_w,
-                    pixel_cell: metrics.cell_size.width as f32,
-                },
-                bounds: euclid::rect(scrollbar_x, track_top, scrollbar_w, track_h),
-                metrics: &metrics,
-                gl_state: self.render_state.as_ref().unwrap(),
-                zindex: 23,
-            };
-            let track_computed = self.compute_element(&track_layout, &track)?;
             {
                 let gl_state = self.render_state.as_ref().unwrap();
-                self.render_element(&track_computed, gl_state, None)?;
+                let track_layer = gl_state.layer_for_zindex(23)?;
+                let mut layers = track_layer.quad_allocator();
+                self.filled_rectangle(
+                    &mut layers,
+                    0,
+                    euclid::rect(scrollbar_x, track_top, scrollbar_w, track_h),
+                    track_color,
+                )?;
             }
-
-            let thumb = Element::new(&font, ElementContent::Text(String::new()))
-                .colors(ElementColors {
-                    border: BorderColor::default(),
-                    bg: thumb_color.into(),
-                    text: LinearRgba::TRANSPARENT.into(),
-                })
-                .min_width(Some(Dimension::Pixels(scrollbar_w)))
-                .min_height(Some(Dimension::Pixels(thumb_h)));
-            let thumb_layout = LayoutContext {
-                height: DimensionContext {
-                    dpi: self.dimensions.dpi as f32,
-                    pixel_max: thumb_h,
-                    pixel_cell: metrics.cell_size.height as f32,
-                },
-                width: DimensionContext {
-                    dpi: self.dimensions.dpi as f32,
-                    pixel_max: scrollbar_w,
-                    pixel_cell: metrics.cell_size.width as f32,
-                },
-                bounds: euclid::rect(scrollbar_x, thumb_y, scrollbar_w, thumb_h),
-                metrics: &metrics,
-                gl_state: self.render_state.as_ref().unwrap(),
-                zindex: 24,
-            };
-            let thumb_computed = self.compute_element(&thumb_layout, &thumb)?;
             {
                 let gl_state = self.render_state.as_ref().unwrap();
-                self.render_element(&thumb_computed, gl_state, None)?;
+                let thumb_layer = gl_state.layer_for_zindex(24)?;
+                let mut layers = thumb_layer.quad_allocator();
+                self.filled_rectangle(
+                    &mut layers,
+                    0,
+                    euclid::rect(scrollbar_x, thumb_y, scrollbar_w, thumb_h),
+                    thumb_color,
+                )?;
             }
 
             let hit_w = (20. * pt).round().max(scrollbar_w) as usize;
@@ -1045,6 +1127,27 @@ impl crate::TermWindow {
                 },
                 pane_id: None,
             });
+        }
+        trace_mark("scrollbar");
+
+        let total = trace_start.elapsed();
+        if total.as_millis() >= 40 {
+            let slowest = trace_steps
+                .iter()
+                .max_by_key(|(_, duration)| *duration)
+                .map(|(name, duration)| format!("{name}:{duration:?}"))
+                .unwrap_or_else(|| "none:0ns".to_string());
+            let steps = trace_steps
+                .iter()
+                .map(|(name, duration)| format!("{name}={duration:?}"))
+                .collect::<Vec<_>>()
+                .join(" ");
+            log::info!(
+                "left-tab-bar-slow total={total:?} slowest={slowest} tabs={} rows={} visible_rows={} {steps}",
+                tabs.len(),
+                row_count,
+                visible_rows,
+            );
         }
 
         Ok(())

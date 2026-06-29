@@ -88,7 +88,7 @@ pub fn fetch_manifests_offline() -> Result<ManifestSet> {
         }
     }
     let baked: &[u8] = include_bytes!("../baked/manifests-fallback.json");
-    let env = serde_json::from_slice(baked).map_err(|e| AgentError::ParseFailed(e.to_string()))?;
+    let env = envelope::verify_envelope(baked)?;
     Ok(ManifestSet {
         envelope: env,
         source: Source::Baked,

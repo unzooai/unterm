@@ -123,6 +123,11 @@ fn current_id() -> &'static Mutex<Option<String>> {
     ID.get_or_init(|| Mutex::new(None))
 }
 
+fn last_written_cwd() -> &'static Mutex<Option<Option<String>>> {
+    static CWD: std::sync::OnceLock<Mutex<Option<Option<String>>>> = std::sync::OnceLock::new();
+    CWD.get_or_init(|| Mutex::new(None))
+}
+
 pub fn current_instance_id() -> Option<String> {
     current_id().lock().clone()
 }
@@ -381,6 +386,13 @@ pub fn set_http_port(port: u16) -> Result<InstanceInfo> {
 /// foreground update loop. Cheap (one file write); skipped if the
 /// value hasn't changed since last write.
 pub fn set_cwd(cwd: Option<String>) -> Result<()> {
+    {
+        let last = last_written_cwd().lock();
+        if last.as_ref() == Some(&cwd) {
+            return Ok(());
+        }
+    }
+
     let id = match current_instance_id() {
         Some(id) => id,
         None => return Ok(()),
@@ -391,12 +403,14 @@ pub fn set_cwd(cwd: Option<String>) -> Result<()> {
         Err(_) => return Ok(()),
     };
     if info.cwd == cwd {
+        *last_written_cwd().lock() = Some(cwd);
         claim_compat_files_if_needed(&info)?;
         return Ok(()); // no change
     }
-    info.cwd = cwd;
+    info.cwd = cwd.clone();
     write_atomic(&instance_file(&id), &info)?;
     claim_compat_files_if_needed(&info)?;
+    *last_written_cwd().lock() = Some(cwd);
     Ok(())
 }
 

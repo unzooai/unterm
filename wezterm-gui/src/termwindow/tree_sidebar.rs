@@ -104,7 +104,7 @@ impl TreeSidebar {
             scanning: Arc::new(AtomicBool::new(false)),
             scan_epoch: Arc::new(AtomicU64::new(0)),
         };
-        me.rebuild();
+        me.queue_rebuild();
         me
     }
 
@@ -114,7 +114,7 @@ impl TreeSidebar {
         } else {
             self.expanded.insert(path.to_path_buf());
         }
-        self.rebuild();
+        self.queue_rebuild();
     }
 
     /// Called from the paint path. Never touches the filesystem itself:
@@ -153,28 +153,35 @@ impl TreeSidebar {
             let root = self.root.clone();
             let expanded = self.expanded.clone();
             let pending = Arc::clone(&self.pending);
-            std::thread::Builder::new()
-                .name("tree-sidebar-scan".into())
-                .spawn(move || {
-                    let rows = build_rows(&root, &expanded);
-                    *pending.lock() = Some((epoch, rows));
-                })
-                .ok();
+            if !spawn_scan(epoch, root, expanded, pending) {
+                self.scanning.store(false, Ordering::Release);
+            }
         }
         false
     }
 
-    /// Synchronous rebuild for navigation (expand/collapse/cd/anchor change),
-    /// where the user expects the tree to update on the same frame. Bumps
-    /// `scan_epoch` so any in-flight background scan started against the old
-    /// tree is discarded when it lands.
+    /// Rebuild for navigation (expand/collapse/cd/anchor change). Keep only
+    /// cheap chrome rows immediately and let the paint path adopt the full
+    /// filesystem scan when a worker finishes.
     pub fn rebuild(&mut self) {
-        self.scan_epoch.fetch_add(1, Ordering::AcqRel);
-        self.rows = build_rows(&self.root, &self.expanded);
+        self.queue_rebuild();
+    }
+
+    fn queue_rebuild(&mut self) {
+        let epoch = self.scan_epoch.fetch_add(1, Ordering::AcqRel) + 1;
+        self.rows = build_chrome_rows(&self.root);
         self.last_scan = Instant::now();
+        self.scroll_top = 0;
         let max_top = self.rows.len().saturating_sub(1);
         if self.scroll_top > max_top {
             self.scroll_top = max_top;
+        }
+        self.scanning.store(true, Ordering::Release);
+        let root = self.root.clone();
+        let expanded = self.expanded.clone();
+        let pending = Arc::clone(&self.pending);
+        if !spawn_scan(epoch, root, expanded, pending) {
+            self.scanning.store(false, Ordering::Release);
         }
     }
 
@@ -184,14 +191,14 @@ impl TreeSidebar {
         if let Some(parent) = self.root.parent() {
             self.root = parent.to_path_buf();
             self.scroll_top = 0;
-            self.rebuild();
+            self.queue_rebuild();
         }
     }
 
     pub fn navigate_to_root(&mut self, root: PathBuf) {
         self.root = root;
         self.scroll_top = 0;
-        self.rebuild();
+        self.queue_rebuild();
     }
 
     // Tree construction lives in the free functions `build_rows` /
@@ -203,6 +210,12 @@ impl TreeSidebar {
 /// of `expanded` directories. Pure filesystem work — safe to run on any
 /// thread. This is what the background rescan calls.
 fn build_rows(root: &Path, expanded: &HashSet<PathBuf>) -> Vec<TreeRow> {
+    let mut rows = build_chrome_rows(root);
+    walk_into(expanded, root, 0, &mut rows);
+    rows
+}
+
+fn build_chrome_rows(root: &Path) -> Vec<TreeRow> {
     let mut rows = vec![];
     if let Some(parent) = root.parent() {
         rows.push(TreeRow {
@@ -229,8 +242,29 @@ fn build_rows(root: &Path, expanded: &HashSet<PathBuf>) -> Vec<TreeRow> {
             });
         }
     }
-    walk_into(expanded, root, 0, &mut rows);
     rows
+}
+
+fn spawn_scan(
+    epoch: u64,
+    root: PathBuf,
+    expanded: HashSet<PathBuf>,
+    pending: Arc<Mutex<Option<(u64, Vec<TreeRow>)>>>,
+) -> bool {
+    std::thread::Builder::new()
+        .name("tree-sidebar-scan".into())
+        .spawn(move || {
+            let rows = build_rows(&root, &expanded);
+            let mut slot = pending.lock();
+            if slot
+                .as_ref()
+                .map(|(existing_epoch, _)| *existing_epoch <= epoch)
+                .unwrap_or(true)
+            {
+                *slot = Some((epoch, rows));
+            }
+        })
+        .is_ok()
 }
 
 fn walk_into(expanded: &HashSet<PathBuf>, dir: &Path, depth: usize, rows: &mut Vec<TreeRow>) {
@@ -248,7 +282,8 @@ fn walk_into(expanded: &HashSet<PathBuf>, dir: &Path, depth: usize, rows: &mut V
         let is_system_root = at_fs_root
             && matches!(
                 basename.as_str(),
-                "dev" | "proc"
+                "dev"
+                    | "proc"
                     | "sys"
                     | "private"
                     | "cores"

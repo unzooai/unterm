@@ -23,7 +23,7 @@ use crate::paths;
 use std::time::Duration;
 
 const MANIFEST_URL: &str = "https://unterm.app/api/agents/manifests";
-const NETWORK_TIMEOUT: Duration = Duration::from_secs(3);
+const NETWORK_TIMEOUT: Duration = Duration::from_millis(750);
 
 const BAKED_FALLBACK: &[u8] = include_bytes!("../baked/manifests-fallback.json");
 
