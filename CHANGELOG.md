@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.52.0 — 2026-06-29
+
+### Added
+
+- **More AI agents recognized out of the box.** The baked agent manifest now ships definitions for **Kimi Code CLI** (Moonshot login or BYO key) and **Trae Agent** (provider / model / config-driven), so they are auto-discovered and registerable like the existing agents without a manifest refresh.
+
+### Fixed
+
+- **Windows windows can always be grown again.** The window minimum size is now clamped so a window can no longer be shrunk to a tiny size that left it impossible to drag back larger.
+- **Windows clipboard survives transient contention.** Copy/paste now retries when another process briefly holds the Windows clipboard open, instead of failing the operation outright.
+
+### Performance
+
+- **Fewer GUI stalls.** The left tab bar, status bar, top stats bar, ghost-text, and pane paint paths were reworked to cut per-frame work, keeping the UI responsive under load.
+
 ## v0.51.1 — 2026-06-20
 
 ### Fixed
