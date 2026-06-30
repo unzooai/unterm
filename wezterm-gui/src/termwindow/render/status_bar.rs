@@ -792,22 +792,29 @@ impl crate::TermWindow {
             // OSC 7 carries the hostname; on the local machine that's
             // typically "localhost", but multiplexer-mode and remote
             // panes (Linux container / SSH host) report a real
-            // hostname like "ubuntu". `to_file_path()` only succeeds
-            // when host is empty/localhost — for everything else it
-            // returns Err and we previously fell back to the raw URL
-            // (ugly: `file://ubuntu/home/alexlee` showing up in the
-            // status bar). Strip to just the path component instead.
-            if let Ok(p) = cwd.to_file_path() {
-                p.display().to_string()
-            } else {
-                let s = cwd.as_str();
-                s.strip_prefix("file://")
-                    .and_then(|rest| {
-                        rest.split_once('/')
-                            .map(|(_host, path)| format!("/{}", path))
-                    })
-                    .unwrap_or_else(|| s.to_string())
+            // hostname like "ubuntu". For those we want just the path
+            // component (`/home/alexlee`), not `file://ubuntu/home/...`.
+            //
+            // Check for a real remote host BEFORE `to_file_path()`: on
+            // Windows that call treats `file://ubuntu/home` as the UNC
+            // path `\\ubuntu\home` and succeeds, so the host would
+            // survive as `//ubuntu/home` after backslash normalization.
+            // Only fall through to `to_file_path()` for local URLs.
+            let has_remote_host = cwd
+                .host_str()
+                .map_or(false, |h| !h.is_empty() && h != "localhost");
+            if !has_remote_host {
+                if let Ok(p) = cwd.to_file_path() {
+                    return p.display().to_string();
+                }
             }
+            let s = cwd.as_str();
+            s.strip_prefix("file://")
+                .and_then(|rest| {
+                    rest.split_once('/')
+                        .map(|(_host, path)| format!("/{}", path))
+                })
+                .unwrap_or_else(|| s.to_string())
         });
         let Some(path) = raw else {
             return "~".to_string();
