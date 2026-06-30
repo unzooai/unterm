@@ -391,11 +391,14 @@ impl crate::TermWindow {
                     top: Dimension::Cells(0.),
                     bottom: Dimension::Cells(0.),
                 })
+                // Match quick_button's vertical padding (0.45) so the menu
+                // button is the same height as the action icons beside it
+                // instead of reading as a shorter, odd-sized button.
                 .padding(BoxDimension {
                     left: Dimension::Cells(0.5),
                     right: Dimension::Cells(0.5),
-                    top: Dimension::Cells(0.3),
-                    bottom: Dimension::Cells(0.3),
+                    top: Dimension::Cells(0.45),
+                    bottom: Dimension::Cells(0.45),
                 })
                 .border(BoxDimension::new(Dimension::Pixels(1.)))
                 .colors(ElementColors {
