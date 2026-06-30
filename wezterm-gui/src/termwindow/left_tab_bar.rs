@@ -923,6 +923,9 @@ impl crate::TermWindow {
                             top: Dimension::Pixels(0.),
                             bottom: Dimension::Pixels(0.),
                         })
+                        // Otty-style: the active row reads as a clean rounded
+                        // selection rather than a sharp full-bleed rectangle.
+                        .border_corners(if row.active { rounded() } else { None })
                         .colors(ElementColors {
                             border: row_border,
                             bg: row_bg.into(),
