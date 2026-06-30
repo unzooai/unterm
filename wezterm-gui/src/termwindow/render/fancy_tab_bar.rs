@@ -385,20 +385,20 @@ impl crate::TermWindow {
             Element::new(&font, ElementContent::Text("\u{eab4}".to_string()))
                 .vertical_align(VerticalAlign::Middle)
                 .item_type(UIItemType::TabBar(TabBarItem::MenuButton))
+                // Same margin/padding as quick_button so the menu button is the
+                // same height and inset from the bar edges (vertical breathing
+                // room) instead of filling the chrome top-to-bottom.
                 .margin(BoxDimension {
                     left: Dimension::Cells(0.5),
                     right: Dimension::Cells(0.),
-                    top: Dimension::Cells(0.),
-                    bottom: Dimension::Cells(0.),
+                    top: Dimension::Cells(0.22),
+                    bottom: Dimension::Cells(0.22),
                 })
-                // Match quick_button's vertical padding (0.45) so the menu
-                // button is the same height as the action icons beside it
-                // instead of reading as a shorter, odd-sized button.
                 .padding(BoxDimension {
                     left: Dimension::Cells(0.5),
                     right: Dimension::Cells(0.5),
-                    top: Dimension::Cells(0.45),
-                    bottom: Dimension::Cells(0.45),
+                    top: Dimension::Cells(0.28),
+                    bottom: Dimension::Cells(0.28),
                 })
                 .border(BoxDimension::new(Dimension::Pixels(1.)))
                 .colors(ElementColors {
@@ -427,17 +427,20 @@ impl crate::TermWindow {
                 // Margin doubled (0.25 → 0.5 cells) so icons breathe instead
                 // of clumping at the right edge; padding bumped vertically
                 // so the glyph sits visually centered in the taller bar.
+                // Top/bottom margin insets the button from the bar edges so it
+                // no longer fills the chrome top-to-bottom; padding shrinks to
+                // keep the glyph the same size while opening up the gap.
                 .margin(BoxDimension {
                     left: Dimension::Cells(0.5),
                     right: Dimension::Cells(0.),
-                    top: Dimension::Cells(0.),
-                    bottom: Dimension::Cells(0.),
+                    top: Dimension::Cells(0.22),
+                    bottom: Dimension::Cells(0.22),
                 })
                 .padding(BoxDimension {
                     left: Dimension::Cells(0.5),
                     right: Dimension::Cells(0.5),
-                    top: Dimension::Cells(0.45),
-                    bottom: Dimension::Cells(0.45),
+                    top: Dimension::Cells(0.28),
+                    bottom: Dimension::Cells(0.28),
                 })
                 .border(BoxDimension::new(Dimension::Pixels(1.)))
                 .colors(ElementColors {
