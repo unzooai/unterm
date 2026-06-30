@@ -700,9 +700,27 @@ impl crate::TermWindow {
                         } else {
                             label.to_uppercase()
                         };
-                        let header_text = format!("{label_disp}   {count}");
+                        // Project name on the left; the tab count is demoted to a
+                        // faint right-floated number instead of an inline
+                        // "LABEL   10" string that read as debug clutter.
+                        let header_kids = vec![
+                            Element::new(&font, ElementContent::Text(label_disp)).colors(
+                                ElementColors {
+                                    border: BorderColor::default(),
+                                    bg: LinearRgba::TRANSPARENT.into(),
+                                    text: dim.mul_alpha(0.72).into(),
+                                },
+                            ),
+                            Element::new(&font, ElementContent::Text(count.to_string()))
+                                .float(Float::Right)
+                                .colors(ElementColors {
+                                    border: BorderColor::default(),
+                                    bg: LinearRgba::TRANSPARENT.into(),
+                                    text: dim.mul_alpha(0.4).into(),
+                                }),
+                        ];
                         children.push(
-                            Element::new(&font, ElementContent::Text(header_text))
+                            Element::new(&font, ElementContent::Children(header_kids))
                                 .display(DisplayType::Block)
                                 .min_width(Some(Dimension::Percent(1.)))
                                 .margin(BoxDimension {
@@ -713,14 +731,14 @@ impl crate::TermWindow {
                                 })
                                 .padding(BoxDimension {
                                     left: Dimension::Pixels(9. * pt),
-                                    right: Dimension::Pixels(8. * pt),
+                                    right: Dimension::Pixels(10. * pt),
                                     top: Dimension::Pixels(9. * pt),
                                     bottom: Dimension::Pixels(9. * pt),
                                 })
                                 .colors(ElementColors {
                                     border: BorderColor::default(),
                                     bg: LinearRgba::TRANSPARENT.into(),
-                                    text: dim.mul_alpha(0.8).into(),
+                                    text: dim.mul_alpha(0.72).into(),
                                 }),
                         );
                         continue;
