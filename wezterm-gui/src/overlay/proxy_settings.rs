@@ -2,7 +2,7 @@
 
 use mux::termwiztermtab::TermWizTerminal;
 use serde_json::{json, Value};
-use termwiz::cell::CellAttributes;
+use termwiz::cell::{unicode_column_width, CellAttributes};
 use termwiz::input::{InputEvent, KeyCode, KeyEvent};
 use termwiz::surface::{Change, Position};
 use termwiz::terminal::Terminal;
@@ -293,7 +293,7 @@ impl ProxyState {
         bg: (u8, u8, u8),
     ) {
         let visible = truncate_chars(text, card_w.saturating_sub(2));
-        let pad = card_w.saturating_sub(visible.chars().count());
+        let pad = card_w.saturating_sub(unicode_column_width(&visible, None));
         changes.push(Change::CursorPosition {
             x: Position::Absolute(start_x),
             y: Position::Absolute(row),
@@ -447,10 +447,21 @@ fn proxy_config_path() -> std::path::PathBuf {
 }
 
 fn truncate_chars(text: &str, max: usize) -> String {
-    if text.chars().count() <= max {
+    // Truncate by display width, not char count, so full-width CJK text
+    // doesn't overflow the card.
+    if unicode_column_width(text, None) <= max {
         return text.to_string();
     }
-    let mut out: String = text.chars().take(max.saturating_sub(3)).collect();
+    let mut out = String::new();
+    let mut w = 0usize;
+    for c in text.chars() {
+        let cw = unicode_column_width(&c.to_string(), None);
+        if w + cw > max.saturating_sub(3) {
+            break;
+        }
+        out.push(c);
+        w += cw;
+    }
     out.push_str("...");
     out
 }

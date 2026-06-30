@@ -3,7 +3,7 @@ use config::keyassignment::{Confirmation, KeyAssignment};
 use mux::termwiztermtab::TermWizTerminal;
 use mux_lua::MuxPane;
 use std::rc::Rc;
-use termwiz::cell::AttributeChange;
+use termwiz::cell::{unicode_column_width, AttributeChange};
 use termwiz::color::ColorAttribute;
 use termwiz::input::{InputEvent, KeyCode, KeyEvent, MouseButtons, MouseEvent};
 use termwiz::surface::{Change, CursorVisibility, Position};
@@ -37,10 +37,10 @@ fn run_confirmation_impl(message: &str, term: &mut TermWizTerminal) -> anyhow::R
     let yes_label = crate::i18n::t("confirm.yes");
     let no_label = crate::i18n::t("confirm.no");
     let yes_x = x_pos;
-    let yes_w = yes_label.chars().count();
+    let yes_w = unicode_column_width(&yes_label, None);
 
     let no_x =  yes_x + yes_w + 8 /* spacer */;
-    let no_w = no_label.chars().count();
+    let no_w = unicode_column_width(&no_label, None);
 
     #[derive(Copy, Clone, PartialEq, Eq)]
     enum ActiveButton {

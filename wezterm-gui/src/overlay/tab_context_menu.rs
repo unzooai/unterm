@@ -4,7 +4,7 @@
 use crate::termwindow::TermWindowNotif;
 use config::keyassignment::{KeyAssignment, SpawnCommand, SpawnTabDomain};
 use mux::termwiztermtab::TermWizTerminal;
-use termwiz::cell::CellAttributes;
+use termwiz::cell::{unicode_column_width, CellAttributes};
 use termwiz::input::{InputEvent, KeyCode, KeyEvent, Modifiers};
 use termwiz::surface::{Change, Position};
 use termwiz::terminal::Terminal;
@@ -215,7 +215,7 @@ impl TabMenuState {
         // Title
         let title_text = format!("  Tab {}", self.tab_idx + 1);
         let accent = "◆";
-        let right_pad = card_w.saturating_sub(title_text.chars().count() + 5);
+        let right_pad = card_w.saturating_sub(unicode_column_width(&title_text, None) + 5);
         changes.push(Change::CursorPosition {
             x: Position::Absolute(start_x),
             y: Position::Absolute(start_y + 1),
@@ -254,7 +254,7 @@ impl TabMenuState {
                     let is_selected = idx == self.active_idx;
                     let is_close = item.label == "Close Tab";
                     let left_part = format!(" {} {}", item.icon, item.label);
-                    let right_pad = card_w.saturating_sub(left_part.chars().count() + 4);
+                    let right_pad = card_w.saturating_sub(unicode_column_width(&left_part, None) + 4);
 
                     let (row_fg, row_bg) = if is_selected {
                         if is_close {
