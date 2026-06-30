@@ -602,6 +602,45 @@ impl crate::TermWindow {
             Dimension::Cells(0.5)
         };
 
+        // Brand mark at the far left of the info (top) bar: a terminal glyph
+        // in the theme accent + the "Unterm" wordmark. Skipped on macOS (the
+        // traffic lights own that corner) and whenever window buttons are
+        // left-aligned, so the mark never collides with them.
+        #[cfg(not(target_os = "macos"))]
+        if !window_buttons_at_left {
+            let brand_fg = palette.foreground.to_linear();
+            let brand_accent = palette
+                .resolve_fg(ColorAttribute::PaletteIndex(14))
+                .to_linear();
+            let brand_kids = vec![
+                Element::new(&font, ElementContent::Text("\u{ea85}".to_string()))
+                    .vertical_align(VerticalAlign::Middle)
+                    .colors(ElementColors {
+                        border: BorderColor::default(),
+                        bg: window::color::LinearRgba::TRANSPARENT.into(),
+                        text: brand_accent.into(),
+                    }),
+                Element::new(&font, ElementContent::Text(" Unterm".to_string()))
+                    .vertical_align(VerticalAlign::Middle)
+                    .colors(ElementColors {
+                        border: BorderColor::default(),
+                        bg: window::color::LinearRgba::TRANSPARENT.into(),
+                        text: brand_fg.into(),
+                    }),
+            ];
+            left_eles.insert(
+                0,
+                Element::new(&font, ElementContent::Children(brand_kids))
+                    .vertical_align(VerticalAlign::Middle)
+                    .margin(BoxDimension {
+                        left: Dimension::Cells(0.3),
+                        right: Dimension::Cells(0.7),
+                        top: Dimension::Cells(0.),
+                        bottom: Dimension::Cells(0.),
+                    }),
+            );
+        }
+
         children.push(
             Element::new(&font, ElementContent::Children(left_eles))
                 // Middle, not Bottom — traffic lights sat against the bottom
