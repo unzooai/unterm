@@ -114,6 +114,13 @@ fn maybe_register_ai_agents() {
                 .stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null());
+            #[cfg(windows)]
+            {
+                // CREATE_NO_WINDOW: unterm-cli is a console binary; without
+                // this it flashes a console window on first-run registration.
+                use std::os::windows::process::CommandExt;
+                cmd.creation_flags(0x0800_0000);
+            }
             match cmd.spawn() {
                 // Wait so the thread (and any test harness) can observe the
                 // child finished; on the GUI it's a detached worker thread so

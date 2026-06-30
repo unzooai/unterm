@@ -173,7 +173,10 @@ pub fn apply_updates(
         // Run validate_after_write if present.
         if let Some(v) = &storage.validate_after_write {
             if let Some((bin, args)) = v.cmd.split_first() {
-                let out = std::process::Command::new(bin).args(args).output();
+                // Route through spawn_command so the validate step gets
+                // CREATE_NO_WINDOW on Windows — otherwise setup-ai's first-run
+                // registration flashes a console window at GUI startup.
+                let out = crate::installer::spawn_command(bin).args(args).output();
                 match out {
                     Ok(o) if o.status.code() == Some(v.expect_exit) => {}
                     Ok(o) => {

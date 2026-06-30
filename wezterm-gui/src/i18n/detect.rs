@@ -117,6 +117,10 @@ fn detect_macos() -> Option<&'static str> {
 
 #[cfg(target_os = "windows")]
 fn detect_windows() -> Option<&'static str> {
+    use std::os::windows::process::CommandExt;
+    // CREATE_NO_WINDOW: this runs at GUI startup; without it `reg.exe`
+    // flashes a console window on every launch.
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     // Read HKCU\Control Panel\International:LocaleName via `reg query`.
     let output = std::process::Command::new("reg")
         .args([
@@ -125,6 +129,7 @@ fn detect_windows() -> Option<&'static str> {
             "/v",
             "LocaleName",
         ])
+        .creation_flags(CREATE_NO_WINDOW)
         .output()
         .ok()?;
     if !output.status.success() {

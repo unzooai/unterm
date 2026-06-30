@@ -31,7 +31,7 @@ pub struct DetectOutcome {
 /// `.ps1` goes through PowerShell. Native `.exe` and Unix binaries run as-is.
 /// This is what lets npm-installed CLIs (`codex.cmd`, `gemini.cmd`) and `npm`
 /// itself (`npm.cmd`) be detected and run from the GUI.
-fn spawn_command(resolved: &str) -> Command {
+pub(crate) fn spawn_command(resolved: &str) -> Command {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -537,7 +537,9 @@ fn run_script_text(
     }
 
     let resolved = which(interpreter).unwrap_or_else(|| interpreter.to_string());
-    let mut child = Command::new(&resolved);
+    // spawn_command applies CREATE_NO_WINDOW on Windows so the interpreter
+    // (python/sh -c …) doesn't flash a console window.
+    let mut child = spawn_command(&resolved);
     child.env("PATH", enriched_path());
     child.arg("-c").arg(text);
     let output = child.output().map_err(|e| AgentError::InstallFailed {

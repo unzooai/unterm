@@ -14,7 +14,7 @@ use crate::errors::{AgentError, Result};
 use crate::manifest::{AuthMethod, AuthSpec};
 use crate::secrets::AgentSecretStore;
 use std::io::{BufRead, BufReader};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -46,12 +46,14 @@ pub fn run_oauth_browser(auth: &AuthSpec) -> Result<AuthOutcome> {
     // Resolve + enrich PATH the same way install/detect do, so a Dock-launched
     // Unterm (minimal launchd PATH) can still find the vendor login binary.
     let resolved = crate::installer::which(bin).unwrap_or_else(|| bin.to_string());
-    let mut child = Command::new(&resolved)
-        .env("PATH", crate::installer::enriched_path())
+    // spawn_command applies CREATE_NO_WINDOW on Windows (no console flash).
+    let mut cmd = crate::installer::spawn_command(&resolved);
+    cmd.env("PATH", crate::installer::enriched_path())
         .args(iter)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .stdin(Stdio::null())
+        .stdin(Stdio::null());
+    let mut child = cmd
         .spawn()
         .map_err(|e| AgentError::AuthFailed(format!("spawn {resolved}: {e}")))?;
 
@@ -140,7 +142,8 @@ pub fn run_api_key(auth: &AuthSpec, profile_id: &str, raw_key: &str) -> Result<A
             .next()
             .ok_or_else(|| AgentError::AuthFailed("validate cmd is empty".into()))?;
         let resolved = crate::installer::which(bin).unwrap_or_else(|| bin.to_string());
-        let mut child = Command::new(&resolved);
+        // spawn_command applies CREATE_NO_WINDOW on Windows (no console flash).
+        let mut child = crate::installer::spawn_command(&resolved);
         child.env("PATH", crate::installer::enriched_path());
         for a in iter {
             child.arg(a);
