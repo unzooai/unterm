@@ -1227,18 +1227,32 @@ impl LocalPane {
         &self,
         policy: CachePolicy,
     ) -> Option<MappedMutexGuard<'_, CachedProcInfo>> {
-        if let ProcessState::Running { pid: Some(pid), .. } = &*self.process.lock() {
-            return self.divine_process_list_for_pid(*pid, policy);
-        }
-        None
+        // Copy the pid out and DROP the process lock before the call below.
+        // `divine_process_list_for_pid` re-locks `self.process`, and
+        // parking_lot mutexes are not reentrant, so holding it across the
+        // call self-deadlocks. (Keeping the guard alive via `if let ... =
+        // &*self.process.lock()` was the cause of the Windows startup hang
+        // where the window was created but never shown.)
+        let pid = match &*self.process.lock() {
+            ProcessState::Running { pid: Some(pid), .. } => *pid,
+            _ => return None,
+        };
+        self.divine_process_list_for_pid(pid, policy)
     }
 
     #[allow(dead_code)]
     fn divine_foreground_process(&self, policy: CachePolicy) -> Option<LocalProcessInfo> {
-        let ProcessState::Running { pid: Some(pid), .. } = &*self.process.lock() else {
-            return None;
+        // Copy the pid out and DROP the process lock before the call below.
+        // The `_for_pid` path re-locks `self.process` via
+        // `divine_process_list_for_pid`; parking_lot mutexes are not
+        // reentrant, so holding it across the call self-deadlocks. A `let-else`
+        // bind of `&*self.process.lock()` keeps the guard alive for the whole
+        // function — that was the Windows startup hang (window never shown).
+        let pid = match &*self.process.lock() {
+            ProcessState::Running { pid: Some(pid), .. } => *pid,
+            _ => return None,
         };
-        self.divine_foreground_process_for_pid(*pid, policy)
+        self.divine_foreground_process_for_pid(pid, policy)
     }
 
     fn divine_foreground_process_for_pid(
