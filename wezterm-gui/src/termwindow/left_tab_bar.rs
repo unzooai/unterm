@@ -825,15 +825,24 @@ impl crate::TermWindow {
                 // contrast, is only a faint fill with no bar — so an active row
                 // never reads the same as a merely-hovered one. This is what
                 // keeps a lingering hover from looking like a second selection.
-                let row_bg = if row.active {
-                    sel_bg
-                } else {
-                    LinearRgba::TRANSPARENT
-                };
+                // Accent: agent panes carry the agent's color (bright cyan);
+                // plain shells carry the theme's bright-blue (ANSI 12). Both are
+                // real hues from the user's palette — a grey cursor-white or a
+                // dimmed foreground is exactly what made the active tab read as
+                // a lifeless grey slab. Blue stays distinct from the agent cyan.
                 let accent = if row.agent.is_some() {
                     agent_color
                 } else {
-                    fg.mul_alpha(0.55)
+                    palette
+                        .resolve_fg(ColorAttribute::PaletteIndex(12))
+                        .to_linear()
+                };
+                let row_bg = if row.active {
+                    // Tie the active fill to the accent so the selection reads
+                    // as an intentional colored panel item, not a grey block.
+                    chrome_colors::mix(sel_bg, accent, 0.12)
+                } else {
+                    LinearRgba::TRANSPARENT
                 };
                 let row_border = BorderColor {
                     left: if row.active {
@@ -863,7 +872,7 @@ impl crate::TermWindow {
                             bottom: Dimension::Pixels(0.),
                         })
                         .border(BoxDimension {
-                            left: Dimension::Pixels(2. * pt),
+                            left: Dimension::Pixels(3. * pt),
                             right: Dimension::Pixels(0.),
                             top: Dimension::Pixels(0.),
                             bottom: Dimension::Pixels(0.),
