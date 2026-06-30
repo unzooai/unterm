@@ -79,6 +79,8 @@
   "menu.tree_sidebar": "目录树",
   "menu.left_tabs": "左侧标签栏",
   "menu.about_author": "关于 · 作者",
+  "menu.about_website": "官网 · unterm.app",
+  "menu.about_producer": "doaipm.com 出品",
   "sidebar.author_caption": "DO AI PM · By: zhitong",
   "profile.toast.no_profiles": "还没有 profile。创建一个：`unterm-cli profile create \"工作\"`。",
   "profile.toast.opening_window": "打开新窗口（profile: {name}）",

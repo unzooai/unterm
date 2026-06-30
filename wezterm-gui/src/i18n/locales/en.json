@@ -79,6 +79,8 @@
   "menu.tree_sidebar": "Directory Tree",
   "menu.left_tabs": "Left Tab Bar",
   "menu.about_author": "About / Author",
+  "menu.about_website": "Official site · unterm.app",
+  "menu.about_producer": "Made by doaipm.com",
   "sidebar.author_caption": "DO AI PM · By: zhitong",
   "profile.toast.no_profiles": "No profiles yet. Create one: `unterm-cli profile create \"Work\"`.",
   "profile.toast.opening_window": "Opening new window in {name}",

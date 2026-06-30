@@ -177,13 +177,27 @@ impl PopupMenu {
                 ui_icons::ICON_SLIDERS,
                 MenuAction::OpenWebSettings,
             ),
-            // Author / about. Lives at the very bottom so it never
-            // crowds any of the action items above it; kept as a plain
-            // link to doaipm.com per the user's request.
+            // About. Lives at the very bottom so it never crowds the
+            // action items above. Three lines: the version (click to copy
+            // the full build id for bug reports), the official site, and
+            // the producer link.
+            sep(),
             entry(
-                crate::i18n::t("menu.about_author"),
+                format!("Unterm v{}", env!("CARGO_PKG_VERSION")),
                 "",
                 ui_icons::ICON_PROMPT,
+                MenuAction::CopyText(config::wezterm_version().to_string()),
+            ),
+            entry(
+                crate::i18n::t("menu.about_website"),
+                "",
+                ui_icons::ICON_EXPORT,
+                MenuAction::OpenUrl("https://unterm.app".to_string()),
+            ),
+            entry(
+                crate::i18n::t("menu.about_producer"),
+                "",
+                ui_icons::ICON_EXPORT,
                 MenuAction::OpenUrl("https://doaipm.com".to_string()),
             ),
         ];
