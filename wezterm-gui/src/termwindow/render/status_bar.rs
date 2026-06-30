@@ -251,13 +251,16 @@ impl crate::TermWindow {
         let bar_width = self.dimensions.pixel_width as f32;
 
         let theme = crate::overlay::theme_selector::read_theme_id();
-        let (bar_bg_rgb, sep_rgb, fg_rgb) = status_bar_theme_colors(&theme);
-        let bar_bg = LinearRgba::with_components(
-            bar_bg_rgb.0 as f32 / 255.0,
-            bar_bg_rgb.1 as f32 / 255.0,
-            bar_bg_rgb.2 as f32 / 255.0,
-            1.0,
-        );
+        let (_bar_bg_rgb, sep_rgb, fg_rgb) = status_bar_theme_colors(&theme);
+        // Scheme A: match the bottom bar to the shared chrome tone (sidebar +
+        // top bar) so the sidebar↔bottom-bar corner meets seamlessly instead
+        // of stepping to a slightly different grey.
+        let pal = self.palette().clone();
+        let bar_bg = crate::termwindow::chrome_colors::sidebar(
+            pal.background.to_linear(),
+            pal.foreground.to_linear(),
+        )
+        .surface;
 
         // Draw the bar background on layer 1 (not 0) so it fully occludes
         // everything beneath it at the bottom of the window — in particular

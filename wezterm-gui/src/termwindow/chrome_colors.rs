@@ -26,11 +26,15 @@ pub fn is_light_surface(bg: LinearRgba) -> bool {
 
 pub fn sidebar(bg: LinearRgba, fg: LinearRgba) -> SidebarChromeColors {
     let is_light = is_light_surface(bg);
+    // Scheme A "layered neutral": the chrome (top bar + sidebar + bottom bar)
+    // shares ONE clearly-lifted tone so it reads as a continuous frame around
+    // the darker content, and the sidebar↔bar corners meet seamlessly. The
+    // previous near-zero lift (0.028) left the sidebar a different tone than
+    // the content-coloured bars, which made those corners read as a clash.
     let surface = if is_light {
-        mix(bg, fg, 0.065)
+        mix(bg, fg, 0.07)
     } else {
-        let lifted = mix(bg, fg, 0.028);
-        LinearRgba::with_components(lifted.0 * 0.965, lifted.1 * 0.965, lifted.2 * 0.965, 1.)
+        mix(bg, fg, 0.055)
     };
 
     SidebarChromeColors {

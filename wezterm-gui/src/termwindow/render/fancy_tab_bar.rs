@@ -93,14 +93,20 @@ impl crate::TermWindow {
         // `chrome_bottom_divider` still seals the bar's bottom edge.
         let scheme_bg = palette.background.to_linear();
         let scheme_fg = palette.foreground.to_linear();
+        // Scheme A: the top bar shares the sidebar's lifted chrome tone so the
+        // whole chrome (top + left sidebar + bottom) forms one continuous frame
+        // and the sidebar↔top-bar corner meets seamlessly, with the darker pane
+        // content inset inside it.
+        let chrome_surface =
+            crate::termwindow::chrome_colors::sidebar(scheme_bg, scheme_fg).surface;
         let bar_bg = if self.focused.is_some() {
             if self.config.window_frame.active_bg_is_default() {
-                scheme_bg
+                chrome_surface
             } else {
                 self.config.window_frame.active_titlebar_bg.to_linear()
             }
         } else if self.config.window_frame.inactive_bg_is_default() {
-            scheme_bg
+            chrome_surface
         } else {
             self.config.window_frame.inactive_titlebar_bg.to_linear()
         };
