@@ -4,7 +4,7 @@
 use crate::termwindow::TermWindowNotif;
 use config::keyassignment::{KeyAssignment, SpawnCommand};
 use mux::termwiztermtab::TermWizTerminal;
-use termwiz::cell::CellAttributes;
+use termwiz::cell::{unicode_column_width, CellAttributes};
 use termwiz::input::{InputEvent, KeyCode, KeyEvent, Modifiers};
 use termwiz::surface::{Change, Position};
 use termwiz::terminal::Terminal;
@@ -103,7 +103,7 @@ impl SelectorState {
         // ── Row 1: Title ──
         let title = crate::i18n::t("shell.title");
         let accent = "◆";
-        let right_pad = card_w.saturating_sub(title.chars().count() + 5);
+        let right_pad = card_w.saturating_sub(unicode_column_width(&title, None) + 5);
         changes.push(Change::CursorPosition {
             x: Position::Absolute(start_x),
             y: Position::Absolute(start_y + 1),
@@ -119,7 +119,7 @@ impl SelectorState {
 
         // ── Row 2: Subtitle ──
         let subtitle = crate::i18n::t("shell.subtitle");
-        let right_pad = card_w.saturating_sub(subtitle.chars().count() + 4);
+        let right_pad = card_w.saturating_sub(unicode_column_width(&subtitle, None) + 4);
         changes.push(Change::CursorPosition {
             x: Position::Absolute(start_x),
             y: Position::Absolute(start_y + 2),
@@ -154,8 +154,9 @@ impl SelectorState {
             let indicator = if is_selected { "▸" } else { " " };
             let left_part = format!("  {} {} {}", indicator, entry.icon, entry.label);
             let right_part = format!("{}  ", shortcut_str);
-            let middle_pad =
-                card_w.saturating_sub(left_part.chars().count() + right_part.chars().count() + 4);
+            let middle_pad = card_w.saturating_sub(
+                unicode_column_width(&left_part, None) + unicode_column_width(&right_part, None) + 4,
+            );
 
             let (row_fg, row_bg, shortcut_fg) = if is_selected {
                 (TEXT, SURFACE0, MAUVE)
@@ -193,7 +194,7 @@ impl SelectorState {
 
         // ── Footer: key hints ──
         let hints = crate::i18n::t("shell.footer.hint");
-        let hint_pad = card_w.saturating_sub(hints.chars().count() + 4);
+        let hint_pad = card_w.saturating_sub(unicode_column_width(&hints, None) + 4);
         changes.push(Change::CursorPosition {
             x: Position::Absolute(start_x),
             y: Position::Absolute(footer_y + 1),
