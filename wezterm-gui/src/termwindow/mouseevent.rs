@@ -376,9 +376,15 @@ impl super::TermWindow {
                     // Completed a window drag
                     return;
                 }
-                if press == &MousePress::Left && self.dragging.take().is_some() {
-                    // Completed a drag
-                    return;
+                if press == &MousePress::Left {
+                    if let Some((item, _)) = self.dragging.take() {
+                        // A throttled sidebar resize-drag does its final,
+                        // exact-width reflow here on release.
+                        if matches!(item.item_type, UIItemType::LeftTabBarResize) {
+                            self.finish_left_tab_bar_resize();
+                        }
+                        return;
+                    }
                 }
             }
 

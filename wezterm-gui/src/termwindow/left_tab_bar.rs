@@ -58,6 +58,9 @@ pub struct LeftTabBar {
     cached: Option<ComputedElement>,
     cached_key: Option<LeftTabBarCacheKey>,
     cached_at: Option<Instant>,
+    /// Last time a live resize-drag ran the expensive PTY reflow, used to
+    /// throttle it to ~25fps so dragging the divider stays smooth.
+    last_reflow: Option<Instant>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -323,6 +326,32 @@ impl crate::TermWindow {
                 bar.invalidate_cache();
             }
         }
+        if let Some(window) = self.window.as_ref().cloned() {
+            // Throttle the expensive PTY reflow to ~25fps during a live drag.
+            // Reflowing every mouse-move (~125Hz) resized every pane and
+            // re-gathered every tab's metadata each frame, which is what made
+            // the divider drag feel laggy. The sidebar still repaints every
+            // frame so it tracks the cursor; the drag-release does a final
+            // reflow to land on the exact width.
+            let now = Instant::now();
+            let due = {
+                let bar = self.left_tab_bar.borrow();
+                bar.last_reflow
+                    .map_or(true, |t| now.duration_since(t) >= Duration::from_millis(40))
+            };
+            if due {
+                self.left_tab_bar.borrow_mut().last_reflow = Some(now);
+                let dims = self.dimensions;
+                self.apply_dimensions(&dims, None, &window);
+            }
+            window.invalidate();
+        }
+    }
+
+    /// Settle the terminal at the exact final width after a throttled
+    /// resize-drag ends (see `resize_left_tab_bar`).
+    pub(crate) fn finish_left_tab_bar_resize(&mut self) {
+        self.left_tab_bar.borrow_mut().last_reflow = None;
         if let Some(window) = self.window.as_ref().cloned() {
             let dims = self.dimensions;
             self.apply_dimensions(&dims, None, &window);
