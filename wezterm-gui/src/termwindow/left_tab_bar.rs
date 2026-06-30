@@ -30,6 +30,7 @@ use config::{Dimension, DimensionContext};
 use mux::Mux;
 use std::time::{Duration, Instant};
 use wezterm_term::color::ColorAttribute;
+use wezterm_term::terminal::Progress;
 use window::color::LinearRgba;
 use window::WindowOps;
 
@@ -94,6 +95,10 @@ struct RowInfo {
     agent: Option<String>,
     /// Last component of the active pane's working directory.
     dir: Option<String>,
+    /// New output since the tab was last focused — drives the unread dot.
+    has_unseen: bool,
+    /// OSC 9;4 progress state (running / error), when the program reports it.
+    progress: Progress,
 }
 
 /// A single rendered line in the sidebar's scroll window. Tabs are grouped
@@ -534,12 +539,19 @@ impl crate::TermWindow {
                     Some(p) => crate::mcp::handler::agent_and_cwd_for_pane(p.pane_id() as u64),
                     None => (None, None),
                 };
+                let has_unseen = pane.as_ref().map(|p| p.has_unseen_output()).unwrap_or(false);
+                let progress = pane
+                    .as_ref()
+                    .map(|p| p.get_progress())
+                    .unwrap_or_default();
                 RowInfo {
                     tab_idx: idx,
                     active: idx == active_idx,
                     title,
                     agent,
                     dir,
+                    has_unseen,
+                    progress,
                 }
             })
             .collect();
@@ -630,12 +642,14 @@ impl crate::TermWindow {
                         format!("g:{label}:{count}")
                     }
                     DisplayRow::Tab(row) => format!(
-                        "t:{}:{}:{}:{}:{}",
+                        "t:{}:{}:{}:{}:{}:{}:{:?}",
                         row.tab_idx,
                         row.active,
                         row.title,
                         row.agent.as_deref().unwrap_or(""),
-                        row.dir.as_deref().unwrap_or("")
+                        row.dir.as_deref().unwrap_or(""),
+                        row.has_unseen,
+                        row.progress
                     ),
                 })
                 .collect(),
@@ -798,6 +812,38 @@ impl crate::TermWindow {
                             ),
                         );
                     }
+                }
+
+                // Right-aligned activity indicator (Otty-style): a running/error
+                // state the program reported (OSC 9;4), else an unread-output dot.
+                // The active row shows nothing — you're already looking at it.
+                let indicator: Option<LinearRgba> = if row.active {
+                    None
+                } else {
+                    match row.progress {
+                        Progress::Error(_) => {
+                            Some(palette.resolve_fg(ColorAttribute::PaletteIndex(9)).to_linear())
+                        }
+                        Progress::Percentage(_) | Progress::Indeterminate => {
+                            Some(palette.resolve_fg(ColorAttribute::PaletteIndex(10)).to_linear())
+                        }
+                        Progress::None if row.has_unseen => {
+                            Some(palette.resolve_fg(ColorAttribute::PaletteIndex(12)).to_linear())
+                        }
+                        Progress::None => None,
+                    }
+                };
+                if let Some(color) = indicator {
+                    line_kids.push(
+                        Element::new(&font, ElementContent::Text("\u{25cf}".to_string()))
+                            .float(Float::Right)
+                            .vertical_align(VerticalAlign::Middle)
+                            .colors(ElementColors {
+                                border: BorderColor::default(),
+                                bg: LinearRgba::TRANSPARENT.into(),
+                                text: color.into(),
+                            }),
+                    );
                 }
                 // Insets live on the content (not the row) because row padding
                 // would create a second visible grey layer around the selected
