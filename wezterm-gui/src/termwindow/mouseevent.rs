@@ -695,6 +695,11 @@ impl super::TermWindow {
         context: &dyn WindowOps,
     ) {
         self.last_ui_item.replace(item.clone());
+        // Default the cursor to Arrow for every chrome item; only the resize
+        // grips below override it to the ↔ cursor. Without this, the cursor
+        // was never reset when moving off the resize edge onto a tab, so it
+        // stayed horizontal while switching tabs.
+        context.set_cursor(Some(MouseCursor::Arrow));
         match item.item_type {
             UIItemType::TabBar(item) => {
                 self.mouse_event_tab_bar(item, event, context);

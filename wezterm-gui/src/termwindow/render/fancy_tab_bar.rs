@@ -127,7 +127,10 @@ impl crate::TermWindow {
         // one continuous panel (user's recurring "sidebar 压住顶栏"
         // complaint). 0.4 alpha was chosen after a 0.12 trial in v0.44.3
         // — that line was visible in code but invisible on screen.
-        let chrome_bottom_divider = bar_fg.mul_alpha(0.4);
+        // Scheme A: the chrome (top bar + sidebar + bottom) is now one tone, so
+        // the old 0.4-alpha bottom line just cut across the unified frame. Drop
+        // it — the chrome↔content tone contrast already defines the edge.
+        let chrome_bottom_divider = window::color::LinearRgba::TRANSPARENT;
         let bar_colors = ElementColors {
             border: BorderColor {
                 left: window::color::LinearRgba::TRANSPARENT,
@@ -210,7 +213,9 @@ impl crate::TermWindow {
                 .border(BoxDimension::new(Dimension::Pixels(1.)))
                 .colors(ElementColors {
                     border: BorderColor::default(),
-                    bg: new_tab.bg_color.to_linear().into(),
+                    // Frameless: transparent until hovered, so the icons float
+                    // on the chrome instead of sitting in visible boxes.
+                    bg: window::color::LinearRgba::TRANSPARENT.into(),
                     text: new_tab.fg_color.to_linear().into(),
                 })
                 .hover_colors(Some(ElementColors {
@@ -409,7 +414,9 @@ impl crate::TermWindow {
                 .border(BoxDimension::new(Dimension::Pixels(1.)))
                 .colors(ElementColors {
                     border: BorderColor::default(),
-                    bg: new_tab.bg_color.to_linear().into(),
+                    // Frameless: transparent until hovered, so the icons float
+                    // on the chrome instead of sitting in visible boxes.
+                    bg: window::color::LinearRgba::TRANSPARENT.into(),
                     text: new_tab.fg_color.to_linear().into(),
                 })
                 .hover_colors(Some(ElementColors {
@@ -451,7 +458,9 @@ impl crate::TermWindow {
                 .border(BoxDimension::new(Dimension::Pixels(1.)))
                 .colors(ElementColors {
                     border: BorderColor::default(),
-                    bg: new_tab.bg_color.to_linear().into(),
+                    // Frameless: transparent until hovered, so the icons float
+                    // on the chrome instead of sitting in visible boxes.
+                    bg: window::color::LinearRgba::TRANSPARENT.into(),
                     text: new_tab.fg_color.to_linear().into(),
                 })
                 .hover_colors(Some(ElementColors {
