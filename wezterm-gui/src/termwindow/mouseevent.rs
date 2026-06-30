@@ -25,7 +25,10 @@ use wezterm_term::{ClickPosition, LastMouseClick, StableRowIndex};
 
 impl super::TermWindow {
     fn resolve_left_sidebar_resize_edge(&self, event: &MouseEvent) -> Option<UIItem> {
-        self.resolve_left_sidebar_resize_edge_with_tolerance(event, 14.0, 14)
+        // 14pt was a ~23px grab zone that bled the ↔ resize cursor far across
+        // the tab rows, so moving the mouse to switch tabs flipped the cursor.
+        // 8pt keeps an easy grab while the resize cursor stays near the edge.
+        self.resolve_left_sidebar_resize_edge_with_tolerance(event, 8.0, 8)
     }
 
     fn resolve_left_sidebar_resize_divider(&self, event: &MouseEvent) -> Option<UIItem> {
