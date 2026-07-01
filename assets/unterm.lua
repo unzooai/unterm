@@ -241,6 +241,8 @@ config.keys = {
   { key = 'S', mods = 'CTRL|SHIFT', action = act.CaptureScrollbackPng },
   -- 目录跳转面板
   { key = 'O', mods = 'CTRL|SHIFT', action = act.ShowDirJump },
+  -- Composer / 提示词队列
+  { key = 'J', mods = 'CTRL|SHIFT', action = act.ToggleComposer },
   -- 目录树侧栏
   { key = 'B', mods = 'CTRL|SHIFT', action = act.ToggleTreeSidebar },
   -- Git 源码控制面板(右侧)

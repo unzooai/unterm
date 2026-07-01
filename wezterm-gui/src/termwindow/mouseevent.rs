@@ -257,6 +257,22 @@ impl super::TermWindow {
                 context.set_cursor(Some(MouseCursor::Arrow));
                 return;
             }
+            if modal
+                .downcast_ref::<crate::termwindow::composer::Composer>()
+                .is_some()
+            {
+                // The composer is keyboard-driven; swallow all mouse input so
+                // stray clicks don't fall through to the pane behind. A press
+                // that misses the card dismisses the overlay.
+                let item = self.resolve_ui_item(&event);
+                match (&event.kind, item.as_ref().map(|i| &i.item_type)) {
+                    (WMEK::Press(_), Some(UIItemType::PopupMenuCard)) => {}
+                    (WMEK::Press(_), _) => self.cancel_modal(),
+                    _ => {}
+                }
+                context.set_cursor(Some(MouseCursor::Arrow));
+                return;
+            }
             if let Some(jump) = modal.downcast_ref::<crate::termwindow::dir_jump::DirJump>() {
                 let item = self.resolve_ui_item(&event);
                 match (&event.kind, item.as_ref().map(|i| &i.item_type)) {

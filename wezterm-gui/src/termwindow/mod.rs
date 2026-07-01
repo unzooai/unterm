@@ -74,6 +74,7 @@ pub mod box_model;
 pub mod charselect;
 pub mod chrome_colors;
 pub mod clipboard;
+pub mod composer;
 pub mod dir_jump;
 pub mod keyevent;
 pub mod left_tab_bar;
@@ -562,6 +563,9 @@ pub struct TermWindow {
     dragging: Option<(UIItem, MouseEvent)>,
 
     modal: RefCell<Option<Rc<dyn Modal>>>,
+    /// Composer + prompt-queue state; persists across opening/closing the
+    /// overlay within a session (see `composer.rs`).
+    composer: RefCell<crate::termwindow::composer::ComposerState>,
     prewarmed_settings_menu: RefCell<Option<Rc<crate::termwindow::popup_menu::PopupMenu>>>,
     /// v0.40: left directory-tree sidebar; None = closed.
     pub(crate) tree_sidebar: RefCell<Option<crate::termwindow::tree_sidebar::TreeSidebar>>,
@@ -1033,6 +1037,7 @@ impl TermWindow {
             is_click_to_focus_window: false,
             key_table_state: KeyTableState::default(),
             modal: RefCell::new(None),
+            composer: RefCell::new(Default::default()),
             prewarmed_settings_menu: RefCell::new(None),
             tree_sidebar: RefCell::new(None),
             git_panel: RefCell::new(None),
@@ -3055,6 +3060,245 @@ impl TermWindow {
         }
     }
 
+    /// Toggle the Composer + prompt-queue overlay. The queue itself lives on
+    /// `self.composer` and is preserved across toggles within a session.
+    pub(crate) fn toggle_composer(&mut self) {
+        let is_open = self
+            .get_modal()
+            .map_or(false, |m| m.downcast_ref::<composer::Composer>().is_some());
+        if is_open {
+            self.cancel_modal();
+        } else {
+            self.set_modal(std::rc::Rc::new(composer::Composer::new()));
+        }
+    }
+
+    /// Rebuild the composer overlay's cached element and repaint.
+    pub(crate) fn invalidate_composer(&mut self) {
+        self.invalidate_modal();
+    }
+
+    /// Move the enqueued draft (if non-empty) onto the back of the queue.
+    pub(crate) fn composer_enqueue(&mut self) {
+        {
+            let mut c = self.composer.borrow_mut();
+            let draft = std::mem::take(&mut c.draft);
+            let trimmed = draft.trim();
+            if trimmed.is_empty() {
+                c.draft = draft;
+                return;
+            }
+            c.queue.push(trimmed.to_string());
+            c.selected = c.queue.len().saturating_sub(1);
+            c.status = None;
+        }
+        self.invalidate_composer();
+    }
+
+    pub(crate) fn composer_move_selection(&mut self, delta: isize) {
+        {
+            let mut c = self.composer.borrow_mut();
+            if c.queue.is_empty() {
+                return;
+            }
+            let len = c.queue.len() as isize;
+            let next = (c.selected as isize + delta).rem_euclid(len);
+            c.selected = next as usize;
+        }
+        self.invalidate_composer();
+    }
+
+    pub(crate) fn composer_remove_selected(&mut self) {
+        {
+            let mut c = self.composer.borrow_mut();
+            // Don't yank the prompt out from under an in-flight run.
+            if c.is_running() {
+                return;
+            }
+            let idx = c.selected;
+            if idx < c.queue.len() {
+                c.queue.remove(idx);
+                if c.selected >= c.queue.len() {
+                    c.selected = c.queue.len().saturating_sub(1);
+                }
+            }
+        }
+        self.invalidate_composer();
+    }
+
+    pub(crate) fn composer_clear(&mut self) {
+        {
+            let mut c = self.composer.borrow_mut();
+            if c.is_running() {
+                return;
+            }
+            c.queue.clear();
+            c.selected = 0;
+            c.status = None;
+        }
+        self.invalidate_composer();
+    }
+
+    /// Begin dispatching the queue to the active pane, one prompt at a time.
+    pub(crate) fn composer_run_start(&mut self) {
+        let pane_id = match self.get_active_pane_or_overlay() {
+            Some(pane) => pane.pane_id(),
+            None => return,
+        };
+        {
+            let mut c = self.composer.borrow_mut();
+            if c.is_running() || c.queue.is_empty() {
+                return;
+            }
+            c.generation = c.generation.wrapping_add(1);
+            let now = std::time::Instant::now();
+            c.run = Some(composer::RunState {
+                generation: c.generation,
+                pane_id,
+                last_seqno: 0,
+                last_change: now,
+                sent_at: now,
+            });
+            c.status = Some("Running…".to_string());
+        }
+        self.composer_send_current();
+        self.invalidate_composer();
+    }
+
+    /// Write the front-of-queue prompt to the run's pane, followed by Enter,
+    /// then arm the idle poll. If the queue is empty, the run is finished.
+    fn composer_send_current(&mut self) {
+        let (pane_id, generation, text) = {
+            let c = self.composer.borrow();
+            match &c.run {
+                Some(run) => (run.pane_id, run.generation, c.queue.first().cloned()),
+                None => return,
+            }
+        };
+        let Some(text) = text else {
+            self.composer_finish(Some("Queue complete".to_string()));
+            return;
+        };
+        let pane = match mux::Mux::get().get_pane(pane_id) {
+            Some(pane) => pane,
+            None => {
+                self.composer_finish(Some("Run stopped: pane closed".to_string()));
+                return;
+            }
+        };
+        {
+            let mut writer = pane.writer();
+            let mut bytes = text.into_bytes();
+            bytes.push(b'\r');
+            if let Err(err) = writer.write_all(&bytes) {
+                log::warn!("composer: failed to write prompt: {err:#}");
+                self.composer_finish(Some("Run stopped: write error".to_string()));
+                return;
+            }
+        }
+        let seqno = pane.get_current_seqno();
+        {
+            let mut c = self.composer.borrow_mut();
+            if let Some(run) = c.run.as_mut() {
+                let now = std::time::Instant::now();
+                run.last_seqno = seqno;
+                run.last_change = now;
+                run.sent_at = now;
+            }
+        }
+        self.schedule_composer_poll(generation);
+    }
+
+    /// Poll callback: detect pane idle and advance / finish the run.
+    pub(crate) fn composer_poll_idle(&mut self, generation: u64) {
+        enum Next {
+            Reschedule,
+            Advance,
+            Abort,
+        }
+        let next = {
+            let mut c = self.composer.borrow_mut();
+            let Some(run) = c.run.as_mut() else {
+                return;
+            };
+            if run.generation != generation {
+                return;
+            }
+            match mux::Mux::get().get_pane(run.pane_id) {
+                None => Next::Abort,
+                Some(pane) => {
+                    let seq = pane.get_current_seqno();
+                    let now = std::time::Instant::now();
+                    if seq != run.last_seqno {
+                        run.last_seqno = seq;
+                        run.last_change = now;
+                    }
+                    if now.duration_since(run.last_change) >= composer::IDLE_DEBOUNCE
+                        && now.duration_since(run.sent_at) >= composer::MIN_GRACE
+                    {
+                        Next::Advance
+                    } else {
+                        Next::Reschedule
+                    }
+                }
+            }
+        };
+        match next {
+            Next::Reschedule => self.schedule_composer_poll(generation),
+            Next::Abort => self.composer_finish(Some("Run stopped: pane closed".to_string())),
+            Next::Advance => {
+                let empty = {
+                    let mut c = self.composer.borrow_mut();
+                    if !c.queue.is_empty() {
+                        c.queue.remove(0);
+                    }
+                    c.selected = 0;
+                    c.queue.is_empty()
+                };
+                if empty {
+                    self.composer_finish(Some("Queue complete".to_string()));
+                } else {
+                    self.composer_send_current();
+                    self.invalidate_composer();
+                }
+            }
+        }
+    }
+
+    /// Stop an in-flight run, leaving any remaining prompts in the queue.
+    pub(crate) fn composer_stop(&mut self) {
+        let was_running = self.composer.borrow().is_running();
+        if was_running {
+            self.composer_finish(Some("Stopped".to_string()));
+        }
+    }
+
+    fn composer_finish(&mut self, status: Option<String>) {
+        {
+            let mut c = self.composer.borrow_mut();
+            // Bump the generation so any already-scheduled poll is ignored.
+            c.generation = c.generation.wrapping_add(1);
+            c.run = None;
+            c.status = status;
+        }
+        self.invalidate_composer();
+    }
+
+    /// Arm a one-shot timer that re-enters `composer_poll_idle` on the main
+    /// thread after `POLL_INTERVAL`.
+    fn schedule_composer_poll(&self, generation: u64) {
+        let Some(window) = self.window.clone() else {
+            return;
+        };
+        promise::spawn::spawn(async move {
+            smol::Timer::after(composer::POLL_INTERVAL).await;
+            window.notify(TermWindowNotif::Apply(Box::new(move |tw| {
+                tw.composer_poll_idle(generation);
+            })));
+        })
+        .detach();
+    }
+
     /// Open the directory-jump palette (v0.40 "B"): fuzzy go-to-directory
     /// rooted at the active pane's cwd.
     pub(crate) fn show_dir_jump(&mut self) {
@@ -3909,6 +4153,7 @@ impl TermWindow {
             ShowDebugOverlay => self.show_debug_overlay(),
             ShowShellSelector => self.show_shell_selector(),
             ShowDirJump => self.show_dir_jump(),
+            ToggleComposer => self.toggle_composer(),
             ToggleTreeSidebar => self.toggle_tree_sidebar(),
             ToggleGitPanel => self.toggle_git_panel(),
             ToggleLeftTabBar => self.toggle_left_tab_bar(),

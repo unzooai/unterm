@@ -922,6 +922,14 @@ pub fn derive_command_from_key_assignment(action: &KeyAssignment) -> Option<Comm
             menubar: &["Shell"],
             icon: Some("md_folder_search_outline"),
         },
+        ToggleComposer => CommandDef {
+            brief: "Composer / Prompt Queue".into(),
+            doc: "Draft prompts, queue them, and run them one at a time against the active pane".into(),
+            keys: vec![(Modifiers::CTRL.union(Modifiers::SHIFT), "j".into())],
+            args: &[ArgType::ActiveWindow],
+            menubar: &["Shell"],
+            icon: Some("md_playlist_play"),
+        },
         ShowContextMenu => CommandDef {
             brief: "Context Menu".into(),
             doc: "Opens the Unterm context menu with common actions".into(),
