@@ -3033,8 +3033,15 @@ impl TermWindow {
     /// after window creation, one string per call to keep each slice of
     /// main-thread work small.
     fn prewarm_search_bar_glyphs(&mut self, text: &str) {
-        if let Ok(font) = self.fonts.default_font() {
-            let start = std::time::Instant::now();
+        let start = std::time::Instant::now();
+        // Warm BOTH the terminal font (search bar) and the title font: the
+        // dir-jump / folder overlay renders its labels with the title font, so
+        // warming only the default font left its CJK/⌕ fallback cold and the
+        // picker flashed tofu on its first frame.
+        for font in [self.fonts.default_font(), self.fonts.title_font()]
+            .into_iter()
+            .flatten()
+        {
             let _ = font.shape(
                 text,
                 || {},
@@ -3044,11 +3051,11 @@ impl TermWindow {
                 None,
                 None,
             );
-            log::debug!(
-                "search bar glyph prewarm ({text:?}) took {:?}",
-                start.elapsed()
-            );
         }
+        log::debug!(
+            "glyph prewarm ({text:?}) took {:?}",
+            start.elapsed()
+        );
     }
 
     fn prewarm_settings_menu(&mut self) {
