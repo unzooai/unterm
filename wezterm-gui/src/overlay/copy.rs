@@ -61,10 +61,12 @@ pub fn search_bar_prewarm_strings() -> Vec<String> {
         crate::i18n::t("search.mode.regex"),
         crate::i18n::t("search.searching"),
         "0123456789/".to_string(),
-        // Dir-jump overlay glyphs + a CJK sample: warms the ⌕ / cursor /
-        // ellipsis fallback and the CJK fallback font so opening the folder
-        // picker doesn't flash tofu for its first frame.
-        "⌕ ▏ … 文件夹目录".to_string(),
+        // Overlay/sidebar glyphs + a CJK sample: warms the fallback fonts for
+        // the dir-jump picker (⌕ ▏ …), the directory-tree sidebar header and
+        // chevrons (▦ ↕ ↑ ▣ ▾ ▸), the brand mark glyph (\u{ea85}), and CJK, so
+        // none of them flash tofu on their first frame. Prewarmed against both
+        // the terminal and title fonts (see prewarm_search_bar_glyphs).
+        "⌕ ▏ … ▦ ↕ ↑ ▣ ▾ ▸ \u{ea85} 文件夹目录".to_string(),
     ]
 }
 

@@ -623,7 +623,12 @@ impl crate::TermWindow {
         // left-aligned, so the mark never collides with them.
         #[cfg(not(target_os = "macos"))]
         if !window_buttons_at_left {
-            let brand_fg = palette.foreground.to_linear();
+            // Use bar_fg, not palette.foreground: on themes that override the
+            // titlebar bg/fg (e.g. a dark info bar over a light scheme), the
+            // scheme foreground is tuned for the light content area and renders
+            // near-invisible on the dark bar. bar_fg is the bar's own text
+            // color and always contrasts with bar_bg.
+            let brand_fg = bar_fg;
             let brand_accent = palette
                 .resolve_fg(ColorAttribute::PaletteIndex(14))
                 .to_linear();
