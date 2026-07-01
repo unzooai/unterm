@@ -566,6 +566,244 @@ impl crate::TermWindow {
         Ok(())
     }
 
+    /// Right-docked source-control (git) panel. Painted after the tree
+    /// sidebar; the panes have already been shifted left by
+    /// `git_panel_pixel_width()` via the `window_padding.right` injection, so
+    /// this draws into reserved gutter space on the window's right edge.
+    /// Read-only MVP: shows branch, ahead/behind and changed files.
+    pub fn paint_git_panel(&mut self) -> anyhow::Result<()> {
+        use crate::termwindow::box_model::*;
+        use crate::termwindow::chrome_colors;
+        use crate::termwindow::git_panel::ChangeKind;
+        use crate::termwindow::{DimensionContext, UIItemType};
+        use crate::utilsprites::RenderMetrics;
+        use ::window::color::LinearRgba;
+        use config::Dimension;
+        use termwiz::cell::unicode_column_width;
+
+        let width = self.git_panel_pixel_width();
+        if width <= 0.0 {
+            return Ok(());
+        }
+
+        // Adopt the active pane's cwd so a `cd` refreshes the panel, then read
+        // the (cached, off-render-thread) detail.
+        let cwd = self
+            .get_active_pane_or_overlay()
+            .and_then(|pane| crate::termwindow::pane_cwd_path(&pane));
+        let detail = {
+            let mut panel = self.git_panel.borrow_mut();
+            let panel = panel.as_mut().unwrap();
+            if let Some(cwd) = cwd {
+                panel.set_cwd(cwd);
+            }
+            panel.detail()
+        };
+
+        let font = self.fonts.title_font().expect("title font");
+        let metrics = RenderMetrics::with_font_metrics(&font.metrics());
+        let pt = self.dimensions.dpi as f32 / 72.0;
+
+        let border = self.get_os_border();
+        let top_bar_height = if self.show_tab_bar && !self.config.tab_bar_at_bottom {
+            self.tab_bar_pixel_height().unwrap_or(0.)
+        } else {
+            0.
+        };
+        let top = top_bar_height + border.top.get() as f32;
+        let status_h = if self.config.show_unterm_status_bar {
+            self.status_bar_pixel_height()
+        } else {
+            0.
+        };
+        let bottom = self.dimensions.pixel_height as f32 - status_h - border.bottom.get() as f32;
+        let row_h = metrics.cell_size.height as f32 + 6. * pt;
+        let visible_rows = (((bottom - top) / row_h).floor() as usize)
+            .saturating_sub(1)
+            .max(1);
+        if let Some(panel) = self.git_panel.borrow_mut().as_mut() {
+            panel.visible_rows = visible_rows;
+        }
+
+        let palette = self.palette().clone();
+        let scheme_bg = palette.background.to_linear();
+        let fg = palette.foreground.to_linear();
+        let chrome = chrome_colors::sidebar(scheme_bg, fg);
+        let bg = chrome.surface;
+        let dim = chrome.dim_text;
+        let resolve = |idx: u8| {
+            palette
+                .resolve_fg(wezterm_term::color::ColorAttribute::PaletteIndex(idx))
+                .to_linear()
+        };
+        let teal = resolve(14);
+        let staged_color = resolve(10); // bright green
+        let unstaged_color = resolve(11); // bright yellow
+        let untracked_color = dim;
+
+        // Column budget for eliding long paths ("XY " prefix takes 3 cols).
+        let left_pad_px = 10. * pt;
+        let right_pad_px = 8. * pt;
+        let cell_w = (metrics.cell_size.width as f32).max(1.0);
+        let path_cols = (((width - left_pad_px - right_pad_px) / cell_w).floor() as usize)
+            .saturating_sub(3)
+            .max(4);
+
+        fn elide_tail(s: &str, max: usize) -> String {
+            if unicode_column_width(s, None) <= max {
+                return s.to_string();
+            }
+            if max <= 1 {
+                return "…".to_string();
+            }
+            let mut acc: Vec<char> = vec![];
+            let mut w = 1usize; // reserve one column for the leading ellipsis
+            for ch in s.chars().rev() {
+                let cw = unicode_column_width(&ch.to_string(), None).max(1);
+                if w + cw > max {
+                    break;
+                }
+                acc.push(ch);
+                w += cw;
+            }
+            acc.reverse();
+            let tail: String = acc.into_iter().collect();
+            format!("…{tail}")
+        }
+
+        // Flatten into display lines: (text, color).
+        let mut lines: Vec<(String, LinearRgba)> = vec![];
+        let header_text;
+        match &detail {
+            None => {
+                header_text = "\u{2387}  …".to_string();
+                lines.push(("loading…".to_string(), dim));
+            }
+            Some(d) if !d.is_repo => {
+                header_text = "\u{2387}  —".to_string();
+                lines.push(("not a git repository".to_string(), dim));
+            }
+            Some(d) => {
+                let mut h = format!("\u{2387}  {}", d.branch);
+                if d.ahead > 0 {
+                    h.push_str(&format!("  \u{2191}{}", d.ahead));
+                }
+                if d.behind > 0 {
+                    h.push_str(&format!("  \u{2193}{}", d.behind));
+                }
+                header_text = h;
+
+                if let Some(up) = &d.upstream {
+                    lines.push((format!("\u{2192} {}", elide_tail(up, path_cols)), dim));
+                }
+                if d.files.is_empty() {
+                    lines.push(("working tree clean".to_string(), dim));
+                } else {
+                    let mut last_kind: Option<ChangeKind> = None;
+                    for f in &d.files {
+                        if last_kind != Some(f.kind) {
+                            let label = match f.kind {
+                                ChangeKind::Staged => "Staged",
+                                ChangeKind::Unstaged => "Changes",
+                                ChangeKind::Untracked => "Untracked",
+                            };
+                            lines.push((label.to_string(), dim));
+                            last_kind = Some(f.kind);
+                        }
+                        let color = match f.kind {
+                            ChangeKind::Staged => staged_color,
+                            ChangeKind::Unstaged => unstaged_color,
+                            ChangeKind::Untracked => untracked_color,
+                        };
+                        let path = elide_tail(&f.path, path_cols);
+                        lines.push((format!("{} {}", f.code, path), color));
+                    }
+                    if d.truncated {
+                        lines.push(("…  more".to_string(), dim));
+                    }
+                }
+            }
+        }
+
+        let mut children: Vec<Element> = vec![];
+        children.push(
+            Element::new(&font, ElementContent::Text(header_text))
+                .display(DisplayType::Block)
+                .min_width(Some(Dimension::Percent(1.)))
+                .padding(BoxDimension {
+                    left: Dimension::Pixels(12. * pt),
+                    right: Dimension::Pixels(8. * pt),
+                    top: Dimension::Pixels(6. * pt),
+                    bottom: Dimension::Pixels(6. * pt),
+                })
+                .colors(ElementColors {
+                    border: BorderColor::default(),
+                    bg: LinearRgba::TRANSPARENT.into(),
+                    text: teal.into(),
+                }),
+        );
+
+        for (text, color) in lines.into_iter().take(visible_rows) {
+            children.push(
+                Element::new(&font, ElementContent::Text(text))
+                    .display(DisplayType::Block)
+                    .min_width(Some(Dimension::Percent(1.)))
+                    .padding(BoxDimension {
+                        left: Dimension::Pixels(left_pad_px),
+                        right: Dimension::Pixels(right_pad_px),
+                        top: Dimension::Pixels(3. * pt),
+                        bottom: Dimension::Pixels(3. * pt),
+                    })
+                    .colors(ElementColors {
+                        border: BorderColor::default(),
+                        bg: LinearRgba::TRANSPARENT.into(),
+                        text: color.into(),
+                    }),
+            );
+        }
+
+        let container = Element::new(&font, ElementContent::Children(children))
+            .item_type(UIItemType::GitPanelBg)
+            .colors(ElementColors {
+                border: BorderColor::default(),
+                bg: bg.into(),
+                text: fg.into(),
+            })
+            .min_width(Some(Dimension::Pixels(width)))
+            .min_height(Some(Dimension::Pixels(bottom - top)));
+
+        let panel_left = self.dimensions.pixel_width as f32 - border.right.get() as f32 - width;
+
+        let computed = self.compute_element(
+            &LayoutContext {
+                height: DimensionContext {
+                    dpi: self.dimensions.dpi as f32,
+                    pixel_max: self.dimensions.pixel_height as f32,
+                    pixel_cell: metrics.cell_size.height as f32,
+                },
+                width: DimensionContext {
+                    dpi: self.dimensions.dpi as f32,
+                    pixel_max: self.dimensions.pixel_width as f32,
+                    pixel_cell: metrics.cell_size.width as f32,
+                },
+                bounds: euclid::rect(panel_left, top, width, bottom - top),
+                metrics: &metrics,
+                gl_state: self.render_state.as_ref().unwrap(),
+                zindex: 20,
+            },
+            &container,
+        )?;
+
+        let mut ui_items = computed.ui_items();
+        {
+            let gl_state = self.render_state.as_ref().unwrap();
+            self.render_element(&computed, gl_state, None)?;
+        }
+        self.ui_items.append(&mut ui_items);
+
+        Ok(())
+    }
+
     pub fn paint_modal(&mut self) -> anyhow::Result<()> {
         if let Some(modal) = self.get_modal() {
             for computed in modal.computed_element(self)?.iter() {
@@ -723,6 +961,8 @@ impl crate::TermWindow {
         trace.mark("left_tab_bar");
         self.paint_tree_sidebar().context("paint_tree_sidebar")?;
         trace.mark("tree_sidebar");
+        self.paint_git_panel().context("paint_git_panel")?;
+        trace.mark("git_panel");
 
         if self.show_tab_bar {
             self.paint_tab_bar(&mut layers).context("paint_tab_bar")?;

@@ -213,7 +213,8 @@ impl super::TermWindow {
             let padding_top = config.window_padding.top.evaluate_as_pixels(v_context) as usize;
             let padding_bottom =
                 config.window_padding.bottom.evaluate_as_pixels(v_context) as usize;
-            let padding_right = effective_right_padding(&config, h_context);
+            let padding_right =
+                effective_right_padding(&config, h_context) + self.git_panel_pixel_width() as usize;
 
             let status_bar_height = self.status_bar_pixel_height().ceil() as usize;
             let pixel_height = (rows * self.render_metrics.cell_size.height as usize)
@@ -262,7 +263,8 @@ impl super::TermWindow {
             let padding_top = config.window_padding.top.evaluate_as_pixels(v_context) as usize;
             let padding_bottom =
                 config.window_padding.bottom.evaluate_as_pixels(v_context) as usize;
-            let padding_right = effective_right_padding(&config, h_context);
+            let padding_right =
+                effective_right_padding(&config, h_context) + self.git_panel_pixel_width() as usize;
 
             let avail_width = dimensions.pixel_width.saturating_sub(
                 (padding_left + padding_right) as usize
@@ -539,7 +541,8 @@ impl super::TermWindow {
         let dimensions = Dimensions {
             pixel_width: ((terminal_size.cols as usize * render_metrics.cell_size.width as usize)
                 + padding_left
-                + effective_right_padding(&config, h_context)),
+                + effective_right_padding(&config, h_context)
+                + self.git_panel_pixel_width() as usize),
             pixel_height: ((terminal_size.rows as usize * render_metrics.cell_size.height as usize)
                 + padding_top
                 + padding_bottom) as usize

@@ -86,6 +86,7 @@ mod prevcursor;
 pub mod render;
 pub mod resize;
 mod selection;
+pub mod git_panel;
 pub mod spawn;
 pub mod top_stats_bar;
 pub mod tree_sidebar;
@@ -222,6 +223,9 @@ pub enum UIItemType {
     TreeSidebarRow(usize),
     /// The tree sidebar's background (swallows clicks, accepts wheel).
     TreeSidebarBg,
+    /// The right-docked git panel's background (swallows clicks so they
+    /// don't reach the pane; read-only MVP has no interactive rows yet).
+    GitPanelBg,
     /// Resize grip on the directory tree sidebar's right edge.
     TreeSidebarResize,
     /// Scroll track inside the directory tree sidebar.
@@ -561,6 +565,8 @@ pub struct TermWindow {
     prewarmed_settings_menu: RefCell<Option<Rc<crate::termwindow::popup_menu::PopupMenu>>>,
     /// v0.40: left directory-tree sidebar; None = closed.
     pub(crate) tree_sidebar: RefCell<Option<crate::termwindow::tree_sidebar::TreeSidebar>>,
+    /// Right-docked source-control (git) panel; None = closed.
+    pub(crate) git_panel: RefCell<Option<crate::termwindow::git_panel::GitPanel>>,
     /// Left vertical tab bar state; active when tab_bar_position = Left.
     pub(crate) left_tab_bar: RefCell<crate::termwindow::left_tab_bar::LeftTabBar>,
     /// Scrollbar fills deferred until after the splits are painted, so the
@@ -1029,6 +1035,7 @@ impl TermWindow {
             modal: RefCell::new(None),
             prewarmed_settings_menu: RefCell::new(None),
             tree_sidebar: RefCell::new(None),
+            git_panel: RefCell::new(None),
             left_tab_bar: RefCell::new(left_tab_bar::LeftTabBar::default()),
             deferred_scrollbar: RefCell::new(Vec::new()),
             opengl_info: None,
@@ -3007,6 +3014,47 @@ impl TermWindow {
         }
     }
 
+    /// Physical pixels the right-docked git panel occupies (0 when closed).
+    /// Injected into `window_padding.right` at every terminal-size evaluation
+    /// so the panes reflow to leave a reserved gutter on the right edge.
+    pub(crate) fn git_panel_pixel_width(&self) -> f32 {
+        if self.git_panel.borrow().is_none() {
+            return 0.0;
+        }
+        let pt = self.dimensions.dpi as f32 / 72.0;
+        let window_pts = self.dimensions.pixel_width as f32 / pt;
+        let max = (window_pts * config::ui_tokens::GIT_PANEL_MAX_RATIO)
+            .max(config::ui_tokens::GIT_PANEL_MIN_WIDTH);
+        (config::ui_tokens::GIT_PANEL_WIDTH
+            .clamp(config::ui_tokens::GIT_PANEL_MIN_WIDTH, max)
+            * pt)
+            .round()
+    }
+
+    /// Toggle the right-docked source-control panel, anchored at the active
+    /// pane's cwd.
+    pub(crate) fn toggle_git_panel(&mut self) {
+        let is_open = self.git_panel.borrow().is_some();
+        if is_open {
+            self.git_panel.borrow_mut().take();
+        } else {
+            let cwd = self
+                .get_active_pane_or_overlay()
+                .and_then(|pane| pane_cwd_path(&pane))
+                .or_else(dirs_next::home_dir)
+                .unwrap_or_else(|| std::path::PathBuf::from("."));
+            self.git_panel
+                .borrow_mut()
+                .replace(crate::termwindow::git_panel::GitPanel::new(cwd));
+        }
+        // Reflow the terminal around the new gutter width.
+        if let Some(window) = self.window.as_ref().cloned() {
+            let dims = self.dimensions;
+            self.apply_dimensions(&dims, None, &window);
+            window.invalidate();
+        }
+    }
+
     /// Open the directory-jump palette (v0.40 "B"): fuzzy go-to-directory
     /// rooted at the active pane's cwd.
     pub(crate) fn show_dir_jump(&mut self) {
@@ -3862,6 +3910,7 @@ impl TermWindow {
             ShowShellSelector => self.show_shell_selector(),
             ShowDirJump => self.show_dir_jump(),
             ToggleTreeSidebar => self.toggle_tree_sidebar(),
+            ToggleGitPanel => self.toggle_git_panel(),
             ToggleLeftTabBar => self.toggle_left_tab_bar(),
             ShowContextMenu => self.show_context_menu(),
             ToggleSessionRecording => self.toggle_session_recording(pane.pane_id()),

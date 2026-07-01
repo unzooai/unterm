@@ -165,6 +165,7 @@ impl super::TermWindow {
             | UIItemType::DirJumpScrollThumb { .. }
             | UIItemType::TreeSidebarRow(_)
             | UIItemType::TreeSidebarBg
+            | UIItemType::GitPanelBg
             | UIItemType::TreeSidebarHeader
             | UIItemType::TreeSidebarResize
             | UIItemType::TreeSidebarScrollTrack { .. }
@@ -204,6 +205,7 @@ impl super::TermWindow {
             | UIItemType::DirJumpScrollThumb { .. }
             | UIItemType::TreeSidebarRow(_)
             | UIItemType::TreeSidebarBg
+            | UIItemType::GitPanelBg
             | UIItemType::TreeSidebarHeader
             | UIItemType::TreeSidebarResize
             | UIItemType::TreeSidebarScrollTrack { .. }
@@ -884,6 +886,10 @@ impl super::TermWindow {
                     self.left_tab_bar_scroll_by(-(n as isize));
                 }
                 // Clicks are swallowed so they don't reach the pane.
+            }
+            UIItemType::GitPanelBg => {
+                // Read-only MVP: swallow all interaction so clicks don't leak
+                // into the pane beneath the reserved right gutter.
             }
         }
     }

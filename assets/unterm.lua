@@ -243,6 +243,8 @@ config.keys = {
   { key = 'O', mods = 'CTRL|SHIFT', action = act.ShowDirJump },
   -- 目录树侧栏
   { key = 'B', mods = 'CTRL|SHIFT', action = act.ToggleTreeSidebar },
+  -- Git 源码控制面板(右侧)
+  { key = 'G', mods = 'CTRL|SHIFT', action = act.ToggleGitPanel },
   -- 字号
   { key = '=', mods = 'CTRL', action = act.IncreaseFontSize },
   { key = '-', mods = 'CTRL', action = act.DecreaseFontSize },

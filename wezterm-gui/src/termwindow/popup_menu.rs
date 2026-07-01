@@ -40,6 +40,7 @@ pub enum MenuAction {
     /// the existing Web Settings action.
     OpenUrl(String),
     ToggleTreeSidebar,
+    ToggleGitPanel,
     ToggleLeftTabBar,
     /// In-terminal long screenshot: whole scrollback -> one tall PNG.
     CaptureScrollback,
@@ -123,6 +124,12 @@ impl PopupMenu {
                 "Ctrl+Shift+B",
                 ui_icons::ICON_TREE,
                 MenuAction::ToggleTreeSidebar,
+            ),
+            entry(
+                crate::i18n::t("menu.git_panel"),
+                "Ctrl+Shift+G",
+                ui_icons::ICON_FOLDER,
+                MenuAction::ToggleGitPanel,
             ),
             entry(
                 crate::i18n::t("menu.left_tabs"),
@@ -309,6 +316,7 @@ impl PopupMenu {
                 wezterm_open_url::open_url(&url);
             }
             MenuAction::ToggleTreeSidebar => term_window.toggle_tree_sidebar(),
+            MenuAction::ToggleGitPanel => term_window.toggle_git_panel(),
             MenuAction::ToggleLeftTabBar => term_window.toggle_left_tab_bar(),
             MenuAction::CaptureScrollback => {
                 if let Some(pane) = term_window.get_active_pane_no_overlay() {

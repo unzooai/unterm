@@ -60,3 +60,9 @@ pub const TREE_SIDEBAR_MAX_RATIO: f32 = 0.30;
 pub const TREE_SIDEBAR_GRIP: f32 = 12.0;
 /// Combined left chrome should never dominate the terminal area.
 pub const LEFT_GUTTER_MAX_RATIO: f32 = 0.42;
+
+/// Right-docked source-control (git) panel geometry.
+pub const GIT_PANEL_WIDTH: f32 = 232.0;
+pub const GIT_PANEL_MIN_WIDTH: f32 = 160.0;
+/// Max width as a fraction of the window width.
+pub const GIT_PANEL_MAX_RATIO: f32 = 0.32;

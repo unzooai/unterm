@@ -580,6 +580,7 @@ pub enum KeyAssignment {
     ShowDirJump,
     ToggleTreeSidebar,
     ToggleLeftTabBar,
+    ToggleGitPanel,
     HideApplication,
     QuitApplication,
     SpawnCommandInNewTab(SpawnCommand),

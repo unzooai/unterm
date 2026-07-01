@@ -77,6 +77,7 @@
   "menu.reveal": "在访达中显示",
   "menu.scrollshot_window": "长截图其他窗口…",
   "menu.tree_sidebar": "目录树",
+  "menu.git_panel": "Git 面板",
   "menu.left_tabs": "左侧标签栏",
   "menu.about_author": "关于 · 作者",
   "menu.about_website": "官网 · unterm.app",

@@ -906,6 +906,14 @@ pub fn derive_command_from_key_assignment(action: &KeyAssignment) -> Option<Comm
             menubar: &["View"],
             icon: Some("md_dock_left"),
         },
+        ToggleGitPanel => CommandDef {
+            brief: "Toggle Git Panel".into(),
+            doc: "Shows or hides the right-docked source-control panel for the active pane's directory".into(),
+            keys: vec![(Modifiers::CTRL.union(Modifiers::SHIFT), "g".into())],
+            args: &[ArgType::ActiveWindow],
+            menubar: &["View"],
+            icon: Some("md_source_branch"),
+        },
         ShowDirJump => CommandDef {
             brief: "Go to Directory".into(),
             doc: "Opens the directory jump palette to cd or open a new tab in a chosen directory".into(),
@@ -2296,6 +2304,7 @@ fn compute_default_actions() -> Vec<KeyAssignment> {
         ScrollByPage(NotNan::new(1.0).unwrap()),
         ScrollToTop,
         ScrollToBottom,
+        ToggleGitPanel,
         // ----------------- Window
         ToggleFullScreen,
         ToggleAlwaysOnTop,

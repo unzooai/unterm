@@ -296,7 +296,10 @@ impl crate::TermWindow {
             let config = &self.config;
             let padding = self.effective_right_padding(&config) as f32;
             let pane_right = if pos.left + pos.width >= self.terminal_size.cols as usize {
-                self.dimensions.pixel_width as f32
+                // The right-docked git panel (when open) reserves a gutter on
+                // the window's right edge; keep the rightmost pane's scrollbar
+                // tucked to the left of it rather than under it.
+                self.dimensions.pixel_width as f32 - self.git_panel_pixel_width()
             } else {
                 padding_left
                     + border.left.get() as f32
