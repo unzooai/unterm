@@ -82,6 +82,7 @@ impl crate::TermWindow {
                         }
                         self.invalidate_fancy_tab_bar();
                         self.invalidate_modal();
+                        self.invalidate_left_tab_bar();
                     }
                     Err(err) => {
                         log::error!("{:#}", err);
@@ -105,6 +106,7 @@ impl crate::TermWindow {
                         };
                         self.invalidate_fancy_tab_bar();
                         self.invalidate_modal();
+                        self.invalidate_left_tab_bar();
 
                         if let Err(err) = result {
                             self.allow_images = match self.allow_images {
@@ -132,6 +134,7 @@ impl crate::TermWindow {
                     } else if err.root_cause().downcast_ref::<ClearShapeCache>().is_some() {
                         self.invalidate_fancy_tab_bar();
                         self.invalidate_modal();
+                        self.invalidate_left_tab_bar();
                         self.shape_generation += 1;
                         self.shape_cache.borrow_mut().clear();
                         self.line_to_ele_shape_cache.borrow_mut().clear();

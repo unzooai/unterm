@@ -229,6 +229,16 @@ fn prettify_proc_title(title: &str) -> String {
 }
 
 impl crate::TermWindow {
+    /// Drop the left tab bar's cached ComputedElement. Its glyphs hold texture
+    /// atlas coordinates, so it must be re-rendered whenever the atlas is
+    /// recreated / grown or the shape cache is cleared (both happen under glyph
+    /// pressure, e.g. running a heavy TUI). Without this the sidebar keeps
+    /// painting stale atlas positions — the transient "sidebar garble that
+    /// recovers a moment later" the user hit while running `claude`.
+    pub(crate) fn invalidate_left_tab_bar(&self) {
+        self.left_tab_bar.borrow_mut().invalidate_cache();
+    }
+
     /// Physical pixels the left tab bar occupies (0 when not in Left
     /// mode or hidden). Clamped to [MIN, MAX_RATIO × window width].
     pub(crate) fn left_tab_bar_pixel_width(&self) -> f32 {
