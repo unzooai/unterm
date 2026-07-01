@@ -275,19 +275,10 @@ impl crate::TermWindow {
             bar_bg,
         )?;
 
-        // Top separator line (1px, subtle)
-        let sep_color = LinearRgba::with_components(
-            sep_rgb.0 as f32 / 255.0,
-            sep_rgb.1 as f32 / 255.0,
-            sep_rgb.2 as f32 / 255.0,
-            1.0,
-        );
-        self.filled_rectangle(
-            layers,
-            1,
-            euclid::rect(0., bar_y, bar_width, 1.0),
-            sep_color,
-        )?;
+        // Scheme A: no top separator line. The bottom bar shares the chrome
+        // tone now, so — like the top bar — the chrome↔content contrast alone
+        // defines the edge; a 1px line just cut across the unified frame.
+        let _ = sep_rgb;
 
         if DEFER_FIRST_STATUS_TEXT_RENDER.swap(false, std::sync::atomic::Ordering::AcqRel) {
             if let Some(window) = self.window.as_ref() {
