@@ -718,7 +718,69 @@ pub fn detect_agent_for_pane(
 #[derive(Clone, Default)]
 struct PaneAgentCwd {
     agent: Option<String>,
+    /// Foreground command running in the pane's shell (e.g. `npm run dev`,
+    /// `git log`), or None when the shell is sitting idle at its prompt.
+    /// Derived from the same foreground-process snapshot as `agent`, so it
+    /// costs nothing extra and is refreshed on the same worker thread.
+    foreground: Option<String>,
     cwd: Option<String>,
+}
+
+/// Executable base names we treat as "the shell itself" — when the pane's
+/// foreground process is one of these, no command is running and the row
+/// should fall back to the shell/pane name rather than a command title.
+fn is_shell_exe(bare: &str) -> bool {
+    matches!(
+        bare,
+        "powershell"
+            | "pwsh"
+            | "cmd"
+            | "bash"
+            | "zsh"
+            | "fish"
+            | "sh"
+            | "dash"
+            | "ksh"
+            | "tcsh"
+            | "csh"
+            | "nu"
+            | "elvish"
+            | "xonsh"
+            | "wsl"
+            | "conhost"
+    )
+}
+
+/// Reduce a pane's foreground process to a short command title for the
+/// sidebar. Returns None when the foreground process is just the shell (an
+/// idle prompt). Otherwise the executable base name, optionally suffixed by a
+/// bare first argument so `git log` / `cargo build` read as their subcommand.
+fn foreground_command_title(info: &procinfo::LocalProcessInfo) -> Option<String> {
+    let bare = info
+        .executable
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .map(|s| s.to_ascii_lowercase())
+        .unwrap_or_default();
+    if bare.is_empty() || is_shell_exe(&bare) {
+        return None;
+    }
+    let mut title = bare.clone();
+    // argv[0] is the executable; argv[1] is the first real argument. Append it
+    // only when it looks like a subcommand (a bare word, not a flag or a path)
+    // so common tools read naturally without pulling in noisy paths/flags.
+    if let Some(arg) = info.argv.get(1).map(|a| a.trim()) {
+        let looks_like_subcommand = !arg.is_empty()
+            && !arg.starts_with('-')
+            && !arg.contains('/')
+            && !arg.contains('\\')
+            && !arg.contains('.')
+            && termwiz::cell::unicode_column_width(arg, None) <= 16;
+        if looks_like_subcommand {
+            title = format!("{bare} {arg}");
+        }
+    }
+    Some(title)
 }
 
 const AGENT_CWD_TTL: std::time::Duration = std::time::Duration::from_millis(2000);
@@ -744,6 +806,22 @@ fn agent_cwd_inflight() -> &'static Mutex<std::collections::HashSet<u64>> {
 /// Safe to call from the render thread — it never touches the filesystem or
 /// the process table itself.
 pub fn agent_and_cwd_for_pane(pane_id: u64) -> (Option<String>, Option<String>) {
+    let v = agent_fg_cwd_for_pane_inner(pane_id);
+    (v.agent, v.cwd)
+}
+
+/// Non-blocking `(agent, foreground-command, cwd)` for status surfaces that
+/// want to show the running command as the primary label (the left tab bar).
+/// Same caching contract as `agent_and_cwd_for_pane`: instant cached read,
+/// off-thread refresh, never touches the process table on the caller thread.
+pub fn agent_fg_cwd_for_pane(
+    pane_id: u64,
+) -> (Option<String>, Option<String>, Option<String>) {
+    let v = agent_fg_cwd_for_pane_inner(pane_id);
+    (v.agent, v.foreground, v.cwd)
+}
+
+fn agent_fg_cwd_for_pane_inner(pane_id: u64) -> PaneAgentCwd {
     let (cached, need_refresh) = {
         let mut cache = agent_cwd_cache().lock();
         if cache.len() > AGENT_CWD_PRUNE_MIN_SIZE {
@@ -751,7 +829,7 @@ pub fn agent_and_cwd_for_pane(pane_id: u64) -> (Option<String>, Option<String>) 
         }
         match cache.get(&pane_id) {
             Some((at, v)) if at.elapsed() < AGENT_CWD_TTL => {
-                return (v.agent.clone(), v.cwd.clone());
+                return v.clone();
             }
             Some((_, v)) => (v.clone(), true),
             None => (PaneAgentCwd::default(), true),
@@ -782,7 +860,7 @@ pub fn agent_and_cwd_for_pane(pane_id: u64) -> (Option<String>, Option<String>) 
             agent_cwd_inflight().lock().remove(&pane_id);
         }
     }
-    (cached.agent, cached.cwd)
+    cached
 }
 
 /// The expensive part, run on a worker thread: snapshot the pane's foreground
@@ -799,6 +877,14 @@ fn compute_agent_cwd(pane_id: u64) -> PaneAgentCwd {
     // then stored an empty `(agent, cwd)` result for AGENT_CWD_TTL.
     let proc_info = pane.get_foreground_process_info(mux::pane::CachePolicy::FetchImmediate);
     let agent = detect_agent_for_pane(pane_id, proc_info.as_ref());
+    // When an agent drives the pane its name already IS the title, so we skip
+    // the command probe; otherwise reduce the foreground process to a short
+    // command title (`None` while the shell is idle at its prompt).
+    let foreground = if agent.is_some() {
+        None
+    } else {
+        proc_info.as_ref().and_then(foreground_command_title)
+    };
     let cwd = pane
         .get_current_working_dir(mux::pane::CachePolicy::AllowStale)
         .and_then(|url| url.to_file_path().ok())
@@ -809,7 +895,11 @@ fn compute_agent_cwd(pane_id: u64) -> PaneAgentCwd {
                 p.file_name().map(|n| n.to_string_lossy().to_string())
             }
         });
-    PaneAgentCwd { agent, cwd }
+    PaneAgentCwd {
+        agent,
+        foreground,
+        cwd,
+    }
 }
 
 pub fn pending_suggestions_for_pane(pane_id: u64) -> Vec<Suggestion> {

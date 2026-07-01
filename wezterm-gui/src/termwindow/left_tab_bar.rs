@@ -96,6 +96,10 @@ struct RowInfo {
     title: String,
     /// AI agent currently driving the tab's active pane, if any.
     agent: Option<String>,
+    /// Foreground command running in the pane's shell (e.g. `npm run dev`),
+    /// or None when the shell is idle at its prompt. Preferred over the shell
+    /// name so 3+ shells stay distinguishable by what they're doing.
+    foreground: Option<String>,
     /// Last component of the active pane's working directory.
     dir: Option<String>,
     /// New output since the tab was last focused — drives the unread dot.
@@ -574,9 +578,9 @@ impl crate::TermWindow {
                         pane.as_ref().map(|p| p.get_title()).unwrap_or_default()
                     }
                 };
-                let (agent, dir) = match &pane {
-                    Some(p) => crate::mcp::handler::agent_and_cwd_for_pane(p.pane_id() as u64),
-                    None => (None, None),
+                let (agent, foreground, dir) = match &pane {
+                    Some(p) => crate::mcp::handler::agent_fg_cwd_for_pane(p.pane_id() as u64),
+                    None => (None, None, None),
                 };
                 let has_unseen = pane.as_ref().map(|p| p.has_unseen_output()).unwrap_or(false);
                 let progress = pane
@@ -588,6 +592,7 @@ impl crate::TermWindow {
                     active: idx == active_idx,
                     title,
                     agent,
+                    foreground,
                     dir,
                     has_unseen,
                     progress,
@@ -681,11 +686,15 @@ impl crate::TermWindow {
                         format!("g:{label}:{count}")
                     }
                     DisplayRow::Tab(row) => format!(
-                        "t:{}:{}:{}:{}:{}:{}:{:?}",
+                        // foreground (agent's P3 key) keeps the cache correct
+                        // when the running command changes; has_unseen/progress
+                        // keep it correct for the unread dot / progress state.
+                        "t:{}:{}:{}:{}:{}:{}:{}:{:?}",
                         row.tab_idx,
                         row.active,
                         row.title,
                         row.agent.as_deref().unwrap_or(""),
+                        row.foreground.as_deref().unwrap_or(""),
                         row.dir.as_deref().unwrap_or(""),
                         row.has_unseen,
                         row.progress
@@ -821,14 +830,16 @@ impl crate::TermWindow {
                         text: icon_color.into(),
                     });
 
-                // Row label: when an AI agent is bound, the agent name
-                // *is* the title — pane.title is usually "Claude Code" or
-                // similar and just duplicates the agent name. Drop the
-                // duplicate; the bullet's accent color encodes "agent",
-                // the agent name carries the wordmark, the cwd trails dim.
-                // Idle rows fall back to the pane title.
+                // Row label priority: (1) the AI agent name when one is bound
+                // — the agent name *is* the title (pane.title just duplicates
+                // "Claude Code" etc.); (2) the foreground command when the
+                // shell is busy (`npm run dev`, `git log`), so 3+ shells stay
+                // distinguishable by what they're running; (3) the pane title
+                // (usually the shell name) when the prompt is idle.
                 let primary_text = if let Some(agent) = &row.agent {
                     agent.clone()
+                } else if let Some(fg) = &row.foreground {
+                    fg.clone()
                 } else if row.title.is_empty() {
                     "shell".to_string()
                 } else {
