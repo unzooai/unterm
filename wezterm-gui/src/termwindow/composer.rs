@@ -42,6 +42,77 @@ pub const MIN_GRACE: std::time::Duration = std::time::Duration::from_millis(350)
 
 const MAX_ROW_COLS: usize = 64;
 
+/// How the runner reacts when the active pane goes idle mid-run. Cycled with
+/// Tab inside the overlay and held in `ComposerState` (runtime-only; there is
+/// intentionally no config-file binding — the installed config is hard to
+/// update).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AdvanceMode {
+    /// The default. On idle, inspect the pane's bottom lines: auto-approve a
+    /// confident Yes/No confirmation, pause on a genuine multi-choice (or when
+    /// unsure), otherwise advance to the next queued prompt.
+    #[default]
+    AutoApprove,
+    /// Legacy behavior: idle always advances to the next prompt, no inspection.
+    AutoNext,
+    /// Idle pauses the run; the user presses Ctrl+Enter to send the next prompt.
+    Manual,
+}
+
+impl AdvanceMode {
+    /// Next mode in the Tab cycle.
+    pub fn cycle(self) -> Self {
+        match self {
+            AdvanceMode::AutoApprove => AdvanceMode::AutoNext,
+            AdvanceMode::AutoNext => AdvanceMode::Manual,
+            AdvanceMode::Manual => AdvanceMode::AutoApprove,
+        }
+    }
+
+    /// Short label for the footer hints.
+    pub fn label(self) -> &'static str {
+        match self {
+            AdvanceMode::AutoApprove => "Auto-approve",
+            AdvanceMode::AutoNext => "Auto-next",
+            AdvanceMode::Manual => "Manual",
+        }
+    }
+}
+
+/// What the runner should do at an idle point, decided by inspecting the pane's
+/// bottom lines (only used in `AutoApprove` mode).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PromptKind {
+    /// A ❯ select-list whose highlighted option is a "Yes" — press Enter.
+    ConfirmEnter,
+    /// A `(y/n)`-style text confirmation — type `y` then Enter.
+    ConfirmYes,
+    /// A genuine multi-choice selection, or anything we can't confidently
+    /// classify — pause the run rather than guess.
+    Pause,
+    /// No interactive prompt detected (looks done) — advance to the next prompt.
+    Done,
+}
+
+/// Where an in-flight run currently sits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunPhase {
+    /// Normal: on idle, make an advance decision.
+    Running,
+    /// AutoApprove paused on a multi-choice / ambiguous prompt. `moved` flips to
+    /// true once the pane emits new output (the user is operating it); the next
+    /// idle after movement re-evaluates the pane.
+    AutoPaused { moved: bool },
+    /// Manual mode paused; waits for the user to press Ctrl+Enter.
+    ManualPaused,
+}
+
+impl RunPhase {
+    pub fn is_paused(self) -> bool {
+        !matches!(self, RunPhase::Running)
+    }
+}
+
 /// Live state for an in-flight run.
 pub struct RunState {
     /// Bumped every time a run starts / stops; scheduled poll callbacks that
@@ -53,6 +124,8 @@ pub struct RunState {
     pub last_change: Instant,
     /// When the current prompt was written to the PTY.
     pub sent_at: Instant,
+    /// Whether we are running, or paused waiting on the pane / the user.
+    pub phase: RunPhase,
 }
 
 /// Composer/queue state, owned by `TermWindow` so it persists across opening
@@ -71,6 +144,9 @@ pub struct ComposerState {
     pub generation: u64,
     /// Transient status line shown at the bottom of the overlay.
     pub status: Option<String>,
+    /// How the runner reacts when the pane goes idle mid-run. Persists across
+    /// overlay toggles within a session; cycled with Tab.
+    pub advance_mode: AdvanceMode,
 }
 
 impl ComposerState {
@@ -97,6 +173,133 @@ fn row_label(s: &str) -> String {
     }
     out.push('…');
     out
+}
+
+/// A parsed row of an interactive select list.
+struct SelectOption<'a> {
+    /// Whether this row carried the highlight cursor glyph (❯ / ▶ / ● / >).
+    has_cursor: bool,
+    /// The option's visible label, with cursor + numeric/letter marker stripped.
+    text: &'a str,
+}
+
+/// Cursor glyphs that mark the highlighted row of an interactive select list.
+const CURSOR_GLYPHS: [char; 6] = ['❯', '▶', '➤', '→', '●', '>'];
+
+/// If `line` begins (after leading whitespace) with a cursor glyph followed by
+/// non-empty text, return that trailing text.
+fn strip_cursor(line: &str) -> Option<&str> {
+    let t = line.trim_start();
+    for g in CURSOR_GLYPHS {
+        if let Some(rest) = t.strip_prefix(g) {
+            let rest = rest.trim_start();
+            if !rest.is_empty() {
+                return Some(rest);
+            }
+        }
+    }
+    None
+}
+
+/// Strip a leading list marker (`1.`, `2)`, `a.`, `b)`) and return the label.
+/// Only ASCII markers are recognized; the label after may be any text.
+fn strip_marker(s: &str) -> Option<&str> {
+    let s = s.trim_start();
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() && bytes[i].is_ascii_digit() {
+        i += 1;
+    }
+    if i == 0 {
+        // Allow a single-letter marker such as "a)".
+        if bytes.first().map_or(false, |b| b.is_ascii_alphabetic()) {
+            i = 1;
+        } else {
+            return None;
+        }
+    }
+    if i < bytes.len() && (bytes[i] == b'.' || bytes[i] == b')') {
+        return Some(s[i + 1..].trim_start());
+    }
+    None
+}
+
+/// Parse one line as a select-list option. A line qualifies only if it carries
+/// a cursor glyph or a numeric/letter marker — ordinary output is ignored.
+fn parse_option(line: &str) -> Option<SelectOption<'_>> {
+    if line.trim().is_empty() {
+        return None;
+    }
+    let (has_cursor, rest) = match strip_cursor(line) {
+        Some(r) => (true, r),
+        None => (false, line.trim()),
+    };
+    let marker = strip_marker(rest);
+    if !has_cursor && marker.is_none() {
+        return None;
+    }
+    Some(SelectOption {
+        has_cursor,
+        text: marker.unwrap_or(rest).trim(),
+    })
+}
+
+/// True when `s`'s first word is `word` (case-insensitive), i.e. `word` is a
+/// prefix that is not merely the start of a longer word ("no" matches "no," but
+/// not "none").
+fn starts_word(s: &str, word: &str) -> bool {
+    let s = s.trim().to_ascii_lowercase();
+    match s.strip_prefix(word) {
+        Some(rest) => rest.chars().next().map_or(true, |c| !c.is_alphanumeric()),
+        None => false,
+    }
+}
+
+fn is_yes(s: &str) -> bool {
+    starts_word(s, "yes") || s.trim().eq_ignore_ascii_case("y")
+}
+
+fn is_no(s: &str) -> bool {
+    starts_word(s, "no") || s.trim().eq_ignore_ascii_case("n")
+}
+
+/// Inspect the pane's bottom lines (already stripped to plain, trailing-trimmed
+/// strings) and decide what the runner should do. Conservative by design:
+/// auto-approve only fires on a confident Yes/No match, and anything ambiguous
+/// resolves to `Pause` rather than a guessed keystroke.
+pub fn classify_prompt(lines: &[String]) -> PromptKind {
+    // Collect any select-list options present in the bottom lines.
+    let opts: Vec<SelectOption> = lines.iter().filter_map(|l| parse_option(l)).collect();
+    let has_cursor = opts.iter().any(|o| o.has_cursor);
+
+    // An interactive select list needs a highlight cursor and at least two
+    // options (a lone cursor line is too weak a signal to act on).
+    if has_cursor && opts.len() >= 2 {
+        let cursor_on_yes = opts
+            .iter()
+            .find(|o| o.has_cursor)
+            .map_or(false, |o| is_yes(o.text));
+        let all_yes_no = opts.iter().all(|o| is_yes(o.text) || is_no(o.text));
+        if cursor_on_yes && all_yes_no {
+            // Every option is Yes/No-like and the highlight sits on a Yes —
+            // this is a confirmation; approve by pressing Enter.
+            return PromptKind::ConfirmEnter;
+        }
+        // Genuine multi-choice, or a Yes/No list whose default is not Yes:
+        // pause and let the user drive.
+        return PromptKind::Pause;
+    }
+
+    // No select list — look for a (y/n)-style text confirmation near the very
+    // bottom (last few non-empty lines) to avoid matching stale scrollback.
+    for l in lines.iter().filter(|l| !l.trim().is_empty()).rev().take(3) {
+        let low = l.to_ascii_lowercase();
+        if low.contains("y/n") || low.contains("yes/no") {
+            return PromptKind::ConfirmYes;
+        }
+    }
+
+    PromptKind::Done
 }
 
 /// The overlay: a thin view over `TermWindow.composer`, plus a computed-element
@@ -130,6 +333,7 @@ impl Composer {
 
         let state = term_window.composer.borrow();
         let running = state.is_running();
+        let advance_mode = state.advance_mode;
 
         let text_el = |s: String, color: LinearRgba| {
             Element::new(&font, ElementContent::Text(s)).colors(ElementColors {
@@ -317,14 +521,17 @@ impl Composer {
                 }),
         );
 
-        // Footer hints.
+        // Footer hints. The advance mode is always shown and cycled with Tab.
+        let mode = advance_mode.label();
         let hints = if running {
-            "Running…   Ctrl+S / Esc: stop"
+            format!("Mode: {mode}   Tab: cycle   Ctrl+Enter: next   Ctrl+S / Esc: stop")
         } else {
-            "Ctrl+Enter: run    Del: remove    Ctrl+K: clear all    Esc: close"
+            format!(
+                "Mode: {mode}   Tab: cycle   Ctrl+Enter: run   Del: remove   Ctrl+K: clear   Esc: close"
+            )
         };
         children.push(
-            text_el(hints.to_string(), dim)
+            text_el(hints, dim)
                 .display(DisplayType::Block)
                 .padding(BoxDimension {
                     left: Dimension::Pixels(14. * pt),
@@ -429,9 +636,22 @@ impl Modal for Composer {
                     term_window.cancel_modal();
                 }
             }
-            // Ctrl/Cmd+Enter runs the queue.
+            // Tab cycles the advance mode (Auto-approve / Auto-next / Manual).
+            (KeyCode::Tab, M::NONE) => {
+                {
+                    let mut c = term_window.composer.borrow_mut();
+                    c.advance_mode = c.advance_mode.cycle();
+                }
+                term_window.invalidate_composer();
+            }
+            // Ctrl/Cmd+Enter runs the queue, or — while paused mid-run —
+            // force-advances to the next prompt.
             (KeyCode::Enter, M::CTRL) | (KeyCode::Enter, M::SUPER) => {
-                term_window.composer_run_start();
+                if term_window.composer.borrow().is_running() {
+                    term_window.composer_force_advance();
+                } else {
+                    term_window.composer_run_start();
+                }
             }
             // Shift+Enter inserts a newline into the draft.
             (KeyCode::Enter, M::SHIFT) => {
@@ -497,5 +717,72 @@ mod tests {
         let out = row_label(&long);
         assert!(out.ends_with('…'));
         assert!(unicode_column_width(&out, None) <= MAX_ROW_COLS);
+    }
+
+    fn block(s: &str) -> Vec<String> {
+        s.lines().map(|l| l.trim_end().to_string()).collect()
+    }
+
+    #[test]
+    fn classifies_claude_code_yes_no_confirm() {
+        // Claude Code confirmation: cursor defaults to option 1 ("Yes"), and
+        // every option is Yes/No-like → approve with Enter.
+        let b = block(
+            "Do you want to make this edit?\n\
+             ❯ 1. Yes\n  \
+             2. Yes, and don't ask again this session\n  \
+             3. No, and tell Claude what to do differently",
+        );
+        assert_eq!(classify_prompt(&b), PromptKind::ConfirmEnter);
+    }
+
+    #[test]
+    fn classifies_yn_text_prompt() {
+        assert_eq!(
+            classify_prompt(&block("Overwrite existing file? (y/N)")),
+            PromptKind::ConfirmYes
+        );
+        assert_eq!(
+            classify_prompt(&block("Proceed? [Y/n]")),
+            PromptKind::ConfirmYes
+        );
+        assert_eq!(
+            classify_prompt(&block("Continue (yes/no)?")),
+            PromptKind::ConfirmYes
+        );
+    }
+
+    #[test]
+    fn multi_choice_menu_pauses() {
+        // A genuine pick-one menu (non-Yes/No options) must pause, never send.
+        let b = block(
+            "Select a branch to check out:\n\
+             ❯ 1. main\n  \
+             2. develop\n  \
+             3. feature/login\n  \
+             4. release/1.2",
+        );
+        assert_eq!(classify_prompt(&b), PromptKind::Pause);
+    }
+
+    #[test]
+    fn yes_no_list_defaulting_to_no_pauses() {
+        // All options are Yes/No-like but the cursor is on "No" — don't approve.
+        let b = block(
+            "Delete everything?\n  \
+             1. Yes\n\
+             ❯ 2. No",
+        );
+        assert_eq!(classify_prompt(&b), PromptKind::Pause);
+    }
+
+    #[test]
+    fn shell_prompt_looks_done() {
+        let b = block("$ ls\nfoo.txt  bar.txt\nuser@host:~/project$ ");
+        assert_eq!(classify_prompt(&b), PromptKind::Done);
+        // "none" must not be read as a "no".
+        assert!(!is_no("none of the above"));
+        assert!(is_no("No, thanks"));
+        assert!(is_yes("Yes, and don't ask again"));
     }
 }

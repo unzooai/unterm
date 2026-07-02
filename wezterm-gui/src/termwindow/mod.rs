@@ -3158,6 +3158,7 @@ impl TermWindow {
                 last_seqno: 0,
                 last_change: now,
                 sent_at: now,
+                phase: composer::RunPhase::Running,
             });
             c.status = Some("Running…".to_string());
         }
@@ -3204,16 +3205,19 @@ impl TermWindow {
                 run.last_seqno = seqno;
                 run.last_change = now;
                 run.sent_at = now;
+                run.phase = composer::RunPhase::Running;
             }
         }
         self.schedule_composer_poll(generation);
     }
 
-    /// Poll callback: detect pane idle and advance / finish the run.
+    /// Poll callback: detect pane idle and route to a mode-specific decision.
     pub(crate) fn composer_poll_idle(&mut self, generation: u64) {
+        use composer::RunPhase;
         enum Next {
             Reschedule,
-            Advance,
+            /// Idle detected in an actionable phase; make an advance decision.
+            Decide,
             Abort,
         }
         let next = {
@@ -3232,13 +3236,25 @@ impl TermWindow {
                     if seq != run.last_seqno {
                         run.last_seqno = seq;
                         run.last_change = now;
+                        // New output while auto-paused means the user is
+                        // operating the pane; arm re-evaluation on next idle.
+                        if let RunPhase::AutoPaused { moved } = &mut run.phase {
+                            *moved = true;
+                        }
                     }
-                    if now.duration_since(run.last_change) >= composer::IDLE_DEBOUNCE
-                        && now.duration_since(run.sent_at) >= composer::MIN_GRACE
-                    {
-                        Next::Advance
-                    } else {
+                    let idle = now.duration_since(run.last_change) >= composer::IDLE_DEBOUNCE
+                        && now.duration_since(run.sent_at) >= composer::MIN_GRACE;
+                    if !idle {
                         Next::Reschedule
+                    } else {
+                        match run.phase {
+                            // Wait for the pane to move before re-inspecting.
+                            RunPhase::AutoPaused { moved: false } => Next::Reschedule,
+                            // ManualPaused stops rescheduling from the decision
+                            // point, so we should never see it here.
+                            RunPhase::ManualPaused => Next::Reschedule,
+                            _ => Next::Decide,
+                        }
                     }
                 }
             }
@@ -3246,22 +3262,137 @@ impl TermWindow {
         match next {
             Next::Reschedule => self.schedule_composer_poll(generation),
             Next::Abort => self.composer_finish(Some("Run stopped: pane closed".to_string())),
-            Next::Advance => {
-                let empty = {
+            Next::Decide => self.composer_decide_advance(generation),
+        }
+    }
+
+    /// At an idle point, decide what to do based on the current advance mode.
+    fn composer_decide_advance(&mut self, generation: u64) {
+        use composer::{AdvanceMode, PromptKind, RunPhase};
+        let mode = self.composer.borrow().advance_mode;
+        match mode {
+            AdvanceMode::AutoNext => self.composer_advance(),
+            AdvanceMode::Manual => {
+                {
                     let mut c = self.composer.borrow_mut();
-                    if !c.queue.is_empty() {
-                        c.queue.remove(0);
+                    if let Some(run) = c.run.as_mut() {
+                        run.phase = RunPhase::ManualPaused;
                     }
-                    c.selected = 0;
-                    c.queue.is_empty()
-                };
-                if empty {
-                    self.composer_finish(Some("Queue complete".to_string()));
-                } else {
-                    self.composer_send_current();
-                    self.invalidate_composer();
+                    c.status = Some("Paused — Ctrl+Enter to send next".to_string());
                 }
+                self.invalidate_composer();
+                // Do not reschedule: the run resumes on the user's keystroke.
             }
+            AdvanceMode::AutoApprove => match self.composer_inspect_pane() {
+                PromptKind::Done => self.composer_advance(),
+                PromptKind::ConfirmEnter => self.composer_approve(generation, b"\r", "Yes"),
+                PromptKind::ConfirmYes => self.composer_approve(generation, b"y\r", "y"),
+                PromptKind::Pause => {
+                    {
+                        let mut c = self.composer.borrow_mut();
+                        if let Some(run) = c.run.as_mut() {
+                            run.phase = RunPhase::AutoPaused { moved: false };
+                        }
+                        c.status =
+                            Some("Paused — choose in the pane (auto-resumes)".to_string());
+                    }
+                    self.invalidate_composer();
+                    // Keep polling so we notice the pane moving and re-inspect.
+                    self.schedule_composer_poll(generation);
+                }
+            },
+        }
+    }
+
+    /// Read the active run pane's bottom ~12 visible lines as plain strings and
+    /// classify them. Called only at the idle-advance decision point, never per
+    /// frame.
+    fn composer_inspect_pane(&self) -> composer::PromptKind {
+        let pane_id = match &self.composer.borrow().run {
+            Some(run) => run.pane_id,
+            None => return composer::PromptKind::Done,
+        };
+        let pane = match mux::Mux::get().get_pane(pane_id) {
+            Some(pane) => pane,
+            None => return composer::PromptKind::Done,
+        };
+        let dims = pane.get_dimensions();
+        let last_row = dims.physical_top + dims.viewport_rows as isize;
+        let first_row = (last_row - 12).max(dims.physical_top);
+        let (_first, lines) = pane.get_lines(first_row..last_row);
+        let text: Vec<String> = lines
+            .iter()
+            .map(|line| line.as_str().trim_end().to_string())
+            .collect();
+        composer::classify_prompt(&text)
+    }
+
+    /// Answer a detected confirmation by writing `bytes` to the pane WITHOUT
+    /// popping the queue: this replies to a mid-task question, then keeps
+    /// polling so the run continues once the pane settles again.
+    fn composer_approve(&mut self, generation: u64, bytes: &[u8], label: &str) {
+        let pane_id = match &self.composer.borrow().run {
+            Some(run) => run.pane_id,
+            None => return,
+        };
+        let pane = match mux::Mux::get().get_pane(pane_id) {
+            Some(pane) => pane,
+            None => {
+                self.composer_finish(Some("Run stopped: pane closed".to_string()));
+                return;
+            }
+        };
+        if let Err(err) = pane.writer().write_all(bytes) {
+            log::warn!("composer: failed to write approval: {err:#}");
+            self.composer_finish(Some("Run stopped: write error".to_string()));
+            return;
+        }
+        let seqno = pane.get_current_seqno();
+        {
+            let mut c = self.composer.borrow_mut();
+            if let Some(run) = c.run.as_mut() {
+                let now = std::time::Instant::now();
+                run.last_seqno = seqno;
+                run.last_change = now;
+                run.sent_at = now;
+                run.phase = composer::RunPhase::Running;
+            }
+            c.status = Some(format!("Auto-approved ({label})…"));
+        }
+        self.invalidate_composer();
+        self.schedule_composer_poll(generation);
+    }
+
+    /// Pop the finished prompt and send the next, or finish if the queue is
+    /// empty. Shared by every "advance to the next prompt" path.
+    fn composer_advance(&mut self) {
+        let empty = {
+            let mut c = self.composer.borrow_mut();
+            if !c.queue.is_empty() {
+                c.queue.remove(0);
+            }
+            c.selected = 0;
+            c.queue.is_empty()
+        };
+        if empty {
+            self.composer_finish(Some("Queue complete".to_string()));
+        } else {
+            self.composer_send_current();
+            self.invalidate_composer();
+        }
+    }
+
+    /// Ctrl+Enter while paused (Manual, or an auto-pause the user wants to skip)
+    /// force-advances to the next queued prompt.
+    pub(crate) fn composer_force_advance(&mut self) {
+        let paused = self
+            .composer
+            .borrow()
+            .run
+            .as_ref()
+            .map_or(false, |r| r.phase.is_paused());
+        if paused {
+            self.composer_advance();
         }
     }
 
