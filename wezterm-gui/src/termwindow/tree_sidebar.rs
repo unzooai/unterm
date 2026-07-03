@@ -60,6 +60,14 @@ pub struct TreeSidebar {
     /// Bumped on every synchronous `rebuild` (navigation). A background
     /// scan whose epoch no longer matches is dropped on arrival.
     scan_epoch: Arc<AtomicU64>,
+    /// Path of the row hit by the *first* click of a potential double-click.
+    /// The first click of a double already expands/collapses the row and
+    /// repaints, which shifts every row below it — so the second physical
+    /// click can hit-test a different row. The double-click handler uses this
+    /// captured path instead of re-resolving the (now shifted) hit, so a
+    /// double-click always acts on the row the user aimed at. See
+    /// `mouse_event_tree_sidebar`.
+    pub pending_double_path: Option<PathBuf>,
 }
 
 const RESCAN_AFTER_MS: u128 = 2500;
@@ -103,6 +111,7 @@ impl TreeSidebar {
             pending: Arc::new(Mutex::new(None)),
             scanning: Arc::new(AtomicBool::new(false)),
             scan_epoch: Arc::new(AtomicU64::new(0)),
+            pending_double_path: None,
         };
         me.queue_rebuild();
         me

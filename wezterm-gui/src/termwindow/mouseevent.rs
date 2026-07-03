@@ -1712,24 +1712,56 @@ impl crate::TermWindow {
                     // pane there, matching the regular-dir double-click
                     // muscle memory.
                     if double {
+                        // The first click of this double already navigated to
+                        // the parent and repainted (shifting every row), so the
+                        // second physical click can hit-test a different row.
+                        // `cd` to the parent path captured on the first click
+                        // and do NOT navigate a second level up.
+                        let target = self
+                            .tree_sidebar
+                            .borrow_mut()
+                            .as_mut()
+                            .and_then(|t| t.pending_double_path.take())
+                            .unwrap_or_else(|| path.clone());
                         if let Some(pane) = self.get_active_pane_no_overlay() {
-                            let cmd = super::cd_command_for_pane(&pane, &path);
+                            let cmd = super::cd_command_for_pane(&pane, &target);
                             let mut writer = pane.writer();
                             let _ = writer.write_all(cmd.as_bytes());
                         }
-                    }
-                    if let Some(tree) = self.tree_sidebar.borrow_mut().as_mut() {
+                    } else if let Some(tree) = self.tree_sidebar.borrow_mut().as_mut() {
+                        tree.pending_double_path = Some(path.clone());
                         tree.navigate_to_parent();
                     }
                 } else if is_dir {
                     if double {
+                        // The first click of this double already toggled this
+                        // dir and repainted, shifting every row below it — so
+                        // the second physical click can land on a different
+                        // row. Use the path captured on the first click, and
+                        // undo that first toggle, so a double-click is a clean
+                        // `cd` with no expand/collapse side-effect (fixes
+                        // double-click opening the wrong directory).
+                        let target = {
+                            let mut guard = self.tree_sidebar.borrow_mut();
+                            if let Some(t) = guard.as_mut() {
+                                let target = t
+                                    .pending_double_path
+                                    .take()
+                                    .unwrap_or_else(|| path.clone());
+                                t.toggle_dir(&target); // revert the first click's toggle
+                                target
+                            } else {
+                                path.clone()
+                            }
+                        };
                         if let Some(pane) = self.get_active_pane_no_overlay() {
-                            let cmd = super::cd_command_for_pane(&pane, &path);
+                            let cmd = super::cd_command_for_pane(&pane, &target);
                             let mut writer = pane.writer();
                             let _ = writer.write_all(cmd.as_bytes());
                         }
                     } else if let Some(tree) = self.tree_sidebar.borrow_mut().as_mut() {
                         tree.toggle_dir(&path);
+                        tree.pending_double_path = Some(path.clone());
                     }
                 } else if double {
                     #[cfg(target_os = "macos")]
