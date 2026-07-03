@@ -373,6 +373,22 @@ impl PopupMenu {
     }
 
     fn compute(&self, term_window: &mut TermWindow) -> anyhow::Result<Vec<ComputedElement>> {
+        // The render state can be transiently absent while the GPU backend is
+        // torn down and rebuilt — e.g. when the initial Software/glium front
+        // end is rejected on a GPU-less host ("OpenGL implementation is too
+        // old") and we fall back to WebGpu. The 700ms settings-menu prewarm
+        // (mod.rs::prewarm_settings_menu) can fire during that window, and
+        // computing the popup then dereferenced `render_state` at the layout
+        // step below (`gl_state: render_state.as_ref().unwrap()`), aborting the
+        // whole process on Windows. Bail cleanly instead: every caller
+        // (precompute / computed_element / prewarm) already propagates or logs
+        // this Err, and the menu recomputes fine once the backend is up.
+        if term_window.render_state.is_none() {
+            anyhow::bail!(
+                "render state not ready (GPU backend re-init in progress); \
+                 skipping popup menu compute"
+            );
+        }
         let started = std::time::Instant::now();
         let font = term_window
             .fonts
