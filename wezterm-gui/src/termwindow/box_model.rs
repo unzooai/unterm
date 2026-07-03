@@ -840,10 +840,16 @@ impl super::TermWindow {
                         Some(event) => {
                             let mouse_x = event.coords.x as f32;
                             let mouse_y = event.coords.y as f32;
+                            // Half-open interval [min, max): an element owns its
+                            // top/left edge but NOT its bottom/right edge, which
+                            // belongs to the next element. With the old inclusive
+                            // `<= max`, two vertically-stacked rows (tree sidebar,
+                            // tab list) both matched on the pixel they share, so
+                            // the hover highlight appeared on two rows at once.
                             mouse_x >= element.bounds.min_x()
-                                && mouse_x <= element.bounds.max_x()
+                                && mouse_x < element.bounds.max_x()
                                 && mouse_y >= element.bounds.min_y()
-                                && mouse_y <= element.bounds.max_y()
+                                && mouse_y < element.bounds.max_y()
                         }
                         None => false,
                     } && matches!(self.current_mouse_capture, None | Some(MouseCapture::UI));
