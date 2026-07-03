@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.53.1 — 2026-07-03
+
+### Fixed
+
+- **Windows no longer crashes on startup on GPU-less / old-GPU machines.** When the initial software OpenGL front end is rejected and Unterm falls back to WebGpu, the render backend is briefly torn down and rebuilt. The background settings-menu prewarm could fire during that window and dereference the absent render state, aborting the process before the window ever appeared (seen on Windows-on-ARM and in VM / RDP sessions). The prewarm now backs off cleanly and the menu builds once the WebGpu backend is live. macOS and Linux were unaffected.
+
 ## v0.53.0 — 2026-07-03
 
 ### Added
