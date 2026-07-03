@@ -642,7 +642,18 @@ impl crate::TermWindow {
         let row_text_pad_v = 9.0 * pt;
         let row_h = metrics.cell_size.height as f32 + 2.0 * row_text_pad_v + 2.0 * pt;
         let content_bottom = (bottom - content_bottom_gap).max(top + content_top_gap + row_h);
-        let visible_rows = ((content_bottom - top - content_top_gap) / row_h)
+        // The trailing "+  ▾" button row is appended as a child *below* the tab
+        // rows (see the footer element built further down). It therefore needs
+        // its own slice of the surface height: btn_pad_v (row_pad * 1.4) top +
+        // bottom = 28pt, a 2pt top+bottom margin (4pt), and a 1px top+bottom
+        // border (2px). If we don't reserve it here, the visible tab rows fill
+        // the entire content span and the footer overflows past content_bottom
+        // — dragging the whole sidebar surface (zindex 18) down over the bottom
+        // status bar (zindex 0) and hiding its left segments (shell name + the
+        // start of cwd). Reserve the footer so the container fits inside
+        // content_bottom and meets the status bar flush instead of covering it.
+        let footer_row_h = metrics.cell_size.height as f32 + 32.0 * pt + 2.0;
+        let visible_rows = ((content_bottom - top - content_top_gap - footer_row_h) / row_h)
             .floor()
             .max(1.0) as usize;
         // Keep the active row inside the visible window. Otherwise a
