@@ -5,6 +5,7 @@
 
 import { formatCount, type Stats } from "../lib/stats";
 import enUS from "../i18n/en-US.json";
+import { COMPETITORS } from "../data/competitors";
 
 interface Props {
   dict: Record<string, string>;
@@ -1083,6 +1084,17 @@ drwxr-xr-x 6 alexlee staff   192  architecture.md
     </div>
     <p class="mt-4 text-xs text-notion-faint text-center" set:html={t("cmp.legend")}></p>
     <p class="mt-2 text-xs text-notion-faint text-center">{t("cmp.note")}</p>
+    <div class="mt-8 text-center">
+      <p class="text-sm text-notion-muted">{t("cmp.fullcompare")}</p>
+      <div class="mt-3 flex flex-wrap justify-center gap-2">
+        {COMPETITORS.map((c) => (
+          <a href={pathPrefix + "/compare/" + c.slug}
+             class="text-sm px-3 py-1.5 rounded-lg border border-notion-border text-notion-ink hover:border-notion-borderStrong hover:text-notion-teal transition">
+            Unterm vs {c.name}
+          </a>
+        ))}
+      </div>
+    </div>
   </div>
 </section>
 

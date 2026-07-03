@@ -1,0 +1,44 @@
+---
+// English (default, no locale prefix) comparison pages: /compare/<slug>
+import Base from "../../layouts/Base.astro";
+import ComparePage from "../../components/ComparePage.astro";
+import { LOCALES } from "../../i18n/locales";
+import enUS from "../../i18n/en-US.json";
+import {
+  COMPETITORS,
+  getCompetitor,
+  compareAlternates,
+  compareJsonLd,
+} from "../../data/competitors";
+
+export function getStaticPaths() {
+  return COMPETITORS.map((c) => ({ params: { slug: c.slug } }));
+}
+
+const { slug } = Astro.params;
+const competitor = getCompetitor(slug as string)!;
+const dict = enUS as Record<string, string>;
+const t = (k: string) => dict[k] ?? k;
+const fill = (k: string) => t(k).replaceAll("{name}", competitor.name);
+
+const title = fill(`cmp.c.${slug}.title`);
+const description = fill(`cmp.c.${slug}.desc`);
+const seo = {
+  title,
+  description,
+  canonicalPath: `/compare/${slug}`,
+  xDefault: `https://unterm.app/compare/${slug}`,
+  jsonLd: compareJsonLd(slug as string, competitor.name, "en-US", "", title, description),
+};
+---
+
+<Base
+  lang="en-US"
+  dict={dict}
+  alternates={compareAlternates(slug as string, LOCALES)}
+  locales={LOCALES}
+  pathPrefix=""
+  seo={seo}
+>
+  <ComparePage dict={dict} pathPrefix="" competitor={competitor} />
+</Base>

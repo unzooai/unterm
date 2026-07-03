@@ -22,13 +22,33 @@ interface Props {
   alternates: { code: string; href: string }[];
   locales: Locale[];
   pathPrefix: string; // "" for en, "/zh-CN" for others
+  // Optional per-page SEO overrides. When omitted, the layout renders the
+  // home page's title / description / canonical / structured data exactly as
+  // before (zero regression). Sub-pages such as /compare/<slug> pass their
+  // own so each ranks for its own query.
+  seo?: {
+    title?: string;
+    description?: string;
+    /** Full site-absolute path of THIS page, e.g. "/compare/warp" or
+     *  "/zh-CN/compare/warp". Drives <link rel=canonical> + og:url. */
+    canonicalPath?: string;
+    /** Replaces the default home JSON-LD graph when provided. */
+    jsonLd?: unknown[];
+    /** x-default hreflang target (defaults to the site root). */
+    xDefault?: string;
+  };
 }
 
-const { lang, dict, alternates, locales, pathPrefix } = Astro.props as Props;
+const { lang, dict, alternates, locales, pathPrefix, seo } = Astro.props as Props;
 import enUS from "../i18n/en-US.json";
 
 const t = (k: string) => dict[k] ?? enUS[k] ?? k;
-const canonical = `https://unterm.app${pathPrefix || "/"}`;
+const metaTitle = seo?.title ?? t("meta.title");
+const metaDesc = seo?.description ?? t("meta.desc");
+const canonical = seo?.canonicalPath
+  ? `https://unterm.app${seo.canonicalPath}`
+  : `https://unterm.app${pathPrefix || "/"}`;
+const xDefaultHref = seo?.xDefault ?? "https://unterm.app/";
 
 // og:locale wants underscore form (en_US, zh_CN). Build the active locale +
 // every other locale as og:locale:alternate so each translated page declares
@@ -43,7 +63,7 @@ const ogImage = "https://unterm.app/assets/og.png";
 // Structured data (SEO rich results + GEO / answer-engine extraction).
 // SoftwareApplication is the primary entity; WebSite + Organization give
 // crawlers the publisher graph. Rendered once per page in <head>.
-const jsonLd = [
+const defaultJsonLd = [
   {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
@@ -71,6 +91,7 @@ const jsonLd = [
     inLanguage: lang,
   },
 ];
+const jsonLd = seo?.jsonLd ?? defaultJsonLd;
 ---
 
 <!doctype html>
@@ -78,34 +99,34 @@ const jsonLd = [
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{t("meta.title")}</title>
-    <meta name="description" content={t("meta.desc")} />
+    <title>{metaTitle}</title>
+    <meta name="description" content={metaDesc} />
     <link rel="canonical" href={canonical} />
     {alternates.map((a) => (
       <link rel="alternate" hreflang={a.code} href={a.href} />
     ))}
-    <link rel="alternate" hreflang="x-default" href="https://unterm.app/" />
+    <link rel="alternate" hreflang="x-default" href={xDefaultHref} />
 
     <meta name="theme-color" content="#10b981" />
 
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Unterm" />
-    <meta property="og:title" content={t("meta.title")} />
-    <meta property="og:description" content={t("meta.desc")} />
+    <meta property="og:title" content={metaTitle} />
+    <meta property="og:description" content={metaDesc} />
     <meta property="og:url" content={canonical} />
     <meta property="og:image" content={ogImage} />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content={t("meta.title")} />
+    <meta property="og:image:alt" content={metaTitle} />
     <meta property="og:locale" content={ogLocale} />
     {ogAltLocales.map((c) => (
       <meta property="og:locale:alternate" content={c} />
     ))}
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content={t("meta.title")} />
-    <meta name="twitter:description" content={t("meta.desc")} />
+    <meta name="twitter:title" content={metaTitle} />
+    <meta name="twitter:description" content={metaDesc} />
     <meta name="twitter:image" content={ogImage} />
-    <meta name="twitter:image:alt" content={t("meta.title")} />
+    <meta name="twitter:image:alt" content={metaTitle} />
 
     {jsonLd.map((schema) => (
       <script type="application/ld+json" set:html={JSON.stringify(schema)} />

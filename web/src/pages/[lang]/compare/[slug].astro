@@ -1,0 +1,67 @@
+---
+// Localized comparison pages: /<lang>/compare/<slug>
+import Base from "../../../layouts/Base.astro";
+import ComparePage from "../../../components/ComparePage.astro";
+import { LOCALES } from "../../../i18n/locales";
+import enUS from "../../../i18n/en-US.json";
+import zhCN from "../../../i18n/zh-CN.json";
+import zhTW from "../../../i18n/zh-TW.json";
+import jaJP from "../../../i18n/ja-JP.json";
+import koKR from "../../../i18n/ko-KR.json";
+import deDE from "../../../i18n/de-DE.json";
+import frFR from "../../../i18n/fr-FR.json";
+import itIT from "../../../i18n/it-IT.json";
+import hiIN from "../../../i18n/hi-IN.json";
+import {
+  COMPETITORS,
+  getCompetitor,
+  compareAlternates,
+  compareJsonLd,
+} from "../../../data/competitors";
+
+const DICTS: Record<string, Record<string, string>> = {
+  "zh-CN": zhCN,
+  "zh-TW": zhTW,
+  "ja-JP": jaJP,
+  "ko-KR": koKR,
+  "de-DE": deDE,
+  "fr-FR": frFR,
+  "it-IT": itIT,
+  "hi-IN": hiIN,
+};
+
+export function getStaticPaths() {
+  const langs = ["zh-CN", "zh-TW", "ja-JP", "ko-KR", "de-DE", "fr-FR", "it-IT", "hi-IN"];
+  return langs.flatMap((lang) =>
+    COMPETITORS.map((c) => ({ params: { lang, slug: c.slug } })),
+  );
+}
+
+const { lang, slug } = Astro.params;
+const competitor = getCompetitor(slug as string)!;
+const dict = DICTS[lang as string];
+const t = (k: string) => dict[k] ?? (enUS as Record<string, string>)[k] ?? k;
+const fill = (k: string) => t(k).replaceAll("{name}", competitor.name);
+const pathPrefix = `/${lang}`;
+
+const title = fill(`cmp.c.${slug}.title`);
+const description = fill(`cmp.c.${slug}.desc`);
+const seo = {
+  title,
+  description,
+  canonicalPath: `${pathPrefix}/compare/${slug}`,
+  xDefault: `https://unterm.app/compare/${slug}`,
+  jsonLd: compareJsonLd(slug as string, competitor.name, lang as string, pathPrefix, title, description),
+};
+---
+
+<Base
+  lang={lang as string}
+  dict={dict}
+  alternates={compareAlternates(slug as string, LOCALES)}
+  locales={LOCALES}
+  pathPrefix={pathPrefix}
+  seo={seo}
+>
+  <ComparePage dict={dict} pathPrefix={pathPrefix} competitor={competitor} />
+</Base>
