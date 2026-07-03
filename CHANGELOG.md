@@ -1,5 +1,31 @@
 # Changelog
 
+## v0.53.0 — 2026-07-03
+
+### Added
+
+- **Composer — a prompt queue for driving agents (`Ctrl+Shift+J`).** Queue up several prompts and run them into the active pane one after another. In auto-approve mode the Composer smart-advances through an agent's confirmation prompts, so a batch of instructions runs to completion without babysitting each step.
+- **Read-only Git panel (`Ctrl+Shift+G`).** A right-docked panel shows the active pane's repository at a glance — branch, upstream tracking, and working-tree status — without shelling out. The terminal reflows around it, and it toggles away just as fast.
+- **Distinct left-sidebar tab titles.** Each sidebar row now derives its label from the pane's foreground command, so a window full of shells reads as its actual work (`zhitong@host`, an editor, a build) instead of a column of identical `zsh` entries.
+- **`USAGE.md` agent-terminal guide** documenting the Composer / prompt queue, the Git panel, and the tab-title behavior.
+
+### Changed
+
+- **Unified chrome.** The top bar, left sidebar, and bottom status bar now share one continuous frame and tone (top-left Unterm wordmark, frameless top-bar buttons, no redundant dividers), so the window reads as a single surface rather than three stacked strips.
+- **Otty-style left tab bar.** The active row gets a rounded accent-colored selection, rows carry quiet activity indicators, and group headers are cleaner.
+
+### Fixed
+
+- **The left sidebar no longer covers the bottom status bar.** The sidebar's trailing `+` / shell-picker row was overflowing its surface and dragging the whole panel down over the bottom info bar, hiding the shell name and the start of the working directory. The footer row is now reserved inside the sidebar's height, so it meets the status bar flush and the info bar shows in full from the left edge.
+- **CJK locales no longer garble menu, overlay, and shell-selector cards.** Wide-character width is measured in cells, so cards laid out under a Chinese locale stop showing mojibake.
+- **Windows: no console-window flashes at startup**, a **process-lock self-deadlock** that could hang the window from ever showing is resolved, and the status-bar working directory no longer carries a stray remote-host prefix.
+- **`Ctrl+Shift+J` reliably opens the Composer** — the toggle is now registered in the command list.
+- **Less tofu flash on first paint.** The top-bar wordmark, tree-sidebar glyphs, title font, and directory-jump glyphs are prewarmed so they render immediately instead of flashing missing-glyph boxes.
+
+### Performance
+
+- **Smoother sidebar resize.** Dragging the sidebar edge now throttles the PTY reflow to ~25 fps instead of reflowing on every pixel of the drag.
+
 ## v0.52.0 — 2026-06-29
 
 ### Added
