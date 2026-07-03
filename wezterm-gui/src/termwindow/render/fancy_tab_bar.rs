@@ -160,7 +160,6 @@ impl crate::TermWindow {
                     col => Some(palette.resolve_fg(col)),
                 });
 
-            let new_tab = colors.new_tab();
             let new_tab_hover = colors.new_tab_hover();
             let active_tab = colors.active_tab();
 
@@ -213,10 +212,12 @@ impl crate::TermWindow {
                 .border(BoxDimension::new(Dimension::Pixels(1.)))
                 .colors(ElementColors {
                     border: BorderColor::default(),
-                    // Frameless: transparent until hovered, so the icons float
-                    // on the chrome instead of sitting in visible boxes.
+                    // Frameless idle (transparent) so the row stays clean on
+                    // both light and dark chrome, but a clearly brighter icon
+                    // colour than the muted new-tab grey so the buttons are
+                    // legible. Hover fills a solid chip for feedback.
                     bg: window::color::LinearRgba::TRANSPARENT.into(),
-                    text: new_tab.fg_color.to_linear().into(),
+                    text: colors.inactive_tab().fg_color.to_linear().into(),
                 })
                 .hover_colors(Some(ElementColors {
                     border: BorderColor::default(),
@@ -388,7 +389,6 @@ impl crate::TermWindow {
         }
 
         let menu_button = || {
-            let new_tab = colors.new_tab();
             let new_tab_hover = colors.new_tab_hover();
             // ▾ chevron — codicon `cod_chevron_down`, rendered through the
             // bundled SymbolsNerdFontMono so CoreText's rasterizer does the
@@ -414,10 +414,12 @@ impl crate::TermWindow {
                 .border(BoxDimension::new(Dimension::Pixels(1.)))
                 .colors(ElementColors {
                     border: BorderColor::default(),
-                    // Frameless: transparent until hovered, so the icons float
-                    // on the chrome instead of sitting in visible boxes.
+                    // Frameless idle (transparent) so the row stays clean on
+                    // both light and dark chrome, but a clearly brighter icon
+                    // colour than the muted new-tab grey so the buttons are
+                    // legible. Hover fills a solid chip for feedback.
                     bg: window::color::LinearRgba::TRANSPARENT.into(),
-                    text: new_tab.fg_color.to_linear().into(),
+                    text: colors.inactive_tab().fg_color.to_linear().into(),
                 })
                 .hover_colors(Some(ElementColors {
                     border: BorderColor::default(),
@@ -432,7 +434,6 @@ impl crate::TermWindow {
         // vector outline, so we get Warp-grade crispness instead of the
         // jaggy geometric polylines we shipped before.
         let quick_button = |glyph: &'static str, action: crate::termwindow::QuickAction| {
-            let new_tab = colors.new_tab();
             let new_tab_hover = colors.new_tab_hover();
             Element::new(&font, ElementContent::Text(glyph.to_string()))
                 .vertical_align(VerticalAlign::Middle)
@@ -458,10 +459,12 @@ impl crate::TermWindow {
                 .border(BoxDimension::new(Dimension::Pixels(1.)))
                 .colors(ElementColors {
                     border: BorderColor::default(),
-                    // Frameless: transparent until hovered, so the icons float
-                    // on the chrome instead of sitting in visible boxes.
+                    // Frameless idle (transparent) so the row stays clean on
+                    // both light and dark chrome, but a clearly brighter icon
+                    // colour than the muted new-tab grey so the buttons are
+                    // legible. Hover fills a solid chip for feedback.
                     bg: window::color::LinearRgba::TRANSPARENT.into(),
-                    text: new_tab.fg_color.to_linear().into(),
+                    text: colors.inactive_tab().fg_color.to_linear().into(),
                 })
                 .hover_colors(Some(ElementColors {
                     border: BorderColor::default(),

@@ -275,10 +275,23 @@ impl crate::TermWindow {
             bar_bg,
         )?;
 
-        // Scheme A: no top separator line. The bottom bar shares the chrome
-        // tone now, so — like the top bar — the chrome↔content contrast alone
-        // defines the edge; a 1px line just cut across the unified frame.
+        // A clearly-visible hairline along the top edge separates the bottom
+        // bar from the terminal content. Tone-only contrast (Scheme A) read as
+        // mush on the dark themes, so define the edge with the shared chrome
+        // divider — the same line the sidebar uses, so the frame is consistent.
         let _ = sep_rgb;
+        let pt = self.dimensions.dpi as f32 / 72.0;
+        let divider = crate::termwindow::chrome_colors::sidebar(
+            pal.background.to_linear(),
+            pal.foreground.to_linear(),
+        )
+        .divider;
+        self.filled_rectangle(
+            layers,
+            2,
+            euclid::rect(0., bar_y, bar_width, (1.0 * pt).max(1.0)),
+            divider,
+        )?;
 
         if DEFER_FIRST_STATUS_TEXT_RENDER.swap(false, std::sync::atomic::Ordering::AcqRel) {
             if let Some(window) = self.window.as_ref() {

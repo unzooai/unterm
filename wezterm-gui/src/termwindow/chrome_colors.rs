@@ -39,7 +39,12 @@ pub fn sidebar(bg: LinearRgba, fg: LinearRgba) -> SidebarChromeColors {
 
     SidebarChromeColors {
         surface,
-        divider: fg.mul_alpha(if is_light { 0.24 } else { 0.10 }),
+        // Divider between the chrome (sidebar / top / bottom bars) and the
+        // terminal content. Kept deliberately visible: the earlier
+        // near-invisible hairline (0.10 on dark) let the unified-tone chrome
+        // bleed into the content so the boundaries read as mush. A clearly
+        // present line defines the frame without shouting.
+        divider: fg.mul_alpha(if is_light { 0.32 } else { 0.20 }),
         dim_text: fg.mul_alpha(if is_light { 0.82 } else { 0.72 }),
         hover_bg: if is_light {
             mix(bg, fg, 0.145)
