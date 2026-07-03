@@ -250,10 +250,11 @@ mod macos {
     }];
 
     pub fn sized_poly(poly: &'static [Poly]) -> SizedPoly {
-        // 12 px matches the macOS traffic-light cap diameter on a standard
-        // chrome; keeping it tokenized prevents DPI/font tweaks from drifting
-        // the dot size independently of the reserved cluster width.
-        let size = Dimension::Pixels(ui_tokens::MACOS_TRAFFIC_LIGHT_DOT);
+        // 12 *points* matches the macOS traffic-light cap diameter. It must be
+        // Points, not Pixels: `Dimension::Pixels` is raw device pixels, so on a
+        // 2× Retina display Pixels(12) rendered a 12 px dot — half the native
+        // 24 px cap — which read as tiny traffic lights. Points scales by DPI.
+        let size = Dimension::Points(ui_tokens::MACOS_TRAFFIC_LIGHT_DOT);
         SizedPoly {
             poly,
             width: size,
@@ -428,10 +429,14 @@ pub fn window_button_element(
                 .zindex(1)
                 .vertical_align(VerticalAlign::Middle)
                 .padding(BoxDimension {
-                    left: Dimension::Pixels(side),
-                    right: Dimension::Pixels(side),
-                    top: Dimension::Pixels(0.),
-                    bottom: Dimension::Pixels(0.),
+                    // Points, not Pixels, so the inter-dot gap scales with DPI
+                    // exactly like the dot diameter (both derive from the same
+                    // point-valued tokens) — otherwise the cluster stayed
+                    // half-size on Retina.
+                    left: Dimension::Points(side),
+                    right: Dimension::Points(side),
+                    top: Dimension::Points(0.),
+                    bottom: Dimension::Points(0.),
                 })
         }
         Style::MacOsNative => unreachable!(),

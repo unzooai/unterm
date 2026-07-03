@@ -380,7 +380,11 @@ impl crate::TermWindow {
                     // shared with the left_eles padding at line ~515 — instead
                     // of the older 4-cell guess, which under-reserved at large
                     // font sizes and over-reserved at small ones.
-                    left: Dimension::Pixels(config::ui_tokens::MACOS_TRAFFIC_LIGHT_RESERVE),
+                    // Points (DPI-scaled) so the reserved width tracks the
+                    // now DPI-scaled traffic-light cluster; Pixels under-
+                    // reserved by half on Retina and let the cluster collide
+                    // with the title.
+                    left: Dimension::Points(config::ui_tokens::MACOS_TRAFFIC_LIGHT_RESERVE),
                     right: Dimension::Cells(0.),
                     top: Dimension::Cells(0.),
                     bottom: Dimension::Cells(0.),
@@ -609,7 +613,10 @@ impl crate::TermWindow {
             if self.config.integrated_title_button_style == IntegratedTitleButtonStyle::MacOsNative
             {
                 if !self.window_state.contains(window::WindowState::FULL_SCREEN) {
-                    Dimension::Pixels(config::ui_tokens::MACOS_TRAFFIC_LIGHT_RESERVE)
+                    // Points (DPI-scaled): the native traffic lights are ~24 px
+                    // caps on Retina, so a raw-pixel reserve of 76 was half the
+                    // cluster's real width and the title crowded them.
+                    Dimension::Points(config::ui_tokens::MACOS_TRAFFIC_LIGHT_RESERVE)
                 } else {
                     Dimension::Cells(0.5)
                 }
