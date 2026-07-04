@@ -854,9 +854,7 @@ impl TermWindow {
         // for the tab bar state.
         let show_tab_bar = config.enable_tab_bar && !config.hide_tab_bar_if_only_one_tab;
         let tab_bar_height = if show_tab_bar {
-            // Static impl includes stats bar height directly.
-            (Self::tab_bar_pixel_height_impl(&config, &fontconfig, &render_metrics)?
-                + Self::top_stats_bar_pixel_height_impl(&fontconfig)) as usize
+            Self::tab_bar_pixel_height_impl(&config, &fontconfig, &render_metrics)? as usize
         } else {
             0
         };

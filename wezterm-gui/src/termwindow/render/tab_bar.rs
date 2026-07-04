@@ -106,21 +106,34 @@ impl crate::TermWindow {
         render_metrics: &RenderMetrics,
     ) -> anyhow::Result<f32> {
         if config.use_fancy_tab_bar {
+            use super::fancy_tab_bar::{
+                CHROME_BOTTOM_DIVIDER_PX, QUICK_BTN_BORDER_PX, QUICK_BTN_VMARGIN_CELLS,
+                QUICK_BTN_VPAD_CELLS,
+            };
             let font = fontconfig.title_font()?;
-            // 1.6× cell_height (~50 px @ 144 dpi 13 pt). Two rounds of
-            // experimentation (1.3×, 1.0×) both broke worse: macOS
-            // anchors traffic lights to a fixed y-offset and the
+            let cell = font.metrics().cell_height.get() as f32;
+            // Baseline 1.6× cell_height (~50 px @ 144 dpi 13 pt). Two
+            // rounds of experimentation (1.3×, 1.0×) both broke worse:
+            // macOS anchors traffic lights to a fixed y-offset and the
             // codicons / stats text need a full cell height of breathing
-            // room, so any chrome shorter than ~1.5× cell starts
-            // clipping the first terminal row and the right-side action
-            // cluster. The "dead band below the lights" the user saw
+            // room. The "dead band below the lights" the user saw
             // at 1.6× wasn't an overflow bug — it was that the chrome
             // bg and the sidebar bg sit at near-identical greys, so the
             // sidebar's top edge reads as a continuation of the chrome.
             // Fixed by `chrome_bottom_divider` in fancy_tab_bar.rs —
             // a 1 px line that explicitly separates the chrome's
             // bottom edge from the sidebar's grey panel.
-            Ok((font.metrics().cell_height.get() as f32 * 1.6).ceil())
+            let base = (cell * 1.6).ceil();
+            // The quick-action buttons are the tallest chrome children:
+            // one glyph line plus vertical margin/padding/border. The
+            // reserved height must cover what the Element layout will
+            // actually produce, otherwise the chrome paints taller than
+            // the space the panes leave for it and the first terminal
+            // row is clipped underneath the bar.
+            let button = (cell * (1.0 + 2.0 * (QUICK_BTN_VMARGIN_CELLS + QUICK_BTN_VPAD_CELLS)))
+                .ceil()
+                + 2.0 * QUICK_BTN_BORDER_PX;
+            Ok(base.max(button) + CHROME_BOTTOM_DIVIDER_PX)
         } else {
             Ok(render_metrics.cell_size.height as f32)
         }
@@ -134,27 +147,4 @@ impl crate::TermWindow {
         Self::tab_bar_pixel_height_impl(&self.config, &self.fonts, &self.render_metrics)
     }
 
-    /// Height of the per-pane stats strip (git / cpu / tokens / last
-    /// command). 0 when disabled or in classic-tab-bar mode (the
-    /// strip is rendered as part of the integrated chrome only).
-    pub fn top_stats_bar_pixel_height(&self) -> f32 {
-        if !self.config.use_fancy_tab_bar || !self.show_tab_bar {
-            return 0.;
-        }
-        Self::top_stats_bar_pixel_height_impl(&self.fonts)
-    }
-
-    /// Static height computation for code paths that don't yet have a
-    /// `&self` (startup mux setup before TermWindow exists). Same
-    /// formula as the instance method.
-    pub fn top_stats_bar_pixel_height_impl(fonts: &wezterm_font::FontConfiguration) -> f32 {
-        // 1.0× — just one line of text, no extra padding. Combined
-        // with the tab strip's 1.8× this caps total chrome at ~2.8×
-        // cell height, tighter than Warp.
-        let font = match fonts.title_font() {
-            Ok(f) => f,
-            Err(_) => return 0.,
-        };
-        (font.metrics().cell_height.get() as f32 * 1.0).ceil()
-    }
 }

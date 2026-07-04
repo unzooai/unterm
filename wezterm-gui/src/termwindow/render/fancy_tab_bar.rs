@@ -52,6 +52,18 @@ const PLUS_BUTTON: &[Poly] = &[
     },
 ];
 
+/// Vertical geometry of the chrome-row buttons (quick actions / menu).
+/// `tab_bar_pixel_height_impl` derives the reserved chrome height from
+/// these same constants — if the buttons grow, the reserved height grows
+/// with them instead of the first terminal row disappearing under the bar.
+pub(crate) const QUICK_BTN_VMARGIN_CELLS: f32 = 0.22;
+pub(crate) const QUICK_BTN_VPAD_CELLS: f32 = 0.28;
+pub(crate) const QUICK_BTN_BORDER_PX: f32 = 1.0;
+/// The 1 px `chrome_bottom_divider` drawn as the chrome element's bottom
+/// border. Part of the painted chrome height, so part of the reserved
+/// height too.
+pub(crate) const CHROME_BOTTOM_DIVIDER_PX: f32 = 1.0;
+
 impl crate::TermWindow {
     pub fn invalidate_fancy_tab_bar(&mut self) {
         self.fancy_tab_bar.take();
@@ -406,16 +418,16 @@ impl crate::TermWindow {
                 .margin(BoxDimension {
                     left: Dimension::Cells(0.5),
                     right: Dimension::Cells(0.),
-                    top: Dimension::Cells(0.22),
-                    bottom: Dimension::Cells(0.22),
+                    top: Dimension::Cells(QUICK_BTN_VMARGIN_CELLS),
+                    bottom: Dimension::Cells(QUICK_BTN_VMARGIN_CELLS),
                 })
                 .padding(BoxDimension {
                     left: Dimension::Cells(0.5),
                     right: Dimension::Cells(0.5),
-                    top: Dimension::Cells(0.28),
-                    bottom: Dimension::Cells(0.28),
+                    top: Dimension::Cells(QUICK_BTN_VPAD_CELLS),
+                    bottom: Dimension::Cells(QUICK_BTN_VPAD_CELLS),
                 })
-                .border(BoxDimension::new(Dimension::Pixels(1.)))
+                .border(BoxDimension::new(Dimension::Pixels(QUICK_BTN_BORDER_PX)))
                 .colors(ElementColors {
                     border: BorderColor::default(),
                     // Frameless idle (transparent) so the row stays clean on
@@ -451,16 +463,16 @@ impl crate::TermWindow {
                 .margin(BoxDimension {
                     left: Dimension::Cells(0.5),
                     right: Dimension::Cells(0.),
-                    top: Dimension::Cells(0.22),
-                    bottom: Dimension::Cells(0.22),
+                    top: Dimension::Cells(QUICK_BTN_VMARGIN_CELLS),
+                    bottom: Dimension::Cells(QUICK_BTN_VMARGIN_CELLS),
                 })
                 .padding(BoxDimension {
                     left: Dimension::Cells(0.5),
                     right: Dimension::Cells(0.5),
-                    top: Dimension::Cells(0.28),
-                    bottom: Dimension::Cells(0.28),
+                    top: Dimension::Cells(QUICK_BTN_VPAD_CELLS),
+                    bottom: Dimension::Cells(QUICK_BTN_VPAD_CELLS),
                 })
-                .border(BoxDimension::new(Dimension::Pixels(1.)))
+                .border(BoxDimension::new(Dimension::Pixels(QUICK_BTN_BORDER_PX)))
                 .colors(ElementColors {
                     border: BorderColor::default(),
                     // Frameless idle (transparent) so the row stays clean on
@@ -700,7 +712,12 @@ impl crate::TermWindow {
             .display(DisplayType::Block)
             .item_type(UIItemType::TabBar(TabBarItem::None))
             .min_width(Some(Dimension::Pixels(self.dimensions.pixel_width as f32)))
-            .min_height(Some(Dimension::Pixels(tab_bar_height)))
+            // min_height constrains the content box; the bottom divider
+            // border is drawn outside it, so subtract it here to keep the
+            // painted total equal to tab_bar_pixel_height().
+            .min_height(Some(Dimension::Pixels(
+                tab_bar_height - CHROME_BOTTOM_DIVIDER_PX,
+            )))
             .vertical_align(VerticalAlign::Middle)
             // 1 px bottom border carries `chrome_bottom_divider`. The
             // other three edges stay zero-width so we don't paint a
@@ -709,7 +726,7 @@ impl crate::TermWindow {
                 left: Dimension::Pixels(0.),
                 right: Dimension::Pixels(0.),
                 top: Dimension::Pixels(0.),
-                bottom: Dimension::Pixels(1.),
+                bottom: Dimension::Pixels(CHROME_BOTTOM_DIVIDER_PX),
             })
             .colors(bar_colors);
 
@@ -746,6 +763,12 @@ impl crate::TermWindow {
             &tabs,
         )?;
 
+        log::debug!(
+            "fancy-tab-bar: computed height {} vs tab_bar_pixel_height {} (title cell {})",
+            computed.bounds.height(),
+            tab_bar_height,
+            metrics.cell_size.height,
+        );
         computed.translate(euclid::vec2(
             0.,
             if self.config.tab_bar_at_bottom {
