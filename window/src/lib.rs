@@ -38,6 +38,13 @@ pub fn prewarm_opengl() {
     crate::os::windows::wgl::start_prewarm();
 }
 
+/// Discard a prewarmed GL context that turned out to be unneeded
+/// (config selected WebGpu or EGL). No-op if none is pending.
+pub fn discard_prewarmed_opengl() {
+    #[cfg(windows)]
+    crate::os::windows::wgl::discard_prewarm();
+}
+
 /// Track whether `wezterm.gui.get_appearance()` / `wezterm.gui.screens()`
 /// were called from lua before the GUI Connection existed (i.e. during the
 /// initial config evaluation). The GUI frontend uses this to decide whether

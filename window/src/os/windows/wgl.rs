@@ -299,6 +299,29 @@ fn prewarm_context() -> anyhow::Result<PrewarmedGl> {
     })
 }
 
+/// Drop a pending prewarm result without using it (e.g. the config turned
+/// out to want WebGpu). Waits on a helper thread so we never block, and
+/// deletes the orphaned context instead of leaking it.
+pub fn discard_prewarm() {
+    let rx = match PREWARM_RX.lock() {
+        Ok(mut slot) => slot.take(),
+        Err(_) => None,
+    };
+    if let Some(rx) = rx {
+        std::thread::Builder::new()
+            .name("wgl-prewarm-discard".to_string())
+            .spawn(move || {
+                if let Ok(Some(pre)) = rx.recv_timeout(std::time::Duration::from_secs(10)) {
+                    unsafe {
+                        pre.wgl.wgl.DeleteContext(pre.rc);
+                    }
+                    log::debug!("discarded unused prewarmed GL context");
+                }
+            })
+            .ok();
+    }
+}
+
 fn take_prewarmed() -> Option<PrewarmedGl> {
     let rx = PREWARM_RX.lock().ok()?.take()?;
     // Normally the prewarm finished long ago; if it is still mid-flight,

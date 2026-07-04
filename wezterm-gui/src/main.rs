@@ -980,13 +980,13 @@ fn build_initial_mux(
 fn run_terminal_gui(opts: StartCommand, default_domain_name: Option<String>) -> anyhow::Result<()> {
     crate::startup_timing::mark("run_terminal_gui enter");
 
-    // Start creating the GL context on a helper thread right away; the
-    // first window's enable_opengl adopts the result, taking the driver's
-    // expensive initialization off the startup critical path.
+    // The GL prewarm was started optimistically in run() before the
+    // config existed; now that it is loaded, discard the context if the
+    // config wants a different graphics path than OpenGL-via-WGL.
     {
         let config = config::configuration();
-        if config.front_end != config::FrontEndSelection::WebGpu && !config.prefer_egl {
-            ::window::prewarm_opengl();
+        if config.front_end == config::FrontEndSelection::WebGpu || config.prefer_egl {
+            ::window::discard_prewarmed_opengl();
         }
     }
 
@@ -1556,6 +1556,24 @@ fn run() -> anyhow::Result<()> {
         .ok();
 
     let opts = Opt::parse();
+
+    // Optimistically start creating the GL context on a helper thread
+    // before the config is loaded — driver initialization takes ~300ms
+    // and is the long pole of a cold start, so every ms of head start
+    // counts. Only GUI-launching subcommands qualify; if the config
+    // later selects WebGpu or EGL the context is discarded in
+    // run_terminal_gui instead of adopted.
+    let launches_gui = matches!(
+        opts.cmd.as_ref(),
+        None | Some(SubCommand::Start(_))
+            | Some(SubCommand::BlockingStart(_))
+            | Some(SubCommand::Ssh(_))
+            | Some(SubCommand::Serial(_))
+            | Some(SubCommand::Connect(_))
+    );
+    if launches_gui {
+        ::window::prewarm_opengl();
+    }
 
     // Hand the --profile choice off to the MCP server startup path
     // via an env var. Doing this *before* env_bootstrap-ish work or
