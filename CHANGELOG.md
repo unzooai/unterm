@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.53.2 — 2026-07-04
+
+### Fixed
+
+- **The left sidebar no longer covers the bottom status bar.** The sidebar's trailing `+` / shell-picker row overflowed its surface and dragged the whole panel down over the bottom info bar, hiding the shell name and the start of the working directory. The footer is now reserved inside the sidebar's height so it meets the status bar flush.
+- **Double-clicking a directory in the tree opens the right one.** The first click of a double-click expands the directory and repaints, shifting every row below; the second click then hit-tested a shifted row and `cd`'d to the wrong directory (intermittently, as a repaint race). The double-click now acts on the path captured by the first click and undoes that click's expand.
+- **The hover/selection highlight no longer lands on two rows at once.** The hover hit test used an inclusive interval, so two vertically-adjacent rows both matched on the pixel they share. It now uses a half-open interval, so each row owns its top edge but not its bottom edge.
+- **macOS traffic-light dots are the right size on Retina.** The custom-drawn window buttons were sized in raw device pixels, rendering at half the native cap diameter on 2× displays. They now scale with DPI.
+- **The ↔ resize cursor no longer appears over the tab rows on HiDPI.** The sidebar resize hit test compared the physical mouse position against a logical edge coordinate as a fallback, which matched in the middle of a tab row on 2× displays. Only the (correct) physical test remains.
+
+### Changed
+
+- **Clearer chrome across all themes.** The sidebar↔content and bottom-bar↔content edges use a clearly-visible hairline instead of tone-only contrast, and the top-bar action icons are brighter, so divisions and buttons read cleanly on the dark themes.
+
 ## v0.53.1 — 2026-07-03
 
 ### Fixed
