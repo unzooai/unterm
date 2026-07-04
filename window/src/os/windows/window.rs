@@ -1707,6 +1707,12 @@ unsafe fn wm_paint(hwnd: HWND, _msg: UINT, _wparam: WPARAM, _lparam: LPARAM) -> 
 
     if inner.paint_throttled {
         inner.invalidated = true;
+        // Validate the update region, otherwise Windows considers the
+        // window still dirty and immediately re-queues WM_PAINT: during
+        // an output flood (hundreds of invalidates per second) that
+        // spins the message loop at 100% of a core until the throttle
+        // timer expires. The timer re-invalidates via `invalidated`.
+        ValidateRect(hwnd, null());
         return Some(0);
     }
 

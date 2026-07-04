@@ -327,10 +327,13 @@ fn read_from_pane_pty(
         }
     };
 
-    std::thread::spawn({
-        let dead = Arc::clone(&dead);
-        move || parse_buffered_data(pane, &dead, rx)
-    });
+    std::thread::Builder::new()
+        .name("pty-parser".into())
+        .spawn({
+            let dead = Arc::clone(&dead);
+            move || parse_buffered_data(pane, &dead, rx)
+        })
+        .expect("spawn pty-parser thread");
 
     if let Some(banner) = banner {
         tx.write_all(banner.as_bytes()).ok();
@@ -809,7 +812,10 @@ impl Mux {
         if let Some(reader) = pane.reader()? {
             let banner = self.banner.read().clone();
             let pane = Arc::downgrade(pane);
-            thread::spawn(move || read_from_pane_pty(pane, banner, reader));
+            thread::Builder::new()
+                .name("pty-reader".into())
+                .spawn(move || read_from_pane_pty(pane, banner, reader))
+                .expect("spawn pty-reader thread");
         }
         self.recompute_pane_count();
         self.notify(MuxNotification::PaneAdded(pane_id));
