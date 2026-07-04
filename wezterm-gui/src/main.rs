@@ -58,6 +58,7 @@ mod server_info;
 pub mod session_state;
 mod shapecache;
 mod spawn;
+mod startup_timing;
 mod stats;
 mod system_proxy;
 mod tabbar;
@@ -588,7 +589,9 @@ async fn async_run_terminal_gui(
     // Start Unterm MCP server for AI agent access. Token + bound port are
     // written to ~/.unterm/server.json; legacy ~/.unterm/auth_token is also
     // written for back-compat with older clients.
+    crate::startup_timing::mark("async gui chain enter");
     let (mcp_port, mcp_token) = mcp::start_mcp_server();
+    crate::startup_timing::mark("mcp server started");
     log::info!(
         "Unterm MCP server started on 127.0.0.1:{}, server.json written",
         mcp_port
@@ -692,9 +695,11 @@ async fn async_run_terminal_gui(
             trigger_and_log_gui_attached(MuxDomain(domain.domain_id())).await;
         }
     }
+    crate::startup_timing::mark("pre spawn_tab");
     let result =
         spawn_tab_in_domain_if_mux_is_empty(cmd, is_connecting, domain, opts.workspace.clone())
             .await;
+    crate::startup_timing::mark("spawn_tab done");
 
     // Restore extra tabs from the last session. Geometry was already
     // restored at GUI-startup; this is the second half of the loop —
@@ -973,6 +978,18 @@ fn build_initial_mux(
 }
 
 fn run_terminal_gui(opts: StartCommand, default_domain_name: Option<String>) -> anyhow::Result<()> {
+    crate::startup_timing::mark("run_terminal_gui enter");
+
+    // Start creating the GL context on a helper thread right away; the
+    // first window's enable_opengl adopts the result, taking the driver's
+    // expensive initialization off the startup critical path.
+    {
+        let config = config::configuration();
+        if config.front_end != config::FrontEndSelection::WebGpu && !config.prefer_egl {
+            ::window::prewarm_opengl();
+        }
+    }
+
     if let Some(cls) = opts.class.as_ref() {
         crate::set_window_class(cls);
     }
@@ -1026,6 +1043,7 @@ fn run_terminal_gui(opts: StartCommand, default_domain_name: Option<String>) -> 
         default_domain_name.as_deref(),
         opts.workspace.as_deref(),
     )?;
+    crate::startup_timing::mark("initial mux built");
 
     // First, let's see if we can ask an already running unterm to do this.
     // We must do this before we start the gui frontend as the scheduler
@@ -1048,8 +1066,11 @@ fn run_terminal_gui(opts: StartCommand, default_domain_name: Option<String>) -> 
     )? {
         return Ok(());
     }
+    crate::startup_timing::mark("publish resolved");
 
     let gui = crate::frontend::try_new()?;
+    crate::startup_timing::mark("frontend ready");
+
     let activity = Activity::new();
 
     promise::spawn::spawn(async move {
@@ -1116,6 +1137,8 @@ fn terminate_with_error(err: anyhow::Error) -> ! {
 }
 
 fn main() {
+    startup_timing::init();
+
     #[cfg(feature = "dhat-heap")]
     let _profiler = dhat::Profiler::new_heap();
 
@@ -1518,6 +1541,19 @@ fn run() -> anyhow::Result<()> {
     }
 
     env_bootstrap::bootstrap();
+    startup_timing::log_pre_main();
+    startup_timing::mark("env_bootstrap done");
+
+    // Building the builtin color-scheme table parses >1000 TOML docs
+    // (~50ms). The config load below touches it; warming it on a helper
+    // thread ahead of time takes it off the startup critical path
+    // (lazy_static serializes concurrent initialization safely).
+    std::thread::Builder::new()
+        .name("color-scheme-warm".to_string())
+        .spawn(|| {
+            let _ = config::COLOR_SCHEMES.len();
+        })
+        .ok();
 
     let opts = Opt::parse();
 
@@ -1562,6 +1598,7 @@ fn run() -> anyhow::Result<()> {
         &opts.config_override,
         opts.skip_config,
     )?;
+    startup_timing::mark("config loaded");
     let config = config::configuration();
     if let Some(value) = &config.default_ssh_auth_sock {
         std::env::set_var("SSH_AUTH_SOCK", value);

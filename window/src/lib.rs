@@ -30,6 +30,41 @@ pub fn default_dpi() -> f64 {
     }
 }
 
+/// Begin creating a GL context on a helper thread so that the first
+/// window's `enable_opengl` can adopt it instead of paying for driver
+/// initialization on the critical path. Windows/WGL only; no-op elsewhere.
+pub fn prewarm_opengl() {
+    #[cfg(windows)]
+    crate::os::windows::wgl::start_prewarm();
+}
+
+/// Track whether `wezterm.gui.get_appearance()` / `wezterm.gui.screens()`
+/// were called from lua before the GUI Connection existed (i.e. during the
+/// initial config evaluation). The GUI frontend uses this to decide whether
+/// the config needs the historic "reload once the Connection is up" pass;
+/// configs that never asked for gui state can skip that second (expensive)
+/// evaluation entirely.
+static APPEARANCE_QUERIED_BEFORE_GUI: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+static SCREENS_QUERIED_BEFORE_GUI: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+pub fn note_appearance_queried_before_gui() {
+    APPEARANCE_QUERIED_BEFORE_GUI.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn appearance_queried_before_gui() -> bool {
+    APPEARANCE_QUERIED_BEFORE_GUI.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn note_screens_queried_before_gui() {
+    SCREENS_QUERIED_BEFORE_GUI.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn screens_queried_before_gui() -> bool {
+    SCREENS_QUERIED_BEFORE_GUI.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 mod egl;
 
 pub use bitmaps::{BitmapImage, Image};

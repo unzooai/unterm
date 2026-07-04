@@ -8,6 +8,10 @@ use window::{Appearance, Connection, ConnectionOps};
 
 fn get_conn() -> mlua::Result<Rc<Connection>> {
     Connection::get().ok_or_else(|| {
+        // Called before the GUI came up: remember that the config wants
+        // screen info so that the frontend re-evaluates it once the
+        // Connection exists.
+        window::note_screens_queried_before_gui();
         mlua::Error::external("cannot get window Connection: not running on the gui thread?")
     })
 }
@@ -95,7 +99,10 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             Ok(match Connection::get() {
                 Some(conn) => conn.get_appearance().to_string(),
                 None => {
-                    // Gui hasn't started yet, assume light
+                    // Gui hasn't started yet, assume light. Remember that
+                    // the config asked, so that the frontend re-evaluates
+                    // it once the real appearance is known.
+                    window::note_appearance_queried_before_gui();
                     Appearance::Light.to_string()
                 }
             })

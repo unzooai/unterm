@@ -95,10 +95,46 @@ fn config_builder_index<'lua>(
     }
 }
 
+/// The set of canonical Config field names, computed once. Used by the
+/// config_builder fast path to accept known keys without re-materializing
+/// an entire Config per assignment.
+fn valid_config_keys() -> &'static std::collections::HashSet<String> {
+    static KEYS: std::sync::OnceLock<std::collections::HashSet<String>> =
+        std::sync::OnceLock::new();
+    KEYS.get_or_init(|| match Config::default().to_dynamic() {
+        DynValue::Object(obj) => obj
+            .iter()
+            .filter_map(|(k, _)| match k {
+                DynValue::String(s) => Some(s.to_string()),
+                _ => None,
+            })
+            .collect(),
+        _ => Default::default(),
+    })
+}
+
 fn config_builder_new_index<'lua>(
     lua: &'lua Lua,
     (myself, key, value): (Table, String, Value),
 ) -> mlua::Result<()> {
+    // Fast path: a known config key is stored directly. The historic
+    // validation below round-trips the entire multi-hundred-field Config
+    // through from_dynamic + to_dynamic on EVERY assignment (~10ms each),
+    // which made a typical 30-assignment config cost ~300ms of startup.
+    // Value type errors are still caught when the finished config table
+    // is converted to the Config struct at the end of evaluation; what
+    // the fast path gives up is only the per-line stack trace for them.
+    // Strict mode opts back into full per-assignment validation.
+    {
+        let strict = match myself.get_metatable() {
+            Some(mt) => matches!(mt.get("__strict_mode"), Ok(Value::Boolean(true))),
+            None => false,
+        };
+        if !strict && valid_config_keys().contains(&key) {
+            return myself.raw_set(key, value);
+        }
+    }
+
     let stub_config = lua.create_table()?;
     stub_config.set(key.clone(), value.clone())?;
 

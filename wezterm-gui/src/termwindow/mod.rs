@@ -825,6 +825,7 @@ impl TermWindow {
 
 impl TermWindow {
     pub async fn new_window(mux_window_id: MuxWindowId) -> anyhow::Result<()> {
+        crate::startup_timing::mark("TermWindow::new_window enter");
         let startup_span = std::time::Instant::now();
         let config = configuration();
         let dpi = config.dpi.unwrap_or_else(|| ::window::default_dpi()) as usize;
@@ -1104,6 +1105,7 @@ impl TermWindow {
             "startup-span: os window created {:?}",
             startup_span.elapsed()
         );
+        crate::startup_timing::mark("os window created");
         tw.borrow_mut().window.replace(window.clone());
 
         // Pre-warm the search bar's localized glyphs at idle. Their first
@@ -1152,6 +1154,7 @@ impl TermWindow {
             FrontEndSelection::WebGpu => None,
             _ => Some(window.enable_opengl().await?),
         };
+        crate::startup_timing::mark("gpu context ready");
 
         {
             let mut myself = tw.borrow_mut();
@@ -1188,7 +1191,9 @@ impl TermWindow {
             }
             myself.load_os_parameters();
 
+            crate::startup_timing::mark("render state created");
             window.show();
+            crate::startup_timing::mark("window.show() called");
             myself.subscribe_to_pane_updates();
             myself.emit_window_event("window-config-reloaded", None);
             myself.emit_status_event();

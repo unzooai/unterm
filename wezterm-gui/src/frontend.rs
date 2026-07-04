@@ -35,6 +35,7 @@ impl Drop for GuiFrontEnd {
 impl GuiFrontEnd {
     pub fn try_new() -> anyhow::Result<Rc<GuiFrontEnd>> {
         let connection = Connection::init()?;
+        crate::startup_timing::mark("window Connection::init done");
         connection.set_event_handler(Self::app_event_handler);
 
         let mux = Mux::get();
@@ -205,8 +206,20 @@ impl GuiFrontEnd {
         });
         // Re-evaluate the config so that folks that are using
         // `wezterm.gui.get_appearance()` can have that take effect
-        // before any windows are created
-        config::reload();
+        // before any windows are created.
+        // Reloading re-runs the user's lua and is one of the most
+        // expensive steps of startup, so only do it when the first
+        // evaluation actually asked for gui state it couldn't answer:
+        // - screens(): errored before the Connection was up
+        // - get_appearance(): assumed Light; skip when that guess was right
+        let needs_reload = ::window::screens_queried_before_gui()
+            || (::window::appearance_queried_before_gui()
+                && front_end.connection.get_appearance() != ::window::Appearance::Light);
+        if needs_reload {
+            crate::startup_timing::mark("config reload for gui state: begin");
+            config::reload();
+            crate::startup_timing::mark("config reload for gui state: end");
+        }
 
         // And build the initial menu bar.
         // TODO: arrange for this to happen on config reload.

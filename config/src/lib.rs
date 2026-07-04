@@ -161,10 +161,39 @@ fn json_to_dynamic(value: &serde_json::Value) -> Value {
 }
 
 pub fn build_default_schemes() -> HashMap<String, Palette> {
+    let timing = std::time::Instant::now();
     let mut color_schemes = HashMap::new();
-    for (scheme_name, data) in scheme_data::SCHEMES.iter() {
-        let scheme_name = scheme_name.to_string();
-        let scheme = ColorSchemeFile::from_toml_str(data).unwrap();
+
+    // Parsing >1000 scheme TOML docs single-threaded costs ~50ms of
+    // startup; fan the work out across a few threads and merge.
+    let threads = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4)
+        .min(8);
+    let chunk_size = (scheme_data::SCHEMES.len() / threads).max(1) + 1;
+    let parsed: Vec<(String, ColorSchemeFile)> = std::thread::scope(|scope| {
+        let handles: Vec<_> = scheme_data::SCHEMES
+            .chunks(chunk_size)
+            .map(|chunk| {
+                scope.spawn(move || {
+                    chunk
+                        .iter()
+                        .map(|(scheme_name, data)| {
+                            (
+                                scheme_name.to_string(),
+                                ColorSchemeFile::from_toml_str(data).unwrap(),
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .flat_map(|h| h.join().expect("scheme parsing thread panicked"))
+            .collect()
+    });
+    for (scheme_name, scheme) in parsed {
         color_schemes.insert(scheme_name, scheme.colors.clone());
         for alias in scheme.metadata.aliases {
             color_schemes.insert(alias, scheme.colors.clone());
@@ -180,6 +209,11 @@ pub fn build_default_schemes() -> HashMap<String, Palette> {
             color_schemes.insert(alias, scheme.colors.clone());
         }
     }
+    log::debug!(
+        "config-timing: build_default_schemes ({} schemes) {:?}",
+        color_schemes.len(),
+        timing.elapsed()
+    );
     color_schemes
 }
 

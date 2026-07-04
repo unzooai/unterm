@@ -46,7 +46,65 @@ pub struct WslDistro {
 }
 
 impl WslDistro {
+    /// Enumerate installed WSL distros from the registry. This is what
+    /// `wsl.exe -l -v` reads too, but without spawning a subprocess —
+    /// the subprocess route costs 50-80ms on the startup critical path.
+    #[cfg(windows)]
+    fn load_distro_list_from_registry() -> anyhow::Result<Vec<Self>> {
+        use winreg::enums::HKEY_CURRENT_USER;
+        use winreg::RegKey;
+
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let lxss = match hkcu.open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Lxss") {
+            Ok(k) => k,
+            // No Lxss key means WSL has never registered a distro on
+            // this machine; report "no distros" rather than erroring,
+            // so the caller doesn't fall back to spawning wsl.exe.
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(vec![]),
+            Err(err) => return Err(err.into()),
+        };
+        let default_guid: String = lxss.get_value("DefaultDistribution").unwrap_or_default();
+
+        let mut distros = vec![];
+        for guid in lxss.enum_keys().flatten() {
+            let distro_key = match lxss.open_subkey(&guid) {
+                Ok(k) => k,
+                Err(_) => continue,
+            };
+            let name: String = match distro_key.get_value("DistributionName") {
+                Ok(name) => name,
+                Err(_) => continue,
+            };
+            // Modern distro packages install under a "State" of 1 once
+            // they are fully registered; anything else is mid-install
+            // or partially removed, matching what wsl.exe -l shows.
+            let state: u32 = distro_key.get_value("State").unwrap_or(1);
+            if state != 1 {
+                continue;
+            }
+            let version: u32 = distro_key.get_value("Version").unwrap_or(2);
+            distros.push(WslDistro {
+                name,
+                state: "Registered".to_string(),
+                version: version.to_string(),
+                is_default: guid == default_guid,
+            });
+        }
+        Ok(distros)
+    }
+
     pub fn load_distro_list() -> anyhow::Result<Vec<Self>> {
+        // Prefer the registry: same data as `wsl.exe -l -v`, none of the
+        // subprocess cost. Fall back to wsl.exe if the registry shape
+        // ever changes.
+        #[cfg(windows)]
+        match Self::load_distro_list_from_registry() {
+            Ok(distros) => return Ok(distros),
+            Err(err) => {
+                log::debug!("WSL registry enumeration failed, falling back to wsl.exe: {err:#}");
+            }
+        }
+
         #[cfg(windows)]
         use std::os::windows::process::CommandExt;
         let mut cmd = std::process::Command::new("wsl.exe");

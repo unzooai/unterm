@@ -148,6 +148,7 @@ impl crate::TermWindow {
         log::debug!("paint_impl before call_draw elapsed={:?}", start.elapsed());
 
         self.call_draw(frame).ok();
+        crate::startup_timing::mark_first_paint();
         self.last_frame_duration = start.elapsed();
         log::debug!(
             "paint_impl elapsed={:?}, fps={}",

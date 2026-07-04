@@ -253,12 +253,15 @@ impl WindowInner {
         })
         .or_else(|err| {
             log::trace!("EGL init failed {:?}, fall back to WGL", err);
-            super::wgl::GlState::create(self.hwnd.0).and_then(|state| unsafe {
-                Ok(glium::backend::Context::new(
-                    Rc::new(state),
-                    true,
-                    callback_behavior(),
-                )?)
+            let timing = std::time::Instant::now();
+            super::wgl::GlState::create(self.hwnd.0).and_then(|state| {
+                log::debug!("wgl-timing: GlState::create {:?}", timing.elapsed());
+                let timing = std::time::Instant::now();
+                let context = unsafe {
+                    glium::backend::Context::new(Rc::new(state), true, callback_behavior())?
+                };
+                log::debug!("wgl-timing: glium Context::new {:?}", timing.elapsed());
+                Ok(context)
             })
         })?;
 

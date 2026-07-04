@@ -1266,12 +1266,15 @@ impl Config {
 
         let mut s = String::new();
         file.read_to_string(&mut s)?;
+        let timing = std::time::Instant::now();
         let lua = make_lua_context(p)?;
+        log::debug!("config-timing: make_lua_context {:?}", timing.elapsed());
 
         let (config, warnings) =
             wezterm_dynamic::Error::capture_warnings(|| -> anyhow::Result<Config> {
                 let cfg: Config;
 
+                let timing = std::time::Instant::now();
                 let config: mlua::Value = smol::block_on(
                     // Skip a potential BOM that Windows software may have placed in the
                     // file. Note that we can't catch this happening for files that are
@@ -1280,19 +1283,24 @@ impl Config {
                         .set_name(p.to_string_lossy())
                         .eval_async(),
                 )?;
+                log::debug!("config-timing: eval user lua {:?}", timing.elapsed());
                 let config = Config::apply_overrides_to(&lua, config)?;
                 let config = Config::apply_overrides_obj_to(&lua, config, overrides)?;
+                let timing = std::time::Instant::now();
                 cfg = Config::from_lua(config, &lua).with_context(|| {
                     format!(
                         "Error converting lua value returned by script {} to Config struct",
                         p.display()
                     )
                 })?;
+                log::debug!("config-timing: from_lua {:?}", timing.elapsed());
                 cfg.check_consistency()?;
 
                 // Compute but discard the key bindings here so that we raise any
                 // problems earlier than we use them.
+                let timing = std::time::Instant::now();
                 let _ = cfg.key_bindings();
+                log::debug!("config-timing: key_bindings {:?}", timing.elapsed());
 
                 std::env::set_var("WEZTERM_CONFIG_FILE", p);
                 if let Some(dir) = p.parent() {
@@ -1302,8 +1310,15 @@ impl Config {
             });
         let cfg = config?;
 
+        let timing = std::time::Instant::now();
+        let cfg_with_defaults = cfg.compute_extra_defaults(Some(p));
+        log::debug!(
+            "config-timing: compute_extra_defaults {:?}",
+            timing.elapsed()
+        );
+
         Ok(Some(LoadedConfig {
-            config: Ok(cfg.compute_extra_defaults(Some(p))),
+            config: Ok(cfg_with_defaults),
             file_name: Some(p.to_path_buf()),
             lua: Some(lua),
             warnings,

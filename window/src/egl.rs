@@ -400,9 +400,9 @@ impl GlState {
         &self.connection
     }
 
-    fn with_egl_lib<F: FnMut(EglWrapper) -> anyhow::Result<Self>>(
+    fn with_egl_lib<T, F: FnMut(EglWrapper) -> anyhow::Result<T>>(
         mut func: F,
-    ) -> anyhow::Result<Self> {
+    ) -> anyhow::Result<T> {
         let mut paths: Vec<std::path::PathBuf> = vec![
             #[cfg(target_os = "windows")]
             "libEGL.dll".into(),
@@ -487,6 +487,50 @@ impl GlState {
         wegl_surface: &wayland_egl::WlEglSurface,
     ) -> anyhow::Result<Self> {
         Self::create(display, wegl_surface.ptr())
+    }
+
+    /// The window-independent half of `create`: load the EGL library,
+    /// initialize the display and bind the API. This is where the expensive
+    /// driver initialization happens (ANGLE/D3D device creation on Windows),
+    /// so callers may run it ahead of window creation and stash the
+    /// connection to take that cost off the first-window critical path.
+    pub fn create_connection(
+        display: Option<ffi::EGLNativeDisplayType>,
+    ) -> anyhow::Result<Rc<GlConnection>> {
+        Self::with_egl_lib(|egl| {
+            let egl_display = egl.get_display(display)?;
+
+            let (major, minor) = egl.initialize_and_get_version(egl_display)?;
+            log::trace!("initialized EGL version {}.{}", major, minor);
+
+            let is_opengl = unsafe {
+                if egl.egl.BindAPI(ffi::OPENGL_API) != 0 {
+                    log::trace!("using OpenGL");
+                    true
+                } else if egl.egl.BindAPI(ffi::OPENGL_ES_API) != 0 {
+                    log::trace!("using GLES");
+                    false
+                } else {
+                    anyhow::bail!("Unable to bind to OpenGL or GL ES!?");
+                }
+            };
+
+            let extensions = unsafe { egl.egl.QueryString(egl_display, ffi::EXTENSIONS as _) };
+            let extensions = if extensions.is_null() {
+                String::new()
+            } else {
+                let cstr = unsafe { std::ffi::CStr::from_ptr(extensions) };
+                String::from_utf8_lossy(cstr.to_bytes()).to_string()
+            };
+            log::trace!("EGL extensions: {}", extensions);
+
+            Ok(Rc::new(GlConnection {
+                display: egl_display,
+                egl,
+                is_opengl,
+                extensions,
+            }))
+        })
     }
 
     pub fn create(
