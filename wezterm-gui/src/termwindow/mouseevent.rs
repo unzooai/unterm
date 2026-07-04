@@ -28,19 +28,24 @@ impl super::TermWindow {
         // 14pt was a ~23px grab zone that bled the ↔ resize cursor far across
         // the tab rows, so moving the mouse to switch tabs flipped the cursor.
         // 8pt keeps an easy grab while the resize cursor stays near the edge.
-        self.resolve_left_sidebar_resize_edge_with_tolerance(event, 8.0, 8)
+        self.resolve_left_sidebar_resize_edge_with_tolerance(event, 8.0)
     }
 
     fn resolve_left_sidebar_resize_divider(&self, event: &MouseEvent) -> Option<UIItem> {
-        self.resolve_left_sidebar_resize_edge_with_tolerance(event, 4.0, 4)
+        self.resolve_left_sidebar_resize_edge_with_tolerance(event, 4.0)
     }
 
     fn resolve_left_sidebar_resize_edge_with_tolerance(
         &self,
         event: &MouseEvent,
         tolerance_pts: f32,
-        logical_tolerance: isize,
     ) -> Option<UIItem> {
+        // NOTE: `event.coords` is in PHYSICAL device pixels, the same space as
+        // the sidebar widths below. A previous version also compared the
+        // physical x against a *logical* edge (`edge / pt`) as a fallback;
+        // on a 2× display that second test matched at x ≈ edge/2 — i.e. the
+        // middle of a tab row — so the ↔ resize cursor appeared over the tabs
+        // when switching them. Only the physical test is correct.
         let x = event.coords.x;
         let y = event.coords.y;
         let pt = self.dimensions.dpi as f32 / 72.0;
@@ -58,10 +63,7 @@ impl super::TermWindow {
             let tree_width = self.tree_sidebar_pixel_width();
             if tree_width > 0.0 {
                 let tree_right = border.left.get() as isize + (left_width + tree_width) as isize;
-                let tree_right_logical = (tree_right as f32 / pt).round() as isize;
-                if (x - tree_right).abs() <= tolerance
-                    || (x - tree_right_logical).abs() <= logical_tolerance
-                {
+                if (x - tree_right).abs() <= tolerance {
                     return Some(UIItem {
                         x: tree_right.saturating_sub(tolerance) as usize,
                         y: top.max(0) as usize,
@@ -74,10 +76,7 @@ impl super::TermWindow {
             }
 
             let left_right = border.left.get() as isize + left_width as isize;
-            let left_right_logical = (left_right as f32 / pt).round() as isize;
-            if (x - left_right).abs() <= tolerance
-                || (x - left_right_logical).abs() <= logical_tolerance
-            {
+            if (x - left_right).abs() <= tolerance {
                 return Some(UIItem {
                     x: left_right.saturating_sub(tolerance) as usize,
                     y: top.max(0) as usize,
