@@ -3495,7 +3495,28 @@ impl TermWindow {
             pane.pane_id(),
         ));
         let start = std::time::Instant::now();
-        match menu.precompute(self) {
+        let mut result = menu.precompute(self);
+        if let Err(err) = &result {
+            // The menu's glyphs (codicons, CJK labels) can outgrow the
+            // startup atlas. Grow it here, at idle, the same way the
+            // paint pass does — that also spares the first real menu
+            // open from paying the atlas-growth hitch.
+            if let Some(&::window::bitmaps::atlas::OutOfTextureSpace {
+                size: Some(size), ..
+            }) = err.root_cause().downcast_ref()
+            {
+                log::debug!("settings menu prewarm: growing atlas to {size}");
+                if let Err(err) = self.recreate_texture_atlas(Some(size)) {
+                    log::warn!("settings menu prewarm: atlas grow failed: {err:#}");
+                } else {
+                    self.invalidate_fancy_tab_bar();
+                    self.invalidate_modal();
+                    self.invalidate_left_tab_bar();
+                    result = menu.precompute(self);
+                }
+            }
+        }
+        match result {
             Ok(()) => {
                 // Prewarm glyph/font fallback, but do not reuse the computed
                 // element. Reusing the first layout can briefly show stale
