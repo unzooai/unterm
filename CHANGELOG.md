@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.54.0 — 2026-07-05
+
+### Performance
+
+- **Cold start is 2.8× faster: ~780ms → ~280ms to first frame.** Five startup-path optimizations: config keys are validated against a precomputed key set instead of materializing the whole config per key (Lua eval 297ms → 8ms); the second config load is skipped unless the GUI actually queried screens/appearance before startup (128ms → 0); WSL distros are enumerated from the registry instead of spawning `wsl.exe` (43ms → 4ms); the 1119 built-in color schemes parse in parallel and warm in the background (195ms → 43ms); and the OpenGL context is prewarmed on a helper thread right after argument parsing, then adopted by the real window (GPU setup 222ms → ~110ms, fully overlapped).
+- **Sustained output no longer burns a CPU core on the UI thread.** During output floods (hundreds of repaint requests per second), the throttled `WM_PAINT` handler returned without validating the update region, so Windows re-queued `WM_PAINT` continuously and the message loop spun at ~91% of a core. It now validates the region and lets the frame-rate timer re-invalidate; the UI thread drops to ~4% during the same flood.
+- **The MCP server stays responsive during output floods.** Same root cause as above: MCP operations that need the main thread were starved by the paint storm, so `unterm-cli` calls timed out after 30s mid-flood. They now answer in tens of milliseconds.
+
+### Fixed
+
+- **The first terminal row is no longer clipped under the top bar.** The reserved chrome height was still the old 1.6× title-cell formula while the quick-action buttons had grown the painted chrome to ~2× + divider, hiding the top ~16px of row one. The reserved height is now derived from the same button-geometry constants the layout uses, so they can't drift apart again.
+- **The settings-menu prewarm no longer fails on small glyph atlases.** The menu's codicons/CJK labels could outgrow the startup atlas; the prewarm now grows the atlas in place (like the paint pass does) instead of giving up, which also spares the first real menu open the atlas-growth hitch.
+- **CLI commands without `--id` now target the pane you're looking at.** `session.list` exposed an unordered HashMap walk and the CLI picked its first entry, so with several panes open a bare `unterm-cli exec run` could type into a random pane. The list is now sorted with an `is_active` flag and the CLI prefers the active pane.
+- **`session.resize` refuses panes that are laid out by the GUI window** instead of silently desyncing the PTY grid from the visible grid (content clipped / wrapped wrong until the next window resize).
+- **A mistyped CLI flag can no longer end up typed into your terminal.** Trailing command/text arguments no longer accept unknown flag-like tokens (`--sesion 0 ...` previously flowed into the command string and was sent to the live pane); clap now rejects them with a hint to use `--`. Flags after the first command token (`ping -n 1 ...`) and the documented `-- --flag` escape are unaffected.
+
 ## v0.53.2 — 2026-07-04
 
 ### Fixed
