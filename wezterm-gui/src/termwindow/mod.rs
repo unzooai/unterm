@@ -3464,9 +3464,11 @@ impl TermWindow {
         // dir-jump / folder overlay renders its labels with the title font, so
         // warming only the default font left its CJK/⌕ fallback cold and the
         // picker flashed tofu on its first frame.
-        for font in [self.fonts.default_font(), self.fonts.title_font()]
-            .into_iter()
-            .flatten()
+        // IntoIterator::into_iter form: this crate is edition 2018, where
+        // `array.into_iter()` resolves to iterating references and trips
+        // the `array_into_iter` lint under CI's -D warnings.
+        for font in
+            IntoIterator::into_iter([self.fonts.default_font(), self.fonts.title_font()]).flatten()
         {
             let _ = font.shape(
                 text,
