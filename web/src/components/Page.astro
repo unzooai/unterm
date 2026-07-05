@@ -83,10 +83,10 @@ const demoFlow = [
 // features but with a "v0.12" version chip and a denser tech-paragraph
 // body (these are about what changed, not what exists).
 const whatsnew = [
+  { v: "v0.54", title: "whatsnew.perf54.title",     body: "whatsnew.perf54.body" },
   { v: "v0.53", title: "whatsnew.composer53.title", body: "whatsnew.composer53.body" },
   { v: "v0.52", title: "whatsnew.agents52.title",   body: "whatsnew.agents52.body" },
   { v: "v0.51", title: "whatsnew.native51.title",   body: "whatsnew.native51.body" },
-  { v: "v0.50.2", title: "whatsnew.chrome44.title",   body: "whatsnew.chrome44.body" },
 ];
 
 const principles = [
@@ -103,7 +103,7 @@ const principles = [
 // GitHub Releases.  `valueRaw` is rendered as-is (mixed locale fragments like
 // version + date); plain `value` is an i18n key that goes through t().
 const tldrRows = [
-  { label: "tldr.version",         valueRaw: "v0.53.2 · 2026-07-04 · MIT" },
+  { label: "tldr.version",         valueRaw: "v0.54.0 · 2026-07-05 · MIT" },
   { label: "tldr.bundled_agents",  value:    "tldr.bundled_agents.value" },
   { label: "tldr.price",        value: "tldr.price.value" },
   { label: "tldr.platforms",    value: "tldr.platforms.value" },
@@ -223,7 +223,7 @@ const capabilities = [
 ];
 
 const dlBaseUrl = "https://github.com/zhitongblog/unterm/releases";
-const releaseTag = "v0.53.2";
+const releaseTag = "v0.54.0";
 
 // Download links use the version pinned for this site build, not
 // `stats.release`. The stats call can legitimately see the previous GitHub
