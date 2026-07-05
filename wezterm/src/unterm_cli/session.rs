@@ -28,11 +28,9 @@ pub enum SessionSubCommand {
         #[arg(long)]
         profile: Option<String>,
         /// Shell command to run. Use `--` before commands with flags.
-        #[arg(
-            value_name = "COMMAND",
-            trailing_var_arg = true,
-            allow_hyphen_values = true
-        )]
+        // No allow_hyphen_values — see exec.rs: mistyped flags must
+        // error out, not get swallowed into the command text.
+        #[arg(value_name = "COMMAND", trailing_var_arg = true)]
         command: Vec<String>,
     },
     /// Split an existing pane and spawn a shell in the new split.
@@ -95,11 +93,9 @@ pub enum SessionSubCommand {
         #[arg(long)]
         enter: bool,
         /// Text to write. Use `--` before text that starts with a dash.
-        #[arg(
-            value_name = "TEXT",
-            trailing_var_arg = true,
-            allow_hyphen_values = true
-        )]
+        // No allow_hyphen_values — see exec.rs: mistyped flags must
+        // error out, not get swallowed into the text payload.
+        #[arg(value_name = "TEXT", trailing_var_arg = true)]
         text: Vec<String>,
     },
     /// Read the visible pane viewport as plain text.
@@ -159,11 +155,8 @@ pub enum SessionSubCommand {
         #[arg(long)]
         goto_match: Option<u64>,
         /// Substring to search for. Use `--` before patterns that start with a dash.
-        #[arg(
-            value_name = "PATTERN",
-            trailing_var_arg = true,
-            allow_hyphen_values = true
-        )]
+        // No allow_hyphen_values — see exec.rs.
+        #[arg(value_name = "PATTERN", trailing_var_arg = true)]
         pattern: Vec<String>,
     },
     /// Queue, inspect, or cancel user-accepted suggestions.
@@ -216,11 +209,9 @@ pub enum SuggestSubCommand {
         #[arg(long)]
         ttl_ms: Option<u64>,
         /// Suggested text. Use `--` before text that starts with a dash.
-        #[arg(
-            value_name = "TEXT",
-            trailing_var_arg = true,
-            allow_hyphen_values = true
-        )]
+        // No allow_hyphen_values — see exec.rs: mistyped flags must
+        // error out, not get swallowed into the text payload.
+        #[arg(value_name = "TEXT", trailing_var_arg = true)]
         text: Vec<String>,
     },
     /// Print one suggestion by id.

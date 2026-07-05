@@ -2019,6 +2019,27 @@ impl McpHandler {
             .and_then(|v| v.as_u64())
             .ok_or_else(|| anyhow!("Missing 'rows'"))? as usize;
 
+        // A pane that is tiled inside a GUI window gets its geometry from
+        // the window size and split layout; resizing only the PTY leaves
+        // the model at one size and the visible grid at another (content
+        // clips / wraps wrong until the next window resize resnaps it).
+        // Reject instead of silently desyncing.
+        let mux = self.get_mux()?;
+        let pane_id = pane.pane_id();
+        let in_gui_layout = mux.iter_windows().into_iter().any(|wid| {
+            mux.get_window(wid)
+                .map(|window| window.iter().any(|tab| tab.contains_pane(pane_id)))
+                .unwrap_or(false)
+        });
+        if in_gui_layout {
+            return Err(anyhow!(
+                "Session {} is laid out by the GUI window; its size follows \
+                 the window and splits. Resize the window or adjust the \
+                 split instead.",
+                pane_id
+            ));
+        }
+
         let size = wezterm_term::TerminalSize {
             rows,
             cols,

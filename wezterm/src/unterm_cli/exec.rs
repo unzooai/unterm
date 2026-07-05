@@ -21,11 +21,13 @@ pub enum ExecSubCommand {
         #[arg(long)]
         id: Option<u64>,
         /// Shell command to run. Use `--` before commands with flags.
-        #[arg(
-            value_name = "COMMAND",
-            trailing_var_arg = true,
-            allow_hyphen_values = true
-        )]
+        // No allow_hyphen_values: a mistyped flag (`--sesion 0 ...`)
+        // must fail parsing instead of being swallowed into the command
+        // text and typed into a live pane. Commands whose FIRST token
+        // starts with a dash still work via the documented `--` escape;
+        // flags after the first token (`echo --version`) parse fine
+        // because trailing_var_arg collects them verbatim.
+        #[arg(value_name = "COMMAND", trailing_var_arg = true)]
         command: Vec<String>,
     },
     /// Send a command and wait for Unterm's sentinel to appear.
@@ -37,11 +39,13 @@ pub enum ExecSubCommand {
         #[arg(long, default_value_t = 30000)]
         timeout_ms: u64,
         /// Shell command to run. Use `--` before commands with flags.
-        #[arg(
-            value_name = "COMMAND",
-            trailing_var_arg = true,
-            allow_hyphen_values = true
-        )]
+        // No allow_hyphen_values: a mistyped flag (`--sesion 0 ...`)
+        // must fail parsing instead of being swallowed into the command
+        // text and typed into a live pane. Commands whose FIRST token
+        // starts with a dash still work via the documented `--` escape;
+        // flags after the first token (`echo --version`) parse fine
+        // because trailing_var_arg collects them verbatim.
+        #[arg(value_name = "COMMAND", trailing_var_arg = true)]
         command: Vec<String>,
     },
     /// Print whether the pane appears idle or running.
