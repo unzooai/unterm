@@ -1565,7 +1565,21 @@ impl McpHandler {
 
     fn session_list(&self) -> Result<Value> {
         let mux = self.get_mux()?;
-        let panes = mux.iter_panes();
+        // iter_panes walks a HashMap, so impose a stable order: clients
+        // (unterm-cli among them) default to picking a pane from this
+        // list, and an unstable order turns "no --id given" into writes
+        // landing in a random pane.
+        let mut panes = mux.iter_panes();
+        panes.sort_by_key(|pane| pane.pane_id());
+
+        // The pane the user is actually looking at, so clients can
+        // default to it instead of guessing.
+        let active_pane_id = mux
+            .iter_windows()
+            .into_iter()
+            .find_map(|wid| mux.get_active_tab_for_window(wid))
+            .and_then(|tab| tab.get_active_pane())
+            .map(|pane| pane.pane_id());
 
         let sessions: Vec<Value> = panes
             .iter()
@@ -1586,6 +1600,7 @@ impl McpHandler {
                         "visible": cursor.visibility == termwiz::surface::CursorVisibility::Visible,
                     },
                     "is_dead": is_dead,
+                    "is_active": Some(pane.pane_id()) == active_pane_id,
                     "domain_id": pane.domain_id(),
                     "shell": shell,
                 })

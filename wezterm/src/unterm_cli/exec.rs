@@ -17,7 +17,7 @@ pub struct ExecCommand {
 pub enum ExecSubCommand {
     /// Send a command and return immediately.
     Run {
-        /// Target pane id (defaults to the first live pane).
+        /// Target pane id (defaults to the active pane).
         #[arg(long)]
         id: Option<u64>,
         /// Shell command to run. Use `--` before commands with flags.
@@ -30,7 +30,7 @@ pub enum ExecSubCommand {
     },
     /// Send a command and wait for Unterm's sentinel to appear.
     Wait {
-        /// Target pane id (defaults to the first live pane).
+        /// Target pane id (defaults to the active pane).
         #[arg(long)]
         id: Option<u64>,
         /// Timeout in milliseconds.
@@ -46,19 +46,19 @@ pub enum ExecSubCommand {
     },
     /// Print whether the pane appears idle or running.
     Status {
-        /// Target pane id (defaults to the first live pane).
+        /// Target pane id (defaults to the active pane).
         #[arg(long)]
         id: Option<u64>,
     },
     /// Send Ctrl+C to the pane.
     Cancel {
-        /// Target pane id (defaults to the first live pane).
+        /// Target pane id (defaults to the active pane).
         #[arg(long)]
         id: Option<u64>,
     },
     /// Send a terminal control signal to the pane.
     Signal {
-        /// Target pane id (defaults to the first live pane).
+        /// Target pane id (defaults to the active pane).
         #[arg(long)]
         id: Option<u64>,
         /// Signal/control code: SIGINT, INT, SIGTSTP, TSTP, SIGQUIT, QUIT, or EOF.
@@ -175,11 +175,19 @@ fn resolve_pane_id(client: &mut McpClient, id: Option<u64>) -> Result<u64> {
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    let first = sessions
-        .first()
+    // Prefer the pane the user is looking at; fall back to the
+    // lowest-id pane (the list is sorted by id server-side).
+    let target = sessions
+        .iter()
+        .find(|s| {
+            s.get("is_active")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        })
+        .or_else(|| sessions.first())
         .ok_or_else(|| anyhow!("{}", i18n::t("cli.session.no_panes")))?;
-    first
+    target
         .get("id")
         .and_then(Value::as_u64)
-        .ok_or_else(|| anyhow!("first pane is missing an integer id"))
+        .ok_or_else(|| anyhow!("target pane is missing an integer id"))
 }

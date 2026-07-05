@@ -37,7 +37,7 @@ pub enum SessionSubCommand {
     },
     /// Split an existing pane and spawn a shell in the new split.
     Split {
-        /// Source pane id (defaults to the first live pane).
+        /// Source pane id (defaults to the active pane).
         #[arg(long)]
         id: Option<u64>,
         /// Split direction: right, left, down, or up.
@@ -52,13 +52,13 @@ pub enum SessionSubCommand {
     },
     /// Focus a pane and its containing tab.
     Focus {
-        /// Target pane id (defaults to the first live pane).
+        /// Target pane id (defaults to the active pane).
         #[arg(long)]
         id: Option<u64>,
     },
     /// Resize a pane's PTY.
     Resize {
-        /// Target pane id (defaults to the first live pane).
+        /// Target pane id (defaults to the active pane).
         #[arg(long)]
         id: Option<u64>,
         #[arg(long)]
@@ -76,7 +76,7 @@ pub enum SessionSubCommand {
     Record(RecordCommand),
     /// Export a pane's block log as Markdown.
     Export {
-        /// Target pane id (defaults to the first live pane).
+        /// Target pane id (defaults to the active pane).
         #[arg(long)]
         id: Option<u64>,
         /// Optional output file. If omitted, the Unterm-side path is printed.
@@ -85,7 +85,7 @@ pub enum SessionSubCommand {
     },
     /// Write text into a pane via MCP `session.input`.
     Input {
-        /// Target pane id (defaults to the first live pane).
+        /// Target pane id (defaults to the active pane).
         #[arg(long)]
         id: Option<u64>,
         /// Read additional input from stdin.
@@ -104,31 +104,31 @@ pub enum SessionSubCommand {
     },
     /// Read the visible pane viewport as plain text.
     Text {
-        /// Target pane id (defaults to the first live pane).
+        /// Target pane id (defaults to the active pane).
         #[arg(long)]
         id: Option<u64>,
     },
     /// Print the pane's current working directory.
     Cwd {
-        /// Target pane id (defaults to the first live pane).
+        /// Target pane id (defaults to the active pane).
         #[arg(long)]
         id: Option<u64>,
     },
     /// Print whether the pane appears idle or running.
     Status {
-        /// Target pane id (defaults to the first live pane).
+        /// Target pane id (defaults to the active pane).
         #[arg(long)]
         id: Option<u64>,
     },
     /// Scan the visible viewport for common error patterns.
     Errors {
-        /// Target pane id (defaults to the first live pane).
+        /// Target pane id (defaults to the active pane).
         #[arg(long)]
         id: Option<u64>,
     },
     /// Print recent non-empty scrollback lines.
     History {
-        /// Target pane id (defaults to the first live pane).
+        /// Target pane id (defaults to the active pane).
         #[arg(long)]
         id: Option<u64>,
         /// Number of trailing rows to inspect.
@@ -146,7 +146,7 @@ pub enum SessionSubCommand {
     },
     /// Search pane scrollback for a substring.
     Search {
-        /// Target pane id (defaults to the first live pane).
+        /// Target pane id (defaults to the active pane).
         #[arg(long)]
         id: Option<u64>,
         /// Maximum number of matches to return.
@@ -180,7 +180,7 @@ pub struct RecordCommand {
 pub enum RecordSubCommand {
     /// Start recording on the target pane.
     Start {
-        /// Target pane id (defaults to the first live pane).
+        /// Target pane id (defaults to the active pane).
         #[arg(long)]
         id: Option<u64>,
     },
@@ -206,7 +206,7 @@ pub struct SuggestCommand {
 pub enum SuggestSubCommand {
     /// Queue a suggestion for the user to accept or dismiss.
     Post {
-        /// Target pane id (defaults to the first live pane).
+        /// Target pane id (defaults to the active pane).
         #[arg(long)]
         id: Option<u64>,
         /// Optional reason shown to consumers of the suggestion payload.
@@ -847,7 +847,8 @@ fn print_suggestion(value: &Value) {
     }
 }
 
-/// Pick the user-supplied id, or fall back to the first live pane.
+/// Pick the user-supplied id, or fall back to the active pane
+/// (lowest-id pane if the server didn't flag one active).
 fn resolve_pane_id(client: &mut McpClient, id: Option<u64>) -> Result<u64> {
     if let Some(id) = id {
         return Ok(id);
@@ -858,13 +859,19 @@ fn resolve_pane_id(client: &mut McpClient, id: Option<u64>) -> Result<u64> {
         .and_then(|v| v.as_array())
         .cloned()
         .unwrap_or_default();
-    let first = sessions
-        .first()
+    let target = sessions
+        .iter()
+        .find(|s| {
+            s.get("is_active")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        })
+        .or_else(|| sessions.first())
         .ok_or_else(|| anyhow!("{}", i18n::t("cli.session.no_panes")))?;
-    first
+    target
         .get("id")
         .and_then(Value::as_u64)
-        .ok_or_else(|| anyhow!("first pane is missing an integer id"))
+        .ok_or_else(|| anyhow!("target pane is missing an integer id"))
 }
 
 #[cfg(test)]
