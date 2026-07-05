@@ -198,7 +198,7 @@ pub fn start_prewarm() {
                 let start = std::time::Instant::now();
                 let result = prewarm_context();
                 match &result {
-                    Ok(_) => log::info!("wgl prewarm: context ready in {:?}", start.elapsed()),
+                    Ok(_) => log::debug!("wgl prewarm: context ready in {:?}", start.elapsed()),
                     Err(err) => log::debug!("wgl prewarm failed: {err:#}"),
                 }
                 tx.send(result.ok()).ok();

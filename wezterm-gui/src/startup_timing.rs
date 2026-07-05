@@ -62,13 +62,16 @@ fn pre_main_ms() -> Option<u64> {
 /// Log once, right after the logger is ready.
 pub fn log_pre_main() {
     if let Some(ms) = PRE_MAIN_MS.get() {
-        log::info!("startup-timing: pre-main (exe/dll load): {ms}ms");
+        // debug: CLI invocations (--version, --help, cli subcommands) run
+        // through main() too and must not print timing noise to stderr.
+        // Measure with WEZTERM_LOG=unterm::startup_timing=debug.
+        log::debug!("startup-timing: pre-main (exe/dll load): {ms}ms");
     }
 }
 
 pub fn mark(label: &str) {
     if let Some(start) = MAIN_ENTRY.get() {
-        log::info!(
+        log::debug!(
             "startup-timing: {label}: {:.1}ms",
             start.elapsed().as_secs_f64() * 1000.0
         );

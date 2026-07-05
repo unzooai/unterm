@@ -830,7 +830,7 @@ impl TermWindow {
         let config = configuration();
         let dpi = config.dpi.unwrap_or_else(|| ::window::default_dpi()) as usize;
         let fontconfig = Rc::new(FontConfiguration::new(Some(config.clone()), dpi)?);
-        log::info!(
+        log::debug!(
             "startup-span: font config ready {:?}",
             startup_span.elapsed()
         );
@@ -848,7 +848,7 @@ impl TermWindow {
 
         let render_metrics = RenderMetrics::new(&fontconfig)?;
         log::trace!("using render_metrics {:#?}", render_metrics);
-        log::info!("startup-span: render metrics {:?}", startup_span.elapsed());
+        log::debug!("startup-span: render metrics {:?}", startup_span.elapsed());
 
         // Initially we have only a single tab, so take that into account
         // for the tab bar state.
@@ -1081,7 +1081,7 @@ impl TermWindow {
         };
         log::trace!("{:?}", geometry);
 
-        log::info!(
+        log::debug!(
             "startup-span: pre Window::new_window {:?}",
             startup_span.elapsed()
         );
@@ -1099,7 +1099,7 @@ impl TermWindow {
             },
         )
         .await?;
-        log::info!(
+        log::debug!(
             "startup-span: os window created {:?}",
             startup_span.elapsed()
         );
