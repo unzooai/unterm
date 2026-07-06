@@ -1068,9 +1068,16 @@ impl WindowInner {
                     self.window.setFrame_display_(screen_rect, YES);
                     self.window.makeKeyAndOrderFront_(nil);
                     self.window.setOpaque_(YES);
+                    // Fully HIDE the menu bar + dock in non-native fullscreen
+                    // (not AutoHide). The window covers the whole screen, so an
+                    // auto-hidden menu bar reveals on hover-to-top and overlays
+                    // the terminal's own top chrome (stats + toolbar buttons),
+                    // hiding it and making those buttons unclickable. HideMenuBar
+                    // keeps it away entirely for a true immersive fullscreen.
+                    // HideMenuBar requires HideDock (AutoHideDock is invalid with it).
                     current_app.setPresentationOptions_(
-                        NSApplicationPresentationOptions:: NSApplicationPresentationAutoHideMenuBar
-                            | NSApplicationPresentationOptions::NSApplicationPresentationAutoHideDock
+                        NSApplicationPresentationOptions::NSApplicationPresentationHideMenuBar
+                            | NSApplicationPresentationOptions::NSApplicationPresentationHideDock
                     );
                 },
             }
@@ -2223,8 +2230,11 @@ impl WindowView {
             let current_app = unsafe { NSApplication::sharedApplication(nil) };
             let target_options = match (is_key, is_simple_full_screen) {
                 (true, true) => {
-                    NSApplicationPresentationOptions::NSApplicationPresentationAutoHideMenuBar
-                        | NSApplicationPresentationOptions::NSApplicationPresentationAutoHideDock
+                    // Match the enter-fullscreen path: fully hide (not auto-hide)
+                    // the menu bar so it can't reveal on hover and overlay the
+                    // terminal's own top chrome. See toggle_simple_fullscreen.
+                    NSApplicationPresentationOptions::NSApplicationPresentationHideMenuBar
+                        | NSApplicationPresentationOptions::NSApplicationPresentationHideDock
                 }
                 (true, false) | (false, _) => {
                     NSApplicationPresentationOptions::NSApplicationPresentationDefault
