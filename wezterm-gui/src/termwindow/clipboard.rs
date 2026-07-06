@@ -35,9 +35,24 @@ impl TermWindow {
             ClipboardPasteSource::Clipboard => Clipboard::Clipboard,
             ClipboardPasteSource::PrimarySelection => Clipboard::PrimarySelection,
         };
-        let future = window.get_clipboard(clipboard);
+        // Read the clipboard on a dedicated background thread. macOS
+        // pasteboards are lazy: `read()` makes a synchronous cross-process
+        // request to whichever app owns the clipboard (a browser, editor, IM),
+        // and if that app is busy or the payload is large/rich, the request
+        // blocks. Done on the GUI thread — where paste_from_clipboard is
+        // called from the mouse/key handler — that froze the whole window for
+        // as long as the source app took to answer ("右键粘贴卡半秒"). Off the
+        // GUI thread it can't stall the UI; we hop back via window.notify to
+        // send the paste once the text is in hand.
+        let window_for_read = window.clone();
+        let reader = promise::spawn::spawn_into_new_thread(move || {
+            // get_clipboard resolves synchronously on this thread (on macOS it
+            // performs the NSPasteboard read here); await drains the ready
+            // future without blocking any executor.
+            promise::spawn::block_on(window_for_read.get_clipboard(clipboard))
+        });
         promise::spawn::spawn(async move {
-            if let Ok(clip) = future.await {
+            if let Ok(clip) = reader.await {
                 window.notify(TermWindowNotif::Apply(Box::new(move |myself| {
                     if let Some(pane) = myself
                         .pane_state(pane_id)
