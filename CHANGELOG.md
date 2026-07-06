@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.54.1 — 2026-07-06
+
+### Fixed
+
+- **Pasting no longer freezes the window for up to half a second.** macOS pasteboards are lazy: reading the clipboard makes a synchronous cross-process request to whichever app owns it (a browser, editor, or IM), and that read ran on the GUI thread — so pasting content copied from a busy or slow source app stalled the whole window until that app answered. The clipboard is now read on a background thread. Text copied inside the terminal was already fast and stays fast.
+- **Double-clicking a word no longer copies an extra character.** The mouse pixel-to-cell mapping rounded the click position to the nearest cell boundary — a forgiveness meant for drag-selection endpoints that also applied to a fresh click, so double-clicking the right half of a character rounded into the next cell and the word selection grabbed one extra letter (`hello` → `hellow` / `ohello`). A click now resolves to the cell the pointer is actually inside; dragging still rounds so the selection endpoint stays forgiving.
+
 ## v0.54.0 — 2026-07-05
 
 ### Performance
