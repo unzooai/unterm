@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.54.2 — 2026-07-06
+
+### Fixed
+
+- **Fullscreen no longer lets the macOS menu bar cover the terminal's top chrome.** In non-native (simple) fullscreen the window covers the whole screen, and the menu bar was set to auto-hide — so moving the mouse to the top revealed it as an overlay that covered Unterm's own top row (stats + toolbar buttons: settings, search, split, …), making them unreadable and unclickable. The menu bar and dock are now fully hidden in fullscreen for a true immersive mode, so they can't reveal on hover. macOS only.
+
 ## v0.54.1 — 2026-07-06
 
 ### Fixed
