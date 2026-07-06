@@ -355,12 +355,20 @@ impl super::TermWindow {
             .sub((padding_left + border.left.get() as f32) as isize)
             .max(0) as f32)
             / self.render_metrics.cell_size.width as f32;
-        let x = if !pane.is_mouse_grabbed() {
-            // Round the x coordinate so that we're a bit more forgiving of
-            // the horizontal position when selecting cells
-            x.round()
-        } else {
+        let x = if pane.is_mouse_grabbed() {
             x
+        } else if matches!(event.kind, WMEK::Press(_)) {
+            // A fresh click (cursor placement, double-click word, triple-click
+            // line) must resolve to the cell the pixel is actually inside — use
+            // truncation, not rounding. Rounding a press to the nearest cell
+            // boundary pushed clicks on a cell's right half into the next cell,
+            // so double-click word selection grabbed one extra character
+            // (hello -> hellow / ohello, depending on which half was clicked).
+            x
+        } else {
+            // While dragging, round the x coordinate so the selection endpoint
+            // is a bit more forgiving of the exact horizontal position.
+            x.round()
         }
         .trunc() as usize;
 
