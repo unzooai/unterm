@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.54.3 — 2026-07-08
+
+### Fixed
+
+- **No longer crashes on launch on GPU-less hosts (VM / RDP / cloud Windows / old GPUs).** When the OpenGL front end is rejected and Unterm falls back to WebGpu, the initial surface configuration used the window's dimensions verbatim — but configuring a wgpu surface with a 0 width or height panics ("Invalid surface"). On a GPU-less host the window can report 0 dimensions at that moment (the WARP software adapter, an unrealized window), so Unterm aborted before the window appeared. The initial surface size is now clamped to at least 1×1 (matching the existing guard on the resize path); the real size is applied as soon as the window is measured.
+
 ## v0.54.2 — 2026-07-06
 
 ### Fixed
