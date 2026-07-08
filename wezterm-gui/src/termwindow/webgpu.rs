@@ -362,8 +362,16 @@ impl WebGpuState {
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format,
-            width: dimensions.pixel_width as u32,
-            height: dimensions.pixel_height as u32,
+            // Clamp to at least 1x1. Configuring a surface with a 0 width or
+            // height panics in wgpu ("Invalid surface"). The resize path below
+            // already guards against this (issue #2881), but the INITIAL
+            // configure here did not — so on a GPU-less host (VM / RDP / cloud
+            // Windows) where the window can report 0 dimensions at WebGpu-init
+            // time, Unterm crashed on launch instead of coming up. A 1x1
+            // surface is valid; the resize path reconfigures it with the real
+            // size as soon as the window is measured.
+            width: (dimensions.pixel_width as u32).max(1),
+            height: (dimensions.pixel_height as u32).max(1),
             present_mode: wgpu::PresentMode::Fifo,
             alpha_mode: if caps
                 .alpha_modes
