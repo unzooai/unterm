@@ -134,7 +134,14 @@ fn deep_scan(base: &Path) -> Vec<(PathBuf, String)> {
             }
             let path = e.path();
             if let Ok(rel) = path.strip_prefix(base) {
-                let rel = rel.display().to_string();
+                // Normalize to `/`: the depth indent (rel.matches('/'))
+                // and the query matching both assume forward slashes,
+                // but Path::display yields `\` on Windows.
+                let rel = rel
+                    .components()
+                    .map(|c| c.as_os_str().to_string_lossy())
+                    .collect::<Vec<_>>()
+                    .join("/");
                 // depth 0 children are already in the SubDir section
                 if depth > 0 {
                     out.push((path.clone(), rel));
