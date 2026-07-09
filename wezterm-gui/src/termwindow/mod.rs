@@ -512,6 +512,12 @@ pub struct TermWindow {
     show_scroll_bar: bool,
     tab_bar: TabBarState,
     fancy_tab_bar: Option<box_model::ComputedElement>,
+    /// Top-stats text (git/cpu/mem/uptime) as of the last periodic
+    /// title update. It renders inside the fancy tab bar but is not
+    /// part of TabBarState, so the `new_tab_bar != self.tab_bar`
+    /// check can't see it change; without tracking it separately the
+    /// chrome stats freeze at whatever was last painted.
+    last_top_stats_text: String,
     pub right_status: String,
     pub left_status: String,
     last_ui_item: Option<UIItem>,
@@ -961,6 +967,7 @@ impl TermWindow {
             show_scroll_bar: config.enable_scroll_bar,
             tab_bar: TabBarState::default(),
             fancy_tab_bar: None,
+            last_top_stats_text: String::new(),
             right_status: Self::default_right_status(&config, None),
             left_status: String::new(),
             last_mouse_coords: (0, -1),
@@ -1628,6 +1635,13 @@ impl TermWindow {
             },
             TermWindowNotif::EmitStatusUpdate => {
                 self.emit_status_event();
+                // Drive the periodic refresh directly. The Lua status
+                // events above only lead back to update_title_impl when
+                // a handler calls window:set_*_status(); without one the
+                // status timer (re-armed at the end of update_title_impl)
+                // would never re-arm after this tick, freezing the
+                // top-stats chrome at its last painted values.
+                self.update_title_post_status();
             }
             TermWindowNotif::GetSelectionForPane { pane_id, tx } => {
                 let mux = Mux::get();
@@ -2405,6 +2419,20 @@ impl TermWindow {
             self.tab_bar = new_tab_bar;
             self.invalidate_fancy_tab_bar();
             self.invalidate_modal();
+            if let Some(window) = self.window.as_ref() {
+                window.invalidate();
+            }
+        }
+
+        // The per-pane stats text (git/cpu/mem/uptime) renders in the
+        // fancy tab bar but lives outside TabBarState, so the check
+        // above never notices it changing. Compare it explicitly on
+        // the same cadence, otherwise the chrome keeps showing the
+        // first sample forever on panes whose tabs/title stay quiet.
+        let stats_text = crate::termwindow::render::fancy_tab_bar::compose_top_stats_text(self);
+        if stats_text != self.last_top_stats_text {
+            self.last_top_stats_text = stats_text;
+            self.invalidate_fancy_tab_bar();
             if let Some(window) = self.window.as_ref() {
                 window.invalidate();
             }

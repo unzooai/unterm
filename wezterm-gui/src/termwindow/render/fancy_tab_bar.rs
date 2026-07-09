@@ -866,7 +866,7 @@ pub(crate) fn make_x_button(
 /// pane title — joined by 4-space gaps, with an "—" placeholder when
 /// every segment is empty so the slot stays visible while the async
 /// caches warm.
-fn compose_top_stats_text(win: &crate::TermWindow) -> String {
+pub(crate) fn compose_top_stats_text(win: &crate::TermWindow) -> String {
     const TOP_STATS_TEXT_TTL: Duration = Duration::from_millis(250);
 
     #[derive(Clone, Default)]
