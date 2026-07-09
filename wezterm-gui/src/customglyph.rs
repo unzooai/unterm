@@ -6034,3 +6034,140 @@ fn fill_rect(buffer: &mut Image, x: Range<f32>, y: Range<f32>, intensity: BlockA
         None,
     );
 }
+
+#[cfg(test)]
+mod window_button_glyph_tests {
+    use super::*;
+
+    /// Mirror of window_buttons::windows::MAXIMIZE.
+    const TEST_MAXIMIZE: &[Poly] = &[Poly {
+        path: &[
+            PolyCommand::MoveTo(BlockCoord::Frac(2, 10), BlockCoord::Frac(1, 10)),
+            PolyCommand::LineTo(BlockCoord::Frac(9, 10), BlockCoord::Frac(1, 10)),
+            PolyCommand::LineTo(BlockCoord::Frac(10, 10), BlockCoord::Frac(2, 10)),
+            PolyCommand::LineTo(BlockCoord::Frac(10, 10), BlockCoord::Frac(9, 10)),
+            PolyCommand::LineTo(BlockCoord::Frac(9, 10), BlockCoord::Frac(10, 10)),
+            PolyCommand::LineTo(BlockCoord::Frac(2, 10), BlockCoord::Frac(10, 10)),
+            PolyCommand::LineTo(BlockCoord::Frac(1, 10), BlockCoord::Frac(9, 10)),
+            PolyCommand::LineTo(BlockCoord::Frac(1, 10), BlockCoord::Frac(2, 10)),
+            PolyCommand::LineTo(BlockCoord::Frac(2, 10), BlockCoord::Frac(1, 10)),
+        ],
+        intensity: BlockAlpha::Full,
+        style: PolyStyle::OutlineThin,
+    }];
+
+    /// Rasterize a poly into an n×n buffer the same way draw_polys does
+    /// and return per-row ink counts (pixels with any alpha).
+    fn raster_rows(polys: &[Poly], size: usize, underline_height: f32) -> Vec<usize> {
+        let mut buffer = Image::new(size, size);
+        {
+            let mut pixmap = PixmapMut::from_bytes(
+                buffer.pixel_data_slice_mut(),
+                size as u32,
+                size as u32,
+            )
+            .unwrap();
+            for Poly {
+                path,
+                intensity,
+                style,
+            } in polys
+            {
+                let mut paint = Paint::default();
+                let intensity = intensity.to_scale();
+                paint.set_color(
+                    tiny_skia::Color::from_rgba(intensity, intensity, intensity, intensity)
+                        .unwrap(),
+                );
+                paint.anti_alias = true;
+                paint.force_hq_pipeline = true;
+                let mut pb = PathBuilder::new();
+                for item in path.iter() {
+                    item.to_skia(size, size, underline_height, &mut pb);
+                }
+                let path = pb.finish().unwrap();
+                style.apply(underline_height, &paint, &path, &mut pixmap);
+            }
+        }
+        let data = buffer.pixel_data_slice();
+        (0..size)
+            .map(|y| {
+                (0..size)
+                    .filter(|x| data[(y * size + x) * 4 + 3] > 32)
+                    .count()
+            })
+            .collect()
+    }
+
+    /// Same poly, but through the full production pipeline: cached_block
+    /// rasterizes into the texture atlas; read the sprite region back out
+    /// of the atlas and check both edges survived allocation.
+    #[test]
+    fn windows_maximize_button_atlas_sprite_is_complete() {
+        config::use_test_configuration();
+        let fonts = std::rc::Rc::new(
+            wezterm_font::FontConfiguration::new(None, 96).unwrap(),
+        );
+        let mut cache = crate::glyphcache::GlyphCache::new_in_memory(&fonts, 128).unwrap();
+        let metrics = RenderMetrics {
+            descender: PixelLength::new(0.),
+            descender_row: 0,
+            descender_plus_two: 0,
+            underline_height: 2,
+            strike_row: 0,
+            cell_size: Size::new(10, 10),
+        };
+        let sprite = cache
+            .cached_block(
+                BlockKey::PolyWithCustomMetrics {
+                    polys: TEST_MAXIMIZE,
+                    underline_height: 2,
+                    cell_size: Size::new(10, 10),
+                },
+                &metrics,
+            )
+            .unwrap();
+        let coords = sprite.coords;
+        let tex = sprite
+            .texture
+            .downcast_ref::<::window::bitmaps::ImageTexture>()
+            .expect("in-memory cache uses ImageTexture");
+        let atlas_im = tex.image.borrow();
+        let (atlas_w, _) = atlas_im.image_dimensions();
+        let data = atlas_im.pixel_data_slice();
+        let (x0, y0) = (coords.origin.x as usize, coords.origin.y as usize);
+        let (w, h) = (coords.size.width as usize, coords.size.height as usize);
+        let rows: Vec<usize> = (0..h)
+            .map(|y| {
+                (0..w)
+                    .filter(|x| data[((y0 + y) * atlas_w + x0 + x) * 4 + 3] > 32)
+                    .count()
+            })
+            .collect();
+        eprintln!("atlas sprite rows: {:?}", rows);
+        assert!(
+            rows[0] + rows[1] > 3,
+            "top edge missing in atlas, rows: {:?}",
+            rows
+        );
+        assert!(
+            rows[h - 2] + rows[h - 1] > 3,
+            "bottom edge missing in atlas, rows: {:?}",
+            rows
+        );
+    }
+
+    #[test]
+    fn windows_maximize_button_has_top_edge() {
+        let rows = raster_rows(TEST_MAXIMIZE, 10, 2.0);
+        eprintln!("maximize rows: {rows:?}");
+        // The top edge must land in the first two rows, mirroring the
+        // bottom edge landing in the last two.
+        assert!(rows[0] + rows[1] > 3, "top edge missing, rows: {:?}", rows);
+        assert!(
+            rows[8] + rows[9] > 3,
+            "bottom edge missing, rows: {:?}",
+            rows
+        );
+    }
+}

@@ -765,9 +765,14 @@ impl super::TermWindow {
                             kid.translate(euclid::vec2(0., pixel_height - kid.bounds.height()));
                         }
                         VerticalAlign::Middle => {
+                            // Round to whole pixels: an odd container minus an
+                            // even child yields a .5 offset, and the half-texel
+                            // linear sampling smears every 1px stroke (window
+                            // button edges, small glyph stems) across two rows
+                            // at ~50% alpha — thin lines visually vanish.
                             kid.translate(euclid::vec2(
                                 0.,
-                                (pixel_height - kid.bounds.height()) / 2.0,
+                                ((pixel_height - kid.bounds.height()) / 2.0).floor(),
                             ));
                         }
                         VerticalAlign::Top => {}
