@@ -139,7 +139,10 @@ winapi = { workspace=true, features = [
     "libloaderapi",
     "minwindef",
     "processthreadsapi",
+    "psapi",
     "sysinfoapi",
+    "winbase",
+    "winnt",
 ]}
 windows = { workspace=true, features = [
     "Win32_UI_Shell",

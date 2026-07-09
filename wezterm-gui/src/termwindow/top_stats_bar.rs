@@ -358,36 +358,134 @@ fn compute_proc_status(pid: u32) -> Option<ProcStatus> {
     })
 }
 
+/// Last (wall clock, cumulative CPU time) sample per pid, both in
+/// FILETIME 100 ns units. CPU% is the delta between two refreshes;
+/// keyed the same way as the proc cache so it prunes alongside it.
+#[cfg(windows)]
+struct WinCpuSample {
+    wall_100ns: u64,
+    cpu_100ns: u64,
+}
+
+#[cfg(windows)]
+fn win_cpu_samples() -> &'static Mutex<HashMap<u32, (Instant, WinCpuSample)>> {
+    static S: OnceLock<Mutex<HashMap<u32, (Instant, WinCpuSample)>>> = OnceLock::new();
+    S.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
 #[cfg(windows)]
 fn compute_proc_status(pid: u32) -> Option<ProcStatus> {
-    // Windows ps shim — no native `ps`. Use PowerShell's Get-Process
-    // for WS (working set / RSS) + StartTime + ProcessName. CPU%
-    // would need a second sample to compute a delta, which is more
-    // bookkeeping than the column is worth; leave it at 0.0 for now
-    // so the rest of the columns still light up.
-    let script = format!(
-        "$p = Get-Process -Id {pid} -ErrorAction Stop; \
-         $secs = [int](([DateTime]::Now) - $p.StartTime).TotalSeconds; \
-         \"{{0}}|{{1}}|{{2}}\" -f $p.WS, $secs, $p.ProcessName"
-    );
-    let out = hidden_command("powershell")
-        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .stdout(Stdio::piped())
-        .output()
-        .ok()?;
-    if !out.status.success() {
+    // Native Win32 sampling — no `ps` on Windows, and the previous
+    // PowerShell Get-Process shim cost a hidden ~100 ms process spawn
+    // per refresh and couldn't report CPU% at all (a percent needs two
+    // samples). GetProcessTimes gives cumulative CPU time; we keep the
+    // previous sample per pid and report the delta between refreshes.
+    // The first sighting of a pid has no window yet, so it falls back
+    // to the average over the process's whole lifetime.
+    use winapi::shared::minwindef::FILETIME;
+    use winapi::um::handleapi::CloseHandle;
+    use winapi::um::processthreadsapi::{GetProcessTimes, OpenProcess};
+    use winapi::um::psapi::{GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS};
+    use winapi::um::sysinfoapi::GetSystemTimeAsFileTime;
+    use winapi::um::winbase::QueryFullProcessImageNameW;
+    use winapi::um::winnt::PROCESS_QUERY_LIMITED_INFORMATION;
+
+    fn filetime_100ns(ft: &FILETIME) -> u64 {
+        ((ft.dwHighDateTime as u64) << 32) | ft.dwLowDateTime as u64
+    }
+
+    struct ProcessHandle(winapi::um::winnt::HANDLE);
+    impl Drop for ProcessHandle {
+        fn drop(&mut self) {
+            unsafe { CloseHandle(self.0) };
+        }
+    }
+
+    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    if handle.is_null() {
         return None;
     }
-    let line = String::from_utf8_lossy(&out.stdout);
-    let line = line.trim();
-    let mut parts = line.split('|');
-    let rss_bytes: u64 = parts.next()?.trim().parse().ok()?;
-    let uptime_secs: u64 = parts.next()?.trim().parse().ok()?;
-    let name = parts.next().unwrap_or("?").trim().to_string();
+    let handle = ProcessHandle(handle);
+
+    let (creation, kernel, user) = unsafe {
+        let mut creation: FILETIME = std::mem::zeroed();
+        let mut exit: FILETIME = std::mem::zeroed();
+        let mut kernel: FILETIME = std::mem::zeroed();
+        let mut user: FILETIME = std::mem::zeroed();
+        if GetProcessTimes(handle.0, &mut creation, &mut exit, &mut kernel, &mut user) == 0 {
+            return None;
+        }
+        (creation, kernel, user)
+    };
+    let now_100ns = unsafe {
+        let mut now: FILETIME = std::mem::zeroed();
+        GetSystemTimeAsFileTime(&mut now);
+        filetime_100ns(&now)
+    };
+    let created_100ns = filetime_100ns(&creation);
+    let cpu_100ns = filetime_100ns(&kernel) + filetime_100ns(&user);
+    let uptime_secs = now_100ns.saturating_sub(created_100ns) / 10_000_000;
+
+    let cpu_pct = {
+        let mut samples = win_cpu_samples().lock();
+        prune_stale_cache(
+            &mut samples,
+            PROC_CACHE_PRUNE_MIN_SIZE,
+            PROC_CACHE_PRUNE_AFTER,
+        );
+        let prev = samples.insert(
+            pid,
+            (
+                Instant::now(),
+                WinCpuSample {
+                    wall_100ns: now_100ns,
+                    cpu_100ns,
+                },
+            ),
+        );
+        let (wall_delta, cpu_delta) = match prev {
+            // Guard both subtractions: the wall clock can step backwards
+            // (NTP), and a recycled pid would make cpu appear to shrink.
+            Some((_, prev)) if now_100ns > prev.wall_100ns && cpu_100ns >= prev.cpu_100ns => {
+                (now_100ns - prev.wall_100ns, cpu_100ns - prev.cpu_100ns)
+            }
+            _ => (now_100ns.saturating_sub(created_100ns), cpu_100ns),
+        };
+        if wall_delta == 0 {
+            0.0
+        } else {
+            (cpu_delta as f64 / wall_delta as f64 * 100.0) as f32
+        }
+    };
+
+    let rss_bytes = unsafe {
+        let mut pmc: PROCESS_MEMORY_COUNTERS = std::mem::zeroed();
+        pmc.cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
+        if GetProcessMemoryInfo(handle.0, &mut pmc, pmc.cb) != 0 {
+            pmc.WorkingSetSize as u64
+        } else {
+            0
+        }
+    };
+
+    // Match the old shim's ProcessName semantics: image name without
+    // the .exe extension.
+    let name = unsafe {
+        let mut buf = [0u16; 1024];
+        let mut len = buf.len() as u32;
+        if QueryFullProcessImageNameW(handle.0, 0, buf.as_mut_ptr(), &mut len) != 0 {
+            let full = String::from_utf16_lossy(&buf[..len as usize]);
+            std::path::Path::new(&full)
+                .file_stem()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "?".to_string())
+        } else {
+            "?".to_string()
+        }
+    };
+
     Some(ProcStatus {
-        cpu_pct: 0.0,
+        cpu_pct,
         rss_bytes,
         uptime_secs,
         name,
@@ -457,6 +555,28 @@ pub fn render_proc_segment(status: &Option<ProcStatus>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn native_proc_status_reports_own_process() {
+        let pid = std::process::id();
+        let first = compute_proc_status(pid).expect("own process must resolve");
+        assert!(first.rss_bytes > 0);
+        assert!(!first.name.is_empty() && first.name != "?");
+
+        // Burn CPU so the second sample's delta window is clearly hot;
+        // the first call above seeded the per-pid sample.
+        let t0 = Instant::now();
+        while t0.elapsed() < Duration::from_millis(150) {
+            std::hint::black_box(t0.elapsed());
+        }
+        let second = compute_proc_status(pid).expect("own process must resolve");
+        assert!(
+            second.cpu_pct > 5.0,
+            "busy loop should register, got {}",
+            second.cpu_pct
+        );
+    }
 
     #[test]
     fn parse_etime_handles_ps_formats() {
