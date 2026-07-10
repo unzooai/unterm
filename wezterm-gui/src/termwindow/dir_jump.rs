@@ -28,6 +28,33 @@ use wezterm_term::{KeyCode, KeyModifiers, MouseEvent};
 use window::color::LinearRgba;
 use window::WindowOps;
 
+/// Ellipsize from the LEFT so the tail of a path stays readable
+/// (`…termwindow/render`). Width is measured in display cells (CJK = 2).
+/// Long labels otherwise lay out wider than the palette card — the text
+/// and the selected-row highlight both spill past the card's right edge.
+fn ellipsize_path_left(text: &str, max_cols: usize) -> String {
+    use termwiz::cell::unicode_column_width;
+    if max_cols == 0 {
+        return String::new();
+    }
+    if unicode_column_width(text, None) <= max_cols {
+        return text.to_string();
+    }
+    let mut tail: Vec<char> = vec![];
+    let mut used = 0usize;
+    for c in text.chars().rev() {
+        let w = unicode_column_width(&c.to_string(), None);
+        if used + w + 1 > max_cols {
+            break;
+        }
+        tail.push(c);
+        used += w;
+    }
+    let mut out = String::from("…");
+    out.extend(tail.iter().rev());
+    out
+}
+
 #[derive(Copy, Clone, PartialEq)]
 enum Section {
     Recent,
@@ -778,6 +805,20 @@ impl DirJump {
         let base = tilde_path(&self.base.borrow());
         let selected = *self.selected.borrow();
 
+        // Row text budget in display cells: the card's width minus its
+        // border, the row's left border + padding, and the scrollbar
+        // reserve. Labels/hints longer than this must be ellipsized —
+        // the box model does not clip text, so an over-long path lays
+        // out past the card's right edge (and the selected-row
+        // highlight along with it).
+        let card_width = (480. * pt)
+            .min(term_window.dimensions.pixel_width as f32 - 32. * pt)
+            .round();
+        let row_cols = (((card_width - (2. + (2. + 12. + 14. + 8. + 8. + SCROLLBAR_W) * pt))
+            / metrics.cell_size.width as f32)
+            .floor()
+            .max(8.)) as usize;
+
         let mut children: Vec<Element> = vec![];
 
         // Header: a real input field — inset darker box, teal caret, hint
@@ -931,7 +972,11 @@ impl DirJump {
                 let caption = match item.section {
                     Section::Recent => crate::i18n::t("dirjump.recent"),
                     Section::Location => crate::i18n::t("dirjump.locations"),
-                    Section::SubDir => format!("{} — {}", crate::i18n::t("dirjump.subdirs"), base),
+                    Section::SubDir => format!(
+                        "{} — {}",
+                        crate::i18n::t("dirjump.subdirs"),
+                        ellipsize_path_left(&base, row_cols.saturating_sub(12))
+                    ),
                     // Only present while filtering, where captions are off.
                     Section::Deep | Section::PathComp => continue,
                 };
@@ -966,10 +1011,11 @@ impl DirJump {
             } else {
                 item.name.clone()
             };
+            let label = ellipsize_path_left(&label, row_cols);
             // Greedy-subsequence match highlight: matched chars in teal.
             let mut row: Vec<Element> = vec![];
             if input.is_empty() {
-                row.push(Element::new(&font, ElementContent::Text(label)));
+                row.push(Element::new(&font, ElementContent::Text(label.clone())));
             } else {
                 let lower_input: Vec<char> = input.to_lowercase().chars().collect();
                 let mut ii = 0usize;
@@ -1021,6 +1067,13 @@ impl DirJump {
                 let hint = match item.section {
                     Section::PathComp => item.rel.clone().unwrap_or_else(|| tilde_path(&item.path)),
                     _ => tilde_path(&item.path),
+                };
+                // The hint floats right of the label on the same row;
+                // its budget is what the label left over (4 cols gap).
+                let hint = {
+                    use termwiz::cell::unicode_column_width;
+                    let used = unicode_column_width(&label, None);
+                    ellipsize_path_left(&hint, row_cols.saturating_sub(used + 4))
                 };
                 row.push(
                     Element::new(&font, ElementContent::Text(hint))
@@ -1229,9 +1282,7 @@ impl DirJump {
         } else {
             0.
         };
-        let width = (480. * pt)
-            .min(dimensions.pixel_width as f32 - 32. * pt)
-            .round();
+        let width = card_width;
         let x = ((dimensions.pixel_width as f32 - width) / 2.).round();
         let y = (top_bar_height + border.top.get() as f32 + 28. * pt).round();
 
@@ -1371,6 +1422,16 @@ mod tests {
         assert!(!rels.iter().any(|r| r.contains(".git")));
         assert!(!rels.iter().any(|r| r.contains("target")));
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn ellipsize_keeps_path_tail() {
+        assert_eq!(ellipsize_path_left("abc", 10), "abc");
+        assert_eq!(
+            ellipsize_path_left("src/termwindow/render", 10),
+            "…ow/render"
+        );
+        assert_eq!(ellipsize_path_left("x", 0), "");
     }
 
     #[test]
