@@ -480,6 +480,43 @@ pub const MCP_METHODS: &[McpMethod] = &[
     McpMethod { name: "profile.list", namespace: "governance", summary: "List identity profiles without exposing secret values.", params: NO_PARAMS },
     McpMethod { name: "profile.current", namespace: "governance", summary: "Read the identity profile bound to this Unterm instance.", params: NO_PARAMS },
     McpMethod { name: "profile.audit", namespace: "governance", summary: "Report expiring profile secrets without revealing secret values.", params: NO_PARAMS },
+    // ---- cockpit ----
+    McpMethod { name: "agent.status", namespace: "cockpit", summary: "Agent state per pane (working/waiting/idle/done) as tracked by the cockpit.", params: &[P_PANE_ID] },
+    McpMethod { name: "agent.signal", namespace: "cockpit", summary: "Report an agent lifecycle event from an official hook (highest-precision state signal).", params: &[
+        Param { name: "event", kind: "string", required: true, summary: "working|waiting|done|idle" },
+        Param { name: "agent", kind: "string", required: false, summary: "Agent name (claude|codex|gemini|aider|…). Defaults to the caller's identify tag." },
+        Param { name: "pane_id", kind: "string", required: false, summary: "Target pane. Hooks inherit $WEZTERM_PANE; pass it here." },
+    ] },
+    McpMethod { name: "cockpit.inbox", namespace: "cockpit", summary: "All agents that currently want attention, sorted waiting-first.", params: NO_PARAMS },
+    McpMethod { name: "fleet.launch", namespace: "cockpit", summary: "Run one task across N agents in N isolated git worktrees, one tab each.", params: &[
+        Param { name: "task", kind: "string", required: true, summary: "The prompt every member receives." },
+        Param { name: "agents", kind: "array", required: true, summary: "Member agent names, e.g. [\"claude\",\"claude\",\"codex\"]." },
+        Param { name: "cwd", kind: "string", required: false, summary: "Repo path; defaults to the active pane's cwd." },
+    ] },
+    McpMethod { name: "fleet.list", namespace: "cockpit", summary: "All fleets with member branches, worktrees, and review states.", params: NO_PARAMS },
+    McpMethod { name: "fleet.clean", namespace: "cockpit", summary: "Remove a fleet's worktrees, branches, and panes once reviewed.", params: &[
+        Param { name: "id", kind: "string", required: true, summary: "Fleet id." },
+        Param { name: "force", kind: "bool", required: false, summary: "Skip the all-members-reviewed check." },
+    ] },
+    McpMethod { name: "review.list", namespace: "cockpit", summary: "Review overview: fleets + auto checkpoints per repo.", params: NO_PARAMS },
+    McpMethod { name: "review.diff", namespace: "cockpit", summary: "Line-level diff of a worktree vs a checkpoint (includes untracked files).", params: &[
+        Param { name: "fleet_id", kind: "string", required: false, summary: "With 'member': diff that member's worktree." },
+        Param { name: "member", kind: "string", required: false, summary: "Member index (1-based) or branch name." },
+        Param { name: "repo", kind: "string", required: false, summary: "With 'from': diff this repo against a checkpoint sha." },
+        Param { name: "from", kind: "string", required: false, summary: "Checkpoint sha." },
+    ] },
+    McpMethod { name: "review.rollback", namespace: "cockpit", summary: "Restore a repo's worktree to a checkpoint (destructive; confirm first).", params: &[
+        Param { name: "repo", kind: "string", required: true, summary: "Repo path." },
+        Param { name: "sha", kind: "string", required: true, summary: "Checkpoint sha to restore." },
+    ] },
+    McpMethod { name: "review.merge", namespace: "cockpit", summary: "Squash-merge a fleet member into the base repo, leaving it staged.", params: &[
+        Param { name: "fleet_id", kind: "string", required: true, summary: "" },
+        Param { name: "member", kind: "string", required: true, summary: "Member index (1-based) or branch name." },
+    ] },
+    McpMethod { name: "review.discard", namespace: "cockpit", summary: "Mark a fleet member's work as discarded (worktree removed on clean).", params: &[
+        Param { name: "fleet_id", kind: "string", required: true, summary: "" },
+        Param { name: "member", kind: "string", required: true, summary: "" },
+    ] },
     // ---- system ----
     McpMethod { name: "system.info", namespace: "system", summary: "OS, arch, hostname, locale.", params: NO_PARAMS },
     McpMethod { name: "system.launch_admin", namespace: "system", summary: "Re-launch Unterm with elevated privileges (UAC/sudo prompt).", params: NO_PARAMS },
@@ -515,7 +552,9 @@ pub const CLI_COMMANDS: &[CliCommand] = &[
     CliCommand { name: "proxy", summary: "Manage Unterm's proxy via the MCP server.", subcommands: &["status", "nodes", "switch", "disable", "env", "rotation"] },
     CliCommand { name: "theme", summary: "List / switch Unterm theme presets.", subcommands: &["list", "switch"] },
     CliCommand { name: "profile", summary: "Manage identity profiles (GitHub / AWS / npm tokens, git identity, SSH keys).", subcommands: &["list", "create", "show", "set-secret", "delete", "audit", "edit", "export", "spawn", "import", "set-default", "shell-integration"] },
-    CliCommand { name: "agent", summary: "Install, authenticate, configure, launch, and run AI coding-agent CLIs headlessly.", subcommands: &["list", "show", "install", "update", "uninstall", "auth", "configure", "import", "plan", "launch", "run", "manifest", "whoami", "trusted", "trust", "untrust"] },
+    CliCommand { name: "agent", summary: "Install, authenticate, configure, launch, and run AI coding-agent CLIs headlessly.", subcommands: &["list", "show", "install", "update", "uninstall", "auth", "configure", "import", "plan", "launch", "run", "manifest", "status", "signal", "inbox", "enable-hooks", "whoami", "trusted", "trust", "untrust"] },
+    CliCommand { name: "fleet", summary: "Run one task across N agents in N isolated git worktrees (Agent Cockpit).", subcommands: &["launch", "list", "clean"] },
+    CliCommand { name: "review", summary: "Inspect, merge, discard, or roll back agent-produced changes (Agent Cockpit).", subcommands: &["list", "diff", "merge", "discard", "rollback", "open"] },
     CliCommand { name: "lang", summary: "List, set, or print the active interface locale.", subcommands: &["list", "set", "current"] },
     CliCommand { name: "show-keys", summary: "Show key assignments (effective from config).", subcommands: &[] },
     CliCommand { name: "ls-fonts", summary: "Display information about fonts.", subcommands: &[] },

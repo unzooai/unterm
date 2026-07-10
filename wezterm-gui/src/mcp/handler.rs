@@ -1165,6 +1165,19 @@ impl McpHandler {
             "agent.list_trusted" => Ok(crate::mcp::handler::trust_snapshot()),
             "agent.trust" => self.agent_trust(params),
             "agent.untrust" => self.agent_untrust(params),
+            // Cockpit — agent state per pane, hook ingestion, inbox.
+            "agent.status" => self.cockpit_agent_status(params),
+            "agent.signal" => self.cockpit_agent_signal(ctx, params),
+            "cockpit.inbox" => self.cockpit_inbox(),
+            // Cockpit — fleets and review.
+            "fleet.launch" => self.fleet_launch(params),
+            "fleet.list" => Ok(json!({ "fleets": crate::cockpit::review::overview()["fleets"] })),
+            "fleet.clean" => self.fleet_clean(params),
+            "review.list" => Ok(crate::cockpit::review::overview()),
+            "review.diff" => self.review_diff(params),
+            "review.rollback" => self.review_rollback(params),
+            "review.merge" => self.review_merge(params),
+            "review.discard" => self.review_discard(params),
             "ghost.debug" => self.ghost_debug(params),
             // Suggest API — agents propose text; the user decides
             // whether it reaches the PTY (Tab/Esc in the suggest UI).
@@ -1287,8 +1300,13 @@ impl McpHandler {
 
     fn get_pane(&self, params: &Value) -> Result<Arc<dyn Pane>> {
         let mux = self.get_mux()?;
-        // Accept both numeric "id" and string "session_id"
-        let id_val = params.get("id").or_else(|| params.get("session_id"));
+        // Accept numeric "id", string "session_id", and the documented
+        // standard "pane_id" (P_PANE_ID in mcp_meta) — the cockpit
+        // methods pass the latter.
+        let id_val = params
+            .get("id")
+            .or_else(|| params.get("session_id"))
+            .or_else(|| params.get("pane_id"));
         let id = match id_val {
             Some(v) if v.is_u64() => v.as_u64().unwrap() as usize,
             Some(v) if v.is_string() => v
@@ -2256,6 +2274,237 @@ impl McpHandler {
             .ok_or_else(|| anyhow!("Missing or empty 'name'"))?;
         let was = revoke_trust(name);
         Ok(json!({ "ok": true, "name": name, "removed": was }))
+    }
+
+    // --- Cockpit: agent state per pane ---
+
+    fn cockpit_status_json(s: &crate::cockpit::PaneAgentStatus) -> Value {
+        json!({
+            "pane_id": s.pane_id,
+            "agent": s.agent,
+            "state": s.state.as_str(),
+            "for_secs": s.since.elapsed().as_secs(),
+            "task_hint": s.task_hint,
+            "last_signal": s.last_signal,
+            "fleet_id": s.fleet_id,
+        })
+    }
+
+    /// `agent.status` — the cockpit's view of which agent runs in which
+    /// pane and what it is doing. With `pane_id`, a single entry (or
+    /// `null`); without, every tracked pane in Inbox order.
+    fn cockpit_agent_status(&self, params: &Value) -> Result<Value> {
+        if !config::configuration().cockpit_enabled {
+            return Ok(json!({ "enabled": false, "agents": [] }));
+        }
+        let explicit_pane = params.get("pane_id").or_else(|| params.get("session_id"));
+        if explicit_pane.is_some() {
+            let pane = self.get_pane(params)?;
+            let status = crate::cockpit::status_for_pane(pane.pane_id() as u64)
+                .map(|s| Self::cockpit_status_json(&s));
+            return Ok(json!({ "enabled": true, "agent": status }));
+        }
+        let agents: Vec<Value> = crate::cockpit::snapshot()
+            .iter()
+            .map(Self::cockpit_status_json)
+            .collect();
+        Ok(json!({ "enabled": true, "agents": agents }))
+    }
+
+    /// `agent.signal` — official hook ingestion (Claude Code hooks,
+    /// Codex notify, Aider notifications-command). The strongest state
+    /// signal; see cockpit::status for precedence rules.
+    fn cockpit_agent_signal(&self, ctx: &ConnectionContext, params: &Value) -> Result<Value> {
+        let event = params
+            .get("event")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing 'event' (working|waiting|done|idle)"))?;
+        // Hooks pass $WEZTERM_PANE; a bare CLI call falls back to the
+        // pane the user is looking at.
+        let pane = self.get_pane(params).or_else(|_| {
+            let mux = self.get_mux()?;
+            mux.iter_windows()
+                .into_iter()
+                .find_map(|wid| mux.get_active_tab_for_window(wid))
+                .and_then(|tab| tab.get_active_pane())
+                .ok_or_else(|| anyhow!("no active pane"))
+        })?;
+        let pane_id = pane.pane_id() as u64;
+        let agent = params
+            .get("agent")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .or_else(|| {
+                mcp_state()
+                    .lock()
+                    .agents_by_connection
+                    .get(&ctx.conn_id)
+                    .map(|a| a.name.clone())
+            })
+            .unwrap_or_else(|| "agent".to_string());
+        if !crate::cockpit::on_hook_signal(pane_id, &agent, event) {
+            anyhow::bail!("Invalid 'event' {event:?}: expected working|waiting|done|idle");
+        }
+        self.audit(
+            "agent.signal",
+            Some(&pane_id.to_string()),
+            &format!("agent={agent} event={event}"),
+        );
+        Ok(json!({ "ok": true, "pane_id": pane_id, "agent": agent, "event": event }))
+    }
+
+    /// `cockpit.inbox` — every tracked agent joined with its tab/window
+    /// location so a client can jump straight to it.
+    fn cockpit_inbox(&self) -> Result<Value> {
+        if !config::configuration().cockpit_enabled {
+            return Ok(json!({ "enabled": false, "items": [] }));
+        }
+        let mux = self.get_mux()?;
+        let items: Vec<Value> = crate::cockpit::snapshot()
+            .iter()
+            .map(|s| {
+                let mut v = Self::cockpit_status_json(s);
+                if let Some(pane) = mux.get_pane(s.pane_id as mux::pane::PaneId) {
+                    v["pane_title"] = json!(pane.get_title());
+                }
+                if let Some((_domain, window_id, tab_id)) =
+                    mux.resolve_pane_id(s.pane_id as mux::pane::PaneId)
+                {
+                    v["tab_id"] = json!(tab_id);
+                    v["window_id"] = json!(window_id);
+                }
+                v
+            })
+            .collect();
+        Ok(json!({ "enabled": true, "items": items }))
+    }
+
+    // --- Cockpit: fleet + review ---
+
+    /// `fleet.launch` — one task × N agents × N git worktrees. Blocking
+    /// (worktree creation + tab spawn), which is fine on the MCP thread.
+    fn fleet_launch(&self, params: &Value) -> Result<Value> {
+        let cwd = params
+            .get("cwd")
+            .and_then(|v| v.as_str())
+            .map(std::path::PathBuf::from)
+            .or_else(|| {
+                self.get_pane(&json!({})).ok().and_then(|p| {
+                    p.get_current_working_dir(mux::pane::CachePolicy::AllowStale)
+                        .and_then(|u| u.to_file_path().ok())
+                })
+            })
+            .ok_or_else(|| anyhow!("Missing 'cwd' and no active pane to take it from"))?;
+        let task = params
+            .get("task")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.trim().is_empty())
+            .ok_or_else(|| anyhow!("Missing 'task'"))?;
+        let agents: Vec<String> = params
+            .get("agents")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|a| a.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .filter(|v: &Vec<String>| !v.is_empty())
+            .ok_or_else(|| anyhow!("Missing 'agents' (e.g. [\"claude\",\"claude\"])"))?;
+        let fleet = crate::cockpit::fleet::launch(&cwd, task, &agents)?;
+        self.audit(
+            "fleet.launch",
+            None,
+            &format!("id={} members={}", fleet.id, fleet.members.len()),
+        );
+        Ok(serde_json::to_value(&fleet)?)
+    }
+
+    fn fleet_clean(&self, params: &Value) -> Result<Value> {
+        let id = params
+            .get("id")
+            .or_else(|| params.get("fleet_id"))
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing 'id'"))?;
+        let force = params
+            .get("force")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        crate::cockpit::fleet::clean(id, force)?;
+        self.audit("fleet.clean", None, &format!("id={id} force={force}"));
+        Ok(json!({ "ok": true, "id": id }))
+    }
+
+    fn review_diff(&self, params: &Value) -> Result<Value> {
+        // Either (fleet_id, member) or (repo, from).
+        if let Some(fleet_id) = params.get("fleet_id").and_then(|v| v.as_str()) {
+            let member = params
+                .get("member")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| anyhow!("Missing 'member'"))?;
+            let fleet = crate::cockpit::fleet::get(fleet_id)
+                .ok_or_else(|| anyhow!("no fleet {fleet_id:?}"))?;
+            let m = crate::cockpit::fleet::resolve_member(&fleet, member)?;
+            return crate::cockpit::review::diff(&m.worktree, &m.checkpoint);
+        }
+        let repo = params
+            .get("repo")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing 'repo' (or 'fleet_id'+'member')"))?;
+        let from = params
+            .get("from")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing 'from' (checkpoint sha)"))?;
+        crate::cockpit::review::diff(std::path::Path::new(repo), from)
+    }
+
+    fn review_rollback(&self, params: &Value) -> Result<Value> {
+        let repo = params
+            .get("repo")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing 'repo'"))?;
+        let sha = params
+            .get("sha")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing 'sha'"))?;
+        crate::cockpit::review::rollback(std::path::Path::new(repo), sha)?;
+        self.audit("review.rollback", None, &format!("repo={repo} sha={sha}"));
+        Ok(json!({ "ok": true, "repo": repo, "sha": sha }))
+    }
+
+    fn review_merge(&self, params: &Value) -> Result<Value> {
+        let fleet_id = params
+            .get("fleet_id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing 'fleet_id'"))?;
+        let member = params
+            .get("member")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing 'member'"))?;
+        let out = crate::cockpit::review::merge_member(fleet_id, member)?;
+        self.audit(
+            "review.merge",
+            None,
+            &format!("fleet={fleet_id} member={member}"),
+        );
+        Ok(out)
+    }
+
+    fn review_discard(&self, params: &Value) -> Result<Value> {
+        let fleet_id = params
+            .get("fleet_id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing 'fleet_id'"))?;
+        let member = params
+            .get("member")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing 'member'"))?;
+        let out = crate::cockpit::review::discard_member(fleet_id, member)?;
+        self.audit(
+            "review.discard",
+            None,
+            &format!("fleet={fleet_id} member={member}"),
+        );
+        Ok(out)
     }
 
     /// Called by the TCP server when a client connection drops so

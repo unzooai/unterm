@@ -114,6 +114,7 @@ function untermSettings() {
         { id: 'general', label: this.t('web.nav.general') },
         { id: 'profiles', label: this.t('web.nav.profiles') },
         { id: 'agents', label: this.t('web.nav.agents'), badge: !this._agentsSeen },
+        { id: 'review', label: this.t('web.nav.review'), badge: this.reviewBadge },
         { id: 'mcp', label: this.t('web.nav.mcp') },
         { id: 'appearance', label: this.t('web.nav.appearance') },
         { id: 'proxy', label: this.t('web.nav.proxy') },
@@ -458,8 +459,115 @@ function untermSettings() {
       }
     },
 
+    // --- Agent Cockpit: Review page ---
+    review: { fleets: [], checkpoints: [], sel: null, diff: null, busy: false, error: '' },
+    get reviewBadge() {
+      return this.review.fleets.some((f) =>
+        (f.members || []).some((m) => m.review === 'pending')
+      );
+    },
+    async loadReview() {
+      try {
+        const data = await this.api('GET', '/api/review/overview');
+        this.review.fleets = data.fleets || [];
+        this.review.checkpoints = data.checkpoints || [];
+        this.review.error = '';
+      } catch (e) {
+        this.review.error = String(e);
+      }
+    },
+    async reviewSelect(kind, a, b) {
+      // kind: 'member' (fleet id, member n) | 'checkpoint' (repo, sha)
+      this.review.sel = { kind, a, b };
+      this.review.diff = null;
+      this.review.busy = true;
+      try {
+        const q =
+          kind === 'member'
+            ? `fleet=${encodeURIComponent(a)}&member=${encodeURIComponent(b)}`
+            : `repo=${encodeURIComponent(a)}&from=${encodeURIComponent(b)}`;
+        this.review.diff = await this.api('GET', '/api/review/diff?' + q);
+        this.review.error = '';
+      } catch (e) {
+        this.review.error = String(e);
+      } finally {
+        this.review.busy = false;
+      }
+    },
+    reviewDiffRows() {
+      const patch = (this.review.diff && this.review.diff.patch) || '';
+      const rows = [];
+      for (const line of patch.split('\n')) {
+        let cls = 'text-notion-muted';
+        if (line.startsWith('+++') || line.startsWith('---')) cls = 'text-notion-ink font-semibold';
+        else if (line.startsWith('diff --git')) cls = 'mt-4 text-notion-teal font-semibold';
+        else if (line.startsWith('@@')) cls = 'text-sky-400';
+        else if (line.startsWith('+')) cls = 'text-emerald-400 bg-emerald-950/40';
+        else if (line.startsWith('-')) cls = 'text-rose-400 bg-rose-950/40';
+        rows.push({ text: line, cls });
+        if (rows.length > 4000) {
+          rows.push({ text: '… (truncated)', cls: 'text-notion-muted italic' });
+          break;
+        }
+      }
+      return rows;
+    },
+    async reviewMerge(fleetId, member) {
+      this.review.busy = true;
+      try {
+        await this.api('POST', '/api/review/merge', { fleet_id: fleetId, member: String(member) });
+        await this.loadReview();
+      } catch (e) {
+        this.review.error = String(e);
+      } finally {
+        this.review.busy = false;
+      }
+    },
+    async reviewDiscard(fleetId, member) {
+      this.review.busy = true;
+      try {
+        await this.api('POST', '/api/review/discard', { fleet_id: fleetId, member: String(member) });
+        await this.loadReview();
+      } catch (e) {
+        this.review.error = String(e);
+      } finally {
+        this.review.busy = false;
+      }
+    },
+    async reviewClean(fleetId) {
+      this.review.busy = true;
+      try {
+        await this.api('POST', '/api/review/clean', { id: fleetId });
+        this.review.sel = null;
+        this.review.diff = null;
+        await this.loadReview();
+      } catch (e) {
+        this.review.error = String(e);
+      } finally {
+        this.review.busy = false;
+      }
+    },
+    async reviewRollback(repo, sha) {
+      const msg = this.t('web.review.rollback_confirm')
+        .replace('{repo}', repo)
+        .replace('{sha}', sha.slice(0, 12));
+      if (!window.confirm(msg)) return;
+      this.review.busy = true;
+      try {
+        await this.api('POST', '/api/review/rollback', { repo, sha });
+        await this.loadReview();
+        this.review.diff = null;
+        this.review.sel = null;
+      } catch (e) {
+        this.review.error = String(e);
+      } finally {
+        this.review.busy = false;
+      }
+    },
+
     select(id, updateHash = true) {
       this.active = id;
+      if (id === 'review') this.loadReview();
       if (updateHash && window.location.hash !== '#' + id) {
         window.history.replaceState(null, '', '#' + id);
       }

@@ -350,6 +350,14 @@ fn route(req: &Request, auth_token: &str, handler: &McpHandler) -> Response {
         ("GET", p) if p.starts_with("/api/sessions/") && p.ends_with("/markdown") => {
             api_session_markdown(handler, p)
         }
+        // Agent Cockpit — the Review page.
+        ("GET", "/api/review/overview") => Response::ok_json(crate::cockpit::review::overview()),
+        ("GET", "/api/review/inbox") => api_review_inbox(),
+        ("GET", "/api/review/diff") => api_review_diff(&req.query),
+        ("POST", "/api/review/rollback") => api_review_rollback(&req.body),
+        ("POST", "/api/review/merge") => api_review_member_action(&req.body, "merge"),
+        ("POST", "/api/review/discard") => api_review_member_action(&req.body, "discard"),
+        ("POST", "/api/review/clean") => api_review_clean(&req.body),
         ("GET", "/api/reference") => api_reference(),
         ("GET", "/api/i18n") => api_i18n_state(),
         ("POST", "/api/i18n") => api_i18n_set(&req.body),
@@ -1307,6 +1315,100 @@ fn api_session_markdown(handler: &McpHandler, path: &str) -> Response {
 }
 
 // --- Helpers ---------------------------------------------------------------
+
+// --- Agent Cockpit: Review API ---
+
+fn api_review_inbox() -> Response {
+    let items: Vec<serde_json::Value> = crate::cockpit::snapshot()
+        .iter()
+        .map(|s| {
+            json!({
+                "pane_id": s.pane_id,
+                "agent": s.agent,
+                "state": s.state.as_str(),
+                "for_secs": s.since.elapsed().as_secs(),
+                "task_hint": s.task_hint,
+                "fleet_id": s.fleet_id,
+            })
+        })
+        .collect();
+    Response::ok_json(json!({ "items": items }))
+}
+
+fn api_review_diff(query: &str) -> Response {
+    let result = if let (Some(fleet_id), Some(member)) = (
+        parse_query(query, "fleet"),
+        parse_query(query, "member"),
+    ) {
+        crate::cockpit::fleet::get(&fleet_id)
+            .ok_or_else(|| anyhow::anyhow!("no fleet {fleet_id:?}"))
+            .and_then(|f| crate::cockpit::fleet::resolve_member(&f, &member))
+            .and_then(|m| crate::cockpit::review::diff(&m.worktree, &m.checkpoint))
+    } else if let (Some(repo), Some(from)) =
+        (parse_query(query, "repo"), parse_query(query, "from"))
+    {
+        crate::cockpit::review::diff(std::path::Path::new(&repo), &from)
+    } else {
+        Err(anyhow::anyhow!("need fleet+member or repo+from"))
+    };
+    match result {
+        Ok(v) => Response::ok_json(v),
+        Err(e) => Response::err(400, "Bad Request", &format!("{e:#}")),
+    }
+}
+
+fn api_review_rollback(body: &[u8]) -> Response {
+    let v: serde_json::Value = match serde_json::from_slice(body) {
+        Ok(v) => v,
+        Err(e) => return Response::err(400, "Bad Request", &format!("bad json: {e}")),
+    };
+    let (Some(repo), Some(sha)) = (
+        v.get("repo").and_then(|x| x.as_str()),
+        v.get("sha").and_then(|x| x.as_str()),
+    ) else {
+        return Response::err(400, "Bad Request", "need repo + sha");
+    };
+    match crate::cockpit::review::rollback(std::path::Path::new(repo), sha) {
+        Ok(()) => Response::ok_json(json!({ "ok": true })),
+        Err(e) => Response::err(500, "Internal Server Error", &format!("{e:#}")),
+    }
+}
+
+fn api_review_member_action(body: &[u8], action: &str) -> Response {
+    let v: serde_json::Value = match serde_json::from_slice(body) {
+        Ok(v) => v,
+        Err(e) => return Response::err(400, "Bad Request", &format!("bad json: {e}")),
+    };
+    let (Some(fleet), Some(member)) = (
+        v.get("fleet_id").and_then(|x| x.as_str()),
+        v.get("member").and_then(|x| x.as_str()),
+    ) else {
+        return Response::err(400, "Bad Request", "need fleet_id + member");
+    };
+    let result = match action {
+        "merge" => crate::cockpit::review::merge_member(fleet, member),
+        _ => crate::cockpit::review::discard_member(fleet, member),
+    };
+    match result {
+        Ok(v) => Response::ok_json(v),
+        Err(e) => Response::err(500, "Internal Server Error", &format!("{e:#}")),
+    }
+}
+
+fn api_review_clean(body: &[u8]) -> Response {
+    let v: serde_json::Value = match serde_json::from_slice(body) {
+        Ok(v) => v,
+        Err(e) => return Response::err(400, "Bad Request", &format!("bad json: {e}")),
+    };
+    let Some(id) = v.get("id").and_then(|x| x.as_str()) else {
+        return Response::err(400, "Bad Request", "need id");
+    };
+    let force = v.get("force").and_then(|x| x.as_bool()).unwrap_or(false);
+    match crate::cockpit::fleet::clean(id, force) {
+        Ok(()) => Response::ok_json(json!({ "ok": true })),
+        Err(e) => Response::err(500, "Internal Server Error", &format!("{e:#}")),
+    }
+}
 
 fn parse_query(query: &str, key: &str) -> Option<String> {
     for pair in query.split('&') {

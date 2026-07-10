@@ -454,6 +454,146 @@
         </div>
 
         <!-- ============ MCP (Trust + Audit) ============ -->
+        <!-- Agent Cockpit: Review -->
+        <div x-show="active==='review'">
+          <h2 class="text-xl font-semibold" x-text="t('web.review.title')"></h2>
+          <p class="mt-1 text-sm text-notion-muted" x-text="t('web.review.subtitle')"></p>
+          <p x-show="review.error" class="mt-3 rounded-md border border-rose-800 bg-rose-950/40 px-3 py-2 text-sm text-rose-300" x-text="review.error"></p>
+
+          <div class="mt-6 grid grid-cols-12 gap-6">
+            <!-- Left: fleets + checkpoints -->
+            <div class="col-span-4 space-y-4">
+              <template x-for="f in review.fleets" :key="f.id">
+                <div class="rounded-lg border border-notion-border bg-notion-surface p-3">
+                  <div class="flex items-center justify-between">
+                    <span class="font-mono text-sm text-notion-teal" x-text="'⛵ ' + f.id"></span>
+                    <button
+                      class="rounded px-2 py-0.5 text-xs text-notion-muted hover:bg-notion-sunken"
+                      @click="reviewClean(f.id)"
+                      x-text="t('web.review.clean')"
+                    ></button>
+                  </div>
+                  <p class="mt-1 truncate text-xs text-notion-muted" :title="f.task" x-text="f.task"></p>
+                  <ul class="mt-2 space-y-1">
+                    <template x-for="m in f.members" :key="m.branch">
+                      <li>
+                        <button
+                          class="flex w-full items-center justify-between rounded px-2 py-1 text-left text-sm transition hover:bg-notion-sunken"
+                          :class="review.sel && review.sel.kind==='member' && review.sel.a===f.id && String(review.sel.b)===String(m.n) ? 'bg-notion-sunken' : ''"
+                          @click="reviewSelect('member', f.id, m.n)"
+                        >
+                          <span class="flex items-center gap-2">
+                            <span x-text="'#' + m.n + ' ' + m.agent"></span>
+                            <span
+                              class="rounded px-1 text-[10px] uppercase"
+                              :class="{
+                                'bg-amber-950 text-amber-300': m.agent_state==='waiting',
+                                'bg-sky-950 text-sky-300': m.agent_state==='working',
+                                'bg-emerald-950 text-emerald-300': m.agent_state==='done',
+                                'bg-notion-sunken text-notion-muted': !m.agent_state || m.agent_state==='idle',
+                              }"
+                              x-text="m.agent_state || 'gone'"
+                            ></span>
+                          </span>
+                          <span
+                            class="text-[10px] uppercase"
+                            :class="{
+                              'text-emerald-400': m.review==='merged',
+                              'text-rose-400': m.review==='discarded',
+                              'text-notion-muted': m.review==='pending',
+                            }"
+                            x-text="m.review"
+                          ></span>
+                        </button>
+                      </li>
+                    </template>
+                  </ul>
+                </div>
+              </template>
+
+              <template x-for="r in review.checkpoints" :key="r.repo">
+                <div class="rounded-lg border border-notion-border bg-notion-surface p-3">
+                  <p class="truncate font-mono text-xs text-notion-muted" :title="r.repo" x-text="r.repo"></p>
+                  <ul class="mt-2 space-y-1">
+                    <template x-for="c in r.checkpoints" :key="c.sha">
+                      <li>
+                        <button
+                          class="flex w-full items-center justify-between rounded px-2 py-1 text-left text-xs transition hover:bg-notion-sunken"
+                          :class="review.sel && review.sel.kind==='checkpoint' && review.sel.b===c.sha ? 'bg-notion-sunken' : ''"
+                          @click="reviewSelect('checkpoint', r.repo, c.sha)"
+                        >
+                          <span class="font-mono" x-text="c.sha.slice(0,10)"></span>
+                          <span class="text-notion-muted" x-text="c.agent + ' · ' + c.at.slice(0,16).replace('T',' ')"></span>
+                        </button>
+                      </li>
+                    </template>
+                  </ul>
+                </div>
+              </template>
+
+              <p
+                x-show="!review.fleets.length && !review.checkpoints.length"
+                class="text-sm text-notion-muted"
+                x-text="t('web.review.empty')"
+              ></p>
+            </div>
+
+            <!-- Right: diff viewer -->
+            <div class="col-span-8">
+              <div x-show="review.busy" class="text-sm text-notion-muted">…</div>
+              <template x-if="review.diff">
+                <div>
+                  <div class="mb-3 flex items-center justify-between">
+                    <div class="text-sm text-notion-muted">
+                      <span x-text="(review.diff.files || []).length"></span>
+                      <span x-text="t('web.review.files_changed')"></span>
+                    </div>
+                    <div class="flex gap-2">
+                      <template x-if="review.sel && review.sel.kind==='member'">
+                        <button
+                          class="rounded-md bg-emerald-700 px-3 py-1 text-sm text-white hover:bg-emerald-600"
+                          @click="reviewMerge(review.sel.a, review.sel.b)"
+                          x-text="t('web.review.merge')"
+                        ></button>
+                      </template>
+                      <template x-if="review.sel && review.sel.kind==='member'">
+                        <button
+                          class="rounded-md bg-notion-sunken px-3 py-1 text-sm text-notion-muted hover:text-white"
+                          @click="reviewDiscard(review.sel.a, review.sel.b)"
+                          x-text="t('web.review.discard')"
+                        ></button>
+                      </template>
+                      <template x-if="review.sel && review.sel.kind==='checkpoint'">
+                        <button
+                          class="rounded-md bg-rose-800 px-3 py-1 text-sm text-white hover:bg-rose-700"
+                          @click="reviewRollback(review.sel.a, review.sel.b)"
+                          x-text="t('web.review.rollback')"
+                        ></button>
+                      </template>
+                    </div>
+                  </div>
+                  <ul class="mb-3 space-y-0.5">
+                    <template x-for="fch in review.diff.files || []" :key="fch.path">
+                      <li class="font-mono text-xs">
+                        <span class="text-emerald-400" x-text="'+' + fch.added"></span>
+                        <span class="ml-1 text-rose-400" x-text="'-' + fch.deleted"></span>
+                        <span class="ml-2 text-notion-ink" x-text="fch.path"></span>
+                        <span x-show="fch.untracked" class="ml-1 text-notion-teal">(new)</span>
+                      </li>
+                    </template>
+                  </ul>
+                  <pre class="max-h-[70vh] overflow-auto rounded-lg border border-notion-border bg-notion-sunken p-3 text-xs leading-5"><template x-for="(row, i) in reviewDiffRows()" :key="i"><div :class="row.cls" x-text="row.text || ' '"></div></template></pre>
+                </div>
+              </template>
+              <p
+                x-show="!review.diff && !review.busy"
+                class="text-sm text-notion-muted"
+                x-text="t('web.review.pick')"
+              ></p>
+            </div>
+          </div>
+        </div>
+
         <div x-show="active==='mcp'">
           <div class="flex items-start justify-between gap-4">
             <div>
