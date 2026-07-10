@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.54.4 — 2026-07-10
+
+### Fixed
+
+- **The top-bar stats (cpu / mem / uptime / git) now update in real time.** They were frozen at whatever the first paint sampled, for two stacked reasons: the periodic status timer only re-arms inside the title-update path, which nothing reaches without a Lua status handler — so the timer died after one tick; and the stats text isn't part of `TabBarState`, so even a live timer never noticed it changing. The status tick now drives the title update directly, and the stats text participates in the chrome invalidation check. The bar repaints only when a value actually changes (~every 2s while values move, never when idle).
+- **Windows: CPU% in the top bar shows a real value instead of a permanent 0.0.** The old sampler was a PowerShell `Get-Process` shim (a hidden ~100ms process spawn per refresh) that couldn't compute a percentage at all. It's now native Win32 (`GetProcessTimes` deltas between refreshes + `GetProcessMemoryInfo`), so the value is real and the refresh is effectively free.
+- **Thin lines and small chrome text no longer smear or vanish.** Vertically centering an even-height child in an odd-height container produced a half-pixel offset, and the GPU's linear sampling spread every 1px stroke across two rows at ~50% alpha — the maximize button lost its top edge entirely and the stats text read as clipped. Middle-alignment now rounds to whole pixels.
+- **Windows: the directory-jump palette's deep-scan rows indent correctly.** Relative paths were built with `\` separators on Windows while the depth indent counts `/`, so every nested row rendered at depth 0. Paths are now normalized to `/` everywhere.
+- **The directory-jump palette no longer paints past its right edge on long paths.** Deep-scan labels and the dim path hints aren't clipped by the layout, so an over-long path pushed the text — and the selected-row highlight with it — outside the card. Labels and hints are now ellipsized from the left (`…window/render`) to the card's width.
+- **The directory-jump palette shows one cursor, not two.** The mouse-hover highlight and the keyboard selection were independent, so hovering one row while arrowing to another showed both at once. Hover now moves the selection itself (launcher-style), so mouse and keyboard share a single cursor.
+
+### Changed
+
+- **The sidebar↔bottom-bar corner uses the same dark seam as the top chrome.** The bottom bar's top hairline was a light foreground-alpha line that disappeared against the sidebar's grey; it now uses the pane-background tone, matching how the top bar's seam is drawn, so the chrome frame reads consistently.
+
 ## v0.54.3 — 2026-07-08
 
 ### Fixed
