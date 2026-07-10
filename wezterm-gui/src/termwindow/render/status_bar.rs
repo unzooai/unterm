@@ -561,19 +561,19 @@ impl crate::TermWindow {
                 } else if lower.contains("wsl") {
                     "wsl".to_string()
                 } else if lower.contains("bash") {
-                    if lower.starts_with("/") {
+                    if cfg!(windows) && lower.starts_with("/") {
                         "bash (wsl)".to_string()
                     } else {
                         "bash".to_string()
                     }
                 } else if lower.contains("zsh") {
-                    if lower.starts_with("/") {
+                    if cfg!(windows) && lower.starts_with("/") {
                         "zsh (wsl)".to_string()
                     } else {
                         "zsh".to_string()
                     }
                 } else if lower.contains("fish") {
-                    if lower.starts_with("/") {
+                    if cfg!(windows) && lower.starts_with("/") {
                         "fish (wsl)".to_string()
                     } else {
                         "fish".to_string()
