@@ -2314,6 +2314,7 @@ fn compute_default_actions() -> Vec<KeyAssignment> {
         ScrollToBottom,
         ToggleGitPanel,
         ToggleComposer,
+        ShowDirJump,
         // ----------------- Window
         ToggleFullScreen,
         ToggleAlwaysOnTop,
