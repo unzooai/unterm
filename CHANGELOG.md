@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.54.5 — 2026-07-10
+
+### Fixed
+
+- **Ctrl+Shift+O now actually opens the directory-jump palette.** The shortcut was declared on the command definition but the action was never listed in the default-actions table that the key map is generated from, so the binding never existed and the keystroke fell through to the shell as `^O`. The palette was reachable only from the toolbar folder button and the context menu; the documented shortcut now works.
+- **macOS/Linux: the bottom bar no longer mislabels the shell as `zsh (wsl)`.** The WSL heuristic was "the foreground process path starts with `/`" — which is true for every shell on unix platforms (`/bin/zsh`), so the `(wsl)` suffix appeared everywhere. The heuristic now applies only on Windows, where it correctly marks shells running inside WSL.
+
 ## v0.54.4 — 2026-07-10
 
 ### Fixed
