@@ -204,6 +204,18 @@ enum SubCommand {
     Agent(unterm_cli::AgentCommand),
 
     #[command(
+        name = "fleet",
+        about = "Run one task across N agents in N isolated git worktrees (Agent Cockpit)"
+    )]
+    Fleet(unterm_cli::FleetCommand),
+
+    #[command(
+        name = "review",
+        about = "Inspect, merge, discard, or roll back agent-produced changes (Agent Cockpit)"
+    )]
+    Review(unterm_cli::ReviewCommand),
+
+    #[command(
         name = "screenshot",
         about = "Capture the screen via Unterm's MCP server. \
                  --scrollback renders a pane's entire history to one tall PNG; \
@@ -971,6 +983,8 @@ fn run() -> anyhow::Result<()> {
         SubCommand::Lang(cmd) => unterm_cli::run_lang(cmd, opts.json),
         SubCommand::Policy(cmd) => unterm_cli::run_policy(cmd, opts.json),
         SubCommand::Agent(cmd) => unterm_cli::run_agent(cmd, opts.json),
+        SubCommand::Fleet(cmd) => unterm_cli::run_fleet(cmd, opts.json),
+        SubCommand::Review(cmd) => unterm_cli::run_review(cmd, opts.json),
         SubCommand::ShellCompletion { shell } => {
             use clap::CommandFactory;
             let mut cmd = Opt::command();

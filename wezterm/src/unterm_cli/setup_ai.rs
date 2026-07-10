@@ -87,6 +87,12 @@ pub struct SetupAiCommand {
     #[arg(long = "dry-run")]
     pub dry_run: bool,
 
+    /// Skip wiring cockpit lifecycle hooks (Claude Code hooks, Codex
+    /// notify, Aider notifications-command) that report agent state
+    /// back to Unterm's Agent Cockpit.
+    #[arg(long = "no-hooks")]
+    pub no_hooks: bool,
+
     /// Limit to specific client ids (repeatable). Default: every client
     /// detected on this machine. Ids: claude-code, codex, gemini, cursor,
     /// windsurf, opencode.
@@ -278,6 +284,26 @@ pub fn run(cmd: SetupAiCommand, json_out: bool) -> Result<()> {
     }
 
     render(&reports, &cmd, &cli, json_out);
+
+    // Third channel: cockpit lifecycle hooks (merge-only; .unterm-bak
+    // backups; see cockpit_hooks.rs). Filtered runs skip it — hooks are
+    // machine-global, not per-client.
+    if !cmd.no_hooks && filter.is_none() {
+        let hook_reports = super::cockpit_hooks::apply_all(&cli, cmd.remove, cmd.dry_run);
+        if json_out {
+            let arr: Vec<serde_json::Value> = hook_reports
+                .iter()
+                .map(|r| json!({ "client": r.client, "path": r.path, "action": r.action }))
+                .collect();
+            print_json(&json!({ "cockpit_hooks": arr }));
+        } else if !hook_reports.is_empty() {
+            println!();
+            println!("Cockpit hooks:");
+            for r in &hook_reports {
+                println!("  {:<12} {:<10} {}", r.client, r.action, r.path);
+            }
+        }
+    }
     Ok(())
 }
 

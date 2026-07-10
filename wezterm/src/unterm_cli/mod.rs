@@ -6,6 +6,8 @@
 //! MCP, you can do from the shell".
 
 mod agent;
+mod cockpit_hooks;
+mod fleet;
 mod client;
 mod exec;
 pub mod i18n;
@@ -17,6 +19,7 @@ mod policy;
 mod profile;
 mod proxy;
 mod reference;
+mod review;
 mod screenshot;
 mod scrollback;
 mod server;
@@ -29,6 +32,8 @@ mod upload;
 mod workspace;
 
 pub use agent::AgentCommand;
+pub use fleet::FleetCommand;
+pub use review::ReviewCommand;
 pub use exec::ExecCommand;
 pub use instance::InstanceCommand;
 pub use lang::LangCommand;
@@ -92,6 +97,14 @@ pub fn run_policy(cmd: PolicyCommand, json_out: bool) -> Result<()> {
 
 pub fn run_agent(cmd: AgentCommand, json_out: bool) -> Result<()> {
     agent::run(cmd, json_out)
+}
+
+pub fn run_fleet(cmd: FleetCommand, json_out: bool) -> Result<()> {
+    fleet::run(cmd, json_out)
+}
+
+pub fn run_review(cmd: ReviewCommand, json_out: bool) -> Result<()> {
+    review::run(cmd, json_out)
 }
 
 pub fn run_exec(cmd: ExecCommand, json_out: bool) -> Result<()> {

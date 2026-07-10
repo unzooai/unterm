@@ -149,6 +149,41 @@ pub enum AgentSubCommand {
         #[command(subcommand)]
         sub: ManifestSubCommand,
     },
+    /// Cockpit: per-pane agent state (working/waiting/idle/done).
+    Status {
+        /// Only report this pane.
+        #[arg(long)]
+        pane: Option<String>,
+    },
+    /// Cockpit: report an agent lifecycle event from an official hook
+    /// (Claude Code hooks, Codex notify, Aider notifications-command).
+    /// Pane attribution defaults to $WEZTERM_PANE, which hook processes
+    /// inherit from the shell Unterm spawned. Exits quietly when no
+    /// Unterm is running — a hook must never break the agent it reports on.
+    Signal {
+        /// working|waiting|done|idle
+        #[arg(long)]
+        event: String,
+        /// Agent name (claude|codex|gemini|aider|…).
+        #[arg(long)]
+        agent: Option<String>,
+        /// Pane id; defaults to $WEZTERM_PANE.
+        #[arg(long)]
+        pane: Option<String>,
+    },
+    /// Cockpit: agents that want attention, waiting-first, with locations.
+    Inbox,
+    /// Cockpit: wire official lifecycle hooks into Claude Code / Codex /
+    /// Aider global configs so agent state reporting is exact. Merge-only;
+    /// first write leaves a `<file>.unterm-bak` backup.
+    EnableHooks {
+        /// Remove the hooks written by a previous run instead.
+        #[arg(long)]
+        remove: bool,
+        /// Show what would change without writing.
+        #[arg(long = "dry-run")]
+        dry_run: bool,
+    },
     /// Read the current MCP connection's agent identity.
     Whoami,
     /// List trusted MCP agent names and recent write counts.
@@ -222,11 +257,167 @@ pub fn run(cmd: AgentCommand, json_out: bool) -> Result<()> {
             json_out,
         ),
         AgentSubCommand::Manifest { sub } => run_manifest(sub, json_out),
+        AgentSubCommand::Status { pane } => run_cockpit_status(pane.as_deref(), json_out),
+        AgentSubCommand::Signal { event, agent, pane } => {
+            run_cockpit_signal(&event, agent.as_deref(), pane.as_deref(), json_out)
+        }
+        AgentSubCommand::Inbox => run_cockpit_inbox(json_out),
+        AgentSubCommand::EnableHooks { remove, dry_run } => {
+            let cli = std::env::current_exe()
+                .ok()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_else(|| "unterm-cli".to_string());
+            let reports = super::cockpit_hooks::apply_all(&cli, remove, dry_run);
+            if json_out {
+                let arr: Vec<Value> = reports
+                    .iter()
+                    .map(|r| serde_json::json!({ "client": r.client, "path": r.path, "action": r.action }))
+                    .collect();
+                print_json(&serde_json::json!({ "cockpit_hooks": arr }));
+            } else if reports.is_empty() {
+                println!("no supported agents detected (claude-code / codex / aider)");
+            } else {
+                for r in &reports {
+                    println!("{:<12} {:<10} {}", r.client, r.action, r.path);
+                }
+            }
+            Ok(())
+        }
         AgentSubCommand::Whoami => run_mcp_agent_whoami(json_out),
         AgentSubCommand::Trusted => run_mcp_agent_trusted(json_out),
         AgentSubCommand::Trust { agent } => run_mcp_agent_trust(&agent, json_out),
         AgentSubCommand::Untrust { agent } => run_mcp_agent_untrust(&agent, json_out),
     }
+}
+
+// ---------- cockpit: status / signal / inbox ----------
+
+fn state_glyph(state: &str) -> &'static str {
+    match state {
+        "waiting" => "✋",
+        "working" => "⚡",
+        "done" => "✓",
+        _ => "·",
+    }
+}
+
+fn run_cockpit_status(pane: Option<&str>, json_out: bool) -> Result<()> {
+    let mut client = McpClient::connect()?;
+    let mut params = serde_json::Map::new();
+    if let Some(p) = pane {
+        params.insert("pane_id".into(), Value::String(p.into()));
+    }
+    let result = client.call("agent.status", Value::Object(params))?;
+    if json_out {
+        print_json(&result);
+        return Ok(());
+    }
+    let rows: Vec<&Value> = match result.get("agents").and_then(Value::as_array) {
+        Some(arr) => arr.iter().collect(),
+        None => result.get("agent").into_iter().filter(|v| !v.is_null()).collect(),
+    };
+    if rows.is_empty() {
+        println!("no agents tracked");
+        return Ok(());
+    }
+    println!("{:<6} {:<3} {:<9} {:<10} {:<7} TASK", "PANE", "", "AGENT", "STATE", "FOR");
+    for item in rows {
+        let state = item.get("state").and_then(Value::as_str).unwrap_or("");
+        println!(
+            "{:<6} {:<3} {:<9} {:<10} {:<7} {}",
+            item.get("pane_id").and_then(Value::as_u64).unwrap_or(0),
+            state_glyph(state),
+            item.get("agent").and_then(Value::as_str).unwrap_or(""),
+            state,
+            format!("{}s", item.get("for_secs").and_then(Value::as_u64).unwrap_or(0)),
+            item.get("task_hint").and_then(Value::as_str).unwrap_or("-"),
+        );
+    }
+    Ok(())
+}
+
+fn run_cockpit_signal(
+    event: &str,
+    agent: Option<&str>,
+    pane: Option<&str>,
+    json_out: bool,
+) -> Result<()> {
+    // Route to the instance that owns the calling pane. WEZTERM_PANE is
+    // only unique within one instance, so with several Unterm windows a
+    // signal sent to "the latest instance" would tag the wrong pane.
+    // gui-sock-<pid> in the inherited env is the instance-unique key.
+    if let Some(pid) = std::env::var("WEZTERM_UNIX_SOCKET")
+        .ok()
+        .and_then(|s| s.rsplit("gui-sock-").next().and_then(|p| p.parse::<u32>().ok()))
+    {
+        if let Some(id) = super::client::instance_for_pid(pid) {
+            super::client::set_target_instance(Some(&id));
+        }
+    }
+    // A hook must never break the agent that invokes it: when no Unterm
+    // GUI is reachable, exit 0 silently instead of erroring.
+    let mut client = match McpClient::connect() {
+        Ok(c) => c,
+        Err(_) => return Ok(()),
+    };
+    let pane_id = pane
+        .map(|s| s.to_string())
+        .or_else(|| std::env::var("WEZTERM_PANE").ok());
+    let mut params = serde_json::Map::new();
+    params.insert("event".into(), Value::String(event.into()));
+    if let Some(a) = agent {
+        params.insert("agent".into(), Value::String(a.into()));
+    }
+    if let Some(p) = pane_id {
+        params.insert("pane_id".into(), Value::String(p));
+    }
+    match client.call("agent.signal", Value::Object(params)) {
+        Ok(result) => {
+            if json_out {
+                print_json(&result);
+            }
+            Ok(())
+        }
+        // Same never-break-the-hook rule for server-side rejection
+        // (e.g. the pane died between the event and the report).
+        Err(_) => Ok(()),
+    }
+}
+
+fn run_cockpit_inbox(json_out: bool) -> Result<()> {
+    let mut client = McpClient::connect()?;
+    let result = client.call("cockpit.inbox", serde_json::json!({}))?;
+    if json_out {
+        print_json(&result);
+        return Ok(());
+    }
+    let items = result
+        .get("items")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    if items.is_empty() {
+        println!("inbox empty — no agents tracked");
+        return Ok(());
+    }
+    println!(
+        "{:<6} {:<3} {:<9} {:<10} {:<7} {:<18} TASK",
+        "PANE", "", "AGENT", "STATE", "FOR", "TAB"
+    );
+    for item in &items {
+        let state = item.get("state").and_then(Value::as_str).unwrap_or("");
+        println!(
+            "{:<6} {:<3} {:<9} {:<10} {:<7} {:<18} {}",
+            item.get("pane_id").and_then(Value::as_u64).unwrap_or(0),
+            state_glyph(state),
+            item.get("agent").and_then(Value::as_str).unwrap_or(""),
+            state,
+            format!("{}s", item.get("for_secs").and_then(Value::as_u64).unwrap_or(0)),
+            item.get("pane_title").and_then(Value::as_str).unwrap_or("-"),
+            item.get("task_hint").and_then(Value::as_str).unwrap_or("-"),
+        );
+    }
+    Ok(())
 }
 
 fn run_mcp_agent_whoami(json_out: bool) -> Result<()> {
