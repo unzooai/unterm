@@ -275,17 +275,17 @@ impl crate::TermWindow {
             bar_bg,
         )?;
 
-        // A clearly-visible hairline along the top edge separates the bottom
-        // bar from the terminal content. Tone-only contrast (Scheme A) read as
-        // mush on the dark themes, so define the edge with the shared chrome
-        // divider — the same line the sidebar uses, so the frame is consistent.
+        // A hairline along the top edge separates the bottom bar from the
+        // chrome above it. Use the pane background tone, not the light
+        // fg-alpha divider: the top bar's seam is a transparent 1px border
+        // that shows the dark pane color through, so the sidebar↔bottom-bar
+        // corner gets the identical dark seam (65|18|65 on the default
+        // theme). Against the pane content itself the line is invisible —
+        // same as the top — because there the bar↔content tone contrast
+        // already defines the edge.
         let _ = sep_rgb;
         let pt = self.dimensions.dpi as f32 / 72.0;
-        let divider = crate::termwindow::chrome_colors::sidebar(
-            pal.background.to_linear(),
-            pal.foreground.to_linear(),
-        )
-        .divider;
+        let divider = pal.background.to_linear();
         self.filled_rectangle(
             layers,
             2,
