@@ -310,6 +310,17 @@ impl super::TermWindow {
                             self.dragging.replace((item, event));
                         }
                     }
+                    (WMEK::Move, Some(UIItemType::DirJumpRow(i))) => {
+                        // Hover moves the selection (launcher-style): keyboard
+                        // and mouse share ONE cursor, instead of the old
+                        // renderer-native hover highlight coexisting with the
+                        // keyboard selection on another row (read as two
+                        // overlapping cursors).
+                        jump.hover_select(*i);
+                        if let Some(window) = self.window.as_ref() {
+                            window.invalidate();
+                        }
+                    }
                     (WMEK::Move, _) => {
                         if let Some(window) = self.window.as_ref() {
                             window.invalidate();

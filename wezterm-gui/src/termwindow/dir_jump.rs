@@ -6,9 +6,9 @@
 //! the pane (shell-aware quoting via cd_command_for_pane), Cmd/Ctrl+Enter
 //! opens the directory in a new tab, Tab descends into the selection,
 //! Backspace on an empty query ascends to the parent, Cmd+O falls back to
-//! the system folder picker. Fully mouse-operable: hover highlights rows
-//! (renderer-native), click jumps. Layout follows the same Warp-measured
-//! point spec as popup_menu.rs.
+//! the system folder picker. Fully mouse-operable: hover moves the
+//! selection (one shared cursor with the keyboard), click jumps. Layout
+//! follows the same Warp-measured point spec as popup_menu.rs.
 
 use crate::overlay::selector::{matcher_pattern, matcher_score};
 use crate::termwindow::box_model::*;
@@ -620,6 +620,20 @@ impl DirJump {
     /// Apply the selected directory and close. Cmd/Ctrl+Enter always opens
     /// a new tab as an escape hatch; menu-launched palettes can make Enter
     /// mean new-tab or split directly.
+    /// Mouse hover moves the keyboard selection so there's exactly one
+    /// cursor: the old renderer-native hover highlight could sit on one
+    /// row while the keyboard selection marked another, which read as
+    /// two overlapping cursors.
+    pub fn hover_select(&self, display_idx: usize) {
+        if display_idx >= self.visible.borrow().len() {
+            return;
+        }
+        if *self.selected.borrow() != display_idx {
+            *self.selected.borrow_mut() = display_idx;
+            self.element.borrow_mut().take();
+        }
+    }
+
     pub fn activate(&self, display_idx: usize, term_window: &mut TermWindow, force_new_tab: bool) {
         let Some(path) = self.selected_path(display_idx) else {
             return;
@@ -1096,8 +1110,10 @@ impl DirJump {
             if display_idx == selected {
                 row_border.left = teal;
             }
-            let mut hover_border = BorderColor::default();
-            hover_border.left = teal;
+            // No hover_colors: hover moves the selection itself (see
+            // hover_select), so the selected style IS the hover style —
+            // a second renderer-native highlight would bring back the
+            // two-cursors-at-once artifact.
             list_kids.push(
                 Element::new(&font, ElementContent::Children(row))
                     .item_type(UIItemType::DirJumpRow(display_idx))
@@ -1106,11 +1122,6 @@ impl DirJump {
                         bg: row_bg,
                         text: row_fg,
                     })
-                    .hover_colors(Some(ElementColors {
-                        border: hover_border,
-                        bg: hover_bg.into(),
-                        text: fg.into(),
-                    }))
                     .border(BoxDimension {
                         left: Dimension::Pixels(2. * pt),
                         right: Dimension::Pixels(0.),
