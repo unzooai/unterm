@@ -394,6 +394,7 @@ impl super::TermWindow {
                         }
 
                         did_encode = if is_down {
+                            crate::cockpit::on_user_input(pane.pane_id() as u64);
                             pane.key_down(term_key, tw_raw_modifiers)
                         } else {
                             pane.key_up(term_key, tw_raw_modifiers)
@@ -703,6 +704,7 @@ impl super::TermWindow {
                     }
 
                     if window_key.key_is_down {
+                        crate::cockpit::on_user_input(pane.pane_id() as u64);
                         pane.key_down(key, modifiers)
                     } else {
                         pane.key_up(key, modifiers)

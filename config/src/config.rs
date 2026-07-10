@@ -971,11 +971,31 @@ pub struct Config {
     /// Show Unterm's compact bottom status bar.
     #[dynamic(default = "default_true")]
     pub show_unterm_status_bar: bool,
+
+    /// Agent Cockpit master switch: watch panes for AI agents
+    /// (claude / codex / gemini / aider / …), show their state in the
+    /// tab bar and top chip, and serve `agent.status` / the Inbox.
+    #[dynamic(default = "default_true")]
+    pub cockpit_enabled: bool,
+
+    /// Automatically snapshot a pane's git worktree (a dangling commit;
+    /// HEAD, index and files untouched) when an agent starts working in
+    /// it, so the Review page can diff and roll back.
+    #[dynamic(default = "default_true")]
+    pub cockpit_auto_checkpoint: bool,
+
+    /// How long a finished agent shows as "done" before settling to idle.
+    #[dynamic(default = "default_cockpit_done_hold_secs")]
+    pub cockpit_done_hold_secs: u64,
 }
 impl_lua_conversion_dynamic!(Config);
 
 fn default_one() -> usize {
     1
+}
+
+fn default_cockpit_done_hold_secs() -> u64 {
+    8
 }
 
 fn default_mcp_confirmation_timeout_ms() -> u64 {
