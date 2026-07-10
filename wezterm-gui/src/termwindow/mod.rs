@@ -75,6 +75,8 @@ pub mod charselect;
 pub mod chrome_colors;
 pub mod clipboard;
 pub mod composer;
+pub mod cockpit_inbox;
+pub mod fleet_palette;
 pub mod dir_jump;
 pub mod keyevent;
 pub mod left_tab_bar;
@@ -177,6 +179,7 @@ pub enum QuickAction {
     DirJump,
     Search,
     Settings,
+    Inbox,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -211,6 +214,8 @@ pub enum UIItemType {
     PopupMenuRow(usize),
     /// A selectable row inside the directory-jump palette (v0.40).
     DirJumpRow(usize),
+    CockpitInboxRow(usize),
+    FleetPaletteRow(usize),
     /// Scroll track inside the directory-jump palette.
     DirJumpScrollTrack {
         thumb_height: usize,
@@ -1518,15 +1523,38 @@ impl TermWindow {
                 } => {
                     self.emit_user_var_event(pane_id, name, value);
                 }
+                MuxNotification::Alert {
+                    alert: Alert::WindowTitleChanged(title),
+                    pane_id,
+                } => {
+                    crate::cockpit::on_title_change(pane_id as u64, &title);
+                    self.update_title();
+                }
+                MuxNotification::Alert {
+                    alert: Alert::IconTitleChanged(title),
+                    pane_id,
+                } => {
+                    if let Some(title) = &title {
+                        crate::cockpit::on_title_change(pane_id as u64, title);
+                    }
+                    self.update_title();
+                }
+                MuxNotification::Alert {
+                    alert: Alert::Progress(progress),
+                    pane_id,
+                } => {
+                    crate::cockpit::on_progress(
+                        pane_id as u64,
+                        !matches!(progress, wezterm_term::Progress::None),
+                    );
+                    self.update_title();
+                }
                 MuxNotification::WindowTitleChanged { .. }
                 | MuxNotification::Alert {
                     alert:
                         Alert::OutputSinceFocusLost
                         | Alert::CurrentWorkingDirectoryChanged
-                        | Alert::WindowTitleChanged(_)
-                        | Alert::TabTitleChanged(_)
-                        | Alert::IconTitleChanged(_)
-                        | Alert::Progress(_),
+                        | Alert::TabTitleChanged(_),
                     ..
                 } => {
                     self.update_title();
@@ -1558,15 +1586,18 @@ impl TermWindow {
 
                     log::trace!("Ding! (this is the bell) in pane {}", pane_id);
                     self.emit_window_event("bell", Some(pane_id));
+                    crate::cockpit::on_bell(pane_id as u64);
 
                     let mut per_pane = self.pane_state(pane_id);
                     per_pane.bell_start.replace(Instant::now());
                     window.invalidate();
                 }
                 MuxNotification::Alert {
-                    alert: Alert::ToastNotification { .. },
-                    ..
-                } => {}
+                    alert: Alert::ToastNotification { title, body, .. },
+                    pane_id,
+                } => {
+                    crate::cockpit::on_notification(pane_id as u64, title.as_deref(), &body);
+                }
                 MuxNotification::TabAddedToWindow {
                     window_id: _,
                     tab_id,
@@ -1635,6 +1666,72 @@ impl TermWindow {
             },
             TermWindowNotif::EmitStatusUpdate => {
                 self.emit_status_event();
+                // Feed the cockpit's process-detection layer and run its
+                // decay pass on the same cadence as the stats refresh.
+                // The probe reads the mcp handler's non-blocking cache,
+                // so this never touches the process table on this thread.
+                {
+                    let mux = Mux::get();
+                    let panes = mux.iter_panes();
+                    let ids: Vec<u64> = panes.iter().map(|p| p.pane_id() as u64).collect();
+                    crate::cockpit::poll(&ids, |id| {
+                        crate::mcp::handler::agent_and_cwd_for_pane(id).0
+                    });
+                    crate::cockpit::status::retain_panes(&ids.iter().copied().collect());
+                    // Layer-4 screen-text heuristics for tracked panes
+                    // that have no OSC/hook signal (e.g. Aider). Reads
+                    // only the last 3 viewport lines of agent panes.
+                    for status in crate::cockpit::snapshot() {
+                        if let Some(pane) = mux.get_pane(status.pane_id as mux::pane::PaneId) {
+                            let dims = pane.get_dimensions();
+                            let last = dims.physical_top + dims.viewport_rows as isize;
+                            let start = (last - 3).max(dims.physical_top);
+                            let (_first, lines) = pane.get_lines(start..last);
+                            let tail: Vec<String> =
+                                lines.iter().map(|l| l.as_str().to_string()).collect();
+                            crate::cockpit::status::on_screen_tail(status.pane_id, &tail);
+                        }
+                    }
+                    // Auto-checkpoint: an agent just started working in
+                    // these panes — snapshot their repos off-thread.
+                    for pane_id in crate::cockpit::status::take_checkpoint_requests() {
+                        let Some(status) = crate::cockpit::status_for_pane(pane_id) else {
+                            continue;
+                        };
+                        // Fleet worktrees already carry their start commit
+                        // as the review baseline; don't double-checkpoint.
+                        if status.fleet_id.is_some() {
+                            continue;
+                        }
+                        let cwd = mux
+                            .get_pane(pane_id as mux::pane::PaneId)
+                            .and_then(|p| {
+                                p.get_current_working_dir(mux::pane::CachePolicy::AllowStale)
+                            })
+                            .and_then(|url| url.to_file_path().ok());
+                        let Some(cwd) = cwd else { continue };
+                        let agent = status.agent.clone();
+                        std::thread::Builder::new()
+                            .name("cockpit-checkpoint".into())
+                            .spawn(move || {
+                                match crate::cockpit::review::record_auto_checkpoint(
+                                    &cwd, &agent, pane_id,
+                                ) {
+                                    Ok(Some(sha)) => log::info!(
+                                        "cockpit checkpoint {} for pane {pane_id}",
+                                        &sha[..12.min(sha.len())]
+                                    ),
+                                    Ok(None) => {}
+                                    // Not-a-git-repo is the common,
+                                    // uninteresting failure.
+                                    Err(err) => {
+                                        log::debug!("cockpit checkpoint skipped: {err:#}")
+                                    }
+                                }
+                            })
+                            .ok();
+                    }
+                }
                 // Drive the periodic refresh directly. The Lua status
                 // events above only lead back to update_title_impl when
                 // a handler calls window:set_*_status(); without one the
@@ -1786,6 +1883,10 @@ impl TermWindow {
                     | Alert::IconTitleChanged(_)
                     | Alert::Progress(_)
                     | Alert::SetUserVar { .. }
+                    // The cockpit consumes agent notifications (OSC 9 /
+                    // OSC 777) for waiting/done detection; the OS toast
+                    // is raised separately by the frontend subscriber.
+                    | Alert::ToastNotification { .. }
                     | Alert::Bell,
             }
             | MuxNotification::PaneFocused(pane_id)
@@ -1839,11 +1940,7 @@ impl TermWindow {
                     return true;
                 }
             }
-            MuxNotification::Alert {
-                alert: Alert::ToastNotification { .. },
-                ..
-            }
-            | MuxNotification::AssignClipboard { .. }
+            MuxNotification::AssignClipboard { .. }
             | MuxNotification::SaveToDownloads { .. }
             | MuxNotification::WindowCreated(_)
             | MuxNotification::ActiveWorkspaceChanged(_)
@@ -3467,6 +3564,24 @@ impl TermWindow {
         self.show_dir_jump_with_action(crate::termwindow::dir_jump::DirJumpAction::ChangeCwd);
     }
 
+    /// Open the Agent Inbox palette (cockpit).
+    pub(crate) fn show_cockpit_inbox(&mut self) {
+        let modal = crate::termwindow::cockpit_inbox::CockpitInbox::new();
+        self.set_modal(std::rc::Rc::new(modal));
+    }
+
+    /// Open the fleet-launch palette (cockpit).
+    pub(crate) fn show_fleet_palette(&mut self) {
+        let Some(pane) = self.get_active_pane_or_overlay() else {
+            return;
+        };
+        let base = pane_cwd_path(&pane)
+            .or_else(dirs_next::home_dir)
+            .unwrap_or_else(|| std::path::PathBuf::from("/"));
+        let modal = crate::termwindow::fleet_palette::FleetPalette::new(base);
+        self.set_modal(std::rc::Rc::new(modal));
+    }
+
     pub(crate) fn show_dir_jump_with_action(
         &mut self,
         action: crate::termwindow::dir_jump::DirJumpAction,
@@ -4338,6 +4453,7 @@ impl TermWindow {
             ShowDebugOverlay => self.show_debug_overlay(),
             ShowShellSelector => self.show_shell_selector(),
             ShowDirJump => self.show_dir_jump(),
+            ShowCockpitInbox => self.show_cockpit_inbox(),
             ToggleComposer => self.toggle_composer(),
             ToggleTreeSidebar => self.toggle_tree_sidebar(),
             ToggleGitPanel => self.toggle_git_panel(),

@@ -200,6 +200,37 @@ fn compute_tab_title(
                     items.push(FormatItem::Foreground(FormatColor::Default));
                 }
 
+                // Agent Cockpit: state dot for tabs hosting an AI agent.
+                // Color is the state, aggregated across the tab's panes
+                // (waiting beats working beats done beats idle).
+                if config.cockpit_enabled {
+                    let pane_ids: Vec<u64> = {
+                        let mux = mux::Mux::get();
+                        mux.get_tab(tab.tab_id)
+                            .map(|t| {
+                                t.iter_panes_ignoring_zoom()
+                                    .iter()
+                                    .map(|p| p.pane.pane_id() as u64)
+                                    .collect()
+                            })
+                            .unwrap_or_default()
+                    };
+                    if let Some(state) = crate::cockpit::tab_state(&pane_ids) {
+                        use crate::cockpit::AgentState;
+                        let color = match state {
+                            AgentState::WaitingForUser => AnsiColor::Yellow,
+                            AgentState::Working => AnsiColor::Blue,
+                            AgentState::Done => AnsiColor::Green,
+                            AgentState::Idle => AnsiColor::Grey,
+                        };
+                        let dot = "● ";
+                        len += unicode_column_width(dot, None);
+                        items.push(FormatItem::Foreground(FormatColor::AnsiColor(color)));
+                        items.push(FormatItem::Text(dot.to_string()));
+                        items.push(FormatItem::Foreground(FormatColor::Default));
+                    }
+                }
+
                 let classic_spacing = if config.use_fancy_tab_bar { "" } else { " " };
                 if config.show_tab_index_in_tab_bar {
                     let index = format!(

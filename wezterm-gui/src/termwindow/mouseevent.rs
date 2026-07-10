@@ -160,6 +160,8 @@ impl super::TermWindow {
             | UIItemType::CloseSplitPane(_)
             | UIItemType::PopupMenuRow(_)
             | UIItemType::DirJumpRow(_)
+            | UIItemType::CockpitInboxRow(_)
+            | UIItemType::FleetPaletteRow(_)
             | UIItemType::DirJumpScrollTrack { .. }
             | UIItemType::DirJumpScrollThumb { .. }
             | UIItemType::TreeSidebarRow(_)
@@ -200,6 +202,8 @@ impl super::TermWindow {
             | UIItemType::CloseSplitPane(_)
             | UIItemType::PopupMenuRow(_)
             | UIItemType::DirJumpRow(_)
+            | UIItemType::CockpitInboxRow(_)
+            | UIItemType::FleetPaletteRow(_)
             | UIItemType::DirJumpScrollTrack { .. }
             | UIItemType::DirJumpScrollThumb { .. }
             | UIItemType::TreeSidebarRow(_)
@@ -332,6 +336,48 @@ impl super::TermWindow {
                             .modifiers
                             .intersects(::window::Modifiers::SUPER | ::window::Modifiers::CTRL);
                         jump.activate(i, self, new_tab);
+                    }
+                    (WMEK::Press(_), Some(UIItemType::PopupMenuCard)) => {}
+                    (WMEK::Press(_), _) => self.cancel_modal(),
+                    _ => {}
+                }
+                context.set_cursor(Some(MouseCursor::Arrow));
+                return;
+            }
+            if let Some(fp) =
+                modal.downcast_ref::<crate::termwindow::fleet_palette::FleetPalette>()
+            {
+                let item = self.resolve_ui_item(&event);
+                match (&event.kind, item.as_ref().map(|i| &i.item_type)) {
+                    (WMEK::Move, Some(UIItemType::FleetPaletteRow(i))) => {
+                        fp.hover_select(*i, self);
+                    }
+                    (WMEK::Move, _) => {}
+                    (WMEK::Press(MousePress::Left), Some(UIItemType::FleetPaletteRow(i))) => {
+                        let i = *i;
+                        fp.activate(i, self);
+                    }
+                    (WMEK::Press(_), Some(UIItemType::PopupMenuCard)) => {}
+                    (WMEK::Press(_), _) => self.cancel_modal(),
+                    _ => {}
+                }
+                context.set_cursor(Some(MouseCursor::Arrow));
+                return;
+            }
+            if let Some(inbox) =
+                modal.downcast_ref::<crate::termwindow::cockpit_inbox::CockpitInbox>()
+            {
+                let item = self.resolve_ui_item(&event);
+                match (&event.kind, item.as_ref().map(|i| &i.item_type)) {
+                    // Hover moves the selection — same single-cursor rule
+                    // as the dir-jump palette.
+                    (WMEK::Move, Some(UIItemType::CockpitInboxRow(i))) => {
+                        inbox.hover_select(*i, self);
+                    }
+                    (WMEK::Move, _) => {}
+                    (WMEK::Press(MousePress::Left), Some(UIItemType::CockpitInboxRow(i))) => {
+                        let i = *i;
+                        inbox.activate(i, self);
                     }
                     (WMEK::Press(_), Some(UIItemType::PopupMenuCard)) => {}
                     (WMEK::Press(_), _) => self.cancel_modal(),
@@ -789,6 +835,8 @@ impl super::TermWindow {
             // mouse_event_impl and never reach this dispatcher.
             UIItemType::PopupMenuRow(_) | UIItemType::PopupMenuCard => {}
             UIItemType::DirJumpRow(_)
+            | UIItemType::CockpitInboxRow(_)
+            | UIItemType::FleetPaletteRow(_)
             | UIItemType::DirJumpScrollTrack { .. }
             | UIItemType::DirJumpScrollThumb { .. } => {}
             UIItemType::TreeSidebarRow(row) => {
@@ -860,6 +908,7 @@ impl super::TermWindow {
                             }
                         }
                         QA::DirJump => self.show_dir_jump(),
+                        QA::Inbox => self.show_cockpit_inbox(),
                         QA::Search => {
                             use config::keyassignment::{KeyAssignment, Pattern};
                             log::info!("search-open: toolbar button clicked");

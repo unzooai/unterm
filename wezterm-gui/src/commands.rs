@@ -914,6 +914,14 @@ pub fn derive_command_from_key_assignment(action: &KeyAssignment) -> Option<Comm
             menubar: &["View"],
             icon: Some("md_source_branch"),
         },
+        ShowCockpitInbox => CommandDef {
+            brief: "Agent Inbox".into(),
+            doc: "Opens the cockpit inbox: every AI agent running in a pane, waiting-first; Enter jumps to it".into(),
+            keys: vec![(Modifiers::CTRL.union(Modifiers::SHIFT), "a".into())],
+            args: &[ArgType::ActiveWindow],
+            menubar: &["View"],
+            icon: Some("md_robot"),
+        },
         ShowDirJump => CommandDef {
             brief: "Go to Directory".into(),
             doc: "Opens the directory jump palette to cd or open a new tab in a chosen directory".into(),
@@ -2315,6 +2323,7 @@ fn compute_default_actions() -> Vec<KeyAssignment> {
         ToggleGitPanel,
         ToggleComposer,
         ShowDirJump,
+        ShowCockpitInbox,
         // ----------------- Window
         ToggleFullScreen,
         ToggleAlwaysOnTop,

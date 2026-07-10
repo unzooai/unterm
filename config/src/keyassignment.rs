@@ -578,6 +578,7 @@ pub enum KeyAssignment {
     ShowDebugOverlay,
     ShowShellSelector,
     ShowDirJump,
+    ShowCockpitInbox,
     ToggleComposer,
     ToggleTreeSidebar,
     ToggleLeftTabBar,

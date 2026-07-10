@@ -528,6 +528,62 @@ impl crate::TermWindow {
                         }),
                 );
             }
+            // Agent Cockpit chip: aggregate agent activity across ALL
+            // windows (⚡N working, ✋M waiting). Hidden when no agent is
+            // tracked; waiting > 0 switches to the warning accent so a
+            // blocked agent is visible from any tab. Click opens the
+            // Inbox palette.
+            if self.config.cockpit_enabled {
+                let (working, waiting) = crate::cockpit::summary();
+                if working + waiting > 0 {
+                    let mut chip = String::new();
+                    if working > 0 {
+                        chip.push_str(&format!("\u{26a1}{working}"));
+                    }
+                    if waiting > 0 {
+                        if !chip.is_empty() {
+                            chip.push(' ');
+                        }
+                        chip.push_str(&format!("\u{270b}{waiting}"));
+                    }
+                    let accent = if waiting > 0 {
+                        // Palette bright-yellow slot: "an agent needs you".
+                        palette.resolve_fg(ColorAttribute::PaletteIndex(11)).to_linear()
+                    } else {
+                        palette.resolve_fg(ColorAttribute::PaletteIndex(14)).to_linear()
+                    };
+                    let chip_font = self.fonts.default_font()?;
+                    let new_tab_hover = colors.new_tab_hover();
+                    right_eles.push(
+                        Element::new(&chip_font, ElementContent::Text(chip))
+                            .vertical_align(VerticalAlign::Middle)
+                            .item_type(UIItemType::QuickAction(QA::Inbox))
+                            .margin(BoxDimension {
+                                left: Dimension::Cells(0.5),
+                                right: Dimension::Cells(0.),
+                                top: Dimension::Cells(QUICK_BTN_VMARGIN_CELLS),
+                                bottom: Dimension::Cells(QUICK_BTN_VMARGIN_CELLS),
+                            })
+                            .padding(BoxDimension {
+                                left: Dimension::Cells(0.5),
+                                right: Dimension::Cells(0.5),
+                                top: Dimension::Cells(QUICK_BTN_VPAD_CELLS),
+                                bottom: Dimension::Cells(QUICK_BTN_VPAD_CELLS),
+                            })
+                            .border(BoxDimension::new(Dimension::Pixels(QUICK_BTN_BORDER_PX)))
+                            .colors(ElementColors {
+                                border: BorderColor::default(),
+                                bg: window::color::LinearRgba::TRANSPARENT.into(),
+                                text: accent.into(),
+                            })
+                            .hover_colors(Some(ElementColors {
+                                border: BorderColor::default(),
+                                bg: new_tab_hover.bg_color.to_linear().into(),
+                                text: new_tab_hover.fg_color.to_linear().into(),
+                            })),
+                    );
+                }
+            }
             // Codicons — VS Code's single-weight icon family. Same visual
             // language as Warp's SF Symbols, but bundled cross-platform via
             // SymbolsNerdFontMono so Win/Linux look identical.
