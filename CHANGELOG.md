@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.55.0 — 2026-07-11
+
+### Added — Agent Cockpit
+
+Unterm is the terminal AI agents can drive. v0.55 adds the other half: the terminal now sees, aggregates, and orchestrates the agents running inside it.
+
+- **Agent state, live, everywhere.** Unterm watches every pane for AI agents (Claude Code / Codex / Gemini CLI / Aider / …) and folds four signal layers — official lifecycle hooks, OSC title/progress/notification parsing, foreground-process detection, and screen-text heuristics — into one state per pane: working, needs-you, done, idle. Zero configuration for Claude Code and Gemini; `unterm-cli agent enable-hooks` (run automatically by setup-ai) wires exact hook reporting for Claude Code, Codex, and Aider, merge-only with `.unterm-bak` backups.
+- **You can see it without looking for it.** Sidebar tabs carry a state dot (breathing blue = working, amber = needs you, green = done); the top bar shows a cross-window tally chip that turns amber the moment any agent blocks on you. Click it — or press `Ctrl+Shift+A` — for the **Agent Inbox**: every agent sorted waiting-first, Enter jumps straight to its pane, wherever it lives.
+- **Fleet: one task, N agents, N isolated worktrees.** Launch from the Inbox (or `unterm-cli fleet launch --agents claude,claude,codex -- <task>`): each member gets its own git worktree beside the repo (`../<repo>.fleet/…`), its own branch, and its own tab whose badge tracks that member's state. Crew presets are built from the agents actually installed; `claude+codex+gemini` runs the same task through three different models.
+- **Review: nothing an agent does is untracked.** The moment an agent starts working in a repo, Unterm takes a non-invasive checkpoint (a dangling commit — HEAD, index, and files untouched). The new **Review** page in Web Settings shows every fleet member and checkpoint with line-level diffs (untracked files included), squash-merges a member's work into your repo as staged changes (the commit stays yours), discards what you don't want, rolls a repo back to any checkpoint, and compares two members' takes side by side.
+- **Everything above is also MCP + CLI.** Twelve new methods (`agent.status/signal`, `cockpit.inbox`, `fleet.*`, `review.*`) and matching `unterm-cli agent status/signal/inbox`, `fleet`, and `review` subcommands — external agents can drive the cockpit itself.
+
+### Fixed
+
+- **CJK input methods no longer make palette inputs look dead.** With an IME active, keystrokes enter composition and never arrive as key events — palettes received nothing while the marked text painted at the pane cursor *behind* the card. Composition now previews inline in the palette's input line (tinted until committed) and the IME candidate window anchors to it. Applies to the fleet palette and the directory-jump palette.
+- **OSC 9 / OSC 777 notifications now actually reach the window.** They were dropped by the mux-subscription pre-filter before any window-side consumer could see them.
+- **MCP methods accept the documented `pane_id` parameter** (previously only `id` / `session_id` worked).
+- **`unterm-cli agent signal` routes to the instance that owns the calling pane** (via the instance-unique `gui-sock-<pid>` in the pane's environment) instead of whichever instance registered last — with several windows open, hook events could tag the wrong pane.
+- **Sidebar no longer rebuilds on every agent title-spinner frame.** Agents animate a braille spinner in their pane title several times a second, and the raw title sat in the sidebar cache key — every frame forced a full (~44ms) sidebar rebuild for as long as an agent worked. State glyphs are now stripped before the title enters the cache key.
+
 ## v0.54.5 — 2026-07-10
 
 ### Fixed
