@@ -43,6 +43,31 @@ NOTARY_PROFILE=${NOTARY_PROFILE:-}
 # Stage the .app under Unterm-macos-<tag>/Unterm.app
 stagedir=Unterm-macos-$TAG_NAME
 dmgname=$stagedir.dmg
+
+# Notarize an artifact (zip or dmg), waiting for the verdict. The macOS
+# keychain has twice pruned the UntermNotary credential MID-RELEASE
+# (pre-check passed, the actual submit failed), so when the profile is
+# missing fall back to inline credentials from ~/.unterm/notary-credentials
+# (KEY=VALUE lines: NOTARY_APPLE_ID / NOTARY_TEAM_ID / NOTARY_PASSWORD,
+# chmod 600).
+notary_submit() {
+  artifact="$1"
+  if xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1 ; then
+    xcrun notarytool submit "$artifact" --keychain-profile "$NOTARY_PROFILE" --wait
+    return
+  fi
+  creds="$HOME/.unterm/notary-credentials"
+  if [ ! -f "$creds" ] ; then
+    echo "ERROR: keychain profile '$NOTARY_PROFILE' is gone and $creds does not exist." >&2
+    echo "Create it with NOTARY_APPLE_ID / NOTARY_TEAM_ID / NOTARY_PASSWORD lines (chmod 600)." >&2
+    exit 1
+  fi
+  echo "keychain profile '$NOTARY_PROFILE' missing — using inline credentials from $creds"
+  # shellcheck disable=SC1090
+  . "$creds"
+  xcrun notarytool submit "$artifact" --apple-id "$NOTARY_APPLE_ID" \
+    --team-id "$NOTARY_TEAM_ID" --password "$NOTARY_PASSWORD" --wait
+}
 rm -rf "$stagedir" "$dmgname"
 mkdir "$stagedir"
 cp -r assets/macos/Unterm.app "$stagedir/"
@@ -152,9 +177,7 @@ if [ -n "$NOTARY_PROFILE" ] ; then
   rm -f "$notary_zip"
   ditto -c -k --keepParent "$stagedir/Unterm.app" "$notary_zip"
   echo "Submitting .app to Apple notary service via profile ${NOTARY_PROFILE}..."
-  xcrun notarytool submit "$notary_zip" \
-    --keychain-profile "$NOTARY_PROFILE" \
-    --wait
+  notary_submit "$notary_zip"
   rm -f "$notary_zip"
   xcrun stapler staple "$stagedir/Unterm.app"
 fi
@@ -186,9 +209,7 @@ codesign_retry --force --sign "$DEV_ID" --timestamp "$dmgname"
 
 if [ -n "$NOTARY_PROFILE" ] ; then
   echo "Submitting .dmg to Apple notary service via profile ${NOTARY_PROFILE}..."
-  xcrun notarytool submit "$dmgname" \
-    --keychain-profile "$NOTARY_PROFILE" \
-    --wait
+  notary_submit "$dmgname"
   xcrun stapler staple "$dmgname"
   spctl --assess --type install --verbose "$dmgname" || true
 fi

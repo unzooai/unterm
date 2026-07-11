@@ -41,7 +41,8 @@ if [ -z "$TAG" ]; then
   exit 1
 fi
 
-if ! xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1; then
+if ! xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1 \
+   && [ ! -f "$HOME/.unterm/notary-credentials" ]; then
   echo "ERROR: Notary profile '$NOTARY_PROFILE' not found in Keychain." >&2
   echo >&2
   echo "This has been observed to happen between releases — the macOS" >&2
