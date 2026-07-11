@@ -85,6 +85,8 @@ pub struct DirJump {
     action: DirJumpAction,
     base: RefCell<PathBuf>,
     input: RefCell<String>,
+    /// In-progress IME composition, shown inline after the input.
+    composing: RefCell<Option<String>>,
     items: RefCell<Vec<DirItem>>,
     /// Bounded recursive scan below `base`, built lazily on the first
     /// non-empty query and reused until the base changes. This is what lets
@@ -376,6 +378,7 @@ impl DirJump {
             action,
             base: RefCell::new(base),
             input: RefCell::new(String::new()),
+            composing: RefCell::new(None),
             items: RefCell::new(vec![]),
             deep: RefCell::new(None),
             all_visible: RefCell::new(vec![]),
@@ -838,12 +841,17 @@ impl DirJump {
         // Header: a real input field — inset darker box, teal caret, hint
         // when empty. The browse root moves down into the subdir caption.
         let field_bg = LinearRgba::with_srgba(0x1c, 0x1c, 0x1c, 0xff);
-        let shown_input = if input.is_empty() {
+        let composing = self.composing.borrow().clone().unwrap_or_default();
+        let shown_input = if input.is_empty() && composing.is_empty() {
             crate::i18n::t("dirjump.placeholder")
         } else {
-            input.clone()
+            format!("{input}{composing}")
         };
-        let input_color = if input.is_empty() { dim } else { fg };
+        let input_color = if input.is_empty() && composing.is_empty() {
+            dim
+        } else {
+            fg
+        };
         let field = Element::new(
             &font,
             ElementContent::Children(vec![
@@ -1321,6 +1329,15 @@ impl DirJump {
 }
 
 impl Modal for DirJump {
+    fn advise_compose(&self, status: &::window::DeadKeyStatus) -> bool {
+        *self.composing.borrow_mut() = match status {
+            ::window::DeadKeyStatus::Composing(s) => Some(s.clone()),
+            ::window::DeadKeyStatus::None => None,
+        };
+        self.element.borrow_mut().take();
+        true
+    }
+
     fn mouse_event(&self, _event: MouseEvent, _term_window: &mut TermWindow) -> anyhow::Result<()> {
         Ok(())
     }

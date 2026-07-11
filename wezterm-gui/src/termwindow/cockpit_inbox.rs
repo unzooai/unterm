@@ -162,7 +162,7 @@ impl CockpitInbox {
                 let fleet = status
                     .fleet_id
                     .as_deref()
-                    .map(|f| format!("\u{26f5}{f} · "))
+                    .map(|f| format!("\u{eb44} {f} · "))
                     .unwrap_or_default();
                 format!(
                     "{fleet}{}  {} · {} · {}",
@@ -177,7 +177,7 @@ impl CockpitInbox {
                     hint,
                 )
             }
-            InboxRow::LaunchFleet => format!("\u{26f5} {}", crate::i18n::t("cockpit.launch_fleet")),
+            InboxRow::LaunchFleet => format!("\u{eb44} {}", crate::i18n::t("cockpit.launch_fleet")),
             InboxRow::OpenReview => format!("\u{21c4} {}", crate::i18n::t("cockpit.open_review")),
         }
     }

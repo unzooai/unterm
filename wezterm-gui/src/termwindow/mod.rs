@@ -1311,7 +1311,19 @@ impl TermWindow {
                 } else {
                     log::trace!("DeadKeyStatus now: {:?}", status);
                 }
-                self.dead_key_status = status;
+                // A modal with a text input takes over the composition
+                // preview; storing None here keeps the pane renderer from
+                // painting the marked text at the pane cursor behind the
+                // modal card.
+                let consumed = {
+                    let modal = self.modal.borrow().clone();
+                    modal.map(|m| m.advise_compose(&status)).unwrap_or(false)
+                };
+                self.dead_key_status = if consumed {
+                    DeadKeyStatus::None
+                } else {
+                    status
+                };
                 self.update_title();
                 // Ensure that we repaint so that any composing
                 // text is updated
@@ -2684,6 +2696,19 @@ impl TermWindow {
     }
 
     fn update_text_cursor(&mut self, pos: &PositionedPane) {
+        // While a modal with a text input is up, the IME candidate window
+        // belongs next to the modal's caret, not the pane cursor.
+        {
+            let modal = self.modal.borrow().clone();
+            if let Some(modal) = modal {
+                if let Some(rect) = modal.ime_cursor_rect(self) {
+                    if let Some(win) = self.window.as_ref() {
+                        win.set_text_cursor_position(rect);
+                    }
+                    return;
+                }
+            }
+        }
         if let Some(win) = self.window.as_ref() {
             let cursor = pos.pane.get_cursor_position();
             let top = pos.pane.get_dimensions().physical_top;

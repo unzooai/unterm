@@ -28,10 +28,16 @@ struct Preset {
 pub struct FleetPalette {
     base: PathBuf,
     input: RefCell<String>,
+    /// In-progress IME composition (pinyin etc.), rendered inline after
+    /// the committed input; committed text arrives via key_down.
+    composing: RefCell<Option<String>>,
     presets: Vec<Preset>,
     selected: RefCell<usize>,
     error: RefCell<Option<&'static str>>,
     element: RefCell<Option<Vec<ComputedElement>>>,
+    /// Pixel position of the input caret, captured during compute() so
+    /// the OS IME candidate window can be anchored to it.
+    ime_rect: RefCell<Option<::window::Rect>>,
 }
 
 fn build_presets() -> Vec<Preset> {
@@ -74,10 +80,12 @@ impl FleetPalette {
         Self {
             base,
             input: RefCell::new(String::new()),
+            composing: RefCell::new(None),
             presets: build_presets(),
             selected: RefCell::new(0),
             error: RefCell::new(None),
             element: RefCell::new(None),
+            ime_rect: RefCell::new(None),
         }
     }
 
@@ -180,27 +188,41 @@ impl FleetPalette {
 
         // Task input field. Pasted newlines fold to ␤ for the one-line
         // display; the stored task (what the agent receives) keeps them.
-        let shown = if input.is_empty() {
+        let composing = self.composing.borrow().clone().unwrap_or_default();
+        let shown = if input.is_empty() && composing.is_empty() {
             crate::i18n::t("cockpit.fleet_placeholder")
         } else {
             input.replace('\n', "\u{2424}").replace('\r', "")
         };
-        let input_color = if input.is_empty() { dim } else { fg };
+        let input_color = if input.is_empty() && composing.is_empty() {
+            dim
+        } else {
+            fg
+        };
         let field = Element::new(
             &font,
             ElementContent::Children(vec![
-                Element::new(&font, ElementContent::Text("\u{26f5} ".to_string())).colors(
+                Element::new(&font, ElementContent::Text("\u{eb44} ".to_string())).colors(
                     ElementColors {
                         border: BorderColor::default(),
                         bg: LinearRgba::TRANSPARENT.into(),
                         text: teal.into(),
                     },
                 ),
-                Element::new(&font, ElementContent::Text(shown)).colors(ElementColors {
+                Element::new(&font, ElementContent::Text(shown.clone())).colors(ElementColors {
                     border: BorderColor::default(),
                     bg: LinearRgba::TRANSPARENT.into(),
                     text: input_color.into(),
                 }),
+                // IME composition preview: distinct tint so the pinyin
+                // reads as "not yet committed".
+                Element::new(&font, ElementContent::Text(composing.clone())).colors(
+                    ElementColors {
+                        border: BorderColor::default(),
+                        bg: teal.mul_alpha(0.22).into(),
+                        text: teal.into(),
+                    },
+                ),
                 Element::new(&font, ElementContent::Text("▏".to_string())).colors(ElementColors {
                     border: BorderColor::default(),
                     bg: LinearRgba::TRANSPARENT.into(),
@@ -233,6 +255,28 @@ impl FleetPalette {
                 .min_width(Some(Dimension::Percent(1.)))
                 .display(DisplayType::Block),
         );
+
+        // Anchor the IME candidate window at the input caret. The layout
+        // isn't computed yet, so derive the caret position from the same
+        // constants the elements above use: card top (12% of the window)
+        // + title row (8pt pad + cell + 4pt pad) + field container top
+        // pad (2pt) + field padding/border (~7pt), and x from the card's
+        // left edge + paddings + the glyph/text width so far.
+        {
+            let card_x = (term_window.dimensions.pixel_width as f32 - card_width) / 2.;
+            let card_y = (term_window.dimensions.pixel_height as f32 * 0.12).round();
+            let cell_w = metrics.cell_size.width as f32;
+            let cell_h = metrics.cell_size.height as f32;
+            let text_cols = termwiz::cell::unicode_column_width(&shown, None)
+                + termwiz::cell::unicode_column_width(&composing, None)
+                + 2; // "⛵ " prefix
+            let caret_x = card_x + (12. + 10. + 10.) * pt + text_cols as f32 * cell_w;
+            let caret_y = card_y + (8. + 4. + 2. + 7.) * pt + cell_h;
+            self.ime_rect.borrow_mut().replace(::window::Rect::new(
+                euclid::point2(caret_x as isize, caret_y as isize),
+                euclid::size2(cell_w as isize, cell_h as isize),
+            ));
+        }
 
         // Error line (repo not clean / not a repo / empty task).
         if let Some(err_key) = *self.error.borrow() {
@@ -430,6 +474,19 @@ impl Modal for FleetPalette {
             }
             _ => false,
         }
+    }
+
+    fn advise_compose(&self, status: &::window::DeadKeyStatus) -> bool {
+        *self.composing.borrow_mut() = match status {
+            ::window::DeadKeyStatus::Composing(s) => Some(s.clone()),
+            ::window::DeadKeyStatus::None => None,
+        };
+        self.element.borrow_mut().take();
+        true
+    }
+
+    fn ime_cursor_rect(&self, _term_window: &TermWindow) -> Option<::window::Rect> {
+        *self.ime_rect.borrow()
     }
 
     fn mouse_event(
