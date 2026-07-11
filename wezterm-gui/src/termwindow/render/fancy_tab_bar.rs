@@ -536,15 +536,19 @@ impl crate::TermWindow {
             if self.config.cockpit_enabled {
                 let (working, waiting) = crate::cockpit::summary();
                 if working + waiting > 0 {
+                    // Codicons (same family the quick-action buttons use, so
+                    // the glyphs are guaranteed present): pulse = working,
+                    // bell = waiting. The terminal font's emoji fallback
+                    // can't be relied on for ⚡/✋ here.
                     let mut chip = String::new();
                     if working > 0 {
-                        chip.push_str(&format!("\u{26a1}{working}"));
+                        chip.push_str(&format!("\u{eb30} {working}"));
                     }
                     if waiting > 0 {
                         if !chip.is_empty() {
-                            chip.push(' ');
+                            chip.push_str("  ");
                         }
-                        chip.push_str(&format!("\u{270b}{waiting}"));
+                        chip.push_str(&format!("\u{eaa2} {waiting}"));
                     }
                     let accent = if waiting > 0 {
                         // Palette bright-yellow slot: "an agent needs you".
@@ -552,7 +556,7 @@ impl crate::TermWindow {
                     } else {
                         palette.resolve_fg(ColorAttribute::PaletteIndex(14)).to_linear()
                     };
-                    let chip_font = self.fonts.default_font()?;
+                    let chip_font = font.clone();
                     let new_tab_hover = colors.new_tab_hover();
                     right_eles.push(
                         Element::new(&chip_font, ElementContent::Text(chip))
