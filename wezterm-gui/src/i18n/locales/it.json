@@ -245,5 +245,7 @@
   "web.review.discard": "Scarta",
   "web.review.rollback": "Torna a questo checkpoint",
   "web.review.rollback_confirm": "Riportare {repo} al checkpoint {sha}? Tutto ciò che è più recente andrà perso.",
-  "web.review.clean": "pulisci"
+  "web.review.clean": "pulisci",
+  "web.review.compare": "confronta",
+  "web.review.compare_hint": "Modalità confronto: scegli due membri a sinistra per vedere i diff affiancati."
 }

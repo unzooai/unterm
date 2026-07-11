@@ -196,6 +196,13 @@ pub fn take_checkpoint_requests() -> Vec<u64> {
     std::mem::take(&mut *checkpoint_queue().lock())
 }
 
+/// Shared epoch for the working-dot breathing phase, so every window
+/// pulses in sync.
+pub fn breath_epoch() -> &'static Instant {
+    static E: OnceLock<Instant> = OnceLock::new();
+    E.get_or_init(Instant::now)
+}
+
 /// Layer-4 screen-text heuristics — the fallback for agents that emit no
 /// OSC signals (Aider's line-based REPL, mainly). Only consulted for
 /// entries whose current verdict came from the process layer or below;

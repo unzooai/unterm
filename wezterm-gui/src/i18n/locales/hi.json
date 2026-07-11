@@ -245,5 +245,7 @@
   "web.review.discard": "हटाएँ",
   "web.review.rollback": "इस checkpoint पर लौटें",
   "web.review.rollback_confirm": "{repo} को checkpoint {sha} पर लौटाएँ? इसके बाद के सभी बदलाव मिट जाएँगे।",
-  "web.review.clean": "साफ़ करें"
+  "web.review.clean": "साफ़ करें",
+  "web.review.compare": "तुलना",
+  "web.review.compare_hint": "तुलना मोड: बाईं ओर दो सदस्य चुनें, उनके diff साथ-साथ दिखेंगे।"
 }

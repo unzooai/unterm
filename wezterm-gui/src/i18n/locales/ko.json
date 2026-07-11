@@ -245,5 +245,7 @@
   "web.review.discard": "버리기",
   "web.review.rollback": "이 체크포인트로 롤백",
   "web.review.rollback_confirm": "{repo}를 체크포인트 {sha}로 롤백할까요? 이후의 변경은 모두 사라집니다.",
-  "web.review.clean": "정리"
+  "web.review.clean": "정리",
+  "web.review.compare": "비교",
+  "web.review.compare_hint": "비교 모드: 왼쪽에서 멤버 두 명을 선택하면 diff가 나란히 표시됩니다."
 }

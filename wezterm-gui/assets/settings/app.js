@@ -460,7 +460,7 @@ function untermSettings() {
     },
 
     // --- Agent Cockpit: Review page ---
-    review: { fleets: [], checkpoints: [], sel: null, diff: null, busy: false, error: '' },
+    review: { fleets: [], checkpoints: [], sel: null, diff: null, busy: false, error: '', compareFleet: null, cmpA: null, cmpB: null },
     get reviewBadge() {
       return this.review.fleets.some((f) =>
         (f.members || []).some((m) => m.review === 'pending')
@@ -495,7 +495,43 @@ function untermSettings() {
       }
     },
     reviewDiffRows() {
-      const patch = (this.review.diff && this.review.diff.patch) || '';
+      return this.reviewRowsFor(this.review.diff);
+    },
+    reviewToggleCompare(fleetId) {
+      if (this.review.compareFleet === fleetId) {
+        this.review.compareFleet = null;
+        this.review.cmpA = null;
+        this.review.cmpB = null;
+      } else {
+        this.review.compareFleet = fleetId;
+        this.review.cmpA = null;
+        this.review.cmpB = null;
+        this.review.sel = null;
+        this.review.diff = null;
+      }
+    },
+    async reviewComparePick(fleetId, member) {
+      if (this.review.compareFleet !== fleetId) return;
+      this.review.busy = true;
+      try {
+        const q = `fleet=${encodeURIComponent(fleetId)}&member=${encodeURIComponent(member)}`;
+        const diff = await this.api('GET', '/api/review/diff?' + q);
+        const slot = { member, diff };
+        if (!this.review.cmpA || (this.review.cmpA && this.review.cmpB)) {
+          this.review.cmpA = slot;
+          this.review.cmpB = null;
+        } else if (this.review.cmpA.member !== member) {
+          this.review.cmpB = slot;
+        }
+        this.review.error = '';
+      } catch (e) {
+        this.review.error = String(e);
+      } finally {
+        this.review.busy = false;
+      }
+    },
+    reviewRowsFor(diff) {
+      const patch = (diff && diff.patch) || '';
       const rows = [];
       for (const line of patch.split('\n')) {
         let cls = 'text-notion-muted';
@@ -505,7 +541,7 @@ function untermSettings() {
         else if (line.startsWith('+')) cls = 'text-emerald-400 bg-emerald-950/40';
         else if (line.startsWith('-')) cls = 'text-rose-400 bg-rose-950/40';
         rows.push({ text: line, cls });
-        if (rows.length > 4000) {
+        if (rows.length > 2500) {
           rows.push({ text: '… (truncated)', cls: 'text-notion-muted italic' });
           break;
         }

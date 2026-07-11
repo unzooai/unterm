@@ -506,5 +506,7 @@
   "web.review.discard": "丢弃",
   "web.review.rollback": "回滚到此 checkpoint",
   "web.review.rollback_confirm": "将 {repo} 回滚到 checkpoint {sha}？工作区里更新的内容会被丢弃。",
-  "web.review.clean": "清理"
+  "web.review.clean": "清理",
+  "web.review.compare": "对比",
+  "web.review.compare_hint": "对比模式：在左侧选择两个成员，并排查看各自的 diff。"
 }

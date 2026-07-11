@@ -245,5 +245,7 @@
   "web.review.discard": "Verwerfen",
   "web.review.rollback": "Auf diesen Checkpoint zurücksetzen",
   "web.review.rollback_confirm": "{repo} auf Checkpoint {sha} zurücksetzen? Alles Neuere im Worktree geht verloren.",
-  "web.review.clean": "aufräumen"
+  "web.review.clean": "aufräumen",
+  "web.review.compare": "vergleichen",
+  "web.review.compare_hint": "Vergleichsmodus: links zwei Mitglieder wählen, um ihre Diffs nebeneinander zu sehen."
 }

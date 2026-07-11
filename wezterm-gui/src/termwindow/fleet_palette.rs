@@ -178,11 +178,12 @@ impl FleetPalette {
             .display(DisplayType::Block),
         );
 
-        // Task input field.
+        // Task input field. Pasted newlines fold to ␤ for the one-line
+        // display; the stored task (what the agent receives) keeps them.
         let shown = if input.is_empty() {
             crate::i18n::t("cockpit.fleet_placeholder")
         } else {
-            input.clone()
+            input.replace('\n', "\u{2424}").replace('\r', "")
         };
         let input_color = if input.is_empty() { dim } else { fg };
         let field = Element::new(
@@ -374,7 +375,63 @@ impl FleetPalette {
     }
 }
 
+impl FleetPalette {
+    /// Append pasted text to the task input. Newlines are kept in the
+    /// stored task (the agent receives them verbatim); the input line
+    /// renders them folded (see compute()).
+    pub fn append_input(&self, text: &str, term_window: &TermWindow) {
+        self.input.borrow_mut().push_str(text);
+        *self.error.borrow_mut() = None;
+        self.invalidate(term_window);
+    }
+}
+
 impl Modal for FleetPalette {
+    fn perform_assignment(
+        &self,
+        assignment: &config::keyassignment::KeyAssignment,
+        term_window: &mut TermWindow,
+    ) -> bool {
+        use config::keyassignment::{ClipboardPasteSource, KeyAssignment};
+        match assignment {
+            KeyAssignment::PasteFrom(source) => {
+                let clipboard = match source {
+                    ClipboardPasteSource::Clipboard => window::Clipboard::Clipboard,
+                    ClipboardPasteSource::PrimarySelection => {
+                        window::Clipboard::PrimarySelection
+                    }
+                };
+                let Some(win) = term_window.window.as_ref().cloned() else {
+                    return true;
+                };
+                // Same background-read pattern as paste_from_clipboard:
+                // macOS pasteboards answer synchronously cross-process, so
+                // never read them on the GUI thread.
+                let win_for_read = win.clone();
+                let reader = promise::spawn::spawn_into_new_thread(move || {
+                    promise::spawn::block_on(win_for_read.get_clipboard(clipboard))
+                });
+                promise::spawn::spawn(async move {
+                    if let Ok(clip) = reader.await {
+                        win.notify(crate::termwindow::TermWindowNotif::Apply(Box::new(
+                            move |tw| {
+                                let modal = tw.modal.borrow().clone();
+                                if let Some(modal) = modal {
+                                    if let Some(fp) = modal.downcast_ref::<FleetPalette>() {
+                                        fp.append_input(&clip, tw);
+                                    }
+                                }
+                            },
+                        )));
+                    }
+                })
+                .detach();
+                true
+            }
+            _ => false,
+        }
+    }
+
     fn mouse_event(
         &self,
         _event: wezterm_term::MouseEvent,

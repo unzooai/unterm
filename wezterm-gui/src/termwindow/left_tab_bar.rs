@@ -65,6 +65,8 @@ pub struct LeftTabBar {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct LeftTabBarCacheKey {
+    /// Quantized breathing-pulse step (255 = no working agent).
+    breath_step: u8,
     pixel_width: usize,
     pixel_height: usize,
     dpi: usize,
@@ -574,11 +576,18 @@ impl crate::TermWindow {
                 let pane = tab.get_active_pane();
                 let title = {
                     let t = tab.get_title();
-                    if !t.is_empty() {
+                    let t = if !t.is_empty() {
                         t
                     } else {
                         pane.as_ref().map(|p| p.get_title()).unwrap_or_default()
-                    }
+                    };
+                    // Agents animate a spinner glyph in their title (braille
+                    // frames several times a second). The raw title sits in
+                    // the sidebar cache key, so every spinner frame forced a
+                    // full (~44ms) sidebar rebuild while an agent worked.
+                    // Strip the state-glyph prefix: the cockpit dot already
+                    // shows the state, and the cache stays warm.
+                    strip_agent_title_prefix(&t).to_string()
                 };
                 let (agent, foreground, dir) = match &pane {
                     Some(p) => crate::mcp::handler::agent_fg_cwd_for_pane(p.pane_id() as u64),
@@ -611,6 +620,34 @@ impl crate::TermWindow {
             })
             .collect();
         trace_mark("metadata");
+
+        // Breathing pulse for working-agent dots: an 8-step quantized
+        // cosine over a 2.4s cycle. Zero cost when nothing is working —
+        // no repaint is scheduled and the cache key stays constant. With
+        // a working dot visible, the sidebar rebuilds ~3.3x/s (only the
+        // sidebar element tree; the quantized step keeps the cache
+        // effective within each step).
+        let breath_step: u8 = if metas
+            .iter()
+            .any(|m| matches!(m.agent_state, Some(crate::cockpit::AgentState::Working)))
+        {
+            const CYCLE_MS: u64 = 3200;
+            const STEPS: u64 = 4;
+            const QUANTUM: u64 = CYCLE_MS / STEPS;
+            let ms = crate::cockpit::status::breath_epoch().elapsed().as_millis() as u64 % CYCLE_MS;
+            self.update_next_frame_time(Some(
+                std::time::Instant::now() + std::time::Duration::from_millis(QUANTUM - ms % QUANTUM),
+            ));
+            (ms / QUANTUM) as u8
+        } else {
+            255
+        };
+        let breath_alpha = if breath_step == 255 {
+            1.0
+        } else {
+            let phase = (breath_step as f32 + 0.5) / 4.0;
+            0.45 + 0.55 * (0.5 - 0.5 * (std::f32::consts::TAU * phase).cos())
+        };
 
         // Auto-group tabs by project (cwd basename), preserving the order in
         // which each project first appears. A tab with no known cwd falls
@@ -691,6 +728,7 @@ impl crate::TermWindow {
         trace_mark("scroll");
 
         let cache_key = LeftTabBarCacheKey {
+            breath_step,
             pixel_width: self.dimensions.pixel_width,
             pixel_height: self.dimensions.pixel_height,
             dpi: self.dimensions.dpi,
@@ -916,7 +954,10 @@ impl crate::TermWindow {
                         palette.resolve_fg(ColorAttribute::PaletteIndex(11)).to_linear(),
                     ),
                     Some(crate::cockpit::AgentState::Working) if !row.active => Some(
-                        palette.resolve_fg(ColorAttribute::PaletteIndex(12)).to_linear(),
+                        palette
+                            .resolve_fg(ColorAttribute::PaletteIndex(12))
+                            .to_linear()
+                            .mul_alpha(breath_alpha),
                     ),
                     Some(crate::cockpit::AgentState::Done) if !row.active => Some(
                         palette.resolve_fg(ColorAttribute::PaletteIndex(10)).to_linear(),
@@ -1398,5 +1439,36 @@ mod tests {
             gutter_limited_width_pts(1000.0, 260.0, None, 112.0, 112.0, 0.42),
             260.0
         );
+    }
+}
+
+
+/// Drop a leading agent state glyph (braille spinner frame, ✳, ✋, ◇, ⏲, ✦)
+/// and any following whitespace from a pane title.
+fn strip_agent_title_prefix(t: &str) -> &str {
+    let mut chars = t.chars();
+    match chars.next() {
+        Some(c)
+            if ('\u{2800}'..='\u{28FF}').contains(&c)
+                || matches!(c, '\u{2733}' | '\u{270B}' | '\u{25C7}' | '\u{23F2}' | '\u{2726}') =>
+        {
+            chars.as_str().trim_start()
+        }
+        _ => t,
+    }
+}
+
+#[cfg(test)]
+mod title_prefix_tests {
+    use super::strip_agent_title_prefix;
+
+    #[test]
+    fn strips_agent_state_glyphs() {
+        assert_eq!(strip_agent_title_prefix("⠼ unterm"), "unterm");
+        assert_eq!(strip_agent_title_prefix("✳ Fix the bug"), "Fix the bug");
+        assert_eq!(strip_agent_title_prefix("✋ Action Required (x)"), "Action Required (x)");
+        assert_eq!(strip_agent_title_prefix("zsh"), "zsh");
+        assert_eq!(strip_agent_title_prefix(""), "");
+        assert_eq!(strip_agent_title_prefix("vim ✳ notes"), "vim ✳ notes");
     }
 }

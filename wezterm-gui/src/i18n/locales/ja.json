@@ -245,5 +245,7 @@
   "web.review.discard": "破棄",
   "web.review.rollback": "このチェックポイントへ戻す",
   "web.review.rollback_confirm": "{repo} をチェックポイント {sha} に戻しますか？それ以降の変更は破棄されます。",
-  "web.review.clean": "掃除"
+  "web.review.clean": "掃除",
+  "web.review.compare": "比較",
+  "web.review.compare_hint": "比較モード：左側でメンバーを 2 人選ぶと diff が並んで表示されます。"
 }

@@ -506,5 +506,7 @@
   "web.review.discard": "Discard",
   "web.review.rollback": "Roll back to this checkpoint",
   "web.review.rollback_confirm": "Roll back {repo} to checkpoint {sha}? Everything newer in the worktree will be discarded.",
-  "web.review.clean": "clean"
+  "web.review.clean": "clean",
+  "web.review.compare": "compare",
+  "web.review.compare_hint": "Compare mode: pick two members on the left to see their diffs side by side."
 }

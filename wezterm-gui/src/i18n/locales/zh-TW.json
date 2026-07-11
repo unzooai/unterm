@@ -245,5 +245,7 @@
   "web.review.discard": "捨棄",
   "web.review.rollback": "還原到此 checkpoint",
   "web.review.rollback_confirm": "將 {repo} 還原到 checkpoint {sha}？工作區中較新的內容將被捨棄。",
-  "web.review.clean": "清理"
+  "web.review.clean": "清理",
+  "web.review.compare": "對比",
+  "web.review.compare_hint": "對比模式：在左側選擇兩位成員，並排檢視各自的 diff。"
 }

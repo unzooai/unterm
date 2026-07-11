@@ -245,5 +245,7 @@
   "web.review.discard": "Abandonner",
   "web.review.rollback": "Revenir à ce checkpoint",
   "web.review.rollback_confirm": "Revenir {repo} au checkpoint {sha} ? Tout ce qui est plus récent sera perdu.",
-  "web.review.clean": "nettoyer"
+  "web.review.clean": "nettoyer",
+  "web.review.compare": "comparer",
+  "web.review.compare_hint": "Mode comparaison : choisissez deux membres à gauche pour voir leurs diffs côte à côte."
 }

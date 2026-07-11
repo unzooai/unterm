@@ -467,11 +467,20 @@
                 <div class="rounded-lg border border-notion-border bg-notion-surface p-3">
                   <div class="flex items-center justify-between">
                     <span class="font-mono text-sm text-notion-teal" x-text="'⛵ ' + f.id"></span>
-                    <button
-                      class="rounded px-2 py-0.5 text-xs text-notion-muted hover:bg-notion-sunken"
-                      @click="reviewClean(f.id)"
-                      x-text="t('web.review.clean')"
-                    ></button>
+                    <span class="flex gap-1">
+                      <button
+                        x-show="f.members.length >= 2"
+                        class="rounded px-2 py-0.5 text-xs transition"
+                        :class="review.compareFleet===f.id ? 'bg-notion-teal/20 text-notion-teal' : 'text-notion-muted hover:bg-notion-sunken'"
+                        @click="reviewToggleCompare(f.id)"
+                        x-text="t('web.review.compare')"
+                      ></button>
+                      <button
+                        class="rounded px-2 py-0.5 text-xs text-notion-muted hover:bg-notion-sunken"
+                        @click="reviewClean(f.id)"
+                        x-text="t('web.review.clean')"
+                      ></button>
+                    </span>
                   </div>
                   <p class="mt-1 truncate text-xs text-notion-muted" :title="f.task" x-text="f.task"></p>
                   <ul class="mt-2 space-y-1">
@@ -479,8 +488,11 @@
                       <li>
                         <button
                           class="flex w-full items-center justify-between rounded px-2 py-1 text-left text-sm transition hover:bg-notion-sunken"
-                          :class="review.sel && review.sel.kind==='member' && review.sel.a===f.id && String(review.sel.b)===String(m.n) ? 'bg-notion-sunken' : ''"
-                          @click="reviewSelect('member', f.id, m.n)"
+                          :class="{
+                            'bg-notion-sunken': review.sel && review.sel.kind==='member' && review.sel.a===f.id && String(review.sel.b)===String(m.n),
+                            'ring-1 ring-notion-teal': review.compareFleet===f.id && ((review.cmpA && String(review.cmpA.member)===String(m.n)) || (review.cmpB && String(review.cmpB.member)===String(m.n))),
+                          }"
+                          @click="review.compareFleet===f.id ? reviewComparePick(f.id, m.n) : reviewSelect('member', f.id, m.n)"
                         >
                           <span class="flex items-center gap-2">
                             <span x-text="'#' + m.n + ' ' + m.agent"></span>
@@ -541,6 +553,34 @@
             <!-- Right: diff viewer -->
             <div class="col-span-8">
               <div x-show="review.busy" class="text-sm text-notion-muted">…</div>
+              <template x-if="review.compareFleet && !(review.cmpA && review.cmpB)">
+                <p class="text-sm text-notion-muted" x-text="t('web.review.compare_hint')"></p>
+              </template>
+              <template x-if="review.cmpA && review.cmpB">
+                <div class="grid grid-cols-2 gap-3">
+                  <template x-for="side in [review.cmpA, review.cmpB]" :key="side.member">
+                    <div>
+                      <div class="mb-2 flex items-center justify-between">
+                        <span class="font-mono text-sm text-notion-teal" x-text="'#' + side.member"></span>
+                        <span class="text-xs text-notion-muted">
+                          <span x-text="(side.diff.files || []).length"></span>
+                          <span x-text="t('web.review.files_changed')"></span>
+                        </span>
+                      </div>
+                      <ul class="mb-2 space-y-0.5">
+                        <template x-for="fch in side.diff.files || []" :key="fch.path">
+                          <li class="font-mono text-[11px]">
+                            <span class="text-emerald-400" x-text="'+' + fch.added"></span>
+                            <span class="ml-1 text-rose-400" x-text="'-' + fch.deleted"></span>
+                            <span class="ml-2 text-notion-ink" x-text="fch.path"></span>
+                          </li>
+                        </template>
+                      </ul>
+                      <pre class="max-h-[62vh] overflow-auto rounded-lg border border-notion-border bg-notion-sunken p-2 text-[11px] leading-5"><template x-for="(row, i) in reviewRowsFor(side.diff)" :key="i"><div :class="row.cls" x-text="row.text || ' '"></div></template></pre>
+                    </div>
+                  </template>
+                </div>
+              </template>
               <template x-if="review.diff">
                 <div>
                   <div class="mb-3 flex items-center justify-between">
@@ -586,7 +626,7 @@
                 </div>
               </template>
               <p
-                x-show="!review.diff && !review.busy"
+                x-show="!review.diff && !review.busy && !review.compareFleet"
                 class="text-sm text-notion-muted"
                 x-text="t('web.review.pick')"
               ></p>
