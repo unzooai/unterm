@@ -925,7 +925,11 @@ fn api_state(handler: &McpHandler) -> Response {
         .unwrap_or_default();
 
     Response::ok_json(json!({
-        "version": config::wezterm_version(),
+        // The release users know ("v0.55.0") first; the raw build stamp
+        // (date-time-sha) stays in parentheses for bug reports. Showing
+        // only the stamp made the Settings page read as "not updated"
+        // right after installing a new release.
+        "version": format!("v{} ({})", env!("CARGO_PKG_VERSION"), config::wezterm_version()),
         "hostname": hostname,
         "pid": info.pid,
         "started_at": info.started_at,
