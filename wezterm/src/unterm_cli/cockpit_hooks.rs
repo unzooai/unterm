@@ -28,7 +28,14 @@ pub struct HookReport {
 }
 
 fn signal_cmd(cli: &str, agent: &str, event: &str) -> String {
-    format!("{cli} agent signal --agent {agent} --event {event}")
+    // Claude Code runs hooks through bash even on Windows (Git Bash),
+    // where an unquoted `C:\Program Files\…` is split at the space AND
+    // its backslashes are eaten as escape characters — the user-visible
+    // failure was `/usr/bin/bash: line 1: C:Program: command not found`
+    // after every turn. Quote the path and use forward slashes: valid in
+    // bash, PowerShell, and cmd alike (CreateProcess accepts `/`).
+    let cli = cli.replace('\\', "/");
+    format!("\"{cli}\" agent signal --agent {agent} --event {event}")
 }
 
 fn backup_once(path: &Path) {
@@ -127,11 +134,38 @@ fn apply_claude(home: &Path, cli: &str, remove: bool, dry_run: bool) -> HookRepo
             let before = list.len();
             list.retain(|v| !is_ours(v));
             changed |= list.len() != before;
-        } else if !list.iter().any(is_ours) {
-            list.push(json!({
-                "hooks": [ { "type": "command", "command": cmd, "timeout": 5 } ]
-            }));
-            changed = true;
+        } else {
+            let mut found = false;
+            for v in list.iter_mut() {
+                if !is_ours(v) {
+                    continue;
+                }
+                found = true;
+                // Self-heal entries written by earlier versions: v0.55.0
+                // wrote the unquoted Windows path, which bash mangles
+                // ("C:Program: command not found" after every turn).
+                if let Some(hooks) = v.pointer_mut("/hooks").and_then(|h| h.as_array_mut()) {
+                    for h in hooks.iter_mut() {
+                        let is_sig = h
+                            .get("command")
+                            .and_then(|c| c.as_str())
+                            .map(|c| c.contains("agent signal"))
+                            .unwrap_or(false);
+                        if is_sig
+                            && h.get("command").and_then(|c| c.as_str()) != Some(cmd.as_str())
+                        {
+                            h["command"] = serde_json::json!(cmd.clone());
+                            changed = true;
+                        }
+                    }
+                }
+            }
+            if !found {
+                list.push(json!({
+                    "hooks": [ { "type": "command", "command": cmd, "timeout": 5 } ]
+                }));
+                changed = true;
+            }
         }
     }
     if remove {
@@ -275,15 +309,39 @@ fn apply_aider(home: &Path, cli: &str, remove: bool, dry_run: bool) -> HookRepor
             Err(e) => report(format!("error({e})")),
         };
     }
+    let expected = signal_cmd(cli, "aider", "waiting");
     if has_ours {
-        return report("unchanged".into());
+        if text.contains(&expected) {
+            return report("unchanged".into());
+        }
+        // Self-heal a stale command (e.g. the unquoted-path form from
+        // v0.55.0): strip our old block and fall through to re-append.
+        let stripped: Vec<&str> = text
+            .lines()
+            .filter(|l| {
+                !(l.contains(AIDER_MARK)
+                    || (l.starts_with("notifications:") )
+                    || (l.starts_with("notifications-command:") && l.contains("agent signal")))
+            })
+            .collect();
+        let base = stripped.join("\n");
+        let block = format!(
+            "\n{AIDER_MARK}\nnotifications: true\nnotifications-command: {expected}\n"
+        );
+        if dry_run {
+            return report("would write".into());
+        }
+        backup_once(&path);
+        return match std::fs::write(&path, format!("{base}\n{block}")) {
+            Ok(()) => report("written".into()),
+            Err(e) => report(format!("error({e})")),
+        };
     }
     if text.contains("notifications-command:") {
         return report("skipped(user already has notifications-command)".into());
     }
     let block = format!(
-        "\n{AIDER_MARK}\nnotifications: true\nnotifications-command: {}\n",
-        signal_cmd(cli, "aider", "waiting")
+        "\n{AIDER_MARK}\nnotifications: true\nnotifications-command: {expected}\n"
     );
     if dry_run {
         return report("would write".into());
@@ -326,10 +384,15 @@ mod tests {
         // User's model + existing Stop hook survive; ours appended.
         assert_eq!(v["model"], "opus");
         assert_eq!(v["hooks"]["Stop"].as_array().unwrap().len(), 2);
-        assert!(v["hooks"]["Notification"][0]["hooks"][0]["command"]
+        let cmd = v["hooks"]["Notification"][0]["hooks"][0]["command"]
             .as_str()
             .unwrap()
-            .contains("--event waiting"));
+            .to_string();
+        assert!(cmd.contains("--event waiting"));
+        // The path must be quoted: Claude Code executes hooks via bash
+        // even on Windows, where an unquoted C:\Program Files path both
+        // splits at the space and loses its backslashes.
+        assert!(cmd.starts_with('"'), "unquoted hook command: {}", cmd);
 
         // Idempotent.
         let r = apply_claude(&home, "unterm-cli", false, false);
@@ -343,6 +406,31 @@ mod tests {
                 .unwrap();
         assert_eq!(v["hooks"]["Stop"].as_array().unwrap().len(), 1);
         assert!(v["hooks"].get("Notification").is_none());
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn claude_hooks_self_heal_stale_command() {
+        let home = tmp_home("claude-heal");
+        std::fs::create_dir_all(home.join(".claude")).unwrap();
+        // Simulate the broken v0.55.0 entry: unquoted Windows-style path.
+        // Valid JSON as a real Windows settings.json stores it: each path
+        // backslash is doubled. This is the broken v0.55.0 command form
+        // (unquoted path) we must self-heal.
+        let stale = "{\"hooks\":{\"Stop\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"C:\\\\Program Files\\\\Unterm\\\\unterm-cli.exe agent signal --agent claude --event done\",\"timeout\":5}]}]}}";
+        // Sanity: it must parse as JSON before we feed it in.
+        let _: Value = serde_json::from_str(stale).expect("test fixture is valid json");
+        std::fs::write(home.join(".claude/settings.json"), stale).unwrap();
+        let r = apply_claude(&home, "unterm-cli", false, false);
+        assert_eq!(r.action, "written");
+        let v: Value = serde_json::from_str(
+            &std::fs::read_to_string(home.join(".claude/settings.json")).unwrap(),
+        )
+        .unwrap();
+        let cmd = v["hooks"]["Stop"][0]["hooks"][0]["command"].as_str().unwrap();
+        assert!(cmd.starts_with('"'), "not repaired: {}", cmd);
+        // No duplicate entry was appended.
+        assert_eq!(v["hooks"]["Stop"].as_array().unwrap().len(), 1);
         let _ = std::fs::remove_dir_all(&home);
     }
 
@@ -376,7 +464,7 @@ mod tests {
         assert_eq!(r.action, "written");
         let text = std::fs::read_to_string(home.join(".aider.conf.yml")).unwrap();
         assert!(text.contains("dark-mode: true"));
-        assert!(text.contains("notifications-command: unterm-cli agent signal"));
+        assert!(text.contains("notifications-command: \"unterm-cli\" agent signal"));
 
         let r = apply_aider(&home, "unterm-cli", true, false);
         assert_eq!(r.action, "written");
