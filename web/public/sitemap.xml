@@ -176,6 +176,18 @@
     <priority>0.7</priority>
   </url>
   <url>
+    <loc>https://unterm.app/docs/agent-cockpit</loc>
+    <lastmod>2026-07-11</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://unterm.app/blog/agent-cockpit-v055</loc>
+    <lastmod>2026-07-11</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <url>
     <loc>https://unterm.app/docs/mcp-reference</loc>
     <lastmod>2026-05-29</lastmod>
     <changefreq>monthly</changefreq>

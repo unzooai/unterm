@@ -31,6 +31,15 @@ const { frontmatter } = Astro.props as Props;
   alternates={alternates()}
   locales={LOCALES}
   pathPrefix=""
+  seo={{
+    // Per-page <title> / description / canonical. Without this every
+    // doc and blog page shared the homepage title — search results and
+    // answer engines couldn't tell the MCP reference from the landing
+    // page.
+    title: `${frontmatter.title} — Unterm`,
+    description: frontmatter.subtitle ?? frontmatter.title,
+    canonicalPath: Astro.url.pathname.replace(/\/$/, ""),
+  }}
 >
   <article class="max-w-3xl mx-auto px-6 py-16">
     <header class="border-b border-notion-border pb-8 mb-10">

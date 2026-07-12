@@ -1,6 +1,6 @@
 {
   "meta.title": "Unterm — a terminal AI agents can control",
-  "meta.desc": "A cross-platform terminal built for agent control: drive panes, cwd, screenshots, and sessions through MCP, HTTP, and CLI.",
+  "meta.desc": "The terminal AI agents can drive — and the cockpit that drives them. Live status for Claude Code / Codex / Gemini in every pane, an inbox for agents that need you, parallel fleets in isolated git worktrees, and diff-level review of everything they change. MCP + CLI, local-first, MIT.",
   "nav.agents": "AI Agents",
   "nav.features": "Features",
   "nav.demo": "Demo",
@@ -297,7 +297,6 @@
   "cmp.freemium": "freemium $",
   "cmp.legend": "<span class=\"font-mono\">✓</span> yes · <span class=\"font-mono\">✗</span> no · <span class=\"font-mono\">~</span> partial · <span class=\"font-mono\">×N</span> count. The <span class=\"text-emerald-400\">✗ by design</span> on \"AI inside\" is the whole thesis: Unterm keeps the AI <em>outside</em> and exposes the terminal as the surface it grips.",
   "cmp.note": "Reflects publicly documented features as of 2026-05. Warp is closed-source with a cloud-backed free tier + paid Team/Pro plans; iTerm2 ships a Python scripting API and an opt-in AI command plugin; Ghostty has no Windows build yet. Corrections welcome on GitHub.",
-
   "cmp.fullcompare": "Full head-to-head comparisons:",
   "cmp.page.crumb_home": "Home",
   "cmp.page.crumb": "Compare",
@@ -314,7 +313,6 @@
   "cmp.page.cat.ai-oss": "Open-source AI terminal",
   "cmp.page.cat.power": "Power-user terminal",
   "cmp.page.cat.native": "Native terminal",
-
   "cmp.c.wezterm.title": "Unterm vs WezTerm: the same GPU terminal, plus an agent layer",
   "cmp.c.wezterm.desc": "Unterm is built on WezTerm and adds an MCP server, a scripting CLI, and one-click AI-agent install so agents can drive the terminal. Feature-by-feature comparison.",
   "cmp.c.wezterm.tagline": "Unterm is built on WezTerm's renderer and mux — then wraps it in an agent-control surface WezTerm doesn't ship.",
@@ -324,7 +322,6 @@
   "cmp.c.wezterm.a3": "<strong>Agent-workflow surface.</strong> Identity profiles (per-window secrets from the OS keychain), multi-instance windows, redacted Markdown session recording, scrollback capture, and probe-gated proxy — none of which live in stock WezTerm.",
   "cmp.c.wezterm.win": "WezTerm is the mature upstream with a deeper, more configurable terminal surface (Lua scripting, extensive keybinding and multiplexer features) and a longer track record. If you don't want any AI/agent layer, WezTerm is the leaner, more customizable pure terminal — and Unterm tracks it, so you're not giving up its rendering.",
   "cmp.c.wezterm.verdict": "Want a fast, scriptable GPU terminal and nothing else? Use WezTerm. Want that same engine turned into something an AI agent can actually drive — install agents, run them, read results — without gluing together scripts? That's exactly what Unterm adds on top.",
-
   "cmp.c.warp.title": "Unterm vs Warp: the open-source, local, no-login alternative",
   "cmp.c.warp.desc": "Warp is a polished but closed-source, cloud-backed AI terminal that needs an account. Unterm is MIT-licensed, fully local, free, and built for agents to drive via MCP. Side-by-side comparison.",
   "cmp.c.warp.tagline": "Both put AI in the terminal — but Warp bakes in a cloud assistant behind a login, while Unterm stays open-source, local, and agent-driven.",
@@ -334,7 +331,6 @@
   "cmp.c.warp.a3": "<strong>Free, forever, cross-platform.</strong> No freemium tiers or seat pricing; macOS, Linux, and Windows; a scripting CLI and identity profiles for real automation.",
   "cmp.c.warp.win": "Warp's built-in AI UX is more turnkey — command blocks, inline autocomplete, and a cloud assistant that works the moment you sign in, plus polished team/collaboration features. If you want an AI terminal that just works out of the box and don't mind the account, cloud, and closed source, Warp is the smoother ready-made experience.",
   "cmp.c.warp.verdict": "If you want a hosted AI assistant baked into the terminal and are fine with login + closed source, Warp is excellent. If you want an open-source, local, no-login terminal that <em>your</em> coding agent drives — and to keep the AI outside — Unterm is the alternative built for exactly that.",
-
   "cmp.c.wave-terminal.title": "Unterm vs Wave Terminal: agent-driven vs AI-widget",
   "cmp.c.wave-terminal.desc": "Wave is an open-source terminal with a block-based UI and an AI chat widget. Unterm exposes itself over MCP so agents drive the terminal, and installs coding agents in one click. Feature comparison.",
   "cmp.c.wave-terminal.tagline": "Wave adds an AI chat widget next to the terminal; Unterm turns the terminal itself into something an agent can operate.",
@@ -344,7 +340,6 @@
   "cmp.c.wave-terminal.a3": "<strong>Agent-ops built in.</strong> Identity profiles, multi-instance windows, redacted Markdown recording, and proxy rotation — the plumbing for running agents, not just chatting with one.",
   "cmp.c.wave-terminal.win": "Wave is the richer interactive workspace: drag-and-drop blocks, inline file preview and editing, a built-in graphical editor, web widgets, and durable SSH sessions that survive disconnects. If you want an all-in-one graphical terminal workspace to work in by hand, Wave packs in more.",
   "cmp.c.wave-terminal.verdict": "Want an AI chat widget and a block-based workspace to drive yourself? Wave is great. Want a terminal your agent operates end-to-end — install, run, read, capture — over a real MCP surface? That's Unterm's focus.",
-
   "cmp.c.terax.title": "Unterm vs Terax: an MCP-driveable terminal vs a bundled agent IDE",
   "cmp.c.terax.desc": "Terax is a tiny Tauri AI terminal with a built-in editor and multi-agent side-panel. Unterm exposes itself over MCP so any external agent drives it, and installs coding agents in one click. Comparison.",
   "cmp.c.terax.tagline": "Both are AI-native terminals — Terax bundles its own agent IDE; Unterm lets any external agent drive the terminal over MCP.",
@@ -354,7 +349,6 @@
   "cmp.c.terax.a3": "<strong>Native terminal, agent-ops built in.</strong> A native (non-web) renderer plus identity profiles, multi-instance, session recording, screen capture, and proxy — the surface for running agents, not an editor bundled in.",
   "cmp.c.terax.win": "Terax packs more into one app: a real code editor, a git graph, a web-preview pane, and a built-in multi-agent workflow — all in a ~7 MB download, with an Android build too. If you want an all-in-one AI coding IDE that happens to live in a terminal, Terax bundles more out of the box.",
   "cmp.c.terax.verdict": "Want a bundled editor + agent IDE in one tiny app? Terax is a great pick. Want a terminal that the external coding agents you already run can drive over MCP, natively rendered? That's Unterm.",
-
   "cmp.c.iterm2.title": "Unterm vs iTerm2: cross-platform, agent-native vs the macOS power terminal",
   "cmp.c.iterm2.desc": "iTerm2 is the mature macOS power terminal with a Python API. Unterm is cross-platform, exposes an MCP server for agents, and installs AI coding agents in one click. Feature-by-feature comparison.",
   "cmp.c.iterm2.tagline": "iTerm2 is the definitive macOS power terminal; Unterm is cross-platform and built for AI agents to drive.",
@@ -364,7 +358,6 @@
   "cmp.c.iterm2.a3": "<strong>Agent-workflow features.</strong> Identity profiles, multi-instance windows, redacted Markdown recording, screen capture, and proxy rotation — aimed at running agents, not just interactive use.",
   "cmp.c.iterm2.win": "On macOS, iTerm2 is hard to beat for interactive power use: an enormous, refined feature set, triggers, and a mature Python API, honed over many years. If you're macOS-only and want the deepest hand-driven terminal, iTerm2 is the gold standard.",
   "cmp.c.iterm2.verdict": "macOS-only and want the most mature interactive terminal? iTerm2. Want one agent-native terminal across mac, Linux, and Windows that your AI agents drive over MCP? Unterm is built for that.",
-
   "cmp.c.ghostty.title": "Unterm vs Ghostty: a fast terminal vs an agent-driveable one",
   "cmp.c.ghostty.desc": "Ghostty is a fast, minimal native GPU terminal for macOS and Linux. Unterm adds an MCP server, a CLI, and one-click AI agents, and runs on Windows too. Side-by-side comparison.",
   "cmp.c.ghostty.tagline": "Ghostty is a lean, fast, native terminal; Unterm adds the agent-control layer and Windows support.",
@@ -377,7 +370,7 @@
   "dl.title": "Get Unterm 0.23",
   "dl.subtitle": "macOS bundle is signed with a Developer ID and Apple-notarized. Linux .deb / AppImage and Windows .msi / .zip are also published.",
   "dl.cta": "Open the latest release",
-  "faq.title": "Frequently asked",
+  "faq.title": "Frequently asked questions",
   "faq.what.q": "What is Unterm?",
   "faq.what.a": "A cross-platform terminal emulator with built-in MCP, HTTP, and CLI control surfaces. The product thesis: <em>terminal as MCP-controllable surface</em>, so any external AI agent can drive it from outside instead of having an AI baked into the terminal itself.",
   "faq.mcp.q": "How does it work with Claude Code, Cursor, or other agents?",
@@ -456,5 +449,33 @@
   "whatsnew.dirjump42.title": "Directory jump that reaches anywhere — deep, fast, CJK-friendly",
   "whatsnew.dirjump42.body": "The go-to-directory palette grew real legs. Type a fragment and it matches <strong>any depth</strong> under your project (bounded recursive scan, noise dirs pruned): <code class=\"font-mono text-xs\">term ren</code> lands on <code class=\"font-mono text-xs\">…/termwindow/render</code> in one shot. <strong>Tab is shell-style completion</strong> now — it writes the selected directory into the input with a trailing slash and keeps going, exactly like <code class=\"font-mono text-xs\">cd dir&lt;Tab&gt;</code>. Queries starting with <code class=\"font-mono text-xs\">/</code> or <code class=\"font-mono text-xs\">~</code> become live path completion, mounted volumes show up as Finder-style <strong>Locations</strong> (your second disk is finally reachable by name), and truncated lists say '… N more' instead of pretending to be complete. Plus a fix that mattered: <strong>IME-composed text (Chinese/Japanese/Korean input) now reaches modals</strong> — previously typed characters leaked into the shell behind the palette, making it look dead.",
   "whatsnew.win43.title": "Windows: every drive within reach + no more silent GPU deaths",
-  "whatsnew.win43.body": "Two Windows-first fixes. Drive letters are separate roots, so the directory-jump palette could never reach <code class=\"font-mono text-xs\">D:\\</code> from <code class=\"font-mono text-xs\">C:\\</code> — drives now appear as Locations, and queries like <code class=\"font-mono text-xs\">D:</code> or <code class=\"font-mono text-xs\">d:\\code</code> (and UNC <code class=\"font-mono text-xs\">\\\\server\\share</code>) flip straight into path completion with backslashes handled. And when no usable OpenGL exists (VMs, RDP sessions, ancient drivers), Unterm used to exit silently on double-click; it now <strong>auto-falls back to the WebGpu backend</strong> and, if that fails too, says so in a real error dialog instead of vanishing."
+  "whatsnew.win43.body": "Two Windows-first fixes. Drive letters are separate roots, so the directory-jump palette could never reach <code class=\"font-mono text-xs\">D:\\</code> from <code class=\"font-mono text-xs\">C:\\</code> — drives now appear as Locations, and queries like <code class=\"font-mono text-xs\">D:</code> or <code class=\"font-mono text-xs\">d:\\code</code> (and UNC <code class=\"font-mono text-xs\">\\\\server\\share</code>) flip straight into path completion with backslashes handled. And when no usable OpenGL exists (VMs, RDP sessions, ancient drivers), Unterm used to exit silently on double-click; it now <strong>auto-falls back to the WebGpu backend</strong> and, if that fails too, says so in a real error dialog instead of vanishing.",
+  "cockpit.kicker": "Agent Cockpit",
+  "cockpit.title": "Your terminal now sees the agents running inside it",
+  "cockpit.subtitle": "Claude Code, Codex, Gemini, Aider — every pane reports who is working, who is blocked on you, and what they changed. Zero config to start; one command for exact hook-level reporting.",
+  "cockpit.state.title": "Live state on every tab",
+  "cockpit.state.body": "Four signal layers — official hooks, title/OSC parsing, process detection, screen heuristics — fold into one state per pane: <em>working</em> (breathing blue), <em>needs&nbsp;you</em> (amber), <em>done</em>, <em>idle</em>. The top bar tallies every window and turns amber the moment anything waits on you.",
+  "cockpit.inbox.title": "The Agent Inbox",
+  "cockpit.inbox.body": "<kbd>Ctrl+Shift+A</kbd>: every agent across all windows, sorted waiting-first, with how long it has been stuck and on what. Enter jumps straight to the pane. “Go press y somewhere” is now two keystrokes.",
+  "cockpit.fleet.title": "Fleet: one task, N agents",
+  "cockpit.fleet.body": "Race <code>claude × 2 + codex</code> on the same task — each member in its own git worktree and branch beside your repo, its own tab, its own state badge. Your working copy is never touched.",
+  "cockpit.review.title": "Review: nothing goes untracked",
+  "cockpit.review.body": "The moment an agent starts working, Unterm checkpoints the repo (a dangling commit — HEAD, index, files untouched). Line-level diffs including agent-created files, squash-merge as <em>staged</em> (the commit stays yours), rollback to any checkpoint, side-by-side member comparison.",
+  "cockpit.api.title": "Fully scriptable, like everything else",
+  "cockpit.api.body": "The cockpit itself is MCP + CLI: <code>agent.status</code>, <code>cockpit.inbox</code>, <code>fleet.launch</code>, <code>review.merge</code>… an orchestrating agent can launch fleets and review diffs with no human in the chair. Local-first — none of this touches a cloud.",
+  "cockpit.docs_link": "Read the Agent Cockpit docs",
+  "whatsnew.cockpit55.title": "Agent Cockpit",
+  "whatsnew.cockpit55.body": "The terminal now sees the agents inside it: live per-pane state with tab badges and a cross-window tally, the waiting-first Agent Inbox (<kbd>Ctrl+Shift+A</kbd>), fleets running one task across N agents in N isolated worktrees, and a Review page with checkpoints, diffs, rollback, and squash-merge. 12 new MCP methods, 3 new CLI families.",
+  "faq.q1": "How do I see when Claude Code is waiting for my approval?",
+  "faq.a1": "Unterm tracks every pane’s agent state. When Claude Code (or Codex, Gemini, Aider) blocks on a confirmation, its tab dot turns amber, the top-bar chip turns amber with a count, and the agent moves to the top of the Agent Inbox (Ctrl+Shift+A) — Enter jumps you straight to that pane. Detection is zero-config for Claude Code and Gemini; “unterm-cli agent enable-hooks” adds exact hook-level reporting.",
+  "faq.q2": "Can I run multiple Claude Code instances in parallel without them conflicting?",
+  "faq.a2": "Yes — that is what fleets are for. “unterm-cli fleet launch --agents claude,claude,codex -- task” gives each member its own git worktree and branch beside your repo, so they cannot trample each other or your working copy. Each member gets its own tab with a live state badge, and the Review page compares their results side by side.",
+  "faq.q3": "How do I review or undo what an AI coding agent changed?",
+  "faq.a3": "Unterm checkpoints a repo the moment an agent starts working in it — a dangling git commit that never touches HEAD, your index, or your files. The Review page (in Web Settings) shows line-level diffs including files the agent created, lets you squash-merge a take into your repo as staged changes (you make the commit), discard it, or roll the worktree back to any checkpoint.",
+  "faq.q4": "Does Unterm send my terminal data to the cloud?",
+  "faq.a4": "No. Unterm has zero telemetry, no account, and no cloud component. The MCP and HTTP servers bind to 127.0.0.1 only, and the entire Agent Cockpit — state detection, fleets, checkpoints, review — runs locally. The only network traffic is whatever your own agents and shells do.",
+  "faq.q5": "How is Unterm different from Warp?",
+  "faq.a5": "Warp embeds AI inside the terminal behind a closed cloud orchestrator; external tools cannot drive it. Unterm inverts that: the terminal is an open, MCP-controllable surface that any agent (Claude Code, Codex, Gemini, Cursor, your own script) drives from outside — and its agent orchestration is local git worktrees and open APIs, not a cloud service. Unterm is MIT-licensed, free forever, with no login.",
+  "faq.q6": "Which AI coding agents does Unterm support?",
+  "faq.a6": "The launcher installs and wires Claude Code, Codex CLI, Gemini CLI, OpenCode, and Aider with one click each. The cockpit’s state detection additionally recognizes kimi, trae, and cursor-agent out of the box, and any agent that emits standard terminal signals (titles, OSC 9/777, BEL) gets basic tracking for free. Anything can integrate via “unterm-cli agent signal”."
 }

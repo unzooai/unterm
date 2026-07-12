@@ -1,6 +1,6 @@
 {
   "meta.title": "Unterm — AI 可控制的终端",
-  "meta.desc": "面向 agent 控制的跨平台终端：通过 MCP、HTTP 和 CLI 驱动 pane、cwd、截图和会话。",
+  "meta.desc": "AI agent 可驱动的终端，也是驱动它们的座舱。Claude Code / Codex / Gemini 每个 pane 的实时状态、等你确认的 agent 收件箱、隔离 worktree 里的并行编队、以及 agent 改动的逐行审阅。MCP + CLI，本地优先，MIT。",
   "nav.agents": "AI Agent",
   "nav.features": "特性",
   "nav.demo": "案例",
@@ -213,7 +213,6 @@
   "cmp.freemium": "免费+付费 $",
   "cmp.legend": "<span class=\"font-mono\">✓</span> 有 · <span class=\"font-mono\">✗</span> 无 · <span class=\"font-mono\">~</span> 部分 · <span class=\"font-mono\">×N</span> 数量。「AI 内嵌」那行的 <span class=\"text-emerald-400\">✗ 刻意如此</span> 正是整个产品主张：Unterm 把 AI 留在<em>外面</em>，把终端本身作为它抓握的表面。",
   "cmp.note": "反映 2026-05 公开可查的功能。Warp 闭源，有云端支撑的免费层 + 付费 Team/Pro；iTerm2 提供 Python 脚本 API 和一个 opt-in 的 AI 命令插件；Ghostty 暂无 Windows 版本。欢迎在 GitHub 上指正。",
-
   "cmp.fullcompare": "逐项正面对比:",
   "cmp.page.crumb_home": "首页",
   "cmp.page.crumb": "对比",
@@ -230,7 +229,6 @@
   "cmp.page.cat.ai-oss": "开源 AI 终端",
   "cmp.page.cat.power": "重度用户终端",
   "cmp.page.cat.native": "原生终端",
-
   "cmp.c.wezterm.title": "Unterm vs WezTerm：同一个 GPU 终端，多了一层 agent",
   "cmp.c.wezterm.desc": "Unterm 基于 WezTerm 构建，在其之上加了 MCP 服务、脚本 CLI 和一键装 AI agent，让 agent 能驱动终端。逐项对比。",
   "cmp.c.wezterm.tagline": "Unterm 复用 WezTerm 的渲染与复用器，再包上一层 WezTerm 本身没有的 agent 控制面。",
@@ -240,7 +238,6 @@
   "cmp.c.wezterm.a3": "<strong>agent 工作流面。</strong>身份 profile（每窗口从系统钥匙串取密钥）、多实例窗口、脱敏 Markdown 会话录制、回滚捕获、探测门控代理——这些原版 WezTerm 都没有。",
   "cmp.c.wezterm.win": "WezTerm 是成熟的上游，终端本身更深、可配置性更强（Lua 脚本、丰富的键位与复用器功能），资历也更久。如果你根本不需要 AI/agent 这层，WezTerm 是更精简、更可定制的纯终端——而 Unterm 跟着它走，所以你不会损失它的渲染。",
   "cmp.c.wezterm.verdict": "只想要一个快、可脚本化的 GPU 终端？用 WezTerm。想把同一套引擎变成 AI agent 真能驱动的东西——装 agent、跑 agent、读结果——又不想自己拼脚本？这正是 Unterm 在其之上加的。",
-
   "cmp.c.warp.title": "Unterm vs Warp：开源、本地、免登录的替代品",
   "cmp.c.warp.desc": "Warp 精致但闭源、依赖云、需要账号。Unterm 是 MIT 开源、纯本地、免费，且为 agent 通过 MCP 驱动而生。逐项对比。",
   "cmp.c.warp.tagline": "两者都把 AI 放进终端——但 Warp 把一个云助手内建在登录背后，而 Unterm 保持开源、本地、由 agent 驱动。",
@@ -250,7 +247,6 @@
   "cmp.c.warp.a3": "<strong>永久免费、跨平台。</strong>没有 freemium 分层或按席位收费；macOS、Linux、Windows；配脚本 CLI 和身份 profile，能真正做自动化。",
   "cmp.c.warp.win": "Warp 内建的 AI 体验更开箱即用——命令块、行内补全、登录即用的云助手，还有打磨过的团队/协作功能。如果你想要一个开箱即用的 AI 终端，又不介意账号、云端和闭源，Warp 是更顺滑的现成方案。",
   "cmp.c.warp.verdict": "想要一个内建在终端里的托管 AI 助手、且能接受登录 + 闭源？Warp 很棒。想要一个开源、本地、免登录、由<em>你的</em>编码 agent 驱动的终端——并且把 AI 留在外面？Unterm 正是为此而造的替代品。",
-
   "cmp.c.wave-terminal.title": "Unterm vs Wave Terminal：agent 驱动 vs AI 挂件",
   "cmp.c.wave-terminal.desc": "Wave 是带块状 UI 和 AI 聊天挂件的开源终端。Unterm 通过 MCP 把自己暴露给 agent 驱动，并一键安装编码 agent。功能对比。",
   "cmp.c.wave-terminal.tagline": "Wave 在终端旁边加了个 AI 聊天挂件；Unterm 把终端本身变成 agent 能操作的对象。",
@@ -260,7 +256,6 @@
   "cmp.c.wave-terminal.a3": "<strong>内建 agent 运维。</strong>身份 profile、多实例窗口、脱敏 Markdown 录制、代理轮换——这些是跑 agent 的管道，不只是跟一个 agent 聊天。",
   "cmp.c.wave-terminal.win": "Wave 是更丰富的交互式工作区：拖拽块、行内文件预览与编辑、内建图形编辑器、web 挂件，以及断线不掉的 durable SSH 会话。如果你想要一个一站式、靠手操作的图形化终端工作区，Wave 塞得更多。",
   "cmp.c.wave-terminal.verdict": "想要一个 AI 聊天挂件和一个自己操作的块状工作区？Wave 很好。想要一个 agent 端到端操作的终端——装、跑、读、截——走真正的 MCP 面？那是 Unterm 的重点。",
-
   "cmp.c.terax.title": "Unterm vs Terax：可被 MCP 驱动的终端 vs 内建 agent IDE",
   "cmp.c.terax.desc": "Terax 是个小巧的 Tauri AI 终端，带内建编辑器和多 agent 侧栏。Unterm 通过 MCP 把自己暴露给任意外部 agent 驱动，并一键安装编码 agent。对比。",
   "cmp.c.terax.tagline": "两者都是 AI-native 终端——Terax 内建自己的 agent IDE；Unterm 让任意外部 agent 通过 MCP 驱动终端。",
@@ -270,7 +265,6 @@
   "cmp.c.terax.a3": "<strong>原生终端，内建 agent 运维。</strong>原生（非 web）渲染器，加上身份 profile、多实例、会话录制、截屏和代理——是跑 agent 的面，而不是内建一个编辑器。",
   "cmp.c.terax.win": "Terax 一个 app 里塞得更多：真正的代码编辑器、git graph、web 预览面板、内建多 agent 工作流——全部在约 7 MB 的下载里，还有 Android 版。如果你想要一个恰好活在终端里的一站式 AI 编码 IDE，Terax 开箱塞得更满。",
   "cmp.c.terax.verdict": "想要一个把编辑器 + agent IDE 打包进一个小 app？Terax 是好选择。想要一个能被你已经在跑的外部编码 agent 通过 MCP 驱动、且原生渲染的终端？那是 Unterm。",
-
   "cmp.c.iterm2.title": "Unterm vs iTerm2：跨平台、agent 原生 vs macOS 重度终端",
   "cmp.c.iterm2.desc": "iTerm2 是成熟的 macOS 重度终端，带 Python API。Unterm 跨平台、为 agent 暴露 MCP 服务，并一键安装 AI 编码 agent。逐项对比。",
   "cmp.c.iterm2.tagline": "iTerm2 是 macOS 上无可争议的重度终端；Unterm 跨平台，且为 AI agent 驱动而生。",
@@ -280,7 +274,6 @@
   "cmp.c.iterm2.a3": "<strong>agent 工作流功能。</strong>身份 profile、多实例窗口、脱敏 Markdown 录制、截屏和代理轮换——面向跑 agent，而不只是交互使用。",
   "cmp.c.iterm2.win": "在 macOS 上，iTerm2 的交互式重度使用几乎难以超越：庞大而精细的功能集、触发器、成熟的 Python API，多年沉淀。如果你只用 macOS 且想要最深的手动终端，iTerm2 是黄金标准。",
   "cmp.c.iterm2.verdict": "只用 macOS 且想要最成熟的交互式终端？iTerm2。想要一个横跨 mac、Linux、Windows、由你的 AI agent 通过 MCP 驱动的 agent 原生终端？Unterm 正为此而造。",
-
   "cmp.c.ghostty.title": "Unterm vs Ghostty：快终端 vs 可被 agent 驱动的终端",
   "cmp.c.ghostty.desc": "Ghostty 是 macOS 和 Linux 上又快又精简的原生 GPU 终端。Unterm 加了 MCP 服务、CLI 和一键 AI agent，还跑在 Windows 上。逐项对比。",
   "cmp.c.ghostty.tagline": "Ghostty 是精简、快速的原生终端；Unterm 加了 agent 控制层和 Windows 支持。",
@@ -290,11 +283,10 @@
   "cmp.c.ghostty.a3": "<strong>Windows + agent 运维。</strong>跑在 macOS、Linux 和 Windows 上，外加身份 profile、多实例、会话录制和代理——Ghostty 仅 mac+Linux。",
   "cmp.c.ghostty.win": "Ghostty 更精简，作为纯终端快得惊人，默认值漂亮、体积极小。如果你想要 macOS 或 Linux 上最精简、高性能的终端，且对 AI/agent 这层毫无兴趣，Ghostty 是极好的选择。",
   "cmp.c.ghostty.verdict": "想要 mac/Linux 上最精简最快的纯终端？Ghostty 很棒。想要一个 AI agent 真能操作、且还跑在 Windows 上的 GPU 终端？那是 Unterm 加的东西。",
-
   "dl.title": "Get Unterm 0.23",
   "dl.subtitle": "macOS bundle is signed with a Developer ID and Apple-notarized. Linux .deb / AppImage and Windows .msi / .zip are also published.",
   "dl.cta": "打开最新发布页",
-  "faq.title": "Frequently asked",
+  "faq.title": "常见问题",
   "faq.what.q": "What is Unterm?",
   "faq.what.a": "A cross-platform terminal emulator with built-in MCP, HTTP, and CLI control surfaces. The product thesis: <em>terminal as MCP-controllable surface</em>, so any external AI agent can drive it from outside instead of having an AI baked into the terminal itself.",
   "faq.mcp.q": "How does it work with Claude Code, Cursor, or other agents?",
@@ -453,5 +445,33 @@
   "whatsnew.dirjump42.title": "目录跳转:多深都一步到位,中文输入法也好使",
   "whatsnew.dirjump42.body": "目录跳转面板这回真正长腿了。敲个片段就能匹配项目下<strong>任意深度</strong>(有界递归扫描,自动跳过 node_modules 等噪声):<code class=\"font-mono text-xs\">term ren</code> 一步命中 <code class=\"font-mono text-xs\">…/termwindow/render</code>。<strong>Tab 改成 shell 式补全</strong>——把选中目录连斜杠写进输入框继续走,和 <code class=\"font-mono text-xs\">cd dir&lt;Tab&gt;</code> 一个手感。<code class=\"font-mono text-xs\">/</code> 或 <code class=\"font-mono text-xs\">~</code> 开头即路径补全;挂载卷以 Finder 风格<strong>“位置”</strong>出现(第二块盘终于能按名字够到);列表截断时明说“… 还有 N 个”。还有一个关键修复:<strong>中文等输入法合成的文字现在能正确进入弹层</strong>——以前会漏进面板背后的终端,看起来像面板死了。",
   "whatsnew.win43.title": "Windows:每块盘都够得着 + GPU 不行不再无声消失",
-  "whatsnew.win43.body": "两个 Windows 优先的修复。盘符是独立的根,目录跳转面板从 <code class=\"font-mono text-xs\">C:\\</code> 永远够不到 <code class=\"font-mono text-xs\">D:\\</code>——现在所有盘符进入“位置”区,敲 <code class=\"font-mono text-xs\">D:</code>、<code class=\"font-mono text-xs\">d:\\code</code>(以及 UNC <code class=\"font-mono text-xs\">\\\\server\\share</code>)直接进入路径补全,反斜杠自动处理。另外,在没有可用 OpenGL 的环境(虚拟机、远程桌面、老驱动)双击启动曾经会无声退出;现在<strong>自动回退到 WebGpu 后端</strong>,两个后端都不行时弹出真正的错误对话框,而不是凭空消失。"
+  "whatsnew.win43.body": "两个 Windows 优先的修复。盘符是独立的根,目录跳转面板从 <code class=\"font-mono text-xs\">C:\\</code> 永远够不到 <code class=\"font-mono text-xs\">D:\\</code>——现在所有盘符进入“位置”区,敲 <code class=\"font-mono text-xs\">D:</code>、<code class=\"font-mono text-xs\">d:\\code</code>(以及 UNC <code class=\"font-mono text-xs\">\\\\server\\share</code>)直接进入路径补全,反斜杠自动处理。另外,在没有可用 OpenGL 的环境(虚拟机、远程桌面、老驱动)双击启动曾经会无声退出;现在<strong>自动回退到 WebGpu 后端</strong>,两个后端都不行时弹出真正的错误对话框,而不是凭空消失。",
+  "cockpit.kicker": "Agent 座舱",
+  "cockpit.title": "终端现在看得见跑在里面的 agent",
+  "cockpit.subtitle": "Claude Code、Codex、Gemini、Aider——每个 pane 都在汇报谁在干活、谁在等你、改了什么。零配置即可用；一条命令升级到 hook 级精确汇报。",
+  "cockpit.state.title": "每个 tab 上的实时状态",
+  "cockpit.state.body": "四层信号——官方 hooks、标题/OSC 解析、进程识别、屏幕启发——折叠为每个 pane 的一个状态：<em>干活中</em>（呼吸蓝点）、<em>等你</em>（琥珀色）、<em>完成</em>、<em>空闲</em>。顶栏跨窗口计数，一有 agent 等你立刻转为警示色。",
+  "cockpit.inbox.title": "Agent 收件箱",
+  "cockpit.inbox.body": "<kbd>Ctrl+Shift+A</kbd>：所有窗口的所有 agent，等待中的排最前，显示卡了多久、卡在什么上。Enter 直接跳到那个 pane。“过去按个 y”现在只要两次按键。",
+  "cockpit.fleet.title": "Fleet：一个任务，N 个 agent",
+  "cockpit.fleet.body": "让 <code>claude × 2 + codex</code> 赛跑同一个任务——每个成员在仓库旁自己的 git worktree 和分支里，自己的 tab、自己的状态角标。你的工作区分毫不动。",
+  "cockpit.review.title": "Review：改动全程有据可查",
+  "cockpit.review.body": "agent 一动工，Unterm 就为仓库拍快照（dangling commit——不碰 HEAD、index 和你的文件）。逐行 diff 含 agent 新建的文件，squash 合并到<em>暂存区</em>（commit 由你来做），可回滚到任意快照，成员产出并排对比。",
+  "cockpit.api.title": "和其他一切一样，完全可编程",
+  "cockpit.api.body": "座舱本身就是 MCP + CLI：<code>agent.status</code>、<code>cockpit.inbox</code>、<code>fleet.launch</code>、<code>review.merge</code>……编排型 agent 可以在无人值守下启动编队、审阅 diff。本地优先——这一切不经过任何云。",
+  "cockpit.docs_link": "阅读 Agent 座舱文档",
+  "whatsnew.cockpit55.title": "Agent 座舱",
+  "whatsnew.cockpit55.body": "终端看得见里面的 agent 了：每 pane 实时状态（tab 角标 + 跨窗口计数）、等待优先的 Agent 收件箱（<kbd>Ctrl+Shift+A</kbd>）、一个任务在 N 个隔离 worktree 里并行的 Fleet、带快照/diff/回滚/squash 合并的 Review 页。新增 12 个 MCP 方法、3 组 CLI 命令。",
+  "faq.q1": "怎么知道 Claude Code 在等我确认？",
+  "faq.a1": "Unterm 跟踪每个 pane 的 agent 状态。当 Claude Code（或 Codex、Gemini、Aider）卡在确认上时，它的 tab 圆点变琥珀色、顶栏 chip 变警示色并计数、agent 升到收件箱（Ctrl+Shift+A）最顶端——Enter 直接跳到那个 pane。Claude Code 和 Gemini 零配置即可检测；“unterm-cli agent enable-hooks”可升级到 hook 级精确汇报。",
+  "faq.q2": "能并行跑多个 Claude Code 实例而互不冲突吗？",
+  "faq.a2": "可以——这正是 Fleet 的用途。“unterm-cli fleet launch --agents claude,claude,codex -- 任务”给每个成员在仓库旁分配独立的 git worktree 和分支，互相之间、以及和你的工作区之间都完全隔离。每个成员有自己的 tab 和实时状态角标，Review 页可以并排对比它们的产出。",
+  "faq.q3": "如何审阅或撤销 AI agent 的改动？",
+  "faq.a3": "agent 一开始干活，Unterm 就为仓库拍快照——一个 dangling git commit，不碰 HEAD、index 和你的文件。Review 页（Web 设置里）显示逐行 diff（含 agent 新建的文件），可以把满意的产出 squash 合并到暂存区（commit 由你来做）、丢弃不要的、或把工作区回滚到任意快照。",
+  "faq.q4": "Unterm 会把我的终端数据发到云端吗？",
+  "faq.a4": "不会。Unterm 零遥测、无账号、无云组件。MCP 和 HTTP 服务只绑定 127.0.0.1，整个 Agent 座舱——状态检测、Fleet、快照、Review——全部本地运行。唯一的网络流量来自你自己的 agent 和 shell。",
+  "faq.q5": "Unterm 和 Warp 有什么区别？",
+  "faq.a5": "Warp 把 AI 嵌在终端里、锁在封闭的云编排器后面，外部工具无法驱动它。Unterm 反过来：终端是开放的 MCP 可控表面，任何 agent（Claude Code、Codex、Gemini、Cursor、你自己的脚本）都能从外部驱动——它的 agent 编排是本地 git worktree 和开放 API，不是云服务。Unterm 采用 MIT 协议，永久免费，无需登录。",
+  "faq.q6": "Unterm 支持哪些 AI 编码 agent？",
+  "faq.a6": "启动器可一键安装并接线 Claude Code、Codex CLI、Gemini CLI、OpenCode 和 Aider。座舱的状态检测还开箱识别 kimi、trae、cursor-agent；任何发出标准终端信号（标题、OSC 9/777、BEL）的 agent 都能获得基础跟踪。任何工具都可以通过“unterm-cli agent signal”接入。"
 }
