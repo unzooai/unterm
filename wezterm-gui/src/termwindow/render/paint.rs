@@ -937,6 +937,12 @@ impl crate::TermWindow {
             }
         }
         trace.mark("pane_close_buttons");
+        // Jump-to-bottom affordance for any pane scrolled off the tail.
+        for pos in &panes {
+            self.paint_scroll_to_bottom_button(pos, &mut layers)
+                .context("paint_scroll_to_bottom_button")?;
+        }
+        trace.mark("scroll_to_bottom_buttons");
 
         if let Some(pane) = self.get_active_pane_or_overlay() {
             let splits = self.get_splits();

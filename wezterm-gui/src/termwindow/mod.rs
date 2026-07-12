@@ -216,6 +216,7 @@ pub enum UIItemType {
     DirJumpRow(usize),
     CockpitInboxRow(usize),
     FleetPaletteRow(usize),
+    ScrollToBottom(PaneId),
     /// Scroll track inside the directory-jump palette.
     DirJumpScrollTrack {
         thumb_height: usize,

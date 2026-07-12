@@ -162,6 +162,7 @@ impl super::TermWindow {
             | UIItemType::DirJumpRow(_)
             | UIItemType::CockpitInboxRow(_)
             | UIItemType::FleetPaletteRow(_)
+            | UIItemType::ScrollToBottom(_)
             | UIItemType::DirJumpScrollTrack { .. }
             | UIItemType::DirJumpScrollThumb { .. }
             | UIItemType::TreeSidebarRow(_)
@@ -204,6 +205,7 @@ impl super::TermWindow {
             | UIItemType::DirJumpRow(_)
             | UIItemType::CockpitInboxRow(_)
             | UIItemType::FleetPaletteRow(_)
+            | UIItemType::ScrollToBottom(_)
             | UIItemType::DirJumpScrollTrack { .. }
             | UIItemType::DirJumpScrollThumb { .. }
             | UIItemType::TreeSidebarRow(_)
@@ -837,6 +839,7 @@ impl super::TermWindow {
             UIItemType::DirJumpRow(_)
             | UIItemType::CockpitInboxRow(_)
             | UIItemType::FleetPaletteRow(_)
+            | UIItemType::ScrollToBottom(_)
             | UIItemType::DirJumpScrollTrack { .. }
             | UIItemType::DirJumpScrollThumb { .. } => {}
             UIItemType::TreeSidebarRow(row) => {
@@ -931,6 +934,17 @@ impl super::TermWindow {
             UIItemType::LeftTabBarAuthorLink => {
                 if let WMEK::Press(MousePress::Left) = event.kind {
                     wezterm_open_url::open_url("https://doaipm.com");
+                }
+            }
+            UIItemType::ScrollToBottom(pane_id) => {
+                if let WMEK::Press(MousePress::Left) = event.kind {
+                    let mux = Mux::get();
+                    if let Some(target) = mux.get_pane(pane_id) {
+                        self.scroll_to_bottom(&target);
+                        if let Some(window) = self.window.as_ref() {
+                            window.invalidate();
+                        }
+                    }
                 }
             }
             UIItemType::CloseSplitPane(pane_id) => {

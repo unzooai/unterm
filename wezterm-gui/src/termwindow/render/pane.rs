@@ -974,4 +974,119 @@ impl crate::TermWindow {
 
         Ok(())
     }
+    /// Floating "jump to bottom" affordance: shown on any pane whose
+    /// viewport is scrolled away from the live tail (an agent streaming
+    /// output while you read history is the common case). Unlike the
+    /// close ×, this one is clearly visible when present — its whole job
+    /// is to say "you are not at the bottom" — and disappears entirely
+    /// once the pane is pinned to the tail again. Keyboard equivalent:
+    /// the ScrollToBottom assignment; this is the mouse-flow counterpart.
+    pub fn paint_scroll_to_bottom_button(
+        &mut self,
+        pos: &PositionedPane,
+        layers: &mut TripleLayerQuadAllocator,
+    ) -> anyhow::Result<()> {
+        if self.get_viewport(pos.pane.pane_id()).is_none() {
+            return Ok(());
+        }
+        let cell_width = self.render_metrics.cell_size.width as f32;
+        let cell_height = self.render_metrics.cell_size.height as f32;
+        let (padding_left, padding_top) = self.padding_left_top();
+        let border = self.get_os_border();
+        let tab_bar_height = if self.show_tab_bar {
+            self.tab_bar_pixel_height()
+                .context("tab_bar_pixel_height")?
+        } else {
+            0.0
+        };
+        let (top_bar_height, _bottom) = if self.config.tab_bar_at_bottom {
+            (0.0, tab_bar_height)
+        } else {
+            (tab_bar_height, 0.0)
+        };
+        let top_pixel_y = top_bar_height + padding_top + border.top.get() as f32;
+
+        // Pane right/bottom edges in pixels (mirror close-button logic).
+        let pane_right = if pos.left + pos.width >= self.terminal_size.cols as usize {
+            self.dimensions.pixel_width as f32
+        } else {
+            padding_left + border.left.get() as f32 + ((pos.left + pos.width) as f32 * cell_width)
+        };
+        let pane_bottom = top_pixel_y + ((pos.top + pos.height) as f32 * cell_height);
+
+        let pt = self.dimensions.dpi as f32 / 72.0;
+        let chip = (cell_height * 1.5).max(22.0 * pt / (96.0 / 72.0));
+        // Inset from the scrollbar (5pt wide) and the pane bottom.
+        let chip_x = (pane_right - 5.0 * pt - 8.0 * pt - chip).max(0.0);
+        let chip_y = (pane_bottom - 10.0 * pt - chip).max(top_pixel_y);
+
+        let hovered = matches!(
+            self.last_ui_item.as_ref().map(|i| &i.item_type),
+            Some(crate::termwindow::UIItemType::ScrollToBottom(pid)) if *pid == pos.pane.pane_id()
+        );
+
+        let palette = pos.pane.palette();
+        let fg = palette.foreground.to_linear();
+        let bg = palette
+            .resolve_bg(wezterm_term::color::ColorAttribute::Default)
+            .to_linear();
+
+        // Chip: an inset square reads as a soft pill (same trick as the
+        // close button's hover chip). Solid enough to sit over any text.
+        self.filled_rectangle(
+            layers,
+            2,
+            euclid::rect(chip_x, chip_y, chip, chip),
+            bg.mul_alpha(0.85),
+        )
+        .context("scroll-to-bottom chip bg")?;
+        self.filled_rectangle(
+            layers,
+            2,
+            euclid::rect(chip_x, chip_y, chip, chip),
+            fg.mul_alpha(if hovered { 0.22 } else { 0.10 }),
+        )
+        .context("scroll-to-bottom chip tint")?;
+
+        // Downward chevron `∨`, stroked like the close ×: dense steps of
+        // tiny rects so the diagonal reads as a line, not dots.
+        let mark = fg.mul_alpha(if hovered { 0.95 } else { 0.65 });
+        let arm = chip * 0.22;
+        let cx = chip_x + chip / 2.0;
+        let cy = chip_y + chip / 2.0 - arm * 0.25;
+        let thick = (cell_height / 12.0).max(1.6);
+        let steps = ((arm * 4.0).round() as i32).max(24);
+        for i in 0..=steps {
+            let t = i as f32 / steps as f32; // 0..=1
+            let dx = t * arm;
+            let dy = t * arm;
+            // left arm `\`
+            self.filled_rectangle(
+                layers,
+                2,
+                euclid::rect(cx - arm + dx - thick / 2.0, cy - arm * 0.2 + dy - thick / 2.0, thick, thick),
+                mark,
+            )
+            .context("scroll-to-bottom chevron left")?;
+            // right arm `/`
+            self.filled_rectangle(
+                layers,
+                2,
+                euclid::rect(cx + arm - dx - thick / 2.0, cy - arm * 0.2 + dy - thick / 2.0, thick, thick),
+                mark,
+            )
+            .context("scroll-to-bottom chevron right")?;
+        }
+
+        self.ui_items.push(UIItem {
+            x: chip_x as usize,
+            y: chip_y as usize,
+            width: chip as usize,
+            height: chip as usize,
+            pane_id: Some(pos.pane.pane_id()),
+            item_type: UIItemType::ScrollToBottom(pos.pane.pane_id()),
+        });
+
+        Ok(())
+    }
 }
