@@ -1001,7 +1001,15 @@ impl Screen {
         // (such as 1.5MB of json) that we previously wrapped.  We don't want to
         // un-wrap, scan, and re-wrap that thing.
         // This is an imperfect length constraint to partially manage the cost.
-        const MAX_LOGICAL_LINE_LEN: usize = 1024;
+        //
+        // Unterm: raised 1024 -> 8192. A wrapped logical line longer than the
+        // cap gets *split* here, which (a) truncated implicit-hyperlink URL
+        // detection so clicking a long link opened only a fragment, and (b)
+        // inserted a newline mid-URL when copying a selection that spanned the
+        // split. Both broke Claude Code's long OAuth login URL. 8KB covers any
+        // real login URL with margin while still guarding the megabyte-JSON
+        // case, and the scan only runs on hover / selection, not per frame.
+        const MAX_LOGICAL_LINE_LEN: usize = 8192;
 
         // Look backwards to find the start of the first logical line
         let mut back_len = 0;
@@ -1080,7 +1088,15 @@ impl Screen {
         // (such as 1.5MB of json) that we previously wrapped.  We don't want to
         // un-wrap, scan, and re-wrap that thing.
         // This is an imperfect length constraint to partially manage the cost.
-        const MAX_LOGICAL_LINE_LEN: usize = 1024;
+        //
+        // Unterm: raised 1024 -> 8192. A wrapped logical line longer than the
+        // cap gets *split* here, which (a) truncated implicit-hyperlink URL
+        // detection so clicking a long link opened only a fragment, and (b)
+        // inserted a newline mid-URL when copying a selection that spanned the
+        // split. Both broke Claude Code's long OAuth login URL. 8KB covers any
+        // real login URL with margin while still guarding the megabyte-JSON
+        // case, and the scan only runs on hover / selection, not per frame.
+        const MAX_LOGICAL_LINE_LEN: usize = 8192;
 
         // Look backwards to find the start of the first logical line
         let mut back_len = 0;
