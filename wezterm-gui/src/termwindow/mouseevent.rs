@@ -839,7 +839,6 @@ impl super::TermWindow {
             UIItemType::DirJumpRow(_)
             | UIItemType::CockpitInboxRow(_)
             | UIItemType::FleetPaletteRow(_)
-            | UIItemType::ScrollToBottom(_)
             | UIItemType::DirJumpScrollTrack { .. }
             | UIItemType::DirJumpScrollThumb { .. } => {}
             UIItemType::TreeSidebarRow(row) => {
