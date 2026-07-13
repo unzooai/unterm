@@ -763,7 +763,15 @@ impl crate::TermWindow {
             Element::new(&font, ElementContent::Children(right_eles))
                 .vertical_align(VerticalAlign::Middle)
                 .colors(bar_colors.clone())
-                .float(Float::Right),
+                .float(Float::Right)
+                // zindex ABOVE the left tab cluster (which is zindex 1).
+                // When the window is narrowed, the left tabs extend toward
+                // the right edge and overlap the floated right cluster; a
+                // lower zindex let the tabs paint OVER the window
+                // min/maximize/close buttons on Windows, hiding controls
+                // the user must always be able to reach. The right cluster
+                // now wins that overlap.
+                .zindex(2),
         );
 
         let content = ElementContent::Children(children);
