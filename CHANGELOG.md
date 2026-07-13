@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.55.3 — 2026-07-13
+
+### Fixed
+
+- **The "jump to bottom" button now actually scrolls to the bottom when clicked.** The button (added in v0.55) rendered correctly but its click handler was shadowed by an earlier catch-all match arm in the mouse dispatcher, so clicking it did nothing — only the keyboard `ScrollToBottom` worked. The dedicated handler is now reachable. (This also un-breaks the `-D warnings` CI check, which had been failing on the unreachable pattern since v0.55.1.)
+
 ## v0.55.2 — 2026-07-13
 
 ### Fixed
