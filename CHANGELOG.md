@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.55.1 — 2026-07-13
+
+### Fixed
+
+- **Windows: Claude Code no longer errors after every turn.** Claude Code executes its hooks through bash (Git Bash) even on Windows, and the cockpit hook command v0.55.0 wrote — `C:\Program Files\Unterm\unterm-cli.exe …` — was unquoted, so bash split it at the space and ate the backslashes, failing with `/usr/bin/bash: line 1: C:Program: command not found` at the end of every turn. The hook command is now quoted and uses forward slashes (valid in bash, PowerShell, and cmd alike). Re-running `setup-ai` (which the GUI does automatically on a version bump) or `unterm-cli agent enable-hooks` self-heals an existing broken entry in place rather than appending a duplicate. Only Claude Code and Aider were affected; Codex's `notify` is an argv array executed directly and was always fine.
+
+### Added
+
+- **"Jump to bottom" button on scrolled-away panes.** When a pane's viewport is scrolled off the live tail — reading history while an agent keeps streaming output — a small chevron button appears in the pane's bottom-right corner. Click it to return to the bottom and resume following; it disappears once the pane is pinned to the tail again. Keyboard `ScrollToBottom` is unchanged; this is the mouse-flow counterpart.
+
+### Changed
+
+- **The Web Settings page shows the release version, not just the build stamp.** It now reads `v0.55.1 (20260713-…)` — the semantic version you recognize first, the git build stamp (for bug reports) in parentheses — instead of only the raw stamp, which read as "not updated" right after installing a new release.
+
 ## v0.55.0 — 2026-07-11
 
 ### Added — Agent Cockpit
