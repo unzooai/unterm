@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.55.2 — 2026-07-13
+
+### Fixed
+
+- **Windows: the minimize / maximize / close buttons no longer disappear when the window is narrowed.** In the top tab bar, the tab cluster carried a higher paint order (`zindex 1`) than the floated window-control cluster (`zindex 0`). A single tab is sized up to `window_width / tab_count`, so on a narrow window it extends across the bar and painted over the window controls, hiding them. The window-control cluster now paints on top (`zindex 2`), and click hit-testing already favors it, so the buttons stay both visible and clickable at any width.
+- **Long login URLs (e.g. Claude Code's OAuth link) are now clickable and copyable in full.** Logical-line reconstruction capped a wrapped line at 1024 characters, which split URLs longer than that: clicking opened only the fragment under the cursor, and copying a selection that crossed the split inserted a newline mid-URL, breaking the paste. The cap is raised to 8192 — enough for any real login URL, still guarding the megabyte-JSON pathological case, and only computed on hover / selection.
+
 ## v0.55.1 — 2026-07-13
 
 ### Fixed
