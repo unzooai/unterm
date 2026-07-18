@@ -1,11 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <!-- Small-size optical variant of soft-V2: keeps the tile + cursor,
-       drops the U haze/blur (smudges below 32px). Solid white U at
-       full opacity so the mark stays legible at 16/24/32 px. -->
-  <rect width="64" height="64" rx="14.3" fill="#141414"/>
-  <rect x="0.5" y="0.5" width="63" height="63" rx="13.8"
-        fill="none" stroke="#ffffff" stroke-opacity="0.10" stroke-width="1"/>
-  <path d="M15 13 h9 v22 a8 8 0 0 0 16 0 V13 h9 v22.5 a16.5 16.5 0 0 1 -34 0 Z"
-        fill="#eceae6"/>
-  <rect x="26" y="19" width="12" height="15" rx="1.8" fill="#6fccb8"/>
+  <!-- Optical master for 16-64 px: fewer tones, wider gaps, heavier cursor. -->
+  <rect width="64" height="64" rx="14" fill="#111311"/>
+  <rect x=".5" y=".5" width="63" height="63" rx="13.5" fill="none" stroke="#FFFFFF" stroke-opacity=".12"/>
+  <path d="M14 16 19 11h8v23c0 4.7 1.7 7.5 5 9.5 3.3-2 5-4.8 5-9.5V11h8l5 5v19c0 10.8-6.4 18-18 22-11.6-4-18-11.2-18-22V16Z" fill="#F1F3EF"/>
+  <path d="M25 20h14v14c0 5.5-2.3 9.4-7 12-4.7-2.6-7-6.5-7-12V20Z" fill="#111311"/>
+  <path d="m27 25 5 5-5 5M35 38h5" fill="none" stroke="#68D5BE" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

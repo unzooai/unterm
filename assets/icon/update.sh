@@ -76,10 +76,18 @@ rm -rf "$ICONSET"
 # Windows .ico — multi-resolution embed for crisp rendering at every scale
 # Windows actually picks (Start menu = 32, taskbar = 24, desktop = 48, MSI
 # launcher = 256, Alt-Tab = 16). Bake in all of them.
-if have magick ; then
-  magick "$SRC_PNG" -define icon:auto-resize=256,128,96,64,48,32,16 \
-    ../windows/terminal.ico
-elif have convert ; then
-  convert "$SRC_PNG" -define icon:auto-resize=256,128,96,64,48,32,16 \
-    ../windows/terminal.ico
+if have magick || have convert ; then
+  WIN_ICONSET=$(mktemp -d)
+  frames=()
+  for s in 256 128 96 64 48 32 24 16 ; do
+    frame="$WIN_ICONSET/icon-${s}.png"
+    resize_to "$s" "$frame"
+    frames+=("$frame")
+  done
+  if have magick ; then
+    magick "${frames[@]}" ../windows/terminal.ico
+  else
+    convert "${frames[@]}" ../windows/terminal.ico
+  fi
+  rm -rf "$WIN_ICONSET"
 fi
