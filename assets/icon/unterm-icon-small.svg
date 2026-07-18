@@ -1,8 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <!-- Optical master for 16-64 px: fewer tones, wider gaps, heavier cursor. -->
-  <rect width="64" height="64" rx="14" fill="#111311"/>
+  <!-- Optical master for 16-64 px: flat tones and slightly heavier rails. -->
+  <rect width="64" height="64" rx="14" fill="#101310"/>
   <rect x=".5" y=".5" width="63" height="63" rx="13.5" fill="none" stroke="#FFFFFF" stroke-opacity=".12"/>
-  <path d="M14 16 19 11h8v23c0 4.7 1.7 7.5 5 9.5 3.3-2 5-4.8 5-9.5V11h8l5 5v19c0 10.8-6.4 18-18 22-11.6-4-18-11.2-18-22V16Z" fill="#F1F3EF"/>
-  <path d="M25 20h14v14c0 5.5-2.3 9.4-7 12-4.7-2.6-7-6.5-7-12V20Z" fill="#111311"/>
-  <path d="m27 25 5 5-5 5M35 38h5" fill="none" stroke="#68D5BE" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M15 13v22c0 12 6.5 18.5 17 21.5C42.5 53.5 49 47 49 35" fill="none" stroke="#F1F4F0" stroke-width="9" stroke-linecap="square" stroke-linejoin="round"/>
+  <path d="M37 13h22M49 13v22" fill="none" stroke="#68D5BE" stroke-width="9" stroke-linecap="square"/>
 </svg>

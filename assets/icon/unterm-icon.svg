@@ -1,35 +1,24 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <defs>
-    <linearGradient id="tile" x1="8" y1="5" x2="56" y2="61" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#242624"/>
-      <stop offset="0.52" stop-color="#151716"/>
-      <stop offset="1" stop-color="#090B0A"/>
+    <linearGradient id="tile" x1="7" y1="4" x2="58" y2="62" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#252A27"/><stop offset=".48" stop-color="#151816"/><stop offset="1" stop-color="#090B0A"/>
     </linearGradient>
-    <radialGradient id="light" cx="0" cy="0" r="1" gradientTransform="translate(20 8) rotate(54) scale(56)">
-      <stop stop-color="#FFFFFF" stop-opacity=".12"/>
-      <stop offset=".52" stop-color="#FFFFFF" stop-opacity=".025"/>
-      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    <radialGradient id="light" cx="0" cy="0" r="1" gradientTransform="translate(18 6) rotate(54) scale(58)">
+      <stop stop-color="#FFFFFF" stop-opacity=".11"/><stop offset=".52" stop-color="#FFFFFF" stop-opacity=".02"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
     </radialGradient>
-    <linearGradient id="portal" x1="17" y1="13" x2="46" y2="52" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#FFFFFF"/>
-      <stop offset=".55" stop-color="#E6E8E5"/>
-      <stop offset="1" stop-color="#BFC5C0"/>
+    <linearGradient id="metal" x1="0" y1="10" x2="0" y2="58" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FAFCF9"/><stop offset=".55" stop-color="#E4E8E4"/><stop offset="1" stop-color="#B6BEB8"/>
     </linearGradient>
-    <linearGradient id="cursor" x1="25" y1="23" x2="40" y2="39" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#8CE8D3"/>
-      <stop offset="1" stop-color="#50BDA8"/>
+    <linearGradient id="mint" x1="36" y1="12" x2="57" y2="38" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#9AF0DA"/><stop offset="1" stop-color="#45B59E"/>
     </linearGradient>
   </defs>
-
   <rect width="64" height="64" rx="14" fill="url(#tile)"/>
   <rect width="64" height="64" rx="14" fill="url(#light)"/>
   <rect x=".5" y=".5" width="63" height="63" rx="13.5" fill="none" stroke="#FFFFFF" stroke-opacity=".08"/>
 
-  <!-- Command Portal: chamfered rails converge into one verified result. -->
-  <path d="M15 16 19 12h7v22c0 5 2 8 6 10 4-2 6-5 6-10V12h7l4 4v19c0 10-6 17-17 21-11-4-17-11-17-21V16Z" fill="url(#portal)"/>
-  <path d="M24 20h16v14c0 6-2.7 10.3-8 13-5.3-2.7-8-7-8-13V20Z" fill="#121513"/>
-
-  <!-- A real command prompt, cut cleanly enough to survive taskbar scale. -->
-  <path d="m27 25 5 5-5 5" fill="none" stroke="url(#cursor)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M34.5 37.5H40" fill="none" stroke="url(#cursor)" stroke-width="3.2" stroke-linecap="round"/>
+  <!-- Shared Rail UT ligature: the T stem is also the U's right rail. -->
+  <path d="M16 14V35" fill="none" stroke="#F8FAF7" stroke-width="8" stroke-linecap="square"/>
+  <path d="M16 35C16 46.5 22.1 53 32 56 41.9 53 48 46.5 48 35" fill="none" stroke="url(#metal)" stroke-width="8" stroke-linecap="square" stroke-linejoin="round"/>
+  <path d="M37 14h21M48 14v21" fill="none" stroke="url(#mint)" stroke-width="8" stroke-linecap="square"/>
 </svg>
