@@ -90,6 +90,7 @@ pub mod render;
 pub mod resize;
 mod selection;
 pub mod git_panel;
+pub(crate) mod sidebar_text;
 pub mod spawn;
 pub mod top_stats_bar;
 pub mod tree_sidebar;
@@ -251,6 +252,9 @@ pub enum UIItemType {
     /// A tab row in the left vertical tab bar. Click activates; keep
     /// dragging to reorder; double-click renames; right-click menus.
     LeftTabBarTab(usize),
+    /// A project group header in the left vertical tab bar. Click toggles its
+    /// collapsed state; the string is the normalized full project identity.
+    LeftTabBarGroup(String),
     /// Resize grip on the left tab bar's right edge.
     LeftTabBarResize,
     /// Scroll track inside the left tab bar. Click jumps the thumb;

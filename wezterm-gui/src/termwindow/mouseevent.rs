@@ -173,6 +173,7 @@ impl super::TermWindow {
             | UIItemType::TreeSidebarScrollTrack { .. }
             | UIItemType::TreeSidebarScrollThumb { .. }
             | UIItemType::LeftTabBarTab(_)
+            | UIItemType::LeftTabBarGroup(_)
             | UIItemType::LeftTabBarResize
             | UIItemType::LeftTabBarScrollTrack { .. }
             | UIItemType::LeftTabBarScrollThumb { .. }
@@ -217,6 +218,7 @@ impl super::TermWindow {
             | UIItemType::TreeSidebarScrollTrack { .. }
             | UIItemType::TreeSidebarScrollThumb { .. }
             | UIItemType::LeftTabBarTab(_)
+            | UIItemType::LeftTabBarGroup(_)
             | UIItemType::LeftTabBarResize
             | UIItemType::LeftTabBarScrollTrack { .. }
             | UIItemType::LeftTabBarScrollThumb { .. }
@@ -959,6 +961,13 @@ impl super::TermWindow {
             UIItemType::LeftTabBarTab(tab_idx) => {
                 self.mouse_event_left_tab_bar_tab(item, tab_idx, event, context);
             }
+            UIItemType::LeftTabBarGroup(project_key) => match event.kind {
+                WMEK::Press(MousePress::Left) => {
+                    self.toggle_left_tab_bar_group(&project_key);
+                }
+                WMEK::VertWheel(n) => self.left_tab_bar_scroll_by(-(n as isize)),
+                _ => {}
+            },
             UIItemType::LeftTabBarResize => {
                 context.set_cursor(Some(MouseCursor::SizeLeftRight));
                 if let WMEK::Press(MousePress::Left) = event.kind {

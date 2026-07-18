@@ -45,7 +45,10 @@ pub fn sidebar(bg: LinearRgba, fg: LinearRgba) -> SidebarChromeColors {
         // bleed into the content so the boundaries read as mush. A clearly
         // present line defines the frame without shouting.
         divider: fg.mul_alpha(if is_light { 0.32 } else { 0.20 }),
-        dim_text: fg.mul_alpha(if is_light { 0.82 } else { 0.72 }),
+        // Keep secondary labels above WCAG AA after alpha compositing. The
+        // light surface needs a touch more ink than the dark surface because
+        // its foreground/background luminance range is less forgiving.
+        dim_text: fg.mul_alpha(if is_light { 0.83 } else { 0.72 }),
         hover_bg: if is_light {
             mix(bg, fg, 0.145)
         } else {
@@ -54,7 +57,10 @@ pub fn sidebar(bg: LinearRgba, fg: LinearRgba) -> SidebarChromeColors {
         selected_bg: if is_light {
             mix(bg, fg, 0.255)
         } else {
-            mix(surface, fg, 0.155)
+            // A stronger dark-mode fill looked attractive in isolation but
+            // lowered normal-size label contrast below 4.5:1. The accent edge
+            // carries selection identity, so the fill can stay restrained.
+            mix(surface, fg, 0.115)
         },
         is_light,
     }
@@ -63,6 +69,8 @@ pub fn sidebar(bg: LinearRgba, fg: LinearRgba) -> SidebarChromeColors {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const WCAG_AA_NORMAL_TEXT: f32 = 4.5;
 
     #[test]
     fn light_sidebar_states_step_down_from_surface() {
@@ -73,6 +81,48 @@ mod tests {
         assert!(chrome.is_light);
         assert!(luma(chrome.hover_bg) < luma(chrome.surface));
         assert!(luma(chrome.selected_bg) < luma(chrome.hover_bg));
+    }
+
+    #[test]
+    fn sidebar_text_meets_aa_in_light_and_dark_modes() {
+        let schemes = [
+            (
+                LinearRgba::with_srgba(0xfb, 0xfb, 0xfa, 0xff),
+                LinearRgba::with_srgba(0x0b, 0x0f, 0x14, 0xff),
+            ),
+            (
+                LinearRgba::with_srgba(0x0e, 0x11, 0x16, 0xff),
+                LinearRgba::with_srgba(0xe7, 0xea, 0xee, 0xff),
+            ),
+        ];
+
+        for (bg, fg) in schemes {
+            let chrome = sidebar(bg, fg);
+            assert!(
+                contrast_ratio(fg, chrome.selected_bg) >= WCAG_AA_NORMAL_TEXT,
+                "selected sidebar label must meet WCAG AA"
+            );
+            assert!(
+                contrast_ratio(composite(chrome.dim_text, chrome.surface), chrome.surface)
+                    >= WCAG_AA_NORMAL_TEXT,
+                "secondary sidebar label must meet WCAG AA"
+            );
+        }
+    }
+
+    fn composite(fg: LinearRgba, bg: LinearRgba) -> LinearRgba {
+        LinearRgba::with_components(
+            fg.0 * fg.3 + bg.0 * (1. - fg.3),
+            fg.1 * fg.3 + bg.1 * (1. - fg.3),
+            fg.2 * fg.3 + bg.2 * (1. - fg.3),
+            1.,
+        )
+    }
+
+    fn contrast_ratio(foreground: LinearRgba, background: LinearRgba) -> f32 {
+        let lighter = luma(foreground).max(luma(background));
+        let darker = luma(foreground).min(luma(background));
+        (lighter + 0.05) / (darker + 0.05)
     }
 
     fn luma(c: LinearRgba) -> f32 {

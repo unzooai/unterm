@@ -14,6 +14,7 @@ use config::configuration;
 use config::keyassignment::{KeyAssignment, SpawnCommand, SpawnTabDomain};
 use mux::domain::{DomainId, DomainState};
 use mux::pane::PaneId;
+use mux::tab::TabId;
 use mux::termwiztermtab::TermWizTerminal;
 use mux::window::WindowId;
 use mux::Mux;
@@ -32,35 +33,57 @@ pub use config::keyassignment::LauncherFlags;
 #[derive(Clone)]
 struct Entry {
     pub label: String,
-    pub action: KeyAssignment,
+    pub action: LauncherAction,
+}
+
+#[derive(Clone, PartialEq)]
+enum LauncherAction {
+    Assignment(KeyAssignment),
+    /// Resolve this stable identity only when the user confirms. A tab may
+    /// close or move while the overlay is visible, so its captured index is
+    /// not a safe activation target.
+    ActivateTab(TabId),
 }
 
 pub struct LauncherTabEntry {
     pub title: String,
+    pub tab_id: TabId,
     pub tab_idx: usize,
     pub pane_count: Option<usize>,
     pub agent: Option<String>,
     pub foreground: Option<String>,
     pub cwd: Option<String>,
+    pub project: Option<String>,
 }
 
 fn format_tab_entry_label(tab: &LauncherTabEntry) -> String {
-    let identity = tab
-        .agent
-        .as_deref()
-        .or(tab.foreground.as_deref())
-        .unwrap_or(&tab.title);
-    let location = tab
-        .cwd
-        .as_deref()
-        .map(|cwd| format!(" [{cwd}]"))
-        .unwrap_or_default();
+    // The visible label doubles as the fuzzy-search corpus. Keep every useful
+    // identity field rather than selecting just one of them.
+    let mut terms = Vec::with_capacity(5);
+    for term in IntoIterator::into_iter([
+        tab.agent.as_deref(),
+        tab.foreground.as_deref(),
+        Some(tab.title.as_str()),
+        tab.project.as_deref(),
+        tab.cwd.as_deref(),
+    ])
+    .flatten()
+    {
+        let term = term.trim();
+        if !term.is_empty() && !terms.iter().any(|seen| *seen == term) {
+            terms.push(term);
+        }
+    }
     let panes = tab
         .pane_count
         .filter(|count| *count > 1)
         .map(|count| format!(" · {count} panes"))
         .unwrap_or_default();
-    format!("{}  {}{}{}", tab.tab_idx + 1, identity, location, panes)
+    format!("{}  {}{}", tab.tab_idx + 1, terms.join(" · "), panes)
+}
+
+fn tab_index_for_id(tab_ids: impl IntoIterator<Item = TabId>, target: TabId) -> Option<usize> {
+    tab_ids.into_iter().position(|tab_id| tab_id == target)
 }
 
 #[derive(Debug)]
@@ -126,17 +149,39 @@ impl LauncherArgs {
                     } else {
                         tab_title
                     };
-                    let (agent, foreground, cwd, cwd_path, project, project_path) =
-                        crate::mcp::handler::agent_fg_cwd_path_for_pane(
-                            pane.pane_id() as u64,
-                        );
+                    let (
+                        cached_agent,
+                        cached_foreground,
+                        cached_cwd,
+                        cwd_path,
+                        project,
+                        project_path,
+                    ) = crate::mcp::handler::agent_fg_cwd_path_for_pane(pane.pane_id() as u64);
+                    // The shared sidebar cache refreshes off-thread and can be
+                    // empty on the first open. Merge in values already exposed
+                    // by the pane so the launcher is immediately searchable,
+                    // without synchronously walking every process tree.
+                    let agent = cached_agent
+                        .or_else(|| crate::mcp::handler::agent_for_pane(pane.pane_id() as u64));
+                    let foreground = cached_foreground.or_else(|| {
+                        pane.get_foreground_process_name(mux::pane::CachePolicy::AllowStale)
+                    });
+                    let direct_cwd = pane
+                        .get_current_working_dir(mux::pane::CachePolicy::AllowStale)
+                        .map(|url| {
+                            url.to_file_path()
+                                .map(|path| path.to_string_lossy().into_owned())
+                                .unwrap_or_else(|_| url.as_str().to_string())
+                        });
                     LauncherTabEntry {
                         title,
+                        tab_id: tab.tab_id(),
                         tab_idx,
                         pane_count: tab.count_panes(),
                         agent,
                         foreground,
-                        cwd: project_path.or(cwd_path).or(project).or(cwd),
+                        cwd: cwd_path.or(direct_cwd).or(cached_cwd),
+                        project: project_path.or(project),
                     }
                 })
                 .collect()
@@ -268,7 +313,9 @@ impl LauncherState {
                             None => "(default shell)".to_string(),
                         },
                     },
-                    action: KeyAssignment::SpawnCommandInNewTab(item.clone()),
+                    action: LauncherAction::Assignment(KeyAssignment::SpawnCommandInNewTab(
+                        item.clone(),
+                    )),
                 });
             }
         }
@@ -277,15 +324,19 @@ impl LauncherState {
             let entry = if domain.state == DomainState::Attached {
                 Entry {
                     label: format!("New Tab ({})", domain.label),
-                    action: KeyAssignment::SpawnCommandInNewTab(SpawnCommand {
-                        domain: SpawnTabDomain::DomainName(domain.name.to_string()),
-                        ..SpawnCommand::default()
-                    }),
+                    action: LauncherAction::Assignment(KeyAssignment::SpawnCommandInNewTab(
+                        SpawnCommand {
+                            domain: SpawnTabDomain::DomainName(domain.name.to_string()),
+                            ..SpawnCommand::default()
+                        },
+                    )),
                 }
             } else {
                 Entry {
                     label: format!("Attach {}", domain.label),
-                    action: KeyAssignment::AttachDomain(domain.name.to_string()),
+                    action: LauncherAction::Assignment(KeyAssignment::AttachDomain(
+                        domain.name.to_string(),
+                    )),
                 }
             };
 
@@ -303,10 +354,10 @@ impl LauncherState {
                 if *ws != args.active_workspace {
                     self.entries.push(Entry {
                         label: format!("Switch to workspace: `{}`", ws),
-                        action: KeyAssignment::SwitchToWorkspace {
+                        action: LauncherAction::Assignment(KeyAssignment::SwitchToWorkspace {
                             name: Some(ws.clone()),
                             spawn: None,
-                        },
+                        }),
                     });
                 }
             }
@@ -315,17 +366,17 @@ impl LauncherState {
                     "Create new Workspace (current is `{}`)",
                     args.active_workspace
                 ),
-                action: KeyAssignment::SwitchToWorkspace {
+                action: LauncherAction::Assignment(KeyAssignment::SwitchToWorkspace {
                     name: None,
                     spawn: None,
-                },
+                }),
             });
         }
 
         for tab in &args.tabs {
             self.entries.push(Entry {
                 label: format_tab_entry_label(tab),
-                action: KeyAssignment::ActivateTab(tab.tab_idx as isize),
+                action: LauncherAction::ActivateTab(tab.tab_id),
             });
         }
 
@@ -341,7 +392,7 @@ impl LauncherState {
                 }
                 self.entries.push(Entry {
                     label: format!("{}. {}", cmd.brief, cmd.doc),
-                    action: cmd.action,
+                    action: LauncherAction::Assignment(cmd.action),
                 });
             }
         }
@@ -362,7 +413,12 @@ impl LauncherState {
                 }
                 if key_entries
                     .iter()
-                    .find(|ent| ent.action == entry.action)
+                    .find(|ent| {
+                        matches!(
+                            &ent.action,
+                            LauncherAction::Assignment(action) if action == &entry.action
+                        )
+                    })
                     .is_some()
                 {
                     // Avoid duplicate entries
@@ -381,7 +437,7 @@ impl LauncherState {
 
                 key_entries.push(Entry {
                     label,
-                    action: entry.action,
+                    action: LauncherAction::Assignment(entry.action),
                 });
             }
             key_entries.sort_by(|a, b| a.label.cmp(&b.label));
@@ -501,12 +557,42 @@ impl LauncherState {
 
     fn launch(&self, active_idx: usize) -> bool {
         if let Some(entry) = self.filtered_entries.get(active_idx) {
-            let assignment = entry.action.clone();
-            self.window.notify(TermWindowNotif::PerformAssignment {
-                pane_id: self.pane_id,
-                assignment,
-                tx: None,
-            });
+            match entry.action.clone() {
+                LauncherAction::Assignment(assignment) => {
+                    self.window.notify(TermWindowNotif::PerformAssignment {
+                        pane_id: self.pane_id,
+                        assignment,
+                        tx: None,
+                    });
+                }
+                LauncherAction::ActivateTab(tab_id) => {
+                    self.window
+                        .notify(TermWindowNotif::Apply(Box::new(move |tw| {
+                            let tab_idx =
+                                Mux::get().get_window(tw.mux_window_id).and_then(|window| {
+                                    tab_index_for_id(window.iter().map(|tab| tab.tab_id()), tab_id)
+                                });
+                            if let Some(tab_idx) = tab_idx {
+                                let pane = Mux::get()
+                                    .get_active_tab_for_window(tw.mux_window_id)
+                                    .and_then(|tab| tab.get_active_pane());
+                                let result = pane.map(|pane| {
+                                    tw.perform_key_assignment(
+                                        &pane,
+                                        &KeyAssignment::ActivateTab(tab_idx as isize),
+                                    )
+                                });
+                                if let Some(Err(err)) = result {
+                                    log::warn!("failed to activate launcher tab {tab_id}: {err:#}");
+                                }
+                            } else {
+                                log::debug!(
+                                    "launcher tab {tab_id} disappeared before activation; ignoring"
+                                );
+                            }
+                        })));
+                }
+            }
             true
         } else {
             false
@@ -521,7 +607,10 @@ impl LauncherState {
     }
 
     fn move_down(&mut self) {
-        self.active_idx = (self.active_idx + 1).min(self.filtered_entries.len() - 1);
+        let Some(last_idx) = self.filtered_entries.len().checked_sub(1) else {
+            return;
+        };
+        self.active_idx = (self.active_idx + 1).min(last_idx);
         if self.active_idx > self.top_row + self.max_items {
             self.top_row = self.active_idx.saturating_sub(self.max_items);
         }
@@ -704,21 +793,52 @@ pub fn launcher(
 
 #[cfg(test)]
 mod tests {
-    use super::{format_tab_entry_label, LauncherTabEntry};
+    use super::{format_tab_entry_label, tab_index_for_id, LauncherTabEntry};
 
     #[test]
     fn searchable_tab_label_contains_identity_path_and_number() {
         let entry = LauncherTabEntry {
             title: "PowerShell".into(),
+            tab_id: 41,
             tab_idx: 6,
             pane_count: Some(2),
             agent: Some("Codex".into()),
             foreground: None,
             cwd: Some("D:/code/unterm".into()),
+            project: Some("unterm".into()),
         };
-        assert_eq!(
-            format_tab_entry_label(&entry),
-            "7  Codex [D:/code/unterm] · 2 panes"
-        );
+        let label = format_tab_entry_label(&entry);
+        for term in [
+            "7",
+            "Codex",
+            "PowerShell",
+            "unterm",
+            "D:/code/unterm",
+            "2 panes",
+        ] {
+            assert!(label.contains(term), "missing {:?} from {:?}", term, label);
+        }
+    }
+
+    #[test]
+    fn searchable_tab_label_deduplicates_equal_cold_cache_fallbacks() {
+        let entry = LauncherTabEntry {
+            title: "pwsh".into(),
+            tab_id: 9,
+            tab_idx: 0,
+            pane_count: Some(1),
+            agent: None,
+            foreground: Some("pwsh".into()),
+            cwd: Some("D:/code/unterm".into()),
+            project: Some("D:/code/unterm".into()),
+        };
+        assert_eq!(format_tab_entry_label(&entry), "1  pwsh · D:/code/unterm");
+    }
+
+    #[test]
+    fn stable_tab_id_resolves_after_close_and_reorder() {
+        assert_eq!(tab_index_for_id([30, 10, 20], 20), Some(2));
+        assert_eq!(tab_index_for_id([20, 30], 20), Some(0));
+        assert_eq!(tab_index_for_id([30, 10], 20), None);
     }
 }

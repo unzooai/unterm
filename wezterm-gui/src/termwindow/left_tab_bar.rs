@@ -28,7 +28,7 @@ use crate::utilsprites::RenderMetrics;
 use config::ui_tokens;
 use config::{Dimension, DimensionContext};
 use mux::Mux;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 use wezterm_term::color::ColorAttribute;
 use wezterm_term::terminal::Progress;
@@ -53,6 +53,15 @@ pub struct LeftTabBar {
     /// Last active tab index seen by paint. Active changes auto-scroll
     /// into view; ordinary repaints preserve the user's manual scroll.
     pub last_active_idx: Option<usize>,
+    /// Project identities explicitly collapsed by the user. This is window
+    /// state rather than render state, so it survives repaints, resizing and
+    /// theme changes without introducing disk I/O on the GUI thread.
+    pub collapsed_projects: HashSet<String>,
+    /// Active mux tab seen by the last paint. Switching into a tab whose
+    /// project was collapsed expands that project so the active tab cannot
+    /// silently disappear; an explicit collapse of the current project is
+    /// still preserved while that tab remains active.
+    last_active_tab_idx: Option<usize>,
     /// Cached layout for the main left-tab-bar container. Hover state is
     /// resolved during render, so the computed tree can be reused briefly
     /// across animation/paint ticks when the visible tab rows are unchanged.
@@ -123,12 +132,67 @@ struct RowInfo {
 /// directory each pane is in) rather than something the user has to set up.
 enum DisplayRow {
     GroupHeader {
+        key: String,
         label: String,
         context: Option<String>,
         count: usize,
         active: bool,
+        collapsed: bool,
     },
     Tab(RowInfo),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DisplayRowKind {
+    GroupHeader,
+    Tab,
+}
+
+/// Select a coherent viewport from the flattened group list. If scrolling
+/// starts inside a project, its header is pinned into the first slot. A header
+/// is never left alone at the bottom without at least one child row.
+fn coherent_visible_indices(
+    rows: &[DisplayRowKind],
+    scroll_top: usize,
+    visible_rows: usize,
+) -> Vec<usize> {
+    if rows.is_empty() || visible_rows == 0 {
+        return vec![];
+    }
+    let start = scroll_top.min(rows.len() - 1);
+    let mut result = Vec::with_capacity(visible_rows);
+
+    if rows[start] == DisplayRowKind::Tab {
+        if let Some(header) = (0..start)
+            .rev()
+            .find(|idx| rows[*idx] == DisplayRowKind::GroupHeader)
+        {
+            result.push(header);
+        }
+    }
+
+    let remaining = visible_rows.saturating_sub(result.len());
+    result.extend((start..rows.len()).take(remaining));
+
+    if result.len() > 1
+        && result.last().is_some_and(|idx| {
+            rows[*idx] == DisplayRowKind::GroupHeader
+                && idx + 1 < rows.len()
+                && rows[idx + 1] == DisplayRowKind::Tab
+        })
+    {
+        result.pop();
+    }
+    result
+}
+
+fn toggle_collapsed_project(collapsed: &mut HashSet<String>, project_key: &str) -> bool {
+    if collapsed.remove(project_key) {
+        false
+    } else {
+        collapsed.insert(project_key.to_string());
+        true
+    }
 }
 
 fn project_parent_hint(path: &str) -> Option<String> {
@@ -146,6 +210,14 @@ fn normalized_project_key(path: &str) -> String {
     } else {
         normalized
     }
+}
+
+/// Approximate the compact UI font's usable character columns. Terminal cell
+/// metrics are intentionally wider than proportional chrome text and caused
+/// ordinary labels such as `powershell` to be truncated at the default width.
+fn sidebar_text_columns(width_px: f32, pt: f32) -> usize {
+    let average_glyph_px = ui_tokens::UI_FONT_SIZE as f32 * 0.52 * pt;
+    (width_px / average_glyph_px).floor().max(12.0) as usize
 }
 
 impl LeftTabBar {
@@ -430,6 +502,20 @@ impl crate::TermWindow {
         }
     }
 
+    pub(crate) fn toggle_left_tab_bar_group(&mut self, project_key: &str) {
+        let mut bar = self.left_tab_bar.borrow_mut();
+        toggle_collapsed_project(&mut bar.collapsed_projects, project_key);
+        // The flattened row count changes immediately. Reset to a safe origin;
+        // the next paint will clamp/auto-reveal the active row as appropriate.
+        bar.scroll_top = 0;
+        bar.last_active_idx = None;
+        bar.invalidate_cache();
+        drop(bar);
+        if let Some(window) = self.window.as_ref() {
+            window.invalidate();
+        }
+    }
+
     pub(crate) fn left_tab_bar_scroll_to_thumb_top(
         &mut self,
         thumb_top: usize,
@@ -698,18 +784,51 @@ impl crate::TermWindow {
         }
         let multi_group = groups.len() > 1;
 
+        // Entering a project through a keyboard shortcut/search result must
+        // reveal it. Do this only when the mux active tab changes: collapsing
+        // the current project by clicking its header remains stable on normal
+        // repaints.
+        let active_project_key = metas.get(active_idx).map(|meta| {
+            normalized_project_key(
+                meta.cwd_path
+                    .as_deref()
+                    .unwrap_or_else(|| meta.dir.as_deref().unwrap_or("~")),
+            )
+        });
+        {
+            let mut bar = self.left_tab_bar.borrow_mut();
+            if bar.last_active_tab_idx != Some(active_idx) {
+                if let Some(key) = &active_project_key {
+                    bar.collapsed_projects.remove(key);
+                }
+                bar.last_active_tab_idx = Some(active_idx);
+                bar.invalidate_cache();
+            }
+            // Forget projects that no longer exist, avoiding unbounded state
+            // when a long-lived window visits many temporary worktrees.
+            bar.collapsed_projects
+                .retain(|key| group_indices.contains_key(key));
+        }
+
         let mut display: Vec<DisplayRow> = vec![];
         let mut active_pos = 0usize;
-        for (_, label, context, members) in groups {
+        for (key, label, context, members) in groups {
+            let collapsed =
+                multi_group && self.left_tab_bar.borrow().collapsed_projects.contains(&key);
             if multi_group {
+                if collapsed && members.iter().any(|member| member.active) {
+                    active_pos = display.len();
+                }
                 display.push(DisplayRow::GroupHeader {
+                    key,
                     label,
                     context,
                     count: members.len(),
                     active: members.iter().any(|member| member.active),
+                    collapsed,
                 });
             }
-            for m in members {
+            for m in members.into_iter().filter(|_| !collapsed) {
                 if m.active {
                     active_pos = display.len();
                 }
@@ -742,8 +861,9 @@ impl crate::TermWindow {
         // Keep the active row inside the visible window. Otherwise a
         // newly-created active tab can exist below the current sidebar
         // viewport and look like it was never added.
-        let scroll_top = {
+        let (mut scroll_top, active_changed) = {
             let mut bar = self.left_tab_bar.borrow_mut();
+            let active_changed = bar.last_active_idx != Some(active_pos);
             let next = scroll_top_after_active_change(
                 bar.scroll_top,
                 row_count,
@@ -755,11 +875,30 @@ impl crate::TermWindow {
             bar.visible_rows = visible_rows;
             bar.scroll_top = next;
             bar.last_active_idx = (active_pos < row_count).then_some(active_pos);
-            next
+            (next, active_changed)
         };
 
-        let visible: Vec<&DisplayRow> =
-            display.iter().skip(scroll_top).take(visible_rows).collect();
+        let row_kinds: Vec<DisplayRowKind> = display
+            .iter()
+            .map(|row| match row {
+                DisplayRow::GroupHeader { .. } => DisplayRowKind::GroupHeader,
+                DisplayRow::Tab(_) => DisplayRowKind::Tab,
+            })
+            .collect();
+        let mut visible_indices = coherent_visible_indices(&row_kinds, scroll_top, visible_rows);
+        // A pinned header consumes one slot. If an active-tab change placed
+        // the target at the old viewport's last slot, advance just enough to
+        // keep that active tab visible as well as its project identity.
+        if active_changed && !visible_indices.contains(&active_pos) && active_pos < row_count {
+            let adjusted_top = active_pos.saturating_add(2).saturating_sub(visible_rows);
+            visible_indices = coherent_visible_indices(&row_kinds, adjusted_top, visible_rows);
+            scroll_top = adjusted_top;
+            self.left_tab_bar.borrow_mut().scroll_top = adjusted_top;
+        }
+        let visible: Vec<&DisplayRow> = visible_indices
+            .iter()
+            .filter_map(|idx| display.get(*idx))
+            .collect();
         trace_mark("scroll");
 
         let cache_key = LeftTabBarCacheKey {
@@ -778,13 +917,15 @@ impl crate::TermWindow {
                 .iter()
                 .map(|row| match row {
                     DisplayRow::GroupHeader {
+                        key,
                         label,
                         context,
                         count,
                         active,
+                        collapsed,
                     } => {
                         format!(
-                            "g:{label}:{}:{count}:{active}",
+                            "g:{key}:{label}:{}:{count}:{active}:{collapsed}",
                             context.as_deref().unwrap_or("")
                         )
                     }
@@ -848,34 +989,64 @@ impl crate::TermWindow {
                 // arithmetic stays exact.
                 let row = match disp {
                     DisplayRow::GroupHeader {
+                        key,
                         label,
                         context,
                         count,
                         active,
+                        collapsed,
                     } => {
-                        let label_disp = if label.as_str() == "~" {
+                        let raw_label = if label.as_str() == "~" {
                             "HOME".to_string()
                         } else {
                             label.to_uppercase()
                         };
+                        let sidebar_cols = sidebar_text_columns(width, pt);
+                        let label_disp = crate::termwindow::sidebar_text::ellipsize_middle(
+                            &raw_label,
+                            // Reserve the disclosure arrow, count pill and
+                            // insets, but keep ordinary names such as WINDOWS
+                            // intact at the default 220px sidebar width.
+                            sidebar_cols.saturating_sub(6).max(8),
+                        );
                         // Project name on the left; the tab count is demoted to a
                         // faint right-floated number instead of an inline
                         // "LABEL   10" string that read as debug clutter.
-                        let mut header_kids =
-                            vec![
-                                Element::new(&font, ElementContent::Text(label_disp)).colors(
-                                    ElementColors {
-                                        border: BorderColor::default(),
-                                        bg: LinearRgba::TRANSPARENT.into(),
-                                        text: if *active {
-                                            fg.mul_alpha(0.9).into()
-                                        } else {
-                                            dim.mul_alpha(0.82).into()
-                                        },
-                                    },
+                        let mut header_kids = vec![
+                            Element::new(
+                                &font,
+                                ElementContent::Text(
+                                    if *collapsed { "\u{25B8}" } else { "\u{25BE}" }.to_string(),
                                 ),
-                            ];
+                            )
+                            .margin(BoxDimension {
+                                left: Dimension::Pixels(0.),
+                                right: Dimension::Pixels(5. * pt),
+                                top: Dimension::Pixels(0.),
+                                bottom: Dimension::Pixels(0.),
+                            })
+                            .colors(ElementColors {
+                                border: BorderColor::default(),
+                                bg: LinearRgba::TRANSPARENT.into(),
+                                text: dim.mul_alpha(if *active { 0.9 } else { 0.72 }).into(),
+                            }),
+                            Element::new(&font, ElementContent::Text(label_disp)).colors(
+                                ElementColors {
+                                    border: BorderColor::default(),
+                                    bg: LinearRgba::TRANSPARENT.into(),
+                                    text: if *active {
+                                        fg.mul_alpha(0.9).into()
+                                    } else {
+                                        dim.mul_alpha(0.82).into()
+                                    },
+                                },
+                            ),
+                        ];
                         if let Some(context) = context {
+                            let context = crate::termwindow::sidebar_text::ellipsize_middle(
+                                context,
+                                sidebar_cols.saturating_sub(10).max(5),
+                            );
                             header_kids.push(
                                 Element::new(&font, ElementContent::Text(format!("  · {context}")))
                                     .colors(ElementColors {
@@ -910,6 +1081,7 @@ impl crate::TermWindow {
                         );
                         children.push(
                             Element::new(&font, ElementContent::Children(header_kids))
+                                .item_type(UIItemType::LeftTabBarGroup(key.clone()))
                                 .display(DisplayType::Block)
                                 .min_width(Some(Dimension::Percent(1.)))
                                 .margin(BoxDimension {
@@ -937,7 +1109,12 @@ impl crate::TermWindow {
                                         LinearRgba::TRANSPARENT.into()
                                     },
                                     text: dim.mul_alpha(0.72).into(),
-                                }),
+                                })
+                                .hover_colors(Some(ElementColors {
+                                    border: BorderColor::default(),
+                                    bg: hover_bg.into(),
+                                    text: fg.into(),
+                                })),
                         );
                         continue;
                     }
@@ -989,12 +1166,19 @@ impl crate::TermWindow {
                 let primary_text = if let Some(agent) = &row.agent {
                     agent.clone()
                 } else if let Some(fg) = &row.foreground {
-                    fg.clone()
+                    prettify_proc_title(fg)
                 } else if row.title.is_empty() {
                     "shell".to_string()
                 } else {
                     prettify_proc_title(&row.title)
                 };
+                let sidebar_cols = sidebar_text_columns(width, pt);
+                let primary_text = crate::termwindow::sidebar_text::ellipsize_middle(
+                    &primary_text,
+                    sidebar_cols
+                        .saturating_sub(if multi_group { 5 } else { 10 })
+                        .max(8),
+                );
                 // Agent rows carry the agent's accent color on the name in every
                 // state (the wordmark IS the identity); plain shells use full
                 // foreground when active and a dimmed tier otherwise.
@@ -1512,14 +1696,21 @@ impl crate::TermWindow {
 #[cfg(test)]
 mod tests {
     use super::{
-        gutter_limited_width_pts, normalized_project_key, project_parent_hint,
-        scroll_top_after_active_change, scroll_top_for_active, scroll_top_for_delta,
-        scroll_top_for_thumb_top,
+        coherent_visible_indices, gutter_limited_width_pts, normalized_project_key,
+        project_parent_hint, scroll_top_after_active_change, scroll_top_for_active,
+        scroll_top_for_delta, scroll_top_for_thumb_top, sidebar_text_columns,
+        toggle_collapsed_project, DisplayRowKind,
     };
 
     #[test]
     fn scrolls_down_to_keep_active_row_visible() {
         assert_eq!(scroll_top_for_active(0, 10, 4, 9), 6);
+    }
+
+    #[test]
+    fn default_sidebar_budget_keeps_common_process_names_intact() {
+        let pt = 96.0 / 72.0;
+        assert!(sidebar_text_columns(164.0 * pt, pt).saturating_sub(5) >= "powershell".len());
     }
 
     #[test]
@@ -1603,6 +1794,38 @@ mod tests {
             Some("acme".into())
         );
         assert_eq!(project_parent_hint("app"), None);
+    }
+
+    #[test]
+    fn viewport_pins_project_header_when_scrolled_into_its_tabs() {
+        use DisplayRowKind::{GroupHeader as H, Tab as T};
+        let rows = [H, T, T, T, H, T];
+        assert_eq!(coherent_visible_indices(&rows, 2, 3), vec![0, 2, 3]);
+    }
+
+    #[test]
+    fn viewport_does_not_leave_a_header_orphaned_at_bottom() {
+        use DisplayRowKind::{GroupHeader as H, Tab as T};
+        let rows = [H, T, T, H, T, T];
+        assert_eq!(coherent_visible_indices(&rows, 0, 4), vec![0, 1, 2]);
+        assert_eq!(coherent_visible_indices(&rows, 3, 2), vec![3, 4]);
+    }
+
+    #[test]
+    fn viewport_handles_empty_and_tiny_lists_safely() {
+        use DisplayRowKind::GroupHeader as H;
+        assert!(coherent_visible_indices(&[], 99, 4).is_empty());
+        assert!(coherent_visible_indices(&[H], 0, 0).is_empty());
+        assert_eq!(coherent_visible_indices(&[H], 99, 1), vec![0]);
+    }
+
+    #[test]
+    fn collapsed_project_state_toggles_without_affecting_other_projects() {
+        let mut collapsed = std::collections::HashSet::from(["project-a".to_string()]);
+        assert!(!toggle_collapsed_project(&mut collapsed, "project-a"));
+        assert!(toggle_collapsed_project(&mut collapsed, "project-b"));
+        assert!(!collapsed.contains("project-a"));
+        assert!(collapsed.contains("project-b"));
     }
 }
 
