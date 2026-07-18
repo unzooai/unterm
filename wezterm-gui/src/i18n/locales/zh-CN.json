@@ -508,5 +508,11 @@
   "web.review.rollback_confirm": "将 {repo} 回滚到 checkpoint {sha}？工作区里更新的内容会被丢弃。",
   "web.review.clean": "清理",
   "web.review.compare": "对比",
-  "web.review.compare_hint": "对比模式：在左侧选择两个成员，并排查看各自的 diff。"
+  "web.review.compare_hint": "对比模式：在左侧选择两个成员，并排查看各自的 diff。",
+  "web.review.running": "运行中", "web.review.needs_you": "需要你", "web.review.to_review": "待审阅",
+  "web.review.checkpoints": "检查点", "web.review.refresh": "刷新",
+  "web.review.isolated_worktree": "隔离工作树", "web.review.squash_staged": "压缩合并 → 暂存区", "web.review.local_checkpoint": "本地检查点",
+  "web.review.verify": "运行验收", "web.review.retry": "重新验收", "web.review.verifying": "正在启动…",
+  "web.review.verify_passed": "已通过", "web.review.verify_failed": "未通过", "web.review.verify_running": "验收中", "web.review.verify_queued": "排队中", "web.review.verify_timeout": "已超时", "web.review.verify_error": "异常", "web.review.verify_not_run": "未验收",
+  "web.review.verify_command_prompt": "输入验收命令", "web.review.exit_code": "退出码", "web.review.score": "评分", "web.review.rank": "候选排名", "web.review.retry_agent": "重跑 Agent"
 }

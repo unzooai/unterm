@@ -64,6 +64,8 @@ or from the Inbox → *Launch fleet…*: type (or paste) the task, pick a crew p
 
 Fleets persist in `~/.unterm/fleets.json`; a closed pane doesn't lose the work, because the work product lives in the worktree until you review it. `unterm-cli fleet clean <id>` removes worktrees, branches, and panes — refused while members are still pending review, unless you `--force`.
 
+If an attempt fails, `unterm-cli fleet retry --fleet <id> --member <n>` restarts that agent in the same worktree. The branch and every committed, staged, unstaged, and untracked change stay intact; the member records its attempt count and latest launch error.
+
 Launching requires a clean working tree (commit or stash first); Unterm will tell you rather than stash silently.
 
 ## Review — nothing an agent does is untracked
@@ -80,15 +82,19 @@ The **Review page** (Web Settings → Review, or Inbox → *Open review*, or `un
 - **Discard** marks a member's take as rejected.
 - **Roll back** restores a repo's worktree to any checkpoint (destructive for anything newer; double-confirmed).
 - **Compare** puts two members' diffs side by side — the fastest way to judge a `claude` vs `codex` bake-off.
+- **Verify** runs the project's conventional test command (or one you provide) inside that member's isolated worktree. Status, exit code, duration, and a bounded log are persisted in `~/.unterm/verifications.json`.
+- **Rank** scores candidates primarily by verification result, then discounts unusually large change sets. The score is a review aid, never an automatic merge decision.
+- **Merge gate** requires the latest verification to pass. `--force` is available for an explicit audited override.
 
 ```
 unterm-cli review list
 unterm-cli review diff --fleet <id> --member 1
+unterm-cli review verify --fleet <id> --member 1
 unterm-cli review merge --fleet <id> --member 1
 unterm-cli review rollback --repo /path --sha <checkpoint> --yes
 ```
 
-MCP: `review.list`, `review.diff`, `review.rollback`, `review.merge`, `review.discard`. Rollback and merge are audited write operations like every other MCP write.
+MCP: `review.list`, `review.diff`, `review.verify`, `review.rollback`, `review.merge`, `review.discard`, plus `fleet.retry`. Verification, retry, rollback and merge are audited write operations like every other MCP write.
 
 ## MCP & CLI surface
 
@@ -97,10 +103,10 @@ MCP: `review.list`, `review.diff`, `review.rollback`, `review.merge`, `review.di
 | `agent.status` | per-pane agent state (all panes, or one) |
 | `agent.signal` | hook ingestion: `working` / `waiting` / `done` / `idle` (pane defaults to `$WEZTERM_PANE`) |
 | `cockpit.inbox` | everything that wants attention, waiting-first, with tab/window locations |
-| `fleet.launch` / `fleet.list` / `fleet.clean` | run / inspect / retire fleets |
-| `review.list` / `review.diff` / `review.rollback` / `review.merge` / `review.discard` | the review lifecycle |
+| `fleet.launch` / `fleet.list` / `fleet.retry` / `fleet.clean` | run / inspect / retry / retire fleets |
+| `review.list` / `review.diff` / `review.verify` / `review.rollback` / `review.merge` / `review.discard` | verification-gated review lifecycle |
 
-CLI: `unterm-cli agent status|signal|inbox|enable-hooks`, `unterm-cli fleet launch|list|clean`, `unterm-cli review list|diff|merge|discard|rollback|open`. Add `--json` to any of them for machine-readable output.
+CLI: `unterm-cli agent status|signal|inbox|enable-hooks`, `unterm-cli fleet launch|list|retry|clean`, `unterm-cli review list|diff|verify|merge|discard|rollback|open`. Add `--json` to any of them for machine-readable output.
 
 `agent.signal` deserves one note: with several Unterm windows open, pane ids repeat across instances, so the CLI routes each signal to the instance that owns the calling pane via the instance-unique `gui-sock-<pid>` in the pane's inherited environment. Hooks can't mis-report across windows.
 

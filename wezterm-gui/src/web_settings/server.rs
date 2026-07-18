@@ -351,12 +351,19 @@ fn route(req: &Request, auth_token: &str, handler: &McpHandler) -> Response {
             api_session_markdown(handler, p)
         }
         // Agent Cockpit — the Review page.
-        ("GET", "/api/review/overview") => Response::ok_json(crate::cockpit::review::overview()),
+        ("GET", "/api/review/overview") => Response::ok_json(
+            crate::cockpit::verification::enrich_overview(
+                crate::cockpit::observability::enrich_overview(crate::cockpit::review::overview()),
+            ),
+        ),
         ("GET", "/api/review/inbox") => api_review_inbox(),
         ("GET", "/api/review/diff") => api_review_diff(&req.query),
         ("POST", "/api/review/rollback") => api_review_rollback(&req.body),
         ("POST", "/api/review/merge") => api_review_member_action(&req.body, "merge"),
         ("POST", "/api/review/discard") => api_review_member_action(&req.body, "discard"),
+        ("POST", "/api/review/verify") => api_review_verify(&req.body),
+        ("POST", "/api/review/retry") => api_review_retry(&req.body),
+        ("POST", "/api/fleet/retry") => api_fleet_retry(&req.body),
         ("POST", "/api/review/clean") => api_review_clean(&req.body),
         ("GET", "/api/reference") => api_reference(),
         ("GET", "/api/i18n") => api_i18n_state(),
@@ -1340,10 +1347,9 @@ fn api_review_inbox() -> Response {
 }
 
 fn api_review_diff(query: &str) -> Response {
-    let result = if let (Some(fleet_id), Some(member)) = (
-        parse_query(query, "fleet"),
-        parse_query(query, "member"),
-    ) {
+    let result = if let (Some(fleet_id), Some(member)) =
+        (parse_query(query, "fleet"), parse_query(query, "member"))
+    {
         crate::cockpit::fleet::get(&fleet_id)
             .ok_or_else(|| anyhow::anyhow!("no fleet {fleet_id:?}"))
             .and_then(|f| crate::cockpit::fleet::resolve_member(&f, &member))
@@ -1389,13 +1395,56 @@ fn api_review_member_action(body: &[u8], action: &str) -> Response {
     ) else {
         return Response::err(400, "Bad Request", "need fleet_id + member");
     };
+    let force = v.get("force").and_then(|x| x.as_bool()).unwrap_or(false);
     let result = match action {
-        "merge" => crate::cockpit::review::merge_member(fleet, member),
+        "merge" => crate::cockpit::review::merge_member_with_policy(fleet, member, force),
         _ => crate::cockpit::review::discard_member(fleet, member),
     };
     match result {
         Ok(v) => Response::ok_json(v),
         Err(e) => Response::err(500, "Internal Server Error", &format!("{e:#}")),
+    }
+}
+
+fn api_review_verify(body: &[u8]) -> Response {
+    let v: serde_json::Value = match serde_json::from_slice(body) {
+        Ok(v) => v,
+        Err(e) => return Response::err(400, "Bad Request", &format!("bad json: {e}")),
+    };
+    let (Some(fleet), Some(member)) = (
+        v.get("fleet_id").and_then(|x| x.as_str()),
+        v.get("member").and_then(|x| x.as_str()),
+    ) else {
+        return Response::err(400, "Bad Request", "need fleet_id + member");
+    };
+    let command = v.get("command").and_then(|x| x.as_str());
+    let timeout = v.get("timeout_secs").and_then(|x| x.as_u64());
+    match crate::cockpit::verification::verify_member(fleet, member, command, timeout) {
+        Ok(record) => Response::ok_json(serde_json::to_value(record).unwrap_or_default()),
+        Err(e) => Response::err(400, "Bad Request", &format!("{e:#}")),
+    }
+}
+
+fn api_review_retry(body: &[u8]) -> Response {
+    // A verification retry is a fresh immutable record; the previous failure
+    // remains available in verifications.json for audit/history.
+    api_review_verify(body)
+}
+
+fn api_fleet_retry(body: &[u8]) -> Response {
+    let v: serde_json::Value = match serde_json::from_slice(body) {
+        Ok(v) => v,
+        Err(e) => return Response::err(400, "Bad Request", &format!("bad json: {e}")),
+    };
+    let (Some(fleet), Some(member)) = (
+        v.get("fleet_id").and_then(|x| x.as_str()),
+        v.get("member").and_then(|x| x.as_str()),
+    ) else {
+        return Response::err(400, "Bad Request", "need fleet_id + member");
+    };
+    match crate::cockpit::fleet::retry_member(fleet, member) {
+        Ok(member) => Response::ok_json(serde_json::to_value(member).unwrap_or_default()),
+        Err(e) => Response::err(400, "Bad Request", &format!("{e:#}")),
     }
 }
 

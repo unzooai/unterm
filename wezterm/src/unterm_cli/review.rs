@@ -47,6 +47,21 @@ pub enum ReviewSubCommand {
         fleet: String,
         #[arg(long)]
         member: String,
+        /// Override the passed-verification gate. This action is audited.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Run tests/validation for a fleet member asynchronously.
+    Verify {
+        #[arg(long = "fleet")]
+        fleet: String,
+        #[arg(long)]
+        member: String,
+        /// Explicit command; omitted to infer from project markers.
+        #[arg(long)]
+        command: Option<String>,
+        #[arg(long)]
+        timeout_secs: Option<u64>,
     },
     /// Mark a member's work as discarded.
     Discard {
@@ -163,11 +178,11 @@ pub fn run(cmd: ReviewCommand, json_out: bool) -> Result<()> {
                 }
             }
         }
-        ReviewSubCommand::Merge { fleet, member } => {
+        ReviewSubCommand::Merge { fleet, member, force } => {
             let mut client = McpClient::connect()?;
             let result = client.call(
                 "review.merge",
-                serde_json::json!({ "fleet_id": fleet, "member": member }),
+                serde_json::json!({ "fleet_id": fleet, "member": member, "force": force }),
             )?;
             if json_out {
                 print_json(&result);
@@ -179,6 +194,26 @@ pub fn run(cmd: ReviewCommand, json_out: bool) -> Result<()> {
                         .get("staged_in")
                         .and_then(Value::as_str)
                         .unwrap_or("")
+                );
+            }
+        }
+        ReviewSubCommand::Verify { fleet, member, command, timeout_secs } => {
+            let mut client = McpClient::connect()?;
+            let mut params = serde_json::json!({ "fleet_id": fleet, "member": member });
+            if let Some(command) = command {
+                params["command"] = Value::String(command);
+            }
+            if let Some(timeout) = timeout_secs {
+                params["timeout_secs"] = Value::from(timeout);
+            }
+            let result = client.call("review.verify", params)?;
+            if json_out {
+                print_json(&result);
+            } else {
+                println!(
+                    "verification {} queued: {}",
+                    result.get("id").and_then(Value::as_str).unwrap_or("?"),
+                    result.get("command").and_then(Value::as_str).unwrap_or("")
                 );
             }
         }

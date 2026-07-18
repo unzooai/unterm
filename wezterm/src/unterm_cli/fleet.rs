@@ -41,6 +41,13 @@ pub enum FleetSubCommand {
         #[arg(long)]
         force: bool,
     },
+    /// Restart a pending member in its existing worktree, preserving changes.
+    Retry {
+        #[arg(long = "fleet")]
+        fleet: String,
+        #[arg(long)]
+        member: String,
+    },
 }
 
 pub fn run(cmd: FleetCommand, json_out: bool) -> Result<()> {
@@ -131,6 +138,20 @@ pub fn run(cmd: FleetCommand, json_out: bool) -> Result<()> {
                 print_json(&result);
             } else {
                 println!("fleet {id} cleaned");
+            }
+        }
+        FleetSubCommand::Retry { fleet, member } => {
+            let result = client.call(
+                "fleet.retry",
+                serde_json::json!({ "fleet_id": fleet, "member": member }),
+            )?;
+            if json_out {
+                print_json(&result);
+            } else {
+                println!(
+                    "retried member {member} of {fleet} (attempt {})",
+                    result.get("attempt").and_then(Value::as_u64).unwrap_or(0)
+                );
             }
         }
     }

@@ -14,9 +14,7 @@
 use crate::cockpit::{AgentState, PaneAgentStatus};
 use crate::termwindow::box_model::*;
 use crate::termwindow::modal::Modal;
-use crate::termwindow::render::corners::{
-    TOP_LEFT_ROUNDED_CORNER, TOP_RIGHT_ROUNDED_CORNER,
-};
+use crate::termwindow::render::corners::{TOP_LEFT_ROUNDED_CORNER, TOP_RIGHT_ROUNDED_CORNER};
 use crate::termwindow::{DimensionContext, TermWindow, UIItemType};
 use crate::utilsprites::RenderMetrics;
 use config::Dimension;
@@ -25,10 +23,37 @@ use std::cell::RefCell;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use wezterm_term::{KeyCode, KeyModifiers};
-use window::color::LinearRgba;
 use window::WindowOps;
+use window::color::LinearRgba;
 
-const MAX_ROWS: usize = 12;
+const MAX_ROWS: usize = 16;
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+enum InboxFilter {
+    All,
+    Waiting,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct AgentCounts {
+    total: usize,
+    waiting: usize,
+    working: usize,
+    done: usize,
+    idle: usize,
+}
+
+impl AgentCounts {
+    fn record(&mut self, state: AgentState) {
+        self.total += 1;
+        match state {
+            AgentState::WaitingForUser => self.waiting += 1,
+            AgentState::Working => self.working += 1,
+            AgentState::Done => self.done += 1,
+            AgentState::Idle => self.idle += 1,
+        }
+    }
+}
 
 #[derive(Clone)]
 pub enum InboxRow {
@@ -46,39 +71,50 @@ pub struct CockpitInbox {
     element: RefCell<Option<Vec<ComputedElement>>>,
     /// Hash of the agent snapshot the cached element was built from.
     sig: RefCell<u64>,
+    filter: RefCell<InboxFilter>,
+    counts: RefCell<AgentCounts>,
 }
 
-fn snapshot_rows() -> (Vec<InboxRow>, u64) {
+fn snapshot_rows(filter: InboxFilter) -> (Vec<InboxRow>, AgentCounts, u64) {
     let mux = Mux::get();
     let mut hasher = DefaultHasher::new();
-    let mut rows: Vec<InboxRow> = crate::cockpit::snapshot()
-        .into_iter()
-        .take(MAX_ROWS)
-        .map(|status| {
-            status.pane_id.hash(&mut hasher);
-            status.agent.hash(&mut hasher);
-            status.state.as_str().hash(&mut hasher);
-            status.task_hint.hash(&mut hasher);
+    filter.hash(&mut hasher);
+    let mut counts = AgentCounts::default();
+    let mut rows = Vec::new();
+    for status in crate::cockpit::snapshot() {
+        counts.record(status.state);
+        status.pane_id.hash(&mut hasher);
+        status.agent.hash(&mut hasher);
+        status.state.as_str().hash(&mut hasher);
+        status.task_hint.hash(&mut hasher);
+        status.fleet_id.hash(&mut hasher);
+        if (filter == InboxFilter::All || status.state == AgentState::WaitingForUser)
+            && rows.len() < MAX_ROWS
+        {
             let pane_title = mux
                 .get_pane(status.pane_id as mux::pane::PaneId)
                 .map(|p| p.get_title())
                 .unwrap_or_default();
-            InboxRow::Agent { status, pane_title }
-        })
-        .collect();
+            pane_title.hash(&mut hasher);
+            rows.push(InboxRow::Agent { status, pane_title });
+        }
+    }
     rows.push(InboxRow::LaunchFleet);
     rows.push(InboxRow::OpenReview);
-    (rows, hasher.finish())
+    (rows, counts, hasher.finish())
 }
 
 impl CockpitInbox {
     pub fn new() -> Self {
-        let (rows, sig) = snapshot_rows();
+        let filter = InboxFilter::All;
+        let (rows, counts, sig) = snapshot_rows(filter);
         Self {
             rows: RefCell::new(rows),
             selected: RefCell::new(0),
             element: RefCell::new(None),
             sig: RefCell::new(sig),
+            filter: RefCell::new(filter),
+            counts: RefCell::new(counts),
         }
     }
 
@@ -98,6 +134,19 @@ impl CockpitInbox {
         let next = (*sel as isize + delta).rem_euclid(len as isize) as usize;
         *sel = next;
         drop(sel);
+        self.invalidate(term_window);
+    }
+
+    fn set_filter(&self, filter: InboxFilter, term_window: &TermWindow) {
+        if *self.filter.borrow() == filter {
+            return;
+        }
+        *self.filter.borrow_mut() = filter;
+        let (rows, counts, sig) = snapshot_rows(filter);
+        *self.rows.borrow_mut() = rows;
+        *self.counts.borrow_mut() = counts;
+        *self.sig.borrow_mut() = sig;
+        *self.selected.borrow_mut() = 0;
         self.invalidate(term_window);
     }
 
@@ -141,6 +190,29 @@ impl CockpitInbox {
             AgentState::Done => ("\u{2713}", LinearRgba::with_srgba(0x98, 0xc3, 0x79, 0xff)),
             AgentState::Idle => ("\u{00b7}", LinearRgba::with_srgba(0xac, 0xac, 0xa8, 0xff)),
         }
+    }
+
+    fn filtered_summary(counts: AgentCounts, filter: InboxFilter) -> String {
+        let all_marker = if filter == InboxFilter::All {
+            "\u{25cf}"
+        } else {
+            "\u{25cb}"
+        };
+        let waiting_marker = if filter == InboxFilter::Waiting {
+            "\u{25cf}"
+        } else {
+            "\u{25cb}"
+        };
+        format!(
+            "{}  {all_marker} [A] {}  {waiting_marker} [W] {}  |  \u{270b} {}   \u{26a1} {}   \u{2713} {}   \u{00b7} {}",
+            crate::i18n::t("cockpit.inbox_title"),
+            counts.total,
+            crate::i18n::t("cockpit.state_waiting"),
+            counts.waiting,
+            counts.working,
+            counts.done,
+            counts.idle,
+        )
     }
 
     fn row_label(row: &InboxRow) -> String {
@@ -190,15 +262,17 @@ impl CockpitInbox {
         let metrics = RenderMetrics::with_font_metrics(&font.metrics());
         let pt = term_window.dimensions.dpi as f32 / 72.0;
 
-        let bg = LinearRgba::with_srgba(0x2a, 0x2a, 0x2a, 0xff);
+        let bg = LinearRgba::with_srgba(0x17, 0x19, 0x20, 0xfc);
         let fg = LinearRgba::with_srgba(0xf2, 0xf2, 0xf0, 0xff);
-        let dim = LinearRgba::with_srgba(0xac, 0xac, 0xa8, 0xff);
-        let hover_bg = LinearRgba::with_srgba(0x3d, 0x3d, 0x3d, 0xff);
+        let dim = LinearRgba::with_srgba(0x9b, 0xa2, 0xad, 0xff);
+        let hover_bg = LinearRgba::with_srgba(0x25, 0x2d, 0x36, 0xff);
 
         let selected = *self.selected.borrow();
         let rows = self.rows.borrow();
+        let filter = *self.filter.borrow();
+        let counts = *self.counts.borrow();
 
-        let card_width = (520. * pt)
+        let card_width = (640. * pt)
             .min(term_window.dimensions.pixel_width as f32 - 32. * pt)
             .round();
         let row_cols = (((card_width - (2. + 40. * pt)) / metrics.cell_size.width as f32)
@@ -211,12 +285,12 @@ impl CockpitInbox {
         children.push(
             Element::new(
                 &font,
-                ElementContent::Text(crate::i18n::t("cockpit.inbox_title")),
+                ElementContent::Text(Self::filtered_summary(counts, filter)),
             )
             .colors(ElementColors {
                 border: BorderColor::default(),
                 bg: LinearRgba::TRANSPARENT.into(),
-                text: dim.into(),
+                text: LinearRgba::with_srgba(0x6f, 0xcc, 0xb8, 0xff).into(),
             })
             .padding(BoxDimension {
                 left: Dimension::Pixels(12. * pt),
@@ -399,6 +473,16 @@ impl Modal for CockpitInbox {
             }
             (KeyCode::UpArrow, KeyModifiers::NONE) => self.move_selection(-1, term_window),
             (KeyCode::DownArrow, KeyModifiers::NONE) => self.move_selection(1, term_window),
+            (KeyCode::LeftArrow, KeyModifiers::NONE)
+            | (KeyCode::Char('a'), KeyModifiers::NONE)
+            | (KeyCode::Char('A'), KeyModifiers::SHIFT) => {
+                self.set_filter(InboxFilter::All, term_window)
+            }
+            (KeyCode::RightArrow, KeyModifiers::NONE)
+            | (KeyCode::Char('w'), KeyModifiers::NONE)
+            | (KeyCode::Char('W'), KeyModifiers::SHIFT) => {
+                self.set_filter(InboxFilter::Waiting, term_window)
+            }
             (KeyCode::Enter, KeyModifiers::NONE) | (KeyCode::Tab, KeyModifiers::NONE) => {
                 let sel = *self.selected.borrow();
                 self.activate(sel, term_window);
@@ -413,9 +497,10 @@ impl Modal for CockpitInbox {
         term_window: &mut TermWindow,
     ) -> anyhow::Result<std::cell::Ref<[ComputedElement]>> {
         // Live refresh: rebuild when the agent snapshot changed.
-        let (rows, sig) = snapshot_rows();
+        let (rows, counts, sig) = snapshot_rows(*self.filter.borrow());
         if *self.sig.borrow() != sig {
             *self.rows.borrow_mut() = rows;
+            *self.counts.borrow_mut() = counts;
             *self.sig.borrow_mut() = sig;
             let len = self.rows.borrow().len();
             let mut sel = self.selected.borrow_mut();

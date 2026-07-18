@@ -28,6 +28,7 @@ use crate::utilsprites::RenderMetrics;
 use config::ui_tokens;
 use config::{Dimension, DimensionContext};
 use mux::Mux;
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use wezterm_term::color::ColorAttribute;
 use wezterm_term::terminal::Progress;
@@ -104,6 +105,9 @@ struct RowInfo {
     foreground: Option<String>,
     /// Last component of the active pane's working directory.
     dir: Option<String>,
+    /// Full cwd; used as the project identity so equal basenames in different
+    /// parent directories never collapse into the same group.
+    cwd_path: Option<String>,
     /// New output since the tab was last focused — drives the unread dot.
     has_unseen: bool,
     /// Cockpit agent state aggregated across the tab's panes.
@@ -118,8 +122,29 @@ struct RowInfo {
 /// grouped list — except the grouping here is automatic (derived from the
 /// directory each pane is in) rather than something the user has to set up.
 enum DisplayRow {
-    GroupHeader { label: String, count: usize },
+    GroupHeader {
+        label: String,
+        context: Option<String>,
+        count: usize,
+    },
     Tab(RowInfo),
+}
+
+fn project_parent_hint(path: &str) -> Option<String> {
+    let path = std::path::Path::new(path);
+    path.parent()
+        .and_then(|parent| parent.file_name())
+        .map(|name| name.to_string_lossy().to_string())
+        .filter(|name| !name.is_empty())
+}
+
+fn normalized_project_key(path: &str) -> String {
+    let normalized = path.replace('\\', "/").trim_end_matches('/').to_string();
+    if cfg!(windows) {
+        normalized.to_lowercase()
+    } else {
+        normalized
+    }
 }
 
 impl LeftTabBar {
@@ -589,10 +614,14 @@ impl crate::TermWindow {
                     // shows the state, and the cache stays warm.
                     strip_agent_title_prefix(&t).to_string()
                 };
-                let (agent, foreground, dir) = match &pane {
-                    Some(p) => crate::mcp::handler::agent_fg_cwd_for_pane(p.pane_id() as u64),
-                    None => (None, None, None),
+                let (agent, foreground, cwd, cwd_path, project, project_path) = match &pane {
+                    Some(p) => {
+                        crate::mcp::handler::agent_fg_cwd_path_for_pane(p.pane_id() as u64)
+                    }
+                    None => (None, None, None, None, None, None),
                 };
+                let dir = project.or(cwd);
+                let cwd_path = project_path.or(cwd_path);
                 let has_unseen = pane.as_ref().map(|p| p.has_unseen_output()).unwrap_or(false);
                 let progress = pane
                     .as_ref()
@@ -613,6 +642,7 @@ impl crate::TermWindow {
                     agent,
                     foreground,
                     dir,
+                    cwd_path,
                     has_unseen,
                     progress,
                     agent_state,
@@ -653,24 +683,33 @@ impl crate::TermWindow {
         // which each project first appears. A tab with no known cwd falls
         // under "~". Group headers are only emitted when more than one project
         // is open — a single-project window stays a clean flat list.
-        let mut groups: Vec<(String, Vec<&RowInfo>)> = Vec::new();
+        let mut groups: Vec<(String, String, Option<String>, Vec<&RowInfo>)> = Vec::new();
+        let mut group_indices: HashMap<String, usize> = HashMap::new();
         for meta in &metas {
-            let key = meta.dir.as_deref().unwrap_or("~");
-            if let Some((_, members)) = groups.iter_mut().find(|(group, _)| group == key) {
-                members.push(meta);
+            let label = meta.dir.as_deref().unwrap_or("~");
+            let key = normalized_project_key(meta.cwd_path.as_deref().unwrap_or(label));
+            let context = meta.cwd_path.as_deref().and_then(project_parent_hint);
+            if let Some(group_idx) = group_indices.get(&key).copied() {
+                groups[group_idx].3.push(meta);
             } else {
-                groups.push((key.to_string(), vec![meta]));
+                group_indices.insert(key.clone(), groups.len());
+                groups.push((
+                    key,
+                    label.to_string(),
+                    context,
+                    vec![meta],
+                ));
             }
         }
-        let group_order: Vec<String> = groups.iter().map(|(group, _)| group.clone()).collect();
-        let multi_group = group_order.len() > 1;
+        let multi_group = groups.len() > 1;
 
         let mut display: Vec<DisplayRow> = vec![];
         let mut active_pos = 0usize;
-        for (g, members) in groups {
+        for (_, label, context, members) in groups {
             if multi_group {
                 display.push(DisplayRow::GroupHeader {
-                    label: g.clone(),
+                    label,
+                    context,
                     count: members.len(),
                 });
             }
@@ -742,20 +781,25 @@ impl crate::TermWindow {
             visible_rows_sig: visible
                 .iter()
                 .map(|row| match row {
-                    DisplayRow::GroupHeader { label, count } => {
-                        format!("g:{label}:{count}")
+                    DisplayRow::GroupHeader {
+                        label,
+                        context,
+                        count,
+                    } => {
+                        format!("g:{label}:{}:{count}", context.as_deref().unwrap_or(""))
                     }
                     DisplayRow::Tab(row) => format!(
                         // foreground (agent's P3 key) keeps the cache correct
                         // when the running command changes; has_unseen/progress
                         // keep it correct for the unread dot / progress state.
-                        "t:{}:{}:{}:{}:{}:{}:{}:{:?}:{:?}",
+                        "t:{}:{}:{}:{}:{}:{}:{}:{:?}:{:?}:{:?}",
                         row.tab_idx,
                         row.active,
                         row.title,
                         row.agent.as_deref().unwrap_or(""),
                         row.foreground.as_deref().unwrap_or(""),
                         row.dir.as_deref().unwrap_or(""),
+                        row.cwd_path.as_deref().unwrap_or(""),
                         row.has_unseen,
                         row.progress,
                         row.agent_state
@@ -803,7 +847,11 @@ impl crate::TermWindow {
                 // count, on the same row pitch as the tabs so the scroll window
                 // arithmetic stays exact.
                 let row = match disp {
-                    DisplayRow::GroupHeader { label, count } => {
+                    DisplayRow::GroupHeader {
+                        label,
+                        context,
+                        count,
+                    } => {
                         let label_disp = if label.as_str() == "~" {
                             "HOME".to_string()
                         } else {
@@ -812,7 +860,7 @@ impl crate::TermWindow {
                         // Project name on the left; the tab count is demoted to a
                         // faint right-floated number instead of an inline
                         // "LABEL   10" string that read as debug clutter.
-                        let header_kids = vec![
+                        let mut header_kids = vec![
                             Element::new(&font, ElementContent::Text(label_disp)).colors(
                                 ElementColors {
                                     border: BorderColor::default(),
@@ -820,6 +868,21 @@ impl crate::TermWindow {
                                     text: dim.mul_alpha(0.72).into(),
                                 },
                             ),
+                        ];
+                        if let Some(context) = context {
+                            header_kids.push(
+                                Element::new(
+                                    &font,
+                                    ElementContent::Text(format!("  · {context}")),
+                                )
+                                .colors(ElementColors {
+                                    border: BorderColor::default(),
+                                    bg: LinearRgba::TRANSPARENT.into(),
+                                    text: dim.mul_alpha(0.48).into(),
+                                }),
+                            );
+                        }
+                        header_kids.push(
                             Element::new(&font, ElementContent::Text(count.to_string()))
                                 .float(Float::Right)
                                 .colors(ElementColors {
@@ -827,7 +890,7 @@ impl crate::TermWindow {
                                     bg: LinearRgba::TRANSPARENT.into(),
                                     text: dim.mul_alpha(0.4).into(),
                                 }),
-                        ];
+                        );
                         children.push(
                             Element::new(&font, ElementContent::Children(header_kids))
                                 .display(DisplayType::Block)
@@ -1142,10 +1205,34 @@ impl crate::TermWindow {
                     bg: hover_bg.into(),
                     text: fg.into(),
                 }));
+            // Always-visible fuzzy tab/project search. Keeping this in the
+            // fixed footer makes large restored workspaces navigable without
+            // first scrolling through the list.
+            let search_cell = Element::new(&font, ElementContent::Text("⌕".to_string()))
+                .item_type(UIItemType::LeftTabBarSearch)
+                .vertical_align(VerticalAlign::Middle)
+                .float(Float::Right)
+                .min_width(Some(Dimension::Pixels(40. * pt)))
+                .padding(BoxDimension {
+                    left: Dimension::Pixels(btn_pad_h),
+                    right: Dimension::Pixels(btn_pad_h),
+                    top: Dimension::Pixels(btn_pad_v),
+                    bottom: Dimension::Pixels(btn_pad_v),
+                })
+                .colors(ElementColors {
+                    border: BorderColor::default(),
+                    bg: LinearRgba::TRANSPARENT.into(),
+                    text: dim.into(),
+                })
+                .hover_colors(Some(ElementColors {
+                    border: BorderColor::default(),
+                    bg: hover_bg.into(),
+                    text: fg.into(),
+                }));
             children.push(
                 Element::new(
                     &font,
-                    ElementContent::Children(vec![plus_cell, chevron_cell]),
+                    ElementContent::Children(vec![plus_cell, chevron_cell, search_cell]),
                 )
                 .display(DisplayType::Block)
                 .min_width(Some(Dimension::Percent(1.)))
@@ -1364,8 +1451,9 @@ impl crate::TermWindow {
 #[cfg(test)]
 mod tests {
     use super::{
-        gutter_limited_width_pts, scroll_top_after_active_change, scroll_top_for_active,
-        scroll_top_for_delta, scroll_top_for_thumb_top,
+        gutter_limited_width_pts, normalized_project_key, project_parent_hint,
+        scroll_top_after_active_change, scroll_top_for_active, scroll_top_for_delta,
+        scroll_top_for_thumb_top,
     };
 
     #[test]
@@ -1439,6 +1527,18 @@ mod tests {
             gutter_limited_width_pts(1000.0, 260.0, None, 112.0, 112.0, 0.42),
             260.0
         );
+    }
+
+    #[test]
+    fn project_keys_normalize_separators_and_trailing_slashes() {
+        let key = normalized_project_key("D:\\code\\unterm\\");
+        assert_eq!(key.replace("d:", "D:"), "D:/code/unterm");
+    }
+
+    #[test]
+    fn project_header_disambiguates_with_parent_directory() {
+        assert_eq!(project_parent_hint("D:/clients/acme/app"), Some("acme".into()));
+        assert_eq!(project_parent_hint("app"), None);
     }
 }
 

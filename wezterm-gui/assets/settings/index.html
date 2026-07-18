@@ -455,16 +455,30 @@
 
         <!-- ============ MCP (Trust + Audit) ============ -->
         <!-- Agent Cockpit: Review -->
-        <div x-show="active==='review'">
-          <h2 class="text-xl font-semibold" x-text="t('web.review.title')"></h2>
-          <p class="mt-1 text-sm text-notion-muted" x-text="t('web.review.subtitle')"></p>
+        <div x-show="active==='review'" class="cockpit-page">
+          <div class="cockpit-hero">
+            <div>
+              <div class="cockpit-eyebrow">AGENT COCKPIT / REVIEW</div>
+              <h2 class="mt-2 text-3xl font-semibold tracking-tight" x-text="t('web.review.title')"></h2>
+              <p class="mt-2 max-w-2xl text-sm text-notion-muted" x-text="t('web.review.subtitle')"></p>
+            </div>
+            <button class="cockpit-refresh" @click="loadReview()" :disabled="review.busy" :title="t('web.review.refresh')">
+              <span :class="review.busy ? 'animate-spin' : ''">&#8635;</span>
+            </button>
+          </div>
+          <div class="cockpit-metrics">
+            <div class="cockpit-metric"><span class="cockpit-metric-dot is-blue"></span><strong x-text="reviewStats.active"></strong><span x-text="t('web.review.running')"></span></div>
+            <div class="cockpit-metric"><span class="cockpit-metric-dot is-amber"></span><strong x-text="reviewStats.waiting"></strong><span x-text="t('web.review.needs_you')"></span></div>
+            <div class="cockpit-metric"><span class="cockpit-metric-dot is-violet"></span><strong x-text="reviewStats.pending"></strong><span x-text="t('web.review.to_review')"></span></div>
+            <div class="cockpit-metric"><span class="cockpit-metric-dot is-teal"></span><strong x-text="reviewStats.checkpoints"></strong><span x-text="t('web.review.checkpoints')"></span></div>
+          </div>
           <p x-show="review.error" class="mt-3 rounded-md border border-rose-800 bg-rose-950/40 px-3 py-2 text-sm text-rose-300" x-text="review.error"></p>
 
-          <div class="mt-6 grid grid-cols-12 gap-6">
+          <div class="mt-6 grid grid-cols-12 gap-5">
             <!-- Left: fleets + checkpoints -->
             <div class="col-span-4 space-y-4">
               <template x-for="f in review.fleets" :key="f.id">
-                <div class="rounded-lg border border-notion-border bg-notion-surface p-3">
+                <div class="cockpit-fleet-card">
                   <div class="flex items-center justify-between">
                     <span class="font-mono text-sm text-notion-teal" x-text="'⛵ ' + f.id"></span>
                     <span class="flex gap-1">
@@ -483,9 +497,15 @@
                     </span>
                   </div>
                   <p class="mt-1 truncate text-xs text-notion-muted" :title="f.task" x-text="f.task"></p>
+                  <div class="mt-2 flex items-center gap-2 font-mono text-[10px] uppercase tracking-wider text-notion-faint">
+                    <span x-text="f.base_branch"></span><span>&middot;</span><span x-text="reviewAge(f.created_at)"></span>
+                  </div>
                   <ul class="mt-2 space-y-1">
                     <template x-for="m in f.members" :key="m.branch">
-                      <li>
+                      <li
+                        class="cockpit-member"
+                        :class="'is-verify-' + reviewVerificationStatus(m)"
+                      >
                         <button
                           class="flex w-full items-center justify-between rounded px-2 py-1 text-left text-sm transition hover:bg-notion-sunken"
                           :class="{
@@ -494,7 +514,14 @@
                           }"
                           @click="review.compareFleet===f.id ? reviewComparePick(f.id, m.n) : reviewSelect('member', f.id, m.n)"
                         >
-                          <span class="flex items-center gap-2">
+                          <span class="flex min-w-0 items-center gap-2">
+                            <span
+                              x-show="m.rank"
+                              class="cockpit-rank"
+                              :class="Number(m.rank)===1 ? 'is-first' : ''"
+                              :title="t('web.review.rank')"
+                              x-text="'#' + m.rank"
+                            ></span>
                             <span x-text="'#' + m.n + ' ' + m.agent"></span>
                             <span
                               class="rounded px-1 text-[10px] uppercase"
@@ -517,6 +544,65 @@
                             x-text="m.review"
                           ></span>
                         </button>
+                        <div class="flex items-center gap-2 px-2 pt-1 font-mono text-[10px] text-notion-faint">
+                          <span x-text="reviewDuration(m.elapsed_seconds)"></span>
+                          <span x-show="m.metrics_pending" class="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-notion-blue"></span>
+                          <template x-if="!m.metrics_pending && m.changed_files !== undefined">
+                            <span class="flex items-center gap-1.5">
+                              <span x-text="m.changed_files + ' ' + t('web.review.files_changed')"></span>
+                              <span class="text-emerald-400" x-text="'+' + m.additions"></span>
+                              <span class="text-rose-400" x-text="'-' + m.deletions"></span>
+                              <span x-show="m.ahead_commits" x-text="'↑' + m.ahead_commits"></span>
+                            </span>
+                          </template>
+                          <span x-show="m.worktree_health && m.worktree_health !== 'healthy'" class="ml-auto text-rose-400" x-text="m.worktree_health"></span>
+                        </div>
+                        <div class="cockpit-verification">
+                          <div class="cockpit-verification-head">
+                            <span
+                              class="cockpit-verify-badge"
+                              :class="'is-' + reviewVerificationStatus(m)"
+                            >
+                              <span class="cockpit-verify-dot"></span>
+                              <span x-text="reviewVerificationLabel(m)"></span>
+                            </span>
+                            <span x-show="m.score !== undefined && m.score !== null" class="cockpit-score">
+                              <span x-text="t('web.review.score')"></span>
+                              <strong x-text="m.score"></strong>
+                            </span>
+                            <span x-show="reviewVerificationDuration(m)" class="ml-auto font-mono text-[10px] text-notion-faint" x-text="reviewVerificationDuration(m)"></span>
+                          </div>
+                          <div x-show="reviewVerification(m).command" class="cockpit-verify-command" :title="reviewVerification(m).command" x-text="reviewVerification(m).command"></div>
+                          <div x-show="reviewVerificationSummary(m)" class="cockpit-verify-summary" :title="reviewVerificationSummary(m)" x-text="reviewVerificationSummary(m)"></div>
+                          <div class="mt-2 flex items-center gap-2">
+                            <button
+                              x-show="['not_run','error'].includes(reviewVerificationStatus(m))"
+                              class="cockpit-verify-action"
+                              :disabled="reviewVerifying(f.id, m.n)"
+                              @click.stop="reviewVerify(f.id, m.n, false)"
+                              x-text="reviewVerifying(f.id, m.n) ? t('web.review.verifying') : t('web.review.verify')"
+                            ></button>
+                            <button
+                              x-show="['failed','timeout','passed'].includes(reviewVerificationStatus(m))"
+                              class="cockpit-verify-action is-retry"
+                              :disabled="reviewVerifying(f.id, m.n)"
+                              @click.stop="reviewVerify(f.id, m.n, true)"
+                              x-text="reviewVerifying(f.id, m.n) ? t('web.review.verifying') : t('web.review.retry')"
+                            ></button>
+                            <button
+                              x-show="m.review==='pending' && (['failed','timeout'].includes(reviewVerificationStatus(m)) || m.last_launch_error)"
+                              class="cockpit-verify-action is-agent-retry"
+                              :disabled="reviewVerifying(f.id, m.n)"
+                              @click.stop="reviewRetryAgent(f.id, m.n)"
+                              x-text="t('web.review.retry_agent')"
+                            ></button>
+                            <span
+                              x-show="reviewVerification(m).exit_code !== undefined && reviewVerification(m).exit_code !== null"
+                              class="font-mono text-[10px] text-notion-faint"
+                              x-text="t('web.review.exit_code') + ' ' + reviewVerification(m).exit_code"
+                            ></span>
+                          </div>
+                        </div>
                       </li>
                     </template>
                   </ul>
@@ -551,7 +637,7 @@
             </div>
 
             <!-- Right: diff viewer -->
-            <div class="col-span-8">
+            <div class="col-span-8 cockpit-diff-stage">
               <div x-show="review.busy" class="text-sm text-notion-muted">…</div>
               <template x-if="review.compareFleet && !(review.cmpA && review.cmpB)">
                 <p class="text-sm text-notion-muted" x-text="t('web.review.compare_hint')"></p>
@@ -561,7 +647,7 @@
                   <template x-for="side in [review.cmpA, review.cmpB]" :key="side.member">
                     <div>
                       <div class="mb-2 flex items-center justify-between">
-                        <span class="font-mono text-sm text-notion-teal" x-text="'#' + side.member"></span>
+                        <span class="font-mono text-sm text-notion-teal" x-text="'#' + side.member + ' / ' + side.agent"></span>
                         <span class="text-xs text-notion-muted">
                           <span x-text="(side.diff.files || []).length"></span>
                           <span x-text="t('web.review.files_changed')"></span>
@@ -591,7 +677,8 @@
                     <div class="flex gap-2">
                       <template x-if="review.sel && review.sel.kind==='member'">
                         <button
-                          class="rounded-md bg-emerald-700 px-3 py-1 text-sm text-white hover:bg-emerald-600"
+                          class="rounded-md bg-emerald-700 px-3 py-1 text-sm text-white hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-40"
+                          :disabled="reviewVerificationStatus(reviewMember(review.sel.a, review.sel.b)) !== 'passed'"
                           @click="reviewMerge(review.sel.a, review.sel.b)"
                           x-text="t('web.review.merge')"
                         ></button>
@@ -611,6 +698,12 @@
                         ></button>
                       </template>
                     </div>
+                  </div>
+                  <div x-show="review.sel" class="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-notion-border bg-notion-bg/40 px-3 py-2 font-mono text-[10px] text-notion-faint">
+                    <span x-show="review.sel && review.sel.kind==='member'" x-text="t('web.review.isolated_worktree')"></span>
+                    <span x-show="review.sel && review.sel.kind==='member'" class="text-notion-teal" x-text="t('web.review.squash_staged')"></span>
+                    <span x-show="review.sel && review.sel.kind==='checkpoint'" x-text="t('web.review.local_checkpoint')"></span>
+                    <span class="ml-auto" x-text="review.sel && String(review.sel.b).slice(0,12)"></span>
                   </div>
                   <ul class="mb-3 space-y-0.5">
                     <template x-for="fch in review.diff.files || []" :key="fch.path">

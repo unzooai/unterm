@@ -39,6 +39,28 @@ pub struct LauncherTabEntry {
     pub title: String,
     pub tab_idx: usize,
     pub pane_count: Option<usize>,
+    pub agent: Option<String>,
+    pub foreground: Option<String>,
+    pub cwd: Option<String>,
+}
+
+fn format_tab_entry_label(tab: &LauncherTabEntry) -> String {
+    let identity = tab
+        .agent
+        .as_deref()
+        .or(tab.foreground.as_deref())
+        .unwrap_or(&tab.title);
+    let location = tab
+        .cwd
+        .as_deref()
+        .map(|cwd| format!(" [{cwd}]"))
+        .unwrap_or_default();
+    let panes = tab
+        .pane_count
+        .filter(|count| *count > 1)
+        .map(|count| format!(" · {count} panes"))
+        .unwrap_or_default();
+    format!("{}  {}{}{}", tab.tab_idx + 1, identity, location, panes)
 }
 
 #[derive(Debug)]
@@ -98,17 +120,23 @@ impl LauncherArgs {
                 .enumerate()
                 .map(|(tab_idx, tab)| {
                     let tab_title = tab.get_title();
+                    let pane = tab.get_active_pane().expect("tab to have a pane");
                     let title = if tab_title.is_empty() {
-                        tab.get_active_pane()
-                            .expect("tab to have a pane")
-                            .get_title()
+                        pane.get_title()
                     } else {
                         tab_title
                     };
+                    let (agent, foreground, cwd, cwd_path, project, project_path) =
+                        crate::mcp::handler::agent_fg_cwd_path_for_pane(
+                            pane.pane_id() as u64,
+                        );
                     LauncherTabEntry {
                         title,
                         tab_idx,
                         pane_count: tab.count_panes(),
+                        agent,
+                        foreground,
+                        cwd: project_path.or(cwd_path).or(project).or(cwd),
                     }
                 })
                 .collect()
@@ -296,10 +324,7 @@ impl LauncherState {
 
         for tab in &args.tabs {
             self.entries.push(Entry {
-                label: match tab.pane_count {
-                    Some(pane_count) => format!("{}. {pane_count} panes", tab.title),
-                    None => format!("{}.", tab.title),
-                },
+                label: format_tab_entry_label(tab),
                 action: KeyAssignment::ActivateTab(tab.tab_idx as isize),
             });
         }
@@ -675,4 +700,25 @@ pub fn launcher(
     state.update_filter();
     state.render(&mut term)?;
     state.run_loop(&mut term)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{format_tab_entry_label, LauncherTabEntry};
+
+    #[test]
+    fn searchable_tab_label_contains_identity_path_and_number() {
+        let entry = LauncherTabEntry {
+            title: "PowerShell".into(),
+            tab_idx: 6,
+            pane_count: Some(2),
+            agent: Some("Codex".into()),
+            foreground: None,
+            cwd: Some("D:/code/unterm".into()),
+        };
+        assert_eq!(
+            format_tab_entry_label(&entry),
+            "7  Codex [D:/code/unterm] · 2 panes"
+        );
+    }
 }

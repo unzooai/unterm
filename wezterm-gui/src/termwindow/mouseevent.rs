@@ -179,6 +179,7 @@ impl super::TermWindow {
             | UIItemType::LeftTabBarBg
             | UIItemType::QuickAction(_)
             | UIItemType::NewTabShellSelector
+            | UIItemType::LeftTabBarSearch
             | UIItemType::LeftTabBarAuthorLink
             | UIItemType::PopupMenuCard => {}
         }
@@ -222,6 +223,7 @@ impl super::TermWindow {
             | UIItemType::LeftTabBarBg
             | UIItemType::QuickAction(_)
             | UIItemType::NewTabShellSelector
+            | UIItemType::LeftTabBarSearch
             | UIItemType::LeftTabBarAuthorLink
             | UIItemType::PopupMenuCard => {}
         }
@@ -928,6 +930,11 @@ impl super::TermWindow {
             UIItemType::NewTabShellSelector => {
                 if let WMEK::Press(MousePress::Left) = event.kind {
                     self.show_shell_selector();
+                }
+            }
+            UIItemType::LeftTabBarSearch => {
+                if let WMEK::Press(MousePress::Left) = event.kind {
+                    self.show_tab_navigator();
                 }
             }
             UIItemType::LeftTabBarAuthorLink => {
@@ -2465,11 +2472,10 @@ impl crate::TermWindow {
 
                 // Unterm: intercept right-click for native context menu
                 // before the input_map can handle it (WezTerm default: paste)
-                #[cfg(windows)]
                 if !pane.is_mouse_grabbed() {
                     if let WMEK::Press(MousePress::Right) = &event.kind {
                         log::info!("Unterm: right-click detected, showing context menu");
-                        self.show_context_menu();
+                        self.right_click_copy_or_paste(&pane);
                         context.invalidate();
                         return;
                     }

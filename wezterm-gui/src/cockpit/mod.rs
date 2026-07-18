@@ -9,9 +9,11 @@
 //! MCP — reads from this registry and never probes panes itself.
 
 pub mod fleet;
+pub mod observability;
 pub mod review;
 pub mod status;
 pub mod title;
+pub mod verification;
 
 pub use status::{
     on_bell, on_hook_signal, on_notification, on_progress, on_title_change, on_user_input, poll,

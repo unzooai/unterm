@@ -247,5 +247,11 @@
   "web.review.rollback_confirm": "Riportare {repo} al checkpoint {sha}? Tutto ciò che è più recente andrà perso.",
   "web.review.clean": "pulisci",
   "web.review.compare": "confronta",
-  "web.review.compare_hint": "Modalità confronto: scegli due membri a sinistra per vedere i diff affiancati."
+  "web.review.compare_hint": "Modalità confronto: scegli due membri a sinistra per vedere i diff affiancati.",
+  "web.review.running": "in esecuzione", "web.review.needs_you": "richiede attenzione", "web.review.to_review": "da revisionare",
+  "web.review.checkpoints": "checkpoint", "web.review.refresh": "Aggiorna",
+  "web.review.isolated_worktree": "worktree isolato", "web.review.squash_staged": "merge squash → staged", "web.review.local_checkpoint": "checkpoint locale",
+  "web.review.verify": "Avvia verifica", "web.review.retry": "Verifica di nuovo", "web.review.verifying": "Avvio…",
+  "web.review.verify_passed": "superata", "web.review.verify_failed": "fallita", "web.review.verify_running": "verifica", "web.review.verify_queued": "in coda", "web.review.verify_timeout": "tempo scaduto", "web.review.verify_error": "errore", "web.review.verify_not_run": "non verificata",
+  "web.review.verify_command_prompt": "Comando di verifica", "web.review.exit_code": "uscita", "web.review.score": "punteggio", "web.review.rank": "Classifica candidato", "web.review.retry_agent": "Riavvia agent"
 }

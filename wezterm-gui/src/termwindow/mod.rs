@@ -269,6 +269,8 @@ pub enum UIItemType {
     },
     /// The left tab bar's background (swallows clicks, accepts wheel).
     LeftTabBarBg,
+    /// Search all tabs/projects with the fuzzy tab navigator.
+    LeftTabBarSearch,
     /// The tree sidebar's header (root name); click re-anchors the root to
     /// the active pane's cwd.
     TreeSidebarHeader,
@@ -3028,22 +3030,28 @@ impl TermWindow {
     /// Selector) are reached via the status bar buttons, the OS app menu bar,
     /// and keyboard shortcuts — never by right-click.
     fn show_context_menu(&mut self) {
+        let Some(pane) = self.get_active_pane_or_overlay() else {
+            return;
+        };
+        self.right_click_copy_or_paste(&pane);
+    }
+
+    /// Run the right-click action against the pane that was actually clicked.
+    /// This matters for split layouts: the active-pane snapshot can lag the
+    /// mouse press, which previously made copy/paste appear to do nothing (or
+    /// act on the neighboring split).
+    pub(crate) fn right_click_copy_or_paste(&mut self, pane: &Arc<dyn Pane>) {
         use config::keyassignment::{
             ClipboardCopyDestination, ClipboardPasteSource, KeyAssignment,
         };
-
-        let pane = match self.get_active_pane_or_overlay() {
-            Some(pane) => pane,
-            None => return,
-        };
-        let has_selection = !self.selection_text(&pane).is_empty();
+        let has_selection = !self.selection_text(pane).is_empty();
 
         let assignment = if has_selection {
             KeyAssignment::CopyTo(ClipboardCopyDestination::Clipboard)
         } else {
             KeyAssignment::PasteFrom(ClipboardPasteSource::Clipboard)
         };
-        if let Err(err) = self.perform_key_assignment(&pane, &assignment) {
+        if let Err(err) = self.perform_key_assignment(pane, &assignment) {
             log::warn!("right-click quick-action failed: {err:#}");
         }
         if has_selection {
@@ -4056,7 +4064,7 @@ impl TermWindow {
         promise::spawn::spawn(future).detach();
     }
 
-    fn show_tab_navigator(&mut self) {
+    pub(crate) fn show_tab_navigator(&mut self) {
         let mux = Mux::get();
         let active_tab_idx = match mux.get_window(self.mux_window_id) {
             Some(mux_window) => mux_window.get_active_idx(),
@@ -4065,9 +4073,11 @@ impl TermWindow {
         let title = "Tab Navigator".to_string();
         let args = LauncherActionArgs {
             title: Some(title),
-            flags: LauncherFlags::TABS,
-            help_text: None,
-            fuzzy_help_text: None,
+            flags: LauncherFlags::TABS | LauncherFlags::FUZZY,
+            help_text: Some(
+                "Type a project, path, agent or command · Enter=switch · Esc=cancel".to_string(),
+            ),
+            fuzzy_help_text: Some("Find window: ".to_string()),
             alphabet: None,
         };
         self.show_launcher_impl(args, active_tab_idx);
@@ -4484,7 +4494,7 @@ impl TermWindow {
             ToggleTreeSidebar => self.toggle_tree_sidebar(),
             ToggleGitPanel => self.toggle_git_panel(),
             ToggleLeftTabBar => self.toggle_left_tab_bar(),
-            ShowContextMenu => self.show_context_menu(),
+            ShowContextMenu => self.right_click_copy_or_paste(pane),
             ToggleSessionRecording => self.toggle_session_recording(pane.pane_id()),
             ExportSessionMarkdown => self.export_current_session(pane.pane_id()),
             CaptureScrollbackPng => mouseevent::capture_scrollback_and_announce(pane),

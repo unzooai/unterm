@@ -724,6 +724,11 @@ struct PaneAgentCwd {
     /// costs nothing extra and is refreshed on the same worker thread.
     foreground: Option<String>,
     cwd: Option<String>,
+    /// Full cwd used to disambiguate projects that share the same basename.
+    cwd_path: Option<String>,
+    /// Stable repository/workspace root derived off the render thread.
+    project: Option<String>,
+    project_path: Option<String>,
 }
 
 /// Executable base names we treat as "the shell itself" — when the pane's
@@ -821,6 +826,42 @@ pub fn agent_fg_cwd_for_pane(
     (v.agent, v.foreground, v.cwd)
 }
 
+/// Non-blocking sidebar metadata including the full cwd.  The shorter helper
+/// above is kept for existing status surfaces that only have room for a
+/// basename.
+pub fn agent_fg_cwd_path_for_pane(
+    pane_id: u64,
+) -> (
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+) {
+    let v = agent_fg_cwd_for_pane_inner(pane_id);
+    (
+        v.agent,
+        v.foreground,
+        v.cwd,
+        v.cwd_path,
+        v.project,
+        v.project_path,
+    )
+}
+
+fn project_root_for_path(path: &std::path::Path) -> std::path::PathBuf {
+    for ancestor in path.ancestors() {
+        if ancestor.join(".git").exists()
+            || ancestor.join(".hg").exists()
+            || ancestor.join(".svn").exists()
+        {
+            return ancestor.to_path_buf();
+        }
+    }
+    path.to_path_buf()
+}
+
 fn agent_fg_cwd_for_pane_inner(pane_id: u64) -> PaneAgentCwd {
     let (cached, need_refresh) = {
         let mut cache = agent_cwd_cache().lock();
@@ -885,20 +926,36 @@ fn compute_agent_cwd(pane_id: u64) -> PaneAgentCwd {
     } else {
         proc_info.as_ref().and_then(foreground_command_title)
     };
-    let cwd = pane
+    let cwd_path_buf = pane
         .get_current_working_dir(mux::pane::CachePolicy::AllowStale)
-        .and_then(|url| url.to_file_path().ok())
-        .and_then(|p| {
-            if dirs_next::home_dir().as_deref() == Some(p.as_path()) {
-                Some("~".to_string())
-            } else {
-                p.file_name().map(|n| n.to_string_lossy().to_string())
-            }
-        });
+        .and_then(|url| url.to_file_path().ok());
+    let cwd_path = cwd_path_buf
+        .as_ref()
+        .map(|p| p.to_string_lossy().to_string());
+    let cwd = cwd_path.as_ref().and_then(|path| {
+        let p = std::path::Path::new(path);
+        if dirs_next::home_dir().as_deref() == Some(p) {
+            Some("~".to_string())
+        } else {
+            p.file_name().map(|n| n.to_string_lossy().to_string())
+        }
+    });
+    let project_path_buf = cwd_path_buf.as_deref().map(project_root_for_path);
+    let project = project_path_buf.as_ref().and_then(|path| {
+        if dirs_next::home_dir().as_deref() == Some(path.as_path()) {
+            Some("~".to_string())
+        } else {
+            path.file_name().map(|name| name.to_string_lossy().to_string())
+        }
+    });
+    let project_path = project_path_buf.map(|path| path.to_string_lossy().to_string());
     PaneAgentCwd {
         agent,
         foreground,
         cwd,
+        cwd_path,
+        project,
+        project_path,
     }
 }
 
@@ -1173,8 +1230,12 @@ impl McpHandler {
             "fleet.launch" => self.fleet_launch(params),
             "fleet.list" => Ok(json!({ "fleets": crate::cockpit::review::overview()["fleets"] })),
             "fleet.clean" => self.fleet_clean(params),
-            "review.list" => Ok(crate::cockpit::review::overview()),
+            "fleet.retry" => self.fleet_retry(params),
+            "review.list" => Ok(crate::cockpit::verification::enrich_overview(
+                crate::cockpit::observability::enrich_overview(crate::cockpit::review::overview()),
+            )),
             "review.diff" => self.review_diff(params),
+            "review.verify" => self.review_verify(params),
             "review.rollback" => self.review_rollback(params),
             "review.merge" => self.review_merge(params),
             "review.discard" => self.review_discard(params),
@@ -2434,6 +2495,42 @@ impl McpHandler {
         Ok(json!({ "ok": true, "id": id }))
     }
 
+    fn fleet_retry(&self, params: &Value) -> Result<Value> {
+        let fleet_id = params
+            .get("fleet_id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing 'fleet_id'"))?;
+        let member = params
+            .get("member")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing 'member'"))?;
+        let retried = crate::cockpit::fleet::retry_member(fleet_id, member)?;
+        self.audit("fleet.retry", None, &format!("fleet={fleet_id} member={member}"));
+        Ok(serde_json::to_value(retried)?)
+    }
+
+    fn review_verify(&self, params: &Value) -> Result<Value> {
+        let fleet_id = params
+            .get("fleet_id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing 'fleet_id'"))?;
+        let member = params
+            .get("member")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing 'member'"))?;
+        let command = params.get("command").and_then(|v| v.as_str());
+        let timeout = params.get("timeout_secs").and_then(|v| v.as_u64());
+        let record = crate::cockpit::verification::verify_member(
+            fleet_id, member, command, timeout,
+        )?;
+        self.audit(
+            "review.verify",
+            None,
+            &format!("fleet={fleet_id} member={member} command={}", record.command),
+        );
+        Ok(serde_json::to_value(record)?)
+    }
+
     fn review_diff(&self, params: &Value) -> Result<Value> {
         // Either (fleet_id, member) or (repo, from).
         if let Some(fleet_id) = params.get("fleet_id").and_then(|v| v.as_str()) {
@@ -2480,11 +2577,12 @@ impl McpHandler {
             .get("member")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing 'member'"))?;
-        let out = crate::cockpit::review::merge_member(fleet_id, member)?;
+        let force = params.get("force").and_then(|v| v.as_bool()).unwrap_or(false);
+        let out = crate::cockpit::review::merge_member_with_policy(fleet_id, member, force)?;
         self.audit(
             "review.merge",
             None,
-            &format!("fleet={fleet_id} member={member}"),
+            &format!("fleet={fleet_id} member={member} force={force}"),
         );
         Ok(out)
     }
