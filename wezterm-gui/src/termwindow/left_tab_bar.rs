@@ -657,7 +657,7 @@ impl crate::TermWindow {
         // row gets only a whisper of fill. Keeping hover well below the
         // selected fill means a hover that lingers under the cursor after a
         // keyboard tab-switch can never be mistaken for a second selection.
-        let hover_bg = chrome_colors::mix(bar_bg, fg, if is_light { 0.07 } else { 0.045 });
+        let hover_bg = chrome.hover_bg;
 
         // Snapshot just the tab handles (cheap Arc clones) and the active
         // index. The expensive per-tab metadata (title / agent detection /
@@ -997,9 +997,9 @@ impl crate::TermWindow {
                         collapsed,
                     } => {
                         let raw_label = if label.as_str() == "~" {
-                            "HOME".to_string()
+                            "Home".to_string()
                         } else {
-                            label.to_uppercase()
+                            label.to_string()
                         };
                         let sidebar_cols = sidebar_text_columns(width, pt);
                         let label_disp = crate::termwindow::sidebar_text::ellipsize_middle(
@@ -1099,12 +1099,7 @@ impl crate::TermWindow {
                                 .colors(ElementColors {
                                     border: BorderColor::default(),
                                     bg: if *active {
-                                        chrome_colors::mix(
-                                            bar_bg,
-                                            fg,
-                                            if is_light { 0.035 } else { 0.025 },
-                                        )
-                                        .into()
+                                        chrome.group_bg.into()
                                     } else {
                                         LinearRgba::TRANSPARENT.into()
                                     },
@@ -1311,28 +1306,14 @@ impl crate::TermWindow {
                 // No inline close button — Warp's vertical-tab rows have none;
                 // closing is via the right-click context menu.
 
-                // Active row carries TWO distinct cues: a stronger neutral fill
-                // AND a saturated left accent bar (the agent's color for AI
-                // panes, a neutral foreground tint for plain shells). Hover, by
-                // contrast, is only a faint fill with no bar — so an active row
-                // never reads the same as a merely-hovered one. This is what
-                // keeps a lingering hover from looking like a second selection.
-                // Accent: agent panes carry the agent's color (bright cyan);
-                // plain shells carry the theme's bright-blue (ANSI 12). Both are
-                // real hues from the user's palette — a grey cursor-white or a
-                // dimmed foreground is exactly what made the active tab read as
-                // a lifeless grey slab. Blue stays distinct from the agent cyan.
-                let accent = if row.agent.is_some() {
-                    agent_color
-                } else {
-                    palette
-                        .resolve_fg(ColorAttribute::PaletteIndex(12))
-                        .to_linear()
-                };
+                // Active rows carry two distinct cues: a restrained fill and a
+                // crisp 2px Signal Jade focus rail. Hover is only a faint fill
+                // with no rail, so it cannot be mistaken for a second selection.
+                // The shared brand rail keeps selection identity stable across
+                // every theme without tinting the entire row.
+                let accent = chrome.focus_rail;
                 let row_bg = if row.active {
-                    // Tie the active fill to the accent so the selection reads
-                    // as an intentional colored panel item, not a grey block.
-                    chrome_colors::mix(sel_bg, accent, if is_light { 0.07 } else { 0.09 })
+                    chrome_colors::mix(sel_bg, accent, if is_light { 0.015 } else { 0.025 })
                 } else {
                     LinearRgba::TRANSPARENT
                 };
@@ -1364,7 +1345,7 @@ impl crate::TermWindow {
                             bottom: Dimension::Pixels(0.),
                         })
                         .border(BoxDimension {
-                            left: Dimension::Pixels(3. * pt),
+                            left: Dimension::Pixels(2. * pt),
                             right: Dimension::Pixels(0.),
                             top: Dimension::Pixels(0.),
                             bottom: Dimension::Pixels(0.),
@@ -1404,7 +1385,7 @@ impl crate::TermWindow {
             let compact_footer = width / pt <= 150.;
             let btn_pad_h = if compact_footer { 5. * pt } else { 9. * pt };
             let btn_min_w = if compact_footer { 28. * pt } else { 34. * pt };
-            let footer_bg = chrome_colors::mix(bar_bg, fg, if is_light { 0.035 } else { 0.025 });
+            let footer_bg = chrome.footer_bg;
             let plus_cell = Element::new(&font, ElementContent::Text("+".to_string()))
                 .item_type(UIItemType::TabBar(crate::tabbar::TabBarItem::NewTabButton))
                 .vertical_align(VerticalAlign::Middle)

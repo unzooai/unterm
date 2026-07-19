@@ -7,6 +7,9 @@ pub struct SidebarChromeColors {
     pub dim_text: LinearRgba,
     pub hover_bg: LinearRgba,
     pub selected_bg: LinearRgba,
+    pub group_bg: LinearRgba,
+    pub footer_bg: LinearRgba,
+    pub focus_rail: LinearRgba,
     pub is_light: bool,
 }
 
@@ -26,41 +29,39 @@ pub fn is_light_surface(bg: LinearRgba) -> bool {
 
 pub fn sidebar(bg: LinearRgba, fg: LinearRgba) -> SidebarChromeColors {
     let is_light = is_light_surface(bg);
-    // Scheme A "layered neutral": the chrome (top bar + sidebar + bottom bar)
-    // shares ONE clearly-lifted tone so it reads as a continuous frame around
-    // the darker content, and the sidebar↔bar corners meet seamlessly. The
-    // previous near-zero lift (0.028) left the sidebar a different tone than
-    // the content-coloured bars, which made those corners read as a clash.
+    // Chrome should frame the terminal rather than become a large grey slab.
+    // Linear-light mixing is visually stronger than the numeric amount
+    // suggests, so dark schemes need only a very small lift.
     let surface = if is_light {
-        mix(bg, fg, 0.07)
+        mix(bg, fg, 0.035)
     } else {
-        mix(bg, fg, 0.055)
+        mix(bg, fg, 0.018)
+    };
+    let hover_bg = if is_light {
+        mix(bg, fg, 0.075)
+    } else {
+        mix(surface, fg, 0.028)
+    };
+    let selected_bg = if is_light {
+        mix(bg, fg, 0.115)
+    } else {
+        mix(surface, fg, 0.052)
     };
 
     SidebarChromeColors {
         surface,
-        // Divider between the chrome (sidebar / top / bottom bars) and the
-        // terminal content. Kept deliberately visible: the earlier
-        // near-invisible hairline (0.10 on dark) let the unified-tone chrome
-        // bleed into the content so the boundaries read as mush. A clearly
-        // present line defines the frame without shouting.
-        divider: fg.mul_alpha(if is_light { 0.32 } else { 0.20 }),
-        // Keep secondary labels above WCAG AA after alpha compositing. The
-        // light surface needs a touch more ink than the dark surface because
-        // its foreground/background luminance range is less forgiving.
-        dim_text: fg.mul_alpha(if is_light { 0.83 } else { 0.72 }),
-        hover_bg: if is_light {
-            mix(bg, fg, 0.145)
+        divider: fg.mul_alpha(if is_light { 0.18 } else { 0.12 }),
+        dim_text: fg.mul_alpha(if is_light { 0.86 } else { 0.78 }),
+        hover_bg,
+        selected_bg,
+        group_bg: mix(surface, fg, if is_light { 0.025 } else { 0.014 }),
+        footer_bg: mix(surface, fg, if is_light { 0.032 } else { 0.020 }),
+        // Relay Core's Signal Jade. Use a darker optical variant on light
+        // surfaces so the 2px focus rail remains crisp without glowing.
+        focus_rail: if is_light {
+            LinearRgba::with_srgba(0x18, 0x7a, 0x68, 0xff)
         } else {
-            mix(surface, fg, 0.07)
-        },
-        selected_bg: if is_light {
-            mix(bg, fg, 0.255)
-        } else {
-            // A stronger dark-mode fill looked attractive in isolation but
-            // lowered normal-size label contrast below 4.5:1. The accent edge
-            // carries selection identity, so the fill can stay restrained.
-            mix(surface, fg, 0.115)
+            LinearRgba::with_srgba(0x67, 0xcd, 0xb6, 0xff)
         },
         is_light,
     }
@@ -74,8 +75,8 @@ mod tests {
 
     #[test]
     fn light_sidebar_states_step_down_from_surface() {
-        let bg = LinearRgba::with_srgba(0xfb, 0xfb, 0xfa, 0xff);
-        let fg = LinearRgba::with_srgba(0x0b, 0x0f, 0x14, 0xff);
+        let bg = LinearRgba::with_srgba(0xf6, 0xf7, 0xf4, 0xff);
+        let fg = LinearRgba::with_srgba(0x16, 0x1a, 0x1d, 0xff);
         let chrome = sidebar(bg, fg);
 
         assert!(chrome.is_light);
@@ -84,15 +85,28 @@ mod tests {
     }
 
     #[test]
+    fn dark_sidebar_has_subtle_ordered_layers() {
+        let bg = LinearRgba::with_srgba(0x0c, 0x12, 0x20, 0xff);
+        let fg = LinearRgba::with_srgba(0xdf, 0xe7, 0xf1, 0xff);
+        let chrome = sidebar(bg, fg);
+
+        assert!(!chrome.is_light);
+        assert!(luma(chrome.surface) < luma(chrome.hover_bg));
+        assert!(luma(chrome.hover_bg) < luma(chrome.selected_bg));
+        assert!(luma(chrome.group_bg) < luma(chrome.hover_bg));
+        assert!(luma(chrome.footer_bg) < luma(chrome.hover_bg));
+    }
+
+    #[test]
     fn sidebar_text_meets_aa_in_light_and_dark_modes() {
         let schemes = [
             (
-                LinearRgba::with_srgba(0xfb, 0xfb, 0xfa, 0xff),
-                LinearRgba::with_srgba(0x0b, 0x0f, 0x14, 0xff),
+                LinearRgba::with_srgba(0xf6, 0xf7, 0xf4, 0xff),
+                LinearRgba::with_srgba(0x16, 0x1a, 0x1d, 0xff),
             ),
             (
-                LinearRgba::with_srgba(0x0e, 0x11, 0x16, 0xff),
-                LinearRgba::with_srgba(0xe7, 0xea, 0xee, 0xff),
+                LinearRgba::with_srgba(0x0c, 0x12, 0x20, 0xff),
+                LinearRgba::with_srgba(0xdf, 0xe7, 0xf1, 0xff),
             ),
         ];
 

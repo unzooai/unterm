@@ -273,22 +273,21 @@ author = "unterm"
 name = "Classic Dark"
 "##;
 
-// Unterm Dark: neutral high-contrast (Warp-like). Near-black NEUTRAL
-// background (#101010, no blue/warm tint), near-white foreground (~13:1
-// contrast) for crisp chrome and tab text. Balanced saturated ANSI
+// Unterm Dark: low-glare graphite with a restrained cool cast and soft-white
+// foreground. Balanced saturated ANSI
 // (Snazzy-derived) so the agent status dot (ANSI bright-cyan) pops while
 // the row greyscale stays clean. Background is not pure black so
 // inactive_pane_hsb dimming still registers.
 const UNTERM_DARK: &str = r##"
 [colors]
-background = "#101010"
-foreground = "#f2f2f2"
-cursor_bg = "#f2f2f2"
-cursor_fg = "#101010"
-cursor_border = "#f2f2f2"
-selection_bg = "#333333"
+background = "#111315"
+foreground = "#e8eaed"
+cursor_bg = "#e8eaed"
+cursor_fg = "#111315"
+cursor_border = "#e8eaed"
+selection_bg = "#2b3434"
 selection_fg = "#ffffff"
-split = "#3a3a3a"
+split = "#303638"
 scrollbar_thumb = "#767676"
 ansi = [
     "#1c1c1c",
@@ -297,7 +296,7 @@ ansi = [
     "#e5c463",
     "#5aa7ff",
     "#c678dd",
-    "#4fd6d6",
+    "#63cdb8",
     "#d6d6d6",
 ]
 brights = [
@@ -307,18 +306,18 @@ brights = [
     "#f2d16b",
     "#79b8ff",
     "#d2a8ff",
-    "#77e4e4",
+    "#82dfc9",
     "#ffffff",
 ]
 
 [colors.indexed]
 
 [colors.tab_bar]
-background = "#0d0d0d"
+background = "#0d0f11"
 inactive_tab_edge = "#303030"
 
 [colors.tab_bar.active_tab]
-bg_color = "#383838"
+bg_color = "#292f31"
 fg_color = "#ffffff"
 intensity = "Normal"
 italic = false
@@ -326,7 +325,7 @@ strikethrough = false
 underline = "None"
 
 [colors.tab_bar.inactive_tab]
-bg_color = "#101010"
+bg_color = "#111315"
 fg_color = "#c9c9c9"
 intensity = "Normal"
 italic = false
@@ -334,7 +333,7 @@ strikethrough = false
 underline = "None"
 
 [colors.tab_bar.inactive_tab_hover]
-bg_color = "#2a2a2a"
+bg_color = "#242a2c"
 fg_color = "#f2f2f2"
 intensity = "Normal"
 italic = false
@@ -342,7 +341,7 @@ strikethrough = false
 underline = "None"
 
 [colors.tab_bar.new_tab]
-bg_color = "#0d0d0d"
+bg_color = "#0d0f11"
 fg_color = "#a8a8a8"
 intensity = "Normal"
 italic = false
@@ -350,7 +349,7 @@ strikethrough = false
 underline = "None"
 
 [colors.tab_bar.new_tab_hover]
-bg_color = "#202020"
+bg_color = "#202527"
 fg_color = "#f2f2f2"
 intensity = "Normal"
 italic = false
@@ -363,19 +362,19 @@ author = "unterm"
 name = "Unterm Dark"
 "##;
 
-// Unterm Midnight: low-glare blue-black without washed-out inactive
-// greys from older blue tab-bar palettes. Keeps enough cyan
+// Unterm Midnight: deep navy-black without washed-out inactive
+// greys from older blue tab-bar palettes. Signal Jade carries focus and agent
 // energy for agents/status while staying calmer than Standard.
 const UNTERM_MIDNIGHT: &str = r##"
 [colors]
-background = "#0f1420"
-foreground = "#e6edf7"
-cursor_bg = "#e6edf7"
-cursor_fg = "#0f1420"
-cursor_border = "#e6edf7"
-selection_bg = "#304465"
+background = "#0c1220"
+foreground = "#dfe7f1"
+cursor_bg = "#dfe7f1"
+cursor_fg = "#0c1220"
+cursor_border = "#dfe7f1"
+selection_bg = "#263a4d"
 selection_fg = "#f8fbff"
-split = "#43536f"
+split = "#35445d"
 scrollbar_thumb = "#718098"
 ansi = [
     "#171d2b",
@@ -384,7 +383,7 @@ ansi = [
     "#e6c46a",
     "#82aaff",
     "#c99cff",
-    "#72d6e8",
+    "#67cdb6",
     "#cbd5e1",
 ]
 brights = [
@@ -394,7 +393,7 @@ brights = [
     "#f0d37a",
     "#9cc0ff",
     "#d8b4ff",
-    "#92e5f2",
+    "#8ae0cc",
     "#ffffff",
 ]
 
@@ -405,7 +404,7 @@ background = "#0a0e16"
 inactive_tab_edge = "#2d3850"
 
 [colors.tab_bar.active_tab]
-bg_color = "#30405d"
+bg_color = "#243347"
 fg_color = "#f8fbff"
 intensity = "Normal"
 italic = false
@@ -413,7 +412,7 @@ strikethrough = false
 underline = "None"
 
 [colors.tab_bar.inactive_tab]
-bg_color = "#101724"
+bg_color = "#0e1624"
 fg_color = "#c7d1e2"
 intensity = "Normal"
 italic = false
@@ -421,7 +420,7 @@ strikethrough = false
 underline = "None"
 
 [colors.tab_bar.inactive_tab_hover]
-bg_color = "#253149"
+bg_color = "#1c293c"
 fg_color = "#e6edf7"
 intensity = "Normal"
 italic = false
@@ -429,7 +428,7 @@ strikethrough = false
 underline = "None"
 
 [colors.tab_bar.new_tab]
-bg_color = "#0b1019"
+bg_color = "#0a0e16"
 fg_color = "#aab6c8"
 intensity = "Normal"
 italic = false
@@ -437,7 +436,7 @@ strikethrough = false
 underline = "None"
 
 [colors.tab_bar.new_tab_hover]
-bg_color = "#253149"
+bg_color = "#1c293c"
 fg_color = "#e6edf7"
 intensity = "Normal"
 italic = false
@@ -450,19 +449,19 @@ author = "unterm"
 name = "Unterm Midnight"
 "##;
 
-// Unterm Daylight: neutral light mode with stronger text contrast than
-// Solarized Light and less cream/yellow cast in chrome.
+// Unterm Daylight: low-glare warm grey-white with strong text contrast and
+// jade-tinted selection surfaces instead of cold system blue.
 const UNTERM_DAYLIGHT: &str = r##"
 [colors]
-background = "#fbfbfa"
-foreground = "#0b0f14"
-cursor_bg = "#0b0f14"
-cursor_fg = "#fbfbfa"
-cursor_border = "#0b0f14"
-selection_bg = "#b7cbe6"
-selection_fg = "#07101c"
-split = "#929d92"
-scrollbar_thumb = "#58645a"
+background = "#f6f7f4"
+foreground = "#161a1d"
+cursor_bg = "#161a1d"
+cursor_fg = "#f6f7f4"
+cursor_border = "#161a1d"
+selection_bg = "#c9ddd8"
+selection_fg = "#101715"
+split = "#a9b4af"
+scrollbar_thumb = "#69756f"
 ansi = [
     "#0b0f14",
     "#b42335",
@@ -470,7 +469,7 @@ ansi = [
     "#7a5200",
     "#005ea8",
     "#6537a0",
-    "#006f7f",
+    "#0a7669",
     "#3f4752",
 ]
 brights = [
@@ -480,18 +479,18 @@ brights = [
     "#936300",
     "#0a74c9",
     "#7b4cc2",
-    "#00889a",
+    "#118d7d",
     "#020406",
 ]
 
 [colors.indexed]
 
 [colors.tab_bar]
-background = "#e2e6e2"
+background = "#e8ece8"
 inactive_tab_edge = "#bdc7bd"
 
 [colors.tab_bar.active_tab]
-bg_color = "#cbd5cc"
+bg_color = "#dce7e3"
 fg_color = "#07101c"
 intensity = "Normal"
 italic = false
@@ -499,7 +498,7 @@ strikethrough = false
 underline = "None"
 
 [colors.tab_bar.inactive_tab]
-bg_color = "#f3f4f2"
+bg_color = "#f1f3f0"
 fg_color = "#414a54"
 intensity = "Normal"
 italic = false
@@ -507,7 +506,7 @@ strikethrough = false
 underline = "None"
 
 [colors.tab_bar.inactive_tab_hover]
-bg_color = "#d6ded6"
+bg_color = "#e2e8e4"
 fg_color = "#0b0f14"
 intensity = "Normal"
 italic = false
@@ -515,7 +514,7 @@ strikethrough = false
 underline = "None"
 
 [colors.tab_bar.new_tab]
-bg_color = "#e2e6e2"
+bg_color = "#e8ece8"
 fg_color = "#414a54"
 intensity = "Normal"
 italic = false
@@ -523,7 +522,7 @@ strikethrough = false
 underline = "None"
 
 [colors.tab_bar.new_tab_hover]
-bg_color = "#d6ded6"
+bg_color = "#e2e8e4"
 fg_color = "#0b0f14"
 intensity = "Normal"
 italic = false

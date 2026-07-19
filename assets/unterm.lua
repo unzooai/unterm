@@ -19,7 +19,7 @@ local function scheme_colors()
       name = txt:match('"color_scheme"%s*:%s*"([^"]+)"') or name
     end
   end
-  local bg, fg = '#191919', '#d4d4d4'
+  local bg, fg = '#111315', '#e8eaed'
   local ok, schemes = pcall(function() return wezterm.color.get_builtin_schemes() end)
   if ok and schemes[name] then
     bg = schemes[name].background or bg
