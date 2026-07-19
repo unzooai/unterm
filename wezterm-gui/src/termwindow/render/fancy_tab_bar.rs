@@ -699,8 +699,10 @@ impl crate::TermWindow {
             Dimension::Cells(0.5)
         };
 
-        // Brand mark at the far left of the info (top) bar: a compact UT
-        // wordmark that mirrors the Shared Rail app icon. Skipped on macOS (the
+        // Brand mark at the far left of the info (top) bar: a signal-jade
+        // guide rail plus the Unterm wordmark. The exact Relay Core mark stays
+        // in raster/vector surfaces where its geometry can render faithfully.
+        // Skipped on macOS (the
         // traffic lights own that corner) and whenever window buttons are
         // left-aligned, so the mark never collides with them.
         #[cfg(not(target_os = "macos"))]
@@ -715,21 +717,14 @@ impl crate::TermWindow {
                 .resolve_fg(ColorAttribute::PaletteIndex(14))
                 .to_linear();
             let brand_kids = vec![
-                Element::new(&font, ElementContent::Text("U".to_string()))
-                    .vertical_align(VerticalAlign::Middle)
-                    .colors(ElementColors {
-                        border: BorderColor::default(),
-                        bg: window::color::LinearRgba::TRANSPARENT.into(),
-                        text: brand_fg.into(),
-                    }),
-                Element::new(&font, ElementContent::Text("T".to_string()))
+                Element::new(&font, ElementContent::Text("▏".to_string()))
                     .vertical_align(VerticalAlign::Middle)
                     .colors(ElementColors {
                         border: BorderColor::default(),
                         bg: window::color::LinearRgba::TRANSPARENT.into(),
                         text: brand_accent.into(),
                     }),
-                Element::new(&font, ElementContent::Text(" Unterm".to_string()))
+                Element::new(&font, ElementContent::Text("Unterm".to_string()))
                     .vertical_align(VerticalAlign::Middle)
                     .colors(ElementColors {
                         border: BorderColor::default(),

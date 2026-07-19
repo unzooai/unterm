@@ -1,11 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <defs>
-    <linearGradient id="tile" x1="7" y1="4" x2="58" y2="62" gradientUnits="userSpaceOnUse"><stop stop-color="#252A27"/><stop offset=".48" stop-color="#151816"/><stop offset="1" stop-color="#090B0A"/></linearGradient>
-    <radialGradient id="light" cx="0" cy="0" r="1" gradientTransform="translate(18 6) rotate(54) scale(58)"><stop stop-color="#FFFFFF" stop-opacity=".11"/><stop offset=".52" stop-color="#FFFFFF" stop-opacity=".02"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/></radialGradient>
-    <linearGradient id="metal" x1="0" y1="10" x2="0" y2="58" gradientUnits="userSpaceOnUse"><stop stop-color="#FAFCF9"/><stop offset=".55" stop-color="#E4E8E4"/><stop offset="1" stop-color="#B6BEB8"/></linearGradient>
-    <linearGradient id="mint" x1="36" y1="12" x2="57" y2="38" gradientUnits="userSpaceOnUse"><stop stop-color="#9AF0DA"/><stop offset="1" stop-color="#45B59E"/></linearGradient>
+    <linearGradient id="tile" x1="6" y1="4" x2="59" y2="62" gradientUnits="userSpaceOnUse"><stop stop-color="#222A30"/><stop offset=".48" stop-color="#11171A"/><stop offset="1" stop-color="#070A0C"/></linearGradient>
+    <radialGradient id="light" cx="0" cy="0" r="1" gradientTransform="translate(18 7) rotate(51) scale(57)"><stop stop-color="#FFFFFF" stop-opacity=".10"/><stop offset=".55" stop-color="#FFFFFF" stop-opacity=".015"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/></radialGradient>
+    <linearGradient id="metal" x1="0" y1="13" x2="0" y2="51" gradientUnits="userSpaceOnUse"><stop stop-color="#FAFCF9"/><stop offset=".5" stop-color="#E4E8E4"/><stop offset="1" stop-color="#B4BDB6"/></linearGradient>
+    <linearGradient id="jade" x1="32" y1="25" x2="32" y2="39" gradientUnits="userSpaceOnUse"><stop stop-color="#92E5D1"/><stop offset="1" stop-color="#45A892"/></linearGradient>
   </defs>
   <rect width="64" height="64" rx="14" fill="url(#tile)"/><rect width="64" height="64" rx="14" fill="url(#light)"/><rect x=".5" y=".5" width="63" height="63" rx="13.5" fill="none" stroke="#FFFFFF" stroke-opacity=".08"/>
-  <path d="M16 14V35" fill="none" stroke="#F8FAF7" stroke-width="8" stroke-linecap="square"/><path d="M16 35C16 46.5 22.1 53 32 56 41.9 53 48 46.5 48 35" fill="none" stroke="url(#metal)" stroke-width="8" stroke-linecap="square" stroke-linejoin="round"/>
-  <path d="M37 14h21M48 14v21" fill="none" stroke="url(#mint)" stroke-width="8" stroke-linecap="square"/>
+  <path d="M12 16h10c7 0 10 4 10 11v4M52 16H42c-7 0-10 4-10 11v4M12 48h10c7 0 10-4 10-11v-4M52 48H42c-7 0-10-4-10-11v-4" fill="none" stroke="url(#metal)" stroke-width="8" stroke-linecap="square" stroke-linejoin="round"/><path d="M32 27v10" stroke="url(#jade)" stroke-width="8" stroke-linecap="square"/>
 </svg>
