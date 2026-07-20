@@ -98,12 +98,22 @@ pub(crate) const CHROME_BOTTOM_DIVIDER_PX: f32 = 1.0;
 struct TopBarDensity {
     show_split: bool,
     show_navigation: bool,
+    show_labels: bool,
 }
 
 fn top_bar_density(logical_width: f32) -> TopBarDensity {
     TopBarDensity {
         show_split: logical_width >= 600.,
         show_navigation: logical_width >= 760.,
+        show_labels: logical_width >= 1200.,
+    }
+}
+
+fn quick_action_text(glyph: &str, label: &str, show_label: bool) -> String {
+    if show_label {
+        format!("{glyph}  {label}")
+    } else {
+        glyph.to_string()
     }
 }
 
@@ -487,11 +497,11 @@ impl crate::TermWindow {
         // SymbolsNerdFontMono — CoreText/FreeType does the AA on the
         // vector outline, so we get Warp-grade crispness instead of the
         // jaggy geometric polylines we shipped before.
-        let quick_button = |glyph: &'static str, action: crate::termwindow::QuickAction| {
+        let quick_button = |text: String, action: crate::termwindow::QuickAction| {
             let new_tab_hover = colors.new_tab_hover();
             let active = action == crate::termwindow::QuickAction::TreeSidebar
                 && self.tree_sidebar.borrow().is_some();
-            Element::new(&font, ElementContent::Text(glyph.to_string()))
+            Element::new(&font, ElementContent::Text(text))
                 .vertical_align(VerticalAlign::Middle)
                 .item_type(UIItemType::QuickAction(action))
                 // Margin doubled (0.25 → 0.5 cells) so icons breathe instead
@@ -660,19 +670,36 @@ impl crate::TermWindow {
             // Codicons — VS Code's single-weight icon family. Same visual
             // language as Warp's SF Symbols, but bundled cross-platform via
             // SymbolsNerdFontMono so Win/Linux look identical.
-            right_eles.push(quick_button("\u{eb6a}", QA::CommandPalette)); // cod_three_bars
-            right_eles.push(quick_button("\u{ebf3}", QA::TreeSidebar)); // cod_layout_sidebar_left
+            right_eles.push(quick_button(
+                quick_action_text(
+                    "\u{eb6a}",
+                    &crate::i18n::t("menu.command_palette"),
+                    density.show_labels,
+                ),
+                QA::CommandPalette,
+            )); // cod_three_bars
+            right_eles.push(quick_button(
+                quick_action_text(
+                    "\u{ebf3}",
+                    &crate::i18n::t("web.nav.project"),
+                    density.show_labels,
+                ),
+                QA::TreeSidebar,
+            )); // cod_layout_sidebar_left
             if density.show_split {
-                right_eles.push(quick_button("\u{eb56}", QA::SplitRight)); // cod_split_horizontal
+                // cod_split_horizontal
+                right_eles.push(quick_button("\u{eb56}".to_string(), QA::SplitRight));
             }
             if density.show_navigation {
-                right_eles.push(quick_button("\u{ea83}", QA::DirJump)); // cod_folder
-                right_eles.push(quick_button("\u{ea6d}", QA::Search)); // cod_search
+                right_eles.push(quick_button("\u{ea83}".to_string(), QA::DirJump)); // cod_folder
+                // cod_search
+                right_eles.push(quick_button("\u{ea6d}".to_string(), QA::Search));
             }
-            right_eles.push(quick_button("\u{eb51}", QA::Settings)); // cod_settings_gear
-                                                                     // The ▾ menu sits at the far right after the quick actions —
-                                                                     // the design doc's "右侧一排动作 + 一个菜单". The menu still
-                                                                     // routes through TabBarItem::MenuButton → show_settings_menu.
+            // cod_settings_gear
+            right_eles.push(quick_button("\u{eb51}".to_string(), QA::Settings));
+            // The ▾ menu sits at the far right after the quick actions —
+            // the design doc's "右侧一排动作 + 一个菜单". The menu still
+            // routes through TabBarItem::MenuButton → show_settings_menu.
             right_eles.push(menu_button());
         }
 
@@ -793,15 +820,15 @@ impl crate::TermWindow {
                         line_width: metrics.underline_height.max(2),
                         poly: SizedPoly {
                             poly: COMMAND_LOOP_MARK,
-                            width: Dimension::Cells(0.8),
-                            height: Dimension::Cells(0.8),
+                            width: Dimension::Cells(0.95),
+                            height: Dimension::Cells(0.95),
                         },
                     },
                 )
                 .vertical_align(VerticalAlign::Middle)
                 .margin(BoxDimension {
                     left: Dimension::Cells(0.),
-                    right: Dimension::Cells(0.35),
+                    right: Dimension::Cells(0.42),
                     top: Dimension::Cells(0.),
                     bottom: Dimension::Cells(0.),
                 })
@@ -1121,13 +1148,14 @@ fn compute_top_stats_text(active: Option<std::sync::Arc<dyn mux::pane::Pane>>) -
 
 #[cfg(test)]
 mod density_tests {
-    use super::top_bar_density;
+    use super::{quick_action_text, top_bar_density};
 
     #[test]
     fn top_bar_removes_secondary_actions_before_essential_controls() {
         let narrow = top_bar_density(520.);
         assert!(!narrow.show_split);
         assert!(!narrow.show_navigation);
+        assert!(!narrow.show_labels);
 
         let medium = top_bar_density(680.);
         assert!(medium.show_split);
@@ -1136,5 +1164,11 @@ mod density_tests {
         let wide = top_bar_density(1000.);
         assert!(wide.show_split);
         assert!(wide.show_navigation);
+        assert!(!wide.show_labels);
+
+        let expansive = top_bar_density(1400.);
+        assert!(expansive.show_labels);
+        assert_eq!(quick_action_text("#", "Project", true), "#  Project");
+        assert_eq!(quick_action_text("#", "Project", false), "#");
     }
 }

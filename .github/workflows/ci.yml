@@ -21,6 +21,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo check -p unterm -p unterm-cli -p unterm-mux -p strip-ansi-escapes
+      - name: Run product tests
+        run: cargo test --release -p config -p unterm
 
   check-linux:
     name: cargo check (Linux)
@@ -41,6 +43,8 @@ jobs:
             libxcb-keysyms1-dev libxcb-icccm4-dev libxcb-image0-dev libxcb-util-dev \
             libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev
       - run: cargo check -p unterm -p unterm-cli -p unterm-mux -p strip-ansi-escapes
+      - name: Run product tests
+        run: cargo test --release -p config -p unterm
 
   check-windows:
     name: cargo check (Windows)
@@ -54,3 +58,5 @@ jobs:
           target: x86_64-pc-windows-msvc
       - uses: Swatinem/rust-cache@v2
       - run: cargo check -p unterm -p unterm-cli -p unterm-mux -p strip-ansi-escapes
+      - name: Run product tests
+        run: cargo test --release -p config -p unterm

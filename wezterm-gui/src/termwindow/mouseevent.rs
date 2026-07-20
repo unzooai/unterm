@@ -903,14 +903,27 @@ impl super::TermWindow {
                                 );
                             }
                         }
-                        QA::TreeSidebar => self.toggle_tree_sidebar(),
+                        QA::TreeSidebar => {
+                            self.toggle_tree_sidebar();
+                            let key = if self.tree_sidebar.borrow().is_some() {
+                                "interaction.files_open"
+                            } else {
+                                "interaction.files_closed"
+                            };
+                            self.show_ui_notice(crate::i18n::t(key));
+                        }
                         QA::SplitRight => {
                             use config::keyassignment::{KeyAssignment, SpawnCommand};
                             if let Some(pane) = self.get_active_pane_or_overlay() {
-                                let _ = self.perform_key_assignment(
-                                    &pane,
-                                    &KeyAssignment::SplitHorizontal(SpawnCommand::default()),
-                                );
+                                if self
+                                    .perform_key_assignment(
+                                        &pane,
+                                        &KeyAssignment::SplitHorizontal(SpawnCommand::default()),
+                                    )
+                                    .is_ok()
+                                {
+                                    self.show_ui_notice(crate::i18n::t("interaction.split"));
+                                }
                             }
                         }
                         QA::DirJump => self.show_dir_jump(),
@@ -1471,12 +1484,10 @@ impl super::TermWindow {
         }
     }
 
-    /// Brief textual feedback in the pane's terminal area, reusing the
-    /// existing status-write infrastructure that theme/proxy chips use.
+    /// Brief textual feedback in the bottom chrome. This deliberately avoids
+    /// writing escape sequences into the pane, which can corrupt TUIs.
     fn toast_status_message(&self, message: &str) {
-        if let Some(pane) = self.get_active_pane_no_overlay() {
-            write_unterm_status_to_pane(&pane, message);
-        }
+        self.show_ui_notice(message.to_string());
     }
 }
 

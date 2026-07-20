@@ -819,9 +819,7 @@ pub fn agent_and_cwd_for_pane(pane_id: u64) -> (Option<String>, Option<String>) 
 /// want to show the running command as the primary label (the left tab bar).
 /// Same caching contract as `agent_and_cwd_for_pane`: instant cached read,
 /// off-thread refresh, never touches the process table on the caller thread.
-pub fn agent_fg_cwd_for_pane(
-    pane_id: u64,
-) -> (Option<String>, Option<String>, Option<String>) {
+pub fn agent_fg_cwd_for_pane(pane_id: u64) -> (Option<String>, Option<String>, Option<String>) {
     let v = agent_fg_cwd_for_pane_inner(pane_id);
     (v.agent, v.foreground, v.cwd)
 }
@@ -945,7 +943,8 @@ fn compute_agent_cwd(pane_id: u64) -> PaneAgentCwd {
         if dirs_next::home_dir().as_deref() == Some(path.as_path()) {
             Some("~".to_string())
         } else {
-            path.file_name().map(|name| name.to_string_lossy().to_string())
+            path.file_name()
+                .map(|name| name.to_string_lossy().to_string())
         }
     });
     let project_path = project_path_buf.map(|path| path.to_string_lossy().to_string());
@@ -2505,7 +2504,11 @@ impl McpHandler {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing 'member'"))?;
         let retried = crate::cockpit::fleet::retry_member(fleet_id, member)?;
-        self.audit("fleet.retry", None, &format!("fleet={fleet_id} member={member}"));
+        self.audit(
+            "fleet.retry",
+            None,
+            &format!("fleet={fleet_id} member={member}"),
+        );
         Ok(serde_json::to_value(retried)?)
     }
 
@@ -2520,13 +2523,15 @@ impl McpHandler {
             .ok_or_else(|| anyhow!("Missing 'member'"))?;
         let command = params.get("command").and_then(|v| v.as_str());
         let timeout = params.get("timeout_secs").and_then(|v| v.as_u64());
-        let record = crate::cockpit::verification::verify_member(
-            fleet_id, member, command, timeout,
-        )?;
+        let record =
+            crate::cockpit::verification::verify_member(fleet_id, member, command, timeout)?;
         self.audit(
             "review.verify",
             None,
-            &format!("fleet={fleet_id} member={member} command={}", record.command),
+            &format!(
+                "fleet={fleet_id} member={member} command={}",
+                record.command
+            ),
         );
         Ok(serde_json::to_value(record)?)
     }
@@ -2577,7 +2582,10 @@ impl McpHandler {
             .get("member")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing 'member'"))?;
-        let force = params.get("force").and_then(|v| v.as_bool()).unwrap_or(false);
+        let force = params
+            .get("force")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
         let out = crate::cockpit::review::merge_member_with_policy(fleet_id, member, force)?;
         self.audit(
             "review.merge",
@@ -4452,15 +4460,25 @@ impl McpHandler {
         }));
 
         let capture = self.capture_window(&json!({"pid": std::process::id()}));
+        let capture_ok = capture
+            .as_ref()
+            .ok()
+            .and_then(|value| value.pointer("/image/path"))
+            .and_then(|value| value.as_str())
+            .map(|path| std::path::Path::new(path).exists())
+            .unwrap_or(false)
+            && (!cfg!(windows)
+                || matches!(
+                    capture
+                        .as_ref()
+                        .ok()
+                        .and_then(|value| value.pointer("/image/mode"))
+                        .and_then(|value| value.as_str()),
+                    Some("print_window" | "focused_screen")
+                ));
         checks.push(json!({
             "name": "capture.window",
-            "ok": capture
-                .as_ref()
-                .ok()
-                .and_then(|value| value.pointer("/image/path"))
-                .and_then(|value| value.as_str())
-                .map(|path| std::path::Path::new(path).exists())
-                .unwrap_or(false),
+            "ok": capture_ok,
             "detail": match capture {
                 Ok(value) => value,
                 Err(err) => json!({"error": err.to_string()}),
@@ -5604,7 +5622,11 @@ using System;
 using System.Runtime.InteropServices;
 public class UntermCapture {{
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+  [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr hWnd, IntPtr hdcBlt, uint flags);
+  [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int command);
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
 }}
 public struct RECT {{ public int Left; public int Top; public int Right; public int Bottom; }}
 "@
@@ -5616,16 +5638,62 @@ if ($titleFilter -ne $null) {{
   $proc = Get-Process -Id $pidFilter -ErrorAction Stop
 }}
 if ($null -eq $proc -or $proc.MainWindowHandle -eq 0) {{ throw "No matching window found" }}
-[UntermCapture]::SetForegroundWindow($proc.MainWindowHandle) | Out-Null
-Start-Sleep -Milliseconds 150
+$hwnd = $proc.MainWindowHandle
+if ([UntermCapture]::IsIconic($hwnd)) {{
+  [UntermCapture]::ShowWindowAsync($hwnd, 9) | Out-Null
+  Start-Sleep -Milliseconds 120
+}}
 $rect = New-Object RECT
-[UntermCapture]::GetWindowRect($proc.MainWindowHandle, [ref]$rect) | Out-Null
+# PrintWindow renders against the real HWND dimensions. DWM's extended frame
+# bounds can be several pixels shorter and causes GPU-backed windows to return
+# a false/blank frame when that smaller bitmap is supplied.
+if (-not [UntermCapture]::GetWindowRect($hwnd, [ref]$rect)) {{ throw "GetWindowRect failed" }}
 $width = $rect.Right - $rect.Left
 $height = $rect.Bottom - $rect.Top
 if ($width -le 0 -or $height -le 0) {{ throw "Invalid window bounds" }}
 $bmp = New-Object System.Drawing.Bitmap $width, $height
 $gfx = [System.Drawing.Graphics]::FromImage($bmp)
-$gfx.CopyFromScreen($rect.Left, $rect.Top, 0, 0, $bmp.Size)
+$hdc = $gfx.GetHdc()
+try {{
+  # PW_RENDERFULLCONTENT asks DWM/composited windows for their complete client
+  # surface even when another application covers them.
+  $printed = [UntermCapture]::PrintWindow($hwnd, $hdc, 2)
+}} finally {{
+  $gfx.ReleaseHdc($hdc)
+}}
+$mode = 'print_window'
+
+# Some GPU drivers return success but leave a uniformly black bitmap. Sample
+# a small grid so that such a frame cannot masquerade as a valid self-capture.
+$samples = New-Object 'System.Collections.Generic.HashSet[int]'
+foreach ($xf in @(0.1, 0.3, 0.5, 0.7, 0.9)) {{
+  foreach ($yf in @(0.1, 0.3, 0.5, 0.7, 0.9)) {{
+    $x = [Math]::Min($width - 1, [Math]::Max(0, [int]($width * $xf)))
+    $y = [Math]::Min($height - 1, [Math]::Max(0, [int]($height * $yf)))
+    [void]$samples.Add($bmp.GetPixel($x, $y).ToArgb())
+  }}
+}}
+if (-not $printed -or $samples.Count -lt 2) {{
+  # GPU surfaces may not implement PrintWindow. Recreate the GDI objects
+  # before screen capture (the old Graphics has handed out an HDC), briefly
+  # focus the exact target, then restore the user's previous foreground app.
+  $gfx.Dispose()
+  $bmp.Dispose()
+  $bmp = New-Object System.Drawing.Bitmap $width, $height
+  $gfx = [System.Drawing.Graphics]::FromImage($bmp)
+  $previousForeground = [UntermCapture]::GetForegroundWindow()
+  [UntermCapture]::ShowWindowAsync($hwnd, 5) | Out-Null
+  [UntermCapture]::SetForegroundWindow($hwnd) | Out-Null
+  Start-Sleep -Milliseconds 220
+  try {{
+    $gfx.CopyFromScreen($rect.Left, $rect.Top, 0, 0, $bmp.Size)
+  }} finally {{
+    if ($previousForeground -ne [IntPtr]::Zero -and $previousForeground -ne $hwnd) {{
+      [UntermCapture]::SetForegroundWindow($previousForeground) | Out-Null
+    }}
+  }}
+  $mode = 'focused_screen'
+}}
 $bmp.Save({qpath}, [System.Drawing.Imaging.ImageFormat]::Png)
 $gfx.Dispose()
 $bmp.Dispose()
@@ -5637,6 +5705,7 @@ $bmp.Dispose()
   top = $rect.Top
   pid = $proc.Id
   title = $proc.MainWindowTitle
+  mode = $mode
 }} | ConvertTo-Json -Compress
 "#
     );

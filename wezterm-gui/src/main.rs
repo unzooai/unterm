@@ -712,29 +712,26 @@ async fn async_run_terminal_gui(
         log::warn!("session restore: {:#}", err);
     }
 
-    // First-run onboarding hint — write a single dim status line to the
-    // initial pane the first time Unterm launches, so the user discovers the
-    // session-recording feature without having to open the Settings menu
-    // unprompted. After it shows once, mark `~/.unterm/onboarded.json:first_run`
-    // so it never appears again.
+    // Product onboarding v2. The former hint was routed through
+    // `write_unterm_status_to_pane`, which is intentionally a no-op because
+    // injecting text into a PTY corrupts full-screen TUIs. Use a one-time OS
+    // notification instead: it is visible, localised and never touches the
+    // terminal stream.
     if let Some(path) = first_run_path() {
         if !path.exists() {
+            let title = crate::i18n::t("onboarding.title");
+            let body = crate::i18n::t("onboarding.body");
             std::thread::spawn(move || {
-                // Wait for the first prompt to settle so the hint isn't overwritten.
+                // Let the window acquire its taskbar identity first so the
+                // notification is attributed to Unterm on Windows.
                 std::thread::sleep(std::time::Duration::from_secs(3));
-                let mux = Mux::get();
-                if let Some(pane) = mux.iter_panes().into_iter().next() {
-                    crate::termwindow::mouseevent::write_unterm_status_to_pane(
-                        &pane,
-                        "💡 Save this terminal session for AI tuning — Settings (▼) → Session Recording",
-                    );
-                }
+                persistent_toast_notification(&title, &body);
                 if let Some(parent) = path.parent() {
                     let _ = std::fs::create_dir_all(parent);
                 }
                 let _ = std::fs::write(
                     &path,
-                    serde_json::json!({"first_run": true})
+                    serde_json::json!({"product_onboarding": 2})
                         .to_string()
                         .as_bytes(),
                 );
@@ -749,7 +746,7 @@ fn first_run_path() -> Option<std::path::PathBuf> {
     Some(
         dirs_next::home_dir()?
             .join(".unterm")
-            .join("first_run.json"),
+            .join("product_onboarding_v2.json"),
     )
 }
 

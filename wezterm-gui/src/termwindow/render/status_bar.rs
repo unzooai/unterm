@@ -14,6 +14,28 @@ static DEFER_FIRST_STATUS_TEXT_RENDER: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(true);
 
 impl crate::TermWindow {
+    pub(crate) fn show_ui_notice(&self, message: impl Into<String>) {
+        let expires = std::time::Instant::now() + std::time::Duration::from_millis(2400);
+        self.ui_notice.replace(Some((message.into(), expires)));
+        self.update_next_frame_time(Some(expires));
+        if let Some(window) = self.window.as_ref() {
+            window.invalidate();
+        }
+    }
+
+    fn active_ui_notice(&self) -> Option<String> {
+        let now = std::time::Instant::now();
+        let mut notice = self.ui_notice.borrow_mut();
+        match notice.as_ref() {
+            Some((message, expires)) if *expires > now => Some(message.clone()),
+            Some(_) => {
+                notice.take();
+                None
+            }
+            None => None,
+        }
+    }
+
     fn status_bar_vertical_padding_px(&self) -> f32 {
         let pt = self.dimensions.dpi as f32 / 72.0;
         (ui_tokens::STATUS_BAR_VERTICAL_PADDING * pt)
@@ -535,6 +557,14 @@ impl crate::TermWindow {
             ));
         attrs.set_foreground(ColorAttribute::TrueColorWithDefaultFallback(status_fg));
 
+        if let Some(message) = self.active_ui_notice() {
+            let total_cols = (self.dimensions.pixel_width as f32
+                / self.render_metrics.cell_size.width.max(1) as f32)
+                .floor() as usize;
+            let notice = truncate_to_width(&format!("  ✓ {message}"), total_cols);
+            return (Line::from_text(&notice, &attrs, 0, None), Vec::new());
+        }
+
         let active_pane = self.get_active_pane_no_overlay();
         let active_cwd = active_pane
             .as_ref()
@@ -586,9 +616,17 @@ impl crate::TermWindow {
         // 2. Terminal size
         let cols = self.terminal_size.cols;
         let rows = self.terminal_size.rows;
+        let total_cols = (self.dimensions.pixel_width as f32
+            / self.render_metrics.cell_size.width.max(1) as f32)
+            .floor() as usize;
+        let density = status_bar_density(total_cols);
 
-        let proxy_enabled = unterm_proxy_enabled();
-        let proxy = if proxy_enabled {
+        // Hidden segments are zero-cost. In particular, avoid the profile
+        // registry read and proxy-file refresh on compact windows where those
+        // values cannot be displayed.
+        let proxy = if !density.show_telemetry {
+            String::new()
+        } else if unterm_proxy_enabled() {
             "proxy:on".to_string()
         } else {
             "proxy:off".to_string()
@@ -597,8 +635,8 @@ impl crate::TermWindow {
         // (a chip that appears/disappears would shift every neighboring
         // segment's click hit-test). `⚡` suffix marks "writes recently"
         // so the user notices a flash without having to compare counts.
-        let mcp_activity = crate::mcp::handler::recent_mcp_input_activity();
-        let mcp_part = {
+        let mcp_part = if density.show_telemetry {
+            let mcp_activity = crate::mcp::handler::recent_mcp_input_activity();
             let flash = mcp_activity
                 .seconds_since_last
                 .map(|s| s < 5.0)
@@ -608,6 +646,8 @@ impl crate::TermWindow {
                 mcp_activity.count,
                 if flash { "⚡" } else { "" }
             )
+        } else {
+            String::new()
         };
 
         // Identity profile chip (window=identity model). The chip lives
@@ -619,9 +659,15 @@ impl crate::TermWindow {
         // important because the click action (cycle profile) doubles
         // as the "I haven't set up profiles yet, what's this?"
         // discoverability hook.
-        let profile_label =
-            crate::termwindow::sidebar_text::ellipsize_middle(&current_profile_display_name(), 18);
-        let profile_part = format!("profile:{profile_label}");
+        let profile_part = if density.show_profile {
+            let profile_label = crate::termwindow::sidebar_text::ellipsize_middle(
+                &current_profile_display_name(),
+                18,
+            );
+            format!("profile:{profile_label}")
+        } else {
+            String::new()
+        };
 
         let project_label = crate::termwindow::sidebar_text::ellipsize_middle(
             &Self::project_label_for_cwd(active_cwd.as_ref()),
@@ -629,10 +675,6 @@ impl crate::TermWindow {
         );
         let project_part = format!("project:{}", project_label);
 
-        let total_cols = (self.dimensions.pixel_width as f32
-            / self.render_metrics.cell_size.width.max(1) as f32)
-            .floor() as usize;
-        let density = status_bar_density(total_cols);
         let cwd_part = crate::termwindow::sidebar_text::ellipsize_middle(
             &Self::cwd_for_status(active_cwd.as_ref()),
             density.cwd_cols,
@@ -770,9 +812,7 @@ impl crate::TermWindow {
             paint_value(exclude_offset, &exclude_part);
             paint_value(include_offset, &include_part);
             paint_value(proxy_offset, &proxy);
-            let _ = proxy_enabled;
             paint_value(mcp_offset, &mcp_part);
-            let _ = mcp_activity.count;
             paint_value(theme_offset, &theme_part);
             let (_, profile_value) = val(&profile_part);
             if profile_value != "—" {
@@ -939,8 +979,8 @@ struct ProfileDisplayCache {
     loading: bool,
 }
 
-const PROFILE_DISPLAY_TTL: std::time::Duration = std::time::Duration::from_millis(1000);
-const PROXY_STATUS_TTL: std::time::Duration = std::time::Duration::from_millis(1000);
+const PROFILE_DISPLAY_TTL: std::time::Duration = std::time::Duration::from_secs(5);
+const PROXY_STATUS_TTL: std::time::Duration = std::time::Duration::from_secs(2);
 
 lazy_static::lazy_static! {
     static ref PROXY_STATUS_CACHE: std::sync::Mutex<ProxyStatusCache> =

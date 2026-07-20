@@ -607,6 +607,7 @@ mod tests {
 
     #[test]
     fn agent_commands_quote_tasks() {
+        #[cfg(not(windows))]
         let cmd = agent_command("claude", "fix it's bug");
         #[cfg(not(windows))]
         assert_eq!(cmd, "claude 'fix it'\\''s bug'");

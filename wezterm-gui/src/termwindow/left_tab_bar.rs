@@ -50,6 +50,9 @@ pub struct LeftTabBar {
     pub row_count: usize,
     /// Last painted number of visible tab rows.
     pub visible_rows: usize,
+    /// Tab count captured during the last sidebar paint. Width calculations
+    /// reuse this value instead of querying the mux on every layout pass.
+    pub last_tab_count: usize,
     /// Last active tab index seen by paint. Active changes auto-scroll
     /// into view; ordinary repaints preserve the user's manual scroll.
     pub last_active_idx: Option<usize>,
@@ -368,16 +371,19 @@ impl crate::TermWindow {
         if self.config.tab_bar_position != config::TabBarPosition::Left {
             return None;
         }
-        let bar = self.left_tab_bar.borrow();
-        if bar.hidden {
+        let (hidden, explicit_width, last_tab_count) = {
+            let bar = self.left_tab_bar.borrow();
+            (bar.hidden, bar.width_pts, bar.last_tab_count)
+        };
+        if hidden {
             return None;
         }
         let pt = self.dimensions.dpi as f32 / 72.0;
         let window_pts = self.dimensions.pixel_width as f32 / pt;
         let max = self.left_tab_bar_max_width_pts(window_pts);
         Some(
-            bar.width_pts
-                .unwrap_or(ui_tokens::LEFT_TAB_BAR_WIDTH)
+            explicit_width
+                .unwrap_or_else(|| adaptive_sidebar_default_width(last_tab_count.max(1)))
                 .clamp(ui_tokens::LEFT_TAB_BAR_MIN_WIDTH, max),
         )
     }
@@ -676,6 +682,7 @@ impl crate::TermWindow {
                 window.get_active_idx(),
             )
         };
+        self.left_tab_bar.borrow_mut().last_tab_count = tabs.len();
         trace_mark("tabs");
         // Resolve metadata for EVERY tab (cheap now: `agent_and_cwd_for_pane`
         // is a cached, non-blocking lookup that refreshes off-thread). We need
@@ -1694,14 +1701,29 @@ impl crate::TermWindow {
     }
 }
 
+fn adaptive_sidebar_default_width(tab_count: usize) -> f32 {
+    match tab_count {
+        0 | 1 => 148.0,
+        2..=4 => 156.0,
+        _ => ui_tokens::LEFT_TAB_BAR_WIDTH,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        coherent_visible_indices, gutter_limited_width_pts, normalized_project_key,
-        project_parent_hint, scroll_top_after_active_change, scroll_top_for_active,
-        scroll_top_for_delta, scroll_top_for_thumb_top, sidebar_text_columns,
-        toggle_collapsed_project, DisplayRowKind,
+        adaptive_sidebar_default_width, coherent_visible_indices, gutter_limited_width_pts,
+        normalized_project_key, project_parent_hint, scroll_top_after_active_change,
+        scroll_top_for_active, scroll_top_for_delta, scroll_top_for_thumb_top,
+        sidebar_text_columns, toggle_collapsed_project, DisplayRowKind,
     };
+
+    #[test]
+    fn sidebar_expands_only_when_tab_identity_needs_room() {
+        assert_eq!(adaptive_sidebar_default_width(1), 148.0);
+        assert_eq!(adaptive_sidebar_default_width(3), 156.0);
+        assert_eq!(adaptive_sidebar_default_width(8), 164.0);
+    }
 
     #[test]
     fn scrolls_down_to_keep_active_row_visible() {

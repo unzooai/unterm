@@ -183,6 +183,20 @@ pub enum QuickAction {
     Inbox,
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+enum RightClickAction {
+    CopySelection,
+    PasteClipboard,
+}
+
+fn right_click_action(has_selection: bool) -> RightClickAction {
+    if has_selection {
+        RightClickAction::CopySelection
+    } else {
+        RightClickAction::PasteClipboard
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum UIItemType {
     TabBar(TabBarItem),
@@ -532,6 +546,10 @@ pub struct TermWindow {
     last_top_stats_text: String,
     pub right_status: String,
     pub left_status: String,
+    /// Short, non-destructive feedback rendered in the existing bottom bar.
+    /// Unlike the old PTY-injected messages this cannot corrupt full-screen
+    /// TUIs and expires without adding another permanent chrome row.
+    pub(crate) ui_notice: RefCell<Option<(String, Instant)>>,
     last_ui_item: Option<UIItem>,
     /// Tracks whether the current mouse-down event is part of click-focus.
     /// If so, we ignore mouse events until released
@@ -982,6 +1000,7 @@ impl TermWindow {
             last_top_stats_text: String::new(),
             right_status: Self::default_right_status(&config, None),
             left_status: String::new(),
+            ui_notice: RefCell::new(None),
             last_mouse_coords: (0, -1),
             window_drag_position: None,
             current_mouse_event: None,
@@ -3050,13 +3069,21 @@ impl TermWindow {
         };
         let has_selection = !self.selection_text(pane).is_empty();
 
-        let assignment = if has_selection {
-            KeyAssignment::CopyTo(ClipboardCopyDestination::Clipboard)
-        } else {
-            KeyAssignment::PasteFrom(ClipboardPasteSource::Clipboard)
+        let action = right_click_action(has_selection);
+        let assignment = match action {
+            RightClickAction::CopySelection => {
+                KeyAssignment::CopyTo(ClipboardCopyDestination::Clipboard)
+            }
+            RightClickAction::PasteClipboard => {
+                KeyAssignment::PasteFrom(ClipboardPasteSource::Clipboard)
+            }
         };
-        if let Err(err) = self.perform_key_assignment(pane, &assignment) {
-            log::warn!("right-click quick-action failed: {err:#}");
+        match self.perform_key_assignment(pane, &assignment) {
+            Ok(_) => self.show_ui_notice(crate::i18n::t(match action {
+                RightClickAction::CopySelection => "interaction.copied",
+                RightClickAction::PasteClipboard => "interaction.pasted",
+            })),
+            Err(err) => log::warn!("right-click quick-action failed: {err:#}"),
         }
         if has_selection {
             // Clear the selection so the user gets a clean prompt back.
@@ -5496,5 +5523,16 @@ impl Drop for TermWindow {
                 fe.forget_known_window(&window);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod interaction_contract_tests {
+    use super::{right_click_action, RightClickAction};
+
+    #[test]
+    fn right_click_copies_only_when_a_selection_exists() {
+        assert_eq!(right_click_action(true), RightClickAction::CopySelection);
+        assert_eq!(right_click_action(false), RightClickAction::PasteClipboard);
     }
 }
