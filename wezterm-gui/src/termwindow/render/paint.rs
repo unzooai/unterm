@@ -308,15 +308,18 @@ impl crate::TermWindow {
             (name, rows, tree.scroll_top)
         };
 
-        let header_text = if rows_snapshot.len() > visible_rows {
-            let from = scroll_top.saturating_add(1).min(rows_snapshot.len());
-            let to = scroll_top
-                .saturating_add(visible_rows)
-                .min(rows_snapshot.len());
-            format!("▦  {root_name}  ↕ {from}-{to}/{}", rows_snapshot.len())
-        } else {
-            format!("▦  {root_name}")
+        let average_glyph_px = ui_tokens::UI_FONT_SIZE as f32 * 0.52 * pt;
+        let cols_for_pixels = |pixels: f32| {
+            (pixels.max(0.) / average_glyph_px.max(1.)).floor() as usize
         };
+        let header_inner_width = (width - 20. * pt).max(0.);
+        let header_text = crate::termwindow::tree_sidebar::fit_tree_header_text(
+            &root_name,
+            rows_snapshot.len(),
+            visible_rows,
+            scroll_top,
+            cols_for_pixels(header_inner_width),
+        );
 
         // Header: ▦ root-name, with a compact range marker when the
         // directory has more rows than fit. This makes the wheel/scrollbar
@@ -330,7 +333,8 @@ impl crate::TermWindow {
                     text: teal.into(),
                 }))
                 .display(DisplayType::Block)
-                .min_width(Some(Dimension::Percent(1.)))
+                .min_width(Some(Dimension::Pixels(header_inner_width)))
+                .max_width(Some(Dimension::Pixels(header_inner_width)))
                 .padding(BoxDimension {
                     left: Dimension::Pixels(12. * pt),
                     right: Dimension::Pixels(8. * pt),
@@ -364,13 +368,27 @@ impl crate::TermWindow {
                 "  "
             };
             let text_color = if *is_hidden { dim } else { fg };
+            let right_pad = 6. * pt;
+            let border_width = 2. * pt;
+            let desired_left = 12. * pt + (*depth as f32) * 12. * pt;
+            // Deeply nested directories must compress their indentation before
+            // they can push the selector beyond the reserved file sidebar.
+            let max_left = (width - right_pad - border_width - 2. * average_glyph_px).max(0.);
+            let left_pad = desired_left.min(max_left);
+            let text_width = (width - left_pad - right_pad - border_width).max(0.);
+            let row_text = crate::termwindow::tree_sidebar::fit_tree_row_text(
+                glyph,
+                name,
+                cols_for_pixels(text_width),
+            );
             children.push(
-                Element::new(&font, ElementContent::Text(format!("{glyph}{name}")))
+                Element::new(&font, ElementContent::Text(row_text))
                     .item_type(UIItemType::TreeSidebarRow(i))
                     .display(DisplayType::Block)
-                    .min_width(Some(Dimension::Percent(1.)))
+                    .min_width(Some(Dimension::Pixels(text_width)))
+                    .max_width(Some(Dimension::Pixels(text_width)))
                     .padding(BoxDimension {
-                        left: Dimension::Pixels(12. * pt + (*depth as f32) * 12. * pt),
+                        left: Dimension::Pixels(left_pad),
                         right: Dimension::Pixels(6. * pt),
                         top: Dimension::Pixels(3. * pt),
                         bottom: Dimension::Pixels(3. * pt),
@@ -406,6 +424,7 @@ impl crate::TermWindow {
                 text: fg.into(),
             })
             .min_width(Some(Dimension::Pixels(width)))
+            .max_width(Some(Dimension::Pixels(width)))
             .min_height(Some(Dimension::Pixels(bottom - top)));
 
         let computed = self.compute_element(
