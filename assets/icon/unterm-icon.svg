@@ -1,10 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <defs>
     <linearGradient id="tile" x1="7" y1="5" x2="58" y2="61" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#20292D"/><stop offset=".46" stop-color="#101719"/><stop offset="1" stop-color="#070A0B"/>
+      <stop stop-color="#20282B"/><stop offset=".48" stop-color="#111719"/><stop offset="1" stop-color="#080B0C"/>
     </linearGradient>
     <radialGradient id="ambient" cx="0" cy="0" r="1" gradientTransform="translate(17 8) rotate(48) scale(57)">
-      <stop stop-color="#FFFFFF" stop-opacity=".12"/><stop offset=".52" stop-color="#FFFFFF" stop-opacity=".02"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+      <stop stop-color="#FFFFFF" stop-opacity=".09"/><stop offset=".52" stop-color="#FFFFFF" stop-opacity=".015"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
     </radialGradient>
     <linearGradient id="metal" x1="20" y1="14" x2="39" y2="51" gradientUnits="userSpaceOnUse">
       <stop stop-color="#FAFCFA"/><stop offset=".55" stop-color="#E2E8E4"/><stop offset="1" stop-color="#AEB9B2"/>
@@ -15,12 +15,12 @@
   </defs>
   <rect width="64" height="64" rx="14" fill="url(#tile)"/>
   <rect width="64" height="64" rx="14" fill="url(#ambient)"/>
-  <rect x=".5" y=".5" width="63" height="63" rx="13.5" fill="none" stroke="#FFFFFF" stroke-opacity=".09"/>
+  <rect x=".5" y=".5" width="63" height="63" rx="13.5" fill="none" stroke="#FFFFFF" stroke-opacity=".06"/>
 
   <!-- Command Loop: Unterm's U-shaped input path resolves into a terminal prompt. -->
-  <path d="M20 15v20c0 10 5 15 14 15 8 0 12-5 12-12" fill="none" stroke="#020505" stroke-opacity=".48" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" transform="translate(0 1)"/>
-  <path d="M20 15v20c0 10 5 15 14 15 8 0 12-5 12-12" fill="none" stroke="url(#metal)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
-  <circle cx="20" cy="15" r="3.5" fill="#8FE3CE"/>
-  <path d="m41 32 7 6-7 6" fill="none" stroke="#06110E" stroke-opacity=".42" stroke-width="8.5" stroke-linecap="round" stroke-linejoin="round" transform="translate(0 1)"/>
-  <path d="m41 32 7 6-7 6" fill="none" stroke="url(#jade)" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M20.5 15.5V35c0 9.7 4.8 14.5 13.5 14.5 7.6 0 11.5-4.5 11.5-11.5" fill="none" stroke="#020505" stroke-opacity=".30" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" transform="translate(0 .75)"/>
+  <path d="M20.5 15.5V35c0 9.7 4.8 14.5 13.5 14.5 7.6 0 11.5-4.5 11.5-11.5" fill="none" stroke="url(#metal)" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="20.5" cy="15.5" r="3.25" fill="#8FE3CE"/>
+  <path d="m41.5 33 5.8 5-5.8 5" fill="none" stroke="#06110E" stroke-opacity=".28" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" transform="translate(0 .75)"/>
+  <path d="m41.5 33 5.8 5-5.8 5" fill="none" stroke="url(#jade)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

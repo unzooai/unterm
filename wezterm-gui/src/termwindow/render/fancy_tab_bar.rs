@@ -71,9 +71,9 @@ const COMMAND_LOOP_MARK: &[Poly] = &[
     },
     Poly {
         path: &[
-            PolyCommand::MoveTo(BlockCoord::Frac(13, 20), BlockCoord::Frac(2, 5)),
-            PolyCommand::LineTo(BlockCoord::Frac(17, 20), BlockCoord::Frac(11, 20)),
-            PolyCommand::LineTo(BlockCoord::Frac(13, 20), BlockCoord::Frac(7, 10)),
+            PolyCommand::MoveTo(BlockCoord::Frac(27, 40), BlockCoord::Frac(17, 40)),
+            PolyCommand::LineTo(BlockCoord::Frac(4, 5), BlockCoord::Frac(11, 20)),
+            PolyCommand::LineTo(BlockCoord::Frac(27, 40), BlockCoord::Frac(27, 40)),
         ],
         intensity: BlockAlpha::Full,
         style: PolyStyle::Outline,

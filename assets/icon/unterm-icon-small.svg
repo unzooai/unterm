@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <!-- Optical master for 16-64 px: flat tones, heavier U and larger prompt. -->
   <rect width="64" height="64" rx="14" fill="#0B1113"/>
-  <rect x=".5" y=".5" width="63" height="63" rx="13.5" fill="none" stroke="#FFFFFF" stroke-opacity=".13"/>
-  <path d="M20 14v21c0 11 5 16 14 16 9 0 13-5 13-13" fill="none" stroke="#EDF2EE" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
-  <circle cx="20" cy="14" r="4" fill="#77D9C1"/>
-  <path d="m41 31 8 7-8 7" fill="none" stroke="#55C6AA" stroke-width="7.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x=".5" y=".5" width="63" height="63" rx="13.5" fill="none" stroke="#FFFFFF" stroke-opacity=".09"/>
+  <path d="M20.5 14.5V35c0 10.5 5 15.5 13.5 15.5 8.5 0 12.5-5 12.5-12.5" fill="none" stroke="#EDF2EE" stroke-width="7.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="20.5" cy="14.5" r="3.75" fill="#77D9C1"/>
+  <path d="m41.5 32 7 6-7 6" fill="none" stroke="#55C6AA" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>
