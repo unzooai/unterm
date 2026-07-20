@@ -256,11 +256,11 @@ impl crate::TermWindow {
         // top bar) so the sidebar↔bottom-bar corner meets seamlessly instead
         // of stepping to a slightly different grey.
         let pal = self.palette().clone();
-        let bar_bg = crate::termwindow::chrome_colors::sidebar(
+        let chrome = crate::termwindow::chrome_colors::sidebar(
             pal.background.to_linear(),
             pal.foreground.to_linear(),
-        )
-        .surface;
+        );
+        let bar_bg = chrome.surface;
 
         // Draw the bar background on layer 1 (not 0) so it fully occludes
         // everything beneath it at the bottom of the window — in particular
@@ -275,17 +275,11 @@ impl crate::TermWindow {
             bar_bg,
         )?;
 
-        // A hairline along the top edge separates the bottom bar from the
-        // chrome above it. Use the pane background tone, not the light
-        // fg-alpha divider: the top bar's seam is a transparent 1px border
-        // that shows the dark pane color through, so the sidebar↔bottom-bar
-        // corner gets the identical dark seam (65|18|65 on the default
-        // theme). Against the pane content itself the line is invisible —
-        // same as the top — because there the bar↔content tone contrast
-        // already defines the edge.
+        // Close the bottom of the shared chrome frame with the same subtle
+        // optical edge used by the title bar and sidebar.
         let _ = sep_rgb;
         let pt = self.dimensions.dpi as f32 / 72.0;
-        let divider = pal.background.to_linear();
+        let divider = chrome.outer_edge;
         self.filled_rectangle(
             layers,
             2,

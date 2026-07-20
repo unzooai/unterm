@@ -46,7 +46,7 @@ pub const CHROME_SCROLLBAR_TRACK_ALPHA: f32 = 0.16;
 pub const CHROME_SCROLLBAR_THUMB_ALPHA: f32 = 0.74;
 
 /// Left tab bar geometry.
-pub const LEFT_TAB_BAR_WIDTH: f32 = 164.0;
+pub const LEFT_TAB_BAR_WIDTH: f32 = 156.0;
 pub const LEFT_TAB_BAR_MIN_WIDTH: f32 = 112.0;
 /// Max width as a fraction of the window width.
 pub const LEFT_TAB_BAR_MAX_RATIO: f32 = 0.30;

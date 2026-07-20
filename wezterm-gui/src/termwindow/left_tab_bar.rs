@@ -603,11 +603,10 @@ impl crate::TermWindow {
         let fgc = palette.foreground.to_linear();
         let chrome = chrome_colors::sidebar(bg, fgc);
         let bar_bg = chrome.surface;
-        let divider = chrome.divider;
         let is_light = chrome.is_light;
         let row_pad = ui_tokens::ROW_PADDING * pt;
         let content_top_gap = 12. * pt;
-        let radius = Dimension::Pixels(ui_tokens::CORNER_RADIUS * pt);
+        let radius = Dimension::Pixels((ui_tokens::CORNER_RADIUS + 1.0) * pt);
         // The surface runs the full height down to the status bar (no reserved
         // gap), so the panel is one continuous fill that meets the bottom info
         // bar. A leftover gap here used to expose the window background beneath
@@ -1299,8 +1298,19 @@ impl crate::TermWindow {
                         // Taller rows (was 5pt) so the sidebar breathes instead of
                         // reading cramped. Mirrored in `row_text_pad_v` above so
                         // the scroll-window arithmetic stays exact.
-                        top: Dimension::Pixels(9. * pt),
-                        bottom: Dimension::Pixels(9. * pt),
+                        // Active rows add a 1px optical outline above and below;
+                        // reduce their inner padding by the same amount so every
+                        // rendered row keeps the exact height used by scrolling.
+                        top: Dimension::Pixels(if row.active {
+                            (9. * pt - 1.).max(0.)
+                        } else {
+                            9. * pt
+                        }),
+                        bottom: Dimension::Pixels(if row.active {
+                            (9. * pt - 1.).max(0.)
+                        } else {
+                            9. * pt
+                        }),
                     });
 
                 // No inline close button — Warp's vertical-tab rows have none;
@@ -1323,9 +1333,21 @@ impl crate::TermWindow {
                     } else {
                         LinearRgba::TRANSPARENT
                     },
-                    right: LinearRgba::TRANSPARENT,
-                    top: LinearRgba::TRANSPARENT,
-                    bottom: LinearRgba::TRANSPARENT,
+                    right: if row.active {
+                        chrome.selected_outline
+                    } else {
+                        LinearRgba::TRANSPARENT
+                    },
+                    top: if row.active {
+                        chrome.selected_outline
+                    } else {
+                        LinearRgba::TRANSPARENT
+                    },
+                    bottom: if row.active {
+                        chrome.selected_outline
+                    } else {
+                        LinearRgba::TRANSPARENT
+                    },
                 };
                 children.push(
                     Element::new(&font, ElementContent::Children(vec![title_line]))
@@ -1346,9 +1368,9 @@ impl crate::TermWindow {
                         })
                         .border(BoxDimension {
                             left: Dimension::Pixels(2. * pt),
-                            right: Dimension::Pixels(0.),
-                            top: Dimension::Pixels(0.),
-                            bottom: Dimension::Pixels(0.),
+                            right: Dimension::Pixels(if row.active { 1. } else { 0. }),
+                            top: Dimension::Pixels(if row.active { 1. } else { 0. }),
+                            bottom: Dimension::Pixels(if row.active { 1. } else { 0. }),
                         })
                         // Otty-style: the active row reads as a clean rounded
                         // selection rather than a sharp full-bleed rectangle.
@@ -1460,16 +1482,20 @@ impl crate::TermWindow {
                 .margin(BoxDimension {
                     left: Dimension::Pixels(0.),
                     right: Dimension::Pixels(0.),
-                    top: Dimension::Pixels(2. * pt),
-                    bottom: Dimension::Pixels(2. * pt),
+                    top: Dimension::Pixels(6. * pt),
+                    bottom: Dimension::Pixels(0.),
                 })
-                .border(BoxDimension::new(Dimension::Pixels(1.)))
-                .border_corners(rounded())
+                .border(BoxDimension {
+                    left: Dimension::Pixels(0.),
+                    right: Dimension::Pixels(0.),
+                    top: Dimension::Pixels(1.),
+                    bottom: Dimension::Pixels(0.),
+                })
                 .colors(ElementColors {
                     border: BorderColor {
                         left: LinearRgba::TRANSPARENT,
                         right: LinearRgba::TRANSPARENT,
-                        top: divider,
+                        top: chrome.inner_highlight,
                         bottom: LinearRgba::TRANSPARENT,
                     },
                     bg: footer_bg.into(),
@@ -1482,8 +1508,8 @@ impl crate::TermWindow {
                 // Horizontal padding insets the rows from the panel edges so the
                 // selection fill doesn't bleed to the divider.
                 .padding(BoxDimension {
-                    left: Dimension::Pixels(7. * pt),
-                    right: Dimension::Pixels(7. * pt),
+                    left: Dimension::Pixels(6. * pt),
+                    right: Dimension::Pixels(6. * pt),
                     top: Dimension::Pixels(0.),
                     bottom: Dimension::Pixels(0.),
                 })
@@ -1496,7 +1522,7 @@ impl crate::TermWindow {
                 .colors(ElementColors {
                     border: BorderColor {
                         left: LinearRgba::TRANSPARENT,
-                        right: divider,
+                        right: chrome.outer_edge,
                         top: LinearRgba::TRANSPARENT,
                         bottom: LinearRgba::TRANSPARENT,
                     },
@@ -1508,7 +1534,7 @@ impl crate::TermWindow {
                 // panel that meets the info bar — not a short floating card with a
                 // dead band beneath it. The reserved `width` gutter is unchanged
                 // (the terminal still reflows around it).
-                .min_width(Some(Dimension::Pixels(width - 14. * pt - 1.)))
+                .min_width(Some(Dimension::Pixels(width - 12. * pt - 1.)))
                 // Fill the exact span top → content_bottom (no padding/border on
                 // top or bottom), so the window-background gap above the surface
                 // (`vgap` below the top bar) equals the gap below it (`vgap` above

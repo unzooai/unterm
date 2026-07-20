@@ -3,7 +3,9 @@ use window::color::LinearRgba;
 #[derive(Debug, Clone, Copy)]
 pub struct SidebarChromeColors {
     pub surface: LinearRgba,
-    pub divider: LinearRgba,
+    pub outer_edge: LinearRgba,
+    pub inner_highlight: LinearRgba,
+    pub selected_outline: LinearRgba,
     pub dim_text: LinearRgba,
     pub hover_bg: LinearRgba,
     pub selected_bg: LinearRgba,
@@ -50,12 +52,16 @@ pub fn sidebar(bg: LinearRgba, fg: LinearRgba) -> SidebarChromeColors {
 
     SidebarChromeColors {
         surface,
-        divider: fg.mul_alpha(if is_light { 0.18 } else { 0.12 }),
+        // Two optical edge tones let the shared chrome read as a deliberate
+        // frame rather than a single hard separator.
+        outer_edge: fg.mul_alpha(if is_light { 0.20 } else { 0.10 }),
+        inner_highlight: fg.mul_alpha(if is_light { 0.08 } else { 0.045 }),
+        selected_outline: fg.mul_alpha(if is_light { 0.18 } else { 0.11 }),
         dim_text: fg.mul_alpha(if is_light { 0.86 } else { 0.78 }),
         hover_bg,
         selected_bg,
         group_bg: mix(surface, fg, if is_light { 0.025 } else { 0.014 }),
-        footer_bg: mix(surface, fg, if is_light { 0.032 } else { 0.020 }),
+        footer_bg: surface,
         // Relay Core's Signal Jade. Use a darker optical variant on light
         // surfaces so the 2px focus rail remains crisp without glowing.
         focus_rail: if is_light {

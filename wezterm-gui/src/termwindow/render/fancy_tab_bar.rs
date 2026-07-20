@@ -52,6 +52,57 @@ const PLUS_BUTTON: &[Poly] = &[
     },
 ];
 
+// Optical 16px master of Relay Core for the integrated title bar. Four short
+// rails exchange through a compact center; unlike the former `▏`, this keeps
+// the product mark recognizable without trying to squeeze the full app icon
+// (tile, gradients and all) into chrome text height.
+const RELAY_CORE_MARK: &[Poly] = &[
+    Poly {
+        path: &[
+            PolyCommand::MoveTo(BlockCoord::Zero, BlockCoord::Frac(1, 4)),
+            PolyCommand::LineTo(BlockCoord::Frac(1, 3), BlockCoord::Frac(1, 4)),
+            PolyCommand::LineTo(BlockCoord::Frac(1, 2), BlockCoord::Frac(3, 7)),
+        ],
+        intensity: BlockAlpha::Full,
+        style: PolyStyle::Outline,
+    },
+    Poly {
+        path: &[
+            PolyCommand::MoveTo(BlockCoord::One, BlockCoord::Frac(1, 4)),
+            PolyCommand::LineTo(BlockCoord::Frac(2, 3), BlockCoord::Frac(1, 4)),
+            PolyCommand::LineTo(BlockCoord::Frac(1, 2), BlockCoord::Frac(3, 7)),
+        ],
+        intensity: BlockAlpha::Full,
+        style: PolyStyle::Outline,
+    },
+    Poly {
+        path: &[
+            PolyCommand::MoveTo(BlockCoord::Zero, BlockCoord::Frac(3, 4)),
+            PolyCommand::LineTo(BlockCoord::Frac(1, 3), BlockCoord::Frac(3, 4)),
+            PolyCommand::LineTo(BlockCoord::Frac(1, 2), BlockCoord::Frac(4, 7)),
+        ],
+        intensity: BlockAlpha::Full,
+        style: PolyStyle::Outline,
+    },
+    Poly {
+        path: &[
+            PolyCommand::MoveTo(BlockCoord::One, BlockCoord::Frac(3, 4)),
+            PolyCommand::LineTo(BlockCoord::Frac(2, 3), BlockCoord::Frac(3, 4)),
+            PolyCommand::LineTo(BlockCoord::Frac(1, 2), BlockCoord::Frac(4, 7)),
+        ],
+        intensity: BlockAlpha::Full,
+        style: PolyStyle::Outline,
+    },
+    Poly {
+        path: &[
+            PolyCommand::MoveTo(BlockCoord::Frac(1, 2), BlockCoord::Frac(3, 7)),
+            PolyCommand::LineTo(BlockCoord::Frac(1, 2), BlockCoord::Frac(4, 7)),
+        ],
+        intensity: BlockAlpha::Full,
+        style: PolyStyle::Outline,
+    },
+];
+
 /// Vertical geometry of the chrome-row buttons (quick actions / menu).
 /// `tab_bar_pixel_height_impl` derives the reserved chrome height from
 /// these same constants — if the buttons grow, the reserved height grows
@@ -109,8 +160,8 @@ impl crate::TermWindow {
         // whole chrome (top + left sidebar + bottom) forms one continuous frame
         // and the sidebar↔top-bar corner meets seamlessly, with the darker pane
         // content inset inside it.
-        let chrome_surface =
-            crate::termwindow::chrome_colors::sidebar(scheme_bg, scheme_fg).surface;
+        let chrome = crate::termwindow::chrome_colors::sidebar(scheme_bg, scheme_fg);
+        let chrome_surface = chrome.surface;
         let bar_bg = if self.focused.is_some() {
             if self.config.window_frame.active_bg_is_default() {
                 chrome_surface
@@ -133,16 +184,10 @@ impl crate::TermWindow {
         } else {
             self.config.window_frame.inactive_titlebar_fg.to_linear()
         };
-        // 1 px bottom divider so the chrome / sidebar / pane seam is
-        // visible — without it, the chrome bg and the sidebar bg
-        // resolve to similar greys and the entire left column reads as
-        // one continuous panel (user's recurring "sidebar 压住顶栏"
-        // complaint). 0.4 alpha was chosen after a 0.12 trial in v0.44.3
-        // — that line was visible in code but invisible on screen.
-        // Scheme A: the chrome (top bar + sidebar + bottom) is now one tone, so
-        // the old 0.4-alpha bottom line just cut across the unified frame. Drop
-        // it — the chrome↔content tone contrast already defines the edge.
-        let chrome_bottom_divider = window::color::LinearRgba::TRANSPARENT;
+        // A restrained 1px optical edge closes the shared chrome frame around
+        // the pane. It uses the same token as the sidebar and status bar, so
+        // the three seams meet cleanly instead of forming unrelated hard lines.
+        let chrome_bottom_divider = chrome.outer_edge;
         let bar_colors = ElementColors {
             border: BorderColor {
                 left: window::color::LinearRgba::TRANSPARENT,
@@ -699,9 +744,8 @@ impl crate::TermWindow {
             Dimension::Cells(0.5)
         };
 
-        // Brand mark at the far left of the info (top) bar: a signal-jade
-        // guide rail plus the Unterm wordmark. The exact Relay Core mark stays
-        // in raster/vector surfaces where its geometry can render faithfully.
+        // Brand mark at the far left of the info bar: a purpose-drawn compact
+        // Relay Core glyph plus the Unterm wordmark.
         // Skipped on macOS (the
         // traffic lights own that corner) and whenever window buttons are
         // left-aligned, so the mark never collides with them.
@@ -717,8 +761,24 @@ impl crate::TermWindow {
                 .resolve_fg(ColorAttribute::PaletteIndex(14))
                 .to_linear();
             let brand_kids = vec![
-                Element::new(&font, ElementContent::Text("▏".to_string()))
+                Element::new(
+                    &font,
+                    ElementContent::Poly {
+                        line_width: metrics.underline_height.max(2),
+                        poly: SizedPoly {
+                            poly: RELAY_CORE_MARK,
+                            width: Dimension::Cells(0.8),
+                            height: Dimension::Cells(0.8),
+                        },
+                    },
+                )
                     .vertical_align(VerticalAlign::Middle)
+                    .margin(BoxDimension {
+                        left: Dimension::Cells(0.),
+                        right: Dimension::Cells(0.35),
+                        top: Dimension::Cells(0.),
+                        bottom: Dimension::Cells(0.),
+                    })
                     .colors(ElementColors {
                         border: BorderColor::default(),
                         bg: window::color::LinearRgba::TRANSPARENT.into(),
