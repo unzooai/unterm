@@ -1,7 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <!-- Optical master for 16-64 px: flat tones, wider center, heavier rails. -->
-  <rect width="64" height="64" rx="14" fill="#0C1114"/>
-  <rect x=".5" y=".5" width="63" height="63" rx="13.5" fill="none" stroke="#FFFFFF" stroke-opacity=".12"/>
-  <path d="M11 15h11c7.5 0 10.5 4.5 10.5 12v4.5M53 15H42c-7.5 0-10.5 4.5-10.5 12v4.5M11 49h11c7.5 0 10.5-4.5 10.5-12v-4.5M53 49H42c-7.5 0-10.5-4.5-10.5-12v-4.5" fill="none" stroke="#F0F3EF" stroke-width="9" stroke-linecap="square" stroke-linejoin="round"/>
-  <path d="M32 27v10" stroke="#67CDB6" stroke-width="9" stroke-linecap="square"/>
+  <!-- Optical master for 16-64 px: flat tones, heavier U and larger prompt. -->
+  <rect width="64" height="64" rx="14" fill="#0B1113"/>
+  <rect x=".5" y=".5" width="63" height="63" rx="13.5" fill="none" stroke="#FFFFFF" stroke-opacity=".13"/>
+  <path d="M20 14v21c0 11 5 16 14 16 9 0 13-5 13-13" fill="none" stroke="#EDF2EE" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="20" cy="14" r="4" fill="#77D9C1"/>
+  <path d="m41 31 8 7-8 7" fill="none" stroke="#55C6AA" stroke-width="7.5" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

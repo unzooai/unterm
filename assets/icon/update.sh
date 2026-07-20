@@ -42,6 +42,14 @@ resize_to() {
 resize_to 128 terminal.png
 resize_to 256 terminal@2x.png
 
+# Website/favicon assets share the same master and small-size optical rules.
+# Keeping them in this pipeline prevents the installed app and product site
+# from drifting into different brand marks after a future icon refresh.
+cp "$SRC_SVG" ../../web/public/assets/icon.svg
+for s in 32 256 512 ; do
+  resize_to "$s" "../../web/public/assets/icon-${s}.png"
+done
+
 # Linux hicolor ladder — install one PNG per standard icon size so the desktop
 # environment can pick a crisp raster at every spot (taskbar=16/24, app
 # launcher=48/64, file dialog=96/128, Activities/grid=256/512). Without this,

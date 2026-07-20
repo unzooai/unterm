@@ -52,55 +52,28 @@ const PLUS_BUTTON: &[Poly] = &[
     },
 ];
 
-// Optical 16px master of Relay Core for the integrated title bar. Four short
-// rails exchange through a compact center; unlike the former `▏`, this keeps
-// the product mark recognizable without trying to squeeze the full app icon
-// (tile, gradients and all) into chrome text height.
-const RELAY_CORE_MARK: &[Poly] = &[
+// Optical 16px master of Command Loop for the integrated title bar. The U
+// identifies Unterm while its open edge resolves into a terminal prompt. The
+// two-stroke silhouette survives light/dark chrome and tiny display scales.
+const COMMAND_LOOP_MARK: &[Poly] = &[
     Poly {
         path: &[
-            PolyCommand::MoveTo(BlockCoord::Zero, BlockCoord::Frac(1, 5)),
-            PolyCommand::LineTo(BlockCoord::Frac(3, 10), BlockCoord::Frac(1, 5)),
-            PolyCommand::LineTo(BlockCoord::Frac(3, 10), BlockCoord::Frac(2, 5)),
-            PolyCommand::LineTo(BlockCoord::Frac(9, 20), BlockCoord::Frac(2, 5)),
+            PolyCommand::MoveTo(BlockCoord::Frac(1, 5), BlockCoord::Frac(1, 10)),
+            PolyCommand::LineTo(BlockCoord::Frac(1, 5), BlockCoord::Frac(3, 5)),
+            PolyCommand::LineTo(BlockCoord::Frac(1, 4), BlockCoord::Frac(7, 10)),
+            PolyCommand::LineTo(BlockCoord::Frac(2, 5), BlockCoord::Frac(4, 5)),
+            PolyCommand::LineTo(BlockCoord::Frac(11, 20), BlockCoord::Frac(4, 5)),
+            PolyCommand::LineTo(BlockCoord::Frac(7, 10), BlockCoord::Frac(7, 10)),
+            PolyCommand::LineTo(BlockCoord::Frac(3, 4), BlockCoord::Frac(3, 5)),
         ],
         intensity: BlockAlpha::Full,
         style: PolyStyle::Outline,
     },
     Poly {
         path: &[
-            PolyCommand::MoveTo(BlockCoord::One, BlockCoord::Frac(1, 5)),
-            PolyCommand::LineTo(BlockCoord::Frac(7, 10), BlockCoord::Frac(1, 5)),
-            PolyCommand::LineTo(BlockCoord::Frac(7, 10), BlockCoord::Frac(2, 5)),
-            PolyCommand::LineTo(BlockCoord::Frac(11, 20), BlockCoord::Frac(2, 5)),
-        ],
-        intensity: BlockAlpha::Full,
-        style: PolyStyle::Outline,
-    },
-    Poly {
-        path: &[
-            PolyCommand::MoveTo(BlockCoord::Zero, BlockCoord::Frac(4, 5)),
-            PolyCommand::LineTo(BlockCoord::Frac(3, 10), BlockCoord::Frac(4, 5)),
-            PolyCommand::LineTo(BlockCoord::Frac(3, 10), BlockCoord::Frac(3, 5)),
-            PolyCommand::LineTo(BlockCoord::Frac(9, 20), BlockCoord::Frac(3, 5)),
-        ],
-        intensity: BlockAlpha::Full,
-        style: PolyStyle::Outline,
-    },
-    Poly {
-        path: &[
-            PolyCommand::MoveTo(BlockCoord::One, BlockCoord::Frac(4, 5)),
-            PolyCommand::LineTo(BlockCoord::Frac(7, 10), BlockCoord::Frac(4, 5)),
-            PolyCommand::LineTo(BlockCoord::Frac(7, 10), BlockCoord::Frac(3, 5)),
-            PolyCommand::LineTo(BlockCoord::Frac(11, 20), BlockCoord::Frac(3, 5)),
-        ],
-        intensity: BlockAlpha::Full,
-        style: PolyStyle::Outline,
-    },
-    Poly {
-        path: &[
-            PolyCommand::MoveTo(BlockCoord::Frac(1, 2), BlockCoord::Frac(2, 5)),
-            PolyCommand::LineTo(BlockCoord::Frac(1, 2), BlockCoord::Frac(3, 5)),
+            PolyCommand::MoveTo(BlockCoord::Frac(13, 20), BlockCoord::Frac(2, 5)),
+            PolyCommand::LineTo(BlockCoord::Frac(17, 20), BlockCoord::Frac(11, 20)),
+            PolyCommand::LineTo(BlockCoord::Frac(13, 20), BlockCoord::Frac(7, 10)),
         ],
         intensity: BlockAlpha::Full,
         style: PolyStyle::Outline,
@@ -750,7 +723,7 @@ impl crate::TermWindow {
         };
 
         // Brand mark at the far left of the info bar: a purpose-drawn compact
-        // Relay Core glyph plus the Unterm wordmark.
+        // Command Loop glyph plus the Unterm wordmark.
         // Skipped on macOS (the
         // traffic lights own that corner) and whenever window buttons are
         // left-aligned, so the mark never collides with them.
@@ -769,7 +742,7 @@ impl crate::TermWindow {
                     ElementContent::Poly {
                         line_width: metrics.underline_height.max(2),
                         poly: SizedPoly {
-                            poly: RELAY_CORE_MARK,
+                            poly: COMMAND_LOOP_MARK,
                             width: Dimension::Cells(0.8),
                             height: Dimension::Cells(0.8),
                         },
