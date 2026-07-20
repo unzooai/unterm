@@ -7,6 +7,8 @@
   "nav.install": "Install",
   "nav.download": "Download",
   "nav.faq": "FAQ",
+  "cap.cockpit.title": "エージェントコックピット",
+  "cap.cockpit.body": "すべての CLI エージェントのライブ状態（作業中 / 待機中 / アイドル）を一目で把握し、受信トレイからあなたを待つエージェントへ直行。隔離された git worktree で1つのタスクに N 個のエージェントのフリートを起動し、その成果を GUI・MCP・CLI のどこからでもレビュー、マージ、ロールバックできます。",
   "hero.title.1": "A terminal",
   "hero.title.2": "AI agents can control.",
   "hero.subtitle": "Drive panes, shells, cwd, screenshots, and session state through MCP, HTTP, and CLI so Claude Code, Cursor, or your own agent can run the whole terminal.",

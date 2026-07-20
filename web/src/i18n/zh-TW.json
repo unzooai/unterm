@@ -7,6 +7,8 @@
   "nav.install": "Install",
   "nav.download": "Download",
   "nav.faq": "FAQ",
+  "cap.cockpit.title": "Agent 座艙",
+  "cap.cockpit.body": "即時看到每個 CLI agent 的狀態（工作中 / 等你 / 閒置），從 Agent 收件匣一鍵跳到需要你的那個，在隔離的 git worktree 裡為同一個任務啟動 N 個 agent 編隊，再對它們的成果審閱、合併或還原——GUI、MCP、CLI 都能操作。",
   "hero.title.1": "AI",
   "hero.title.2": "可控制的終端。",
   "hero.subtitle": "透過 MCP、HTTP 和 CLI 把 pane、cwd、截圖與工作階段狀態暴露給 Claude Code、Cursor，或你自己的 agent，讓它直接接管整個終端。",

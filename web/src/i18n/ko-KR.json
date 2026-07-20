@@ -7,6 +7,8 @@
   "nav.install": "Install",
   "nav.download": "Download",
   "nav.faq": "FAQ",
+  "cap.cockpit.title": "에이전트 콕핏",
+  "cap.cockpit.body": "모든 CLI 에이전트의 실시간 상태(작업 중 / 대기 / 유휴)를 한눈에 보고, 인박스에서 당신을 필요로 하는 에이전트로 바로 이동하고, 격리된 git worktree에서 하나의 작업에 N개의 에이전트 플릿을 띄우고, 그 결과물을 리뷰·머지·롤백하세요 — GUI, MCP, CLI 어디서든.",
   "hero.title.1": "A terminal",
   "hero.title.2": "AI agents can control.",
   "hero.subtitle": "Drive panes, shells, cwd, screenshots, and session state through MCP, HTTP, and CLI so Claude Code, Cursor, or your own agent can run the whole terminal.",

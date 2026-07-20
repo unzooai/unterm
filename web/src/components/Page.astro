@@ -219,22 +219,23 @@ const cmpRows = [
 // are i18n keys. This is the "what does it actually expose" section the
 // thin 8-card Features grid only gestures at.
 const capStats = [
-  { n: "65", label: "cap.stat.methods" },
-  { n: "11", label: "cap.stat.namespaces" },
-  { n: "22", label: "cap.stat.cli" },
+  { n: "97", label: "cap.stat.methods" },
+  { n: "21", label: "cap.stat.namespaces" },
+  { n: "32", label: "cap.stat.cli" },
   { n: "4",  label: "cap.stat.surfaces" },
 ];
 const capabilities = [
-  { icon: "🪟", title: "cap.session.title",  body: "cap.session.body",  meta: "session.* · 23", items: "create · split · focus · resize · input · destroy · history · idle · cwd" },
+  { icon: "🛩️", title: "cap.cockpit.title", body: "cap.cockpit.body", meta: "cockpit · fleet.* · review.* · 11", items: "agent.status · agent.signal · cockpit.inbox · fleet.launch · fleet.clean · review.diff · review.merge · review.rollback", wide: true },
+  { icon: "🪟", title: "cap.session.title",  body: "cap.session.body",  meta: "session.* · 26", items: "create · split · focus · resize · input · destroy · history · idle · cwd" },
   { icon: "👁️", title: "cap.screen.title",   body: "cap.screen.body",   meta: "screen.* · 7",   items: "text · scrollback_text · search · cursor · detect_errors · scroll" },
   { icon: "▶️", title: "cap.exec.title",     body: "cap.exec.body",     meta: "exec.* · 6",     items: "run · run_wait · send · status · cancel · signal.send" },
-  { icon: "🤖", title: "cap.agents.title",   body: "cap.agents.body",   meta: "agent · 5 CLIs", items: "install · auth · launch · config · mcp-stdio bridge" },
+  { icon: "🤖", title: "cap.agents.title",   body: "cap.agents.body",   meta: "agent · 7 CLIs", items: "install · auth · launch · config · mcp-stdio bridge" },
   { icon: "🪪", title: "cap.identity.title", body: "cap.identity.body", meta: "profile · 7 sniffers", items: "list · current · create · switch · delete" },
   { icon: "🛰️", title: "cap.instance.title", body: "cap.instance.body", meta: "instance.* · 4", items: "list · info · focus · set_title" },
   { icon: "🎬", title: "cap.rec.title",      body: "cap.rec.body",      meta: "recording · asciicast", items: "recording_start · stop · status · list · read · export_markdown" },
-  { icon: "📸", title: "cap.capture.title",  body: "cap.capture.body",  meta: "capture.* · 4 + upload", items: "screen · window · select · clipboard · upload.file" },
-  { icon: "🌐", title: "cap.proxy.title",    body: "cap.proxy.body",    meta: "proxy.* · 7",    items: "status · switch · nodes · speedtest · configure · disable · env" },
-  { icon: "🛡️", title: "cap.gov.title",      body: "cap.gov.body",      meta: "governance · 8", items: "audit_log · policy.check/set · agent.identify · selftest.run · server.health" },
+  { icon: "📸", title: "cap.capture.title",  body: "cap.capture.body",  meta: "capture.* · 6 + upload", items: "screen · window · select · clipboard · scrollback · window_scroll · upload.file" },
+  { icon: "🌐", title: "cap.proxy.title",    body: "cap.proxy.body",    meta: "proxy.* · 12",   items: "status · switch · nodes · speedtest · configure · disable · env" },
+  { icon: "🛡️", title: "cap.gov.title",      body: "cap.gov.body",      meta: "governance · 10", items: "audit_log · policy.check/set · agent.identify · selftest.run · server.health" },
   { icon: "💾", title: "cap.workspace.title",body: "cap.workspace.body",meta: "workspace.* · 3",items: "save · restore · list" },
   { icon: "📖", title: "cap.meta.title",     body: "cap.meta.body",     meta: "meta.surface", items: "reference · show-keys · settings · theme · lang" },
 ];
@@ -899,7 +900,7 @@ drwxr-xr-x 6 alexlee staff   192  architecture.md
 <!-- ============== COMPLETE CAPABILITY MAP ============== -->
 <!-- The full control surface, grouped by family. The thin Features grid
      above names the four surfaces; this section enumerates what those
-     surfaces actually expose: 65 MCP methods across 11 namespaces + 22
+     surfaces actually expose: 97 MCP methods across 21 namespaces + 32
      CLI commands. Each card is one namespace/feature family with its
      method count chip and representative call names (never translated). -->
 <section id="capabilities" class="py-20 border-t border-notion-border bg-gradient-to-b from-notion-bg via-notion-bg/10 to-notion-bg">
@@ -922,7 +923,7 @@ drwxr-xr-x 6 alexlee staff   192  architecture.md
 
     <div class="mt-6 grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
       {capabilities.map((c) => (
-        <div class="rounded-xl border border-notion-border bg-notion-surface/40 p-5 hover:border-notion-borderStrong transition flex flex-col">
+        <div class={"rounded-xl border border-notion-border bg-notion-surface/40 p-5 hover:border-notion-borderStrong transition flex flex-col" + (c.wide ? " sm:col-span-2 lg:col-span-3" : "")}>
           <div class="flex items-center justify-between gap-2">
             <div class="flex items-center gap-2">
               <span class="text-xl">{c.icon}</span>

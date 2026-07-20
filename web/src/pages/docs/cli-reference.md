@@ -3,7 +3,7 @@ layout: ../../layouts/Doc.astro
 title: unterm-cli reference
 subtitle: Every subcommand and flag of the unterm-cli binary, with cron / CI / pipeline examples. Pipe --json through anywhere downstream that wants raw JSON-RPC.
 kicker: Docs / CLI reference
-date: 2026-05-03
+date: 2026-07-20
 ---
 
 ## Connection model
@@ -39,7 +39,7 @@ These are accepted on every subcommand because they're declared `global = true` 
 
 | Flag | Purpose |
 |---|---|
-| `--json` | Print the raw JSON-RPC `result` payload instead of the human-formatted table. Recognised by `proxy`, `theme`, `session`, `sessions`, `workspace`, `instance`, `screenshot`, `reference`, and `lang`. Ignored by `settings open` (that command never round-trips through MCP). |
+| `--json` | Print the raw JSON-RPC `result` payload instead of the human-formatted table. Recognised by `proxy`, `theme`, `session`, `sessions`, `workspace`, `instance`, `agent`, `fleet`, `review`, `screenshot`, `reference`, and `lang`. Ignored by `settings open` (that command never round-trips through MCP). |
 | `--lang <code>` | Force the CLI's interface locale for this single invocation. Does not write to `~/.unterm/lang.json`. Useful in scripts that need stable English output regardless of how the user has configured the GUI. Codes: `en-US`, `zh-CN`, `zh-TW`, `ja-JP`, `ko-KR`, `de-DE`, `fr-FR`, `it-IT`, `hi-IN`. |
 | `--instance <id>` | Route MCP-backed commands to a specific live Unterm instance, for example `alpha` or `bravo`. Equivalent to setting `UNTERM_INSTANCE=<id>` for the invocation. |
 | `-h`, `--help` | Print help for the current subcommand level. |
@@ -572,15 +572,21 @@ $ unterm-cli --instance bravo session create --cwd ~/src/app -- 'cargo test; exe
 
 ## agent
 
-Install, authenticate, configure, launch, or run AI coding-agent CLIs through Unterm's profile and MCP wiring. `agent launch` opens the vendor CLI interactively; `agent run` uses the vendor's non-interactive mode and waits for the task to finish.
+Install, authenticate, configure, launch, or run AI coding-agent CLIs through Unterm's profile and MCP wiring. `agent launch` opens the vendor CLI interactively; `agent run` uses the vendor's non-interactive mode and waits for the task to finish. Since v0.55 this family also carries the Agent Cockpit state surface: `status`, `inbox`, `signal`, and `enable-hooks`.
 
 ```text
 unterm-cli agent run <codex-cli|claude-code|gemini-cli|opencode> [--profile <id>] [--cwd <path>] [--stdin] [--dry-run] <prompt...>
+unterm-cli agent status [--pane <ID>]
+unterm-cli agent inbox
+unterm-cli agent signal --event <working|waiting|done|idle> [--agent <name>] [--pane <ID>]
+unterm-cli agent enable-hooks [--dry-run] [--remove]
 unterm-cli agent whoami
 unterm-cli agent trusted
 unterm-cli agent trust <agent-name>
 unterm-cli agent untrust <agent-name>
 ```
+
+(The family also includes lifecycle management — `list`, `show`, `install`, `update`, `uninstall`, `auth`, `configure`, `import`, `plan`, `launch`, `manifest` — see `unterm-cli agent --help`; the GUI equivalent is Web Settings → AI Agents.)
 
 `agent run` currently supports:
 
@@ -636,6 +642,175 @@ Static config: -
 AGENT                    WRITES
 codex                    42
 ```
+
+### `agent status` / `agent inbox`
+
+The Agent Cockpit's read surface. `status` reports every pane with a detected agent, its state — `working`, `waiting`, `idle`, or `done` — how long it has been there, and a task hint. `inbox` is the same data filtered to agents that want attention, waiting-first, with tab/window locations so you (or an outer agent) can jump straight to the pane.
+
+```sh
+$ unterm-cli agent status
+PANE       AGENT     STATE      FOR     TASK
+3      ✋   claude    waiting    4400s   socal
+```
+
+```sh
+$ unterm-cli --json agent status
+{
+  "agents": [
+    {
+      "agent": "claude",
+      "fleet_id": null,
+      "for_secs": 4400,
+      "last_signal": "hook",
+      "pane_id": 3,
+      "state": "waiting",
+      "task_hint": "socal"
+    }
+  ],
+  "enabled": true
+}
+```
+
+`--pane <ID>` narrows `status` to one pane. `last_signal` tells you which detection layer produced the verdict — `hook` means exact reporting from `enable-hooks`; without hooks the engine falls back to OSC and process-poll heuristics. The JSON form of `inbox` adds `pane_title`, `tab_id`, and `window_id` per item. MCP methods: `agent.status` and `cockpit.inbox`.
+
+### `agent signal`
+
+The write half: report an agent lifecycle event into the cockpit state engine. This is what the hooks installed by `enable-hooks` call; you can also call it from your own wrappers or CI glue.
+
+```sh
+$ unterm-cli agent signal --agent claude --event done
+```
+
+| Flag | Purpose |
+|---|---|
+| `--event <e>` | Required. One of `working`, `waiting`, `done`, `idle`. |
+| `--agent <name>` | Agent name (`claude`, `codex`, `gemini`, `aider`, …). |
+| `--pane <ID>` | Pane to attribute the event to. Defaults to `$WEZTERM_PANE`, which hook processes inherit from the shell Unterm spawned — so a hook running inside a pane attributes itself correctly with no flags. |
+
+When no Unterm is running, `signal` exits quietly instead of failing — a hook must never break the agent it reports on. That makes it the one deliberate exception to the "all failures exit 1" rule at the bottom of this page.
+
+### `agent enable-hooks`
+
+Wires official lifecycle hooks into the global configs of the agents installed on this machine, so cockpit state is exact rather than inferred:
+
+| Agent | File | What gets written |
+|---|---|---|
+| Claude Code | `~/.claude/settings.json` | `hooks` entries — `UserPromptSubmit` → `working`, `Notification` → `waiting`, `Stop` → `done` — each running `"<unterm-cli>" agent signal --agent claude --event <event>` with a 5s timeout. |
+| Codex | `~/.codex/config.toml` | A `notify` command that fires `agent signal --agent codex --event done` on turn-complete, plus `[tui] notifications = true` so approval prompts reach the OSC layer for waiting detection. |
+| Aider | `~/.aider.conf.yml` | `notifications: true` and `notifications-command: "<unterm-cli>" agent signal --agent aider --event waiting`, under a `# managed by …` marker comment. |
+
+Only agents actually present are touched (`~/.claude` exists, `~/.codex` exists, `~/.aider.conf.yml` exists or `aider` is on `PATH`). Writes are merge-only: your existing settings survive, and a conflicting key — say, a Codex `notify` command of your own — makes that file report `skipped(…)` rather than being overwritten. The first write to each file leaves a `<file>.unterm-bak` backup next to it.
+
+| Flag | Purpose |
+|---|---|
+| `--dry-run` | Print the per-file `written` / `unchanged` / `skipped(…)` actions without writing anything. |
+| `--remove` | Remove exactly the hooks a previous run wrote, leaving the rest of each file alone. |
+
+## fleet
+
+Run one task across N agents in N isolated git worktrees — the Agent Cockpit's parallel-attempts primitive. `fleet launch` verifies the repo is clean, creates one branch and worktree per member, and opens one tab per member with the agent already running on the task. Backed by MCP `fleet.launch`, `fleet.list`, and `fleet.clean`.
+
+```text
+unterm-cli fleet launch --agents <a,b,...> [--cwd DIR] <TASK...>
+unterm-cli fleet list
+unterm-cli fleet clean <ID> [--force]
+```
+
+### `fleet launch`
+
+```sh
+$ unterm-cli fleet launch --agents claude,claude,codex --cwd ~/src/app "fix the login redirect loop"
+fleet fix-the-login-redirect-loop launched — 3 member(s)
+  claude    fleet/fix-the-login-redirect-loop-1  /Users/alexlee/src/app.fleet/fix-the-login-redirect-loop-1
+  claude    fleet/fix-the-login-redirect-loop-2  /Users/alexlee/src/app.fleet/fix-the-login-redirect-loop-2
+  codex     fleet/fix-the-login-redirect-loop-3  /Users/alexlee/src/app.fleet/fix-the-login-redirect-loop-3
+```
+
+| Flag | Purpose |
+|---|---|
+| `--agents <a,b,...>` | Required. Comma-separated member agents (`claude`, `codex`, `gemini`, `aider` — whatever is on `PATH`). Repeats are fine: `claude,claude,claude` races three Claudes on the same prompt. Max 8 members. |
+| `--cwd <DIR>` | Repo path; defaults to the active pane's cwd. Must be inside a git repository with a clean worktree — a dirty repo fails with `worktree not clean — commit or stash before launching a fleet`. |
+
+The fleet id is a slug of the task. Member *n* gets branch `fleet/<id>-<n>` and worktree `<repo-parent>/<repo>.fleet/<id>-<n>`, both created from `HEAD` — that starting sha is the member's review baseline. Fleets persist in `~/.unterm/fleets.json`, so they survive a GUI restart; closing a member's pane does not remove the fleet, because the worktrees hold the actual work.
+
+### `fleet list`
+
+```sh
+$ unterm-cli fleet list
+fix-the-login-redirect-loop  (master)  task: fix the login redirect loop
+  #1 claude    working    review=pending   fleet/fix-the-login-redirect-loop-1
+  #2 claude    done       review=pending   fleet/fix-the-login-redirect-loop-2
+  #3 codex     done       review=merged    fleet/fix-the-login-redirect-loop-3
+```
+
+Each member row shows the live cockpit state (`working`/`waiting`/`done`/`idle`) and the review state (`pending`/`merged`/`discarded`). `--json` adds worktree paths, checkpoint shas, and pane ids per member.
+
+### `fleet clean <ID>`
+
+Kills surviving member panes, removes the worktrees and `fleet/…` branches, and drops the record. Refuses while any member is still `pending` review — merge or discard each member first (`review merge` / `review discard`), or pass `--force` to throw un-reviewed work away.
+
+```sh
+$ unterm-cli fleet clean fix-the-login-redirect-loop
+fleet fix-the-login-redirect-loop cleaned
+```
+
+## review
+
+Inspect, merge, discard, or roll back agent-produced changes. Two kinds of things live here: fleet members (from `fleet launch`) and **auto checkpoints** — whenever an agent starts working in a non-fleet pane, the cockpit snapshots that repo as a dangling commit object, debounced to one per minute per repo. The snapshot uses a temporary index, so your working tree and staging area are never touched; the checkpoint index lives at `~/.unterm/checkpoints.json`, and the whole mechanism is gated by the `cockpit_auto_checkpoint` config option. Backed by MCP `review.list`, `review.diff`, `review.merge`, `review.discard`, and `review.rollback`.
+
+```text
+unterm-cli review list
+unterm-cli review diff     (--fleet <ID> --member <N|BRANCH>) | (--repo <PATH> --from <SHA>) [--stat]
+unterm-cli review merge    --fleet <ID> --member <N|BRANCH>
+unterm-cli review discard  --fleet <ID> --member <N|BRANCH>
+unterm-cli review rollback --repo <PATH> --sha <SHA> --yes
+unterm-cli review open
+```
+
+### `review list`
+
+```sh
+$ unterm-cli review list
+fleets: 1
+  fix-the-login-redirect-loop  task: fix the login redirect loop
+checkpoints in /Users/alexlee/src/notebook (20):
+  9da648553665  2026-07-20T13:56:48.941578+00:00  by claude
+  8346ebc23ec4  2026-07-20T13:41:00.530701+00:00  by claude
+```
+
+Human output shows the five newest checkpoints per repo; `--json` returns all of them with full shas and the pane that triggered each one.
+
+### `review diff`
+
+Line-level diff, in two addressing modes: a fleet member against its baseline (`--fleet` + `--member`, where the member is a 1-based index or a branch name), or a repo against one of its checkpoints (`--repo` + `--from <sha>`). `--stat` prints only the per-file summary, not the patch; new untracked files are marked `(new)`.
+
+```sh
+$ unterm-cli review diff --fleet fix-the-login-redirect-loop --member 2 --stat
+  +42    -7     src/auth/session.rs
+  +3     -0     tests/login.rs (new)
+```
+
+### `review merge` / `review discard`
+
+`merge` squash-merges a member's branch into the base repo and leaves the result **staged, uncommitted** — you own the commit message. The base repo must be clean first. `discard` marks the member reviewed-and-rejected; its branch and worktree stay on disk until `fleet clean`.
+
+```sh
+$ unterm-cli review merge --fleet fix-the-login-redirect-loop --member 2
+merged fleet/fix-the-login-redirect-loop-2 — staged in /Users/alexlee/src/app (commit it yourself)
+```
+
+### `review rollback`
+
+Destructive: restores a repo's worktree to a checkpoint — tracked files *and* untracked state become what they were at the checkpoint, discarding everything newer. `--yes` is required; without it the CLI refuses with an explanatory error instead of prompting.
+
+```sh
+$ unterm-cli review rollback --repo ~/src/app --sha 9da648553665 --yes
+rolled back /Users/alexlee/src/app to 9da648553665
+```
+
+### `review open`
+
+Opens the GUI Review page (`http://127.0.0.1:<http_port>#review`) in your default browser. Like `settings open`, this resolves the endpoint locally rather than round-tripping through MCP.
 
 ## settings
 
@@ -1043,6 +1218,55 @@ done
 
 For simple pane IO, prefer `unterm-cli session input` and `unterm-cli session text` over hand-written JSON-RPC snippets.
 
+### Race three agents on one bug, keep the best diff
+
+The full fleet loop, scripted: launch, wait until no member is still working, compare the attempts, merge the winner, clean up.
+
+```sh
+#!/usr/bin/env bash
+set -e
+FLEET=$(unterm-cli --json fleet launch --agents claude,claude,codex --cwd ~/src/app \
+  "fix the login redirect loop" | jq -r '.id')
+
+# Block until no member reports state=working.
+while unterm-cli --json fleet list \
+  | jq -e --arg f "$FLEET" \
+      '.fleets[] | select(.id == $f) | .members[] | select(.agent_state == "working")' \
+      >/dev/null; do
+  sleep 30
+done
+
+# Eyeball the three attempts.
+for n in 1 2 3; do
+  echo "===== member $n ====="
+  unterm-cli review diff --fleet "$FLEET" --member "$n" --stat
+done
+
+# Merge the winner (staged, not committed), discard the rest, tear down.
+unterm-cli review merge   --fleet "$FLEET" --member 2
+unterm-cli review discard --fleet "$FLEET" --member 1
+unterm-cli review discard --fleet "$FLEET" --member 3
+unterm-cli fleet clean "$FLEET"
+```
+
+Note the "wait" condition uses the cockpit state, which is exact when `agent enable-hooks` has been run — a member that stops to ask a question shows `waiting`, not `working`, so the loop exits and you can go answer it. `review merge` leaves the squash staged in the base repo; commit it with your own message.
+
+### Notify when any agent wants attention
+
+`agent inbox --json` is stable enough to poll from cron — waiting agents surface first, with the pane to jump to:
+
+```sh
+# crontab: * * * * *  /usr/local/bin/agent-inbox-notify.sh
+#!/usr/bin/env bash
+WAITING=$(unterm-cli --json agent inbox 2>/dev/null \
+  | jq -r '.items[] | select(.state == "waiting")
+           | "pane \(.pane_id): \(.agent) — \(.task_hint // "?")"')
+[ -z "$WAITING" ] && exit 0
+osascript -e "display notification \"$WAITING\" with title \"unterm cockpit\""
+```
+
+When Unterm isn't running the CLI exits non-zero with no stdout, so the guard makes the cron job a silent no-op. Swap `osascript` for `ntfy`/Slack webhooks on other platforms.
+
 ### Snapshot pane state into git history
 
 ```sh
@@ -1071,7 +1295,7 @@ If `unterm-cli` isn't installed, the `eval` no-ops because there's no output. If
 
 ## Exit codes
 
-`unterm-cli` follows the standard convention: `0` on success, `1` on any error.
+`unterm-cli` follows the standard convention: `0` on success, `1` on any error. The one deliberate exception is `agent signal`, which exits `0` quietly when no Unterm is running, because it is designed to be called from other agents' notification hooks and must never break the agent it reports on.
 
 The Rust source is `wezterm/src/main.rs::run()`, which propagates an `anyhow::Error` from each subcommand up to `terminate_with_error()`, which calls `std::process::exit(1)`. There are no granular status codes today — every failure mode collapses to `1`. Distinguish them by message on stderr:
 

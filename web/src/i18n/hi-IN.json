@@ -7,6 +7,8 @@
   "nav.install": "Install",
   "nav.download": "Download",
   "nav.faq": "FAQ",
+  "cap.cockpit.title": "एजेंट कॉकपिट",
+  "cap.cockpit.body": "हर CLI एजेंट की लाइव स्थिति देखें (काम जारी / प्रतीक्षा में / निष्क्रिय), इनबॉक्स से सीधे उस एजेंट पर पहुँचें जिसे आपकी ज़रूरत है, अलग-थलग git worktrees में एक ही काम पर N एजेंटों की फ़्लीट लॉन्च करें, और उनके बनाए नतीजों की समीक्षा, merge या रोलबैक करें — GUI, MCP या CLI से।",
   "hero.title.1": "A terminal",
   "hero.title.2": "AI agents can control.",
   "hero.subtitle": "Drive panes, shells, cwd, screenshots, and session state through MCP, HTTP, and CLI so Claude Code, Cursor, or your own agent can run the whole terminal.",

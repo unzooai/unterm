@@ -2,9 +2,11 @@
 
 **The terminal AI agents can drive.**
 
-Cross-platform terminal (macOS / Linux / Windows) built on a customized WezTerm engine, with one design bet: the terminal itself is controllable from the outside by any AI agent over MCP. Claude Code, Cursor, Aider, Continue, your own scripts — they all get the same JSON-RPC surface to spawn shells, run commands, read pane state, capture screenshots, change settings, and record sessions.
+Cross-platform terminal (macOS / Linux / Windows) built on a customized WezTerm engine, with one design bet: the terminal itself is controllable from the outside by any AI agent over MCP. Claude Code, Codex, Gemini CLI, Cursor, Aider, your own scripts — they all get the same JSON-RPC surface (**97 methods across 21 namespaces**) to spawn shells, run commands, read pane state, capture screenshots, change settings, and record sessions.
 
-The other 2026 terminals each pick a different side: Warp embeds AI inside a closed cloud (Oz), Ghostty stays out of your way and lets you bring your own tools, iTerm2 is Mac-only. Unterm picks the third side — terminal as MCP-controllable surface, deliberately keep AI features *out* of the terminal, let external agents grip it through the API.
+Since v0.55 the relationship runs both ways: agents drive the terminal from outside, and the terminal is an **Agent Cockpit** for the agents running inside it — live per-pane agent state, a waiting-first Inbox, fleets of N agents on one task in N isolated git worktrees, and a Review page to diff / merge / roll back what they produced.
+
+The other 2026 terminals each pick a different side: Warp embeds AI inside a closed cloud (Oz), Ghostty stays out of your way and lets you bring your own tools, iTerm2 is Mac-only. Unterm picks the third side — terminal as MCP-controllable surface, deliberately keep AI *generation* out of the terminal, let external agents grip it through the API, and give the human one cockpit to run them all from.
 
 Practical implications:
 
@@ -16,6 +18,28 @@ Practical implications:
 - **Subtraction over decoration**: no AI overlay inside the terminal, no inline image render that wedges the GUI, no in-terminal custom right-click chrome, no Cmd+Q confirmation, no manual proxy URL config (auto-detected from system). Finder integration on macOS uses the native Finder right-click extension and Services.
 
 Built on top of the WezTerm engine for renderer / font / TUI / SSH / mux work, with a thin product layer on top.
+
+---
+
+## Agent Cockpit
+
+Run Claude Code, Codex, Gemini CLI, or Aider in any pane and Unterm sees them — no configuration, no wrapper. Five pillars, all local:
+
+- **Agent state engine** — every pane's agent and its state (working / waiting-for-you / idle / done), read from OSC progress + title signals, process fingerprints, and optional official hooks. Tab badges + a cross-window tally chip in the top bar.
+- **Inbox** (`Ctrl+Shift+A`) — every agent that's waiting for you in one queue, longest-waiting first. Enter jumps to the pane; one keystroke later you've answered its prompt.
+- **Fleet** — one task × N agents × N isolated git worktrees (`../<repo>.fleet/`), one tab each. Same agent ×3 for throughput, or `claude,codex,gemini` for a bake-off.
+- **Review** — agents get checkpointed before they touch a repo (dangling-commit snapshots; nothing touches your HEAD or index). A Web Review page shows per-member diffs with squash-merge (stops at staged — the commit stays yours), discard, and rollback.
+- **Everything scriptable** — the cockpit itself is MCP + CLI: `agent.status`, `cockpit.inbox`, `fleet.launch`, `review.merge`… an orchestrating agent can run fleets and review diffs with no human in the chair.
+
+```bash
+unterm-cli agent status                                  # who's running where, in what state
+unterm-cli agent inbox                                   # who's waiting for you
+unterm-cli agent enable-hooks                            # exact state via official hooks (merge-only, backed up)
+unterm-cli fleet launch --agents claude,codex "fix the flaky auth test"
+unterm-cli review list && unterm-cli review open         # diffs in the browser
+```
+
+Full docs: [unterm.app/docs/agent-cockpit](https://unterm.app/docs/agent-cockpit).
 
 ---
 
@@ -64,10 +88,10 @@ Run the MSI installer; it places `unterm.exe` in `Program Files\Unterm` and crea
 
 ## What's new
 
-- **v0.12** — synchronous pre-show paint kills the long-standing Windows white flash on launch. The frame is rendered before the window is shown, not after.
-- **v0.9** — multi-instance discovery with NATO-phonetic names. Each running Unterm writes `~/.unterm/instances/<name>.json`; `~/.unterm/active.json` points at the current foreground instance for single-target agents.
-- **v0.7** — Windows defaults to UTF-8 out of the box. PowerShell and `cmd.exe` spawns are wrapped to set the code page; no more mojibake on Chinese filenames.
-- **v0.5** — dogfood milestone. Default window sizing tuned for real use, scrollback line count is configurable via `~/.unterm/scrollback.json`, `TERM_PROGRAM` overridable via `~/.unterm/compat.json`, background update poller writes `~/.unterm/update_check.json`.
+- **v0.55 — Agent Cockpit.** The terminal now sees the agents inside it: live per-pane state with tab badges and a cross-window tally, the waiting-first Agent Inbox (`Ctrl+Shift+A`), fleets running one task across N agents in N isolated worktrees, and a Review page with checkpoints, diffs, rollback, and squash-merge. 12 new MCP methods, 3 new CLI families.
+- **v0.54 — 2.8× faster cold start** (~780ms → ~280ms) via five startup-path wins, and no more CPU core burned on Windows output floods (~91% → ~4%); MCP stays responsive mid-flood.
+- **v0.53 — Composer + Git panel.** A prompt queue (`Ctrl+Shift+J`) that runs batched prompts into an agent pane with smart auto-advance through confirmation prompts, and a read-only Git status panel (`Ctrl+Shift+G`).
+- **v0.52 — More agents out of the box.** Kimi Code CLI and Trae Agent join the baked manifest (7 agent CLIs total); reworked per-frame paint paths; steadier Windows clipboard and window sizing.
 
 ---
 
@@ -75,7 +99,9 @@ Run the MSI installer; it places `unterm.exe` in `Program Files\Unterm` and crea
 
 The full Unterm docs live at **https://unterm.app/docs/**:
 
+- [Agent Cockpit](https://unterm.app/docs/agent-cockpit) — agent state engine, Inbox, Fleet, Review: run and supervise CLI agents from one terminal
 - [Agent integration](https://unterm.app/docs/agent-integration) — how to drive Unterm from Claude Code / Cursor / Aider / your own client
+- [Agent recipes](https://unterm.app/docs/agent-recipes) — copy-paste patterns for common agent-drives-terminal workflows
 - [Product roadmap](https://unterm.app/docs/product-roadmap) — the five directions we are executing now
 - [MCP reference](https://unterm.app/docs/mcp-reference) — every JSON-RPC method, parameters, return shape
 - [Multi-instance](https://unterm.app/docs/multi-instance) — NATO names, instances directory, picking the right window
@@ -91,7 +117,8 @@ This README is the short version. The site is the long version.
 ## Features
 
 - **GPU-accelerated rendering** on all three platforms (Metal / OpenGL / DirectX via ANGLE).
-- **MCP server** on `127.0.0.1:<auto-port>` (default 19876) — JSON-RPC over TCP, auth-token gated. Method namespaces: session, exec, screen, signal, orchestrate, proxy, workspace, capture, policy, system, server, instance, profile.
+- **MCP server** on `127.0.0.1:<auto-port>` (default 19876) — JSON-RPC over TCP, auth-token gated. 97 methods across 21 namespaces: session, exec, screen, capture, agent, cockpit, fleet, review, orchestrate, proxy, workspace, profile, instance, policy, system, server, signal, upload, selftest, ghost, meta. `meta.surface` (or `unterm-cli reference`) returns the whole live inventory in one call.
+- **Agent Cockpit** — per-pane agent state, waiting-first Inbox, worktree fleets, checkpoint + review. See the section above.
 - **Web Settings UI** on `127.0.0.1:<auto-port>` (default 19877) — open in any browser via `unterm-cli settings open` or the `Settings (Web)` item in the `▼` menu. Tailwind-styled SPA, supports all 9 languages, keyboard + mouse.
 - **Auto proxy detection** — reads macOS System Preferences / Windows registry / GNOME gsettings / `$HTTPS_PROXY`, falls back to scanning common local ports. The single `proxy.json` toggle is `{"enabled": true|false}` — no manual URL configuration needed.
 - **Region screenshots** from the status bar (left-click excludes the Unterm window, right-click includes it). PNG lands on disk under `~/.unterm/screenshots/`, on the system image clipboard, and the path on the text clipboard.
@@ -155,6 +182,15 @@ unterm-cli lang list / set <code> / current    # en-US / zh-CN / zh-TW / ja-JP /
 # Proxy
 unterm-cli proxy status                        # auto-detect health
 unterm-cli proxy nodes / switch <name> / disable / env
+
+# Agent Cockpit
+unterm-cli agent status                        # per-pane agent state (working/waiting/idle/done)
+unterm-cli agent inbox                         # agents waiting for you, longest first
+unterm-cli agent enable-hooks [--dry-run]      # wire Claude Code / Codex / Aider lifecycle hooks
+unterm-cli fleet launch --agents claude,codex "task"   # N agents × N worktrees, one tab each
+unterm-cli fleet list / clean
+unterm-cli review list / diff / merge / discard / rollback
+unterm-cli review open                         # Review page in the browser
 
 # Sessions / panes
 unterm-cli session list                        # list panes in active/latest instance
@@ -223,6 +259,8 @@ Files:
 | `update_check.json`          | Background update-poller state (last check, latest seen version) |
 | `onboarded.json`             | First-run flags (which `▼` items have been seen)  |
 | `recording.json`             | Recording config (redaction patterns, etc.)      |
+| `fleets.json`                | Live agent fleets: members, worktrees, branches, review state (Agent Cockpit) |
+| `checkpoints.json`           | Pre-agent-work snapshots per repo (dangling-commit SHAs, most recent 20 per repo) |
 | `sessions/`                  | Recording metadata index (per-project subdirs)   |
 | `screenshots/`               | Region screenshots (PNG)                         |
 

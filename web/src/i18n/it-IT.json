@@ -7,6 +7,8 @@
   "nav.install": "Install",
   "nav.download": "Download",
   "nav.faq": "FAQ",
+  "cap.cockpit.title": "Cockpit degli agent",
+  "cap.cockpit.body": "Guarda lo stato live di ogni agent CLI (al lavoro / in attesa / inattivo), salta dalla inbox a quello che ha bisogno di te, lancia una flotta di N agent sullo stesso compito in git worktree isolati, poi rivedi, fai merge o rollback di ciò che hanno prodotto — dalla GUI, via MCP o da CLI.",
   "hero.title.1": "A terminal",
   "hero.title.2": "AI agents can control.",
   "hero.subtitle": "Drive panes, shells, cwd, screenshots, and session state through MCP, HTTP, and CLI so Claude Code, Cursor, or your own agent can run the whole terminal.",

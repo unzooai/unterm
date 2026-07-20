@@ -3,10 +3,10 @@ layout: ../../layouts/Doc.astro
 title: MCP Method Reference
 subtitle: Every method exposed by the local Unterm MCP server, with parameter shapes, return shapes, error codes, and a real example.
 kicker: Docs / MCP reference
-date: 2026-05-03
+date: 2026-07-20
 ---
 
-This page documents every JSON-RPC method an MCP client can call against a running Unterm instance. The dispatch table lives in `wezterm-gui/src/mcp/handler.rs`; the connection handshake is in `wezterm-gui/src/mcp/server.rs`. Both are MIT-licensed in the public repo.
+This page documents every JSON-RPC method an MCP client can call against a running Unterm instance — 97 methods across 21 namespaces as of v0.55. The dispatch table lives in `wezterm-gui/src/mcp/handler.rs`; the connection handshake is in `wezterm-gui/src/mcp/server.rs`. Both are MIT-licensed in the public repo. For a machine-readable version of this page, call [`meta.surface`](#meta) or run `unterm-cli reference` in any shell.
 
 For higher-level patterns (director/worker, multi-pane orchestration, recording for review) see the [agent integration guide](agent-integration). This page is the wire-level companion — the doc you check when your client got back `-32603` and you want to know which field you fat-fingered.
 
@@ -440,6 +440,14 @@ The pattern list is fixed in the binary: `error:`, `Error:`, `ERROR:`, `error[`,
 
 This is meant for "does this look like the build broke?" not for serious log analysis.
 
+### `ghost.debug`
+
+Read the ghost-text predictor's view of a pane. Read-only, never mutates state — this exists so a remote debugger can see whether the input buffer is tracking keystrokes, whether command commits are landing, and what (if anything) the predictor is currently proposing.
+
+**Params:** `id` / `pane_id` (number, required).
+
+**Returns:** `{ input_buffer, input_buffer_len, ghost, commit_count, recent_commits, global_commit_count, recent_global_commits }` — `ghost` is the currently proposed completion or `null`; `recent_commits` is the last 10 committed commands for this pane, `recent_global_commits` the cross-pane pool. If the pane has never seen a key event, returns `{ empty: true, pane_id }` instead.
+
 ---
 
 ## Capture
@@ -529,6 +537,28 @@ Read the OS clipboard. Cross-platform: Win32 `OpenClipboard`/`GetClipboardData` 
 - Image: `{ type: "image", format: "png", image_path, width, height, bit_depth, size_bytes, base64 }` — the image is always saved to `~/.unterm/clipboard/clipboard_<timestamp>.png` and base64 is always included for images (in contrast to `capture.screen`/`capture.window` where base64 is opt-in).
 
 Errors if the clipboard is empty or contains an unsupported format.
+
+---
+
+## Upload
+
+### `upload.file`
+
+PUT a local file to a user-configured object-storage bucket (Aliyun OSS, Tencent COS, or Qiniu Kodo) and return the public URL. Designed to pair with `capture.*`: screenshot, then `upload.file`, then paste the URL into chat / an issue / a doc — no dragging PNGs around.
+
+Credentials live in `~/.unterm/upload.json` (set up interactively with `unterm-cli upload setup`). They are never logged and never appear in the response — only the URL, provider name, and storage key come back.
+
+**Params:**
+
+| Name | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | Local file to upload |
+| `provider` | string | no | `"oss"`, `"cos"`, or `"qiniu"`; defaults to `default_provider` from the config |
+| `key` | string | no | Object key; defaults to a derived `<prefix><timestamp>-<basename>` |
+
+**Returns:** `{ url, provider, key, size }`
+
+Errors if no provider is resolvable, the provider block is missing from the config, or the upload itself fails.
 
 ---
 
@@ -746,6 +776,273 @@ In v0.9 the actual window-raise side effect is a stub — the call returns `ok: 
 
 ---
 
+## Agent identity and trust
+
+Every MCP connection is anonymous until it says otherwise. `agent.identify` tags the connection with a name so audit-log entries and confirmation banners group by agent ("claude-code: 47 writes") instead of by connection id. The trust methods manage the persistent list of agents whose PTY writes skip the confirmation banner — the same list the user builds by pressing Alt+A on a banner.
+
+A note on the write gate, since it interacts with identity: when `mcp_input_confirmation` is `"always"` or `"first_time_per_agent"`, PTY-writing calls (`session.input`, `exec.*`) park the calling worker on a GUI confirmation banner unless the agent's name is on the static Lua `mcp_trusted_agents` list or the runtime trust list. An un-identified connection gets gated as `"anonymous"`. Identify first; it costs one call.
+
+### `agent.identify`
+
+Self-tag the calling connection. Call this right after `auth.login`.
+
+**Params:**
+
+| Name | Type | Required | Description |
+|---|---|---|---|
+| `name` | string | yes | Agent name, non-empty, ≤ 64 chars — e.g. `"claude-code"` |
+| `version` | string | no | Agent version string |
+| `capabilities` | string[] | no | Free-form capability tags |
+
+**Returns:** `{ status: "ok", name, first_time, identified_at }` — `first_time` is `true` if this name has never been seen by this Unterm process before. The identification itself is audited.
+
+### `agent.whoami`
+
+Echo back the connection's current identity.
+
+**Params:** none.
+
+**Returns:** the identity object `{ name, version, capabilities, peer_addr, identified_at }`, or `{ name: "anonymous", peer_addr }` if `agent.identify` was never called on this connection.
+
+### `agent.list_trusted`
+
+Read-only snapshot of the trust state.
+
+**Params:** none.
+
+**Returns:** `{ runtime: string[], static_config: string[], audit_counts: [{ agent, writes }] }` — `runtime` is the persisted-plus-this-session trust list (Alt+A / `agent.trust`), `static_config` is the user's `mcp_trusted_agents` Lua config, and `audit_counts` is a per-agent write count derived from the audit log, highest first.
+
+### `agent.trust`
+
+Promote an agent name to the persistent trust list — equivalent to the user pressing Alt+A on a confirmation banner. Future PTY writes from that agent skip the banner, across restarts.
+
+**Params:** `name` (string, required).
+
+**Returns:** `{ ok: true, name, added }` — `added` is `false` if it was already trusted.
+
+### `agent.untrust`
+
+Remove an agent from the persistent trust list; its next write triggers the banner again. Cannot remove names from the static Lua `mcp_trusted_agents` config — the user has to edit the file for that (both lists are visible via `agent.list_trusted` so you can tell why an untrust "didn't take").
+
+**Params:** `name` (string, required).
+
+**Returns:** `{ ok: true, name, removed }`
+
+---
+
+## Agent status and the Inbox
+
+The Agent Cockpit's state engine tracks one status per pane that runs an AI agent (claude, codex, gemini, aider, opencode, …), folded together from four signal layers — official hook events (`agent.signal`) > OSC parsing (title / progress / notification / bell) > foreground-process detection > screen-text heuristics. A weaker layer never overrides a stronger layer's recent verdict, and `waiting` is sticky: only user input in that pane, a hook event, or an OSC transition clears it, so an Inbox entry can't flicker away on a stray process poll.
+
+States: `working` (running a turn), `waiting` (needs the user — the Inbox condition), `done` (turn just finished; decays to idle after `cockpit_done_hold_secs`), `idle` (agent at its prompt).
+
+All three methods respect the `cockpit_enabled` config option — when the cockpit is off they return `{ enabled: false, ... }` with empty data rather than erroring.
+
+### `agent.status`
+
+The cockpit's view of which agent runs in which pane and what it's doing.
+
+**Params:** `session_id` (string, optional) — with it, one pane's status (or `null` if that pane hosts no tracked agent); without it, every tracked pane in Inbox order (waiting first, longest-waiting at the top, then working, done, idle).
+
+**Returns:** `{ enabled: true, agents: [status, ...] }` (no pane given) or `{ enabled: true, agent: status | null }` (pane given), where each status is:
+
+```json
+{"pane_id": 3, "agent": "claude", "state": "working", "for_secs": 42,
+ "task_hint": "Fix the login bug", "last_signal": "osc-title", "fleet_id": null}
+```
+
+`for_secs` is how long the pane has been in the current state. `task_hint` comes from the agent's OSC title when available. `last_signal` names the signal that produced the current state (`hook`, `osc-title`, `osc-progress`, `osc-notify`, `bell`, `process`, `screen-text`, `user-input`, `done-decay`) — useful when debugging why the cockpit thinks what it thinks.
+
+### `agent.signal`
+
+Report an agent lifecycle event from an official hook — Claude Code hooks, Codex notify, Aider's notifications-command. This is the strongest state signal; it beats everything the passive layers infer. `unterm-cli agent enable-hooks` wires the supported agents' hook configs to call this automatically (hooks pass `$WEZTERM_PANE` so the event lands on the right pane).
+
+**Params:**
+
+| Name | Type | Required | Description |
+|---|---|---|---|
+| `event` | string | yes | One of `working`, `waiting`, `done`, `idle` |
+| `id` / `session_id` | number/string | no | Target pane; defaults to the active pane |
+| `agent` | string | no | Agent name; defaults to the connection's `agent.identify` name, else `"agent"` |
+
+**Returns:** `{ ok: true, pane_id, agent, event }`. Invalid events return `-32603` with `"Invalid 'event' ...: expected working|waiting|done|idle"`. The call is audited.
+
+```json
+{"jsonrpc":"2.0","id":9,"method":"agent.signal",
+ "params":{"session_id":"3","agent":"claude","event":"waiting"}}
+```
+
+### `cockpit.inbox`
+
+Every tracked agent joined with its tab/window location, sorted waiting-first, so a client can jump straight to whichever agent wants attention. This is the wire form of the Shift+Ctrl+A Inbox overlay.
+
+**Params:** none.
+
+**Returns:** `{ enabled: true, items: [...] }` — each item is an `agent.status` entry plus `pane_title`, `tab_id`, and `window_id`:
+
+```json
+{"jsonrpc":"2.0","id":10,"result":{"enabled":true,"items":[
+  {"pane_id":3,"agent":"claude","state":"waiting","for_secs":95,
+   "task_hint":"Fix the login bug","last_signal":"osc-notify","fleet_id":"fix-the-login-bug",
+   "pane_title":"✳ Fix the login bug","tab_id":2,"window_id":0}
+]}}
+```
+
+---
+
+## Fleet
+
+Run one task across N agents in N isolated git worktrees, one tab each. `fleet.launch` adds a worktree + branch per member beside the repo (`../<repo>.fleet/<fleet-id>-<n>/`, branch `fleet/<fleet-id>-<n>`), opens a tab per member, and types the agent's launch command into the fresh shell. Fleets persist in `~/.unterm/fleets.json`, so the Review page and `fleet.clean` survive a restart — panes dying does *not* remove a fleet; the worktrees hold the work product until every member is merged or discarded.
+
+`fleet.launch` and `fleet.clean` are audited write operations — they appear in `session.audit_log` — and member panes are subject to the same PTY-write gate as `session.input` (the launch command is typed into a pane).
+
+### `fleet.launch`
+
+Launch a fleet. Blocking (worktree creation + tab spawns); the repo must be clean — commit or stash first, or the call errors.
+
+**Params:**
+
+| Name | Type | Required | Description |
+|---|---|---|---|
+| `task` | string | yes | The task prompt, passed verbatim (shell-quoted) to each agent |
+| `agents` | string[] | yes | One entry per member, e.g. `["claude","claude","codex"]`. 1–8 members. Repeats are fine — that's the A/B pattern |
+| `cwd` | string | no | Any path inside the target repo; defaults to the active pane's cwd |
+
+Built-in launch commands: `claude <task>`, `codex <task>`, `gemini -i <task>`, `aider --message <task>`; any other name runs as `<name> <task>`.
+
+**Returns:** the full fleet record:
+
+```json
+{"id":"fix-the-login-bug","task":"Fix the login bug","base_repo":"/Volumes/Dev/code/app",
+ "base_branch":"master","created_at":"2026-07-20T09:00:00Z",
+ "members":[
+   {"agent":"claude","agent_cmd":"claude 'Fix the login bug'",
+    "worktree":"/Volumes/Dev/code/app.fleet/fix-the-login-bug-1",
+    "branch":"fleet/fix-the-login-bug-1","pane_id":12,
+    "checkpoint":"<sha the worktree started from>","review":"pending"}
+ ]}
+```
+
+`checkpoint` is the base HEAD sha — the review baseline for `review.diff`. A member whose tab failed to spawn gets `pane_id: null` but keeps its worktree.
+
+### `fleet.list`
+
+All fleets with member branches, worktrees, and review states.
+
+**Params:** none.
+
+**Returns:** `{ fleets: [...] }` — same fleet shape as `review.list` below, i.e. each member carries `n` (1-based index), `agent`, `branch`, `worktree`, `checkpoint`, `review` (`"pending"` / `"merged"` / `"discarded"`), `pane_id`, and `agent_state` (live cockpit state, or `null` if the pane is gone).
+
+### `fleet.clean`
+
+Remove a fleet: kill surviving panes, remove worktrees and branches, drop the record. Refuses while members are still `pending` review unless `force: true` — merge or discard them first. Audited.
+
+**Params:** `id` / `fleet_id` (string, required), `force` (bool, optional, default `false`).
+
+**Returns:** `{ ok: true, id }`
+
+---
+
+## Review
+
+Checkpoints, diffs, rollback, and merge for agent-produced changes. Two kinds of baseline feed this namespace: fleet members diff against their worktree's start commit, and "loose" (non-fleet) agent runs get automatic checkpoints — whenever the cockpit sees an agent start working in a repo, it snapshots the entire worktree (tracked + untracked) as a dangling commit via a temporary index, without ever touching HEAD, the real index, or the files. The last 20 checkpoints per repo are remembered in `~/.unterm/checkpoints.json`, debounced to one per minute.
+
+`review.rollback` and `review.merge` are **audited write operations** — every call lands in `session.audit_log` with the repo/fleet detail, and both mutate the working tree, so treat them with the same care as any policy-gated write. `review.rollback` is destructive by design; confirm with the user before calling it.
+
+### `review.list`
+
+Review overview — everything the Review page needs in one call.
+
+**Params:** none.
+
+**Returns:** `{ fleets: [...], checkpoints: [{ repo, checkpoints: [{ sha, at, agent, pane_id }] }] }` — fleets in the shape described under `fleet.list`, checkpoints newest-first per repo.
+
+### `review.diff`
+
+Line-level diff of a worktree against a checkpoint. Untracked files are synthesized as additions, so agent-created files show up (plain `git diff <sha>` misses them).
+
+**Params:** either the fleet form or the repo form:
+
+| Name | Type | Required | Description |
+|---|---|---|---|
+| `fleet_id` | string | fleet form | Fleet id |
+| `member` | string | fleet form | 1-based member index (`"2"`) or branch name / suffix |
+| `repo` | string | repo form | Any path inside the repo |
+| `from` | string | repo form | Checkpoint sha to diff against |
+
+**Returns:** `{ repo, from, files: [{ path, added, deleted, untracked }], patch }` — `added`/`deleted` are line counts as strings (`"?"` for untracked), `patch` is one concatenated unified diff.
+
+```json
+{"jsonrpc":"2.0","id":11,"method":"review.diff",
+ "params":{"fleet_id":"fix-the-login-bug","member":"1"}}
+```
+
+### `review.rollback`
+
+Restore a repo's worktree to a checkpoint: files *and* untracked state become exactly the snapshot's content (`git clean -fd` removes files that didn't exist then). Destructive for anything newer than the checkpoint — confirm first. The sha is validated before anything runs, so a typo can't half-execute. Audited.
+
+**Params:** `repo` (string, required), `sha` (string, required).
+
+**Returns:** `{ ok: true, repo, sha }`
+
+### `review.merge`
+
+Squash-merge a fleet member's branch into the base repo, leaving the result **staged, not committed** — the user owns the commit. The base repo must be clean, or the call errors. Marks the member `merged`. Audited.
+
+**Params:** `fleet_id` (string, required), `member` (string, required — index or branch name).
+
+**Returns:** `{ ok: true, fleet, branch, staged_in }`
+
+### `review.discard`
+
+Mark a fleet member's work as discarded. Nothing is deleted yet — the worktree and branch are removed by the next `fleet.clean`.
+
+**Params:** `fleet_id` (string, required), `member` (string, required).
+
+**Returns:** `{ ok: true, fleet, member }`
+
+---
+
+## Profile
+
+Identity profiles: named bundles of secrets (GitHub PAT, AWS keys, npm token, …), git identity, and SSH config, with one profile bound per Unterm window. The MCP surface is deliberately read-only and never exposes secret *values* — only names, counts, and expiry metadata. Creating and editing profiles happens via `unterm-cli profile` or the GUI.
+
+### `profile.list`
+
+**Params:** none.
+
+**Returns:** `{ profiles: [{ id, display_name, accent_color, description, secret_count, expiration_count, is_default }], default }`
+
+### `profile.current`
+
+Which profile is bound to *this* Unterm window — i.e. what identity the next command in any of its panes runs under. Check this before triggering anything destructive on the wrong account.
+
+**Params:** none.
+
+**Returns:** `{ instance, profile }` — `profile` is the profile id, or `null` when the window isn't profile-bound.
+
+### `profile.audit`
+
+Report secrets expiring within 7 days, plus a healthy count for the rest, without revealing any values. This is the call behind "rotate your GitHub PAT" reminders.
+
+**Params:** none.
+
+**Returns:** `{ warnings: [{ profile, display_name, env_name, expires_on, days_remaining }], healthy_count }`
+
+---
+
+## Meta
+
+### `meta.surface`
+
+Full inventory of this build's automation surface in one call: every MCP method with its summary and param shapes, every CLI subcommand, and the live effective keybindings. This is the machine-readable version of `unterm-cli reference`, and the preferred feature-detection call for new clients (over `server.capabilities`). Both are generated from the same single source of truth, so they cannot drift from dispatch.
+
+**Params:** none.
+
+**Returns:** `{ version, mcp_methods: [{ name, namespace, summary, params: [{ name, kind, required, summary }] }], cli_commands: [...], keybindings: [{ table, key, mods, action }] }`
+
+---
+
 ## Server
 
 Self-description methods. These are the calls an agent makes first, before doing anything else, to figure out what it's connected to.
@@ -770,27 +1067,23 @@ Note: the `mcp.port` field in the response is the *preferred* port (`19876`), no
 
 ### `server.capabilities`
 
-Machine-readable capability map — the canonical source of truth for "what method namespaces does this server support".
+Machine-readable capability map: one key per namespace, each value a list of fully-qualified method names. Since v0.55 the map is derived from the same `MCP_METHODS` table that backs `meta.surface`, so it can never drift from what dispatch actually accepts. Kept for back-compat — new clients should prefer [`meta.surface`](#meta), which also carries per-method summaries, param shapes, CLI subcommands, and live keybindings.
 
 **Params:** none.
 
-**Returns:** an object with one key per namespace, each value a list of fully-qualified method names. Used by `selftest.run` and by clients that want to feature-detect at runtime.
+**Returns:** an object like:
 
 ```json
 {
   "session": ["session.list", "session.create", ...],
-  "exec": ["exec.run", "exec.send", "exec.run_wait", "exec.status", "exec.cancel", "signal.send"],
-  "screen": [...],
-  "workspace": [...],
-  "capture": [...],
-  "proxy": [...],
-  "governance": ["policy.set", "policy.check", "server.info", "server.health", "server.capabilities", "selftest.run"],
-  "system": ["system.info", "system.launch_admin"],
-  "instance": [...]
+  "exec": ["exec.run", "exec.send", "exec.run_wait", "exec.status", "exec.cancel"],
+  "agent": ["agent.identify", "agent.whoami", ..., "agent.status", "agent.signal"],
+  "cockpit": ["cockpit.inbox"],
+  "fleet": ["fleet.launch", "fleet.list", "fleet.clean"],
+  "review": ["review.list", "review.diff", "review.rollback", "review.merge", "review.discard"],
+  "...": ["..."]
 }
 ```
-
-The `governance` umbrella in `server.capabilities` covers methods that don't have their own namespace (`policy.*`, `server.*`, `selftest.run`). Don't read too much into the grouping — it's a reporting structure, not a wire-level distinction.
 
 ---
 
@@ -886,40 +1179,69 @@ Every method, alphabetical, with one-line descriptions. Use this as a flat looku
 
 | Method | Purpose |
 |---|---|
+| `agent.identify` | Self-tag the calling connection for audit grouping |
+| `agent.list_trusted` | Runtime, static-config, and per-agent write-count trust snapshot |
+| `agent.signal` | Report an agent lifecycle event from an official hook (strongest state signal) |
+| `agent.status` | Cockpit agent state per pane (`working`/`waiting`/`done`/`idle`) |
+| `agent.trust` | Add an agent to the persistent trust list (writes skip confirmation) |
+| `agent.untrust` | Remove an agent from the persistent trust list |
+| `agent.whoami` | Read the connection's own identity tag |
 | `auth.login` | Authenticate the connection with the token from `~/.unterm/instances/<id>.json` |
 | `capture.clipboard` | Read the OS clipboard as text or PNG |
 | `capture.screen` | Snapshot every pane's text plus a full-display PNG |
+| `capture.scrollback` | Render a pane's entire scrollback into one tall PNG |
 | `capture.select` | Falls back to `capture.screen` (interactive selection unavailable in headless mode) |
 | `capture.window` | Snapshot one window by title or pid |
+| `capture.window_scroll` | Scroll + stitch a long screenshot of another app's window (macOS) |
+| `cockpit.inbox` | All tracked agents joined with tab/window location, waiting-first |
 | `exec.cancel` | Send Ctrl+C to a pane |
 | `exec.run` | Send a command + carriage return; return immediately |
 | `exec.run_wait` | Send a command, inject a sentinel, poll until done; return captured output |
 | `exec.send` | Alias for `session.input` |
 | `exec.status` | Return `"idle"` or `"running"` based on foreground process name |
+| `fleet.clean` | Remove a fleet's worktrees, branches, and panes once reviewed |
+| `fleet.launch` | One task × N agents × N isolated git worktrees, one tab each |
+| `fleet.list` | All fleets with member branches, worktrees, and review states |
+| `ghost.debug` | Read-only ghost-text predictor state for a pane |
 | `instance.focus` | Raise this instance's window to the foreground (stub on v0.9) |
 | `instance.info` | This instance's own metadata, including `auth_token` |
 | `instance.list` | Enumerate every live Unterm instance on this machine |
 | `instance.set_title` | Pin a custom display title for this instance |
+| `meta.surface` | Inventory of MCP methods + CLI subcommands + keybindings |
 | `orchestrate.broadcast` | Send the same command to multiple panes |
 | `orchestrate.launch` | `session.create` + initial command |
 | `orchestrate.wait` | Poll a pane's text for a substring with a timeout |
 | `policy.check` | Dry-run a command against the current policy |
 | `policy.set` | Replace the command-execution policy |
+| `profile.audit` | Secrets expiring within 7 days, without revealing values |
+| `profile.current` | The identity profile bound to this Unterm window |
+| `profile.list` | List identity profiles (names/counts only, no secret values) |
+| `proxy.clash_select` | Point a Clash Selector group at a node via the controller API |
+| `proxy.clash_set_controller` | Set/clear a manual Clash controller (host:port + secret) |
+| `proxy.clash_status` | Read Clash/mihomo switchable groups + nodes with live delay |
 | `proxy.configure` | Write a full proxy config in one call |
 | `proxy.disable` | Turn the proxy off |
 | `proxy.env` | Resolve proxy state to env-var form |
 | `proxy.nodes` | List configured proxy nodes |
+| `proxy.rotation` | Get/set endpoint auto-rotation (fail over to the fastest live node) |
+| `proxy.set_nodes` | Replace the proxy node list for the rotation pool |
 | `proxy.speedtest` | TCP-probe one node or all of them; persist latencies |
 | `proxy.status` | Current proxy state plus reachability probe |
 | `proxy.switch` | Activate one of the configured nodes by name |
+| `review.diff` | Line-level diff of a worktree vs a checkpoint, untracked files included |
+| `review.discard` | Mark a fleet member's work as discarded (removed on `fleet.clean`) |
+| `review.list` | Review overview: fleets + auto checkpoints per repo |
+| `review.merge` | Squash-merge a fleet member into the base repo, leaving it staged (audited write) |
+| `review.rollback` | Restore a repo's worktree to a checkpoint (destructive, audited write) |
 | `screen.cursor` | Cursor position and shape |
 | `screen.detect_errors` | Hardcoded error-pattern scan over the visible viewport |
 | `screen.read` | Visible viewport with absolute row indices |
 | `screen.scroll` | Read an absolute slice of scrollback |
-| `screen.search` | Substring search across viewport + scrollback |
+| `screen.scrollback_text` | Dump scrollback + viewport as text for LLM hand-off |
+| `screen.search` | Substring search across viewport + scrollback; can jump the GUI viewport |
 | `screen.text` | Visible viewport as a flat `lines[]` |
 | `selftest.run` | Run an internal battery of probes |
-| `server.capabilities` | Machine-readable namespace → method-list map |
+| `server.capabilities` | Namespace → method-list map (back-compat; prefer `meta.surface`) |
 | `server.health` | Health probe + mux/terminal stats |
 | `server.info` | Server name, version, engine, protocol |
 | `session.audit_log` | Read the in-memory audit log of mutating calls |
@@ -928,10 +1250,11 @@ Every method, alphabetical, with one-line descriptions. Use this as a flat looku
 | `session.destroy` | Kill the pane |
 | `session.env` | Stub: env-var read not supported in this build |
 | `session.export_markdown` | One-off render of pane scrollback to redacted markdown |
+| `session.focus` | Bring a pane into focus |
 | `session.get` | Full pane state (alias `session.status`) |
 | `session.history` | Trailing N lines of scrollback as `entries[]` |
 | `session.idle` | True if foreground process looks like a shell |
-| `session.input` | Write raw bytes into pane stdin (alias `exec.send`) |
+| `session.input` | Write raw bytes into pane stdin (alias `exec.send`; confirmation-gated) |
 | `session.list` | Enumerate every live pane |
 | `session.recording_attach_trace` | Associate an external trace id with a live recording |
 | `session.recording_list` | Enumerate completed recordings on disk |
@@ -941,12 +1264,18 @@ Every method, alphabetical, with one-line descriptions. Use this as a flat looku
 | `session.recording_stop` | Finish, render the markdown, return paths and counts |
 | `session.resize` | Resize the pane's pty |
 | `session.set_env` | Stub: env-var write not supported in this build |
+| `session.split` | Split the current pane left/right/up/down |
 | `session.status` | Alias for `session.get` |
+| `session.suggest` | Propose text without touching the PTY — user accepts with Tab |
+| `session.suggest_cancel` | Withdraw a pending suggestion |
+| `session.suggest_list` | List active suggestions across all panes |
+| `session.suggest_status` | Lifecycle state of a pending suggestion |
 | `signal.send` | Send a control signal as a control character |
 | `system.info` | Process and platform metadata |
 | `system.launch_admin` | Spawn an elevated Unterm (Windows only) |
+| `upload.file` | PUT a local file to configured OSS/COS/Qiniu; return the public URL |
 | `workspace.list` | Enumerate saved workspaces with metadata |
 | `workspace.restore` | Open new tabs from a saved workspace; supports dry-run planning |
 | `workspace.save` | Snapshot the current set of panes |
 
-That's 60 methods plus `auth.login`. If you find a method in the codebase that isn't listed here, file an issue — the dispatch table at `wezterm-gui/src/mcp/handler.rs` is the source of truth and this page should track it.
+That's 97 methods plus `auth.login`. If you find a method in the codebase that isn't listed here, file an issue — the `MCP_METHODS` table behind `meta.surface` (dispatched in `wezterm-gui/src/mcp/handler.rs`) is the source of truth and this page should track it.
