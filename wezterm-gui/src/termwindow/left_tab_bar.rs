@@ -605,7 +605,8 @@ impl crate::TermWindow {
         let bar_bg = chrome.surface;
         let is_light = chrome.is_light;
         let row_pad = ui_tokens::ROW_PADDING * pt;
-        let content_top_gap = 12. * pt;
+        let content_top_gap = ui_tokens::CHROME_SECTION_GAP * pt;
+        let panel_content_width = (width - 2. * ui_tokens::CHROME_PANEL_INSET * pt - 1.).max(0.);
         let radius = Dimension::Pixels((ui_tokens::CORNER_RADIUS + 1.0) * pt);
         // The surface runs the full height down to the status bar (no reserved
         // gap), so the panel is one continuous fill that meets the bottom info
@@ -840,7 +841,7 @@ impl crate::TermWindow {
         // Uniform rows make the scroll window arithmetic exact (headers share
         // the tab row height). Must match the actual rendered row height
         // below, or scrolling drifts.
-        let row_text_pad_v = 9.0 * pt;
+        let row_text_pad_v = ui_tokens::CHROME_ROW_PADDING_Y * pt;
         let row_h = metrics.cell_size.height as f32 + 2.0 * row_text_pad_v + 2.0 * pt;
         let content_bottom = (bottom - content_bottom_gap).max(top + content_top_gap + row_h);
         // The trailing "+  ▾" button row is appended as a child *below* the tab
@@ -853,7 +854,8 @@ impl crate::TermWindow {
         // status bar (zindex 0) and hiding its left segments (shell name + the
         // start of cwd). Reserve the footer so the container fits inside
         // content_bottom and meets the status bar flush instead of covering it.
-        let footer_row_h = metrics.cell_size.height as f32 + 32.0 * pt + 2.0;
+        let footer_btn_pad_v = row_pad * 0.75;
+        let footer_row_h = metrics.cell_size.height as f32 + 2.0 * footer_btn_pad_v + 7.0 * pt;
         let visible_rows = ((content_bottom - top - content_top_gap - footer_row_h) / row_h)
             .floor()
             .max(1.0) as usize;
@@ -973,7 +975,8 @@ impl crate::TermWindow {
             children.push(
                 Element::new(&font, ElementContent::Text(String::new()))
                     .display(DisplayType::Block)
-                    .min_width(Some(Dimension::Percent(1.)))
+                    .min_width(Some(Dimension::Pixels(panel_content_width)))
+                    .max_width(Some(Dimension::Pixels(panel_content_width)))
                     .min_height(Some(Dimension::Pixels(content_top_gap)))
                     .colors(ElementColors {
                         border: BorderColor::default(),
@@ -1069,12 +1072,7 @@ impl crate::TermWindow {
                                 .border_corners(rounded())
                                 .colors(ElementColors {
                                     border: BorderColor::default(),
-                                    bg: chrome_colors::mix(
-                                        bar_bg,
-                                        if *active { fg } else { dim },
-                                        if is_light { 0.1 } else { 0.08 },
-                                    )
-                                    .into(),
+                                    bg: LinearRgba::TRANSPARENT.into(),
                                     text: dim.mul_alpha(if *active { 0.9 } else { 0.72 }).into(),
                                 }),
                         );
@@ -1082,7 +1080,12 @@ impl crate::TermWindow {
                             Element::new(&font, ElementContent::Children(header_kids))
                                 .item_type(UIItemType::LeftTabBarGroup(key.clone()))
                                 .display(DisplayType::Block)
-                                .min_width(Some(Dimension::Percent(1.)))
+                                .min_width(Some(Dimension::Pixels(
+                                    (panel_content_width - 19. * pt).max(0.),
+                                )))
+                                .max_width(Some(Dimension::Pixels(
+                                    (panel_content_width - 19. * pt).max(0.),
+                                )))
                                 .margin(BoxDimension {
                                     left: Dimension::Pixels(0.),
                                     right: Dimension::Pixels(0.),
@@ -1092,8 +1095,8 @@ impl crate::TermWindow {
                                 .padding(BoxDimension {
                                     left: Dimension::Pixels(9. * pt),
                                     right: Dimension::Pixels(10. * pt),
-                                    top: Dimension::Pixels(9. * pt),
-                                    bottom: Dimension::Pixels(9. * pt),
+                                    top: Dimension::Pixels(row_text_pad_v),
+                                    bottom: Dimension::Pixels(row_text_pad_v),
                                 })
                                 .colors(ElementColors {
                                     border: BorderColor::default(),
@@ -1291,34 +1294,30 @@ impl crate::TermWindow {
                 // every row the same transparent/active left border width.
                 let title_line = Element::new(&font, ElementContent::Children(line_kids))
                     .display(DisplayType::Block)
-                    .min_width(Some(Dimension::Percent(1.)))
+                    .min_width(Some(Dimension::Pixels(
+                        (panel_content_width - 2. * pt - 15. * pt).max(0.),
+                    )))
+                    .max_width(Some(Dimension::Pixels(
+                        (panel_content_width - 2. * pt - 15. * pt).max(0.),
+                    )))
                     .padding(BoxDimension {
                         left: Dimension::Pixels(7. * pt),
                         right: Dimension::Pixels(8. * pt),
                         // Taller rows (was 5pt) so the sidebar breathes instead of
                         // reading cramped. Mirrored in `row_text_pad_v` above so
                         // the scroll-window arithmetic stays exact.
-                        // Active rows add a 1px optical outline above and below;
-                        // reduce their inner padding by the same amount so every
-                        // rendered row keeps the exact height used by scrolling.
-                        top: Dimension::Pixels(if row.active {
-                            (9. * pt - 1.).max(0.)
-                        } else {
-                            9. * pt
-                        }),
-                        bottom: Dimension::Pixels(if row.active {
-                            (9. * pt - 1.).max(0.)
-                        } else {
-                            9. * pt
-                        }),
+                        // Every row uses the same vertical rhythm so scrolling
+                        // and hit targets remain stable across active changes.
+                        top: Dimension::Pixels(row_text_pad_v),
+                        bottom: Dimension::Pixels(row_text_pad_v),
                     });
 
                 // No inline close button — Warp's vertical-tab rows have none;
                 // closing is via the right-click context menu.
 
-                // Active rows carry two distinct cues: a restrained fill and a
-                // crisp 2px Signal Jade focus rail. Hover is only a faint fill
-                // with no rail, so it cannot be mistaken for a second selection.
+                // Active rows carry a restrained fill and a crisp 2px Signal
+                // Jade focus rail. Avoid a three-sided outline: it makes the
+                // navigation feel like stacked cards instead of one calm panel.
                 // The shared brand rail keeps selection identity stable across
                 // every theme without tinting the entire row.
                 let accent = chrome.focus_rail;
@@ -1333,27 +1332,20 @@ impl crate::TermWindow {
                     } else {
                         LinearRgba::TRANSPARENT
                     },
-                    right: if row.active {
-                        chrome.selected_outline
-                    } else {
-                        LinearRgba::TRANSPARENT
-                    },
-                    top: if row.active {
-                        chrome.selected_outline
-                    } else {
-                        LinearRgba::TRANSPARENT
-                    },
-                    bottom: if row.active {
-                        chrome.selected_outline
-                    } else {
-                        LinearRgba::TRANSPARENT
-                    },
+                    right: LinearRgba::TRANSPARENT,
+                    top: LinearRgba::TRANSPARENT,
+                    bottom: LinearRgba::TRANSPARENT,
                 };
                 children.push(
                     Element::new(&font, ElementContent::Children(vec![title_line]))
                         .item_type(UIItemType::LeftTabBarTab(row.tab_idx))
                         .display(DisplayType::Block)
-                        .min_width(Some(Dimension::Percent(1.)))
+                        .min_width(Some(Dimension::Pixels(
+                            (panel_content_width - 2. * pt).max(0.),
+                        )))
+                        .max_width(Some(Dimension::Pixels(
+                            (panel_content_width - 2. * pt).max(0.),
+                        )))
                         .margin(BoxDimension {
                             left: Dimension::Pixels(0.),
                             right: Dimension::Pixels(0.),
@@ -1368,9 +1360,9 @@ impl crate::TermWindow {
                         })
                         .border(BoxDimension {
                             left: Dimension::Pixels(2. * pt),
-                            right: Dimension::Pixels(if row.active { 1. } else { 0. }),
-                            top: Dimension::Pixels(if row.active { 1. } else { 0. }),
-                            bottom: Dimension::Pixels(if row.active { 1. } else { 0. }),
+                            right: Dimension::Pixels(0.),
+                            top: Dimension::Pixels(0.),
+                            bottom: Dimension::Pixels(0.),
                         })
                         // Otty-style: the active row reads as a clean rounded
                         // selection rather than a sharp full-bleed rectangle.
@@ -1400,13 +1392,13 @@ impl crate::TermWindow {
             // tight padding gave ~16-20px click areas, well under the
             // 32 px tap-target ergonomics target. Doubled vertical
             // padding + min_width so each half is a comfortable button.
-            let btn_pad_v = row_pad * 1.15;
+            let btn_pad_v = footer_btn_pad_v;
             // The 112pt minimum sidebar leaves about 98pt inside the panel.
             // Scale the dock down there so all three controls remain separate,
             // centered, and at least ~37 logical pixels wide.
             let compact_footer = width / pt <= 150.;
-            let btn_pad_h = if compact_footer { 5. * pt } else { 9. * pt };
-            let btn_min_w = if compact_footer { 28. * pt } else { 34. * pt };
+            let btn_pad_h = if compact_footer { 4. * pt } else { 7. * pt };
+            let btn_min_w = if compact_footer { 22. * pt } else { 28. * pt };
             let footer_bg = chrome.footer_bg;
             let plus_cell = Element::new(&font, ElementContent::Text("+".to_string()))
                 .item_type(UIItemType::TabBar(crate::tabbar::TabBarItem::NewTabButton))
@@ -1478,11 +1470,12 @@ impl crate::TermWindow {
                     ElementContent::Children(vec![plus_cell, chevron_cell, search_cell]),
                 )
                 .display(DisplayType::Block)
-                .min_width(Some(Dimension::Percent(1.)))
+                .min_width(Some(Dimension::Pixels(panel_content_width)))
+                .max_width(Some(Dimension::Pixels(panel_content_width)))
                 .margin(BoxDimension {
                     left: Dimension::Pixels(0.),
                     right: Dimension::Pixels(0.),
-                    top: Dimension::Pixels(6. * pt),
+                    top: Dimension::Pixels(ui_tokens::CHROME_SECTION_GAP * 0.6 * pt),
                     bottom: Dimension::Pixels(0.),
                 })
                 .border(BoxDimension {
@@ -1508,8 +1501,8 @@ impl crate::TermWindow {
                 // Horizontal padding insets the rows from the panel edges so the
                 // selection fill doesn't bleed to the divider.
                 .padding(BoxDimension {
-                    left: Dimension::Pixels(6. * pt),
-                    right: Dimension::Pixels(6. * pt),
+                    left: Dimension::Pixels(ui_tokens::CHROME_PANEL_INSET * pt),
+                    right: Dimension::Pixels(ui_tokens::CHROME_PANEL_INSET * pt),
                     top: Dimension::Pixels(0.),
                     bottom: Dimension::Pixels(0.),
                 })
@@ -1534,7 +1527,8 @@ impl crate::TermWindow {
                 // panel that meets the info bar — not a short floating card with a
                 // dead band beneath it. The reserved `width` gutter is unchanged
                 // (the terminal still reflows around it).
-                .min_width(Some(Dimension::Pixels(width - 12. * pt - 1.)))
+                .min_width(Some(Dimension::Pixels(panel_content_width)))
+                .max_width(Some(Dimension::Pixels(panel_content_width)))
                 // Fill the exact span top → content_bottom (no padding/border on
                 // top or bottom), so the window-background gap above the surface
                 // (`vgap` below the top bar) equals the gap below it (`vgap` above

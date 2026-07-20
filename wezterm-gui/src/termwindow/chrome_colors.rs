@@ -35,34 +35,36 @@ pub fn sidebar(bg: LinearRgba, fg: LinearRgba) -> SidebarChromeColors {
     // Linear-light mixing is visually stronger than the numeric amount
     // suggests, so dark schemes need only a very small lift.
     let surface = if is_light {
-        mix(bg, fg, 0.035)
+        mix(bg, fg, 0.030)
     } else {
-        mix(bg, fg, 0.018)
+        mix(bg, fg, 0.020)
     };
     let hover_bg = if is_light {
-        mix(bg, fg, 0.075)
+        mix(bg, fg, 0.062)
     } else {
-        mix(surface, fg, 0.028)
+        mix(surface, fg, 0.032)
     };
     let selected_bg = if is_light {
-        mix(bg, fg, 0.115)
+        mix(bg, fg, 0.092)
     } else {
-        mix(surface, fg, 0.052)
+        mix(surface, fg, 0.060)
     };
 
     SidebarChromeColors {
         surface,
         // Two optical edge tones let the shared chrome read as a deliberate
         // frame rather than a single hard separator.
-        outer_edge: fg.mul_alpha(if is_light { 0.20 } else { 0.10 }),
-        inner_highlight: fg.mul_alpha(if is_light { 0.08 } else { 0.045 }),
-        selected_outline: fg.mul_alpha(if is_light { 0.18 } else { 0.11 }),
-        dim_text: fg.mul_alpha(if is_light { 0.86 } else { 0.78 }),
+        outer_edge: fg.mul_alpha(if is_light { 0.14 } else { 0.09 }),
+        inner_highlight: fg.mul_alpha(if is_light { 0.055 } else { 0.04 }),
+        selected_outline: fg.mul_alpha(if is_light { 0.12 } else { 0.09 }),
+        // Secondary labels remain visually quieter, but never fall below AA
+        // after alpha compositing on the resolved chrome surface.
+        dim_text: fg.mul_alpha(0.90),
         hover_bg,
         selected_bg,
-        group_bg: mix(surface, fg, if is_light { 0.025 } else { 0.014 }),
+        group_bg: mix(surface, fg, if is_light { 0.018 } else { 0.016 }),
         footer_bg: surface,
-        // Relay Core's Signal Jade. Use a darker optical variant on light
+        // Command Loop's Signal Jade. Use a darker optical variant on light
         // surfaces so the 2px focus rail remains crisp without glowing.
         focus_rail: if is_light {
             LinearRgba::with_srgba(0x18, 0x7a, 0x68, 0xff)
@@ -126,6 +128,38 @@ mod tests {
                 contrast_ratio(composite(chrome.dim_text, chrome.surface), chrome.surface)
                     >= WCAG_AA_NORMAL_TEXT,
                 "secondary sidebar label must meet WCAG AA"
+            );
+        }
+    }
+
+    #[test]
+    fn bundled_theme_chrome_keeps_text_and_focus_contrast() {
+        let schemes = [
+            (0x11, 0x13, 0x15, 0xe8, 0xea, 0xed), // Unterm Dark
+            (0x0c, 0x12, 0x20, 0xdf, 0xe7, 0xf1), // Midnight
+            (0xf6, 0xf7, 0xf4, 0x16, 0x1a, 0x1d), // Daylight
+            (0x12, 0x12, 0x12, 0xee, 0xee, 0xee), // Classic
+            (0x18, 0x18, 0x18, 0xee, 0xee, 0xec), // Notion Dark
+            (0xf8, 0xf7, 0xf4, 0x1f, 0x1e, 0x1a), // Notion Light
+        ];
+
+        for (br, bg, bb, fr, fg, fb) in schemes {
+            let background = LinearRgba::with_srgba(br, bg, bb, 0xff);
+            let foreground = LinearRgba::with_srgba(fr, fg, fb, 0xff);
+            let chrome = sidebar(background, foreground);
+            assert!(
+                contrast_ratio(foreground, chrome.surface) >= WCAG_AA_NORMAL_TEXT,
+                "chrome text must remain readable for {:02x}{:02x}{:02x}",
+                br,
+                bg,
+                bb
+            );
+            assert!(
+                contrast_ratio(chrome.focus_rail, chrome.selected_bg) >= 3.0,
+                "focus rail must remain visible for {:02x}{:02x}{:02x}",
+                br,
+                bg,
+                bb
             );
         }
     }
