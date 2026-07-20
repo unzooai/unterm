@@ -39,6 +39,10 @@ fn hover_fill(background_lightness: f64, foreground: LinearRgba) -> LinearRgba {
     foreground.mul_alpha(alpha)
 }
 
+fn titlebar_lightness(bg: LinearRgba) -> f64 {
+    (0.2126 * bg.0 + 0.7152 * bg.1 + 0.0722 * bg.2) as f64
+}
+
 mod windows {
     use super::*;
 
@@ -303,6 +307,7 @@ pub fn window_button_element(
     font: &Rc<LoadedFont>,
     metrics: &RenderMetrics,
     config: &ConfigHandle,
+    titlebar_bg: LinearRgba,
 ) -> Element {
     let style = config.integrated_title_button_style;
 
@@ -443,11 +448,11 @@ pub fn window_button_element(
     };
 
     let foreground = config.integrated_title_button_color.clone();
-    let background_lightness = {
-        let bg: config::RgbaColor = config.window_frame.active_titlebar_bg.into();
-        let (_h, _s, l, _a) = bg.to_hsla();
-        l
-    };
+    // Use the background that the title bar is actually painting this frame.
+    // Reading `window_frame.active_titlebar_bg` here can be stale or defaulted
+    // while a live light theme (Notion/Daylight) supplies a different palette,
+    // which previously left white controls invisible on a near-white bar.
+    let background_lightness = titlebar_lightness(titlebar_bg);
 
     let window_button_colors_fn = match style {
         Style::Windows => self::windows::window_button_colors,
@@ -464,4 +469,27 @@ pub fn window_button_element(
         .hover_colors(Some(colors.hover_colors));
 
     element
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn automatic_controls_contrast_with_live_light_and_dark_titlebars() {
+        let notion_light = LinearRgba::with_srgba(0xf7, 0xf6, 0xf3, 0xff);
+        let midnight = LinearRgba::with_srgba(0x22, 0x28, 0x30, 0xff);
+
+        let on_light = auto_button_color(
+            titlebar_lightness(notion_light),
+            IntegratedTitleButtonColor::Auto,
+        );
+        let on_dark = auto_button_color(
+            titlebar_lightness(midnight),
+            IntegratedTitleButtonColor::Auto,
+        );
+
+        assert!(on_light.0 < 0.01 && on_light.1 < 0.01 && on_light.2 < 0.01);
+        assert!(on_dark.0 > 0.99 && on_dark.1 > 0.99 && on_dark.2 > 0.99);
+    }
 }

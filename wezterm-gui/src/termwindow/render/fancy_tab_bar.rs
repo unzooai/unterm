@@ -59,44 +59,48 @@ const PLUS_BUTTON: &[Poly] = &[
 const RELAY_CORE_MARK: &[Poly] = &[
     Poly {
         path: &[
-            PolyCommand::MoveTo(BlockCoord::Zero, BlockCoord::Frac(1, 4)),
-            PolyCommand::LineTo(BlockCoord::Frac(1, 3), BlockCoord::Frac(1, 4)),
-            PolyCommand::LineTo(BlockCoord::Frac(1, 2), BlockCoord::Frac(3, 7)),
+            PolyCommand::MoveTo(BlockCoord::Zero, BlockCoord::Frac(1, 5)),
+            PolyCommand::LineTo(BlockCoord::Frac(3, 10), BlockCoord::Frac(1, 5)),
+            PolyCommand::LineTo(BlockCoord::Frac(3, 10), BlockCoord::Frac(2, 5)),
+            PolyCommand::LineTo(BlockCoord::Frac(9, 20), BlockCoord::Frac(2, 5)),
         ],
         intensity: BlockAlpha::Full,
         style: PolyStyle::Outline,
     },
     Poly {
         path: &[
-            PolyCommand::MoveTo(BlockCoord::One, BlockCoord::Frac(1, 4)),
-            PolyCommand::LineTo(BlockCoord::Frac(2, 3), BlockCoord::Frac(1, 4)),
-            PolyCommand::LineTo(BlockCoord::Frac(1, 2), BlockCoord::Frac(3, 7)),
+            PolyCommand::MoveTo(BlockCoord::One, BlockCoord::Frac(1, 5)),
+            PolyCommand::LineTo(BlockCoord::Frac(7, 10), BlockCoord::Frac(1, 5)),
+            PolyCommand::LineTo(BlockCoord::Frac(7, 10), BlockCoord::Frac(2, 5)),
+            PolyCommand::LineTo(BlockCoord::Frac(11, 20), BlockCoord::Frac(2, 5)),
         ],
         intensity: BlockAlpha::Full,
         style: PolyStyle::Outline,
     },
     Poly {
         path: &[
-            PolyCommand::MoveTo(BlockCoord::Zero, BlockCoord::Frac(3, 4)),
-            PolyCommand::LineTo(BlockCoord::Frac(1, 3), BlockCoord::Frac(3, 4)),
-            PolyCommand::LineTo(BlockCoord::Frac(1, 2), BlockCoord::Frac(4, 7)),
+            PolyCommand::MoveTo(BlockCoord::Zero, BlockCoord::Frac(4, 5)),
+            PolyCommand::LineTo(BlockCoord::Frac(3, 10), BlockCoord::Frac(4, 5)),
+            PolyCommand::LineTo(BlockCoord::Frac(3, 10), BlockCoord::Frac(3, 5)),
+            PolyCommand::LineTo(BlockCoord::Frac(9, 20), BlockCoord::Frac(3, 5)),
         ],
         intensity: BlockAlpha::Full,
         style: PolyStyle::Outline,
     },
     Poly {
         path: &[
-            PolyCommand::MoveTo(BlockCoord::One, BlockCoord::Frac(3, 4)),
-            PolyCommand::LineTo(BlockCoord::Frac(2, 3), BlockCoord::Frac(3, 4)),
-            PolyCommand::LineTo(BlockCoord::Frac(1, 2), BlockCoord::Frac(4, 7)),
+            PolyCommand::MoveTo(BlockCoord::One, BlockCoord::Frac(4, 5)),
+            PolyCommand::LineTo(BlockCoord::Frac(7, 10), BlockCoord::Frac(4, 5)),
+            PolyCommand::LineTo(BlockCoord::Frac(7, 10), BlockCoord::Frac(3, 5)),
+            PolyCommand::LineTo(BlockCoord::Frac(11, 20), BlockCoord::Frac(3, 5)),
         ],
         intensity: BlockAlpha::Full,
         style: PolyStyle::Outline,
     },
     Poly {
         path: &[
-            PolyCommand::MoveTo(BlockCoord::Frac(1, 2), BlockCoord::Frac(3, 7)),
-            PolyCommand::LineTo(BlockCoord::Frac(1, 2), BlockCoord::Frac(4, 7)),
+            PolyCommand::MoveTo(BlockCoord::Frac(1, 2), BlockCoord::Frac(2, 5)),
+            PolyCommand::LineTo(BlockCoord::Frac(1, 2), BlockCoord::Frac(3, 5)),
         ],
         intensity: BlockAlpha::Full,
         style: PolyStyle::Outline,
@@ -408,6 +412,7 @@ impl crate::TermWindow {
                     &font,
                     &metrics,
                     &self.config,
+                    bar_bg,
                 ),
             }
         };
@@ -757,9 +762,7 @@ impl crate::TermWindow {
             // near-invisible on the dark bar. bar_fg is the bar's own text
             // color and always contrasts with bar_bg.
             let brand_fg = bar_fg;
-            let brand_accent = palette
-                .resolve_fg(ColorAttribute::PaletteIndex(14))
-                .to_linear();
+            let brand_accent = chrome.focus_rail;
             let brand_kids = vec![
                 Element::new(
                     &font,
