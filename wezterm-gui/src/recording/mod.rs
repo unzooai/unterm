@@ -23,3 +23,22 @@ pub use recorder::{
     attach_trace, export_pane_markdown, list_sessions, read_session_markdown, recording_status,
     start_recording, stop_recording,
 };
+
+/// Apply the recording subsystem's built-in and user-configured secret
+/// patterns to short-lived product metadata such as MCP audit entries.
+/// Audit logs must never be a less-safe copy of the exported transcript.
+pub(crate) fn redact_sensitive_text(text: &str) -> String {
+    let config = recorder::load_config();
+    redact::redact(text, &config.redaction.custom_patterns).0
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn audit_redaction_removes_key_value_secrets() {
+        let raw = "Write-Output 'api_key=sk-test-secret-should-redact'";
+        let redacted = super::redact_sensitive_text(raw);
+        assert!(!redacted.contains("sk-test-secret-should-redact"));
+        assert!(redacted.contains("<redacted>"));
+    }
+}

@@ -30,6 +30,23 @@ struct AuditEntry {
     agent: String,
 }
 
+fn audit_event_was_allowed(method: &str) -> bool {
+    !matches!(method, "mcp.confirm.block" | "mcp.confirm.timeout")
+}
+
+#[cfg(test)]
+mod audit_entry_tests {
+    use super::audit_event_was_allowed;
+
+    #[test]
+    fn denied_and_expired_confirmations_are_not_marked_allowed() {
+        assert!(!audit_event_was_allowed("mcp.confirm.block"));
+        assert!(!audit_event_was_allowed("mcp.confirm.timeout"));
+        assert!(audit_event_was_allowed("mcp.confirm.allow"));
+        assert!(audit_event_was_allowed("session.input"));
+    }
+}
+
 std::thread_local! {
     /// Connection ID of the request currently being handled on this
     /// thread. `handle()` writes this on entry and clears it on exit
@@ -1733,12 +1750,13 @@ impl McpHandler {
         let src_pane_id = params
             .get("id")
             .or_else(|| params.get("session_id"))
+            .or_else(|| params.get("pane_id"))
             .and_then(|v| {
                 v.as_u64()
                     .map(|n| n as usize)
                     .or_else(|| v.as_str().and_then(|s| s.parse::<usize>().ok()))
             })
-            .ok_or_else(|| anyhow!("Missing 'id' / 'session_id' (source pane to split)"))?;
+            .ok_or_else(|| anyhow!("Missing 'id' / 'session_id' / 'pane_id' (source pane to split)"))?;
 
         // Take an owned String here so the value can cross the async
         // closure boundary below — &str borrowed from `params` would
@@ -1832,12 +1850,13 @@ impl McpHandler {
         let pane_id = params
             .get("id")
             .or_else(|| params.get("session_id"))
+            .or_else(|| params.get("pane_id"))
             .and_then(|v| {
                 v.as_u64()
                     .map(|n| n as usize)
                     .or_else(|| v.as_str().and_then(|s| s.parse::<usize>().ok()))
             })
-            .ok_or_else(|| anyhow!("Missing 'id' / 'session_id'"))?;
+            .ok_or_else(|| anyhow!("Missing 'id' / 'session_id' / 'pane_id'"))?;
 
         // focus_pane_and_containing_tab does the whole work: walks up
         // to find the owning tab + window, sets the tab's active pane,
@@ -1949,8 +1968,9 @@ impl McpHandler {
         let pane = self.get_pane(params)?;
         let input = params
             .get("input")
+            .or_else(|| params.get("text"))
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing 'input' parameter"))?;
+            .ok_or_else(|| anyhow!("Missing 'input' (or compatibility alias 'text') parameter"))?;
 
         // Gate the write on a user confirmation banner if policy
         // demands it. `Allow` continues to the audit + write below;
@@ -2733,8 +2753,9 @@ impl McpHandler {
     fn session_suggest_status(&self, params: &Value) -> Result<Value> {
         let id = params
             .get("suggestion_id")
+            .or_else(|| params.get("id"))
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing 'suggestion_id' parameter"))?;
+            .ok_or_else(|| anyhow!("Missing 'suggestion_id' (or compatibility alias 'id') parameter"))?;
         let state = mcp_state().lock();
         let suggestion = state
             .suggestions
@@ -2746,8 +2767,9 @@ impl McpHandler {
     fn session_suggest_cancel(&self, params: &Value) -> Result<Value> {
         let id = params
             .get("suggestion_id")
+            .or_else(|| params.get("id"))
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing 'suggestion_id' parameter"))?
+            .ok_or_else(|| anyhow!("Missing 'suggestion_id' (or compatibility alias 'id') parameter"))?
             .to_string();
         let mut state = mcp_state().lock();
         let suggestion = state
@@ -2776,12 +2798,18 @@ impl McpHandler {
     }
 
     fn audit(&self, method: &str, session_id: Option<&str>, detail: &str) {
+        let detail = crate::recording::redact_sensitive_text(detail);
+        // A denied or expired confirmation is still an important audit
+        // event, but it must not look like an authorized write.  Consumers
+        // use this field to distinguish attempted writes from writes that
+        // were actually permitted.
+        let allowed = audit_event_was_allowed(method);
         let entry = AuditEntry {
             timestamp: chrono::Local::now().to_rfc3339(),
             method: method.to_string(),
             session_id: session_id.map(|s| s.to_string()),
-            detail: detail.to_string(),
-            allowed: true,
+            detail,
+            allowed,
             agent: current_agent_label(),
         };
         let audit_max = config::configuration().mcp_audit_log_capacity.max(16);
@@ -2890,7 +2918,7 @@ impl McpHandler {
             std::thread::sleep(std::time::Duration::from_millis(200));
 
             let current_text = self.read_pane_text(&pane);
-            if current_text.contains(&marker) {
+            if contains_ignoring_line_breaks(&current_text, &marker) {
                 std::thread::sleep(std::time::Duration::from_millis(200));
                 let final_text = self.read_pane_text(&pane);
                 let output = extract_wait_output(&before_text, &final_text, command, &marker);
@@ -5235,8 +5263,52 @@ fn wait_wrapped_command(command: &str, shell_type: &str, marker: &str) -> String
     }
 }
 
+fn contains_ignoring_line_breaks(text: &str, needle: &str) -> bool {
+    if text.contains(needle) {
+        return true;
+    }
+    text.chars()
+        .filter(|ch| !matches!(ch, '\r' | '\n'))
+        .collect::<String>()
+        .contains(needle)
+}
+
+fn strip_ignoring_line_breaks(text: &str, needle: &str) -> String {
+    if needle.is_empty() {
+        return text.to_string();
+    }
+
+    let chars: Vec<char> = text.chars().collect();
+    let wanted: Vec<char> = needle.chars().collect();
+    let mut output = String::with_capacity(text.len());
+    let mut index = 0;
+    while index < chars.len() {
+        let mut cursor = index;
+        let mut matched = 0;
+        while cursor < chars.len() && matched < wanted.len() {
+            if matches!(chars[cursor], '\r' | '\n') {
+                cursor += 1;
+                continue;
+            }
+            if chars[cursor] != wanted[matched] {
+                break;
+            }
+            cursor += 1;
+            matched += 1;
+        }
+        if matched == wanted.len() {
+            index = cursor;
+        } else {
+            output.push(chars[index]);
+            index += 1;
+        }
+    }
+    output
+}
+
 fn extract_wait_output(before: &str, after: &str, command: &str, marker: &str) -> String {
-    let diff = diff_output(before, after);
+    let after = strip_ignoring_line_breaks(after, marker);
+    let diff = diff_output(before, &after);
     let mut lines = Vec::new();
 
     for line in diff.lines() {
@@ -5263,6 +5335,30 @@ fn extract_wait_output(before: &str, after: &str, command: &str, marker: &str) -
         .filter(|line| !before.contains(line))
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+#[cfg(test)]
+mod exec_wait_tests {
+    use super::{contains_ignoring_line_breaks, extract_wait_output, strip_ignoring_line_breaks};
+
+    #[test]
+    fn completion_marker_survives_narrow_pane_wrapping() {
+        let marker = "__UNTERM_DONE_0123456789abcdef__";
+        let wrapped = "output\n__UNTERM_DONE_012345\n6789abcdef__\nPS>";
+        assert!(contains_ignoring_line_breaks(wrapped, marker));
+        assert_eq!(
+            strip_ignoring_line_breaks(wrapped, marker),
+            "output\nPS>"
+        );
+    }
+
+    #[test]
+    fn wrapped_marker_is_not_returned_as_command_output() {
+        let marker = "__UNTERM_DONE_0123456789abcdef__";
+        let after = "PS> command\nRIGHT_PANE_OK\n__UNTERM_DONE_012345\n6789abcdef__\nPS>";
+        let output = extract_wait_output("PS>", after, "command", marker);
+        assert_eq!(output, "RIGHT_PANE_OK");
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -5328,6 +5424,32 @@ fn clipboard_read_any() -> Result<Value> {
 // Windows implementations (PowerShell + Win32 API)
 // ---------------------------------------------------------------------------
 
+#[cfg(windows)]
+fn masked_channel(pixel: u32, mask: u32, default: u8) -> u8 {
+    if mask == 0 {
+        return default;
+    }
+    let shift = mask.trailing_zeros();
+    let max = mask >> shift;
+    let value = (pixel & mask) >> shift;
+    (((value as u64 * 255) + (max as u64 / 2)) / max as u64) as u8
+}
+
+#[cfg(all(test, windows))]
+mod clipboard_dib_tests {
+    use super::masked_channel;
+
+    #[test]
+    fn decodes_standard_bgra_bitfield_masks() {
+        let pixel = 0x7f_12_80_f0;
+        assert_eq!(masked_channel(pixel, 0x00ff_0000, 0), 0x12);
+        assert_eq!(masked_channel(pixel, 0x0000_ff00, 0), 0x80);
+        assert_eq!(masked_channel(pixel, 0x0000_00ff, 0), 0xf0);
+        assert_eq!(masked_channel(pixel, 0xff00_0000, 255), 0x7f);
+        assert_eq!(masked_channel(pixel, 0, 255), 255);
+    }
+}
+
 /// Read clipboard content using Win32 API.
 /// Supports both text (CF_UNICODETEXT) and image (CF_DIB) formats.
 /// IMPORTANT: Do NOT use PowerShell for clipboard access — it steals window focus.
@@ -5383,18 +5505,22 @@ fn clipboard_read_win32() -> Result<Value> {
             }
 
             let bih = unsafe { &*(ptr as *const BITMAPINFOHEADER) };
-            let width = bih.biWidth as u32;
+            let width = bih.biWidth.unsigned_abs();
             let height_signed = bih.biHeight;
             let height = height_signed.unsigned_abs();
             let bit_count = bih.biBitCount;
             let compression = bih.biCompression;
 
-            if compression != 0 {
+            // BI_RGB (0) is the classic packed BGR/BGRA layout. Windows and
+            // .NET commonly publish 32-bit clipboard images as BI_BITFIELDS
+            // (3), with explicit RGB masks following a 40-byte header (or
+            // embedded in V4/V5 headers).
+            if compression != 0 && compression != 3 {
                 unsafe {
                     GlobalUnlock(handle);
                 }
                 return Err(anyhow!(
-                    "Unsupported DIB compression: {}. Only uncompressed (BI_RGB) is supported.",
+                    "Unsupported DIB compression: {}. BI_RGB and BI_BITFIELDS are supported.",
                     compression
                 ));
             }
@@ -5412,7 +5538,48 @@ fn clipboard_read_win32() -> Result<Value> {
             let bytes_per_pixel = (bit_count / 8) as usize;
             let row_stride = ((width as usize * bytes_per_pixel + 3) / 4) * 4;
             let header_size = bih.biSize as usize;
-            let pixel_offset = header_size;
+            let mut pixel_offset = header_size;
+            let mut channel_masks = None;
+            if compression == 3 {
+                if bit_count != 32 {
+                    unsafe {
+                        GlobalUnlock(handle);
+                    }
+                    return Err(anyhow!(
+                        "Unsupported BI_BITFIELDS bit depth: {}. Only 32-bit is supported.",
+                        bit_count
+                    ));
+                }
+                let mask_offset = if header_size >= 52 { 40 } else { header_size };
+                if mask_offset + 12 > data_size {
+                    unsafe {
+                        GlobalUnlock(handle);
+                    }
+                    return Err(anyhow!("DIB channel masks exceed clipboard buffer size"));
+                }
+                let read_mask = |offset: usize| unsafe {
+                    u32::from_le_bytes([
+                        *((ptr as *const u8).add(offset)),
+                        *((ptr as *const u8).add(offset + 1)),
+                        *((ptr as *const u8).add(offset + 2)),
+                        *((ptr as *const u8).add(offset + 3)),
+                    ])
+                };
+                let alpha_mask = if header_size >= 56 {
+                    read_mask(52)
+                } else {
+                    0
+                };
+                channel_masks = Some((
+                    read_mask(mask_offset),
+                    read_mask(mask_offset + 4),
+                    read_mask(mask_offset + 8),
+                    alpha_mask,
+                ));
+                if header_size == std::mem::size_of::<BITMAPINFOHEADER>() {
+                    pixel_offset += 12;
+                }
+            }
             let total_pixel_bytes = row_stride * height as usize;
 
             if pixel_offset + total_pixel_bytes > data_size {
@@ -5442,14 +5609,27 @@ fn clipboard_read_win32() -> Result<Value> {
                 for x in 0..width as usize {
                     let si = x * bytes_per_pixel;
                     let di = dst_offset + x * 4;
-                    rgba_buf[di] = src_row[si + 2];
-                    rgba_buf[di + 1] = src_row[si + 1];
-                    rgba_buf[di + 2] = src_row[si];
-                    rgba_buf[di + 3] = if bytes_per_pixel == 4 {
-                        src_row[si + 3]
+                    if let Some((red, green, blue, alpha)) = channel_masks {
+                        let pixel = u32::from_le_bytes([
+                            src_row[si],
+                            src_row[si + 1],
+                            src_row[si + 2],
+                            src_row[si + 3],
+                        ]);
+                        rgba_buf[di] = masked_channel(pixel, red, 0);
+                        rgba_buf[di + 1] = masked_channel(pixel, green, 0);
+                        rgba_buf[di + 2] = masked_channel(pixel, blue, 0);
+                        rgba_buf[di + 3] = masked_channel(pixel, alpha, 255);
                     } else {
-                        255
-                    };
+                        rgba_buf[di] = src_row[si + 2];
+                        rgba_buf[di + 1] = src_row[si + 1];
+                        rgba_buf[di + 2] = src_row[si];
+                        rgba_buf[di + 3] = if bytes_per_pixel == 4 {
+                            src_row[si + 3]
+                        } else {
+                            255
+                        };
+                    }
                 }
             }
 

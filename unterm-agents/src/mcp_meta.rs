@@ -106,7 +106,7 @@ pub const MCP_METHODS: &[McpMethod] = &[
         summary: "Send a keystroke or text into the pane (audited; subject to confirmation).",
         params: &[
             P_PANE_ID,
-            Param { name: "text", kind: "string", required: true, summary: "Raw bytes to inject." },
+            Param { name: "input", kind: "string", required: true, summary: "Raw bytes to inject." },
         ],
     },
     McpMethod {
@@ -175,13 +175,13 @@ pub const MCP_METHODS: &[McpMethod] = &[
         name: "session.suggest_status",
         namespace: "session",
         summary: "Lifecycle state of a pending suggest.",
-        params: &[Param { name: "id", kind: "string", required: true, summary: "" }],
+        params: &[Param { name: "suggestion_id", kind: "string", required: true, summary: "" }],
     },
     McpMethod {
         name: "session.suggest_cancel",
         namespace: "session",
         summary: "Withdraw a pending suggest.",
-        params: &[Param { name: "id", kind: "string", required: true, summary: "" }],
+        params: &[Param { name: "suggestion_id", kind: "string", required: true, summary: "" }],
     },
     McpMethod {
         name: "session.suggest_list",
