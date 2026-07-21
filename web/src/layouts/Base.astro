@@ -58,7 +58,10 @@ const ogAltLocales = alternates
   .map((a) => a.code.replace("-", "_"))
   .filter((c) => c !== ogLocale);
 
-const ogImage = "https://unterm.app/assets/og.png";
+// ?v= busts the Cloudflare edge cache (assets/* carries max-age=86400,
+// so the bare URL can keep serving the previous card for up to a day
+// after a deploy). Bump it whenever og.png is regenerated.
+const ogImage = "https://unterm.app/assets/og.png?v=0.56.0";
 
 // Structured data (SEO rich results + GEO / answer-engine extraction).
 // SoftwareApplication is the primary entity; WebSite + Organization give
