@@ -3070,20 +3070,24 @@ impl TermWindow {
         let has_selection = !self.selection_text(pane).is_empty();
 
         let action = right_click_action(has_selection);
-        let assignment = match action {
+        match action {
             RightClickAction::CopySelection => {
-                KeyAssignment::CopyTo(ClipboardCopyDestination::Clipboard)
+                let assignment = KeyAssignment::CopyTo(ClipboardCopyDestination::Clipboard);
+                match self.perform_key_assignment(pane, &assignment) {
+                    Ok(_) => self.show_ui_notice(crate::i18n::t("interaction.copied")),
+                    Err(err) => log::warn!("right-click copy failed: {err:#}"),
+                }
             }
             RightClickAction::PasteClipboard => {
-                KeyAssignment::PasteFrom(ClipboardPasteSource::Clipboard)
+                // Clipboard reads are asynchronous. The success/failure notice
+                // is emitted only after the clipboard has been read and the
+                // pane has accepted the paste.
+                self.paste_from_clipboard_with_feedback(
+                    pane,
+                    ClipboardPasteSource::Clipboard,
+                    true,
+                );
             }
-        };
-        match self.perform_key_assignment(pane, &assignment) {
-            Ok(_) => self.show_ui_notice(crate::i18n::t(match action {
-                RightClickAction::CopySelection => "interaction.copied",
-                RightClickAction::PasteClipboard => "interaction.pasted",
-            })),
-            Err(err) => log::warn!("right-click quick-action failed: {err:#}"),
         }
         if has_selection {
             // Clear the selection so the user gets a clean prompt back.

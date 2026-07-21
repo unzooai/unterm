@@ -821,9 +821,7 @@ impl WindowOps for Window {
 
     fn get_clipboard(&self, _clipboard: Clipboard) -> Future<String> {
         Future::result(
-            ClipboardContext::new()
-                .read()
-                .map_err(|e| anyhow!("Failed to get clipboard:{}", e)),
+            ClipboardContext::read_general().map_err(|e| anyhow!("Failed to get clipboard:{}", e)),
         )
     }
 
