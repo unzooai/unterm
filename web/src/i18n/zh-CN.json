@@ -76,7 +76,7 @@
   "tldr.engine_stack": "技术栈",
   "tldr.engine_stack.value": "Rust · 定制版 WezTerm 引擎 · MCP（line-delimited JSON-RPC）· Tailwind + Alpine 做网页设置",
   "tldr.bundled_agents": "内置 AI agent",
-  "tldr.bundled_agents.value": "5 个签名 manifest —— Claude Code · Codex CLI · Gemini CLI · OpenCode · Aider。从 unterm.app/api/agents/manifests 拉 Ed25519 签名信封，每个 agent 可选认证模式。",
+  "tldr.bundled_agents.value": "7 个签名 manifest —— Claude Code · Codex CLI · Gemini CLI · OpenCode · Aider · Kimi Code CLI · Trae Agent。从 unterm.app/api/agents/manifests 拉 Ed25519 签名信封，每个 agent 可选认证模式。",
   "stand.title": "Unterm 真正与众不同的地方",
   "stand.subtitle": "三条你自己能 grep / build / run 验证的差异。没营销话术。",
   "stand.agents.title": "你启动每个 AI 编码 agent 的终端",

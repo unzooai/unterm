@@ -37,6 +37,9 @@ A populated tree looks like this:
 ├── scrollback.json          # per-pane scrollback line cap
 ├── compat.json              # TERM_PROGRAM masquerade
 ├── recording.json           # session recorder + redaction flags
+├── fleets.json              # Agent Cockpit: live fleets (members, worktrees, review state)
+├── checkpoints.json         # Agent Cockpit: pre-agent-work snapshots per repo (dangling-commit SHAs)
+├── verifications.json       # Agent Cockpit: fleet-member verification results (status, exit code, log)
 │
 ├── sessions/                # recordings (when project dir isn't writable)
 │   ├── _orphan/

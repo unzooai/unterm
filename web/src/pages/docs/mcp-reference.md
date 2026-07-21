@@ -6,7 +6,7 @@ kicker: Docs / MCP reference
 date: 2026-07-20
 ---
 
-This page documents every JSON-RPC method an MCP client can call against a running Unterm instance — 99 methods across 21 namespaces as of v0.55. The dispatch table lives in `wezterm-gui/src/mcp/handler.rs`; the connection handshake is in `wezterm-gui/src/mcp/server.rs`. Both are MIT-licensed in the public repo. For a machine-readable version of this page, call [`meta.surface`](#meta) or run `unterm-cli reference` in any shell.
+This page documents every JSON-RPC method an MCP client can call against a running Unterm instance — 99 methods across 21 namespaces as of v0.57. The dispatch table lives in `wezterm-gui/src/mcp/handler.rs`; the connection handshake is in `wezterm-gui/src/mcp/server.rs`. Both are MIT-licensed in the public repo. For a machine-readable version of this page, call [`meta.surface`](#meta) or run `unterm-cli reference` in any shell.
 
 For higher-level patterns (director/worker, multi-pane orchestration, recording for review) see the [agent integration guide](agent-integration). This page is the wire-level companion — the doc you check when your client got back `-32603` and you want to know which field you fat-fingered.
 

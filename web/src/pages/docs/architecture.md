@@ -234,7 +234,7 @@ The Unterm-specific surface, top to bottom:
 
 | Path | Purpose |
 |---|---|
-| `wezterm-gui/src/mcp/` | MCP JSON-RPC server: server.rs (TCP listener), handler.rs (~50 methods). |
+| `wezterm-gui/src/mcp/` | MCP JSON-RPC server: server.rs (TCP listener), handler.rs (99 methods). |
 | `wezterm-gui/src/web_settings/` | Hand-rolled HTTP/1.1 server + bundled SPA loader. |
 | `wezterm-gui/src/server_info.rs` | Multi-instance NATO naming + on-disk discovery. |
 | `wezterm-gui/src/system_proxy.rs` | OS proxy auto-detection (scutil / gsettings / registry / port scan). |

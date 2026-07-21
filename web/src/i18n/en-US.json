@@ -76,7 +76,7 @@
   "tldr.engine_stack": "Tech stack",
   "tldr.engine_stack.value": "Rust · customized WezTerm engine · MCP (line-delimited JSON-RPC) · Tailwind + Alpine for Web Settings",
   "tldr.bundled_agents": "Bundled AI agents",
-  "tldr.bundled_agents.value": "5 signed manifests — Claude Code · Codex CLI · Gemini CLI · OpenCode · Aider. Ed25519-verified envelope from unterm.app/api/agents/manifests; per-agent auth mode picker.",
+  "tldr.bundled_agents.value": "7 signed manifests — Claude Code · Codex CLI · Gemini CLI · OpenCode · Aider · Kimi Code CLI · Trae Agent. Ed25519-verified envelope from unterm.app/api/agents/manifests; per-agent auth mode picker.",
   "stand.title": "Where Unterm stands out",
   "stand.subtitle": "Three claims you can grep, build, or run yourself. No marketing fog.",
   "stand.agents.title": "The terminal you boot every AI coding CLI from",
