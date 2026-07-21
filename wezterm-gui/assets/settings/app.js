@@ -246,6 +246,11 @@ function untermSettings() {
       });
       this.pollHealth();
       setInterval(() => this.pollHealth(), 5000);
+      // Fleet metrics are sampled off-thread with a short TTL. Poll only
+      // while Review is visible so the UI converges without background cost.
+      setInterval(() => {
+        if (this.active === 'review' && !this.review.busy) this.loadReview();
+      }, 3500);
     },
 
     sectionFromHash() {
@@ -460,17 +465,120 @@ function untermSettings() {
     },
 
     // --- Agent Cockpit: Review page ---
-    review: { fleets: [], checkpoints: [], sel: null, diff: null, busy: false, error: '', compareFleet: null, cmpA: null, cmpB: null },
+    review: { fleets: [], checkpoints: [], sel: null, diff: null, busy: false, verifying: {}, error: '', compareFleet: null, cmpA: null, cmpB: null, loadedAt: 0 },
+    _reviewRowsCache: new Map(),
     get reviewBadge() {
       return this.review.fleets.some((f) =>
         (f.members || []).some((m) => m.review === 'pending')
       );
+    },
+    get reviewStats() {
+      const members = this.review.fleets.flatMap((f) => f.members || []);
+      return {
+        active: members.filter((m) => m.agent_state === 'working').length,
+        waiting: members.filter((m) => m.agent_state === 'waiting').length,
+        pending: members.filter((m) => m.review === 'pending').length,
+        checkpoints: this.review.checkpoints.reduce((n, r) => n + (r.checkpoints || []).length, 0),
+      };
+    },
+    reviewAge(iso) {
+      const ms = Date.now() - Date.parse(iso || '');
+      if (!Number.isFinite(ms) || ms < 0) return '';
+      const mins = Math.floor(ms / 60000);
+      if (mins < 1) return 'now';
+      if (mins < 60) return `${mins}m`;
+      const hours = Math.floor(mins / 60);
+      return hours < 24 ? `${hours}h` : `${Math.floor(hours / 24)}d`;
+    },
+    reviewDuration(seconds) {
+      const value = Number(seconds);
+      if (!Number.isFinite(value)) return '';
+      if (value < 60) return `${Math.max(0, Math.floor(value))}s`;
+      if (value < 3600) return `${Math.floor(value / 60)}m`;
+      return `${Math.floor(value / 3600)}h ${Math.floor((value % 3600) / 60)}m`;
+    },
+    reviewVerification(member) {
+      return (member && member.verification) || {};
+    },
+    reviewVerificationStatus(member) {
+      const status = String(this.reviewVerification(member).status || 'not_run').toLowerCase();
+      if (status === 'success') return 'passed';
+      if (status === 'failure') return 'failed';
+      if (status === 'pending') return 'queued';
+      if (status === 'timed_out') return 'timeout';
+      return status;
+    },
+    reviewVerificationLabel(member) {
+      const status = this.reviewVerificationStatus(member);
+      const known = ['passed', 'failed', 'running', 'queued', 'timeout', 'error', 'not_run'];
+      return this.t(`web.review.verify_${known.includes(status) ? status : 'not_run'}`);
+    },
+    reviewVerificationDuration(member) {
+      const ms = Number(this.reviewVerification(member).duration_ms);
+      if (!Number.isFinite(ms) || ms < 0) return '';
+      if (ms < 1000) return `${Math.floor(ms)}ms`;
+      return this.reviewDuration(ms / 1000);
+    },
+    reviewVerificationSummary(member) {
+      const verification = this.reviewVerification(member);
+      const summary = String(verification.summary || verification.log || '').trim();
+      if (summary.length <= 420) return summary;
+      return `…${summary.slice(-419)}`;
+    },
+    reviewMember(fleetId, member) {
+      const fleet = this.review.fleets.find((item) => String(item.id) === String(fleetId));
+      return fleet && (fleet.members || []).find((item) => String(item.n) === String(member));
+    },
+    reviewVerifying(fleetId, member) {
+      return !!this.review.verifying[`${fleetId}:${member}`];
+    },
+    async reviewVerify(fleetId, member, retry = false) {
+      const item = this.reviewMember(fleetId, member) || {};
+      const verification = this.reviewVerification(item);
+      const command = String(verification.command || '').trim();
+      const key = `${fleetId}:${member}`;
+      this.review.verifying = { ...this.review.verifying, [key]: true };
+      try {
+        const body = {
+          fleet_id: fleetId,
+          member: String(member),
+        };
+        if (command) body.command = command;
+        await this.api('POST', retry ? '/api/review/retry' : '/api/review/verify', body);
+        await this.loadReview();
+        this.review.error = '';
+      } catch (e) {
+        this.review.error = String(e);
+      } finally {
+        const next = { ...this.review.verifying };
+        delete next[key];
+        this.review.verifying = next;
+      }
+    },
+    async reviewRetryAgent(fleetId, member) {
+      const key = `${fleetId}:${member}`;
+      this.review.verifying = { ...this.review.verifying, [key]: true };
+      try {
+        await this.api('POST', '/api/fleet/retry', {
+          fleet_id: fleetId,
+          member: String(member),
+        });
+        await this.loadReview();
+        this.review.error = '';
+      } catch (e) {
+        this.review.error = String(e);
+      } finally {
+        const next = { ...this.review.verifying };
+        delete next[key];
+        this.review.verifying = next;
+      }
     },
     async loadReview() {
       try {
         const data = await this.api('GET', '/api/review/overview');
         this.review.fleets = data.fleets || [];
         this.review.checkpoints = data.checkpoints || [];
+        this.review.loadedAt = Date.now();
         this.review.error = '';
       } catch (e) {
         this.review.error = String(e);
@@ -516,7 +624,9 @@ function untermSettings() {
       try {
         const q = `fleet=${encodeURIComponent(fleetId)}&member=${encodeURIComponent(member)}`;
         const diff = await this.api('GET', '/api/review/diff?' + q);
-        const slot = { member, diff };
+        const fleet = this.review.fleets.find((f) => f.id === fleetId);
+        const meta = (fleet && (fleet.members || []).find((m) => String(m.n) === String(member))) || {};
+        const slot = { member, diff, agent: meta.agent || 'agent', branch: meta.branch || '' };
         if (!this.review.cmpA || (this.review.cmpA && this.review.cmpB)) {
           this.review.cmpA = slot;
           this.review.cmpB = null;
@@ -532,6 +642,8 @@ function untermSettings() {
     },
     reviewRowsFor(diff) {
       const patch = (diff && diff.patch) || '';
+      const cached = this._reviewRowsCache.get(patch);
+      if (cached) return cached;
       const rows = [];
       for (const line of patch.split('\n')) {
         let cls = 'text-notion-muted';
@@ -546,9 +658,15 @@ function untermSettings() {
           break;
         }
       }
+      // Bound memory while avoiding repeated parsing during Alpine redraws.
+      if (this._reviewRowsCache.size >= 8) {
+        this._reviewRowsCache.delete(this._reviewRowsCache.keys().next().value);
+      }
+      this._reviewRowsCache.set(patch, rows);
       return rows;
     },
     async reviewMerge(fleetId, member) {
+      if (!window.confirm(`${this.t('web.review.merge')}\n\n${fleetId} / #${member}`)) return;
       this.review.busy = true;
       try {
         await this.api('POST', '/api/review/merge', { fleet_id: fleetId, member: String(member) });
@@ -560,6 +678,7 @@ function untermSettings() {
       }
     },
     async reviewDiscard(fleetId, member) {
+      if (!window.confirm(`${this.t('web.review.discard')}\n\n${fleetId} / #${member}`)) return;
       this.review.busy = true;
       try {
         await this.api('POST', '/api/review/discard', { fleet_id: fleetId, member: String(member) });
@@ -571,6 +690,7 @@ function untermSettings() {
       }
     },
     async reviewClean(fleetId) {
+      if (!window.confirm(`${this.t('web.review.clean')}\n\n${fleetId}`)) return;
       this.review.busy = true;
       try {
         await this.api('POST', '/api/review/clean', { id: fleetId });

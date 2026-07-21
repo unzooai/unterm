@@ -113,7 +113,14 @@ pub fn snapshot_worktree(repo: &Path) -> Result<String> {
         let head = git(repo, &["rev-parse", "HEAD"])?;
         git_env(
             repo,
-            &["commit-tree", &tree, "-p", &head, "-m", "unterm cockpit checkpoint"],
+            &[
+                "commit-tree",
+                &tree,
+                "-p",
+                &head,
+                "-m",
+                "unterm cockpit checkpoint",
+            ],
             envs,
         )
     })();
@@ -187,13 +194,13 @@ pub fn diff(repo: &Path, from: &str) -> Result<Value> {
         files.push(json!({ "path": f, "added": "?", "deleted": "0", "untracked": true }));
         // git diff --no-index exits 1 when files differ; ignore status.
         let mut cmd = Command::new("git");
-        cmd.arg("-C")
-            .arg(&root)
-            .args(["diff", "--no-index", "--", "/dev/null", f]);
+        cmd.arg("-C").arg(&root).args(["diff", "--no-index", "--"]);
+        #[cfg(not(windows))]
+        cmd.args(["/dev/null", f]);
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
-            cmd.args(["diff", "--no-index", "--", "NUL", f]);
+            cmd.args(["NUL", f]);
             cmd.creation_flags(0x0800_0000);
         }
         if let Ok(out) = cmd.output() {
@@ -219,31 +226,72 @@ pub fn rollback(repo: &Path, sha: &str) -> Result<()> {
     let root = repo_root(repo)?;
     // Validate the sha exists first — a typo must not half-run.
     git(&root, &["cat-file", "-e", &format!("{sha}^{{commit}}")])?;
+    let expected_tree = git(&root, &["rev-parse", &format!("{sha}^{{tree}}")])?;
     git(&root, &["read-tree", sha])?;
     git(&root, &["checkout-index", "-a", "-f"])?;
     // Remove files that exist now but not in the snapshot.
     git(&root, &["clean", "-fd"])?;
     // Leave the index back at HEAD so `git status` reads naturally.
     git(&root, &["read-tree", "HEAD"])?;
+    // Re-snapshot through Git's normal filters and verify that every
+    // repository-visible file now matches the requested checkpoint. This
+    // permits platform checkout rules such as core.autocrlf while catching
+    // partial restores.
+    let restored = snapshot_worktree(&root)?;
+    let restored_tree = git(&root, &["rev-parse", &format!("{restored}^{{tree}}")])?;
+    if restored_tree != expected_tree {
+        bail!(
+            "rollback verification failed: restored tree {restored_tree} does not match checkpoint tree {expected_tree}"
+        );
+    }
     Ok(())
 }
 
 /// Squash-merge a fleet member's branch into the base repo, leaving the
 /// result staged (no commit — the user owns the commit).
 pub fn merge_member(fleet_id: &str, member: &str) -> Result<Value> {
+    merge_member_with_policy(fleet_id, member, false)
+}
+
+/// Merge with an explicit verification override. `force` is intentionally
+/// surfaced only by audited API/CLI paths; the normal Review UI stays gated.
+pub fn merge_member_with_policy(fleet_id: &str, member: &str, force: bool) -> Result<Value> {
+    let verification = if force {
+        super::verification::latest_for_member(fleet_id, member)
+    } else {
+        Some(super::verification::ensure_passed(fleet_id, member)?)
+    };
     let fleet = super::fleet::get(fleet_id).ok_or_else(|| anyhow!("no fleet {fleet_id:?}"))?;
     let m = super::fleet::resolve_member(&fleet, member)?;
+    let base_head = git(&fleet.base_repo, &["rev-parse", "HEAD"])?;
+    let member_head = git(
+        &fleet.base_repo,
+        &["rev-parse", "--verify", &format!("{}^{{commit}}", m.branch)],
+    )?;
     let dirty = git(&fleet.base_repo, &["status", "--porcelain"])?;
     if !dirty.is_empty() {
         bail!("base repo not clean — commit or stash before merging a fleet member");
     }
     git(&fleet.base_repo, &["merge", "--squash", &m.branch])?;
+    let staged_files: Vec<String> = git(&fleet.base_repo, &["diff", "--cached", "--name-only"])?
+        .lines()
+        .map(str::to_owned)
+        .collect();
+    if staged_files.is_empty() {
+        bail!("fleet member produced no staged changes to review");
+    }
     super::fleet::set_review_state(fleet_id, member, super::fleet::ReviewState::Merged)?;
     Ok(json!({
         "ok": true,
         "fleet": fleet_id,
         "branch": m.branch,
+        "base_head": base_head,
+        "member_head": member_head,
+        "merged_at": chrono::Utc::now().to_rfc3339(),
+        "staged_files": staged_files,
         "staged_in": fleet.base_repo.to_string_lossy(),
+        "verification": verification,
+        "verification_forced": force,
     }))
 }
 
@@ -276,6 +324,9 @@ pub fn overview() -> Value {
                         "review": m.review,
                         "pane_id": m.pane_id,
                         "agent_state": state,
+                        "attempt": m.attempt,
+                        "last_started_at": m.last_started_at,
+                        "last_launch_error": m.last_launch_error,
                     })
                 })
                 .collect();
@@ -300,16 +351,22 @@ pub fn overview() -> Value {
 mod tests {
     use super::*;
 
+    static NEXT_TMP_REPO: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
     fn tmp_repo() -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
-            "unterm-review-test-{}-{}",
+            "unterm-review-test-{}-{}-{}",
             std::process::id(),
-            chrono::Utc::now().timestamp_millis()
+            chrono::Utc::now().timestamp_millis(),
+            NEXT_TMP_REPO.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ));
         std::fs::create_dir_all(&dir).unwrap();
         git(&dir, &["init", "-q"]).unwrap();
         git(&dir, &["config", "user.email", "t@t"]).unwrap();
         git(&dir, &["config", "user.name", "t"]).unwrap();
+        // Keep fixture bytes deterministic on Windows; production rollback
+        // intentionally honors each repository's checkout filters.
+        git(&dir, &["config", "core.autocrlf", "false"]).unwrap();
         std::fs::write(dir.join("a.txt"), "one\n").unwrap();
         git(&dir, &["add", "-A"]).unwrap();
         git(&dir, &["commit", "-q", "-m", "init"]).unwrap();
@@ -347,6 +404,34 @@ mod tests {
         );
         assert!(!repo.join("new.txt").exists());
 
+        let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    #[test]
+    fn rollback_restores_a_checkpoint_with_a_deleted_tracked_file() {
+        let repo = tmp_repo();
+        std::fs::remove_file(repo.join("a.txt")).unwrap();
+        let without_a = snapshot_worktree(&repo).unwrap();
+
+        std::fs::write(repo.join("a.txt"), "newer\n").unwrap();
+        std::fs::write(repo.join("extra.txt"), "extra\n").unwrap();
+        rollback(&repo, &without_a).unwrap();
+
+        assert!(!repo.join("a.txt").exists());
+        assert!(!repo.join("extra.txt").exists());
+        let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    #[test]
+    fn invalid_rollback_target_does_not_touch_the_worktree() {
+        let repo = tmp_repo();
+        std::fs::write(repo.join("a.txt"), "keep me\n").unwrap();
+
+        assert!(rollback(&repo, "definitely-not-a-commit").is_err());
+        assert_eq!(
+            std::fs::read_to_string(repo.join("a.txt")).unwrap(),
+            "keep me\n"
+        );
         let _ = std::fs::remove_dir_all(&repo);
     }
 }

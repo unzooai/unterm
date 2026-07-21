@@ -7,10 +7,10 @@
 
 /// Chrome text: tabs, sidebar rows, status bar. Keep this close to the
 /// terminal font while using the title/UI font's natural weight; oversizing
-/// chrome makes the app read less precise than Warp. Nudged to 13.5 so the
-/// sidebar/tab labels read a touch larger and crisper without ballooning the
-/// chrome.
-pub const UI_FONT_SIZE: f64 = 13.5;
+/// chrome makes the app read less precise than Warp. Set to 13pt so the
+/// sidebar/tab labels stay readable without making the chrome feel oversized.
+/// 13pt also leaves enough horizontal room for project and process identity.
+pub const UI_FONT_SIZE: f64 = 13.0;
 /// Command palette / modal body text.
 pub const PALETTE_FONT_SIZE: f64 = 14.0;
 /// Small overline / badge text.
@@ -19,18 +19,28 @@ pub const OVERLINE_FONT_SIZE: f64 = 10.0;
 pub const HEADER_FONT_SIZE: f64 = 18.0;
 /// Line-height ratio for chrome text. A touch loose (vs 1.2) so sidebar/tab
 /// rows breathe instead of reading cramped.
-pub const UI_LINE_HEIGHT: f64 = 1.35;
+pub const UI_LINE_HEIGHT: f64 = 1.30;
 /// Corner radius for selectable rows and buttons.
-pub const CORNER_RADIUS: f32 = 4.0;
+pub const CORNER_RADIUS: f32 = 5.0;
 /// Padding inside selectable rows. Generous so sidebar/tab rows don't read
 /// cramped, especially at the slightly larger UI font size.
-pub const ROW_PADDING: f32 = 10.0;
+pub const ROW_PADDING: f32 = 8.0;
+/// Horizontal inset shared by docked chrome panels.
+pub const CHROME_PANEL_INSET: f32 = 6.0;
+/// Top breathing room before the first sidebar section.
+pub const CHROME_SECTION_GAP: f32 = 10.0;
+/// Vertical padding for primary sidebar rows.
+pub const CHROME_ROW_PADDING_Y: f32 = 7.0;
+/// Vertical padding for compact file/git rows.
+pub const CHROME_COMPACT_ROW_PADDING_Y: f32 = 4.5;
+/// Vertical padding for sidebar section headers.
+pub const CHROME_HEADER_PADDING_Y: f32 = 7.0;
 /// Width reserved for the macOS traffic-light cluster in the tab bar.
 pub const MACOS_TRAFFIC_LIGHT_RESERVE: f32 = 76.0;
 /// Diameter of the custom-drawn macOS traffic-light dots.
 pub const MACOS_TRAFFIC_LIGHT_DOT: f32 = 12.0;
 /// Extra vertical breathing room around the bottom status-bar text.
-pub const STATUS_BAR_VERTICAL_PADDING: f32 = 2.0;
+pub const STATUS_BAR_VERTICAL_PADDING: f32 = 2.5;
 /// Visual baseline compensation for one-line chrome text. Terminal cells
 /// include descender space, so geometric centering reads slightly low.
 pub const CHROME_TEXT_BASELINE_NUDGE: f32 = -2.0;
@@ -47,15 +57,15 @@ pub const CHROME_SCROLLBAR_THUMB_ALPHA: f32 = 0.74;
 
 /// Left tab bar geometry.
 pub const LEFT_TAB_BAR_WIDTH: f32 = 164.0;
-pub const LEFT_TAB_BAR_MIN_WIDTH: f32 = 112.0;
+pub const LEFT_TAB_BAR_MIN_WIDTH: f32 = 120.0;
 /// Max width as a fraction of the window width.
 pub const LEFT_TAB_BAR_MAX_RATIO: f32 = 0.30;
 /// Width of the resize grip on the bar's right edge.
 pub const LEFT_TAB_BAR_GRIP: f32 = 12.0;
 
 /// Directory tree sidebar geometry.
-pub const TREE_SIDEBAR_WIDTH: f32 = 152.0;
-pub const TREE_SIDEBAR_MIN_WIDTH: f32 = 112.0;
+pub const TREE_SIDEBAR_WIDTH: f32 = 164.0;
+pub const TREE_SIDEBAR_MIN_WIDTH: f32 = 120.0;
 pub const TREE_SIDEBAR_MAX_RATIO: f32 = 0.30;
 pub const TREE_SIDEBAR_GRIP: f32 = 12.0;
 /// Combined left chrome should never dominate the terminal area.
@@ -66,3 +76,24 @@ pub const GIT_PANEL_WIDTH: f32 = 232.0;
 pub const GIT_PANEL_MIN_WIDTH: f32 = 160.0;
 /// Max width as a fraction of the window width.
 pub const GIT_PANEL_MAX_RATIO: f32 = 0.32;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn chrome_density_scale_is_ordered() {
+        assert!(CHROME_COMPACT_ROW_PADDING_Y < CHROME_ROW_PADDING_Y);
+        assert!(CHROME_ROW_PADDING_Y <= CHROME_HEADER_PADDING_Y);
+        assert!(ROW_PADDING >= CHROME_ROW_PADDING_Y);
+    }
+
+    #[test]
+    fn sidebar_defaults_respect_minimums_and_window_budget() {
+        assert!(LEFT_TAB_BAR_WIDTH >= LEFT_TAB_BAR_MIN_WIDTH);
+        assert!(TREE_SIDEBAR_WIDTH >= TREE_SIDEBAR_MIN_WIDTH);
+        assert!(LEFT_TAB_BAR_MAX_RATIO < LEFT_GUTTER_MAX_RATIO);
+        assert!(TREE_SIDEBAR_MAX_RATIO < LEFT_GUTTER_MAX_RATIO);
+        assert!(LEFT_GUTTER_MAX_RATIO < 0.5);
+    }
+}

@@ -247,5 +247,11 @@
   "web.review.rollback_confirm": "{repo} auf Checkpoint {sha} zurücksetzen? Alles Neuere im Worktree geht verloren.",
   "web.review.clean": "aufräumen",
   "web.review.compare": "vergleichen",
-  "web.review.compare_hint": "Vergleichsmodus: links zwei Mitglieder wählen, um ihre Diffs nebeneinander zu sehen."
+  "web.review.compare_hint": "Vergleichsmodus: links zwei Mitglieder wählen, um ihre Diffs nebeneinander zu sehen.",
+  "web.review.running": "aktiv", "web.review.needs_you": "wartet auf dich", "web.review.to_review": "zu prüfen",
+  "web.review.checkpoints": "Checkpoints", "web.review.refresh": "Aktualisieren",
+  "web.review.isolated_worktree": "isolierter Worktree", "web.review.squash_staged": "Squash-Merge → bereitgestellt", "web.review.local_checkpoint": "lokaler Checkpoint",
+  "web.review.verify": "Prüfung starten", "web.review.retry": "Erneut prüfen", "web.review.verifying": "Wird gestartet…",
+  "web.review.verify_passed": "bestanden", "web.review.verify_failed": "fehlgeschlagen", "web.review.verify_running": "wird geprüft", "web.review.verify_queued": "eingereiht", "web.review.verify_timeout": "Zeitüberschreitung", "web.review.verify_error": "Fehler", "web.review.verify_not_run": "nicht geprüft",
+  "web.review.verify_command_prompt": "Prüfbefehl", "web.review.exit_code": "Exit-Code", "web.review.score": "Wertung", "web.review.rank": "Kandidatenrang", "web.review.retry_agent": "Agent neu starten"
 }

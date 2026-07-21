@@ -14,6 +14,28 @@ static DEFER_FIRST_STATUS_TEXT_RENDER: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(true);
 
 impl crate::TermWindow {
+    pub(crate) fn show_ui_notice(&self, message: impl Into<String>) {
+        let expires = std::time::Instant::now() + std::time::Duration::from_millis(2400);
+        self.ui_notice.replace(Some((message.into(), expires)));
+        self.update_next_frame_time(Some(expires));
+        if let Some(window) = self.window.as_ref() {
+            window.invalidate();
+        }
+    }
+
+    fn active_ui_notice(&self) -> Option<String> {
+        let now = std::time::Instant::now();
+        let mut notice = self.ui_notice.borrow_mut();
+        match notice.as_ref() {
+            Some((message, expires)) if *expires > now => Some(message.clone()),
+            Some(_) => {
+                notice.take();
+                None
+            }
+            None => None,
+        }
+    }
+
     fn status_bar_vertical_padding_px(&self) -> f32 {
         let pt = self.dimensions.dpi as f32 / 72.0;
         (ui_tokens::STATUS_BAR_VERTICAL_PADDING * pt)
@@ -251,16 +273,16 @@ impl crate::TermWindow {
         let bar_width = self.dimensions.pixel_width as f32;
 
         let theme = crate::overlay::theme_selector::read_theme_id();
-        let (_bar_bg_rgb, sep_rgb, fg_rgb) = status_bar_theme_colors(&theme);
+        let (_bar_bg_rgb, sep_rgb, _fg_rgb) = status_bar_theme_colors(&theme);
         // Scheme A: match the bottom bar to the shared chrome tone (sidebar +
         // top bar) so the sidebar↔bottom-bar corner meets seamlessly instead
         // of stepping to a slightly different grey.
         let pal = self.palette().clone();
-        let bar_bg = crate::termwindow::chrome_colors::sidebar(
+        let chrome = crate::termwindow::chrome_colors::sidebar(
             pal.background.to_linear(),
             pal.foreground.to_linear(),
-        )
-        .surface;
+        );
+        let bar_bg = chrome.surface;
 
         // Draw the bar background on layer 1 (not 0) so it fully occludes
         // everything beneath it at the bottom of the window — in particular
@@ -275,17 +297,11 @@ impl crate::TermWindow {
             bar_bg,
         )?;
 
-        // A hairline along the top edge separates the bottom bar from the
-        // chrome above it. Use the pane background tone, not the light
-        // fg-alpha divider: the top bar's seam is a transparent 1px border
-        // that shows the dark pane color through, so the sidebar↔bottom-bar
-        // corner gets the identical dark seam (65|18|65 on the default
-        // theme). Against the pane content itself the line is invisible —
-        // same as the top — because there the bar↔content tone contrast
-        // already defines the edge.
+        // Close the bottom of the shared chrome frame with the same subtle
+        // optical edge used by the title bar and sidebar.
         let _ = sep_rgb;
         let pt = self.dimensions.dpi as f32 / 72.0;
-        let divider = pal.background.to_linear();
+        let divider = chrome.outer_edge;
         self.filled_rectangle(
             layers,
             2,
@@ -310,12 +326,7 @@ impl crate::TermWindow {
         let white_space = gl_state.util_sprites.white_space.texture_coords();
         let filled_box = gl_state.util_sprites.filled_box.texture_coords();
 
-        let fg = LinearRgba::with_components(
-            fg_rgb.0 as f32 / 255.0,
-            fg_rgb.1 as f32 / 255.0,
-            fg_rgb.2 as f32 / 255.0,
-            1.0,
-        );
+        let fg = pal.foreground.to_linear();
 
         self.render_screen_line(
             RenderScreenLineParams {
@@ -533,12 +544,26 @@ impl crate::TermWindow {
         // Status bar text color
         let mut attrs = CellAttributes::blank();
         let (_, _, fg_rgb) = status_bar_theme_colors(theme);
-        attrs.set_foreground(ColorAttribute::TrueColorWithDefaultFallback(SrgbaTuple(
-            fg_rgb.0 as f32 / 255.0,
-            fg_rgb.1 as f32 / 255.0,
-            fg_rgb.2 as f32 / 255.0,
-            1.0,
-        )));
+        let status_fg: SrgbaTuple = self
+            .config
+            .resolved_palette
+            .foreground
+            .map(Into::into)
+            .unwrap_or(SrgbaTuple(
+                fg_rgb.0 as f32 / 255.0,
+                fg_rgb.1 as f32 / 255.0,
+                fg_rgb.2 as f32 / 255.0,
+                1.0,
+            ));
+        attrs.set_foreground(ColorAttribute::TrueColorWithDefaultFallback(status_fg));
+
+        if let Some(message) = self.active_ui_notice() {
+            let total_cols = (self.dimensions.pixel_width as f32
+                / self.render_metrics.cell_size.width.max(1) as f32)
+                .floor() as usize;
+            let notice = truncate_to_width(&format!("  ✓ {message}"), total_cols);
+            return (Line::from_text(&notice, &attrs, 0, None), Vec::new());
+        }
 
         let active_pane = self.get_active_pane_no_overlay();
         let active_cwd = active_pane
@@ -591,9 +616,17 @@ impl crate::TermWindow {
         // 2. Terminal size
         let cols = self.terminal_size.cols;
         let rows = self.terminal_size.rows;
+        let total_cols = (self.dimensions.pixel_width as f32
+            / self.render_metrics.cell_size.width.max(1) as f32)
+            .floor() as usize;
+        let density = status_bar_density(total_cols);
 
-        let proxy_enabled = unterm_proxy_enabled();
-        let proxy = if proxy_enabled {
+        // Hidden segments are zero-cost. In particular, avoid the profile
+        // registry read and proxy-file refresh on compact windows where those
+        // values cannot be displayed.
+        let proxy = if !density.show_telemetry {
+            String::new()
+        } else if unterm_proxy_enabled() {
             "proxy:on".to_string()
         } else {
             "proxy:off".to_string()
@@ -602,8 +635,8 @@ impl crate::TermWindow {
         // (a chip that appears/disappears would shift every neighboring
         // segment's click hit-test). `⚡` suffix marks "writes recently"
         // so the user notices a flash without having to compare counts.
-        let mcp_activity = crate::mcp::handler::recent_mcp_input_activity();
-        let mcp_part = {
+        let mcp_part = if density.show_telemetry {
+            let mcp_activity = crate::mcp::handler::recent_mcp_input_activity();
             let flash = mcp_activity
                 .seconds_since_last
                 .map(|s| s < 5.0)
@@ -613,6 +646,8 @@ impl crate::TermWindow {
                 mcp_activity.count,
                 if flash { "⚡" } else { "" }
             )
+        } else {
+            String::new()
         };
 
         // Identity profile chip (window=identity model). The chip lives
@@ -624,48 +659,95 @@ impl crate::TermWindow {
         // important because the click action (cycle profile) doubles
         // as the "I haven't set up profiles yet, what's this?"
         // discoverability hook.
-        let profile_label = current_profile_display_name();
-        let profile_part = format!("profile:{profile_label}");
+        let profile_part = if density.show_profile {
+            let profile_label = crate::termwindow::sidebar_text::ellipsize_middle(
+                &current_profile_display_name(),
+                18,
+            );
+            format!("profile:{profile_label}")
+        } else {
+            String::new()
+        };
 
-        let project_part = format!(
-            "project:{}",
-            Self::project_label_for_cwd(active_cwd.as_ref())
+        let project_label = crate::termwindow::sidebar_text::ellipsize_middle(
+            &Self::project_label_for_cwd(active_cwd.as_ref()),
+            18,
+        );
+        let project_part = format!("project:{}", project_label);
+
+        let cwd_part = crate::termwindow::sidebar_text::ellipsize_middle(
+            &Self::cwd_for_status(active_cwd.as_ref()),
+            density.cwd_cols,
         );
 
-        // Use *cell width* (not char count) for offsets so the click hit-test
-        // lines up with the rendered glyph. Wide CJK chars take 2 cells.
-        let cw = |s: &str| unicode_column_width(s, None);
-
-        let cwd_part = Self::cwd_for_status(active_cwd.as_ref());
-
-        let mut text = format!(" {}   ", shell_name);
-        let cwd_offset = cw(&text);
-        text.push_str(&cwd_part);
-        text.push_str("   ");
-        text.push_str(&format!("{}x{}   ", cols, rows));
-        let project_offset = cw(&text);
-        text.push_str(&project_part);
-        text.push_str("   ");
-        let exclude_offset = cw(&text);
+        let mut text = format!(" {}", shell_name);
+        let mut regions = vec![];
+        let cwd_offset = append_status_part(
+            &mut text,
+            &mut regions,
+            &cwd_part,
+            Some(UIItemType::StatusBarCwd),
+        );
+        append_status_part(&mut text, &mut regions, &format!("{}x{}", cols, rows), None);
+        let project_offset = density.show_project.then(|| {
+            append_status_part(
+                &mut text,
+                &mut regions,
+                &project_part,
+                Some(UIItemType::StatusBarProject),
+            )
+        });
         let exclude_part = "capture:exclude".to_string();
-        text.push_str(&exclude_part);
-        text.push_str("   ");
-        let include_offset = cw(&text);
         let include_part = "capture:include".to_string();
-        text.push_str(&include_part);
-        text.push_str("   ");
-        let proxy_offset = cw(&text);
-        text.push_str(&proxy);
-        text.push_str("   ");
-        let mcp_offset = cw(&text);
-        text.push_str(&mcp_part);
-        text.push_str("   ");
-        let theme_offset = cw(&text);
+        let exclude_offset = density.show_capture.then(|| {
+            append_status_part(
+                &mut text,
+                &mut regions,
+                &exclude_part,
+                Some(UIItemType::StatusBarCaptureExclude),
+            )
+        });
+        let include_offset = density.show_capture.then(|| {
+            append_status_part(
+                &mut text,
+                &mut regions,
+                &include_part,
+                Some(UIItemType::StatusBarCaptureInclude),
+            )
+        });
+        let proxy_offset = density.show_telemetry.then(|| {
+            append_status_part(
+                &mut text,
+                &mut regions,
+                &proxy,
+                Some(UIItemType::StatusBarProxy),
+            )
+        });
+        let mcp_offset = density.show_telemetry.then(|| {
+            append_status_part(
+                &mut text,
+                &mut regions,
+                &mcp_part,
+                Some(UIItemType::StatusBarMcpAudit),
+            )
+        });
         let theme_part = format!("theme:{theme}");
-        text.push_str(&theme_part);
-        text.push_str("   ");
-        let profile_offset = cw(&text);
-        text.push_str(&profile_part);
+        let theme_offset = density.show_theme.then(|| {
+            append_status_part(
+                &mut text,
+                &mut regions,
+                &theme_part,
+                Some(UIItemType::StatusBarTheme),
+            )
+        });
+        let profile_offset = density.show_profile.then(|| {
+            append_status_part(
+                &mut text,
+                &mut regions,
+                &profile_part,
+                Some(UIItemType::StatusBarProfile),
+            )
+        });
         text.push(' ');
 
         let mut line = Line::from_text(&text, &attrs, 0, None);
@@ -720,70 +802,24 @@ impl crate::TermWindow {
                     None => (0, part.to_string()),
                 }
             };
-            let (o, v) = val(&project_part);
-            paint(project_offset + o, &v, &teal_a);
-            let (o, v) = val(&exclude_part);
-            paint(exclude_offset + o, &v, &teal_a);
-            let (o, v) = val(&include_part);
-            paint(include_offset + o, &v, &teal_a);
-            let (o, v) = val(&proxy);
-            paint(proxy_offset + o, &v, &teal_a);
-            let _ = proxy_enabled;
-            let (o, v) = val(&mcp_part);
-            paint(mcp_offset + o, &v, &teal_a);
-            let _ = mcp_activity.count;
-            let (o, v) = val(&theme_part);
-            paint(theme_offset + o, &v, &teal_a);
-            let (o, v) = val(&profile_part);
-            if v != "—" {
-                paint(profile_offset + o, &v, &teal_a);
+            let mut paint_value = |offset: Option<usize>, part: &str| {
+                if let Some(offset) = offset {
+                    let (value_offset, value) = val(part);
+                    paint(offset + value_offset, &value, &teal_a);
+                }
+            };
+            paint_value(project_offset, &project_part);
+            paint_value(exclude_offset, &exclude_part);
+            paint_value(include_offset, &include_part);
+            paint_value(proxy_offset, &proxy);
+            paint_value(mcp_offset, &mcp_part);
+            paint_value(theme_offset, &theme_part);
+            let (_, profile_value) = val(&profile_part);
+            if profile_value != "—" {
+                paint_value(profile_offset, &profile_part);
             }
         }
-        (
-            line,
-            vec![
-                StatusRegion {
-                    offset: cwd_offset,
-                    len: cw(&cwd_part),
-                    item_type: UIItemType::StatusBarCwd,
-                },
-                StatusRegion {
-                    offset: project_offset,
-                    len: cw(&project_part),
-                    item_type: UIItemType::StatusBarProject,
-                },
-                StatusRegion {
-                    offset: exclude_offset,
-                    len: cw(&exclude_part),
-                    item_type: UIItemType::StatusBarCaptureExclude,
-                },
-                StatusRegion {
-                    offset: include_offset,
-                    len: cw(&include_part),
-                    item_type: UIItemType::StatusBarCaptureInclude,
-                },
-                StatusRegion {
-                    offset: proxy_offset,
-                    len: cw(&proxy),
-                    item_type: UIItemType::StatusBarProxy,
-                },
-                StatusRegion {
-                    offset: mcp_offset,
-                    len: cw(&mcp_part),
-                    item_type: UIItemType::StatusBarMcpAudit,
-                },
-                StatusRegion {
-                    offset: theme_offset,
-                    len: cw(&theme_part),
-                    item_type: UIItemType::StatusBarTheme,
-                },
-                StatusRegion {
-                    offset: profile_offset,
-                    len: cw(&profile_part),
-                    item_type: UIItemType::StatusBarProfile,
-                },
-            ],
-        )
+        (line, regions)
     }
 
     /// Active pane's cwd, formatted for the bottom status bar:
@@ -884,6 +920,51 @@ struct StatusRegion {
     item_type: UIItemType,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct StatusBarDensity {
+    cwd_cols: usize,
+    show_project: bool,
+    show_theme: bool,
+    show_telemetry: bool,
+    show_profile: bool,
+    show_capture: bool,
+}
+
+fn status_bar_density(total_cols: usize) -> StatusBarDensity {
+    StatusBarDensity {
+        cwd_cols: match total_cols {
+            0..=79 => 18,
+            80..=111 => 26,
+            112..=143 => 34,
+            _ => 48,
+        },
+        show_project: total_cols >= 72,
+        show_theme: total_cols >= 96,
+        show_telemetry: total_cols >= 128,
+        show_profile: total_cols >= 160,
+        show_capture: total_cols >= 208,
+    }
+}
+
+fn append_status_part(
+    text: &mut String,
+    regions: &mut Vec<StatusRegion>,
+    part: &str,
+    item_type: Option<UIItemType>,
+) -> usize {
+    text.push_str("   ");
+    let offset = unicode_column_width(text, None);
+    text.push_str(part);
+    if let Some(item_type) = item_type {
+        regions.push(StatusRegion {
+            offset,
+            len: unicode_column_width(part, None),
+            item_type,
+        });
+    }
+    offset
+}
+
 #[derive(Default)]
 struct ProxyStatusCache {
     value: bool,
@@ -898,8 +979,8 @@ struct ProfileDisplayCache {
     loading: bool,
 }
 
-const PROFILE_DISPLAY_TTL: std::time::Duration = std::time::Duration::from_millis(1000);
-const PROXY_STATUS_TTL: std::time::Duration = std::time::Duration::from_millis(1000);
+const PROFILE_DISPLAY_TTL: std::time::Duration = std::time::Duration::from_secs(5);
+const PROXY_STATUS_TTL: std::time::Duration = std::time::Duration::from_secs(2);
 
 lazy_static::lazy_static! {
     static ref PROXY_STATUS_CACHE: std::sync::Mutex<ProxyStatusCache> =
@@ -1132,5 +1213,42 @@ mod tests {
     #[test]
     fn truncate_to_width_preserves_short_text() {
         assert_eq!(truncate_to_width("agent:kimi-code", 32), "agent:kimi-code");
+    }
+
+    #[test]
+    fn status_bar_density_progressively_reveals_secondary_state() {
+        let narrow = status_bar_density(80);
+        assert!(narrow.show_project);
+        assert!(!narrow.show_theme);
+        assert!(!narrow.show_telemetry);
+        assert!(!narrow.show_capture);
+
+        let common = status_bar_density(115);
+        assert!(common.show_theme);
+        assert!(!common.show_telemetry);
+        assert!(!common.show_profile);
+        assert!(!common.show_capture);
+
+        let wide = status_bar_density(220);
+        assert!(wide.show_project);
+        assert!(wide.show_theme);
+        assert!(wide.show_telemetry);
+        assert!(wide.show_profile);
+        assert!(wide.show_capture);
+    }
+
+    #[test]
+    fn status_bar_parts_track_wide_text_offsets() {
+        let mut text = " shell".to_string();
+        let mut regions = vec![];
+        let offset = append_status_part(
+            &mut text,
+            &mut regions,
+            "项目:终端",
+            Some(UIItemType::StatusBarProject),
+        );
+        assert_eq!(offset, unicode_column_width(" shell   ", None));
+        assert_eq!(regions[0].offset, offset);
+        assert_eq!(regions[0].len, unicode_column_width("项目:终端", None));
     }
 }

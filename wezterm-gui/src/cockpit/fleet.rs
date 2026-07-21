@@ -33,6 +33,20 @@ pub struct FleetMember {
     /// HEAD sha the worktree started from — the review baseline.
     pub checkpoint: String,
     pub review: ReviewState,
+    /// Number of times this member has been launched. Legacy fleet records
+    /// deserialize as their original first attempt.
+    #[serde(default = "default_attempt")]
+    pub attempt: u32,
+    /// Timestamp of the latest launch/retry. Optional for legacy records.
+    #[serde(default)]
+    pub last_started_at: Option<String>,
+    /// Most recent failure to create a pane, cleared after a successful retry.
+    #[serde(default)]
+    pub last_launch_error: Option<String>,
+}
+
+fn default_attempt() -> u32 {
+    1
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -322,14 +336,14 @@ pub fn launch(cwd: &Path, task: &str, agents: &[String]) -> Result<Fleet> {
         )
         .with_context(|| format!("add worktree for member {n}"))?;
         let agent_cmd = agent_command(agent, task);
-        let pane_id = match spawn_member_tab(&worktree, &agent_cmd) {
+        let (pane_id, last_launch_error) = match spawn_member_tab(&worktree, &agent_cmd) {
             Ok(id) => {
                 super::status::set_fleet(id, Some(fleet_id.clone()));
-                Some(id)
+                (Some(id), None)
             }
             Err(err) => {
                 log::error!("fleet {fleet_id}: member {n} spawn failed: {err:#}");
-                None
+                (None, Some(format!("{err:#}")))
             }
         };
         members.push(FleetMember {
@@ -340,6 +354,9 @@ pub fn launch(cwd: &Path, task: &str, agents: &[String]) -> Result<Fleet> {
             pane_id,
             checkpoint: head.clone(),
             review: ReviewState::Pending,
+            attempt: 1,
+            last_started_at: Some(chrono::Utc::now().to_rfc3339()),
+            last_launch_error,
         });
     }
 
@@ -420,6 +437,102 @@ pub fn resolve_member(fleet: &Fleet, member: &str) -> Result<FleetMember> {
         .ok_or_else(|| anyhow!("no member {member:?}"))
 }
 
+/// Relaunch a pending fleet member in its existing worktree.
+///
+/// The branch, checkpoint and every committed/uncommitted change are retained.
+/// Only the pane association is replaced, so a retry never deletes or resets
+/// work. The previous pane is closed before the new agent starts to prevent two
+/// processes from concurrently editing the same worktree.
+pub fn retry_member(fleet_id: &str, member: &str) -> Result<FleetMember> {
+    let (old_pane_id, worktree, branch, agent_cmd) = {
+        let s = store().lock();
+        let fleet = s
+            .iter()
+            .find(|f| f.id == fleet_id)
+            .ok_or_else(|| anyhow!("no fleet {fleet_id:?}"))?;
+        let m = resolve_member(fleet, member)?;
+        if m.review != ReviewState::Pending {
+            bail!("cannot retry a {:?} fleet member", m.review);
+        }
+        validate_retry_worktree(&m)?;
+        (m.pane_id, m.worktree, m.branch, m.agent_cmd)
+    };
+
+    // Persist the new attempt before touching panes. If spawning fails, Review
+    // accurately shows that the member has no active pane and may be retried.
+    {
+        let mut s = store().lock();
+        let fleet = s
+            .iter_mut()
+            .find(|f| f.id == fleet_id)
+            .ok_or_else(|| anyhow!("no fleet {fleet_id:?}"))?;
+        let m = resolve_member_mut(fleet, member)?;
+        m.pane_id = None;
+        m.attempt = m.attempt.saturating_add(1);
+        m.last_started_at = Some(chrono::Utc::now().to_rfc3339());
+        m.last_launch_error = None;
+        save_locked(&s);
+    }
+
+    if let Some(pane_id) = old_pane_id {
+        remove_member_pane(pane_id);
+    }
+
+    let pane_id = match spawn_member_tab(&worktree, &agent_cmd) {
+        Ok(pane_id) => pane_id,
+        Err(err) => {
+            let message = format!("{err:#}");
+            let mut s = store().lock();
+            if let Some(fleet) = s.iter_mut().find(|f| f.id == fleet_id) {
+                if let Ok(m) = resolve_member_mut(fleet, &branch) {
+                    m.last_launch_error = Some(message.clone());
+                }
+                save_locked(&s);
+            }
+            return Err(err).context("retry fleet member");
+        }
+    };
+    super::status::set_fleet(pane_id, Some(fleet_id.to_string()));
+
+    let mut s = store().lock();
+    let Some(fleet) = s.iter_mut().find(|f| f.id == fleet_id) else {
+        remove_member_pane(pane_id);
+        bail!("fleet {fleet_id:?} was removed while retrying");
+    };
+    let m = resolve_member_mut(fleet, &branch)?;
+    m.pane_id = Some(pane_id);
+    m.last_launch_error = None;
+    let result = m.clone();
+    save_locked(&s);
+    Ok(result)
+}
+
+fn validate_retry_worktree(member: &FleetMember) -> Result<()> {
+    if !member.worktree.is_dir() {
+        bail!("fleet worktree {:?} no longer exists", member.worktree);
+    }
+    let actual_branch = git(&member.worktree, &["rev-parse", "--abbrev-ref", "HEAD"])
+        .context("validate fleet worktree")?;
+    if actual_branch != member.branch {
+        bail!(
+            "fleet worktree is on branch {actual_branch:?}, expected {:?}",
+            member.branch
+        );
+    }
+    Ok(())
+}
+
+fn remove_member_pane(pane_id: u64) {
+    super::status::set_fleet(pane_id, None);
+    let (tx, rx) = std::sync::mpsc::channel();
+    promise::spawn::spawn_into_main_thread(async move {
+        mux::Mux::get().remove_pane(pane_id as mux::pane::PaneId);
+        tx.send(()).ok();
+    })
+    .detach();
+    let _ = rx.recv_timeout(std::time::Duration::from_secs(5));
+}
+
 /// Remove a fleet: kill surviving panes, remove worktrees + branches,
 /// drop the record. Refuses when members are still pending review unless
 /// `force`; even with force, a worktree that still has uncommitted or
@@ -438,14 +551,7 @@ pub fn clean(fleet_id: &str, force: bool) -> Result<()> {
     }
     for m in &fleet.members {
         if let Some(pane_id) = m.pane_id {
-            let (tx, rx) = std::sync::mpsc::channel();
-            promise::spawn::spawn_into_main_thread(async move {
-                let mux = mux::Mux::get();
-                mux.remove_pane(pane_id as mux::pane::PaneId);
-                tx.send(()).ok();
-            })
-            .detach();
-            let _ = rx.recv_timeout(std::time::Duration::from_secs(5));
+            remove_member_pane(pane_id);
         }
         if m.worktree.exists() {
             git(
@@ -477,6 +583,21 @@ pub fn clean(fleet_id: &str, force: bool) -> Result<()> {
 mod tests {
     use super::*;
 
+    fn test_member(worktree: PathBuf, branch: &str) -> FleetMember {
+        FleetMember {
+            agent: "codex".to_string(),
+            agent_cmd: "codex test".to_string(),
+            worktree,
+            branch: branch.to_string(),
+            pane_id: Some(42),
+            checkpoint: "abc123".to_string(),
+            review: ReviewState::Pending,
+            attempt: 1,
+            last_started_at: None,
+            last_launch_error: None,
+        }
+    }
+
     #[test]
     fn slug_basics() {
         assert_eq!(slugify("Fix the login bug now please"), "fix-the-login-bug");
@@ -486,11 +607,60 @@ mod tests {
 
     #[test]
     fn agent_commands_quote_tasks() {
+        #[cfg(not(windows))]
         let cmd = agent_command("claude", "fix it's bug");
         #[cfg(not(windows))]
         assert_eq!(cmd, "claude 'fix it'\\''s bug'");
         assert!(agent_command("codex", "t").starts_with("codex "));
         assert!(agent_command("gemini", "t").starts_with("gemini -i "));
         assert!(agent_command("aider", "t").starts_with("aider --message "));
+    }
+
+    #[test]
+    fn legacy_member_defaults_to_first_attempt() {
+        let json = r#"{
+            "agent":"codex",
+            "agent_cmd":"codex test",
+            "worktree":"repo.fleet/task-1",
+            "branch":"fleet/task-1",
+            "pane_id":null,
+            "checkpoint":"abc123",
+            "review":"pending"
+        }"#;
+        let member: FleetMember = serde_json::from_str(json).unwrap();
+        assert_eq!(member.attempt, 1);
+        assert_eq!(member.last_started_at, None);
+        assert_eq!(member.last_launch_error, None);
+    }
+
+    #[test]
+    fn retry_validation_keeps_dirty_worktree_and_checks_branch() {
+        let temp = tempfile::tempdir().unwrap();
+        git(temp.path(), &["init", "-b", "fleet/test-1"]).unwrap();
+        git(
+            temp.path(),
+            &["config", "user.email", "test@unterm.invalid"],
+        )
+        .unwrap();
+        git(temp.path(), &["config", "user.name", "Unterm Test"]).unwrap();
+        std::fs::write(temp.path().join("result.txt"), "first\n").unwrap();
+        git(temp.path(), &["add", "result.txt"]).unwrap();
+        git(temp.path(), &["commit", "-m", "initial"]).unwrap();
+
+        // A failed agent may leave valuable uncommitted and untracked work.
+        // Validation must accept it and must not modify it.
+        std::fs::write(temp.path().join("result.txt"), "first\nsecond\n").unwrap();
+        std::fs::write(temp.path().join("untracked.txt"), "keep me\n").unwrap();
+        let member = test_member(temp.path().to_path_buf(), "fleet/test-1");
+        validate_retry_worktree(&member).unwrap();
+        let status = git(temp.path(), &["status", "--porcelain"]).unwrap();
+        assert!(status.contains("result.txt"));
+        assert!(status.contains("untracked.txt"));
+
+        let wrong_branch = test_member(temp.path().to_path_buf(), "fleet/other");
+        assert!(validate_retry_worktree(&wrong_branch)
+            .unwrap_err()
+            .to_string()
+            .contains("expected"));
     }
 }

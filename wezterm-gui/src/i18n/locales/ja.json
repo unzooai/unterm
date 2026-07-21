@@ -247,5 +247,11 @@
   "web.review.rollback_confirm": "{repo} をチェックポイント {sha} に戻しますか？それ以降の変更は破棄されます。",
   "web.review.clean": "掃除",
   "web.review.compare": "比較",
-  "web.review.compare_hint": "比較モード：左側でメンバーを 2 人選ぶと diff が並んで表示されます。"
+  "web.review.compare_hint": "比較モード：左側でメンバーを 2 人選ぶと diff が並んで表示されます。",
+  "web.review.running": "実行中", "web.review.needs_you": "確認待ち", "web.review.to_review": "レビュー待ち",
+  "web.review.checkpoints": "チェックポイント", "web.review.refresh": "更新",
+  "web.review.isolated_worktree": "分離ワークツリー", "web.review.squash_staged": "スカッシュマージ → ステージ済み", "web.review.local_checkpoint": "ローカルチェックポイント",
+  "web.review.verify": "検証を実行", "web.review.retry": "再検証", "web.review.verifying": "開始中…",
+  "web.review.verify_passed": "合格", "web.review.verify_failed": "失敗", "web.review.verify_running": "検証中", "web.review.verify_queued": "待機中", "web.review.verify_timeout": "タイムアウト", "web.review.verify_error": "エラー", "web.review.verify_not_run": "未検証",
+  "web.review.verify_command_prompt": "検証コマンド", "web.review.exit_code": "終了コード", "web.review.score": "スコア", "web.review.rank": "候補順位", "web.review.retry_agent": "Agent を再実行"
 }

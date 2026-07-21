@@ -106,7 +106,7 @@ pub const MCP_METHODS: &[McpMethod] = &[
         summary: "Send a keystroke or text into the pane (audited; subject to confirmation).",
         params: &[
             P_PANE_ID,
-            Param { name: "text", kind: "string", required: true, summary: "Raw bytes to inject." },
+            Param { name: "input", kind: "string", required: true, summary: "Raw bytes to inject." },
         ],
     },
     McpMethod {
@@ -175,13 +175,13 @@ pub const MCP_METHODS: &[McpMethod] = &[
         name: "session.suggest_status",
         namespace: "session",
         summary: "Lifecycle state of a pending suggest.",
-        params: &[Param { name: "id", kind: "string", required: true, summary: "" }],
+        params: &[Param { name: "suggestion_id", kind: "string", required: true, summary: "" }],
     },
     McpMethod {
         name: "session.suggest_cancel",
         namespace: "session",
         summary: "Withdraw a pending suggest.",
-        params: &[Param { name: "id", kind: "string", required: true, summary: "" }],
+        params: &[Param { name: "suggestion_id", kind: "string", required: true, summary: "" }],
     },
     McpMethod {
         name: "session.suggest_list",
@@ -498,12 +498,22 @@ pub const MCP_METHODS: &[McpMethod] = &[
         Param { name: "id", kind: "string", required: true, summary: "Fleet id." },
         Param { name: "force", kind: "bool", required: false, summary: "Skip the all-members-reviewed check." },
     ] },
+    McpMethod { name: "fleet.retry", namespace: "cockpit", summary: "Restart a pending fleet member in its existing isolated worktree without losing changes.", params: &[
+        Param { name: "fleet_id", kind: "string", required: true, summary: "Fleet id." },
+        Param { name: "member", kind: "string", required: true, summary: "Member index (1-based) or branch name." },
+    ] },
     McpMethod { name: "review.list", namespace: "cockpit", summary: "Review overview: fleets + auto checkpoints per repo.", params: NO_PARAMS },
     McpMethod { name: "review.diff", namespace: "cockpit", summary: "Line-level diff of a worktree vs a checkpoint (includes untracked files).", params: &[
         Param { name: "fleet_id", kind: "string", required: false, summary: "With 'member': diff that member's worktree." },
         Param { name: "member", kind: "string", required: false, summary: "Member index (1-based) or branch name." },
         Param { name: "repo", kind: "string", required: false, summary: "With 'from': diff this repo against a checkpoint sha." },
         Param { name: "from", kind: "string", required: false, summary: "Checkpoint sha." },
+    ] },
+    McpMethod { name: "review.verify", namespace: "cockpit", summary: "Run an asynchronous verification command in a fleet member's isolated worktree.", params: &[
+        Param { name: "fleet_id", kind: "string", required: true, summary: "Fleet id." },
+        Param { name: "member", kind: "string", required: true, summary: "Member index (1-based) or branch name." },
+        Param { name: "command", kind: "string", required: false, summary: "Explicit validation command; omitted to infer safely from project markers." },
+        Param { name: "timeout_secs", kind: "number", required: false, summary: "Timeout in seconds (default 900, max 7200)." },
     ] },
     McpMethod { name: "review.rollback", namespace: "cockpit", summary: "Restore a repo's worktree to a checkpoint (destructive; confirm first).", params: &[
         Param { name: "repo", kind: "string", required: true, summary: "Repo path." },
@@ -512,6 +522,7 @@ pub const MCP_METHODS: &[McpMethod] = &[
     McpMethod { name: "review.merge", namespace: "cockpit", summary: "Squash-merge a fleet member into the base repo, leaving it staged.", params: &[
         Param { name: "fleet_id", kind: "string", required: true, summary: "" },
         Param { name: "member", kind: "string", required: true, summary: "Member index (1-based) or branch name." },
+        Param { name: "force", kind: "bool", required: false, summary: "Override the passed-verification gate; audited." },
     ] },
     McpMethod { name: "review.discard", namespace: "cockpit", summary: "Mark a fleet member's work as discarded (worktree removed on clean).", params: &[
         Param { name: "fleet_id", kind: "string", required: true, summary: "" },

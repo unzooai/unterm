@@ -90,6 +90,7 @@ pub mod render;
 pub mod resize;
 mod selection;
 pub mod git_panel;
+pub(crate) mod sidebar_text;
 pub mod spawn;
 pub mod top_stats_bar;
 pub mod tree_sidebar;
@@ -182,6 +183,20 @@ pub enum QuickAction {
     Inbox,
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+enum RightClickAction {
+    CopySelection,
+    PasteClipboard,
+}
+
+fn right_click_action(has_selection: bool) -> RightClickAction {
+    if has_selection {
+        RightClickAction::CopySelection
+    } else {
+        RightClickAction::PasteClipboard
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum UIItemType {
     TabBar(TabBarItem),
@@ -251,6 +266,9 @@ pub enum UIItemType {
     /// A tab row in the left vertical tab bar. Click activates; keep
     /// dragging to reorder; double-click renames; right-click menus.
     LeftTabBarTab(usize),
+    /// A project group header in the left vertical tab bar. Click toggles its
+    /// collapsed state; the string is the normalized full project identity.
+    LeftTabBarGroup(String),
     /// Resize grip on the left tab bar's right edge.
     LeftTabBarResize,
     /// Scroll track inside the left tab bar. Click jumps the thumb;
@@ -269,6 +287,8 @@ pub enum UIItemType {
     },
     /// The left tab bar's background (swallows clicks, accepts wheel).
     LeftTabBarBg,
+    /// Search all tabs/projects with the fuzzy tab navigator.
+    LeftTabBarSearch,
     /// The tree sidebar's header (root name); click re-anchors the root to
     /// the active pane's cwd.
     TreeSidebarHeader,
@@ -526,6 +546,10 @@ pub struct TermWindow {
     last_top_stats_text: String,
     pub right_status: String,
     pub left_status: String,
+    /// Short, non-destructive feedback rendered in the existing bottom bar.
+    /// Unlike the old PTY-injected messages this cannot corrupt full-screen
+    /// TUIs and expires without adding another permanent chrome row.
+    pub(crate) ui_notice: RefCell<Option<(String, Instant)>>,
     last_ui_item: Option<UIItem>,
     /// Tracks whether the current mouse-down event is part of click-focus.
     /// If so, we ignore mouse events until released
@@ -976,6 +1000,7 @@ impl TermWindow {
             last_top_stats_text: String::new(),
             right_status: Self::default_right_status(&config, None),
             left_status: String::new(),
+            ui_notice: RefCell::new(None),
             last_mouse_coords: (0, -1),
             window_drag_position: None,
             current_mouse_event: None,
@@ -3028,23 +3053,37 @@ impl TermWindow {
     /// Selector) are reached via the status bar buttons, the OS app menu bar,
     /// and keyboard shortcuts — never by right-click.
     fn show_context_menu(&mut self) {
+        let Some(pane) = self.get_active_pane_or_overlay() else {
+            return;
+        };
+        self.right_click_copy_or_paste(&pane);
+    }
+
+    /// Run the right-click action against the pane that was actually clicked.
+    /// This matters for split layouts: the active-pane snapshot can lag the
+    /// mouse press, which previously made copy/paste appear to do nothing (or
+    /// act on the neighboring split).
+    pub(crate) fn right_click_copy_or_paste(&mut self, pane: &Arc<dyn Pane>) {
         use config::keyassignment::{
             ClipboardCopyDestination, ClipboardPasteSource, KeyAssignment,
         };
+        let has_selection = !self.selection_text(pane).is_empty();
 
-        let pane = match self.get_active_pane_or_overlay() {
-            Some(pane) => pane,
-            None => return,
+        let action = right_click_action(has_selection);
+        let assignment = match action {
+            RightClickAction::CopySelection => {
+                KeyAssignment::CopyTo(ClipboardCopyDestination::Clipboard)
+            }
+            RightClickAction::PasteClipboard => {
+                KeyAssignment::PasteFrom(ClipboardPasteSource::Clipboard)
+            }
         };
-        let has_selection = !self.selection_text(&pane).is_empty();
-
-        let assignment = if has_selection {
-            KeyAssignment::CopyTo(ClipboardCopyDestination::Clipboard)
-        } else {
-            KeyAssignment::PasteFrom(ClipboardPasteSource::Clipboard)
-        };
-        if let Err(err) = self.perform_key_assignment(&pane, &assignment) {
-            log::warn!("right-click quick-action failed: {err:#}");
+        match self.perform_key_assignment(pane, &assignment) {
+            Ok(_) => self.show_ui_notice(crate::i18n::t(match action {
+                RightClickAction::CopySelection => "interaction.copied",
+                RightClickAction::PasteClipboard => "interaction.pasted",
+            })),
+            Err(err) => log::warn!("right-click quick-action failed: {err:#}"),
         }
         if has_selection {
             // Clear the selection so the user gets a clean prompt back.
@@ -4056,7 +4095,7 @@ impl TermWindow {
         promise::spawn::spawn(future).detach();
     }
 
-    fn show_tab_navigator(&mut self) {
+    pub(crate) fn show_tab_navigator(&mut self) {
         let mux = Mux::get();
         let active_tab_idx = match mux.get_window(self.mux_window_id) {
             Some(mux_window) => mux_window.get_active_idx(),
@@ -4065,9 +4104,11 @@ impl TermWindow {
         let title = "Tab Navigator".to_string();
         let args = LauncherActionArgs {
             title: Some(title),
-            flags: LauncherFlags::TABS,
-            help_text: None,
-            fuzzy_help_text: None,
+            flags: LauncherFlags::TABS | LauncherFlags::FUZZY,
+            help_text: Some(
+                "Type a project, path, agent or command · Enter=switch · Esc=cancel".to_string(),
+            ),
+            fuzzy_help_text: Some("Find window: ".to_string()),
             alphabet: None,
         };
         self.show_launcher_impl(args, active_tab_idx);
@@ -4484,7 +4525,7 @@ impl TermWindow {
             ToggleTreeSidebar => self.toggle_tree_sidebar(),
             ToggleGitPanel => self.toggle_git_panel(),
             ToggleLeftTabBar => self.toggle_left_tab_bar(),
-            ShowContextMenu => self.show_context_menu(),
+            ShowContextMenu => self.right_click_copy_or_paste(pane),
             ToggleSessionRecording => self.toggle_session_recording(pane.pane_id()),
             ExportSessionMarkdown => self.export_current_session(pane.pane_id()),
             CaptureScrollbackPng => mouseevent::capture_scrollback_and_announce(pane),
@@ -5482,5 +5523,16 @@ impl Drop for TermWindow {
                 fe.forget_known_window(&window);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod interaction_contract_tests {
+    use super::{right_click_action, RightClickAction};
+
+    #[test]
+    fn right_click_copies_only_when_a_selection_exists() {
+        assert_eq!(right_click_action(true), RightClickAction::CopySelection);
+        assert_eq!(right_click_action(false), RightClickAction::PasteClipboard);
     }
 }

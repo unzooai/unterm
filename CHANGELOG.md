@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+### Added — Fleet verification loop
+
+- **Automatic verification per Fleet member.** Review can infer and run conventional validation commands for Cargo, Go, npm/pnpm/yarn, Python/uv, Maven, Gradle and .NET projects, or run an explicit command. Results persist locally with status, exit code, duration and a bounded log; timeouts terminate the full process tree.
+- **Candidate scoring and ranking.** Review ranks Fleet members using verification status and change size, while showing changed files, line churn, untracked files, commits ahead, elapsed time and worktree health. Git sampling runs off-thread behind a short cache and never blocks the page.
+- **Safe member retry.** Failed members can restart in their existing isolated worktree without losing committed, staged, unstaged or untracked changes. Attempts and launch errors are persisted with backward-compatible Fleet data.
+- **Verification-gated merge.** A normal squash merge requires the member's latest verification to pass. MCP/CLI can explicitly use `force` to override the gate; the override and verification record are included in the audit response.
+- **Web, MCP and CLI parity.** Added `review.verify`, `fleet.retry`, `unterm-cli review verify`, and `unterm-cli fleet retry`, plus Review controls for validation, logs, retry, rank and score.
+- **Fast project and window navigation.** The left sidebar now groups tabs by a stable repository root, disambiguates equal project names with their parent directory, and exposes an always-visible fuzzy search. Results include tab number, Agent or foreground command, full project path and split count.
+
+### Fixed
+
+- **Windows checkpoint diffs include untracked files correctly.** The platform now passes exactly one null device when generating synthetic patches. Rollback verifies the restored Git tree, and merge responses include commit and staged-file audit data.
+- **Right-click copy and paste target the clicked pane again.** Split-pane clicks no longer re-resolve to a stale active pane, and Windows clipboard reads once again start on the event-loop thread instead of silently failing on a worker.
+
 ## v0.56.0 — 2026-07-21
 
 ### Changed

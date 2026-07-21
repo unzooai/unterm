@@ -247,5 +247,11 @@
   "web.review.rollback_confirm": "{repo} को checkpoint {sha} पर लौटाएँ? इसके बाद के सभी बदलाव मिट जाएँगे।",
   "web.review.clean": "साफ़ करें",
   "web.review.compare": "तुलना",
-  "web.review.compare_hint": "तुलना मोड: बाईं ओर दो सदस्य चुनें, उनके diff साथ-साथ दिखेंगे।"
+  "web.review.compare_hint": "तुलना मोड: बाईं ओर दो सदस्य चुनें, उनके diff साथ-साथ दिखेंगे।",
+  "web.review.running": "चल रहे", "web.review.needs_you": "आपकी ज़रूरत", "web.review.to_review": "समीक्षा बाकी",
+  "web.review.checkpoints": "चेकपॉइंट", "web.review.refresh": "रीफ़्रेश",
+  "web.review.isolated_worktree": "अलग worktree", "web.review.squash_staged": "squash merge → staged", "web.review.local_checkpoint": "लोकल चेकपॉइंट",
+  "web.review.verify": "सत्यापन चलाएँ", "web.review.retry": "फिर से चलाएँ", "web.review.verifying": "शुरू हो रहा है…",
+  "web.review.verify_passed": "सफल", "web.review.verify_failed": "विफल", "web.review.verify_running": "सत्यापन जारी", "web.review.verify_queued": "कतार में", "web.review.verify_timeout": "समय समाप्त", "web.review.verify_error": "त्रुटि", "web.review.verify_not_run": "सत्यापित नहीं",
+  "web.review.verify_command_prompt": "सत्यापन कमांड", "web.review.exit_code": "एग्ज़िट कोड", "web.review.score": "स्कोर", "web.review.rank": "उम्मीदवार रैंक", "web.review.retry_agent": "Agent फिर चलाएँ"
 }

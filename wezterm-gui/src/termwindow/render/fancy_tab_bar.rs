@@ -52,17 +52,70 @@ const PLUS_BUTTON: &[Poly] = &[
     },
 ];
 
+// Optical 16px master of Command Loop for the integrated title bar. The U
+// identifies Unterm while its open edge resolves into a terminal prompt. The
+// two-stroke silhouette survives light/dark chrome and tiny display scales.
+const COMMAND_LOOP_MARK: &[Poly] = &[
+    Poly {
+        path: &[
+            PolyCommand::MoveTo(BlockCoord::Frac(1, 5), BlockCoord::Frac(1, 10)),
+            PolyCommand::LineTo(BlockCoord::Frac(1, 5), BlockCoord::Frac(3, 5)),
+            PolyCommand::LineTo(BlockCoord::Frac(1, 4), BlockCoord::Frac(7, 10)),
+            PolyCommand::LineTo(BlockCoord::Frac(2, 5), BlockCoord::Frac(4, 5)),
+            PolyCommand::LineTo(BlockCoord::Frac(11, 20), BlockCoord::Frac(4, 5)),
+            PolyCommand::LineTo(BlockCoord::Frac(7, 10), BlockCoord::Frac(7, 10)),
+            PolyCommand::LineTo(BlockCoord::Frac(3, 4), BlockCoord::Frac(3, 5)),
+        ],
+        intensity: BlockAlpha::Full,
+        style: PolyStyle::Outline,
+    },
+    Poly {
+        path: &[
+            PolyCommand::MoveTo(BlockCoord::Frac(27, 40), BlockCoord::Frac(17, 40)),
+            PolyCommand::LineTo(BlockCoord::Frac(4, 5), BlockCoord::Frac(11, 20)),
+            PolyCommand::LineTo(BlockCoord::Frac(27, 40), BlockCoord::Frac(27, 40)),
+        ],
+        intensity: BlockAlpha::Full,
+        style: PolyStyle::Outline,
+    },
+];
+
 /// Vertical geometry of the chrome-row buttons (quick actions / menu).
 /// `tab_bar_pixel_height_impl` derives the reserved chrome height from
 /// these same constants — if the buttons grow, the reserved height grows
 /// with them instead of the first terminal row disappearing under the bar.
-pub(crate) const QUICK_BTN_VMARGIN_CELLS: f32 = 0.22;
-pub(crate) const QUICK_BTN_VPAD_CELLS: f32 = 0.28;
+pub(crate) const QUICK_BTN_VMARGIN_CELLS: f32 = 0.18;
+pub(crate) const QUICK_BTN_VPAD_CELLS: f32 = 0.22;
+pub(crate) const QUICK_BTN_GAP_CELLS: f32 = 0.24;
+pub(crate) const QUICK_BTN_HPAD_CELLS: f32 = 0.44;
 pub(crate) const QUICK_BTN_BORDER_PX: f32 = 1.0;
 /// The 1 px `chrome_bottom_divider` drawn as the chrome element's bottom
 /// border. Part of the painted chrome height, so part of the reserved
 /// height too.
 pub(crate) const CHROME_BOTTOM_DIVIDER_PX: f32 = 1.0;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TopBarDensity {
+    show_split: bool,
+    show_navigation: bool,
+    show_labels: bool,
+}
+
+fn top_bar_density(logical_width: f32) -> TopBarDensity {
+    TopBarDensity {
+        show_split: logical_width >= 600.,
+        show_navigation: logical_width >= 760.,
+        show_labels: logical_width >= 1200.,
+    }
+}
+
+fn quick_action_text(glyph: &str, label: &str, show_label: bool) -> String {
+    if show_label {
+        format!("{glyph}  {label}")
+    } else {
+        glyph.to_string()
+    }
+}
 
 impl crate::TermWindow {
     pub fn invalidate_fancy_tab_bar(&mut self) {
@@ -109,8 +162,8 @@ impl crate::TermWindow {
         // whole chrome (top + left sidebar + bottom) forms one continuous frame
         // and the sidebar↔top-bar corner meets seamlessly, with the darker pane
         // content inset inside it.
-        let chrome_surface =
-            crate::termwindow::chrome_colors::sidebar(scheme_bg, scheme_fg).surface;
+        let chrome = crate::termwindow::chrome_colors::sidebar(scheme_bg, scheme_fg);
+        let chrome_surface = chrome.surface;
         let bar_bg = if self.focused.is_some() {
             if self.config.window_frame.active_bg_is_default() {
                 chrome_surface
@@ -133,16 +186,10 @@ impl crate::TermWindow {
         } else {
             self.config.window_frame.inactive_titlebar_fg.to_linear()
         };
-        // 1 px bottom divider so the chrome / sidebar / pane seam is
-        // visible — without it, the chrome bg and the sidebar bg
-        // resolve to similar greys and the entire left column reads as
-        // one continuous panel (user's recurring "sidebar 压住顶栏"
-        // complaint). 0.4 alpha was chosen after a 0.12 trial in v0.44.3
-        // — that line was visible in code but invisible on screen.
-        // Scheme A: the chrome (top bar + sidebar + bottom) is now one tone, so
-        // the old 0.4-alpha bottom line just cut across the unified frame. Drop
-        // it — the chrome↔content tone contrast already defines the edge.
-        let chrome_bottom_divider = window::color::LinearRgba::TRANSPARENT;
+        // A restrained 1px optical edge closes the shared chrome frame around
+        // the pane. It uses the same token as the sidebar and status bar, so
+        // the three seams meet cleanly instead of forming unrelated hard lines.
+        let chrome_bottom_divider = chrome.outer_edge;
         let bar_colors = ElementColors {
             border: BorderColor {
                 left: window::color::LinearRgba::TRANSPARENT,
@@ -210,14 +257,14 @@ impl crate::TermWindow {
                 .vertical_align(VerticalAlign::Middle)
                 .item_type(UIItemType::TabBar(item.item.clone()))
                 .margin(BoxDimension {
-                    left: Dimension::Cells(0.5),
+                    left: Dimension::Cells(QUICK_BTN_GAP_CELLS),
                     right: Dimension::Cells(0.),
                     top: Dimension::Cells(0.),
                     bottom: Dimension::Cells(0.),
                 })
                 .padding(BoxDimension {
-                    left: Dimension::Cells(0.5),
-                    right: Dimension::Cells(0.5),
+                    left: Dimension::Cells(QUICK_BTN_HPAD_CELLS),
+                    right: Dimension::Cells(QUICK_BTN_HPAD_CELLS),
                     top: Dimension::Cells(0.35),
                     bottom: Dimension::Cells(0.35),
                 })
@@ -363,6 +410,7 @@ impl crate::TermWindow {
                     &font,
                     &metrics,
                     &self.config,
+                    bar_bg,
                 ),
             }
         };
@@ -416,14 +464,14 @@ impl crate::TermWindow {
                 // same height and inset from the bar edges (vertical breathing
                 // room) instead of filling the chrome top-to-bottom.
                 .margin(BoxDimension {
-                    left: Dimension::Cells(0.5),
+                    left: Dimension::Cells(QUICK_BTN_GAP_CELLS),
                     right: Dimension::Cells(0.),
                     top: Dimension::Cells(QUICK_BTN_VMARGIN_CELLS),
                     bottom: Dimension::Cells(QUICK_BTN_VMARGIN_CELLS),
                 })
                 .padding(BoxDimension {
-                    left: Dimension::Cells(0.5),
-                    right: Dimension::Cells(0.5),
+                    left: Dimension::Cells(QUICK_BTN_HPAD_CELLS),
+                    right: Dimension::Cells(QUICK_BTN_HPAD_CELLS),
                     top: Dimension::Cells(QUICK_BTN_VPAD_CELLS),
                     bottom: Dimension::Cells(QUICK_BTN_VPAD_CELLS),
                 })
@@ -449,9 +497,11 @@ impl crate::TermWindow {
         // SymbolsNerdFontMono — CoreText/FreeType does the AA on the
         // vector outline, so we get Warp-grade crispness instead of the
         // jaggy geometric polylines we shipped before.
-        let quick_button = |glyph: &'static str, action: crate::termwindow::QuickAction| {
+        let quick_button = |text: String, action: crate::termwindow::QuickAction| {
             let new_tab_hover = colors.new_tab_hover();
-            Element::new(&font, ElementContent::Text(glyph.to_string()))
+            let active = action == crate::termwindow::QuickAction::TreeSidebar
+                && self.tree_sidebar.borrow().is_some();
+            Element::new(&font, ElementContent::Text(text))
                 .vertical_align(VerticalAlign::Middle)
                 .item_type(UIItemType::QuickAction(action))
                 // Margin doubled (0.25 → 0.5 cells) so icons breathe instead
@@ -461,35 +511,58 @@ impl crate::TermWindow {
                 // no longer fills the chrome top-to-bottom; padding shrinks to
                 // keep the glyph the same size while opening up the gap.
                 .margin(BoxDimension {
-                    left: Dimension::Cells(0.5),
+                    left: Dimension::Cells(QUICK_BTN_GAP_CELLS),
                     right: Dimension::Cells(0.),
                     top: Dimension::Cells(QUICK_BTN_VMARGIN_CELLS),
                     bottom: Dimension::Cells(QUICK_BTN_VMARGIN_CELLS),
                 })
                 .padding(BoxDimension {
-                    left: Dimension::Cells(0.5),
-                    right: Dimension::Cells(0.5),
+                    left: Dimension::Cells(QUICK_BTN_HPAD_CELLS),
+                    right: Dimension::Cells(QUICK_BTN_HPAD_CELLS),
                     top: Dimension::Cells(QUICK_BTN_VPAD_CELLS),
                     bottom: Dimension::Cells(QUICK_BTN_VPAD_CELLS),
                 })
                 .border(BoxDimension::new(Dimension::Pixels(QUICK_BTN_BORDER_PX)))
                 .colors(ElementColors {
-                    border: BorderColor::default(),
+                    border: if active {
+                        BorderColor::new(chrome.selected_outline)
+                    } else {
+                        BorderColor::default()
+                    },
                     // Frameless idle (transparent) so the row stays clean on
                     // both light and dark chrome, but a clearly brighter icon
                     // colour than the muted new-tab grey so the buttons are
                     // legible. Hover fills a solid chip for feedback.
-                    bg: window::color::LinearRgba::TRANSPARENT.into(),
-                    text: colors.inactive_tab().fg_color.to_linear().into(),
+                    bg: if active {
+                        chrome.selected_bg.into()
+                    } else {
+                        window::color::LinearRgba::TRANSPARENT.into()
+                    },
+                    text: if active {
+                        chrome.focus_rail.into()
+                    } else {
+                        colors.inactive_tab().fg_color.to_linear().into()
+                    },
                 })
                 .hover_colors(Some(ElementColors {
-                    border: BorderColor::default(),
+                    border: if active {
+                        BorderColor::new(chrome.selected_outline)
+                    } else {
+                        BorderColor::default()
+                    },
                     bg: new_tab_hover.bg_color.to_linear().into(),
-                    text: new_tab_hover.fg_color.to_linear().into(),
+                    text: if active {
+                        chrome.focus_rail.into()
+                    } else {
+                        new_tab_hover.fg_color.to_linear().into()
+                    },
                 }))
         };
         {
             use crate::termwindow::QuickAction as QA;
+            let logical_width =
+                self.dimensions.pixel_width as f32 * 96. / self.dimensions.dpi.max(1) as f32;
+            let density = top_bar_density(logical_width);
             // Per-pane stats text rides on the same row as the quick
             // actions — vertically centered with the icons, sitting
             // just to the left of the action cluster. Rendering it
@@ -501,9 +574,11 @@ impl crate::TermWindow {
                 // Palette-derived accent so the stats text picks up the
                 // scheme's bright-cyan slot instead of a hardcoded
                 // #6fccb8 (which clashed with warm-toned light themes).
-                let stats_teal = palette
-                    .resolve_fg(ColorAttribute::PaletteIndex(14))
-                    .to_linear();
+                let stats_teal = crate::termwindow::chrome_colors::mix(
+                    bar_fg,
+                    chrome.focus_rail,
+                    if chrome.is_light { 0.55 } else { 0.45 },
+                );
                 // Render in the terminal font (JetBrains Mono) instead
                 // of the chrome title font (SF Pro on macOS). The stats
                 // string mixes letters, digits, Powerline icons and
@@ -552,9 +627,13 @@ impl crate::TermWindow {
                     }
                     let accent = if waiting > 0 {
                         // Palette bright-yellow slot: "an agent needs you".
-                        palette.resolve_fg(ColorAttribute::PaletteIndex(11)).to_linear()
+                        palette
+                            .resolve_fg(ColorAttribute::PaletteIndex(11))
+                            .to_linear()
                     } else {
-                        palette.resolve_fg(ColorAttribute::PaletteIndex(14)).to_linear()
+                        palette
+                            .resolve_fg(ColorAttribute::PaletteIndex(14))
+                            .to_linear()
                     };
                     let chip_font = font.clone();
                     let new_tab_hover = colors.new_tab_hover();
@@ -563,14 +642,14 @@ impl crate::TermWindow {
                             .vertical_align(VerticalAlign::Middle)
                             .item_type(UIItemType::QuickAction(QA::Inbox))
                             .margin(BoxDimension {
-                                left: Dimension::Cells(0.5),
+                                left: Dimension::Cells(QUICK_BTN_GAP_CELLS),
                                 right: Dimension::Cells(0.),
                                 top: Dimension::Cells(QUICK_BTN_VMARGIN_CELLS),
                                 bottom: Dimension::Cells(QUICK_BTN_VMARGIN_CELLS),
                             })
                             .padding(BoxDimension {
-                                left: Dimension::Cells(0.5),
-                                right: Dimension::Cells(0.5),
+                                left: Dimension::Cells(QUICK_BTN_HPAD_CELLS),
+                                right: Dimension::Cells(QUICK_BTN_HPAD_CELLS),
                                 top: Dimension::Cells(QUICK_BTN_VPAD_CELLS),
                                 bottom: Dimension::Cells(QUICK_BTN_VPAD_CELLS),
                             })
@@ -591,15 +670,36 @@ impl crate::TermWindow {
             // Codicons — VS Code's single-weight icon family. Same visual
             // language as Warp's SF Symbols, but bundled cross-platform via
             // SymbolsNerdFontMono so Win/Linux look identical.
-            right_eles.push(quick_button("\u{eb6a}", QA::CommandPalette)); // cod_three_bars
-            right_eles.push(quick_button("\u{ebf3}", QA::TreeSidebar)); // cod_layout_sidebar_left
-            right_eles.push(quick_button("\u{eb56}", QA::SplitRight)); // cod_split_horizontal
-            right_eles.push(quick_button("\u{ea83}", QA::DirJump)); // cod_folder
-            right_eles.push(quick_button("\u{ea6d}", QA::Search)); // cod_search
-            right_eles.push(quick_button("\u{eb51}", QA::Settings)); // cod_settings_gear
-                                                                     // The ▾ menu sits at the far right after the quick actions —
-                                                                     // the design doc's "右侧一排动作 + 一个菜单". The menu still
-                                                                     // routes through TabBarItem::MenuButton → show_settings_menu.
+            right_eles.push(quick_button(
+                quick_action_text(
+                    "\u{eb6a}",
+                    &crate::i18n::t("menu.command_palette"),
+                    density.show_labels,
+                ),
+                QA::CommandPalette,
+            )); // cod_three_bars
+            right_eles.push(quick_button(
+                quick_action_text(
+                    "\u{ebf3}",
+                    &crate::i18n::t("web.nav.project"),
+                    density.show_labels,
+                ),
+                QA::TreeSidebar,
+            )); // cod_layout_sidebar_left
+            if density.show_split {
+                // cod_split_horizontal
+                right_eles.push(quick_button("\u{eb56}".to_string(), QA::SplitRight));
+            }
+            if density.show_navigation {
+                right_eles.push(quick_button("\u{ea83}".to_string(), QA::DirJump)); // cod_folder
+                // cod_search
+                right_eles.push(quick_button("\u{ea6d}".to_string(), QA::Search));
+            }
+            // cod_settings_gear
+            right_eles.push(quick_button("\u{eb51}".to_string(), QA::Settings));
+            // The ▾ menu sits at the far right after the quick actions —
+            // the design doc's "右侧一排动作 + 一个菜单". The menu still
+            // routes through TabBarItem::MenuButton → show_settings_menu.
             right_eles.push(menu_button());
         }
 
@@ -699,8 +799,9 @@ impl crate::TermWindow {
             Dimension::Cells(0.5)
         };
 
-        // Brand mark at the far left of the info (top) bar: a terminal glyph
-        // in the theme accent + the "Unterm" wordmark. Skipped on macOS (the
+        // Brand mark at the far left of the info bar: a purpose-drawn compact
+        // Command Loop glyph plus the Unterm wordmark.
+        // Skipped on macOS (the
         // traffic lights own that corner) and whenever window buttons are
         // left-aligned, so the mark never collides with them.
         #[cfg(not(target_os = "macos"))]
@@ -711,18 +812,32 @@ impl crate::TermWindow {
             // near-invisible on the dark bar. bar_fg is the bar's own text
             // color and always contrasts with bar_bg.
             let brand_fg = bar_fg;
-            let brand_accent = palette
-                .resolve_fg(ColorAttribute::PaletteIndex(14))
-                .to_linear();
+            let brand_accent = chrome.focus_rail;
             let brand_kids = vec![
-                Element::new(&font, ElementContent::Text("\u{ea85}".to_string()))
-                    .vertical_align(VerticalAlign::Middle)
-                    .colors(ElementColors {
-                        border: BorderColor::default(),
-                        bg: window::color::LinearRgba::TRANSPARENT.into(),
-                        text: brand_accent.into(),
-                    }),
-                Element::new(&font, ElementContent::Text(" Unterm".to_string()))
+                Element::new(
+                    &font,
+                    ElementContent::Poly {
+                        line_width: metrics.underline_height.max(2),
+                        poly: SizedPoly {
+                            poly: COMMAND_LOOP_MARK,
+                            width: Dimension::Cells(0.95),
+                            height: Dimension::Cells(0.95),
+                        },
+                    },
+                )
+                .vertical_align(VerticalAlign::Middle)
+                .margin(BoxDimension {
+                    left: Dimension::Cells(0.),
+                    right: Dimension::Cells(0.42),
+                    top: Dimension::Cells(0.),
+                    bottom: Dimension::Cells(0.),
+                })
+                .colors(ElementColors {
+                    border: BorderColor::default(),
+                    bg: window::color::LinearRgba::TRANSPARENT.into(),
+                    text: brand_accent.into(),
+                }),
+                Element::new(&font, ElementContent::Text("Unterm".to_string()))
                     .vertical_align(VerticalAlign::Middle)
                     .colors(ElementColors {
                         border: BorderColor::default(),
@@ -950,7 +1065,7 @@ pub(crate) fn compose_top_stats_text(win: &crate::TermWindow) -> String {
         CACHE.get_or_init(|| Mutex::new(CachedTopStatsText::default()))
     }
 
-    let width = win.dimensions.pixel_width as f32;
+    let width = win.dimensions.pixel_width as f32 * 96. / win.dimensions.dpi.max(1) as f32;
     if width < 900.0 {
         return String::new();
     }
@@ -1028,5 +1143,32 @@ fn compute_top_stats_text(active: Option<std::sync::Arc<dyn mux::pane::Pane>>) -
         String::new()
     } else {
         segments.join("    ")
+    }
+}
+
+#[cfg(test)]
+mod density_tests {
+    use super::{quick_action_text, top_bar_density};
+
+    #[test]
+    fn top_bar_removes_secondary_actions_before_essential_controls() {
+        let narrow = top_bar_density(520.);
+        assert!(!narrow.show_split);
+        assert!(!narrow.show_navigation);
+        assert!(!narrow.show_labels);
+
+        let medium = top_bar_density(680.);
+        assert!(medium.show_split);
+        assert!(!medium.show_navigation);
+
+        let wide = top_bar_density(1000.);
+        assert!(wide.show_split);
+        assert!(wide.show_navigation);
+        assert!(!wide.show_labels);
+
+        let expansive = top_bar_density(1400.);
+        assert!(expansive.show_labels);
+        assert_eq!(quick_action_text("#", "Project", true), "#  Project");
+        assert_eq!(quick_action_text("#", "Project", false), "#");
     }
 }

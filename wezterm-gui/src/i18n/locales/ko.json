@@ -247,5 +247,11 @@
   "web.review.rollback_confirm": "{repo}를 체크포인트 {sha}로 롤백할까요? 이후의 변경은 모두 사라집니다.",
   "web.review.clean": "정리",
   "web.review.compare": "비교",
-  "web.review.compare_hint": "비교 모드: 왼쪽에서 멤버 두 명을 선택하면 diff가 나란히 표시됩니다."
+  "web.review.compare_hint": "비교 모드: 왼쪽에서 멤버 두 명을 선택하면 diff가 나란히 표시됩니다.",
+  "web.review.running": "실행 중", "web.review.needs_you": "확인 필요", "web.review.to_review": "검토 대기",
+  "web.review.checkpoints": "체크포인트", "web.review.refresh": "새로 고침",
+  "web.review.isolated_worktree": "격리된 워크트리", "web.review.squash_staged": "스쿼시 병합 → 스테이징", "web.review.local_checkpoint": "로컬 체크포인트",
+  "web.review.verify": "검증 실행", "web.review.retry": "다시 검증", "web.review.verifying": "시작 중…",
+  "web.review.verify_passed": "통과", "web.review.verify_failed": "실패", "web.review.verify_running": "검증 중", "web.review.verify_queued": "대기 중", "web.review.verify_timeout": "시간 초과", "web.review.verify_error": "오류", "web.review.verify_not_run": "미검증",
+  "web.review.verify_command_prompt": "검증 명령", "web.review.exit_code": "종료 코드", "web.review.score": "점수", "web.review.rank": "후보 순위", "web.review.retry_agent": "Agent 다시 실행"
 }

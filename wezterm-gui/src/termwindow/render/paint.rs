@@ -230,7 +230,8 @@ impl crate::TermWindow {
         // left tab bar — the status bar paints over its own rect afterward, so
         // the surface can reach its edge.
         let bottom = self.dimensions.pixel_height as f32 - status_h - border.bottom.get() as f32;
-        let row_h = metrics.cell_size.height as f32 + 6. * pt;
+        let row_h =
+            metrics.cell_size.height as f32 + 2. * ui_tokens::CHROME_COMPACT_ROW_PADDING_Y * pt;
         let visible_rows = (((bottom - top) / row_h).floor() as usize)
             .saturating_sub(1)
             .max(1);
@@ -308,15 +309,21 @@ impl crate::TermWindow {
             (name, rows, tree.scroll_top)
         };
 
-        let header_text = if rows_snapshot.len() > visible_rows {
-            let from = scroll_top.saturating_add(1).min(rows_snapshot.len());
-            let to = scroll_top
-                .saturating_add(visible_rows)
-                .min(rows_snapshot.len());
-            format!("▦  {root_name}  ↕ {from}-{to}/{}", rows_snapshot.len())
-        } else {
-            format!("▦  {root_name}")
-        };
+        let average_glyph_px = ui_tokens::UI_FONT_SIZE as f32 * 0.52 * pt;
+        let cols_for_pixels =
+            |pixels: f32| (pixels.max(0.) / average_glyph_px.max(1.)).floor() as usize;
+        let header_left_pad = (ui_tokens::CHROME_PANEL_INSET + 4.) * pt;
+        let header_right_pad = (ui_tokens::CHROME_PANEL_INSET + 2.) * pt;
+        let outer_edge_width = 1.;
+        let header_inner_width =
+            (width - header_left_pad - header_right_pad - outer_edge_width).max(0.);
+        let header_text = crate::termwindow::tree_sidebar::fit_tree_header_text(
+            &root_name,
+            rows_snapshot.len(),
+            visible_rows,
+            scroll_top,
+            cols_for_pixels(header_inner_width),
+        );
 
         // Header: ▦ root-name, with a compact range marker when the
         // directory has more rows than fit. This makes the wheel/scrollbar
@@ -325,21 +332,38 @@ impl crate::TermWindow {
             Element::new(&font, ElementContent::Text(header_text))
                 .item_type(UIItemType::TreeSidebarHeader)
                 .hover_colors(Some(ElementColors {
-                    border: BorderColor::default(),
+                    border: BorderColor {
+                        left: LinearRgba::TRANSPARENT,
+                        right: LinearRgba::TRANSPARENT,
+                        top: LinearRgba::TRANSPARENT,
+                        bottom: chrome.inner_highlight,
+                    },
                     bg: hover_bg.into(),
                     text: teal.into(),
                 }))
                 .display(DisplayType::Block)
-                .min_width(Some(Dimension::Percent(1.)))
+                .min_width(Some(Dimension::Pixels(header_inner_width)))
+                .max_width(Some(Dimension::Pixels(header_inner_width)))
                 .padding(BoxDimension {
-                    left: Dimension::Pixels(12. * pt),
-                    right: Dimension::Pixels(8. * pt),
-                    top: Dimension::Pixels(6. * pt),
-                    bottom: Dimension::Pixels(6. * pt),
+                    left: Dimension::Pixels(header_left_pad),
+                    right: Dimension::Pixels(header_right_pad),
+                    top: Dimension::Pixels(ui_tokens::CHROME_HEADER_PADDING_Y * pt),
+                    bottom: Dimension::Pixels(ui_tokens::CHROME_HEADER_PADDING_Y * pt),
+                })
+                .border(BoxDimension {
+                    left: Dimension::Pixels(0.),
+                    right: Dimension::Pixels(0.),
+                    top: Dimension::Pixels(0.),
+                    bottom: Dimension::Pixels(1.),
                 })
                 .colors(ElementColors {
-                    border: BorderColor::default(),
-                    bg: LinearRgba::TRANSPARENT.into(),
+                    border: BorderColor {
+                        left: LinearRgba::TRANSPARENT,
+                        right: LinearRgba::TRANSPARENT,
+                        top: LinearRgba::TRANSPARENT,
+                        bottom: chrome.inner_highlight,
+                    },
+                    bg: chrome.group_bg.into(),
                     text: teal.into(),
                 }),
         );
@@ -364,16 +388,32 @@ impl crate::TermWindow {
                 "  "
             };
             let text_color = if *is_hidden { dim } else { fg };
+            let right_pad = (ui_tokens::CHROME_PANEL_INSET + 2.) * pt;
+            let border_width = 2. * pt;
+            let desired_left =
+                (ui_tokens::CHROME_PANEL_INSET + 4.) * pt + (*depth as f32) * 11. * pt;
+            // Deeply nested directories must compress their indentation before
+            // they can push the selector beyond the reserved file sidebar.
+            let max_left = (width - right_pad - border_width - 2. * average_glyph_px).max(0.);
+            let left_pad = desired_left.min(max_left);
+            let text_width =
+                (width - left_pad - right_pad - border_width - outer_edge_width).max(0.);
+            let row_text = crate::termwindow::tree_sidebar::fit_tree_row_text(
+                glyph,
+                name,
+                cols_for_pixels(text_width),
+            );
             children.push(
-                Element::new(&font, ElementContent::Text(format!("{glyph}{name}")))
+                Element::new(&font, ElementContent::Text(row_text))
                     .item_type(UIItemType::TreeSidebarRow(i))
                     .display(DisplayType::Block)
-                    .min_width(Some(Dimension::Percent(1.)))
+                    .min_width(Some(Dimension::Pixels(text_width)))
+                    .max_width(Some(Dimension::Pixels(text_width)))
                     .padding(BoxDimension {
-                        left: Dimension::Pixels(12. * pt + (*depth as f32) * 12. * pt),
-                        right: Dimension::Pixels(6. * pt),
-                        top: Dimension::Pixels(3. * pt),
-                        bottom: Dimension::Pixels(3. * pt),
+                        left: Dimension::Pixels(left_pad),
+                        right: Dimension::Pixels(right_pad),
+                        top: Dimension::Pixels(ui_tokens::CHROME_COMPACT_ROW_PADDING_Y * pt),
+                        bottom: Dimension::Pixels(ui_tokens::CHROME_COMPACT_ROW_PADDING_Y * pt),
                     })
                     .colors(ElementColors {
                         border: BorderColor::default(),
@@ -401,11 +441,23 @@ impl crate::TermWindow {
         let container = Element::new(&font, ElementContent::Children(children))
             .item_type(UIItemType::TreeSidebarBg)
             .colors(ElementColors {
-                border: BorderColor::default(),
+                border: BorderColor {
+                    left: LinearRgba::TRANSPARENT,
+                    right: chrome.outer_edge,
+                    top: LinearRgba::TRANSPARENT,
+                    bottom: LinearRgba::TRANSPARENT,
+                },
                 bg: bg.into(),
                 text: fg.into(),
             })
-            .min_width(Some(Dimension::Pixels(width)))
+            .border(BoxDimension {
+                left: Dimension::Pixels(0.),
+                right: Dimension::Pixels(outer_edge_width),
+                top: Dimension::Pixels(0.),
+                bottom: Dimension::Pixels(0.),
+            })
+            .min_width(Some(Dimension::Pixels(width - outer_edge_width)))
+            .max_width(Some(Dimension::Pixels(width - outer_edge_width)))
             .min_height(Some(Dimension::Pixels(bottom - top)));
 
         let computed = self.compute_element(
@@ -579,7 +631,7 @@ impl crate::TermWindow {
         use crate::termwindow::{DimensionContext, UIItemType};
         use crate::utilsprites::RenderMetrics;
         use ::window::color::LinearRgba;
-        use config::Dimension;
+        use config::{ui_tokens, Dimension};
         use termwiz::cell::unicode_column_width;
 
         let width = self.git_panel_pixel_width();
@@ -618,7 +670,8 @@ impl crate::TermWindow {
             0.
         };
         let bottom = self.dimensions.pixel_height as f32 - status_h - border.bottom.get() as f32;
-        let row_h = metrics.cell_size.height as f32 + 6. * pt;
+        let row_h =
+            metrics.cell_size.height as f32 + 2. * ui_tokens::CHROME_COMPACT_ROW_PADDING_Y * pt;
         let visible_rows = (((bottom - top) / row_h).floor() as usize)
             .saturating_sub(1)
             .max(1);
@@ -643,10 +696,12 @@ impl crate::TermWindow {
         let untracked_color = dim;
 
         // Column budget for eliding long paths ("XY " prefix takes 3 cols).
-        let left_pad_px = 10. * pt;
-        let right_pad_px = 8. * pt;
+        let outer_edge_width = 1.;
+        let left_pad_px = (ui_tokens::CHROME_PANEL_INSET + 4.) * pt;
+        let right_pad_px = (ui_tokens::CHROME_PANEL_INSET + 2.) * pt;
         let cell_w = (metrics.cell_size.width as f32).max(1.0);
-        let path_cols = (((width - left_pad_px - right_pad_px) / cell_w).floor() as usize)
+        let path_cols = (((width - left_pad_px - right_pad_px - outer_edge_width) / cell_w).floor()
+            as usize)
             .saturating_sub(3)
             .max(4);
 
@@ -727,19 +782,32 @@ impl crate::TermWindow {
         }
 
         let mut children: Vec<Element> = vec![];
+        let header_inner_width = (width - 12. * pt - 8. * pt - outer_edge_width).max(0.);
         children.push(
             Element::new(&font, ElementContent::Text(header_text))
                 .display(DisplayType::Block)
-                .min_width(Some(Dimension::Percent(1.)))
+                .min_width(Some(Dimension::Pixels(header_inner_width)))
+                .max_width(Some(Dimension::Pixels(header_inner_width)))
                 .padding(BoxDimension {
                     left: Dimension::Pixels(12. * pt),
                     right: Dimension::Pixels(8. * pt),
-                    top: Dimension::Pixels(6. * pt),
-                    bottom: Dimension::Pixels(6. * pt),
+                    top: Dimension::Pixels(ui_tokens::CHROME_HEADER_PADDING_Y * pt),
+                    bottom: Dimension::Pixels(ui_tokens::CHROME_HEADER_PADDING_Y * pt),
+                })
+                .border(BoxDimension {
+                    left: Dimension::Pixels(0.),
+                    right: Dimension::Pixels(0.),
+                    top: Dimension::Pixels(0.),
+                    bottom: Dimension::Pixels(1.),
                 })
                 .colors(ElementColors {
-                    border: BorderColor::default(),
-                    bg: LinearRgba::TRANSPARENT.into(),
+                    border: BorderColor {
+                        left: LinearRgba::TRANSPARENT,
+                        right: LinearRgba::TRANSPARENT,
+                        top: LinearRgba::TRANSPARENT,
+                        bottom: chrome.inner_highlight,
+                    },
+                    bg: chrome.group_bg.into(),
                     text: teal.into(),
                 }),
         );
@@ -748,12 +816,17 @@ impl crate::TermWindow {
             children.push(
                 Element::new(&font, ElementContent::Text(text))
                     .display(DisplayType::Block)
-                    .min_width(Some(Dimension::Percent(1.)))
+                    .min_width(Some(Dimension::Pixels(
+                        width - left_pad_px - right_pad_px - outer_edge_width,
+                    )))
+                    .max_width(Some(Dimension::Pixels(
+                        width - left_pad_px - right_pad_px - outer_edge_width,
+                    )))
                     .padding(BoxDimension {
                         left: Dimension::Pixels(left_pad_px),
                         right: Dimension::Pixels(right_pad_px),
-                        top: Dimension::Pixels(3. * pt),
-                        bottom: Dimension::Pixels(3. * pt),
+                        top: Dimension::Pixels(ui_tokens::CHROME_COMPACT_ROW_PADDING_Y * pt),
+                        bottom: Dimension::Pixels(ui_tokens::CHROME_COMPACT_ROW_PADDING_Y * pt),
                     })
                     .colors(ElementColors {
                         border: BorderColor::default(),
@@ -766,11 +839,23 @@ impl crate::TermWindow {
         let container = Element::new(&font, ElementContent::Children(children))
             .item_type(UIItemType::GitPanelBg)
             .colors(ElementColors {
-                border: BorderColor::default(),
+                border: BorderColor {
+                    left: chrome.outer_edge,
+                    right: LinearRgba::TRANSPARENT,
+                    top: LinearRgba::TRANSPARENT,
+                    bottom: LinearRgba::TRANSPARENT,
+                },
                 bg: bg.into(),
                 text: fg.into(),
             })
-            .min_width(Some(Dimension::Pixels(width)))
+            .border(BoxDimension {
+                left: Dimension::Pixels(outer_edge_width),
+                right: Dimension::Pixels(0.),
+                top: Dimension::Pixels(0.),
+                bottom: Dimension::Pixels(0.),
+            })
+            .min_width(Some(Dimension::Pixels(width - outer_edge_width)))
+            .max_width(Some(Dimension::Pixels(width - outer_edge_width)))
             .min_height(Some(Dimension::Pixels(bottom - top)));
 
         let panel_left = self.dimensions.pixel_width as f32 - border.right.get() as f32 - width;

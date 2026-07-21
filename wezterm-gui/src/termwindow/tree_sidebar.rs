@@ -25,6 +25,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
+use termwiz::cell::unicode_column_width;
 
 pub struct TreeRow {
     pub path: PathBuf,
@@ -72,6 +73,40 @@ pub struct TreeSidebar {
 
 const RESCAN_AFTER_MS: u128 = 2500;
 const MAX_ENTRIES_PER_DIR: usize = 500;
+
+pub(crate) fn fit_tree_header_text(
+    root_name: &str,
+    row_count: usize,
+    visible_rows: usize,
+    scroll_top: usize,
+    max_cols: usize,
+) -> String {
+    let prefix = "▦  ";
+    let suffix = if row_count > visible_rows {
+        let from = scroll_top.saturating_add(1).min(row_count);
+        let to = scroll_top.saturating_add(visible_rows).min(row_count);
+        format!("  ↕ {from}-{to}/{row_count}")
+    } else {
+        String::new()
+    };
+    let fixed_cols = unicode_column_width(prefix, None) + unicode_column_width(&suffix, None);
+    let root = crate::termwindow::sidebar_text::ellipsize_middle(
+        root_name,
+        max_cols.saturating_sub(fixed_cols),
+    );
+    let text = format!("{prefix}{root}{suffix}");
+    crate::termwindow::sidebar_text::ellipsize_middle(&text, max_cols)
+}
+
+pub(crate) fn fit_tree_row_text(glyph: &str, name: &str, max_cols: usize) -> String {
+    let glyph_cols = unicode_column_width(glyph, None);
+    let name = crate::termwindow::sidebar_text::ellipsize_middle(
+        name,
+        max_cols.saturating_sub(glyph_cols),
+    );
+    let text = format!("{glyph}{name}");
+    crate::termwindow::sidebar_text::ellipsize_middle(&text, max_cols)
+}
 
 fn list_dir(path: &Path) -> Vec<(PathBuf, bool)> {
     let mut out: Vec<(PathBuf, bool)> = std::fs::read_dir(path)
@@ -213,6 +248,45 @@ impl TreeSidebar {
     // Tree construction lives in the free functions `build_rows` /
     // `walk_into` below so a background thread (which has no `&self`) can
     // run the identical scan.
+}
+
+#[cfg(test)]
+mod layout_tests {
+    use super::{fit_tree_header_text, fit_tree_row_text};
+    use termwiz::cell::unicode_column_width;
+
+    #[test]
+    fn long_selected_folder_stays_inside_header_budget() {
+        let text = fit_tree_header_text(
+            "workspace/特别长的文件夹名称-with-a-specific-tail",
+            240,
+            18,
+            80,
+            24,
+        );
+        assert!(unicode_column_width(&text, None) <= 24, "{}", text);
+        assert!(text.contains('…'));
+    }
+
+    #[test]
+    fn deeply_nested_row_stays_inside_remaining_budget() {
+        let text = fit_tree_row_text("▾ ", "a-very-long-nested-folder-name", 12);
+        assert!(unicode_column_width(&text, None) <= 12, "{}", text);
+        assert!(text.starts_with("▾ "));
+    }
+
+    #[test]
+    fn tiny_file_sidebar_budget_never_overflows() {
+        for budget in 0..5 {
+            let text = fit_tree_header_text("long-folder", 1, 8, 0, budget);
+            assert!(
+                unicode_column_width(&text, None) <= budget,
+                "{}: {}",
+                budget,
+                text
+            );
+        }
+    }
 }
 
 /// Build the full row list for a tree rooted at `root` with the given set

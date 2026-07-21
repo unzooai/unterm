@@ -87,6 +87,13 @@
   "profile.toast.opening_window": "Opening new window in {name}",
   "profile.toast.registry_load_failed": "Couldn't load profile registry. Try `unterm-cli profile list`.",
   "profile.toast.spawn_failed": "Spawn failed: {err}",
+  "interaction.copied": "Selection copied",
+  "interaction.pasted": "Pasting clipboard",
+  "interaction.files_open": "Project files opened",
+  "interaction.files_closed": "Project files closed",
+  "interaction.split": "Split opened on the right",
+  "onboarding.title": "Unterm is ready",
+  "onboarding.body": "Ctrl+Shift+P opens every command. AI agents can drive this window securely through MCP.",
   "project.current": "Current project: {path}",
   "project.prompt_new_tab": "Select a folder to spawn a new tab.",
   "project.prompt_picker": "Select a project directory to open in a new tab.",
@@ -508,5 +515,11 @@
   "web.review.rollback_confirm": "Roll back {repo} to checkpoint {sha}? Everything newer in the worktree will be discarded.",
   "web.review.clean": "clean",
   "web.review.compare": "compare",
-  "web.review.compare_hint": "Compare mode: pick two members on the left to see their diffs side by side."
+  "web.review.compare_hint": "Compare mode: pick two members on the left to see their diffs side by side.",
+  "web.review.running": "running", "web.review.needs_you": "needs you", "web.review.to_review": "to review",
+  "web.review.checkpoints": "checkpoints", "web.review.refresh": "Refresh",
+  "web.review.isolated_worktree": "isolated worktree", "web.review.squash_staged": "squash merge → staged", "web.review.local_checkpoint": "local checkpoint",
+  "web.review.verify": "Run verification", "web.review.retry": "Run again", "web.review.verifying": "Starting…",
+  "web.review.verify_passed": "passed", "web.review.verify_failed": "failed", "web.review.verify_running": "verifying", "web.review.verify_queued": "queued", "web.review.verify_timeout": "timed out", "web.review.verify_error": "error", "web.review.verify_not_run": "not verified",
+  "web.review.verify_command_prompt": "Verification command", "web.review.exit_code": "exit", "web.review.score": "score", "web.review.rank": "Candidate rank", "web.review.retry_agent": "Rerun agent"
 }

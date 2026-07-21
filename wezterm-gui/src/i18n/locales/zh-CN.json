@@ -87,6 +87,13 @@
   "profile.toast.opening_window": "打开新窗口（profile: {name}）",
   "profile.toast.registry_load_failed": "无法加载 profile 注册表。试试 `unterm-cli profile list`。",
   "profile.toast.spawn_failed": "启动失败:{err}",
+  "interaction.copied": "已复制所选内容",
+  "interaction.pasted": "正在粘贴剪贴板内容",
+  "interaction.files_open": "已打开项目文件",
+  "interaction.files_closed": "已收起项目文件",
+  "interaction.split": "已在右侧创建分栏",
+  "onboarding.title": "Unterm 已准备就绪",
+  "onboarding.body": "按 Ctrl+Shift+P 查看全部命令；AI Agent 可通过 MCP 安全操作此窗口。",
   "project.current": "当前项目:{path}",
   "project.prompt_new_tab": "选择一个文件夹,在新标签页中打开。",
   "project.prompt_picker": "选择一个项目目录,在新标签页中打开。",
@@ -508,5 +515,11 @@
   "web.review.rollback_confirm": "将 {repo} 回滚到 checkpoint {sha}？工作区里更新的内容会被丢弃。",
   "web.review.clean": "清理",
   "web.review.compare": "对比",
-  "web.review.compare_hint": "对比模式：在左侧选择两个成员，并排查看各自的 diff。"
+  "web.review.compare_hint": "对比模式：在左侧选择两个成员，并排查看各自的 diff。",
+  "web.review.running": "运行中", "web.review.needs_you": "需要你", "web.review.to_review": "待审阅",
+  "web.review.checkpoints": "检查点", "web.review.refresh": "刷新",
+  "web.review.isolated_worktree": "隔离工作树", "web.review.squash_staged": "压缩合并 → 暂存区", "web.review.local_checkpoint": "本地检查点",
+  "web.review.verify": "运行验收", "web.review.retry": "重新验收", "web.review.verifying": "正在启动…",
+  "web.review.verify_passed": "已通过", "web.review.verify_failed": "未通过", "web.review.verify_running": "验收中", "web.review.verify_queued": "排队中", "web.review.verify_timeout": "已超时", "web.review.verify_error": "异常", "web.review.verify_not_run": "未验收",
+  "web.review.verify_command_prompt": "输入验收命令", "web.review.exit_code": "退出码", "web.review.score": "评分", "web.review.rank": "候选排名", "web.review.retry_agent": "重跑 Agent"
 }

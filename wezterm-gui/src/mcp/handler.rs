@@ -30,6 +30,23 @@ struct AuditEntry {
     agent: String,
 }
 
+fn audit_event_was_allowed(method: &str) -> bool {
+    !matches!(method, "mcp.confirm.block" | "mcp.confirm.timeout")
+}
+
+#[cfg(test)]
+mod audit_entry_tests {
+    use super::audit_event_was_allowed;
+
+    #[test]
+    fn denied_and_expired_confirmations_are_not_marked_allowed() {
+        assert!(!audit_event_was_allowed("mcp.confirm.block"));
+        assert!(!audit_event_was_allowed("mcp.confirm.timeout"));
+        assert!(audit_event_was_allowed("mcp.confirm.allow"));
+        assert!(audit_event_was_allowed("session.input"));
+    }
+}
+
 std::thread_local! {
     /// Connection ID of the request currently being handled on this
     /// thread. `handle()` writes this on entry and clears it on exit
@@ -724,6 +741,11 @@ struct PaneAgentCwd {
     /// costs nothing extra and is refreshed on the same worker thread.
     foreground: Option<String>,
     cwd: Option<String>,
+    /// Full cwd used to disambiguate projects that share the same basename.
+    cwd_path: Option<String>,
+    /// Stable repository/workspace root derived off the render thread.
+    project: Option<String>,
+    project_path: Option<String>,
 }
 
 /// Executable base names we treat as "the shell itself" — when the pane's
@@ -814,11 +836,45 @@ pub fn agent_and_cwd_for_pane(pane_id: u64) -> (Option<String>, Option<String>) 
 /// want to show the running command as the primary label (the left tab bar).
 /// Same caching contract as `agent_and_cwd_for_pane`: instant cached read,
 /// off-thread refresh, never touches the process table on the caller thread.
-pub fn agent_fg_cwd_for_pane(
-    pane_id: u64,
-) -> (Option<String>, Option<String>, Option<String>) {
+pub fn agent_fg_cwd_for_pane(pane_id: u64) -> (Option<String>, Option<String>, Option<String>) {
     let v = agent_fg_cwd_for_pane_inner(pane_id);
     (v.agent, v.foreground, v.cwd)
+}
+
+/// Non-blocking sidebar metadata including the full cwd.  The shorter helper
+/// above is kept for existing status surfaces that only have room for a
+/// basename.
+pub fn agent_fg_cwd_path_for_pane(
+    pane_id: u64,
+) -> (
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+) {
+    let v = agent_fg_cwd_for_pane_inner(pane_id);
+    (
+        v.agent,
+        v.foreground,
+        v.cwd,
+        v.cwd_path,
+        v.project,
+        v.project_path,
+    )
+}
+
+fn project_root_for_path(path: &std::path::Path) -> std::path::PathBuf {
+    for ancestor in path.ancestors() {
+        if ancestor.join(".git").exists()
+            || ancestor.join(".hg").exists()
+            || ancestor.join(".svn").exists()
+        {
+            return ancestor.to_path_buf();
+        }
+    }
+    path.to_path_buf()
 }
 
 fn agent_fg_cwd_for_pane_inner(pane_id: u64) -> PaneAgentCwd {
@@ -885,20 +941,37 @@ fn compute_agent_cwd(pane_id: u64) -> PaneAgentCwd {
     } else {
         proc_info.as_ref().and_then(foreground_command_title)
     };
-    let cwd = pane
+    let cwd_path_buf = pane
         .get_current_working_dir(mux::pane::CachePolicy::AllowStale)
-        .and_then(|url| url.to_file_path().ok())
-        .and_then(|p| {
-            if dirs_next::home_dir().as_deref() == Some(p.as_path()) {
-                Some("~".to_string())
-            } else {
-                p.file_name().map(|n| n.to_string_lossy().to_string())
-            }
-        });
+        .and_then(|url| url.to_file_path().ok());
+    let cwd_path = cwd_path_buf
+        .as_ref()
+        .map(|p| p.to_string_lossy().to_string());
+    let cwd = cwd_path.as_ref().and_then(|path| {
+        let p = std::path::Path::new(path);
+        if dirs_next::home_dir().as_deref() == Some(p) {
+            Some("~".to_string())
+        } else {
+            p.file_name().map(|n| n.to_string_lossy().to_string())
+        }
+    });
+    let project_path_buf = cwd_path_buf.as_deref().map(project_root_for_path);
+    let project = project_path_buf.as_ref().and_then(|path| {
+        if dirs_next::home_dir().as_deref() == Some(path.as_path()) {
+            Some("~".to_string())
+        } else {
+            path.file_name()
+                .map(|name| name.to_string_lossy().to_string())
+        }
+    });
+    let project_path = project_path_buf.map(|path| path.to_string_lossy().to_string());
     PaneAgentCwd {
         agent,
         foreground,
         cwd,
+        cwd_path,
+        project,
+        project_path,
     }
 }
 
@@ -1173,8 +1246,12 @@ impl McpHandler {
             "fleet.launch" => self.fleet_launch(params),
             "fleet.list" => Ok(json!({ "fleets": crate::cockpit::review::overview()["fleets"] })),
             "fleet.clean" => self.fleet_clean(params),
-            "review.list" => Ok(crate::cockpit::review::overview()),
+            "fleet.retry" => self.fleet_retry(params),
+            "review.list" => Ok(crate::cockpit::verification::enrich_overview(
+                crate::cockpit::observability::enrich_overview(crate::cockpit::review::overview()),
+            )),
             "review.diff" => self.review_diff(params),
+            "review.verify" => self.review_verify(params),
             "review.rollback" => self.review_rollback(params),
             "review.merge" => self.review_merge(params),
             "review.discard" => self.review_discard(params),
@@ -1673,12 +1750,13 @@ impl McpHandler {
         let src_pane_id = params
             .get("id")
             .or_else(|| params.get("session_id"))
+            .or_else(|| params.get("pane_id"))
             .and_then(|v| {
                 v.as_u64()
                     .map(|n| n as usize)
                     .or_else(|| v.as_str().and_then(|s| s.parse::<usize>().ok()))
             })
-            .ok_or_else(|| anyhow!("Missing 'id' / 'session_id' (source pane to split)"))?;
+            .ok_or_else(|| anyhow!("Missing 'id' / 'session_id' / 'pane_id' (source pane to split)"))?;
 
         // Take an owned String here so the value can cross the async
         // closure boundary below — &str borrowed from `params` would
@@ -1772,12 +1850,13 @@ impl McpHandler {
         let pane_id = params
             .get("id")
             .or_else(|| params.get("session_id"))
+            .or_else(|| params.get("pane_id"))
             .and_then(|v| {
                 v.as_u64()
                     .map(|n| n as usize)
                     .or_else(|| v.as_str().and_then(|s| s.parse::<usize>().ok()))
             })
-            .ok_or_else(|| anyhow!("Missing 'id' / 'session_id'"))?;
+            .ok_or_else(|| anyhow!("Missing 'id' / 'session_id' / 'pane_id'"))?;
 
         // focus_pane_and_containing_tab does the whole work: walks up
         // to find the owning tab + window, sets the tab's active pane,
@@ -1889,8 +1968,9 @@ impl McpHandler {
         let pane = self.get_pane(params)?;
         let input = params
             .get("input")
+            .or_else(|| params.get("text"))
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing 'input' parameter"))?;
+            .ok_or_else(|| anyhow!("Missing 'input' (or compatibility alias 'text') parameter"))?;
 
         // Gate the write on a user confirmation banner if policy
         // demands it. `Allow` continues to the audit + write below;
@@ -2434,6 +2514,48 @@ impl McpHandler {
         Ok(json!({ "ok": true, "id": id }))
     }
 
+    fn fleet_retry(&self, params: &Value) -> Result<Value> {
+        let fleet_id = params
+            .get("fleet_id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing 'fleet_id'"))?;
+        let member = params
+            .get("member")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing 'member'"))?;
+        let retried = crate::cockpit::fleet::retry_member(fleet_id, member)?;
+        self.audit(
+            "fleet.retry",
+            None,
+            &format!("fleet={fleet_id} member={member}"),
+        );
+        Ok(serde_json::to_value(retried)?)
+    }
+
+    fn review_verify(&self, params: &Value) -> Result<Value> {
+        let fleet_id = params
+            .get("fleet_id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing 'fleet_id'"))?;
+        let member = params
+            .get("member")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing 'member'"))?;
+        let command = params.get("command").and_then(|v| v.as_str());
+        let timeout = params.get("timeout_secs").and_then(|v| v.as_u64());
+        let record =
+            crate::cockpit::verification::verify_member(fleet_id, member, command, timeout)?;
+        self.audit(
+            "review.verify",
+            None,
+            &format!(
+                "fleet={fleet_id} member={member} command={}",
+                record.command
+            ),
+        );
+        Ok(serde_json::to_value(record)?)
+    }
+
     fn review_diff(&self, params: &Value) -> Result<Value> {
         // Either (fleet_id, member) or (repo, from).
         if let Some(fleet_id) = params.get("fleet_id").and_then(|v| v.as_str()) {
@@ -2480,11 +2602,15 @@ impl McpHandler {
             .get("member")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing 'member'"))?;
-        let out = crate::cockpit::review::merge_member(fleet_id, member)?;
+        let force = params
+            .get("force")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let out = crate::cockpit::review::merge_member_with_policy(fleet_id, member, force)?;
         self.audit(
             "review.merge",
             None,
-            &format!("fleet={fleet_id} member={member}"),
+            &format!("fleet={fleet_id} member={member} force={force}"),
         );
         Ok(out)
     }
@@ -2627,8 +2753,9 @@ impl McpHandler {
     fn session_suggest_status(&self, params: &Value) -> Result<Value> {
         let id = params
             .get("suggestion_id")
+            .or_else(|| params.get("id"))
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing 'suggestion_id' parameter"))?;
+            .ok_or_else(|| anyhow!("Missing 'suggestion_id' (or compatibility alias 'id') parameter"))?;
         let state = mcp_state().lock();
         let suggestion = state
             .suggestions
@@ -2640,8 +2767,9 @@ impl McpHandler {
     fn session_suggest_cancel(&self, params: &Value) -> Result<Value> {
         let id = params
             .get("suggestion_id")
+            .or_else(|| params.get("id"))
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing 'suggestion_id' parameter"))?
+            .ok_or_else(|| anyhow!("Missing 'suggestion_id' (or compatibility alias 'id') parameter"))?
             .to_string();
         let mut state = mcp_state().lock();
         let suggestion = state
@@ -2670,12 +2798,18 @@ impl McpHandler {
     }
 
     fn audit(&self, method: &str, session_id: Option<&str>, detail: &str) {
+        let detail = crate::recording::redact_sensitive_text(detail);
+        // A denied or expired confirmation is still an important audit
+        // event, but it must not look like an authorized write.  Consumers
+        // use this field to distinguish attempted writes from writes that
+        // were actually permitted.
+        let allowed = audit_event_was_allowed(method);
         let entry = AuditEntry {
             timestamp: chrono::Local::now().to_rfc3339(),
             method: method.to_string(),
             session_id: session_id.map(|s| s.to_string()),
-            detail: detail.to_string(),
-            allowed: true,
+            detail,
+            allowed,
             agent: current_agent_label(),
         };
         let audit_max = config::configuration().mcp_audit_log_capacity.max(16);
@@ -2784,7 +2918,7 @@ impl McpHandler {
             std::thread::sleep(std::time::Duration::from_millis(200));
 
             let current_text = self.read_pane_text(&pane);
-            if current_text.contains(&marker) {
+            if contains_ignoring_line_breaks(&current_text, &marker) {
                 std::thread::sleep(std::time::Duration::from_millis(200));
                 let final_text = self.read_pane_text(&pane);
                 let output = extract_wait_output(&before_text, &final_text, command, &marker);
@@ -4354,15 +4488,25 @@ impl McpHandler {
         }));
 
         let capture = self.capture_window(&json!({"pid": std::process::id()}));
+        let capture_ok = capture
+            .as_ref()
+            .ok()
+            .and_then(|value| value.pointer("/image/path"))
+            .and_then(|value| value.as_str())
+            .map(|path| std::path::Path::new(path).exists())
+            .unwrap_or(false)
+            && (!cfg!(windows)
+                || matches!(
+                    capture
+                        .as_ref()
+                        .ok()
+                        .and_then(|value| value.pointer("/image/mode"))
+                        .and_then(|value| value.as_str()),
+                    Some("print_window" | "focused_screen")
+                ));
         checks.push(json!({
             "name": "capture.window",
-            "ok": capture
-                .as_ref()
-                .ok()
-                .and_then(|value| value.pointer("/image/path"))
-                .and_then(|value| value.as_str())
-                .map(|path| std::path::Path::new(path).exists())
-                .unwrap_or(false),
+            "ok": capture_ok,
             "detail": match capture {
                 Ok(value) => value,
                 Err(err) => json!({"error": err.to_string()}),
@@ -5119,8 +5263,52 @@ fn wait_wrapped_command(command: &str, shell_type: &str, marker: &str) -> String
     }
 }
 
+fn contains_ignoring_line_breaks(text: &str, needle: &str) -> bool {
+    if text.contains(needle) {
+        return true;
+    }
+    text.chars()
+        .filter(|ch| !matches!(ch, '\r' | '\n'))
+        .collect::<String>()
+        .contains(needle)
+}
+
+fn strip_ignoring_line_breaks(text: &str, needle: &str) -> String {
+    if needle.is_empty() {
+        return text.to_string();
+    }
+
+    let chars: Vec<char> = text.chars().collect();
+    let wanted: Vec<char> = needle.chars().collect();
+    let mut output = String::with_capacity(text.len());
+    let mut index = 0;
+    while index < chars.len() {
+        let mut cursor = index;
+        let mut matched = 0;
+        while cursor < chars.len() && matched < wanted.len() {
+            if matches!(chars[cursor], '\r' | '\n') {
+                cursor += 1;
+                continue;
+            }
+            if chars[cursor] != wanted[matched] {
+                break;
+            }
+            cursor += 1;
+            matched += 1;
+        }
+        if matched == wanted.len() {
+            index = cursor;
+        } else {
+            output.push(chars[index]);
+            index += 1;
+        }
+    }
+    output
+}
+
 fn extract_wait_output(before: &str, after: &str, command: &str, marker: &str) -> String {
-    let diff = diff_output(before, after);
+    let after = strip_ignoring_line_breaks(after, marker);
+    let diff = diff_output(before, &after);
     let mut lines = Vec::new();
 
     for line in diff.lines() {
@@ -5147,6 +5335,30 @@ fn extract_wait_output(before: &str, after: &str, command: &str, marker: &str) -
         .filter(|line| !before.contains(line))
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+#[cfg(test)]
+mod exec_wait_tests {
+    use super::{contains_ignoring_line_breaks, extract_wait_output, strip_ignoring_line_breaks};
+
+    #[test]
+    fn completion_marker_survives_narrow_pane_wrapping() {
+        let marker = "__UNTERM_DONE_0123456789abcdef__";
+        let wrapped = "output\n__UNTERM_DONE_012345\n6789abcdef__\nPS>";
+        assert!(contains_ignoring_line_breaks(wrapped, marker));
+        assert_eq!(
+            strip_ignoring_line_breaks(wrapped, marker),
+            "output\nPS>"
+        );
+    }
+
+    #[test]
+    fn wrapped_marker_is_not_returned_as_command_output() {
+        let marker = "__UNTERM_DONE_0123456789abcdef__";
+        let after = "PS> command\nRIGHT_PANE_OK\n__UNTERM_DONE_012345\n6789abcdef__\nPS>";
+        let output = extract_wait_output("PS>", after, "command", marker);
+        assert_eq!(output, "RIGHT_PANE_OK");
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -5212,6 +5424,32 @@ fn clipboard_read_any() -> Result<Value> {
 // Windows implementations (PowerShell + Win32 API)
 // ---------------------------------------------------------------------------
 
+#[cfg(windows)]
+fn masked_channel(pixel: u32, mask: u32, default: u8) -> u8 {
+    if mask == 0 {
+        return default;
+    }
+    let shift = mask.trailing_zeros();
+    let max = mask >> shift;
+    let value = (pixel & mask) >> shift;
+    (((value as u64 * 255) + (max as u64 / 2)) / max as u64) as u8
+}
+
+#[cfg(all(test, windows))]
+mod clipboard_dib_tests {
+    use super::masked_channel;
+
+    #[test]
+    fn decodes_standard_bgra_bitfield_masks() {
+        let pixel = 0x7f_12_80_f0;
+        assert_eq!(masked_channel(pixel, 0x00ff_0000, 0), 0x12);
+        assert_eq!(masked_channel(pixel, 0x0000_ff00, 0), 0x80);
+        assert_eq!(masked_channel(pixel, 0x0000_00ff, 0), 0xf0);
+        assert_eq!(masked_channel(pixel, 0xff00_0000, 255), 0x7f);
+        assert_eq!(masked_channel(pixel, 0, 255), 255);
+    }
+}
+
 /// Read clipboard content using Win32 API.
 /// Supports both text (CF_UNICODETEXT) and image (CF_DIB) formats.
 /// IMPORTANT: Do NOT use PowerShell for clipboard access — it steals window focus.
@@ -5267,18 +5505,22 @@ fn clipboard_read_win32() -> Result<Value> {
             }
 
             let bih = unsafe { &*(ptr as *const BITMAPINFOHEADER) };
-            let width = bih.biWidth as u32;
+            let width = bih.biWidth.unsigned_abs();
             let height_signed = bih.biHeight;
             let height = height_signed.unsigned_abs();
             let bit_count = bih.biBitCount;
             let compression = bih.biCompression;
 
-            if compression != 0 {
+            // BI_RGB (0) is the classic packed BGR/BGRA layout. Windows and
+            // .NET commonly publish 32-bit clipboard images as BI_BITFIELDS
+            // (3), with explicit RGB masks following a 40-byte header (or
+            // embedded in V4/V5 headers).
+            if compression != 0 && compression != 3 {
                 unsafe {
                     GlobalUnlock(handle);
                 }
                 return Err(anyhow!(
-                    "Unsupported DIB compression: {}. Only uncompressed (BI_RGB) is supported.",
+                    "Unsupported DIB compression: {}. BI_RGB and BI_BITFIELDS are supported.",
                     compression
                 ));
             }
@@ -5296,7 +5538,48 @@ fn clipboard_read_win32() -> Result<Value> {
             let bytes_per_pixel = (bit_count / 8) as usize;
             let row_stride = ((width as usize * bytes_per_pixel + 3) / 4) * 4;
             let header_size = bih.biSize as usize;
-            let pixel_offset = header_size;
+            let mut pixel_offset = header_size;
+            let mut channel_masks = None;
+            if compression == 3 {
+                if bit_count != 32 {
+                    unsafe {
+                        GlobalUnlock(handle);
+                    }
+                    return Err(anyhow!(
+                        "Unsupported BI_BITFIELDS bit depth: {}. Only 32-bit is supported.",
+                        bit_count
+                    ));
+                }
+                let mask_offset = if header_size >= 52 { 40 } else { header_size };
+                if mask_offset + 12 > data_size {
+                    unsafe {
+                        GlobalUnlock(handle);
+                    }
+                    return Err(anyhow!("DIB channel masks exceed clipboard buffer size"));
+                }
+                let read_mask = |offset: usize| unsafe {
+                    u32::from_le_bytes([
+                        *((ptr as *const u8).add(offset)),
+                        *((ptr as *const u8).add(offset + 1)),
+                        *((ptr as *const u8).add(offset + 2)),
+                        *((ptr as *const u8).add(offset + 3)),
+                    ])
+                };
+                let alpha_mask = if header_size >= 56 {
+                    read_mask(52)
+                } else {
+                    0
+                };
+                channel_masks = Some((
+                    read_mask(mask_offset),
+                    read_mask(mask_offset + 4),
+                    read_mask(mask_offset + 8),
+                    alpha_mask,
+                ));
+                if header_size == std::mem::size_of::<BITMAPINFOHEADER>() {
+                    pixel_offset += 12;
+                }
+            }
             let total_pixel_bytes = row_stride * height as usize;
 
             if pixel_offset + total_pixel_bytes > data_size {
@@ -5326,14 +5609,27 @@ fn clipboard_read_win32() -> Result<Value> {
                 for x in 0..width as usize {
                     let si = x * bytes_per_pixel;
                     let di = dst_offset + x * 4;
-                    rgba_buf[di] = src_row[si + 2];
-                    rgba_buf[di + 1] = src_row[si + 1];
-                    rgba_buf[di + 2] = src_row[si];
-                    rgba_buf[di + 3] = if bytes_per_pixel == 4 {
-                        src_row[si + 3]
+                    if let Some((red, green, blue, alpha)) = channel_masks {
+                        let pixel = u32::from_le_bytes([
+                            src_row[si],
+                            src_row[si + 1],
+                            src_row[si + 2],
+                            src_row[si + 3],
+                        ]);
+                        rgba_buf[di] = masked_channel(pixel, red, 0);
+                        rgba_buf[di + 1] = masked_channel(pixel, green, 0);
+                        rgba_buf[di + 2] = masked_channel(pixel, blue, 0);
+                        rgba_buf[di + 3] = masked_channel(pixel, alpha, 255);
                     } else {
-                        255
-                    };
+                        rgba_buf[di] = src_row[si + 2];
+                        rgba_buf[di + 1] = src_row[si + 1];
+                        rgba_buf[di + 2] = src_row[si];
+                        rgba_buf[di + 3] = if bytes_per_pixel == 4 {
+                            src_row[si + 3]
+                        } else {
+                            255
+                        };
+                    }
                 }
             }
 
@@ -5506,7 +5802,11 @@ using System;
 using System.Runtime.InteropServices;
 public class UntermCapture {{
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+  [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr hWnd, IntPtr hdcBlt, uint flags);
+  [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int command);
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
 }}
 public struct RECT {{ public int Left; public int Top; public int Right; public int Bottom; }}
 "@
@@ -5518,16 +5818,62 @@ if ($titleFilter -ne $null) {{
   $proc = Get-Process -Id $pidFilter -ErrorAction Stop
 }}
 if ($null -eq $proc -or $proc.MainWindowHandle -eq 0) {{ throw "No matching window found" }}
-[UntermCapture]::SetForegroundWindow($proc.MainWindowHandle) | Out-Null
-Start-Sleep -Milliseconds 150
+$hwnd = $proc.MainWindowHandle
+if ([UntermCapture]::IsIconic($hwnd)) {{
+  [UntermCapture]::ShowWindowAsync($hwnd, 9) | Out-Null
+  Start-Sleep -Milliseconds 120
+}}
 $rect = New-Object RECT
-[UntermCapture]::GetWindowRect($proc.MainWindowHandle, [ref]$rect) | Out-Null
+# PrintWindow renders against the real HWND dimensions. DWM's extended frame
+# bounds can be several pixels shorter and causes GPU-backed windows to return
+# a false/blank frame when that smaller bitmap is supplied.
+if (-not [UntermCapture]::GetWindowRect($hwnd, [ref]$rect)) {{ throw "GetWindowRect failed" }}
 $width = $rect.Right - $rect.Left
 $height = $rect.Bottom - $rect.Top
 if ($width -le 0 -or $height -le 0) {{ throw "Invalid window bounds" }}
 $bmp = New-Object System.Drawing.Bitmap $width, $height
 $gfx = [System.Drawing.Graphics]::FromImage($bmp)
-$gfx.CopyFromScreen($rect.Left, $rect.Top, 0, 0, $bmp.Size)
+$hdc = $gfx.GetHdc()
+try {{
+  # PW_RENDERFULLCONTENT asks DWM/composited windows for their complete client
+  # surface even when another application covers them.
+  $printed = [UntermCapture]::PrintWindow($hwnd, $hdc, 2)
+}} finally {{
+  $gfx.ReleaseHdc($hdc)
+}}
+$mode = 'print_window'
+
+# Some GPU drivers return success but leave a uniformly black bitmap. Sample
+# a small grid so that such a frame cannot masquerade as a valid self-capture.
+$samples = New-Object 'System.Collections.Generic.HashSet[int]'
+foreach ($xf in @(0.1, 0.3, 0.5, 0.7, 0.9)) {{
+  foreach ($yf in @(0.1, 0.3, 0.5, 0.7, 0.9)) {{
+    $x = [Math]::Min($width - 1, [Math]::Max(0, [int]($width * $xf)))
+    $y = [Math]::Min($height - 1, [Math]::Max(0, [int]($height * $yf)))
+    [void]$samples.Add($bmp.GetPixel($x, $y).ToArgb())
+  }}
+}}
+if (-not $printed -or $samples.Count -lt 2) {{
+  # GPU surfaces may not implement PrintWindow. Recreate the GDI objects
+  # before screen capture (the old Graphics has handed out an HDC), briefly
+  # focus the exact target, then restore the user's previous foreground app.
+  $gfx.Dispose()
+  $bmp.Dispose()
+  $bmp = New-Object System.Drawing.Bitmap $width, $height
+  $gfx = [System.Drawing.Graphics]::FromImage($bmp)
+  $previousForeground = [UntermCapture]::GetForegroundWindow()
+  [UntermCapture]::ShowWindowAsync($hwnd, 5) | Out-Null
+  [UntermCapture]::SetForegroundWindow($hwnd) | Out-Null
+  Start-Sleep -Milliseconds 220
+  try {{
+    $gfx.CopyFromScreen($rect.Left, $rect.Top, 0, 0, $bmp.Size)
+  }} finally {{
+    if ($previousForeground -ne [IntPtr]::Zero -and $previousForeground -ne $hwnd) {{
+      [UntermCapture]::SetForegroundWindow($previousForeground) | Out-Null
+    }}
+  }}
+  $mode = 'focused_screen'
+}}
 $bmp.Save({qpath}, [System.Drawing.Imaging.ImageFormat]::Png)
 $gfx.Dispose()
 $bmp.Dispose()
@@ -5539,6 +5885,7 @@ $bmp.Dispose()
   top = $rect.Top
   pid = $proc.Id
   title = $proc.MainWindowTitle
+  mode = $mode
 }} | ConvertTo-Json -Compress
 "#
     );

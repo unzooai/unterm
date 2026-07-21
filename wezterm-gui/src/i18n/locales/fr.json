@@ -247,5 +247,11 @@
   "web.review.rollback_confirm": "Revenir {repo} au checkpoint {sha} ? Tout ce qui est plus récent sera perdu.",
   "web.review.clean": "nettoyer",
   "web.review.compare": "comparer",
-  "web.review.compare_hint": "Mode comparaison : choisissez deux membres à gauche pour voir leurs diffs côte à côte."
+  "web.review.compare_hint": "Mode comparaison : choisissez deux membres à gauche pour voir leurs diffs côte à côte.",
+  "web.review.running": "en cours", "web.review.needs_you": "vous attend", "web.review.to_review": "à vérifier",
+  "web.review.checkpoints": "points de contrôle", "web.review.refresh": "Actualiser",
+  "web.review.isolated_worktree": "worktree isolé", "web.review.squash_staged": "fusion squash → index", "web.review.local_checkpoint": "point de contrôle local",
+  "web.review.verify": "Lancer la vérification", "web.review.retry": "Revérifier", "web.review.verifying": "Démarrage…",
+  "web.review.verify_passed": "réussi", "web.review.verify_failed": "échoué", "web.review.verify_running": "vérification", "web.review.verify_queued": "en attente", "web.review.verify_timeout": "délai dépassé", "web.review.verify_error": "erreur", "web.review.verify_not_run": "non vérifié",
+  "web.review.verify_command_prompt": "Commande de vérification", "web.review.exit_code": "sortie", "web.review.score": "score", "web.review.rank": "Classement du candidat", "web.review.retry_agent": "Relancer l’agent"
 }

@@ -42,6 +42,14 @@ resize_to() {
 resize_to 128 terminal.png
 resize_to 256 terminal@2x.png
 
+# Website/favicon assets share the same master and small-size optical rules.
+# Keeping them in this pipeline prevents the installed app and product site
+# from drifting into different brand marks after a future icon refresh.
+cp "$SRC_SVG" ../../web/public/assets/icon.svg
+for s in 32 256 512 ; do
+  resize_to "$s" "../../web/public/assets/icon-${s}.png"
+done
+
 # Linux hicolor ladder — install one PNG per standard icon size so the desktop
 # environment can pick a crisp raster at every spot (taskbar=16/24, app
 # launcher=48/64, file dialog=96/128, Activities/grid=256/512). Without this,
@@ -76,10 +84,18 @@ rm -rf "$ICONSET"
 # Windows .ico — multi-resolution embed for crisp rendering at every scale
 # Windows actually picks (Start menu = 32, taskbar = 24, desktop = 48, MSI
 # launcher = 256, Alt-Tab = 16). Bake in all of them.
-if have magick ; then
-  magick "$SRC_PNG" -define icon:auto-resize=256,128,96,64,48,32,16 \
-    ../windows/terminal.ico
-elif have convert ; then
-  convert "$SRC_PNG" -define icon:auto-resize=256,128,96,64,48,32,16 \
-    ../windows/terminal.ico
+if have magick || have convert ; then
+  WIN_ICONSET=$(mktemp -d)
+  frames=()
+  for s in 256 128 96 64 48 32 24 16 ; do
+    frame="$WIN_ICONSET/icon-${s}.png"
+    resize_to "$s" "$frame"
+    frames+=("$frame")
+  done
+  if have magick ; then
+    magick "${frames[@]}" ../windows/terminal.ico
+  else
+    convert "${frames[@]}" ../windows/terminal.ico
+  fi
+  rm -rf "$WIN_ICONSET"
 fi
