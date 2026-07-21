@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.56.0 — 2026-07-21
+
+### Changed
+
+- **The documentation caught up with the product.** README and unterm.app were rebuilt around Agent Cockpit as the headline: the MCP reference now documents the full surface — 97 methods across 21 namespaces (the `agent`, `cockpit`, `fleet`, `review`, `profile`, `meta`, `upload`, and `ghost` namespaces were previously undocumented) — and the CLI reference covers all 32 subcommand families, including the `fleet` and `review` families and the cockpit's `agent status / signal / inbox / enable-hooks`, each verified against the shipping binary. The site's capability map and per-namespace counts were corrected from the stale numbers (65 methods / 11 namespaces / 22 CLI commands).
+- **No engine changes since v0.55.3.** This tag exists so the in-app version string, the update poller, and the website all point at the same milestone as the refreshed documentation.
+
 ## v0.55.3 — 2026-07-13
 
 ### Fixed
