@@ -227,8 +227,13 @@ pub fn rollback(repo: &Path, sha: &str) -> Result<()> {
     // Validate the sha exists first — a typo must not half-run.
     git(&root, &["cat-file", "-e", &format!("{sha}^{{commit}}")])?;
     let expected_tree = git(&root, &["rev-parse", &format!("{sha}^{{tree}}")])?;
-    git(&root, &["read-tree", sha])?;
-    git(&root, &["checkout-index", "-a", "-f"])?;
+    // Reset the temporary index and worktree together.  `checkout-index`
+    // only writes entries that exist in the target tree; it does not remove
+    // a path that is tracked by HEAD but was deleted in the checkpoint.  In
+    // that case the old file survived as an apparent untracked file on some
+    // Git/platform combinations.  `read-tree --reset -u` applies both sides
+    // of the tree transition, including deletions, without moving HEAD.
+    git(&root, &["read-tree", "--reset", "-u", sha])?;
     // Remove files that exist now but not in the snapshot.
     git(&root, &["clean", "-fd"])?;
     // Leave the index back at HEAD so `git status` reads naturally.
