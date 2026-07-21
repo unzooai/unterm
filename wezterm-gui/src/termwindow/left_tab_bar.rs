@@ -250,9 +250,11 @@ fn project_header_segments(
 ) -> (Option<String>, String) {
     // The disclosure arrow, folder glyph, their margins, and the right-floated
     // count badge consume more real pixels than their glyph count suggests.
-    // Reserve an intentionally conservative budget so the breadcrumb can
-    // never paint beneath the badge at the common 190-220px sidebar widths.
-    let text_cols = sidebar_cols.saturating_sub(22).max(7);
+    // Reserve enough room for the chrome and badge while leaving common
+    // project names (Documents, Downloads) readable at the default width.
+    // Context is already omitted unless it is needed to disambiguate a
+    // duplicate leaf name, so a 13-column reserve is sufficient here.
+    let text_cols = sidebar_cols.saturating_sub(13).max(7);
     if let Some(context) = context.filter(|context| !context.is_empty()) {
         let context_cols = (text_cols / 3).clamp(3, 8);
         let label_cols = text_cols.saturating_sub(context_cols + 1).max(4);
@@ -1939,8 +1941,11 @@ mod tests {
         let (parent, project) =
             project_header_segments("very-long-project", Some("very-long-parent"), 31);
         let parent = parent.expect("parent breadcrumb");
-        assert!(unicode_column_width(&parent, None) <= 3);
-        assert!(unicode_column_width(&project, None) <= 5);
+        assert!(unicode_column_width(&parent, None) <= 6);
+        assert!(unicode_column_width(&project, None) <= 11);
+        assert!(
+            unicode_column_width(&parent, None) + 1 + unicode_column_width(&project, None) <= 18
+        );
     }
 
     #[test]
