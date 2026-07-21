@@ -2,7 +2,7 @@
 
 **The terminal AI agents can drive.**
 
-Cross-platform terminal (macOS / Linux / Windows) built on a customized WezTerm engine, with one design bet: the terminal itself is controllable from the outside by any AI agent over MCP. Claude Code, Codex, Gemini CLI, Cursor, Aider, your own scripts — they all get the same JSON-RPC surface (**97 methods across 21 namespaces**) to spawn shells, run commands, read pane state, capture screenshots, change settings, and record sessions.
+Cross-platform terminal (macOS / Linux / Windows) built on a customized WezTerm engine, with one design bet: the terminal itself is controllable from the outside by any AI agent over MCP. Claude Code, Codex, Gemini CLI, Cursor, Aider, your own scripts — they all get the same JSON-RPC surface (**99 methods across 21 namespaces**) to spawn shells, run commands, read pane state, capture screenshots, change settings, and record sessions.
 
 Since v0.55 the relationship runs both ways: agents drive the terminal from outside, and the terminal is an **Agent Cockpit** for the agents running inside it — live per-pane agent state, a waiting-first Inbox, fleets of N agents on one task in N isolated git worktrees, and a Review page to diff / merge / roll back what they produced.
 
@@ -28,7 +28,7 @@ Run Claude Code, Codex, Gemini CLI, or Aider in any pane and Unterm sees them �
 - **Agent state engine** — every pane's agent and its state (working / waiting-for-you / idle / done), read from OSC progress + title signals, process fingerprints, and optional official hooks. Tab badges + a cross-window tally chip in the top bar.
 - **Inbox** (`Ctrl+Shift+A`) — every agent that's waiting for you in one queue, longest-waiting first. Enter jumps to the pane; one keystroke later you've answered its prompt.
 - **Fleet** — one task × N agents × N isolated git worktrees (`../<repo>.fleet/`), one tab each. Same agent ×3 for throughput, or `claude,codex,gemini` for a bake-off.
-- **Review** — agents get checkpointed before they touch a repo (dangling-commit snapshots; nothing touches your HEAD or index). A Web Review page shows per-member diffs with squash-merge (stops at staged — the commit stays yours), discard, and rollback.
+- **Review** — agents get checkpointed before they touch a repo (dangling-commit snapshots; nothing touches your HEAD or index). A Web Review page shows per-member diffs with squash-merge (stops at staged — the commit stays yours), discard, and rollback. Since v0.57, Review also **verifies** each member (inferred or explicit validation command), **ranks** members by verification + change size, gates merge on a passing run, and can **retry** a failed member in its existing worktree.
 - **Everything scriptable** — the cockpit itself is MCP + CLI: `agent.status`, `cockpit.inbox`, `fleet.launch`, `review.merge`… an orchestrating agent can run fleets and review diffs with no human in the chair.
 
 ```bash
@@ -36,7 +36,8 @@ unterm-cli agent status                                  # who's running where, 
 unterm-cli agent inbox                                   # who's waiting for you
 unterm-cli agent enable-hooks                            # exact state via official hooks (merge-only, backed up)
 unterm-cli fleet launch --agents claude,codex "fix the flaky auth test"
-unterm-cli review list && unterm-cli review open         # diffs in the browser
+unterm-cli review verify --fleet <id> --member 1         # run the member's validation
+unterm-cli review list && unterm-cli review open         # ranked diffs in the browser
 ```
 
 Full docs: [unterm.app/docs/agent-cockpit](https://unterm.app/docs/agent-cockpit).
@@ -88,6 +89,7 @@ Run the MSI installer; it places `unterm.exe` in `Program Files\Unterm` and crea
 
 ## What's new
 
+- **v0.57 — Fleet verification loop + new brand mark.** Review now verifies each fleet member automatically (Cargo / Go / npm / pnpm / yarn / Python / Maven / Gradle / .NET inferred, or your own command), ranks members by verification and change size, gates squash-merge on a passing run (audited `force` override), and retries failed members in their existing worktree without losing work — `review.verify` / `fleet.retry` over MCP + CLI. The sidebar gains repository-grouped navigation with always-on fuzzy search. Every logo surface moves to the new command-loop mark.
 - **v0.55 — Agent Cockpit.** The terminal now sees the agents inside it: live per-pane state with tab badges and a cross-window tally, the waiting-first Agent Inbox (`Ctrl+Shift+A`), fleets running one task across N agents in N isolated worktrees, and a Review page with checkpoints, diffs, rollback, and squash-merge. 12 new MCP methods, 3 new CLI families.
 - **v0.54 — 2.8× faster cold start** (~780ms → ~280ms) via five startup-path wins, and no more CPU core burned on Windows output floods (~91% → ~4%); MCP stays responsive mid-flood.
 - **v0.53 — Composer + Git panel.** A prompt queue (`Ctrl+Shift+J`) that runs batched prompts into an agent pane with smart auto-advance through confirmation prompts, and a read-only Git status panel (`Ctrl+Shift+G`).
@@ -117,7 +119,7 @@ This README is the short version. The site is the long version.
 ## Features
 
 - **GPU-accelerated rendering** on all three platforms (Metal / OpenGL / DirectX via ANGLE).
-- **MCP server** on `127.0.0.1:<auto-port>` (default 19876) — JSON-RPC over TCP, auth-token gated. 97 methods across 21 namespaces: session, exec, screen, capture, agent, cockpit, fleet, review, orchestrate, proxy, workspace, profile, instance, policy, system, server, signal, upload, selftest, ghost, meta. `meta.surface` (or `unterm-cli reference`) returns the whole live inventory in one call.
+- **MCP server** on `127.0.0.1:<auto-port>` (default 19876) — JSON-RPC over TCP, auth-token gated. 99 methods across 21 namespaces: session, exec, screen, capture, agent, cockpit, fleet, review, orchestrate, proxy, workspace, profile, instance, policy, system, server, signal, upload, selftest, ghost, meta. `meta.surface` (or `unterm-cli reference`) returns the whole live inventory in one call.
 - **Agent Cockpit** — per-pane agent state, waiting-first Inbox, worktree fleets, checkpoint + review. See the section above.
 - **Web Settings UI** on `127.0.0.1:<auto-port>` (default 19877) — open in any browser via `unterm-cli settings open` or the `Settings (Web)` item in the `▼` menu. Tailwind-styled SPA, supports all 9 languages, keyboard + mouse.
 - **Auto proxy detection** — reads macOS System Preferences / Windows registry / GNOME gsettings / `$HTTPS_PROXY`, falls back to scanning common local ports. The single `proxy.json` toggle is `{"enabled": true|false}` — no manual URL configuration needed.

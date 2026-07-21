@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.57.0 — 2026-07-21
 
 ### Added — Fleet verification loop
 
@@ -15,6 +15,10 @@
 
 - **Windows checkpoint diffs include untracked files correctly.** The platform now passes exactly one null device when generating synthetic patches. Rollback verifies the restored Git tree, and merge responses include commit and staged-file audit data.
 - **Right-click copy and paste target the clicked pane again.** Split-pane clicks no longer re-resolve to a stale active pane, and Windows clipboard reads once again start on the event-loop thread instead of silently failing on a worker.
+
+### Changed
+
+- **New command-loop brand mark.** The app icon and every logo surface (macOS .icns, Windows .ico, Linux hicolor ladder, sidebar / titlebar marks, website favicons and social card) move to the command-loop terminal mark — a metal U-loop with a jade prompt chevron on the dark tile.
 
 ## v0.56.0 — 2026-07-21
 

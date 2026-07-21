@@ -708,12 +708,13 @@ Only agents actually present are touched (`~/.claude` exists, `~/.codex` exists,
 
 ## fleet
 
-Run one task across N agents in N isolated git worktrees — the Agent Cockpit's parallel-attempts primitive. `fleet launch` verifies the repo is clean, creates one branch and worktree per member, and opens one tab per member with the agent already running on the task. Backed by MCP `fleet.launch`, `fleet.list`, and `fleet.clean`.
+Run one task across N agents in N isolated git worktrees — the Agent Cockpit's parallel-attempts primitive. `fleet launch` verifies the repo is clean, creates one branch and worktree per member, and opens one tab per member with the agent already running on the task. Backed by MCP `fleet.launch`, `fleet.list`, `fleet.clean`, and `fleet.retry`.
 
 ```text
 unterm-cli fleet launch --agents <a,b,...> [--cwd DIR] <TASK...>
 unterm-cli fleet list
 unterm-cli fleet clean <ID> [--force]
+unterm-cli fleet retry  --fleet <ID> --member <N|BRANCH>
 ```
 
 ### `fleet launch`
@@ -754,14 +755,31 @@ $ unterm-cli fleet clean fix-the-login-redirect-loop
 fleet fix-the-login-redirect-loop cleaned
 ```
 
+### `fleet retry`
+
+Restarts a `pending` member's agent in its **existing** worktree. The branch, checkpoint, and every committed *and* uncommitted change are kept — only the pane is replaced. The old pane is closed before the new agent starts, so two processes never edit the same worktree concurrently. Each retry bumps the member's `attempt` counter (visible in `fleet list --json`).
+
+```sh
+$ unterm-cli fleet retry --fleet fix-the-login-redirect-loop --member 2
+retried member 2 of fix-the-login-redirect-loop (attempt 2)
+```
+
+| Flag | Purpose |
+|---|---|
+| `--fleet <ID>` | Required. Fleet id from `fleet list`. |
+| `--member <N\|BRANCH>` | Required. Member index (1-based) or branch name. |
+
+A member that is already `merged` or `discarded` cannot be retried, and the retry refuses if the worktree no longer exists or has been switched off its `fleet/…` branch. If spawning the new pane fails, the error is recorded on the member (`last_launch_error` in `--json`) and the member simply has no active pane — retry again once the cause is fixed.
+
 ## review
 
-Inspect, merge, discard, or roll back agent-produced changes. Two kinds of things live here: fleet members (from `fleet launch`) and **auto checkpoints** — whenever an agent starts working in a non-fleet pane, the cockpit snapshots that repo as a dangling commit object, debounced to one per minute per repo. The snapshot uses a temporary index, so your working tree and staging area are never touched; the checkpoint index lives at `~/.unterm/checkpoints.json`, and the whole mechanism is gated by the `cockpit_auto_checkpoint` config option. Backed by MCP `review.list`, `review.diff`, `review.merge`, `review.discard`, and `review.rollback`.
+Inspect, merge, discard, or roll back agent-produced changes. Two kinds of things live here: fleet members (from `fleet launch`) and **auto checkpoints** — whenever an agent starts working in a non-fleet pane, the cockpit snapshots that repo as a dangling commit object, debounced to one per minute per repo. The snapshot uses a temporary index, so your working tree and staging area are never touched; the checkpoint index lives at `~/.unterm/checkpoints.json`, and the whole mechanism is gated by the `cockpit_auto_checkpoint` config option. Backed by MCP `review.list`, `review.diff`, `review.verify`, `review.merge`, `review.discard`, and `review.rollback`.
 
 ```text
 unterm-cli review list
 unterm-cli review diff     (--fleet <ID> --member <N|BRANCH>) | (--repo <PATH> --from <SHA>) [--stat]
-unterm-cli review merge    --fleet <ID> --member <N|BRANCH>
+unterm-cli review verify   --fleet <ID> --member <N|BRANCH> [--command CMD] [--timeout-secs N]
+unterm-cli review merge    --fleet <ID> --member <N|BRANCH> [--force]
 unterm-cli review discard  --fleet <ID> --member <N|BRANCH>
 unterm-cli review rollback --repo <PATH> --sha <SHA> --yes
 unterm-cli review open
@@ -790,14 +808,53 @@ $ unterm-cli review diff --fleet fix-the-login-redirect-loop --member 2 --stat
   +3     -0     tests/login.rs (new)
 ```
 
+### `review verify`
+
+Queues tests/validation for a fleet member, run **asynchronously** inside the member's isolated worktree. Without `--command`, the command is inferred from a small, auditable set of project markers; inference only reads marker files, never executes scripts discovered in the source tree. If nothing matches, the CLI errors and asks for an explicit `--command`.
+
+| Marker | Inferred command |
+|---|---|
+| `Cargo.toml` | `cargo test` |
+| `go.mod` | `go test ./...` |
+| `pnpm-lock.yaml` | `pnpm test` |
+| `yarn.lock` | `yarn test` |
+| `package-lock.json` / `package.json` | `npm test` |
+| `uv.lock` | `uv run pytest` |
+| `pyproject.toml` / `pytest.ini` / `setup.cfg` | `python -m pytest` |
+| `pom.xml` | `mvn test` |
+| `gradlew` | `./gradlew test` (`gradlew.bat test` on Windows) |
+| `*.sln` / `*.csproj` | `dotnet test` |
+
+The npm/pnpm/yarn rows additionally require a non-empty `test` script in `package.json` — a placeholder-only project infers nothing rather than running a script that exits 1.
+
+```sh
+$ unterm-cli review verify --fleet fix-the-login-redirect-loop --member 2
+verification verify-1753100000000-0 queued: cargo test
+```
+
+| Flag | Purpose |
+|---|---|
+| `--fleet <ID>` | Required. |
+| `--member <N\|BRANCH>` | Required. Member index (1-based) or branch name. |
+| `--command <CMD>` | Explicit verification command; takes precedence over inference. |
+| `--timeout-secs <N>` | Deadline in seconds. Default 900 (15 min), clamped to a 2-hour maximum; on timeout the whole process tree is killed and the run is marked `timed_out`. |
+
+Each run persists to `~/.unterm/verifications.json`: status (`pending` → `running` → `passed`/`failed`/`timed_out`), exit code, duration, and the last 64 KiB of combined stdout+stderr. `review list --json` attaches each member's latest verification plus a deterministic `score` and `rank` — a passed verification dominates the score, smaller diffs break ties — so `rank == 1` is the merge candidate.
+
 ### `review merge` / `review discard`
 
-`merge` squash-merges a member's branch into the base repo and leaves the result **staged, uncommitted** — you own the commit message. The base repo must be clean first. `discard` marks the member reviewed-and-rejected; its branch and worktree stay on disk until `fleet clean`.
+`merge` squash-merges a member's branch into the base repo and leaves the result **staged, uncommitted** — you own the commit message. The base repo must be clean first. **Verification gate:** a normal merge requires the member's *latest* verification to be `passed`; an unverified member, or one whose latest run failed or timed out, is refused with a pointer to `review verify`. `--force` overrides the gate — the override is audited, and the JSON result carries `"verification_forced": true` alongside whatever verification record existed. `discard` marks the member reviewed-and-rejected; its branch and worktree stay on disk until `fleet clean`.
 
 ```sh
 $ unterm-cli review merge --fleet fix-the-login-redirect-loop --member 2
 merged fleet/fix-the-login-redirect-loop-2 — staged in /Users/alexlee/src/app (commit it yourself)
 ```
+
+| Flag | Purpose |
+|---|---|
+| `--fleet <ID>` | Required. |
+| `--member <N\|BRANCH>` | Required. Member index (1-based) or branch name. |
+| `--force` | `merge` only. Override the passed-verification gate. This action is audited. |
 
 ### `review rollback`
 
@@ -1220,7 +1277,7 @@ For simple pane IO, prefer `unterm-cli session input` and `unterm-cli session te
 
 ### Race three agents on one bug, keep the best diff
 
-The full fleet loop, scripted: launch, wait until no member is still working, compare the attempts, merge the winner, clean up.
+The full fleet loop, scripted: launch, wait until no member is still working, verify every attempt, then let the ranked review pick the winner — no eyeballing required.
 
 ```sh
 #!/usr/bin/env bash
@@ -1236,20 +1293,35 @@ while unterm-cli --json fleet list \
   sleep 30
 done
 
-# Eyeball the three attempts.
+# Run tests in every member's worktree (command inferred: cargo test, npm test, …).
 for n in 1 2 3; do
-  echo "===== member $n ====="
-  unterm-cli review diff --fleet "$FLEET" --member "$n" --stat
+  unterm-cli review verify --fleet "$FLEET" --member "$n"
 done
 
-# Merge the winner (staged, not committed), discard the rest, tear down.
-unterm-cli review merge   --fleet "$FLEET" --member 2
-unterm-cli review discard --fleet "$FLEET" --member 1
-unterm-cli review discard --fleet "$FLEET" --member 3
+# Block until no verification is still pending or running.
+while unterm-cli --json review list \
+  | jq -e --arg f "$FLEET" \
+      '.fleets[] | select(.id == $f) | .members[]
+       | select(.verification.status == "pending" or .verification.status == "running")' \
+      >/dev/null; do
+  sleep 15
+done
+
+# rank 1 = best candidate: latest verification passed, smallest diff wins ties.
+BEST=$(unterm-cli --json review list \
+  | jq -r --arg f "$FLEET" \
+      '.fleets[] | select(.id == $f) | .members[] | select(.rank == 1) | .n')
+unterm-cli review diff --fleet "$FLEET" --member "$BEST" --stat
+
+# Merge the winner (gated on its passed verification), discard the rest, tear down.
+unterm-cli review merge --fleet "$FLEET" --member "$BEST"
+for n in 1 2 3; do
+  [ "$n" = "$BEST" ] || unterm-cli review discard --fleet "$FLEET" --member "$n"
+done
 unterm-cli fleet clean "$FLEET"
 ```
 
-Note the "wait" condition uses the cockpit state, which is exact when `agent enable-hooks` has been run — a member that stops to ask a question shows `waiting`, not `working`, so the loop exits and you can go answer it. `review merge` leaves the squash staged in the base repo; commit it with your own message.
+Note the "wait" condition uses the cockpit state, which is exact when `agent enable-hooks` has been run — a member that stops to ask a question shows `waiting`, not `working`, so the loop exits and you can go answer it. The merge is verification-gated: if even the rank-1 member's tests failed, `review merge` refuses rather than staging broken code (use `fleet retry` to give that member another attempt in the same worktree, or `--force` if you know better — the override is audited). `review merge` leaves the squash staged in the base repo; commit it with your own message.
 
 ### Notify when any agent wants attention
 

@@ -6,7 +6,7 @@ kicker: Docs / MCP reference
 date: 2026-07-20
 ---
 
-This page documents every JSON-RPC method an MCP client can call against a running Unterm instance — 97 methods across 21 namespaces as of v0.55. The dispatch table lives in `wezterm-gui/src/mcp/handler.rs`; the connection handshake is in `wezterm-gui/src/mcp/server.rs`. Both are MIT-licensed in the public repo. For a machine-readable version of this page, call [`meta.surface`](#meta) or run `unterm-cli reference` in any shell.
+This page documents every JSON-RPC method an MCP client can call against a running Unterm instance — 99 methods across 21 namespaces as of v0.55. The dispatch table lives in `wezterm-gui/src/mcp/handler.rs`; the connection handshake is in `wezterm-gui/src/mcp/server.rs`. Both are MIT-licensed in the public repo. For a machine-readable version of this page, call [`meta.surface`](#meta) or run `unterm-cli reference` in any shell.
 
 For higher-level patterns (director/worker, multi-pane orchestration, recording for review) see the [agent integration guide](agent-integration). This page is the wire-level companion — the doc you check when your client got back `-32603` and you want to know which field you fat-fingered.
 
@@ -894,7 +894,7 @@ Every tracked agent joined with its tab/window location, sorted waiting-first, s
 
 Run one task across N agents in N isolated git worktrees, one tab each. `fleet.launch` adds a worktree + branch per member beside the repo (`../<repo>.fleet/<fleet-id>-<n>/`, branch `fleet/<fleet-id>-<n>`), opens a tab per member, and types the agent's launch command into the fresh shell. Fleets persist in `~/.unterm/fleets.json`, so the Review page and `fleet.clean` survive a restart — panes dying does *not* remove a fleet; the worktrees hold the work product until every member is merged or discarded.
 
-`fleet.launch` and `fleet.clean` are audited write operations — they appear in `session.audit_log` — and member panes are subject to the same PTY-write gate as `session.input` (the launch command is typed into a pane).
+`fleet.launch`, `fleet.retry`, and `fleet.clean` are audited write operations — they appear in `session.audit_log` — and member panes are subject to the same PTY-write gate as `session.input` (the launch command is typed into a pane).
 
 ### `fleet.launch`
 
@@ -923,7 +923,7 @@ Built-in launch commands: `claude <task>`, `codex <task>`, `gemini -i <task>`, `
  ]}
 ```
 
-`checkpoint` is the base HEAD sha — the review baseline for `review.diff`. A member whose tab failed to spawn gets `pane_id: null` but keeps its worktree.
+`checkpoint` is the base HEAD sha — the review baseline for `review.diff`. A member whose tab failed to spawn gets `pane_id: null` but keeps its worktree — relaunch it with `fleet.retry`.
 
 ### `fleet.list`
 
@@ -931,7 +931,7 @@ All fleets with member branches, worktrees, and review states.
 
 **Params:** none.
 
-**Returns:** `{ fleets: [...] }` — same fleet shape as `review.list` below, i.e. each member carries `n` (1-based index), `agent`, `branch`, `worktree`, `checkpoint`, `review` (`"pending"` / `"merged"` / `"discarded"`), `pane_id`, and `agent_state` (live cockpit state, or `null` if the pane is gone).
+**Returns:** `{ fleets: [...] }` — same fleet shape as `review.list` below, i.e. each member carries `n` (1-based index), `agent`, `branch`, `worktree`, `checkpoint`, `review` (`"pending"` / `"merged"` / `"discarded"`), `pane_id`, `agent_state` (live cockpit state, or `null` if the pane is gone), `attempt` (launch count, incremented by `fleet.retry`), `last_started_at`, and `last_launch_error` (most recent pane-spawn failure; `null` after a successful launch/retry).
 
 ### `fleet.clean`
 
@@ -941,13 +941,33 @@ Remove a fleet: kill surviving panes, remove worktrees and branches, drop the re
 
 **Returns:** `{ ok: true, id }`
 
+### `fleet.retry`
+
+Restart a failed or stalled member in its **existing** isolated worktree — after a crashed agent, a closed tab, or a member whose tab never spawned. The worktree, branch, and checkpoint are retained, along with every committed, staged, unstaged, and untracked change; only the pane association is replaced, so a retry never deletes or resets work. The member's previous pane (if any) is closed before the new agent starts, so two processes never edit the same worktree concurrently. Audited.
+
+Only `pending` members can be retried — `merged`/`discarded` ones error. The call also errors if the worktree no longer exists or is no longer on the member's fleet branch. The new attempt is persisted *before* the tab is spawned: if spawning fails, the member shows `pane_id: null` with the error in `last_launch_error`, and can simply be retried again.
+
+**Params:**
+
+| Name | Type | Required | Description |
+|---|---|---|---|
+| `fleet_id` | string | yes | Fleet id |
+| `member` | string | yes | 1-based member index (`"2"`) or branch name / suffix |
+
+**Returns:** the updated member record — the `fleet.launch` member shape plus `attempt` (launch count, incremented on every retry), `last_started_at` (RFC 3339 timestamp of the latest launch/retry), and `last_launch_error` (`null` after a successful retry).
+
+```json
+{"jsonrpc":"2.0","id":12,"method":"fleet.retry",
+ "params":{"fleet_id":"fix-the-login-bug","member":"1"}}
+```
+
 ---
 
 ## Review
 
 Checkpoints, diffs, rollback, and merge for agent-produced changes. Two kinds of baseline feed this namespace: fleet members diff against their worktree's start commit, and "loose" (non-fleet) agent runs get automatic checkpoints — whenever the cockpit sees an agent start working in a repo, it snapshots the entire worktree (tracked + untracked) as a dangling commit via a temporary index, without ever touching HEAD, the real index, or the files. The last 20 checkpoints per repo are remembered in `~/.unterm/checkpoints.json`, debounced to one per minute.
 
-`review.rollback` and `review.merge` are **audited write operations** — every call lands in `session.audit_log` with the repo/fleet detail, and both mutate the working tree, so treat them with the same care as any policy-gated write. `review.rollback` is destructive by design; confirm with the user before calling it.
+`review.rollback`, `review.merge`, and `review.verify` are **audited operations** — every call lands in `session.audit_log` with the repo/fleet detail. `review.rollback` and `review.merge` mutate the working tree, so treat them with the same care as any policy-gated write; `review.verify` executes a command in the member's worktree. `review.rollback` is destructive by design; confirm with the user before calling it.
 
 ### `review.list`
 
@@ -955,7 +975,7 @@ Review overview — everything the Review page needs in one call.
 
 **Params:** none.
 
-**Returns:** `{ fleets: [...], checkpoints: [{ repo, checkpoints: [{ sha, at, agent, pane_id }] }] }` — fleets in the shape described under `fleet.list`, checkpoints newest-first per repo.
+**Returns:** `{ fleets: [...], checkpoints: [{ repo, checkpoints: [{ sha, at, agent, pane_id }] }] }` — fleets in the shape described under `fleet.list`, checkpoints newest-first per repo. Unlike `fleet.list`, each member is additionally enriched with its latest `verification` record (or `null`), a deterministic `score` (verification status dominates; smaller diffs break ties), and a 1-based `rank` within the fleet — this is also how you poll a `review.verify` run for completion.
 
 ### `review.diff`
 
@@ -977,6 +997,41 @@ Line-level diff of a worktree against a checkpoint. Untracked files are synthesi
  "params":{"fleet_id":"fix-the-login-bug","member":"1"}}
 ```
 
+### `review.verify`
+
+Run a validation command asynchronously in a fleet member's isolated worktree — the evidence behind the `review.merge` gate. With no `command`, a conventional one is inferred from a small, auditable set of project markers; Unterm never executes scripts discovered by scanning source files:
+
+| Marker | Inferred command |
+|---|---|
+| `Cargo.toml` | `cargo test` |
+| `go.mod` | `go test ./...` |
+| `pnpm-lock.yaml` / `yarn.lock` / `package-lock.json` or `package.json` | `pnpm test` / `yarn test` / `npm test` — only if `package.json` has a non-empty `scripts.test` |
+| `uv.lock` | `uv run pytest` |
+| `pyproject.toml`, `pytest.ini`, or `setup.cfg` | `python -m pytest` |
+| `pom.xml` | `mvn test` |
+| `gradlew` / `gradlew.bat` | `./gradlew test` (`gradlew.bat test` on Windows) |
+| `*.sln` / `*.csproj` | `dotnet test` |
+
+If nothing matches, the call errors and asks for an explicit command.
+
+The call returns immediately with a `pending` record; the command runs on a worker thread in the worktree (via `sh -c` on Unix, `cmd.exe /C` on Windows). Status flows `pending → running → passed | failed | timed_out` — `passed` means exit code 0. On timeout the **entire process tree** is killed (process-group `SIGKILL` on Unix, `taskkill /T /F` on Windows), so hung test suites can't leak children. The captured stdout+stderr log is bounded to the last 64 KiB. Records persist in `~/.unterm/verifications.json`; runs left in-flight when Unterm exits are marked `failed` on the next start. Audited.
+
+**Params:**
+
+| Name | Type | Required | Description |
+|---|---|---|---|
+| `fleet_id` | string | yes | Fleet id |
+| `member` | string | yes | 1-based member index or branch name / suffix |
+| `command` | string | no | Explicit validation command; takes precedence over inference. Must be non-empty |
+| `timeout_secs` | number | no | Default 900 (15 min), clamped to 1–7200 (2 h) |
+
+**Returns:** the verification record: `{ id, fleet_id, member, worktree, command, inferred, status, exit_code, duration_ms, log, started_at, finished_at }` — `member` is normalized to the branch name, `inferred` says whether the command came from marker inference. Poll `review.list` for completion: each member there carries its latest `verification` record.
+
+```json
+{"jsonrpc":"2.0","id":13,"method":"review.verify",
+ "params":{"fleet_id":"fix-the-login-bug","member":"1","timeout_secs":600}}
+```
+
 ### `review.rollback`
 
 Restore a repo's worktree to a checkpoint: files *and* untracked state become exactly the snapshot's content (`git clean -fd` removes files that didn't exist then). Destructive for anything newer than the checkpoint — confirm first. The sha is validated before anything runs, so a typo can't half-execute. Audited.
@@ -989,9 +1044,11 @@ Restore a repo's worktree to a checkpoint: files *and* untracked state become ex
 
 Squash-merge a fleet member's branch into the base repo, leaving the result **staged, not committed** — the user owns the commit. The base repo must be clean, or the call errors. Marks the member `merged`. Audited.
 
-**Params:** `fleet_id` (string, required), `member` (string, required — index or branch name).
+**Verification gate:** a normal merge requires the member's *latest* verification (`review.verify`) to be `passed` — an unverified member, or one whose latest run is `failed`/`timed_out`/still running, errors instead of merging. `force: true` overrides the gate and merges anyway; the override is deliberately surfaced only through this audited API/CLI path (the Review UI stays gated), and the response records both the override and whatever verification record exists.
 
-**Returns:** `{ ok: true, fleet, branch, staged_in }`
+**Params:** `fleet_id` (string, required), `member` (string, required — index or branch name), `force` (bool, optional, default `false` — merge without a passed verification).
+
+**Returns:** `{ ok: true, fleet, branch, base_head, member_head, merged_at, staged_files, staged_in, verification, verification_forced }` — `verification` is the verification record the merge was gated on (the latest record or `null` when forced without one), `verification_forced` echoes `force`.
 
 ### `review.discard`
 
@@ -1079,8 +1136,8 @@ Machine-readable capability map: one key per namespace, each value a list of ful
   "exec": ["exec.run", "exec.send", "exec.run_wait", "exec.status", "exec.cancel"],
   "agent": ["agent.identify", "agent.whoami", ..., "agent.status", "agent.signal"],
   "cockpit": ["cockpit.inbox"],
-  "fleet": ["fleet.launch", "fleet.list", "fleet.clean"],
-  "review": ["review.list", "review.diff", "review.rollback", "review.merge", "review.discard"],
+  "fleet": ["fleet.launch", "fleet.list", "fleet.clean", "fleet.retry"],
+  "review": ["review.list", "review.diff", "review.verify", "review.rollback", "review.merge", "review.discard"],
   "...": ["..."]
 }
 ```
@@ -1202,6 +1259,7 @@ Every method, alphabetical, with one-line descriptions. Use this as a flat looku
 | `fleet.clean` | Remove a fleet's worktrees, branches, and panes once reviewed |
 | `fleet.launch` | One task × N agents × N isolated git worktrees, one tab each |
 | `fleet.list` | All fleets with member branches, worktrees, and review states |
+| `fleet.retry` | Restart a pending fleet member in its existing worktree without losing changes |
 | `ghost.debug` | Read-only ghost-text predictor state for a pane |
 | `instance.focus` | Raise this instance's window to the foreground (stub on v0.9) |
 | `instance.info` | This instance's own metadata, including `auth_token` |
@@ -1231,8 +1289,9 @@ Every method, alphabetical, with one-line descriptions. Use this as a flat looku
 | `review.diff` | Line-level diff of a worktree vs a checkpoint, untracked files included |
 | `review.discard` | Mark a fleet member's work as discarded (removed on `fleet.clean`) |
 | `review.list` | Review overview: fleets + auto checkpoints per repo |
-| `review.merge` | Squash-merge a fleet member into the base repo, leaving it staged (audited write) |
+| `review.merge` | Squash-merge a fleet member into the base repo, leaving it staged (verification-gated, audited write) |
 | `review.rollback` | Restore a repo's worktree to a checkpoint (destructive, audited write) |
+| `review.verify` | Run an async verification command in a fleet member's worktree (audited) |
 | `screen.cursor` | Cursor position and shape |
 | `screen.detect_errors` | Hardcoded error-pattern scan over the visible viewport |
 | `screen.read` | Visible viewport with absolute row indices |
@@ -1278,4 +1337,4 @@ Every method, alphabetical, with one-line descriptions. Use this as a flat looku
 | `workspace.restore` | Open new tabs from a saved workspace; supports dry-run planning |
 | `workspace.save` | Snapshot the current set of panes |
 
-That's 97 methods plus `auth.login`. If you find a method in the codebase that isn't listed here, file an issue — the `MCP_METHODS` table behind `meta.surface` (dispatched in `wezterm-gui/src/mcp/handler.rs`) is the source of truth and this page should track it.
+That's 99 methods plus `auth.login`. If you find a method in the codebase that isn't listed here, file an issue — the `MCP_METHODS` table behind `meta.surface` (dispatched in `wezterm-gui/src/mcp/handler.rs`) is the source of truth and this page should track it.

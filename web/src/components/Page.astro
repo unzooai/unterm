@@ -89,10 +89,10 @@ const demoFlow = [
 // features but with a "v0.12" version chip and a denser tech-paragraph
 // body (these are about what changed, not what exists).
 const whatsnew = [
+  { v: "v0.57", title: "whatsnew.verify57.title",   body: "whatsnew.verify57.body" },
   { v: "v0.55", title: "whatsnew.cockpit55.title",  body: "whatsnew.cockpit55.body" },
   { v: "v0.54", title: "whatsnew.perf54.title",     body: "whatsnew.perf54.body" },
   { v: "v0.53", title: "whatsnew.composer53.title", body: "whatsnew.composer53.body" },
-  { v: "v0.52", title: "whatsnew.agents52.title",   body: "whatsnew.agents52.body" },
 ];
 
 // Agent Cockpit (v0.55 headline): five pillars, one band. Icons stay
@@ -120,7 +120,7 @@ const principles = [
 // GitHub Releases.  `valueRaw` is rendered as-is (mixed locale fragments like
 // version + date); plain `value` is an i18n key that goes through t().
 const tldrRows = [
-  { label: "tldr.version",         valueRaw: "v0.56.0 · 2026-07-21 · MIT" },
+  { label: "tldr.version",         valueRaw: "v0.57.0 · 2026-07-21 · MIT" },
   { label: "tldr.bundled_agents",  value:    "tldr.bundled_agents.value" },
   { label: "tldr.price",        value: "tldr.price.value" },
   { label: "tldr.platforms",    value: "tldr.platforms.value" },
@@ -219,13 +219,13 @@ const cmpRows = [
 // are i18n keys. This is the "what does it actually expose" section the
 // thin 8-card Features grid only gestures at.
 const capStats = [
-  { n: "97", label: "cap.stat.methods" },
+  { n: "99", label: "cap.stat.methods" },
   { n: "21", label: "cap.stat.namespaces" },
   { n: "32", label: "cap.stat.cli" },
   { n: "4",  label: "cap.stat.surfaces" },
 ];
 const capabilities = [
-  { icon: "🛩️", title: "cap.cockpit.title", body: "cap.cockpit.body", meta: "cockpit · fleet.* · review.* · 11", items: "agent.status · agent.signal · cockpit.inbox · fleet.launch · fleet.clean · review.diff · review.merge · review.rollback", wide: true },
+  { icon: "🛩️", title: "cap.cockpit.title", body: "cap.cockpit.body", meta: "cockpit · fleet.* · review.* · 13", items: "agent.status · cockpit.inbox · fleet.launch · fleet.retry · review.verify · review.diff · review.merge · review.rollback", wide: true },
   { icon: "🪟", title: "cap.session.title",  body: "cap.session.body",  meta: "session.* · 26", items: "create · split · focus · resize · input · destroy · history · idle · cwd" },
   { icon: "👁️", title: "cap.screen.title",   body: "cap.screen.body",   meta: "screen.* · 7",   items: "text · scrollback_text · search · cursor · detect_errors · scroll" },
   { icon: "▶️", title: "cap.exec.title",     body: "cap.exec.body",     meta: "exec.* · 6",     items: "run · run_wait · send · status · cancel · signal.send" },
@@ -241,7 +241,7 @@ const capabilities = [
 ];
 
 const dlBaseUrl = "https://github.com/zhitongblog/unterm/releases";
-const releaseTag = "v0.56.0";
+const releaseTag = "v0.57.0";
 
 // Download links use the version pinned for this site build, not
 // `stats.release`. The stats call can legitimately see the previous GitHub
@@ -900,7 +900,7 @@ drwxr-xr-x 6 alexlee staff   192  architecture.md
 <!-- ============== COMPLETE CAPABILITY MAP ============== -->
 <!-- The full control surface, grouped by family. The thin Features grid
      above names the four surfaces; this section enumerates what those
-     surfaces actually expose: 97 MCP methods across 21 namespaces + 32
+     surfaces actually expose: 99 MCP methods across 21 namespaces + 32
      CLI commands. Each card is one namespace/feature family with its
      method count chip and representative call names (never translated). -->
 <section id="capabilities" class="py-20 border-t border-notion-border bg-gradient-to-b from-notion-bg via-notion-bg/10 to-notion-bg">
