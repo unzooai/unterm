@@ -27,6 +27,7 @@ use crate::termwindow::{UIItem, UIItemType};
 use crate::utilsprites::RenderMetrics;
 use config::ui_tokens;
 use config::{Dimension, DimensionContext};
+use mux::tab::TabId;
 use mux::Mux;
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
@@ -53,9 +54,9 @@ pub struct LeftTabBar {
     /// Tab count captured during the last sidebar paint. Width calculations
     /// reuse this value instead of querying the mux on every layout pass.
     pub last_tab_count: usize,
-    /// Last active tab index seen by paint. Active changes auto-scroll
+    /// Last active tab identity seen by paint. Active changes auto-scroll
     /// into view; ordinary repaints preserve the user's manual scroll.
-    pub last_active_idx: Option<usize>,
+    last_scrolled_active_tab_id: Option<TabId>,
     /// Project identities explicitly collapsed by the user. This is window
     /// state rather than render state, so it survives repaints, resizing and
     /// theme changes without introducing disk I/O on the GUI thread.
@@ -64,7 +65,12 @@ pub struct LeftTabBar {
     /// project was collapsed expands that project so the active tab cannot
     /// silently disappear; an explicit collapse of the current project is
     /// still preserved while that tab remains active.
-    last_active_tab_idx: Option<usize>,
+    last_active_tab_id: Option<TabId>,
+    /// Stable identity of the logical row at `scroll_top`. A pending copy is
+    /// consumed after a group toggle so inserting/removing rows above the
+    /// viewport does not move the user's visual reading position.
+    current_scroll_anchor: Option<ScrollAnchor>,
+    pending_scroll_anchor: Option<ScrollAnchor>,
     /// Cached layout for the main left-tab-bar container. Hover state is
     /// resolved during render, so the computed tree can be reused briefly
     /// across animation/paint ticks when the visible tab rows are unchanged.
@@ -107,6 +113,7 @@ const LEFT_TAB_BAR_CACHE_TTL: Duration = Duration::from_secs(5);
 #[derive(Clone)]
 struct RowInfo {
     tab_idx: usize,
+    tab_id: TabId,
     active: bool,
     title: String,
     /// AI agent currently driving the tab's active pane, if any.
@@ -126,6 +133,12 @@ struct RowInfo {
     agent_state: Option<crate::cockpit::AgentState>,
     /// OSC 9;4 progress state (running / error), when the program reports it.
     progress: Progress,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ScrollAnchor {
+    tab_id: Option<TabId>,
+    project_key: String,
 }
 
 /// A single rendered line in the sidebar's scroll window. Tabs are grouped
@@ -149,6 +162,37 @@ enum DisplayRow {
 enum DisplayRowKind {
     GroupHeader,
     Tab,
+}
+
+fn scroll_anchor_for_row(rows: &[DisplayRow], scroll_top: usize) -> Option<ScrollAnchor> {
+    match rows.get(scroll_top)? {
+        DisplayRow::GroupHeader { key, .. } => Some(ScrollAnchor {
+            tab_id: None,
+            project_key: key.clone(),
+        }),
+        DisplayRow::Tab(row) => Some(ScrollAnchor {
+            tab_id: Some(row.tab_id),
+            project_key: normalized_project_key(
+                row.cwd_path
+                    .as_deref()
+                    .unwrap_or_else(|| row.dir.as_deref().unwrap_or("~")),
+            ),
+        }),
+    }
+}
+
+fn scroll_top_for_anchor(rows: &[DisplayRow], anchor: &ScrollAnchor) -> Option<usize> {
+    if let Some(tab_id) = anchor.tab_id {
+        if let Some(idx) = rows
+            .iter()
+            .position(|row| matches!(row, DisplayRow::Tab(tab) if tab.tab_id == tab_id))
+        {
+            return Some(idx);
+        }
+    }
+    rows.iter().position(
+        |row| matches!(row, DisplayRow::GroupHeader { key, .. } if key == &anchor.project_key),
+    )
 }
 
 /// Select a coherent viewport from the flattened group list. If scrolling
@@ -198,14 +242,6 @@ fn toggle_collapsed_project(collapsed: &mut HashSet<String>, project_key: &str) 
     }
 }
 
-fn project_parent_hint(path: &str) -> Option<String> {
-    let path = std::path::Path::new(path);
-    path.parent()
-        .and_then(|parent| parent.file_name())
-        .map(|name| name.to_string_lossy().to_string())
-        .filter(|name| !name.is_empty())
-}
-
 fn normalized_project_key(path: &str) -> String {
     let normalized = path.replace('\\', "/").trim_end_matches('/').to_string();
     if cfg!(windows) {
@@ -215,20 +251,63 @@ fn normalized_project_key(path: &str) -> String {
     }
 }
 
-fn duplicate_project_labels<'a>(labels: impl IntoIterator<Item = &'a str>) -> HashSet<String> {
-    let mut counts: HashMap<String, usize> = HashMap::new();
-    for label in labels {
-        let key = if cfg!(windows) {
-            label.to_lowercase()
+/// Return the shortest parent suffix that distinguishes equal leaf names.
+/// `clients/acme/app` and `archive/acme/app` therefore become
+/// `clients/acme/app` and `archive/acme/app`, rather than two `acme/app`s.
+fn shortest_unique_parent_hints(projects: &[(String, String)]) -> HashMap<String, String> {
+    let components = |path: &str| {
+        path.replace('\\', "/")
+            .trim_end_matches('/')
+            .split('/')
+            .filter(|part| !part.is_empty())
+            .map(str::to_string)
+            .collect::<Vec<_>>()
+    };
+    let comparable = |value: &str| {
+        if cfg!(windows) {
+            value.to_lowercase()
         } else {
-            label.to_string()
-        };
-        *counts.entry(key).or_default() += 1;
+            value.to_string()
+        }
+    };
+    let mut result = HashMap::new();
+
+    for (key, path) in projects {
+        let parts = components(path);
+        let Some(leaf) = parts.last() else { continue };
+        let peers: Vec<Vec<String>> = projects
+            .iter()
+            .filter_map(|(_, peer_path)| {
+                let peer = components(peer_path);
+                peer.last()
+                    .is_some_and(|name| comparable(name) == comparable(leaf))
+                    .then_some(peer)
+            })
+            .collect();
+        if peers.len() < 2 || parts.len() < 2 {
+            continue;
+        }
+
+        for suffix_len in 2..=parts.len() {
+            let suffix = parts[parts.len() - suffix_len..].join("/");
+            let matches = peers
+                .iter()
+                .filter(|peer| {
+                    peer.len() >= suffix_len
+                        && comparable(&peer[peer.len() - suffix_len..].join("/"))
+                            == comparable(&suffix)
+                })
+                .count();
+            if matches == 1 {
+                result.insert(
+                    key.clone(),
+                    parts[parts.len() - suffix_len..parts.len() - 1].join("/"),
+                );
+                break;
+            }
+        }
     }
-    counts
-        .into_iter()
-        .filter_map(|(label, count)| (count > 1).then_some(label))
-        .collect()
+    result
 }
 
 /// Approximate the compact UI font's usable character columns. Terminal cell
@@ -247,15 +326,24 @@ fn project_header_segments(
     label: &str,
     context: Option<&str>,
     sidebar_cols: usize,
+    count: usize,
 ) -> (Option<String>, String) {
     // The disclosure arrow, folder glyph, their margins, and the right-floated
     // count badge consume more real pixels than their glyph count suggests.
     // Reserve enough room for the chrome and badge while leaving common
     // project names (Documents, Downloads) readable at the default width.
-    // Context is already omitted unless it is needed to disambiguate a
-    // duplicate leaf name, so a 13-column reserve is sufficient here.
-    let text_cols = sidebar_cols.saturating_sub(13).max(7);
+    // Count width is dynamic: the 112pt minimum can otherwise overlap a
+    // three-digit badge. The remaining 10 columns cover disclosure/folder
+    // glyphs, padding, and the gap before the right-floated badge.
+    let badge_cols = count.to_string().len();
+    let text_cols = sidebar_cols.saturating_sub(10 + badge_cols).max(1);
     if let Some(context) = context.filter(|context| !context.is_empty()) {
+        if text_cols < 7 {
+            return (
+                None,
+                crate::termwindow::sidebar_text::ellipsize_middle(label, text_cols),
+            );
+        }
         let context_cols = (text_cols / 3).clamp(3, 8);
         let label_cols = text_cols.saturating_sub(context_cols + 1).max(4);
         (
@@ -310,6 +398,10 @@ fn clamp_scroll_top(scroll_top: usize, row_count: usize, visible_rows: usize) ->
         return 0;
     }
     scroll_top.min(row_count.saturating_sub(visible_rows.max(1)))
+}
+
+fn active_tab_changed(last: Option<TabId>, current: Option<TabId>) -> bool {
+    last != current
 }
 
 fn scroll_top_after_active_change(
@@ -560,11 +652,11 @@ impl crate::TermWindow {
 
     pub(crate) fn toggle_left_tab_bar_group(&mut self, project_key: &str) {
         let mut bar = self.left_tab_bar.borrow_mut();
+        bar.pending_scroll_anchor = bar.current_scroll_anchor.clone();
         toggle_collapsed_project(&mut bar.collapsed_projects, project_key);
-        // Preserve the user's viewport when a project is expanded/collapsed.
-        // The next paint already clamps stale offsets after the flattened row
-        // count changes, so resetting to zero only causes a disorienting jump
-        // to the top of long project lists.
+        // The next paint resolves this stable row identity against the rebuilt
+        // list. If the anchored tab was just collapsed, it falls back to its
+        // project header; this also handles viewports with a pinned header.
         bar.invalidate_cache();
         drop(bar);
         if let Some(window) = self.window.as_ref() {
@@ -779,6 +871,7 @@ impl crate::TermWindow {
                 };
                 RowInfo {
                     tab_idx: idx,
+                    tab_id: tab.tab_id(),
                     active: idx == active_idx,
                     title,
                     agent,
@@ -826,17 +919,17 @@ impl crate::TermWindow {
         // which each project first appears. A tab with no known cwd falls
         // under "~". Group headers are only emitted when more than one project
         // is open — a single-project window stays a clean flat list.
-        let mut groups: Vec<(String, String, Option<String>, Vec<&RowInfo>)> = Vec::new();
+        let mut groups: Vec<(String, String, String, Vec<&RowInfo>)> = Vec::new();
         let mut group_indices: HashMap<String, usize> = HashMap::new();
         for meta in &metas {
             let label = meta.dir.as_deref().unwrap_or("~");
             let key = normalized_project_key(meta.cwd_path.as_deref().unwrap_or(label));
-            let context = meta.cwd_path.as_deref().and_then(project_parent_hint);
+            let path = meta.cwd_path.as_deref().unwrap_or(label).to_string();
             if let Some(group_idx) = group_indices.get(&key).copied() {
                 groups[group_idx].3.push(meta);
             } else {
                 group_indices.insert(key.clone(), groups.len());
-                groups.push((key, label.to_string(), context, vec![meta]));
+                groups.push((key, label.to_string(), path, vec![meta]));
             }
         }
         let multi_group = groups.len() > 1;
@@ -844,8 +937,12 @@ impl crate::TermWindow {
         // for every project wastes the narrow sidebar and turns familiar
         // names such as Documents into cryptic breadcrumbs. Only retain the
         // parent when two distinct project roots share the same leaf name.
-        let duplicate_labels =
-            duplicate_project_labels(groups.iter().map(|(_, label, _, _)| label.as_str()));
+        let unique_parent_hints = shortest_unique_parent_hints(
+            &groups
+                .iter()
+                .map(|(key, _, path, _)| (key.clone(), path.clone()))
+                .collect::<Vec<_>>(),
+        );
 
         // Entering a project through a keyboard shortcut/search result must
         // reveal it. Do this only when the mux active tab changes: collapsing
@@ -860,11 +957,12 @@ impl crate::TermWindow {
         });
         {
             let mut bar = self.left_tab_bar.borrow_mut();
-            if bar.last_active_tab_idx != Some(active_idx) {
+            let active_tab_id = metas.get(active_idx).map(|meta| meta.tab_id);
+            if active_tab_changed(bar.last_active_tab_id, active_tab_id) {
                 if let Some(key) = &active_project_key {
                     bar.collapsed_projects.remove(key);
                 }
-                bar.last_active_tab_idx = Some(active_idx);
+                bar.last_active_tab_id = active_tab_id;
                 bar.invalidate_cache();
             }
             // Forget projects that no longer exist, avoiding unbounded state
@@ -875,16 +973,8 @@ impl crate::TermWindow {
 
         let mut display: Vec<DisplayRow> = vec![];
         let mut active_pos = 0usize;
-        for (key, label, context, members) in groups {
-            let label_key = if cfg!(windows) {
-                label.to_lowercase()
-            } else {
-                label.clone()
-            };
-            let context = duplicate_labels
-                .contains(&label_key)
-                .then_some(context)
-                .flatten();
+        for (key, label, _path, members) in groups {
+            let context = unique_parent_hints.get(&key).cloned();
             let collapsed =
                 multi_group && self.left_tab_bar.borrow().collapsed_projects.contains(&key);
             if multi_group {
@@ -908,6 +998,17 @@ impl crate::TermWindow {
             }
         }
         let row_count = display.len();
+        // A group toggle changes flattened indices. Restore the semantic row
+        // before normal active-row visibility logic runs; unchanged active
+        // tabs then leave this restored viewport untouched.
+        {
+            let mut bar = self.left_tab_bar.borrow_mut();
+            if let Some(anchor) = bar.pending_scroll_anchor.take() {
+                if let Some(restored) = scroll_top_for_anchor(&display, &anchor) {
+                    bar.scroll_top = restored;
+                }
+            }
+        }
         trace_mark("group");
 
         // Uniform rows make the scroll window arithmetic exact (headers share
@@ -936,18 +1037,19 @@ impl crate::TermWindow {
         // viewport and look like it was never added.
         let (mut scroll_top, active_changed) = {
             let mut bar = self.left_tab_bar.borrow_mut();
-            let active_changed = bar.last_active_idx != Some(active_pos);
+            let active_tab_id = metas.get(active_idx).map(|meta| meta.tab_id);
+            let active_changed = active_tab_changed(bar.last_scrolled_active_tab_id, active_tab_id);
             let next = scroll_top_after_active_change(
                 bar.scroll_top,
                 row_count,
                 visible_rows,
                 active_pos,
-                bar.last_active_idx,
+                (!active_changed).then_some(active_pos),
             );
             bar.row_count = row_count;
             bar.visible_rows = visible_rows;
             bar.scroll_top = next;
-            bar.last_active_idx = (active_pos < row_count).then_some(active_pos);
+            bar.last_scrolled_active_tab_id = active_tab_id;
             (next, active_changed)
         };
 
@@ -972,6 +1074,8 @@ impl crate::TermWindow {
             .iter()
             .filter_map(|idx| display.get(*idx))
             .collect();
+        self.left_tab_bar.borrow_mut().current_scroll_anchor =
+            scroll_anchor_for_row(&display, scroll_top);
         trace_mark("scroll");
 
         let cache_key = LeftTabBarCacheKey {
@@ -1076,8 +1180,12 @@ impl crate::TermWindow {
                             label.to_string()
                         };
                         let sidebar_cols = sidebar_text_columns(width, pt);
-                        let (context_disp, label_disp) =
-                            project_header_segments(&raw_label, context.as_deref(), sidebar_cols);
+                        let (context_disp, label_disp) = project_header_segments(
+                            &raw_label,
+                            context.as_deref(),
+                            sidebar_cols,
+                            *count,
+                        );
                         // Project name on the left; the tab count is demoted to a
                         // faint right-floated number instead of an inline
                         // "LABEL   10" string that read as debug clutter.
@@ -1478,7 +1586,7 @@ impl crate::TermWindow {
                             None
                         } else {
                             Some(ElementColors {
-                                border: BorderColor::new(LinearRgba::TRANSPARENT),
+                                border: row_border,
                                 bg: hover_bg.into(),
                                 text: fg.into(),
                             })
@@ -1807,11 +1915,12 @@ fn adaptive_sidebar_default_width(tab_count: usize) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::{
-        adaptive_sidebar_default_width, coherent_visible_indices, duplicate_project_labels,
+        active_tab_changed, adaptive_sidebar_default_width, coherent_visible_indices,
         gutter_limited_width_pts, normalized_project_key, project_header_segments,
-        project_parent_hint, scroll_top_after_active_change, scroll_top_for_active,
-        scroll_top_for_delta, scroll_top_for_thumb_top, sidebar_text_columns,
-        toggle_collapsed_project, DisplayRowKind,
+        scroll_anchor_for_row, scroll_top_after_active_change, scroll_top_for_active,
+        scroll_top_for_anchor, scroll_top_for_delta, scroll_top_for_thumb_top,
+        shortest_unique_parent_hints, sidebar_text_columns, toggle_collapsed_project, DisplayRow,
+        DisplayRowKind, RowInfo,
     };
 
     #[test]
@@ -1907,29 +2016,27 @@ mod tests {
     }
 
     #[test]
-    fn project_header_disambiguates_with_parent_directory() {
+    fn duplicate_project_names_use_the_shortest_unique_suffix() {
+        let hints = shortest_unique_parent_hints(&[
+            ("first".into(), "D:/clients/acme/app".into()),
+            ("second".into(), "D:/archive/acme/app".into()),
+            ("docs".into(), "D:/clients/docs".into()),
+        ]);
+        assert_eq!(hints.get("first").map(String::as_str), Some("clients/acme"));
         assert_eq!(
-            project_parent_hint("D:/clients/acme/app"),
-            Some("acme".into())
+            hints.get("second").map(String::as_str),
+            Some("archive/acme")
         );
-        assert_eq!(project_parent_hint("app"), None);
-    }
-
-    #[test]
-    fn parent_breadcrumb_is_reserved_for_duplicate_project_names() {
-        let duplicates = duplicate_project_labels(["app", "docs", "app", "terminal"]);
-        assert!(duplicates.contains("app"));
-        assert!(!duplicates.contains("docs"));
-        assert!(!duplicates.contains("terminal"));
+        assert!(!hints.contains_key("docs"));
     }
 
     #[test]
     fn project_header_reads_as_parent_then_project() {
-        let (parent, project) = project_header_segments("chengben", Some("dian"), 44);
+        let (parent, project) = project_header_segments("chengben", Some("dian"), 44, 2);
         assert_eq!(parent.as_deref(), Some("dian"));
         assert_eq!(project, "chengben");
 
-        let (parent, project) = project_header_segments("standalone", None, 40);
+        let (parent, project) = project_header_segments("standalone", None, 40, 1);
         assert_eq!(parent, None);
         assert_eq!(project, "standalone");
     }
@@ -1939,13 +2046,79 @@ mod tests {
         use termwiz::cell::unicode_column_width;
 
         let (parent, project) =
-            project_header_segments("very-long-project", Some("very-long-parent"), 31);
+            project_header_segments("very-long-project", Some("very-long-parent"), 31, 123);
         let parent = parent.expect("parent breadcrumb");
         assert!(unicode_column_width(&parent, None) <= 6);
         assert!(unicode_column_width(&project, None) <= 11);
         assert!(
             unicode_column_width(&parent, None) + 1 + unicode_column_width(&project, None) <= 18
         );
+    }
+
+    #[test]
+    fn minimum_width_drops_context_before_overlapping_a_three_digit_badge() {
+        use termwiz::cell::unicode_column_width;
+
+        let cols = sidebar_text_columns(112.0, 1.0);
+        let (parent, project) =
+            project_header_segments("long-project", Some("clients/acme"), cols, 999);
+        assert_eq!(parent, None);
+        assert!(unicode_column_width(&project, None) + 10 + 3 <= cols);
+    }
+
+    #[test]
+    fn active_identity_survives_close_and_reorder_at_the_same_index() {
+        assert!(active_tab_changed(Some(41), Some(52)));
+        assert!(!active_tab_changed(Some(52), Some(52)));
+    }
+
+    fn test_tab(tab_id: usize, cwd: &str) -> DisplayRow {
+        DisplayRow::Tab(RowInfo {
+            tab_idx: 0,
+            tab_id,
+            active: false,
+            title: String::new(),
+            agent: None,
+            foreground: None,
+            dir: Some("app".into()),
+            cwd_path: Some(cwd.into()),
+            has_unseen: false,
+            agent_state: None,
+            progress: Default::default(),
+        })
+    }
+
+    fn test_header(key: &str) -> DisplayRow {
+        DisplayRow::GroupHeader {
+            key: normalized_project_key(key),
+            label: "app".into(),
+            context: None,
+            count: 1,
+            active: false,
+            collapsed: false,
+        }
+    }
+
+    #[test]
+    fn semantic_anchor_keeps_a_tab_below_its_pinned_header() {
+        let original = vec![test_header("D:/code/app"), test_tab(42, "D:/code/app")];
+        // scroll_top=1 means the header is pinned into visual slot zero.
+        let anchor = scroll_anchor_for_row(&original, 1).expect("tab anchor");
+        let rebuilt = vec![
+            test_header("D:/other"),
+            test_tab(7, "D:/other"),
+            test_header("D:/code/app"),
+            test_tab(42, "D:/code/app"),
+        ];
+        assert_eq!(scroll_top_for_anchor(&rebuilt, &anchor), Some(3));
+    }
+
+    #[test]
+    fn semantic_anchor_falls_back_to_header_when_its_tab_is_collapsed() {
+        let original = vec![test_header("D:/code/app"), test_tab(42, "D:/code/app")];
+        let anchor = scroll_anchor_for_row(&original, 1).expect("tab anchor");
+        let collapsed = vec![test_header("D:/code/app")];
+        assert_eq!(scroll_top_for_anchor(&collapsed, &anchor), Some(0));
     }
 
     #[test]
