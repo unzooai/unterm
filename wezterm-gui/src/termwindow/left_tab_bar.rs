@@ -561,10 +561,10 @@ impl crate::TermWindow {
     pub(crate) fn toggle_left_tab_bar_group(&mut self, project_key: &str) {
         let mut bar = self.left_tab_bar.borrow_mut();
         toggle_collapsed_project(&mut bar.collapsed_projects, project_key);
-        // The flattened row count changes immediately. Reset to a safe origin;
-        // the next paint will clamp/auto-reveal the active row as appropriate.
-        bar.scroll_top = 0;
-        bar.last_active_idx = None;
+        // Preserve the user's viewport when a project is expanded/collapsed.
+        // The next paint already clamps stale offsets after the flattened row
+        // count changes, so resetting to zero only causes a disorienting jump
+        // to the top of long project lists.
         bar.invalidate_cache();
         drop(bar);
         if let Some(window) = self.window.as_ref() {
