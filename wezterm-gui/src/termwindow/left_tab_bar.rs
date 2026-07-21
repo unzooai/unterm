@@ -232,12 +232,14 @@ fn project_header_segments(
     context: Option<&str>,
     sidebar_cols: usize,
 ) -> (Option<String>, String) {
-    // Disclosure arrow, folder glyph, separators and the count badge consume
-    // roughly eight proportional-font columns outside these text segments.
-    let text_cols = sidebar_cols.saturating_sub(8).max(8);
+    // The disclosure arrow, folder glyph, their margins, and the right-floated
+    // count badge consume more real pixels than their glyph count suggests.
+    // Reserve an intentionally conservative budget so the breadcrumb can
+    // never paint beneath the badge at the common 190-220px sidebar widths.
+    let text_cols = sidebar_cols.saturating_sub(22).max(7);
     if let Some(context) = context.filter(|context| !context.is_empty()) {
-        let context_cols = (text_cols / 3).clamp(4, 10);
-        let label_cols = text_cols.saturating_sub(context_cols + 3).max(6);
+        let context_cols = (text_cols / 3).clamp(3, 8);
+        let label_cols = text_cols.saturating_sub(context_cols + 1).max(4);
         (
             Some(crate::termwindow::sidebar_text::ellipsize_middle(
                 context,
@@ -1085,7 +1087,7 @@ impl crate::TermWindow {
                         // as secondary text keeps the project name dominant.
                         if let Some(context) = context_disp {
                             header_kids.push(
-                                Element::new(&font, ElementContent::Text(format!("{context} / ")))
+                                Element::new(&font, ElementContent::Text(format!("{context}/")))
                                     .colors(ElementColors {
                                         border: BorderColor::default(),
                                         bg: LinearRgba::TRANSPARENT.into(),
@@ -1881,13 +1883,24 @@ mod tests {
 
     #[test]
     fn project_header_reads_as_parent_then_project() {
-        let (parent, project) = project_header_segments("chengben", Some("dian"), 31);
+        let (parent, project) = project_header_segments("chengben", Some("dian"), 44);
         assert_eq!(parent.as_deref(), Some("dian"));
         assert_eq!(project, "chengben");
 
-        let (parent, project) = project_header_segments("standalone", None, 20);
+        let (parent, project) = project_header_segments("standalone", None, 40);
         assert_eq!(parent, None);
         assert_eq!(project, "standalone");
+    }
+
+    #[test]
+    fn narrow_project_header_reserves_the_count_badge() {
+        use termwiz::cell::unicode_column_width;
+
+        let (parent, project) =
+            project_header_segments("very-long-project", Some("very-long-parent"), 31);
+        let parent = parent.expect("parent breadcrumb");
+        assert!(unicode_column_width(&parent, None) <= 3);
+        assert!(unicode_column_width(&project, None) <= 5);
     }
 
     #[test]
