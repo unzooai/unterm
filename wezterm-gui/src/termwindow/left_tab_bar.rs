@@ -215,12 +215,62 @@ fn normalized_project_key(path: &str) -> String {
     }
 }
 
+fn duplicate_project_labels<'a>(labels: impl IntoIterator<Item = &'a str>) -> HashSet<String> {
+    let mut counts: HashMap<String, usize> = HashMap::new();
+    for label in labels {
+        let key = if cfg!(windows) {
+            label.to_lowercase()
+        } else {
+            label.to_string()
+        };
+        *counts.entry(key).or_default() += 1;
+    }
+    counts
+        .into_iter()
+        .filter_map(|(label, count)| (count > 1).then_some(label))
+        .collect()
+}
+
 /// Approximate the compact UI font's usable character columns. Terminal cell
 /// metrics are intentionally wider than proportional chrome text and caused
 /// ordinary labels such as `powershell` to be truncated at the default width.
 fn sidebar_text_columns(width_px: f32, pt: f32) -> usize {
     let average_glyph_px = ui_tokens::UI_FONT_SIZE as f32 * 0.52 * pt;
     (width_px / average_glyph_px).floor().max(12.0) as usize
+}
+
+/// Build the two styled pieces of a project breadcrumb.  The parent comes
+/// first ("clients / app"), matching normal path reading order; the previous
+/// "app · clients" presentation looked like two unrelated labels and became
+/// especially ambiguous beside the right-aligned tab count.
+fn project_header_segments(
+    label: &str,
+    context: Option<&str>,
+    sidebar_cols: usize,
+) -> (Option<String>, String) {
+    // The disclosure arrow, folder glyph, their margins, and the right-floated
+    // count badge consume more real pixels than their glyph count suggests.
+    // Reserve enough room for the chrome and badge while leaving common
+    // project names (Documents, Downloads) readable at the default width.
+    // Context is already omitted unless it is needed to disambiguate a
+    // duplicate leaf name, so a 13-column reserve is sufficient here.
+    let text_cols = sidebar_cols.saturating_sub(13).max(7);
+    if let Some(context) = context.filter(|context| !context.is_empty()) {
+        let context_cols = (text_cols / 3).clamp(3, 8);
+        let label_cols = text_cols.saturating_sub(context_cols + 1).max(4);
+        (
+            Some(crate::termwindow::sidebar_text::ellipsize_middle(
+                context,
+                context_cols,
+            )),
+            crate::termwindow::sidebar_text::ellipsize_middle(label, label_cols),
+        )
+    } else {
+        (
+            None,
+            crate::termwindow::sidebar_text::ellipsize_middle(label, text_cols),
+        )
+    }
 }
 
 impl LeftTabBar {
@@ -511,10 +561,10 @@ impl crate::TermWindow {
     pub(crate) fn toggle_left_tab_bar_group(&mut self, project_key: &str) {
         let mut bar = self.left_tab_bar.borrow_mut();
         toggle_collapsed_project(&mut bar.collapsed_projects, project_key);
-        // The flattened row count changes immediately. Reset to a safe origin;
-        // the next paint will clamp/auto-reveal the active row as appropriate.
-        bar.scroll_top = 0;
-        bar.last_active_idx = None;
+        // Preserve the user's viewport when a project is expanded/collapsed.
+        // The next paint already clamps stale offsets after the flattened row
+        // count changes, so resetting to zero only causes a disorienting jump
+        // to the top of long project lists.
         bar.invalidate_cache();
         drop(bar);
         if let Some(window) = self.window.as_ref() {
@@ -790,6 +840,12 @@ impl crate::TermWindow {
             }
         }
         let multi_group = groups.len() > 1;
+        // Parent paths are disambiguators, not primary labels. Showing them
+        // for every project wastes the narrow sidebar and turns familiar
+        // names such as Documents into cryptic breadcrumbs. Only retain the
+        // parent when two distinct project roots share the same leaf name.
+        let duplicate_labels =
+            duplicate_project_labels(groups.iter().map(|(_, label, _, _)| label.as_str()));
 
         // Entering a project through a keyboard shortcut/search result must
         // reveal it. Do this only when the mux active tab changes: collapsing
@@ -820,6 +876,15 @@ impl crate::TermWindow {
         let mut display: Vec<DisplayRow> = vec![];
         let mut active_pos = 0usize;
         for (key, label, context, members) in groups {
+            let label_key = if cfg!(windows) {
+                label.to_lowercase()
+            } else {
+                label.clone()
+            };
+            let context = duplicate_labels
+                .contains(&label_key)
+                .then_some(context)
+                .flatten();
             let collapsed =
                 multi_group && self.left_tab_bar.borrow().collapsed_projects.contains(&key);
             if multi_group {
@@ -1011,13 +1076,8 @@ impl crate::TermWindow {
                             label.to_string()
                         };
                         let sidebar_cols = sidebar_text_columns(width, pt);
-                        let label_disp = crate::termwindow::sidebar_text::ellipsize_middle(
-                            &raw_label,
-                            // Reserve the disclosure arrow, count pill and
-                            // insets, but keep ordinary names such as WINDOWS
-                            // intact at the default 220px sidebar width.
-                            sidebar_cols.saturating_sub(6).max(8),
-                        );
+                        let (context_disp, label_disp) =
+                            project_header_segments(&raw_label, context.as_deref(), sidebar_cols);
                         // Project name on the left; the tab count is demoted to a
                         // faint right-floated number instead of an inline
                         // "LABEL   10" string that read as debug clutter.
@@ -1039,25 +1099,28 @@ impl crate::TermWindow {
                                 bg: LinearRgba::TRANSPARENT.into(),
                                 text: dim.mul_alpha(if *active { 0.9 } else { 0.72 }).into(),
                             }),
-                            Element::new(&font, ElementContent::Text(label_disp)).colors(
-                                ElementColors {
+                            Element::new(&font, ElementContent::Text("\u{f07b}".to_string()))
+                                .margin(BoxDimension {
+                                    left: Dimension::Pixels(0.),
+                                    right: Dimension::Pixels(6. * pt),
+                                    top: Dimension::Pixels(0.),
+                                    bottom: Dimension::Pixels(0.),
+                                })
+                                .colors(ElementColors {
                                     border: BorderColor::default(),
                                     bg: LinearRgba::TRANSPARENT.into(),
                                     text: if *active {
-                                        fg.mul_alpha(0.9).into()
+                                        chrome.focus_rail.mul_alpha(0.9).into()
                                     } else {
-                                        dim.mul_alpha(0.82).into()
+                                        dim.mul_alpha(0.68).into()
                                     },
-                                },
-                            ),
+                                }),
                         ];
-                        if let Some(context) = context {
-                            let context = crate::termwindow::sidebar_text::ellipsize_middle(
-                                context,
-                                sidebar_cols.saturating_sub(10).max(5),
-                            );
+                        // A path reads from parent to leaf.  Styling the parent
+                        // as secondary text keeps the project name dominant.
+                        if let Some(context) = context_disp {
                             header_kids.push(
-                                Element::new(&font, ElementContent::Text(format!("  · {context}")))
+                                Element::new(&font, ElementContent::Text(format!("{context}/")))
                                     .colors(ElementColors {
                                         border: BorderColor::default(),
                                         bg: LinearRgba::TRANSPARENT.into(),
@@ -1067,6 +1130,19 @@ impl crate::TermWindow {
                                     }),
                             );
                         }
+                        header_kids.push(
+                            Element::new(&font, ElementContent::Text(label_disp)).colors(
+                                ElementColors {
+                                    border: BorderColor::default(),
+                                    bg: LinearRgba::TRANSPARENT.into(),
+                                    text: if *active {
+                                        fg.into()
+                                    } else {
+                                        fg.mul_alpha(0.86).into()
+                                    },
+                                },
+                            ),
+                        );
                         header_kids.push(
                             Element::new(&font, ElementContent::Text(count.to_string()))
                                 .float(Float::Right)
@@ -1078,9 +1154,18 @@ impl crate::TermWindow {
                                 })
                                 .border_corners(rounded())
                                 .colors(ElementColors {
-                                    border: BorderColor::default(),
-                                    bg: LinearRgba::TRANSPARENT.into(),
-                                    text: dim.mul_alpha(if *active { 0.9 } else { 0.72 }).into(),
+                                    border: BorderColor::new(fg.mul_alpha(if *active {
+                                        0.14
+                                    } else {
+                                        0.08
+                                    })),
+                                    bg: chrome_colors::mix(
+                                        chrome.group_bg,
+                                        fg,
+                                        if is_light { 0.035 } else { 0.025 },
+                                    )
+                                    .into(),
+                                    text: dim.mul_alpha(if *active { 0.92 } else { 0.78 }).into(),
                                 }),
                         );
                         children.push(
@@ -1096,7 +1181,7 @@ impl crate::TermWindow {
                                 .margin(BoxDimension {
                                     left: Dimension::Pixels(0.),
                                     right: Dimension::Pixels(0.),
-                                    top: Dimension::Pixels(1. * pt),
+                                    top: Dimension::Pixels(0.),
                                     bottom: Dimension::Pixels(1. * pt),
                                 })
                                 .padding(BoxDimension {
@@ -1105,8 +1190,19 @@ impl crate::TermWindow {
                                     top: Dimension::Pixels(row_text_pad_v),
                                     bottom: Dimension::Pixels(row_text_pad_v),
                                 })
+                                .border(BoxDimension {
+                                    left: Dimension::Pixels(0.),
+                                    right: Dimension::Pixels(0.),
+                                    top: Dimension::Pixels(1. * pt),
+                                    bottom: Dimension::Pixels(0.),
+                                })
                                 .colors(ElementColors {
-                                    border: BorderColor::default(),
+                                    border: BorderColor {
+                                        left: LinearRgba::TRANSPARENT,
+                                        right: LinearRgba::TRANSPARENT,
+                                        top: fg.mul_alpha(if *active { 0.11 } else { 0.065 }),
+                                        bottom: LinearRgba::TRANSPARENT,
+                                    },
                                     bg: if *active {
                                         chrome.group_bg.into()
                                     } else {
@@ -1299,14 +1395,15 @@ impl crate::TermWindow {
                 // would create a second visible grey layer around the selected
                 // fill. Keep the row as one flat block and align text by giving
                 // every row the same transparent/active left border width.
+                // Child rows are inset beneath their project header.  The
+                // previous full-width rows aligned their ordinal with the
+                // disclosure arrow, making tabs and folders look like peers.
+                let grouped_tab_indent = if multi_group { 10. * pt } else { 0. };
+                let tab_row_width = (panel_content_width - 2. * pt - grouped_tab_indent).max(0.);
                 let title_line = Element::new(&font, ElementContent::Children(line_kids))
                     .display(DisplayType::Block)
-                    .min_width(Some(Dimension::Pixels(
-                        (panel_content_width - 2. * pt - 15. * pt).max(0.),
-                    )))
-                    .max_width(Some(Dimension::Pixels(
-                        (panel_content_width - 2. * pt - 15. * pt).max(0.),
-                    )))
+                    .min_width(Some(Dimension::Pixels((tab_row_width - 15. * pt).max(0.))))
+                    .max_width(Some(Dimension::Pixels((tab_row_width - 15. * pt).max(0.))))
                     .padding(BoxDimension {
                         left: Dimension::Pixels(7. * pt),
                         right: Dimension::Pixels(8. * pt),
@@ -1336,6 +1433,8 @@ impl crate::TermWindow {
                 let row_border = BorderColor {
                     left: if row.active {
                         accent
+                    } else if multi_group {
+                        fg.mul_alpha(if is_light { 0.10 } else { 0.065 })
                     } else {
                         LinearRgba::TRANSPARENT
                     },
@@ -1347,14 +1446,10 @@ impl crate::TermWindow {
                     Element::new(&font, ElementContent::Children(vec![title_line]))
                         .item_type(UIItemType::LeftTabBarTab(row.tab_idx))
                         .display(DisplayType::Block)
-                        .min_width(Some(Dimension::Pixels(
-                            (panel_content_width - 2. * pt).max(0.),
-                        )))
-                        .max_width(Some(Dimension::Pixels(
-                            (panel_content_width - 2. * pt).max(0.),
-                        )))
+                        .min_width(Some(Dimension::Pixels(tab_row_width)))
+                        .max_width(Some(Dimension::Pixels(tab_row_width)))
                         .margin(BoxDimension {
-                            left: Dimension::Pixels(0.),
+                            left: Dimension::Pixels(grouped_tab_indent),
                             right: Dimension::Pixels(0.),
                             top: Dimension::Pixels(1. * pt),
                             bottom: Dimension::Pixels(1. * pt),
@@ -1712,10 +1807,11 @@ fn adaptive_sidebar_default_width(tab_count: usize) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::{
-        adaptive_sidebar_default_width, coherent_visible_indices, gutter_limited_width_pts,
-        normalized_project_key, project_parent_hint, scroll_top_after_active_change,
-        scroll_top_for_active, scroll_top_for_delta, scroll_top_for_thumb_top,
-        sidebar_text_columns, toggle_collapsed_project, DisplayRowKind,
+        adaptive_sidebar_default_width, coherent_visible_indices, duplicate_project_labels,
+        gutter_limited_width_pts, normalized_project_key, project_header_segments,
+        project_parent_hint, scroll_top_after_active_change, scroll_top_for_active,
+        scroll_top_for_delta, scroll_top_for_thumb_top, sidebar_text_columns,
+        toggle_collapsed_project, DisplayRowKind,
     };
 
     #[test]
@@ -1817,6 +1913,39 @@ mod tests {
             Some("acme".into())
         );
         assert_eq!(project_parent_hint("app"), None);
+    }
+
+    #[test]
+    fn parent_breadcrumb_is_reserved_for_duplicate_project_names() {
+        let duplicates = duplicate_project_labels(["app", "docs", "app", "terminal"]);
+        assert!(duplicates.contains("app"));
+        assert!(!duplicates.contains("docs"));
+        assert!(!duplicates.contains("terminal"));
+    }
+
+    #[test]
+    fn project_header_reads_as_parent_then_project() {
+        let (parent, project) = project_header_segments("chengben", Some("dian"), 44);
+        assert_eq!(parent.as_deref(), Some("dian"));
+        assert_eq!(project, "chengben");
+
+        let (parent, project) = project_header_segments("standalone", None, 40);
+        assert_eq!(parent, None);
+        assert_eq!(project, "standalone");
+    }
+
+    #[test]
+    fn narrow_project_header_reserves_the_count_badge() {
+        use termwiz::cell::unicode_column_width;
+
+        let (parent, project) =
+            project_header_segments("very-long-project", Some("very-long-parent"), 31);
+        let parent = parent.expect("parent breadcrumb");
+        assert!(unicode_column_width(&parent, None) <= 6);
+        assert!(unicode_column_width(&project, None) <= 11);
+        assert!(
+            unicode_column_width(&parent, None) + 1 + unicode_column_width(&project, None) <= 18
+        );
     }
 
     #[test]
