@@ -215,6 +215,22 @@ fn normalized_project_key(path: &str) -> String {
     }
 }
 
+fn duplicate_project_labels<'a>(labels: impl IntoIterator<Item = &'a str>) -> HashSet<String> {
+    let mut counts: HashMap<String, usize> = HashMap::new();
+    for label in labels {
+        let key = if cfg!(windows) {
+            label.to_lowercase()
+        } else {
+            label.to_string()
+        };
+        *counts.entry(key).or_default() += 1;
+    }
+    counts
+        .into_iter()
+        .filter_map(|(label, count)| (count > 1).then_some(label))
+        .collect()
+}
+
 /// Approximate the compact UI font's usable character columns. Terminal cell
 /// metrics are intentionally wider than proportional chrome text and caused
 /// ordinary labels such as `powershell` to be truncated at the default width.
@@ -822,6 +838,12 @@ impl crate::TermWindow {
             }
         }
         let multi_group = groups.len() > 1;
+        // Parent paths are disambiguators, not primary labels. Showing them
+        // for every project wastes the narrow sidebar and turns familiar
+        // names such as Documents into cryptic breadcrumbs. Only retain the
+        // parent when two distinct project roots share the same leaf name.
+        let duplicate_labels =
+            duplicate_project_labels(groups.iter().map(|(_, label, _, _)| label.as_str()));
 
         // Entering a project through a keyboard shortcut/search result must
         // reveal it. Do this only when the mux active tab changes: collapsing
@@ -852,6 +874,15 @@ impl crate::TermWindow {
         let mut display: Vec<DisplayRow> = vec![];
         let mut active_pos = 0usize;
         for (key, label, context, members) in groups {
+            let label_key = if cfg!(windows) {
+                label.to_lowercase()
+            } else {
+                label.clone()
+            };
+            let context = duplicate_labels
+                .contains(&label_key)
+                .then_some(context)
+                .flatten();
             let collapsed =
                 multi_group && self.left_tab_bar.borrow().collapsed_projects.contains(&key);
             if multi_group {
@@ -1774,10 +1805,11 @@ fn adaptive_sidebar_default_width(tab_count: usize) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::{
-        adaptive_sidebar_default_width, coherent_visible_indices, gutter_limited_width_pts,
-        normalized_project_key, project_header_segments, project_parent_hint,
-        scroll_top_after_active_change, scroll_top_for_active, scroll_top_for_delta,
-        scroll_top_for_thumb_top, sidebar_text_columns, toggle_collapsed_project, DisplayRowKind,
+        adaptive_sidebar_default_width, coherent_visible_indices, duplicate_project_labels,
+        gutter_limited_width_pts, normalized_project_key, project_header_segments,
+        project_parent_hint, scroll_top_after_active_change, scroll_top_for_active,
+        scroll_top_for_delta, scroll_top_for_thumb_top, sidebar_text_columns,
+        toggle_collapsed_project, DisplayRowKind,
     };
 
     #[test]
@@ -1879,6 +1911,14 @@ mod tests {
             Some("acme".into())
         );
         assert_eq!(project_parent_hint("app"), None);
+    }
+
+    #[test]
+    fn parent_breadcrumb_is_reserved_for_duplicate_project_names() {
+        let duplicates = duplicate_project_labels(["app", "docs", "app", "terminal"]);
+        assert!(duplicates.contains("app"));
+        assert!(!duplicates.contains("docs"));
+        assert!(!duplicates.contains("terminal"));
     }
 
     #[test]
