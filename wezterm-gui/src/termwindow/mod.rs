@@ -564,6 +564,11 @@ pub struct TermWindow {
     pane_state: RefCell<HashMap<PaneId, PaneState>>,
     semantic_zones: HashMap<PaneId, SemanticZoneCache>,
 
+    /// True after a Ctrl+Left press was consumed as a macOS secondary click;
+    /// the remaining Drag/Release of that physical gesture is swallowed so it
+    /// cannot also trigger the default Left-button selection/link bindings.
+    swallow_left_gesture_after_secondary_click: bool,
+
     window_background: Vec<LoadedBackgroundLayer>,
 
     current_modifier_and_leds: (Modifiers, KeyboardLedStatus),
@@ -1009,6 +1014,7 @@ impl TermWindow {
             last_scroll_info: RenderableDimensions::default(),
             tab_state: RefCell::new(HashMap::new()),
             pane_state: RefCell::new(HashMap::new()),
+            swallow_left_gesture_after_secondary_click: false,
             current_mouse_buttons: vec![],
             current_mouse_capture: None,
             last_mouse_click: None,

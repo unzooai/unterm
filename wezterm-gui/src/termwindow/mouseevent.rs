@@ -30,10 +30,13 @@ fn is_secondary_click(kind: &WMEK, modifiers: ::window::Modifiers) -> bool {
 
     // AppKit normally translates Control-click into rightMouseDown, but some
     // pointing-device drivers deliver it as Control + leftMouseDown. Treat
-    // both forms as the standard macOS secondary-click gesture.
+    // both forms as the standard macOS secondary-click gesture. Exact match
+    // only: CTRL combined with further modifiers (CTRL|SHIFT window drag,
+    // user CTRL|ALT mouse bindings) is not a secondary click and must reach
+    // the input map.
     cfg!(target_os = "macos")
         && matches!(kind, WMEK::Press(MousePress::Left))
-        && modifiers.contains(::window::Modifiers::CTRL)
+        && modifiers == ::window::Modifiers::CTRL
 }
 
 fn should_run_right_click_quick_action(
@@ -2514,11 +2517,35 @@ impl crate::TermWindow {
                     },
                 };
 
+                // A Ctrl+Left press consumed as a secondary click swallows the
+                // rest of that physical gesture: its Drag/Release would
+                // otherwise fall through to the default Left-button bindings
+                // (extend selection, complete selection / open link) and make
+                // a single click both paste and act.
+                if self.swallow_left_gesture_after_secondary_click {
+                    match &event.kind {
+                        WMEK::Release(MousePress::Left) => {
+                            self.swallow_left_gesture_after_secondary_click = false;
+                            return;
+                        }
+                        WMEK::Move if event.mouse_buttons.contains(WMB::LEFT) => {
+                            return;
+                        }
+                        WMEK::Press(_) => {
+                            self.swallow_left_gesture_after_secondary_click = false;
+                        }
+                        _ => {}
+                    }
+                }
+
                 // Intercept a secondary click before the input map. Respect
                 // mouse-reporting applications, except when the configured
                 // bypass modifier (Shift by default) was held.
                 if should_run_right_click_quick_action(&event.kind, modifiers, mouse_reporting) {
                     log::info!("Unterm: secondary click detected, running copy/paste");
+                    if matches!(event.kind, WMEK::Press(MousePress::Left)) {
+                        self.swallow_left_gesture_after_secondary_click = true;
+                    }
                     self.right_click_copy_or_paste(&pane);
                     context.invalidate();
                     return;
@@ -3624,5 +3651,60 @@ mod right_click_contract_tests {
             is_secondary_click(&click, Modifiers::CTRL),
             cfg!(target_os = "macos")
         );
+    }
+}
+
+#[cfg(test)]
+mod secondary_click_tests {
+    use super::*;
+    use ::window::Modifiers;
+
+    #[test]
+    fn right_press_is_always_secondary() {
+        assert!(is_secondary_click(
+            &WMEK::Press(MousePress::Right),
+            Modifiers::NONE
+        ));
+        assert!(is_secondary_click(
+            &WMEK::Press(MousePress::Right),
+            Modifiers::CTRL | Modifiers::SHIFT
+        ));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn ctrl_left_press_is_secondary_only_with_exactly_ctrl() {
+        assert!(is_secondary_click(
+            &WMEK::Press(MousePress::Left),
+            Modifiers::CTRL
+        ));
+        // CTRL combined with further modifiers must reach the input map
+        // (CTRL|SHIFT window drag, user CTRL|ALT bindings).
+        assert!(!is_secondary_click(
+            &WMEK::Press(MousePress::Left),
+            Modifiers::CTRL | Modifiers::SHIFT
+        ));
+        assert!(!is_secondary_click(
+            &WMEK::Press(MousePress::Left),
+            Modifiers::CTRL | Modifiers::ALT
+        ));
+        assert!(!is_secondary_click(
+            &WMEK::Press(MousePress::Left),
+            Modifiers::NONE
+        ));
+    }
+
+    #[test]
+    fn mouse_reporting_apps_own_the_secondary_click() {
+        assert!(!should_run_right_click_quick_action(
+            &WMEK::Press(MousePress::Right),
+            Modifiers::NONE,
+            true
+        ));
+        assert!(should_run_right_click_quick_action(
+            &WMEK::Press(MousePress::Right),
+            Modifiers::NONE,
+            false
+        ));
     }
 }

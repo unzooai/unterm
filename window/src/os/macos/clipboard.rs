@@ -35,7 +35,10 @@ impl Clipboard {
                 return Ok(str.to_string());
             }
         }
-        anyhow::bail!("pasteboard read returned empty");
+        // An empty (or non-text) pasteboard is a normal nothing-to-paste
+        // state, not a read failure; report it as empty text so callers
+        // don't surface an error for it.
+        Ok(String::new())
     }
 
     /// Read the general pasteboard inside a Cocoa autorelease pool.

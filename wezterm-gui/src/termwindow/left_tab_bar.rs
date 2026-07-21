@@ -57,6 +57,17 @@ pub struct LeftTabBar {
     /// Last active tab identity seen by paint. Active changes auto-scroll
     /// into view; ordinary repaints preserve the user's manual scroll.
     last_scrolled_active_tab_id: Option<TabId>,
+    /// Display index the active row occupied at the last paint. When the
+    /// active tab is unchanged but row churn (reorder, tab closed above)
+    /// pushes a previously-visible active row out of the viewport, paint
+    /// re-reveals it; a user who scrolled away themselves (index unchanged)
+    /// is left alone.
+    last_active_display_pos: Option<usize>,
+    /// Memoized duplicate-leaf disambiguation hints, keyed by the exact
+    /// (project key, path) list of the last grouping pass. The O(P²) suffix
+    /// search only reruns when the set of open projects actually changes,
+    /// not on every paint tick.
+    unique_hints_cache: Option<(Vec<(String, String)>, HashMap<String, String>)>,
     /// Project identities explicitly collapsed by the user. This is window
     /// state rather than render state, so it survives repaints, resizing and
     /// theme changes without introducing disk I/O on the GUI thread.
@@ -288,6 +299,7 @@ fn shortest_unique_parent_hints(projects: &[(String, String)]) -> HashMap<String
             continue;
         }
 
+        let mut disambiguated = false;
         for suffix_len in 2..=parts.len() {
             let suffix = parts[parts.len() - suffix_len..].join("/");
             let matches = peers
@@ -303,8 +315,16 @@ fn shortest_unique_parent_hints(projects: &[(String, String)]) -> HashMap<String
                     key.clone(),
                     parts[parts.len() - suffix_len..parts.len() - 1].join("/"),
                 );
+                disambiguated = true;
                 break;
             }
+        }
+        if !disambiguated {
+            // This path's full component list is a suffix of a peer's
+            // (`/acme/app` vs `/work/acme/app`), so no suffix length is
+            // unique to it. Fall back to the immediate parent so the
+            // ambiguous pair still reads differently.
+            result.insert(key.clone(), parts[parts.len() - 2].clone());
         }
     }
     result
@@ -338,7 +358,10 @@ fn project_header_segments(
     let badge_cols = count.to_string().len();
     let text_cols = sidebar_cols.saturating_sub(10 + badge_cols).max(1);
     if let Some(context) = context.filter(|context| !context.is_empty()) {
-        if text_cols < 7 {
+        // Minimum composed width is context(3) + '/'(1) + label(4) = 8
+        // columns; below that the breadcrumb cannot fit and would spill
+        // into the right-floated count badge.
+        if text_cols < 8 {
             return (
                 None,
                 crate::termwindow::sidebar_text::ellipsize_middle(label, text_cols),
@@ -937,12 +960,21 @@ impl crate::TermWindow {
         // for every project wastes the narrow sidebar and turns familiar
         // names such as Documents into cryptic breadcrumbs. Only retain the
         // parent when two distinct project roots share the same leaf name.
-        let unique_parent_hints = shortest_unique_parent_hints(
-            &groups
-                .iter()
-                .map(|(key, _, path, _)| (key.clone(), path.clone()))
-                .collect::<Vec<_>>(),
-        );
+        let hint_inputs: Vec<(String, String)> = groups
+            .iter()
+            .map(|(key, _, path, _)| (key.clone(), path.clone()))
+            .collect();
+        let unique_parent_hints = {
+            let mut bar = self.left_tab_bar.borrow_mut();
+            match &bar.unique_hints_cache {
+                Some((inputs, hints)) if *inputs == hint_inputs => hints.clone(),
+                _ => {
+                    let hints = shortest_unique_parent_hints(&hint_inputs);
+                    bar.unique_hints_cache = Some((hint_inputs, hints.clone()));
+                    hints
+                }
+            }
+        };
 
         // Entering a project through a keyboard shortcut/search result must
         // reveal it. Do this only when the mux active tab changes: collapsing
@@ -1039,18 +1071,35 @@ impl crate::TermWindow {
             let mut bar = self.left_tab_bar.borrow_mut();
             let active_tab_id = metas.get(active_idx).map(|meta| meta.tab_id);
             let active_changed = active_tab_changed(bar.last_scrolled_active_tab_id, active_tab_id);
+            // Same active tab, but row churn (reorder, tab closed above)
+            // moved a previously-visible active row out of the viewport:
+            // re-reveal it. A user who scrolled away themselves leaves the
+            // active index unchanged and is not yanked back.
+            let shifted_out_of_view = !active_changed
+                && bar.last_active_display_pos != Some(active_pos)
+                && {
+                    let prev_visible = bar.last_active_display_pos.is_some_and(|pos| {
+                        pos >= bar.scroll_top
+                            && pos < bar.scroll_top.saturating_add(bar.visible_rows.max(1))
+                    });
+                    let now_visible = active_pos >= bar.scroll_top
+                        && active_pos < bar.scroll_top.saturating_add(visible_rows.max(1));
+                    prev_visible && !now_visible
+                };
+            let reveal_active = active_changed || shifted_out_of_view;
             let next = scroll_top_after_active_change(
                 bar.scroll_top,
                 row_count,
                 visible_rows,
                 active_pos,
-                (!active_changed).then_some(active_pos),
+                (!reveal_active).then_some(active_pos),
             );
             bar.row_count = row_count;
             bar.visible_rows = visible_rows;
             bar.scroll_top = next;
             bar.last_scrolled_active_tab_id = active_tab_id;
-            (next, active_changed)
+            bar.last_active_display_pos = Some(active_pos);
+            (next, reveal_active)
         };
 
         let row_kinds: Vec<DisplayRowKind> = display
@@ -2028,6 +2077,19 @@ mod tests {
             Some("archive/acme")
         );
         assert!(!hints.contains_key("docs"));
+    }
+
+    #[test]
+    fn suffix_contained_duplicate_falls_back_to_immediate_parent() {
+        // `/acme/app`'s full component list is a suffix of `/work/acme/app`,
+        // so no suffix length is unique to it; it must still get its
+        // immediate parent as a hint instead of rendering bare `app`.
+        let hints = shortest_unique_parent_hints(&[
+            ("short".into(), "/acme/app".into()),
+            ("long".into(), "/work/acme/app".into()),
+        ]);
+        assert_eq!(hints.get("short").map(String::as_str), Some("acme"));
+        assert_eq!(hints.get("long").map(String::as_str), Some("work/acme"));
     }
 
     #[test]

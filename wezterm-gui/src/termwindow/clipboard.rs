@@ -109,17 +109,23 @@ fn notify_paste(
     clip: String,
     show_feedback: bool,
 ) {
+    if clip.is_empty() {
+        // Empty clipboard: nothing to paste. Not a failure — no error toast,
+        // and no empty bracketed-paste markers sent to the application.
+        return;
+    }
     window.notify(TermWindowNotif::Apply(Box::new(move |myself| {
-        if let Some(pane) = myself
-            .pane_state(pane_id)
-            .overlay
-            .as_ref()
-            .map(|overlay| overlay.pane.clone())
-            .or_else(|| {
-                let mux = Mux::get();
-                mux.get_pane(pane_id)
-            })
-        {
+        // Non-inserting lookup: `pane_state()` would create a fresh entry
+        // keyed by a possibly-dead pane id that nothing ever cleans up.
+        let overlay_pane = myself
+            .pane_state
+            .borrow()
+            .get(&pane_id)
+            .and_then(|state| state.overlay.as_ref().map(|overlay| overlay.pane.clone()));
+        if let Some(pane) = overlay_pane.or_else(|| {
+            let mux = Mux::get();
+            mux.get_pane(pane_id)
+        }) {
             match pane.send_paste(&clip) {
                 Ok(()) if show_feedback => {
                     myself.show_ui_notice(crate::i18n::t("interaction.pasted"));
