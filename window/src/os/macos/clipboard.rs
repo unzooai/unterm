@@ -1,7 +1,7 @@
 use crate::macos::{nsstring, nsstring_to_str};
 use cocoa::appkit::{NSFilenamesPboardType, NSPasteboard, NSStringPboardType};
 use cocoa::base::*;
-use cocoa::foundation::NSArray;
+use cocoa::foundation::{NSArray, NSAutoreleasePool};
 
 pub struct Clipboard {
     pasteboard: id,
@@ -36,6 +36,21 @@ impl Clipboard {
             }
         }
         anyhow::bail!("pasteboard read returned empty");
+    }
+
+    /// Read the general pasteboard inside a Cocoa autorelease pool.
+    ///
+    /// Clipboard reads may be dispatched to a Rust worker thread to keep a
+    /// lazy pasteboard owner from blocking the GUI. Such threads do not have
+    /// AppKit's event-loop autorelease pool, so the pool must cover both
+    /// `generalPasteboard` and the complete read operation.
+    pub fn read_general() -> anyhow::Result<String> {
+        unsafe {
+            let pool = NSAutoreleasePool::new(nil);
+            let result = Self::new().read();
+            pool.drain();
+            result
+        }
     }
 
     pub fn write(&mut self, data: String) -> anyhow::Result<()> {

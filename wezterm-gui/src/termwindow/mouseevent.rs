@@ -23,6 +23,30 @@ use wezterm_dynamic::ToDynamic;
 use wezterm_term::input::{MouseButton, MouseEventKind as TMEK};
 use wezterm_term::{ClickPosition, LastMouseClick, StableRowIndex};
 
+fn is_secondary_click(kind: &WMEK, modifiers: ::window::Modifiers) -> bool {
+    if matches!(kind, WMEK::Press(MousePress::Right)) {
+        return true;
+    }
+
+    // AppKit normally translates Control-click into rightMouseDown, but some
+    // pointing-device drivers deliver it as Control + leftMouseDown. Treat
+    // both forms as the standard macOS secondary-click gesture.
+    cfg!(target_os = "macos")
+        && matches!(kind, WMEK::Press(MousePress::Left))
+        && modifiers.contains(::window::Modifiers::CTRL)
+}
+
+fn should_run_right_click_quick_action(
+    kind: &WMEK,
+    modifiers: ::window::Modifiers,
+    mouse_reporting: bool,
+) -> bool {
+    // Mouse-aware TUIs own an unmodified secondary click. Users can still
+    // force Unterm's copy/paste gesture with the configured bypass modifier
+    // (Shift by default), which has already disabled mouse_reporting here.
+    !mouse_reporting && is_secondary_click(kind, modifiers)
+}
+
 impl super::TermWindow {
     fn resolve_left_sidebar_resize_edge(&self, event: &MouseEvent) -> Option<UIItem> {
         // 14pt was a ~23px grab zone that bled the ↔ resize cursor far across
@@ -2490,15 +2514,14 @@ impl crate::TermWindow {
                     },
                 };
 
-                // Unterm: intercept right-click for native context menu
-                // before the input_map can handle it (WezTerm default: paste)
-                if !pane.is_mouse_grabbed() {
-                    if let WMEK::Press(MousePress::Right) = &event.kind {
-                        log::info!("Unterm: right-click detected, showing context menu");
-                        self.right_click_copy_or_paste(&pane);
-                        context.invalidate();
-                        return;
-                    }
+                // Intercept a secondary click before the input map. Respect
+                // mouse-reporting applications, except when the configured
+                // bypass modifier (Shift by default) was held.
+                if should_run_right_click_quick_action(&event.kind, modifiers, mouse_reporting) {
+                    log::info!("Unterm: secondary click detected, running copy/paste");
+                    self.right_click_copy_or_paste(&pane);
+                    context.invalidate();
+                    return;
                 }
 
                 if let Some(action) = self.input_map.lookup_mouse(event_trigger_type, mouse_mods) {
@@ -3557,4 +3580,49 @@ fn copy_image_to_clipboard_unix(path: &std::path::Path) -> anyhow::Result<()> {
         return Ok(());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod right_click_contract_tests {
+    use super::{is_secondary_click, should_run_right_click_quick_action};
+    use ::window::{Modifiers, MouseEventKind, MousePress};
+
+    #[test]
+    fn secondary_click_runs_quick_action_outside_mouse_reporting() {
+        let click = MouseEventKind::Press(MousePress::Right);
+        assert!(should_run_right_click_quick_action(
+            &click,
+            Modifiers::NONE,
+            false
+        ));
+    }
+
+    #[test]
+    fn unmodified_secondary_click_is_owned_by_mouse_aware_tui() {
+        let click = MouseEventKind::Press(MousePress::Right);
+        assert!(!should_run_right_click_quick_action(
+            &click,
+            Modifiers::NONE,
+            true
+        ));
+    }
+
+    #[test]
+    fn bypassed_mouse_reporting_restores_quick_action() {
+        let click = MouseEventKind::Press(MousePress::Right);
+        assert!(should_run_right_click_quick_action(
+            &click,
+            Modifiers::SHIFT,
+            false
+        ));
+    }
+
+    #[test]
+    fn control_left_click_matches_only_on_macos() {
+        let click = MouseEventKind::Press(MousePress::Left);
+        assert_eq!(
+            is_secondary_click(&click, Modifiers::CTRL),
+            cfg!(target_os = "macos")
+        );
+    }
 }
