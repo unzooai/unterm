@@ -233,6 +233,7 @@
   "cmp.page.cat.ai-oss": "开源 AI 终端",
   "cmp.page.cat.power": "重度用户终端",
   "cmp.page.cat.native": "原生终端",
+  "cmp.page.cat.headless": "无头多路复用器",
   "cmp.c.wezterm.title": "Unterm vs WezTerm：同一个 GPU 终端，多了一层 agent",
   "cmp.c.wezterm.desc": "Unterm 基于 WezTerm 构建，在其之上加了 MCP 服务、脚本 CLI 和一键装 AI agent，让 agent 能驱动终端。逐项对比。",
   "cmp.c.wezterm.tagline": "Unterm 复用 WezTerm 的渲染与复用器，再包上一层 WezTerm 本身没有的 agent 控制面。",
@@ -491,5 +492,14 @@
   "faq.q5": "Unterm 和 Warp 有什么区别？",
   "faq.a5": "Warp 把 AI 嵌在终端里、锁在封闭的云编排器后面，外部工具无法驱动它。Unterm 反过来：终端是开放的 MCP 可控表面，任何 agent（Claude Code、Codex、Gemini、Cursor、你自己的脚本）都能从外部驱动——它的 agent 编排是本地 git worktree 和开放 API，不是云服务。Unterm 采用 MIT 协议，永久免费，无需登录。",
   "faq.q6": "Unterm 支持哪些 AI 编码 agent？",
-  "faq.a6": "启动器可一键安装并接线 Claude Code、Codex CLI、Gemini CLI、OpenCode 和 Aider。座舱的状态检测还开箱识别 kimi、trae、cursor-agent；任何发出标准终端信号（标题、OSC 9/777、BEL）的 agent 都能获得基础跟踪。任何工具都可以通过“unterm-cli agent signal”接入。"
+  "faq.a6": "启动器可一键安装并接线 Claude Code、Codex CLI、Gemini CLI、OpenCode 和 Aider。座舱的状态检测还开箱识别 kimi、trae、cursor-agent；任何发出标准终端信号（标题、OSC 9/777、BEL）的 agent 都能获得基础跟踪。任何工具都可以通过“unterm-cli agent signal”接入。",
+  "cmp.c.rmux.title": "Unterm vs rmux:agent 的终端 vs agent 的 tmux",
+  "cmp.c.rmux.desc": "rmux 是带类型化 SDK 的无头 Rust 多路复用器,让代码驱动终端会话;Unterm 是 agent 通过 MCP 驱动的完整 GPU 终端——也是监督舱内 agent 的座舱。",
+  "cmp.c.rmux.tagline": "两者都让程序驱动终端。rmux 给你的代码一个库;Unterm 给你的 agent 一个协议——并给你一扇看着这一切的窗口。",
+  "cmp.c.rmux.intro": "rmux(public preview,v0.2)是 tmux 血统的 Rust 终端多路复用器:daemon 断线保活、约 90 条 tmux 兼容命令、Windows 原生 ConPTY、带结构化 pane 快照和 Playwright 式等待的类型化异步 SDK。它没有 GUI——是「代码使用终端」的基础设施,而且这件事做得确实好。",
+  "cmp.c.rmux.a1": "<strong>MCP,而不是 SDK。</strong>用 rmux 自动化意味着针对它的 Rust SDK 写代码、发代码。Unterm 暴露 99 个 MCP 方法——Claude Code、Codex、Gemini CLI 或任何 MCP 客户端零集成代码直接驱动真实终端,首次启动即被 <code>setup-ai</code> 自动发现。",
+  "cmp.c.rmux.a2": "<strong>还有反方向。</strong>rmux 是单向的:代码驱动终端。Unterm 同时看得见舱内正在跑的 agent——每个 pane 的实时状态、等待优先的收件箱、带验证门禁审阅的 worktree 编队。终端是座舱,不只是被驱动的目标。",
+  "cmp.c.rmux.a3": "<strong>一个人类真正用的终端。</strong>Unterm 是你整天工作的 GPU 窗口:右键复制粘贴手势、身份 profile、9 种界面语言、脱敏 markdown 会话记录。rmux 完全没有渲染面——配哪个终端 App 得你自己解决。",
+  "cmp.c.rmux.win": "rmux 的会话保活是真 tmux 级:SSH 断了 agent 的 shell 继续跑,任何地方重连。类型化快照和 wait_for_text 定位比文本匹配更精细;无头 daemon 也更适合根本不存在 GUI 的 CI 流水线。还能嵌进 Ratatui 应用。",
+  "cmp.c.rmux.verdict": "在 CI 或服务器上构建「代码拥有终端会话」的系统?rmux 是很强的原语。在桌面与 AI agent 并肩工作、终端也是你自己住的地方?那是 Unterm——对 agent 协议原生,对你座舱原生。"
 }

@@ -317,6 +317,7 @@
   "cmp.page.cat.ai-oss": "Open-source AI terminal",
   "cmp.page.cat.power": "Power-user terminal",
   "cmp.page.cat.native": "Native terminal",
+  "cmp.page.cat.headless": "Headless multiplexer",
   "cmp.c.wezterm.title": "Unterm vs WezTerm: the same GPU terminal, plus an agent layer",
   "cmp.c.wezterm.desc": "Unterm is built on WezTerm and adds an MCP server, a scripting CLI, and one-click AI-agent install so agents can drive the terminal. Feature-by-feature comparison.",
   "cmp.c.wezterm.tagline": "Unterm is built on WezTerm's renderer and mux — then wraps it in an agent-control surface WezTerm doesn't ship.",
@@ -495,5 +496,14 @@
   "faq.q5": "How is Unterm different from Warp?",
   "faq.a5": "Warp embeds AI inside the terminal behind a closed cloud orchestrator; external tools cannot drive it. Unterm inverts that: the terminal is an open, MCP-controllable surface that any agent (Claude Code, Codex, Gemini, Cursor, your own script) drives from outside — and its agent orchestration is local git worktrees and open APIs, not a cloud service. Unterm is MIT-licensed, free forever, with no login.",
   "faq.q6": "Which AI coding agents does Unterm support?",
-  "faq.a6": "The launcher installs and wires Claude Code, Codex CLI, Gemini CLI, OpenCode, and Aider with one click each. The cockpit’s state detection additionally recognizes kimi, trae, and cursor-agent out of the box, and any agent that emits standard terminal signals (titles, OSC 9/777, BEL) gets basic tracking for free. Anything can integrate via “unterm-cli agent signal”."
+  "faq.a6": "The launcher installs and wires Claude Code, Codex CLI, Gemini CLI, OpenCode, and Aider with one click each. The cockpit’s state detection additionally recognizes kimi, trae, and cursor-agent out of the box, and any agent that emits standard terminal signals (titles, OSC 9/777, BEL) gets basic tracking for free. Anything can integrate via “unterm-cli agent signal”.",
+  "cmp.c.rmux.title": "Unterm vs rmux: the agent's terminal vs the agent's tmux",
+  "cmp.c.rmux.desc": "rmux is a headless Rust multiplexer with a typed SDK for driving terminal sessions from code. Unterm is a full GPU terminal that agents drive over MCP — and a cockpit for supervising the agents inside it.",
+  "cmp.c.rmux.tagline": "Both let programs drive a terminal. rmux gives your code a library; Unterm gives your agent a protocol — and gives you a window to watch it all.",
+  "cmp.c.rmux.intro": "rmux (public preview, v0.2) is a Rust terminal multiplexer in the tmux lineage: a daemon that keeps sessions alive across disconnects, ~90 tmux-compatible commands, native Windows ConPTY, and a typed async SDK with structured pane snapshots and Playwright-style waits. It has no GUI — it is infrastructure for code that uses terminals, and it's genuinely good at that.",
+  "cmp.c.rmux.a1": "<strong>MCP, not an SDK.</strong> rmux automation means writing and shipping code against its Rust SDK. Unterm exposes 99 MCP methods — Claude Code, Codex, Gemini CLI, or any MCP client drives the real terminal with zero integration code, auto-discovered on first launch by <code>setup-ai</code>.",
+  "cmp.c.rmux.a2": "<strong>The other direction too.</strong> rmux is one-way: code drives terminal. Unterm also watches the agents running inside it — live per-pane state, the waiting-first Inbox, worktree fleets with verification-gated review. The terminal is a cockpit, not just a target.",
+  "cmp.c.rmux.a3": "<strong>A terminal humans use.</strong> Unterm is the GPU window you work in all day: right-click copy/paste gesture, identity profiles, 9 UI languages, session recording to redacted markdown. rmux has no rendering surface at all — pairing it with a terminal app is on you.",
+  "cmp.c.rmux.win": "rmux's session persistence is real tmux-grade: SSH drops and your agent's shell keeps running, reattachable from anywhere. Its typed snapshots and wait_for_text locators are finer-grained than text matching, and a headless daemon fits CI pipelines where no GUI can exist. It's also embeddable in Ratatui apps.",
+  "cmp.c.rmux.verdict": "Building a system where code owns terminal sessions in CI or on servers? rmux is a strong primitive. Working alongside AI agents at a desk, in a terminal you also live in? That's Unterm — protocol-native for agents, cockpit-native for you."
 }

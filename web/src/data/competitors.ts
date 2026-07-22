@@ -70,7 +70,7 @@ export interface Competitor {
   /** Upstream product URL (rel=nofollow external link). */
   url: string;
   /** Short category chip shown under the name. */
-  category: "upstream" | "ai-cloud" | "ai-oss" | "power" | "native";
+  category: "upstream" | "ai-cloud" | "ai-oss" | "power" | "native" | "headless";
   /** Number of honest angle bullets that exist (cmp.c.<slug>.a1..aN). */
   angleCount: number;
   /** Feature-matrix values keyed by CMP_ROWS key. */
@@ -183,6 +183,33 @@ export const COMPETITORS: Competitor[] = [
       "cmp.r.gpu": "✓ WebGL",
       "cmp.r.cross": "✓ +Android",
       "cmp.r.oss": "✓",
+      "cmp.r.i18n": "en",
+      "cmp.r.price": "$0",
+    },
+  },
+  {
+    slug: "rmux",
+    name: "rmux",
+    url: "https://rmux.io/",
+    category: "headless",
+    angleCount: 3,
+    values: {
+      "cmp.r.mcp": "✗ (SDK only)",
+      "cmp.r.cli": "✓ tmux-compat",
+      "cmp.r.agents": "✗",
+      "cmp.r.autowire": "✗",
+      "cmp.r.cockpit": "✗",
+      "cmp.r.identity": "✗",
+      "cmp.r.instance": "~ sessions",
+      "cmp.r.rec": "~ snapshots",
+      "cmp.r.capture": "✗",
+      "cmp.r.rightclick": "—",
+      "cmp.r.proxy": "✗",
+      "cmp.r.local": "✓",
+      "cmp.r.ai": "✗",
+      "cmp.r.gpu": "— (no GUI)",
+      "cmp.r.cross": "✓",
+      "cmp.r.oss": "✓ MIT/Apache",
       "cmp.r.i18n": "en",
       "cmp.r.price": "$0",
     },
