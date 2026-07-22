@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.57.1 — 2026-07-22
+
+### Fixed
+
+- **macOS: Ctrl+Left-click is treated as a secondary click only when CTRL is the sole modifier.** The v0.57.0 pointing-device workaround matched any CTRL-containing chord, which hijacked the default Ctrl+Shift window-drag gesture and silently shadowed user CTRL mouse bindings — each of them pasting the clipboard instead. A consumed Ctrl+Left press now also swallows the rest of that physical gesture, so a single click can no longer both paste and trigger the default drag/release bindings (extend selection, open link).
+- **An empty clipboard no longer shows a "couldn't paste" error.** Right-clicking with nothing on the clipboard is a normal no-op now, on every platform; the red failure notice is reserved for real read failures. (Live-verified on macOS along with copy, paste, and Ctrl+click secondary paste.)
+- **Sidebar: the active tab is revealed again when row churn pushes it out of view.** Reordering the active tab or closing tabs above it scrolls it back into the viewport; scrolling away yourself still isn't overridden.
+- **Sidebar: duplicate project names always get a parent hint.** When one project path's tail is contained in another's (`/acme/app` vs `/work/acme/app`), the shorter one now falls back to its immediate parent instead of rendering an ambiguous bare name; narrow headers no longer overflow into the count badge by one column.
+- **Paste to a closed pane no longer leaks per-pane state**, and the duplicate-name disambiguation search no longer reruns its O(projects²) scan on every paint tick — it's memoized on the actual project set.
+
+### Added
+
+- Unit tests locking the secondary-click modifier matching, the mouse-reporting guard, and the suffix-contained duplicate-name fallback.
+
 ## v0.57.0 — 2026-07-21
 
 ### Added — Fleet verification loop
