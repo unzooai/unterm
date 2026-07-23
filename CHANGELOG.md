@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **Right-click copy now works inside mouse-aware TUIs (Claude Code, vim, htop).** Selecting text with the bypass modifier (Shift+drag) and then plain right-clicking used to forward the click to the application — the copy silently never happened, which read as "right-click copy isn't implemented" in exactly the panes agents live in. An Unterm-side selection can only exist in such panes via the bypass drag, so it now proves the gesture: right-click completes the copy. Without a selection the click still belongs to the TUI (no paste hijack). Live-verified on macOS against a mouse-reporting pane.
+
 ## v0.57.1 — 2026-07-22
 
 ### Fixed

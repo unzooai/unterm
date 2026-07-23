@@ -43,11 +43,18 @@ fn should_run_right_click_quick_action(
     kind: &WMEK,
     modifiers: ::window::Modifiers,
     mouse_reporting: bool,
+    has_selection: bool,
 ) -> bool {
     // Mouse-aware TUIs own an unmodified secondary click. Users can still
     // force Unterm's copy/paste gesture with the configured bypass modifier
     // (Shift by default), which has already disabled mouse_reporting here.
-    !mouse_reporting && is_secondary_click(kind, modifiers)
+    //
+    // Exception: an Unterm-side selection in a mouse-reporting pane can only
+    // have been made with the bypass modifier (plain drags go to the app),
+    // so it proves the user is mid-gesture — let the plain right-click
+    // complete the copy instead of forwarding it to the TUI. Without a
+    // selection the click still belongs to the app (no paste hijack).
+    (!mouse_reporting || has_selection) && is_secondary_click(kind, modifiers)
 }
 
 impl super::TermWindow {
@@ -2540,8 +2547,16 @@ impl crate::TermWindow {
 
                 // Intercept a secondary click before the input map. Respect
                 // mouse-reporting applications, except when the configured
-                // bypass modifier (Shift by default) was held.
-                if should_run_right_click_quick_action(&event.kind, modifiers, mouse_reporting) {
+                // bypass modifier (Shift by default) was held — or when an
+                // Unterm-side selection exists (made via bypass drag), whose
+                // natural completion is a plain right-click copy.
+                let has_selection = !self.selection_text(&pane).is_empty();
+                if should_run_right_click_quick_action(
+                    &event.kind,
+                    modifiers,
+                    mouse_reporting,
+                    has_selection,
+                ) {
                     log::info!("Unterm: secondary click detected, running copy/paste");
                     if matches!(event.kind, WMEK::Press(MousePress::Left)) {
                         self.swallow_left_gesture_after_secondary_click = true;
@@ -3620,6 +3635,7 @@ mod right_click_contract_tests {
         assert!(should_run_right_click_quick_action(
             &click,
             Modifiers::NONE,
+            false,
             false
         ));
     }
@@ -3630,7 +3646,8 @@ mod right_click_contract_tests {
         assert!(!should_run_right_click_quick_action(
             &click,
             Modifiers::NONE,
-            true
+            true,
+            false
         ));
     }
 
@@ -3640,6 +3657,7 @@ mod right_click_contract_tests {
         assert!(should_run_right_click_quick_action(
             &click,
             Modifiers::SHIFT,
+            false,
             false
         ));
     }
@@ -3699,11 +3717,32 @@ mod secondary_click_tests {
         assert!(!should_run_right_click_quick_action(
             &WMEK::Press(MousePress::Right),
             Modifiers::NONE,
-            true
+            true,
+            false
         ));
         assert!(should_run_right_click_quick_action(
             &WMEK::Press(MousePress::Right),
             Modifiers::NONE,
+            false,
+            false
+        ));
+    }
+
+    #[test]
+    fn selection_lets_right_click_copy_through_mouse_reporting() {
+        // A bypass-drag selection inside vim/Claude Code completes with a
+        // plain right-click copy, even though the pane reports mouse events.
+        assert!(should_run_right_click_quick_action(
+            &WMEK::Press(MousePress::Right),
+            Modifiers::NONE,
+            true,
+            true
+        ));
+        // No selection: the TUI still owns the click (no paste hijack).
+        assert!(!should_run_right_click_quick_action(
+            &WMEK::Press(MousePress::Right),
+            Modifiers::NONE,
+            true,
             false
         ));
     }
