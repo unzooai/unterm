@@ -2,6 +2,8 @@
 
 **The terminal AI agents can drive.**
 
+![Agent Cockpit: three agents working, the Inbox surfaces the one that needs you, Enter jumps to it](assets/demo/agent-cockpit.gif)
+
 Cross-platform terminal (macOS / Linux / Windows) built on a customized WezTerm engine, with one design bet: the terminal itself is controllable from the outside by any AI agent over MCP. Claude Code, Codex, Gemini CLI, Cursor, Aider, your own scripts — they all get the same JSON-RPC surface (**99 methods across 21 namespaces**) to spawn shells, run commands, read pane state, capture screenshots, change settings, and record sessions.
 
 Since v0.55 the relationship runs both ways: agents drive the terminal from outside, and the terminal is an **Agent Cockpit** for the agents running inside it — live per-pane agent state, a waiting-first Inbox, fleets of N agents on one task in N isolated git worktrees, and a Review page to diff / merge / roll back what they produced.

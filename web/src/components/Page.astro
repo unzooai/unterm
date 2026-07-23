@@ -1028,6 +1028,9 @@ drwxr-xr-x 6 alexlee staff   192  architecture.md
     </div>
     <h2 class="mt-3 text-3xl font-semibold tracking-tight text-center">{t("cockpit.title")}</h2>
     <p class="mt-3 text-center text-notion-muted max-w-3xl mx-auto">{t("cockpit.subtitle")}</p>
+    <video src="/assets/demo-cockpit.mp4" autoplay loop muted playsinline
+           class="mt-10 w-full rounded-xl border border-notion-border shadow-2xl"
+           aria-label="Agent Cockpit demo: three agents tracked live, the Inbox surfaces the one waiting for approval, Enter jumps to its pane"></video>
     <div class="mt-12 grid md:grid-cols-2 gap-4">
       {cockpit.map((c) => (
         <div class={"bg-notion-surface/40 border border-notion-border rounded-xl p-6" + (c.wide ? " md:col-span-2" : "")}>
