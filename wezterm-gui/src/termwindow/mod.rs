@@ -2199,6 +2199,7 @@ impl TermWindow {
         self.fancy_tab_bar.take();
         self.invalidate_fancy_tab_bar();
         self.invalidate_modal();
+        self.invalidate_left_tab_bar();
         self.render_state.as_mut().map(|rs| rs.config_changed());
 
         let term_config = Arc::new(config::TermConfig::with_config(config));

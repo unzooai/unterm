@@ -883,6 +883,13 @@ impl crate::TermWindow {
         self.shape_generation += 1;
         self.shape_cache.borrow_mut().clear();
         self.line_to_ele_shape_cache.borrow_mut().clear();
+        // Every glyph sprite lives in the atlas, so any ComputedElement
+        // cached across frames keeps stale atlas coordinates once it is
+        // recreated. The left tab bar is the only such surface outside the
+        // modal system; without this it garbles until the next incidental
+        // invalidation (theme switch hits this via config reload →
+        // apply_scale_change → recreate_texture_atlas).
+        self.invalidate_left_tab_bar();
         if let Some(render_state) = self.render_state.as_mut() {
             render_state.recreate_texture_atlas(&self.fonts, &self.render_metrics, size)?;
         }

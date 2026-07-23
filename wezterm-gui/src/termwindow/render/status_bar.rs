@@ -942,7 +942,10 @@ fn status_bar_density(total_cols: usize) -> StatusBarDensity {
         show_theme: total_cols >= 96,
         show_telemetry: total_cols >= 128,
         show_profile: total_cols >= 160,
-        show_capture: total_cols >= 208,
+        // Same tier as telemetry: a 13" laptop fullscreen lands around
+        // 150–180 total cols, so anything higher makes these chips
+        // unreachable on laptop displays.
+        show_capture: total_cols >= 128,
     }
 }
 
@@ -1228,6 +1231,12 @@ mod tests {
         assert!(!common.show_telemetry);
         assert!(!common.show_profile);
         assert!(!common.show_capture);
+
+        // Fullscreen on a 13–14" laptop: capture must be visible here.
+        let laptop_fullscreen = status_bar_density(150);
+        assert!(laptop_fullscreen.show_telemetry);
+        assert!(laptop_fullscreen.show_capture);
+        assert!(!laptop_fullscreen.show_profile);
 
         let wide = status_bar_density(220);
         assert!(wide.show_project);
