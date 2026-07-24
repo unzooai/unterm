@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.57.3 — 2026-07-24
+
+### Fixed
+
+- **The bottom-bar screenshot chips (`capture:exclude` / `capture:include`) are visible again.** The v0.57.2 responsive status bar gated them behind a ≥208-column window — wider than a 13–14" laptop can reach even fullscreen (~150–180 columns), so the chips effectively vanished. They now appear from 128 columns, the same tier as the proxy/mcp chips, with a unit test locking the laptop-fullscreen case.
+- **Theme switching no longer transiently corrupts the left tab bar.** Every theme switch reloads the config, which rebuilds the glyph-texture atlas — but the left tab bar's cached element (which stores atlas coordinates) was not invalidated on that path, so it painted stale sprites (wrong colors, or garbled glyphs once the atlas layout shifted) until its 5-second cache TTL expired. Atlas recreation now invalidates the left tab bar in `recreate_texture_atlas()` itself, covering every current and future caller; the local theme-apply path invalidates it too. A/B frame captures confirm the sidebar now switches in the same frame as the pane.
+
 ## v0.57.2 — 2026-07-23
 
 ### Fixed
