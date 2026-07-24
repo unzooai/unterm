@@ -534,13 +534,22 @@ mod tests {
     fn stops_a_command_at_its_deadline() {
         let dir = tempfile::tempdir().unwrap();
         let slow_command = if cfg!(windows) {
-            "ping -n 3 127.0.0.1 >nul"
+            "ping -n 6 127.0.0.1 >nul"
         } else {
-            "sleep 2"
+            "sleep 5"
         };
         let output = execute(dir.path(), slow_command, Duration::from_millis(25)).unwrap();
         assert!(output.timed_out);
-        assert!(output.duration_ms < 1_000);
+        // Windows launches taskkill.exe to terminate the complete descendant
+        // tree. Process startup and tree teardown can occasionally exceed one
+        // second on a busy CI/desktop host, but must still finish well before
+        // the command's natural five-second duration.
+        let cleanup_deadline_ms = if cfg!(windows) { 3_000 } else { 1_000 };
+        assert!(
+            output.duration_ms < cleanup_deadline_ms,
+            "timed-out command cleanup took {}ms",
+            output.duration_ms
+        );
     }
 
     #[test]

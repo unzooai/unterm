@@ -1454,13 +1454,14 @@ impl McpHandler {
             .map(|mux| mux.iter_panes().len())
             .unwrap_or_default();
         let config = config::configuration();
+        let instance = crate::server_info::read_current();
 
         Ok(json!({
             "status": if mux_available { "ok" } else { "degraded" },
             "engine": "Unterm (WezTerm)",
             "mcp": {
                 "bind": "127.0.0.1",
-                "port": 19876,
+                "port": instance.mcp_port,
                 "auth": "token",
             },
             "mux": {
