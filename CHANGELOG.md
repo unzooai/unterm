@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.57.4 — 2026-07-25
+
+### Fixed
+
+- **`server.health` now reports the instance's real MCP port.** The response hardcoded 19876, so on multi-instance setups (alpha/bravo/…) every window claimed the same port — an agent probing health on bravo would be told to connect to alpha's port. The port now comes from the instance's own server info.
+- CI: the cockpit verification timeout test no longer flakes on busy Windows hosts — process-tree teardown via `taskkill` gets a realistic cleanup deadline, and the timing assertion reports the measured duration on failure.
+
 ## v0.57.3 — 2026-07-24
 
 ### Fixed
