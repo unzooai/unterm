@@ -2,6 +2,13 @@
 
 现状基线(2026-06-11):5 stars,冷启动。打法 = 一次有节奏的 launch,不是日常运营。
 
+**2026-07-25 更新**:v0.57.4 已发(9 stars / 571 downloads)。第 1 波(目录)基本收官:
+官方 Registry 0.57.4、PulseMCP 自动同步、**Glama 已上线**(glama.ai/mcp/servers/zhitongblog/unterm)、
+awesome-mcp-servers PR #7166 已加徽章+rebase(MERGEABLE,等维护者)。mcp.so 待浏览器核对。
+第 2 波起(Show HN/X/Reddit/V2EX)改由 Claude 经 Unzoo 浏览器 lixd220 profile 代发(alex 2026-07-25 授权)。
+新钩子:Agent Cockpit(fleet + 状态信号 + inbox + checkpoint/rollback),演示动图见 docs/。
+数字口径:99 MCP 方法 / 21 命名空间(v0.57.4)。
+
 ## 核心叙事(所有渠道统一)
 
 > 所有终端都在往里塞 AI。我们反着做:终端里零 AI,终端本身是 MCP server,

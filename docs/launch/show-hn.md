@@ -31,7 +31,8 @@ agents I like — what they're missing isn't a brain, it's hands.
 
 So I built Unterm: a cross-platform terminal (customized WezTerm engine,
 Rust) where the terminal itself is the MCP server. Any agent — Claude Code,
-Codex, Gemini CLI, your own script — gets the same local JSON-RPC surface:
+Codex, Gemini CLI, your own script — gets the same local JSON-RPC surface
+(99 methods across 21 namespaces):
 
 - spawn tabs/panes, run commands, poll or block on output
 - read the screen and the entire scrollback as text (no OCR)
@@ -40,6 +41,13 @@ Codex, Gemini CLI, your own script — gets the same local JSON-RPC surface:
   it's an exact re-render, works even when the window is occluded)
 - record sessions to markdown with secret redaction, manage identity
   profiles (per-window git/SSH/API credentials), drive proxy settings
+
+It also grew into a cockpit for running several CLI agents at once: each
+agent in a fleet gets its own tab + git worktree, the tab strip shows
+working / idle / waiting-for-you state (parsed from the agents' own title
+and OSC signals, zero config), there's an inbox palette of "agents that
+need you", and a checkpoint/review layer — snapshot before the agent runs,
+diff after, roll back without touching your index or HEAD.
 
 Everything is 127.0.0.1 + auth token, no account, no cloud, no telemetry.
 MIT. macOS / Linux / Windows. There's deliberately no AI inside the
