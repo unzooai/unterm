@@ -1640,7 +1640,7 @@ impl<'a> ScreenParser<'a> {
                 '\u{009b}' => self.state = ParserState::Csi(String::new()),
                 '\u{009d}' => self.state = ParserState::Osc(String::new()),
                 '\r' => self.screen.carriage_return(),
-                '\n' => self.screen.newline(),
+                '\n' | '\x0b' | '\x0c' => self.screen.newline(),
                 '\x08' => self.screen.backspace(),
                 '\t' => self.screen.horizontal_tab(),
                 c if !c.is_control() => self.screen.put_char(c),
@@ -5329,6 +5329,30 @@ mod tests {
         assert_eq!(screen.lines, vec!["a       b"]);
         assert_eq!(screen.cursor.x, 9);
         assert_eq!(screen.cursor.y, 0);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_treats_vertical_tab_and_form_feed_as_newline() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 10,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(session.id, "one\x0btwo\x0cthree\x0bfour")?;
+        let screen = engine.read_screen(session.id)?;
+        assert_eq!(screen.lines, vec!["two", "three", "four"]);
+        assert_eq!(screen.scrollback_rows, 1);
+        assert_eq!(engine.read_scrollback(session.id, 10)?, vec!["one"]);
 
         engine.destroy_session(session.id)?;
         Ok(())
