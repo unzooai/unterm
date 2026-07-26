@@ -926,7 +926,8 @@ mod engine_neutral_handler_tests {
             let message = format!("{err:#}");
             assert!(
                 !message.contains("Mux not available"),
-                "clipboard capture should not require WezTerm mux: {message}"
+                "clipboard capture should not require WezTerm mux: {}",
+                message
             );
         }
     }
@@ -957,7 +958,40 @@ mod engine_neutral_handler_tests {
                 let message = format!("{err:#}");
                 assert!(
                     !message.contains("Mux not available"),
-                    "screen text snapshot should not require WezTerm mux: {message}"
+                    "screen text snapshot should not require WezTerm mux: {}",
+                    message
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn capture_window_text_snapshot_uses_terminal_engine() {
+        let _guard = env_lock().lock();
+        let previous_engine = std::env::var("UNTERM_ENGINE").ok();
+        std::env::set_var("UNTERM_ENGINE", "next-core");
+
+        let result = {
+            let handler = McpHandler::new();
+            let ctx = ConnectionContext::internal("handler-test");
+            handler.handle(&ctx, "capture.window", &json!({ "include_base64": false }))
+        };
+
+        match previous_engine {
+            Some(value) => std::env::set_var("UNTERM_ENGINE", value),
+            None => std::env::remove_var("UNTERM_ENGINE"),
+        }
+
+        match result {
+            Ok(capture) => {
+                assert!(capture.get("text_snapshot").is_some());
+            }
+            Err(err) => {
+                let message = format!("{err:#}");
+                assert!(
+                    !message.contains("Mux not available"),
+                    "window text snapshot should not require WezTerm mux: {}",
+                    message
                 );
             }
         }
@@ -4608,8 +4642,8 @@ impl McpHandler {
     fn capture_window(&self, params: &Value) -> Result<Value> {
         let title_filter = params.get("title").and_then(|v| v.as_str());
         let pid_filter = params.get("pid").and_then(|v| v.as_u64()).map(|v| v as u32);
-        let mux = self.get_mux()?;
-        let panes = mux.iter_panes();
+        let engine = self.engine();
+        let sessions = engine.list_sessions()?;
 
         let include_base64 = params
             .get("include_base64")
@@ -4617,15 +4651,15 @@ impl McpHandler {
             .unwrap_or(false);
         let image = capture_window_image(title_filter, pid_filter, include_base64)?;
 
-        for pane in &panes {
-            let pane_title = pane.get_title();
+        for session in &sessions {
+            let pane_title = &session.title;
             let matches = title_filter.map_or(true, |t| {
-                pane_title.contains(t) || pane.pane_id().to_string().contains(t)
+                pane_title.contains(t) || session.id.to_string().contains(t)
             });
             if matches {
-                let text = self.read_pane_text(pane);
+                let text = engine.read_visible_text(session.id).unwrap_or_default();
                 return Ok(json!({
-                    "session_id": pane.pane_id().to_string(),
+                    "session_id": session.id.to_string(),
                     "title": pane_title,
                     "screen": text,
                     "image": image,
@@ -4874,11 +4908,6 @@ impl McpHandler {
     }
 
     // --- Helpers ---
-
-    fn read_pane_text(&self, pane: &Arc<dyn Pane>) -> String {
-        let engine = self.engine();
-        engine.read_visible_text(pane.pane_id()).unwrap_or_default()
-    }
 
     fn screen_read(&self, params: &Value) -> Result<Value> {
         let engine = self.engine();
