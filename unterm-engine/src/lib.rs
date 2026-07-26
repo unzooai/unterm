@@ -157,6 +157,14 @@ pub struct InputActivitySnapshot {
 }
 
 #[derive(Clone, Debug, Serialize)]
+pub struct OutputActivitySnapshot {
+    pub total_chunks: u64,
+    pub total_bytes: u64,
+    pub last_bytes: usize,
+    pub last_duration_ms: u64,
+}
+
+#[derive(Clone, Debug, Serialize)]
 pub struct PasteActivitySnapshot {
     pub total_pastes: u64,
     pub total_text_bytes: u64,
@@ -173,6 +181,7 @@ pub struct SessionActivitySnapshot {
     pub idle: bool,
     pub foreground_process: String,
     pub input: Option<InputActivitySnapshot>,
+    pub output: Option<OutputActivitySnapshot>,
     pub paste: Option<PasteActivitySnapshot>,
 }
 

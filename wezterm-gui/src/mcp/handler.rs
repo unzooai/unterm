@@ -3093,6 +3093,7 @@ impl McpHandler {
             "idle": activity.idle,
             "foreground_process": activity.foreground_process,
             "input": activity.input,
+            "output": activity.output,
             "paste": activity.paste,
         }))
     }
@@ -3997,6 +3998,7 @@ impl McpHandler {
             "status": status,
             "foreground_process": activity.foreground_process,
             "input": activity.input,
+            "output": activity.output,
             "paste": activity.paste,
         }))
     }

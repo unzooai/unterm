@@ -99,7 +99,7 @@ Paste telemetry probe:
 cargo run -p unterm-engine --bin unterm-next-core -- --json --paste "AUTH-CODE-123456" --wait-ms 100 -- cmd.exe
 ```
 
-In JSON mode, `activity.input` reports total writes, bytes, and the most recent input write duration. `activity.paste` reports total paste count, text bytes, wire bytes, chunk count, bracketed-paste state, and write duration for the most recent paste.
+In JSON mode, `activity.input` reports total writes, bytes, and the most recent input write duration. `activity.output` reports PTY output chunks, bytes, and the most recent output update duration. `activity.paste` reports total paste count, text bytes, wire bytes, chunk count, bracketed-paste state, and write duration for the most recent paste.
 
 Dual pseudo-agent benchmark:
 
@@ -127,4 +127,4 @@ ESC ] 7 ; file://localhost/C:/Users/alex/project BEL
 
 Values are decoded from `file://` URIs. On Windows, `/C:/...` paths are normalized to `C:\...`. Shells that do not emit OSC 7 still report the launch cwd until a process-tree fallback is added.
 
-`SessionEngine::activity()` is based on `next-core`'s own PTY liveness and recent input/output timestamps. A session is reported as running shortly after input or output and idle after a quiet period. The activity snapshot also includes input and paste write counters so agents can diagnose slow typing, completion, and auth-code paste paths. The foreground process name is still the launch shell until child-process tracking is added.
+`SessionEngine::activity()` is based on `next-core`'s own PTY liveness and recent input/output timestamps. A session is reported as running shortly after input or output and idle after a quiet period. The activity snapshot also includes input, output, and paste counters so agents can diagnose slow typing, completion, auth-code paste, and heavy agent output paths. The foreground process name is still the launch shell until child-process tracking is added.

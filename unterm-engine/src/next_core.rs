@@ -1,10 +1,11 @@
 use super::{
     CellStyle, CreateSessionRequest, CursorSnapshot, DirtyRows, EngineHealthSnapshot, HealthEngine,
-    InputActivitySnapshot, InputEngine, PasteActivitySnapshot, RecordingEngine,
-    RecordingExportResult, RecordingStartResult, RecordingStatusSnapshot, RecordingStopResult,
-    ScreenEngine, ScreenLine, ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest,
-    ScrollbackTextSnapshot, SessionActivitySnapshot, SessionEngine, SessionSnapshot, ShellSnapshot,
-    SplitSessionRequest, StyledCell, StyledColor, StyledScreenLine, StyledScreenSnapshot,
+    InputActivitySnapshot, InputEngine, OutputActivitySnapshot, PasteActivitySnapshot,
+    RecordingEngine, RecordingExportResult, RecordingStartResult, RecordingStatusSnapshot,
+    RecordingStopResult, ScreenEngine, ScreenLine, ScreenSearchMatch, ScreenSnapshot,
+    ScrollbackTextRequest, ScrollbackTextSnapshot, SessionActivitySnapshot, SessionEngine,
+    SessionSnapshot, ShellSnapshot, SplitSessionRequest, StyledCell, StyledColor, StyledScreenLine,
+    StyledScreenSnapshot,
 };
 use anyhow::{bail, Result};
 use base64::Engine as _;
@@ -72,6 +73,7 @@ struct SessionIoActivity {
     last_input_at: Option<Instant>,
     last_output_at: Option<Instant>,
     input: Option<InputActivitySnapshot>,
+    output: Option<OutputActivitySnapshot>,
     paste: Option<PasteActivitySnapshot>,
 }
 
@@ -82,6 +84,7 @@ impl SessionIoActivity {
             last_input_at: None,
             last_output_at: None,
             input: None,
+            output: None,
             paste: None,
         }
     }
@@ -101,8 +104,19 @@ impl SessionIoActivity {
         self.input = Some(snapshot);
     }
 
-    fn mark_output(&mut self) {
+    fn mark_output(&mut self, bytes: usize, duration: Duration) {
         self.last_output_at = Some(Instant::now());
+        let mut snapshot = self.output.clone().unwrap_or(OutputActivitySnapshot {
+            total_chunks: 0,
+            total_bytes: 0,
+            last_bytes: 0,
+            last_duration_ms: 0,
+        });
+        snapshot.total_chunks = snapshot.total_chunks.saturating_add(1);
+        snapshot.total_bytes = snapshot.total_bytes.saturating_add(bytes as u64);
+        snapshot.last_bytes = bytes;
+        snapshot.last_duration_ms = duration.as_millis().min(u64::MAX as u128) as u64;
+        self.output = Some(snapshot);
     }
 
     fn mark_paste(
@@ -1167,6 +1181,7 @@ fn set_output_for_test(pane_id: usize, text: &str) -> Result<()> {
             session.snapshot.rows,
         )
     };
+    let started_at = Instant::now();
     *output.lock() = text.to_string();
     let mut screen = screen.lock();
     let revision = screen.revision();
@@ -1176,7 +1191,9 @@ fn set_output_for_test(pane_id: usize, text: &str) -> Result<()> {
     if let Some(recording) = recording.lock().as_mut() {
         NextCoreEngine::append_recording_output(recording, text);
     }
-    activity.lock().mark_output();
+    activity
+        .lock()
+        .mark_output(text.len(), started_at.elapsed());
     Ok(())
 }
 
@@ -1839,6 +1856,7 @@ impl NextCoreEngine {
                     match reader.read(&mut buf) {
                         Ok(0) => break,
                         Ok(n) => {
+                            let output_started_at = Instant::now();
                             let Some(chunk) = Self::decode_pty_chunk(&mut pending_utf8, &buf[..n])
                             else {
                                 continue;
@@ -1857,7 +1875,9 @@ impl NextCoreEngine {
                             let mut screen = screen.lock();
                             screen.feed(chunk.as_str());
                             Self::answer_terminal_queries(chunk.as_str(), &screen, &writer);
-                            activity.lock().mark_output();
+                            activity
+                                .lock()
+                                .mark_output(chunk.len(), output_started_at.elapsed());
                             if let Some(recording) = recording.lock().as_mut() {
                                 Self::append_recording_output(recording, chunk.as_str());
                             }
@@ -2086,12 +2106,14 @@ impl SessionEngine for NextCoreEngine {
         let activity = session.activity.lock();
         let idle = is_dead || activity.is_idle(Instant::now());
         let input = activity.input.clone();
+        let output = activity.output.clone();
         let paste = activity.paste.clone();
         drop(activity);
         Ok(SessionActivitySnapshot {
             idle,
             foreground_process,
             input,
+            output,
             paste,
         })
     }
@@ -2740,6 +2762,43 @@ mod tests {
         assert_eq!(input.total_writes, 3);
         assert_eq!(input.last_bytes, paste.last_wire_bytes);
         assert_eq!(paste.total_pastes, 1);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn output_activity_reports_screen_updates() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+        })?;
+
+        make_activity_stale_for_test(session.id)?;
+        assert!(engine.activity(session.id)?.output.is_none());
+
+        set_output_for_test(session.id, "first")?;
+        let activity = engine.activity(session.id)?;
+        assert!(!activity.idle);
+        let output = activity.output.expect("output metrics after screen update");
+        assert_eq!(output.total_chunks, 1);
+        assert_eq!(output.total_bytes, 5);
+        assert_eq!(output.last_bytes, 5);
+
+        set_output_for_test(session.id, "second line")?;
+        let output = engine
+            .activity(session.id)?
+            .output
+            .expect("output metrics after second screen update");
+        assert_eq!(output.total_chunks, 2);
+        assert_eq!(output.total_bytes, 16);
+        assert_eq!(output.last_bytes, 11);
 
         engine.destroy_session(session.id)?;
         Ok(())
