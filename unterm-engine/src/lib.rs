@@ -149,9 +149,22 @@ pub struct ScrollbackTextSnapshot {
 }
 
 #[derive(Clone, Debug, Serialize)]
+pub struct PasteActivitySnapshot {
+    pub total_pastes: u64,
+    pub total_text_bytes: u64,
+    pub total_chunks: u64,
+    pub last_text_bytes: usize,
+    pub last_wire_bytes: usize,
+    pub last_chunk_count: usize,
+    pub last_bracketed: bool,
+    pub last_duration_ms: u64,
+}
+
+#[derive(Clone, Debug, Serialize)]
 pub struct SessionActivitySnapshot {
     pub idle: bool,
     pub foreground_process: String,
+    pub paste: Option<PasteActivitySnapshot>,
 }
 
 #[derive(Clone, Debug, Serialize)]

@@ -22,7 +22,7 @@ Machine-readable probe output:
 cargo run -p unterm-engine --bin unterm-next-core -- --json --wait-ms 500 -- cmd.exe /c "echo next-core-probe"
 ```
 
-The JSON output includes the session snapshot, screen snapshot, engine health, raw output byte count, and visible text. Use this for CI or agent dogfood checks instead of parsing the human-readable snapshot.
+The JSON output includes the session snapshot, screen snapshot, activity snapshot, engine health, raw output byte count, and visible text. Use this for CI or agent dogfood checks instead of parsing the human-readable snapshot.
 
 ## Benchmark Report
 
@@ -84,6 +84,14 @@ cargo run -p unterm-engine --bin unterm-next-core -- --bench-paste-kb 10 --timeo
 The paste benchmark feeds a large single-line payload through the engine paste path and reports time until the shell consumes it.
 
 `next-core` writes paste payloads in UTF-8 safe chunks. When bracketed paste mode is enabled, the start/end markers are kept intact around the chunked body.
+
+Paste telemetry probe:
+
+```powershell
+cargo run -p unterm-engine --bin unterm-next-core -- --json --paste "AUTH-CODE-123456" --wait-ms 100 -- cmd.exe
+```
+
+In JSON mode, `activity.paste` reports total paste count, text bytes, wire bytes, chunk count, bracketed-paste state, and write duration for the most recent paste.
 
 Dual pseudo-agent benchmark:
 

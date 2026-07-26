@@ -1,10 +1,10 @@
 use super::{
     CellStyle, CreateSessionRequest, CursorSnapshot, DirtyRows, EngineHealthSnapshot, HealthEngine,
-    InputEngine, RecordingEngine, RecordingExportResult, RecordingStartResult,
-    RecordingStatusSnapshot, RecordingStopResult, ScreenEngine, ScreenLine, ScreenSearchMatch,
-    ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot, SessionActivitySnapshot,
-    SessionEngine, SessionSnapshot, ShellSnapshot, SplitSessionRequest, StyledCell, StyledColor,
-    StyledScreenLine, StyledScreenSnapshot,
+    InputEngine, PasteActivitySnapshot, RecordingEngine, RecordingExportResult,
+    RecordingStartResult, RecordingStatusSnapshot, RecordingStopResult, ScreenEngine, ScreenLine,
+    ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot,
+    SessionActivitySnapshot, SessionEngine, SessionSnapshot, ShellSnapshot, SplitSessionRequest,
+    StyledCell, StyledColor, StyledScreenLine, StyledScreenSnapshot,
 };
 use anyhow::{bail, Result};
 use base64::Engine as _;
@@ -71,6 +71,7 @@ struct SessionIoActivity {
     created_at: Instant,
     last_input_at: Option<Instant>,
     last_output_at: Option<Instant>,
+    paste: Option<PasteActivitySnapshot>,
 }
 
 impl SessionIoActivity {
@@ -79,6 +80,7 @@ impl SessionIoActivity {
             created_at: Instant::now(),
             last_input_at: None,
             last_output_at: None,
+            paste: None,
         }
     }
 
@@ -88,6 +90,35 @@ impl SessionIoActivity {
 
     fn mark_output(&mut self) {
         self.last_output_at = Some(Instant::now());
+    }
+
+    fn mark_paste(
+        &mut self,
+        text_bytes: usize,
+        wire_bytes: usize,
+        chunk_count: usize,
+        bracketed: bool,
+        duration: Duration,
+    ) {
+        let mut snapshot = self.paste.clone().unwrap_or(PasteActivitySnapshot {
+            total_pastes: 0,
+            total_text_bytes: 0,
+            total_chunks: 0,
+            last_text_bytes: 0,
+            last_wire_bytes: 0,
+            last_chunk_count: 0,
+            last_bracketed: false,
+            last_duration_ms: 0,
+        });
+        snapshot.total_pastes = snapshot.total_pastes.saturating_add(1);
+        snapshot.total_text_bytes = snapshot.total_text_bytes.saturating_add(text_bytes as u64);
+        snapshot.total_chunks = snapshot.total_chunks.saturating_add(chunk_count as u64);
+        snapshot.last_text_bytes = text_bytes;
+        snapshot.last_wire_bytes = wire_bytes;
+        snapshot.last_chunk_count = chunk_count;
+        snapshot.last_bracketed = bracketed;
+        snapshot.last_duration_ms = duration.as_millis().min(u64::MAX as u128) as u64;
+        self.paste = Some(snapshot);
     }
 
     fn last_io_at(&self) -> Option<Instant> {
@@ -2039,10 +2070,14 @@ impl SessionEngine for NextCoreEngine {
         Self::refresh_liveness(session);
         let is_dead = session.snapshot.is_dead;
         let foreground_process = session.snapshot.shell.process_name.clone();
-        let idle = is_dead || session.activity.lock().is_idle(Instant::now());
+        let activity = session.activity.lock();
+        let idle = is_dead || activity.is_idle(Instant::now());
+        let paste = activity.paste.clone();
+        drop(activity);
         Ok(SessionActivitySnapshot {
             idle,
             foreground_process,
+            paste,
         })
     }
 
@@ -2263,8 +2298,41 @@ impl InputEngine for NextCoreEngine {
     }
 
     fn paste_input(&self, pane_id: usize, text: &str) -> Result<()> {
-        for chunk in Self::paste_chunks(text, self.bracketed_paste_enabled(pane_id)?) {
-            self.write_input(pane_id, &chunk)?;
+        let bracketed = self.bracketed_paste_enabled(pane_id)?;
+        let chunks = Self::paste_chunks(text, bracketed);
+        let wire_bytes = chunks.iter().map(|chunk| chunk.len()).sum::<usize>();
+        let chunk_count = chunks.len();
+        let started_at = Instant::now();
+        let (writer, activity) = {
+            let state = state().read();
+            let Some(session) = state
+                .sessions
+                .iter()
+                .find(|session| session.snapshot.id == pane_id)
+            else {
+                bail!("next-core session {pane_id} not found");
+            };
+            (Arc::clone(&session.writer), Arc::clone(&session.activity))
+        };
+
+        {
+            let mut writer = writer.lock();
+            for chunk in &chunks {
+                writer.write_all(chunk.as_bytes())?;
+            }
+            writer.flush()?;
+        }
+
+        if !text.is_empty() || bracketed {
+            let mut activity = activity.lock();
+            activity.mark_input();
+            activity.mark_paste(
+                text.len(),
+                wire_bytes,
+                chunk_count,
+                bracketed,
+                started_at.elapsed(),
+            );
         }
         Ok(())
     }
@@ -2577,6 +2645,51 @@ mod tests {
         assert_eq!(chunks.first().map(String::as_str), Some("\x1b[200~"));
         assert_eq!(chunks.last().map(String::as_str), Some("\x1b[201~"));
         assert_eq!(chunks[1..chunks.len() - 1].concat(), text);
+    }
+
+    #[test]
+    fn paste_activity_reports_last_write_metrics() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+        })?;
+
+        let text = format!("{}{}", "a".repeat(PASTE_CHUNK_BYTES + 1), "你");
+        engine.paste_input(session.id, &text)?;
+        let paste = engine
+            .activity(session.id)?
+            .paste
+            .expect("paste metrics after paste");
+
+        assert_eq!(paste.total_pastes, 1);
+        assert_eq!(paste.total_text_bytes, text.len() as u64);
+        assert!(paste.total_chunks > 1);
+        assert_eq!(paste.last_text_bytes, text.len());
+        assert_eq!(paste.last_wire_bytes, text.len());
+        assert_eq!(paste.last_chunk_count as u64, paste.total_chunks);
+        assert!(!paste.last_bracketed);
+
+        set_output_for_test(session.id, "\x1b[?2004h")?;
+        engine.paste_input(session.id, "token")?;
+        let paste = engine
+            .activity(session.id)?
+            .paste
+            .expect("paste metrics after bracketed paste");
+
+        assert_eq!(paste.total_pastes, 2);
+        assert_eq!(paste.last_text_bytes, 5);
+        assert_eq!(paste.last_wire_bytes, "\x1b[200~token\x1b[201~".len());
+        assert_eq!(paste.last_chunk_count, 3);
+        assert!(paste.last_bracketed);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
     }
 
     #[test]

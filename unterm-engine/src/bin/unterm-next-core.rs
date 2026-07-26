@@ -11,6 +11,7 @@ struct Args {
     rows: usize,
     wait_ms: u64,
     write: Option<String>,
+    paste: Option<String>,
     cwd: Option<String>,
     command: Option<Vec<String>>,
     bench_echo: Option<usize>,
@@ -31,6 +32,7 @@ fn parse_args() -> Result<Args> {
         rows: 30,
         wait_ms: 250,
         write: None,
+        paste: None,
         cwd: None,
         command: None,
         bench_echo: None,
@@ -138,6 +140,12 @@ fn parse_args() -> Result<Args> {
                         .ok_or_else(|| anyhow::anyhow!("--write requires a value"))?,
                 );
             }
+            "--paste" => {
+                parsed.paste = Some(
+                    args.next()
+                        .ok_or_else(|| anyhow::anyhow!("--paste requires a value"))?,
+                );
+            }
             "--cwd" => {
                 parsed.cwd = Some(
                     args.next()
@@ -149,7 +157,7 @@ fn parse_args() -> Result<Args> {
             }
             "--help" | "-h" => {
                 println!(
-                    "Usage: unterm-next-core [--cols N] [--rows N] [--wait-ms N] [--poll-ms N] [--timeout-ms N] [--bench-echo N] [--bench-flood-lines N] [--bench-scrollback-lines N] [--bench-paste-kb N] [--bench-dual-agent-lines N] [--bench-screen-read-lines N] [--cwd PATH] [--write TEXT] [--json] [-- COMMAND [ARG...]]"
+                    "Usage: unterm-next-core [--cols N] [--rows N] [--wait-ms N] [--poll-ms N] [--timeout-ms N] [--bench-echo N] [--bench-flood-lines N] [--bench-scrollback-lines N] [--bench-paste-kb N] [--bench-dual-agent-lines N] [--bench-screen-read-lines N] [--cwd PATH] [--write TEXT] [--paste TEXT] [--json] [-- COMMAND [ARG...]]"
                 );
                 std::process::exit(0);
             }
@@ -618,10 +626,15 @@ fn main() -> Result<()> {
         engine.write_input(session.id, input.as_str())?;
     }
 
+    if let Some(input) = args.paste {
+        engine.paste_input(session.id, input.as_str())?;
+    }
+
     std::thread::sleep(Duration::from_millis(args.wait_ms));
 
     let session = engine.get_session(session.id)?;
     let screen = engine.read_screen(session.id)?;
+    let activity = engine.activity(session.id)?;
     let raw_bytes = engine.debug_output(session.id)?.len();
     let visible_text = engine.read_visible_text(session.id)?;
     if args.json {
@@ -630,6 +643,7 @@ fn main() -> Result<()> {
             serde_json::to_string_pretty(&json!({
                 "session": session,
                 "screen": screen,
+                "activity": activity,
                 "health": engine.health()?,
                 "raw_bytes": raw_bytes,
                 "visible_text": visible_text,
