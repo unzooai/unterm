@@ -18,7 +18,7 @@ pub use unterm_engine::{
     ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot,
     SessionActivitySnapshot, SessionEngine, SessionSnapshot, ShellSnapshot, SplitDirection,
     SplitSessionRequest, StyledCell, StyledColor, StyledScreenLine, StyledScreenSnapshot,
-    TerminalEngine,
+    StyledScrollbackSnapshot, TerminalEngine,
 };
 
 #[derive(Clone, Debug)]
@@ -422,7 +422,7 @@ impl CaptureEngine for CurrentTerminalEngine {
                         .map(|session| session.id)
                         .ok_or_else(|| anyhow::anyhow!("no active next-core session"))?,
                 };
-                let text = engine.read_scrollback_text(
+                let styled = engine.read_styled_scrollback(
                     pane_id,
                     ScrollbackTextRequest {
                         start_line: None,
@@ -431,13 +431,13 @@ impl CaptureEngine for CurrentTerminalEngine {
                         escapes: false,
                     },
                 )?;
-                let total_rows = text.physical_top + text.viewport_rows as i64;
-                let image = crate::scrollshot::render_plain_scrollback_png(
-                    &text.lines,
-                    text.cols,
-                    text.first_row,
-                    text.first_row > text.scrollback_top
-                        || total_rows.saturating_sub(text.scrollback_top) > text.row_count,
+                let total_rows = styled.physical_top + styled.viewport_rows as i64;
+                let image = crate::scrollshot::render_styled_scrollback_png(
+                    &styled.lines,
+                    styled.cols,
+                    styled.first_row,
+                    styled.first_row > styled.scrollback_top
+                        || total_rows.saturating_sub(styled.scrollback_top) > styled.row_count,
                     path,
                     opts,
                 )?;

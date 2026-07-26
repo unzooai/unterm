@@ -25,6 +25,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 use termwiz::cell::Underline;
+use unterm_engine::{StyledColor, StyledScreenLine};
 use wezterm_font::shaper::{Direction, PresentationWidth};
 use wezterm_font::{FontConfiguration, LoadedFont, RasterizedGlyph};
 
@@ -60,6 +61,7 @@ pub struct ScrollbackPng {
 /// bridge while styled cell parity is still evolving: it uses the same font
 /// stack and PNG streaming path as the pane renderer, but applies the default
 /// terminal colors to every cell.
+#[allow(dead_code)]
 pub fn render_plain_scrollback_png(
     lines: &[String],
     cols: usize,
@@ -151,6 +153,202 @@ pub fn render_plain_scrollback_png(
         truncated,
         first_row: first_row as isize,
     })
+}
+
+/// Render engine-owned styled scrollback to PNG. This keeps `next-core`
+/// capture independent from WezTerm panes while preserving cell-level colors
+/// and basic decorations from the next-core screen buffer.
+pub fn render_styled_scrollback_png(
+    lines: &[StyledScreenLine],
+    cols: usize,
+    first_row: i64,
+    truncated: bool,
+    out_path: &Path,
+    opts: &ScrollbackPngOptions,
+) -> Result<ScrollbackPng> {
+    let rows = lines.len().max(1);
+    let text_cols = lines
+        .iter()
+        .map(|line| line.cells.iter().map(|cell| cell.width).sum::<usize>())
+        .max()
+        .unwrap_or(0);
+    let cols = cols.max(text_cols).max(1);
+
+    let fonts = Rc::new(FontConfiguration::new(None, opts.dpi)?);
+    let font = fonts.default_font()?;
+    let metrics = fonts.default_font_metrics()?;
+    let cell_w = metrics.cell_width.get();
+    let cell_h = metrics.cell_height.get().ceil().max(1.0);
+    let baseline = metrics.cell_height.get() + metrics.descender.get();
+
+    let width_px = (cols as f64 * cell_w).ceil() as u32;
+    let height_px = rows as u32 * cell_h as u32;
+
+    if let Some(parent) = out_path.parent() {
+        std::fs::create_dir_all(parent).ok();
+    }
+    let file = std::fs::File::create(out_path)
+        .with_context(|| format!("create {}", out_path.display()))?;
+    let bufw = std::io::BufWriter::new(file);
+    let mut enc = png::Encoder::new(bufw, width_px, height_px);
+    enc.set_color(png::ColorType::Rgba);
+    enc.set_depth(png::BitDepth::Eight);
+    let mut writer = enc.write_header().context("write png header")?;
+    let mut stream = writer.stream_writer().context("png stream writer")?;
+
+    let mut band = BandCanvas::new(width_px as usize, cell_h as usize);
+    let mut raster_cache: HashMap<(usize, usize, u32), Rc<RasterizedGlyph>> = HashMap::new();
+    let font_key = Rc::as_ptr(&font) as usize;
+    let default_bg = (0x0b, 0x10, 0x1d);
+    let default_fg = (0xd8, 0xde, 0xe9);
+
+    for idx in 0..rows {
+        band.fill(default_bg);
+        let mut cell_x = 0usize;
+        if let Some(line) = lines.get(idx) {
+            for cell in &line.cells {
+                let width = cell.width.max(1);
+                let mut fg = resolve_styled_color(cell.style.fg, default_fg);
+                let mut bg = resolve_styled_color(cell.style.bg, default_bg);
+                if cell.style.inverse {
+                    std::mem::swap(&mut fg, &mut bg);
+                }
+
+                let cx0 = (cell_x as f64 * cell_w).round() as isize;
+                let cw = (width as f64 * cell_w).ceil() as isize;
+                if cell.style.bg.is_some() || cell.style.inverse {
+                    band.fill_rect(cx0, 0, cw, cell_h as isize, bg);
+                }
+
+                if !cell.ch.is_whitespace() {
+                    let text = cell.ch.to_string();
+                    let glyphs = match font.blocking_shape(
+                        &text,
+                        None,
+                        Direction::LeftToRight,
+                        None,
+                        None,
+                    ) {
+                        Ok(glyphs) => glyphs,
+                        Err(_) => Vec::new(),
+                    };
+                    for info in &glyphs {
+                        if info.is_space {
+                            continue;
+                        }
+                        let key = (font_key, info.font_idx, info.glyph_pos);
+                        let glyph = match raster_cache.get(&key) {
+                            Some(glyph) => Rc::clone(glyph),
+                            None => {
+                                let glyph =
+                                    Rc::new(font.rasterize_glyph(info.glyph_pos, info.font_idx)?);
+                                raster_cache.insert(key, Rc::clone(&glyph));
+                                glyph
+                            }
+                        };
+                        if glyph.width == 0 || glyph.height == 0 {
+                            continue;
+                        }
+                        let scale = if glyph.is_scaled {
+                            1.0
+                        } else {
+                            let max_w = width as f64 * cell_w;
+                            (max_w / glyph.width as f64)
+                                .min(cell_h / glyph.height as f64)
+                                .min(1.0)
+                        };
+                        let x0 = cell_x as f64 * cell_w
+                            + info.x_offset.get()
+                            + glyph.bearing_x.get() * scale;
+                        let y0 = baseline - info.y_offset.get() - glyph.bearing_y.get() * scale;
+                        band.blit_glyph(&glyph, x0, y0, fg, scale);
+                    }
+                }
+
+                if cell.style.underline {
+                    let thickness = metrics.underline_thickness.get().round().max(1.0) as isize;
+                    let uy = (baseline - metrics.underline_position.get()).round() as isize;
+                    band.fill_rect(cx0, uy.min(cell_h as isize - thickness), cw, thickness, fg);
+                }
+
+                cell_x += cell.width;
+            }
+        }
+
+        use std::io::Write as _;
+        stream.write_all(&band.data).context("write png band")?;
+    }
+
+    stream.finish().context("finish png stream")?;
+
+    Ok(ScrollbackPng {
+        path: out_path.to_path_buf(),
+        width: width_px,
+        height: height_px,
+        rows,
+        cols,
+        truncated,
+        first_row: first_row as isize,
+    })
+}
+
+fn resolve_styled_color(color: Option<StyledColor>, default: (u8, u8, u8)) -> (u8, u8, u8) {
+    match color {
+        Some(StyledColor::Rgb(r, g, b)) => (r, g, b),
+        Some(StyledColor::Palette(idx)) => ANSI_256_PALETTE
+            .get(idx as usize)
+            .copied()
+            .unwrap_or(default),
+        None => default,
+    }
+}
+
+const ANSI_256_PALETTE: [(u8, u8, u8); 256] = build_ansi_256_palette();
+
+const fn build_ansi_256_palette() -> [(u8, u8, u8); 256] {
+    let mut colors = [(0, 0, 0); 256];
+    colors[0] = (0, 0, 0);
+    colors[1] = (205, 0, 0);
+    colors[2] = (0, 205, 0);
+    colors[3] = (205, 205, 0);
+    colors[4] = (0, 0, 238);
+    colors[5] = (205, 0, 205);
+    colors[6] = (0, 205, 205);
+    colors[7] = (229, 229, 229);
+    colors[8] = (127, 127, 127);
+    colors[9] = (255, 0, 0);
+    colors[10] = (0, 255, 0);
+    colors[11] = (255, 255, 0);
+    colors[12] = (92, 92, 255);
+    colors[13] = (255, 0, 255);
+    colors[14] = (0, 255, 255);
+    colors[15] = (255, 255, 255);
+
+    let levels = [0, 95, 135, 175, 215, 255];
+    let mut idx = 16;
+    let mut r = 0;
+    while r < 6 {
+        let mut g = 0;
+        while g < 6 {
+            let mut b = 0;
+            while b < 6 {
+                colors[idx] = (levels[r], levels[g], levels[b]);
+                idx += 1;
+                b += 1;
+            }
+            g += 1;
+        }
+        r += 1;
+    }
+
+    let mut gray = 0;
+    while gray < 24 {
+        let level = 8 + gray as u8 * 10;
+        colors[232 + gray] = (level, level, level);
+        gray += 1;
+    }
+
+    colors
 }
 
 /// sRGB u8 -> linear f32 lookup, built once. Gamma-correct text blending is

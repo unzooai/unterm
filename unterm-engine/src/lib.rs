@@ -117,6 +117,18 @@ pub struct StyledScreenSnapshot {
     pub dirty_rows: Option<DirtyRows>,
 }
 
+#[allow(dead_code)]
+#[derive(Clone, Debug, Serialize)]
+pub struct StyledScrollbackSnapshot {
+    pub lines: Vec<StyledScreenLine>,
+    pub first_row: i64,
+    pub row_count: i64,
+    pub cols: usize,
+    pub scrollback_top: i64,
+    pub physical_top: i64,
+    pub viewport_rows: usize,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct ScreenSearchMatch {
     pub row: i64,
@@ -332,6 +344,45 @@ pub trait ScreenEngine {
         pane_id: usize,
         request: ScrollbackTextRequest,
     ) -> Result<ScrollbackTextSnapshot>;
+    #[allow(dead_code)]
+    fn read_styled_scrollback(
+        &self,
+        pane_id: usize,
+        request: ScrollbackTextRequest,
+    ) -> Result<StyledScrollbackSnapshot> {
+        let text = self.read_scrollback_text(pane_id, request)?;
+        let lines = text
+            .lines
+            .iter()
+            .enumerate()
+            .map(|(idx, line)| StyledScreenLine {
+                row: text.first_row + idx as i64,
+                cells: line
+                    .chars()
+                    .map(|ch| {
+                        let mut buf = [0u8; 4];
+                        StyledCell {
+                            ch,
+                            style: CellStyle::default(),
+                            width: termwiz::cell::unicode_column_width(
+                                ch.encode_utf8(&mut buf),
+                                None,
+                            ),
+                        }
+                    })
+                    .collect(),
+            })
+            .collect();
+        Ok(StyledScrollbackSnapshot {
+            lines,
+            first_row: text.first_row,
+            row_count: text.row_count,
+            cols: text.cols,
+            scrollback_top: text.scrollback_top,
+            physical_top: text.physical_top,
+            viewport_rows: text.viewport_rows,
+        })
+    }
     fn search(
         &self,
         pane_id: usize,

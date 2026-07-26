@@ -6,7 +6,7 @@ use super::{
     RecordingStatusSnapshot, RecordingStopResult, ScreenActivitySnapshot, ScreenEngine, ScreenLine,
     ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot,
     SessionActivitySnapshot, SessionEngine, SessionSnapshot, ShellSnapshot, SplitSessionRequest,
-    StyledCell, StyledColor, StyledScreenLine, StyledScreenSnapshot,
+    StyledCell, StyledColor, StyledScreenLine, StyledScreenSnapshot, StyledScrollbackSnapshot,
 };
 use anyhow::{bail, Result};
 use base64::Engine as _;
@@ -446,6 +446,17 @@ impl NextCoreScreen {
             .enumerate()
             .map(|(idx, line)| StyledScreenLine {
                 row: first_row + idx as i64,
+                cells: line.iter().map(ScreenCell::styled).collect(),
+            })
+            .collect()
+    }
+
+    fn styled_history_range(&self, start: usize, count: usize) -> Vec<StyledScreenLine> {
+        self.history_range(start, count)
+            .into_iter()
+            .enumerate()
+            .map(|(idx, line)| StyledScreenLine {
+                row: start as i64 + idx as i64,
                 cells: line.iter().map(ScreenCell::styled).collect(),
             })
             .collect()
@@ -2598,6 +2609,88 @@ impl ScreenEngine for NextCoreEngine {
         })
     }
 
+    fn read_styled_scrollback(
+        &self,
+        pane_id: usize,
+        request: ScrollbackTextRequest,
+    ) -> Result<StyledScrollbackSnapshot> {
+        if request.escapes {
+            let text = self.read_scrollback_text(pane_id, request)?;
+            let lines = text
+                .lines
+                .iter()
+                .enumerate()
+                .map(|(idx, line)| StyledScreenLine {
+                    row: text.first_row + idx as i64,
+                    cells: line
+                        .chars()
+                        .map(|ch| {
+                            let mut buf = [0u8; 4];
+                            StyledCell {
+                                ch,
+                                style: CellStyle::default(),
+                                width: termwiz::cell::unicode_column_width(
+                                    ch.encode_utf8(&mut buf),
+                                    None,
+                                ),
+                            }
+                        })
+                        .collect(),
+                })
+                .collect();
+            return Ok(StyledScrollbackSnapshot {
+                lines,
+                first_row: text.first_row,
+                row_count: text.row_count,
+                cols: text.cols,
+                scrollback_top: text.scrollback_top,
+                physical_top: text.physical_top,
+                viewport_rows: text.viewport_rows,
+            });
+        }
+
+        let session = self.session(pane_id)?;
+        let screen = {
+            let state = state().read();
+            let Some(session) = state
+                .sessions
+                .iter()
+                .find(|session| session.snapshot.id == pane_id)
+            else {
+                bail!("next-core session {pane_id} not found");
+            };
+            Arc::clone(&session.screen)
+        };
+
+        let screen = screen.lock();
+        let line_count = screen.history_len();
+        let end = request
+            .end_line
+            .map(|end| end.max(0) as usize)
+            .unwrap_or(line_count)
+            .min(line_count);
+        let mut start = request
+            .start_line
+            .map(|start| start.max(0) as usize)
+            .unwrap_or(0)
+            .min(end);
+        if let Some(tail) = request.tail_lines {
+            if tail > 0 {
+                start = start.max(end.saturating_sub(tail as usize));
+            }
+        }
+        let count = end.saturating_sub(start);
+        Ok(StyledScrollbackSnapshot {
+            lines: screen.styled_history_range(start, count),
+            first_row: start as i64,
+            row_count: count as i64,
+            cols: session.cols,
+            scrollback_top: 0,
+            physical_top: line_count.saturating_sub(session.rows) as i64,
+            viewport_rows: session.rows,
+        })
+    }
+
     fn search(
         &self,
         pane_id: usize,
@@ -3822,6 +3915,43 @@ mod tests {
         assert_eq!(cells[1].width, 0);
         assert_eq!(cells[2].ch, 'A');
         assert_eq!(cells[2].width, 1);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn read_styled_scrollback_preserves_history_cell_attributes() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 2,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+        })?;
+        set_output_for_test(session.id, "one \x1b[31mred\x1b[0m\nplain\n")?;
+
+        let styled = engine.read_styled_scrollback(
+            session.id,
+            ScrollbackTextRequest {
+                start_line: Some(0),
+                end_line: Some(1),
+                tail_lines: None,
+                escapes: false,
+            },
+        )?;
+
+        assert_eq!(styled.first_row, 0);
+        assert_eq!(styled.row_count, 1);
+        assert_eq!(styled.lines[0].row, 0);
+        assert_eq!(styled.lines[0].cells[0].ch, 'o');
+        assert_eq!(
+            styled.lines[0].cells[4].style.fg,
+            Some(StyledColor::Palette(1))
+        );
 
         engine.destroy_session(session.id)?;
         Ok(())

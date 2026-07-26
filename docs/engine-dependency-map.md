@@ -55,7 +55,7 @@ Known gaps:
 - PTY write confirmation without WezTerm pane object
 - exec wait shell detection without WezTerm pane object
 - active recording render parity
-- styled scrollback PNG parity for `next-core`
+- full font/theme styled scrollback PNG parity for `next-core`
 - window capture/focus/title
 - instance lifecycle ownership
 - typed launch policy beyond the current profile/proxy diagnostics
@@ -170,7 +170,7 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 | `capture.window` | Engine-neutral | Terminal text match via `SessionEngine::list_sessions`/`ScreenEngine::read_visible_text`; image via `CaptureEngine::capture_window_image` | Platform pixels are behind the capture boundary; next-core can reuse the same product capture service. |
 | `capture.select` | Product-only | Platform screen capture fallback for headless MCP | Interactive region selection remains a GUI concern, but the public MCP method no longer requires terminal core. |
 | `capture.clipboard` | Product-only | Platform clipboard snapshot | Engine-independent platform service. |
-| `capture.scrollback` | Engine-neutral | `CaptureEngine::render_scrollback_png`; WezTerm adapter renders styled pane cells, `next-core` renders a plain-text PNG from `ScreenEngine::read_scrollback_text` | Upgrade `next-core` to styled-cell rendering after styled scrollback snapshots are exposed. |
+| `capture.scrollback` | Engine-neutral | `CaptureEngine::render_scrollback_png`; WezTerm adapter renders styled pane cells, `next-core` reads `ScreenEngine::read_styled_scrollback` and renders cell-level foreground/background/inverse/underline styles without WezTerm pane access | Remaining parity work is full theme palette resolution and bold/italic font matching in the standalone renderer. |
 | `capture.window_scroll` | Product-only | Platform app scrolling/stitching | Product-level platform service; currently macOS-only and engine-independent. |
 | `upload.file` | Product-only | Upload config and local file IO | Engine-independent. |
 | `system.info` | Product-only | OS/env/server metadata plus `SessionEngine::list_sessions` count | Adds engine label without direct WezTerm mux access. |
