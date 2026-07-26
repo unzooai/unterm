@@ -214,6 +214,23 @@ fn default_shell_launch_decision(command_provided: bool) -> Value {
     }
 }
 
+fn instance_lifecycle_snapshot(info: &crate::server_info::InstanceInfo, is_current: bool) -> Value {
+    json!({
+        "state": "live",
+        "liveness_source": "pid",
+        "pid_alive": crate::server_info::pid_alive(info.pid),
+        "is_current": is_current,
+        "registry_owner": "server_info",
+        "metadata_owner": "product_registry",
+        "window_owner": "host_gui",
+        "title_owner": "server_info",
+        "focus_owner": "host_gui",
+        "native_window_lifecycle": "host_owned",
+        "uses_host_window": true,
+        "values_redacted": true,
+    })
+}
+
 /// Command execution policy
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 struct CommandPolicy {
@@ -1513,15 +1530,17 @@ mod engine_neutral_handler_tests {
             serde_json::Value,
             serde_json::Value,
             serde_json::Value,
+            serde_json::Value,
             Result<serde_json::Value>,
         )> {
             let handler = McpHandler::new();
             let ctx = ConnectionContext::internal("handler-test");
+            let server = handler.handle(&ctx, "server.info", &json!({}))?;
             let info = handler.handle(&ctx, "instance.info", &json!({}))?;
             let list = handler.handle(&ctx, "instance.list", &json!({}))?;
             let title = handler.handle(&ctx, "instance.set_title", &json!({ "title": null }))?;
             let focus = handler.handle(&ctx, "instance.focus", &json!({}));
-            Ok((info, list, title, focus))
+            Ok((server, info, list, title, focus))
         })();
 
         match previous_engine {
@@ -1529,8 +1548,11 @@ mod engine_neutral_handler_tests {
             None => std::env::remove_var("UNTERM_ENGINE"),
         }
 
-        let (info, list, title, focus) =
+        let (server, info, list, title, focus) =
             result.expect("read instance metadata without WezTerm mux");
+        assert_eq!(server["lifecycle"]["registry_owner"], "server_info");
+        assert_eq!(server["lifecycle"]["window_owner"], "host_gui");
+        assert_eq!(server["lifecycle"]["native_window_lifecycle"], "host_owned");
         assert!(info.get("id").is_some());
         assert!(info.get("pid").is_some());
         assert!(info.get("mcp_port").is_some());
@@ -1538,7 +1560,23 @@ mod engine_neutral_handler_tests {
         assert_eq!(info["window"]["title_owner"], "server_info");
         assert_eq!(info["window"]["focus_owner"], "host_gui");
         assert_eq!(info["window"]["uses_host_window"], true);
+        assert_eq!(info["lifecycle"]["state"], "live");
+        assert_eq!(info["lifecycle"]["liveness_source"], "pid");
+        assert_eq!(info["lifecycle"]["registry_owner"], "server_info");
+        assert_eq!(info["lifecycle"]["metadata_owner"], "product_registry");
+        assert_eq!(info["lifecycle"]["window_owner"], "host_gui");
+        assert_eq!(info["lifecycle"]["title_owner"], "server_info");
+        assert_eq!(info["lifecycle"]["focus_owner"], "host_gui");
+        assert_eq!(info["lifecycle"]["native_window_lifecycle"], "host_owned");
+        assert_eq!(info["lifecycle"]["uses_host_window"], true);
+        assert_eq!(info["lifecycle"]["values_redacted"], true);
         assert!(list["instances"].is_array());
+        for item in list["instances"].as_array().expect("instances array") {
+            assert_eq!(item["lifecycle"]["state"], "live");
+            assert_eq!(item["lifecycle"]["registry_owner"], "server_info");
+            assert_eq!(item["lifecycle"]["window_owner"], "host_gui");
+            assert_eq!(item["lifecycle"]["values_redacted"], true);
+        }
         assert_eq!(title["ok"], true);
         assert!(title["title"].is_null());
         if let Err(err) = focus {
@@ -1933,6 +1971,10 @@ mod engine_neutral_handler_tests {
             true
         );
         assert_eq!(
+            surface["engine_capabilities"]["diagnostics"]["instance_lifecycle_observability"],
+            true
+        );
+        assert_eq!(
             surface["engine_capabilities"]["diagnostics"]["native_window_lifecycle"],
             false
         );
@@ -1968,6 +2010,10 @@ mod engine_neutral_handler_tests {
         );
         assert_eq!(
             capabilities["_engine_capabilities"]["diagnostics"]["host_window_bridge"],
+            true
+        );
+        assert_eq!(
+            capabilities["_engine_capabilities"]["diagnostics"]["instance_lifecycle_observability"],
             true
         );
         assert_eq!(
@@ -3479,12 +3525,14 @@ impl McpHandler {
     }
 
     fn server_info(&self) -> Result<Value> {
+        let instance = crate::server_info::read_current();
         Ok(json!({
             "name": "Unterm MCP Server",
             "version": "2.0.0",
             "engine": self.engine_label(),
             "window_engine": "wezterm-host",
             "uses_host_window": true,
+            "lifecycle": instance_lifecycle_snapshot(&instance, true),
             "protocol": "json-rpc-2.0",
         }))
     }
@@ -3553,10 +3601,13 @@ impl McpHandler {
     /// instances, pick one by cwd / title / start order, then connect
     /// to that instance's `mcp_port` with its `auth_token` directly.
     fn instance_list(&self) -> Result<Value> {
+        let current_id = crate::server_info::current_instance_id();
         let instances = crate::server_info::list_live_instances();
         let arr: Vec<Value> = instances
             .into_iter()
             .map(|i| {
+                let is_current = current_id.as_deref() == Some(i.id.as_str());
+                let lifecycle = instance_lifecycle_snapshot(&i, is_current);
                 json!({
                     "id": i.id,
                     "pid": i.pid,
@@ -3567,6 +3618,7 @@ impl McpHandler {
                     "cwd": i.cwd,
                     "version": i.version,
                     "platform": i.platform,
+                    "lifecycle": lifecycle,
                 })
             })
             .collect();
@@ -3578,6 +3630,7 @@ impl McpHandler {
     /// connected to vs. what `instance.list` says.
     fn instance_info(&self) -> Result<Value> {
         let i = crate::server_info::read_current();
+        let lifecycle = instance_lifecycle_snapshot(&i, true);
         Ok(json!({
             "id": i.id,
             "pid": i.pid,
@@ -3592,6 +3645,7 @@ impl McpHandler {
                 "focus_owner": "host_gui",
                 "uses_host_window": true,
             },
+            "lifecycle": lifecycle,
             "cwd": i.cwd,
             "version": i.version,
             "platform": i.platform,

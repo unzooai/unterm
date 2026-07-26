@@ -51,6 +51,7 @@ Current covered operations:
 - redacted `session.create` launch decision summary for profile/proxy/overlay/command provenance
 - redacted `workspace.restore` template launch plan for cwd/profile/command provenance
 - redacted default-shell launch decision summary for command-less `session.create`
+- instance lifecycle ownership diagnostics for server-info registry vs host GUI window ownership
 - engine readiness and next-core aggregate I/O health counters
 
 Known gaps:
@@ -59,7 +60,7 @@ Known gaps:
 - OSC133 command-marker active recording parity
 - full font/theme styled scrollback PNG parity for `next-core`
 - native window capture/focus/title ownership beyond the explicit host-window bridge contract
-- instance lifecycle ownership
+- native instance create/close lifecycle ownership beyond server-info registry observability
 - domain, privilege, proxy rotation, and restart launch policy decisions beyond typed env/profile/proxy/overlay/workspace-template/default-shell provenance
 
 ## MCP Coverage Summary
@@ -177,8 +178,8 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 | `upload.file` | Product-only | Upload config and local file IO | Engine-independent. |
 | `system.info` | Product-only | OS/env/server metadata plus `SessionEngine::list_sessions` count | Adds engine label without direct WezTerm mux access. |
 | `system.launch_admin` | Product-only | Platform executable relaunch command | Windows UAC launcher; dry-run path is engine-independent. |
-| `instance.list` | Product-only | Runtime instance registry files plus PID liveness filtering | GUI focus/window ownership remains separate in `instance.focus`. |
-| `instance.info` | Product-only | Current process instance metadata from server-info registry | Engine-independent. |
+| `instance.list` | Product-only | Runtime instance registry files plus PID liveness filtering and lifecycle ownership diagnostics | GUI focus/window ownership remains separate in `instance.focus`; registry ownership is now explicit for agents. |
+| `instance.info` | Product-only | Current process instance metadata from server-info registry plus lifecycle ownership diagnostics | Engine-independent; native window lifecycle is still host-owned. |
 | `instance.set_title` | Product-only | Server-info title override registry | Current MCP path only updates product metadata; live GUI title application remains separate. |
 | `instance.focus` | Product-only | `WindowEngine::focus_current_instance_window` platform/window boundary | Handler no longer reaches into the WezTerm frontend; next-core can reuse the same window service. |
 

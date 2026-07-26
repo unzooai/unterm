@@ -103,6 +103,7 @@ pub fn engine_capabilities(engine: &str) -> Value {
             "recording_block_markdown": engine == "next-core",
             "validated_capture_scrollback_pane_ids": true,
             "host_window_bridge": true,
+            "instance_lifecycle_observability": true,
             "native_window_lifecycle": false,
             "health_metrics": health_metrics,
         },
@@ -202,6 +203,10 @@ mod tests {
             true
         );
         assert_eq!(caps["diagnostics"]["host_window_bridge"], true);
+        assert_eq!(
+            caps["diagnostics"]["instance_lifecycle_observability"],
+            true
+        );
         assert_eq!(caps["diagnostics"]["native_window_lifecycle"], false);
     }
 
@@ -288,6 +293,10 @@ mod tests {
             true
         );
         assert_eq!(caps["diagnostics"]["host_window_bridge"], true);
+        assert_eq!(
+            caps["diagnostics"]["instance_lifecycle_observability"],
+            true
+        );
         assert_eq!(caps["diagnostics"]["native_window_lifecycle"], false);
         let metrics = strings_at(&caps["diagnostics"], "health_metrics");
         assert!(metrics.contains(&"input_writes"));
