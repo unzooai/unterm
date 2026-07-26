@@ -16,6 +16,7 @@ use parking_lot::{Mutex, RwLock};
 use portable_pty::{native_pty_system, Child, MasterPty, PtySize};
 use procinfo::LocalProcessInfo;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 use std::fmt::Write as FmtWrite;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
@@ -290,6 +291,7 @@ struct NextCoreScreen {
     cursor_visible: bool,
     cursor_shape: String,
     auto_wrap: bool,
+    tab_stops: BTreeSet<usize>,
     bracketed_paste: bool,
     current_attr: CellAttributes,
     title: Option<String>,
@@ -315,6 +317,7 @@ struct ScreenState {
     cursor_visible: bool,
     cursor_shape: String,
     auto_wrap: bool,
+    tab_stops: BTreeSet<usize>,
     bracketed_paste: bool,
     current_attr: CellAttributes,
     scroll_top: usize,
@@ -418,6 +421,7 @@ impl NextCoreScreen {
             auto_wrap: true,
             ..Self::default()
         };
+        screen.tab_stops = Self::default_tab_stops(screen.cols);
         screen.scroll_bottom = screen.rows - 1;
         screen.ensure_cursor_line();
         screen
@@ -678,8 +682,29 @@ impl NextCoreScreen {
 
     fn horizontal_tab(&mut self) {
         self.mark_dirty_row(self.cursor_y);
-        let next_tab = ((self.cursor_x / 8) + 1) * 8;
+        let next_tab = self
+            .tab_stops
+            .range((self.cursor_x + 1)..)
+            .next()
+            .copied()
+            .unwrap_or_else(|| self.cols.saturating_sub(1));
         self.cursor_x = next_tab.min(self.cols.saturating_sub(1));
+    }
+
+    fn set_tab_stop(&mut self) {
+        if self.cursor_x < self.cols {
+            self.tab_stops.insert(self.cursor_x);
+        }
+    }
+
+    fn clear_tab_stop(&mut self, mode: usize) {
+        match mode {
+            0 => {
+                self.tab_stops.remove(&self.cursor_x);
+            }
+            3 => self.tab_stops.clear(),
+            _ => {}
+        }
     }
 
     fn save_cursor(&mut self) {
@@ -1062,13 +1087,16 @@ impl NextCoreScreen {
         self.mark_all_dirty();
         Self::truncate_lines_to_cols(&mut self.lines, self.cols);
         Self::truncate_lines_to_cols(&mut self.scrollback, self.cols);
+        let cols = self.cols;
         if let Some(alternate) = self.alternate.as_mut() {
-            alternate.cols = self.cols;
-            Self::truncate_lines_to_cols(&mut alternate.lines, self.cols);
-            Self::truncate_lines_to_cols(&mut alternate.scrollback, self.cols);
-            alternate.cursor_x = alternate.cursor_x.min(self.cols.saturating_sub(1));
-            alternate.saved_cursor_x = alternate.saved_cursor_x.min(self.cols.saturating_sub(1));
+            alternate.cols = cols;
+            Self::truncate_lines_to_cols(&mut alternate.lines, cols);
+            Self::truncate_lines_to_cols(&mut alternate.scrollback, cols);
+            alternate.tab_stops.retain(|stop| *stop < cols);
+            alternate.cursor_x = alternate.cursor_x.min(cols.saturating_sub(1));
+            alternate.saved_cursor_x = alternate.saved_cursor_x.min(cols.saturating_sub(1));
         }
+        self.tab_stops.retain(|stop| *stop < cols);
         if self.lines.len() > self.rows {
             let trim = self.lines.len() - self.rows;
             let drained = self.lines.drain(..trim).collect::<Vec<_>>();
@@ -1102,6 +1130,10 @@ impl NextCoreScreen {
         }
     }
 
+    fn default_tab_stops(cols: usize) -> BTreeSet<usize> {
+        (8..cols).step_by(8).collect()
+    }
+
     fn enter_alternate_screen(&mut self, clear: bool) {
         if self.alternate.is_some() {
             if clear {
@@ -1120,6 +1152,7 @@ impl NextCoreScreen {
             cursor_visible: self.cursor_visible,
             cursor_shape: self.cursor_shape.clone(),
             auto_wrap: self.auto_wrap,
+            tab_stops: std::mem::take(&mut self.tab_stops),
             bracketed_paste: self.bracketed_paste,
             current_attr: self.current_attr,
             scroll_top: self.scroll_top,
@@ -1134,6 +1167,7 @@ impl NextCoreScreen {
         self.saved_cursor_y = 0;
         self.cursor_shape = "Default".to_string();
         self.auto_wrap = true;
+        self.tab_stops = Self::default_tab_stops(self.cols);
         self.bracketed_paste = false;
         self.scroll_top = 0;
         self.scroll_bottom = self.rows.saturating_sub(1);
@@ -1153,6 +1187,7 @@ impl NextCoreScreen {
             self.cursor_visible = main.cursor_visible;
             self.cursor_shape = main.cursor_shape;
             self.auto_wrap = main.auto_wrap;
+            self.tab_stops = main.tab_stops;
             self.bracketed_paste = main.bracketed_paste;
             self.current_attr = main.current_attr;
             self.scroll_top = main.scroll_top;
@@ -1220,6 +1255,10 @@ impl<'a> ScreenParser<'a> {
                     self.screen.restore_cursor();
                     self.state = ParserState::Ground;
                 }
+                'H' => {
+                    self.screen.set_tab_stop();
+                    self.state = ParserState::Ground;
+                }
                 _ => self.state = ParserState::Ground,
             },
             ParserState::Csi(ref mut sequence) => {
@@ -1282,6 +1321,9 @@ impl<'a> ScreenParser<'a> {
                 let row = self.screen.cursor_y;
                 self.screen.set_cursor(row, first().saturating_sub(1));
             }
+            'g' => self
+                .screen
+                .clear_tab_stop(numbers.first().copied().unwrap_or(0)),
             'H' | 'f' => {
                 let row = numbers.first().copied().filter(|n| *n > 0).unwrap_or(1);
                 let col = numbers.get(1).copied().filter(|n| *n > 0).unwrap_or(1);
@@ -4472,6 +4514,78 @@ mod tests {
         let screen = engine.read_screen(session.id)?;
         assert_eq!(screen.lines, vec!["abcdZ"]);
         assert_eq!(screen.cursor.x, 5);
+        assert_eq!(screen.cursor.y, 0);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_supports_custom_tab_stops() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 12,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(session.id, "\x1b[5G\x1bH\rA\tB")?;
+        let screen = engine.read_screen(session.id)?;
+        assert_eq!(screen.lines, vec!["A   B"]);
+        assert_eq!(screen.cursor.x, 5);
+        assert_eq!(screen.cursor.y, 0);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_clears_current_tab_stop() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 12,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(session.id, "\x1b[5G\x1bH\x1b[0g\rA\tB")?;
+        let screen = engine.read_screen(session.id)?;
+        assert_eq!(screen.lines, vec!["A       B"]);
+        assert_eq!(screen.cursor.x, 9);
+        assert_eq!(screen.cursor.y, 0);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_clears_all_tab_stops() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 6,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(session.id, "\x1b[3gA\tB")?;
+        let screen = engine.read_screen(session.id)?;
+        assert_eq!(screen.lines, vec!["A    B"]);
+        assert_eq!(screen.cursor.x, 6);
         assert_eq!(screen.cursor.y, 0);
 
         engine.destroy_session(session.id)?;
