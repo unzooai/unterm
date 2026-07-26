@@ -1667,6 +1667,11 @@ mod engine_neutral_handler_tests {
         assert!(io["output_bytes"].as_u64().unwrap_or_default() > 0);
         assert_eq!(io["paste_count"], 1);
         assert_eq!(io["paste_text_bytes"], 16);
+        let confirmation = &health["mcp"]["input_confirmation"];
+        assert_eq!(confirmation["engine_neutral"], true);
+        assert_eq!(confirmation["requires_wezterm_pane_object"], false);
+        assert!(confirmation["policy"].is_string());
+        assert!(confirmation["timeout_ms"].as_u64().unwrap_or_default() >= 1000);
     }
 
     #[test]
@@ -1704,6 +1709,10 @@ mod engine_neutral_handler_tests {
             true
         );
         assert_eq!(
+            surface["engine_capabilities"]["diagnostics"]["pty_write_confirmation"],
+            true
+        );
+        assert_eq!(
             surface["engine_capabilities"]["diagnostics"]["host_window_bridge"],
             true
         );
@@ -1722,6 +1731,10 @@ mod engine_neutral_handler_tests {
         );
         assert_eq!(
             capabilities["_engine_capabilities"]["diagnostics"]["styled_scrollback_png"],
+            true
+        );
+        assert_eq!(
+            capabilities["_engine_capabilities"]["diagnostics"]["pty_write_confirmation"],
             true
         );
         assert_eq!(
@@ -2413,6 +2426,20 @@ pub fn trust_snapshot() -> Value {
             .into_iter()
             .map(|(a, c)| json!({ "agent": a, "writes": c }))
             .collect::<Vec<_>>(),
+    })
+}
+
+pub fn pty_write_confirmation_snapshot() -> Value {
+    let cfg = config::configuration();
+    let state = mcp_state().lock();
+    json!({
+        "policy": format!("{:?}", cfg.mcp_input_confirmation),
+        "timeout_ms": cfg.mcp_confirmation_timeout_ms.max(1000),
+        "pending": state.pending_confirmations.len(),
+        "runtime_trusted_agents": state.confirmed_agents.len(),
+        "static_trusted_agents": cfg.mcp_trusted_agents.len(),
+        "engine_neutral": true,
+        "requires_wezterm_pane_object": false,
     })
 }
 
@@ -3251,6 +3278,7 @@ impl McpHandler {
                 "bind": "127.0.0.1",
                 "port": instance.mcp_port,
                 "auth": "token",
+                "input_confirmation": pty_write_confirmation_snapshot(),
             },
             "mux": {
                 "available": engine_name == "wezterm" && engine_ready,

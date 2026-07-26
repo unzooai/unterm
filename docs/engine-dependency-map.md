@@ -45,6 +45,7 @@ Current covered operations:
 - cursor
 - write input
 - paste input
+- PTY write confirmation diagnostics without WezTerm pane-object ownership
 - recording lifecycle/export
 - engine readiness and next-core aggregate I/O health counters
 
@@ -52,7 +53,6 @@ Known gaps:
 
 - real GUI viewport scrolling/jump for the future next-core renderer
 - remaining product-registry/optional-capture id parsing that intentionally does not validate live terminal sessions
-- PTY write confirmation without WezTerm pane object
 - full OSC133/block-level active recording render parity
 - full font/theme styled scrollback PNG parity for `next-core`
 - native window capture/focus/title ownership beyond the explicit host-window bridge contract

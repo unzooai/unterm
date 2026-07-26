@@ -96,6 +96,7 @@ pub fn engine_capabilities(engine: &str) -> Value {
             "health_io_summary": engine == "next-core",
             "launch_context": engine == "next-core",
             "styled_scrollback_png": engine == "next-core",
+            "pty_write_confirmation": true,
             "host_window_bridge": true,
             "native_window_lifecycle": false,
             "health_metrics": health_metrics,
@@ -186,6 +187,7 @@ mod tests {
         assert!(supported.contains(&"capture.scrollback"));
         assert_eq!(caps["diagnostics"]["health_io_summary"], false);
         assert_eq!(caps["diagnostics"]["launch_context"], false);
+        assert_eq!(caps["diagnostics"]["pty_write_confirmation"], true);
         assert_eq!(caps["diagnostics"]["host_window_bridge"], true);
         assert_eq!(caps["diagnostics"]["native_window_lifecycle"], false);
     }
@@ -263,6 +265,7 @@ mod tests {
         assert_eq!(caps["diagnostics"]["health_io_summary"], true);
         assert_eq!(caps["diagnostics"]["launch_context"], true);
         assert_eq!(caps["diagnostics"]["styled_scrollback_png"], true);
+        assert_eq!(caps["diagnostics"]["pty_write_confirmation"], true);
         assert_eq!(caps["diagnostics"]["host_window_bridge"], true);
         assert_eq!(caps["diagnostics"]["native_window_lifecycle"], false);
         let metrics = strings_at(&caps["diagnostics"], "health_metrics");
