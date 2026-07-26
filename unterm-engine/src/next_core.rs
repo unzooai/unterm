@@ -22,6 +22,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 const MAX_OUTPUT_BYTES: usize = 1024 * 1024;
 const MAX_SCROLLBACK_LINES: usize = 10_000;
 const ACTIVITY_IDLE_AFTER: Duration = Duration::from_secs(2);
+const PASTE_CHUNK_BYTES: usize = 4096;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct NextCoreEngine;
@@ -1897,6 +1898,42 @@ impl NextCoreEngine {
             text.to_string()
         }
     }
+
+    fn split_utf8_chunks(text: &str, max_bytes: usize) -> Vec<&str> {
+        if text.is_empty() {
+            return vec![""];
+        }
+        let max_bytes = max_bytes.max(1);
+        let mut chunks = Vec::new();
+        let mut start = 0;
+        let mut last_boundary = 0;
+        for (idx, _) in text.char_indices().skip(1) {
+            if idx - start > max_bytes {
+                let end = last_boundary.max(start);
+                if end == start {
+                    continue;
+                }
+                chunks.push(&text[start..end]);
+                start = end;
+            }
+            last_boundary = idx;
+        }
+        chunks.push(&text[start..]);
+        chunks
+    }
+
+    fn paste_chunks(text: &str, bracketed: bool) -> Vec<String> {
+        let text_chunks = Self::split_utf8_chunks(text, PASTE_CHUNK_BYTES);
+        if !bracketed {
+            return text_chunks.into_iter().map(str::to_string).collect();
+        }
+
+        let mut chunks = Vec::with_capacity(text_chunks.len() + 2);
+        chunks.push("\x1b[200~".to_string());
+        chunks.extend(text_chunks.into_iter().map(str::to_string));
+        chunks.push("\x1b[201~".to_string());
+        chunks
+    }
 }
 
 impl SessionEngine for NextCoreEngine {
@@ -2223,8 +2260,10 @@ impl InputEngine for NextCoreEngine {
     }
 
     fn paste_input(&self, pane_id: usize, text: &str) -> Result<()> {
-        let input = Self::paste_payload(text, self.bracketed_paste_enabled(pane_id)?);
-        self.write_input(pane_id, &input)
+        for chunk in Self::paste_chunks(text, self.bracketed_paste_enabled(pane_id)?) {
+            self.write_input(pane_id, &chunk)?;
+        }
+        Ok(())
     }
 }
 
@@ -2513,6 +2552,28 @@ mod tests {
             NextCoreEngine::paste_payload("line1\nline2", true),
             "\x1b[200~line1\nline2\x1b[201~"
         );
+    }
+
+    #[test]
+    fn chunks_paste_payload_without_splitting_utf8() {
+        let text = format!("{}{}", "a".repeat(PASTE_CHUNK_BYTES), "你".repeat(3));
+        let chunks = NextCoreEngine::paste_chunks(&text, false);
+
+        assert!(chunks.len() > 1);
+        assert_eq!(chunks.concat(), text);
+        assert!(chunks
+            .iter()
+            .all(|chunk| chunk.is_char_boundary(chunk.len())));
+    }
+
+    #[test]
+    fn chunks_bracketed_paste_with_intact_markers() {
+        let text = "x".repeat(PASTE_CHUNK_BYTES + 10);
+        let chunks = NextCoreEngine::paste_chunks(&text, true);
+
+        assert_eq!(chunks.first().map(String::as_str), Some("\x1b[200~"));
+        assert_eq!(chunks.last().map(String::as_str), Some("\x1b[201~"));
+        assert_eq!(chunks[1..chunks.len() - 1].concat(), text);
     }
 
     #[test]

@@ -75,6 +75,8 @@ cargo run -p unterm-engine --bin unterm-next-core -- --bench-paste-kb 10 --timeo
 
 The paste benchmark feeds a large single-line payload through the engine paste path and reports time until the shell consumes it.
 
+`next-core` writes paste payloads in UTF-8 safe chunks. When bracketed paste mode is enabled, the start/end markers are kept intact around the chunked body.
+
 Dual pseudo-agent benchmark:
 
 ```powershell

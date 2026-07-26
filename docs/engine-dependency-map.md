@@ -84,7 +84,7 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 | `session.split` | Engine-neutral | `SessionEngine::split_session` | `next-core` must decide split semantics before GUI alpha. |
 | `session.focus` | Engine-neutral | `SessionEngine::focus_session` | Needs window focus semantics later for cross-instance jumps. |
 | `session.input` | Engine-neutral | `InputEngine::write_input` plus pane-id based write gate | Confirmation, audit, and policy are shared by WezTerm and `next-core`. |
-| `session.paste` | Engine-neutral | `InputEngine::paste_input` plus pane-id based write gate | Add paste-size and bracketed-paste semantics to trait before next-core alpha. |
+| `session.paste` | Engine-neutral | `InputEngine::paste_input` plus pane-id based write gate; `next-core` chunks large UTF-8 paste payloads and preserves bracketed paste markers | Add explicit paste telemetry before next-core alpha. |
 | `session.resize` | Engine-neutral | `SessionEngine::resize_session`; WezTerm adapter owns GUI-layout resize rejection | Handler no longer resolves a WezTerm pane or Mux for resize policy. |
 | `session.destroy` | Engine-neutral | `SessionEngine::destroy_session` | Handler resolves pane id without WezTerm pane access. |
 | `session.idle` | Engine-neutral | `SessionEngine::activity`; `next-core` uses recent input/output timestamps and liveness | Add foreground child-process detection later for precise running-command names. |
