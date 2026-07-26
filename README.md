@@ -107,6 +107,7 @@ The full Unterm docs live at **https://unterm.app/docs/**:
 - [Agent integration](https://unterm.app/docs/agent-integration) — how to drive Unterm from Claude Code / Cursor / Aider / your own client
 - [Agent recipes](https://unterm.app/docs/agent-recipes) — copy-paste patterns for common agent-drives-terminal workflows
 - [Product roadmap](https://unterm.app/docs/product-roadmap) — the five directions we are executing now
+- [Product requirements](docs/product-requirements.md) — complete product scope, functional requirements, MCP/CLI coverage, and acceptance criteria
 - [MCP reference](https://unterm.app/docs/mcp-reference) — every JSON-RPC method, parameters, return shape
 - [Multi-instance](https://unterm.app/docs/multi-instance) — NATO names, instances directory, picking the right window
 - [Identity profiles](https://unterm.app/docs/profiles) — one window per identity. Bind GitHub / AWS / npm / OpenAI tokens, git identity, SSH key routing all at once. CLI + MCP.
