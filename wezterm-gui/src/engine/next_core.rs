@@ -50,6 +50,8 @@ struct NextCoreScreen {
     revision: u64,
     dirty_rows: Option<DirtyRows>,
     rows: usize,
+    scroll_top: usize,
+    scroll_bottom: usize,
     saved_cursor_x: usize,
     saved_cursor_y: usize,
     alternate: Option<ScreenState>,
@@ -63,6 +65,8 @@ struct ScreenState {
     cursor_y: usize,
     cursor_visible: bool,
     current_attr: CellAttributes,
+    scroll_top: usize,
+    scroll_bottom: usize,
     saved_cursor_x: usize,
     saved_cursor_y: usize,
 }
@@ -159,6 +163,7 @@ impl NextCoreScreen {
             cursor_visible: true,
             ..Self::default()
         };
+        screen.scroll_bottom = screen.rows - 1;
         screen.ensure_cursor_line();
         screen
     }
@@ -314,8 +319,8 @@ impl NextCoreScreen {
     fn newline(&mut self) {
         let old_y = self.cursor_y;
         self.cursor_x = 0;
-        if self.cursor_y + 1 >= self.rows {
-            self.scroll_up(1);
+        if self.cursor_y >= self.scroll_bottom {
+            self.scroll_up_region(self.scroll_top, self.scroll_bottom, 1);
         } else {
             self.cursor_y += 1;
             self.mark_dirty_row(old_y);
@@ -349,6 +354,12 @@ impl NextCoreScreen {
 
     fn ensure_cursor_line(&mut self) {
         while self.lines.len() <= self.cursor_y {
+            self.lines.push(Vec::new());
+        }
+    }
+
+    fn ensure_rows_through(&mut self, row: usize) {
+        while self.lines.len() <= row {
             self.lines.push(Vec::new());
         }
     }
@@ -494,32 +505,58 @@ impl NextCoreScreen {
     }
 
     fn scroll_up(&mut self, count: usize) {
-        self.mark_all_dirty();
+        self.scroll_up_region(self.scroll_top, self.scroll_bottom, count);
+    }
+
+    fn scroll_up_region(&mut self, top: usize, bottom: usize, count: usize) {
+        if top > bottom {
+            return;
+        }
+        self.ensure_rows_through(bottom);
+        self.mark_dirty_range(top, bottom);
         for _ in 0..count.max(1) {
-            if !self.lines.is_empty() {
-                let removed = self.lines.remove(0);
-                if self.alternate.is_none() {
-                    self.scrollback.push(removed);
-                    if self.scrollback.len() > MAX_SCROLLBACK_LINES {
-                        let overflow = self.scrollback.len() - MAX_SCROLLBACK_LINES;
-                        self.scrollback.drain(..overflow);
-                    }
+            let removed = self.lines.remove(top);
+            if top == 0 && bottom + 1 >= self.rows && self.alternate.is_none() {
+                self.scrollback.push(removed);
+                if self.scrollback.len() > MAX_SCROLLBACK_LINES {
+                    let overflow = self.scrollback.len() - MAX_SCROLLBACK_LINES;
+                    self.scrollback.drain(..overflow);
                 }
             }
-            self.lines.push(Vec::new());
+            self.lines.insert(bottom, Vec::new());
         }
         self.cursor_y = self.cursor_y.min(self.rows.saturating_sub(1));
     }
 
     fn scroll_down(&mut self, count: usize) {
-        self.mark_all_dirty();
+        self.scroll_down_region(self.scroll_top, self.scroll_bottom, count);
+    }
+
+    fn scroll_down_region(&mut self, top: usize, bottom: usize, count: usize) {
+        if top > bottom {
+            return;
+        }
+        self.ensure_rows_through(bottom);
+        self.mark_dirty_range(top, bottom);
         for _ in 0..count.max(1) {
-            self.lines.insert(0, Vec::new());
-            if self.lines.len() > self.rows {
-                self.lines.pop();
-            }
+            self.lines.remove(bottom);
+            self.lines.insert(top, Vec::new());
         }
         self.cursor_y = self.cursor_y.min(self.rows.saturating_sub(1));
+    }
+
+    fn set_scroll_region(&mut self, top: usize, bottom: usize) {
+        let top = top.min(self.rows.saturating_sub(1));
+        let bottom = bottom.min(self.rows.saturating_sub(1));
+        if top >= bottom {
+            self.scroll_top = 0;
+            self.scroll_bottom = self.rows.saturating_sub(1);
+        } else {
+            self.scroll_top = top;
+            self.scroll_bottom = bottom;
+        }
+        self.set_cursor(0, 0);
+        self.mark_all_dirty();
     }
 
     fn resize(&mut self, rows: usize) {
@@ -541,6 +578,12 @@ impl NextCoreScreen {
             self.saved_cursor_y = self.saved_cursor_y.saturating_sub(trim);
         }
         self.cursor_y = self.cursor_y.min(self.rows.saturating_sub(1));
+        self.scroll_top = self.scroll_top.min(self.rows.saturating_sub(1));
+        self.scroll_bottom = self.scroll_bottom.min(self.rows.saturating_sub(1));
+        if self.scroll_top >= self.scroll_bottom {
+            self.scroll_top = 0;
+            self.scroll_bottom = self.rows.saturating_sub(1);
+        }
         self.ensure_cursor_line();
     }
 
@@ -559,6 +602,8 @@ impl NextCoreScreen {
             cursor_y: self.cursor_y,
             cursor_visible: self.cursor_visible,
             current_attr: self.current_attr,
+            scroll_top: self.scroll_top,
+            scroll_bottom: self.scroll_bottom,
             saved_cursor_x: self.saved_cursor_x,
             saved_cursor_y: self.saved_cursor_y,
         };
@@ -567,6 +612,8 @@ impl NextCoreScreen {
         self.cursor_y = 0;
         self.saved_cursor_x = 0;
         self.saved_cursor_y = 0;
+        self.scroll_top = 0;
+        self.scroll_bottom = self.rows.saturating_sub(1);
         self.lines.clear();
         self.ensure_cursor_line();
         self.mark_all_dirty();
@@ -580,6 +627,8 @@ impl NextCoreScreen {
             self.cursor_y = main.cursor_y;
             self.cursor_visible = main.cursor_visible;
             self.current_attr = main.current_attr;
+            self.scroll_top = main.scroll_top;
+            self.scroll_bottom = main.scroll_bottom;
             self.saved_cursor_x = main.saved_cursor_x;
             self.saved_cursor_y = main.saved_cursor_y;
             if self.lines.len() > self.rows {
@@ -721,6 +770,16 @@ impl<'a> ScreenParser<'a> {
             }
             'K' => self.screen.clear_to_end_of_line(),
             'm' => self.screen.apply_sgr(&numbers),
+            'r' => {
+                let top = numbers.first().copied().filter(|n| *n > 0).unwrap_or(1);
+                let bottom = numbers
+                    .get(1)
+                    .copied()
+                    .filter(|n| *n > 0)
+                    .unwrap_or(self.screen.rows);
+                self.screen
+                    .set_scroll_region(top.saturating_sub(1), bottom.saturating_sub(1));
+            }
             'h' => {
                 if private && numbers.iter().any(|n| matches!(*n, 1049 | 1047 | 47)) {
                     self.screen.enter_alternate_screen(true);
@@ -1911,6 +1970,38 @@ mod tests {
         set_output_for_test(session.id, "a\nb\nc\x1b[T")?;
         let lines = engine.read_screen(session.id)?.lines;
         assert_eq!(lines, vec!["", "a", "b"]);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_applies_scroll_regions() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 5,
+            command_dir: None,
+            command: None,
+        })?;
+        set_output_for_test(
+            session.id,
+            concat!(
+                "\x1b[1;1Htop",
+                "\x1b[2;1Hone",
+                "\x1b[3;1Htwo",
+                "\x1b[4;1Hthree",
+                "\x1b[5;1Hbottom",
+                "\x1b[2;4r",
+                "\x1b[4;1H\n"
+            ),
+        )?;
+
+        let screen = engine.read_screen(session.id)?;
+        assert_eq!(screen.lines, vec!["top", "two", "three", "", "bottom"]);
+        assert_eq!(screen.scrollback_rows, 0);
 
         engine.destroy_session(session.id)?;
         Ok(())
