@@ -1867,23 +1867,13 @@ impl McpHandler {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing 'input' (or compatibility alias 'text') parameter"))?;
         let engine = self.engine();
-        if engine.name() == "next-core" {
-            let pane_id = Self::pane_id_from_params(params)?;
-            self.audit(
-                "session.input",
-                Some(&pane_id.to_string()),
-                &input_preview(input),
-            );
-            engine.write_input(pane_id, input)?;
-            return Ok(json!({"status": "ok"}));
-        }
-
-        let pane = self.get_pane(params)?;
+        let pane_id = Self::pane_id_from_params(params)?;
+        engine.get_session(pane_id)?;
 
         // Gate the write on a user confirmation banner if policy
         // demands it. `Allow` continues to the audit + write below;
         // `Block` returns -32004 to the agent.
-        match self.gate_pty_write("session.input", &pane, input)? {
+        match self.gate_pty_write("session.input", pane_id, input)? {
             GateOutcome::Allow => {}
             GateOutcome::Block => {
                 return Err(anyhow!("user denied"));
@@ -1893,10 +1883,10 @@ impl McpHandler {
         // PTY 字节流一旦写下去就和用户手敲不可区分，必须留下审计痕迹。
         self.audit(
             "session.input",
-            Some(&pane.pane_id().to_string()),
+            Some(&pane_id.to_string()),
             &input_preview(input),
         );
-        engine.write_input(pane.pane_id(), input)?;
+        engine.write_input(pane_id, input)?;
         Ok(json!({"status": "ok"}))
     }
 
@@ -1907,20 +1897,10 @@ impl McpHandler {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing 'text' (or compatibility alias 'input') parameter"))?;
         let engine = self.engine();
-        if engine.name() == "next-core" {
-            let pane_id = Self::pane_id_from_params(params)?;
-            self.audit(
-                "session.paste",
-                Some(&pane_id.to_string()),
-                &input_preview(text),
-            );
-            engine.paste_input(pane_id, text)?;
-            return Ok(json!({"status": "ok"}));
-        }
+        let pane_id = Self::pane_id_from_params(params)?;
+        engine.get_session(pane_id)?;
 
-        let pane = self.get_pane(params)?;
-
-        match self.gate_pty_write("session.paste", &pane, text)? {
+        match self.gate_pty_write("session.paste", pane_id, text)? {
             GateOutcome::Allow => {}
             GateOutcome::Block => {
                 return Err(anyhow!("user denied"));
@@ -1929,10 +1909,10 @@ impl McpHandler {
 
         self.audit(
             "session.paste",
-            Some(&pane.pane_id().to_string()),
+            Some(&pane_id.to_string()),
             &input_preview(text),
         );
-        engine.paste_input(pane.pane_id(), text)?;
+        engine.paste_input(pane_id, text)?;
         Ok(json!({"status": "ok"}))
     }
 
@@ -1945,12 +1925,7 @@ impl McpHandler {
     /// because they just clicked Allow on the banner). Returns
     /// `GateOutcome::Block` when the user denied (or the banner
     /// timed out).
-    fn gate_pty_write(
-        &self,
-        method: &str,
-        pane: &Arc<dyn Pane>,
-        input: &str,
-    ) -> Result<GateOutcome> {
+    fn gate_pty_write(&self, method: &str, pane_id: usize, input: &str) -> Result<GateOutcome> {
         let cfg = config::configuration();
         let agent = current_agent_label();
         let preview = input_preview(input);
@@ -1996,7 +1971,7 @@ impl McpHandler {
                 id,
                 agent: agent.clone(),
                 input_preview: preview.clone(),
-                pane_id: pane.pane_id() as u64,
+                pane_id: pane_id as u64,
                 method: method.to_string(),
                 requested_at: chrono::Local::now().to_rfc3339(),
                 responder: tx,
@@ -2010,7 +1985,7 @@ impl McpHandler {
             Ok(ConfirmationDecision::Allow) => {
                 self.audit(
                     "mcp.confirm.allow",
-                    Some(&pane.pane_id().to_string()),
+                    Some(&pane_id.to_string()),
                     &format!("agent={} {}", agent, preview),
                 );
                 Ok(GateOutcome::Allow)
@@ -2018,7 +1993,7 @@ impl McpHandler {
             Ok(ConfirmationDecision::AlwaysAllow) => {
                 self.audit(
                     "mcp.confirm.always_allow",
-                    Some(&pane.pane_id().to_string()),
+                    Some(&pane_id.to_string()),
                     &format!("agent={} {}", agent, preview),
                 );
                 Ok(GateOutcome::Allow)
@@ -2026,7 +2001,7 @@ impl McpHandler {
             Ok(ConfirmationDecision::Block) => {
                 self.audit(
                     "mcp.confirm.block",
-                    Some(&pane.pane_id().to_string()),
+                    Some(&pane_id.to_string()),
                     &format!("agent={} {}", agent, preview),
                 );
                 Ok(GateOutcome::Block)
@@ -2042,7 +2017,7 @@ impl McpHandler {
                 }
                 self.audit(
                     "mcp.confirm.timeout",
-                    Some(&pane.pane_id().to_string()),
+                    Some(&pane_id.to_string()),
                     &format!("agent={} {}", agent, preview),
                 );
                 Ok(GateOutcome::Block)
@@ -2959,10 +2934,7 @@ impl McpHandler {
 
         let engine = self.engine();
         let search_matches = engine.search(pane_id, pattern, max_results)?;
-        let match_rows: Vec<isize> = search_matches
-            .iter()
-            .map(|m| m.row as isize)
-            .collect();
+        let match_rows: Vec<isize> = search_matches.iter().map(|m| m.row as isize).collect();
         let matches: Vec<Value> = search_matches
             .into_iter()
             .map(|m| {
@@ -3080,9 +3052,7 @@ impl McpHandler {
                 }
                 match engine.write_input(id, &input) {
                     Ok(_) => results.push(json!({"session_id": id_str, "sent": true})),
-                    Err(e) => {
-                        results.push(json!({"session_id": id_str, "error": e.to_string()}))
-                    }
+                    Err(e) => results.push(json!({"session_id": id_str, "error": e.to_string()})),
                 }
             }
         }

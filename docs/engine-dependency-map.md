@@ -61,8 +61,8 @@ Known gaps:
 
 | Category | Count | Methods |
 |---|---:|---|
-| Engine-neutral | 17 | `session.list`, `session.get`, `session.status`, `session.create`, `session.split`, `session.focus`, `session.idle`, `session.cwd`, `session.history`, `screen.read`, `screen.text`, `screen.scrollback_text`, `screen.cursor`, `screen.detect_errors`, `exec.status`, `screen.scroll`, `server.info` |
-| Partial | 11 | `session.input`, `session.paste`, `session.resize`, `session.destroy`, `exec.run`, `exec.send`, `exec.run_wait`, `exec.cancel`, `signal.send`, `screen.search`, `server.health` |
+| Engine-neutral | 19 | `session.list`, `session.get`, `session.status`, `session.create`, `session.split`, `session.focus`, `session.input`, `session.paste`, `session.idle`, `session.cwd`, `session.history`, `screen.read`, `screen.text`, `screen.scrollback_text`, `screen.cursor`, `screen.detect_errors`, `exec.status`, `screen.scroll`, `server.info` |
+| Partial | 9 | `session.resize`, `session.destroy`, `exec.run`, `exec.send`, `exec.run_wait`, `exec.cancel`, `signal.send`, `screen.search`, `server.health` |
 | Product-only | 39 | `meta.surface`, `session.audit_log`, `session.suggest`, `session.suggest_status`, `session.suggest_cancel`, `session.suggest_list`, `agent.identify`, `agent.whoami`, `agent.list_trusted`, `agent.trust`, `agent.untrust`, `policy.set`, `policy.check`, `server.capabilities`, `profile.list`, `profile.current`, `profile.audit`, `fleet.list`, `review.list`, `review.diff`, `review.verify`, `review.rollback`, `review.merge`, `review.discard`, `proxy.status`, `proxy.nodes`, `proxy.switch`, `proxy.speedtest`, `proxy.configure`, `proxy.disable`, `proxy.env`, `proxy.rotation`, `proxy.set_nodes`, `proxy.clash_status`, `proxy.clash_select`, `proxy.clash_set_controller`, `upload.file`, `system.info`, `selftest.run` |
 | WezTerm-only | 31 | `agent.status`, `agent.signal`, `cockpit.inbox`, `fleet.launch`, `fleet.clean`, `fleet.retry`, `ghost.debug`, `orchestrate.launch`, `orchestrate.broadcast`, `orchestrate.wait`, `workspace.save`, `workspace.restore`, `workspace.list`, `capture.screen`, `capture.window`, `capture.select`, `capture.clipboard`, `capture.scrollback`, `capture.window_scroll`, `session.recording_start`, `session.recording_stop`, `session.recording_status`, `session.recording_list`, `session.recording_read`, `session.recording_attach_trace`, `session.export_markdown`, `instance.list`, `instance.info`, `instance.set_title`, `instance.focus`, `system.launch_admin` |
 | Unsupported stub | 2 | `session.env`, `session.set_env` |
@@ -79,8 +79,8 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 | `session.get` | Engine-neutral | `SessionEngine::get_session` | Keep output shape stable. |
 | `session.split` | Engine-neutral | `SessionEngine::split_session` | `next-core` must decide split semantics before GUI alpha. |
 | `session.focus` | Engine-neutral | `SessionEngine::focus_session` | Needs window focus semantics later for cross-instance jumps. |
-| `session.input` | Partial | `InputEngine::write_input`, but WezTerm mode resolves/gates through `Pane` | Introduce pane-id based write-gate so `next-core` does not bypass confirmation. |
-| `session.paste` | Partial | `InputEngine::paste_input`, but WezTerm mode resolves/gates through `Pane` | Same as `session.input`; add paste-size and bracketed-paste semantics to trait. |
+| `session.input` | Engine-neutral | `InputEngine::write_input` plus pane-id based write gate | Confirmation, audit, and policy are shared by WezTerm and `next-core`. |
+| `session.paste` | Engine-neutral | `InputEngine::paste_input` plus pane-id based write gate | Add paste-size and bracketed-paste semantics to trait before next-core alpha. |
 | `session.resize` | Partial | `SessionEngine::resize_session`, but detects GUI layout through WezTerm `Mux` | Add engine capability for resize policy/layout ownership. |
 | `session.destroy` | Partial | `SessionEngine::destroy_session`, but resolves `Pane` first | Convert to pane-id path. |
 | `session.idle` | Engine-neutral | `SessionEngine::activity` | `next-core` must provide foreground activity. |
@@ -210,8 +210,6 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 
 Methods unlocked:
 
-- `session.input`
-- `session.paste`
 - `exec.run`
 - `exec.send`
 - `exec.cancel`
@@ -220,14 +218,14 @@ Methods unlocked:
 
 Work:
 
-- Replace `gate_pty_write(method, &Pane, input)` with a pane-id based gate.
+- Continue replacing WezTerm `Pane` write paths with pane-id based gate calls.
 - Keep audit output identical.
 - Preserve existing confirmation banner behavior in WezTerm mode.
-- Make `next-core` input go through the same policy path.
+- Keep `next-core` writes on the same policy path.
 
 Acceptance:
 
-- `session.input` in `UNTERM_ENGINE=next-core` no longer bypasses write confirmation.
+- `exec.*`, `signal.send`, and orchestration writes no longer require a WezTerm `Pane`.
 - `cargo test -p unterm mcp::handler::tests -- --test-threads=1` passes or targeted replacement tests exist.
 - Existing WezTerm write confirmation behavior is unchanged.
 
