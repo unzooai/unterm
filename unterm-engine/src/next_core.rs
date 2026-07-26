@@ -954,10 +954,20 @@ impl NextCoreScreen {
     fn delete_chars(&mut self, count: usize) {
         self.ensure_cursor_line();
         let line = &mut self.lines[self.cursor_y];
-        for _ in 0..count.max(1) {
+        let count = count.max(1);
+        let blanks = if self.cursor_x < self.cols {
+            count.min(self.cols - self.cursor_x)
+        } else {
+            0
+        };
+        for _ in 0..count {
             if self.cursor_x < line.len() {
                 line.remove(self.cursor_x);
             }
+        }
+        if blanks > 0 {
+            let desired_len = (line.len() + blanks).min(self.cols);
+            line.resize(desired_len, ScreenCell::blank(self.current_attr));
         }
         self.mark_dirty_row(self.cursor_y);
     }
@@ -5310,6 +5320,36 @@ mod tests {
             lines,
             vec!["abXYe", "keep", "prefix", "      left", "", "erase   ars"]
         );
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_delete_chars_backfills_cells_to_right_margin() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 6,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+        set_output_for_test(session.id, "abcdef\x1b[31m\x1b[1;3H\x1b[2P")?;
+
+        assert_eq!(engine.read_screen(session.id)?.lines, vec!["abef"]);
+        let styled = engine.read_styled_screen(session.id)?;
+        let cells = &styled.lines[0].cells;
+        assert_eq!(cells.len(), 6);
+        assert_eq!(
+            cells.iter().map(|cell| cell.ch).collect::<String>(),
+            "abef  "
+        );
+        assert_eq!(cells[4].style.fg, Some(StyledColor::Palette(1)));
+        assert_eq!(cells[5].style.fg, Some(StyledColor::Palette(1)));
 
         engine.destroy_session(session.id)?;
         Ok(())
