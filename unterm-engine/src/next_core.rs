@@ -1,10 +1,10 @@
 use super::{
     CellStyle, CreateSessionRequest, CursorSnapshot, DirtyRows, EngineHealthSnapshot, HealthEngine,
-    InputEngine, PasteActivitySnapshot, RecordingEngine, RecordingExportResult,
-    RecordingStartResult, RecordingStatusSnapshot, RecordingStopResult, ScreenEngine, ScreenLine,
-    ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot,
-    SessionActivitySnapshot, SessionEngine, SessionSnapshot, ShellSnapshot, SplitSessionRequest,
-    StyledCell, StyledColor, StyledScreenLine, StyledScreenSnapshot,
+    InputActivitySnapshot, InputEngine, PasteActivitySnapshot, RecordingEngine,
+    RecordingExportResult, RecordingStartResult, RecordingStatusSnapshot, RecordingStopResult,
+    ScreenEngine, ScreenLine, ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest,
+    ScrollbackTextSnapshot, SessionActivitySnapshot, SessionEngine, SessionSnapshot, ShellSnapshot,
+    SplitSessionRequest, StyledCell, StyledColor, StyledScreenLine, StyledScreenSnapshot,
 };
 use anyhow::{bail, Result};
 use base64::Engine as _;
@@ -71,6 +71,7 @@ struct SessionIoActivity {
     created_at: Instant,
     last_input_at: Option<Instant>,
     last_output_at: Option<Instant>,
+    input: Option<InputActivitySnapshot>,
     paste: Option<PasteActivitySnapshot>,
 }
 
@@ -80,12 +81,24 @@ impl SessionIoActivity {
             created_at: Instant::now(),
             last_input_at: None,
             last_output_at: None,
+            input: None,
             paste: None,
         }
     }
 
-    fn mark_input(&mut self) {
+    fn mark_input(&mut self, bytes: usize, duration: Duration) {
         self.last_input_at = Some(Instant::now());
+        let mut snapshot = self.input.clone().unwrap_or(InputActivitySnapshot {
+            total_writes: 0,
+            total_bytes: 0,
+            last_bytes: 0,
+            last_duration_ms: 0,
+        });
+        snapshot.total_writes = snapshot.total_writes.saturating_add(1);
+        snapshot.total_bytes = snapshot.total_bytes.saturating_add(bytes as u64);
+        snapshot.last_bytes = bytes;
+        snapshot.last_duration_ms = duration.as_millis().min(u64::MAX as u128) as u64;
+        self.input = Some(snapshot);
     }
 
     fn mark_output(&mut self) {
@@ -2072,11 +2085,13 @@ impl SessionEngine for NextCoreEngine {
         let foreground_process = session.snapshot.shell.process_name.clone();
         let activity = session.activity.lock();
         let idle = is_dead || activity.is_idle(Instant::now());
+        let input = activity.input.clone();
         let paste = activity.paste.clone();
         drop(activity);
         Ok(SessionActivitySnapshot {
             idle,
             foreground_process,
+            input,
             paste,
         })
     }
@@ -2288,11 +2303,13 @@ impl InputEngine for NextCoreEngine {
             (Arc::clone(&session.writer), Arc::clone(&session.activity))
         };
 
+        let started_at = Instant::now();
+        let bytes = input.len();
         let mut writer = writer.lock();
         writer.write_all(input.as_bytes())?;
         writer.flush()?;
         if !input.is_empty() {
-            activity.lock().mark_input();
+            activity.lock().mark_input(bytes, started_at.elapsed());
         }
         Ok(())
     }
@@ -2325,7 +2342,7 @@ impl InputEngine for NextCoreEngine {
 
         if !text.is_empty() || bracketed {
             let mut activity = activity.lock();
-            activity.mark_input();
+            activity.mark_input(wire_bytes, started_at.elapsed());
             activity.mark_paste(
                 text.len(),
                 wire_bytes,
@@ -2687,6 +2704,42 @@ mod tests {
         assert_eq!(paste.last_wire_bytes, "\x1b[200~token\x1b[201~".len());
         assert_eq!(paste.last_chunk_count, 3);
         assert!(paste.last_bracketed);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn input_activity_reports_regular_writes() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+        })?;
+
+        engine.write_input(session.id, "abc")?;
+        engine.write_input(session.id, "你")?;
+        let activity = engine.activity(session.id)?;
+        let input = activity.input.expect("input metrics after writes");
+
+        assert_eq!(input.total_writes, 2);
+        assert_eq!(input.total_bytes, "abc你".len() as u64);
+        assert_eq!(input.last_bytes, "你".len());
+        assert!(activity.paste.is_none());
+
+        engine.paste_input(session.id, "token")?;
+        let activity = engine.activity(session.id)?;
+        let input = activity.input.expect("input metrics after paste");
+        let paste = activity.paste.expect("paste metrics after paste");
+
+        assert_eq!(input.total_writes, 3);
+        assert_eq!(input.last_bytes, paste.last_wire_bytes);
+        assert_eq!(paste.total_pastes, 1);
 
         engine.destroy_session(session.id)?;
         Ok(())

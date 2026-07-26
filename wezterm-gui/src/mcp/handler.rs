@@ -3092,6 +3092,7 @@ impl McpHandler {
         Ok(json!({
             "idle": activity.idle,
             "foreground_process": activity.foreground_process,
+            "input": activity.input,
             "paste": activity.paste,
         }))
     }
@@ -3995,6 +3996,7 @@ impl McpHandler {
         Ok(json!({
             "status": status,
             "foreground_process": activity.foreground_process,
+            "input": activity.input,
             "paste": activity.paste,
         }))
     }

@@ -4,7 +4,7 @@
 更新时间：2026-07-27  
 规划周期：12 个月  
 适用范围：当前 WezTerm 内核、engine-neutral 产品层、实验性 `next-core`
-当前进展：`next-core` 已具备启动环境元数据、scrollback 文本截图、OSC 7 cwd、session activity 和 UTF-8 安全粘贴分块基础能力。
+当前进展：`next-core` 已具备启动环境元数据、scrollback 文本截图、OSC 7 cwd、session activity、input/paste 写入指标和 UTF-8 安全粘贴分块基础能力。
 
 ## 1. 产品结论
 
