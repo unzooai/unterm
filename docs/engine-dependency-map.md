@@ -77,21 +77,21 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 |---|---|---|---|
 | `session.list` | Engine-neutral | `SessionEngine::list_sessions` | Keep as baseline adapter test. |
 | `session.create` | Engine-neutral | `SessionEngine::create_session` plus `CreateSessionRequest::env` and typed `launch_policy`; `next-core` records `ShellSnapshot.launch_context` profile/proxy diagnostics and env provenance without secret values | Later expand typed launch policy from provenance into launch decisions such as shell profile, domain, privilege, proxy rotation, and restart behavior. |
-| `session.status` | Engine-neutral | `SessionEngine::get_session` | Alias of `session.get`. |
-| `session.get` | Engine-neutral | `SessionEngine::get_session` | Keep output shape stable. |
-| `session.split` | Engine-neutral | `SessionEngine::split_session` | `next-core` must decide split semantics before GUI alpha. |
-| `session.focus` | Engine-neutral | `SessionEngine::focus_session` | Needs window focus semantics later for cross-instance jumps. |
-| `session.input` | Engine-neutral | `InputEngine::write_input` plus pane-id based write gate; `next-core` records write count, bytes, and last write duration on the session activity snapshot | Confirmation, audit, and policy are shared by WezTerm and `next-core`. |
-| `session.paste` | Engine-neutral | `InputEngine::paste_input` plus pane-id based write gate; `next-core` chunks large UTF-8 paste payloads, preserves bracketed paste markers, and records paste telemetry on the session activity snapshot | Expand paste telemetry to current-core after the WezTerm paste path exposes completion timing. |
-| `session.resize` | Engine-neutral | `SessionEngine::resize_session`; WezTerm adapter owns GUI-layout resize rejection | Handler no longer resolves a WezTerm pane or Mux for resize policy. |
-| `session.destroy` | Engine-neutral | `SessionEngine::destroy_session` | Handler resolves pane id without WezTerm pane access. |
-| `session.idle` | Engine-neutral | `SessionEngine::activity`; `next-core` uses recent input/output timestamps, liveness, input metrics, output metrics, paste metrics, and a process-tree activity summary with root/foreground pid, cwd, argv, child count, and known agent detection; WezTerm reports `process: null`, `input: null`, `output: null`, and `paste: null` | Keep process-tree scans off UI paint paths; query only from explicit status/cwd calls. |
-| `session.cwd` | Engine-neutral | `SessionEngine::shell`; `next-core` updates cwd from OSC 7 shell-integration sequences and falls back to foreground/root process cwd when shell integration is unavailable | OSC 7 remains preferred because it follows shell-level directory changes immediately. |
-| `session.env` | Engine-neutral | `SessionEngine::shell` launch env key snapshot plus `launch_context`; values are redacted | `next-core` exposes launch env variable names, selected profile id, proxy env key names, env key count, and typed policy provenance for proxy/profile/overlay/explicit env sources; WezTerm mode reports unsupported because live pane env is not available. |
+| `session.status` | Engine-neutral | Shared pane-id resolver plus `SessionEngine::get_session` | Alias of `session.get`. |
+| `session.get` | Engine-neutral | Shared pane-id resolver plus `SessionEngine::get_session` | Keep output shape stable. |
+| `session.split` | Engine-neutral | Shared pane-id resolver plus `SessionEngine::split_session` | `next-core` must decide split semantics before GUI alpha. |
+| `session.focus` | Engine-neutral | Shared pane-id resolver plus `SessionEngine::focus_session` | Needs window focus semantics later for cross-instance jumps. |
+| `session.input` | Engine-neutral | Shared pane-id resolver, `InputEngine::write_input`, and pane-id based write gate; `next-core` records write count, bytes, and last write duration on the session activity snapshot | Confirmation, audit, and policy are shared by WezTerm and `next-core`. |
+| `session.paste` | Engine-neutral | Shared pane-id resolver, `InputEngine::paste_input`, and pane-id based write gate; `next-core` chunks large UTF-8 paste payloads, preserves bracketed paste markers, and records paste telemetry on the session activity snapshot | Expand paste telemetry to current-core after the WezTerm paste path exposes completion timing. |
+| `session.resize` | Engine-neutral | Shared pane-id resolver plus `SessionEngine::resize_session`; WezTerm adapter owns GUI-layout resize rejection | Handler no longer resolves a WezTerm pane or Mux for resize policy. |
+| `session.destroy` | Engine-neutral | Shared pane-id resolver plus `SessionEngine::destroy_session` | Handler resolves pane id without WezTerm pane access. |
+| `session.idle` | Engine-neutral | Shared pane-id resolver plus `SessionEngine::activity`; `next-core` uses recent input/output timestamps, liveness, input metrics, output metrics, paste metrics, and a process-tree activity summary with root/foreground pid, cwd, argv, child count, and known agent detection; WezTerm reports `process: null`, `input: null`, `output: null`, and `paste: null` | Keep process-tree scans off UI paint paths; query only from explicit status/cwd calls. |
+| `session.cwd` | Engine-neutral | Shared pane-id resolver plus `SessionEngine::shell`; `next-core` updates cwd from OSC 7 shell-integration sequences and falls back to foreground/root process cwd when shell integration is unavailable | OSC 7 remains preferred because it follows shell-level directory changes immediately. |
+| `session.env` | Engine-neutral | Shared pane-id resolver plus `SessionEngine::shell` launch env key snapshot and `launch_context`; values are redacted | `next-core` exposes launch env variable names, selected profile id, proxy env key names, env key count, and typed policy provenance for proxy/profile/overlay/explicit env sources; WezTerm mode reports unsupported because live pane env is not available. |
 | `session.set_env` | Product-only | MCP launch env overlay for future `session.create`; existing shells are not mutated | `next-core` supports future-launch env overlays. WezTerm mode still reports unsupported because live pane env mutation is not available and current-core launch ownership remains WezTerm-bound. |
-| `session.history` | Engine-neutral | `ScreenEngine::read_scrollback` | Rename eventually? It is scrollback, not shell history. |
+| `session.history` | Engine-neutral | Shared pane-id resolver plus `ScreenEngine::read_scrollback` | Rename eventually? It is scrollback, not shell history. |
 | `session.audit_log` | Product-only | MCP in-memory audit state | Engine-independent. |
-| `session.suggest` | Product-only | MCP suggestion queue plus `SessionEngine::get_session` target validation | Needs UI renderer support in `next-core`, but queue state is product-owned and handler no longer resolves a WezTerm pane. |
+| `session.suggest` | Product-only | MCP suggestion queue plus shared pane-id resolver target validation | Needs UI renderer support in `next-core`, but queue state is product-owned and handler no longer resolves a WezTerm pane. |
 | `session.suggest_status` | Product-only | MCP suggestion queue | Engine-independent. |
 | `session.suggest_cancel` | Product-only | MCP suggestion queue | Engine-independent. |
 | `session.suggest_list` | Product-only | MCP suggestion queue | Engine-independent. |
@@ -107,12 +107,12 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 
 | Method | Status | Current dependency | Migration note |
 |---|---|---|---|
-| `exec.run` | Engine-neutral | `InputEngine::write_input` plus pane-id based write gate | Preserves policy check and audit before sending command + CR. |
-| `exec.send` | Engine-neutral | `InputEngine::write_input` plus pane-id based write gate | Accepts documented `bytes` plus `input`/`text` aliases. |
-| `exec.run_wait` | Engine-neutral | `SessionEngine::shell`, `SessionEngine::activity`, `ScreenEngine::read_visible_text`, `InputEngine::write_input`, pane-id based write gate | Uses sentinel wrapping and resolves shell syntax from engine-neutral shell metadata, next-core process-tree root/foreground summaries, and platform fallback without reaching through a WezTerm pane. |
-| `exec.status` | Engine-neutral | `SessionEngine::activity` | In `next-core`, status reflects recent I/O activity, liveness, input metrics, output metrics, paste metrics, and process-tree foreground/agent diagnostics. |
-| `exec.cancel` | Engine-neutral | `InputEngine::write_input` plus pane-id based write gate | Sends Ctrl+C after confirmation/audit. |
-| `signal.send` | Engine-neutral | `InputEngine::write_input` plus pane-id based write gate | Validates supported signal before confirmation/audit. |
+| `exec.run` | Engine-neutral | Shared pane-id resolver, `InputEngine::write_input`, and pane-id based write gate | Preserves policy check and audit before sending command + CR. |
+| `exec.send` | Engine-neutral | Shared pane-id resolver, `InputEngine::write_input`, and pane-id based write gate | Accepts documented `bytes` plus `input`/`text` aliases. |
+| `exec.run_wait` | Engine-neutral | Shared pane-id resolver, `SessionEngine::shell`, `SessionEngine::activity`, `ScreenEngine::read_visible_text`, `InputEngine::write_input`, pane-id based write gate | Uses sentinel wrapping and resolves shell syntax from engine-neutral shell metadata, next-core process-tree root/foreground summaries, and platform fallback without reaching through a WezTerm pane. |
+| `exec.status` | Engine-neutral | Shared pane-id resolver plus `SessionEngine::activity` | In `next-core`, status reflects recent I/O activity, liveness, input metrics, output metrics, paste metrics, and process-tree foreground/agent diagnostics. |
+| `exec.cancel` | Engine-neutral | Shared pane-id resolver, `InputEngine::write_input`, and pane-id based write gate | Sends Ctrl+C after confirmation/audit. |
+| `signal.send` | Engine-neutral | Shared pane-id resolver, `InputEngine::write_input`, and pane-id based write gate | Validates supported signal before confirmation/audit. |
 
 ## Screen Methods
 
@@ -122,8 +122,8 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 | `screen.text` | Engine-neutral | Shared pane-id resolver plus `ScreenEngine::read_screen` | Baseline next-core capability. |
 | `screen.scrollback_text` | Engine-neutral | Shared pane-id resolver plus `ScreenEngine::read_scrollback_text` with missing/stale-id active-session fallback | Active fallback resolves through `WindowEngine::active_pane_id`, which maps to next-core active session snapshots outside WezTerm. |
 | `screen.cursor` | Engine-neutral | Shared pane-id resolver plus `ScreenEngine::cursor` | Baseline next-core capability. |
-| `screen.scroll` | Engine-neutral | `ScreenEngine::read_lines`; optional `goto`/`apply` routes through `WindowEngine::scroll_viewport_to` | Default remains read-only. With `goto`/`apply`, `next-core` updates its logical viewport and WezTerm updates the GUI viewport. |
-| `screen.search` | Engine-neutral | `ScreenEngine::search`; optional `goto` routes through `WindowEngine::scroll_viewport_to` | `next-core` updates its logical viewport so later `screen.read`/`screen.text` calls show the matched region; real GUI viewport integration comes with the next-core renderer. |
+| `screen.scroll` | Engine-neutral | Shared pane-id resolver plus `ScreenEngine::read_lines`; optional `goto`/`apply` routes through `WindowEngine::scroll_viewport_to` | Default remains read-only. With `goto`/`apply`, `next-core` updates its logical viewport and WezTerm updates the GUI viewport. |
+| `screen.search` | Engine-neutral | Shared pane-id resolver plus `ScreenEngine::search`; optional `goto` routes through `WindowEngine::scroll_viewport_to` | `next-core` updates its logical viewport so later `screen.read`/`screen.text` calls show the matched region; real GUI viewport integration comes with the next-core renderer. |
 | `screen.detect_errors` | Engine-neutral | Shared pane-id resolver plus `ScreenEngine::read_screen` and product heuristics | Product-only heuristic on engine snapshot. |
 
 ## Agent, Cockpit, Fleet, Review
@@ -156,7 +156,7 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 | `ghost.debug` | Product-only | Ghost text predictor registry keyed by pane id | Engine-independent read-only diagnostic state. |
 | `orchestrate.launch` | Engine-neutral | `SessionEngine::create_session`, pane-id write gate, `InputEngine::write_input` | Optional command now goes through policy/confirmation/audit. |
 | `orchestrate.broadcast` | Engine-neutral | `SessionEngine::get_session`, pane-id write gate, `InputEngine::write_input` | Per-session result shape is preserved. |
-| `orchestrate.wait` | Engine-neutral | `SessionEngine::get_session`, `ScreenEngine::read_visible_text` | Timeout result shape is preserved. |
+| `orchestrate.wait` | Engine-neutral | Shared pane-id resolver plus `ScreenEngine::read_visible_text` | Timeout result shape is preserved. |
 | `workspace.save` | Engine-neutral | `SessionEngine::list_sessions` plus workspace file write | Saves id/title/cwd from engine snapshots. |
 | `workspace.restore` | Engine-neutral | Workspace file read plus `SessionEngine::create_session` through `session_create` | Dry-run and archive handling remain product-layer behavior. |
 | `workspace.list` | Product-only | Workspace archive directory read | No live terminal dependency. |

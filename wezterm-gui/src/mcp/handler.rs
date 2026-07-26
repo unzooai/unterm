@@ -3410,7 +3410,9 @@ impl McpHandler {
 
     fn session_get(&self, params: &Value) -> Result<Value> {
         let engine = self.engine();
-        let session = engine.get_session(Self::pane_id_from_params(params)?)?;
+        let pane_id =
+            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+        let session = engine.get_session(pane_id)?;
 
         Ok(json!({
             "id": session.id,
@@ -3442,11 +3444,14 @@ impl McpHandler {
     ///
     /// Returns the same shape as `session.create`.
     fn session_split(&self, params: &Value) -> Result<Value> {
+        let engine = self.engine();
         // Source pane: accept the same id/session_id duality as get_pane
         // so callers don't have to remember which method takes which.
-        let src_pane_id = Self::pane_id_from_params(params).map_err(|_| {
-            anyhow!("Missing 'id' / 'session_id' / 'pane_id' (source pane to split)")
-        })?;
+        let src_pane_id = self
+            .resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)
+            .map_err(|_| {
+                anyhow!("Missing 'id' / 'session_id' / 'pane_id' (source pane to split)")
+            })?;
 
         // Take an owned String here so the value can cross the async
         // closure boundary below — &str borrowed from `params` would
@@ -3482,7 +3487,6 @@ impl McpHandler {
             command_dir: params.get("cwd").and_then(|v| v.as_str()).map(String::from),
         };
 
-        let engine = self.engine();
         let session = engine.split_session(request)?;
         Ok(json!({
             "id": session.id,
@@ -3505,11 +3509,11 @@ impl McpHandler {
     /// Params: `id` or `session_id` (required).
     /// Returns: `{ ok: true, id: <focused-pane-id> }`.
     fn session_focus(&self, params: &Value) -> Result<Value> {
-        let pane_id = Self::pane_id_from_params(params)?;
-
         // Focus is an engine operation; the MCP layer only preserves
         // the documented parameter and response contract.
         let engine = self.engine();
+        let pane_id =
+            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
         engine.focus_session(pane_id)?;
         Ok(json!({ "ok": true, "id": pane_id }))
     }
@@ -3595,8 +3599,8 @@ impl McpHandler {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing 'input' (or compatibility alias 'text') parameter"))?;
         let engine = self.engine();
-        let pane_id = Self::pane_id_from_params(params)?;
-        engine.get_session(pane_id)?;
+        let pane_id =
+            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
 
         // Gate the write on a user confirmation banner if policy
         // demands it. `Allow` continues to the audit + write below;
@@ -3625,8 +3629,8 @@ impl McpHandler {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing 'text' (or compatibility alias 'input') parameter"))?;
         let engine = self.engine();
-        let pane_id = Self::pane_id_from_params(params)?;
-        engine.get_session(pane_id)?;
+        let pane_id =
+            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
 
         match self.gate_pty_write("session.paste", pane_id, text)? {
             GateOutcome::Allow => {}
@@ -3754,7 +3758,6 @@ impl McpHandler {
     }
 
     fn session_resize(&self, params: &Value) -> Result<Value> {
-        let pane_id = Self::pane_id_from_params(params)?;
         let cols = params
             .get("cols")
             .and_then(|v| v.as_u64())
@@ -3765,21 +3768,26 @@ impl McpHandler {
             .ok_or_else(|| anyhow!("Missing 'rows'"))? as usize;
 
         let engine = self.engine();
+        let pane_id =
+            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
         engine.resize_session(pane_id, cols, rows)?;
         Ok(json!({"status": "ok"}))
     }
 
     fn session_destroy(&self, params: &Value) -> Result<Value> {
-        let pane_id = Self::pane_id_from_params(params)?;
-        self.audit("session.destroy", Some(&pane_id.to_string()), "destroy");
         let engine = self.engine();
+        let pane_id =
+            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+        self.audit("session.destroy", Some(&pane_id.to_string()), "destroy");
         engine.destroy_session(pane_id)?;
         Ok(json!({"status": "ok", "destroyed": true}))
     }
 
     fn session_idle(&self, params: &Value) -> Result<Value> {
         let engine = self.engine();
-        let activity = engine.activity(Self::pane_id_from_params(params)?)?;
+        let pane_id =
+            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+        let activity = engine.activity(pane_id)?;
         Ok(json!({
             "idle": activity.idle,
             "foreground_process": activity.foreground_process,
@@ -3792,10 +3800,9 @@ impl McpHandler {
 
     fn session_cwd(&self, params: &Value) -> Result<Value> {
         let engine = self.engine();
-        let cwd = engine
-            .shell(Self::pane_id_from_params(params)?)?
-            .cwd
-            .unwrap_or_default();
+        let pane_id =
+            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+        let cwd = engine.shell(pane_id)?.cwd.unwrap_or_default();
         Ok(json!({"cwd": cwd}))
     }
 
@@ -3808,7 +3815,8 @@ impl McpHandler {
             );
         }
 
-        let pane_id = Self::pane_id_from_params(params)?;
+        let pane_id =
+            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
         let shell = engine.shell(pane_id)?;
         let name_filter = params
             .get("name")
@@ -3899,8 +3907,10 @@ impl McpHandler {
     fn session_history(&self, params: &Value) -> Result<Value> {
         let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(100) as usize;
         let engine = self.engine();
+        let pane_id =
+            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
         let entries: Vec<Value> = engine
-            .read_scrollback(Self::pane_id_from_params(params)?, limit)?
+            .read_scrollback(pane_id, limit)?
             .into_iter()
             .map(|text| json!({"text": text}))
             .collect();
@@ -4389,8 +4399,9 @@ impl McpHandler {
     /// uses this method. Returns a suggestion id the caller can use
     /// for status / cancel.
     fn session_suggest(&self, ctx: &ConnectionContext, params: &Value) -> Result<Value> {
-        let pane_id = Self::pane_id_from_params(params)?;
-        self.engine().get_session(pane_id)?;
+        let engine = self.engine();
+        let pane_id =
+            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
         let pane_id = pane_id as u64;
 
         let text = params
@@ -4603,7 +4614,6 @@ impl McpHandler {
     // --- Exec methods ---
 
     fn exec_run(&self, params: &Value) -> Result<Value> {
-        let pane_id = Self::pane_id_from_params(params)?;
         let command = params
             .get("command")
             .and_then(|v| v.as_str())
@@ -4614,7 +4624,8 @@ impl McpHandler {
         }
 
         let engine = self.engine();
-        engine.get_session(pane_id)?;
+        let pane_id =
+            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
 
         match self.gate_pty_write("exec.run", pane_id, command)? {
             GateOutcome::Allow => {}
@@ -4637,9 +4648,9 @@ impl McpHandler {
             .or_else(|| params.get("text"))
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing 'bytes' (or compatibility alias 'input'/'text')"))?;
-        let pane_id = Self::pane_id_from_params(params)?;
         let engine = self.engine();
-        engine.get_session(pane_id)?;
+        let pane_id =
+            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
 
         match self.gate_pty_write("exec.send", pane_id, bytes)? {
             GateOutcome::Allow => {}
@@ -4658,7 +4669,6 @@ impl McpHandler {
     }
 
     fn exec_run_wait(&self, params: &Value) -> Result<Value> {
-        let pane_id = Self::pane_id_from_params(params)?;
         let command = params
             .get("command")
             .and_then(|v| v.as_str())
@@ -4673,6 +4683,8 @@ impl McpHandler {
         }
 
         let engine = self.engine();
+        let pane_id =
+            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
         let shell = engine.shell(pane_id)?;
         let activity = engine.activity(pane_id).ok();
         let wait_shell = resolve_exec_wait_shell(&shell, activity.as_ref());
@@ -4736,7 +4748,9 @@ impl McpHandler {
 
     fn exec_status(&self, params: &Value) -> Result<Value> {
         let engine = self.engine();
-        let activity = engine.activity(Self::pane_id_from_params(params)?)?;
+        let pane_id =
+            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+        let activity = engine.activity(pane_id)?;
         let status = if activity.idle { "idle" } else { "running" };
         Ok(json!({
             "status": status,
@@ -4749,9 +4763,9 @@ impl McpHandler {
     }
 
     fn exec_cancel(&self, params: &Value) -> Result<Value> {
-        let pane_id = Self::pane_id_from_params(params)?;
         let engine = self.engine();
-        engine.get_session(pane_id)?;
+        let pane_id =
+            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
 
         match self.gate_pty_write("exec.cancel", pane_id, "Ctrl+C")? {
             GateOutcome::Allow => {}
@@ -4768,7 +4782,6 @@ impl McpHandler {
     // --- Signal ---
 
     fn signal_send(&self, params: &Value) -> Result<Value> {
-        let pane_id = Self::pane_id_from_params(params)?;
         let signal = params
             .get("signal")
             .and_then(|v| v.as_str())
@@ -4782,7 +4795,8 @@ impl McpHandler {
         };
 
         let engine = self.engine();
-        engine.get_session(pane_id)?;
+        let pane_id =
+            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
 
         match self.gate_pty_write("signal.send", pane_id, signal)? {
             GateOutcome::Allow => {}
@@ -4803,7 +4817,8 @@ impl McpHandler {
         let count = params.get("count").and_then(|v| v.as_i64()).unwrap_or(100) as isize;
         let engine = self.engine();
         let engine_name = engine.name();
-        let pane_id = Self::pane_id_from_params(params)?;
+        let pane_id =
+            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
         let text_lines: Vec<String> = engine
             .read_lines(pane_id, offset as i64, count.max(0) as usize)?
             .into_iter()
@@ -4858,7 +4873,6 @@ impl McpHandler {
     /// stay addressable even as new output scrolls in, plus the column of
     /// the first occurrence in that line.
     fn screen_search(&self, params: &Value) -> Result<Value> {
-        let pane_id = Self::pane_id_from_params(params)?;
         let pattern = params
             .get("pattern")
             .and_then(|v| v.as_str())
@@ -4870,6 +4884,8 @@ impl McpHandler {
 
         let engine = self.engine();
         let engine_name = engine.name();
+        let pane_id =
+            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
         let search_matches = engine.search(pane_id, pattern, max_results)?;
         let match_rows: Vec<isize> = search_matches.iter().map(|m| m.row as isize).collect();
         let matches: Vec<Value> = search_matches
@@ -5008,7 +5024,6 @@ impl McpHandler {
     }
 
     fn orchestrate_wait(&self, params: &Value) -> Result<Value> {
-        let pane_id = Self::pane_id_from_params(params)?;
         let pattern = params
             .get("pattern")
             .and_then(|v| v.as_str())
@@ -5021,7 +5036,8 @@ impl McpHandler {
         let start = std::time::Instant::now();
         let timeout = std::time::Duration::from_millis(timeout_ms);
         let engine = self.engine();
-        engine.get_session(pane_id)?;
+        let pane_id =
+            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
 
         loop {
             let text = engine.read_visible_text(pane_id).unwrap_or_default();
