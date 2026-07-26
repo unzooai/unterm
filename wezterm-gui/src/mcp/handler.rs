@@ -2,10 +2,9 @@
 //! Implements all methods required by unterm-cli compatibility.
 
 use crate::engine::{
-    CreateSessionRequest, InputEngine, ScreenEngine, ScrollbackTextRequest, SessionEngine,
-    SplitDirection, SplitSessionRequest,
+    CreateSessionRequest, CurrentTerminalEngine, InputEngine, ScreenEngine, ScrollbackTextRequest,
+    SessionEngine, SplitDirection, SplitSessionRequest,
 };
-use crate::engine::wezterm::WezTermEngine;
 use anyhow::{anyhow, Context, Result};
 use base64::Engine as _;
 use mux::pane::Pane;
@@ -1380,8 +1379,8 @@ impl McpHandler {
         Mux::try_get().ok_or_else(|| anyhow!("Mux not available"))
     }
 
-    fn engine(&self) -> WezTermEngine {
-        WezTermEngine
+    fn engine(&self) -> CurrentTerminalEngine {
+        crate::engine::current()
     }
 
     fn pane_id_from_params(params: &Value) -> Result<usize> {

@@ -12,6 +12,12 @@ use anyhow::Result;
 use portable_pty::CommandBuilder;
 use serde::Serialize;
 
+pub type CurrentTerminalEngine = wezterm::WezTermEngine;
+
+pub fn current() -> CurrentTerminalEngine {
+    wezterm::WezTermEngine
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct CursorSnapshot {
     pub x: usize,
