@@ -1,5 +1,6 @@
 param(
     [string]$OutputPath = "",
+    [string]$SummaryJsonPath = "",
     [int]$InputWrites = 1000,
     [int]$EchoRounds = 50,
     [int]$FloodLines = 100000,
@@ -32,6 +33,9 @@ $RepoRoot = Resolve-Path (Join-Path $EngineDir "..")
 if ([string]::IsNullOrWhiteSpace($OutputPath)) {
     $OutputPath = Join-Path $RepoRoot "docs\next-core-benchmark-report.md"
 }
+if ([string]::IsNullOrWhiteSpace($SummaryJsonPath)) {
+    $SummaryJsonPath = Join-Path $RepoRoot "docs\next-core-benchmark-summary.json"
+}
 
 function Invoke-Benchmark {
     param(
@@ -55,6 +59,19 @@ function Invoke-Benchmark {
                 }) -join " ")
         Summary = $summary
         Output = $lines
+    }
+}
+
+function ConvertTo-BenchmarkSummary {
+    param(
+        [pscustomobject]$Result
+    )
+
+    [pscustomobject]@{
+        name = $Result.Name
+        exit_code = $Result.ExitCode
+        args = $Result.Args
+        summary = @($Result.Summary)
     }
 }
 
@@ -198,6 +215,8 @@ try {
     $date = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss zzz")
     $machine = "$([System.Environment]::MachineName)"
     $os = [System.Environment]::OSVersion.VersionString
+    $failed = @($results | Where-Object { $_.ExitCode -ne 0 })
+    $failedGates = @($gates | Where-Object { -not $_.Ok })
 
     $report = New-Object System.Collections.Generic.List[string]
     $report.Add("# Next-Core Benchmark Report")
@@ -263,11 +282,37 @@ try {
     [System.IO.File]::WriteAllText($resolvedOutputPath, (($report -join "`n") + "`n"), $utf8NoBom)
     Write-Host "Wrote $OutputPath"
 
-    $failed = @($results | Where-Object { $_.ExitCode -ne 0 })
+    $summary = [pscustomobject]@{
+        ok = (($failed.Count -eq 0) -and ($failedGates.Count -eq 0))
+        generated = $date
+        commit = $commit
+        machine = $machine
+        os = $os
+        binary = "target\debug\unterm-next-core.exe"
+        json_smoke = $jsonSmoke
+        gates = @($gates | ForEach-Object {
+            [pscustomobject]@{
+                name = $_.Name
+                actual = $_.Actual
+                max = $_.Max
+                unit = $_.Unit
+                ok = $_.Ok
+            }
+        })
+        benchmarks = @($results | ForEach-Object { ConvertTo-BenchmarkSummary -Result $_ })
+    }
+    $summaryJson = $summary | ConvertTo-Json -Depth 6
+    $summaryJsonDir = Split-Path -Parent $SummaryJsonPath
+    if (-not (Test-Path $summaryJsonDir)) {
+        New-Item -ItemType Directory -Path $summaryJsonDir | Out-Null
+    }
+    $resolvedSummaryJsonPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($SummaryJsonPath)
+    [System.IO.File]::WriteAllText($resolvedSummaryJsonPath, ($summaryJson + "`n"), $utf8NoBom)
+    Write-Host "Wrote $SummaryJsonPath"
+
     if ($failed.Count -gt 0) {
         throw "$($failed.Count) benchmark(s) failed"
     }
-    $failedGates = @($gates | Where-Object { -not $_.Ok })
     if ($failedGates.Count -gt 0) {
         throw "$($failedGates.Count) benchmark gate(s) failed"
     }

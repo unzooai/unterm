@@ -26,13 +26,13 @@ The JSON output includes the session snapshot, screen snapshot, activity snapsho
 
 ## Benchmark Report
 
-Run the Phase 2 next-core benchmark suite and generate `docs/next-core-benchmark-report.md`:
+Run the Phase 2 next-core benchmark suite and generate `docs/next-core-benchmark-report.md` plus `docs/next-core-benchmark-summary.json`:
 
 ```powershell
 .\unterm-engine\bench-next-core.ps1
 ```
 
-The runner builds `unterm-next-core`, verifies the machine-readable `--json` probe output, executes the current input-write/echo/output/scrollback/paste/dual-agent/screen-read benchmarks, and writes both summary lines and raw output into the report.
+The runner builds `unterm-next-core`, verifies the machine-readable `--json` probe output, executes the current input-write/echo/output/scrollback/viewport-scroll/paste/dual-agent/screen-read/focus-switch/session-create/session-ready benchmarks, writes human-readable summary and raw output into the Markdown report, and writes machine-readable gate results into the JSON summary. Any failed benchmark or gate exits non-zero.
 
 ## Experimental MCP Engine Selector
 
