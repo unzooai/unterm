@@ -1,0 +1,228 @@
+{
+    "ok":  true,
+    "generated":  "2026-07-27 02:30:19 +08:00",
+    "commit":  "3e665b5",
+    "machine":  "ZHITONG-OMEN",
+    "os":  "Microsoft Windows NT 10.0.26200.0",
+    "binary":  "target\\debug\\unterm-next-core.exe",
+    "json_smoke":  {
+                       "Marker":  "next-core-json-smoke",
+                       "Engine":  "next-core",
+                       "Screen":  "100x30",
+                       "RawBytes":  65
+                   },
+    "gates":  [
+                  {
+                      "name":  "input write p95",
+                      "actual":  1,
+                      "max":  16000,
+                      "unit":  "us",
+                      "ok":  true
+                  },
+                  {
+                      "name":  "echo p95",
+                      "actual":  5661,
+                      "max":  16000,
+                      "unit":  "us",
+                      "ok":  true
+                  },
+                  {
+                      "name":  "dual-agent echo p95",
+                      "actual":  5599,
+                      "max":  33000,
+                      "unit":  "us",
+                      "ok":  true
+                  },
+                  {
+                      "name":  "paste 10kb elapsed",
+                      "actual":  22,
+                      "max":  50,
+                      "unit":  "ms",
+                      "ok":  true
+                  },
+                  {
+                      "name":  "scrollback page p95",
+                      "actual":  47,
+                      "max":  1000,
+                      "unit":  "us",
+                      "ok":  true
+                  },
+                  {
+                      "name":  "viewport scroll p95",
+                      "actual":  69,
+                      "max":  1000,
+                      "unit":  "us",
+                      "ok":  true
+                  },
+                  {
+                      "name":  "screen read under flood p95",
+                      "actual":  248,
+                      "max":  50000,
+                      "unit":  "us",
+                      "ok":  true
+                  },
+                  {
+                      "name":  "focus switch p95",
+                      "actual":  28,
+                      "max":  100000,
+                      "unit":  "us",
+                      "ok":  true
+                  },
+                  {
+                      "name":  "session create p95",
+                      "actual":  47168,
+                      "max":  100000,
+                      "unit":  "us",
+                      "ok":  true
+                  },
+                  {
+                      "name":  "session ready p95",
+                      "actual":  75660,
+                      "max":  100000,
+                      "unit":  "us",
+                      "ok":  true
+                  }
+              ],
+    "benchmarks":  [
+                       {
+                           "name":  "input write latency",
+                           "exit_code":  0,
+                           "args":  "--bench-input-writes 1000 --timeout-ms 120000 --wait-ms 0 --write exit\\r -- cmd.exe",
+                           "summary":  [
+                                           "bench_input_write rounds=1000 bytes=3000 min_us=0 p50_us=0 p95_us=1 max_us=13 bytes_per_sec=7957559.7",
+                                           "session id=1 cols=100 rows=30 dead=false cursor=(0, 0) raw_bytes=0"
+                                       ]
+                       },
+                       {
+                           "name":  "echo latency",
+                           "exit_code":  0,
+                           "args":  "--bench-echo 50 --timeout-ms 120000 --wait-ms 0 --write exit\\r -- cmd.exe",
+                           "summary":  [
+                                           "bench_echo rounds=50 min_us=5028 p50_us=5443 p95_us=5661 max_us=16469",
+                                           "session id=1 cols=100 rows=30 dead=false cursor=(15, 29) raw_bytes=10442",
+                                           "UNTERM_NEXT_CORE_BENCH_0040",
+                                           "C:\\Users\\lixd2\u003eecho UNTERM_NEXT_CORE_BENCH_0041",
+                                           "UNTERM_NEXT_CORE_BENCH_0041",
+                                           "C:\\Users\\lixd2\u003eecho UNTERM_NEXT_CORE_BENCH_0042",
+                                           "UNTERM_NEXT_CORE_BENCH_0042",
+                                           "C:\\Users\\lixd2\u003eecho UNTERM_NEXT_CORE_BENCH_0043",
+                                           "UNTERM_NEXT_CORE_BENCH_0043",
+                                           "C:\\Users\\lixd2\u003eecho UNTERM_NEXT_CORE_BENCH_0044",
+                                           "UNTERM_NEXT_CORE_BENCH_0044",
+                                           "C:\\Users\\lixd2\u003eecho UNTERM_NEXT_CORE_BENCH_0045",
+                                           "UNTERM_NEXT_CORE_BENCH_0045",
+                                           "C:\\Users\\lixd2\u003eecho UNTERM_NEXT_CORE_BENCH_0046",
+                                           "UNTERM_NEXT_CORE_BENCH_0046",
+                                           "C:\\Users\\lixd2\u003eecho UNTERM_NEXT_CORE_BENCH_0047",
+                                           "UNTERM_NEXT_CORE_BENCH_0047",
+                                           "C:\\Users\\lixd2\u003eecho UNTERM_NEXT_CORE_BENCH_0048",
+                                           "UNTERM_NEXT_CORE_BENCH_0048",
+                                           "C:\\Users\\lixd2\u003eecho UNTERM_NEXT_CORE_BENCH_0049",
+                                           "UNTERM_NEXT_CORE_BENCH_0049"
+                                       ]
+                       },
+                       {
+                           "name":  "output flood",
+                           "exit_code":  0,
+                           "args":  "--bench-flood-lines 100000 --timeout-ms 120000 --wait-ms 0 --write exit\\r -- cmd.exe",
+                           "summary":  [
+                                           "bench_flood lines=100000 bytes=1048576 elapsed_ms=29960 lines_per_sec=3337.8 bytes_per_sec=34999.1",
+                                           "session id=1 cols=100 rows=30 dead=false cursor=(0, 29) raw_bytes=1048576"
+                                       ]
+                       },
+                       {
+                           "name":  "paste 10kb",
+                           "exit_code":  0,
+                           "args":  "--bench-paste-kb 10 --timeout-ms 120000 --wait-ms 0 --write exit\\r -- cmd.exe",
+                           "summary":  [
+                                           "bench_paste bytes=10240 elapsed_ms=22 bytes_per_sec=457776.4",
+                                           "session id=1 cols=100 rows=30 dead=false cursor=(0, 4) raw_bytes=319"
+                                       ]
+                       },
+                       {
+                           "name":  "scrollback paging",
+                           "exit_code":  0,
+                           "args":  "--bench-scrollback-lines 10000 --timeout-ms 120000 --wait-ms 0 --write exit\\r -- cmd.exe",
+                           "summary":  [
+                                           "bench_flood lines=10000 bytes=1048576 elapsed_ms=1222 lines_per_sec=8180.4 bytes_per_sec=857779.1",
+                                           "bench_scrollback lines=10000 pages=334 rows_read=10020 total_ms=11 min_us=28 p50_us=33 p95_us=47 max_us=97",
+                                           "session id=1 cols=100 rows=30 dead=false cursor=(15, 29) raw_bytes=1048576"
+                                       ]
+                       },
+                       {
+                           "name":  "viewport scroll paging",
+                           "exit_code":  0,
+                           "args":  "--bench-viewport-scrolls 10000 --timeout-ms 120000 --wait-ms 0 --write exit\\r -- cmd.exe",
+                           "summary":  [
+                                           "bench_flood lines=10000 bytes=1048576 elapsed_ms=1238 lines_per_sec=8077.0 bytes_per_sec=846930.4",
+                                           "bench_viewport_scroll lines=10000 pages=334 rows_read=10020 total_ms=18 min_us=37 p50_us=54 p95_us=69 max_us=158",
+                                           "session id=1 cols=100 rows=30 dead=false cursor=(15, 29) raw_bytes=1048576"
+                                       ]
+                       },
+                       {
+                           "name":  "dual pseudo-agent output",
+                           "exit_code":  0,
+                           "args":  "--bench-dual-agent-lines 5000 --timeout-ms 120000 --wait-ms 0 --write exit\\r -- cmd.exe",
+                           "summary":  [
+                                           "bench_dual_agents_echo rounds=20 min_us=5055 p50_us=5495 p95_us=5599 max_us=5622",
+                                           "bench_dual_agents lines_per_agent=5000 total_bytes=1306502 elapsed_ms=729 combined_lines_per_sec=13702.7 combined_bytes_per_sec=1790260.4",
+                                           "session id=1 cols=100 rows=30 dead=false cursor=(15, 29) raw_bytes=4269",
+                                           "UNTERM_NEXT_CORE_BENCH_0010",
+                                           "C:\\Users\\lixd2\u003eecho UNTERM_NEXT_CORE_BENCH_0011",
+                                           "UNTERM_NEXT_CORE_BENCH_0011",
+                                           "C:\\Users\\lixd2\u003eecho UNTERM_NEXT_CORE_BENCH_0012",
+                                           "UNTERM_NEXT_CORE_BENCH_0012",
+                                           "C:\\Users\\lixd2\u003eecho UNTERM_NEXT_CORE_BENCH_0013",
+                                           "UNTERM_NEXT_CORE_BENCH_0013",
+                                           "C:\\Users\\lixd2\u003eecho UNTERM_NEXT_CORE_BENCH_0014",
+                                           "UNTERM_NEXT_CORE_BENCH_0014",
+                                           "C:\\Users\\lixd2\u003eecho UNTERM_NEXT_CORE_BENCH_0015",
+                                           "UNTERM_NEXT_CORE_BENCH_0015",
+                                           "C:\\Users\\lixd2\u003eecho UNTERM_NEXT_CORE_BENCH_0016",
+                                           "UNTERM_NEXT_CORE_BENCH_0016",
+                                           "C:\\Users\\lixd2\u003eecho UNTERM_NEXT_CORE_BENCH_0017",
+                                           "UNTERM_NEXT_CORE_BENCH_0017",
+                                           "C:\\Users\\lixd2\u003eecho UNTERM_NEXT_CORE_BENCH_0018",
+                                           "UNTERM_NEXT_CORE_BENCH_0018",
+                                           "C:\\Users\\lixd2\u003eecho UNTERM_NEXT_CORE_BENCH_0019",
+                                           "UNTERM_NEXT_CORE_BENCH_0019"
+                                       ]
+                       },
+                       {
+                           "name":  "screen read during flood",
+                           "exit_code":  0,
+                           "args":  "--bench-screen-read-lines 5000 --timeout-ms 120000 --wait-ms 0 --write exit\\r -- cmd.exe",
+                           "summary":  [
+                                           "bench_screen_read_flood lines=5000 reads=110 total_ms=622 min_us=37 p50_us=131 p95_us=248 max_us=325 text_bytes=82656",
+                                           "session id=1 cols=100 rows=30 dead=false cursor=(15, 29) raw_bytes=653251"
+                                       ]
+                       },
+                       {
+                           "name":  "focus switch latency",
+                           "exit_code":  0,
+                           "args":  "--bench-focus-switches 1000 --timeout-ms 120000 --wait-ms 0 --write exit\\r -- cmd.exe",
+                           "summary":  [
+                                           "bench_focus_switch rounds=1000 sessions=4 min_us=8 p50_us=13 p95_us=28 max_us=221",
+                                           "session id=1 cols=100 rows=30 dead=false cursor=(15, 3) raw_bytes=155"
+                                       ]
+                       },
+                       {
+                           "name":  "session create latency",
+                           "exit_code":  0,
+                           "args":  "--bench-session-create 20 --timeout-ms 120000 --wait-ms 0 --write exit\\r -- cmd.exe",
+                           "summary":  [
+                                           "bench_session_create rounds=20 min_us=6935 p50_us=11076 p95_us=47168 max_us=48109",
+                                           "session id=1 cols=100 rows=30 dead=false cursor=(15, 3) raw_bytes=155"
+                                       ]
+                       },
+                       {
+                           "name":  "session ready latency",
+                           "exit_code":  0,
+                           "args":  "--bench-session-ready 20 --timeout-ms 120000 --wait-ms 0 --write exit\\r -- cmd.exe",
+                           "summary":  [
+                                           "bench_session_ready rounds=20 min_us=30765 p50_us=38416 p95_us=75660 max_us=76977",
+                                           "session id=1 cols=100 rows=30 dead=false cursor=(15, 3) raw_bytes=155"
+                                       ]
+                       }
+                   ]
+}
