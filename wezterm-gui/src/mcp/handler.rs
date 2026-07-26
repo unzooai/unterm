@@ -1001,6 +1001,39 @@ mod engine_neutral_handler_tests {
     }
 
     #[test]
+    fn product_capture_methods_do_not_require_terminal_engine() {
+        let _guard = env_lock().lock();
+        let previous_engine = std::env::var("UNTERM_ENGINE").ok();
+        std::env::set_var("UNTERM_ENGINE", "next-core");
+
+        let result: Result<()> = (|| {
+            let handler = McpHandler::new();
+            let ctx = ConnectionContext::internal("handler-test");
+            for (method, params) in [
+                ("capture.select", json!({})),
+                ("capture.window_scroll", json!({ "title": "handler-test" })),
+            ] {
+                if let Err(err) = handler.handle(&ctx, method, &params) {
+                    let message = format!("{err:#}");
+                    assert!(
+                        !message.contains("Mux not available"),
+                        "{method} should not require WezTerm mux: {}",
+                        message
+                    );
+                }
+            }
+            Ok(())
+        })();
+
+        match previous_engine {
+            Some(value) => std::env::set_var("UNTERM_ENGINE", value),
+            None => std::env::remove_var("UNTERM_ENGINE"),
+        }
+
+        result.expect("product capture methods do not require WezTerm mux");
+    }
+
+    #[test]
     fn server_health_uses_selected_next_core_engine() {
         let _guard = env_lock().lock();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
