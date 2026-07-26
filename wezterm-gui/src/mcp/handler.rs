@@ -304,6 +304,55 @@ impl ConnectionContext {
     }
 }
 
+#[cfg(test)]
+mod engine_neutral_handler_tests {
+    use super::{ConnectionContext, McpHandler};
+    use crate::engine::{next_core, SessionEngine};
+    use anyhow::Result;
+    use parking_lot::Mutex;
+    use serde_json::json;
+    use std::sync::OnceLock;
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    #[test]
+    fn session_destroy_uses_next_core_pane_id_path() {
+        let _guard = env_lock().lock();
+        let previous_engine = std::env::var("UNTERM_ENGINE").ok();
+        std::env::set_var("UNTERM_ENGINE", "next-core");
+
+        let result: Result<(serde_json::Value, usize)> = (|| {
+            let handler = McpHandler::new();
+            let ctx = ConnectionContext::internal("handler-test");
+            let created = handler.handle(
+                &ctx,
+                "session.create",
+                &json!({
+                    "cols": 80,
+                    "rows": 4,
+                }),
+            )?;
+            let pane_id = created["id"].as_u64().expect("session id") as usize;
+
+            let destroyed =
+                handler.handle(&ctx, "session.destroy", &json!({ "pane_id": pane_id }))?;
+            Ok((destroyed, pane_id))
+        })();
+
+        match previous_engine {
+            Some(value) => std::env::set_var("UNTERM_ENGINE", value),
+            None => std::env::remove_var("UNTERM_ENGINE"),
+        }
+
+        let (destroyed, pane_id) = result.expect("destroy next-core session through MCP handler");
+        assert_eq!(destroyed["destroyed"], true);
+        assert!(next_core().get_session(pane_id).is_err());
+    }
+}
+
 /// Decision the user (or a timeout) returns to a pending MCP
 /// confirmation. `AlwaysAllow` additionally remembers the agent so
 /// future calls by the same agent bypass the banner.
@@ -2022,14 +2071,10 @@ impl McpHandler {
     }
 
     fn session_destroy(&self, params: &Value) -> Result<Value> {
-        let pane = self.get_pane(params)?;
-        self.audit(
-            "session.destroy",
-            Some(&pane.pane_id().to_string()),
-            "destroy",
-        );
+        let pane_id = Self::pane_id_from_params(params)?;
+        self.audit("session.destroy", Some(&pane_id.to_string()), "destroy");
         let engine = self.engine();
-        engine.destroy_session(pane.pane_id())?;
+        engine.destroy_session(pane_id)?;
         Ok(json!({"status": "ok", "destroyed": true}))
     }
 
