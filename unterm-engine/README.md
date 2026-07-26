@@ -16,6 +16,16 @@ The probe creates a next-core session, optionally writes text or runs a command,
 
 On Windows, the command above should print `next-core-probe`. A blank snapshot means the standalone ConPTY smoke path has regressed before the GUI is involved.
 
+## Benchmark Report
+
+Run the Phase 2 next-core benchmark suite and generate `docs/next-core-benchmark-report.md`:
+
+```powershell
+.\unterm-engine\bench-next-core.ps1
+```
+
+The runner builds `unterm-next-core`, executes the current latency/output/scrollback/paste/dual-agent/screen-read benchmarks, and writes both summary lines and raw output into the report.
+
 Interactive input smoke test:
 
 ```powershell
