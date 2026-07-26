@@ -51,7 +51,7 @@ Current covered operations:
 Known gaps:
 
 - real GUI viewport scrolling/jump for the future next-core renderer
-- pane resolution without WezTerm `Pane`
+- remaining pane resolution call-site migration onto the shared engine-neutral resolver
 - PTY write confirmation without WezTerm pane object
 - active recording render parity
 - full font/theme styled scrollback PNG parity for `next-core`
@@ -95,13 +95,13 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 | `session.suggest_status` | Product-only | MCP suggestion queue | Engine-independent. |
 | `session.suggest_cancel` | Product-only | MCP suggestion queue | Engine-independent. |
 | `session.suggest_list` | Product-only | MCP suggestion queue | Engine-independent. |
-| `session.recording_start` | Engine-neutral | `RecordingEngine::start_recording` | WezTerm uses pane stream sink; `next-core` taps PTY reader output. |
-| `session.recording_stop` | Engine-neutral | `RecordingEngine::stop_recording` | Both engines finalize log/index state. |
-| `session.recording_status` | Engine-neutral | `RecordingEngine::recording_status` | Both engines report active state by pane id. |
+| `session.recording_start` | Engine-neutral | Shared pane-id resolver plus `RecordingEngine::start_recording` | WezTerm uses pane stream sink; `next-core` taps PTY reader output. |
+| `session.recording_stop` | Engine-neutral | Shared pane-id resolver plus `RecordingEngine::stop_recording` | Both engines finalize log/index state. |
+| `session.recording_status` | Engine-neutral | Shared pane-id resolver plus `RecordingEngine::recording_status` | Both engines report active state by pane id. |
 | `session.recording_list` | Product-only | Recording archive index | No live terminal dependency. |
 | `session.recording_read` | Product-only | Recording archive log renderer | No live terminal dependency. |
-| `session.recording_attach_trace` | Engine-neutral | `RecordingEngine::attach_recording_trace` | Trace ids are stored in active recording state. |
-| `session.export_markdown` | Engine-neutral | `RecordingEngine::export_markdown` for active recordings; `ScreenEngine::read_scrollback_text` for inactive snapshots | Active and inactive export no longer require handler access to WezTerm recorder or pane. |
+| `session.recording_attach_trace` | Engine-neutral | Shared pane-id resolver plus `RecordingEngine::attach_recording_trace` | Trace ids are stored in active recording state. |
+| `session.export_markdown` | Engine-neutral | Shared pane-id resolver plus `RecordingEngine::export_markdown` for active recordings; `ScreenEngine::read_scrollback_text` for inactive snapshots | Active and inactive export no longer require handler access to WezTerm recorder or pane. |
 
 ## Exec and Signal Methods
 
@@ -118,13 +118,13 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 
 | Method | Status | Current dependency | Migration note |
 |---|---|---|---|
-| `screen.read` | Engine-neutral | `ScreenEngine::read_screen` | Baseline next-core capability. |
-| `screen.text` | Engine-neutral | `ScreenEngine::read_screen` | Baseline next-core capability. |
-| `screen.scrollback_text` | Engine-neutral | `ScreenEngine::read_scrollback_text` plus active-session fallback | Active fallback currently uses engine sessions; OK. |
-| `screen.cursor` | Engine-neutral | `ScreenEngine::cursor` | Baseline next-core capability. |
+| `screen.read` | Engine-neutral | Shared pane-id resolver plus `ScreenEngine::read_screen` | Baseline next-core capability. |
+| `screen.text` | Engine-neutral | Shared pane-id resolver plus `ScreenEngine::read_screen` | Baseline next-core capability. |
+| `screen.scrollback_text` | Engine-neutral | Shared pane-id resolver plus `ScreenEngine::read_scrollback_text` with missing/stale-id active-session fallback | Active fallback resolves through `WindowEngine::active_pane_id`, which maps to next-core active session snapshots outside WezTerm. |
+| `screen.cursor` | Engine-neutral | Shared pane-id resolver plus `ScreenEngine::cursor` | Baseline next-core capability. |
 | `screen.scroll` | Engine-neutral | `ScreenEngine::read_lines`; optional `goto`/`apply` routes through `WindowEngine::scroll_viewport_to` | Default remains read-only. With `goto`/`apply`, `next-core` updates its logical viewport and WezTerm updates the GUI viewport. |
 | `screen.search` | Engine-neutral | `ScreenEngine::search`; optional `goto` routes through `WindowEngine::scroll_viewport_to` | `next-core` updates its logical viewport so later `screen.read`/`screen.text` calls show the matched region; real GUI viewport integration comes with the next-core renderer. |
-| `screen.detect_errors` | Engine-neutral | `ScreenEngine::read_screen` plus product heuristics | Product-only heuristic on engine snapshot. |
+| `screen.detect_errors` | Engine-neutral | Shared pane-id resolver plus `ScreenEngine::read_screen` and product heuristics | Product-only heuristic on engine snapshot. |
 
 ## Agent, Cockpit, Fleet, Review
 

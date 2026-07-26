@@ -1849,6 +1849,125 @@ mod engine_neutral_handler_tests {
         assert_eq!(suggest["status"], "queued");
         assert!(suggest["suggestion_id"].as_str().is_some());
     }
+
+    #[test]
+    fn screen_scrollback_text_resolves_active_next_core_session_without_pane_param() {
+        let _guard = env_lock().lock();
+        let previous_engine = std::env::var("UNTERM_ENGINE").ok();
+        std::env::set_var("UNTERM_ENGINE", "next-core");
+
+        let result: Result<(serde_json::Value, usize)> = (|| {
+            let engine = next_core();
+            let session = engine.create_session(CreateSessionRequest {
+                cols: 80,
+                rows: 4,
+                command_dir: None,
+                command: None,
+                env: Vec::new(),
+                launch_policy: Default::default(),
+            })?;
+            engine.write_input(session.id, "echo pane-resolution-ok\r")?;
+            std::thread::sleep(std::time::Duration::from_millis(700));
+
+            let handler = McpHandler::new();
+            let ctx = ConnectionContext::internal("handler-test");
+            let scrollback =
+                handler.handle(&ctx, "screen.scrollback_text", &json!({ "tail_lines": 8 }))?;
+            Ok((scrollback, session.id))
+        })();
+
+        match previous_engine {
+            Some(value) => std::env::set_var("UNTERM_ENGINE", value),
+            None => std::env::remove_var("UNTERM_ENGINE"),
+        }
+
+        let (scrollback, pane_id) =
+            result.expect("read active next-core scrollback without explicit pane id");
+        assert!(
+            scrollback["text"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("pane-resolution-ok"),
+            "pane {} scrollback did not include marker: {:?}",
+            pane_id,
+            scrollback
+        );
+        let _ = next_core().destroy_session(pane_id);
+    }
+
+    #[test]
+    fn screen_scrollback_text_preserves_active_fallback_for_stale_pane_param() {
+        let _guard = env_lock().lock();
+        let previous_engine = std::env::var("UNTERM_ENGINE").ok();
+        std::env::set_var("UNTERM_ENGINE", "next-core");
+
+        let result: Result<(serde_json::Value, usize)> = (|| {
+            let engine = next_core();
+            let session = engine.create_session(CreateSessionRequest {
+                cols: 80,
+                rows: 4,
+                command_dir: None,
+                command: None,
+                env: Vec::new(),
+                launch_policy: Default::default(),
+            })?;
+            engine.write_input(session.id, "echo stale-pane-fallback-ok\r")?;
+            std::thread::sleep(std::time::Duration::from_millis(700));
+
+            let handler = McpHandler::new();
+            let ctx = ConnectionContext::internal("handler-test");
+            let scrollback = handler.handle(
+                &ctx,
+                "screen.scrollback_text",
+                &json!({ "pane_id": 999999999_u64, "tail_lines": 8 }),
+            )?;
+            Ok((scrollback, session.id))
+        })();
+
+        match previous_engine {
+            Some(value) => std::env::set_var("UNTERM_ENGINE", value),
+            None => std::env::remove_var("UNTERM_ENGINE"),
+        }
+
+        let (scrollback, pane_id) =
+            result.expect("fallback to active next-core scrollback for stale pane id");
+        assert!(
+            scrollback["text"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("stale-pane-fallback-ok"),
+            "pane {} scrollback did not include marker: {:?}",
+            pane_id,
+            scrollback
+        );
+        let _ = next_core().destroy_session(pane_id);
+    }
+
+    #[test]
+    fn screen_text_rejects_missing_pane_id_for_required_resolution() {
+        let _guard = env_lock().lock();
+        let previous_engine = std::env::var("UNTERM_ENGINE").ok();
+        std::env::set_var("UNTERM_ENGINE", "next-core");
+
+        let result = {
+            let handler = McpHandler::new();
+            let ctx = ConnectionContext::internal("handler-test");
+            handler.handle(&ctx, "screen.text", &json!({}))
+        };
+
+        match previous_engine {
+            Some(value) => std::env::set_var("UNTERM_ENGINE", value),
+            None => std::env::remove_var("UNTERM_ENGINE"),
+        }
+
+        let err = result.expect_err("screen.text should require explicit pane id");
+        assert!(
+            err.to_string()
+                .contains("Missing 'id' / 'session_id' / 'pane_id'"),
+            "{}",
+            err
+        );
+    }
 }
 
 /// Decision the user (or a timeout) returns to a pending MCP
@@ -1866,6 +1985,27 @@ pub enum ConfirmationDecision {
 enum GateOutcome {
     Allow,
     Block,
+}
+
+#[derive(Clone, Copy)]
+struct PaneResolutionOptions {
+    active_fallback: bool,
+    fallback_on_invalid_explicit: bool,
+    validate_session: bool,
+}
+
+impl PaneResolutionOptions {
+    const REQUIRED_EXISTING: Self = Self {
+        active_fallback: false,
+        fallback_on_invalid_explicit: false,
+        validate_session: true,
+    };
+
+    const ACTIVE_EXISTING: Self = Self {
+        active_fallback: true,
+        fallback_on_invalid_explicit: true,
+        validate_session: true,
+    };
 }
 
 struct EngineFleetDriver {
@@ -2941,19 +3081,69 @@ impl McpHandler {
     }
 
     fn pane_id_from_params(params: &Value) -> Result<usize> {
+        Self::pane_id_param(params)?
+            .ok_or_else(|| anyhow!("Missing 'id' / 'session_id' / 'pane_id' parameter"))
+    }
+
+    fn pane_id_param(params: &Value) -> Result<Option<usize>> {
         let id_val = params
             .get("id")
             .or_else(|| params.get("session_id"))
             .or_else(|| params.get("pane_id"));
         match id_val {
-            Some(v) if v.is_u64() => Ok(v.as_u64().unwrap() as usize),
+            Some(v) if v.is_u64() => Ok(Some(v.as_u64().unwrap() as usize)),
             Some(v) if v.is_string() => v
                 .as_str()
                 .unwrap()
                 .parse::<usize>()
+                .map(Some)
                 .map_err(|_| anyhow!("Invalid session_id: {}", v)),
-            _ => Err(anyhow!("Missing 'id' or 'session_id' parameter")),
+            Some(v) => Err(anyhow!("Invalid session_id: {}", v)),
+            None => Ok(None),
         }
+    }
+
+    fn resolve_pane_id(
+        &self,
+        engine: &CurrentTerminalEngine,
+        params: &Value,
+        options: PaneResolutionOptions,
+    ) -> Result<usize> {
+        if let Some(pane_id) = Self::pane_id_param(params)? {
+            if options.validate_session {
+                match engine.get_session(pane_id) {
+                    Ok(_) => {}
+                    Err(_) if options.fallback_on_invalid_explicit => {
+                        return Self::resolve_active_pane_id(engine, options);
+                    }
+                    Err(err) => {
+                        return Err(err).with_context(|| format!("resolve pane {pane_id}"));
+                    }
+                }
+            }
+            return Ok(pane_id);
+        }
+
+        if !options.active_fallback {
+            return Err(anyhow!("Missing 'id' / 'session_id' / 'pane_id' parameter"));
+        }
+
+        Self::resolve_active_pane_id(engine, options)
+    }
+
+    fn resolve_active_pane_id(
+        engine: &CurrentTerminalEngine,
+        options: PaneResolutionOptions,
+    ) -> Result<usize> {
+        let pane_id = engine
+            .active_pane_id()?
+            .ok_or_else(|| anyhow!("no active pane available"))? as usize;
+        if options.validate_session {
+            engine
+                .get_session(pane_id)
+                .with_context(|| format!("resolve active pane {pane_id}"))?;
+        }
+        Ok(pane_id)
     }
 
     fn server_info(&self) -> Result<Value> {
@@ -5808,7 +5998,9 @@ impl McpHandler {
 
     fn screen_read(&self, params: &Value) -> Result<Value> {
         let engine = self.engine();
-        let screen = engine.read_screen(Self::pane_id_from_params(params)?)?;
+        let pane_id =
+            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+        let screen = engine.read_screen(pane_id)?;
 
         Ok(json!({
             "cells": screen.cells,
@@ -5825,7 +6017,9 @@ impl McpHandler {
 
     fn screen_text(&self, params: &Value) -> Result<Value> {
         let engine = self.engine();
-        let screen = engine.read_screen(Self::pane_id_from_params(params)?)?;
+        let pane_id =
+            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+        let screen = engine.read_screen(pane_id)?;
 
         Ok(json!({
             "lines": screen.lines,
@@ -5853,23 +6047,9 @@ impl McpHandler {
     ///   selected range. Useful for LLM hand-offs that need recent output
     ///   without fetching the entire scrollback.
     fn screen_scrollback_text(&self, params: &Value) -> Result<Value> {
-        // Unlike the other screen.* methods we let callers omit pane_id and
-        // fall back to the active pane of the first window — the typical
-        // agent intent is "dump *this* terminal," not "dump some specific
-        // session id I don't know yet."
         let engine = self.engine();
-        let fallback_active_pane_id = || -> Result<usize> {
-            engine
-                .list_sessions()?
-                .into_iter()
-                .find(|session| session.is_active)
-                .map(|session| session.id)
-                .ok_or_else(|| anyhow!("no active pane available"))
-        };
-        let pane_id = match Self::pane_id_from_params(params) {
-            Ok(id) if engine.get_session(id).is_ok() => id,
-            _ => fallback_active_pane_id()?,
-        };
+        let pane_id =
+            self.resolve_pane_id(&engine, params, PaneResolutionOptions::ACTIVE_EXISTING)?;
         let want_escapes = params
             .get("escapes")
             .and_then(|v| v.as_bool())
@@ -5936,7 +6116,9 @@ impl McpHandler {
 
     fn screen_cursor(&self, params: &Value) -> Result<Value> {
         let engine = self.engine();
-        let cursor = engine.cursor(Self::pane_id_from_params(params)?)?;
+        let pane_id =
+            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+        let cursor = engine.cursor(pane_id)?;
 
         Ok(json!({
             "x": cursor.x,
@@ -5948,7 +6130,9 @@ impl McpHandler {
 
     fn screen_detect_errors(&self, params: &Value) -> Result<Value> {
         let engine = self.engine();
-        let screen = engine.read_screen(Self::pane_id_from_params(params)?)?;
+        let pane_id =
+            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+        let screen = engine.read_screen(pane_id)?;
 
         let error_patterns = [
             "error:",
@@ -6423,13 +6607,15 @@ impl McpHandler {
     // ----------------------------------------------------------------
 
     fn session_recording_start(&self, params: &Value) -> Result<Value> {
-        let pane_id = Self::pane_id_from_params(params)?;
+        let engine = self.engine();
+        let pane_id =
+            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
         self.audit(
             "session.recording_start",
             Some(&pane_id.to_string()),
             "start",
         );
-        let r = self.engine().start_recording(pane_id)?;
+        let r = engine.start_recording(pane_id)?;
         Ok(json!({
             "session_id": r.session_id,
             "log_path": r.log_path,
@@ -6438,9 +6624,11 @@ impl McpHandler {
     }
 
     fn session_recording_stop(&self, params: &Value) -> Result<Value> {
-        let pane_id = Self::pane_id_from_params(params)?;
+        let engine = self.engine();
+        let pane_id =
+            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
         self.audit("session.recording_stop", Some(&pane_id.to_string()), "stop");
-        let r = self.engine().stop_recording(pane_id)?;
+        let r = engine.stop_recording(pane_id)?;
         Ok(json!({
             "session_id": r.session_id,
             "ended_at": r.ended_at,
@@ -6451,8 +6639,10 @@ impl McpHandler {
     }
 
     fn session_recording_status(&self, params: &Value) -> Result<Value> {
-        let pane_id = Self::pane_id_from_params(params)?;
-        let status = self.engine().recording_status(pane_id)?;
+        let engine = self.engine();
+        let pane_id =
+            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+        let status = engine.recording_status(pane_id)?;
         if status.enabled {
             Ok(json!({
                 "enabled": true,
@@ -6499,23 +6689,26 @@ impl McpHandler {
     }
 
     fn session_recording_attach_trace(&self, params: &Value) -> Result<Value> {
-        let pane_id = Self::pane_id_from_params(params)?;
+        let engine = self.engine();
+        let pane_id =
+            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
         let trace_id = params
             .get("trace_id")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing 'trace_id'"))?
             .to_string();
-        let traces = self.engine().attach_recording_trace(pane_id, trace_id)?;
+        let traces = engine.attach_recording_trace(pane_id, trace_id)?;
         Ok(json!({"trace_ids": traces}))
     }
 
     fn session_export_markdown(&self, params: &Value) -> Result<Value> {
-        let pane_id = Self::pane_id_from_params(params)?;
+        let engine = self.engine();
+        let pane_id =
+            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
         let path = params
             .get("path")
             .and_then(|v| v.as_str())
             .map(std::path::PathBuf::from);
-        let engine = self.engine();
         let status = engine.recording_status(pane_id)?;
         if status.enabled {
             let target_path = path.map(|path| path.display().to_string());
