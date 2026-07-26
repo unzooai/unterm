@@ -12,7 +12,7 @@ Build and run the standalone next-core probe:
 cargo run -p unterm-engine --bin unterm-next-core -- --wait-ms 500 -- cmd.exe /c "echo next-core-probe"
 ```
 
-The probe creates a next-core session, optionally writes text or runs a command, waits, then prints the visible screen snapshot.
+The probe creates a next-core session, optionally writes text or runs a command, waits, then prints the visible screen snapshot plus compact `health_io` and `health_lifecycle` summary lines.
 
 On Windows, the command above should print `next-core-probe`. A blank snapshot means the standalone ConPTY smoke path has regressed before the GUI is involved.
 

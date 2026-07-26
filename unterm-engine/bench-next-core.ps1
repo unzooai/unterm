@@ -52,7 +52,7 @@ function Invoke-Benchmark {
     $exitCode = $LASTEXITCODE
     $lines = @($output | ForEach-Object { $_.ToString() })
     $summary = @($lines | Where-Object {
-            $_ -match "bench_|session id|timed out|Error"
+            $_ -match "bench_|session id|health_|timed out|Error"
         })
 
     [pscustomobject]@{

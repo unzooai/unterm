@@ -1105,6 +1105,7 @@ fn main() -> Result<()> {
     let session = engine.get_session(session.id)?;
     let screen = engine.read_screen(session.id)?;
     let activity = engine.activity(session.id)?;
+    let health = engine.health()?;
     let raw_bytes = engine.debug_output(session.id)?.len();
     let visible_text = engine.read_visible_text(session.id)?;
     if args.json {
@@ -1114,22 +1115,49 @@ fn main() -> Result<()> {
                 "session": session,
                 "screen": screen,
                 "activity": activity,
-                "health": engine.health()?,
+                "health": health,
                 "raw_bytes": raw_bytes,
                 "visible_text": visible_text,
             }))?
         );
     } else {
+        let dead_reason = session.dead_reason.as_deref().unwrap_or("none");
         println!(
-            "session id={} cols={} rows={} dead={} cursor=({}, {}) raw_bytes={}",
+            "session id={} cols={} rows={} dead={} dead_reason={} cursor=({}, {}) raw_bytes={}",
             session.id,
             screen.cols,
             screen.rows,
             session.is_dead,
+            dead_reason,
             screen.cursor.x,
             screen.cursor.y,
             raw_bytes
         );
+        if let Some(io) = health.io.as_ref() {
+            println!(
+                "health_io input_writes={} input_bytes={} output_chunks={} output_bytes={} paste_count={} paste_text_bytes={} screen_reads={} viewport_scrolls={}",
+                io.input_writes,
+                io.input_bytes,
+                io.output_chunks,
+                io.output_bytes,
+                io.paste_count,
+                io.paste_text_bytes,
+                io.screen_reads,
+                io.viewport_scrolls
+            );
+        }
+        if let Some(lifecycle) = health.lifecycle.as_ref() {
+            let last_dead_reason = lifecycle.last_dead_reason.as_deref().unwrap_or("none");
+            println!(
+                "health_lifecycle live_sessions={} dead_sessions={} total_created={} total_destroyed={} total_marked_dead={} last_dead_reason={}",
+                lifecycle.live_sessions,
+                lifecycle.dead_sessions,
+                lifecycle.total_created,
+                lifecycle.total_destroyed,
+                lifecycle.total_marked_dead,
+                last_dead_reason
+            );
+        }
         println!("{visible_text}");
     }
     engine.destroy_session(session.id)?;

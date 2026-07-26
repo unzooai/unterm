@@ -111,6 +111,12 @@ foreach ($name in $requiredBenchmarks) {
     if (@($benchmark[0].summary).Count -eq 0) {
         throw "benchmark has no summary lines: $name"
     }
+    if (-not @($benchmark[0].summary | Where-Object { $_ -like "health_io*" })) {
+        throw "benchmark is missing health_io summary: $name"
+    }
+    if (-not @($benchmark[0].summary | Where-Object { $_ -like "health_lifecycle*" })) {
+        throw "benchmark is missing health_lifecycle summary: $name"
+    }
 }
 
 $commitReachability = if ($SkipCommitReachabilityCheck) { "skipped" } else { "true" }
