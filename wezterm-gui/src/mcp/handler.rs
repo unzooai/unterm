@@ -294,8 +294,8 @@ impl ConnectionContext {
 
 #[cfg(test)]
 mod engine_neutral_handler_tests {
-    use super::{compute_agent_cwd, ConnectionContext, McpHandler};
-    use crate::engine::{next_core, CreateSessionRequest, SessionEngine};
+    use super::{compute_agent_cwd, shell_command_builder, ConnectionContext, McpHandler};
+    use crate::engine::{next_core, CreateSessionRequest, InputEngine, SessionEngine};
     use anyhow::{anyhow, Context, Result};
     use parking_lot::Mutex;
     use serde_json::{json, Value};
@@ -373,6 +373,66 @@ mod engine_neutral_handler_tests {
         assert_eq!(env["variables"][0]["value"], Value::Null);
         assert_eq!(env["variables"][0]["redacted"], true);
         next_core().destroy_session(pane_id).ok();
+    }
+
+    #[test]
+    fn activity_methods_expose_next_core_io_metrics() {
+        let _guard = env_lock().lock();
+        let previous_engine = std::env::var("UNTERM_ENGINE").ok();
+        std::env::set_var("UNTERM_ENGINE", "next-core");
+
+        let result: Result<(serde_json::Value, serde_json::Value, usize)> = (|| {
+            let engine = next_core();
+            let session = engine.create_session(CreateSessionRequest {
+                cols: 80,
+                rows: 4,
+                command_dir: None,
+                command: Some(shell_command_builder("echo next-core-activity-metrics")),
+                env: Vec::new(),
+            })?;
+            let pane_id = session.id;
+
+            let handler = McpHandler::new();
+            let ctx = ConnectionContext::internal("handler-test");
+            for _ in 0..20 {
+                let search = handler.handle(
+                    &ctx,
+                    "screen.search",
+                    &json!({
+                        "pane_id": pane_id,
+                        "pattern": "next-core-activity-metrics",
+                    }),
+                )?;
+                if search["total"].as_u64().unwrap_or_default() > 0 {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+
+            engine.write_input(pane_id, "abc")?;
+            engine.paste_input(pane_id, "AUTH-CODE-123456")?;
+
+            let idle = handler.handle(&ctx, "session.idle", &json!({ "pane_id": pane_id }))?;
+            let status = handler.handle(&ctx, "exec.status", &json!({ "pane_id": pane_id }))?;
+            let _ = handler.handle(&ctx, "session.destroy", &json!({ "pane_id": pane_id }));
+            Ok((idle, status, pane_id))
+        })();
+
+        match previous_engine {
+            Some(value) => std::env::set_var("UNTERM_ENGINE", value),
+            None => std::env::remove_var("UNTERM_ENGINE"),
+        }
+
+        let (idle, status, pane_id) = result.expect("read next-core activity metrics");
+        assert!(next_core().get_session(pane_id).is_err());
+        assert!(idle["input"]["total_writes"].as_u64().unwrap_or_default() >= 2);
+        assert!(idle["input"]["total_bytes"].as_u64().unwrap_or_default() >= 19);
+        assert!(idle["output"]["total_bytes"].as_u64().unwrap_or_default() > 0);
+        assert_eq!(idle["paste"]["total_pastes"], 1);
+        assert_eq!(idle["paste"]["last_text_bytes"], 16);
+        assert_eq!(status["input"], idle["input"]);
+        assert_eq!(status["output"], idle["output"]);
+        assert_eq!(status["paste"], idle["paste"]);
     }
 
     #[test]
