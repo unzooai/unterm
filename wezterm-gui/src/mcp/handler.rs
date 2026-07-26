@@ -1105,6 +1105,36 @@ mod engine_neutral_handler_tests {
     }
 
     #[test]
+    fn selftest_run_uses_selected_terminal_engine() {
+        let _guard = env_lock().lock();
+        let previous_engine = std::env::var("UNTERM_ENGINE").ok();
+        std::env::set_var("UNTERM_ENGINE", "next-core");
+
+        let result: Result<serde_json::Value> = (|| {
+            let handler = McpHandler::new();
+            let ctx = ConnectionContext::internal("handler-test");
+            handler.handle(&ctx, "selftest.run", &json!({}))
+        })();
+
+        match previous_engine {
+            Some(value) => std::env::set_var("UNTERM_ENGINE", value),
+            None => std::env::remove_var("UNTERM_ENGINE"),
+        }
+
+        let selftest = result.expect("selftest.run through selected engine");
+        let checks = selftest["checks"].as_array().expect("checks array");
+        assert!(checks
+            .iter()
+            .all(|check| check["name"].as_str() != Some("mux.available")));
+        let engine_check = checks
+            .iter()
+            .find(|check| check["name"] == "engine.available")
+            .expect("engine availability check");
+        assert_eq!(engine_check["ok"], true);
+        assert_eq!(engine_check["detail"]["engine"], "next-core");
+    }
+
+    #[test]
     fn product_system_methods_do_not_require_terminal_engine() {
         let _guard = env_lock().lock();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
@@ -5246,12 +5276,20 @@ impl McpHandler {
 
     fn selftest_run(&self, params: &Value) -> Result<Value> {
         let mut checks: Vec<Value> = Vec::new();
+        let engine = self.engine();
 
-        let mux_available = Mux::try_get().is_some();
+        let engine_health = engine.health();
+        let engine_available = engine_health
+            .as_ref()
+            .map(|health| health.ready)
+            .unwrap_or(false);
         checks.push(json!({
-            "name": "mux.available",
-            "ok": mux_available,
-            "detail": if mux_available { "Mux is available" } else { "Mux is not initialized" },
+            "name": "engine.available",
+            "ok": engine_available,
+            "detail": match engine_health {
+                Ok(value) => json!(value),
+                Err(err) => json!({"error": err.to_string()}),
+            },
         }));
 
         let health = self.server_health()?;
@@ -5371,14 +5409,22 @@ impl McpHandler {
 
         // Non-mutating recording self-check against pane 0 (or the
         // first available pane). We never start a recording here.
-        let probe_id =
-            Mux::try_get().and_then(|mux| mux.iter_panes().first().map(|p| p.pane_id() as u64));
+        let probe_sessions = engine.list_sessions();
+        let probe_id = probe_sessions
+            .as_ref()
+            .ok()
+            .and_then(|sessions| sessions.first())
+            .map(|session| session.id as u64);
         let rec_status = self.session_recording_status(&json!({"id": probe_id.unwrap_or(0)}));
         checks.push(json!({
             "name": "session.recording_status",
             "ok": rec_status.is_ok(),
             "detail": match rec_status {
-                Ok(value) => value,
+                Ok(value) => json!({
+                    "status": value,
+                    "probe_session_id": probe_id,
+                    "probe_source": if probe_id.is_some() { "engine.list_sessions" } else { "fallback_zero" },
+                }),
                 Err(err) => json!({"error": err.to_string()}),
             },
         }));
