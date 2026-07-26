@@ -492,4 +492,9 @@ impl InputEngine for WezTermEngine {
         pane.writer().write_all(input.as_bytes())?;
         Ok(())
     }
+
+    fn paste_input(&self, pane_id: usize, text: &str) -> Result<()> {
+        let pane = self.pane(pane_id)?;
+        pane.send_paste(text)
+    }
 }

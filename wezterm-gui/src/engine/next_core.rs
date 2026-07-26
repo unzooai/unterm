@@ -46,6 +46,7 @@ struct NextCoreScreen {
     cursor_y: usize,
     cursor_visible: bool,
     cursor_shape: String,
+    bracketed_paste: bool,
     current_attr: CellAttributes,
     title: Option<String>,
     revision: u64,
@@ -66,6 +67,7 @@ struct ScreenState {
     cursor_y: usize,
     cursor_visible: bool,
     cursor_shape: String,
+    bracketed_paste: bool,
     current_attr: CellAttributes,
     scroll_top: usize,
     scroll_bottom: usize,
@@ -367,6 +369,10 @@ impl NextCoreScreen {
         }
         .to_string();
         self.mark_dirty_row(self.cursor_y);
+    }
+
+    fn set_bracketed_paste(&mut self, enabled: bool) {
+        self.bracketed_paste = enabled;
     }
 
     fn ensure_cursor_line(&mut self) {
@@ -678,6 +684,7 @@ impl NextCoreScreen {
             cursor_y: self.cursor_y,
             cursor_visible: self.cursor_visible,
             cursor_shape: self.cursor_shape.clone(),
+            bracketed_paste: self.bracketed_paste,
             current_attr: self.current_attr,
             scroll_top: self.scroll_top,
             scroll_bottom: self.scroll_bottom,
@@ -690,6 +697,7 @@ impl NextCoreScreen {
         self.saved_cursor_x = 0;
         self.saved_cursor_y = 0;
         self.cursor_shape = "Default".to_string();
+        self.bracketed_paste = false;
         self.scroll_top = 0;
         self.scroll_bottom = self.rows.saturating_sub(1);
         self.lines.clear();
@@ -705,6 +713,7 @@ impl NextCoreScreen {
             self.cursor_y = main.cursor_y;
             self.cursor_visible = main.cursor_visible;
             self.cursor_shape = main.cursor_shape;
+            self.bracketed_paste = main.bracketed_paste;
             self.current_attr = main.current_attr;
             self.scroll_top = main.scroll_top;
             self.scroll_bottom = main.scroll_bottom;
@@ -868,6 +877,8 @@ impl<'a> ScreenParser<'a> {
                 } else if private && numbers.iter().any(|n| *n == 25) {
                     self.screen.cursor_visible = true;
                     self.screen.mark_dirty_row(self.screen.cursor_y);
+                } else if private && numbers.iter().any(|n| *n == 2004) {
+                    self.screen.set_bracketed_paste(true);
                 }
             }
             'l' => {
@@ -876,6 +887,8 @@ impl<'a> ScreenParser<'a> {
                 } else if private && numbers.iter().any(|n| *n == 25) {
                     self.screen.cursor_visible = false;
                     self.screen.mark_dirty_row(self.screen.cursor_y);
+                } else if private && numbers.iter().any(|n| *n == 2004) {
+                    self.screen.set_bracketed_paste(false);
                 }
             }
             _ => {}
@@ -1129,6 +1142,24 @@ impl NextCoreEngine {
         Ok(cursor)
     }
 
+    #[allow(dead_code)]
+    fn bracketed_paste_enabled(&self, pane_id: usize) -> Result<bool> {
+        let screen = {
+            let state = state().read();
+            let Some(session) = state
+                .sessions
+                .iter()
+                .find(|session| session.snapshot.id == pane_id)
+            else {
+                bail!("next-core session {pane_id} not found");
+            };
+            Arc::clone(&session.screen)
+        };
+
+        let enabled = screen.lock().bracketed_paste;
+        Ok(enabled)
+    }
+
     fn next_session_id(state: &mut NextCoreState) -> usize {
         state.next_session_id = state.next_session_id.max(1);
         let id = state.next_session_id;
@@ -1371,6 +1402,15 @@ impl NextCoreEngine {
     fn tail_lines(lines: &[String], limit: usize) -> Vec<String> {
         let start = lines.len().saturating_sub(limit);
         lines[start..].to_vec()
+    }
+
+    #[allow(dead_code)]
+    fn paste_payload(text: &str, bracketed: bool) -> String {
+        if bracketed {
+            format!("\x1b[200~{text}\x1b[201~")
+        } else {
+            text.to_string()
+        }
     }
 
 }
@@ -1677,6 +1717,11 @@ impl InputEngine for NextCoreEngine {
         writer.flush()?;
         Ok(())
     }
+
+    fn paste_input(&self, pane_id: usize, text: &str) -> Result<()> {
+        let input = Self::paste_payload(text, self.bracketed_paste_enabled(pane_id)?);
+        self.write_input(pane_id, &input)
+    }
 }
 
 #[cfg(test)]
@@ -1740,6 +1785,15 @@ mod tests {
             Some("A".to_string())
         );
         assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn wraps_paste_payload_when_bracketed_paste_is_enabled() {
+        assert_eq!(NextCoreEngine::paste_payload("plain", false), "plain");
+        assert_eq!(
+            NextCoreEngine::paste_payload("line1\nline2", true),
+            "\x1b[200~line1\nline2\x1b[201~"
+        );
     }
 
     #[test]
@@ -2152,6 +2206,28 @@ mod tests {
         )?;
 
         assert_eq!(engine.cursor(session.id)?.shape, "SteadyUnderline");
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_tracks_bracketed_paste_mode() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 3,
+            command_dir: None,
+            command: None,
+        })?;
+
+        assert!(!engine.bracketed_paste_enabled(session.id)?);
+        set_output_for_test(session.id, "\x1b[?2004h")?;
+        assert!(engine.bracketed_paste_enabled(session.id)?);
+        set_output_for_test(session.id, "\x1b[?2004h\x1b[?2004l")?;
+        assert!(!engine.bracketed_paste_enabled(session.id)?);
 
         engine.destroy_session(session.id)?;
         Ok(())

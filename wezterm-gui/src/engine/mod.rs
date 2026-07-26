@@ -219,6 +219,11 @@ pub trait ScreenEngine {
 
 pub trait InputEngine {
     fn write_input(&self, pane_id: usize, input: &str) -> Result<()>;
+
+    #[allow(dead_code)]
+    fn paste_input(&self, pane_id: usize, text: &str) -> Result<()> {
+        self.write_input(pane_id, text)
+    }
 }
 
 #[allow(dead_code)]
