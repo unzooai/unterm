@@ -88,7 +88,7 @@ pub fn next_core_scrollback_renderer_metadata() -> serde_json::Value {
         "uses_wezterm_pane": false,
         "standalone": true,
         "styled": true,
-        "palette": "ansi-256-fallback",
+        "palette": "config-resolved",
         "supported_styles": [
             "fg",
             "bg",
@@ -96,9 +96,9 @@ pub fn next_core_scrollback_renderer_metadata() -> serde_json::Value {
             "rgb",
             "inverse",
             "underline",
+            "theme_palette",
         ],
         "missing_parity": [
-            "theme_palette_resolution",
             "bold_font_face",
             "italic_font_face",
         ],

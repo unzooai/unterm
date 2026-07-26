@@ -25,9 +25,12 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 use termwiz::cell::Underline;
+use termwiz::color::ColorAttribute;
 use unterm_engine::{StyledColor, StyledScreenLine};
 use wezterm_font::shaper::{Direction, PresentationWidth};
 use wezterm_font::{FontConfiguration, LoadedFont, RasterizedGlyph};
+use wezterm_term::color::ColorPalette;
+use wezterm_term::TerminalConfiguration;
 
 pub struct ScrollbackPngOptions {
     /// Cap on history rows rendered. When the scrollback is longer we keep
@@ -199,8 +202,10 @@ pub fn render_styled_scrollback_png(
     let mut band = BandCanvas::new(width_px as usize, cell_h as usize);
     let mut raster_cache: HashMap<(usize, usize, u32), Rc<RasterizedGlyph>> = HashMap::new();
     let font_key = Rc::as_ptr(&font) as usize;
-    let default_bg = (0x0b, 0x10, 0x1d);
-    let default_fg = (0xd8, 0xde, 0xe9);
+    let config: ConfigHandle = config::configuration();
+    let palette = config::TermConfig::with_config(config).color_palette();
+    let default_bg = srgb8(palette.resolve_bg(ColorAttribute::Default));
+    let default_fg = srgb8(palette.resolve_fg(ColorAttribute::Default));
 
     for idx in 0..rows {
         band.fill(default_bg);
@@ -208,8 +213,8 @@ pub fn render_styled_scrollback_png(
         if let Some(line) = lines.get(idx) {
             for cell in &line.cells {
                 let width = cell.width.max(1);
-                let mut fg = resolve_styled_color(cell.style.fg, default_fg);
-                let mut bg = resolve_styled_color(cell.style.bg, default_bg);
+                let mut fg = resolve_styled_color(cell.style.fg, default_fg, &palette);
+                let mut bg = resolve_styled_color(cell.style.bg, default_bg, &palette);
                 if cell.style.inverse {
                     std::mem::swap(&mut fg, &mut bg);
                 }
@@ -292,63 +297,18 @@ pub fn render_styled_scrollback_png(
     })
 }
 
-fn resolve_styled_color(color: Option<StyledColor>, default: (u8, u8, u8)) -> (u8, u8, u8) {
+fn resolve_styled_color(
+    color: Option<StyledColor>,
+    default: (u8, u8, u8),
+    palette: &ColorPalette,
+) -> (u8, u8, u8) {
     match color {
         Some(StyledColor::Rgb(r, g, b)) => (r, g, b),
-        Some(StyledColor::Palette(idx)) => ANSI_256_PALETTE
-            .get(idx as usize)
-            .copied()
-            .unwrap_or(default),
+        Some(StyledColor::Palette(idx)) => {
+            srgb8(palette.resolve_fg(ColorAttribute::PaletteIndex(idx)))
+        }
         None => default,
     }
-}
-
-const ANSI_256_PALETTE: [(u8, u8, u8); 256] = build_ansi_256_palette();
-
-const fn build_ansi_256_palette() -> [(u8, u8, u8); 256] {
-    let mut colors = [(0, 0, 0); 256];
-    colors[0] = (0, 0, 0);
-    colors[1] = (205, 0, 0);
-    colors[2] = (0, 205, 0);
-    colors[3] = (205, 205, 0);
-    colors[4] = (0, 0, 238);
-    colors[5] = (205, 0, 205);
-    colors[6] = (0, 205, 205);
-    colors[7] = (229, 229, 229);
-    colors[8] = (127, 127, 127);
-    colors[9] = (255, 0, 0);
-    colors[10] = (0, 255, 0);
-    colors[11] = (255, 255, 0);
-    colors[12] = (92, 92, 255);
-    colors[13] = (255, 0, 255);
-    colors[14] = (0, 255, 255);
-    colors[15] = (255, 255, 255);
-
-    let levels = [0, 95, 135, 175, 215, 255];
-    let mut idx = 16;
-    let mut r = 0;
-    while r < 6 {
-        let mut g = 0;
-        while g < 6 {
-            let mut b = 0;
-            while b < 6 {
-                colors[idx] = (levels[r], levels[g], levels[b]);
-                idx += 1;
-                b += 1;
-            }
-            g += 1;
-        }
-        r += 1;
-    }
-
-    let mut gray = 0;
-    while gray < 24 {
-        let level = 8 + gray as u8 * 10;
-        colors[232 + gray] = (level, level, level);
-        gray += 1;
-    }
-
-    colors
 }
 
 /// sRGB u8 -> linear f32 lookup, built once. Gamma-correct text blending is

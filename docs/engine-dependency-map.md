@@ -53,13 +53,14 @@ Current covered operations:
 - redacted default-shell launch decision summary for command-less `session.create`
 - instance lifecycle ownership diagnostics for server-info registry vs host GUI window ownership
 - styled scrollback renderer metadata for WezTerm pane rendering vs next-core standalone rendering
+- configured theme palette resolution for next-core standalone styled scrollback PNG rendering
 - engine readiness and next-core aggregate I/O health counters
 
 Known gaps:
 
 - real GUI viewport scrolling/jump for the future next-core renderer
 - OSC133 command-marker active recording parity
-- full font/theme styled scrollback PNG parity for `next-core`
+- bold/italic font matching parity for `next-core` styled scrollback PNG rendering
 - native window capture/focus/title ownership beyond the explicit host-window bridge contract
 - native instance create/close lifecycle ownership beyond server-info registry observability
 - domain, privilege, proxy rotation, and restart launch policy decisions beyond typed env/profile/proxy/overlay/workspace-template/default-shell provenance
@@ -174,7 +175,7 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 | `capture.window` | Engine-neutral | Terminal text match via `SessionEngine::list_sessions`/`ScreenEngine::read_visible_text`; image via `CaptureEngine::capture_window_image` | Platform pixels are behind the capture boundary; next-core can reuse the same product capture service. |
 | `capture.select` | Product-only | Platform screen capture fallback for headless MCP | Interactive region selection remains a GUI concern, but the public MCP method no longer requires terminal core. |
 | `capture.clipboard` | Product-only | Platform clipboard snapshot | Engine-independent platform service. |
-| `capture.scrollback` | Engine-neutral | `CaptureEngine::render_scrollback_png`; WezTerm adapter renders styled pane cells, `next-core` reads `ScreenEngine::read_styled_scrollback` and renders cell-level foreground/background/inverse/underline styles without WezTerm pane access; capability surfaces expose `diagnostics.styled_scrollback_png` and renderer parity metadata | Remaining parity work is full theme palette resolution and bold/italic font matching in the standalone renderer. |
+| `capture.scrollback` | Engine-neutral | `CaptureEngine::render_scrollback_png`; WezTerm adapter renders styled pane cells, `next-core` reads `ScreenEngine::read_styled_scrollback` and renders cell-level foreground/background/inverse/underline styles with configured theme palette resolution and without WezTerm pane access; capability surfaces expose `diagnostics.styled_scrollback_png` and renderer parity metadata | Remaining parity work is bold/italic font matching in the standalone renderer. |
 | `capture.window_scroll` | Product-only | Platform app scrolling/stitching | Product-level platform service; currently macOS-only and engine-independent. |
 | `upload.file` | Product-only | Upload config and local file IO | Engine-independent. |
 | `system.info` | Product-only | OS/env/server metadata plus `SessionEngine::list_sessions` count | Adds engine label without direct WezTerm mux access. |

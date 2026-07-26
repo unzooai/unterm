@@ -1009,16 +1009,19 @@ mod engine_neutral_handler_tests {
         assert_eq!(image["renderer"]["renderer"], "standalone-styled");
         assert_eq!(image["renderer"]["uses_wezterm_pane"], false);
         assert_eq!(image["renderer"]["standalone"], true);
-        assert_eq!(image["renderer"]["palette"], "ansi-256-fallback");
+        assert_eq!(image["renderer"]["palette"], "config-resolved");
         let supported_styles = image["renderer"]["supported_styles"]
             .as_array()
             .expect("supported styles");
         assert!(supported_styles.iter().any(|style| style == "fg"));
         assert!(supported_styles.iter().any(|style| style == "underline"));
+        assert!(supported_styles
+            .iter()
+            .any(|style| style == "theme_palette"));
         let missing_parity = image["renderer"]["missing_parity"]
             .as_array()
             .expect("missing parity");
-        assert!(missing_parity
+        assert!(!missing_parity
             .iter()
             .any(|item| item == "theme_palette_resolution"));
         assert!(missing_parity.iter().any(|item| item == "bold_font_face"));

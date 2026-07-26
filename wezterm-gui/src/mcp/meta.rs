@@ -60,7 +60,7 @@ pub fn engine_capabilities(engine: &str) -> Value {
             }),
             json!({
                 "name": "capture.scrollback",
-                "limitation": "renders styled cell PNGs from next-core scrollback and reports renderer parity metadata; full theme palette and bold/italic font matching parity are still in progress",
+                "limitation": "renders styled cell PNGs from next-core scrollback with configured theme palette resolution and reports renderer parity metadata; bold/italic font matching parity is still in progress",
             }),
             json!({
                 "name": "instance.focus",
