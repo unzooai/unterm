@@ -731,7 +731,7 @@ pub fn detect_agent_for_pane(
 /// `update_title` (i.e. on every tab switch) was the dominant switch latency
 /// once a window held several tabs. We instead serve the last known value
 /// instantly and refresh it on a worker thread, mirroring the stats-bar
-/// caches. ~2s staleness is invisible for an agent/cwd label.
+/// caches. A few seconds of staleness is invisible for an agent/cwd label.
 #[derive(Clone, Default)]
 struct PaneAgentCwd {
     agent: Option<String>,
@@ -805,10 +805,10 @@ fn foreground_command_title(info: &procinfo::LocalProcessInfo) -> Option<String>
     Some(title)
 }
 
-const AGENT_CWD_TTL: std::time::Duration = std::time::Duration::from_millis(2000);
+const AGENT_CWD_TTL: std::time::Duration = std::time::Duration::from_millis(5000);
 const AGENT_CWD_PRUNE_AFTER: std::time::Duration = std::time::Duration::from_secs(60);
 const AGENT_CWD_PRUNE_MIN_SIZE: usize = 128;
-const AGENT_CWD_MAX_INFLIGHT: usize = 16;
+const AGENT_CWD_MAX_INFLIGHT: usize = 2;
 
 fn agent_cwd_cache() -> &'static Mutex<HashMap<u64, (std::time::Instant, PaneAgentCwd)>> {
     static C: std::sync::OnceLock<Mutex<HashMap<u64, (std::time::Instant, PaneAgentCwd)>>> =

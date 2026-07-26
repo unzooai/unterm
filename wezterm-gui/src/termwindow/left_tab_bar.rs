@@ -909,34 +909,11 @@ impl crate::TermWindow {
             .collect();
         trace_mark("metadata");
 
-        // Breathing pulse for working-agent dots: an 8-step quantized
-        // cosine over a 2.4s cycle. Zero cost when nothing is working —
-        // no repaint is scheduled and the cache key stays constant. With
-        // a working dot visible, the sidebar rebuilds ~3.3x/s (only the
-        // sidebar element tree; the quantized step keeps the cache
-        // effective within each step).
-        let breath_step: u8 = if metas
-            .iter()
-            .any(|m| matches!(m.agent_state, Some(crate::cockpit::AgentState::Working)))
-        {
-            const CYCLE_MS: u64 = 3200;
-            const STEPS: u64 = 4;
-            const QUANTUM: u64 = CYCLE_MS / STEPS;
-            let ms = crate::cockpit::status::breath_epoch().elapsed().as_millis() as u64 % CYCLE_MS;
-            self.update_next_frame_time(Some(
-                std::time::Instant::now()
-                    + std::time::Duration::from_millis(QUANTUM - ms % QUANTUM),
-            ));
-            (ms / QUANTUM) as u8
-        } else {
-            255
-        };
-        let breath_alpha = if breath_step == 255 {
-            1.0
-        } else {
-            let phase = (breath_step as f32 + 0.5) / 4.0;
-            0.45 + 0.55 * (0.5 - 0.5 * (std::f32::consts::TAU * phase).cos())
-        };
+        // Keep working-agent indicators static. The previous breathing pulse
+        // scheduled periodic sidebar rebuilds while Claude was running, which
+        // made tab switching feel heavier when multiple agent panes were open.
+        let breath_step: u8 = 255;
+        let breath_alpha = 1.0;
 
         // Auto-group tabs by project (cwd basename), preserving the order in
         // which each project first appears. A tab with no known cwd falls
