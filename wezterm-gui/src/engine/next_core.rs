@@ -1275,13 +1275,17 @@ impl NextCoreEngine {
             .name(format!("next-core-pty-reader-{pane_id}"))
             .spawn(move || {
                 let mut buf = [0u8; 8192];
+                let mut pending_utf8 = Vec::new();
                 loop {
                     match reader.read(&mut buf) {
                         Ok(0) => break,
                         Ok(n) => {
-                            let chunk = String::from_utf8_lossy(&buf[..n]);
+                            let Some(chunk) = Self::decode_pty_chunk(&mut pending_utf8, &buf[..n])
+                            else {
+                                continue;
+                            };
                             let mut output = output.lock();
-                            output.push_str(&chunk);
+                            output.push_str(chunk.as_str());
                             if output.len() > MAX_OUTPUT_BYTES {
                                 let keep_from = output.len() - MAX_OUTPUT_BYTES;
                                 let keep_from = output
@@ -1292,14 +1296,43 @@ impl NextCoreEngine {
                                 output.drain(..keep_from);
                             }
                             let mut screen = screen.lock();
-                            screen.feed(&chunk);
-                            Self::answer_terminal_queries(&chunk, &screen, &writer);
+                            screen.feed(chunk.as_str());
+                            Self::answer_terminal_queries(chunk.as_str(), &screen, &writer);
                         }
                         Err(_) => break,
                     }
                 }
             })
             .ok();
+    }
+
+    fn decode_pty_chunk(pending: &mut Vec<u8>, bytes: &[u8]) -> Option<String> {
+        pending.extend_from_slice(bytes);
+        match std::str::from_utf8(pending.as_slice()) {
+            Ok(text) => {
+                let text = text.to_string();
+                pending.clear();
+                if text.is_empty() {
+                    None
+                } else {
+                    Some(text)
+                }
+            }
+            Err(err) if err.error_len().is_none() => {
+                let valid_up_to = err.valid_up_to();
+                if valid_up_to == 0 {
+                    return None;
+                }
+                let text = String::from_utf8(pending[..valid_up_to].to_vec()).ok()?;
+                pending.drain(..valid_up_to);
+                Some(text)
+            }
+            Err(_) => {
+                let text = String::from_utf8_lossy(pending.as_slice()).to_string();
+                pending.clear();
+                Some(text)
+            }
+        }
     }
 
     fn answer_terminal_queries(
@@ -1686,6 +1719,27 @@ mod tests {
         NextCoreEngine::answer_terminal_queries("\x1b[6n", &screen, &writer);
 
         assert_eq!(bytes.lock().as_slice(), b"\x1b[3;5R");
+    }
+
+    #[test]
+    fn decodes_pty_utf8_across_chunk_boundaries() {
+        let _guard = test_guard();
+        let mut pending = Vec::new();
+        let bytes = "你A".as_bytes();
+
+        assert_eq!(
+            NextCoreEngine::decode_pty_chunk(&mut pending, &bytes[..1]),
+            None
+        );
+        assert_eq!(
+            NextCoreEngine::decode_pty_chunk(&mut pending, &bytes[1..3]),
+            Some("你".to_string())
+        );
+        assert_eq!(
+            NextCoreEngine::decode_pty_chunk(&mut pending, &bytes[3..]),
+            Some("A".to_string())
+        );
+        assert!(pending.is_empty());
     }
 
     #[test]
