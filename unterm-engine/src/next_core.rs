@@ -385,6 +385,7 @@ struct CellAttributes {
     underline: bool,
     strikethrough: bool,
     hidden: bool,
+    overline: bool,
     blink: Option<StyledBlink>,
     inverse: bool,
     fg: Option<TerminalColor>,
@@ -406,6 +407,7 @@ impl From<CellAttributes> for CellStyle {
             underline: attr.underline,
             strikethrough: attr.strikethrough,
             hidden: attr.hidden,
+            overline: attr.overline,
             blink: attr.blink,
             inverse: attr.inverse,
             fg: attr.fg.map(Into::into),
@@ -1079,6 +1081,8 @@ impl NextCoreScreen {
                 27 => self.current_attr.inverse = false,
                 28 => self.current_attr.hidden = false,
                 29 => self.current_attr.strikethrough = false,
+                53 => self.current_attr.overline = true,
+                55 => self.current_attr.overline = false,
                 30..=37 => {
                     self.current_attr.fg = Some(TerminalColor::Palette(params[idx] as u8 - 30))
                 }
@@ -5349,12 +5353,14 @@ mod tests {
                 "\x1b[5mL",
                 "\x1b[6mR",
                 "\x1b[25mQ",
+                "\x1b[53mO",
+                "\x1b[55mP",
                 "\x1b[3;4;7;38;5;202;48;2;1;2;3mX",
-                "\x1b[22;23;24;25;27;28;29;39;49mY"
+                "\x1b[22;23;24;25;27;28;29;55;39;49mY"
             ),
         )?;
 
-        assert_eq!(engine.read_visible_text(session.id)?, "RNFBISTHVLRQXY");
+        assert_eq!(engine.read_visible_text(session.id)?, "RNFBISTHVLRQOPXY");
         let attrs = viewport_attrs_for_test(session.id)?;
         let line = &attrs[0];
 
@@ -5380,14 +5386,16 @@ mod tests {
         assert_eq!(line[9].blink, Some(StyledBlink::Slow));
         assert_eq!(line[10].blink, Some(StyledBlink::Rapid));
         assert_eq!(line[11].blink, None);
+        assert!(line[12].overline);
+        assert!(!line[13].overline);
 
-        assert!(line[12].italic);
-        assert!(line[12].underline);
-        assert!(line[12].inverse);
-        assert_eq!(line[12].fg, Some(TerminalColor::Palette(202)));
-        assert_eq!(line[12].bg, Some(TerminalColor::Rgb(1, 2, 3)));
+        assert!(line[14].italic);
+        assert!(line[14].underline);
+        assert!(line[14].inverse);
+        assert_eq!(line[14].fg, Some(TerminalColor::Palette(202)));
+        assert_eq!(line[14].bg, Some(TerminalColor::Rgb(1, 2, 3)));
 
-        assert_eq!(line[13], CellAttributes::default());
+        assert_eq!(line[15], CellAttributes::default());
 
         let styled = engine.read_styled_screen(session.id)?;
         assert_eq!(styled.lines[0].row, 0);
@@ -5409,15 +5417,17 @@ mod tests {
             Some(StyledBlink::Rapid)
         );
         assert_eq!(styled.lines[0].cells[11].style.blink, None);
+        assert!(styled.lines[0].cells[12].style.overline);
+        assert!(!styled.lines[0].cells[13].style.overline);
         assert_eq!(
             styled.lines[0].cells[0].style.fg,
             Some(StyledColor::Palette(1))
         );
         assert_eq!(
-            styled.lines[0].cells[12].style.bg,
+            styled.lines[0].cells[14].style.bg,
             Some(StyledColor::Rgb(1, 2, 3))
         );
-        assert_eq!(styled.lines[0].cells[13].style, CellStyle::default());
+        assert_eq!(styled.lines[0].cells[15].style, CellStyle::default());
 
         engine.destroy_session(session.id)?;
         Ok(())

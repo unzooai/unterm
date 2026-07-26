@@ -277,6 +277,10 @@ pub fn render_styled_scrollback_png(
                     let uy = (baseline - metrics.underline_position.get()).round() as isize;
                     band.fill_rect(cx0, uy.min(cell_h as isize - thickness), cw, thickness, fg);
                 }
+                if cell.style.overline && !cell.style.hidden {
+                    let thickness = metrics.underline_thickness.get().round().max(1.0) as isize;
+                    band.fill_rect(cx0, 0, cw, thickness, fg);
+                }
 
                 cell_x += cell.width;
             }
@@ -328,6 +332,9 @@ fn styled_cell_attributes(style: CellStyle) -> TwCellAttributes {
     }
     if style.strikethrough {
         attrs.set_strikethrough(true);
+    }
+    if style.overline {
+        attrs.set_overline(true);
     }
     if let Some(blink) = style.blink {
         attrs.set_blink(match blink {

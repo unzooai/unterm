@@ -153,6 +153,7 @@ pub struct CellStyle {
     pub underline: bool,
     pub strikethrough: bool,
     pub hidden: bool,
+    pub overline: bool,
     pub blink: Option<StyledBlink>,
     pub inverse: bool,
     pub fg: Option<StyledColor>,
