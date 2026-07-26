@@ -900,6 +900,13 @@ impl NextCoreScreen {
         self.mark_all_dirty();
     }
 
+    fn fill_alignment_test(&mut self) {
+        self.lines = (0..self.rows)
+            .map(|_| vec![ScreenCell::new('E', self.current_attr); self.cols])
+            .collect();
+        self.mark_all_dirty();
+    }
+
     fn reset_terminal(&mut self) {
         let cols = self.cols;
         let rows = self.rows;
@@ -1469,6 +1476,8 @@ struct ScreenParser<'a> {
 enum ParserState {
     Ground,
     Escape,
+    EscapeIgnoreOne,
+    EscapeHash,
     Csi(String),
     Osc(String),
     OscEscape(String),
@@ -1502,6 +1511,12 @@ impl<'a> ScreenParser<'a> {
             ParserState::Escape => match c {
                 '[' => self.state = ParserState::Csi(String::new()),
                 ']' => self.state = ParserState::Osc(String::new()),
+                '(' | ')' | '*' | '+' | '-' | '.' | '/' | '%' => {
+                    self.state = ParserState::EscapeIgnoreOne;
+                }
+                '#' => {
+                    self.state = ParserState::EscapeHash;
+                }
                 '7' => {
                     self.screen.save_cursor();
                     self.state = ParserState::Ground;
@@ -1532,6 +1547,15 @@ impl<'a> ScreenParser<'a> {
                 }
                 _ => self.state = ParserState::Ground,
             },
+            ParserState::EscapeIgnoreOne => {
+                self.state = ParserState::Ground;
+            }
+            ParserState::EscapeHash => {
+                if c == '8' {
+                    self.screen.fill_alignment_test();
+                }
+                self.state = ParserState::Ground;
+            }
             ParserState::Csi(ref mut sequence) => {
                 if ('@'..='~').contains(&c) {
                     sequence.push(c);
@@ -5700,6 +5724,51 @@ mod tests {
         assert_eq!(screen.lines, vec!["r0", "", "r1", "r2"]);
         assert_eq!(screen.cursor.x, 0);
         assert_eq!(screen.cursor.y, 1);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_ignores_charset_and_utf8_designators() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 16,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(session.id, "ab\x1b(Bcd\x1b)0ef\x1b%Ggh")?;
+        assert_eq!(engine.read_screen(session.id)?.lines, vec!["abcdefgh"]);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_applies_decaln_alignment_test() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 5,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(session.id, "old\x1b#8")?;
+        assert_eq!(
+            engine.read_screen(session.id)?.lines,
+            vec!["EEEEE", "EEEEE", "EEEEE"]
+        );
 
         engine.destroy_session(session.id)?;
         Ok(())
