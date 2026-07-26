@@ -616,7 +616,12 @@ impl NextCoreScreen {
             }
             return;
         }
+        self.put_cell(cell);
+    }
+
+    fn put_cell(&mut self, cell: ScreenCell) {
         let width = cell.width;
+        let attr = cell.attr;
         if self.cursor_x >= self.cols || self.cursor_x + width > self.cols {
             if self.auto_wrap {
                 self.newline();
@@ -646,9 +651,9 @@ impl NextCoreScreen {
                         break;
                     }
                     if idx == line.len() {
-                        line.push(ScreenCell::continuation(self.current_attr));
+                        line.push(ScreenCell::continuation(attr));
                     } else if idx < line.len() {
-                        line[idx] = ScreenCell::continuation(self.current_attr);
+                        line[idx] = ScreenCell::continuation(attr);
                     }
                 }
             }
@@ -657,6 +662,23 @@ impl NextCoreScreen {
             }
         }
         self.cursor_x += width;
+    }
+
+    fn repeat_previous_char(&mut self, count: usize) {
+        self.ensure_cursor_line();
+        let end = self.cursor_x.min(self.lines[self.cursor_y].len());
+        let Some(cell) = self.lines[self.cursor_y][..end]
+            .iter()
+            .rev()
+            .find(|cell| cell.width > 0)
+            .cloned()
+        else {
+            return;
+        };
+        for _ in 0..count.max(1) {
+            self.mark_dirty_row(self.cursor_y);
+            self.put_cell(cell.clone());
+        }
     }
 
     fn newline(&mut self) {
@@ -1426,6 +1448,7 @@ impl<'a> ScreenParser<'a> {
                 .screen
                 .set_horizontal_position(first().saturating_sub(1)),
             'a' => self.screen.move_cursor_right(first()),
+            'b' => self.screen.repeat_previous_char(first()),
             'd' => self.screen.set_vertical_position(first().saturating_sub(1)),
             'e' => self.screen.move_cursor_down(first()),
             'G' => {
@@ -4957,6 +4980,68 @@ mod tests {
         assert_eq!(cells[1].width, 0);
         assert_eq!(cells[2].ch, 'A');
         assert_eq!(cells[2].width, 1);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_repeats_previous_character_with_rep() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 12,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+        set_output_for_test(session.id, "\x1b[31mA\x1b[3b")?;
+
+        let screen = engine.read_screen(session.id)?;
+        assert_eq!(screen.lines, vec!["AAAA"]);
+        assert_eq!(screen.cursor.x, 4);
+
+        let styled = engine.read_styled_screen(session.id)?;
+        assert_eq!(
+            styled.lines[0].cells[0].style.fg,
+            Some(StyledColor::Palette(1))
+        );
+        assert_eq!(
+            styled.lines[0].cells[3].style.fg,
+            Some(StyledColor::Palette(1))
+        );
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_repeats_wide_character_with_rep() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 8,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+        set_output_for_test(session.id, "你\x1b[2b")?;
+
+        let screen = engine.read_screen(session.id)?;
+        assert_eq!(screen.lines, vec!["你你你"]);
+        assert_eq!(screen.cursor.x, 6);
+
+        let styled = engine.read_styled_screen(session.id)?;
+        assert_eq!(styled.lines[0].cells[0].width, 2);
+        assert_eq!(styled.lines[0].cells[1].width, 0);
+        assert_eq!(styled.lines[0].cells[4].ch, '你');
+        assert_eq!(styled.lines[0].cells[5].width, 0);
 
         engine.destroy_session(session.id)?;
         Ok(())

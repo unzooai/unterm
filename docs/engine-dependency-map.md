@@ -38,7 +38,7 @@ Current covered operations:
 - shell/cwd/activity snapshots
 - visible screen read
 - styled screen read
-- next-core cols-aware screen wrapping, DECAWM auto-wrap mode, DECOM origin mode for scroll-region-relative cursor positioning, HT/HTS/TBC/CBT tab-stop cursor movement/control, ESC IND/NEL/RI scroll-region movement, CSI CNL/CPL/HPA/HPR/VPA/VPR positioning, save/restore cursor, erase-character handling, and resize truncation
+- next-core cols-aware screen wrapping, DECAWM auto-wrap mode, DECOM origin mode for scroll-region-relative cursor positioning, HT/HTS/TBC/CBT tab-stop cursor movement/control, ESC IND/NEL/RI scroll-region movement, CSI CNL/CPL/HPA/HPR/VPA/VPR positioning, save/restore cursor, erase-character and REP repeat-character handling, and resize truncation
 - visible text read
 - line/scrollback reads
 - scrollback text export
