@@ -1115,6 +1115,70 @@ impl NextCoreScreen {
         }
     }
 
+    fn parse_sgr_params(raw_params: &str) -> Vec<usize> {
+        let raw_params = raw_params.trim_start_matches('?');
+        if raw_params.is_empty() {
+            return vec![0];
+        }
+
+        let mut params = Vec::new();
+        for part in raw_params.split(';') {
+            let part = part.trim();
+            if part.is_empty() {
+                params.push(0);
+            } else if part.starts_with("38:") || part.starts_with("48:") {
+                params.extend(Self::parse_colon_color_sgr_params(part));
+            } else if let Some((first, _)) = part.split_once(':') {
+                params.push(first.trim().parse::<usize>().unwrap_or(0));
+            } else {
+                params.push(part.parse::<usize>().unwrap_or(0));
+            }
+        }
+
+        if params.is_empty() {
+            vec![0]
+        } else {
+            params
+        }
+    }
+
+    fn parse_colon_color_sgr_params(part: &str) -> Vec<usize> {
+        let mut pieces = part.split(':');
+        let target = pieces
+            .next()
+            .and_then(|part| part.parse::<usize>().ok())
+            .unwrap_or(0);
+        let mode = pieces
+            .next()
+            .and_then(|part| part.parse::<usize>().ok())
+            .unwrap_or(0);
+
+        match mode {
+            5 => pieces
+                .find_map(|part| part.parse::<usize>().ok())
+                .map(|color| vec![target, 5, color])
+                .unwrap_or_else(|| vec![target]),
+            2 => {
+                let values = pieces
+                    .filter_map(|part| part.parse::<usize>().ok())
+                    .collect::<Vec<_>>();
+                if values.len() >= 3 {
+                    let start = values.len().saturating_sub(3);
+                    vec![
+                        target,
+                        2,
+                        values[start],
+                        values[start + 1],
+                        values[start + 2],
+                    ]
+                } else {
+                    vec![target]
+                }
+            }
+            _ => vec![target],
+        }
+    }
+
     fn insert_lines(&mut self, count: usize) {
         self.ensure_cursor_line();
         let bottom = if self.cursor_y >= self.scroll_top && self.cursor_y <= self.scroll_bottom {
@@ -1491,7 +1555,9 @@ impl<'a> ScreenParser<'a> {
             'K' => self
                 .screen
                 .erase_in_line(numbers.first().copied().unwrap_or(0)),
-            'm' => self.screen.apply_sgr(&numbers),
+            'm' => self
+                .screen
+                .apply_sgr(&NextCoreScreen::parse_sgr_params(raw_params)),
             'q' => {
                 if raw_params.ends_with(' ') {
                     self.screen
@@ -4970,6 +5036,71 @@ mod tests {
             Some(StyledColor::Rgb(1, 2, 3))
         );
         assert_eq!(styled.lines[0].cells[3].style, CellStyle::default());
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_tracks_colon_sgr_extended_colors() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 24,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+        set_output_for_test(
+            session.id,
+            concat!(
+                "\x1b[38:5:196mR",
+                "\x1b[48:5:25mB",
+                "\x1b[38:2::1:2:3mF",
+                "\x1b[48:2:0:4:5:6mG",
+                "\x1b[0mN"
+            ),
+        )?;
+
+        assert_eq!(engine.read_visible_text(session.id)?, "RBFGN");
+        let attrs = viewport_attrs_for_test(session.id)?;
+        let line = &attrs[0];
+
+        assert_eq!(line[0].fg, Some(TerminalColor::Palette(196)));
+        assert_eq!(line[1].fg, Some(TerminalColor::Palette(196)));
+        assert_eq!(line[1].bg, Some(TerminalColor::Palette(25)));
+        assert_eq!(line[2].fg, Some(TerminalColor::Rgb(1, 2, 3)));
+        assert_eq!(line[2].bg, Some(TerminalColor::Palette(25)));
+        assert_eq!(line[3].fg, Some(TerminalColor::Rgb(1, 2, 3)));
+        assert_eq!(line[3].bg, Some(TerminalColor::Rgb(4, 5, 6)));
+        assert_eq!(line[4], CellAttributes::default());
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_treats_colon_sgr_underline_style_as_underline() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 24,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+        set_output_for_test(session.id, "\x1b[4:3mU")?;
+
+        let attrs = viewport_attrs_for_test(session.id)?;
+        let attr = attrs[0][0];
+        assert!(attr.underline);
+        assert!(!attr.italic);
 
         engine.destroy_session(session.id)?;
         Ok(())
