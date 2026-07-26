@@ -1,6 +1,6 @@
 use super::{
-    CellStyle, CreateSessionRequest, CursorSnapshot, DirtyRows, InputEngine, ScreenEngine, ScreenLine,
-    ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot,
+    CellStyle, CreateSessionRequest, CursorSnapshot, DirtyRows, InputEngine, ScreenEngine,
+    ScreenLine, ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot,
     SessionActivitySnapshot, SessionEngine, SessionSnapshot, ShellSnapshot, SplitSessionRequest,
     StyledCell, StyledColor, StyledScreenLine, StyledScreenSnapshot,
 };
@@ -199,7 +199,10 @@ impl NextCoreScreen {
                 start: dirty.start.min(row),
                 end: dirty.end.max(row),
             },
-            None => DirtyRows { start: row, end: row },
+            None => DirtyRows {
+                start: row,
+                end: row,
+            },
         });
     }
 
@@ -515,9 +518,13 @@ impl NextCoreScreen {
                 23 => self.current_attr.italic = false,
                 24 => self.current_attr.underline = false,
                 27 => self.current_attr.inverse = false,
-                30..=37 => self.current_attr.fg = Some(TerminalColor::Palette(params[idx] as u8 - 30)),
+                30..=37 => {
+                    self.current_attr.fg = Some(TerminalColor::Palette(params[idx] as u8 - 30))
+                }
                 39 => self.current_attr.fg = None,
-                40..=47 => self.current_attr.bg = Some(TerminalColor::Palette(params[idx] as u8 - 40)),
+                40..=47 => {
+                    self.current_attr.bg = Some(TerminalColor::Palette(params[idx] as u8 - 40))
+                }
                 49 => self.current_attr.bg = None,
                 90..=97 => {
                     self.current_attr.fg = Some(TerminalColor::Palette(params[idx] as u8 - 90 + 8))
@@ -527,7 +534,8 @@ impl NextCoreScreen {
                 }
                 38 | 48 => {
                     let target_fg = params[idx] == 38;
-                    if let Some((color, consumed)) = Self::parse_extended_color(&params[idx + 1..]) {
+                    if let Some((color, consumed)) = Self::parse_extended_color(&params[idx + 1..])
+                    {
                         if target_fg {
                             self.current_attr.fg = Some(color);
                         } else {
@@ -855,12 +863,17 @@ impl<'a> ScreenParser<'a> {
                 self.screen
                     .set_cursor(row.saturating_sub(1), col.saturating_sub(1));
             }
-            'J' => self.screen.erase_in_display(numbers.first().copied().unwrap_or(0)),
-            'K' => self.screen.erase_in_line(numbers.first().copied().unwrap_or(0)),
+            'J' => self
+                .screen
+                .erase_in_display(numbers.first().copied().unwrap_or(0)),
+            'K' => self
+                .screen
+                .erase_in_line(numbers.first().copied().unwrap_or(0)),
             'm' => self.screen.apply_sgr(&numbers),
             'q' => {
                 if raw_params.ends_with(' ') {
-                    self.screen.set_cursor_shape(numbers.first().copied().unwrap_or(0));
+                    self.screen
+                        .set_cursor_shape(numbers.first().copied().unwrap_or(0));
                 }
             }
             'r' => {
@@ -1796,11 +1809,10 @@ mod tests {
         let mut screen = NextCoreScreen::new(10);
         screen.set_cursor(2, 4);
         let bytes = Arc::new(Mutex::new(Vec::new()));
-        let writer: Arc<Mutex<Box<dyn Write + Send>>> = Arc::new(Mutex::new(Box::new(
-            SharedWriter {
+        let writer: Arc<Mutex<Box<dyn Write + Send>>> =
+            Arc::new(Mutex::new(Box::new(SharedWriter {
                 bytes: Arc::clone(&bytes),
-            },
-        )));
+            })));
 
         NextCoreEngine::answer_terminal_queries("\x1b[6n", &screen, &writer);
 
@@ -1857,7 +1869,7 @@ mod tests {
 
         let second = engine.split_session(SplitSessionRequest {
             source_pane_id: first.id,
-            direction: super::super::SplitDirection::Right,
+            direction: crate::SplitDirection::Right,
             size_percent: 50,
             command_dir: None,
         })?;
@@ -2065,7 +2077,10 @@ mod tests {
         assert_eq!(styled.lines[0].row, 0);
         assert_eq!(styled.lines[0].cells[0].ch, 'R');
         assert!(styled.lines[0].cells[0].style.bold);
-        assert_eq!(styled.lines[0].cells[0].style.fg, Some(StyledColor::Palette(1)));
+        assert_eq!(
+            styled.lines[0].cells[0].style.fg,
+            Some(StyledColor::Palette(1))
+        );
         assert_eq!(
             styled.lines[0].cells[2].style.bg,
             Some(StyledColor::Rgb(1, 2, 3))
@@ -2182,7 +2197,10 @@ mod tests {
             command: None,
         })?;
         set_output_for_test(session.id, "one\nprefix-tail\nthree\x1b[2;7H\x1b[J")?;
-        assert_eq!(engine.read_screen(session.id)?.lines, vec!["one", "prefix", ""]);
+        assert_eq!(
+            engine.read_screen(session.id)?.lines,
+            vec!["one", "prefix", ""]
+        );
         engine.destroy_session(session.id)?;
 
         let session = engine.create_session(CreateSessionRequest {
@@ -2253,16 +2271,14 @@ mod tests {
         let screen = engine.read_screen(session.id)?;
         assert_eq!(screen.cursor.shape, "BlinkingBar");
         assert_eq!(engine.cursor(session.id)?.shape, "BlinkingBar");
-        assert_eq!(engine.list_sessions()?.remove(0).cursor.shape, "BlinkingBar");
+        assert_eq!(
+            engine.list_sessions()?.remove(0).cursor.shape,
+            "BlinkingBar"
+        );
 
         set_output_for_test(
             session.id,
-            concat!(
-                "main\x1b[4 q",
-                "\x1b[?1049h",
-                "\x1b[2 q",
-                "\x1b[?1049l"
-            ),
+            concat!("main\x1b[4 q", "\x1b[?1049h", "\x1b[2 q", "\x1b[?1049l"),
         )?;
 
         assert_eq!(engine.cursor(session.id)?.shape, "SteadyUnderline");

@@ -6602,6 +6602,7 @@ dependencies = [
  "unicode-normalization",
  "unicode-segmentation",
  "unterm-agents",
+ "unterm-engine",
  "unterm-profile",
  "url",
  "url-funcs",
@@ -6695,6 +6696,17 @@ dependencies = [
  "wezterm-gui-subcommands",
  "wezterm-term",
  "winapi",
+]
+
+[[package]]
+name = "unterm-engine"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "parking_lot",
+ "portable-pty",
+ "serde",
+ "termwiz",
 ]
 
 [[package]]

@@ -1,0 +1,16 @@
+[package]
+name = "unterm-engine"
+version = "0.1.0"
+edition = "2018"
+publish = false
+
+[[bin]]
+name = "unterm-next-core"
+path = "src/bin/unterm-next-core.rs"
+
+[dependencies]
+anyhow.workspace = true
+parking_lot.workspace = true
+portable-pty = { workspace = true, features = ["serde_support"] }
+serde = { workspace = true, features = ["derive"] }
+termwiz.workspace = true

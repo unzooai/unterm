@@ -94,6 +94,7 @@ tempfile.workspace = true
 terminfo.workspace = true
 termwiz-funcs.workspace = true
 termwiz.workspace = true
+unterm-engine.workspace = true
 unterm-profile.workspace = true
 unterm-agents.workspace = true
 textwrap.workspace = true
