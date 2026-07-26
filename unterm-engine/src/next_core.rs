@@ -1,11 +1,12 @@
 use super::{
     CellStyle, CreateSessionRequest, CursorSnapshot, DirtyRows, EngineHealthSnapshot,
-    EngineIoHealthSnapshot, HealthEngine, InputActivitySnapshot, InputEngine,
-    OutputActivitySnapshot, PasteActivitySnapshot, RecordingEngine, RecordingExportResult,
-    RecordingStartResult, RecordingStatusSnapshot, RecordingStopResult, ScreenActivitySnapshot,
-    ScreenEngine, ScreenLine, ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest,
-    ScrollbackTextSnapshot, SessionActivitySnapshot, SessionEngine, SessionSnapshot, ShellSnapshot,
-    SplitSessionRequest, StyledCell, StyledColor, StyledScreenLine, StyledScreenSnapshot,
+    EngineIoHealthSnapshot, EngineLifecycleHealthSnapshot, HealthEngine, InputActivitySnapshot,
+    InputEngine, OutputActivitySnapshot, PasteActivitySnapshot, RecordingEngine,
+    RecordingExportResult, RecordingStartResult, RecordingStatusSnapshot, RecordingStopResult,
+    ScreenActivitySnapshot, ScreenEngine, ScreenLine, ScreenSearchMatch, ScreenSnapshot,
+    ScrollbackTextRequest, ScrollbackTextSnapshot, SessionActivitySnapshot, SessionEngine,
+    SessionSnapshot, ShellSnapshot, SplitSessionRequest, StyledCell, StyledColor, StyledScreenLine,
+    StyledScreenSnapshot,
 };
 use anyhow::{bail, Result};
 use base64::Engine as _;
@@ -51,6 +52,10 @@ impl Drop for NextCoreSession {
 struct NextCoreState {
     next_session_id: usize,
     sessions: Vec<NextCoreSession>,
+    total_sessions_created: u64,
+    total_sessions_destroyed: u64,
+    total_sessions_marked_dead: u64,
+    last_dead_reason: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -1308,9 +1313,9 @@ fn viewport_attrs_for_test(pane_id: usize) -> Result<Vec<Vec<CellAttributes>>> {
 }
 
 impl NextCoreEngine {
-    fn refresh_liveness(session: &mut NextCoreSession) {
+    fn refresh_liveness(session: &mut NextCoreSession) -> Option<String> {
         if session.snapshot.is_dead {
-            return;
+            return None;
         }
 
         if session.dead.load(Ordering::Acquire) {
@@ -1322,7 +1327,7 @@ impl NextCoreEngine {
                     .clone()
                     .or_else(|| Some("unknown".to_string()));
             }
-            return;
+            return session.snapshot.dead_reason.clone();
         }
 
         if let Ok(Some(status)) = session.child.lock().try_wait() {
@@ -1331,29 +1336,41 @@ impl NextCoreEngine {
             session.snapshot.dead_reason = Some(reason.clone());
             *session.dead_reason.lock() = Some(reason);
             session.dead.store(true, Ordering::Release);
+            return session.snapshot.dead_reason.clone();
         }
+
+        None
+    }
+
+    fn record_dead_reason(state: &mut NextCoreState, reason: String) {
+        state.total_sessions_marked_dead = state.total_sessions_marked_dead.saturating_add(1);
+        state.last_dead_reason = Some(reason);
     }
 
     fn sessions(&self) -> Vec<SessionSnapshot> {
-        state()
-            .write()
-            .sessions
-            .iter_mut()
-            .map(|session| {
-                Self::refresh_liveness(session);
-                let mut snapshot = session.snapshot.clone();
-                let screen = session.screen.lock();
-                snapshot.cursor = screen.cursor_snapshot();
-                snapshot.scrollback_rows = screen.scrollback_rows();
-                if let Some(title) = screen.title() {
-                    snapshot.title = title;
-                }
-                if let Some(cwd) = screen.current_dir() {
-                    snapshot.shell.cwd = Some(cwd);
-                }
-                snapshot
-            })
-            .collect()
+        let mut state = state().write();
+        let mut snapshots = Vec::with_capacity(state.sessions.len());
+        let mut dead_reasons = Vec::new();
+        for session in &mut state.sessions {
+            if let Some(reason) = Self::refresh_liveness(session) {
+                dead_reasons.push(reason);
+            }
+            let mut snapshot = session.snapshot.clone();
+            let screen = session.screen.lock();
+            snapshot.cursor = screen.cursor_snapshot();
+            snapshot.scrollback_rows = screen.scrollback_rows();
+            if let Some(title) = screen.title() {
+                snapshot.title = title;
+            }
+            if let Some(cwd) = screen.current_dir() {
+                snapshot.shell.cwd = Some(cwd);
+            }
+            snapshots.push(snapshot);
+        }
+        for reason in dead_reasons {
+            Self::record_dead_reason(&mut state, reason);
+        }
+        snapshots
     }
 
     fn session(&self, pane_id: usize) -> Result<SessionSnapshot> {
@@ -2039,6 +2056,7 @@ impl SessionEngine for NextCoreEngine {
         let mut state_guard = state().write();
         Self::set_active(&mut state_guard, id);
         state_guard.sessions.push(session);
+        state_guard.total_sessions_created = state_guard.total_sessions_created.saturating_add(1);
         Ok(snapshot)
     }
 
@@ -2079,6 +2097,7 @@ impl SessionEngine for NextCoreEngine {
         let mut state_guard = state().write();
         Self::set_active(&mut state_guard, id);
         state_guard.sessions.push(session);
+        state_guard.total_sessions_created = state_guard.total_sessions_created.saturating_add(1);
         Ok(snapshot)
     }
 
@@ -2108,7 +2127,7 @@ impl SessionEngine for NextCoreEngine {
         else {
             bail!("next-core session {pane_id} not found");
         };
-        Self::refresh_liveness(session);
+        let dead_reason = Self::refresh_liveness(session);
         let is_dead = session.snapshot.is_dead;
         let foreground_process = session.snapshot.shell.process_name.clone();
         let activity = session.activity.lock();
@@ -2118,6 +2137,9 @@ impl SessionEngine for NextCoreEngine {
         let paste = activity.paste.clone();
         let screen = activity.screen.clone();
         drop(activity);
+        if let Some(reason) = dead_reason {
+            Self::record_dead_reason(&mut state, reason);
+        }
         Ok(SessionActivitySnapshot {
             idle,
             foreground_process,
@@ -2157,11 +2179,24 @@ impl SessionEngine for NextCoreEngine {
 
         let was_active = state.sessions[idx].snapshot.is_active;
         let mut session = state.sessions.remove(idx);
+        let previous_dead = session.snapshot.is_dead;
         session.snapshot.is_dead = true;
-        session.snapshot.dead_reason = Some("destroyed".to_string());
-        *session.dead_reason.lock() = Some("destroyed".to_string());
+        let reason = session
+            .snapshot
+            .dead_reason
+            .clone()
+            .or_else(|| session.dead_reason.lock().clone())
+            .unwrap_or_else(|| "destroyed".to_string());
+        session.snapshot.dead_reason = Some(reason.clone());
+        *session.dead_reason.lock() = Some(reason.clone());
         session.dead.store(true, Ordering::Release);
         session.child.lock().kill().ok();
+        state.total_sessions_destroyed = state.total_sessions_destroyed.saturating_add(1);
+        if !previous_dead {
+            Self::record_dead_reason(&mut state, reason);
+        } else {
+            state.last_dead_reason = Some(reason);
+        }
 
         if was_active {
             let next_active_id = state.sessions.last().map(|session| session.snapshot.id);
@@ -2622,7 +2657,7 @@ impl RecordingEngine for NextCoreEngine {
 
 impl HealthEngine for NextCoreEngine {
     fn health(&self) -> Result<EngineHealthSnapshot> {
-        let state = state().read();
+        let mut state = state().write();
         let pane_count = state.sessions.len();
         let mut io = EngineIoHealthSnapshot {
             input_writes: 0,
@@ -2634,7 +2669,15 @@ impl HealthEngine for NextCoreEngine {
             screen_reads: 0,
             viewport_scrolls: 0,
         };
-        for session in &state.sessions {
+        let mut dead_reasons = Vec::new();
+        let mut dead_sessions = 0u64;
+        for session in &mut state.sessions {
+            if let Some(reason) = Self::refresh_liveness(session) {
+                dead_reasons.push(reason);
+            }
+            if session.snapshot.is_dead {
+                dead_sessions = dead_sessions.saturating_add(1);
+            }
             let activity = session.activity.lock();
             if let Some(input) = &activity.input {
                 io.input_writes = io.input_writes.saturating_add(input.total_writes);
@@ -2655,6 +2698,17 @@ impl HealthEngine for NextCoreEngine {
                     .saturating_add(screen.total_viewport_scrolls);
             }
         }
+        for reason in dead_reasons {
+            Self::record_dead_reason(&mut state, reason);
+        }
+        let lifecycle = EngineLifecycleHealthSnapshot {
+            live_sessions: pane_count.saturating_sub(dead_sessions as usize) as u64,
+            dead_sessions,
+            total_created: state.total_sessions_created,
+            total_destroyed: state.total_sessions_destroyed,
+            total_marked_dead: state.total_sessions_marked_dead,
+            last_dead_reason: state.last_dead_reason.clone(),
+        };
         Ok(EngineHealthSnapshot {
             engine: "next-core".to_string(),
             ready: true,
@@ -2662,6 +2716,7 @@ impl HealthEngine for NextCoreEngine {
             detail: "next-core session registry is available".to_string(),
             pane_count: Some(pane_count),
             io: Some(io),
+            lifecycle: Some(lifecycle),
         })
     }
 }
@@ -2922,8 +2977,24 @@ mod tests {
         assert_eq!(io.output_bytes, 18);
         assert_eq!(io.screen_reads, 1);
         assert_eq!(io.viewport_scrolls, 1);
+        let lifecycle = health.lifecycle.expect("next-core lifecycle health");
+        assert_eq!(lifecycle.live_sessions, 1);
+        assert_eq!(lifecycle.dead_sessions, 0);
+        assert_eq!(lifecycle.total_created, 1);
+        assert_eq!(lifecycle.total_destroyed, 0);
+        assert_eq!(lifecycle.total_marked_dead, 0);
 
         engine.destroy_session(session.id)?;
+        let lifecycle = engine
+            .health()?
+            .lifecycle
+            .expect("next-core lifecycle health");
+        assert_eq!(lifecycle.live_sessions, 0);
+        assert_eq!(lifecycle.dead_sessions, 0);
+        assert_eq!(lifecycle.total_created, 1);
+        assert_eq!(lifecycle.total_destroyed, 1);
+        assert_eq!(lifecycle.total_marked_dead, 1);
+        assert_eq!(lifecycle.last_dead_reason.as_deref(), Some("destroyed"));
         Ok(())
     }
 
@@ -3049,6 +3120,17 @@ mod tests {
         let snapshot = engine.get_session(session.id)?;
         assert!(snapshot.is_dead);
         assert_eq!(snapshot.dead_reason.as_deref(), Some("test_dead_marker"));
+        let lifecycle = engine
+            .health()?
+            .lifecycle
+            .expect("next-core lifecycle health");
+        assert_eq!(lifecycle.live_sessions, 0);
+        assert_eq!(lifecycle.dead_sessions, 1);
+        assert_eq!(lifecycle.total_marked_dead, 1);
+        assert_eq!(
+            lifecycle.last_dead_reason.as_deref(),
+            Some("test_dead_marker")
+        );
         assert!(engine.activity(session.id)?.idle);
         engine.destroy_session(session.id)?;
         Ok(())

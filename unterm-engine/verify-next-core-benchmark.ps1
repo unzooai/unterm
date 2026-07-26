@@ -44,6 +44,9 @@ if ($summary.json_smoke.ScreenReads -lt 1) {
 if ([string]::IsNullOrWhiteSpace($summary.json_smoke.DeadReason)) {
     throw "json smoke did not include session dead_reason diagnostics"
 }
+if ($summary.json_smoke.LifecycleCreated -lt 1) {
+    throw "json smoke did not include lifecycle diagnostics"
+}
 
 $gates = @($summary.gates)
 if ($gates.Count -ne $ExpectedGateCount) {

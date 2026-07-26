@@ -241,6 +241,16 @@ pub struct EngineIoHealthSnapshot {
 }
 
 #[derive(Clone, Debug, Serialize)]
+pub struct EngineLifecycleHealthSnapshot {
+    pub live_sessions: u64,
+    pub dead_sessions: u64,
+    pub total_created: u64,
+    pub total_destroyed: u64,
+    pub total_marked_dead: u64,
+    pub last_dead_reason: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
 pub struct EngineHealthSnapshot {
     pub engine: String,
     pub ready: bool,
@@ -248,6 +258,7 @@ pub struct EngineHealthSnapshot {
     pub detail: String,
     pub pane_count: Option<usize>,
     pub io: Option<EngineIoHealthSnapshot>,
+    pub lifecycle: Option<EngineLifecycleHealthSnapshot>,
 }
 
 #[derive(Clone, Copy, Debug)]

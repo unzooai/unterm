@@ -163,6 +163,9 @@ function Invoke-JsonSmoke {
     if ($json.session.is_dead -eq $true -and [string]::IsNullOrWhiteSpace($json.session.dead_reason)) {
         throw "JSON probe reported a dead session without dead_reason"
     }
+    if ($null -eq $json.health.lifecycle -or $json.health.lifecycle.total_created -lt 1) {
+        throw "JSON probe did not include lifecycle health counters"
+    }
 
     [pscustomobject]@{
         Marker = $marker
@@ -171,6 +174,7 @@ function Invoke-JsonSmoke {
         RawBytes = $json.raw_bytes
         ScreenReads = $json.health.io.screen_reads
         DeadReason = $json.session.dead_reason
+        LifecycleCreated = $json.health.lifecycle.total_created
     }
 }
 
@@ -247,7 +251,7 @@ try {
     $report.Add("- Machine: ``$machine``")
     $report.Add("- OS: ``$os``")
     $report.Add("- Binary: ``target\debug\unterm-next-core.exe``")
-    $report.Add("- JSON smoke: ``$($jsonSmoke.Engine) $($jsonSmoke.Screen) raw_bytes=$($jsonSmoke.RawBytes) screen_reads=$($jsonSmoke.ScreenReads) dead_reason=$($jsonSmoke.DeadReason)``")
+    $report.Add("- JSON smoke: ``$($jsonSmoke.Engine) $($jsonSmoke.Screen) raw_bytes=$($jsonSmoke.RawBytes) screen_reads=$($jsonSmoke.ScreenReads) lifecycle_created=$($jsonSmoke.LifecycleCreated) dead_reason=$($jsonSmoke.DeadReason)``")
     $report.Add("")
     $report.Add("## Gates")
     $report.Add("")
