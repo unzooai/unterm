@@ -26,6 +26,17 @@ Run the Phase 2 next-core benchmark suite and generate `docs/next-core-benchmark
 
 The runner builds `unterm-next-core`, executes the current latency/output/scrollback/paste/dual-agent/screen-read benchmarks, and writes both summary lines and raw output into the report.
 
+## Experimental MCP Engine Selector
+
+The GUI defaults to the current WezTerm-backed engine. For MCP/product-service experiments, start Unterm with:
+
+```powershell
+$env:UNTERM_ENGINE = "next-core"
+cargo run -p unterm -- start
+```
+
+This routes the engine-neutral session/screen/input/paste calls through next-core where supported. It does not make next-core the default GUI renderer yet.
+
 Interactive input smoke test:
 
 ```powershell

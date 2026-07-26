@@ -1,8 +1,8 @@
 use super::{
-    CellStyle, CreateSessionRequest, CursorSnapshot, InputEngine, PaneDimensions, ScreenLine,
-    ScreenSearchMatch, ScreenSnapshot, ScreenEngine, ScrollbackTextRequest,
-    ScrollbackTextSnapshot, SessionActivitySnapshot, SessionEngine, SessionSnapshot, ShellSnapshot,
-    SplitDirection, SplitSessionRequest, StyledCell, StyledScreenLine, StyledScreenSnapshot,
+    CellStyle, CreateSessionRequest, CursorSnapshot, InputEngine, PaneDimensions, ScreenEngine,
+    ScreenLine, ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot,
+    SessionActivitySnapshot, SessionEngine, SessionSnapshot, ShellSnapshot, SplitDirection,
+    SplitSessionRequest, StyledCell, StyledScreenLine, StyledScreenSnapshot,
 };
 use anyhow::{anyhow, Context, Result};
 use config::keyassignment::SpawnTabDomain;

@@ -21,14 +21,21 @@ pub enum CurrentTerminalEngine {
     NextCore(unterm_engine::next_core::NextCoreEngine),
 }
 
+fn selected_engine_name_from_env(value: Option<&str>) -> &'static str {
+    match value.map(str::trim) {
+        Some(value) if value.eq_ignore_ascii_case("next-core") => "next-core",
+        _ => "wezterm",
+    }
+}
+
+pub fn selected_engine_name() -> &'static str {
+    selected_engine_name_from_env(std::env::var("UNTERM_ENGINE").ok().as_deref())
+}
+
 pub fn current() -> CurrentTerminalEngine {
-    if std::env::var("UNTERM_ENGINE")
-        .map(|value| value.eq_ignore_ascii_case("next-core"))
-        .unwrap_or(false)
-    {
-        CurrentTerminalEngine::NextCore(next_core())
-    } else {
-        CurrentTerminalEngine::WezTerm(wezterm::WezTermEngine)
+    match selected_engine_name() {
+        "next-core" => CurrentTerminalEngine::NextCore(next_core()),
+        _ => CurrentTerminalEngine::WezTerm(wezterm::WezTermEngine),
     }
 }
 
@@ -38,6 +45,34 @@ impl CurrentTerminalEngine {
             Self::WezTerm(_) => "wezterm",
             Self::NextCore(_) => "next-core",
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::selected_engine_name_from_env;
+
+    #[test]
+    fn selects_wezterm_by_default() {
+        assert_eq!(selected_engine_name_from_env(None), "wezterm");
+        assert_eq!(selected_engine_name_from_env(Some("")), "wezterm");
+        assert_eq!(selected_engine_name_from_env(Some("wezterm")), "wezterm");
+    }
+
+    #[test]
+    fn selects_next_core_from_env() {
+        assert_eq!(
+            selected_engine_name_from_env(Some("next-core")),
+            "next-core"
+        );
+        assert_eq!(
+            selected_engine_name_from_env(Some("NEXT-CORE")),
+            "next-core"
+        );
+        assert_eq!(
+            selected_engine_name_from_env(Some(" next-core ")),
+            "next-core"
+        );
     }
 }
 
