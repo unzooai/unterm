@@ -3107,19 +3107,38 @@ impl NextCoreEngine {
         writer: &Arc<Mutex<Box<dyn Write + Send>>>,
     ) {
         let mut response = Vec::new();
-        if chunk.contains("\x1b[5n") {
-            response.extend_from_slice(b"\x1b[0n");
-        }
-        if chunk.contains("\x1b[6n") {
-            response.extend_from_slice(
-                format!("\x1b[{};{}R", screen.cursor_y + 1, screen.cursor_x + 1).as_bytes(),
-            );
-        }
-        if chunk.contains("\x1b[>c") || chunk.contains("\x1b[>0c") {
-            response.extend_from_slice(b"\x1b[>0;0;0c");
-        }
-        if chunk.contains("\x1b[c") || chunk.contains("\x1b[0c") {
-            response.extend_from_slice(b"\x1b[?64;1;2;6;9;15;18;21;22c");
+        let bytes = chunk.as_bytes();
+        let mut idx = 0;
+        while idx < bytes.len() {
+            if bytes[idx] != 0x1b || bytes.get(idx + 1) != Some(&b'[') {
+                idx += 1;
+                continue;
+            }
+
+            let rest = &chunk[idx..];
+            if rest.starts_with("\x1b[5n") {
+                response.extend_from_slice(b"\x1b[0n");
+                idx += "\x1b[5n".len();
+            } else if rest.starts_with("\x1b[6n") {
+                response.extend_from_slice(
+                    format!("\x1b[{};{}R", screen.cursor_y + 1, screen.cursor_x + 1).as_bytes(),
+                );
+                idx += "\x1b[6n".len();
+            } else if rest.starts_with("\x1b[>0c") {
+                response.extend_from_slice(b"\x1b[>0;0;0c");
+                idx += "\x1b[>0c".len();
+            } else if rest.starts_with("\x1b[>c") {
+                response.extend_from_slice(b"\x1b[>0;0;0c");
+                idx += "\x1b[>c".len();
+            } else if rest.starts_with("\x1b[0c") {
+                response.extend_from_slice(b"\x1b[?64;1;2;6;9;15;18;21;22c");
+                idx += "\x1b[0c".len();
+            } else if rest.starts_with("\x1b[c") {
+                response.extend_from_slice(b"\x1b[?64;1;2;6;9;15;18;21;22c");
+                idx += "\x1b[c".len();
+            } else {
+                idx += 1;
+            }
         }
         if !response.is_empty() {
             let mut writer = writer.lock();
@@ -4067,6 +4086,25 @@ mod tests {
         assert_eq!(
             bytes.lock().as_slice(),
             b"\x1b[0n\x1b[3;5R\x1b[>0;0;0c\x1b[?64;1;2;6;9;15;18;21;22c"
+        );
+    }
+
+    #[test]
+    fn answers_terminal_queries_in_input_order() {
+        let _guard = test_guard();
+        let mut screen = NextCoreScreen::new(80, 10);
+        screen.set_cursor(2, 4);
+        let bytes = Arc::new(Mutex::new(Vec::new()));
+        let writer: Arc<Mutex<Box<dyn Write + Send>>> =
+            Arc::new(Mutex::new(Box::new(SharedWriter {
+                bytes: Arc::clone(&bytes),
+            })));
+
+        NextCoreEngine::answer_terminal_queries("x\x1b[c\x1b[6ny\x1b[5n\x1b[>0c", &screen, &writer);
+
+        assert_eq!(
+            bytes.lock().as_slice(),
+            b"\x1b[?64;1;2;6;9;15;18;21;22c\x1b[3;5R\x1b[0n\x1b[>0;0;0c"
         );
     }
 
