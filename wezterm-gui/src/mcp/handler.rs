@@ -500,6 +500,82 @@ mod engine_neutral_handler_tests {
     }
 
     #[test]
+    fn screen_scroll_goto_updates_next_core_logical_viewport() {
+        let _guard = env_lock().lock();
+        let previous_engine = std::env::var("UNTERM_ENGINE").ok();
+        std::env::set_var("UNTERM_ENGINE", "next-core");
+
+        let result: Result<(serde_json::Value, serde_json::Value, usize)> = (|| {
+            let handler = McpHandler::new();
+            let ctx = ConnectionContext::internal("handler-test");
+            let command = if cfg!(windows) {
+                "for /L %i in (1,1,8) do @echo next-core-scroll-%i"
+            } else {
+                "for i in 1 2 3 4 5 6 7 8; do echo next-core-scroll-$i; done"
+            };
+            let created = handler.handle(
+                &ctx,
+                "session.create",
+                &json!({
+                    "cols": 80,
+                    "rows": 3,
+                    "command": command
+                }),
+            )?;
+            let pane_id = created["id"].as_u64().expect("session id") as usize;
+
+            let mut scrolled = json!({});
+            for _ in 0..20 {
+                let search = handler.handle(
+                    &ctx,
+                    "screen.search",
+                    &json!({
+                        "pane_id": pane_id,
+                        "pattern": "next-core-scroll-8",
+                    }),
+                )?;
+                if search["total"].as_u64().unwrap_or_default() > 0 {
+                    scrolled = handler.handle(
+                        &ctx,
+                        "screen.scroll",
+                        &json!({
+                            "pane_id": pane_id,
+                            "offset": 1,
+                            "count": 3,
+                            "goto": true,
+                        }),
+                    )?;
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+
+            let text = handler.handle(&ctx, "screen.text", &json!({ "pane_id": pane_id }))?;
+            let _ = handler.handle(&ctx, "session.destroy", &json!({ "pane_id": pane_id }));
+            Ok((scrolled, text, pane_id))
+        })();
+
+        match previous_engine {
+            Some(value) => std::env::set_var("UNTERM_ENGINE", value),
+            None => std::env::remove_var("UNTERM_ENGINE"),
+        }
+
+        let (scrolled, text, pane_id) =
+            result.expect("screen.scroll goto updates next-core logical viewport");
+        assert!(next_core().get_session(pane_id).is_err());
+        assert_eq!(scrolled["scrolled_to"]["row"], 1);
+        assert_eq!(scrolled["goto_skipped"], Value::Null);
+        let returned = scrolled["lines"].as_array().expect("returned lines");
+        assert!(returned
+            .iter()
+            .any(|line| line.as_str() == Some("next-core-scroll-2")));
+        let visible = text["lines"].as_array().expect("visible lines");
+        assert!(visible
+            .iter()
+            .any(|line| line.as_str() == Some("next-core-scroll-2")));
+    }
+
+    #[test]
     fn capture_scrollback_renders_next_core_text_png() {
         let _guard = env_lock().lock();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
@@ -4230,20 +4306,46 @@ impl McpHandler {
     // --- Screen extensions ---
 
     fn screen_scroll(&self, params: &Value) -> Result<Value> {
-        let offset = params.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as isize;
-        let count = params.get("count").and_then(|v| v.as_u64()).unwrap_or(100) as isize;
+        let offset = params.get("offset").and_then(|v| v.as_i64()).unwrap_or(0) as isize;
+        let count = params.get("count").and_then(|v| v.as_i64()).unwrap_or(100) as isize;
         let engine = self.engine();
+        let engine_name = engine.name();
+        let pane_id = Self::pane_id_from_params(params)?;
         let text_lines: Vec<String> = engine
-            .read_lines(
-                Self::pane_id_from_params(params)?,
-                offset as i64,
-                count.max(0) as usize,
-            )?
+            .read_lines(pane_id, offset as i64, count.max(0) as usize)?
             .into_iter()
             .map(|line| line.text)
             .collect();
 
-        Ok(json!({"lines": text_lines, "offset": offset, "count": text_lines.len()}))
+        let goto_requested = params
+            .get("goto")
+            .or_else(|| params.get("apply"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let mut scrolled_to = Value::Null;
+        let mut goto_skipped = Value::Null;
+        if goto_requested {
+            match engine.scroll_viewport_to(pane_id, offset)? {
+                ViewportScrollResult::Scrolled => {
+                    scrolled_to = json!({ "row": offset });
+                }
+                ViewportScrollResult::Unsupported { reason } => {
+                    goto_skipped = json!({
+                        "reason": reason,
+                        "engine": engine_name,
+                        "row": offset,
+                    });
+                }
+            }
+        }
+
+        Ok(json!({
+            "lines": text_lines,
+            "offset": offset,
+            "count": text_lines.len(),
+            "scrolled_to": scrolled_to,
+            "goto_skipped": goto_skipped,
+        }))
     }
 
     /// `screen.search` — find `pattern` (case-sensitive substring) in the

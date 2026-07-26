@@ -312,11 +312,13 @@ pub const MCP_METHODS: &[McpMethod] = &[
     McpMethod {
         name: "screen.scroll",
         namespace: "screen",
-        summary: "Read a range of pane lines by offset/count.",
+        summary: "Read a range of pane lines by offset/count; optionally apply the offset as the viewport.",
         params: &[
             P_PANE_ID,
             Param { name: "offset", kind: "int", required: false, summary: "Starting line offset, default 0." },
             Param { name: "count", kind: "int", required: false, summary: "Number of lines to return, default 100." },
+            Param { name: "goto", kind: "bool", required: false, summary: "When true, update the viewport to the offset." },
+            Param { name: "apply", kind: "bool", required: false, summary: "Alias for goto." },
         ],
     },
     McpMethod {
