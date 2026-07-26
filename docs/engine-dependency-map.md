@@ -53,6 +53,7 @@ Current covered operations:
 - redacted default-shell launch decision summary for command-less `session.create`
 - typed launch policy decision metadata for domain, privilege, proxy rotation, and restart handling
 - instance lifecycle ownership diagnostics for server-info registry vs host GUI window ownership
+- instance title bridge result metadata through `WindowEngine`
 - styled scrollback renderer metadata for WezTerm pane rendering vs next-core standalone rendering
 - configured theme palette resolution for next-core standalone styled scrollback PNG rendering
 - bold/italic font matching for next-core standalone styled scrollback PNG rendering
@@ -61,7 +62,7 @@ Current covered operations:
 Known gaps:
 
 - real GUI viewport scrolling/jump for the future next-core renderer
-- native window capture/focus/title ownership beyond the explicit host-window bridge contract
+- native window capture/focus/title ownership beyond the explicit host-window and title bridge contracts
 - native instance create/close lifecycle ownership beyond server-info registry observability
 - enforcement of non-local domain, privilege elevation, proxy rotation, and restart launch policy behavior beyond current typed decision metadata
 
@@ -182,7 +183,7 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 | `system.launch_admin` | Product-only | Platform executable relaunch command | Windows UAC launcher; dry-run path is engine-independent. |
 | `instance.list` | Product-only | Runtime instance registry files plus PID liveness filtering and lifecycle ownership diagnostics | GUI focus/window ownership remains separate in `instance.focus`; registry ownership is now explicit for agents. |
 | `instance.info` | Product-only | Current process instance metadata from server-info registry plus lifecycle ownership diagnostics | Engine-independent; native window lifecycle is still host-owned. |
-| `instance.set_title` | Product-only | Server-info title override registry | Current MCP path only updates product metadata; live GUI title application remains separate. |
+| `instance.set_title` | Product-only | `WindowEngine::set_current_instance_title` writes server-info title override registry metadata and returns title/native-window ownership diagnostics | Current MCP path is engine-neutral and reports that live GUI title application remains host-owned. |
 | `instance.focus` | Product-only | `WindowEngine::focus_current_instance_window` platform/window boundary | Handler no longer reaches into the WezTerm frontend; next-core can reuse the same window service. |
 
 ## Proxy, Profile, Policy, Governance

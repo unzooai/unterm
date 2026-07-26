@@ -29,6 +29,17 @@ pub struct WindowFocusResult {
 }
 
 #[derive(Clone, Debug)]
+pub struct WindowTitleResult {
+    pub title: Option<String>,
+    pub window_engine: &'static str,
+    pub title_owner: &'static str,
+    pub metadata_owner: &'static str,
+    pub native_window_lifecycle: &'static str,
+    pub applied_to_native_window: bool,
+    pub uses_host_window: bool,
+}
+
+#[derive(Clone, Debug)]
 pub struct PaneLocation {
     pub window_id: usize,
     pub tab_id: usize,
@@ -43,6 +54,10 @@ pub enum ViewportScrollResult {
 
 pub trait WindowEngine {
     fn focus_current_instance_window(&self) -> anyhow::Result<WindowFocusResult>;
+    fn set_current_instance_title(
+        &self,
+        title: Option<String>,
+    ) -> anyhow::Result<WindowTitleResult>;
     fn active_pane_id(&self) -> anyhow::Result<Option<u64>>;
     fn pane_locations(&self) -> anyhow::Result<HashMap<u64, PaneLocation>>;
     fn scroll_viewport_to(
@@ -394,6 +409,13 @@ impl WindowEngine for CurrentTerminalEngine {
         focus_current_instance_window()
     }
 
+    fn set_current_instance_title(
+        &self,
+        title: Option<String>,
+    ) -> anyhow::Result<WindowTitleResult> {
+        set_current_instance_title(title)
+    }
+
     fn active_pane_id(&self) -> anyhow::Result<Option<u64>> {
         match self {
             Self::WezTerm(engine) => engine.active_pane_id(),
@@ -508,6 +530,19 @@ fn focus_current_instance_window() -> anyhow::Result<WindowFocusResult> {
     Ok(WindowFocusResult {
         mux_window_id: window.mux_window_id,
         window_engine: "wezterm-host",
+        uses_host_window: true,
+    })
+}
+
+fn set_current_instance_title(title: Option<String>) -> anyhow::Result<WindowTitleResult> {
+    crate::server_info::set_title(title.clone())?;
+    Ok(WindowTitleResult {
+        title,
+        window_engine: "wezterm-host",
+        title_owner: "server_info",
+        metadata_owner: "product_registry",
+        native_window_lifecycle: "host_owned",
+        applied_to_native_window: false,
         uses_host_window: true,
     })
 }

@@ -1623,6 +1623,16 @@ mod engine_neutral_handler_tests {
         }
         assert_eq!(title["ok"], true);
         assert!(title["title"].is_null());
+        assert_eq!(title["window"]["engine"], "wezterm-host");
+        assert_eq!(title["window"]["title_owner"], "server_info");
+        assert_eq!(title["window"]["metadata_owner"], "product_registry");
+        assert_eq!(title["window"]["applied_to_native_window"], false);
+        assert_eq!(title["window"]["uses_host_window"], true);
+        assert_eq!(title["lifecycle"]["title_owner"], "server_info");
+        assert_eq!(title["lifecycle"]["metadata_owner"], "product_registry");
+        assert_eq!(title["lifecycle"]["native_window_lifecycle"], "host_owned");
+        assert_eq!(title["lifecycle"]["uses_host_window"], true);
+        assert_eq!(title["lifecycle"]["values_redacted"], true);
         if let Err(err) = focus {
             let message = format!("{err:#}");
             assert!(
@@ -2023,6 +2033,10 @@ mod engine_neutral_handler_tests {
             true
         );
         assert_eq!(
+            surface["engine_capabilities"]["diagnostics"]["instance_title_bridge"],
+            true
+        );
+        assert_eq!(
             surface["engine_capabilities"]["diagnostics"]["instance_lifecycle_observability"],
             true
         );
@@ -2071,6 +2085,10 @@ mod engine_neutral_handler_tests {
         );
         assert_eq!(
             capabilities["_engine_capabilities"]["diagnostics"]["host_window_bridge"],
+            true
+        );
+        assert_eq!(
+            capabilities["_engine_capabilities"]["diagnostics"]["instance_title_bridge"],
             true
         );
         assert_eq!(
@@ -3740,8 +3758,28 @@ impl McpHandler {
             .and_then(|v| v.as_str())
             .map(|s| s.to_string())
             .filter(|s| !s.is_empty());
-        crate::server_info::set_title(title.clone()).context("failed to write instance title")?;
-        Ok(json!({ "ok": true, "title": title }))
+        let result = self
+            .engine()
+            .set_current_instance_title(title)
+            .context("failed to write instance title")?;
+        Ok(json!({
+            "ok": true,
+            "title": result.title,
+            "window": {
+                "engine": result.window_engine,
+                "title_owner": result.title_owner,
+                "metadata_owner": result.metadata_owner,
+                "applied_to_native_window": result.applied_to_native_window,
+                "uses_host_window": result.uses_host_window,
+            },
+            "lifecycle": {
+                "title_owner": result.title_owner,
+                "metadata_owner": result.metadata_owner,
+                "native_window_lifecycle": result.native_window_lifecycle,
+                "uses_host_window": result.uses_host_window,
+                "values_redacted": true,
+            },
+        }))
     }
 
     /// Bring this instance's window to the foreground.

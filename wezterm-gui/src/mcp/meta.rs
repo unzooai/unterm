@@ -106,6 +106,7 @@ pub fn engine_capabilities(engine: &str) -> Value {
             "recording_osc133_command_blocks": engine == "next-core",
             "validated_capture_scrollback_pane_ids": true,
             "host_window_bridge": true,
+            "instance_title_bridge": true,
             "instance_lifecycle_observability": true,
             "native_window_lifecycle": false,
             "health_metrics": health_metrics,
@@ -215,6 +216,7 @@ mod tests {
             true
         );
         assert_eq!(caps["diagnostics"]["host_window_bridge"], true);
+        assert_eq!(caps["diagnostics"]["instance_title_bridge"], true);
         assert_eq!(
             caps["diagnostics"]["instance_lifecycle_observability"],
             true
@@ -311,6 +313,7 @@ mod tests {
             true
         );
         assert_eq!(caps["diagnostics"]["host_window_bridge"], true);
+        assert_eq!(caps["diagnostics"]["instance_title_bridge"], true);
         assert_eq!(
             caps["diagnostics"]["instance_lifecycle_observability"],
             true

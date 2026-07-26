@@ -6,6 +6,7 @@ use super::{
     ScrollbackTextRequest, ScrollbackTextSnapshot, SessionActivitySnapshot, SessionEngine,
     SessionSnapshot, ShellSnapshot, SplitDirection, SplitSessionRequest, StyledCell,
     StyledScreenLine, StyledScreenSnapshot, ViewportScrollResult, WindowEngine, WindowFocusResult,
+    WindowTitleResult,
 };
 use anyhow::{anyhow, Context, Result};
 use config::keyassignment::SpawnTabDomain;
@@ -624,6 +625,10 @@ impl HealthEngine for WezTermEngine {
 impl WindowEngine for WezTermEngine {
     fn focus_current_instance_window(&self) -> Result<WindowFocusResult> {
         anyhow::bail!("WezTermEngine window focusing is provided by CurrentTerminalEngine")
+    }
+
+    fn set_current_instance_title(&self, _title: Option<String>) -> Result<WindowTitleResult> {
+        anyhow::bail!("WezTermEngine window title updates are provided by CurrentTerminalEngine")
     }
 
     fn active_pane_id(&self) -> Result<Option<u64>> {
