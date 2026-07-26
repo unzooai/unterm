@@ -79,6 +79,19 @@ pub struct InstanceInfo {
     pub platform: String,
 }
 
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct InstanceRegistrySnapshot {
+    pub live: Vec<InstanceInfo>,
+    pub live_count: usize,
+    pub stale_removed: usize,
+    pub corrupt_files: usize,
+    pub empty_files: usize,
+    pub unreadable_files: usize,
+    pub active_id: Option<String>,
+    pub active_pid_alive: Option<bool>,
+    pub active_source: String,
+}
+
 /// Compat alias: legacy server.json schema. The current process always
 /// writes the *full* InstanceInfo into server.json (extra fields are
 /// ignored by older deserializers), so older agents that only read
@@ -204,12 +217,27 @@ pub fn pid_alive(pid: u32) -> bool {
 }
 
 /// Scan `instances/`, parse each `*.json`, drop entries whose PID is
-/// no longer alive (and delete those files), return the survivors.
-fn live_instances_locked() -> Vec<InstanceInfo> {
-    let dir = instances_dir();
+/// no longer alive (and delete those files), and report what happened.
+fn instance_registry_snapshot_locked() -> InstanceRegistrySnapshot {
+    instance_registry_snapshot_from_paths_locked(&instances_dir(), &active_pointer_path())
+}
+
+fn instance_registry_snapshot_from_paths_locked(
+    dir: &Path,
+    active_path: &Path,
+) -> InstanceRegistrySnapshot {
     let read = match fs::read_dir(&dir) {
         Ok(r) => r,
-        Err(_) => return vec![], // dir doesn't exist yet
+        Err(_) => {
+            return InstanceRegistrySnapshot {
+                active_source: "instances_dir_missing".to_string(),
+                ..Default::default()
+            }
+        }
+    };
+    let mut snapshot = InstanceRegistrySnapshot {
+        active_source: "instances_dir".to_string(),
+        ..Default::default()
     };
     let mut alive = Vec::new();
     for entry in read.flatten() {
@@ -218,14 +246,22 @@ fn live_instances_locked() -> Vec<InstanceInfo> {
             continue;
         }
         let Ok(content) = fs::read_to_string(&path) else {
+            snapshot.unreadable_files += 1;
             continue;
         };
+        let trimmed = content.trim();
+        if trimmed.is_empty() || trimmed == "{}" {
+            snapshot.empty_files += 1;
+            continue;
+        }
         let Ok(info): std::result::Result<InstanceInfo, _> = serde_json::from_str(&content) else {
             // Corrupt file: leave it alone (could be a partial write
             // by a peer; deleting would be racy).
+            snapshot.corrupt_files += 1;
             continue;
         };
         if info.id.is_empty() {
+            snapshot.empty_files += 1;
             continue;
         }
         if pid_alive(info.pid) {
@@ -233,9 +269,33 @@ fn live_instances_locked() -> Vec<InstanceInfo> {
         } else {
             // Crashed/quit: remove stale file. Best-effort.
             let _ = fs::remove_file(&path);
+            snapshot.stale_removed += 1;
         }
     }
-    alive
+    let active = fs::read_to_string(active_path)
+        .ok()
+        .and_then(|content| serde_json::from_str::<InstanceInfo>(&content).ok());
+    if let Some(active) = active {
+        let active_alive = pid_alive(active.pid);
+        snapshot.active_id = Some(active.id.clone());
+        snapshot.active_pid_alive = Some(active_alive);
+        snapshot.active_source = if active_alive {
+            "active_pointer".to_string()
+        } else {
+            "active_pointer_stale".to_string()
+        };
+    } else if !alive.is_empty() {
+        snapshot.active_source = "live_scan_fallback".to_string();
+    }
+    snapshot.live_count = alive.len();
+    snapshot.live = alive;
+    snapshot
+}
+
+/// Scan `instances/`, parse each `*.json`, drop entries whose PID is
+/// no longer alive (and delete those files), return the survivors.
+fn live_instances_locked() -> Vec<InstanceInfo> {
+    instance_registry_snapshot_locked().live
 }
 
 /// Public: list all live instances. Used by the MCP `instance.list`
@@ -243,6 +303,11 @@ fn live_instances_locked() -> Vec<InstanceInfo> {
 pub fn list_live_instances() -> Vec<InstanceInfo> {
     let _g = file_lock().lock();
     live_instances_locked()
+}
+
+pub fn instance_registry_snapshot() -> InstanceRegistrySnapshot {
+    let _g = file_lock().lock();
+    instance_registry_snapshot_locked()
 }
 
 /// Pick the lowest-NATO name not currently taken by a live instance,
@@ -558,4 +623,55 @@ fn claim_compat_files_if_needed(info: &InstanceInfo) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_dir(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("unterm-server-info-{name}-{}", std::process::id()))
+    }
+
+    #[test]
+    fn registry_snapshot_reports_cleanup_and_parse_diagnostics() -> Result<()> {
+        let root = test_dir("registry-snapshot");
+        let instances = root.join("instances");
+        let active = root.join("active.json");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&instances)?;
+
+        let live = InstanceInfo {
+            id: "alpha".to_string(),
+            pid: std::process::id(),
+            started_at: "2026-07-27T00:00:00+08:00".to_string(),
+            ..Default::default()
+        };
+        let stale = InstanceInfo {
+            id: "bravo".to_string(),
+            pid: 0,
+            started_at: "2026-07-27T00:00:01+08:00".to_string(),
+            ..Default::default()
+        };
+        write_atomic(&instances.join("alpha.json"), &live)?;
+        write_atomic(&instances.join("bravo.json"), &stale)?;
+        fs::write(instances.join("charlie.json"), "{not-json")?;
+        fs::write(instances.join("delta.json"), "{}")?;
+        write_atomic(&active, &live)?;
+
+        let snapshot = instance_registry_snapshot_from_paths_locked(&instances, &active);
+
+        assert_eq!(snapshot.live_count, 1);
+        assert_eq!(snapshot.live[0].id, "alpha");
+        assert_eq!(snapshot.stale_removed, 1);
+        assert_eq!(snapshot.corrupt_files, 1);
+        assert_eq!(snapshot.empty_files, 1);
+        assert_eq!(snapshot.active_id.as_deref(), Some("alpha"));
+        assert_eq!(snapshot.active_pid_alive, Some(true));
+        assert_eq!(snapshot.active_source, "active_pointer");
+        assert!(!instances.join("bravo.json").exists());
+
+        let _ = fs::remove_dir_all(&root);
+        Ok(())
+    }
 }

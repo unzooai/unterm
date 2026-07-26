@@ -1739,6 +1739,14 @@ mod engine_neutral_handler_tests {
             assert_eq!(item["lifecycle"]["window_owner"], "host_gui");
             assert_eq!(item["lifecycle"]["values_redacted"], true);
         }
+        assert_eq!(list["registry"]["owner"], "server_info");
+        assert!(list["registry"]["active_source"].is_string());
+        assert!(list["registry"]["live_count"].is_number());
+        assert!(list["registry"]["stale_removed"].is_number());
+        assert!(list["registry"]["corrupt_files"].is_number());
+        assert!(list["registry"]["empty_files"].is_number());
+        assert!(list["registry"]["unreadable_files"].is_number());
+        assert_eq!(list["registry"]["values_redacted"], true);
         assert_eq!(title["ok"], true);
         assert!(title["title"].is_null());
         assert_eq!(title["window"]["engine"], "wezterm-host");
@@ -2159,6 +2167,10 @@ mod engine_neutral_handler_tests {
             true
         );
         assert_eq!(
+            surface["engine_capabilities"]["diagnostics"]["instance_registry_diagnostics"],
+            true
+        );
+        assert_eq!(
             surface["engine_capabilities"]["diagnostics"]["native_window_lifecycle"],
             false
         );
@@ -2211,6 +2223,10 @@ mod engine_neutral_handler_tests {
         );
         assert_eq!(
             capabilities["_engine_capabilities"]["diagnostics"]["instance_lifecycle_observability"],
+            true
+        );
+        assert_eq!(
+            capabilities["_engine_capabilities"]["diagnostics"]["instance_registry_diagnostics"],
             true
         );
         assert_eq!(
@@ -3815,8 +3831,21 @@ impl McpHandler {
     /// to that instance's `mcp_port` with its `auth_token` directly.
     fn instance_list(&self) -> Result<Value> {
         let current_id = crate::server_info::current_instance_id();
-        let instances = crate::server_info::list_live_instances();
-        let arr: Vec<Value> = instances
+        let registry = crate::server_info::instance_registry_snapshot();
+        let registry_summary = json!({
+            "owner": "server_info",
+            "active_source": registry.active_source,
+            "active_id": registry.active_id,
+            "active_pid_alive": registry.active_pid_alive,
+            "live_count": registry.live_count,
+            "stale_removed": registry.stale_removed,
+            "corrupt_files": registry.corrupt_files,
+            "empty_files": registry.empty_files,
+            "unreadable_files": registry.unreadable_files,
+            "values_redacted": true,
+        });
+        let arr: Vec<Value> = registry
+            .live
             .into_iter()
             .map(|i| {
                 let is_current = current_id.as_deref() == Some(i.id.as_str());
@@ -3835,7 +3864,10 @@ impl McpHandler {
                 })
             })
             .collect();
-        Ok(json!({ "instances": arr }))
+        Ok(json!({
+            "instances": arr,
+            "registry": registry_summary,
+        }))
     }
 
     /// Return *this* instance's own metadata (id, ports, title, cwd).
