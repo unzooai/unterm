@@ -3115,6 +3115,9 @@ impl NextCoreEngine {
                 format!("\x1b[{};{}R", screen.cursor_y + 1, screen.cursor_x + 1).as_bytes(),
             );
         }
+        if chunk.contains("\x1b[>c") {
+            response.extend_from_slice(b"\x1b[>0;0;0c");
+        }
         if chunk.contains("\x1b[c") {
             response.extend_from_slice(b"\x1b[?64;1;2;6;9;15;18;21;22c");
         }
@@ -4059,11 +4062,11 @@ mod tests {
                 bytes: Arc::clone(&bytes),
             })));
 
-        NextCoreEngine::answer_terminal_queries("\x1b[5n\x1b[6n\x1b[c", &screen, &writer);
+        NextCoreEngine::answer_terminal_queries("\x1b[5n\x1b[6n\x1b[>c\x1b[c", &screen, &writer);
 
         assert_eq!(
             bytes.lock().as_slice(),
-            b"\x1b[0n\x1b[3;5R\x1b[?64;1;2;6;9;15;18;21;22c"
+            b"\x1b[0n\x1b[3;5R\x1b[>0;0;0c\x1b[?64;1;2;6;9;15;18;21;22c"
         );
     }
 
@@ -4080,6 +4083,21 @@ mod tests {
         NextCoreEngine::answer_terminal_queries("\x1b[c", &screen, &writer);
 
         assert_eq!(bytes.lock().as_slice(), b"\x1b[?64;1;2;6;9;15;18;21;22c");
+    }
+
+    #[test]
+    fn answers_secondary_device_attributes() {
+        let _guard = test_guard();
+        let screen = NextCoreScreen::new(80, 10);
+        let bytes = Arc::new(Mutex::new(Vec::new()));
+        let writer: Arc<Mutex<Box<dyn Write + Send>>> =
+            Arc::new(Mutex::new(Box::new(SharedWriter {
+                bytes: Arc::clone(&bytes),
+            })));
+
+        NextCoreEngine::answer_terminal_queries("\x1b[>c", &screen, &writer);
+
+        assert_eq!(bytes.lock().as_slice(), b"\x1b[>0;0;0c");
     }
 
     #[test]
