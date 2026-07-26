@@ -292,6 +292,7 @@ struct NextCoreScreen {
     cursor_shape: String,
     auto_wrap: bool,
     origin_mode: bool,
+    insert_mode: bool,
     tab_stops: BTreeSet<usize>,
     bracketed_paste: bool,
     current_attr: CellAttributes,
@@ -319,6 +320,7 @@ struct ScreenState {
     cursor_shape: String,
     auto_wrap: bool,
     origin_mode: bool,
+    insert_mode: bool,
     tab_stops: BTreeSet<usize>,
     bracketed_paste: bool,
     current_attr: CellAttributes,
@@ -638,6 +640,14 @@ impl NextCoreScreen {
                     self.cursor_x.min(self.cols),
                     ScreenCell::blank(self.current_attr),
                 );
+            }
+            if self.insert_mode && self.cursor_x < self.cols {
+                for _ in 0..width {
+                    line.insert(self.cursor_x, ScreenCell::blank(self.current_attr));
+                }
+                if line.len() > self.cols {
+                    line.truncate(self.cols);
+                }
             }
             if self.cursor_x == line.len() {
                 line.push(cell);
@@ -1392,6 +1402,7 @@ impl NextCoreScreen {
             cursor_shape: self.cursor_shape.clone(),
             auto_wrap: self.auto_wrap,
             origin_mode: self.origin_mode,
+            insert_mode: self.insert_mode,
             tab_stops: std::mem::take(&mut self.tab_stops),
             bracketed_paste: self.bracketed_paste,
             current_attr: self.current_attr,
@@ -1408,6 +1419,7 @@ impl NextCoreScreen {
         self.cursor_shape = "Default".to_string();
         self.auto_wrap = true;
         self.origin_mode = false;
+        self.insert_mode = false;
         self.tab_stops = Self::default_tab_stops(self.cols);
         self.bracketed_paste = false;
         self.scroll_top = 0;
@@ -1429,6 +1441,7 @@ impl NextCoreScreen {
             self.cursor_shape = main.cursor_shape;
             self.auto_wrap = main.auto_wrap;
             self.origin_mode = main.origin_mode;
+            self.insert_mode = main.insert_mode;
             self.tab_stops = main.tab_stops;
             self.bracketed_paste = main.bracketed_paste;
             self.current_attr = main.current_attr;
@@ -1628,35 +1641,43 @@ impl<'a> ScreenParser<'a> {
                     .set_scroll_region(top.saturating_sub(1), bottom.saturating_sub(1));
             }
             'h' => {
-                if private && numbers.iter().any(|n| matches!(*n, 1049 | 1047 | 47)) {
-                    self.screen.enter_alternate_screen(true);
-                } else if private && numbers.iter().any(|n| *n == 1048) {
-                    self.screen.save_cursor();
-                } else if private && numbers.iter().any(|n| *n == 6) {
-                    self.screen.set_origin_mode(true);
-                } else if private && numbers.iter().any(|n| *n == 7) {
-                    self.screen.auto_wrap = true;
-                } else if private && numbers.iter().any(|n| *n == 25) {
-                    self.screen.cursor_visible = true;
-                    self.screen.mark_dirty_row(self.screen.cursor_y);
-                } else if private && numbers.iter().any(|n| *n == 2004) {
-                    self.screen.set_bracketed_paste(true);
+                for mode in &numbers {
+                    if private {
+                        match *mode {
+                            1049 | 1047 | 47 => self.screen.enter_alternate_screen(true),
+                            1048 => self.screen.save_cursor(),
+                            6 => self.screen.set_origin_mode(true),
+                            7 => self.screen.auto_wrap = true,
+                            25 => {
+                                self.screen.cursor_visible = true;
+                                self.screen.mark_dirty_row(self.screen.cursor_y);
+                            }
+                            2004 => self.screen.set_bracketed_paste(true),
+                            _ => {}
+                        }
+                    } else if *mode == 4 {
+                        self.screen.insert_mode = true;
+                    }
                 }
             }
             'l' => {
-                if private && numbers.iter().any(|n| matches!(*n, 1049 | 1047 | 47)) {
-                    self.screen.leave_alternate_screen();
-                } else if private && numbers.iter().any(|n| *n == 1048) {
-                    self.screen.restore_cursor();
-                } else if private && numbers.iter().any(|n| *n == 6) {
-                    self.screen.set_origin_mode(false);
-                } else if private && numbers.iter().any(|n| *n == 7) {
-                    self.screen.auto_wrap = false;
-                } else if private && numbers.iter().any(|n| *n == 25) {
-                    self.screen.cursor_visible = false;
-                    self.screen.mark_dirty_row(self.screen.cursor_y);
-                } else if private && numbers.iter().any(|n| *n == 2004) {
-                    self.screen.set_bracketed_paste(false);
+                for mode in &numbers {
+                    if private {
+                        match *mode {
+                            1049 | 1047 | 47 => self.screen.leave_alternate_screen(),
+                            1048 => self.screen.restore_cursor(),
+                            6 => self.screen.set_origin_mode(false),
+                            7 => self.screen.auto_wrap = false,
+                            25 => {
+                                self.screen.cursor_visible = false;
+                                self.screen.mark_dirty_row(self.screen.cursor_y);
+                            }
+                            2004 => self.screen.set_bracketed_paste(false),
+                            _ => {}
+                        }
+                    } else if *mode == 4 {
+                        self.screen.insert_mode = false;
+                    }
                 }
             }
             _ => {}
@@ -5951,6 +5972,57 @@ mod tests {
         set_output_for_test(session.id, "\x1b[?2004h")?;
         assert!(engine.bracketed_paste_enabled(session.id)?);
         set_output_for_test(session.id, "\x1b[?2004h\x1b[?2004l")?;
+        assert!(!engine.bracketed_paste_enabled(session.id)?);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_applies_insert_mode() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 8,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(session.id, "abcd\x1b[1;3H\x1b[4hXY\x1b[4lZ")?;
+        let screen = engine.read_screen(session.id)?;
+        assert_eq!(screen.lines, vec!["abXYZd"]);
+        assert_eq!(screen.cursor.x, 5);
+        assert_eq!(screen.cursor.y, 0);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_applies_combined_modes() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 10,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(session.id, "\x1b[?1049;2004halt")?;
+        assert_eq!(engine.read_screen(session.id)?.lines, vec!["alt"]);
+        assert!(engine.bracketed_paste_enabled(session.id)?);
+
+        set_output_for_test(session.id, "\x1b[?25;2004lmain")?;
+        let screen = engine.read_screen(session.id)?;
+        assert!(!screen.cursor.visible);
         assert!(!engine.bracketed_paste_enabled(session.id)?);
 
         engine.destroy_session(session.id)?;
