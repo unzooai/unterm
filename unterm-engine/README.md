@@ -32,7 +32,7 @@ Run the Phase 2 next-core benchmark suite and generate `docs/next-core-benchmark
 .\unterm-engine\bench-next-core.ps1
 ```
 
-The runner builds `unterm-next-core`, executes the current latency/output/scrollback/paste/dual-agent/screen-read benchmarks, and writes both summary lines and raw output into the report.
+The runner builds `unterm-next-core`, verifies the machine-readable `--json` probe output, executes the current latency/output/scrollback/paste/dual-agent/screen-read benchmarks, and writes both summary lines and raw output into the report.
 
 ## Experimental MCP Engine Selector
 

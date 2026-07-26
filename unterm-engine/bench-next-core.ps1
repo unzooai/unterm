@@ -43,6 +43,41 @@ function Invoke-Benchmark {
     }
 }
 
+function Invoke-JsonSmoke {
+    Write-Host "Running JSON probe smoke..."
+    $marker = "next-core-json-smoke"
+    $output = & $script:ExePath --json --wait-ms 500 -- cmd.exe /c "echo $marker" 2>&1
+    $exitCode = $LASTEXITCODE
+    $lines = @($output | ForEach-Object { $_.ToString() })
+    if ($exitCode -ne 0) {
+        throw "JSON probe failed with exit code $exitCode`: $($lines -join "`n")"
+    }
+
+    $text = $lines -join "`n"
+    try {
+        $json = $text | ConvertFrom-Json
+    } catch {
+        throw "JSON probe output was not parseable JSON: $text"
+    }
+
+    if ($json.health.engine -ne "next-core") {
+        throw "JSON probe reported wrong engine: $($json.health.engine)"
+    }
+    if ($json.visible_text -notlike "*$marker*") {
+        throw "JSON probe visible_text did not contain marker '$marker'"
+    }
+    if ($json.screen.cols -le 0 -or $json.screen.rows -le 0) {
+        throw "JSON probe screen dimensions were invalid"
+    }
+
+    [pscustomobject]@{
+        Marker = $marker
+        Engine = $json.health.engine
+        Screen = "$($json.screen.cols)x$($json.screen.rows)"
+        RawBytes = $json.raw_bytes
+    }
+}
+
 Push-Location $RepoRoot
 try {
     if (-not $SkipBuild) {
@@ -56,6 +91,8 @@ try {
     if (-not (Test-Path $script:ExePath)) {
         throw "missing next-core probe: $script:ExePath"
     }
+
+    $jsonSmoke = Invoke-JsonSmoke
 
     $commonTail = @("--timeout-ms", "$TimeoutMs", "--wait-ms", "0", "--write", "exit`r", "--", "cmd.exe")
     $results = @()
@@ -79,6 +116,7 @@ try {
     $report.Add("- Machine: ``$machine``")
     $report.Add("- OS: ``$os``")
     $report.Add("- Binary: ``target\debug\unterm-next-core.exe``")
+    $report.Add("- JSON smoke: ``$($jsonSmoke.Engine) $($jsonSmoke.Screen) raw_bytes=$($jsonSmoke.RawBytes)``")
     $report.Add("")
     $report.Add("## Summary")
     $report.Add("")
