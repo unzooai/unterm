@@ -1,7 +1,8 @@
 use super::{
     CreateSessionRequest, CursorSnapshot, InputEngine, PaneDimensions, ScreenLine,
-    ScreenSearchMatch, ScreenSnapshot, ScreenEngine, SessionActivitySnapshot, SessionEngine,
-    SessionSnapshot, ShellSnapshot, SplitDirection, SplitSessionRequest,
+    ScreenSearchMatch, ScreenSnapshot, ScreenEngine, ScrollbackTextRequest,
+    ScrollbackTextSnapshot, SessionActivitySnapshot, SessionEngine, SessionSnapshot, ShellSnapshot,
+    SplitDirection, SplitSessionRequest,
 };
 use anyhow::{anyhow, Context, Result};
 use config::keyassignment::SpawnTabDomain;
@@ -332,6 +333,79 @@ impl ScreenEngine for WezTermEngine {
             .map(|line| line.as_str().trim_end().to_string())
             .filter(|text| !text.is_empty())
             .collect())
+    }
+
+    fn read_scrollback_text(
+        &self,
+        pane_id: usize,
+        request: ScrollbackTextRequest,
+    ) -> Result<ScrollbackTextSnapshot> {
+        let pane = self.pane(pane_id)?;
+        let dims = pane.get_dimensions();
+        let viewport_bottom = dims.physical_top + dims.viewport_rows as isize;
+        let mut start = request
+            .start_line
+            .map(|n| n as isize)
+            .unwrap_or(dims.scrollback_top)
+            .max(dims.scrollback_top);
+        let end = request
+            .end_line
+            .map(|n| n as isize)
+            .unwrap_or(viewport_bottom)
+            .min(viewport_bottom);
+
+        if let Some(tail) = request.tail_lines {
+            if tail > 0 {
+                start = start.max(end.saturating_sub(tail as isize));
+            }
+        }
+
+        if end <= start {
+            return Ok(ScrollbackTextSnapshot {
+                text: String::new(),
+                lines: Vec::new(),
+                first_row: start as i64,
+                row_count: 0,
+                cols: dims.cols,
+                escapes: request.escapes,
+                scrollback_top: dims.scrollback_top as i64,
+                physical_top: dims.physical_top as i64,
+                viewport_rows: dims.viewport_rows,
+            });
+        }
+
+        let (first, lines) = pane.get_lines(start..end);
+        if request.escapes {
+            let text = termwiz_funcs::lines_to_escapes(lines).map_err(|e| anyhow!(e))?;
+            Ok(ScrollbackTextSnapshot {
+                text,
+                lines: Vec::new(),
+                first_row: first as i64,
+                row_count: (end - start) as i64,
+                cols: dims.cols,
+                escapes: true,
+                scrollback_top: dims.scrollback_top as i64,
+                physical_top: dims.physical_top as i64,
+                viewport_rows: dims.viewport_rows,
+            })
+        } else {
+            let text_lines: Vec<String> = lines
+                .iter()
+                .map(|line| line.as_str().trim_end().to_string())
+                .collect();
+            let text = text_lines.join("\n");
+            Ok(ScrollbackTextSnapshot {
+                text,
+                lines: text_lines,
+                first_row: first as i64,
+                row_count: (end - start) as i64,
+                cols: dims.cols,
+                escapes: false,
+                scrollback_top: dims.scrollback_top as i64,
+                physical_top: dims.physical_top as i64,
+                viewport_rows: dims.viewport_rows,
+            })
+        }
     }
 
     fn search(

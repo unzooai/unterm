@@ -2,8 +2,8 @@
 //! Implements all methods required by unterm-cli compatibility.
 
 use crate::engine::{
-    CreateSessionRequest, InputEngine, ScreenEngine, SessionEngine, SplitDirection,
-    SplitSessionRequest,
+    CreateSessionRequest, InputEngine, ScreenEngine, ScrollbackTextRequest, SessionEngine,
+    SplitDirection, SplitSessionRequest,
 };
 use anyhow::{anyhow, Context, Result};
 use base64::Engine as _;
@@ -4096,86 +4096,79 @@ impl McpHandler {
         // fall back to the active pane of the first window — the typical
         // agent intent is "dump *this* terminal," not "dump some specific
         // session id I don't know yet."
-        let pane = match self.get_pane(params) {
-            Ok(p) => p,
-            Err(_) => {
-                let mux = self.get_mux()?;
-                mux.iter_windows()
-                    .into_iter()
-                    .find_map(|wid| mux.get_active_tab_for_window(wid))
-                    .and_then(|tab| tab.get_active_pane())
-                    .ok_or_else(|| anyhow!("no active pane available"))?
-            }
+        let engine = crate::engine::wezterm::WezTermEngine;
+        let fallback_active_pane_id = || -> Result<usize> {
+            engine
+                .list_sessions()?
+                .into_iter()
+                .find(|session| session.is_active)
+                .map(|session| session.id)
+                .ok_or_else(|| anyhow!("no active pane available"))
         };
-        let dims = pane.get_dimensions();
+        let pane_id = match Self::pane_id_from_params(params) {
+            Ok(id) if engine.get_session(id).is_ok() => id,
+            _ => fallback_active_pane_id()?,
+        };
         let want_escapes = params
             .get("escapes")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
-        let viewport_bottom = dims.physical_top + dims.viewport_rows as isize;
-        let mut start = params
+        let start_line = params
             .get("start_line")
             .and_then(|v| v.as_i64())
-            .map(|n| n as isize)
-            .unwrap_or(dims.scrollback_top)
-            .max(dims.scrollback_top);
-        let end = params
+            .map(|n| n as i64);
+        let end_line = params
             .get("end_line")
             .and_then(|v| v.as_i64())
-            .map(|n| n as isize)
-            .unwrap_or(viewport_bottom)
-            .min(viewport_bottom);
-        if let Some(tail) = params.get("tail_lines").and_then(|v| v.as_i64()) {
-            if tail > 0 {
-                start = start.max(end.saturating_sub(tail as isize));
-            }
-        }
+            .map(|n| n as i64);
+        let tail_lines = params.get("tail_lines").and_then(|v| v.as_i64());
+        let snapshot = engine.read_scrollback_text(
+            pane_id,
+            ScrollbackTextRequest {
+                start_line,
+                end_line,
+                tail_lines,
+                escapes: want_escapes,
+            },
+        )?;
 
-        if end <= start {
+        if snapshot.row_count == 0 {
             return Ok(json!({
                 "text": "",
                 "lines": Vec::<String>::new(),
-                "first_row": start,
+                "first_row": snapshot.first_row,
                 "row_count": 0,
-                "cols": dims.cols,
-                "escapes": want_escapes,
-                "scrollback_top": dims.scrollback_top,
-                "physical_top": dims.physical_top,
-                "viewport_rows": dims.viewport_rows,
+                "cols": snapshot.cols,
+                "escapes": snapshot.escapes,
+                "scrollback_top": snapshot.scrollback_top,
+                "physical_top": snapshot.physical_top,
+                "viewport_rows": snapshot.viewport_rows,
             }));
         }
 
-        let (first, lines) = pane.get_lines(start..end);
-
-        if want_escapes {
-            let text = termwiz_funcs::lines_to_escapes(lines).map_err(|e| anyhow!(e))?;
+        if snapshot.escapes {
             Ok(json!({
-                "text": text,
-                "first_row": first,
-                "row_count": (end - start) as i64,
-                "cols": dims.cols,
+                "text": snapshot.text,
+                "first_row": snapshot.first_row,
+                "row_count": snapshot.row_count,
+                "cols": snapshot.cols,
                 "escapes": true,
-                "scrollback_top": dims.scrollback_top,
-                "physical_top": dims.physical_top,
-                "viewport_rows": dims.viewport_rows,
+                "scrollback_top": snapshot.scrollback_top,
+                "physical_top": snapshot.physical_top,
+                "viewport_rows": snapshot.viewport_rows,
             }))
         } else {
-            let text_lines: Vec<String> = lines
-                .iter()
-                .map(|line| line.as_str().trim_end().to_string())
-                .collect();
-            let text = text_lines.join("\n");
             Ok(json!({
-                "text": text,
-                "lines": text_lines,
-                "first_row": first,
-                "row_count": (end - start) as i64,
-                "cols": dims.cols,
+                "text": snapshot.text,
+                "lines": snapshot.lines,
+                "first_row": snapshot.first_row,
+                "row_count": snapshot.row_count,
+                "cols": snapshot.cols,
                 "escapes": false,
-                "scrollback_top": dims.scrollback_top,
-                "physical_top": dims.physical_top,
-                "viewport_rows": dims.viewport_rows,
+                "scrollback_top": snapshot.scrollback_top,
+                "physical_top": snapshot.physical_top,
+                "viewport_rows": snapshot.viewport_rows,
             }))
         }
     }

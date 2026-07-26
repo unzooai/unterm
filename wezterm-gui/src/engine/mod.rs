@@ -71,6 +71,27 @@ pub struct ScreenSnapshot {
     pub scrollback_rows: usize,
 }
 
+#[derive(Clone, Debug)]
+pub struct ScrollbackTextRequest {
+    pub start_line: Option<i64>,
+    pub end_line: Option<i64>,
+    pub tail_lines: Option<i64>,
+    pub escapes: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ScrollbackTextSnapshot {
+    pub text: String,
+    pub lines: Vec<String>,
+    pub first_row: i64,
+    pub row_count: i64,
+    pub cols: usize,
+    pub escapes: bool,
+    pub scrollback_top: i64,
+    pub physical_top: i64,
+    pub viewport_rows: usize,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct SessionActivitySnapshot {
     pub idle: bool,
@@ -117,6 +138,11 @@ pub trait ScreenEngine {
     fn read_screen(&self, pane_id: usize) -> Result<ScreenSnapshot>;
     fn read_lines(&self, pane_id: usize, start: i64, count: usize) -> Result<Vec<ScreenLine>>;
     fn read_scrollback(&self, pane_id: usize, limit: usize) -> Result<Vec<String>>;
+    fn read_scrollback_text(
+        &self,
+        pane_id: usize,
+        request: ScrollbackTextRequest,
+    ) -> Result<ScrollbackTextSnapshot>;
     fn search(&self, pane_id: usize, pattern: &str, max_results: usize)
         -> Result<Vec<ScreenSearchMatch>>;
     fn cursor(&self, pane_id: usize) -> Result<CursorSnapshot>;
