@@ -3218,10 +3218,7 @@ impl McpHandler {
             .into_iter()
             .map(|session| (session.id as u64, session))
             .collect();
-        let mux = match engine {
-            CurrentTerminalEngine::WezTerm(_) => self.get_mux().ok(),
-            CurrentTerminalEngine::NextCore(_) => None,
-        };
+        let pane_locations = engine.pane_locations().unwrap_or_default();
         let items: Vec<Value> = crate::cockpit::snapshot()
             .iter()
             .map(|s| {
@@ -3238,13 +3235,9 @@ impl McpHandler {
                         "shell": session.shell,
                     });
                 }
-                if let Some(mux) = mux.as_ref() {
-                    if let Some((_domain, window_id, tab_id)) =
-                        mux.resolve_pane_id(s.pane_id as mux::pane::PaneId)
-                    {
-                        v["tab_id"] = json!(tab_id);
-                        v["window_id"] = json!(window_id);
-                    }
+                if let Some(location) = pane_locations.get(&s.pane_id) {
+                    v["tab_id"] = json!(location.tab_id);
+                    v["window_id"] = json!(location.window_id);
                 }
                 v
             })

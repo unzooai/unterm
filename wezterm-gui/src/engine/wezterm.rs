@@ -1,10 +1,11 @@
 use super::{
     CaptureEngine, CellStyle, CreateSessionRequest, CursorSnapshot, EngineHealthSnapshot,
-    HealthEngine, InputEngine, PaneDimensions, RecordingEngine, RecordingExportResult,
-    RecordingStartResult, RecordingStatusSnapshot, RecordingStopResult, RenderedScrollbackPng,
-    ScreenEngine, ScreenLine, ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest,
-    ScrollbackTextSnapshot, SessionActivitySnapshot, SessionEngine, SessionSnapshot, ShellSnapshot,
-    SplitDirection, SplitSessionRequest, StyledCell, StyledScreenLine, StyledScreenSnapshot,
+    HealthEngine, InputEngine, PaneDimensions, PaneLocation, RecordingEngine,
+    RecordingExportResult, RecordingStartResult, RecordingStatusSnapshot, RecordingStopResult,
+    RenderedScrollbackPng, ScreenEngine, ScreenLine, ScreenSearchMatch, ScreenSnapshot,
+    ScrollbackTextRequest, ScrollbackTextSnapshot, SessionActivitySnapshot, SessionEngine,
+    SessionSnapshot, ShellSnapshot, SplitDirection, SplitSessionRequest, StyledCell,
+    StyledScreenLine, StyledScreenSnapshot, WindowEngine, WindowFocusResult,
 };
 use anyhow::{anyhow, Context, Result};
 use config::keyassignment::SpawnTabDomain;
@@ -12,6 +13,7 @@ use mux::domain::SplitSource;
 use mux::pane::{CachePolicy, Pane};
 use mux::tab::{SplitDirection as MuxSplitDirection, SplitRequest, SplitSize};
 use mux::Mux;
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -585,6 +587,26 @@ impl HealthEngine for WezTermEngine {
             },
             pane_count,
         })
+    }
+}
+
+impl WindowEngine for WezTermEngine {
+    fn focus_current_instance_window(&self) -> Result<WindowFocusResult> {
+        anyhow::bail!("WezTermEngine window focusing is provided by CurrentTerminalEngine")
+    }
+
+    fn pane_locations(&self) -> Result<HashMap<u64, PaneLocation>> {
+        let mux = self.mux()?;
+        let mut locations = HashMap::new();
+        for pane in mux.iter_panes() {
+            let pane_id = pane.pane_id();
+            if let Some((_domain, window_id, tab_id)) =
+                mux.resolve_pane_id(pane_id as mux::pane::PaneId)
+            {
+                locations.insert(pane_id as u64, PaneLocation { window_id, tab_id });
+            }
+        }
+        Ok(locations)
     }
 }
 

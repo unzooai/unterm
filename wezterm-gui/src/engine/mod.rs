@@ -6,6 +6,7 @@
 
 pub mod wezterm;
 
+use std::collections::HashMap;
 use std::path::Path;
 use window::WindowOps;
 
@@ -25,8 +26,15 @@ pub struct WindowFocusResult {
     pub mux_window_id: usize,
 }
 
+#[derive(Clone, Debug)]
+pub struct PaneLocation {
+    pub window_id: usize,
+    pub tab_id: usize,
+}
+
 pub trait WindowEngine {
     fn focus_current_instance_window(&self) -> anyhow::Result<WindowFocusResult>;
+    fn pane_locations(&self) -> anyhow::Result<HashMap<u64, PaneLocation>>;
 }
 
 pub struct RenderedScrollbackPng {
@@ -314,6 +322,13 @@ impl HealthEngine for CurrentTerminalEngine {
 impl WindowEngine for CurrentTerminalEngine {
     fn focus_current_instance_window(&self) -> anyhow::Result<WindowFocusResult> {
         focus_current_instance_window()
+    }
+
+    fn pane_locations(&self) -> anyhow::Result<HashMap<u64, PaneLocation>> {
+        match self {
+            Self::WezTerm(engine) => engine.pane_locations(),
+            Self::NextCore(_) => Ok(HashMap::new()),
+        }
     }
 }
 
