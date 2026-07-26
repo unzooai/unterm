@@ -34,6 +34,14 @@ Run the Phase 2 next-core benchmark suite and generate `docs/next-core-benchmark
 
 The runner builds `unterm-next-core`, verifies the machine-readable `--json` probe output, executes the current input-write/echo/output/scrollback/viewport-scroll/paste/dual-agent/screen-read/focus-switch/session-create/session-ready benchmarks, writes human-readable summary and raw output into the Markdown report, and writes machine-readable gate results into the JSON summary. Any failed benchmark or gate exits non-zero.
 
+Verify an existing JSON summary without rerunning the benchmark suite:
+
+```powershell
+.\unterm-engine\verify-next-core-benchmark.ps1
+```
+
+The verifier checks the required gate and benchmark names, requires every gate to pass, and exits non-zero if the summary is missing or stale in shape.
+
 ## Experimental MCP Engine Selector
 
 The GUI defaults to the current WezTerm-backed engine. For MCP/product-service experiments, start Unterm with:
