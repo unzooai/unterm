@@ -281,6 +281,7 @@ struct RecordingIndexEntry {
 
 #[derive(Default)]
 struct NextCoreScreen {
+    cols: usize,
     scrollback: Vec<Vec<ScreenCell>>,
     lines: Vec<Vec<ScreenCell>>,
     viewport_top: Option<usize>,
@@ -304,6 +305,7 @@ struct NextCoreScreen {
 
 #[derive(Default)]
 struct ScreenState {
+    cols: usize,
     scrollback: Vec<Vec<ScreenCell>>,
     lines: Vec<Vec<ScreenCell>>,
     viewport_top: Option<usize>,
@@ -405,8 +407,9 @@ impl From<TerminalColor> for StyledColor {
 }
 
 impl NextCoreScreen {
-    fn new(rows: usize) -> Self {
+    fn new(cols: usize, rows: usize) -> Self {
         let mut screen = Self {
+            cols: cols.max(1),
             rows: rows.max(1),
             cursor_visible: true,
             cursor_shape: "Default".to_string(),
@@ -595,8 +598,7 @@ impl NextCoreScreen {
         self.ensure_cursor_line();
         self.mark_dirty_row(self.cursor_y);
         let cell = ScreenCell::new(c, self.current_attr);
-        let width = cell.width;
-        if width == 0 {
+        if cell.width == 0 {
             if self.cursor_x > 0 {
                 let line = &mut self.lines[self.cursor_y];
                 if let Some(previous) = line.get_mut(self.cursor_x - 1) {
@@ -605,23 +607,40 @@ impl NextCoreScreen {
             }
             return;
         }
-        let line = &mut self.lines[self.cursor_y];
-        if self.cursor_x > line.len() {
-            line.resize(self.cursor_x, ScreenCell::blank(self.current_attr));
+        let width = cell.width;
+        if self.cursor_x >= self.cols || self.cursor_x + width > self.cols {
+            self.newline();
+            self.ensure_cursor_line();
+            self.mark_dirty_row(self.cursor_y);
         }
-        if self.cursor_x == line.len() {
-            line.push(cell);
-        } else {
-            line[self.cursor_x] = cell;
-        }
-        if width > 1 {
-            for offset in 1..width {
-                let idx = self.cursor_x + offset;
-                if idx == line.len() {
-                    line.push(ScreenCell::continuation(self.current_attr));
-                } else if idx < line.len() {
-                    line[idx] = ScreenCell::continuation(self.current_attr);
+        {
+            let line = &mut self.lines[self.cursor_y];
+            if self.cursor_x > line.len() {
+                line.resize(
+                    self.cursor_x.min(self.cols),
+                    ScreenCell::blank(self.current_attr),
+                );
+            }
+            if self.cursor_x == line.len() {
+                line.push(cell);
+            } else if self.cursor_x < self.cols {
+                line[self.cursor_x] = cell;
+            }
+            if width > 1 {
+                for offset in 1..width {
+                    let idx = self.cursor_x + offset;
+                    if idx >= self.cols {
+                        break;
+                    }
+                    if idx == line.len() {
+                        line.push(ScreenCell::continuation(self.current_attr));
+                    } else if idx < line.len() {
+                        line[idx] = ScreenCell::continuation(self.current_attr);
+                    }
                 }
+            }
+            if line.len() > self.cols {
+                line.truncate(self.cols);
             }
         }
         self.cursor_x += width;
@@ -696,7 +715,7 @@ impl NextCoreScreen {
     fn set_cursor(&mut self, row: usize, col: usize) {
         self.mark_dirty_row(self.cursor_y);
         self.cursor_y = row.min(self.rows.saturating_sub(1));
-        self.cursor_x = col;
+        self.cursor_x = col.min(self.cols.saturating_sub(1));
         self.ensure_cursor_line();
         self.mark_dirty_row(self.cursor_y);
     }
@@ -716,7 +735,7 @@ impl NextCoreScreen {
 
     fn move_cursor_right(&mut self, count: usize) {
         self.mark_dirty_row(self.cursor_y);
-        self.cursor_x += count;
+        self.cursor_x = (self.cursor_x + count).min(self.cols.saturating_sub(1));
     }
 
     fn move_cursor_left(&mut self, count: usize) {
@@ -778,10 +797,18 @@ impl NextCoreScreen {
         self.ensure_cursor_line();
         let line = &mut self.lines[self.cursor_y];
         if self.cursor_x > line.len() {
-            line.resize(self.cursor_x, ScreenCell::blank(self.current_attr));
+            line.resize(
+                self.cursor_x.min(self.cols),
+                ScreenCell::blank(self.current_attr),
+            );
         }
         for _ in 0..count.max(1) {
-            line.insert(self.cursor_x, ScreenCell::blank(self.current_attr));
+            if self.cursor_x < self.cols {
+                line.insert(self.cursor_x, ScreenCell::blank(self.current_attr));
+            }
+            if line.len() > self.cols {
+                line.truncate(self.cols);
+            }
         }
         self.mark_dirty_row(self.cursor_y);
     }
@@ -1014,11 +1041,21 @@ impl NextCoreScreen {
         self.mark_all_dirty();
     }
 
-    fn resize(&mut self, rows: usize) {
+    fn resize(&mut self, cols: usize, rows: usize) {
+        self.cols = cols.max(1);
         self.rows = rows.max(1);
         self.bump_revision();
         self.clear_dirty_rows();
         self.mark_all_dirty();
+        Self::truncate_lines_to_cols(&mut self.lines, self.cols);
+        Self::truncate_lines_to_cols(&mut self.scrollback, self.cols);
+        if let Some(alternate) = self.alternate.as_mut() {
+            alternate.cols = self.cols;
+            Self::truncate_lines_to_cols(&mut alternate.lines, self.cols);
+            Self::truncate_lines_to_cols(&mut alternate.scrollback, self.cols);
+            alternate.cursor_x = alternate.cursor_x.min(self.cols.saturating_sub(1));
+            alternate.saved_cursor_x = alternate.saved_cursor_x.min(self.cols.saturating_sub(1));
+        }
         if self.lines.len() > self.rows {
             let trim = self.lines.len() - self.rows;
             let drained = self.lines.drain(..trim).collect::<Vec<_>>();
@@ -1032,6 +1069,8 @@ impl NextCoreScreen {
             self.cursor_y = self.cursor_y.saturating_sub(trim);
             self.saved_cursor_y = self.saved_cursor_y.saturating_sub(trim);
         }
+        self.cursor_x = self.cursor_x.min(self.cols.saturating_sub(1));
+        self.saved_cursor_x = self.saved_cursor_x.min(self.cols.saturating_sub(1));
         self.cursor_y = self.cursor_y.min(self.rows.saturating_sub(1));
         self.scroll_top = self.scroll_top.min(self.rows.saturating_sub(1));
         self.scroll_bottom = self.scroll_bottom.min(self.rows.saturating_sub(1));
@@ -1040,6 +1079,14 @@ impl NextCoreScreen {
             self.scroll_bottom = self.rows.saturating_sub(1);
         }
         self.ensure_cursor_line();
+    }
+
+    fn truncate_lines_to_cols(lines: &mut [Vec<ScreenCell>], cols: usize) {
+        for line in lines {
+            if line.len() > cols {
+                line.truncate(cols);
+            }
+        }
     }
 
     fn enter_alternate_screen(&mut self, clear: bool) {
@@ -1051,6 +1098,7 @@ impl NextCoreScreen {
         }
 
         let main = ScreenState {
+            cols: self.cols,
             scrollback: std::mem::take(&mut self.scrollback),
             lines: std::mem::take(&mut self.lines),
             viewport_top: self.viewport_top.take(),
@@ -1081,6 +1129,7 @@ impl NextCoreScreen {
 
     fn leave_alternate_screen(&mut self) {
         if let Some(main) = self.alternate.take() {
+            self.cols = main.cols;
             self.scrollback = main.scrollback;
             self.lines = main.lines;
             self.viewport_top = main.viewport_top;
@@ -1219,8 +1268,8 @@ impl<'a> ScreenParser<'a> {
             'S' => self.screen.scroll_up(first()),
             'T' => self.screen.scroll_down(first()),
             'G' => {
-                self.screen.mark_dirty_row(self.screen.cursor_y);
-                self.screen.cursor_x = first().saturating_sub(1);
+                let row = self.screen.cursor_y;
+                self.screen.set_cursor(row, first().saturating_sub(1));
             }
             'H' | 'f' => {
                 let row = numbers.first().copied().filter(|n| *n > 0).unwrap_or(1);
@@ -1293,7 +1342,7 @@ fn reset_state_for_test() {
 
 #[cfg(test)]
 fn set_output_for_test(pane_id: usize, text: &str) -> Result<()> {
-    let (output, screen, recording, activity, rows) = {
+    let (output, screen, recording, activity, cols, rows) = {
         let state = state().read();
         let Some(session) = state
             .sessions
@@ -1307,6 +1356,7 @@ fn set_output_for_test(pane_id: usize, text: &str) -> Result<()> {
             Arc::clone(&session.screen),
             Arc::clone(&session.recording),
             Arc::clone(&session.activity),
+            session.snapshot.cols,
             session.snapshot.rows,
         )
     };
@@ -1314,7 +1364,7 @@ fn set_output_for_test(pane_id: usize, text: &str) -> Result<()> {
     *output.lock() = text.to_string();
     let mut screen = screen.lock();
     let revision = screen.revision();
-    *screen = NextCoreScreen::new(rows);
+    *screen = NextCoreScreen::new(cols, rows);
     screen.revision = revision;
     screen.feed(text);
     if let Some(recording) = recording.lock().as_mut() {
@@ -2572,7 +2622,7 @@ impl NextCoreEngine {
         let reader = pair.master.try_clone_reader()?;
         let writer = Arc::new(Mutex::new(pair.master.take_writer()?));
         let output = Arc::new(Mutex::new(String::new()));
-        let screen = Arc::new(Mutex::new(NextCoreScreen::new(rows)));
+        let screen = Arc::new(Mutex::new(NextCoreScreen::new(cols, rows)));
         let recording = Arc::new(Mutex::new(None));
         let activity = Arc::new(Mutex::new(SessionIoActivity::new()));
         let dead = Arc::new(AtomicBool::new(false));
@@ -2941,7 +2991,7 @@ impl SessionEngine for NextCoreEngine {
         session.master.lock().resize(Self::pty_size(cols, rows))?;
         session.snapshot.cols = cols;
         session.snapshot.rows = rows;
-        session.screen.lock().resize(rows);
+        session.screen.lock().resize(cols, rows);
         Ok(())
     }
 
@@ -3628,7 +3678,7 @@ mod tests {
     #[test]
     fn answers_cursor_position_queries_from_screen_state() {
         let _guard = test_guard();
-        let mut screen = NextCoreScreen::new(10);
+        let mut screen = NextCoreScreen::new(80, 10);
         screen.set_cursor(2, 4);
         let bytes = Arc::new(Mutex::new(Vec::new()));
         let writer: Arc<Mutex<Box<dyn Write + Send>>> =
@@ -3644,7 +3694,7 @@ mod tests {
     #[test]
     fn answers_primary_device_attributes_with_xterm_capabilities() {
         let _guard = test_guard();
-        let screen = NextCoreScreen::new(10);
+        let screen = NextCoreScreen::new(80, 10);
         let bytes = Arc::new(Mutex::new(Vec::new()));
         let writer: Arc<Mutex<Box<dyn Write + Send>>> =
             Arc::new(Mutex::new(Box::new(SharedWriter {
@@ -4305,6 +4355,80 @@ mod tests {
         let resized = engine.read_screen(session.id)?;
         assert!(resized.revision > second.revision);
         assert_eq!(resized.dirty_rows, Some(DirtyRows { start: 0, end: 2 }));
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_wraps_text_at_configured_columns() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 5,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(session.id, "abcdefgh")?;
+        let screen = engine.read_screen(session.id)?;
+        assert_eq!(screen.cols, 5);
+        assert_eq!(screen.lines, vec!["abcde", "fgh"]);
+        assert_eq!(screen.cursor.x, 3);
+        assert_eq!(screen.cursor.y, 1);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_wraps_wide_cells_before_right_edge() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 5,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(session.id, "abcd你")?;
+        let screen = engine.read_screen(session.id)?;
+        assert_eq!(screen.lines, vec!["abcd", "你"]);
+        assert_eq!(screen.cursor.x, 2);
+        assert_eq!(screen.cursor.y, 1);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_truncates_existing_lines_on_column_resize() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 10,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(session.id, "abcdef")?;
+        engine.resize_session(session.id, 4, 3)?;
+        let screen = engine.read_screen(session.id)?;
+        assert_eq!(screen.cols, 4);
+        assert_eq!(screen.lines, vec!["abcd"]);
+        assert_eq!(screen.cursor.x, 3);
 
         engine.destroy_session(session.id)?;
         Ok(())

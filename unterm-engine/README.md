@@ -14,7 +14,7 @@ cargo run -p unterm-engine --bin unterm-next-core -- --wait-ms 500 -- cmd.exe /c
 
 The probe creates a next-core session, optionally writes text or runs a command, waits, then prints the visible screen snapshot plus compact `health_io` and `health_lifecycle` summary lines.
 
-On Windows, the command above should print `next-core-probe`. A blank snapshot means the standalone ConPTY smoke path has regressed before the GUI is involved.
+On Windows, the command above should print `next-core-probe`. A blank snapshot means the standalone ConPTY smoke path has regressed before the GUI is involved. The in-memory screen model is cols-aware: printable text wraps at the configured width, wide cells wrap before the right edge, and resize clamps existing rows to the new column count.
 
 Machine-readable probe output:
 

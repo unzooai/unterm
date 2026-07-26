@@ -38,6 +38,7 @@ Current covered operations:
 - shell/cwd/activity snapshots
 - visible screen read
 - styled screen read
+- next-core cols-aware screen wrapping and resize truncation
 - visible text read
 - line/scrollback reads
 - scrollback text export
