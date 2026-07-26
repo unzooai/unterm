@@ -781,6 +781,50 @@ mod engine_neutral_handler_tests {
     }
 
     #[test]
+    fn agent_signal_fallback_uses_terminal_engine_active_session() {
+        let _guard = env_lock().lock();
+        let previous_engine = std::env::var("UNTERM_ENGINE").ok();
+        std::env::set_var("UNTERM_ENGINE", "next-core");
+        crate::cockpit::status::reset_for_tests();
+
+        let result: Result<(serde_json::Value, usize)> = (|| {
+            let handler = McpHandler::new();
+            let ctx = ConnectionContext::internal("handler-test");
+            let created = handler.handle(
+                &ctx,
+                "session.create",
+                &json!({
+                    "cols": 80,
+                    "rows": 4,
+                }),
+            )?;
+            let pane_id = created["id"].as_u64().expect("session id") as usize;
+            let signal = handler.handle(
+                &ctx,
+                "agent.signal",
+                &json!({
+                    "agent": "codex",
+                    "event": "working",
+                }),
+            )?;
+            let _ = handler.handle(&ctx, "session.destroy", &json!({ "pane_id": pane_id }));
+            Ok((signal, pane_id))
+        })();
+
+        match previous_engine {
+            Some(value) => std::env::set_var("UNTERM_ENGINE", value),
+            None => std::env::remove_var("UNTERM_ENGINE"),
+        }
+
+        let (signal, pane_id) = result.expect("signal active session through selected engine");
+        assert_eq!(signal["ok"], true);
+        assert_eq!(signal["pane_id"], pane_id as u64);
+        assert_eq!(signal["agent"], "codex");
+        assert_eq!(signal["event"], "working");
+        crate::cockpit::status::reset_for_tests();
+    }
+
+    #[test]
     fn cockpit_inbox_uses_engine_session_snapshot() {
         let _guard = env_lock().lock();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
@@ -3174,13 +3218,9 @@ impl McpHandler {
         let pane_id = if explicit_pane.is_some() {
             Self::pane_id_from_params(params)? as u64
         } else {
-            let mux = self.get_mux()?;
-            mux.iter_windows()
-                .into_iter()
-                .find_map(|wid| mux.get_active_tab_for_window(wid))
-                .and_then(|tab| tab.get_active_pane())
-                .ok_or_else(|| anyhow!("no active pane"))
-                .map(|pane| pane.pane_id() as u64)?
+            self.engine()
+                .active_pane_id()?
+                .ok_or_else(|| anyhow!("no active pane"))?
         };
         let agent = params
             .get("agent")

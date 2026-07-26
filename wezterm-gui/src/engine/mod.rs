@@ -34,6 +34,7 @@ pub struct PaneLocation {
 
 pub trait WindowEngine {
     fn focus_current_instance_window(&self) -> anyhow::Result<WindowFocusResult>;
+    fn active_pane_id(&self) -> anyhow::Result<Option<u64>>;
     fn pane_locations(&self) -> anyhow::Result<HashMap<u64, PaneLocation>>;
 }
 
@@ -322,6 +323,17 @@ impl HealthEngine for CurrentTerminalEngine {
 impl WindowEngine for CurrentTerminalEngine {
     fn focus_current_instance_window(&self) -> anyhow::Result<WindowFocusResult> {
         focus_current_instance_window()
+    }
+
+    fn active_pane_id(&self) -> anyhow::Result<Option<u64>> {
+        match self {
+            Self::WezTerm(engine) => engine.active_pane_id(),
+            Self::NextCore(engine) => Ok(engine
+                .list_sessions()?
+                .into_iter()
+                .find(|session| session.is_active)
+                .map(|session| session.id as u64)),
+        }
     }
 
     fn pane_locations(&self) -> anyhow::Result<HashMap<u64, PaneLocation>> {

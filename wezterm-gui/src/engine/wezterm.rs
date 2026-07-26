@@ -595,6 +595,11 @@ impl WindowEngine for WezTermEngine {
         anyhow::bail!("WezTermEngine window focusing is provided by CurrentTerminalEngine")
     }
 
+    fn active_pane_id(&self) -> Result<Option<u64>> {
+        let mux = self.mux()?;
+        Ok(WezTermEngine::active_pane_id(self, &mux).map(|pane_id| pane_id as u64))
+    }
+
     fn pane_locations(&self) -> Result<HashMap<u64, PaneLocation>> {
         let mux = self.mux()?;
         let mut locations = HashMap::new();
