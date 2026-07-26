@@ -64,6 +64,12 @@ pub struct ScreenSnapshot {
     pub scrollback_rows: usize,
 }
 
+#[derive(Clone, Debug, Serialize)]
+pub struct SessionActivitySnapshot {
+    pub idle: bool,
+    pub foreground_process: String,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub enum SplitDirection {
     Right,
@@ -94,7 +100,10 @@ pub trait TerminalEngine {
     fn create_session(&self, request: CreateSessionRequest) -> Result<SessionSnapshot>;
     fn split_session(&self, request: SplitSessionRequest) -> Result<SessionSnapshot>;
     fn focus_session(&self, pane_id: usize) -> Result<()>;
+    fn shell(&self, pane_id: usize) -> Result<ShellSnapshot>;
+    fn activity(&self, pane_id: usize) -> Result<SessionActivitySnapshot>;
     fn read_screen(&self, pane_id: usize) -> Result<ScreenSnapshot>;
+    fn read_scrollback(&self, pane_id: usize, limit: usize) -> Result<Vec<String>>;
     fn cursor(&self, pane_id: usize) -> Result<CursorSnapshot>;
     fn write_input(&self, pane_id: usize, input: &str) -> Result<()>;
     fn resize_session(&self, pane_id: usize, cols: usize, rows: usize) -> Result<()>;

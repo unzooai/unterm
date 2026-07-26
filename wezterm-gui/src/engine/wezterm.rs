@@ -1,6 +1,7 @@
 use super::{
     CreateSessionRequest, CursorSnapshot, PaneDimensions, ScreenLine, ScreenSnapshot,
-    SessionSnapshot, ShellSnapshot, SplitDirection, SplitSessionRequest, TerminalEngine,
+    SessionActivitySnapshot, SessionSnapshot, ShellSnapshot, SplitDirection, SplitSessionRequest,
+    TerminalEngine,
 };
 use anyhow::{anyhow, Context, Result};
 use config::keyassignment::SpawnTabDomain;
@@ -241,6 +242,19 @@ impl TerminalEngine for WezTermEngine {
         Ok(())
     }
 
+    fn shell(&self, pane_id: usize) -> Result<ShellSnapshot> {
+        let pane = self.pane(pane_id)?;
+        Ok(Self::shell_snapshot(&pane))
+    }
+
+    fn activity(&self, pane_id: usize) -> Result<SessionActivitySnapshot> {
+        let shell = self.shell(pane_id)?;
+        Ok(SessionActivitySnapshot {
+            idle: shell.shell_type != "unknown",
+            foreground_process: shell.process_name,
+        })
+    }
+
     fn read_screen(&self, pane_id: usize) -> Result<ScreenSnapshot> {
         let pane = self.pane(pane_id)?;
         let dims = pane.get_dimensions();
@@ -267,6 +281,20 @@ impl TerminalEngine for WezTermEngine {
             rows: dims.viewport_rows,
             scrollback_rows: dims.scrollback_rows,
         })
+    }
+
+    fn read_scrollback(&self, pane_id: usize, limit: usize) -> Result<Vec<String>> {
+        let pane = self.pane(pane_id)?;
+        let dims = pane.get_dimensions();
+        let end = dims.physical_top;
+        let start = (end - limit as isize).max(0);
+        let (_first, lines) = pane.get_lines(start..end);
+
+        Ok(lines
+            .iter()
+            .map(|line| line.as_str().trim_end().to_string())
+            .filter(|text| !text.is_empty())
+            .collect())
     }
 
     fn cursor(&self, pane_id: usize) -> Result<CursorSnapshot> {

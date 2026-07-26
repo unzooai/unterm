@@ -2041,27 +2041,19 @@ impl McpHandler {
     }
 
     fn session_idle(&self, params: &Value) -> Result<Value> {
-        let pane = self.get_pane(params)?;
-        // Heuristic: check if foreground process is the shell itself
-        let fg = pane
-            .get_foreground_process_name(mux::pane::CachePolicy::AllowStale)
-            .unwrap_or_default();
-        let name = fg.rsplit(['/', '\\']).next().unwrap_or("").to_lowercase();
-        let is_shell = name.contains("powershell")
-            || name.contains("pwsh")
-            || name.contains("cmd")
-            || name.contains("bash")
-            || name.contains("zsh")
-            || name.contains("fish")
-            || name.contains("nu");
-        Ok(json!({"idle": is_shell, "foreground_process": fg}))
+        let engine = crate::engine::wezterm::WezTermEngine;
+        let activity = engine.activity(Self::pane_id_from_params(params)?)?;
+        Ok(json!({
+            "idle": activity.idle,
+            "foreground_process": activity.foreground_process,
+        }))
     }
 
     fn session_cwd(&self, params: &Value) -> Result<Value> {
-        let pane = self.get_pane(params)?;
-        let cwd = pane
-            .get_current_working_dir(mux::pane::CachePolicy::AllowStale)
-            .map(|u| u.to_string())
+        let engine = crate::engine::wezterm::WezTermEngine;
+        let cwd = engine
+            .shell(Self::pane_id_from_params(params)?)?
+            .cwd
             .unwrap_or_default();
         Ok(json!({"cwd": cwd}))
     }
@@ -2080,22 +2072,12 @@ impl McpHandler {
     }
 
     fn session_history(&self, params: &Value) -> Result<Value> {
-        // Return scrollback as "history"
-        let pane = self.get_pane(params)?;
-        let dims = pane.get_dimensions();
         let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(100) as usize;
-
-        let end = dims.physical_top;
-        let start = (end - limit as isize).max(0);
-        let (_first, lines) = pane.get_lines(start..end);
-
-        let entries: Vec<Value> = lines
-            .iter()
-            .map(|line| {
-                let text = line.as_str().trim_end().to_string();
-                json!({"text": text})
-            })
-            .filter(|v| !v["text"].as_str().unwrap_or("").is_empty())
+        let engine = crate::engine::wezterm::WezTermEngine;
+        let entries: Vec<Value> = engine
+            .read_scrollback(Self::pane_id_from_params(params)?, limit)?
+            .into_iter()
+            .map(|text| json!({"text": text}))
             .collect();
 
         Ok(json!({"entries": entries, "count": entries.len()}))
@@ -2830,19 +2812,13 @@ impl McpHandler {
     }
 
     fn exec_status(&self, params: &Value) -> Result<Value> {
-        let pane = self.get_pane(params)?;
-        let fg = pane
-            .get_foreground_process_name(mux::pane::CachePolicy::AllowStale)
-            .unwrap_or_default();
-        let name = fg.rsplit(['/', '\\']).next().unwrap_or("").to_lowercase();
-        let is_shell = name.contains("powershell")
-            || name.contains("pwsh")
-            || name.contains("cmd")
-            || name.contains("bash")
-            || name.contains("zsh")
-            || name.contains("fish");
-        let status = if is_shell { "idle" } else { "running" };
-        Ok(json!({"status": status, "foreground_process": fg}))
+        let engine = crate::engine::wezterm::WezTermEngine;
+        let activity = engine.activity(Self::pane_id_from_params(params)?)?;
+        let status = if activity.idle { "idle" } else { "running" };
+        Ok(json!({
+            "status": status,
+            "foreground_process": activity.foreground_process,
+        }))
     }
 
     fn exec_cancel(&self, params: &Value) -> Result<Value> {
