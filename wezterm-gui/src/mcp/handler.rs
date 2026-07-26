@@ -770,7 +770,7 @@ mod engine_neutral_handler_tests {
     }
 
     #[test]
-    fn capture_scrollback_renders_next_core_text_png() {
+    fn capture_scrollback_renders_next_core_styled_png() {
         let _guard = env_lock().lock();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
@@ -784,7 +784,7 @@ mod engine_neutral_handler_tests {
                 &json!({
                     "cols": 80,
                     "rows": 4,
-                    "command": "echo next-core-scrollback-capture"
+                    "command": "echo \u{001b}[31;1mnext-core-scrollback-capture\u{001b}[0m"
                 }),
             )?;
             let pane_id = created["id"].as_u64().expect("session id") as usize;
@@ -1663,6 +1663,10 @@ mod engine_neutral_handler_tests {
             surface["engine_capabilities"]["diagnostics"]["launch_context"],
             true
         );
+        assert_eq!(
+            surface["engine_capabilities"]["diagnostics"]["styled_scrollback_png"],
+            true
+        );
         assert_eq!(capabilities["_engine"], "next-core");
         assert_eq!(
             capabilities["_engine_capabilities"]["diagnostics"]["health_io_summary"],
@@ -1670,6 +1674,10 @@ mod engine_neutral_handler_tests {
         );
         assert_eq!(
             capabilities["_engine_capabilities"]["diagnostics"]["launch_context"],
+            true
+        );
+        assert_eq!(
+            capabilities["_engine_capabilities"]["diagnostics"]["styled_scrollback_png"],
             true
         );
         let metrics = surface["engine_capabilities"]["diagnostics"]["health_metrics"]

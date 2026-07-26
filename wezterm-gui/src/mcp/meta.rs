@@ -60,7 +60,7 @@ pub fn engine_capabilities(engine: &str) -> Value {
             }),
             json!({
                 "name": "capture.scrollback",
-                "limitation": "renders a plain-text PNG from next-core scrollback; styled cell parity comes later",
+                "limitation": "renders styled cell PNGs from next-core scrollback; full theme palette and bold/italic font matching parity are still in progress",
             }),
         ]
     } else {
@@ -87,6 +87,7 @@ pub fn engine_capabilities(engine: &str) -> Value {
         "diagnostics": {
             "health_io_summary": engine == "next-core",
             "launch_context": engine == "next-core",
+            "styled_scrollback_png": engine == "next-core",
             "health_metrics": health_metrics,
         },
     })
@@ -178,7 +179,7 @@ mod tests {
     }
 
     #[test]
-    fn next_core_capabilities_expose_scrollback_png_text_renderer() {
+    fn next_core_capabilities_expose_styled_scrollback_png_renderer() {
         let caps = engine_capabilities("next-core");
         let unsupported = strings_at(&caps, "unsupported_methods");
 
@@ -223,12 +224,17 @@ mod tests {
             .as_str()
             .expect("limitation text")
             .contains("synthetic"));
-        assert!(limited
+        let capture = limited
             .iter()
-            .any(|item| item["name"].as_str() == Some("capture.scrollback")));
+            .find(|item| item["name"].as_str() == Some("capture.scrollback"))
+            .expect("capture scrollback limitation");
+        let capture_limitation = capture["limitation"].as_str().expect("limitation text");
+        assert!(capture_limitation.contains("styled cell PNGs"));
+        assert!(capture_limitation.contains("bold/italic font matching"));
 
         assert_eq!(caps["diagnostics"]["health_io_summary"], true);
         assert_eq!(caps["diagnostics"]["launch_context"], true);
+        assert_eq!(caps["diagnostics"]["styled_scrollback_png"], true);
         let metrics = strings_at(&caps["diagnostics"], "health_metrics");
         assert!(metrics.contains(&"input_writes"));
         assert!(metrics.contains(&"output_bytes"));
