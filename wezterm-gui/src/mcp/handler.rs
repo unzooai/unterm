@@ -932,6 +932,38 @@ mod engine_neutral_handler_tests {
     }
 
     #[test]
+    fn capture_screen_text_snapshot_uses_terminal_engine() {
+        let _guard = env_lock().lock();
+        let previous_engine = std::env::var("UNTERM_ENGINE").ok();
+        std::env::set_var("UNTERM_ENGINE", "next-core");
+
+        let result = {
+            let handler = McpHandler::new();
+            let ctx = ConnectionContext::internal("handler-test");
+            handler.handle(&ctx, "capture.screen", &json!({ "include_base64": false }))
+        };
+
+        match previous_engine {
+            Some(value) => std::env::set_var("UNTERM_ENGINE", value),
+            None => std::env::remove_var("UNTERM_ENGINE"),
+        }
+
+        match result {
+            Ok(capture) => {
+                assert!(capture["captures"].is_array());
+                assert_eq!(capture["text_snapshot"], true);
+            }
+            Err(err) => {
+                let message = format!("{err:#}");
+                assert!(
+                    !message.contains("Mux not available"),
+                    "screen text snapshot should not require WezTerm mux: {message}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn server_health_uses_selected_next_core_engine() {
         let _guard = env_lock().lock();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
@@ -4546,15 +4578,15 @@ impl McpHandler {
     // --- Capture ---
 
     fn capture_screen(&self, params: &Value) -> Result<Value> {
-        let mux = self.get_mux()?;
-        let panes = mux.iter_panes();
-        let mut captures = Vec::new();
+        let engine = self.engine();
+        let sessions = engine.list_sessions()?;
+        let mut captures = Vec::with_capacity(sessions.len());
 
-        for pane in &panes {
-            let text = self.read_pane_text(pane);
+        for session in &sessions {
+            let text = engine.read_visible_text(session.id).unwrap_or_default();
             captures.push(json!({
-                "session_id": pane.pane_id().to_string(),
-                "title": pane.get_title(),
+                "session_id": session.id.to_string(),
+                "title": session.title,
                 "screen": text,
                 "type": "text",
             }));
