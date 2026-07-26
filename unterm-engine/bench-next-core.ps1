@@ -10,6 +10,7 @@ param(
     [int]$ViewportScrollFloodLines = 5000,
     [int]$PasteKb = 10,
     [int]$DualAgentLines = 5000,
+    [int]$AgentStartupLines = 5000,
     [int]$ScreenReadLines = 5000,
     [int]$FocusSwitches = 1000,
     [int]$SessionCreates = 20,
@@ -19,6 +20,7 @@ param(
     [int]$MaxInputBurstP95Us = 33000,
     [int]$MaxEchoP95Us = 16000,
     [int]$MaxDualAgentEchoP95Us = 33000,
+    [int]$MaxAgentStartupInputP95Us = 33000,
     [int]$MaxPaste10KbMs = 50,
     [int]$MaxScrollbackPageP95Us = 1000,
     [int]$MaxViewportScrollP95Us = 1000,
@@ -224,6 +226,7 @@ try {
     $results += Invoke-Benchmark -Name "viewport scroll paging" -BenchArgs ([string[]](@("--bench-viewport-scrolls", "$ViewportScrollLines") + $commonTail))
     $results += Invoke-Benchmark -Name "viewport scroll during flood" -BenchArgs ([string[]](@("--bench-viewport-scroll-flood", "$ViewportScrollFloodLines") + $commonTail))
     $results += Invoke-Benchmark -Name "dual pseudo-agent output" -BenchArgs ([string[]](@("--bench-dual-agent-lines", "$DualAgentLines") + $commonTail))
+    $results += Invoke-Benchmark -Name "agent startup stall" -BenchArgs ([string[]](@("--bench-agent-startup-lines", "$AgentStartupLines") + $commonTail))
     $results += Invoke-Benchmark -Name "screen read during flood" -BenchArgs ([string[]](@("--bench-screen-read-lines", "$ScreenReadLines") + $commonTail))
     $results += Invoke-Benchmark -Name "focus switch latency" -BenchArgs ([string[]](@("--bench-focus-switches", "$FocusSwitches") + $commonTail))
     $results += Invoke-Benchmark -Name "session create latency" -BenchArgs ([string[]](@("--bench-session-create", "$SessionCreates") + $commonTail))
@@ -237,6 +240,7 @@ try {
     $viewportScroll = Find-BenchmarkResult -Results $results -Name "viewport scroll paging"
     $viewportScrollFlood = Find-BenchmarkResult -Results $results -Name "viewport scroll during flood"
     $dualAgent = Find-BenchmarkResult -Results $results -Name "dual pseudo-agent output"
+    $agentStartup = Find-BenchmarkResult -Results $results -Name "agent startup stall"
     $screenRead = Find-BenchmarkResult -Results $results -Name "screen read during flood"
     $focusSwitch = Find-BenchmarkResult -Results $results -Name "focus switch latency"
     $sessionCreate = Find-BenchmarkResult -Results $results -Name "session create latency"
@@ -246,6 +250,7 @@ try {
     $gates += New-Gate -GateName "input burst p95" -Actual (Get-BenchMetric -Result $inputBurst -LinePrefix "bench_input_burst" -Metric "p95_us") -Max $MaxInputBurstP95Us -Unit "us"
     $gates += New-Gate -GateName "echo p95" -Actual (Get-BenchMetric -Result $echo -LinePrefix "bench_echo" -Metric "p95_us") -Max $MaxEchoP95Us -Unit "us"
     $gates += New-Gate -GateName "dual-agent echo p95" -Actual (Get-BenchMetric -Result $dualAgent -LinePrefix "bench_dual_agents_echo" -Metric "p95_us") -Max $MaxDualAgentEchoP95Us -Unit "us"
+    $gates += New-Gate -GateName "agent startup input p95" -Actual (Get-BenchMetric -Result $agentStartup -LinePrefix "bench_agent_startup_stall" -Metric "input_p95_us") -Max $MaxAgentStartupInputP95Us -Unit "us"
     $gates += New-Gate -GateName "paste 10kb elapsed" -Actual (Get-BenchMetric -Result $paste -LinePrefix "bench_paste" -Metric "elapsed_ms") -Max $MaxPaste10KbMs -Unit "ms"
     $gates += New-Gate -GateName "scrollback page p95" -Actual (Get-BenchMetric -Result $scrollback -LinePrefix "bench_scrollback" -Metric "p95_us") -Max $MaxScrollbackPageP95Us -Unit "us"
     $gates += New-Gate -GateName "viewport scroll p95" -Actual (Get-BenchMetric -Result $viewportScroll -LinePrefix "bench_viewport_scroll" -Metric "p95_us") -Max $MaxViewportScrollP95Us -Unit "us"

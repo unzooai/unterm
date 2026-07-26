@@ -413,7 +413,8 @@ The spike must run a local benchmark harness:
 4. Print 100k lines
 5. PageUp/PageDown through 10k scrollback
 6. Two pseudo-agent output streams
-7. MCP `screen.text` during output flood
+7. Agent startup burst while interactive input remains responsive
+8. MCP `screen.text` during output flood
 
 ### Graduation Criteria
 
@@ -794,6 +795,7 @@ Build benchmark harness for:
 
 - input latency
 - output flood
+- agent startup stall
 - scrollback paging
 - MCP response under load
 - paint section timings

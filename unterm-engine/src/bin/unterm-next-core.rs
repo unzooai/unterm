@@ -25,6 +25,7 @@ struct Args {
     bench_viewport_scroll_flood: Option<usize>,
     bench_paste_kb: Option<usize>,
     bench_dual_agent_lines: Option<usize>,
+    bench_agent_startup_lines: Option<usize>,
     bench_screen_read_lines: Option<usize>,
     bench_focus_switches: Option<usize>,
     bench_session_create: Option<usize>,
@@ -54,6 +55,7 @@ fn parse_args() -> Result<Args> {
         bench_viewport_scroll_flood: None,
         bench_paste_kb: None,
         bench_dual_agent_lines: None,
+        bench_agent_startup_lines: None,
         bench_screen_read_lines: None,
         bench_focus_switches: None,
         bench_session_create: None,
@@ -174,6 +176,15 @@ fn parse_args() -> Result<Args> {
                         .parse()?,
                 );
             }
+            "--bench-agent-startup-lines" => {
+                parsed.bench_agent_startup_lines = Some(
+                    args.next()
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("--bench-agent-startup-lines requires a value")
+                        })?
+                        .parse()?,
+                );
+            }
             "--bench-screen-read-lines" => {
                 parsed.bench_screen_read_lines = Some(
                     args.next()
@@ -239,7 +250,7 @@ fn parse_args() -> Result<Args> {
             }
             "--help" | "-h" => {
                 println!(
-                    "Usage: unterm-next-core [--cols N] [--rows N] [--wait-ms N] [--poll-ms N] [--timeout-ms N] [--bench-input-writes N] [--bench-input-burst N] [--bench-echo N] [--bench-flood-lines N] [--bench-scrollback-lines N] [--bench-viewport-scrolls N] [--bench-viewport-scroll-flood N] [--bench-paste-kb N] [--bench-dual-agent-lines N] [--bench-screen-read-lines N] [--bench-focus-switches N] [--bench-session-create N] [--bench-session-ready N] [--cwd PATH] [--env KEY=VALUE] [--write TEXT] [--paste TEXT] [--json] [-- COMMAND [ARG...]]"
+                    "Usage: unterm-next-core [--cols N] [--rows N] [--wait-ms N] [--poll-ms N] [--timeout-ms N] [--bench-input-writes N] [--bench-input-burst N] [--bench-echo N] [--bench-flood-lines N] [--bench-scrollback-lines N] [--bench-viewport-scrolls N] [--bench-viewport-scroll-flood N] [--bench-paste-kb N] [--bench-dual-agent-lines N] [--bench-agent-startup-lines N] [--bench-screen-read-lines N] [--bench-focus-switches N] [--bench-session-create N] [--bench-session-ready N] [--cwd PATH] [--env KEY=VALUE] [--write TEXT] [--paste TEXT] [--json] [-- COMMAND [ARG...]]"
                 );
                 std::process::exit(0);
             }
@@ -823,6 +834,78 @@ fn run_dual_agent_benchmark(
     Ok(())
 }
 
+fn run_agent_startup_stall_benchmark(
+    engine: &unterm_engine::next_core::NextCoreEngine,
+    interactive_pane_id: usize,
+    cols: usize,
+    rows: usize,
+    lines: usize,
+    poll_interval: Duration,
+    timeout: Duration,
+) -> Result<()> {
+    if lines == 0 {
+        bail!("--bench-agent-startup-lines must be greater than 0");
+    }
+
+    let agent = engine.create_session(cmd_session(cols, rows))?;
+    let run = start_flood_stream(engine, agent.id, lines)?;
+    let result = (|| -> Result<(Vec<u128>, Vec<u128>, usize, Duration, usize)> {
+        let mut input_latencies_us = Vec::new();
+        let mut screen_latencies_us = Vec::new();
+        let mut screen_reads = 0usize;
+        loop {
+            let input_before = Instant::now();
+            engine.write_input(interactive_pane_id, "\x1b[C")?;
+            input_latencies_us.push(input_before.elapsed().as_micros());
+
+            let screen_before = Instant::now();
+            let _ = engine.read_screen(interactive_pane_id)?;
+            screen_latencies_us.push(screen_before.elapsed().as_micros());
+            screen_reads += 1;
+
+            let raw = engine.debug_output(agent.id)?;
+            if raw[run.before_raw_len.min(raw.len())..].contains(run.marker.as_str()) {
+                let elapsed = run.started_at.elapsed();
+                let bytes = raw.len().saturating_sub(run.before_raw_len);
+                input_latencies_us.sort_unstable();
+                screen_latencies_us.sort_unstable();
+                return Ok((
+                    input_latencies_us,
+                    screen_latencies_us,
+                    screen_reads,
+                    elapsed,
+                    bytes,
+                ));
+            }
+            if run.started_at.elapsed() >= timeout {
+                bail!("timed out waiting for agent-startup marker {}", run.marker);
+            }
+            std::thread::sleep(poll_interval);
+        }
+    })();
+
+    engine.destroy_session(agent.id)?;
+
+    let (input_latencies_us, screen_latencies_us, screen_reads, elapsed, bytes) = result?;
+    println!(
+        "bench_agent_startup_stall lines={} bytes={} input_writes={} screen_reads={} elapsed_ms={} input_min_us={} input_p50_us={} input_p95_us={} input_max_us={} screen_read_min_us={} screen_read_p50_us={} screen_read_p95_us={} screen_read_max_us={}",
+        lines,
+        bytes,
+        input_latencies_us.len(),
+        screen_reads,
+        elapsed.as_millis(),
+        input_latencies_us[0],
+        percentile(&input_latencies_us, 0.50),
+        percentile(&input_latencies_us, 0.95),
+        *input_latencies_us.last().unwrap_or(&0),
+        screen_latencies_us[0],
+        percentile(&screen_latencies_us, 0.50),
+        percentile(&screen_latencies_us, 0.95),
+        *screen_latencies_us.last().unwrap_or(&0)
+    );
+    Ok(())
+}
+
 fn run_focus_switch_benchmark(
     engine: &unterm_engine::next_core::NextCoreEngine,
     initial_pane_id: usize,
@@ -1105,6 +1188,24 @@ fn main() -> Result<()> {
             Duration::from_millis(args.timeout_ms),
         )
         .with_context(|| format!("bench_dual_agents failed for session {}", session.id))?;
+    }
+
+    if let Some(lines) = args.bench_agent_startup_lines {
+        run_agent_startup_stall_benchmark(
+            &engine,
+            session.id,
+            args.cols,
+            args.rows,
+            lines,
+            Duration::from_millis(args.poll_ms),
+            Duration::from_millis(args.timeout_ms),
+        )
+        .with_context(|| {
+            format!(
+                "bench_agent_startup_stall failed for session {}",
+                session.id
+            )
+        })?;
     }
 
     if let Some(lines) = args.bench_screen_read_lines {

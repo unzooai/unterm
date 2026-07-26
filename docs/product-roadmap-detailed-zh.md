@@ -638,6 +638,7 @@ MCP/CLI：
 - 基础 VT/screen/scrollback。
 - input/paste benchmark。
 - output flood benchmark。
+- agent startup stall benchmark。
 - MCP basics。
 
 ### M4：next-core Alpha
@@ -700,7 +701,7 @@ MCP/CLI：
 - scrollback paging 10k lines
 - dual pseudo-agent output
 - screen read during flood
-- Codex startup stall probe
+- agent startup stall probe
 - completion accept latency
 - tab switch latency
 
@@ -803,7 +804,7 @@ Agent：
 - freeze report 明显下降。
 - paste failure 接近 0。
 - instance lost 接近 0。
-- Codex startup stall 接近 0。
+- Codex/agent startup stall 接近 0。
 - MCP during flood 可响应。
 
 产品指标：
@@ -821,7 +822,7 @@ Agent：
 1. 固化当前未提交的 engine selector 测试和文档。
 2. 重新跑 `cargo check -p unterm`、`cargo check -p unterm-engine --bins`。
 3. 提交并推送当前 next-core selector 工作。
-4. 新增 Codex startup stall 诊断点。
+4. 用 standalone agent startup stall benchmark 固化 Codex 启动卡顿基线。
 5. 排查 input/paste/completion 是否共用阻塞路径。
 6. 排查 paint path 中 sidebar、agent、cwd、process scan。
 7. 修 Rename tab 误触。

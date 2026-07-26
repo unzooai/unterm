@@ -40,7 +40,7 @@ Run the Phase 2 next-core benchmark suite and generate `docs/next-core-benchmark
 .\unterm-engine\bench-next-core.ps1
 ```
 
-The runner builds `unterm-next-core`, verifies the machine-readable `--json` probe output, executes the current input-write/input-burst/echo/output/scrollback/viewport-scroll/viewport-scroll-under-flood/paste/dual-agent/screen-read/focus-switch/session-create/session-ready benchmarks, writes human-readable summary and raw output into the Markdown report, and writes machine-readable gate results into the JSON summary. Any failed benchmark or gate exits non-zero.
+The runner builds `unterm-next-core`, verifies the machine-readable `--json` probe output, executes the current input-write/input-burst/echo/output/scrollback/viewport-scroll/viewport-scroll-under-flood/paste/dual-agent/agent-startup-stall/screen-read/focus-switch/session-create/session-ready benchmarks, writes human-readable summary and raw output into the Markdown report, and writes machine-readable gate results into the JSON summary. Any failed benchmark or gate exits non-zero.
 
 Verify an existing JSON summary without rerunning the benchmark suite:
 
@@ -148,6 +148,14 @@ cargo run -p unterm-engine --bin unterm-next-core -- --bench-dual-agent-lines 50
 ```
 
 The dual-agent benchmark starts two background `cmd.exe` sessions that emit output concurrently, then measures echo latency in the interactive session while those streams are active.
+
+Agent startup stall benchmark:
+
+```powershell
+cargo run -p unterm-engine --bin unterm-next-core -- --bench-agent-startup-lines 5000 --timeout-ms 30000 --wait-ms 100 --write "exit`r" -- cmd.exe
+```
+
+The startup-stall benchmark starts one pseudo-agent session that immediately emits a large startup burst, then repeatedly sends right-arrow writes and reads the interactive screen until the burst completes. It reports input and screen-read p95 latency, covering the stall class seen when Codex or Claude starts while the user is typing or accepting completion.
 
 Screen text during output flood benchmark:
 
