@@ -970,7 +970,10 @@ fn observe_ghost_text_key(pane_id: u64, key: &termwiz::input::KeyCode, mods: Mod
         // away from the end-of-line, the buffer length no longer
         // matches the cursor column and any prediction would render
         // in the wrong place. Bail out rather than draw garbage.
-        KeyCode::LeftArrow | KeyCode::RightArrow | KeyCode::Home => {
+        KeyCode::LeftArrow
+        | KeyCode::RightArrow
+        | KeyCode::ApplicationRightArrow
+        | KeyCode::Home => {
             crate::ghost_text::cancel_input(pane_id);
             return;
         }

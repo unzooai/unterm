@@ -5005,6 +5005,9 @@ impl TermWindow {
                 };
                 if let Err(e) = pane.writer().write_all(continuation.as_bytes()) {
                     log::error!("AcceptGhostText write_all failed: {e:#}");
+                } else {
+                    crate::cockpit::on_user_input(pane_id);
+                    self.maybe_scroll_to_bottom_for_input(pane);
                 }
             }
             ShowInsights => self.show_insights_overlay(),

@@ -1071,7 +1071,9 @@ impl super::TermWindow {
                 } else {
                     let _ = self.activate_tab(tab_idx as isize);
                     // Keep the press armed as a drag so moving the cursor
-                    // reorders the (now active) tab live.
+                    // reorders the (now active) tab live. The drag path has
+                    // a small movement threshold so a normal click with
+                    // device jitter does not repeatedly reorder tabs.
                     self.dragging.replace((item, event));
                 }
                 context.invalidate();
@@ -1093,6 +1095,13 @@ impl super::TermWindow {
         event: &MouseEvent,
         context: &dyn WindowOps,
     ) {
+        let dx = (event.coords.x - start_event.coords.x).abs();
+        let dy = (event.coords.y - start_event.coords.y).abs();
+        if dx < 4 && dy < 4 {
+            self.dragging.replace((item, start_event));
+            return;
+        }
+
         let y = event.coords.y;
         let target = self
             .ui_items

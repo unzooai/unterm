@@ -123,6 +123,11 @@ fn current_id() -> &'static Mutex<Option<String>> {
     ID.get_or_init(|| Mutex::new(None))
 }
 
+fn current_info() -> &'static Mutex<Option<InstanceInfo>> {
+    static INFO: std::sync::OnceLock<Mutex<Option<InstanceInfo>>> = std::sync::OnceLock::new();
+    INFO.get_or_init(|| Mutex::new(None))
+}
+
 fn last_written_cwd() -> &'static Mutex<Option<Option<String>>> {
     static CWD: std::sync::OnceLock<Mutex<Option<Option<String>>>> = std::sync::OnceLock::new();
     CWD.get_or_init(|| Mutex::new(None))
@@ -188,13 +193,13 @@ pub fn pid_alive(pid: u32) -> bool {
         use winapi::um::winnt::PROCESS_QUERY_LIMITED_INFORMATION;
         let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
         if h.is_null() {
-            return false;
+            return true;
         }
         let mut code: u32 = 0;
         let ok = GetExitCodeProcess(h, &mut code) != 0;
         CloseHandle(h);
         // STILL_ACTIVE (259) means the process hasn't exited.
-        ok && code == 259
+        !ok || code == 259
     }
 }
 
@@ -325,6 +330,7 @@ pub fn read_current() -> InstanceInfo {
     fs::read_to_string(instance_file(&id))
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
+        .or_else(|| current_info().lock().clone())
         .unwrap_or_default()
 }
 
@@ -358,6 +364,7 @@ pub fn write_initial(mcp_port: u16) -> Result<InstanceInfo> {
         platform: std::env::consts::OS.to_string(),
     };
     write_atomic(&instance_file(&id), &info)?;
+    *current_info().lock() = Some(info.clone());
 
     claim_compat_files_if_needed(&info)?;
     Ok(info)
@@ -375,9 +382,11 @@ pub fn set_http_port(port: u16) -> Result<InstanceInfo> {
     let mut info: InstanceInfo = fs::read_to_string(instance_file(&id))
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
+        .or_else(|| current_info().lock().clone())
         .unwrap_or_default();
     info.http_port = port;
     write_atomic(&instance_file(&id), &info)?;
+    *current_info().lock() = Some(info.clone());
     claim_compat_files_if_needed(&info)?;
     Ok(info)
 }
@@ -398,17 +407,35 @@ pub fn set_cwd(cwd: Option<String>) -> Result<()> {
         None => return Ok(()),
     };
     let _g = file_lock().lock();
-    let mut info: InstanceInfo = match fs::read_to_string(instance_file(&id)) {
+    let path = instance_file(&id);
+    let file_missing = !path.exists();
+    let mut info: InstanceInfo = match fs::read_to_string(&path) {
         Ok(s) => serde_json::from_str(&s).unwrap_or_default(),
-        Err(_) => return Ok(()),
+        Err(_) => current_info().lock().clone().unwrap_or_default(),
     };
-    if info.cwd == cwd {
+    if info.id.is_empty() {
+        info.id = id.clone();
+    }
+    if info.pid == 0 {
+        info.pid = std::process::id();
+    }
+    if info.started_at.is_empty() {
+        info.started_at = chrono::Local::now().to_rfc3339();
+    }
+    if info.version.is_empty() {
+        info.version = env!("CARGO_PKG_VERSION").to_string();
+    }
+    if info.platform.is_empty() {
+        info.platform = std::env::consts::OS.to_string();
+    }
+    if info.cwd == cwd && !file_missing {
         *last_written_cwd().lock() = Some(cwd);
         claim_compat_files_if_needed(&info)?;
         return Ok(()); // no change
     }
     info.cwd = cwd.clone();
-    write_atomic(&instance_file(&id), &info)?;
+    write_atomic(&path, &info)?;
+    *current_info().lock() = Some(info.clone());
     claim_compat_files_if_needed(&info)?;
     *last_written_cwd().lock() = Some(cwd);
     Ok(())
@@ -431,10 +458,11 @@ pub fn set_profile(profile: Option<String>) -> Result<()> {
     let _g = file_lock().lock();
     let mut info: InstanceInfo = match fs::read_to_string(instance_file(&id)) {
         Ok(s) => serde_json::from_str(&s).unwrap_or_default(),
-        Err(_) => return Ok(()),
+        Err(_) => current_info().lock().clone().unwrap_or_default(),
     };
     info.profile = profile;
     write_atomic(&instance_file(&id), &info)?;
+    *current_info().lock() = Some(info);
     Ok(())
 }
 
@@ -448,10 +476,11 @@ pub fn set_title(title: Option<String>) -> Result<()> {
     let _g = file_lock().lock();
     let mut info: InstanceInfo = match fs::read_to_string(instance_file(&id)) {
         Ok(s) => serde_json::from_str(&s).unwrap_or_default(),
-        Err(_) => return Ok(()),
+        Err(_) => current_info().lock().clone().unwrap_or_default(),
     };
     info.title = title;
     write_atomic(&instance_file(&id), &info)?;
+    *current_info().lock() = Some(info);
     Ok(())
 }
 
@@ -470,6 +499,7 @@ pub fn shutdown() {
         return;
     };
     let _g = file_lock().lock();
+    *current_info().lock() = None;
     let _ = fs::remove_file(instance_file(&id));
     // Was I the active? If so, hand off — clear the pointer and pick
     // the next live instance, if any. Single-instance agents will

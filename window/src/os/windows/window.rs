@@ -7,7 +7,7 @@ use crate::{
     RequestedWindowGeometry, ResolvedGeometry, ScreenPoint, ScreenRect, ULength, WindowDecorations,
     WindowEvent, WindowEventSender, WindowOps, WindowState,
 };
-use anyhow::{bail, Context};
+use anyhow::bail;
 use async_trait::async_trait;
 use config::{ConfigHandle, ImePreeditRendering, SystemBackdrop};
 use lazy_static::lazy_static;
@@ -3011,15 +3011,15 @@ unsafe fn drop_files(hwnd: HWND, _msg: UINT, wparam: WPARAM, _lparam: LPARAM) ->
     Some(0)
 }
 
-/// Append-only journal of window lifecycle messages in
-/// `~/.unterm/winproc.log`. The "minimize then can't restore from the
-/// taskbar" report can't be reproduced under an agent sandbox (separate
-/// desktop, no taskbar), so the shipped binary keeps a low-volume trace
-/// of exactly the messages involved in minimize/restore for postmortem
-/// reading. Only state transitions are logged; steady-state paints and
-/// moves produce nothing.
+/// Optional append-only journal of window lifecycle messages in
+/// `~/.unterm/winproc.log`, enabled with `UNTERM_WINPROC_LOG=1`.
+/// Keep it opt-in: this runs inside WndProc, so synchronous filesystem IO
+/// during taskbar activate/restore can make the whole window look hung.
 fn winlog(hwnd: HWND, text: &str) {
     use std::io::Write;
+    if std::env::var_os("UNTERM_WINPROC_LOG").is_none() {
+        return;
+    }
     let Ok(profile) = std::env::var("USERPROFILE") else {
         return;
     };
@@ -3160,7 +3160,6 @@ unsafe fn do_wnd_proc(hwnd: HWND, msg: UINT, wparam: WPARAM, lparam: LPARAM) -> 
         }
     }
 }
-
 
 unsafe extern "system" fn wnd_proc(
     hwnd: HWND,

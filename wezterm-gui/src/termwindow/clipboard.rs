@@ -49,21 +49,19 @@ impl TermWindow {
             ClipboardPasteSource::Clipboard => Clipboard::Clipboard,
             ClipboardPasteSource::PrimarySelection => Clipboard::PrimarySelection,
         };
-        // Read the clipboard on a dedicated background thread on macOS.
-        // pasteboards are lazy: `read()` makes a synchronous cross-process
-        // request to whichever app owns the clipboard (a browser, editor, IM),
-        // and if that app is busy or the payload is large/rich, the request
-        // blocks. Done on the GUI thread -- where paste_from_clipboard is
-        // called from the mouse/key handler -- that froze the whole window.
-        // The macOS backend wraps the complete NSPasteboard operation in an
-        // autorelease pool, so it is safe to run on this dedicated worker.
-        #[cfg(target_os = "macos")]
+        // Read the clipboard on a dedicated background thread on platforms
+        // where the backend may block while talking to another process. macOS
+        // pasteboards are lazy; Windows clipboard ownership is process-global
+        // and transiently contended by clipboard managers/RDP/previous owners.
+        // Doing either read on the GUI event handler makes right-click paste
+        // and normal typing feel sticky.
+        #[cfg(any(target_os = "macos", windows))]
         {
             let window_for_read = window.clone();
             let reader = promise::spawn::spawn_into_new_thread(move || {
-                // get_clipboard resolves synchronously on this thread (on macOS it
-                // performs the NSPasteboard read here); await drains the ready
-                // future without blocking any executor.
+                // get_clipboard resolves synchronously on this thread for the
+                // blocking backends; await drains the ready future without
+                // blocking the GUI event loop.
                 promise::spawn::block_on(window_for_read.get_clipboard(clipboard))
             });
             promise::spawn::spawn(async move {
@@ -79,11 +77,9 @@ impl TermWindow {
             })
             .detach();
         }
-        // Windows and Unix window backends expect clipboard access to be
-        // initiated on their normal event-loop thread. Moving that request to
-        // an arbitrary worker made right-click paste silently stop working on
-        // Windows. The returned future remains asynchronous.
-        #[cfg(not(target_os = "macos"))]
+        // Other Unix backends return an async future without the same short,
+        // synchronous retry loop in this call site.
+        #[cfg(all(not(target_os = "macos"), not(windows)))]
         {
             let future = window.get_clipboard(clipboard);
             promise::spawn::spawn(async move {

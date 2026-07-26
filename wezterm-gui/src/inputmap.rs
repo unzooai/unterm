@@ -143,6 +143,11 @@ impl InputMap {
                 action: KeyAssignment::AcceptGhostText,
             });
         keys.default
+            .entry((KeyCode::ApplicationRightArrow, Modifiers::NONE))
+            .or_insert(KeyTableEntry {
+                action: KeyAssignment::AcceptGhostText,
+            });
+        keys.default
             .entry((KeyCode::End, Modifiers::NONE))
             .or_insert(KeyTableEntry {
                 action: KeyAssignment::AcceptGhostText,
