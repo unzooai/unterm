@@ -42,6 +42,14 @@ Verify an existing JSON summary without rerunning the benchmark suite:
 
 The verifier checks the required gate and benchmark names, requires every gate to pass, and exits non-zero if the summary is missing or stale in shape.
 
+CI can use the lightweight wrapper to verify the committed summary:
+
+```powershell
+.\ci\next-core-benchmark.ps1
+```
+
+Use `-RunBenchmark` when the job should refresh the Markdown/JSON artifacts before verifying them.
+
 ## Experimental MCP Engine Selector
 
 The GUI defaults to the current WezTerm-backed engine. For MCP/product-service experiments, start Unterm with:
