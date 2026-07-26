@@ -1,7 +1,8 @@
 param(
     [string]$SummaryJsonPath = "",
     [int]$ExpectedGateCount = 10,
-    [int]$ExpectedBenchmarkCount = 11
+    [int]$ExpectedBenchmarkCount = 11,
+    [switch]$SkipCommitReachabilityCheck
 )
 
 $ErrorActionPreference = "Stop"
@@ -22,6 +23,17 @@ if ($summary.ok -ne $true) {
 }
 if ([string]::IsNullOrWhiteSpace($summary.commit)) {
     throw "benchmark summary is missing commit"
+}
+if (-not $SkipCommitReachabilityCheck) {
+    $isWorkTree = & git -C $RepoRoot rev-parse --is-inside-work-tree 2>$null
+    if ($LASTEXITCODE -ne 0 -or $isWorkTree -ne "true") {
+        throw "cannot verify benchmark summary commit without a git worktree; pass -SkipCommitReachabilityCheck to skip"
+    }
+
+    & git -C $RepoRoot merge-base --is-ancestor $summary.commit HEAD 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        throw "benchmark summary commit is not reachable from HEAD: $($summary.commit)"
+    }
 }
 if ($summary.json_smoke.Engine -ne "next-core") {
     throw "json smoke engine is not next-core: $($summary.json_smoke.Engine)"
@@ -88,4 +100,5 @@ foreach ($name in $requiredBenchmarks) {
     }
 }
 
-Write-Host "next-core benchmark summary ok: commit=$($summary.commit) gates=$($gates.Count) benchmarks=$($benchmarks.Count)"
+$commitReachability = if ($SkipCommitReachabilityCheck) { "skipped" } else { "true" }
+Write-Host "next-core benchmark summary ok: commit=$($summary.commit) commit_reachable=$commitReachability gates=$($gates.Count) benchmarks=$($benchmarks.Count)"
