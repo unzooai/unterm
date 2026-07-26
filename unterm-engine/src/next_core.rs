@@ -3332,6 +3332,11 @@ impl NextCoreEngine {
                     format!("\x1b[?{};{}R", screen.cursor_y + 1, screen.cursor_x + 1).as_bytes(),
                 );
                 idx += "\x1b[?6n".len();
+            } else if rest.starts_with("\x1b[18t") {
+                response.extend_from_slice(
+                    format!("\x1b[8;{};{}t", screen.rows, screen.cols).as_bytes(),
+                );
+                idx += "\x1b[18t".len();
             } else if rest.starts_with("\x1b[5n") {
                 response.extend_from_slice(b"\x1b[0n");
                 idx += "\x1b[5n".len();
@@ -4321,6 +4326,21 @@ mod tests {
     }
 
     #[test]
+    fn answers_text_area_size_queries_from_screen_dimensions() {
+        let _guard = test_guard();
+        let screen = NextCoreScreen::new(132, 43);
+        let bytes = Arc::new(Mutex::new(Vec::new()));
+        let writer: Arc<Mutex<Box<dyn Write + Send>>> =
+            Arc::new(Mutex::new(Box::new(SharedWriter {
+                bytes: Arc::clone(&bytes),
+            })));
+
+        NextCoreEngine::answer_terminal_queries("\x1b[18t", &screen, &writer);
+
+        assert_eq!(bytes.lock().as_slice(), b"\x1b[8;43;132t");
+    }
+
+    #[test]
     fn answers_multiple_terminal_queries_in_chunk() {
         let _guard = test_guard();
         let mut screen = NextCoreScreen::new(80, 10);
@@ -4332,14 +4352,14 @@ mod tests {
             })));
 
         NextCoreEngine::answer_terminal_queries(
-            "\x1b[5n\x1b[?6n\x1b[6n\x1b[>c\x1b[c",
+            "\x1b[5n\x1b[?6n\x1b[18t\x1b[6n\x1b[>c\x1b[c",
             &screen,
             &writer,
         );
 
         assert_eq!(
             bytes.lock().as_slice(),
-            b"\x1b[0n\x1b[?3;5R\x1b[3;5R\x1b[>0;0;0c\x1b[?64;1;2;6;9;15;18;21;22c"
+            b"\x1b[0n\x1b[?3;5R\x1b[8;10;80t\x1b[3;5R\x1b[>0;0;0c\x1b[?64;1;2;6;9;15;18;21;22c"
         );
     }
 
