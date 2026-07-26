@@ -61,8 +61,8 @@ Known gaps:
 
 | Category | Count | Methods |
 |---|---:|---|
-| Engine-neutral | 34 | `session.list`, `session.get`, `session.status`, `session.create`, `session.split`, `session.focus`, `session.input`, `session.paste`, `session.idle`, `session.cwd`, `session.history`, `session.destroy`, `session.recording_start`, `session.recording_stop`, `session.recording_status`, `session.recording_attach_trace`, `screen.read`, `screen.text`, `screen.scrollback_text`, `screen.cursor`, `screen.detect_errors`, `exec.run`, `exec.send`, `exec.run_wait`, `exec.status`, `exec.cancel`, `signal.send`, `orchestrate.launch`, `orchestrate.broadcast`, `orchestrate.wait`, `workspace.save`, `workspace.restore`, `screen.scroll`, `server.info` |
-| Partial | 4 | `session.resize`, `session.export_markdown`, `screen.search`, `server.health` |
+| Engine-neutral | 35 | `session.list`, `session.get`, `session.status`, `session.create`, `session.split`, `session.focus`, `session.input`, `session.paste`, `session.idle`, `session.cwd`, `session.history`, `session.destroy`, `session.recording_start`, `session.recording_stop`, `session.recording_status`, `session.recording_attach_trace`, `screen.read`, `screen.text`, `screen.scrollback_text`, `screen.cursor`, `screen.search`, `screen.detect_errors`, `exec.run`, `exec.send`, `exec.run_wait`, `exec.status`, `exec.cancel`, `signal.send`, `orchestrate.launch`, `orchestrate.broadcast`, `orchestrate.wait`, `workspace.save`, `workspace.restore`, `screen.scroll`, `server.info` |
+| Partial | 3 | `session.resize`, `session.export_markdown`, `server.health` |
 | Product-only | 42 | `meta.surface`, `session.audit_log`, `session.suggest`, `session.suggest_status`, `session.suggest_cancel`, `session.suggest_list`, `agent.identify`, `agent.whoami`, `agent.list_trusted`, `agent.trust`, `agent.untrust`, `policy.set`, `policy.check`, `server.capabilities`, `profile.list`, `profile.current`, `profile.audit`, `fleet.list`, `review.list`, `review.diff`, `review.verify`, `review.rollback`, `review.merge`, `review.discard`, `proxy.status`, `proxy.nodes`, `proxy.switch`, `proxy.speedtest`, `proxy.configure`, `proxy.disable`, `proxy.env`, `proxy.rotation`, `proxy.set_nodes`, `proxy.clash_status`, `proxy.clash_select`, `proxy.clash_set_controller`, `upload.file`, `system.info`, `selftest.run`, `workspace.list`, `session.recording_list`, `session.recording_read` |
 | WezTerm-only | 18 | `agent.status`, `agent.signal`, `cockpit.inbox`, `fleet.launch`, `fleet.clean`, `fleet.retry`, `ghost.debug`, `capture.screen`, `capture.window`, `capture.select`, `capture.clipboard`, `capture.scrollback`, `capture.window_scroll`, `instance.list`, `instance.info`, `instance.set_title`, `instance.focus`, `system.launch_admin` |
 | Unsupported stub | 2 | `session.env`, `session.set_env` |
@@ -121,7 +121,7 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 | `screen.scrollback_text` | Engine-neutral | `ScreenEngine::read_scrollback_text` plus active-session fallback | Active fallback currently uses engine sessions; OK. |
 | `screen.cursor` | Engine-neutral | `ScreenEngine::cursor` | Baseline next-core capability. |
 | `screen.scroll` | Engine-neutral | `ScreenEngine::read_lines` | Method name is read-only despite "scroll". |
-| `screen.search` | Partial | `ScreenEngine::search`, optional GUI viewport jump still WezTerm-specific | Split read-only search from GUI jump capability. |
+| `screen.search` | Engine-neutral | `ScreenEngine::search`; optional `goto` only applies when current engine owns a WezTerm GUI viewport | `next-core` returns matches and reports `goto_skipped` instead of reaching into WezTerm Mux/window state. |
 | `screen.detect_errors` | Engine-neutral | `ScreenEngine::read_screen` plus product heuristics | Product-only heuristic on engine snapshot. |
 
 ## Agent, Cockpit, Fleet, Review

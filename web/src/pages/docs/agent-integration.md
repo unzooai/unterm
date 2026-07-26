@@ -118,7 +118,7 @@ A few notes on the methods used:
 - `orchestrate.launch` is `session.create` plus a typed `command` line. If you don't need to run anything (just want a blank shell pane), use `session.create` directly — it accepts `cwd`, `cols`, `rows`.
 - `session.input` types characters as if the user typed them, including control codes. Append `\n` to actually submit.
 - `orchestrate.wait` blocks server-side until a regex-free substring match hits the visible screen, or `timeout_ms` elapses. Returns `{ matched: bool, timed_out?: bool, pattern }`. Cheaper than polling from the client.
-- `screen.search` scans visible-plus-scrollback for a substring and returns `{ matches: [{row, col, text}], total }`. Use this for "did the run finish yet" checks where you don't want to block. Pass `goto: true` (or `goto_match: N`) to also scroll the user-visible viewport to the match — useful when handing a finding back to the human ("the error is on screen now").
+- `screen.search` scans visible-plus-scrollback for a substring and returns `{ matches: [{row, col, text}], total }`. Use this for "did the run finish yet" checks where you don't want to block. Pass `goto: true` (or `goto_match: N`) to also scroll the user-visible viewport to the match when the active engine has a GUI viewport; headless and next-core engines return matches with `goto_skipped` instead.
 
 ## Pattern 2 — Long-running watcher
 

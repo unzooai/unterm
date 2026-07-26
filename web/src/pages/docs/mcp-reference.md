@@ -403,7 +403,9 @@ Substring search across visible viewport + scrollback.
 | `goto` | bool | no | Scroll the GUI viewport to the first match so the user sees it. Default `false`. |
 | `goto_match` | number | no | Jump to the Nth match instead (0-based, clamped; implies `goto`). Call again with the next index to step through matches. |
 
-**Returns:** `{ matches: [{ row, col, text }, ...], total: number, scrolled_to: { row, match_index } | null }`
+**Returns:** `{ matches: [{ row, col, text }, ...], total: number, scrolled_to: { row, match_index } | null, goto_skipped?: { reason, engine, row, match_index } | null }`
+
+`goto` only moves the user-visible GUI viewport when the active engine owns one. Headless or next-core engines still return matches and set `goto_skipped` instead of failing the search.
 
 `row` is the **stable row index** — the same coordinate space as
 `screen.scrollback_text`'s `first_row` / `start_line` — so a match stays

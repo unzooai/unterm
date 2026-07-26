@@ -310,7 +310,7 @@ mod engine_neutral_handler_tests {
     use crate::engine::{next_core, SessionEngine};
     use anyhow::Result;
     use parking_lot::Mutex;
-    use serde_json::json;
+    use serde_json::{json, Value};
     use std::sync::OnceLock;
 
     fn env_lock() -> &'static Mutex<()> {
@@ -350,6 +350,62 @@ mod engine_neutral_handler_tests {
         let (destroyed, pane_id) = result.expect("destroy next-core session through MCP handler");
         assert_eq!(destroyed["destroyed"], true);
         assert!(next_core().get_session(pane_id).is_err());
+    }
+
+    #[test]
+    fn screen_search_goto_is_read_only_for_next_core() {
+        let _guard = env_lock().lock();
+        let previous_engine = std::env::var("UNTERM_ENGINE").ok();
+        std::env::set_var("UNTERM_ENGINE", "next-core");
+
+        let result: Result<(serde_json::Value, usize)> = (|| {
+            let handler = McpHandler::new();
+            let ctx = ConnectionContext::internal("handler-test");
+            let created = handler.handle(
+                &ctx,
+                "session.create",
+                &json!({
+                    "cols": 80,
+                    "rows": 4,
+                    "command": "echo next-core-search"
+                }),
+            )?;
+            let pane_id = created["id"].as_u64().expect("session id") as usize;
+
+            let mut search = json!({});
+            for _ in 0..20 {
+                search = handler.handle(
+                    &ctx,
+                    "screen.search",
+                    &json!({
+                        "pane_id": pane_id,
+                        "pattern": "next-core-search",
+                        "goto": true,
+                    }),
+                )?;
+                if search["total"].as_u64().unwrap_or_default() > 0 {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+
+            let _ = handler.handle(&ctx, "session.destroy", &json!({ "pane_id": pane_id }));
+            Ok((search, pane_id))
+        })();
+
+        match previous_engine {
+            Some(value) => std::env::set_var("UNTERM_ENGINE", value),
+            None => std::env::remove_var("UNTERM_ENGINE"),
+        }
+
+        let (search, pane_id) = result.expect("search next-core session through MCP handler");
+        assert!(next_core().get_session(pane_id).is_err());
+        assert!(search["total"].as_u64().unwrap_or_default() > 0);
+        assert_eq!(search["scrolled_to"], Value::Null);
+        assert_eq!(
+            search["goto_skipped"]["reason"],
+            "engine_has_no_gui_viewport"
+        );
     }
 }
 
@@ -3013,6 +3069,7 @@ impl McpHandler {
             .unwrap_or(50) as usize;
 
         let engine = self.engine();
+        let engine_name = engine.name();
         let search_matches = engine.search(pane_id, pattern, max_results)?;
         let match_rows: Vec<isize> = search_matches.iter().map(|m| m.row as isize).collect();
         let matches: Vec<Value> = search_matches
@@ -3033,6 +3090,7 @@ impl McpHandler {
             || params.get("goto_match").is_some();
 
         let mut scrolled_to = Value::Null;
+        let mut goto_skipped = Value::Null;
         if goto_requested && !match_rows.is_empty() {
             let index = params
                 .get("goto_match")
@@ -3040,14 +3098,24 @@ impl McpHandler {
                 .unwrap_or(0) as usize;
             let index = index.min(match_rows.len() - 1);
             let target = match_rows[index];
-            self.scroll_pane_viewport_to(pane_id, target)?;
-            scrolled_to = json!({ "row": target, "match_index": index });
+            if engine_name == "wezterm" {
+                self.scroll_pane_viewport_to(pane_id, target)?;
+                scrolled_to = json!({ "row": target, "match_index": index });
+            } else {
+                goto_skipped = json!({
+                    "reason": "engine_has_no_gui_viewport",
+                    "engine": engine_name,
+                    "row": target,
+                    "match_index": index,
+                });
+            }
         }
 
         Ok(json!({
             "matches": matches,
             "total": matches.len(),
             "scrolled_to": scrolled_to,
+            "goto_skipped": goto_skipped,
         }))
     }
 
