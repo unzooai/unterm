@@ -1990,6 +1990,10 @@ mod engine_neutral_handler_tests {
             true
         );
         assert_eq!(
+            surface["engine_capabilities"]["diagnostics"]["recording_osc133_command_blocks"],
+            true
+        );
+        assert_eq!(
             surface["engine_capabilities"]["diagnostics"]["validated_capture_scrollback_pane_ids"],
             true
         );
@@ -2033,6 +2037,10 @@ mod engine_neutral_handler_tests {
         );
         assert_eq!(
             capabilities["_engine_capabilities"]["diagnostics"]["recording_block_markdown"],
+            true
+        );
+        assert_eq!(
+            capabilities["_engine_capabilities"]["diagnostics"]["recording_osc133_command_blocks"],
             true
         );
         assert_eq!(

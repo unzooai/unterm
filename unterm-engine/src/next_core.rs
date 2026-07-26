@@ -88,6 +88,9 @@ struct NextCoreRecording {
     trace_ids: Vec<String>,
     text_preview: String,
     blocks: Vec<NextCoreRecordingBlock>,
+    osc133_seen: bool,
+    command_blocks: Vec<NextCoreCommandBlock>,
+    active_command: Option<NextCoreActiveCommand>,
 }
 
 #[derive(Clone, Debug)]
@@ -95,6 +98,34 @@ struct NextCoreRecordingBlock {
     index: u64,
     timestamp_micros: u128,
     text: String,
+}
+
+#[derive(Clone, Debug)]
+struct NextCoreCommandBlock {
+    index: u64,
+    started_micros: u128,
+    ended_micros: Option<u128>,
+    exit_code: Option<String>,
+    text: String,
+}
+
+#[derive(Clone, Debug)]
+struct NextCoreActiveCommand {
+    index: u64,
+    started_micros: u128,
+    text: String,
+}
+
+#[derive(Clone, Debug)]
+struct Osc133Marker {
+    kind: char,
+    exit_code: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+enum Osc133StreamItem<'a> {
+    Text(&'a str),
+    Marker(Osc133Marker),
 }
 
 #[derive(Clone, Debug)]
@@ -1702,7 +1733,7 @@ impl NextCoreEngine {
             md_path: recording.md_path.display().to_string(),
             exit_reason: None,
             parent_session_id: None,
-            osc133_active: false,
+            osc133_active: recording.osc133_seen,
             redaction_active: true,
             redaction_count: 0,
             trace_ids: recording.trace_ids.clone(),
@@ -1765,10 +1796,16 @@ impl NextCoreEngine {
             timestamp_micros,
             text: text.to_string(),
         });
+        Self::record_osc133_command_blocks(recording, text, timestamp_micros);
         if recording.blocks.len() > MAX_RECORDING_BLOCKS {
             recording
                 .blocks
                 .drain(..recording.blocks.len() - MAX_RECORDING_BLOCKS);
+        }
+        if recording.command_blocks.len() > MAX_RECORDING_BLOCKS {
+            recording
+                .command_blocks
+                .drain(..recording.command_blocks.len() - MAX_RECORDING_BLOCKS);
         }
         recording.text_preview.push_str(text);
         if recording.text_preview.len() > MAX_OUTPUT_BYTES {
@@ -1781,6 +1818,126 @@ impl NextCoreEngine {
                 .unwrap_or(0);
             recording.text_preview.drain(..keep_from);
         }
+    }
+
+    fn record_osc133_command_blocks(
+        recording: &mut NextCoreRecording,
+        text: &str,
+        timestamp_micros: u128,
+    ) {
+        for item in Self::split_osc133_stream(text) {
+            match item {
+                Osc133StreamItem::Text(text) => {
+                    if let Some(active) = recording.active_command.as_mut() {
+                        active.text.push_str(text);
+                    }
+                }
+                Osc133StreamItem::Marker(marker) => {
+                    recording.osc133_seen = true;
+                    match marker.kind {
+                        'C' => {
+                            if let Some(active) = recording.active_command.take() {
+                                recording.command_blocks.push(NextCoreCommandBlock {
+                                    index: active.index,
+                                    started_micros: active.started_micros,
+                                    ended_micros: None,
+                                    exit_code: None,
+                                    text: active.text,
+                                });
+                            }
+                            let index = recording
+                                .command_blocks
+                                .last()
+                                .map(|block| block.index.saturating_add(1))
+                                .unwrap_or(1);
+                            recording.active_command = Some(NextCoreActiveCommand {
+                                index,
+                                started_micros: timestamp_micros,
+                                text: String::new(),
+                            });
+                        }
+                        'D' => {
+                            if let Some(active) = recording.active_command.take() {
+                                recording.command_blocks.push(NextCoreCommandBlock {
+                                    index: active.index,
+                                    started_micros: active.started_micros,
+                                    ended_micros: Some(timestamp_micros),
+                                    exit_code: marker.exit_code,
+                                    text: active.text,
+                                });
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
+    fn split_osc133_stream(text: &str) -> Vec<Osc133StreamItem<'_>> {
+        let bytes = text.as_bytes();
+        let mut items = Vec::new();
+        let mut last_text = 0usize;
+        let mut i = 0usize;
+        while i + 1 < bytes.len() {
+            if bytes[i] != 0x1b || bytes[i + 1] != b']' {
+                i += 1;
+                continue;
+            }
+
+            let content_start = i + 2;
+            let Some((content_end, next)) = Self::osc_terminator(bytes, content_start) else {
+                break;
+            };
+            let content = &text[content_start..content_end];
+            let Some(marker) = Self::parse_osc133_marker(content) else {
+                i = next;
+                continue;
+            };
+
+            if last_text < i {
+                items.push(Osc133StreamItem::Text(&text[last_text..i]));
+            }
+            items.push(Osc133StreamItem::Marker(marker));
+            last_text = next;
+            i = next;
+        }
+        if last_text < text.len() {
+            items.push(Osc133StreamItem::Text(&text[last_text..]));
+        }
+        items
+    }
+
+    fn osc_terminator(bytes: &[u8], start: usize) -> Option<(usize, usize)> {
+        let mut i = start;
+        while i < bytes.len() {
+            if bytes[i] == 0x07 {
+                return Some((i, i + 1));
+            }
+            if bytes[i] == 0x1b && i + 1 < bytes.len() && bytes[i + 1] == b'\\' {
+                return Some((i, i + 2));
+            }
+            i += 1;
+        }
+        None
+    }
+
+    fn parse_osc133_marker(content: &str) -> Option<Osc133Marker> {
+        let rest = content.strip_prefix("133;")?;
+        let mut parts = rest.split(';');
+        let kind = parts.next()?.chars().next()?;
+        if !matches!(kind, 'A' | 'B' | 'C' | 'D') {
+            return None;
+        }
+        let exit_code = if kind == 'D' {
+            parts
+                .next()
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+        } else {
+            None
+        };
+        Some(Osc133Marker { kind, exit_code })
     }
 
     fn write_recording_markdown(
@@ -1823,9 +1980,20 @@ impl NextCoreEngine {
             None => writeln!(&mut md, "ended_at: null").ok(),
         };
         writeln!(&mut md, "exit_reason: {}", exit_reason).ok();
-        writeln!(&mut md, "osc133_active: false").ok();
-        writeln!(&mut md, "block_render: chunked_output").ok();
+        let command_blocks = Self::recording_command_blocks(recording);
+        writeln!(&mut md, "osc133_active: {}", recording.osc133_seen).ok();
+        writeln!(
+            &mut md,
+            "block_render: {}",
+            if recording.osc133_seen {
+                "osc133_command_blocks"
+            } else {
+                "chunked_output"
+            }
+        )
+        .ok();
         writeln!(&mut md, "block_count: {}", recording.block_count).ok();
+        writeln!(&mut md, "command_block_count: {}", command_blocks.len()).ok();
         writeln!(&mut md, "total_lines: {}", total_lines).ok();
         writeln!(&mut md, "bytes_raw: {}", recording.bytes_raw).ok();
         writeln!(
@@ -1846,15 +2014,44 @@ impl NextCoreEngine {
             .unwrap_or(&recording.started_at)
             .replace('T', " ");
         writeln!(&mut md, "# Unterm session - {}\n", title_ts).ok();
-        writeln!(
-            &mut md,
-            "> next-core fallback recording; shell command markers were not captured.\n"
-        )
-        .ok();
+        if recording.osc133_seen {
+            writeln!(
+                &mut md,
+                "> next-core recording with OSC133 shell command markers.\n"
+            )
+            .ok();
+        } else {
+            writeln!(
+                &mut md,
+                "> next-core fallback recording; shell command markers were not captured.\n"
+            )
+            .ok();
+        }
+        if !command_blocks.is_empty() {
+            writeln!(&mut md, "## Command Blocks\n").ok();
+            for block in &command_blocks {
+                let stripped = Self::strip_ansi(&block.text);
+                let (redacted_block, _) = Self::redact_recording_text(&stripped);
+                writeln!(
+                    &mut md,
+                    "### Command {} `{}`\n\n- started: `{}`\n- ended: `{}`\n- exit_code: `{}`\n\n```\n{}\n```\n",
+                    block.index,
+                    block.started_micros,
+                    block.started_micros,
+                    block
+                        .ended_micros
+                        .map(|value| value.to_string())
+                        .unwrap_or_else(|| "null".to_string()),
+                    block.exit_code.as_deref().unwrap_or("null"),
+                    redacted_block.trim_end()
+                )
+                .ok();
+            }
+        }
         if !recording.blocks.is_empty() {
             writeln!(
                 &mut md,
-                "## Output Blocks\n\nThese blocks are output chunks captured by next-core; OSC133 command markers are not available yet.\n"
+                "## Output Blocks\n\nThese blocks are raw output chunks captured by next-core.\n"
             )
             .ok();
             for block in &recording.blocks {
@@ -1874,6 +2071,20 @@ impl NextCoreEngine {
         writeln!(&mut md, "```\n{}\n```", redacted.trim_end()).ok();
 
         md
+    }
+
+    fn recording_command_blocks(recording: &NextCoreRecording) -> Vec<NextCoreCommandBlock> {
+        let mut blocks = recording.command_blocks.clone();
+        if let Some(active) = recording.active_command.as_ref() {
+            blocks.push(NextCoreCommandBlock {
+                index: active.index,
+                started_micros: active.started_micros,
+                ended_micros: None,
+                exit_code: None,
+                text: active.text.clone(),
+            });
+        }
+        blocks
     }
 
     fn env_var_or(name: &str, default: &str) -> String {
@@ -3118,6 +3329,9 @@ impl RecordingEngine for NextCoreEngine {
             trace_ids: Vec::new(),
             text_preview: String::new(),
             blocks: Vec::new(),
+            osc133_seen: false,
+            command_blocks: Vec::new(),
+            active_command: None,
         };
         Self::upsert_recording_index(&recording, None)?;
         *slot = Some(recording);
@@ -4790,6 +5004,70 @@ mod tests {
         assert!(!markdown.contains("\x1b[31m"));
         assert!(!markdown.contains("super-secret-value"));
         assert!(std::fs::read_to_string(sessions_root.join("index.json"))?.contains("trace-1"));
+
+        engine.destroy_session(session.id)?;
+        let _ = std::fs::remove_dir_all(&sessions_root);
+        Ok(())
+    }
+
+    #[test]
+    fn recording_markdown_renders_osc133_command_blocks() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or_default();
+        let sessions_root = std::env::temp_dir().join(format!(
+            "unterm-next-core-osc133-recording-{}-{suffix}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&sessions_root);
+        std::fs::create_dir_all(&sessions_root)?;
+        let previous_root = std::env::var("UNTERM_SESSIONS_ROOT").ok();
+        std::env::set_var("UNTERM_SESSIONS_ROOT", &sessions_root);
+
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 4,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        let started = engine.start_recording(session.id)?;
+        set_output_for_test(
+            session.id,
+            concat!(
+                "prompt> echo hi\r\n",
+                "\x1b]133;C\x07",
+                "command output token=super-secret-value\r\n",
+                "\x1b]133;D;0\x07",
+                "prompt> "
+            ),
+        )?;
+        let stopped = engine.stop_recording(session.id)?;
+
+        match previous_root {
+            Some(value) => std::env::set_var("UNTERM_SESSIONS_ROOT", value),
+            None => std::env::remove_var("UNTERM_SESSIONS_ROOT"),
+        }
+
+        assert_eq!(started.session_id, stopped.session_id);
+        let markdown = std::fs::read_to_string(&stopped.md_path)?;
+        assert!(markdown.contains("osc133_active: true"));
+        assert!(markdown.contains("block_render: osc133_command_blocks"));
+        assert!(markdown.contains("command_block_count: 1"));
+        assert!(markdown.contains("## Command Blocks"));
+        assert!(markdown.contains("### Command 1 `"));
+        assert!(markdown.contains("exit_code: `0`"));
+        assert!(markdown.contains("command output [REDACTED]"));
+        assert!(!markdown.contains("OSC133 command markers are not available yet"));
+        assert!(!markdown.contains("super-secret-value"));
+        let index = std::fs::read_to_string(sessions_root.join("index.json"))?;
+        assert!(index.contains("\"osc133_active\": true"));
 
         engine.destroy_session(session.id)?;
         let _ = std::fs::remove_dir_all(&sessions_root);

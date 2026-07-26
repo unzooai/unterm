@@ -46,7 +46,7 @@ Current covered operations:
 - write input
 - paste input
 - PTY write confirmation diagnostics without WezTerm pane-object ownership
-- recording lifecycle/export with next-core chunked-output block markdown
+- recording lifecycle/export with next-core chunked-output fallback and OSC133 command-block markdown
 - validated explicit `capture.scrollback` pane ids through the shared session resolver
 - redacted `session.create` launch decision summary for profile/proxy/overlay/command provenance
 - redacted `workspace.restore` template launch plan for cwd/profile/command provenance
@@ -60,7 +60,6 @@ Current covered operations:
 Known gaps:
 
 - real GUI viewport scrolling/jump for the future next-core renderer
-- OSC133 command-marker active recording parity
 - native window capture/focus/title ownership beyond the explicit host-window bridge contract
 - native instance create/close lifecycle ownership beyond server-info registry observability
 - domain, privilege, proxy rotation, and restart launch policy decisions beyond typed env/profile/proxy/overlay/workspace-template/default-shell provenance
@@ -107,7 +106,7 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 | `session.recording_list` | Product-only | Recording archive index | No live terminal dependency. |
 | `session.recording_read` | Product-only | Recording archive log renderer | No live terminal dependency. |
 | `session.recording_attach_trace` | Engine-neutral | Shared pane-id resolver plus `RecordingEngine::attach_recording_trace` | Trace ids are stored in active recording state. |
-| `session.export_markdown` | Engine-neutral | Shared pane-id resolver plus `RecordingEngine::export_markdown` for active recordings; `ScreenEngine::read_scrollback_text` for inactive snapshots | Active and inactive export no longer require handler access to WezTerm recorder or pane. `next-core` active exports include front matter, trace ids, block/byte counts, ANSI stripping, and basic redaction. |
+| `session.export_markdown` | Engine-neutral | Shared pane-id resolver plus `RecordingEngine::export_markdown` for active recordings; `ScreenEngine::read_scrollback_text` for inactive snapshots | Active and inactive export no longer require handler access to WezTerm recorder or pane. `next-core` active exports include front matter, trace ids, block/byte counts, OSC133 command blocks when shell markers are present, ANSI stripping, and basic redaction. |
 
 ## Exec and Signal Methods
 
@@ -244,11 +243,11 @@ Work:
 - Keep one-shot markdown export on `ScreenEngine::read_scrollback_text`.
 - Keep live stream recording and active export behind `RecordingEngine`.
 - Keep raw PTY stream tap implemented in `next-core`.
-- Move remaining OSC133 command block formatting differences into product-level recording services.
+- Keep OSC133 command block parsing behind `RecordingEngine` so product services can consume command-aware markdown without touching a pane.
 
 Acceptance:
 
-- `session.export_markdown` works in `next-core` for inactive scrollback and active recording export with markdown front matter/redaction.
+- `session.export_markdown` works in `next-core` for inactive scrollback and active recording export with markdown front matter/redaction plus OSC133 command blocks when markers are present.
 - Recording lifecycle/export MCP methods call `RecordingEngine` rather than WezTerm helpers directly.
 - Active recording state no longer depends on WezTerm pane storage.
 
