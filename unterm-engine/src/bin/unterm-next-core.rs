@@ -22,6 +22,7 @@ struct Args {
     bench_paste_kb: Option<usize>,
     bench_dual_agent_lines: Option<usize>,
     bench_screen_read_lines: Option<usize>,
+    bench_focus_switches: Option<usize>,
     poll_ms: u64,
     timeout_ms: u64,
     json: bool,
@@ -45,6 +46,7 @@ fn parse_args() -> Result<Args> {
         bench_paste_kb: None,
         bench_dual_agent_lines: None,
         bench_screen_read_lines: None,
+        bench_focus_switches: None,
         poll_ms: 5,
         timeout_ms: 5000,
         json: false,
@@ -154,6 +156,13 @@ fn parse_args() -> Result<Args> {
                         .parse()?,
                 );
             }
+            "--bench-focus-switches" => {
+                parsed.bench_focus_switches = Some(
+                    args.next()
+                        .ok_or_else(|| anyhow::anyhow!("--bench-focus-switches requires a value"))?
+                        .parse()?,
+                );
+            }
             "--write" => {
                 parsed.write = Some(
                     args.next()
@@ -177,7 +186,7 @@ fn parse_args() -> Result<Args> {
             }
             "--help" | "-h" => {
                 println!(
-                    "Usage: unterm-next-core [--cols N] [--rows N] [--wait-ms N] [--poll-ms N] [--timeout-ms N] [--bench-input-writes N] [--bench-echo N] [--bench-flood-lines N] [--bench-scrollback-lines N] [--bench-viewport-scrolls N] [--bench-paste-kb N] [--bench-dual-agent-lines N] [--bench-screen-read-lines N] [--cwd PATH] [--write TEXT] [--paste TEXT] [--json] [-- COMMAND [ARG...]]"
+                    "Usage: unterm-next-core [--cols N] [--rows N] [--wait-ms N] [--poll-ms N] [--timeout-ms N] [--bench-input-writes N] [--bench-echo N] [--bench-flood-lines N] [--bench-scrollback-lines N] [--bench-viewport-scrolls N] [--bench-paste-kb N] [--bench-dual-agent-lines N] [--bench-screen-read-lines N] [--bench-focus-switches N] [--cwd PATH] [--write TEXT] [--paste TEXT] [--json] [-- COMMAND [ARG...]]"
                 );
                 std::process::exit(0);
             }
@@ -652,6 +661,57 @@ fn run_dual_agent_benchmark(
     Ok(())
 }
 
+fn run_focus_switch_benchmark(
+    engine: &unterm_engine::next_core::NextCoreEngine,
+    initial_pane_id: usize,
+    cols: usize,
+    rows: usize,
+    rounds: usize,
+) -> Result<()> {
+    if rounds == 0 {
+        bail!("--bench-focus-switches must be greater than 0");
+    }
+
+    let mut pane_ids = vec![initial_pane_id];
+    for _ in 0..3 {
+        let session = engine.create_session(cmd_session(cols, rows))?;
+        pane_ids.push(session.id);
+    }
+
+    let result = (|| -> Result<Vec<u128>> {
+        let mut latencies_us = Vec::with_capacity(rounds);
+        for idx in 0..rounds {
+            let target = pane_ids[idx % pane_ids.len()];
+            let before = Instant::now();
+            engine.focus_session(target)?;
+            let focused = engine.get_session(target)?;
+            if !focused.is_active {
+                bail!("focused session {target} was not marked active");
+            }
+            latencies_us.push(before.elapsed().as_micros());
+        }
+
+        latencies_us.sort_unstable();
+        Ok(latencies_us)
+    })();
+
+    for pane_id in pane_ids.iter().copied().skip(1) {
+        engine.destroy_session(pane_id)?;
+    }
+
+    let latencies_us = result?;
+    println!(
+        "bench_focus_switch rounds={} sessions={} min_us={} p50_us={} p95_us={} max_us={}",
+        rounds,
+        pane_ids.len(),
+        latencies_us[0],
+        percentile(&latencies_us, 0.50),
+        percentile(&latencies_us, 0.95),
+        *latencies_us.last().unwrap_or(&0)
+    );
+    Ok(())
+}
+
 fn main() -> Result<()> {
     let args = parse_args()?;
     let engine = next_core();
@@ -745,6 +805,11 @@ fn main() -> Result<()> {
             Duration::from_millis(args.timeout_ms),
         )
         .with_context(|| format!("bench_screen_read failed for session {}", session.id))?;
+    }
+
+    if let Some(rounds) = args.bench_focus_switches {
+        run_focus_switch_benchmark(&engine, session.id, args.cols, args.rows, rounds)
+            .with_context(|| format!("bench_focus_switch failed for session {}", session.id))?;
     }
 
     if let Some(input) = args.write {
