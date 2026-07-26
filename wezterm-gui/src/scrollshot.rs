@@ -216,6 +216,8 @@ pub fn render_styled_scrollback_png(
                 if cell.style.inverse {
                     std::mem::swap(&mut fg, &mut bg);
                 }
+                let underline_color =
+                    resolve_styled_color(cell.style.underline_color, fg, &palette);
 
                 let cx0 = (cell_x as f64 * cell_w).round() as isize;
                 let cw = (width as f64 * cell_w).ceil() as isize;
@@ -280,10 +282,10 @@ pub fn render_styled_scrollback_png(
                         uy.min(cell_h as isize - thickness),
                         cw,
                         thickness,
-                        fg,
                         cell.style
                             .underline_style
                             .unwrap_or(StyledUnderline::Single),
+                        underline_color,
                     );
                 }
                 if cell.style.overline && !cell.style.hidden {
@@ -338,6 +340,9 @@ fn styled_cell_attributes(style: CellStyle) -> TwCellAttributes {
     }
     if style.underline {
         attrs.set_underline(styled_underline(style.underline_style));
+    }
+    if let Some(underline_color) = style.underline_color {
+        attrs.set_underline_color(styled_color_attribute(underline_color));
     }
     if style.strikethrough {
         attrs.set_strikethrough(true);
@@ -460,8 +465,8 @@ impl BandCanvas {
         y0: isize,
         w: isize,
         thickness: isize,
-        rgb: (u8, u8, u8),
         style: StyledUnderline,
+        rgb: (u8, u8, u8),
     ) {
         match style {
             StyledUnderline::Single => self.fill_rect(x0, y0, w, thickness, rgb),

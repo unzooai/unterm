@@ -162,6 +162,7 @@ pub struct CellStyle {
     pub italic: bool,
     pub underline: bool,
     pub underline_style: Option<StyledUnderline>,
+    pub underline_color: Option<StyledColor>,
     pub strikethrough: bool,
     pub hidden: bool,
     pub overline: bool,

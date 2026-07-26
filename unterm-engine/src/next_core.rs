@@ -384,6 +384,7 @@ struct CellAttributes {
     italic: bool,
     underline: bool,
     underline_style: Option<StyledUnderline>,
+    underline_color: Option<TerminalColor>,
     strikethrough: bool,
     hidden: bool,
     overline: bool,
@@ -419,6 +420,7 @@ impl From<CellAttributes> for CellStyle {
             italic: attr.italic,
             underline: attr.underline,
             underline_style: attr.underline_style,
+            underline_color: attr.underline_color.map(Into::into),
             strikethrough: attr.strikethrough,
             hidden: attr.hidden,
             overline: attr.overline,
@@ -1128,18 +1130,20 @@ impl NextCoreScreen {
                 100..=107 => {
                     self.current_attr.bg = Some(TerminalColor::Palette(params[idx] as u8 - 100 + 8))
                 }
-                38 | 48 => {
-                    let target_fg = params[idx] == 38;
+                38 | 48 | 58 => {
+                    let color_target = params[idx];
                     if let Some((color, consumed)) = Self::parse_extended_color(&params[idx + 1..])
                     {
-                        if target_fg {
-                            self.current_attr.fg = Some(color);
-                        } else {
-                            self.current_attr.bg = Some(color);
+                        match color_target {
+                            38 => self.current_attr.fg = Some(color),
+                            48 => self.current_attr.bg = Some(color),
+                            58 => self.current_attr.underline_color = Some(color),
+                            _ => {}
                         }
                         idx += consumed;
                     }
                 }
+                59 => self.current_attr.underline_color = None,
                 _ => {}
             }
             idx += 1;
@@ -1243,7 +1247,8 @@ impl NextCoreScreen {
             let part = part.trim();
             if part.is_empty() {
                 params.push(0);
-            } else if part.starts_with("38:") || part.starts_with("48:") {
+            } else if part.starts_with("38:") || part.starts_with("48:") || part.starts_with("58:")
+            {
                 params.extend(Self::parse_colon_color_sgr_params(part));
             } else if let Some(underline) = Self::parse_colon_underline_sgr_param(part) {
                 params.push(underline);
@@ -5518,6 +5523,66 @@ mod tests {
         assert_eq!(line[3].fg, Some(TerminalColor::Rgb(1, 2, 3)));
         assert_eq!(line[3].bg, Some(TerminalColor::Rgb(4, 5, 6)));
         assert_eq!(line[4], CellAttributes::default());
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_tracks_sgr_underline_colors() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 24,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+        set_output_for_test(
+            session.id,
+            concat!(
+                "\x1b[4;58;5;220mP",
+                "\x1b[58;2;1;2;3mR",
+                "\x1b[58:5:45mC",
+                "\x1b[58:2::4:5:6mT",
+                "\x1b[59mD",
+                "\x1b[24mN"
+            ),
+        )?;
+
+        let attrs = viewport_attrs_for_test(session.id)?;
+        let line = &attrs[0];
+        assert!(line[0].underline);
+        assert_eq!(line[0].underline_color, Some(TerminalColor::Palette(220)));
+        assert_eq!(line[1].underline_color, Some(TerminalColor::Rgb(1, 2, 3)));
+        assert_eq!(line[2].underline_color, Some(TerminalColor::Palette(45)));
+        assert_eq!(line[3].underline_color, Some(TerminalColor::Rgb(4, 5, 6)));
+        assert!(line[4].underline);
+        assert_eq!(line[4].underline_color, None);
+        assert_eq!(line[5], CellAttributes::default());
+
+        let styled = engine.read_styled_screen(session.id)?;
+        assert_eq!(
+            styled.lines[0].cells[0].style.underline_color,
+            Some(StyledColor::Palette(220))
+        );
+        assert_eq!(
+            styled.lines[0].cells[1].style.underline_color,
+            Some(StyledColor::Rgb(1, 2, 3))
+        );
+        assert_eq!(
+            styled.lines[0].cells[2].style.underline_color,
+            Some(StyledColor::Palette(45))
+        );
+        assert_eq!(
+            styled.lines[0].cells[3].style.underline_color,
+            Some(StyledColor::Rgb(4, 5, 6))
+        );
+        assert_eq!(styled.lines[0].cells[4].style.underline_color, None);
+        assert_eq!(styled.lines[0].cells[5].style, CellStyle::default());
 
         engine.destroy_session(session.id)?;
         Ok(())
