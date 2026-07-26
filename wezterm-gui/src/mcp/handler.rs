@@ -1415,47 +1415,6 @@ impl McpHandler {
             .ok_or_else(|| anyhow!("Session {} not found", id))
     }
 
-    fn detect_shell(pane: &Arc<dyn Pane>) -> Value {
-        let process_name = pane
-            .get_foreground_process_name(mux::pane::CachePolicy::AllowStale)
-            .unwrap_or_default();
-
-        let shell_type = if process_name.is_empty() {
-            "unknown"
-        } else {
-            let name = process_name
-                .rsplit(['/', '\\'])
-                .next()
-                .unwrap_or(&process_name)
-                .to_lowercase();
-            if name.contains("pwsh") || name.contains("powershell") {
-                "powershell"
-            } else if name.contains("cmd") {
-                "cmd"
-            } else if name.contains("bash") {
-                "bash"
-            } else if name.contains("zsh") {
-                "zsh"
-            } else if name.contains("fish") {
-                "fish"
-            } else if name.contains("nu") {
-                "nushell"
-            } else {
-                "unknown"
-            }
-        };
-
-        let cwd = pane
-            .get_current_working_dir(mux::pane::CachePolicy::AllowStale)
-            .map(|u| u.to_string());
-
-        json!({
-            "shell_type": shell_type,
-            "process_name": process_name,
-            "cwd": cwd,
-        })
-    }
-
     fn server_info(&self) -> Result<Value> {
         Ok(json!({
             "name": "Unterm MCP Server",
@@ -2824,7 +2783,7 @@ impl McpHandler {
     }
 
     fn exec_run_wait(&self, params: &Value) -> Result<Value> {
-        let pane = self.get_pane(params)?;
+        let pane_id = Self::pane_id_from_params(params)?;
         let command = params
             .get("command")
             .and_then(|v| v.as_str())
@@ -2838,20 +2797,28 @@ impl McpHandler {
             return Err(e);
         }
 
-        self.audit("exec.run_wait", Some(&pane.pane_id().to_string()), command);
+        let engine = self.engine();
+        let shell = engine.shell(pane_id)?;
+        let shell_type = shell.shell_type.as_str();
 
         let marker = format!("__UNTERM_DONE_{}__", uuid::Uuid::new_v4().simple());
-        let shell = Self::detect_shell(&pane);
-        let shell_type = shell["shell_type"].as_str().unwrap_or("unknown");
         let wait_command = wait_wrapped_command(command, shell_type, &marker);
 
+        match self.gate_pty_write("exec.run_wait", pane_id, command)? {
+            GateOutcome::Allow => {}
+            GateOutcome::Block => {
+                return Err(anyhow!("user denied"));
+            }
+        }
+
+        self.audit("exec.run_wait", Some(&pane_id.to_string()), command);
+
         // Capture screen before
-        let before_text = self.read_pane_text(&pane);
+        let before_text = engine.read_visible_text(pane_id).unwrap_or_default();
 
         // Send command
         let input = format!("{}\r", wait_command);
-        let engine = self.engine();
-        engine.write_input(pane.pane_id(), &input)?;
+        engine.write_input(pane_id, &input)?;
 
         // Poll until the injected sentinel is rendered. This gives CLI/MCP
         // automation a deterministic completion condition across shells.
@@ -2861,10 +2828,10 @@ impl McpHandler {
         loop {
             std::thread::sleep(std::time::Duration::from_millis(200));
 
-            let current_text = self.read_pane_text(&pane);
+            let current_text = engine.read_visible_text(pane_id).unwrap_or_default();
             if contains_ignoring_line_breaks(&current_text, &marker) {
                 std::thread::sleep(std::time::Duration::from_millis(200));
-                let final_text = self.read_pane_text(&pane);
+                let final_text = engine.read_visible_text(pane_id).unwrap_or_default();
                 let output = extract_wait_output(&before_text, &final_text, command, &marker);
                 return Ok(json!({
                     "output": output,
@@ -2875,7 +2842,7 @@ impl McpHandler {
             }
 
             if start.elapsed() > timeout {
-                let current_text = self.read_pane_text(&pane);
+                let current_text = engine.read_visible_text(pane_id).unwrap_or_default();
                 let output = extract_wait_output(&before_text, &current_text, command, &marker);
                 return Ok(json!({
                     "output": output,
