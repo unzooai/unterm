@@ -41,6 +41,18 @@ struct NextCoreScreen {
     lines: Vec<Vec<char>>,
     cursor_x: usize,
     cursor_y: usize,
+    saved_cursor_x: usize,
+    saved_cursor_y: usize,
+    alternate: Option<ScreenState>,
+}
+
+#[derive(Default)]
+struct ScreenState {
+    lines: Vec<Vec<char>>,
+    cursor_x: usize,
+    cursor_y: usize,
+    saved_cursor_x: usize,
+    saved_cursor_y: usize,
 }
 
 impl NextCoreScreen {
@@ -84,6 +96,17 @@ impl NextCoreScreen {
         self.cursor_x = self.cursor_x.saturating_sub(1);
     }
 
+    fn save_cursor(&mut self) {
+        self.saved_cursor_x = self.cursor_x;
+        self.saved_cursor_y = self.cursor_y;
+    }
+
+    fn restore_cursor(&mut self) {
+        self.cursor_x = self.saved_cursor_x;
+        self.cursor_y = self.saved_cursor_y;
+        self.ensure_cursor_line();
+    }
+
     fn ensure_cursor_line(&mut self) {
         while self.lines.len() <= self.cursor_y {
             self.lines.push(Vec::new());
@@ -123,6 +146,58 @@ impl NextCoreScreen {
     fn clear_to_end_of_line(&mut self) {
         self.ensure_cursor_line();
         self.lines[self.cursor_y].truncate(self.cursor_x);
+    }
+
+    fn insert_lines(&mut self, count: usize) {
+        self.ensure_cursor_line();
+        for _ in 0..count.max(1) {
+            self.lines.insert(self.cursor_y, Vec::new());
+        }
+    }
+
+    fn delete_lines(&mut self, count: usize) {
+        self.ensure_cursor_line();
+        for _ in 0..count.max(1) {
+            if self.cursor_y < self.lines.len() {
+                self.lines.remove(self.cursor_y);
+            }
+        }
+        self.ensure_cursor_line();
+    }
+
+    fn enter_alternate_screen(&mut self, clear: bool) {
+        if self.alternate.is_some() {
+            if clear {
+                self.clear_screen();
+            }
+            return;
+        }
+
+        let main = ScreenState {
+            lines: std::mem::take(&mut self.lines),
+            cursor_x: self.cursor_x,
+            cursor_y: self.cursor_y,
+            saved_cursor_x: self.saved_cursor_x,
+            saved_cursor_y: self.saved_cursor_y,
+        };
+        self.alternate = Some(main);
+        self.cursor_x = 0;
+        self.cursor_y = 0;
+        self.saved_cursor_x = 0;
+        self.saved_cursor_y = 0;
+        self.lines.clear();
+        self.ensure_cursor_line();
+    }
+
+    fn leave_alternate_screen(&mut self) {
+        if let Some(main) = self.alternate.take() {
+            self.lines = main.lines;
+            self.cursor_x = main.cursor_x;
+            self.cursor_y = main.cursor_y;
+            self.saved_cursor_x = main.saved_cursor_x;
+            self.saved_cursor_y = main.saved_cursor_y;
+            self.ensure_cursor_line();
+        }
     }
 }
 
@@ -172,6 +247,14 @@ impl<'a> ScreenParser<'a> {
             ParserState::Escape => match c {
                 '[' => self.state = ParserState::Csi(String::new()),
                 ']' => self.state = ParserState::Osc,
+                '7' => {
+                    self.screen.save_cursor();
+                    self.state = ParserState::Ground;
+                }
+                '8' => {
+                    self.screen.restore_cursor();
+                    self.state = ParserState::Ground;
+                }
                 _ => self.state = ParserState::Ground,
             },
             ParserState::Csi(ref mut sequence) => {
@@ -199,9 +282,9 @@ impl<'a> ScreenParser<'a> {
         let Some(final_byte) = sequence.chars().last() else {
             return;
         };
-        let params = &sequence[..sequence.len().saturating_sub(final_byte.len_utf8())];
-        let params = params.trim_start_matches('?');
-        let numbers = params
+        let raw_params = &sequence[..sequence.len().saturating_sub(final_byte.len_utf8())];
+        let numeric_params = raw_params.trim_start_matches('?');
+        let numbers = numeric_params
             .split(';')
             .map(|part| part.parse::<usize>().unwrap_or(0))
             .collect::<Vec<_>>();
@@ -212,6 +295,8 @@ impl<'a> ScreenParser<'a> {
             'B' => self.screen.move_cursor_down(first()),
             'C' => self.screen.move_cursor_right(first()),
             'D' => self.screen.move_cursor_left(first()),
+            'L' => self.screen.insert_lines(first()),
+            'M' => self.screen.delete_lines(first()),
             'G' => self.screen.cursor_x = first().saturating_sub(1),
             'H' | 'f' => {
                 let row = numbers.first().copied().filter(|n| *n > 0).unwrap_or(1);
@@ -225,6 +310,16 @@ impl<'a> ScreenParser<'a> {
                 }
             }
             'K' => self.screen.clear_to_end_of_line(),
+            'h' => {
+                if raw_params == "?1049" || raw_params == "?47" || raw_params == "?1047" {
+                    self.screen.enter_alternate_screen(true);
+                }
+            }
+            'l' => {
+                if raw_params == "?1049" || raw_params == "?47" || raw_params == "?1047" {
+                    self.screen.leave_alternate_screen();
+                }
+            }
             _ => {}
         }
     }
@@ -939,6 +1034,47 @@ mod tests {
         assert!(!lines.iter().any(|line| line.contains("old line")));
         assert!(lines.iter().any(|line| line == "he!"));
         assert!(lines.iter().any(|line| line == "world"));
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_handles_alternate_screen_and_line_mutations() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 24,
+            command_dir: None,
+            command: None,
+        })?;
+        set_output_for_test(
+            session.id,
+            concat!(
+                "main-one\nmain-two",
+                "\x1b[?1049h",
+                "alt-only\n",
+                "\x1b[?1049l",
+                "\x1b[H",
+                "\x1b[1L",
+                "inserted",
+                "\x1b[3;1H",
+                "\x1b[1M",
+                "\x1b7",
+                "\x1b[2;6H!",
+                "\x1b8",
+                "."
+            ),
+        )?;
+
+        let lines = engine.read_screen(session.id)?.lines;
+        assert!(lines.iter().any(|line| line == "inserted"));
+        assert!(lines.iter().any(|line| line == "main-!ne"));
+        assert!(lines.iter().any(|line| line == "."));
+        assert!(!lines.iter().any(|line| line.contains("alt-only")));
+        assert!(!lines.iter().any(|line| line.contains("main-two")));
 
         engine.destroy_session(session.id)?;
         Ok(())
