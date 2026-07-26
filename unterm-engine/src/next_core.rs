@@ -918,14 +918,30 @@ impl NextCoreScreen {
         self.ensure_cursor_line();
         let line = &mut self.lines[self.cursor_y];
         match mode {
-            0 => line.truncate(self.cursor_x),
+            0 => {
+                let start = self.cursor_x.min(self.cols);
+                if start < self.cols {
+                    line.resize(self.cols, ScreenCell::blank(self.current_attr));
+                    for cell in line.iter_mut().skip(start) {
+                        *cell = ScreenCell::blank(self.current_attr);
+                    }
+                }
+            }
             1 => {
-                let end = self.cursor_x.saturating_add(1).min(line.len());
+                let end = self.cursor_x.saturating_add(1).min(self.cols);
+                if line.len() < end {
+                    line.resize(end, ScreenCell::blank(self.current_attr));
+                }
                 for cell in line.iter_mut().take(end) {
                     *cell = ScreenCell::blank(self.current_attr);
                 }
             }
-            2 => line.clear(),
+            2 => {
+                line.resize(self.cols, ScreenCell::blank(self.current_attr));
+                for cell in line.iter_mut() {
+                    *cell = ScreenCell::blank(self.current_attr);
+                }
+            }
             _ => {}
         }
         self.mark_dirty_row(self.cursor_y);
@@ -5350,6 +5366,66 @@ mod tests {
         );
         assert_eq!(cells[4].style.fg, Some(StyledColor::Palette(1)));
         assert_eq!(cells[5].style.fg, Some(StyledColor::Palette(1)));
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_erase_line_modes_backfill_styled_cells() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 6,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+        set_output_for_test(
+            session.id,
+            concat!(
+                "abcdef",
+                "\x1b[31m\x1b[1;4H\x1b[K",
+                "\x1b[2;1Hghijkl",
+                "\x1b[32m\x1b[2;4H\x1b[1K",
+                "\x1b[3;1Hmnopqr",
+                "\x1b[34m\x1b[3;3H\x1b[2K"
+            ),
+        )?;
+
+        assert_eq!(
+            engine.read_screen(session.id)?.lines,
+            vec!["abc", "    kl", ""]
+        );
+        let styled = engine.read_styled_screen(session.id)?;
+
+        let first = &styled.lines[0].cells;
+        assert_eq!(
+            first.iter().map(|cell| cell.ch).collect::<String>(),
+            "abc   "
+        );
+        assert_eq!(first[3].style.fg, Some(StyledColor::Palette(1)));
+        assert_eq!(first[5].style.fg, Some(StyledColor::Palette(1)));
+
+        let second = &styled.lines[1].cells;
+        assert_eq!(
+            second.iter().map(|cell| cell.ch).collect::<String>(),
+            "    kl"
+        );
+        assert_eq!(second[0].style.fg, Some(StyledColor::Palette(2)));
+        assert_eq!(second[3].style.fg, Some(StyledColor::Palette(2)));
+
+        let third = &styled.lines[2].cells;
+        assert_eq!(
+            third.iter().map(|cell| cell.ch).collect::<String>(),
+            "      "
+        );
+        assert!(third
+            .iter()
+            .all(|cell| cell.style.fg == Some(StyledColor::Palette(4))));
 
         engine.destroy_session(session.id)?;
         Ok(())
