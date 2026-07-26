@@ -53,3 +53,11 @@ cargo run -p unterm-engine --bin unterm-next-core -- --bench-paste-kb 10 --timeo
 ```
 
 The paste benchmark feeds a large single-line payload through the engine paste path and reports time until the shell consumes it.
+
+Dual pseudo-agent benchmark:
+
+```powershell
+cargo run -p unterm-engine --bin unterm-next-core -- --bench-dual-agent-lines 5000 --timeout-ms 30000 --wait-ms 100 --write "exit`r" -- cmd.exe
+```
+
+The dual-agent benchmark starts two background `cmd.exe` sessions that emit output concurrently, then measures echo latency in the interactive session while those streams are active.

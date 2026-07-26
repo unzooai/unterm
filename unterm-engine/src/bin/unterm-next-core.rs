@@ -14,6 +14,7 @@ struct Args {
     bench_flood_lines: Option<usize>,
     bench_scrollback_lines: Option<usize>,
     bench_paste_kb: Option<usize>,
+    bench_dual_agent_lines: Option<usize>,
     poll_ms: u64,
     timeout_ms: u64,
 }
@@ -31,6 +32,7 @@ fn parse_args() -> Result<Args> {
         bench_flood_lines: None,
         bench_scrollback_lines: None,
         bench_paste_kb: None,
+        bench_dual_agent_lines: None,
         poll_ms: 5,
         timeout_ms: 5000,
     };
@@ -105,6 +107,15 @@ fn parse_args() -> Result<Args> {
                         .parse()?,
                 );
             }
+            "--bench-dual-agent-lines" => {
+                parsed.bench_dual_agent_lines = Some(
+                    args.next()
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("--bench-dual-agent-lines requires a value")
+                        })?
+                        .parse()?,
+                );
+            }
             "--write" => {
                 parsed.write = Some(
                     args.next()
@@ -119,7 +130,7 @@ fn parse_args() -> Result<Args> {
             }
             "--help" | "-h" => {
                 println!(
-                    "Usage: unterm-next-core [--cols N] [--rows N] [--wait-ms N] [--poll-ms N] [--timeout-ms N] [--bench-echo N] [--bench-flood-lines N] [--bench-scrollback-lines N] [--bench-paste-kb N] [--cwd PATH] [--write TEXT] [-- COMMAND [ARG...]]"
+                    "Usage: unterm-next-core [--cols N] [--rows N] [--wait-ms N] [--poll-ms N] [--timeout-ms N] [--bench-echo N] [--bench-flood-lines N] [--bench-scrollback-lines N] [--bench-paste-kb N] [--bench-dual-agent-lines N] [--cwd PATH] [--write TEXT] [-- COMMAND [ARG...]]"
                 );
                 std::process::exit(0);
             }
@@ -153,6 +164,55 @@ fn percentile(sorted: &[u128], percentile: f64) -> u128 {
     sorted[rank.min(sorted.len() - 1)]
 }
 
+struct FloodRun {
+    marker: String,
+    before_raw_len: usize,
+    started_at: Instant,
+}
+
+fn start_flood_stream(
+    engine: &unterm_engine::next_core::NextCoreEngine,
+    pane_id: usize,
+    lines: usize,
+) -> Result<FloodRun> {
+    let marker = format!("UNTERM_NEXT_CORE_FLOOD_DONE_{lines}_{pane_id}");
+    let before_raw_len = engine.debug_output(pane_id)?.len();
+    let command = format!("for /L %i in (1,1,{lines}) do @echo UNTERM_NEXT_CORE_FLOOD_%i\r");
+    let started_at = Instant::now();
+    engine.write_input(pane_id, command.as_str())?;
+    engine.write_input(
+        pane_id,
+        format!("echo {}\r", shell_quote_cmd_arg(marker.as_str())).as_str(),
+    )?;
+    Ok(FloodRun {
+        marker,
+        before_raw_len,
+        started_at,
+    })
+}
+
+fn wait_for_marker(
+    engine: &unterm_engine::next_core::NextCoreEngine,
+    pane_id: usize,
+    run: &FloodRun,
+    poll_interval: Duration,
+    timeout: Duration,
+) -> Result<(Duration, usize)> {
+    loop {
+        let raw = engine.debug_output(pane_id)?;
+        if raw[run.before_raw_len.min(raw.len())..].contains(run.marker.as_str()) {
+            return Ok((
+                run.started_at.elapsed(),
+                raw.len().saturating_sub(run.before_raw_len),
+            ));
+        }
+        if run.started_at.elapsed() >= timeout {
+            bail!("timed out waiting for marker {}", run.marker);
+        }
+        std::thread::sleep(poll_interval);
+    }
+}
+
 fn run_flood_benchmark(
     engine: &unterm_engine::next_core::NextCoreEngine,
     pane_id: usize,
@@ -164,37 +224,18 @@ fn run_flood_benchmark(
         bail!("--bench-flood-lines must be greater than 0");
     }
 
-    let marker = format!("UNTERM_NEXT_CORE_FLOOD_DONE_{lines}");
-    let before_raw_len = engine.debug_output(pane_id)?.len();
-    let command = format!("for /L %i in (1,1,{lines}) do @echo UNTERM_NEXT_CORE_FLOOD_%i\r");
-    let before = Instant::now();
-    engine.write_input(pane_id, command.as_str())?;
-    engine.write_input(
-        pane_id,
-        format!("echo {}\r", shell_quote_cmd_arg(marker.as_str())).as_str(),
-    )?;
-
-    loop {
-        let raw = engine.debug_output(pane_id)?;
-        if raw[before_raw_len.min(raw.len())..].contains(marker.as_str()) {
-            let elapsed = before.elapsed();
-            let bytes = raw.len().saturating_sub(before_raw_len);
-            let seconds = elapsed.as_secs_f64().max(0.000_001);
-            println!(
-                "bench_flood lines={} bytes={} elapsed_ms={} lines_per_sec={:.1} bytes_per_sec={:.1}",
-                lines,
-                bytes,
-                elapsed.as_millis(),
-                lines as f64 / seconds,
-                bytes as f64 / seconds
-            );
-            return Ok(());
-        }
-        if before.elapsed() >= timeout {
-            bail!("timed out waiting for flood marker {marker}");
-        }
-        std::thread::sleep(poll_interval);
-    }
+    let run = start_flood_stream(engine, pane_id, lines)?;
+    let (elapsed, bytes) = wait_for_marker(engine, pane_id, &run, poll_interval, timeout)?;
+    let seconds = elapsed.as_secs_f64().max(0.000_001);
+    println!(
+        "bench_flood lines={} bytes={} elapsed_ms={} lines_per_sec={:.1} bytes_per_sec={:.1}",
+        lines,
+        bytes,
+        elapsed.as_millis(),
+        lines as f64 / seconds,
+        bytes as f64 / seconds
+    );
+    Ok(())
 }
 
 fn run_scrollback_benchmark(
@@ -318,6 +359,18 @@ fn run_echo_benchmark(
         bail!("--bench-echo must be greater than 0");
     }
 
+    let sorted = collect_echo_latencies(engine, pane_id, rounds, poll_interval, timeout)?;
+    print_echo_summary("bench_echo", rounds, &sorted);
+    Ok(())
+}
+
+fn collect_echo_latencies(
+    engine: &unterm_engine::next_core::NextCoreEngine,
+    pane_id: usize,
+    rounds: usize,
+    poll_interval: Duration,
+    timeout: Duration,
+) -> Result<Vec<u128>> {
     let mut latencies_us = Vec::with_capacity(rounds);
     let mut seen_len = engine.debug_output(pane_id)?.len();
     for idx in 0..rounds {
@@ -341,14 +394,75 @@ fn run_echo_benchmark(
 
     let mut sorted = latencies_us;
     sorted.sort_unstable();
+    Ok(sorted)
+}
+
+fn print_echo_summary(label: &str, rounds: usize, sorted: &[u128]) {
     let min = sorted[0];
     let p50 = percentile(&sorted, 0.50);
     let p95 = percentile(&sorted, 0.95);
     let max = *sorted.last().unwrap_or(&0);
     println!(
-        "bench_echo rounds={} min_us={} p50_us={} p95_us={} max_us={}",
-        rounds, min, p50, p95, max
+        "{} rounds={} min_us={} p50_us={} p95_us={} max_us={}",
+        label, rounds, min, p50, p95, max
     );
+}
+
+fn cmd_session(cols: usize, rows: usize) -> CreateSessionRequest {
+    CreateSessionRequest {
+        cols,
+        rows,
+        command_dir: None,
+        command: Some(CommandBuilder::new("cmd.exe")),
+    }
+}
+
+fn run_dual_agent_benchmark(
+    engine: &unterm_engine::next_core::NextCoreEngine,
+    interactive_pane_id: usize,
+    cols: usize,
+    rows: usize,
+    lines: usize,
+    poll_interval: Duration,
+    timeout: Duration,
+) -> Result<()> {
+    if lines == 0 {
+        bail!("--bench-dual-agent-lines must be greater than 0");
+    }
+
+    let first_agent = engine.create_session(cmd_session(cols, rows))?;
+    let second_agent = engine.create_session(cmd_session(cols, rows))?;
+    let first_run = start_flood_stream(engine, first_agent.id, lines)?;
+    let second_run = start_flood_stream(engine, second_agent.id, lines)?;
+
+    let echo_rounds = 20;
+    let echo_latencies = collect_echo_latencies(
+        engine,
+        interactive_pane_id,
+        echo_rounds,
+        poll_interval,
+        timeout,
+    )?;
+    print_echo_summary("bench_dual_agents_echo", echo_rounds, &echo_latencies);
+
+    let (first_elapsed, first_bytes) =
+        wait_for_marker(engine, first_agent.id, &first_run, poll_interval, timeout)?;
+    let (second_elapsed, second_bytes) =
+        wait_for_marker(engine, second_agent.id, &second_run, poll_interval, timeout)?;
+    let combined_seconds = first_elapsed
+        .max(second_elapsed)
+        .as_secs_f64()
+        .max(0.000_001);
+    println!(
+        "bench_dual_agents lines_per_agent={} total_bytes={} elapsed_ms={} combined_lines_per_sec={:.1} combined_bytes_per_sec={:.1}",
+        lines,
+        first_bytes + second_bytes,
+        first_elapsed.max(second_elapsed).as_millis(),
+        (lines * 2) as f64 / combined_seconds,
+        (first_bytes + second_bytes) as f64 / combined_seconds
+    );
+    engine.destroy_session(first_agent.id)?;
+    engine.destroy_session(second_agent.id)?;
     Ok(())
 }
 
@@ -404,6 +518,19 @@ fn main() -> Result<()> {
             Duration::from_millis(args.timeout_ms),
         )
         .with_context(|| format!("bench_paste failed for session {}", session.id))?;
+    }
+
+    if let Some(lines) = args.bench_dual_agent_lines {
+        run_dual_agent_benchmark(
+            &engine,
+            session.id,
+            args.cols,
+            args.rows,
+            lines,
+            Duration::from_millis(args.poll_ms),
+            Duration::from_millis(args.timeout_ms),
+        )
+        .with_context(|| format!("bench_dual_agents failed for session {}", session.id))?;
     }
 
     if let Some(input) = args.write {
