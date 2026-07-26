@@ -51,6 +51,7 @@ Current covered operations:
 - redacted `session.create` launch decision summary for profile/proxy/overlay/command provenance
 - redacted `workspace.restore` template launch plan for cwd/profile/command provenance
 - redacted default-shell launch decision summary for command-less `session.create`
+- typed launch policy decision metadata for domain, privilege, proxy rotation, and restart handling
 - instance lifecycle ownership diagnostics for server-info registry vs host GUI window ownership
 - styled scrollback renderer metadata for WezTerm pane rendering vs next-core standalone rendering
 - configured theme palette resolution for next-core standalone styled scrollback PNG rendering
@@ -62,7 +63,7 @@ Known gaps:
 - real GUI viewport scrolling/jump for the future next-core renderer
 - native window capture/focus/title ownership beyond the explicit host-window bridge contract
 - native instance create/close lifecycle ownership beyond server-info registry observability
-- domain, privilege, proxy rotation, and restart launch policy decisions beyond typed env/profile/proxy/overlay/workspace-template/default-shell provenance
+- enforcement of non-local domain, privilege elevation, proxy rotation, and restart launch policy behavior beyond current typed decision metadata
 
 ## MCP Coverage Summary
 
@@ -81,7 +82,7 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 | Method | Status | Current dependency | Migration note |
 |---|---|---|---|
 | `session.list` | Engine-neutral | `SessionEngine::list_sessions` | Keep as baseline adapter test. |
-| `session.create` | Engine-neutral | `SessionEngine::create_session` plus `CreateSessionRequest::env` and typed `launch_policy`; `next-core` records `ShellSnapshot.launch_context` profile/proxy diagnostics, env provenance, explicit-command/default-shell decisions, and no secret values | Later expand typed launch policy from provenance into launch decisions such as domain, privilege, proxy rotation, and restart behavior. |
+| `session.create` | Engine-neutral | `SessionEngine::create_session` plus `CreateSessionRequest::env` and typed `launch_policy`; `next-core` records `ShellSnapshot.launch_context` profile/proxy diagnostics, env provenance, explicit-command/default-shell decisions, domain/privilege/proxy-rotation/restart decision metadata, and no secret values | Later enforce non-local domain, privilege elevation, proxy rotation, and restart behavior instead of only reporting the decision state. |
 | `session.status` | Engine-neutral | Shared pane-id resolver plus `SessionEngine::get_session` | Alias of `session.get`. |
 | `session.get` | Engine-neutral | Shared pane-id resolver plus `SessionEngine::get_session` | Keep output shape stable. |
 | `session.split` | Engine-neutral | Shared pane-id resolver plus `SessionEngine::split_session` | `next-core` must decide split semantics before GUI alpha. |
@@ -205,7 +206,7 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 | `server.info` | Engine-neutral | Server metadata plus engine label | Already reports selected engine. |
 | `server.health` | Engine-neutral | `HealthEngine::health` plus product server metadata | WezTerm readiness is adapter-owned; `next-core` readiness does not depend on WezTerm Mux state and includes aggregate input/output/paste health counters. |
 | `server.capabilities` | Product-only | `MCP_METHODS` inventory plus `_engine_capabilities` | Keeps the legacy namespace map while exposing selected engine support/unsupported method flags and diagnostic capability flags such as next-core health I/O summaries, launch-context diagnostics, and styled scrollback PNG availability. |
-| `selftest.run` | Product-only | MCP selftest orchestration plus `HealthEngine`/`SessionEngine` probes | Selftest no longer treats WezTerm mux availability as the engine readiness source and verifies next-core health I/O diagnostics, launch-context profile/proxy redaction, typed launch policy provenance, logical viewport scrolling, and styled scrollback PNG capture when that engine is selected. Needs broader per-engine test matrix. |
+| `selftest.run` | Product-only | MCP selftest orchestration plus `HealthEngine`/`SessionEngine` probes | Selftest no longer treats WezTerm mux availability as the engine readiness source and verifies next-core health I/O diagnostics, launch-context profile/proxy redaction, typed launch policy provenance and decision metadata, logical viewport scrolling, and styled scrollback PNG capture when that engine is selected. Needs broader per-engine test matrix. |
 | `profile.list` | Product-only | Profile registry, no secrets | Engine-independent. |
 | `profile.current` | Product-only | Current profile metadata | Engine-independent. |
 | `profile.audit` | Product-only | Profile registry/vault metadata | Engine-independent. |

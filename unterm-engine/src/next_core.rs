@@ -1,13 +1,14 @@
 use super::{
     CellStyle, CreateSessionRequest, CursorSnapshot, DirtyRows, EngineHealthSnapshot,
     EngineIoHealthSnapshot, EngineLifecycleHealthSnapshot, HealthEngine, InputActivitySnapshot,
-    InputEngine, LaunchContextSnapshot, LaunchEnvBinding, LaunchEnvSource, LaunchPolicySnapshot,
-    OutputActivitySnapshot, PasteActivitySnapshot, ProcessTreeSnapshot, RecordingEngine,
-    RecordingExportResult, RecordingStartResult, RecordingStatusSnapshot, RecordingStopResult,
-    ScreenActivitySnapshot, ScreenEngine, ScreenLine, ScreenSearchMatch, ScreenSnapshot,
-    ScrollbackTextRequest, ScrollbackTextSnapshot, SessionActivitySnapshot, SessionEngine,
-    SessionSnapshot, ShellSnapshot, SplitSessionRequest, StyledCell, StyledColor, StyledScreenLine,
-    StyledScreenSnapshot, StyledScrollbackSnapshot,
+    InputEngine, LaunchContextSnapshot, LaunchEnvBinding, LaunchEnvSource, LaunchPolicyDecision,
+    LaunchPolicyDecisionSnapshot, LaunchPolicySnapshot, OutputActivitySnapshot,
+    PasteActivitySnapshot, ProcessTreeSnapshot, RecordingEngine, RecordingExportResult,
+    RecordingStartResult, RecordingStatusSnapshot, RecordingStopResult, ScreenActivitySnapshot,
+    ScreenEngine, ScreenLine, ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest,
+    ScrollbackTextSnapshot, SessionActivitySnapshot, SessionEngine, SessionSnapshot, ShellSnapshot,
+    SplitSessionRequest, StyledCell, StyledColor, StyledScreenLine, StyledScreenSnapshot,
+    StyledScrollbackSnapshot,
 };
 use anyhow::{bail, Result};
 use base64::Engine as _;
@@ -2445,6 +2446,7 @@ impl NextCoreEngine {
         if policy.proxy_env_keys.is_empty() {
             policy.proxy_env_keys = proxy_env_keys.clone();
         }
+        Self::complete_launch_policy_decisions(&mut policy);
 
         LaunchContextSnapshot {
             profile: policy.profile.clone().or_else(|| {
@@ -2456,6 +2458,46 @@ impl NextCoreEngine {
             proxy_env_keys,
             env_key_count: env.len(),
             policy,
+        }
+    }
+
+    fn complete_launch_policy_decisions(policy: &mut LaunchPolicySnapshot) {
+        let default_decision = LaunchPolicyDecisionSnapshot::default();
+        if policy.domain == default_decision {
+            policy.domain = LaunchPolicyDecisionSnapshot::new(
+                LaunchPolicyDecision::NotRequested,
+                false,
+                "next-core currently launches local-domain sessions only",
+            );
+        }
+        if policy.privilege == default_decision {
+            policy.privilege = LaunchPolicyDecisionSnapshot::new(
+                LaunchPolicyDecision::NotRequested,
+                false,
+                "elevation is host-owned and not applied by next-core launch",
+            );
+        }
+        if policy.proxy_rotation == default_decision {
+            policy.proxy_rotation = if policy.proxy_env_keys.is_empty() {
+                LaunchPolicyDecisionSnapshot::new(
+                    LaunchPolicyDecision::NotRequested,
+                    false,
+                    "no proxy env keys were provided",
+                )
+            } else {
+                LaunchPolicyDecisionSnapshot::new(
+                    LaunchPolicyDecision::Deferred,
+                    false,
+                    "proxy env is applied; proxy rotation remains product-managed",
+                )
+            };
+        }
+        if policy.restart == default_decision {
+            policy.restart = LaunchPolicyDecisionSnapshot::new(
+                LaunchPolicyDecision::NotRequested,
+                false,
+                "restart policy is not applied during next-core session launch",
+            );
         }
     }
 
@@ -2492,6 +2534,7 @@ impl NextCoreEngine {
                 .filter(|value| !value.trim().is_empty()),
             proxy_env_keys,
             env: bindings,
+            ..Default::default()
         }
     }
 
@@ -4013,6 +4056,24 @@ mod tests {
         assert_eq!(context.proxy_env_keys, vec!["HTTPS_PROXY", "NO_PROXY"]);
         assert_eq!(context.env_key_count, 4);
         assert_eq!(context.policy.profile.as_deref(), Some("work-acme"));
+        assert_eq!(
+            context.policy.domain.decision,
+            LaunchPolicyDecision::NotRequested
+        );
+        assert_eq!(context.policy.domain.supported, false);
+        assert_eq!(
+            context.policy.privilege.decision,
+            LaunchPolicyDecision::NotRequested
+        );
+        assert_eq!(
+            context.policy.proxy_rotation.decision,
+            LaunchPolicyDecision::Deferred
+        );
+        assert_eq!(context.policy.proxy_rotation.supported, false);
+        assert_eq!(
+            context.policy.restart.decision,
+            LaunchPolicyDecision::NotRequested
+        );
         assert_eq!(
             context
                 .policy

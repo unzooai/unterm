@@ -4,7 +4,7 @@
 更新时间：2026-07-27  
 规划周期：12 个月  
 适用范围：当前 WezTerm 内核、engine-neutral 产品层、实验性 `next-core`
-当前进展：`next-core` 已具备启动环境元数据、typed launch policy provenance、future-launch env overlay、session.create launch decision summary、default-shell launch decision、workspace.restore launch plan、profile/proxy launch-context 诊断、scrollback 文本截图、styled scrollback snapshot 与带配置主题调色板解析和粗体/斜体字体匹配的 styled PNG 渲染、styled_scrollback_png capability 诊断、styled scrollback renderer parity metadata、capture.scrollback 显式 pane id 活 session 校验、host-window bridge capability 诊断、实例生命周期 ownership 诊断与实例窗口元数据、PTY write confirmation capability/health 诊断、OSC 7 cwd、session activity、input/output/paste 指标、exec.run_wait engine-neutral shell detection、session/exec/screen/agent.signal 核心 MCP handler 共享 pane-id resolver、active recording YAML markdown/redaction、chunked-output fallback 和 OSC133 command-block markdown、server health 聚合 I/O 诊断、逻辑 viewport goto 和 UTF-8 安全粘贴分块基础能力。
+当前进展：`next-core` 已具备启动环境元数据、typed launch policy provenance、domain/privilege/proxy-rotation/restart launch policy decision metadata、future-launch env overlay、session.create launch decision summary、default-shell launch decision、workspace.restore launch plan、profile/proxy launch-context 诊断、scrollback 文本截图、styled scrollback snapshot 与带配置主题调色板解析和粗体/斜体字体匹配的 styled PNG 渲染、styled_scrollback_png capability 诊断、styled scrollback renderer parity metadata、capture.scrollback 显式 pane id 活 session 校验、host-window bridge capability 诊断、实例生命周期 ownership 诊断与实例窗口元数据、PTY write confirmation capability/health 诊断、OSC 7 cwd、session activity、input/output/paste 指标、exec.run_wait engine-neutral shell detection、session/exec/screen/agent.signal 核心 MCP handler 共享 pane-id resolver、active recording YAML markdown/redaction、chunked-output fallback 和 OSC133 command-block markdown、server health 聚合 I/O 诊断、逻辑 viewport goto 和 UTF-8 安全粘贴分块基础能力。
 
 ## 1. 产品结论
 
@@ -201,7 +201,7 @@ Unterm 的产品目标不是“再做一个终端”，而是做一个本地优�
 - `SessionEngine`、`InputEngine`、`ScreenEngine`、`CaptureEngine`、`WindowEngine` 覆盖核心路径。
 - `docs/engine-dependency-map.md` 中 WezTerm-only 保持为 0。
 - `capture.scrollback` 的 next-core 语义明确：已支持 styled cell snapshot、配置主题 palette 解析、粗体/斜体字体匹配和基础 styled PNG，后续随 next-core GUI renderer 补真实视口渲染路径。
-- `server.capabilities` / `meta.surface` 表达 per-engine 能力和诊断指标，尤其让 agent 能看见 next-core 的受限能力、health I/O 指标、launch-context 诊断能力和 typed launch policy provenance 而不是猜测。
+- `server.capabilities` / `meta.surface` 表达 per-engine 能力和诊断指标，尤其让 agent 能看见 next-core 的受限能力、health I/O 指标、launch-context 诊断能力、typed launch policy provenance 和 domain/privilege/proxy-rotation/restart 决策元数据，而不是猜测。
 
 验收：
 
@@ -209,7 +209,7 @@ Unterm 的产品目标不是“再做一个终端”，而是做一个本地优�
 - current-core 行为不变。
 - next-core adapter 能实现最小子集，不链接 WezTerm GUI 深层对象。
 - `server.health` 能暴露 next-core 聚合输入、输出、粘贴诊断指标。
-- `selftest.run` 能验证 next-core capability 声明、health I/O payload、profile/proxy launch-context redaction、typed launch policy provenance、逻辑 viewport 滚动能力和 styled scrollback PNG 渲染能力。
+- `selftest.run` 能验证 next-core capability 声明、health I/O payload、profile/proxy launch-context redaction、typed launch policy provenance、launch policy decision metadata、逻辑 viewport 滚动能力和 styled scrollback PNG 渲染能力。
 - `screen.search(goto)` 和 `screen.scroll(goto/apply)` 在 next-core 中能更新逻辑 viewport，后续 `screen.text` 可读到目标区域。
 
 ### v0.60：next-core Spike

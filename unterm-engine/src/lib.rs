@@ -61,11 +61,52 @@ pub struct LaunchEnvBinding {
     pub source: LaunchEnvSource,
 }
 
+#[derive(Clone, Copy, Debug, Default, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LaunchPolicyDecision {
+    #[default]
+    NotRequested,
+    Applied,
+    Deferred,
+    Unsupported,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+pub struct LaunchPolicyDecisionSnapshot {
+    pub decision: LaunchPolicyDecision,
+    pub supported: bool,
+    pub reason: String,
+}
+
+impl Default for LaunchPolicyDecisionSnapshot {
+    fn default() -> Self {
+        Self {
+            decision: LaunchPolicyDecision::NotRequested,
+            supported: false,
+            reason: "not requested".to_string(),
+        }
+    }
+}
+
+impl LaunchPolicyDecisionSnapshot {
+    pub fn new(decision: LaunchPolicyDecision, supported: bool, reason: impl Into<String>) -> Self {
+        Self {
+            decision,
+            supported,
+            reason: reason.into(),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, Serialize, PartialEq, Eq)]
 pub struct LaunchPolicySnapshot {
     pub profile: Option<String>,
     pub env: Vec<LaunchEnvBinding>,
     pub proxy_env_keys: Vec<String>,
+    pub domain: LaunchPolicyDecisionSnapshot,
+    pub privilege: LaunchPolicyDecisionSnapshot,
+    pub proxy_rotation: LaunchPolicyDecisionSnapshot,
+    pub restart: LaunchPolicyDecisionSnapshot,
 }
 
 #[derive(Clone, Debug, Serialize)]

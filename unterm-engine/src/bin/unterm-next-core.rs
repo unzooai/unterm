@@ -988,6 +988,7 @@ fn explicit_launch_policy(env: &[(String, String)]) -> LaunchPolicySnapshot {
                 source: LaunchEnvSource::Explicit,
             })
             .collect(),
+        ..Default::default()
     }
 }
 

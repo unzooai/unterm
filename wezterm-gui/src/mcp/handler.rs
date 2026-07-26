@@ -165,6 +165,7 @@ fn launch_policy_for_env(
         profile: profile_id.map(str::to_string),
         env,
         proxy_env_keys,
+        ..Default::default()
     }
 }
 
@@ -493,6 +494,22 @@ mod engine_neutral_handler_tests {
             env["launch_context"]["policy"]["profile"],
             Value::String("work-acme".to_string())
         );
+        assert_eq!(
+            env["launch_context"]["policy"]["domain"]["decision"],
+            "not_requested"
+        );
+        assert_eq!(
+            env["launch_context"]["policy"]["privilege"]["decision"],
+            "not_requested"
+        );
+        assert_eq!(
+            env["launch_context"]["policy"]["proxy_rotation"]["decision"],
+            "deferred"
+        );
+        assert_eq!(
+            env["launch_context"]["policy"]["restart"]["decision"],
+            "not_requested"
+        );
         let policy_sources = env["launch_context"]["policy"]["env"]
             .as_array()
             .expect("policy env array")
@@ -592,6 +609,10 @@ mod engine_neutral_handler_tests {
             "explicit_command"
         );
         assert_eq!(session["launch"]["decision"]["default_shell"], Value::Null);
+        assert_eq!(
+            session["launch"]["decision"]["policy"]["proxy_rotation"]["decision"],
+            "deferred"
+        );
         assert_eq!(session["launch"]["decision"]["values_redacted"], true);
         let launch_overlay_keys = session["launch"]["decision"]["overlay_env_keys"]
             .as_array()
@@ -2133,6 +2154,22 @@ mod engine_neutral_handler_tests {
         assert_eq!(launch_check["ok"], true);
         assert_eq!(launch_check["detail"]["profile"], "selftest-profile");
         assert_eq!(launch_check["detail"]["proxy_key"], "HTTPS_PROXY");
+        assert_eq!(
+            launch_check["detail"]["policy_domain_decision"],
+            "not_requested"
+        );
+        assert_eq!(
+            launch_check["detail"]["policy_privilege_decision"],
+            "not_requested"
+        );
+        assert_eq!(
+            launch_check["detail"]["policy_proxy_rotation_decision"],
+            "deferred"
+        );
+        assert_eq!(
+            launch_check["detail"]["policy_restart_decision"],
+            "not_requested"
+        );
         assert_eq!(launch_check["detail"]["values_redacted"], true);
         assert_eq!(launch_check["detail"]["destroyed"], true);
     }
@@ -4023,6 +4060,7 @@ impl McpHandler {
         })?;
         let launch_context = session.shell.launch_context.clone();
         let launch_proxy_env_keys = launch_context.proxy_env_keys.clone();
+        let launch_policy = launch_context.policy.clone();
 
         Ok(json!({
             "id": session.id,
@@ -4042,6 +4080,7 @@ impl McpHandler {
                     "command_provided": command_provided,
                     "command_source": if command_provided { "explicit_command" } else { "default_shell" },
                     "default_shell": default_shell,
+                    "policy": launch_policy,
                     "values_redacted": true,
                 },
             },
@@ -6998,6 +7037,14 @@ impl McpHandler {
                 binding["key"].as_str() == Some("HTTPS_PROXY")
                     && binding["source"].as_str() == Some("Proxy")
             });
+            let policy_domain_decision_ok =
+                policy["domain"]["decision"].as_str() == Some("not_requested");
+            let policy_privilege_decision_ok =
+                policy["privilege"]["decision"].as_str() == Some("not_requested");
+            let policy_proxy_rotation_decision_ok =
+                policy["proxy_rotation"]["decision"].as_str() == Some("deferred");
+            let policy_restart_decision_ok =
+                policy["restart"]["decision"].as_str() == Some("not_requested");
 
             Ok(json!({
                 "ok": found_marker
@@ -7009,7 +7056,11 @@ impl McpHandler {
                     && env_key_count_ok
                     && policy_profile_ok
                     && policy_profile_source_ok
-                    && policy_proxy_source_ok,
+                    && policy_proxy_source_ok
+                    && policy_domain_decision_ok
+                    && policy_privilege_decision_ok
+                    && policy_proxy_rotation_decision_ok
+                    && policy_restart_decision_ok,
                 "pane_id": pane_id,
                 "found_marker": found_marker,
                 "has_profile_key": has_profile_key,
@@ -7021,6 +7072,10 @@ impl McpHandler {
                 "policy_profile": policy["profile"].clone(),
                 "policy_profile_source_ok": policy_profile_source_ok,
                 "policy_proxy_source_ok": policy_proxy_source_ok,
+                "policy_domain_decision": policy["domain"]["decision"].clone(),
+                "policy_privilege_decision": policy["privilege"]["decision"].clone(),
+                "policy_proxy_rotation_decision": policy["proxy_rotation"]["decision"].clone(),
+                "policy_restart_decision": policy["restart"]["decision"].clone(),
             }))
         })();
 
