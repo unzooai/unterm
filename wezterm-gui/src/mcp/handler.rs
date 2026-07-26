@@ -353,7 +353,14 @@ mod engine_neutral_handler_tests {
                 rows: 4,
                 command_dir: None,
                 command: None,
-                env: vec![("GITHUB_TOKEN".to_string(), "secret-token".to_string())],
+                env: vec![
+                    ("GITHUB_TOKEN".to_string(), "secret-token".to_string()),
+                    ("UNTERM_PROFILE".to_string(), "work-acme".to_string()),
+                    (
+                        "HTTPS_PROXY".to_string(),
+                        "http://127.0.0.1:7890".to_string(),
+                    ),
+                ],
             })?;
             let handler = McpHandler::new();
             let ctx = ConnectionContext::internal("handler-test");
@@ -369,9 +376,23 @@ mod engine_neutral_handler_tests {
         let (env, pane_id) = result.expect("read next-core launch env through MCP handler");
         assert_eq!(env["supported"], true);
         assert_eq!(env["mutable"], false);
-        assert_eq!(env["variables"][0]["name"], "GITHUB_TOKEN");
-        assert_eq!(env["variables"][0]["value"], Value::Null);
-        assert_eq!(env["variables"][0]["redacted"], true);
+        let variable_names = env["variables"]
+            .as_array()
+            .expect("variables array")
+            .iter()
+            .map(|var| var["name"].as_str().unwrap_or_default().to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            variable_names,
+            vec!["GITHUB_TOKEN", "HTTPS_PROXY", "UNTERM_PROFILE"]
+        );
+        for variable in env["variables"].as_array().expect("variables array") {
+            assert_eq!(variable["value"], Value::Null);
+            assert_eq!(variable["redacted"], true);
+        }
+        assert_eq!(env["launch_context"]["profile"], "work-acme");
+        assert_eq!(env["launch_context"]["proxy_env_keys"][0], "HTTPS_PROXY");
+        assert_eq!(env["launch_context"]["env_key_count"], 3);
         next_core().destroy_session(pane_id).ok();
     }
 
@@ -3133,6 +3154,9 @@ impl McpHandler {
         let resolved_profile = if let Some(profile) = profile.as_deref() {
             let (profile_id, profile_env) = resolve_profile_env(profile)?;
             env.extend(profile_env);
+            if !env.iter().any(|(key, _)| key.eq_ignore_ascii_case("UNTERM_PROFILE")) {
+                env.push(("UNTERM_PROFILE".to_string(), profile_id.clone()));
+            }
             Some(profile_id)
         } else {
             None
@@ -3407,6 +3431,7 @@ impl McpHandler {
             "mutable": false,
             "scope": "launch",
             "variables": variables,
+            "launch_context": shell.launch_context,
             "message": "Only launch environment variable names are exposed; values are redacted to avoid leaking profile secrets.",
         }))
     }

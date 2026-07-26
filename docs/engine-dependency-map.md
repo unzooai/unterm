@@ -58,7 +58,7 @@ Known gaps:
 - styled scrollback PNG parity for `next-core`
 - window capture/focus/title
 - instance lifecycle ownership
-- richer profile/proxy launch semantics beyond the current `CreateSessionRequest::env` overlay
+- typed launch policy beyond the current profile/proxy diagnostics
 
 ## MCP Coverage Summary
 
@@ -77,7 +77,7 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 | Method | Status | Current dependency | Migration note |
 |---|---|---|---|
 | `session.list` | Engine-neutral | `SessionEngine::list_sessions` | Keep as baseline adapter test. |
-| `session.create` | Engine-neutral | `SessionEngine::create_session` plus `CreateSessionRequest::env` launch overlay for profile/proxy env | Profile/proxy env can now cross the engine boundary; later expand this into a typed launch context for alpha. |
+| `session.create` | Engine-neutral | `SessionEngine::create_session` plus `CreateSessionRequest::env`; `next-core` records `ShellSnapshot.launch_context` profile/proxy diagnostics without secret values | Profile/proxy env crosses the engine boundary today; later expand this into typed launch policy for alpha. |
 | `session.status` | Engine-neutral | `SessionEngine::get_session` | Alias of `session.get`. |
 | `session.get` | Engine-neutral | `SessionEngine::get_session` | Keep output shape stable. |
 | `session.split` | Engine-neutral | `SessionEngine::split_session` | `next-core` must decide split semantics before GUI alpha. |
@@ -88,7 +88,7 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 | `session.destroy` | Engine-neutral | `SessionEngine::destroy_session` | Handler resolves pane id without WezTerm pane access. |
 | `session.idle` | Engine-neutral | `SessionEngine::activity`; `next-core` uses recent input/output timestamps, liveness, input metrics, output metrics, paste metrics, and a process-tree activity summary with root/foreground pid, cwd, argv, child count, and known agent detection; WezTerm reports `process: null`, `input: null`, `output: null`, and `paste: null` | Keep process-tree scans off UI paint paths; query only from explicit status/cwd calls. |
 | `session.cwd` | Engine-neutral | `SessionEngine::shell`; `next-core` updates cwd from OSC 7 shell-integration sequences and falls back to foreground/root process cwd when shell integration is unavailable | OSC 7 remains preferred because it follows shell-level directory changes immediately. |
-| `session.env` | Engine-neutral | `SessionEngine::shell` launch env key snapshot; values are redacted | `next-core` exposes launch env variable names; WezTerm mode reports unsupported because live pane env is not available. |
+| `session.env` | Engine-neutral | `SessionEngine::shell` launch env key snapshot plus `launch_context`; values are redacted | `next-core` exposes launch env variable names, selected profile id, proxy env key names, and env key count; WezTerm mode reports unsupported because live pane env is not available. |
 | `session.set_env` | Unsupported stub | Returns unsupported marker | Prefer launch-context env over mutating live shells. |
 | `session.history` | Engine-neutral | `ScreenEngine::read_scrollback` | Rename eventually? It is scrollback, not shell history. |
 | `session.audit_log` | Product-only | MCP in-memory audit state | Engine-independent. |

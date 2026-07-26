@@ -50,6 +50,12 @@ if ([string]::IsNullOrWhiteSpace($summary.json_smoke.ForegroundProcess)) {
 if ([string]::IsNullOrWhiteSpace($summary.json_smoke.Cwd)) {
     throw "json smoke did not include session cwd fallback diagnostics"
 }
+if ($summary.json_smoke.Profile -ne "bench-profile") {
+    throw "json smoke did not include launch profile diagnostics"
+}
+if (-not @($summary.json_smoke.ProxyEnvKeys | Where-Object { $_ -eq "HTTPS_PROXY" })) {
+    throw "json smoke did not include launch proxy diagnostics"
+}
 if ($summary.json_smoke.LifecycleCreated -lt 1) {
     throw "json smoke did not include lifecycle diagnostics"
 }

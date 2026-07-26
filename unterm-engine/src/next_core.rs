@@ -1,12 +1,12 @@
 use super::{
     CellStyle, CreateSessionRequest, CursorSnapshot, DirtyRows, EngineHealthSnapshot,
     EngineIoHealthSnapshot, EngineLifecycleHealthSnapshot, HealthEngine, InputActivitySnapshot,
-    InputEngine, OutputActivitySnapshot, PasteActivitySnapshot, ProcessTreeSnapshot,
-    RecordingEngine, RecordingExportResult, RecordingStartResult, RecordingStatusSnapshot,
-    RecordingStopResult, ScreenActivitySnapshot, ScreenEngine, ScreenLine, ScreenSearchMatch,
-    ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot, SessionActivitySnapshot,
-    SessionEngine, SessionSnapshot, ShellSnapshot, SplitSessionRequest, StyledCell, StyledColor,
-    StyledScreenLine, StyledScreenSnapshot,
+    InputEngine, LaunchContextSnapshot, OutputActivitySnapshot, PasteActivitySnapshot,
+    ProcessTreeSnapshot, RecordingEngine, RecordingExportResult, RecordingStartResult,
+    RecordingStatusSnapshot, RecordingStopResult, ScreenActivitySnapshot, ScreenEngine, ScreenLine,
+    ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot,
+    SessionActivitySnapshot, SessionEngine, SessionSnapshot, ShellSnapshot, SplitSessionRequest,
+    StyledCell, StyledColor, StyledScreenLine, StyledScreenSnapshot,
 };
 use anyhow::{bail, Result};
 use base64::Engine as _;
@@ -1962,6 +1962,32 @@ impl NextCoreEngine {
             .or(fallback)
     }
 
+    fn launch_context(env: &[(String, String)]) -> LaunchContextSnapshot {
+        let mut proxy_env_keys = env
+            .iter()
+            .filter_map(|(key, _)| {
+                let upper = key.to_ascii_uppercase();
+                matches!(
+                    upper.as_str(),
+                    "HTTP_PROXY" | "HTTPS_PROXY" | "ALL_PROXY" | "NO_PROXY"
+                )
+                .then(|| key.clone())
+            })
+            .collect::<Vec<_>>();
+        proxy_env_keys.sort();
+        proxy_env_keys.dedup();
+
+        LaunchContextSnapshot {
+            profile: env
+                .iter()
+                .find(|(key, _)| key.eq_ignore_ascii_case("UNTERM_PROFILE"))
+                .map(|(_, value)| value.clone())
+                .filter(|value| !value.trim().is_empty()),
+            proxy_env_keys,
+            env_key_count: env.len(),
+        }
+    }
+
     fn prepare_command(
         command: Option<portable_pty::CommandBuilder>,
         command_dir: Option<String>,
@@ -2017,6 +2043,7 @@ impl NextCoreEngine {
             process_name: label,
             cwd,
             launch_env_keys,
+            launch_context: Default::default(),
         };
 
         Ok(NextCoreSession {
@@ -2227,6 +2254,7 @@ impl SessionEngine for NextCoreEngine {
 
     fn create_session(&self, request: CreateSessionRequest) -> Result<SessionSnapshot> {
         let launch_env_keys = request.env.iter().map(|(key, _)| key.clone()).collect();
+        let launch_context = Self::launch_context(&request.env);
         let (command, cwd) =
             Self::prepare_command(request.command, request.command_dir, request.env);
         let mut state_guard = state().write();
@@ -2243,7 +2271,10 @@ impl SessionEngine for NextCoreEngine {
             launch_env_keys,
         )?;
 
-        let snapshot = session.snapshot.clone();
+        let mut snapshot = session.snapshot.clone();
+        snapshot.shell.launch_context = launch_context.clone();
+        let mut session = session;
+        session.snapshot.shell.launch_context = launch_context;
         let mut state_guard = state().write();
         Self::set_active(&mut state_guard, id);
         state_guard.sessions.push(session);
@@ -3368,6 +3399,23 @@ mod tests {
     }
 
     #[test]
+    fn launch_context_summarizes_profile_and_proxy_env_without_values() {
+        let context = NextCoreEngine::launch_context(&[
+            ("GITHUB_TOKEN".to_string(), "secret-token".to_string()),
+            ("UNTERM_PROFILE".to_string(), "work-acme".to_string()),
+            (
+                "HTTPS_PROXY".to_string(),
+                "http://127.0.0.1:7890".to_string(),
+            ),
+            ("NO_PROXY".to_string(), "localhost".to_string()),
+        ]);
+
+        assert_eq!(context.profile.as_deref(), Some("work-acme"));
+        assert_eq!(context.proxy_env_keys, vec!["HTTPS_PROXY", "NO_PROXY"]);
+        assert_eq!(context.env_key_count, 4);
+    }
+
+    #[test]
     fn session_snapshot_records_launch_env_keys_without_values() -> Result<()> {
         let _guard = test_guard();
         reset_state_for_test();
@@ -3380,12 +3428,20 @@ mod tests {
             env: vec![
                 ("UNTERM_PROFILE".to_string(), "work-acme".to_string()),
                 ("GITHUB_TOKEN".to_string(), "secret-token".to_string()),
+                (
+                    "HTTPS_PROXY".to_string(),
+                    "http://127.0.0.1:7890".to_string(),
+                ),
             ],
         })?;
 
         let mut keys = engine.shell(session.id)?.launch_env_keys;
         keys.sort();
-        assert_eq!(keys, vec!["GITHUB_TOKEN", "UNTERM_PROFILE"]);
+        assert_eq!(keys, vec!["GITHUB_TOKEN", "HTTPS_PROXY", "UNTERM_PROFILE"]);
+        let launch_context = engine.shell(session.id)?.launch_context;
+        assert_eq!(launch_context.profile.as_deref(), Some("work-acme"));
+        assert_eq!(launch_context.proxy_env_keys, vec!["HTTPS_PROXY"]);
+        assert_eq!(launch_context.env_key_count, 3);
 
         engine.destroy_session(session.id)?;
         Ok(())

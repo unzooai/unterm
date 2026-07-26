@@ -13,6 +13,7 @@ struct Args {
     write: Option<String>,
     paste: Option<String>,
     cwd: Option<String>,
+    env: Vec<(String, String)>,
     command: Option<Vec<String>>,
     bench_input_writes: Option<usize>,
     bench_input_burst: Option<usize>,
@@ -41,6 +42,7 @@ fn parse_args() -> Result<Args> {
         write: None,
         paste: None,
         cwd: None,
+        env: Vec::new(),
         command: None,
         bench_input_writes: None,
         bench_input_burst: None,
@@ -219,12 +221,24 @@ fn parse_args() -> Result<Args> {
                         .ok_or_else(|| anyhow::anyhow!("--cwd requires a value"))?,
                 );
             }
+            "--env" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("--env requires KEY=VALUE"))?;
+                let Some((key, env_value)) = value.split_once('=') else {
+                    bail!("--env requires KEY=VALUE");
+                };
+                if key.trim().is_empty() {
+                    bail!("--env requires a non-empty key");
+                }
+                parsed.env.push((key.to_string(), env_value.to_string()));
+            }
             "--json" => {
                 parsed.json = true;
             }
             "--help" | "-h" => {
                 println!(
-                    "Usage: unterm-next-core [--cols N] [--rows N] [--wait-ms N] [--poll-ms N] [--timeout-ms N] [--bench-input-writes N] [--bench-input-burst N] [--bench-echo N] [--bench-flood-lines N] [--bench-scrollback-lines N] [--bench-viewport-scrolls N] [--bench-viewport-scroll-flood N] [--bench-paste-kb N] [--bench-dual-agent-lines N] [--bench-screen-read-lines N] [--bench-focus-switches N] [--bench-session-create N] [--bench-session-ready N] [--cwd PATH] [--write TEXT] [--paste TEXT] [--json] [-- COMMAND [ARG...]]"
+                    "Usage: unterm-next-core [--cols N] [--rows N] [--wait-ms N] [--poll-ms N] [--timeout-ms N] [--bench-input-writes N] [--bench-input-burst N] [--bench-echo N] [--bench-flood-lines N] [--bench-scrollback-lines N] [--bench-viewport-scrolls N] [--bench-viewport-scroll-flood N] [--bench-paste-kb N] [--bench-dual-agent-lines N] [--bench-screen-read-lines N] [--bench-focus-switches N] [--bench-session-create N] [--bench-session-ready N] [--cwd PATH] [--env KEY=VALUE] [--write TEXT] [--paste TEXT] [--json] [-- COMMAND [ARG...]]"
                 );
                 std::process::exit(0);
             }
@@ -954,7 +968,7 @@ fn main() -> Result<()> {
         rows: args.rows,
         command_dir: args.cwd,
         command: command_builder(args.command),
-        env: Vec::new(),
+        env: args.env,
     })?;
 
     if let Some(rounds) = args.bench_input_writes {

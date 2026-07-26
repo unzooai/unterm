@@ -22,7 +22,15 @@ Machine-readable probe output:
 cargo run -p unterm-engine --bin unterm-next-core -- --json --wait-ms 500 -- cmd.exe /c "echo next-core-probe"
 ```
 
-The JSON output includes the session snapshot, screen snapshot, activity snapshot, engine health, raw output byte count, and visible text. Use this for CI or agent dogfood checks instead of parsing the human-readable snapshot. In `next-core`, session snapshots include `dead_reason` for exited/closed PTY paths, `health.lifecycle` summarizes session create/destroy/dead counters and the latest death reason, and `health.io` summarizes input writes/bytes, output chunks/bytes, paste counts/text bytes, screen reads, and viewport scrolls across live sessions.
+The JSON output includes the session snapshot, screen snapshot, activity snapshot, engine health, raw output byte count, and visible text. Use this for CI or agent dogfood checks instead of parsing the human-readable snapshot. In `next-core`, session snapshots include `dead_reason` for exited/closed PTY paths, `shell.launch_context` summarizes the selected profile id plus proxy env key names without exposing env values, `health.lifecycle` summarizes session create/destroy/dead counters and the latest death reason, and `health.io` summarizes input writes/bytes, output chunks/bytes, paste counts/text bytes, screen reads, and viewport scrolls across live sessions.
+
+Launch-context probe:
+
+```powershell
+cargo run -p unterm-engine --bin unterm-next-core -- --json --wait-ms 500 --env UNTERM_PROFILE=bench-profile --env HTTPS_PROXY=http://127.0.0.1:7890 --write "echo launch-context`r"
+```
+
+The `--env KEY=VALUE` probe option is intended for diagnostics and tests. JSON output reports env key names, profile id, proxy env key names, and env key count; secret values remain redacted.
 
 ## Benchmark Report
 
@@ -159,4 +167,4 @@ ESC ] 7 ; file://localhost/C:/Users/alex/project BEL
 
 Values are decoded from `file://` URIs. On Windows, `/C:/...` paths are normalized to `C:\...`. Shells that do not emit OSC 7 fall back to the foreground/root process cwd when available; `session.idle` / `exec.status` additionally expose the same process-tree cwd summary so callers can distinguish the launch shell from active child CLIs.
 
-`SessionEngine::activity()` is based on `next-core`'s own PTY liveness and recent input/output timestamps. A session is reported as running shortly after input or output and idle after a quiet period. The activity snapshot also includes input, output, paste, screen-read, viewport-scroll, and process-tree counters so agents can diagnose slow typing, completion, auth-code paste, heavy agent output, PageUp/PageDown stalls, active child CLIs such as Codex or Claude, and cwd fallback behavior. `HealthEngine::health()` exposes the same class of counters as an aggregate `io` summary across live `next-core` sessions for server-level diagnostics.
+`SessionEngine::activity()` is based on `next-core`'s own PTY liveness and recent input/output timestamps. A session is reported as running shortly after input or output and idle after a quiet period. The activity snapshot also includes input, output, paste, screen-read, viewport-scroll, and process-tree counters so agents can diagnose slow typing, completion, auth-code paste, heavy agent output, PageUp/PageDown stalls, active child CLIs such as Codex or Claude, and cwd fallback behavior. `SessionEngine::shell()` also reports launch env key names and launch-context diagnostics for profile/proxy handoff checks without leaking profile secrets. `HealthEngine::health()` exposes the same class of counters as an aggregate `io` summary across live `next-core` sessions for server-level diagnostics.

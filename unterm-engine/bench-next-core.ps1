@@ -128,7 +128,7 @@ function New-Gate {
 function Invoke-JsonSmoke {
     Write-Host "Running JSON probe smoke..."
     $marker = "next-core-json-smoke"
-    $output = & $script:ExePath --json --wait-ms 500 --write "echo $marker`r" 2>&1
+    $output = & $script:ExePath --json --wait-ms 500 --env "UNTERM_PROFILE=bench-profile" --env "HTTPS_PROXY=http://127.0.0.1:7890" --write "echo $marker`r" 2>&1
     $exitCode = $LASTEXITCODE
     $lines = @($output | ForEach-Object { $_.ToString() })
     if ($exitCode -ne 0) {
@@ -163,6 +163,12 @@ function Invoke-JsonSmoke {
     if ([string]::IsNullOrWhiteSpace($json.activity.process.foreground_cwd) -and [string]::IsNullOrWhiteSpace($json.activity.process.root_cwd)) {
         throw "JSON probe did not include next-core process cwd diagnostics"
     }
+    if ($json.session.shell.launch_context.profile -ne "bench-profile") {
+        throw "JSON probe did not include launch profile diagnostics"
+    }
+    if (-not @($json.session.shell.launch_context.proxy_env_keys | Where-Object { $_ -eq "HTTPS_PROXY" })) {
+        throw "JSON probe did not include launch proxy env diagnostics"
+    }
     if ($null -eq $json.activity.screen -or $json.activity.screen.total_reads -lt 1) {
         throw "JSON probe did not include screen activity counters"
     }
@@ -184,6 +190,8 @@ function Invoke-JsonSmoke {
         ScreenReads = $json.health.io.screen_reads
         ForegroundProcess = $json.activity.process.foreground_process
         Cwd = $json.session.shell.cwd
+        Profile = $json.session.shell.launch_context.profile
+        ProxyEnvKeys = @($json.session.shell.launch_context.proxy_env_keys)
         DeadReason = $json.session.dead_reason
         LifecycleCreated = $json.health.lifecycle.total_created
     }
@@ -262,7 +270,7 @@ try {
     $report.Add("- Machine: ``$machine``")
     $report.Add("- OS: ``$os``")
     $report.Add("- Binary: ``target\debug\unterm-next-core.exe``")
-    $report.Add("- JSON smoke: ``$($jsonSmoke.Engine) $($jsonSmoke.Screen) raw_bytes=$($jsonSmoke.RawBytes) foreground=$($jsonSmoke.ForegroundProcess) cwd=$($jsonSmoke.Cwd) screen_reads=$($jsonSmoke.ScreenReads) lifecycle_created=$($jsonSmoke.LifecycleCreated) dead_reason=$($jsonSmoke.DeadReason)``")
+    $report.Add("- JSON smoke: ``$($jsonSmoke.Engine) $($jsonSmoke.Screen) raw_bytes=$($jsonSmoke.RawBytes) foreground=$($jsonSmoke.ForegroundProcess) cwd=$($jsonSmoke.Cwd) profile=$($jsonSmoke.Profile) proxy_keys=$($jsonSmoke.ProxyEnvKeys -join ',') screen_reads=$($jsonSmoke.ScreenReads) lifecycle_created=$($jsonSmoke.LifecycleCreated) dead_reason=$($jsonSmoke.DeadReason)``")
     $report.Add("")
     $report.Add("## Gates")
     $report.Add("")

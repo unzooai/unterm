@@ -98,6 +98,7 @@ impl WezTermEngine {
             process_name,
             cwd,
             launch_env_keys: Vec::new(),
+            launch_context: Default::default(),
         }
     }
 

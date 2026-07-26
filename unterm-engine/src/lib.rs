@@ -34,6 +34,14 @@ pub struct ShellSnapshot {
     pub process_name: String,
     pub cwd: Option<String>,
     pub launch_env_keys: Vec<String>,
+    pub launch_context: LaunchContextSnapshot,
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct LaunchContextSnapshot {
+    pub profile: Option<String>,
+    pub proxy_env_keys: Vec<String>,
+    pub env_key_count: usize,
 }
 
 #[derive(Clone, Debug, Serialize)]
