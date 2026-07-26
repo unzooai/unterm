@@ -4809,7 +4809,7 @@ impl McpHandler {
             .get("include_base64")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
-        let image = capture_screen_image(include_base64)?;
+        let image = engine.capture_screen_image(include_base64)?;
         Ok(json!({
             "captures": captures,
             "image": image,
@@ -4828,7 +4828,7 @@ impl McpHandler {
             .get("include_base64")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
-        let image = capture_window_image(title_filter, pid_filter, include_base64)?;
+        let image = engine.capture_window_image(title_filter, pid_filter, include_base64)?;
 
         for session in &sessions {
             let pane_title = &session.title;
@@ -4856,7 +4856,7 @@ impl McpHandler {
     }
 
     fn capture_select(&self) -> Result<Value> {
-        let image = capture_screen_image(false)?;
+        let image = self.engine().capture_screen_image(false)?;
         Ok(json!({
             "image": image,
             "type": "image/png",
@@ -6646,7 +6646,7 @@ fn run_powershell_json(script: &str) -> Result<Value> {
 }
 
 #[cfg(windows)]
-fn capture_screen_image(include_base64: bool) -> Result<Value> {
+pub(crate) fn capture_screen_image(include_base64: bool) -> Result<Value> {
     let path = capture_output_dir()?.join(format!(
         "screen_{}.png",
         chrono::Local::now().format("%Y%m%d_%H%M%S_%3f")
@@ -6678,7 +6678,7 @@ $bmp.Dispose()
 }
 
 #[cfg(windows)]
-fn capture_window_image(
+pub(crate) fn capture_window_image(
     title_filter: Option<&str>,
     pid_filter: Option<u32>,
     include_base64: bool,
@@ -6819,7 +6819,7 @@ fn png_dimensions(path: &std::path::Path) -> (u32, u32) {
 }
 
 #[cfg(target_os = "macos")]
-fn capture_screen_image(include_base64: bool) -> Result<Value> {
+pub(crate) fn capture_screen_image(include_base64: bool) -> Result<Value> {
     let dir = capture_output_dir()?;
     let path = dir.join(format!(
         "screen_{}.png",
@@ -6851,7 +6851,7 @@ fn capture_screen_image(include_base64: bool) -> Result<Value> {
 }
 
 #[cfg(target_os = "macos")]
-fn capture_window_image(
+pub(crate) fn capture_window_image(
     title_filter: Option<&str>,
     pid_filter: Option<u32>,
     include_base64: bool,
@@ -7065,7 +7065,7 @@ fn clipboard_read_macos() -> Result<Value> {
 // ---------------------------------------------------------------------------
 
 #[cfg(all(unix, not(target_os = "macos")))]
-fn capture_screen_image(include_base64: bool) -> Result<Value> {
+pub(crate) fn capture_screen_image(include_base64: bool) -> Result<Value> {
     let dir = capture_output_dir()?;
     let path = dir.join(format!(
         "screen_{}.png",
@@ -7115,7 +7115,7 @@ fn capture_screen_image(include_base64: bool) -> Result<Value> {
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]
-fn capture_window_image(
+pub(crate) fn capture_window_image(
     _title_filter: Option<&str>,
     _pid_filter: Option<u32>,
     include_base64: bool,

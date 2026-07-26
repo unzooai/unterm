@@ -55,6 +55,14 @@ pub struct RenderedScrollbackPng {
 }
 
 pub trait CaptureEngine {
+    fn capture_screen_image(&self, include_base64: bool) -> anyhow::Result<serde_json::Value>;
+    fn capture_window_image(
+        &self,
+        title_filter: Option<&str>,
+        pid_filter: Option<u32>,
+        include_base64: bool,
+    ) -> anyhow::Result<serde_json::Value>;
+
     fn render_scrollback_png(
         &self,
         pane_id: Option<usize>,
@@ -369,6 +377,19 @@ impl WindowEngine for CurrentTerminalEngine {
 }
 
 impl CaptureEngine for CurrentTerminalEngine {
+    fn capture_screen_image(&self, include_base64: bool) -> anyhow::Result<serde_json::Value> {
+        crate::mcp::handler::capture_screen_image(include_base64)
+    }
+
+    fn capture_window_image(
+        &self,
+        title_filter: Option<&str>,
+        pid_filter: Option<u32>,
+        include_base64: bool,
+    ) -> anyhow::Result<serde_json::Value> {
+        crate::mcp::handler::capture_window_image(title_filter, pid_filter, include_base64)
+    }
+
     fn render_scrollback_png(
         &self,
         pane_id: Option<usize>,
