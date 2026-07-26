@@ -1255,7 +1255,6 @@ impl NextCoreEngine {
                         Ok(0) => break,
                         Ok(n) => {
                             let chunk = String::from_utf8_lossy(&buf[..n]);
-                            Self::answer_terminal_queries(&chunk, &writer);
                             let mut output = output.lock();
                             output.push_str(&chunk);
                             if output.len() > MAX_OUTPUT_BYTES {
@@ -1267,7 +1266,9 @@ impl NextCoreEngine {
                                     .unwrap_or(0);
                                 output.drain(..keep_from);
                             }
-                            screen.lock().feed(&chunk);
+                            let mut screen = screen.lock();
+                            screen.feed(&chunk);
+                            Self::answer_terminal_queries(&chunk, &screen, &writer);
                         }
                         Err(_) => break,
                     }
@@ -1276,10 +1277,16 @@ impl NextCoreEngine {
             .ok();
     }
 
-    fn answer_terminal_queries(chunk: &str, writer: &Arc<Mutex<Box<dyn Write + Send>>>) {
+    fn answer_terminal_queries(
+        chunk: &str,
+        screen: &NextCoreScreen,
+        writer: &Arc<Mutex<Box<dyn Write + Send>>>,
+    ) {
         let mut response = Vec::new();
         if chunk.contains("\x1b[6n") {
-            response.extend_from_slice(b"\x1b[1;1R");
+            response.extend_from_slice(
+                format!("\x1b[{};{}R", screen.cursor_y + 1, screen.cursor_x + 1).as_bytes(),
+            );
         }
         if chunk.contains("\x1b[c") {
             response.extend_from_slice(b"\x1b[?1;0c");
@@ -1619,9 +1626,41 @@ mod tests {
     use super::*;
     use parking_lot::MutexGuard;
 
+    struct SharedWriter {
+        bytes: Arc<Mutex<Vec<u8>>>,
+    }
+
+    impl Write for SharedWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.bytes.lock().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
     fn test_guard() -> MutexGuard<'static, ()> {
         static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         TEST_LOCK.get_or_init(|| Mutex::new(())).lock()
+    }
+
+    #[test]
+    fn answers_cursor_position_queries_from_screen_state() {
+        let _guard = test_guard();
+        let mut screen = NextCoreScreen::new(10);
+        screen.set_cursor(2, 4);
+        let bytes = Arc::new(Mutex::new(Vec::new()));
+        let writer: Arc<Mutex<Box<dyn Write + Send>>> = Arc::new(Mutex::new(Box::new(
+            SharedWriter {
+                bytes: Arc::clone(&bytes),
+            },
+        )));
+
+        NextCoreEngine::answer_terminal_queries("\x1b[6n", &screen, &writer);
+
+        assert_eq!(bytes.lock().as_slice(), b"\x1b[3;5R");
     }
 
     #[test]
