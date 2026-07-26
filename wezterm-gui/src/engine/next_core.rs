@@ -46,6 +46,7 @@ struct NextCoreScreen {
     cursor_y: usize,
     cursor_visible: bool,
     current_attr: CellAttributes,
+    title: Option<String>,
     rows: usize,
     saved_cursor_x: usize,
     saved_cursor_y: usize,
@@ -176,6 +177,10 @@ impl NextCoreScreen {
             visible: self.cursor_visible,
             shape: "Default".to_string(),
         }
+    }
+
+    fn title(&self) -> Option<String> {
+        self.title.clone()
     }
 
     fn history_lines(&self) -> Vec<&Vec<ScreenCell>> {
@@ -323,6 +328,15 @@ impl NextCoreScreen {
         }
     }
 
+    fn apply_osc(&mut self, sequence: &str) {
+        let Some((kind, value)) = sequence.split_once(';') else {
+            return;
+        };
+        if matches!(kind, "0" | "2") && !value.is_empty() {
+            self.title = Some(value.to_string());
+        }
+    }
+
     fn parse_extended_color(params: &[usize]) -> Option<(TerminalColor, usize)> {
         match params {
             [5, color, ..] => Some((TerminalColor::Palette((*color).min(255) as u8), 2)),
@@ -461,8 +475,8 @@ enum ParserState {
     Ground,
     Escape,
     Csi(String),
-    Osc,
-    OscEscape,
+    Osc(String),
+    OscEscape(String),
 }
 
 impl<'a> ScreenParser<'a> {
@@ -497,7 +511,7 @@ impl<'a> ScreenParser<'a> {
             },
             ParserState::Escape => match c {
                 '[' => self.state = ParserState::Csi(String::new()),
-                ']' => self.state = ParserState::Osc,
+                ']' => self.state = ParserState::Osc(String::new()),
                 '7' => {
                     self.screen.save_cursor();
                     self.state = ParserState::Ground;
@@ -518,12 +532,23 @@ impl<'a> ScreenParser<'a> {
                     sequence.push(c);
                 }
             }
-            ParserState::Osc => match c {
-                '\x07' => self.state = ParserState::Ground,
-                '\x1b' => self.state = ParserState::OscEscape,
-                _ => {}
+            ParserState::Osc(ref mut sequence) => match c {
+                '\x07' => {
+                    let sequence = std::mem::take(sequence);
+                    self.screen.apply_osc(&sequence);
+                    self.state = ParserState::Ground;
+                }
+                '\x1b' => {
+                    let sequence = std::mem::take(sequence);
+                    self.state = ParserState::OscEscape(sequence);
+                }
+                _ => sequence.push(c),
             },
-            ParserState::OscEscape => {
+            ParserState::OscEscape(ref mut sequence) => {
+                if c == '\\' {
+                    let sequence = std::mem::take(sequence);
+                    self.screen.apply_osc(&sequence);
+                }
                 self.state = ParserState::Ground;
             }
         }
@@ -647,6 +672,9 @@ impl NextCoreEngine {
                 let screen = session.screen.lock();
                 snapshot.cursor = screen.cursor_snapshot();
                 snapshot.scrollback_rows = screen.scrollback_rows();
+                if let Some(title) = screen.title() {
+                    snapshot.title = title;
+                }
                 snapshot
             })
             .collect()
@@ -1406,6 +1434,30 @@ mod tests {
         assert!(text.contains("plain"));
         assert!(!text.contains("\x1b["));
         assert!(!text.contains("title"));
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_applies_osc_title_updates() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 24,
+            command_dir: None,
+            command: None,
+        })?;
+        set_output_for_test(
+            session.id,
+            "before\x1b]0;Claude Session\x07after\x1b]2;Codex Pane\x1b\\",
+        )?;
+
+        assert_eq!(engine.read_visible_text(session.id)?, "beforeafter");
+        assert_eq!(engine.get_session(session.id)?.title, "Codex Pane");
+        assert_eq!(engine.list_sessions()?[0].title, "Codex Pane");
 
         engine.destroy_session(session.id)?;
         Ok(())
