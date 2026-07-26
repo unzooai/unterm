@@ -51,6 +51,10 @@ pub fn engine_capabilities(engine: &str) -> Value {
                 "limitation": "goto updates next-core's logical viewport; real GUI viewport integration comes with the next-core renderer",
             }),
             json!({
+                "name": "screen.scroll",
+                "limitation": "goto/apply updates next-core's logical viewport; real GUI viewport integration comes with the next-core renderer",
+            }),
+            json!({
                 "name": "cockpit.inbox",
                 "limitation": "pane location metadata is synthetic until next-core owns real GUI tabs/windows",
             }),
@@ -200,6 +204,14 @@ mod tests {
             .as_str()
             .expect("limitation text")
             .contains("logical viewport"));
+        let scroll = limited
+            .iter()
+            .find(|item| item["name"].as_str() == Some("screen.scroll"))
+            .expect("screen scroll limitation");
+        assert!(scroll["limitation"]
+            .as_str()
+            .expect("limitation text")
+            .contains("goto/apply"));
         let inbox = limited
             .iter()
             .find(|item| item["name"].as_str() == Some("cockpit.inbox"))
