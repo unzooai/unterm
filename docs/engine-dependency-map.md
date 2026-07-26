@@ -58,7 +58,7 @@ Known gaps:
 - scrollback PNG rendering
 - window capture/focus/title
 - instance lifecycle ownership
-- agent foreground-process/cwd refresh independent of WezTerm
+- richer foreground argv/process-tree metadata in engine snapshots
 - profile/proxy injection as first-class engine launch context
 
 ## MCP Coverage Summary

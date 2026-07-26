@@ -305,7 +305,7 @@ impl ConnectionContext {
 
 #[cfg(test)]
 mod engine_neutral_handler_tests {
-    use super::{ConnectionContext, McpHandler};
+    use super::{compute_agent_cwd, ConnectionContext, McpHandler};
     use crate::engine::{next_core, SessionEngine};
     use anyhow::{anyhow, Context, Result};
     use parking_lot::Mutex;
@@ -1170,6 +1170,42 @@ mod engine_neutral_handler_tests {
     }
 
     #[test]
+    fn agent_cwd_metadata_uses_selected_terminal_engine() {
+        let _guard = env_lock().lock();
+        let previous_engine = std::env::var("UNTERM_ENGINE").ok();
+        std::env::set_var("UNTERM_ENGINE", "next-core");
+
+        let result: Result<(serde_json::Value, super::PaneAgentCwd)> = (|| {
+            let handler = McpHandler::new();
+            let ctx = ConnectionContext::internal("handler-test");
+            let cwd = std::env::current_dir()?.display().to_string();
+            let created = handler.handle(
+                &ctx,
+                "session.create",
+                &json!({
+                    "cols": 80,
+                    "rows": 4,
+                    "cwd": cwd,
+                }),
+            )?;
+            let pane_id = created["id"].as_u64().expect("session id");
+            let metadata = compute_agent_cwd(pane_id);
+            let _ = handler.handle(&ctx, "session.destroy", &json!({ "pane_id": pane_id }));
+            Ok((created, metadata))
+        })();
+
+        match previous_engine {
+            Some(value) => std::env::set_var("UNTERM_ENGINE", value),
+            None => std::env::remove_var("UNTERM_ENGINE"),
+        }
+
+        let (_created, metadata) = result.expect("agent cwd metadata through selected engine");
+        assert!(metadata.cwd_path.is_some());
+        assert!(metadata.cwd.is_some());
+        assert!(metadata.project_path.is_some());
+    }
+
+    #[test]
     fn session_suggest_uses_terminal_engine_session_lookup() {
         let _guard = env_lock().lock();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
@@ -1617,35 +1653,14 @@ pub fn detect_agent_for_pane(
         return Some(name);
     }
     let info = proc_info?;
-    fn match_name(name: &str) -> Option<&'static str> {
-        let lower = name.to_ascii_lowercase();
-        // Strip a leading path / common extensions so "claude.exe" /
-        // "/usr/local/bin/claude" both hit.
-        let bare = std::path::Path::new(&lower)
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or(&lower);
-        match bare {
-            "claude" => Some("claude"),
-            "codex" => Some("codex"),
-            "gemini" => Some("gemini"),
-            "kimi" | "kimi-code" => Some("kimi"),
-            "aider" => Some("aider"),
-            "opencode" => Some("opencode"),
-            "trae" | "trae-cli" | "trae_agent" | "trae-agent" => Some("trae"),
-            "zcode" | "z-code" | "z code" => Some("zcode"),
-            "cursor-agent" | "cursoragent" => Some("cursor-agent"),
-            _ => None,
-        }
-    }
     fn walk(p: &procinfo::LocalProcessInfo) -> Option<String> {
-        if let Some(hit) = match_name(&p.name) {
+        if let Some(hit) = detect_known_agent_name(&p.name) {
             return Some(hit.to_string());
         }
         // Also peek the first argv element — some launchers exec a
         // wrapper script whose process name doesn't match the agent.
         if let Some(arg0) = p.argv.first() {
-            if let Some(hit) = match_name(arg0) {
+            if let Some(hit) = detect_known_agent_name(arg0) {
                 return Some(hit.to_string());
             }
         }
@@ -1657,6 +1672,28 @@ pub fn detect_agent_for_pane(
         None
     }
     walk(info)
+}
+
+fn detect_known_agent_name(name: &str) -> Option<&'static str> {
+    let lower = name.to_ascii_lowercase();
+    // Strip a leading path / common extensions so "claude.exe" /
+    // "/usr/local/bin/claude" both hit.
+    let bare = std::path::Path::new(&lower)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or(&lower);
+    match bare {
+        "claude" => Some("claude"),
+        "codex" => Some("codex"),
+        "gemini" => Some("gemini"),
+        "kimi" | "kimi-code" => Some("kimi"),
+        "aider" => Some("aider"),
+        "opencode" => Some("opencode"),
+        "trae" | "trae-cli" | "trae_agent" | "trae-agent" => Some("trae"),
+        "zcode" | "z-code" | "z code" => Some("zcode"),
+        "cursor-agent" | "cursoragent" => Some("cursor-agent"),
+        _ => None,
+    }
 }
 
 /// Cached `(agent, cwd-basename)` for a pane's status surfaces (vertical tab
@@ -1708,36 +1745,17 @@ fn is_shell_exe(bare: &str) -> bool {
     )
 }
 
-/// Reduce a pane's foreground process to a short command title for the
-/// sidebar. Returns None when the foreground process is just the shell (an
-/// idle prompt). Otherwise the executable base name, optionally suffixed by a
-/// bare first argument so `git log` / `cargo build` read as their subcommand.
-fn foreground_command_title(info: &procinfo::LocalProcessInfo) -> Option<String> {
-    let bare = info
-        .executable
+fn foreground_command_title_from_process_name(process_name: &str) -> Option<String> {
+    let bare = std::path::Path::new(process_name)
         .file_stem()
         .and_then(|s| s.to_str())
         .map(|s| s.to_ascii_lowercase())
         .unwrap_or_default();
     if bare.is_empty() || is_shell_exe(&bare) {
-        return None;
+        None
+    } else {
+        Some(bare)
     }
-    let mut title = bare.clone();
-    // argv[0] is the executable; argv[1] is the first real argument. Append it
-    // only when it looks like a subcommand (a bare word, not a flag or a path)
-    // so common tools read naturally without pulling in noisy paths/flags.
-    if let Some(arg) = info.argv.get(1).map(|a| a.trim()) {
-        let looks_like_subcommand = !arg.is_empty()
-            && !arg.starts_with('-')
-            && !arg.contains('/')
-            && !arg.contains('\\')
-            && !arg.contains('.')
-            && termwiz::cell::unicode_column_width(arg, None) <= 16;
-        if looks_like_subcommand {
-            title = format!("{bare} {arg}");
-        }
-    }
-    Some(title)
 }
 
 const AGENT_CWD_TTL: std::time::Duration = std::time::Duration::from_millis(5000);
@@ -1857,28 +1875,20 @@ fn agent_fg_cwd_for_pane_inner(pane_id: u64) -> PaneAgentCwd {
 /// The expensive part, run on a worker thread: snapshot the pane's foreground
 /// process and derive the agent name + cwd basename.
 fn compute_agent_cwd(pane_id: u64) -> PaneAgentCwd {
-    let Some(mux) = Mux::try_get() else {
+    let Ok(shell) = crate::engine::current().shell(pane_id as usize) else {
         return PaneAgentCwd::default();
     };
-    let Some(pane) = mux.get_pane(pane_id as mux::pane::PaneId) else {
-        return PaneAgentCwd::default();
-    };
-    // This function already runs off the render thread, so do the real work
-    // here. Using AllowStale on a cold cache only queued another worker and
-    // then stored an empty `(agent, cwd)` result for AGENT_CWD_TTL.
-    let proc_info = pane.get_foreground_process_info(mux::pane::CachePolicy::FetchImmediate);
-    let agent = detect_agent_for_pane(pane_id, proc_info.as_ref());
+    let agent = agent_for_pane(pane_id)
+        .or_else(|| detect_known_agent_name(&shell.process_name).map(str::to_string));
     // When an agent drives the pane its name already IS the title, so we skip
     // the command probe; otherwise reduce the foreground process to a short
     // command title (`None` while the shell is idle at its prompt).
     let foreground = if agent.is_some() {
         None
     } else {
-        proc_info.as_ref().and_then(foreground_command_title)
+        foreground_command_title_from_process_name(&shell.process_name)
     };
-    let cwd_path_buf = pane
-        .get_current_working_dir(mux::pane::CachePolicy::AllowStale)
-        .and_then(|url| url.to_file_path().ok());
+    let cwd_path_buf = shell.cwd.as_ref().map(std::path::PathBuf::from);
     let cwd_path = cwd_path_buf
         .as_ref()
         .map(|p| p.to_string_lossy().to_string());
