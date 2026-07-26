@@ -29,3 +29,11 @@ cargo run -p unterm-engine --bin unterm-next-core -- --bench-echo 50 --wait-ms 1
 ```
 
 The benchmark writes unique `echo` markers into the PTY and reports min/p50/p95/max microsecond latency until each marker is visible in the raw next-core output buffer.
+
+Output flood benchmark:
+
+```powershell
+cargo run -p unterm-engine --bin unterm-next-core -- --bench-flood-lines 1000 --timeout-ms 10000 --wait-ms 100 --write "exit`r" -- cmd.exe
+```
+
+The flood benchmark emits many lines through `cmd.exe`, waits for a completion marker, and reports elapsed time plus line/byte throughput.

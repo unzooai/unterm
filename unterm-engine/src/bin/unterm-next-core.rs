@@ -11,6 +11,7 @@ struct Args {
     cwd: Option<String>,
     command: Option<Vec<String>>,
     bench_echo: Option<usize>,
+    bench_flood_lines: Option<usize>,
     poll_ms: u64,
     timeout_ms: u64,
 }
@@ -25,6 +26,7 @@ fn parse_args() -> Result<Args> {
         cwd: None,
         command: None,
         bench_echo: None,
+        bench_flood_lines: None,
         poll_ms: 5,
         timeout_ms: 5000,
     };
@@ -76,6 +78,13 @@ fn parse_args() -> Result<Args> {
                         .parse()?,
                 );
             }
+            "--bench-flood-lines" => {
+                parsed.bench_flood_lines = Some(
+                    args.next()
+                        .ok_or_else(|| anyhow::anyhow!("--bench-flood-lines requires a value"))?
+                        .parse()?,
+                );
+            }
             "--write" => {
                 parsed.write = Some(
                     args.next()
@@ -90,7 +99,7 @@ fn parse_args() -> Result<Args> {
             }
             "--help" | "-h" => {
                 println!(
-                    "Usage: unterm-next-core [--cols N] [--rows N] [--wait-ms N] [--poll-ms N] [--timeout-ms N] [--bench-echo N] [--cwd PATH] [--write TEXT] [-- COMMAND [ARG...]]"
+                    "Usage: unterm-next-core [--cols N] [--rows N] [--wait-ms N] [--poll-ms N] [--timeout-ms N] [--bench-echo N] [--bench-flood-lines N] [--cwd PATH] [--write TEXT] [-- COMMAND [ARG...]]"
                 );
                 std::process::exit(0);
             }
@@ -111,6 +120,10 @@ fn command_builder(argv: Option<Vec<String>>) -> Option<CommandBuilder> {
     Some(command)
 }
 
+fn shell_quote_cmd_arg(text: &str) -> String {
+    text.replace('"', "\"\"")
+}
+
 fn percentile(sorted: &[u128], percentile: f64) -> u128 {
     if sorted.is_empty() {
         return 0;
@@ -118,6 +131,50 @@ fn percentile(sorted: &[u128], percentile: f64) -> u128 {
 
     let rank = ((sorted.len() - 1) as f64 * percentile).round() as usize;
     sorted[rank.min(sorted.len() - 1)]
+}
+
+fn run_flood_benchmark(
+    engine: &unterm_engine::next_core::NextCoreEngine,
+    pane_id: usize,
+    lines: usize,
+    poll_interval: Duration,
+    timeout: Duration,
+) -> Result<()> {
+    if lines == 0 {
+        bail!("--bench-flood-lines must be greater than 0");
+    }
+
+    let marker = format!("UNTERM_NEXT_CORE_FLOOD_DONE_{lines}");
+    let before_raw_len = engine.debug_output(pane_id)?.len();
+    let command = format!("for /L %i in (1,1,{lines}) do @echo UNTERM_NEXT_CORE_FLOOD_%i\r");
+    let before = Instant::now();
+    engine.write_input(pane_id, command.as_str())?;
+    engine.write_input(
+        pane_id,
+        format!("echo {}\r", shell_quote_cmd_arg(marker.as_str())).as_str(),
+    )?;
+
+    loop {
+        let raw = engine.debug_output(pane_id)?;
+        if raw[before_raw_len.min(raw.len())..].contains(marker.as_str()) {
+            let elapsed = before.elapsed();
+            let bytes = raw.len().saturating_sub(before_raw_len);
+            let seconds = elapsed.as_secs_f64().max(0.000_001);
+            println!(
+                "bench_flood lines={} bytes={} elapsed_ms={} lines_per_sec={:.1} bytes_per_sec={:.1}",
+                lines,
+                bytes,
+                elapsed.as_millis(),
+                lines as f64 / seconds,
+                bytes as f64 / seconds
+            );
+            return Ok(());
+        }
+        if before.elapsed() >= timeout {
+            bail!("timed out waiting for flood marker {marker}");
+        }
+        std::thread::sleep(poll_interval);
+    }
 }
 
 fn run_echo_benchmark(
@@ -184,6 +241,17 @@ fn main() -> Result<()> {
             Duration::from_millis(args.timeout_ms),
         )
         .with_context(|| format!("bench_echo failed for session {}", session.id))?;
+    }
+
+    if let Some(lines) = args.bench_flood_lines {
+        run_flood_benchmark(
+            &engine,
+            session.id,
+            lines,
+            Duration::from_millis(args.poll_ms),
+            Duration::from_millis(args.timeout_ms),
+        )
+        .with_context(|| format!("bench_flood failed for session {}", session.id))?;
     }
 
     if let Some(input) = args.write {
