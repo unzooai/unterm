@@ -223,7 +223,7 @@ pub fn render_styled_scrollback_png(
                     band.fill_rect(cx0, 0, cw, cell_h as isize, bg);
                 }
 
-                if !cell.ch.is_whitespace() {
+                if !cell.ch.is_whitespace() && !cell.style.hidden {
                     let text = cell.ch.to_string();
                     let attrs = styled_cell_attributes(cell.style);
                     let style = fonts.match_style(&config, &attrs);
@@ -272,7 +272,7 @@ pub fn render_styled_scrollback_png(
                     }
                 }
 
-                if cell.style.underline {
+                if cell.style.underline && !cell.style.hidden {
                     let thickness = metrics.underline_thickness.get().round().max(1.0) as isize;
                     let uy = (baseline - metrics.underline_position.get()).round() as isize;
                     band.fill_rect(cx0, uy.min(cell_h as isize - thickness), cw, thickness, fg);
