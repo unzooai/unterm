@@ -259,6 +259,24 @@ impl SessionEngine for WezTermEngine {
     }
 
     fn resize_session(&self, pane_id: usize, cols: usize, rows: usize) -> Result<()> {
+        let mux = self.mux()?;
+        // A pane that is tiled inside a GUI window gets its geometry from
+        // the window size and split layout; resizing only the PTY leaves
+        // the model at one size and the visible grid at another.
+        let in_gui_layout = mux.iter_windows().into_iter().any(|wid| {
+            mux.get_window(wid)
+                .map(|window| window.iter().any(|tab| tab.contains_pane(pane_id)))
+                .unwrap_or(false)
+        });
+        if in_gui_layout {
+            return Err(anyhow!(
+                "Session {} is laid out by the GUI window; its size follows \
+                 the window and splits. Resize the window or adjust the \
+                 split instead.",
+                pane_id
+            ));
+        }
+
         let pane = self.pane(pane_id)?;
         let size = wezterm_term::TerminalSize {
             rows,

@@ -505,6 +505,52 @@ mod engine_neutral_handler_tests {
     }
 
     #[test]
+    fn session_resize_uses_next_core_pane_id_path() {
+        let _guard = env_lock().lock();
+        let previous_engine = std::env::var("UNTERM_ENGINE").ok();
+        std::env::set_var("UNTERM_ENGINE", "next-core");
+
+        let result: Result<(serde_json::Value, serde_json::Value, usize)> = (|| {
+            let handler = McpHandler::new();
+            let ctx = ConnectionContext::internal("handler-test");
+            let created = handler.handle(
+                &ctx,
+                "session.create",
+                &json!({
+                    "cols": 80,
+                    "rows": 4,
+                }),
+            )?;
+            let pane_id = created["id"].as_u64().expect("session id") as usize;
+
+            let resized = handler.handle(
+                &ctx,
+                "session.resize",
+                &json!({
+                    "pane_id": pane_id,
+                    "cols": 100,
+                    "rows": 8,
+                }),
+            )?;
+            let session = handler.handle(&ctx, "session.get", &json!({ "pane_id": pane_id }))?;
+            let _ = handler.handle(&ctx, "session.destroy", &json!({ "pane_id": pane_id }));
+
+            Ok((resized, session, pane_id))
+        })();
+
+        match previous_engine {
+            Some(value) => std::env::set_var("UNTERM_ENGINE", value),
+            None => std::env::remove_var("UNTERM_ENGINE"),
+        }
+
+        let (resized, session, pane_id) = result.expect("resize next-core session through handler");
+        assert!(next_core().get_session(pane_id).is_err());
+        assert_eq!(resized["status"], "ok");
+        assert_eq!(session["cols"], 100);
+        assert_eq!(session["rows"], 8);
+    }
+
+    #[test]
     fn server_health_uses_selected_next_core_engine() {
         let _guard = env_lock().lock();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
@@ -2214,7 +2260,7 @@ impl McpHandler {
     }
 
     fn session_resize(&self, params: &Value) -> Result<Value> {
-        let pane = self.get_pane(params)?;
+        let pane_id = Self::pane_id_from_params(params)?;
         let cols = params
             .get("cols")
             .and_then(|v| v.as_u64())
@@ -2223,27 +2269,6 @@ impl McpHandler {
             .get("rows")
             .and_then(|v| v.as_u64())
             .ok_or_else(|| anyhow!("Missing 'rows'"))? as usize;
-
-        // A pane that is tiled inside a GUI window gets its geometry from
-        // the window size and split layout; resizing only the PTY leaves
-        // the model at one size and the visible grid at another (content
-        // clips / wraps wrong until the next window resize resnaps it).
-        // Reject instead of silently desyncing.
-        let mux = self.get_mux()?;
-        let pane_id = pane.pane_id();
-        let in_gui_layout = mux.iter_windows().into_iter().any(|wid| {
-            mux.get_window(wid)
-                .map(|window| window.iter().any(|tab| tab.contains_pane(pane_id)))
-                .unwrap_or(false)
-        });
-        if in_gui_layout {
-            return Err(anyhow!(
-                "Session {} is laid out by the GUI window; its size follows \
-                 the window and splits. Resize the window or adjust the \
-                 split instead.",
-                pane_id
-            ));
-        }
 
         let engine = self.engine();
         engine.resize_session(pane_id, cols, rows)?;
