@@ -4,7 +4,7 @@
 更新时间：2026-07-27  
 规划周期：12 个月  
 适用范围：当前 WezTerm 内核、engine-neutral 产品层、实验性 `next-core`
-当前进展：`next-core` 已具备启动环境元数据、scrollback 文本截图、OSC 7 cwd、session activity、input/output/paste 指标、server health 聚合 I/O 诊断、逻辑 viewport goto 和 UTF-8 安全粘贴分块基础能力。
+当前进展：`next-core` 已具备启动环境元数据、profile/proxy launch-context 诊断、scrollback 文本截图、OSC 7 cwd、session activity、input/output/paste 指标、server health 聚合 I/O 诊断、逻辑 viewport goto 和 UTF-8 安全粘贴分块基础能力。
 
 ## 1. 产品结论
 
@@ -201,7 +201,7 @@ Unterm 的产品目标不是“再做一个终端”，而是做一个本地优�
 - `SessionEngine`、`InputEngine`、`ScreenEngine`、`CaptureEngine`、`WindowEngine` 覆盖核心路径。
 - `docs/engine-dependency-map.md` 中 WezTerm-only 保持为 0。
 - `capture.scrollback` 的 next-core 语义明确：先支持纯文本 PNG，后续补 styled cell parity。
-- `server.capabilities` / `meta.surface` 表达 per-engine 能力和诊断指标，尤其让 agent 能看见 next-core 的受限能力、health I/O 指标而不是猜测。
+- `server.capabilities` / `meta.surface` 表达 per-engine 能力和诊断指标，尤其让 agent 能看见 next-core 的受限能力、health I/O 指标和 launch-context 诊断能力而不是猜测。
 
 验收：
 
@@ -209,7 +209,7 @@ Unterm 的产品目标不是“再做一个终端”，而是做一个本地优�
 - current-core 行为不变。
 - next-core adapter 能实现最小子集，不链接 WezTerm GUI 深层对象。
 - `server.health` 能暴露 next-core 聚合输入、输出、粘贴诊断指标。
-- `selftest.run` 能验证 next-core capability 声明、health I/O payload 和逻辑 viewport 滚动能力。
+- `selftest.run` 能验证 next-core capability 声明、health I/O payload、profile/proxy launch-context redaction 和逻辑 viewport 滚动能力。
 - `screen.search(goto)` 和 `screen.scroll(goto/apply)` 在 next-core 中能更新逻辑 viewport，后续 `screen.text` 可读到目标区域。
 
 ### v0.60：next-core Spike

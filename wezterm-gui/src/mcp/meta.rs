@@ -86,6 +86,7 @@ pub fn engine_capabilities(engine: &str) -> Value {
         "engine_limited_methods": engine_limited_methods,
         "diagnostics": {
             "health_io_summary": engine == "next-core",
+            "launch_context": engine == "next-core",
             "health_metrics": health_metrics,
         },
     })
@@ -173,6 +174,7 @@ mod tests {
         assert!(supported.contains(&"session.input"));
         assert!(supported.contains(&"capture.scrollback"));
         assert_eq!(caps["diagnostics"]["health_io_summary"], false);
+        assert_eq!(caps["diagnostics"]["launch_context"], false);
     }
 
     #[test]
@@ -225,6 +227,7 @@ mod tests {
             .any(|item| item["name"].as_str() == Some("capture.scrollback")));
 
         assert_eq!(caps["diagnostics"]["health_io_summary"], true);
+        assert_eq!(caps["diagnostics"]["launch_context"], true);
         let metrics = strings_at(&caps["diagnostics"], "health_metrics");
         assert!(metrics.contains(&"input_writes"));
         assert!(metrics.contains(&"output_bytes"));

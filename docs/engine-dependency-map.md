@@ -200,8 +200,8 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 | `policy.check` | Product-only | Policy checker | Engine-independent. |
 | `server.info` | Engine-neutral | Server metadata plus engine label | Already reports selected engine. |
 | `server.health` | Engine-neutral | `HealthEngine::health` plus product server metadata | WezTerm readiness is adapter-owned; `next-core` readiness does not depend on WezTerm Mux state and includes aggregate input/output/paste health counters. |
-| `server.capabilities` | Product-only | `MCP_METHODS` inventory plus `_engine_capabilities` | Keeps the legacy namespace map while exposing selected engine support/unsupported method flags and diagnostic capability flags such as next-core health I/O summaries. |
-| `selftest.run` | Product-only | MCP selftest orchestration plus `HealthEngine`/`SessionEngine` probes | Selftest no longer treats WezTerm mux availability as the engine readiness source and verifies next-core health I/O diagnostics plus logical viewport scrolling when that engine is selected. Needs broader per-engine test matrix. |
+| `server.capabilities` | Product-only | `MCP_METHODS` inventory plus `_engine_capabilities` | Keeps the legacy namespace map while exposing selected engine support/unsupported method flags and diagnostic capability flags such as next-core health I/O summaries and launch-context diagnostics. |
+| `selftest.run` | Product-only | MCP selftest orchestration plus `HealthEngine`/`SessionEngine` probes | Selftest no longer treats WezTerm mux availability as the engine readiness source and verifies next-core health I/O diagnostics, launch-context profile/proxy redaction, and logical viewport scrolling when that engine is selected. Needs broader per-engine test matrix. |
 | `profile.list` | Product-only | Profile registry, no secrets | Engine-independent. |
 | `profile.current` | Product-only | Current profile metadata | Engine-independent. |
 | `profile.audit` | Product-only | Profile registry/vault metadata | Engine-independent. |

@@ -1485,9 +1485,17 @@ mod engine_neutral_handler_tests {
             surface["engine_capabilities"]["diagnostics"]["health_io_summary"],
             true
         );
+        assert_eq!(
+            surface["engine_capabilities"]["diagnostics"]["launch_context"],
+            true
+        );
         assert_eq!(capabilities["_engine"], "next-core");
         assert_eq!(
             capabilities["_engine_capabilities"]["diagnostics"]["health_io_summary"],
+            true
+        );
+        assert_eq!(
+            capabilities["_engine_capabilities"]["diagnostics"]["launch_context"],
             true
         );
         let metrics = surface["engine_capabilities"]["diagnostics"]["health_metrics"]
@@ -1546,6 +1554,15 @@ mod engine_neutral_handler_tests {
         assert_eq!(scroll_check["detail"]["scrolled"], true);
         assert_eq!(scroll_check["detail"]["target_visible"], true);
         assert_eq!(scroll_check["detail"]["destroyed"], true);
+        let launch_check = checks
+            .iter()
+            .find(|check| check["name"] == "next_core.launch_context_diagnostics")
+            .expect("next-core launch context diagnostics check");
+        assert_eq!(launch_check["ok"], true);
+        assert_eq!(launch_check["detail"]["profile"], "selftest-profile");
+        assert_eq!(launch_check["detail"]["proxy_key"], "HTTPS_PROXY");
+        assert_eq!(launch_check["detail"]["values_redacted"], true);
+        assert_eq!(launch_check["detail"]["destroyed"], true);
     }
 
     #[test]
@@ -3154,7 +3171,10 @@ impl McpHandler {
         let resolved_profile = if let Some(profile) = profile.as_deref() {
             let (profile_id, profile_env) = resolve_profile_env(profile)?;
             env.extend(profile_env);
-            if !env.iter().any(|(key, _)| key.eq_ignore_ascii_case("UNTERM_PROFILE")) {
+            if !env
+                .iter()
+                .any(|(key, _)| key.eq_ignore_ascii_case("UNTERM_PROFILE"))
+            {
                 env.push(("UNTERM_PROFILE".to_string(), profile_id.clone()));
             }
             Some(profile_id)
@@ -5807,6 +5827,21 @@ impl McpHandler {
                 },
             }));
 
+            let launch_context = self.selftest_next_core_launch_context();
+            checks.push(json!({
+                "name": "next_core.launch_context_diagnostics",
+                "ok": launch_context
+                    .as_ref()
+                    .ok()
+                    .and_then(|value| value.get("ok"))
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(false),
+                "detail": match launch_context {
+                    Ok(value) => value,
+                    Err(err) => json!({"error": err.to_string()}),
+                },
+            }));
+
             let viewport = self.selftest_next_core_scroll_viewport();
             checks.push(json!({
                 "name": "next_core.screen_scroll_viewport",
@@ -5950,6 +5985,92 @@ impl McpHandler {
         }))
     }
 
+    fn selftest_next_core_launch_context(&self) -> Result<Value> {
+        let created = self.engine().create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 3,
+            command_dir: None,
+            command: Some(shell_command_builder(
+                "echo next-core-selftest-launch-context",
+            )),
+            env: vec![
+                ("UNTERM_PROFILE".to_string(), "selftest-profile".to_string()),
+                (
+                    "HTTPS_PROXY".to_string(),
+                    "http://127.0.0.1:7890".to_string(),
+                ),
+            ],
+        })?;
+        let pane_id = created.id;
+
+        let probe = (|| -> Result<Value> {
+            let mut found_marker = false;
+            for _ in 0..20 {
+                let search = self.screen_search(&json!({
+                    "pane_id": pane_id,
+                    "pattern": "next-core-selftest-launch-context",
+                }))?;
+                if search["total"].as_u64().unwrap_or_default() > 0 {
+                    found_marker = true;
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+
+            let env = self.session_env(&json!({ "pane_id": pane_id }))?;
+            let variables = env["variables"].as_array().cloned().unwrap_or_default();
+            let has_profile_key = variables
+                .iter()
+                .any(|var| var["name"].as_str() == Some("UNTERM_PROFILE"));
+            let has_proxy_key = variables
+                .iter()
+                .any(|var| var["name"].as_str() == Some("HTTPS_PROXY"));
+            let values_redacted = variables
+                .iter()
+                .all(|var| var["value"].is_null() && var["redacted"].as_bool().unwrap_or(false));
+            let context = &env["launch_context"];
+            let profile_ok = context["profile"].as_str() == Some("selftest-profile");
+            let proxy_ok = context["proxy_env_keys"]
+                .as_array()
+                .is_some_and(|keys| keys.iter().any(|key| key.as_str() == Some("HTTPS_PROXY")));
+            let env_key_count_ok = context["env_key_count"].as_u64().unwrap_or_default() >= 2;
+
+            Ok(json!({
+                "ok": found_marker
+                    && has_profile_key
+                    && has_proxy_key
+                    && values_redacted
+                    && profile_ok
+                    && proxy_ok
+                    && env_key_count_ok,
+                "pane_id": pane_id,
+                "found_marker": found_marker,
+                "has_profile_key": has_profile_key,
+                "has_proxy_key": has_proxy_key,
+                "values_redacted": values_redacted,
+                "profile": context["profile"].clone(),
+                "proxy_key": if proxy_ok { "HTTPS_PROXY" } else { "" },
+                "env_key_count": context["env_key_count"].clone(),
+            }))
+        })();
+
+        let destroyed = self.session_destroy(&json!({ "pane_id": pane_id }));
+        let mut detail = match probe {
+            Ok(value) => value,
+            Err(err) => json!({
+                "ok": false,
+                "pane_id": pane_id,
+                "error": err.to_string(),
+            }),
+        };
+        detail["destroyed"] = json!(destroyed.is_ok());
+        if let Err(err) = destroyed {
+            detail["destroy_error"] = json!(err.to_string());
+            detail["ok"] = json!(false);
+        }
+        Ok(detail)
+    }
+
     fn selftest_next_core_scroll_viewport(&self) -> Result<Value> {
         let command = if cfg!(windows) {
             "for /L %i in (1,1,8) do @echo next-core-selftest-scroll-%i"
@@ -5992,13 +6113,11 @@ impl McpHandler {
                     "goto": true,
                 }))?;
                 text = self.screen_text(&json!({ "pane_id": pane_id }))?;
-                target_visible = text["lines"]
-                    .as_array()
-                    .is_some_and(|lines| {
-                        lines
-                            .iter()
-                            .any(|line| line.as_str() == Some("next-core-selftest-scroll-2"))
-                    });
+                target_visible = text["lines"].as_array().is_some_and(|lines| {
+                    lines
+                        .iter()
+                        .any(|line| line.as_str() == Some("next-core-selftest-scroll-2"))
+                });
             }
 
             let scrolled = scroll["scrolled_to"]["row"].as_i64() == Some(1)
