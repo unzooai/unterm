@@ -317,9 +317,16 @@ impl ScreenEngine for WezTermEngine {
                 cells: line
                     .text
                     .chars()
-                    .map(|ch| StyledCell {
-                        ch,
-                        style: CellStyle::default(),
+                    .map(|ch| {
+                        let mut buf = [0u8; 4];
+                        StyledCell {
+                            ch,
+                            style: CellStyle::default(),
+                            width: termwiz::cell::unicode_column_width(
+                                ch.encode_utf8(&mut buf),
+                                None,
+                            ),
+                        }
                     })
                     .collect(),
             })

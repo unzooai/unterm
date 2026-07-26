@@ -71,15 +71,37 @@ struct ScreenState {
 struct ScreenCell {
     ch: char,
     attr: CellAttributes,
+    width: usize,
 }
 
 impl ScreenCell {
     fn new(ch: char, attr: CellAttributes) -> Self {
-        Self { ch, attr }
+        Self {
+            ch,
+            attr,
+            width: Self::char_width(ch),
+        }
     }
 
     fn blank(attr: CellAttributes) -> Self {
-        Self { ch: ' ', attr }
+        Self {
+            ch: ' ',
+            attr,
+            width: 1,
+        }
+    }
+
+    fn continuation(attr: CellAttributes) -> Self {
+        Self {
+            ch: ' ',
+            attr,
+            width: 0,
+        }
+    }
+
+    fn char_width(ch: char) -> usize {
+        let mut buf = [0u8; 4];
+        termwiz::cell::unicode_column_width(ch.encode_utf8(&mut buf), None)
     }
 
     #[allow(dead_code)]
@@ -87,6 +109,7 @@ impl ScreenCell {
         StyledCell {
             ch: self.ch,
             style: self.attr.into(),
+            width: self.width,
         }
     }
 }
@@ -245,6 +268,7 @@ impl NextCoreScreen {
 
     fn line_text(line: &Vec<ScreenCell>) -> String {
         line.iter()
+            .filter(|cell| cell.width > 0)
             .map(|cell| cell.ch)
             .collect::<String>()
             .trim_end()
@@ -254,16 +278,37 @@ impl NextCoreScreen {
     fn put_char(&mut self, c: char) {
         self.ensure_cursor_line();
         self.mark_dirty_row(self.cursor_y);
+        let cell = ScreenCell::new(c, self.current_attr);
+        let width = cell.width;
+        if width == 0 {
+            if self.cursor_x > 0 {
+                let line = &mut self.lines[self.cursor_y];
+                if let Some(previous) = line.get_mut(self.cursor_x - 1) {
+                    previous.ch = c;
+                }
+            }
+            return;
+        }
         let line = &mut self.lines[self.cursor_y];
         if self.cursor_x > line.len() {
             line.resize(self.cursor_x, ScreenCell::blank(self.current_attr));
         }
         if self.cursor_x == line.len() {
-            line.push(ScreenCell::new(c, self.current_attr));
+            line.push(cell);
         } else {
-            line[self.cursor_x] = ScreenCell::new(c, self.current_attr);
+            line[self.cursor_x] = cell;
         }
-        self.cursor_x += 1;
+        if width > 1 {
+            for offset in 1..width {
+                let idx = self.cursor_x + offset;
+                if idx == line.len() {
+                    line.push(ScreenCell::continuation(self.current_attr));
+                } else if idx < line.len() {
+                    line[idx] = ScreenCell::continuation(self.current_attr);
+                }
+            }
+        }
+        self.cursor_x += width;
     }
 
     fn newline(&mut self) {
@@ -1678,6 +1723,35 @@ mod tests {
             Some(StyledColor::Rgb(1, 2, 3))
         );
         assert_eq!(styled.lines[0].cells[3].style, CellStyle::default());
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_tracks_wide_character_cells() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 24,
+            command_dir: None,
+            command: None,
+        })?;
+        set_output_for_test(session.id, "你A")?;
+
+        let screen = engine.read_screen(session.id)?;
+        assert_eq!(screen.lines[0], "你A");
+        assert_eq!(screen.cursor.x, 3);
+
+        let styled = engine.read_styled_screen(session.id)?;
+        let cells = &styled.lines[0].cells;
+        assert_eq!(cells[0].ch, '你');
+        assert_eq!(cells[0].width, 2);
+        assert_eq!(cells[1].width, 0);
+        assert_eq!(cells[2].ch, 'A');
+        assert_eq!(cells[2].width, 1);
 
         engine.destroy_session(session.id)?;
         Ok(())

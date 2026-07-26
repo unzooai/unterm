@@ -89,6 +89,7 @@ pub struct CellStyle {
 pub struct StyledCell {
     pub ch: char,
     pub style: CellStyle,
+    pub width: usize,
 }
 
 #[allow(dead_code)]
