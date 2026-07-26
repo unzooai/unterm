@@ -186,9 +186,21 @@ pub struct ScreenActivitySnapshot {
 }
 
 #[derive(Clone, Debug, Serialize)]
+pub struct ProcessTreeSnapshot {
+    pub root_pid: Option<u32>,
+    pub root_process: String,
+    pub foreground_pid: Option<u32>,
+    pub foreground_process: String,
+    pub foreground_argv: Vec<String>,
+    pub child_count: usize,
+    pub detected_agent: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
 pub struct SessionActivitySnapshot {
     pub idle: bool,
     pub foreground_process: String,
+    pub process: Option<ProcessTreeSnapshot>,
     pub input: Option<InputActivitySnapshot>,
     pub output: Option<OutputActivitySnapshot>,
     pub paste: Option<PasteActivitySnapshot>,

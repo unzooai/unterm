@@ -186,7 +186,7 @@ plugin = { path = "lua-api-crates/plugin" }
 portable-pty = { path = "pty" }
 predicates = "3.0"
 proc-macro2 = "1.0"
-procinfo = { path = "procinfo" }
+procinfo = { path = "procinfo", default-features = false }
 procinfo-funcs = { path = "lua-api-crates/procinfo-funcs" }
 promise = { path = "promise" }
 quote = "1.0.2"

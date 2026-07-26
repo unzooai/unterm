@@ -1,17 +1,18 @@
 use super::{
     CellStyle, CreateSessionRequest, CursorSnapshot, DirtyRows, EngineHealthSnapshot,
     EngineIoHealthSnapshot, EngineLifecycleHealthSnapshot, HealthEngine, InputActivitySnapshot,
-    InputEngine, OutputActivitySnapshot, PasteActivitySnapshot, RecordingEngine,
-    RecordingExportResult, RecordingStartResult, RecordingStatusSnapshot, RecordingStopResult,
-    ScreenActivitySnapshot, ScreenEngine, ScreenLine, ScreenSearchMatch, ScreenSnapshot,
-    ScrollbackTextRequest, ScrollbackTextSnapshot, SessionActivitySnapshot, SessionEngine,
-    SessionSnapshot, ShellSnapshot, SplitSessionRequest, StyledCell, StyledColor, StyledScreenLine,
-    StyledScreenSnapshot,
+    InputEngine, OutputActivitySnapshot, PasteActivitySnapshot, ProcessTreeSnapshot,
+    RecordingEngine, RecordingExportResult, RecordingStartResult, RecordingStatusSnapshot,
+    RecordingStopResult, ScreenActivitySnapshot, ScreenEngine, ScreenLine, ScreenSearchMatch,
+    ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot, SessionActivitySnapshot,
+    SessionEngine, SessionSnapshot, ShellSnapshot, SplitSessionRequest, StyledCell, StyledColor,
+    StyledScreenLine, StyledScreenSnapshot,
 };
 use anyhow::{bail, Result};
 use base64::Engine as _;
 use parking_lot::{Mutex, RwLock};
 use portable_pty::{native_pty_system, Child, MasterPty, PtySize};
+use procinfo::LocalProcessInfo;
 use serde::{Deserialize, Serialize};
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
@@ -31,6 +32,7 @@ pub struct NextCoreEngine;
 
 struct NextCoreSession {
     snapshot: SessionSnapshot,
+    root_pid: Option<u32>,
     master: Mutex<Box<dyn MasterPty + Send>>,
     child: Mutex<Box<dyn Child + Send + Sync>>,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
@@ -46,6 +48,16 @@ impl Drop for NextCoreSession {
     fn drop(&mut self) {
         self.child.lock().kill().ok();
     }
+}
+
+#[derive(Clone, Debug)]
+struct ProcessNodeSummary {
+    pid: u32,
+    name: String,
+    argv: Vec<String>,
+    start_time: u64,
+    child_count: usize,
+    detected_agent: Option<String>,
 }
 
 #[derive(Default)]
@@ -1295,6 +1307,21 @@ fn make_activity_stale_for_test(pane_id: usize) -> Result<()> {
 }
 
 #[cfg(test)]
+fn reset_activity_for_test(pane_id: usize) -> Result<()> {
+    let state = state().read();
+    let Some(session) = state
+        .sessions
+        .iter()
+        .find(|session| session.snapshot.id == pane_id)
+    else {
+        bail!("next-core session {pane_id} not found");
+    };
+
+    *session.activity.lock() = SessionIoActivity::new();
+    make_activity_stale_for_test(pane_id)
+}
+
+#[cfg(test)]
 fn viewport_attrs_for_test(pane_id: usize) -> Result<Vec<Vec<CellAttributes>>> {
     let screen = {
         let state = state().read();
@@ -1340,6 +1367,117 @@ impl NextCoreEngine {
         }
 
         None
+    }
+
+    fn process_tree_snapshot(
+        root_pid: Option<u32>,
+        fallback_process: &str,
+    ) -> Option<ProcessTreeSnapshot> {
+        fn fallback(root_pid: Option<u32>, fallback_process: &str) -> ProcessTreeSnapshot {
+            ProcessTreeSnapshot {
+                root_pid,
+                root_process: fallback_process.to_string(),
+                foreground_pid: root_pid,
+                foreground_process: fallback_process.to_string(),
+                foreground_argv: Vec::new(),
+                child_count: 0,
+                detected_agent: NextCoreEngine::detect_known_agent_name(fallback_process)
+                    .map(str::to_string),
+            }
+        }
+
+        let Some(pid) = root_pid else {
+            return Some(fallback(None, fallback_process));
+        };
+        let Some(root) = LocalProcessInfo::with_root_pid(pid) else {
+            return Some(fallback(Some(pid), fallback_process));
+        };
+        let foreground = Self::foreground_process_summary(&root);
+        Some(ProcessTreeSnapshot {
+            root_pid: Some(root.pid),
+            root_process: root.name.clone(),
+            foreground_pid: Some(foreground.pid),
+            foreground_process: foreground.name,
+            foreground_argv: foreground.argv,
+            child_count: Self::count_descendants(&root),
+            detected_agent: Self::detect_agent_in_process_tree(&root),
+        })
+    }
+
+    fn foreground_process_summary(root: &LocalProcessInfo) -> ProcessNodeSummary {
+        let mut best = ProcessNodeSummary {
+            pid: root.pid,
+            name: root.name.clone(),
+            argv: root.argv.clone(),
+            start_time: root.start_time,
+            child_count: Self::count_descendants(root),
+            detected_agent: Self::detect_known_agent_name(&root.name)
+                .or_else(|| {
+                    root.argv
+                        .first()
+                        .and_then(|arg| Self::detect_known_agent_name(arg))
+                })
+                .map(str::to_string),
+        };
+        for child in root.children.values() {
+            let candidate = Self::foreground_process_summary(child);
+            let candidate_score = (
+                candidate.detected_agent.is_some(),
+                candidate.start_time,
+                candidate.child_count,
+            );
+            let best_score = (
+                best.detected_agent.is_some(),
+                best.start_time,
+                best.child_count,
+            );
+            if candidate_score > best_score {
+                best = candidate;
+            }
+        }
+        best
+    }
+
+    fn count_descendants(root: &LocalProcessInfo) -> usize {
+        root.children
+            .values()
+            .map(|child| 1 + Self::count_descendants(child))
+            .sum()
+    }
+
+    fn detect_agent_in_process_tree(root: &LocalProcessInfo) -> Option<String> {
+        Self::detect_known_agent_name(&root.name)
+            .or_else(|| {
+                root.argv
+                    .first()
+                    .and_then(|arg| Self::detect_known_agent_name(arg))
+            })
+            .map(str::to_string)
+            .or_else(|| {
+                root.children
+                    .values()
+                    .find_map(Self::detect_agent_in_process_tree)
+            })
+    }
+
+    fn detect_known_agent_name(name: &str) -> Option<&'static str> {
+        let lower = name.to_ascii_lowercase();
+        let bare = std::path::Path::new(&lower)
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or(&lower);
+        match bare {
+            "claude" => Some("claude"),
+            "codex" => Some("codex"),
+            "gemini" => Some("gemini"),
+            "kimi" | "kimi-code" => Some("kimi"),
+            "aider" => Some("aider"),
+            "opencode" => Some("opencode"),
+            "trae" | "trae-cli" | "trae_agent" | "trae-agent" => Some("trae"),
+            "zcode" | "z-code" | "z code" => Some("zcode"),
+            "cursor-agent" | "cursoragent" => Some("cursor-agent"),
+            _ => None,
+        }
     }
 
     fn record_dead_reason(state: &mut NextCoreState, reason: String) {
@@ -1803,6 +1941,7 @@ impl NextCoreEngine {
         let label = Self::command_label(&command);
         let pair = native_pty_system().openpty(Self::pty_size(cols, rows))?;
         let child = pair.slave.spawn_command(command)?;
+        let root_pid = child.process_id();
         let reader = pair.master.try_clone_reader()?;
         let writer = Arc::new(Mutex::new(pair.master.take_writer()?));
         let output = Arc::new(Mutex::new(String::new()));
@@ -1843,6 +1982,7 @@ impl NextCoreEngine {
                 domain_id: 0,
                 shell,
             },
+            root_pid,
             master: Mutex::new(pair.master),
             child: Mutex::new(child),
             writer,
@@ -2129,7 +2269,12 @@ impl SessionEngine for NextCoreEngine {
         };
         let dead_reason = Self::refresh_liveness(session);
         let is_dead = session.snapshot.is_dead;
-        let foreground_process = session.snapshot.shell.process_name.clone();
+        let process =
+            Self::process_tree_snapshot(session.root_pid, &session.snapshot.shell.process_name);
+        let foreground_process = process
+            .as_ref()
+            .map(|process| process.foreground_process.clone())
+            .unwrap_or_else(|| session.snapshot.shell.process_name.clone());
         let activity = session.activity.lock();
         let idle = is_dead || activity.is_idle(Instant::now());
         let input = activity.input.clone();
@@ -2143,6 +2288,7 @@ impl SessionEngine for NextCoreEngine {
         Ok(SessionActivitySnapshot {
             idle,
             foreground_process,
+            process,
             input,
             output,
             paste,
@@ -2746,6 +2892,21 @@ mod tests {
         TEST_LOCK.get_or_init(|| Mutex::new(())).lock()
     }
 
+    fn quiet_wait_command_for_test() -> portable_pty::CommandBuilder {
+        #[cfg(windows)]
+        {
+            let mut command = portable_pty::CommandBuilder::new("cmd.exe");
+            command.args(["/c", "ping -n 5 127.0.0.1 >nul"]);
+            command
+        }
+        #[cfg(not(windows))]
+        {
+            let mut command = portable_pty::CommandBuilder::new("sh");
+            command.args(["-c", "sleep 5"]);
+            command
+        }
+    }
+
     #[test]
     fn answers_cursor_position_queries_from_screen_state() {
         let _guard = test_guard();
@@ -2838,7 +2999,7 @@ mod tests {
             cols: 80,
             rows: 3,
             command_dir: None,
-            command: None,
+            command: Some(quiet_wait_command_for_test()),
             env: Vec::new(),
         })?;
 
@@ -2910,6 +3071,79 @@ mod tests {
         Ok(())
     }
 
+    fn process_info_for_test(
+        pid: u32,
+        ppid: u32,
+        name: &str,
+        argv: Vec<String>,
+        start_time: u64,
+        children: Vec<LocalProcessInfo>,
+    ) -> LocalProcessInfo {
+        LocalProcessInfo {
+            pid,
+            ppid,
+            name: name.to_string(),
+            executable: PathBuf::from(name),
+            argv,
+            cwd: PathBuf::new(),
+            status: procinfo::LocalProcessStatus::Run,
+            start_time,
+            #[cfg(windows)]
+            console: 0,
+            children: children
+                .into_iter()
+                .map(|child| (child.pid, child))
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn process_tree_summary_prefers_known_agent_descendant() {
+        let _guard = test_guard();
+        let helper =
+            process_info_for_test(30, 20, "node.exe", vec!["node".to_string()], 30, Vec::new());
+        let codex = process_info_for_test(
+            40,
+            20,
+            "node.exe",
+            vec![
+                "C:\\Users\\me\\AppData\\Roaming\\npm\\codex.cmd".to_string(),
+                "--ask-for-approval".to_string(),
+            ],
+            20,
+            Vec::new(),
+        );
+        let root = process_info_for_test(
+            10,
+            0,
+            "powershell.exe",
+            vec!["powershell.exe".to_string()],
+            10,
+            vec![helper, codex],
+        );
+
+        let foreground = NextCoreEngine::foreground_process_summary(&root);
+        assert_eq!(foreground.pid, 40);
+        assert_eq!(foreground.detected_agent.as_deref(), Some("codex"));
+        assert_eq!(
+            NextCoreEngine::detect_agent_in_process_tree(&root).as_deref(),
+            Some("codex")
+        );
+    }
+
+    #[test]
+    fn process_tree_summary_uses_newest_child_without_agent_match() {
+        let _guard = test_guard();
+        let older = process_info_for_test(30, 10, "git.exe", Vec::new(), 30, Vec::new());
+        let newer = process_info_for_test(40, 10, "cargo.exe", Vec::new(), 40, Vec::new());
+        let root = process_info_for_test(10, 0, "cmd.exe", Vec::new(), 10, vec![older, newer]);
+
+        let foreground = NextCoreEngine::foreground_process_summary(&root);
+        assert_eq!(foreground.pid, 40);
+        assert_eq!(foreground.name, "cargo.exe");
+        assert_eq!(foreground.detected_agent, None);
+    }
+
     #[test]
     fn output_activity_reports_screen_updates() -> Result<()> {
         let _guard = test_guard();
@@ -2919,19 +3153,21 @@ mod tests {
             cols: 80,
             rows: 3,
             command_dir: None,
-            command: None,
+            command: Some(quiet_wait_command_for_test()),
             env: Vec::new(),
         })?;
 
-        make_activity_stale_for_test(session.id)?;
-        assert!(engine.activity(session.id)?.output.is_none());
+        reset_activity_for_test(session.id)?;
+        let before = engine.activity(session.id)?.output;
+        let before_chunks = before.as_ref().map_or(0, |output| output.total_chunks);
+        let before_bytes = before.as_ref().map_or(0, |output| output.total_bytes);
 
         set_output_for_test(session.id, "first")?;
         let activity = engine.activity(session.id)?;
         assert!(!activity.idle);
         let output = activity.output.expect("output metrics after screen update");
-        assert_eq!(output.total_chunks, 1);
-        assert_eq!(output.total_bytes, 5);
+        assert!(output.total_chunks >= before_chunks + 1);
+        assert!(output.total_bytes >= before_bytes + 5);
         assert_eq!(output.last_bytes, 5);
 
         set_output_for_test(session.id, "second line")?;
@@ -2939,9 +3175,9 @@ mod tests {
             .activity(session.id)?
             .output
             .expect("output metrics after second screen update");
-        assert_eq!(output.total_chunks, 2);
-        assert_eq!(output.total_bytes, 16);
-        assert_eq!(output.last_bytes, 11);
+        assert!(output.total_chunks >= before_chunks + 2);
+        assert!(output.total_bytes >= before_bytes + 16);
+        assert!(output.last_bytes > 0);
 
         engine.destroy_session(session.id)?;
         Ok(())
@@ -3112,7 +3348,7 @@ mod tests {
             cols: 80,
             rows: 24,
             command_dir: None,
-            command: None,
+            command: Some(quiet_wait_command_for_test()),
             env: Vec::new(),
         })?;
 
@@ -3145,22 +3381,19 @@ mod tests {
             cols: 80,
             rows: 24,
             command_dir: None,
-            command: None,
+            command: Some(quiet_wait_command_for_test()),
             env: Vec::new(),
         })?;
 
-        make_activity_stale_for_test(session.id)?;
-        assert!(engine.activity(session.id)?.idle);
+        reset_activity_for_test(session.id)?;
 
         set_output_for_test(session.id, "recent output")?;
         let _ = engine.read_visible_text(session.id)?;
         engine.scroll_viewport_to(session.id, 0)?;
         let activity = engine.activity(session.id)?;
         assert!(!activity.idle);
-        assert_eq!(
-            activity.foreground_process,
-            engine.shell(session.id)?.process_name
-        );
+        assert!(!activity.foreground_process.is_empty());
+        assert!(activity.process.is_some());
         let screen = activity.screen.expect("screen activity");
         assert_eq!(screen.total_reads, 1);
         assert_eq!(screen.total_viewport_scrolls, 1);

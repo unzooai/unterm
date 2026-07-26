@@ -52,7 +52,7 @@ function Invoke-Benchmark {
     $exitCode = $LASTEXITCODE
     $lines = @($output | ForEach-Object { $_.ToString() })
     $summary = @($lines | Where-Object {
-            $_ -match "bench_|session id|health_|timed out|Error"
+            $_ -match "bench_|session id|activity_process|health_|timed out|Error"
         })
 
     [pscustomobject]@{
@@ -154,6 +154,9 @@ function Invoke-JsonSmoke {
     if ($null -eq $json.activity) {
         throw "JSON probe did not include an activity snapshot"
     }
+    if ($null -eq $json.activity.process -or [string]::IsNullOrWhiteSpace($json.activity.process.foreground_process)) {
+        throw "JSON probe did not include next-core process activity diagnostics"
+    }
     if ($null -eq $json.activity.screen -or $json.activity.screen.total_reads -lt 1) {
         throw "JSON probe did not include screen activity counters"
     }
@@ -173,6 +176,7 @@ function Invoke-JsonSmoke {
         Screen = "$($json.screen.cols)x$($json.screen.rows)"
         RawBytes = $json.raw_bytes
         ScreenReads = $json.health.io.screen_reads
+        ForegroundProcess = $json.activity.process.foreground_process
         DeadReason = $json.session.dead_reason
         LifecycleCreated = $json.health.lifecycle.total_created
     }
@@ -251,7 +255,7 @@ try {
     $report.Add("- Machine: ``$machine``")
     $report.Add("- OS: ``$os``")
     $report.Add("- Binary: ``target\debug\unterm-next-core.exe``")
-    $report.Add("- JSON smoke: ``$($jsonSmoke.Engine) $($jsonSmoke.Screen) raw_bytes=$($jsonSmoke.RawBytes) screen_reads=$($jsonSmoke.ScreenReads) lifecycle_created=$($jsonSmoke.LifecycleCreated) dead_reason=$($jsonSmoke.DeadReason)``")
+    $report.Add("- JSON smoke: ``$($jsonSmoke.Engine) $($jsonSmoke.Screen) raw_bytes=$($jsonSmoke.RawBytes) foreground=$($jsonSmoke.ForegroundProcess) screen_reads=$($jsonSmoke.ScreenReads) lifecycle_created=$($jsonSmoke.LifecycleCreated) dead_reason=$($jsonSmoke.DeadReason)``")
     $report.Add("")
     $report.Add("## Gates")
     $report.Add("")

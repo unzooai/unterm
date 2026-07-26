@@ -277,6 +277,7 @@ impl SessionEngine for WezTermEngine {
         Ok(SessionActivitySnapshot {
             idle: shell.shell_type != "unknown",
             foreground_process: shell.process_name,
+            process: None,
             input: None,
             output: None,
             paste: None,

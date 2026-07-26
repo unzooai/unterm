@@ -13,6 +13,7 @@ anyhow.workspace = true
 base64.workspace = true
 parking_lot.workspace = true
 portable-pty = { workspace = true, features = ["serde_support"] }
+procinfo = { workspace = true, default-features = false }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 termwiz.workspace = true

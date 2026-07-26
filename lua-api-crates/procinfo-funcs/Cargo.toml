@@ -11,5 +11,5 @@ anyhow.workspace = true
 config.workspace = true
 libc.workspace = true
 luahelper.workspace = true
-procinfo.workspace = true
+procinfo = { workspace = true, features = ["lua"] }
 wezterm-dynamic.workspace = true

@@ -1133,6 +1133,31 @@ fn main() -> Result<()> {
             screen.cursor.y,
             raw_bytes
         );
+        if let Some(process) = activity.process.as_ref() {
+            let root_pid = process
+                .root_pid
+                .map(|pid| pid.to_string())
+                .unwrap_or_else(|| "none".to_string());
+            let foreground_pid = process
+                .foreground_pid
+                .map(|pid| pid.to_string())
+                .unwrap_or_else(|| "none".to_string());
+            let detected_agent = process.detected_agent.as_deref().unwrap_or("none");
+            println!(
+                "activity_process foreground={} foreground_pid={} root={} root_pid={} child_count={} detected_agent={}",
+                process.foreground_process,
+                foreground_pid,
+                process.root_process,
+                root_pid,
+                process.child_count,
+                detected_agent
+            );
+        } else {
+            println!(
+                "activity_process foreground={} foreground_pid=none root=none root_pid=none child_count=0 detected_agent=none",
+                activity.foreground_process
+            );
+        }
         if let Some(io) = health.io.as_ref() {
             println!(
                 "health_io input_writes={} input_bytes={} output_chunks={} output_bytes={} paste_count={} paste_text_bytes={} screen_reads={} viewport_scrolls={}",

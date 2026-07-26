@@ -6706,6 +6706,7 @@ dependencies = [
  "base64 0.22.1",
  "parking_lot",
  "portable-pty",
+ "procinfo",
  "serde",
  "serde_json",
  "termwiz",
