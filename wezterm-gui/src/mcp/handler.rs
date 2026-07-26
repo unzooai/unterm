@@ -965,8 +965,8 @@ mod engine_neutral_handler_tests {
         assert_eq!(item["session"]["title"], expected_title);
         assert_eq!(item["session"]["engine"], "next-core");
         assert_eq!(item["session"]["is_active"], true);
-        assert!(item.get("window_id").is_none());
-        assert!(item.get("tab_id").is_none());
+        assert_eq!(item["window_id"], 0);
+        assert_eq!(item["tab_id"], pane_id as u64);
         crate::cockpit::status::reset_for_tests();
     }
 

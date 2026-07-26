@@ -139,7 +139,7 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 | `agent.untrust` | Product-only | Trust config/state | Engine-independent. |
 | `agent.status` | Engine-neutral | Cockpit registry lookup by pane id; all-pane snapshot from product state | Handler no longer resolves a WezTerm pane for single-pane status. |
 | `agent.signal` | Engine-neutral | Explicit pane-id signals write directly to the cockpit registry; omitted pane id resolves through `WindowEngine::active_pane_id` | `next-core` resolves active session from engine session snapshots until it owns GUI focus state. |
-| `cockpit.inbox` | Engine-neutral | Agent registry joined with `SessionEngine::list_sessions`; optional tab/window jump metadata comes from `WindowEngine::pane_locations` | `next-core` can return an empty location map until it owns GUI tabs/windows. |
+| `cockpit.inbox` | Engine-neutral | Agent registry joined with `SessionEngine::list_sessions`; optional tab/window jump metadata comes from `WindowEngine::pane_locations` | `next-core` returns synthetic window/tab locations from its session registry until it owns real GUI tabs/windows. |
 | `fleet.launch` | Engine-neutral | Fleet worktree registry plus `SessionEngine::create_session` and `InputEngine::write_input` via a pane spawner | Handler launches members without calling WezTerm tab APIs; default GUI fleet launcher still uses the WezTerm spawner. |
 | `fleet.list` | Product-only | Review/fleet registry | Engine-independent except live state enrichment. |
 | `fleet.clean` | Engine-neutral | Product worktree/branch cleanup plus engine-backed pane remover | Handler cleans fleets without calling WezTerm Mux. |

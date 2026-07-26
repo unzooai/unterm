@@ -358,7 +358,19 @@ impl WindowEngine for CurrentTerminalEngine {
     fn pane_locations(&self) -> anyhow::Result<HashMap<u64, PaneLocation>> {
         match self {
             Self::WezTerm(engine) => engine.pane_locations(),
-            Self::NextCore(_) => Ok(HashMap::new()),
+            Self::NextCore(engine) => Ok(engine
+                .list_sessions()?
+                .into_iter()
+                .map(|session| {
+                    (
+                        session.id as u64,
+                        PaneLocation {
+                            window_id: 0,
+                            tab_id: session.id,
+                        },
+                    )
+                })
+                .collect()),
         }
     }
 
