@@ -105,8 +105,14 @@ fn main() -> Result<()> {
     let session = engine.get_session(session.id)?;
     let screen = engine.read_screen(session.id)?;
     println!(
-        "session id={} cols={} rows={} dead={} cursor=({}, {})",
-        session.id, screen.cols, screen.rows, session.is_dead, screen.cursor.x, screen.cursor.y
+        "session id={} cols={} rows={} dead={} cursor=({}, {}) raw_bytes={}",
+        session.id,
+        screen.cols,
+        screen.rows,
+        session.is_dead,
+        screen.cursor.x,
+        screen.cursor.y,
+        engine.debug_output(session.id)?.len()
     );
     println!("{}", engine.read_visible_text(session.id)?);
     engine.destroy_session(session.id)?;

@@ -14,4 +14,10 @@ cargo run -p unterm-engine --bin unterm-next-core -- --wait-ms 500 -- cmd.exe /c
 
 The probe creates a next-core session, optionally writes text or runs a command, waits, then prints the visible screen snapshot.
 
-Current Windows note: session creation succeeds through ConPTY, but quick command output is not yet reliably visible in the probe. Treat that as the next standalone next-core smoke-test gap, not as a GUI issue.
+On Windows, the command above should print `next-core-probe`. A blank snapshot means the standalone ConPTY smoke path has regressed before the GUI is involved.
+
+Interactive input smoke test:
+
+```powershell
+cargo run -p unterm-engine --bin unterm-next-core -- --wait-ms 1200 --write "echo next-core-write`rexit`r" -- cmd.exe
+```

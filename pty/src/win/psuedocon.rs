@@ -26,6 +26,7 @@ pub type HPCON = HANDLE;
 
 pub const PSUEDOCONSOLE_INHERIT_CURSOR: DWORD = 0x1;
 pub const PSEUDOCONSOLE_RESIZE_QUIRK: DWORD = 0x2;
+#[allow(dead_code)]
 pub const PSEUDOCONSOLE_WIN32_INPUT_MODE: DWORD = 0x4;
 #[allow(dead_code)]
 pub const PSEUDOCONSOLE_PASSTHROUGH_MODE: DWORD = 0x8;
@@ -65,6 +66,8 @@ lazy_static! {
 
 pub struct PsuedoCon {
     con: HPCON,
+    _input: FileDescriptor,
+    _output: FileDescriptor,
 }
 
 unsafe impl Send for PsuedoCon {}
@@ -84,9 +87,7 @@ impl PsuedoCon {
                 size,
                 input.as_raw_handle() as _,
                 output.as_raw_handle() as _,
-                PSUEDOCONSOLE_INHERIT_CURSOR
-                    | PSEUDOCONSOLE_RESIZE_QUIRK
-                    | PSEUDOCONSOLE_WIN32_INPUT_MODE,
+                PSUEDOCONSOLE_INHERIT_CURSOR | PSEUDOCONSOLE_RESIZE_QUIRK,
                 &mut con,
             )
         };
@@ -95,7 +96,11 @@ impl PsuedoCon {
             "failed to create psuedo console: HRESULT {}",
             result
         );
-        Ok(Self { con })
+        Ok(Self {
+            con,
+            _input: input,
+            _output: output,
+        })
     }
 
     pub fn resize(&self, size: COORD) -> Result<(), Error> {

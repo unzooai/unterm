@@ -1043,6 +1043,11 @@ impl NextCoreEngine {
         Ok(text)
     }
 
+    #[doc(hidden)]
+    pub fn debug_output(&self, pane_id: usize) -> Result<String> {
+        self.output(pane_id)
+    }
+
     fn screen_lines(&self, pane_id: usize) -> Result<Vec<String>> {
         let screen = {
             let state = state().read();
@@ -1303,8 +1308,8 @@ impl NextCoreEngine {
     ) -> Result<NextCoreSession> {
         let label = Self::command_label(&command);
         let pair = native_pty_system().openpty(Self::pty_size(cols, rows))?;
-        let reader = pair.master.try_clone_reader()?;
         let child = pair.slave.spawn_command(command)?;
+        let reader = pair.master.try_clone_reader()?;
         let writer = Arc::new(Mutex::new(pair.master.take_writer()?));
         let output = Arc::new(Mutex::new(String::new()));
         let screen = Arc::new(Mutex::new(NextCoreScreen::new(rows)));
@@ -1430,10 +1435,7 @@ impl NextCoreEngine {
             );
         }
         if chunk.contains("\x1b[c") {
-            response.extend_from_slice(b"\x1b[?1;0c");
-        }
-        if chunk.contains("\x1b[1t") {
-            response.extend_from_slice(b"\x1b[1t");
+            response.extend_from_slice(b"\x1b[?64;1;2;6;9;15;18;21;22c");
         }
         if !response.is_empty() {
             let mut writer = writer.lock();
@@ -1817,6 +1819,21 @@ mod tests {
         NextCoreEngine::answer_terminal_queries("\x1b[6n", &screen, &writer);
 
         assert_eq!(bytes.lock().as_slice(), b"\x1b[3;5R");
+    }
+
+    #[test]
+    fn answers_primary_device_attributes_with_xterm_capabilities() {
+        let _guard = test_guard();
+        let screen = NextCoreScreen::new(10);
+        let bytes = Arc::new(Mutex::new(Vec::new()));
+        let writer: Arc<Mutex<Box<dyn Write + Send>>> =
+            Arc::new(Mutex::new(Box::new(SharedWriter {
+                bytes: Arc::clone(&bytes),
+            })));
+
+        NextCoreEngine::answer_terminal_queries("\x1b[c", &screen, &writer);
+
+        assert_eq!(bytes.lock().as_slice(), b"\x1b[?64;1;2;6;9;15;18;21;22c");
     }
 
     #[test]
