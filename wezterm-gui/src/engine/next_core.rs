@@ -39,11 +39,12 @@ struct NextCoreState {
 
 #[derive(Default)]
 struct NextCoreScreen {
-    scrollback: Vec<Vec<char>>,
-    lines: Vec<Vec<char>>,
+    scrollback: Vec<Vec<ScreenCell>>,
+    lines: Vec<Vec<ScreenCell>>,
     cursor_x: usize,
     cursor_y: usize,
     cursor_visible: bool,
+    current_attr: CellAttributes,
     rows: usize,
     saved_cursor_x: usize,
     saved_cursor_y: usize,
@@ -52,13 +53,46 @@ struct NextCoreScreen {
 
 #[derive(Default)]
 struct ScreenState {
-    scrollback: Vec<Vec<char>>,
-    lines: Vec<Vec<char>>,
+    scrollback: Vec<Vec<ScreenCell>>,
+    lines: Vec<Vec<ScreenCell>>,
     cursor_x: usize,
     cursor_y: usize,
     cursor_visible: bool,
+    current_attr: CellAttributes,
     saved_cursor_x: usize,
     saved_cursor_y: usize,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct ScreenCell {
+    ch: char,
+    attr: CellAttributes,
+}
+
+impl ScreenCell {
+    fn new(ch: char, attr: CellAttributes) -> Self {
+        Self { ch, attr }
+    }
+
+    fn blank(attr: CellAttributes) -> Self {
+        Self { ch: ' ', attr }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct CellAttributes {
+    bold: bool,
+    italic: bool,
+    underline: bool,
+    inverse: bool,
+    fg: Option<TerminalColor>,
+    bg: Option<TerminalColor>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TerminalColor {
+    Palette(u8),
+    Rgb(u8, u8, u8),
 }
 
 impl NextCoreScreen {
@@ -80,15 +114,12 @@ impl NextCoreScreen {
     fn snapshot_lines(&self) -> Vec<String> {
         self.history_lines()
             .into_iter()
-            .map(|line| line.iter().collect::<String>().trim_end().to_string())
+            .map(Self::line_text)
             .collect()
     }
 
     fn snapshot_viewport_lines(&self) -> Vec<String> {
-        self.lines
-            .iter()
-            .map(|line| line.iter().collect::<String>().trim_end().to_string())
-            .collect()
+        self.lines.iter().map(Self::line_text).collect()
     }
 
     fn scrollback_rows(&self) -> usize {
@@ -104,20 +135,28 @@ impl NextCoreScreen {
         }
     }
 
-    fn history_lines(&self) -> Vec<&Vec<char>> {
+    fn history_lines(&self) -> Vec<&Vec<ScreenCell>> {
         self.scrollback.iter().chain(self.lines.iter()).collect()
+    }
+
+    fn line_text(line: &Vec<ScreenCell>) -> String {
+        line.iter()
+            .map(|cell| cell.ch)
+            .collect::<String>()
+            .trim_end()
+            .to_string()
     }
 
     fn put_char(&mut self, c: char) {
         self.ensure_cursor_line();
         let line = &mut self.lines[self.cursor_y];
         if self.cursor_x > line.len() {
-            line.resize(self.cursor_x, ' ');
+            line.resize(self.cursor_x, ScreenCell::blank(self.current_attr));
         }
         if self.cursor_x == line.len() {
-            line.push(c);
+            line.push(ScreenCell::new(c, self.current_attr));
         } else {
-            line[self.cursor_x] = c;
+            line[self.cursor_x] = ScreenCell::new(c, self.current_attr);
         }
         self.cursor_x += 1;
     }
@@ -190,6 +229,70 @@ impl NextCoreScreen {
     fn clear_to_end_of_line(&mut self) {
         self.ensure_cursor_line();
         self.lines[self.cursor_y].truncate(self.cursor_x);
+    }
+
+    #[cfg(test)]
+    fn attrs_for_viewport(&self) -> Vec<Vec<CellAttributes>> {
+        self.lines
+            .iter()
+            .map(|line| line.iter().map(|cell| cell.attr).collect())
+            .collect()
+    }
+
+    fn apply_sgr(&mut self, params: &[usize]) {
+        let params = if params.is_empty() { &[0][..] } else { params };
+        let mut idx = 0;
+        while idx < params.len() {
+            match params[idx] {
+                0 => self.current_attr = CellAttributes::default(),
+                1 => self.current_attr.bold = true,
+                3 => self.current_attr.italic = true,
+                4 => self.current_attr.underline = true,
+                7 => self.current_attr.inverse = true,
+                22 => self.current_attr.bold = false,
+                23 => self.current_attr.italic = false,
+                24 => self.current_attr.underline = false,
+                27 => self.current_attr.inverse = false,
+                30..=37 => self.current_attr.fg = Some(TerminalColor::Palette(params[idx] as u8 - 30)),
+                39 => self.current_attr.fg = None,
+                40..=47 => self.current_attr.bg = Some(TerminalColor::Palette(params[idx] as u8 - 40)),
+                49 => self.current_attr.bg = None,
+                90..=97 => {
+                    self.current_attr.fg = Some(TerminalColor::Palette(params[idx] as u8 - 90 + 8))
+                }
+                100..=107 => {
+                    self.current_attr.bg = Some(TerminalColor::Palette(params[idx] as u8 - 100 + 8))
+                }
+                38 | 48 => {
+                    let target_fg = params[idx] == 38;
+                    if let Some((color, consumed)) = Self::parse_extended_color(&params[idx + 1..]) {
+                        if target_fg {
+                            self.current_attr.fg = Some(color);
+                        } else {
+                            self.current_attr.bg = Some(color);
+                        }
+                        idx += consumed;
+                    }
+                }
+                _ => {}
+            }
+            idx += 1;
+        }
+    }
+
+    fn parse_extended_color(params: &[usize]) -> Option<(TerminalColor, usize)> {
+        match params {
+            [5, color, ..] => Some((TerminalColor::Palette((*color).min(255) as u8), 2)),
+            [2, r, g, b, ..] => Some((
+                TerminalColor::Rgb(
+                    (*r).min(255) as u8,
+                    (*g).min(255) as u8,
+                    (*b).min(255) as u8,
+                ),
+                4,
+            )),
+            _ => None,
+        }
     }
 
     fn insert_lines(&mut self, count: usize) {
@@ -272,6 +375,7 @@ impl NextCoreScreen {
             cursor_x: self.cursor_x,
             cursor_y: self.cursor_y,
             cursor_visible: self.cursor_visible,
+            current_attr: self.current_attr,
             saved_cursor_x: self.saved_cursor_x,
             saved_cursor_y: self.saved_cursor_y,
         };
@@ -291,6 +395,7 @@ impl NextCoreScreen {
             self.cursor_x = main.cursor_x;
             self.cursor_y = main.cursor_y;
             self.cursor_visible = main.cursor_visible;
+            self.current_attr = main.current_attr;
             self.saved_cursor_x = main.saved_cursor_x;
             self.saved_cursor_y = main.saved_cursor_y;
             if self.lines.len() > self.rows {
@@ -416,6 +521,7 @@ impl<'a> ScreenParser<'a> {
                 }
             }
             'K' => self.screen.clear_to_end_of_line(),
+            'm' => self.screen.apply_sgr(&numbers),
             'h' => {
                 if private && numbers.iter().any(|n| matches!(*n, 1049 | 1047 | 47)) {
                     self.screen.enter_alternate_screen(true);
@@ -467,6 +573,24 @@ fn set_output_for_test(pane_id: usize, text: &str) -> Result<()> {
     *screen = NextCoreScreen::new(rows);
     screen.feed(text);
     Ok(())
+}
+
+#[cfg(test)]
+fn viewport_attrs_for_test(pane_id: usize) -> Result<Vec<Vec<CellAttributes>>> {
+    let screen = {
+        let state = state().read();
+        let Some(session) = state
+            .sessions
+            .iter()
+            .find(|session| session.snapshot.id == pane_id)
+        else {
+            bail!("next-core session {pane_id} not found");
+        };
+        Arc::clone(&session.screen)
+    };
+
+    let attrs = screen.lock().attrs_for_viewport();
+    Ok(attrs)
 }
 
 impl NextCoreEngine {
@@ -563,7 +687,7 @@ impl NextCoreEngine {
             .lock()
             .scrollback
             .iter()
-            .map(|line| line.iter().collect::<String>().trim_end().to_string())
+            .map(NextCoreScreen::line_text)
             .collect();
         Ok(lines)
     }
@@ -1203,6 +1327,49 @@ mod tests {
         assert!(text.contains("plain"));
         assert!(!text.contains("\x1b["));
         assert!(!text.contains("title"));
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_tracks_sgr_cell_attributes() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 24,
+            command_dir: None,
+            command: None,
+        })?;
+        set_output_for_test(
+            session.id,
+            concat!(
+                "\x1b[1;31mR",
+                "\x1b[0mN",
+                "\x1b[3;4;7;38;5;202;48;2;1;2;3mX",
+                "\x1b[22;23;24;27;39;49mY"
+            ),
+        )?;
+
+        assert_eq!(engine.read_visible_text(session.id)?, "RNXY");
+        let attrs = viewport_attrs_for_test(session.id)?;
+        let line = &attrs[0];
+
+        assert!(line[0].bold);
+        assert_eq!(line[0].fg, Some(TerminalColor::Palette(1)));
+        assert_eq!(line[0].bg, None);
+
+        assert_eq!(line[1], CellAttributes::default());
+
+        assert!(line[2].italic);
+        assert!(line[2].underline);
+        assert!(line[2].inverse);
+        assert_eq!(line[2].fg, Some(TerminalColor::Palette(202)));
+        assert_eq!(line[2].bg, Some(TerminalColor::Rgb(1, 2, 3)));
+
+        assert_eq!(line[3], CellAttributes::default());
 
         engine.destroy_session(session.id)?;
         Ok(())
