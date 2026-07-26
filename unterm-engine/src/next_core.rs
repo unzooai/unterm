@@ -291,6 +291,7 @@ struct NextCoreScreen {
     cursor_visible: bool,
     cursor_shape: String,
     auto_wrap: bool,
+    origin_mode: bool,
     tab_stops: BTreeSet<usize>,
     bracketed_paste: bool,
     current_attr: CellAttributes,
@@ -317,6 +318,7 @@ struct ScreenState {
     cursor_visible: bool,
     cursor_shape: String,
     auto_wrap: bool,
+    origin_mode: bool,
     tab_stops: BTreeSet<usize>,
     bracketed_paste: bool,
     current_attr: CellAttributes,
@@ -761,6 +763,11 @@ impl NextCoreScreen {
         self.bracketed_paste = enabled;
     }
 
+    fn set_origin_mode(&mut self, enabled: bool) {
+        self.origin_mode = enabled;
+        self.set_cursor_position(0, 0);
+    }
+
     fn ensure_cursor_line(&mut self) {
         while self.lines.len() <= self.cursor_y {
             self.lines.push(Vec::new());
@@ -779,6 +786,18 @@ impl NextCoreScreen {
         self.cursor_x = col.min(self.cols.saturating_sub(1));
         self.ensure_cursor_line();
         self.mark_dirty_row(self.cursor_y);
+    }
+
+    fn set_cursor_position(&mut self, row: usize, col: usize) {
+        let row = if self.origin_mode {
+            self.scroll_top
+                .saturating_add(row)
+                .min(self.scroll_bottom)
+                .min(self.rows.saturating_sub(1))
+        } else {
+            row.min(self.rows.saturating_sub(1))
+        };
+        self.set_cursor(row, col);
     }
 
     fn move_cursor_up(&mut self, count: usize) {
@@ -1111,7 +1130,7 @@ impl NextCoreScreen {
             self.scroll_top = top;
             self.scroll_bottom = bottom;
         }
-        self.set_cursor(0, 0);
+        self.set_cursor_position(0, 0);
         self.mark_all_dirty();
     }
 
@@ -1188,6 +1207,7 @@ impl NextCoreScreen {
             cursor_visible: self.cursor_visible,
             cursor_shape: self.cursor_shape.clone(),
             auto_wrap: self.auto_wrap,
+            origin_mode: self.origin_mode,
             tab_stops: std::mem::take(&mut self.tab_stops),
             bracketed_paste: self.bracketed_paste,
             current_attr: self.current_attr,
@@ -1203,6 +1223,7 @@ impl NextCoreScreen {
         self.saved_cursor_y = 0;
         self.cursor_shape = "Default".to_string();
         self.auto_wrap = true;
+        self.origin_mode = false;
         self.tab_stops = Self::default_tab_stops(self.cols);
         self.bracketed_paste = false;
         self.scroll_top = 0;
@@ -1223,6 +1244,7 @@ impl NextCoreScreen {
             self.cursor_visible = main.cursor_visible;
             self.cursor_shape = main.cursor_shape;
             self.auto_wrap = main.auto_wrap;
+            self.origin_mode = main.origin_mode;
             self.tab_stops = main.tab_stops;
             self.bracketed_paste = main.bracketed_paste;
             self.current_attr = main.current_attr;
@@ -1377,7 +1399,7 @@ impl<'a> ScreenParser<'a> {
                 let row = numbers.first().copied().filter(|n| *n > 0).unwrap_or(1);
                 let col = numbers.get(1).copied().filter(|n| *n > 0).unwrap_or(1);
                 self.screen
-                    .set_cursor(row.saturating_sub(1), col.saturating_sub(1));
+                    .set_cursor_position(row.saturating_sub(1), col.saturating_sub(1));
             }
             'J' => self
                 .screen
@@ -1407,6 +1429,8 @@ impl<'a> ScreenParser<'a> {
             'h' => {
                 if private && numbers.iter().any(|n| matches!(*n, 1049 | 1047 | 47)) {
                     self.screen.enter_alternate_screen(true);
+                } else if private && numbers.iter().any(|n| *n == 6) {
+                    self.screen.set_origin_mode(true);
                 } else if private && numbers.iter().any(|n| *n == 7) {
                     self.screen.auto_wrap = true;
                 } else if private && numbers.iter().any(|n| *n == 25) {
@@ -1419,6 +1443,8 @@ impl<'a> ScreenParser<'a> {
             'l' => {
                 if private && numbers.iter().any(|n| matches!(*n, 1049 | 1047 | 47)) {
                     self.screen.leave_alternate_screen();
+                } else if private && numbers.iter().any(|n| *n == 6) {
+                    self.screen.set_origin_mode(false);
                 } else if private && numbers.iter().any(|n| *n == 7) {
                     self.screen.auto_wrap = false;
                 } else if private && numbers.iter().any(|n| *n == 25) {
@@ -5396,6 +5422,46 @@ mod tests {
 
         let screen = engine.read_screen(session.id)?;
         assert_eq!(screen.lines, vec!["top", "two", "three", "", "bottom"]);
+        assert_eq!(screen.scrollback_rows, 0);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_honors_origin_mode_with_scroll_region() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 5,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+        set_output_for_test(
+            session.id,
+            concat!(
+                "\x1b[1;1Htop",
+                "\x1b[2;1Hone",
+                "\x1b[3;1Htwo",
+                "\x1b[4;1Hthree",
+                "\x1b[5;1Hbottom",
+                "\x1b[2;4r",
+                "\x1b[?6h",
+                "\x1b[1;1HX",
+                "\x1b[9;1HY",
+                "\x1b[?6l",
+                "Z"
+            ),
+        )?;
+
+        let screen = engine.read_screen(session.id)?;
+        assert_eq!(screen.lines, vec!["Zop", "Xne", "two", "Yhree", "bottom"]);
+        assert_eq!(screen.cursor.x, 1);
+        assert_eq!(screen.cursor.y, 0);
         assert_eq!(screen.scrollback_rows, 0);
 
         engine.destroy_session(session.id)?;

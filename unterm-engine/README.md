@@ -14,7 +14,7 @@ cargo run -p unterm-engine --bin unterm-next-core -- --wait-ms 500 -- cmd.exe /c
 
 The probe creates a next-core session, optionally writes text or runs a command, waits, then prints the visible screen snapshot plus compact `health_io` and `health_lifecycle` summary lines.
 
-On Windows, the command above should print `next-core-probe`. A blank snapshot means the standalone ConPTY smoke path has regressed before the GUI is involved. The in-memory screen model is cols-aware: printable text wraps at the configured width, DECAWM `CSI ? 7 h/l` controls automatic wrapping at the right edge, HT moves the cursor to the next tab stop without forcing a line wrap, HTS/TBC set and clear custom tab stops, ESC IND/NEL/RI honor scroll regions, CSI save/restore cursor and erase-character sequences are handled, wide cells wrap before the edge, and resize clamps existing rows to the new column count.
+On Windows, the command above should print `next-core-probe`. A blank snapshot means the standalone ConPTY smoke path has regressed before the GUI is involved. The in-memory screen model is cols-aware: printable text wraps at the configured width, DECAWM `CSI ? 7 h/l` controls automatic wrapping at the right edge, DECOM `CSI ? 6 h/l` makes cursor positioning relative to scroll regions, HT moves the cursor to the next tab stop without forcing a line wrap, HTS/TBC set and clear custom tab stops, ESC IND/NEL/RI honor scroll regions, CSI save/restore cursor and erase-character sequences are handled, wide cells wrap before the edge, and resize clamps existing rows to the new column count.
 
 Machine-readable probe output:
 
