@@ -61,8 +61,8 @@ Known gaps:
 
 | Category | Count | Methods |
 |---|---:|---|
-| Engine-neutral | 19 | `session.list`, `session.get`, `session.status`, `session.create`, `session.split`, `session.focus`, `session.input`, `session.paste`, `session.idle`, `session.cwd`, `session.history`, `screen.read`, `screen.text`, `screen.scrollback_text`, `screen.cursor`, `screen.detect_errors`, `exec.status`, `screen.scroll`, `server.info` |
-| Partial | 9 | `session.resize`, `session.destroy`, `exec.run`, `exec.send`, `exec.run_wait`, `exec.cancel`, `signal.send`, `screen.search`, `server.health` |
+| Engine-neutral | 23 | `session.list`, `session.get`, `session.status`, `session.create`, `session.split`, `session.focus`, `session.input`, `session.paste`, `session.idle`, `session.cwd`, `session.history`, `screen.read`, `screen.text`, `screen.scrollback_text`, `screen.cursor`, `screen.detect_errors`, `exec.run`, `exec.send`, `exec.status`, `exec.cancel`, `signal.send`, `screen.scroll`, `server.info` |
+| Partial | 5 | `session.resize`, `session.destroy`, `exec.run_wait`, `screen.search`, `server.health` |
 | Product-only | 39 | `meta.surface`, `session.audit_log`, `session.suggest`, `session.suggest_status`, `session.suggest_cancel`, `session.suggest_list`, `agent.identify`, `agent.whoami`, `agent.list_trusted`, `agent.trust`, `agent.untrust`, `policy.set`, `policy.check`, `server.capabilities`, `profile.list`, `profile.current`, `profile.audit`, `fleet.list`, `review.list`, `review.diff`, `review.verify`, `review.rollback`, `review.merge`, `review.discard`, `proxy.status`, `proxy.nodes`, `proxy.switch`, `proxy.speedtest`, `proxy.configure`, `proxy.disable`, `proxy.env`, `proxy.rotation`, `proxy.set_nodes`, `proxy.clash_status`, `proxy.clash_select`, `proxy.clash_set_controller`, `upload.file`, `system.info`, `selftest.run` |
 | WezTerm-only | 31 | `agent.status`, `agent.signal`, `cockpit.inbox`, `fleet.launch`, `fleet.clean`, `fleet.retry`, `ghost.debug`, `orchestrate.launch`, `orchestrate.broadcast`, `orchestrate.wait`, `workspace.save`, `workspace.restore`, `workspace.list`, `capture.screen`, `capture.window`, `capture.select`, `capture.clipboard`, `capture.scrollback`, `capture.window_scroll`, `session.recording_start`, `session.recording_stop`, `session.recording_status`, `session.recording_list`, `session.recording_read`, `session.recording_attach_trace`, `session.export_markdown`, `instance.list`, `instance.info`, `instance.set_title`, `instance.focus`, `system.launch_admin` |
 | Unsupported stub | 2 | `session.env`, `session.set_env` |
@@ -105,12 +105,12 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 
 | Method | Status | Current dependency | Migration note |
 |---|---|---|---|
-| `exec.run` | Partial | Resolves WezTerm `Pane`, then `InputEngine::write_input` | Convert command writes to pane-id path and reuse write-gate. |
-| `exec.send` | Partial | Alias to `session.input` | Same migration as `session.input`. |
+| `exec.run` | Engine-neutral | `InputEngine::write_input` plus pane-id based write gate | Preserves policy check and audit before sending command + CR. |
+| `exec.send` | Engine-neutral | `InputEngine::write_input` plus pane-id based write gate | Accepts documented `bytes` plus `input`/`text` aliases. |
 | `exec.run_wait` | Partial | WezTerm `Pane` for shell detection and repeated screen reads | Add shell kind to `SessionSnapshot` or `ShellSnapshot`; use `ScreenEngine`. |
 | `exec.status` | Engine-neutral | `SessionEngine::activity` | Good next-core smoke candidate. |
-| `exec.cancel` | Partial | Resolves WezTerm `Pane`, then sends Ctrl+C | Convert to pane-id and possibly `SignalEngine`. |
-| `signal.send` | Partial | Resolves WezTerm `Pane`, then writes control bytes | Add `SignalEngine` only if raw control bytes are insufficient. |
+| `exec.cancel` | Engine-neutral | `InputEngine::write_input` plus pane-id based write gate | Sends Ctrl+C after confirmation/audit. |
+| `signal.send` | Engine-neutral | `InputEngine::write_input` plus pane-id based write gate | Validates supported signal before confirmation/audit. |
 
 ## Screen Methods
 
@@ -210,10 +210,6 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 
 Methods unlocked:
 
-- `exec.run`
-- `exec.send`
-- `exec.cancel`
-- `signal.send`
 - `orchestrate.broadcast`
 
 Work:
@@ -225,9 +221,9 @@ Work:
 
 Acceptance:
 
-- `exec.*`, `signal.send`, and orchestration writes no longer require a WezTerm `Pane`.
+- Orchestration writes no longer require a WezTerm `Pane`.
 - `cargo test -p unterm mcp::handler::tests -- --test-threads=1` passes or targeted replacement tests exist.
-- Existing WezTerm write confirmation behavior is unchanged.
+- Existing `session.input` / `session.paste` confirmation behavior is preserved; `exec.*` and `signal.send` use the same write boundary.
 
 ### Target 2: Exec wait without `Pane`
 

@@ -1284,7 +1284,7 @@ impl McpHandler {
             "session.audit_log" => self.session_audit_log(params),
             // Exec
             "exec.run" => self.exec_run(params),
-            "exec.send" => self.session_input(params),
+            "exec.send" => self.exec_send(params),
             "exec.run_wait" => self.exec_run_wait(params),
             "exec.status" => self.exec_status(params),
             "exec.cancel" => self.exec_cancel(params),
@@ -2739,7 +2739,15 @@ impl McpHandler {
                     .insert(pane_id, (agent, std::time::Instant::now()));
             }
         }
-        if matches!(method, "session.input" | "session.paste" | "exec.send") {
+        if matches!(
+            method,
+            "session.input"
+                | "session.paste"
+                | "exec.send"
+                | "exec.run"
+                | "exec.cancel"
+                | "signal.send"
+        ) {
             state.input_event_count = state.input_event_count.saturating_add(1);
             state.last_input_at = Some(std::time::Instant::now());
             // Stamp "first PTY write from this agent" — the soft
@@ -2761,24 +2769,58 @@ impl McpHandler {
     // --- Exec methods ---
 
     fn exec_run(&self, params: &Value) -> Result<Value> {
-        let pane = self.get_pane(params)?;
+        let pane_id = Self::pane_id_from_params(params)?;
         let command = params
             .get("command")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing 'command'"))?;
 
-        // Policy check
         if let Err(e) = self.check_policy_internal(command) {
             return Err(e);
         }
 
-        self.audit("exec.run", Some(&pane.pane_id().to_string()), command);
-
-        // Send command with newline
-        let input = format!("{}\r", command);
         let engine = self.engine();
-        engine.write_input(pane.pane_id(), &input)?;
+        engine.get_session(pane_id)?;
+
+        match self.gate_pty_write("exec.run", pane_id, command)? {
+            GateOutcome::Allow => {}
+            GateOutcome::Block => {
+                return Err(anyhow!("user denied"));
+            }
+        }
+
+        self.audit("exec.run", Some(&pane_id.to_string()), command);
+
+        let input = format!("{}\r", command);
+        engine.write_input(pane_id, &input)?;
         Ok(json!({"sent": true}))
+    }
+
+    fn exec_send(&self, params: &Value) -> Result<Value> {
+        let bytes = params
+            .get("bytes")
+            .or_else(|| params.get("input"))
+            .or_else(|| params.get("text"))
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing 'bytes' (or compatibility alias 'input'/'text')"))?;
+        let pane_id = Self::pane_id_from_params(params)?;
+        let engine = self.engine();
+        engine.get_session(pane_id)?;
+
+        match self.gate_pty_write("exec.send", pane_id, bytes)? {
+            GateOutcome::Allow => {}
+            GateOutcome::Block => {
+                return Err(anyhow!("user denied"));
+            }
+        }
+
+        self.audit(
+            "exec.send",
+            Some(&pane_id.to_string()),
+            &input_preview(bytes),
+        );
+        engine.write_input(pane_id, bytes)?;
+        Ok(json!({"status": "ok"}))
     }
 
     fn exec_run_wait(&self, params: &Value) -> Result<Value> {
@@ -2856,33 +2898,50 @@ impl McpHandler {
     }
 
     fn exec_cancel(&self, params: &Value) -> Result<Value> {
-        let pane = self.get_pane(params)?;
-        self.audit("exec.cancel", Some(&pane.pane_id().to_string()), "Ctrl+C");
-        // Send Ctrl+C
+        let pane_id = Self::pane_id_from_params(params)?;
         let engine = self.engine();
-        engine.write_input(pane.pane_id(), "\x03")?;
+        engine.get_session(pane_id)?;
+
+        match self.gate_pty_write("exec.cancel", pane_id, "Ctrl+C")? {
+            GateOutcome::Allow => {}
+            GateOutcome::Block => {
+                return Err(anyhow!("user denied"));
+            }
+        }
+
+        self.audit("exec.cancel", Some(&pane_id.to_string()), "Ctrl+C");
+        engine.write_input(pane_id, "\x03")?;
         Ok(json!({"cancelled": true}))
     }
 
     // --- Signal ---
 
     fn signal_send(&self, params: &Value) -> Result<Value> {
-        let pane = self.get_pane(params)?;
+        let pane_id = Self::pane_id_from_params(params)?;
         let signal = params
             .get("signal")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing 'signal'"))?;
-
-        self.audit("signal.send", Some(&pane.pane_id().to_string()), signal);
+        let input = match signal.to_uppercase().as_str() {
+            "SIGINT" | "INT" => "\x03",
+            "SIGTSTP" | "TSTP" => "\x1a",
+            "SIGQUIT" | "QUIT" => "\x1c",
+            "EOF" => "\x04",
+            _ => return Err(anyhow!("Unsupported signal: {}", signal)),
+        };
 
         let engine = self.engine();
-        match signal.to_uppercase().as_str() {
-            "SIGINT" | "INT" => engine.write_input(pane.pane_id(), "\x03")?,
-            "SIGTSTP" | "TSTP" => engine.write_input(pane.pane_id(), "\x1a")?,
-            "SIGQUIT" | "QUIT" => engine.write_input(pane.pane_id(), "\x1c")?,
-            "EOF" => engine.write_input(pane.pane_id(), "\x04")?,
-            _ => return Err(anyhow!("Unsupported signal: {}", signal)),
+        engine.get_session(pane_id)?;
+
+        match self.gate_pty_write("signal.send", pane_id, signal)? {
+            GateOutcome::Allow => {}
+            GateOutcome::Block => {
+                return Err(anyhow!("user denied"));
+            }
         }
+
+        self.audit("signal.send", Some(&pane_id.to_string()), signal);
+        engine.write_input(pane_id, input)?;
         Ok(json!({"sent": true, "signal": signal}))
     }
 
