@@ -88,7 +88,7 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 | `session.resize` | Engine-neutral | `SessionEngine::resize_session`; WezTerm adapter owns GUI-layout resize rejection | Handler no longer resolves a WezTerm pane or Mux for resize policy. |
 | `session.destroy` | Engine-neutral | `SessionEngine::destroy_session` | Handler resolves pane id without WezTerm pane access. |
 | `session.idle` | Engine-neutral | `SessionEngine::activity` | `next-core` must provide foreground activity. |
-| `session.cwd` | Engine-neutral | `SessionEngine::shell` | `next-core` needs cwd tracking source. |
+| `session.cwd` | Engine-neutral | `SessionEngine::shell`; `next-core` updates cwd from OSC 7 shell-integration sequences | Add process-tree fallback later for shells that do not emit OSC 7. |
 | `session.env` | Engine-neutral | `SessionEngine::shell` launch env key snapshot; values are redacted | `next-core` exposes launch env variable names; WezTerm mode reports unsupported because live pane env is not available. |
 | `session.set_env` | Unsupported stub | Returns unsupported marker | Prefer launch-context env over mutating live shells. |
 | `session.history` | Engine-neutral | `ScreenEngine::read_scrollback` | Rename eventually? It is scrollback, not shell history. |

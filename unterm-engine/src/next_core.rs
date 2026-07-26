@@ -101,6 +101,7 @@ struct NextCoreScreen {
     bracketed_paste: bool,
     current_attr: CellAttributes,
     title: Option<String>,
+    current_dir: Option<String>,
     revision: u64,
     dirty_rows: Option<DirtyRows>,
     rows: usize,
@@ -325,6 +326,10 @@ impl NextCoreScreen {
 
     fn title(&self) -> Option<String> {
         self.title.clone()
+    }
+
+    fn current_dir(&self) -> Option<String> {
+        self.current_dir.clone()
     }
 
     fn history_lines(&self) -> Vec<&Vec<ScreenCell>> {
@@ -624,6 +629,68 @@ impl NextCoreScreen {
         };
         if matches!(kind, "0" | "2") && !value.is_empty() {
             self.title = Some(value.to_string());
+        } else if kind == "7" {
+            if let Some(cwd) = Self::parse_osc7_cwd(value) {
+                self.current_dir = Some(cwd);
+            }
+        }
+    }
+
+    fn parse_osc7_cwd(value: &str) -> Option<String> {
+        let uri = value.strip_prefix("file://")?;
+        let path = if uri.starts_with('/') {
+            uri
+        } else {
+            let slash = uri.find('/')?;
+            &uri[slash..]
+        };
+        let decoded = Self::percent_decode(path)?;
+        if decoded.is_empty() {
+            return None;
+        }
+        #[cfg(windows)]
+        {
+            let mut path = decoded;
+            let bytes = path.as_bytes();
+            if path.starts_with('/')
+                && bytes.len() >= 4
+                && bytes[2] == b':'
+                && bytes[1].is_ascii_alphabetic()
+            {
+                path.remove(0);
+            }
+            Some(path.replace('/', "\\"))
+        }
+        #[cfg(not(windows))]
+        {
+            Some(decoded)
+        }
+    }
+
+    fn percent_decode(input: &str) -> Option<String> {
+        let bytes = input.as_bytes();
+        let mut out = Vec::with_capacity(bytes.len());
+        let mut idx = 0;
+        while idx < bytes.len() {
+            if bytes[idx] == b'%' {
+                let hi = *bytes.get(idx + 1)?;
+                let lo = *bytes.get(idx + 2)?;
+                out.push(Self::hex_value(hi)? << 4 | Self::hex_value(lo)?);
+                idx += 3;
+            } else {
+                out.push(bytes[idx]);
+                idx += 1;
+            }
+        }
+        String::from_utf8(out).ok()
+    }
+
+    fn hex_value(byte: u8) -> Option<u8> {
+        match byte {
+            b'0'..=b'9' => Some(byte - b'0'),
+            b'a'..=b'f' => Some(byte - b'a' + 10),
+            b'A'..=b'F' => Some(byte - b'A' + 10),
+            _ => None,
         }
     }
 
@@ -1087,6 +1154,9 @@ impl NextCoreEngine {
                 snapshot.scrollback_rows = screen.scrollback_rows();
                 if let Some(title) = screen.title() {
                     snapshot.title = title;
+                }
+                if let Some(cwd) = screen.current_dir() {
+                    snapshot.shell.cwd = Some(cwd);
                 }
                 snapshot
             })
@@ -2610,6 +2680,64 @@ mod tests {
         assert_eq!(engine.read_visible_text(session.id)?, "beforeafter");
         assert_eq!(engine.get_session(session.id)?.title, "Codex Pane");
         assert_eq!(engine.list_sessions()?[0].title, "Codex Pane");
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_applies_osc7_cwd_updates() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let launch_cwd = std::env::current_dir()?.display().to_string();
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 24,
+            command_dir: Some(launch_cwd),
+            command: None,
+            env: Vec::new(),
+        })?;
+
+        set_output_for_test(
+            session.id,
+            "before\x1b]7;file://localhost/D:/code/unterm%20next\x07after",
+        )?;
+
+        #[cfg(windows)]
+        let expected = "D:\\code\\unterm next";
+        #[cfg(not(windows))]
+        let expected = "/D:/code/unterm next";
+
+        assert_eq!(engine.read_visible_text(session.id)?, "beforeafter");
+        assert_eq!(engine.shell(session.id)?.cwd.as_deref(), Some(expected));
+        assert_eq!(
+            engine.get_session(session.id)?.shell.cwd.as_deref(),
+            Some(expected)
+        );
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_ignores_invalid_osc7_cwd_updates() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let launch_cwd = std::env::current_dir()?.display().to_string();
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 24,
+            command_dir: Some(launch_cwd),
+            command: None,
+            env: Vec::new(),
+        })?;
+        let initial = engine.shell(session.id)?.cwd;
+
+        set_output_for_test(session.id, "\x1b]7;https://example.test/D:/bad\x1b\\")?;
+
+        assert_eq!(engine.shell(session.id)?.cwd, initial);
 
         engine.destroy_session(session.id)?;
         Ok(())

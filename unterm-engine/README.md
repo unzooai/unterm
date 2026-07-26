@@ -90,3 +90,13 @@ cargo run -p unterm-engine --bin unterm-next-core -- --bench-screen-read-lines 5
 ```
 
 The screen-read benchmark emits output while repeatedly reading the visible screen snapshot, mirroring the core cost behind MCP `screen.text`.
+
+## Shell Metadata
+
+`next-core` records the launch cwd and updates `SessionEngine::shell().cwd` when the shell emits OSC 7 current-directory sequences such as:
+
+```text
+ESC ] 7 ; file://localhost/C:/Users/alex/project BEL
+```
+
+Values are decoded from `file://` URIs. On Windows, `/C:/...` paths are normalized to `C:\...`. Shells that do not emit OSC 7 still report the launch cwd until a process-tree fallback is added.
