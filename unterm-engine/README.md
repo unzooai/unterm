@@ -61,3 +61,11 @@ cargo run -p unterm-engine --bin unterm-next-core -- --bench-dual-agent-lines 50
 ```
 
 The dual-agent benchmark starts two background `cmd.exe` sessions that emit output concurrently, then measures echo latency in the interactive session while those streams are active.
+
+Screen text during output flood benchmark:
+
+```powershell
+cargo run -p unterm-engine --bin unterm-next-core -- --bench-screen-read-lines 5000 --timeout-ms 30000 --wait-ms 100 --write "exit`r" -- cmd.exe
+```
+
+The screen-read benchmark emits output while repeatedly reading the visible screen snapshot, mirroring the core cost behind MCP `screen.text`.

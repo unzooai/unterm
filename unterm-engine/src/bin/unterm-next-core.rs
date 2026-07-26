@@ -15,6 +15,7 @@ struct Args {
     bench_scrollback_lines: Option<usize>,
     bench_paste_kb: Option<usize>,
     bench_dual_agent_lines: Option<usize>,
+    bench_screen_read_lines: Option<usize>,
     poll_ms: u64,
     timeout_ms: u64,
 }
@@ -33,6 +34,7 @@ fn parse_args() -> Result<Args> {
         bench_scrollback_lines: None,
         bench_paste_kb: None,
         bench_dual_agent_lines: None,
+        bench_screen_read_lines: None,
         poll_ms: 5,
         timeout_ms: 5000,
     };
@@ -116,6 +118,15 @@ fn parse_args() -> Result<Args> {
                         .parse()?,
                 );
             }
+            "--bench-screen-read-lines" => {
+                parsed.bench_screen_read_lines = Some(
+                    args.next()
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("--bench-screen-read-lines requires a value")
+                        })?
+                        .parse()?,
+                );
+            }
             "--write" => {
                 parsed.write = Some(
                     args.next()
@@ -130,7 +141,7 @@ fn parse_args() -> Result<Args> {
             }
             "--help" | "-h" => {
                 println!(
-                    "Usage: unterm-next-core [--cols N] [--rows N] [--wait-ms N] [--poll-ms N] [--timeout-ms N] [--bench-echo N] [--bench-flood-lines N] [--bench-scrollback-lines N] [--bench-paste-kb N] [--bench-dual-agent-lines N] [--cwd PATH] [--write TEXT] [-- COMMAND [ARG...]]"
+                    "Usage: unterm-next-core [--cols N] [--rows N] [--wait-ms N] [--poll-ms N] [--timeout-ms N] [--bench-echo N] [--bench-flood-lines N] [--bench-scrollback-lines N] [--bench-paste-kb N] [--bench-dual-agent-lines N] [--bench-screen-read-lines N] [--cwd PATH] [--write TEXT] [-- COMMAND [ARG...]]"
                 );
                 std::process::exit(0);
             }
@@ -290,6 +301,55 @@ fn run_scrollback_benchmark(
         max
     );
     Ok(())
+}
+
+fn run_screen_read_during_flood_benchmark(
+    engine: &unterm_engine::next_core::NextCoreEngine,
+    pane_id: usize,
+    lines: usize,
+    poll_interval: Duration,
+    timeout: Duration,
+) -> Result<()> {
+    if lines == 0 {
+        bail!("--bench-screen-read-lines must be greater than 0");
+    }
+
+    let run = start_flood_stream(engine, pane_id, lines)?;
+    let mut latencies_us = Vec::new();
+    let mut reads = 0usize;
+    let mut total_text_bytes = 0usize;
+    loop {
+        let read_before = Instant::now();
+        let screen = engine.read_screen(pane_id)?;
+        latencies_us.push(read_before.elapsed().as_micros());
+        reads += 1;
+        total_text_bytes += screen.lines.iter().map(String::len).sum::<usize>();
+
+        let raw = engine.debug_output(pane_id)?;
+        if raw[run.before_raw_len.min(raw.len())..].contains(run.marker.as_str()) {
+            let elapsed = run.started_at.elapsed();
+            latencies_us.sort_unstable();
+            println!(
+                "bench_screen_read_flood lines={} reads={} total_ms={} min_us={} p50_us={} p95_us={} max_us={} text_bytes={}",
+                lines,
+                reads,
+                elapsed.as_millis(),
+                latencies_us[0],
+                percentile(&latencies_us, 0.50),
+                percentile(&latencies_us, 0.95),
+                *latencies_us.last().unwrap_or(&0),
+                total_text_bytes
+            );
+            return Ok(());
+        }
+        if run.started_at.elapsed() >= timeout {
+            bail!(
+                "timed out waiting for screen-read flood marker {}",
+                run.marker
+            );
+        }
+        std::thread::sleep(poll_interval);
+    }
 }
 
 fn make_paste_payload(bytes: usize) -> String {
@@ -531,6 +591,17 @@ fn main() -> Result<()> {
             Duration::from_millis(args.timeout_ms),
         )
         .with_context(|| format!("bench_dual_agents failed for session {}", session.id))?;
+    }
+
+    if let Some(lines) = args.bench_screen_read_lines {
+        run_screen_read_during_flood_benchmark(
+            &engine,
+            session.id,
+            lines,
+            Duration::from_millis(args.poll_ms),
+            Duration::from_millis(args.timeout_ms),
+        )
+        .with_context(|| format!("bench_screen_read failed for session {}", session.id))?;
     }
 
     if let Some(input) = args.write {
