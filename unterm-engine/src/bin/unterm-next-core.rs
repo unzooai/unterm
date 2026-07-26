@@ -13,6 +13,7 @@ struct Args {
     bench_echo: Option<usize>,
     bench_flood_lines: Option<usize>,
     bench_scrollback_lines: Option<usize>,
+    bench_paste_kb: Option<usize>,
     poll_ms: u64,
     timeout_ms: u64,
 }
@@ -29,6 +30,7 @@ fn parse_args() -> Result<Args> {
         bench_echo: None,
         bench_flood_lines: None,
         bench_scrollback_lines: None,
+        bench_paste_kb: None,
         poll_ms: 5,
         timeout_ms: 5000,
     };
@@ -96,6 +98,13 @@ fn parse_args() -> Result<Args> {
                         .parse()?,
                 );
             }
+            "--bench-paste-kb" => {
+                parsed.bench_paste_kb = Some(
+                    args.next()
+                        .ok_or_else(|| anyhow::anyhow!("--bench-paste-kb requires a value"))?
+                        .parse()?,
+                );
+            }
             "--write" => {
                 parsed.write = Some(
                     args.next()
@@ -110,7 +119,7 @@ fn parse_args() -> Result<Args> {
             }
             "--help" | "-h" => {
                 println!(
-                    "Usage: unterm-next-core [--cols N] [--rows N] [--wait-ms N] [--poll-ms N] [--timeout-ms N] [--bench-echo N] [--bench-flood-lines N] [--bench-scrollback-lines N] [--cwd PATH] [--write TEXT] [-- COMMAND [ARG...]]"
+                    "Usage: unterm-next-core [--cols N] [--rows N] [--wait-ms N] [--poll-ms N] [--timeout-ms N] [--bench-echo N] [--bench-flood-lines N] [--bench-scrollback-lines N] [--bench-paste-kb N] [--cwd PATH] [--write TEXT] [-- COMMAND [ARG...]]"
                 );
                 std::process::exit(0);
             }
@@ -242,6 +251,62 @@ fn run_scrollback_benchmark(
     Ok(())
 }
 
+fn make_paste_payload(bytes: usize) -> String {
+    const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    let mut payload = String::with_capacity(bytes);
+    for idx in 0..bytes {
+        payload.push(ALPHABET[idx % ALPHABET.len()] as char);
+    }
+    payload
+}
+
+fn run_paste_benchmark(
+    engine: &unterm_engine::next_core::NextCoreEngine,
+    pane_id: usize,
+    kb: usize,
+    poll_interval: Duration,
+    timeout: Duration,
+) -> Result<()> {
+    if kb == 0 {
+        bail!("--bench-paste-kb must be greater than 0");
+    }
+
+    let bytes = kb
+        .checked_mul(1024)
+        .ok_or_else(|| anyhow::anyhow!("--bench-paste-kb is too large"))?;
+    let marker = format!("UNTERM_NEXT_CORE_PASTE_DONE_{bytes}");
+    let payload = make_paste_payload(bytes);
+    let command = format!(
+        "set /p UNTERM_NEXT_CORE_PASTE_INPUT=&echo {}\r",
+        shell_quote_cmd_arg(marker.as_str())
+    );
+    engine.write_input(pane_id, command.as_str())?;
+    std::thread::sleep(poll_interval);
+
+    let before_raw_len = engine.debug_output(pane_id)?.len();
+    let before = Instant::now();
+    engine.paste_input(pane_id, format!("{payload}\r").as_str())?;
+
+    loop {
+        let raw = engine.debug_output(pane_id)?;
+        if raw[before_raw_len.min(raw.len())..].contains(marker.as_str()) {
+            let elapsed = before.elapsed();
+            let seconds = elapsed.as_secs_f64().max(0.000_001);
+            println!(
+                "bench_paste bytes={} elapsed_ms={} bytes_per_sec={:.1}",
+                bytes,
+                elapsed.as_millis(),
+                bytes as f64 / seconds
+            );
+            return Ok(());
+        }
+        if before.elapsed() >= timeout {
+            bail!("timed out waiting for paste marker {marker}");
+        }
+        std::thread::sleep(poll_interval);
+    }
+}
+
 fn run_echo_benchmark(
     engine: &unterm_engine::next_core::NextCoreEngine,
     pane_id: usize,
@@ -328,6 +393,17 @@ fn main() -> Result<()> {
             Duration::from_millis(args.timeout_ms),
         )
         .with_context(|| format!("bench_scrollback failed for session {}", session.id))?;
+    }
+
+    if let Some(kb) = args.bench_paste_kb {
+        run_paste_benchmark(
+            &engine,
+            session.id,
+            kb,
+            Duration::from_millis(args.poll_ms),
+            Duration::from_millis(args.timeout_ms),
+        )
+        .with_context(|| format!("bench_paste failed for session {}", session.id))?;
     }
 
     if let Some(input) = args.write {

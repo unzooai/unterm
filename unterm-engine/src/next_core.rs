@@ -1814,16 +1814,19 @@ impl ScreenEngine for NextCoreEngine {
 
 impl InputEngine for NextCoreEngine {
     fn write_input(&self, pane_id: usize, input: &str) -> Result<()> {
-        let mut state = state().write();
-        let Some(session) = state
-            .sessions
-            .iter_mut()
-            .find(|session| session.snapshot.id == pane_id)
-        else {
-            bail!("next-core session {pane_id} not found");
+        let writer = {
+            let state = state().read();
+            let Some(session) = state
+                .sessions
+                .iter()
+                .find(|session| session.snapshot.id == pane_id)
+            else {
+                bail!("next-core session {pane_id} not found");
+            };
+            Arc::clone(&session.writer)
         };
 
-        let mut writer = session.writer.lock();
+        let mut writer = writer.lock();
         writer.write_all(input.as_bytes())?;
         writer.flush()?;
         Ok(())

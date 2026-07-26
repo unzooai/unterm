@@ -45,3 +45,11 @@ cargo run -p unterm-engine --bin unterm-next-core -- --bench-scrollback-lines 10
 ```
 
 The scrollback benchmark first fills the terminal through the PTY, then reads the captured history in viewport-sized pages and reports per-page read latency.
+
+Paste benchmark:
+
+```powershell
+cargo run -p unterm-engine --bin unterm-next-core -- --bench-paste-kb 10 --timeout-ms 10000 --wait-ms 100 --write "exit`r" -- cmd.exe
+```
+
+The paste benchmark feeds a large single-line payload through the engine paste path and reports time until the shell consumes it.
