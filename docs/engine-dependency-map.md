@@ -66,9 +66,9 @@ Known gaps:
 | Category | Count | Methods |
 |---|---:|---|
 | Engine-neutral | 42 | `session.list`, `session.get`, `session.status`, `session.create`, `session.split`, `session.focus`, `session.input`, `session.paste`, `session.idle`, `session.cwd`, `session.history`, `session.resize`, `session.destroy`, `session.recording_start`, `session.recording_stop`, `session.recording_status`, `session.recording_attach_trace`, `session.export_markdown`, `screen.read`, `screen.text`, `screen.scrollback_text`, `screen.cursor`, `screen.search`, `screen.detect_errors`, `exec.run`, `exec.send`, `exec.run_wait`, `exec.status`, `exec.cancel`, `signal.send`, `orchestrate.launch`, `orchestrate.broadcast`, `orchestrate.wait`, `workspace.save`, `workspace.restore`, `screen.scroll`, `agent.status`, `fleet.launch`, `fleet.retry`, `fleet.clean`, `server.info`, `server.health` |
-| Partial | 0 | None |
+| Partial | 1 | `agent.signal` |
 | Product-only | 42 | `meta.surface`, `session.audit_log`, `session.suggest`, `session.suggest_status`, `session.suggest_cancel`, `session.suggest_list`, `agent.identify`, `agent.whoami`, `agent.list_trusted`, `agent.trust`, `agent.untrust`, `policy.set`, `policy.check`, `server.capabilities`, `profile.list`, `profile.current`, `profile.audit`, `fleet.list`, `review.list`, `review.diff`, `review.verify`, `review.rollback`, `review.merge`, `review.discard`, `proxy.status`, `proxy.nodes`, `proxy.switch`, `proxy.speedtest`, `proxy.configure`, `proxy.disable`, `proxy.env`, `proxy.rotation`, `proxy.set_nodes`, `proxy.clash_status`, `proxy.clash_select`, `proxy.clash_set_controller`, `upload.file`, `system.info`, `selftest.run`, `workspace.list`, `session.recording_list`, `session.recording_read` |
-| WezTerm-only | 14 | `agent.signal`, `cockpit.inbox`, `ghost.debug`, `capture.screen`, `capture.window`, `capture.select`, `capture.clipboard`, `capture.scrollback`, `capture.window_scroll`, `instance.list`, `instance.info`, `instance.set_title`, `instance.focus`, `system.launch_admin` |
+| WezTerm-only | 13 | `cockpit.inbox`, `ghost.debug`, `capture.screen`, `capture.window`, `capture.select`, `capture.clipboard`, `capture.scrollback`, `capture.window_scroll`, `instance.list`, `instance.info`, `instance.set_title`, `instance.focus`, `system.launch_admin` |
 | Unsupported stub | 2 | `session.env`, `session.set_env` |
 
 The counts intentionally include aliases (`session.get` / `session.status`, `exec.send` via `session.input`) because `meta.surface` exposes them as separate public contracts. The current `MCP_METHODS` inventory contains 100 public methods, excluding `auth.login`.
@@ -138,7 +138,7 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 | `agent.trust` | Product-only | Trust config/state | Engine-independent. |
 | `agent.untrust` | Product-only | Trust config/state | Engine-independent. |
 | `agent.status` | Engine-neutral | Cockpit registry lookup by pane id; all-pane snapshot from product state | Handler no longer resolves a WezTerm pane for single-pane status. |
-| `agent.signal` | WezTerm-only | Hook signal maps to pane ids and falls back to active WezTerm pane when omitted | Product service can be engine-neutral once pane ids are canonical. |
+| `agent.signal` | Partial | Explicit pane-id signals write directly to the cockpit registry; omitted pane id still falls back to active WezTerm pane | Make pane id mandatory or add an engine-neutral active-session concept. |
 | `cockpit.inbox` | WezTerm-only | Cockpit pane/window jump metadata | Needs engine-neutral instance/window/pane location model. |
 | `fleet.launch` | Engine-neutral | Fleet worktree registry plus `SessionEngine::create_session` and `InputEngine::write_input` via a pane spawner | Handler launches members without calling WezTerm tab APIs; default GUI fleet launcher still uses the WezTerm spawner. |
 | `fleet.list` | Product-only | Review/fleet registry | Engine-independent except live state enrichment. |

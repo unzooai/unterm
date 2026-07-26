@@ -726,6 +726,62 @@ mod engine_neutral_handler_tests {
     }
 
     #[test]
+    fn agent_signal_uses_explicit_pane_id_registry_path() {
+        let _guard = env_lock().lock();
+        let previous_engine = std::env::var("UNTERM_ENGINE").ok();
+        std::env::set_var("UNTERM_ENGINE", "next-core");
+        crate::cockpit::status::reset_for_tests();
+
+        let result: Result<(serde_json::Value, serde_json::Value, usize)> = (|| {
+            let handler = McpHandler::new();
+            let ctx = ConnectionContext::internal("handler-test");
+            let created = handler.handle(
+                &ctx,
+                "session.create",
+                &json!({
+                    "cols": 80,
+                    "rows": 4,
+                }),
+            )?;
+            let pane_id = created["id"].as_u64().expect("session id") as usize;
+            let signal = handler.handle(
+                &ctx,
+                "agent.signal",
+                &json!({
+                    "pane_id": pane_id,
+                    "agent": "claude",
+                    "event": "waiting",
+                }),
+            )?;
+            let status = handler.handle(
+                &ctx,
+                "agent.status",
+                &json!({
+                    "pane_id": pane_id,
+                }),
+            )?;
+            let _ = handler.handle(&ctx, "session.destroy", &json!({ "pane_id": pane_id }));
+            Ok((signal, status, pane_id))
+        })();
+
+        match previous_engine {
+            Some(value) => std::env::set_var("UNTERM_ENGINE", value),
+            None => std::env::remove_var("UNTERM_ENGINE"),
+        }
+
+        let (signal, status, pane_id) = result.expect("signal cockpit status through handler");
+        assert!(next_core().get_session(pane_id).is_err());
+        assert_eq!(signal["ok"], true);
+        assert_eq!(signal["pane_id"], pane_id as u64);
+        assert_eq!(signal["agent"], "claude");
+        assert_eq!(signal["event"], "waiting");
+        assert_eq!(status["agent"]["pane_id"], pane_id as u64);
+        assert_eq!(status["agent"]["agent"], "claude");
+        assert_eq!(status["agent"]["state"], "waiting");
+        crate::cockpit::status::reset_for_tests();
+    }
+
+    #[test]
     fn server_health_uses_selected_next_core_engine() {
         let _guard = env_lock().lock();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
@@ -2706,15 +2762,21 @@ impl McpHandler {
             .ok_or_else(|| anyhow!("Missing 'event' (working|waiting|done|idle)"))?;
         // Hooks pass $WEZTERM_PANE; a bare CLI call falls back to the
         // pane the user is looking at.
-        let pane = self.get_pane(params).or_else(|_| {
+        let explicit_pane = params
+            .get("id")
+            .or_else(|| params.get("session_id"))
+            .or_else(|| params.get("pane_id"));
+        let pane_id = if explicit_pane.is_some() {
+            Self::pane_id_from_params(params)? as u64
+        } else {
             let mux = self.get_mux()?;
             mux.iter_windows()
                 .into_iter()
                 .find_map(|wid| mux.get_active_tab_for_window(wid))
                 .and_then(|tab| tab.get_active_pane())
                 .ok_or_else(|| anyhow!("no active pane"))
-        })?;
-        let pane_id = pane.pane_id() as u64;
+                .map(|pane| pane.pane_id() as u64)?
+        };
         let agent = params
             .get("agent")
             .and_then(|v| v.as_str())
