@@ -915,4 +915,10 @@ mod tests {
         assert_eq!(listed[0].tab_id, 88);
         assert!(markdown.contains("D:/code/unterm"));
     }
+
+    #[test]
+    fn inactive_recording_status_is_pane_id_only() {
+        let status = recording_status(999_001);
+        assert_eq!(status.get("enabled").and_then(|v| v.as_bool()), Some(false));
+    }
 }

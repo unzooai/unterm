@@ -4515,8 +4515,10 @@ impl McpHandler {
     }
 
     fn session_recording_status(&self, params: &Value) -> Result<Value> {
-        let pane = self.get_pane(params)?;
-        Ok(crate::recording::recording_status(pane.pane_id()))
+        let pane_id = Self::pane_id_from_params(params)?;
+        Ok(crate::recording::recording_status(
+            pane_id as mux::pane::PaneId,
+        ))
     }
 
     fn session_recording_list(&self, params: &Value) -> Result<Value> {

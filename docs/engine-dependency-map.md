@@ -62,9 +62,9 @@ Known gaps:
 | Category | Count | Methods |
 |---|---:|---|
 | Engine-neutral | 29 | `session.list`, `session.get`, `session.status`, `session.create`, `session.split`, `session.focus`, `session.input`, `session.paste`, `session.idle`, `session.cwd`, `session.history`, `screen.read`, `screen.text`, `screen.scrollback_text`, `screen.cursor`, `screen.detect_errors`, `exec.run`, `exec.send`, `exec.run_wait`, `exec.status`, `exec.cancel`, `signal.send`, `orchestrate.launch`, `orchestrate.broadcast`, `orchestrate.wait`, `workspace.save`, `workspace.restore`, `screen.scroll`, `server.info` |
-| Partial | 5 | `session.resize`, `session.destroy`, `session.export_markdown`, `screen.search`, `server.health` |
+| Partial | 6 | `session.resize`, `session.destroy`, `session.recording_status`, `session.export_markdown`, `screen.search`, `server.health` |
 | Product-only | 42 | `meta.surface`, `session.audit_log`, `session.suggest`, `session.suggest_status`, `session.suggest_cancel`, `session.suggest_list`, `agent.identify`, `agent.whoami`, `agent.list_trusted`, `agent.trust`, `agent.untrust`, `policy.set`, `policy.check`, `server.capabilities`, `profile.list`, `profile.current`, `profile.audit`, `fleet.list`, `review.list`, `review.diff`, `review.verify`, `review.rollback`, `review.merge`, `review.discard`, `proxy.status`, `proxy.nodes`, `proxy.switch`, `proxy.speedtest`, `proxy.configure`, `proxy.disable`, `proxy.env`, `proxy.rotation`, `proxy.set_nodes`, `proxy.clash_status`, `proxy.clash_select`, `proxy.clash_set_controller`, `upload.file`, `system.info`, `selftest.run`, `workspace.list`, `session.recording_list`, `session.recording_read` |
-| WezTerm-only | 22 | `agent.status`, `agent.signal`, `cockpit.inbox`, `fleet.launch`, `fleet.clean`, `fleet.retry`, `ghost.debug`, `capture.screen`, `capture.window`, `capture.select`, `capture.clipboard`, `capture.scrollback`, `capture.window_scroll`, `session.recording_start`, `session.recording_stop`, `session.recording_status`, `session.recording_attach_trace`, `instance.list`, `instance.info`, `instance.set_title`, `instance.focus`, `system.launch_admin` |
+| WezTerm-only | 21 | `agent.status`, `agent.signal`, `cockpit.inbox`, `fleet.launch`, `fleet.clean`, `fleet.retry`, `ghost.debug`, `capture.screen`, `capture.window`, `capture.select`, `capture.clipboard`, `capture.scrollback`, `capture.window_scroll`, `session.recording_start`, `session.recording_stop`, `session.recording_attach_trace`, `instance.list`, `instance.info`, `instance.set_title`, `instance.focus`, `system.launch_admin` |
 | Unsupported stub | 2 | `session.env`, `session.set_env` |
 
 The counts intentionally include aliases (`session.get` / `session.status`, `exec.send` via `session.input`) because `meta.surface` exposes them as separate public contracts. The current `MCP_METHODS` inventory contains 100 public methods, excluding `auth.login`.
@@ -95,7 +95,7 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 | `session.suggest_list` | Product-only | MCP suggestion queue | Engine-independent. |
 | `session.recording_start` | WezTerm-only | Recording attaches to current pane stream/scrollback model | Needs `RecordingEngine` or raw PTY stream tap. |
 | `session.recording_stop` | WezTerm-only | Recording registry plus pane stream state | Extract recording service from WezTerm pane storage. |
-| `session.recording_status` | WezTerm-only | Recording registry keyed by WezTerm pane | Make pane-id engine-neutral. |
+| `session.recording_status` | Partial | Recording registry queried by pane id; active state still comes from WezTerm-backed recorder | Move registry and stream ownership behind `RecordingEngine`. |
 | `session.recording_list` | Product-only | Recording archive index | No live terminal dependency. |
 | `session.recording_read` | Product-only | Recording archive log renderer | No live terminal dependency. |
 | `session.recording_attach_trace` | WezTerm-only | Active recording state | Needs engine-neutral recording id. |
