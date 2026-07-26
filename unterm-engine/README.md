@@ -32,7 +32,7 @@ Run the Phase 2 next-core benchmark suite and generate `docs/next-core-benchmark
 .\unterm-engine\bench-next-core.ps1
 ```
 
-The runner builds `unterm-next-core`, verifies the machine-readable `--json` probe output, executes the current latency/output/scrollback/paste/dual-agent/screen-read benchmarks, and writes both summary lines and raw output into the report.
+The runner builds `unterm-next-core`, verifies the machine-readable `--json` probe output, executes the current input-write/echo/output/scrollback/paste/dual-agent/screen-read benchmarks, and writes both summary lines and raw output into the report.
 
 ## Experimental MCP Engine Selector
 
@@ -50,6 +50,14 @@ Interactive input smoke test:
 ```powershell
 cargo run -p unterm-engine --bin unterm-next-core -- --wait-ms 1200 --write "echo next-core-write`rexit`r" -- cmd.exe
 ```
+
+Input write benchmark:
+
+```powershell
+cargo run -p unterm-engine --bin unterm-next-core -- --bench-input-writes 1000 --wait-ms 100 --write "exit`r" -- cmd.exe
+```
+
+The input write benchmark measures the engine `write_input` call path with right-arrow escape sequences and reports min/p50/p95/max microsecond latency. It intentionally does not wait for shell echo, so it isolates the path behind typing and completion-accept writes.
 
 Echo latency benchmark:
 

@@ -14,6 +14,7 @@ struct Args {
     paste: Option<String>,
     cwd: Option<String>,
     command: Option<Vec<String>>,
+    bench_input_writes: Option<usize>,
     bench_echo: Option<usize>,
     bench_flood_lines: Option<usize>,
     bench_scrollback_lines: Option<usize>,
@@ -35,6 +36,7 @@ fn parse_args() -> Result<Args> {
         paste: None,
         cwd: None,
         command: None,
+        bench_input_writes: None,
         bench_echo: None,
         bench_flood_lines: None,
         bench_scrollback_lines: None,
@@ -90,6 +92,13 @@ fn parse_args() -> Result<Args> {
                 parsed.bench_echo = Some(
                     args.next()
                         .ok_or_else(|| anyhow::anyhow!("--bench-echo requires a value"))?
+                        .parse()?,
+                );
+            }
+            "--bench-input-writes" => {
+                parsed.bench_input_writes = Some(
+                    args.next()
+                        .ok_or_else(|| anyhow::anyhow!("--bench-input-writes requires a value"))?
                         .parse()?,
                 );
             }
@@ -157,7 +166,7 @@ fn parse_args() -> Result<Args> {
             }
             "--help" | "-h" => {
                 println!(
-                    "Usage: unterm-next-core [--cols N] [--rows N] [--wait-ms N] [--poll-ms N] [--timeout-ms N] [--bench-echo N] [--bench-flood-lines N] [--bench-scrollback-lines N] [--bench-paste-kb N] [--bench-dual-agent-lines N] [--bench-screen-read-lines N] [--cwd PATH] [--write TEXT] [--paste TEXT] [--json] [-- COMMAND [ARG...]]"
+                    "Usage: unterm-next-core [--cols N] [--rows N] [--wait-ms N] [--poll-ms N] [--timeout-ms N] [--bench-input-writes N] [--bench-echo N] [--bench-flood-lines N] [--bench-scrollback-lines N] [--bench-paste-kb N] [--bench-dual-agent-lines N] [--bench-screen-read-lines N] [--cwd PATH] [--write TEXT] [--paste TEXT] [--json] [-- COMMAND [ARG...]]"
                 );
                 std::process::exit(0);
             }
@@ -484,6 +493,44 @@ fn print_echo_summary(label: &str, rounds: usize, sorted: &[u128]) {
     );
 }
 
+fn run_input_write_benchmark(
+    engine: &unterm_engine::next_core::NextCoreEngine,
+    pane_id: usize,
+    rounds: usize,
+) -> Result<()> {
+    if rounds == 0 {
+        bail!("--bench-input-writes must be greater than 0");
+    }
+
+    let mut latencies_us = Vec::with_capacity(rounds);
+    let mut bytes = 0usize;
+    for _ in 0..rounds {
+        let before = Instant::now();
+        engine.write_input(pane_id, "\x1b[C")?;
+        latencies_us.push(before.elapsed().as_micros());
+        bytes += 3;
+    }
+
+    latencies_us.sort_unstable();
+    let seconds = latencies_us.iter().sum::<u128>() as f64 / 1_000_000.0;
+    let bytes_per_sec = if seconds > 0.0 {
+        bytes as f64 / seconds
+    } else {
+        bytes as f64
+    };
+    println!(
+        "bench_input_write rounds={} bytes={} min_us={} p50_us={} p95_us={} max_us={} bytes_per_sec={:.1}",
+        rounds,
+        bytes,
+        latencies_us[0],
+        percentile(&latencies_us, 0.50),
+        percentile(&latencies_us, 0.95),
+        *latencies_us.last().unwrap_or(&0),
+        bytes_per_sec
+    );
+    Ok(())
+}
+
 fn cmd_session(cols: usize, rows: usize) -> CreateSessionRequest {
     CreateSessionRequest {
         cols,
@@ -553,6 +600,11 @@ fn main() -> Result<()> {
         command: command_builder(args.command),
         env: Vec::new(),
     })?;
+
+    if let Some(rounds) = args.bench_input_writes {
+        run_input_write_benchmark(&engine, session.id, rounds)
+            .with_context(|| format!("bench_input_write failed for session {}", session.id))?;
+    }
 
     if let Some(rounds) = args.bench_echo {
         run_echo_benchmark(

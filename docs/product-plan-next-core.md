@@ -407,12 +407,13 @@ Text:
 
 The spike must run a local benchmark harness:
 
-1. Key press to visible glyph
-2. Paste 10 KB
-3. Print 100k lines
-4. PageUp/PageDown through 10k scrollback
-5. Two pseudo-agent output streams
-6. MCP `screen.text` during output flood
+1. Engine input-write call latency
+2. Key press to visible glyph
+3. Paste 10 KB
+4. Print 100k lines
+5. PageUp/PageDown through 10k scrollback
+6. Two pseudo-agent output streams
+7. MCP `screen.text` during output flood
 
 ### Graduation Criteria
 

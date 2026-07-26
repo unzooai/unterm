@@ -1,5 +1,6 @@
 param(
     [string]$OutputPath = "",
+    [int]$InputWrites = 1000,
     [int]$EchoRounds = 50,
     [int]$FloodLines = 100000,
     [int]$ScrollbackLines = 10000,
@@ -69,6 +70,9 @@ function Invoke-JsonSmoke {
     if ($json.screen.cols -le 0 -or $json.screen.rows -le 0) {
         throw "JSON probe screen dimensions were invalid"
     }
+    if ($null -eq $json.activity) {
+        throw "JSON probe did not include an activity snapshot"
+    }
 
     [pscustomobject]@{
         Marker = $marker
@@ -96,6 +100,7 @@ try {
 
     $commonTail = @("--timeout-ms", "$TimeoutMs", "--wait-ms", "0", "--write", "exit`r", "--", "cmd.exe")
     $results = @()
+    $results += Invoke-Benchmark -Name "input write latency" -BenchArgs ([string[]](@("--bench-input-writes", "$InputWrites") + $commonTail))
     $results += Invoke-Benchmark -Name "echo latency" -BenchArgs ([string[]](@("--bench-echo", "$EchoRounds") + $commonTail))
     $results += Invoke-Benchmark -Name "output flood" -BenchArgs ([string[]](@("--bench-flood-lines", "$FloodLines") + $commonTail))
     $results += Invoke-Benchmark -Name "paste 10kb" -BenchArgs ([string[]](@("--bench-paste-kb", "$PasteKb") + $commonTail))
