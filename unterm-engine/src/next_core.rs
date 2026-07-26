@@ -905,6 +905,11 @@ impl NextCoreScreen {
                 self.mark_dirty_range(0, self.cursor_y);
             }
             2 => self.clear_screen(),
+            3 => {
+                self.scrollback.clear();
+                self.viewport_top = None;
+                self.mark_all_dirty();
+            }
             _ => {}
         }
     }
@@ -5322,6 +5327,42 @@ mod tests {
         );
         engine.destroy_session(session.id)?;
 
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_clears_scrollback_with_display_erase_mode_3() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+        set_output_for_test(session.id, "one\ntwo\nthree\nfour\nfive")?;
+        assert_eq!(engine.read_screen(session.id)?.scrollback_rows, 2);
+        assert_eq!(engine.read_scrollback(session.id, 10)?, vec!["one", "two"]);
+        engine.destroy_session(session.id)?;
+
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+        set_output_for_test(session.id, "one\ntwo\nthree\nfour\nfive\x1b[3J")?;
+        let screen = engine.read_screen(session.id)?;
+        assert_eq!(screen.lines, vec!["three", "four", "five"]);
+        assert_eq!(screen.scrollback_rows, 0);
+        assert!(engine.read_scrollback(session.id, 10)?.is_empty());
+
+        engine.destroy_session(session.id)?;
         Ok(())
     }
 
