@@ -138,6 +138,13 @@ pub enum StyledColor {
 }
 
 #[allow(dead_code)]
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+pub enum StyledBlink {
+    Slow,
+    Rapid,
+}
+
+#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, Default, Serialize, PartialEq, Eq)]
 pub struct CellStyle {
     pub bold: bool,
@@ -146,6 +153,7 @@ pub struct CellStyle {
     pub underline: bool,
     pub strikethrough: bool,
     pub hidden: bool,
+    pub blink: Option<StyledBlink>,
     pub inverse: bool,
     pub fg: Option<StyledColor>,
     pub bg: Option<StyledColor>,

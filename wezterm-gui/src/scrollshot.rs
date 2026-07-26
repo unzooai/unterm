@@ -24,9 +24,9 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
-use termwiz::cell::{CellAttributes as TwCellAttributes, Intensity, Underline};
+use termwiz::cell::{Blink, CellAttributes as TwCellAttributes, Intensity, Underline};
 use termwiz::color::{ColorAttribute, SrgbaTuple};
-use unterm_engine::{CellStyle, StyledColor, StyledScreenLine};
+use unterm_engine::{CellStyle, StyledBlink, StyledColor, StyledScreenLine};
 use wezterm_font::shaper::{Direction, PresentationWidth};
 use wezterm_font::{FontConfiguration, LoadedFont, RasterizedGlyph};
 use wezterm_term::color::ColorPalette;
@@ -328,6 +328,12 @@ fn styled_cell_attributes(style: CellStyle) -> TwCellAttributes {
     }
     if style.strikethrough {
         attrs.set_strikethrough(true);
+    }
+    if let Some(blink) = style.blink {
+        attrs.set_blink(match blink {
+            StyledBlink::Slow => Blink::Slow,
+            StyledBlink::Rapid => Blink::Rapid,
+        });
     }
     if style.inverse {
         attrs.set_reverse(true);

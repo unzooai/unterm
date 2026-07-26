@@ -7,8 +7,8 @@ use super::{
     RecordingStartResult, RecordingStatusSnapshot, RecordingStopResult, ScreenActivitySnapshot,
     ScreenEngine, ScreenLine, ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest,
     ScrollbackTextSnapshot, SessionActivitySnapshot, SessionEngine, SessionSnapshot, ShellSnapshot,
-    SplitSessionRequest, StyledCell, StyledColor, StyledScreenLine, StyledScreenSnapshot,
-    StyledScrollbackSnapshot,
+    SplitSessionRequest, StyledBlink, StyledCell, StyledColor, StyledScreenLine,
+    StyledScreenSnapshot, StyledScrollbackSnapshot,
 };
 use anyhow::{bail, Result};
 use base64::Engine as _;
@@ -385,6 +385,7 @@ struct CellAttributes {
     underline: bool,
     strikethrough: bool,
     hidden: bool,
+    blink: Option<StyledBlink>,
     inverse: bool,
     fg: Option<TerminalColor>,
     bg: Option<TerminalColor>,
@@ -405,6 +406,7 @@ impl From<CellAttributes> for CellStyle {
             underline: attr.underline,
             strikethrough: attr.strikethrough,
             hidden: attr.hidden,
+            blink: attr.blink,
             inverse: attr.inverse,
             fg: attr.fg.map(Into::into),
             bg: attr.bg.map(Into::into),
@@ -1062,6 +1064,8 @@ impl NextCoreScreen {
                 2 => self.current_attr.faint = true,
                 3 => self.current_attr.italic = true,
                 4 => self.current_attr.underline = true,
+                5 => self.current_attr.blink = Some(StyledBlink::Slow),
+                6 => self.current_attr.blink = Some(StyledBlink::Rapid),
                 7 => self.current_attr.inverse = true,
                 8 => self.current_attr.hidden = true,
                 9 => self.current_attr.strikethrough = true,
@@ -1071,6 +1075,7 @@ impl NextCoreScreen {
                 }
                 23 => self.current_attr.italic = false,
                 24 => self.current_attr.underline = false,
+                25 => self.current_attr.blink = None,
                 27 => self.current_attr.inverse = false,
                 28 => self.current_attr.hidden = false,
                 29 => self.current_attr.strikethrough = false,
@@ -5341,12 +5346,15 @@ mod tests {
                 "\x1b[29mT",
                 "\x1b[8mH",
                 "\x1b[28mV",
+                "\x1b[5mL",
+                "\x1b[6mR",
+                "\x1b[25mQ",
                 "\x1b[3;4;7;38;5;202;48;2;1;2;3mX",
-                "\x1b[22;23;24;27;28;29;39;49mY"
+                "\x1b[22;23;24;25;27;28;29;39;49mY"
             ),
         )?;
 
-        assert_eq!(engine.read_visible_text(session.id)?, "RNFBISTHVXY");
+        assert_eq!(engine.read_visible_text(session.id)?, "RNFBISTHVLRQXY");
         let attrs = viewport_attrs_for_test(session.id)?;
         let line = &attrs[0];
 
@@ -5369,13 +5377,17 @@ mod tests {
         assert!(line[7].hidden);
         assert!(!line[8].hidden);
 
-        assert!(line[9].italic);
-        assert!(line[9].underline);
-        assert!(line[9].inverse);
-        assert_eq!(line[9].fg, Some(TerminalColor::Palette(202)));
-        assert_eq!(line[9].bg, Some(TerminalColor::Rgb(1, 2, 3)));
+        assert_eq!(line[9].blink, Some(StyledBlink::Slow));
+        assert_eq!(line[10].blink, Some(StyledBlink::Rapid));
+        assert_eq!(line[11].blink, None);
 
-        assert_eq!(line[10], CellAttributes::default());
+        assert!(line[12].italic);
+        assert!(line[12].underline);
+        assert!(line[12].inverse);
+        assert_eq!(line[12].fg, Some(TerminalColor::Palette(202)));
+        assert_eq!(line[12].bg, Some(TerminalColor::Rgb(1, 2, 3)));
+
+        assert_eq!(line[13], CellAttributes::default());
 
         let styled = engine.read_styled_screen(session.id)?;
         assert_eq!(styled.lines[0].row, 0);
@@ -5389,14 +5401,23 @@ mod tests {
         assert!(styled.lines[0].cells[7].style.hidden);
         assert!(!styled.lines[0].cells[8].style.hidden);
         assert_eq!(
+            styled.lines[0].cells[9].style.blink,
+            Some(StyledBlink::Slow)
+        );
+        assert_eq!(
+            styled.lines[0].cells[10].style.blink,
+            Some(StyledBlink::Rapid)
+        );
+        assert_eq!(styled.lines[0].cells[11].style.blink, None);
+        assert_eq!(
             styled.lines[0].cells[0].style.fg,
             Some(StyledColor::Palette(1))
         );
         assert_eq!(
-            styled.lines[0].cells[9].style.bg,
+            styled.lines[0].cells[12].style.bg,
             Some(StyledColor::Rgb(1, 2, 3))
         );
-        assert_eq!(styled.lines[0].cells[10].style, CellStyle::default());
+        assert_eq!(styled.lines[0].cells[13].style, CellStyle::default());
 
         engine.destroy_session(session.id)?;
         Ok(())
