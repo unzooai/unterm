@@ -61,8 +61,8 @@ Known gaps:
 
 | Category | Count | Methods |
 |---|---:|---|
-| Engine-neutral | 29 | `session.list`, `session.get`, `session.status`, `session.create`, `session.split`, `session.focus`, `session.input`, `session.paste`, `session.idle`, `session.cwd`, `session.history`, `screen.read`, `screen.text`, `screen.scrollback_text`, `screen.cursor`, `screen.detect_errors`, `exec.run`, `exec.send`, `exec.run_wait`, `exec.status`, `exec.cancel`, `signal.send`, `orchestrate.launch`, `orchestrate.broadcast`, `orchestrate.wait`, `workspace.save`, `workspace.restore`, `screen.scroll`, `server.info` |
-| Partial | 9 | `session.resize`, `session.destroy`, `session.recording_start`, `session.recording_stop`, `session.recording_status`, `session.recording_attach_trace`, `session.export_markdown`, `screen.search`, `server.health` |
+| Engine-neutral | 33 | `session.list`, `session.get`, `session.status`, `session.create`, `session.split`, `session.focus`, `session.input`, `session.paste`, `session.idle`, `session.cwd`, `session.history`, `session.recording_start`, `session.recording_stop`, `session.recording_status`, `session.recording_attach_trace`, `screen.read`, `screen.text`, `screen.scrollback_text`, `screen.cursor`, `screen.detect_errors`, `exec.run`, `exec.send`, `exec.run_wait`, `exec.status`, `exec.cancel`, `signal.send`, `orchestrate.launch`, `orchestrate.broadcast`, `orchestrate.wait`, `workspace.save`, `workspace.restore`, `screen.scroll`, `server.info` |
+| Partial | 5 | `session.resize`, `session.destroy`, `session.export_markdown`, `screen.search`, `server.health` |
 | Product-only | 42 | `meta.surface`, `session.audit_log`, `session.suggest`, `session.suggest_status`, `session.suggest_cancel`, `session.suggest_list`, `agent.identify`, `agent.whoami`, `agent.list_trusted`, `agent.trust`, `agent.untrust`, `policy.set`, `policy.check`, `server.capabilities`, `profile.list`, `profile.current`, `profile.audit`, `fleet.list`, `review.list`, `review.diff`, `review.verify`, `review.rollback`, `review.merge`, `review.discard`, `proxy.status`, `proxy.nodes`, `proxy.switch`, `proxy.speedtest`, `proxy.configure`, `proxy.disable`, `proxy.env`, `proxy.rotation`, `proxy.set_nodes`, `proxy.clash_status`, `proxy.clash_select`, `proxy.clash_set_controller`, `upload.file`, `system.info`, `selftest.run`, `workspace.list`, `session.recording_list`, `session.recording_read` |
 | WezTerm-only | 18 | `agent.status`, `agent.signal`, `cockpit.inbox`, `fleet.launch`, `fleet.clean`, `fleet.retry`, `ghost.debug`, `capture.screen`, `capture.window`, `capture.select`, `capture.clipboard`, `capture.scrollback`, `capture.window_scroll`, `instance.list`, `instance.info`, `instance.set_title`, `instance.focus`, `system.launch_admin` |
 | Unsupported stub | 2 | `session.env`, `session.set_env` |
@@ -93,12 +93,12 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 | `session.suggest_status` | Product-only | MCP suggestion queue | Engine-independent. |
 | `session.suggest_cancel` | Product-only | MCP suggestion queue | Engine-independent. |
 | `session.suggest_list` | Product-only | MCP suggestion queue | Engine-independent. |
-| `session.recording_start` | Partial | `RecordingEngine::start_recording`; WezTerm implements stream tap, `next-core` returns unsupported | Implement raw PTY stream tap in `next-core`. |
-| `session.recording_stop` | Partial | `RecordingEngine::stop_recording`; WezTerm implements log finalization, `next-core` returns unsupported | Implement raw PTY stream tap in `next-core`. |
-| `session.recording_status` | Partial | `RecordingEngine::recording_status`; WezTerm implements active registry, `next-core` reports inactive | Move active registry ownership into `next-core` recording service. |
+| `session.recording_start` | Engine-neutral | `RecordingEngine::start_recording` | WezTerm uses pane stream sink; `next-core` taps PTY reader output. |
+| `session.recording_stop` | Engine-neutral | `RecordingEngine::stop_recording` | Both engines finalize log/index state. |
+| `session.recording_status` | Engine-neutral | `RecordingEngine::recording_status` | Both engines report active state by pane id. |
 | `session.recording_list` | Product-only | Recording archive index | No live terminal dependency. |
 | `session.recording_read` | Product-only | Recording archive log renderer | No live terminal dependency. |
-| `session.recording_attach_trace` | Partial | `RecordingEngine::attach_recording_trace`; WezTerm implements active registry, `next-core` returns unsupported | Move trace ids into engine-neutral recording state. |
+| `session.recording_attach_trace` | Engine-neutral | `RecordingEngine::attach_recording_trace` | Trace ids are stored in active recording state. |
 | `session.export_markdown` | Partial | Inactive export uses `ScreenEngine::read_scrollback_text`; active recording still renders from WezTerm-backed recorder log | Finish by extracting recording registry/stream tap behind a `RecordingEngine`. |
 
 ## Exec and Signal Methods
@@ -236,13 +236,13 @@ Work:
 
 - Keep one-shot markdown export on `ScreenEngine::read_scrollback_text`.
 - Route live stream recording through `RecordingEngine`.
-- Implement raw PTY stream tap in `next-core`.
+- Keep raw PTY stream tap implemented in `next-core`.
 
 Acceptance:
 
 - `session.export_markdown` works in `next-core` for plain text scrollback.
 - Recording lifecycle MCP methods call `RecordingEngine` rather than WezTerm helpers directly.
-- Active recording state no longer depends on WezTerm pane storage after `next-core` stream tap lands.
+- Active recording state no longer depends on WezTerm pane storage.
 
 ## Maintenance Rule
 

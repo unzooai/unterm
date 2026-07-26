@@ -6,12 +6,17 @@ use super::{
     StyledCell, StyledColor, StyledScreenLine, StyledScreenSnapshot,
 };
 use anyhow::{bail, Result};
+use base64::Engine as _;
 use parking_lot::{Mutex, RwLock};
 use portable_pty::{native_pty_system, Child, MasterPty, PtySize};
+use serde::{Deserialize, Serialize};
+use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::thread;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const MAX_OUTPUT_BYTES: usize = 1024 * 1024;
 const MAX_SCROLLBACK_LINES: usize = 10_000;
@@ -26,6 +31,7 @@ struct NextCoreSession {
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     output: Arc<Mutex<String>>,
     screen: Arc<Mutex<NextCoreScreen>>,
+    recording: Arc<Mutex<Option<NextCoreRecording>>>,
     dead: Arc<AtomicBool>,
 }
 
@@ -39,6 +45,48 @@ impl Drop for NextCoreSession {
 struct NextCoreState {
     next_session_id: usize,
     sessions: Vec<NextCoreSession>,
+}
+
+#[derive(Clone, Debug)]
+struct NextCoreRecording {
+    session_id: String,
+    pane_id: usize,
+    project_path: Option<String>,
+    project_slug: String,
+    started_at: String,
+    log_path: PathBuf,
+    md_path: PathBuf,
+    bytes_raw: u64,
+    block_count: u64,
+    trace_ids: Vec<String>,
+    text_preview: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct RecordingIndexEntry {
+    unterm_session_id: String,
+    tab_id: u64,
+    project_path: Option<String>,
+    project_slug: String,
+    started_at: String,
+    ended_at: Option<String>,
+    block_count: u64,
+    total_lines: u64,
+    bytes_raw: u64,
+    log_path: String,
+    md_path: String,
+    exit_reason: Option<String>,
+    parent_session_id: Option<String>,
+    osc133_active: bool,
+    redaction_active: bool,
+    redaction_count: u64,
+    trace_ids: Vec<String>,
+    #[serde(default)]
+    agent_id: Option<String>,
+    #[serde(default)]
+    agent_manifest_version: Option<String>,
+    #[serde(default)]
+    agent_profile: Option<String>,
 }
 
 #[derive(Default)]
@@ -935,6 +983,11 @@ fn state() -> &'static RwLock<NextCoreState> {
     STATE.get_or_init(|| RwLock::new(NextCoreState::default()))
 }
 
+fn recording_index_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
+
 #[cfg(test)]
 fn reset_state_for_test() {
     *state().write() = NextCoreState::default();
@@ -942,7 +995,7 @@ fn reset_state_for_test() {
 
 #[cfg(test)]
 fn set_output_for_test(pane_id: usize, text: &str) -> Result<()> {
-    let (output, screen, rows) = {
+    let (output, screen, recording, rows) = {
         let state = state().read();
         let Some(session) = state
             .sessions
@@ -954,6 +1007,7 @@ fn set_output_for_test(pane_id: usize, text: &str) -> Result<()> {
         (
             Arc::clone(&session.output),
             Arc::clone(&session.screen),
+            Arc::clone(&session.recording),
             session.snapshot.rows,
         )
     };
@@ -963,6 +1017,9 @@ fn set_output_for_test(pane_id: usize, text: &str) -> Result<()> {
     *screen = NextCoreScreen::new(rows);
     screen.revision = revision;
     screen.feed(text);
+    if let Some(recording) = recording.lock().as_mut() {
+        NextCoreEngine::append_recording_output(recording, text);
+    }
     Ok(())
 }
 
@@ -1065,6 +1122,170 @@ impl NextCoreEngine {
     #[doc(hidden)]
     pub fn debug_output(&self, pane_id: usize) -> Result<String> {
         self.output(pane_id)
+    }
+
+    fn unix_micros() -> u128 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_micros())
+            .unwrap_or_default()
+    }
+
+    fn timestamp_string() -> String {
+        Self::unix_micros().to_string()
+    }
+
+    fn sanitize_slug(value: &str) -> String {
+        value
+            .chars()
+            .map(|ch| {
+                if ch.is_alphanumeric() || ch == '-' || ch == '_' || ch == '.' {
+                    ch
+                } else {
+                    '-'
+                }
+            })
+            .collect()
+    }
+
+    fn sessions_root() -> PathBuf {
+        if let Ok(root) = std::env::var("UNTERM_SESSIONS_ROOT") {
+            if !root.trim().is_empty() {
+                return PathBuf::from(root);
+            }
+        }
+        let home = std::env::var_os("USERPROFILE")
+            .or_else(|| std::env::var_os("HOME"))
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("."));
+        home.join(".unterm").join("sessions")
+    }
+
+    fn project_slug(project_path: Option<&str>) -> String {
+        project_path
+            .and_then(|path| {
+                Path::new(path)
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .filter(|name| !name.is_empty())
+                    .map(Self::sanitize_slug)
+            })
+            .unwrap_or_else(|| "_orphan".to_string())
+    }
+
+    fn recording_paths(
+        pane_id: usize,
+        project_path: Option<&str>,
+        project_slug: &str,
+    ) -> (PathBuf, PathBuf) {
+        let date = Self::timestamp_string();
+        let dir = project_path
+            .map(PathBuf::from)
+            .map(|path| path.join(".unterm").join("sessions").join(&date))
+            .unwrap_or_else(|| Self::sessions_root().join(project_slug).join(&date));
+        let _ = std::fs::create_dir_all(&dir);
+        let stem = format!("tab-{pane_id}-{date}");
+        (
+            dir.join(format!("{stem}.log")),
+            dir.join(format!("{stem}.md")),
+        )
+    }
+
+    fn index_path() -> PathBuf {
+        Self::sessions_root().join("index.json")
+    }
+
+    fn index_entry(recording: &NextCoreRecording, ended_at: Option<String>) -> RecordingIndexEntry {
+        RecordingIndexEntry {
+            unterm_session_id: recording.session_id.clone(),
+            tab_id: recording.pane_id as u64,
+            project_path: recording.project_path.clone(),
+            project_slug: recording.project_slug.clone(),
+            started_at: recording.started_at.clone(),
+            ended_at,
+            block_count: recording.block_count,
+            total_lines: recording.text_preview.lines().count() as u64,
+            bytes_raw: recording.bytes_raw,
+            log_path: recording.log_path.display().to_string(),
+            md_path: recording.md_path.display().to_string(),
+            exit_reason: None,
+            parent_session_id: None,
+            osc133_active: false,
+            redaction_active: true,
+            redaction_count: 0,
+            trace_ids: recording.trace_ids.clone(),
+            agent_id: std::env::var("UNTERM_AGENT_ID").ok(),
+            agent_manifest_version: std::env::var("UNTERM_AGENT_MANIFEST_VERSION").ok(),
+            agent_profile: std::env::var("UNTERM_PROFILE").ok(),
+        }
+    }
+
+    fn upsert_recording_index(
+        recording: &NextCoreRecording,
+        ended_at: Option<String>,
+    ) -> Result<()> {
+        let _guard = recording_index_lock().lock();
+        let path = Self::index_path();
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let mut entries: Vec<RecordingIndexEntry> = if path.exists() {
+            let raw = std::fs::read_to_string(&path).unwrap_or_default();
+            if raw.trim().is_empty() {
+                Vec::new()
+            } else {
+                serde_json::from_str(&raw).unwrap_or_default()
+            }
+        } else {
+            Vec::new()
+        };
+        let entry = Self::index_entry(recording, ended_at);
+        if let Some(existing) = entries
+            .iter_mut()
+            .find(|existing| existing.unterm_session_id == entry.unterm_session_id)
+        {
+            *existing = entry;
+        } else {
+            entries.push(entry);
+        }
+        std::fs::write(path, serde_json::to_string_pretty(&entries)?)?;
+        Ok(())
+    }
+
+    fn append_recording_output(recording: &mut NextCoreRecording, text: &str) {
+        if text.is_empty() {
+            return;
+        }
+        let encoded = base64::engine::general_purpose::STANDARD.encode(text.as_bytes());
+        let line = format!("{}\tout\t{}\n", Self::unix_micros(), encoded);
+        if let Ok(mut file) = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&recording.log_path)
+        {
+            let _ = file.write_all(line.as_bytes());
+        }
+        recording.bytes_raw = recording.bytes_raw.saturating_add(text.len() as u64);
+        recording.block_count = recording.block_count.saturating_add(1);
+        recording.text_preview.push_str(text);
+        if recording.text_preview.len() > MAX_OUTPUT_BYTES {
+            let keep_from = recording.text_preview.len() - MAX_OUTPUT_BYTES;
+            let keep_from = recording
+                .text_preview
+                .char_indices()
+                .map(|(idx, _)| idx)
+                .find(|idx| *idx >= keep_from)
+                .unwrap_or(0);
+            recording.text_preview.drain(..keep_from);
+        }
+    }
+
+    fn write_recording_markdown(recording: &NextCoreRecording) -> Result<()> {
+        if let Some(parent) = recording.md_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&recording.md_path, recording.text_preview.as_bytes())?;
+        Ok(())
     }
 
     fn screen_lines(&self, pane_id: usize) -> Result<Vec<String>> {
@@ -1371,11 +1592,13 @@ impl NextCoreEngine {
         let writer = Arc::new(Mutex::new(pair.master.take_writer()?));
         let output = Arc::new(Mutex::new(String::new()));
         let screen = Arc::new(Mutex::new(NextCoreScreen::new(rows)));
+        let recording = Arc::new(Mutex::new(None));
         let dead = Arc::new(AtomicBool::new(false));
         Self::spawn_reader_thread(
             id,
             Arc::clone(&output),
             Arc::clone(&screen),
+            Arc::clone(&recording),
             Arc::clone(&writer),
             Arc::clone(&dead),
             reader,
@@ -1404,6 +1627,7 @@ impl NextCoreEngine {
             writer,
             output,
             screen,
+            recording,
             dead,
         })
     }
@@ -1412,6 +1636,7 @@ impl NextCoreEngine {
         pane_id: usize,
         output: Arc<Mutex<String>>,
         screen: Arc<Mutex<NextCoreScreen>>,
+        recording: Arc<Mutex<Option<NextCoreRecording>>>,
         writer: Arc<Mutex<Box<dyn Write + Send>>>,
         dead: Arc<AtomicBool>,
         mut reader: Box<dyn Read + Send>,
@@ -1443,6 +1668,9 @@ impl NextCoreEngine {
                             let mut screen = screen.lock();
                             screen.feed(chunk.as_str());
                             Self::answer_terminal_queries(chunk.as_str(), &screen, &writer);
+                            if let Some(recording) = recording.lock().as_mut() {
+                                Self::append_recording_output(recording, chunk.as_str());
+                            }
                         }
                         Err(_) => break,
                     }
@@ -1840,26 +2068,154 @@ impl InputEngine for NextCoreEngine {
 }
 
 impl RecordingEngine for NextCoreEngine {
-    fn start_recording(&self, _pane_id: usize) -> Result<RecordingStartResult> {
-        bail!("next-core recording stream tap is not implemented yet")
-    }
+    fn start_recording(&self, pane_id: usize) -> Result<RecordingStartResult> {
+        let recording_handle;
+        let project_path;
+        {
+            let state = state().read();
+            let Some(session) = state
+                .sessions
+                .iter()
+                .find(|session| session.snapshot.id == pane_id)
+            else {
+                bail!("next-core session {pane_id} not found");
+            };
+            recording_handle = Arc::clone(&session.recording);
+            project_path = session.snapshot.shell.cwd.clone();
+        }
 
-    fn stop_recording(&self, _pane_id: usize) -> Result<RecordingStopResult> {
-        bail!("next-core recording stream tap is not implemented yet")
-    }
+        let mut slot = recording_handle.lock();
+        if slot.is_some() {
+            bail!("Recording already active for pane {pane_id}");
+        }
 
-    fn recording_status(&self, _pane_id: usize) -> Result<RecordingStatusSnapshot> {
-        Ok(RecordingStatusSnapshot {
-            enabled: false,
-            session_id: None,
-            started_at: None,
-            block_count: None,
-            bytes: None,
+        let project_slug = Self::project_slug(project_path.as_deref());
+        let (log_path, md_path) =
+            Self::recording_paths(pane_id, project_path.as_deref(), &project_slug);
+        if let Some(parent) = log_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        File::create(&log_path)?;
+
+        let started_at = Self::timestamp_string();
+        let session_id = format!("next-core-{pane_id}-{started_at}");
+        let recording = NextCoreRecording {
+            session_id: session_id.clone(),
+            pane_id,
+            project_path,
+            project_slug,
+            started_at,
+            log_path: log_path.clone(),
+            md_path: md_path.clone(),
+            bytes_raw: 0,
+            block_count: 0,
+            trace_ids: Vec::new(),
+            text_preview: String::new(),
+        };
+        Self::upsert_recording_index(&recording, None)?;
+        *slot = Some(recording);
+
+        Ok(RecordingStartResult {
+            session_id,
+            log_path: log_path.display().to_string(),
+            md_path: md_path.display().to_string(),
         })
     }
 
-    fn attach_recording_trace(&self, _pane_id: usize, _trace_id: String) -> Result<Vec<String>> {
-        bail!("next-core recording stream tap is not implemented yet")
+    fn stop_recording(&self, pane_id: usize) -> Result<RecordingStopResult> {
+        let recording_handle = {
+            let state = state().read();
+            let Some(session) = state
+                .sessions
+                .iter()
+                .find(|session| session.snapshot.id == pane_id)
+            else {
+                bail!("next-core session {pane_id} not found");
+            };
+            Arc::clone(&session.recording)
+        };
+        let mut slot = recording_handle.lock();
+        let Some(recording) = slot.take() else {
+            bail!("No active recording for pane {pane_id}");
+        };
+        drop(slot);
+
+        Self::write_recording_markdown(&recording)?;
+        let ended_at = Self::timestamp_string();
+        Self::upsert_recording_index(&recording, Some(ended_at.clone()))?;
+
+        Ok(RecordingStopResult {
+            session_id: recording.session_id,
+            ended_at,
+            block_count: recording.block_count,
+            exit_reason: "recording_stopped".to_string(),
+            md_path: recording.md_path.display().to_string(),
+        })
+    }
+
+    fn recording_status(&self, pane_id: usize) -> Result<RecordingStatusSnapshot> {
+        let recording_handle = {
+            let state = state().read();
+            let Some(session) = state
+                .sessions
+                .iter()
+                .find(|session| session.snapshot.id == pane_id)
+            else {
+                return Ok(RecordingStatusSnapshot {
+                    enabled: false,
+                    session_id: None,
+                    started_at: None,
+                    block_count: None,
+                    bytes: None,
+                });
+            };
+            Arc::clone(&session.recording)
+        };
+        let slot = recording_handle.lock();
+        if let Some(recording) = slot.as_ref() {
+            Ok(RecordingStatusSnapshot {
+                enabled: true,
+                session_id: Some(recording.session_id.clone()),
+                started_at: Some(recording.started_at.clone()),
+                block_count: Some(recording.block_count),
+                bytes: Some(recording.bytes_raw),
+            })
+        } else {
+            Ok(RecordingStatusSnapshot {
+                enabled: false,
+                session_id: None,
+                started_at: None,
+                block_count: None,
+                bytes: None,
+            })
+        }
+    }
+
+    fn attach_recording_trace(&self, pane_id: usize, trace_id: String) -> Result<Vec<String>> {
+        let recording_handle = {
+            let state = state().read();
+            let Some(session) = state
+                .sessions
+                .iter()
+                .find(|session| session.snapshot.id == pane_id)
+            else {
+                bail!("next-core session {pane_id} not found");
+            };
+            Arc::clone(&session.recording)
+        };
+        let mut slot = recording_handle.lock();
+        let Some(recording) = slot.as_mut() else {
+            bail!("No active recording for pane {pane_id}");
+        };
+        if !recording
+            .trace_ids
+            .iter()
+            .any(|existing| existing == &trace_id)
+        {
+            recording.trace_ids.push(trace_id);
+        }
+        Self::upsert_recording_index(recording, None)?;
+        Ok(recording.trace_ids.clone())
     }
 }
 
@@ -2590,7 +2946,7 @@ mod tests {
     }
 
     #[test]
-    fn recording_status_is_inactive_until_stream_tap_exists() {
+    fn recording_status_is_inactive_without_session() {
         let engine = NextCoreEngine;
         let status = engine.recording_status(123).unwrap();
 
@@ -2602,10 +2958,53 @@ mod tests {
     }
 
     #[test]
-    fn recording_start_reports_stream_tap_unsupported() {
-        let engine = NextCoreEngine;
-        let error = engine.start_recording(123).unwrap_err().to_string();
+    fn recording_lifecycle_taps_next_core_output() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or_default();
+        let sessions_root = std::env::temp_dir().join(format!(
+            "unterm-next-core-recording-{}-{suffix}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&sessions_root);
+        std::fs::create_dir_all(&sessions_root)?;
+        let project_dir = sessions_root.join("project");
+        std::fs::create_dir_all(&project_dir)?;
+        let previous_root = std::env::var("UNTERM_SESSIONS_ROOT").ok();
+        std::env::set_var("UNTERM_SESSIONS_ROOT", &sessions_root);
 
-        assert!(error.contains("recording stream tap is not implemented"));
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 4,
+            command_dir: Some(project_dir.display().to_string()),
+            command: None,
+        })?;
+
+        let started = engine.start_recording(session.id)?;
+        set_output_for_test(session.id, "hello from next-core\n")?;
+        let traces = engine.attach_recording_trace(session.id, "trace-1".to_string())?;
+        let status = engine.recording_status(session.id)?;
+        let stopped = engine.stop_recording(session.id)?;
+
+        match previous_root {
+            Some(value) => std::env::set_var("UNTERM_SESSIONS_ROOT", value),
+            None => std::env::remove_var("UNTERM_SESSIONS_ROOT"),
+        }
+
+        assert_eq!(started.session_id, stopped.session_id);
+        assert_eq!(traces, vec!["trace-1".to_string()]);
+        assert!(status.enabled);
+        assert!(status.block_count.unwrap_or_default() >= 1);
+        assert!(std::fs::read_to_string(&started.log_path)?.contains("\tout\t"));
+        assert!(std::fs::read_to_string(&stopped.md_path)?.contains("hello from next-core"));
+        assert!(std::fs::read_to_string(sessions_root.join("index.json"))?.contains("trace-1"));
+
+        engine.destroy_session(session.id)?;
+        let _ = std::fs::remove_dir_all(&sessions_root);
+        Ok(())
     }
 }
