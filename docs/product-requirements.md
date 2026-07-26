@@ -567,7 +567,7 @@ FR-SYS-003: Unsupported platform admin launch must return a clear error.
 
 FR-SYS-004: `server.health`, `server.info`, `server.capabilities`, and `selftest.run` must provide operational diagnostics. When an engine exposes health I/O summaries, capability surfaces must advertise the available metric names.
 
-FR-SYS-005: Self-test must probe mux, server, capabilities, policy, admin dry-run where applicable, proxy, capture, and optional pane checks.
+FR-SYS-005: Self-test must probe selected engine readiness, server health, capabilities, policy, admin dry-run where applicable, proxy, capture, optional pane checks, and engine-specific diagnostic payloads such as next-core health I/O summaries.
 
 ### 8.19 Installation, Release, and Updates
 

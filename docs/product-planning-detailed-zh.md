@@ -209,6 +209,7 @@ Unterm 的产品目标不是“再做一个终端”，而是做一个本地优�
 - current-core 行为不变。
 - next-core adapter 能实现最小子集，不链接 WezTerm GUI 深层对象。
 - `server.health` 能暴露 next-core 聚合输入、输出、粘贴诊断指标。
+- `selftest.run` 能验证 next-core capability 声明与 health I/O payload 对齐。
 
 ### v0.60：next-core Spike
 

@@ -1421,6 +1421,17 @@ mod engine_neutral_handler_tests {
             .expect("engine availability check");
         assert_eq!(engine_check["ok"], true);
         assert_eq!(engine_check["detail"]["engine"], "next-core");
+        let io_check = checks
+            .iter()
+            .find(|check| check["name"] == "next_core.health_io_diagnostics")
+            .expect("next-core health io diagnostics check");
+        assert_eq!(io_check["ok"], true);
+        let metrics = io_check["detail"]["advertised_metrics"]
+            .as_array()
+            .expect("advertised metrics");
+        assert!(metrics.iter().any(|metric| metric == "input_writes"));
+        assert!(metrics.iter().any(|metric| metric == "output_bytes"));
+        assert!(metrics.iter().any(|metric| metric == "paste_count"));
     }
 
     #[test]
@@ -5614,6 +5625,42 @@ impl McpHandler {
                 "has_screen": has_screen,
             },
         }));
+
+        if crate::engine::selected_engine_name() == "next-core" {
+            let advertised_metrics = caps
+                .pointer("/_engine_capabilities/diagnostics/health_metrics")
+                .and_then(|value| value.as_array())
+                .cloned()
+                .unwrap_or_default();
+            let health_io = health.pointer("/engine_health/io");
+            let required_metrics = [
+                "input_writes",
+                "input_bytes",
+                "output_chunks",
+                "output_bytes",
+                "paste_count",
+                "paste_text_bytes",
+            ];
+            let advertised_all = required_metrics.iter().all(|name| {
+                advertised_metrics
+                    .iter()
+                    .any(|metric| metric.as_str() == Some(*name))
+            });
+            let health_has_all = health_io.is_some_and(|io| {
+                required_metrics
+                    .iter()
+                    .all(|name| io.get(*name).and_then(|value| value.as_u64()).is_some())
+            });
+            checks.push(json!({
+                "name": "next_core.health_io_diagnostics",
+                "ok": advertised_all && health_has_all,
+                "detail": {
+                    "advertised_metrics": advertised_metrics,
+                    "health_io": health_io.cloned().unwrap_or(Value::Null),
+                    "required_metrics": required_metrics,
+                },
+            }));
+        }
 
         let policy = self.policy_check(&json!({"command": "echo unterm-selftest"}));
         checks.push(json!({
