@@ -313,9 +313,9 @@ FR-MCP-005: MCP must expose 99 documented methods across these namespaces:
 - profile
 - instance
 
-FR-MCP-006: `meta.surface` must expose MCP methods, CLI subcommands, and live keybindings for feature discovery.
+FR-MCP-006: `meta.surface` must expose MCP methods, CLI subcommands, live keybindings, selected-engine capability flags, and diagnostic capability flags for feature discovery.
 
-FR-MCP-007: `server.capabilities` must remain available for compatibility.
+FR-MCP-007: `server.capabilities` must remain available for compatibility and include selected-engine capability diagnostics.
 
 FR-MCP-008: MCP mutating calls must be audited and policy/confirmation gated where appropriate.
 
@@ -565,7 +565,7 @@ FR-SYS-002: Windows admin launch must support UAC elevation and dry-run.
 
 FR-SYS-003: Unsupported platform admin launch must return a clear error.
 
-FR-SYS-004: `server.health`, `server.info`, `server.capabilities`, and `selftest.run` must provide operational diagnostics.
+FR-SYS-004: `server.health`, `server.info`, `server.capabilities`, and `selftest.run` must provide operational diagnostics. When an engine exposes health I/O summaries, capability surfaces must advertise the available metric names.
 
 FR-SYS-005: Self-test must probe mux, server, capabilities, policy, admin dry-run where applicable, proxy, capture, and optional pane checks.
 

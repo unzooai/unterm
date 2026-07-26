@@ -201,7 +201,7 @@ Unterm 的产品目标不是“再做一个终端”，而是做一个本地优�
 - `SessionEngine`、`InputEngine`、`ScreenEngine`、`CaptureEngine`、`WindowEngine` 覆盖核心路径。
 - `docs/engine-dependency-map.md` 中 WezTerm-only 保持为 0。
 - `capture.scrollback` 的 next-core 语义明确：先支持纯文本 PNG，后续补 styled cell parity。
-- `server.capabilities` / `meta.surface` 表达 per-engine 能力，尤其让 agent 能看见 next-core 的受限能力而不是猜测。
+- `server.capabilities` / `meta.surface` 表达 per-engine 能力和诊断指标，尤其让 agent 能看见 next-core 的受限能力、health I/O 指标而不是猜测。
 
 验收：
 
