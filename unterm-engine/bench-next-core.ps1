@@ -160,6 +160,9 @@ function Invoke-JsonSmoke {
     if ($null -eq $json.health.io -or $json.health.io.screen_reads -lt 1) {
         throw "JSON probe did not include aggregate screen read counters"
     }
+    if ($json.session.is_dead -eq $true -and [string]::IsNullOrWhiteSpace($json.session.dead_reason)) {
+        throw "JSON probe reported a dead session without dead_reason"
+    }
 
     [pscustomobject]@{
         Marker = $marker
@@ -167,6 +170,7 @@ function Invoke-JsonSmoke {
         Screen = "$($json.screen.cols)x$($json.screen.rows)"
         RawBytes = $json.raw_bytes
         ScreenReads = $json.health.io.screen_reads
+        DeadReason = $json.session.dead_reason
     }
 }
 
@@ -243,7 +247,7 @@ try {
     $report.Add("- Machine: ``$machine``")
     $report.Add("- OS: ``$os``")
     $report.Add("- Binary: ``target\debug\unterm-next-core.exe``")
-    $report.Add("- JSON smoke: ``$($jsonSmoke.Engine) $($jsonSmoke.Screen) raw_bytes=$($jsonSmoke.RawBytes) screen_reads=$($jsonSmoke.ScreenReads)``")
+    $report.Add("- JSON smoke: ``$($jsonSmoke.Engine) $($jsonSmoke.Screen) raw_bytes=$($jsonSmoke.RawBytes) screen_reads=$($jsonSmoke.ScreenReads) dead_reason=$($jsonSmoke.DeadReason)``")
     $report.Add("")
     $report.Add("## Gates")
     $report.Add("")

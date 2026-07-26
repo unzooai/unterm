@@ -41,6 +41,9 @@ if ($summary.json_smoke.Engine -ne "next-core") {
 if ($summary.json_smoke.ScreenReads -lt 1) {
     throw "json smoke did not include screen read diagnostics"
 }
+if ([string]::IsNullOrWhiteSpace($summary.json_smoke.DeadReason)) {
+    throw "json smoke did not include session dead_reason diagnostics"
+}
 
 $gates = @($summary.gates)
 if ($gates.Count -ne $ExpectedGateCount) {

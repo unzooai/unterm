@@ -111,6 +111,7 @@ impl WezTermEngine {
             scrollback_rows: dims.scrollback_rows,
             cursor: Self::cursor_snapshot(pane),
             is_dead: pane.is_dead(),
+            dead_reason: pane.is_dead().then(|| "pane_dead".to_string()),
             is_active: Some(pane.pane_id()) == active_pane_id,
             domain_id: pane.domain_id(),
             shell: Self::shell_snapshot(pane),
@@ -279,6 +280,7 @@ impl SessionEngine for WezTermEngine {
             input: None,
             output: None,
             paste: None,
+            screen: None,
         })
     }
 

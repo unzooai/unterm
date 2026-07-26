@@ -45,6 +45,7 @@ pub struct SessionSnapshot {
     pub scrollback_rows: usize,
     pub cursor: CursorSnapshot,
     pub is_dead: bool,
+    pub dead_reason: Option<String>,
     pub is_active: bool,
     pub domain_id: usize,
     pub shell: ShellSnapshot,

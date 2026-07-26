@@ -38,6 +38,7 @@ struct NextCoreSession {
     recording: Arc<Mutex<Option<NextCoreRecording>>>,
     activity: Arc<Mutex<SessionIoActivity>>,
     dead: Arc<AtomicBool>,
+    dead_reason: Arc<Mutex<Option<String>>>,
 }
 
 impl Drop for NextCoreSession {
@@ -1264,6 +1265,7 @@ fn mark_dead_for_test(pane_id: usize) -> Result<()> {
         bail!("next-core session {pane_id} not found");
     };
 
+    *session.dead_reason.lock() = Some("test_dead_marker".to_string());
     session.dead.store(true, Ordering::Release);
     Ok(())
 }
@@ -1313,11 +1315,21 @@ impl NextCoreEngine {
 
         if session.dead.load(Ordering::Acquire) {
             session.snapshot.is_dead = true;
+            if session.snapshot.dead_reason.is_none() {
+                session.snapshot.dead_reason = session
+                    .dead_reason
+                    .lock()
+                    .clone()
+                    .or_else(|| Some("unknown".to_string()));
+            }
             return;
         }
 
-        if matches!(session.child.lock().try_wait(), Ok(Some(_))) {
+        if let Ok(Some(status)) = session.child.lock().try_wait() {
+            let reason = format!("process_exited:{status}");
             session.snapshot.is_dead = true;
+            session.snapshot.dead_reason = Some(reason.clone());
+            *session.dead_reason.lock() = Some(reason);
             session.dead.store(true, Ordering::Release);
         }
     }
@@ -1781,6 +1793,7 @@ impl NextCoreEngine {
         let recording = Arc::new(Mutex::new(None));
         let activity = Arc::new(Mutex::new(SessionIoActivity::new()));
         let dead = Arc::new(AtomicBool::new(false));
+        let dead_reason = Arc::new(Mutex::new(None));
         Self::spawn_reader_thread(
             id,
             Arc::clone(&output),
@@ -1789,6 +1802,7 @@ impl NextCoreEngine {
             Arc::clone(&activity),
             Arc::clone(&writer),
             Arc::clone(&dead),
+            Arc::clone(&dead_reason),
             reader,
         );
         let shell = ShellSnapshot {
@@ -1807,6 +1821,7 @@ impl NextCoreEngine {
                 scrollback_rows: 0,
                 cursor: Self::default_cursor(),
                 is_dead: false,
+                dead_reason: None,
                 is_active: true,
                 domain_id: 0,
                 shell,
@@ -1819,6 +1834,7 @@ impl NextCoreEngine {
             recording,
             activity,
             dead,
+            dead_reason,
         })
     }
 
@@ -1830,6 +1846,7 @@ impl NextCoreEngine {
         activity: Arc<Mutex<SessionIoActivity>>,
         writer: Arc<Mutex<Box<dyn Write + Send>>>,
         dead: Arc<AtomicBool>,
+        dead_reason: Arc<Mutex<Option<String>>>,
         mut reader: Box<dyn Read + Send>,
     ) {
         thread::Builder::new()
@@ -1839,7 +1856,10 @@ impl NextCoreEngine {
                 let mut pending_utf8 = Vec::new();
                 loop {
                     match reader.read(&mut buf) {
-                        Ok(0) => break,
+                        Ok(0) => {
+                            *dead_reason.lock() = Some("pty_reader_eof".to_string());
+                            break;
+                        }
                         Ok(n) => {
                             let output_started_at = Instant::now();
                             let Some(chunk) = Self::decode_pty_chunk(&mut pending_utf8, &buf[..n])
@@ -1867,7 +1887,10 @@ impl NextCoreEngine {
                                 Self::append_recording_output(recording, chunk.as_str());
                             }
                         }
-                        Err(_) => break,
+                        Err(err) => {
+                            *dead_reason.lock() = Some(format!("pty_reader_error:{err}"));
+                            break;
+                        }
                     }
                 }
                 dead.store(true, Ordering::Release);
@@ -2135,6 +2158,8 @@ impl SessionEngine for NextCoreEngine {
         let was_active = state.sessions[idx].snapshot.is_active;
         let mut session = state.sessions.remove(idx);
         session.snapshot.is_dead = true;
+        session.snapshot.dead_reason = Some("destroyed".to_string());
+        *session.dead_reason.lock() = Some("destroyed".to_string());
         session.dead.store(true, Ordering::Release);
         session.child.lock().kill().ok();
 
@@ -3021,7 +3046,9 @@ mod tests {
         })?;
 
         mark_dead_for_test(session.id)?;
-        assert!(engine.get_session(session.id)?.is_dead);
+        let snapshot = engine.get_session(session.id)?;
+        assert!(snapshot.is_dead);
+        assert_eq!(snapshot.dead_reason.as_deref(), Some("test_dead_marker"));
         assert!(engine.activity(session.id)?.idle);
         engine.destroy_session(session.id)?;
         Ok(())
