@@ -23,6 +23,7 @@ struct Args {
     bench_dual_agent_lines: Option<usize>,
     bench_screen_read_lines: Option<usize>,
     bench_focus_switches: Option<usize>,
+    bench_session_create: Option<usize>,
     poll_ms: u64,
     timeout_ms: u64,
     json: bool,
@@ -47,6 +48,7 @@ fn parse_args() -> Result<Args> {
         bench_dual_agent_lines: None,
         bench_screen_read_lines: None,
         bench_focus_switches: None,
+        bench_session_create: None,
         poll_ms: 5,
         timeout_ms: 5000,
         json: false,
@@ -163,6 +165,13 @@ fn parse_args() -> Result<Args> {
                         .parse()?,
                 );
             }
+            "--bench-session-create" => {
+                parsed.bench_session_create = Some(
+                    args.next()
+                        .ok_or_else(|| anyhow::anyhow!("--bench-session-create requires a value"))?
+                        .parse()?,
+                );
+            }
             "--write" => {
                 parsed.write = Some(
                     args.next()
@@ -186,7 +195,7 @@ fn parse_args() -> Result<Args> {
             }
             "--help" | "-h" => {
                 println!(
-                    "Usage: unterm-next-core [--cols N] [--rows N] [--wait-ms N] [--poll-ms N] [--timeout-ms N] [--bench-input-writes N] [--bench-echo N] [--bench-flood-lines N] [--bench-scrollback-lines N] [--bench-viewport-scrolls N] [--bench-paste-kb N] [--bench-dual-agent-lines N] [--bench-screen-read-lines N] [--bench-focus-switches N] [--cwd PATH] [--write TEXT] [--paste TEXT] [--json] [-- COMMAND [ARG...]]"
+                    "Usage: unterm-next-core [--cols N] [--rows N] [--wait-ms N] [--poll-ms N] [--timeout-ms N] [--bench-input-writes N] [--bench-echo N] [--bench-flood-lines N] [--bench-scrollback-lines N] [--bench-viewport-scrolls N] [--bench-paste-kb N] [--bench-dual-agent-lines N] [--bench-screen-read-lines N] [--bench-focus-switches N] [--bench-session-create N] [--cwd PATH] [--write TEXT] [--paste TEXT] [--json] [-- COMMAND [ARG...]]"
                 );
                 std::process::exit(0);
             }
@@ -712,6 +721,36 @@ fn run_focus_switch_benchmark(
     Ok(())
 }
 
+fn run_session_create_benchmark(
+    engine: &unterm_engine::next_core::NextCoreEngine,
+    cols: usize,
+    rows: usize,
+    rounds: usize,
+) -> Result<()> {
+    if rounds == 0 {
+        bail!("--bench-session-create must be greater than 0");
+    }
+
+    let mut latencies_us = Vec::with_capacity(rounds);
+    for _ in 0..rounds {
+        let before = Instant::now();
+        let session = engine.create_session(cmd_session(cols, rows))?;
+        latencies_us.push(before.elapsed().as_micros());
+        engine.destroy_session(session.id)?;
+    }
+
+    latencies_us.sort_unstable();
+    println!(
+        "bench_session_create rounds={} min_us={} p50_us={} p95_us={} max_us={}",
+        rounds,
+        latencies_us[0],
+        percentile(&latencies_us, 0.50),
+        percentile(&latencies_us, 0.95),
+        *latencies_us.last().unwrap_or(&0)
+    );
+    Ok(())
+}
+
 fn main() -> Result<()> {
     let args = parse_args()?;
     let engine = next_core();
@@ -810,6 +849,11 @@ fn main() -> Result<()> {
     if let Some(rounds) = args.bench_focus_switches {
         run_focus_switch_benchmark(&engine, session.id, args.cols, args.rows, rounds)
             .with_context(|| format!("bench_focus_switch failed for session {}", session.id))?;
+    }
+
+    if let Some(rounds) = args.bench_session_create {
+        run_session_create_benchmark(&engine, args.cols, args.rows, rounds)
+            .with_context(|| format!("bench_session_create failed for session {}", session.id))?;
     }
 
     if let Some(input) = args.write {

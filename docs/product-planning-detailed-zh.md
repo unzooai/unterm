@@ -223,7 +223,7 @@ Unterm 的产品目标不是“再做一个终端”，而是做一个本地优�
 - 基础 VT parse / screen model / scrollback。
 - keyboard input、paste、visible text read。
 - 最小 MCP：`session.list`、`session.create`、`session.input`、`session.paste`、`screen.text`、`exec.run`。
-- benchmark harness，包含 input write、echo、output flood、scrollback paging、viewport scroll、paste、dual-agent、screen-read under flood、focus switch。
+- benchmark harness，包含 input write、echo、output flood、scrollback paging、viewport scroll、paste、dual-agent、screen-read under flood、focus switch、session create。
 
 验收：
 
