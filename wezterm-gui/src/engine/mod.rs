@@ -106,6 +106,7 @@ pub struct StyledScreenSnapshot {
     pub cols: usize,
     pub rows: usize,
     pub scrollback_rows: usize,
+    pub revision: u64,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -123,6 +124,7 @@ pub struct ScreenSnapshot {
     pub cols: usize,
     pub rows: usize,
     pub scrollback_rows: usize,
+    pub revision: u64,
 }
 
 #[derive(Clone, Debug)]

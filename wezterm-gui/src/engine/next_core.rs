@@ -47,6 +47,7 @@ struct NextCoreScreen {
     cursor_visible: bool,
     current_attr: CellAttributes,
     title: Option<String>,
+    revision: u64,
     rows: usize,
     saved_cursor_x: usize,
     saved_cursor_y: usize,
@@ -139,8 +140,15 @@ impl NextCoreScreen {
     }
 
     fn feed(&mut self, chunk: &str) {
+        if !chunk.is_empty() {
+            self.bump_revision();
+        }
         let mut parser = ScreenParser::new(self);
         parser.feed(chunk);
+    }
+
+    fn bump_revision(&mut self) {
+        self.revision = self.revision.wrapping_add(1).max(1);
     }
 
     fn snapshot_lines(&self) -> Vec<String> {
@@ -168,6 +176,10 @@ impl NextCoreScreen {
 
     fn scrollback_rows(&self) -> usize {
         self.scrollback.len()
+    }
+
+    fn revision(&self) -> u64 {
+        self.revision
     }
 
     fn cursor_snapshot(&self) -> CursorSnapshot {
@@ -401,6 +413,7 @@ impl NextCoreScreen {
 
     fn resize(&mut self, rows: usize) {
         self.rows = rows.max(1);
+        self.bump_revision();
         if self.lines.len() > self.rows {
             let trim = self.lines.len() - self.rows;
             let drained = self.lines.drain(..trim).collect::<Vec<_>>();
@@ -638,7 +651,9 @@ fn set_output_for_test(pane_id: usize, text: &str) -> Result<()> {
     };
     *output.lock() = text.to_string();
     let mut screen = screen.lock();
+    let revision = screen.revision();
     *screen = NextCoreScreen::new(rows);
+    screen.revision = revision;
     screen.feed(text);
     Ok(())
 }
@@ -800,6 +815,23 @@ impl NextCoreEngine {
 
         let rows = screen.lock().scrollback_rows();
         Ok(rows)
+    }
+
+    fn screen_revision(&self, pane_id: usize) -> Result<u64> {
+        let screen = {
+            let state = state().read();
+            let Some(session) = state
+                .sessions
+                .iter()
+                .find(|session| session.snapshot.id == pane_id)
+            else {
+                bail!("next-core session {pane_id} not found");
+            };
+            Arc::clone(&session.screen)
+        };
+
+        let revision = screen.lock().revision();
+        Ok(revision)
     }
 
     fn screen_cursor(&self, pane_id: usize) -> Result<CursorSnapshot> {
@@ -1185,6 +1217,7 @@ impl ScreenEngine for NextCoreEngine {
             cols: session.cols,
             rows: session.rows,
             scrollback_rows,
+            revision: self.screen_revision(pane_id)?,
         })
     }
 
@@ -1199,6 +1232,7 @@ impl ScreenEngine for NextCoreEngine {
             cols: session.cols,
             rows: session.rows,
             scrollback_rows,
+            revision: self.screen_revision(pane_id)?,
         })
     }
 
@@ -1408,6 +1442,38 @@ mod tests {
             },
         )?;
         assert!(scrollback.text.contains("next-core-output"));
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_snapshots_report_revision_changes() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 4,
+            command_dir: None,
+            command: None,
+        })?;
+
+        assert_eq!(engine.read_screen(session.id)?.revision, 0);
+
+        set_output_for_test(session.id, "first")?;
+        let first = engine.read_screen(session.id)?;
+        let styled = engine.read_styled_screen(session.id)?;
+        assert!(first.revision > 0);
+        assert_eq!(styled.revision, first.revision);
+
+        set_output_for_test(session.id, "second")?;
+        let second = engine.read_screen(session.id)?;
+        assert!(second.revision > first.revision);
+
+        engine.resize_session(session.id, 80, 3)?;
+        let resized = engine.read_screen(session.id)?;
+        assert!(resized.revision > second.revision);
 
         engine.destroy_session(session.id)?;
         Ok(())
