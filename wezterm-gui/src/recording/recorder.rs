@@ -884,4 +884,35 @@ mod tests {
         let index = std::fs::read_to_string(index_path).unwrap();
         assert!(index.contains("\"tab_id\": 77"));
     }
+
+    #[test]
+    fn archive_list_and_read_are_backed_by_session_files() {
+        let _guard = env_lock().lock().unwrap();
+        let sessions_root = tempfile::tempdir().unwrap();
+        let project = tempfile::tempdir().unwrap();
+        let project_path = project.path().display().to_string();
+        let previous_root = std::env::var("UNTERM_SESSIONS_ROOT").ok();
+        std::env::set_var("UNTERM_SESSIONS_ROOT", sessions_root.path());
+
+        let result = export_scrollback_markdown(
+            88,
+            Some(project_path.clone()),
+            "prompt> pwd\nD:/code/unterm\n".to_string(),
+            None,
+        );
+        let exported = result.unwrap();
+        let listed = list_sessions(Some(&project_path)).unwrap();
+        let session_id = listed[0].unterm_session_id.clone();
+        let markdown = read_session_markdown(&session_id).unwrap();
+
+        match previous_root {
+            Some(value) => std::env::set_var("UNTERM_SESSIONS_ROOT", value),
+            None => std::env::remove_var("UNTERM_SESSIONS_ROOT"),
+        }
+
+        assert!(exported.0.exists());
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].tab_id, 88);
+        assert!(markdown.contains("D:/code/unterm"));
+    }
 }
