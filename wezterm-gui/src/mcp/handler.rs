@@ -782,6 +782,64 @@ mod engine_neutral_handler_tests {
     }
 
     #[test]
+    fn cockpit_inbox_uses_engine_session_snapshot() {
+        let _guard = env_lock().lock();
+        let previous_engine = std::env::var("UNTERM_ENGINE").ok();
+        std::env::set_var("UNTERM_ENGINE", "next-core");
+        crate::cockpit::status::reset_for_tests();
+
+        let result: Result<(serde_json::Value, usize)> = (|| {
+            let handler = McpHandler::new();
+            let ctx = ConnectionContext::internal("handler-test");
+            let created = handler.handle(
+                &ctx,
+                "session.create",
+                &json!({
+                    "cols": 80,
+                    "rows": 4,
+                }),
+            )?;
+            let pane_id = created["id"].as_u64().expect("session id") as usize;
+            let _ = handler.handle(
+                &ctx,
+                "agent.signal",
+                &json!({
+                    "pane_id": pane_id,
+                    "agent": "codex",
+                    "event": "working",
+                }),
+            )?;
+            let inbox = handler.handle(&ctx, "cockpit.inbox", &json!({}))?;
+            let _ = handler.handle(&ctx, "session.destroy", &json!({ "pane_id": pane_id }));
+            Ok((inbox, pane_id))
+        })();
+
+        match previous_engine {
+            Some(value) => std::env::set_var("UNTERM_ENGINE", value),
+            None => std::env::remove_var("UNTERM_ENGINE"),
+        }
+
+        let (inbox, pane_id) = result.expect("read inbox through next-core engine snapshots");
+        assert!(next_core().get_session(pane_id).is_err());
+        assert_eq!(inbox["enabled"], true);
+        let item = inbox["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["pane_id"] == pane_id as u64)
+            .expect("inbox entry");
+        let expected_title = format!("next-core:{pane_id}");
+        assert_eq!(item["pane_title"], expected_title);
+        assert_eq!(item["session"]["id"], pane_id as u64);
+        assert_eq!(item["session"]["title"], expected_title);
+        assert_eq!(item["session"]["engine"], "next-core");
+        assert_eq!(item["session"]["is_active"], true);
+        assert!(item.get("window_id").is_none());
+        assert!(item.get("tab_id").is_none());
+        crate::cockpit::status::reset_for_tests();
+    }
+
+    #[test]
     fn server_health_uses_selected_next_core_engine() {
         let _guard = env_lock().lock();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
@@ -2806,19 +2864,40 @@ impl McpHandler {
         if !config::configuration().cockpit_enabled {
             return Ok(json!({ "enabled": false, "items": [] }));
         }
-        let mux = self.get_mux()?;
+        let engine = self.engine();
+        let engine_name = engine.name();
+        let sessions_by_id: HashMap<u64, _> = engine
+            .list_sessions()?
+            .into_iter()
+            .map(|session| (session.id as u64, session))
+            .collect();
+        let mux = match engine {
+            CurrentTerminalEngine::WezTerm(_) => self.get_mux().ok(),
+            CurrentTerminalEngine::NextCore(_) => None,
+        };
         let items: Vec<Value> = crate::cockpit::snapshot()
             .iter()
             .map(|s| {
                 let mut v = Self::cockpit_status_json(s);
-                if let Some(pane) = mux.get_pane(s.pane_id as mux::pane::PaneId) {
-                    v["pane_title"] = json!(pane.get_title());
+                if let Some(session) = sessions_by_id.get(&s.pane_id) {
+                    v["pane_title"] = json!(session.title);
+                    v["session"] = json!({
+                        "id": session.id,
+                        "title": session.title,
+                        "engine": engine_name,
+                        "is_active": session.is_active,
+                        "is_dead": session.is_dead,
+                        "domain_id": session.domain_id,
+                        "shell": session.shell,
+                    });
                 }
-                if let Some((_domain, window_id, tab_id)) =
-                    mux.resolve_pane_id(s.pane_id as mux::pane::PaneId)
-                {
-                    v["tab_id"] = json!(tab_id);
-                    v["window_id"] = json!(window_id);
+                if let Some(mux) = mux.as_ref() {
+                    if let Some((_domain, window_id, tab_id)) =
+                        mux.resolve_pane_id(s.pane_id as mux::pane::PaneId)
+                    {
+                        v["tab_id"] = json!(tab_id);
+                        v["window_id"] = json!(window_id);
+                    }
                 }
                 v
             })
