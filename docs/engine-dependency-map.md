@@ -61,10 +61,10 @@ Known gaps:
 
 | Category | Count | Methods |
 |---|---:|---|
-| Engine-neutral | 24 | `session.list`, `session.get`, `session.status`, `session.create`, `session.split`, `session.focus`, `session.input`, `session.paste`, `session.idle`, `session.cwd`, `session.history`, `screen.read`, `screen.text`, `screen.scrollback_text`, `screen.cursor`, `screen.detect_errors`, `exec.run`, `exec.send`, `exec.run_wait`, `exec.status`, `exec.cancel`, `signal.send`, `screen.scroll`, `server.info` |
+| Engine-neutral | 27 | `session.list`, `session.get`, `session.status`, `session.create`, `session.split`, `session.focus`, `session.input`, `session.paste`, `session.idle`, `session.cwd`, `session.history`, `screen.read`, `screen.text`, `screen.scrollback_text`, `screen.cursor`, `screen.detect_errors`, `exec.run`, `exec.send`, `exec.run_wait`, `exec.status`, `exec.cancel`, `signal.send`, `orchestrate.launch`, `orchestrate.broadcast`, `orchestrate.wait`, `screen.scroll`, `server.info` |
 | Partial | 4 | `session.resize`, `session.destroy`, `screen.search`, `server.health` |
 | Product-only | 39 | `meta.surface`, `session.audit_log`, `session.suggest`, `session.suggest_status`, `session.suggest_cancel`, `session.suggest_list`, `agent.identify`, `agent.whoami`, `agent.list_trusted`, `agent.trust`, `agent.untrust`, `policy.set`, `policy.check`, `server.capabilities`, `profile.list`, `profile.current`, `profile.audit`, `fleet.list`, `review.list`, `review.diff`, `review.verify`, `review.rollback`, `review.merge`, `review.discard`, `proxy.status`, `proxy.nodes`, `proxy.switch`, `proxy.speedtest`, `proxy.configure`, `proxy.disable`, `proxy.env`, `proxy.rotation`, `proxy.set_nodes`, `proxy.clash_status`, `proxy.clash_select`, `proxy.clash_set_controller`, `upload.file`, `system.info`, `selftest.run` |
-| WezTerm-only | 31 | `agent.status`, `agent.signal`, `cockpit.inbox`, `fleet.launch`, `fleet.clean`, `fleet.retry`, `ghost.debug`, `orchestrate.launch`, `orchestrate.broadcast`, `orchestrate.wait`, `workspace.save`, `workspace.restore`, `workspace.list`, `capture.screen`, `capture.window`, `capture.select`, `capture.clipboard`, `capture.scrollback`, `capture.window_scroll`, `session.recording_start`, `session.recording_stop`, `session.recording_status`, `session.recording_list`, `session.recording_read`, `session.recording_attach_trace`, `session.export_markdown`, `instance.list`, `instance.info`, `instance.set_title`, `instance.focus`, `system.launch_admin` |
+| WezTerm-only | 28 | `agent.status`, `agent.signal`, `cockpit.inbox`, `fleet.launch`, `fleet.clean`, `fleet.retry`, `ghost.debug`, `workspace.save`, `workspace.restore`, `workspace.list`, `capture.screen`, `capture.window`, `capture.select`, `capture.clipboard`, `capture.scrollback`, `capture.window_scroll`, `session.recording_start`, `session.recording_stop`, `session.recording_status`, `session.recording_list`, `session.recording_read`, `session.recording_attach_trace`, `session.export_markdown`, `instance.list`, `instance.info`, `instance.set_title`, `instance.focus`, `system.launch_admin` |
 | Unsupported stub | 2 | `session.env`, `session.set_env` |
 
 The counts intentionally include aliases (`session.get` / `session.status`, `exec.send` via `session.input`) because `meta.surface` exposes them as separate public contracts. The current `MCP_METHODS` inventory contains 100 public methods, excluding `auth.login`.
@@ -152,9 +152,9 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 | Method | Status | Current dependency | Migration note |
 |---|---|---|---|
 | `ghost.debug` | WezTerm-only | Ghost text predictor tied to current pane/UI state | Extract predictor state by pane id. |
-| `orchestrate.launch` | WezTerm-only | Session/tab creation through current GUI assumptions | Rebuild on `SessionEngine::create_session`. |
-| `orchestrate.broadcast` | WezTerm-only | Resolves panes and writes commands | Rebuild on pane-id input path. |
-| `orchestrate.wait` | WezTerm-only | Polls visible text through WezTerm pane helpers | Rebuild on `ScreenEngine::read_visible_text`. |
+| `orchestrate.launch` | Engine-neutral | `SessionEngine::create_session`, pane-id write gate, `InputEngine::write_input` | Optional command now goes through policy/confirmation/audit. |
+| `orchestrate.broadcast` | Engine-neutral | `SessionEngine::get_session`, pane-id write gate, `InputEngine::write_input` | Per-session result shape is preserved. |
+| `orchestrate.wait` | Engine-neutral | `SessionEngine::get_session`, `ScreenEngine::read_visible_text` | Timeout result shape is preserved. |
 | `workspace.save` | WezTerm-only | Enumerates live panes/cwd/title from WezTerm | Rebuild on `SessionEngine::list_sessions`. |
 | `workspace.restore` | WezTerm-only | Opens tabs through WezTerm session path | Rebuild on `SessionEngine::create_session`; archive remains product-only. |
 | `workspace.list` | WezTerm-only | Currently lives in handler workspace helpers | Can become product-only once live enrichment is split. |
@@ -225,26 +225,7 @@ Acceptance:
 - `cargo test -p unterm mcp::handler::tests -- --test-threads=1` passes or targeted replacement tests exist.
 - Existing `session.input` / `session.paste` confirmation behavior is preserved; `exec.*` and `signal.send` use the same write boundary.
 
-### Target 2: Orchestration wait/broadcast without `Pane`
-
-Methods unlocked:
-
-- `orchestrate.broadcast`
-- `orchestrate.wait`
-
-Work:
-
-- Use pane-id based write gate and `InputEngine::write_input` for broadcast.
-- Use `ScreenEngine::read_visible_text` for wait polling.
-- Keep timeout and per-session result shapes compatible.
-
-Acceptance:
-
-- `orchestrate.broadcast` works without resolving WezTerm panes.
-- `orchestrate.wait` works without resolving a WezTerm pane.
-- Timeout paths return the same JSON shape.
-
-### Target 3: Workspace on `SessionEngine`
+### Target 2: Workspace on `SessionEngine`
 
 Methods unlocked:
 
@@ -262,7 +243,7 @@ Acceptance:
 
 - Workspace list/save/restore does not import WezTerm mux types.
 
-### Target 4: Recording text path on `ScreenEngine`
+### Target 3: Recording text path on `ScreenEngine`
 
 Methods unlocked:
 

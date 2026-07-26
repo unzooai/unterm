@@ -2687,7 +2687,13 @@ impl McpHandler {
         // screen.read or session.list shouldn't make the chip flash.
         if matches!(
             method,
-            "session.input" | "session.paste" | "exec.send" | "exec.run" | "exec.run_wait"
+            "session.input"
+                | "session.paste"
+                | "exec.send"
+                | "exec.run"
+                | "exec.run_wait"
+                | "orchestrate.launch"
+                | "orchestrate.broadcast"
         ) {
             // Attribute the pane to the writing agent for the left tab
             // bar's "agent · dir" subtitle.
@@ -2704,8 +2710,11 @@ impl McpHandler {
                 | "session.paste"
                 | "exec.send"
                 | "exec.run"
+                | "exec.run_wait"
                 | "exec.cancel"
                 | "signal.send"
+                | "orchestrate.launch"
+                | "orchestrate.broadcast"
         ) {
             state.input_event_count = state.input_event_count.saturating_add(1);
             state.last_input_at = Some(std::time::Instant::now());
@@ -3040,16 +3049,41 @@ impl McpHandler {
     // --- Orchestrate ---
 
     fn orchestrate_launch(&self, params: &Value) -> Result<Value> {
-        // Create a new tab and run the command
-        let result = self.session_create(params)?;
+        let command = params.get("command").and_then(|v| v.as_str());
+        if let Some(command) = command {
+            if let Err(e) = self.check_policy_internal(command) {
+                return Err(e);
+            }
+        }
+
+        // Create a shell first, then send the optional command through the
+        // audited/gated input path. Passing `command` through session_create
+        // would execute it before the write gate has a pane to attach to.
+        let mut create_params = params.clone();
+        if let Some(obj) = create_params.as_object_mut() {
+            obj.remove("command");
+        }
+        let mut result = self.session_create(&create_params)?;
+        if let Some(obj) = result.as_object_mut() {
+            obj.insert("command".to_string(), json!(command));
+        }
         let id = result.get("id").and_then(|v| v.as_u64());
         if let Some(pane_id) = id {
-            if let Some(command) = params.get("command").and_then(|v| v.as_str()) {
+            if let Some(command) = command {
                 // Brief delay to let shell initialize
                 std::thread::sleep(std::time::Duration::from_millis(500));
                 let engine = self.engine();
                 let input = format!("{}\r", command);
-                let _ = engine.write_input(pane_id as usize, &input);
+                let pane_id = pane_id as usize;
+                match self.gate_pty_write("orchestrate.launch", pane_id, command)? {
+                    GateOutcome::Allow => {
+                        self.audit("orchestrate.launch", Some(&pane_id.to_string()), command);
+                        engine.write_input(pane_id, &input)?;
+                    }
+                    GateOutcome::Block => {
+                        return Err(anyhow!("user denied"));
+                    }
+                }
             }
         }
         Ok(result)
@@ -3065,6 +3099,10 @@ impl McpHandler {
             .and_then(|v| v.as_array())
             .ok_or_else(|| anyhow!("Missing 'sessions'"))?;
 
+        if let Err(e) = self.check_policy_internal(command) {
+            return Err(e);
+        }
+
         let mut results = Vec::new();
         let input = format!("{}\r", command);
         let engine = self.engine();
@@ -3076,6 +3114,14 @@ impl McpHandler {
                     results.push(json!({"session_id": id_str, "error": "not found"}));
                     continue;
                 }
+                match self.gate_pty_write("orchestrate.broadcast", id, command)? {
+                    GateOutcome::Allow => {}
+                    GateOutcome::Block => {
+                        results.push(json!({"session_id": id_str, "error": "user denied"}));
+                        continue;
+                    }
+                }
+                self.audit("orchestrate.broadcast", Some(&id.to_string()), command);
                 match engine.write_input(id, &input) {
                     Ok(_) => results.push(json!({"session_id": id_str, "sent": true})),
                     Err(e) => results.push(json!({"session_id": id_str, "error": e.to_string()})),
@@ -3087,7 +3133,7 @@ impl McpHandler {
     }
 
     fn orchestrate_wait(&self, params: &Value) -> Result<Value> {
-        let pane = self.get_pane(params)?;
+        let pane_id = Self::pane_id_from_params(params)?;
         let pattern = params
             .get("pattern")
             .and_then(|v| v.as_str())
@@ -3099,9 +3145,11 @@ impl McpHandler {
 
         let start = std::time::Instant::now();
         let timeout = std::time::Duration::from_millis(timeout_ms);
+        let engine = self.engine();
+        engine.get_session(pane_id)?;
 
         loop {
-            let text = self.read_pane_text(&pane);
+            let text = engine.read_visible_text(pane_id).unwrap_or_default();
             if text.contains(pattern) {
                 return Ok(json!({"matched": true, "pattern": pattern}));
             }
