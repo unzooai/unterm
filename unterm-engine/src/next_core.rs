@@ -890,6 +890,20 @@ impl NextCoreScreen {
         self.mark_all_dirty();
     }
 
+    fn reset_terminal(&mut self) {
+        let cols = self.cols;
+        let rows = self.rows;
+        let revision = self.revision;
+        let title = self.title.take();
+        let current_dir = self.current_dir.take();
+
+        *self = Self::new(cols, rows);
+        self.revision = revision;
+        self.title = title;
+        self.current_dir = current_dir;
+        self.mark_all_dirty();
+    }
+
     fn erase_in_display(&mut self, mode: usize) {
         match mode {
             0 => {
@@ -1497,6 +1511,10 @@ impl<'a> ScreenParser<'a> {
                 }
                 'M' => {
                     self.screen.reverse_index();
+                    self.state = ParserState::Ground;
+                }
+                'c' => {
+                    self.screen.reset_terminal();
                     self.state = ParserState::Ground;
                 }
                 _ => self.state = ParserState::Ground,
@@ -5811,6 +5829,53 @@ mod tests {
         assert!(engine.bracketed_paste_enabled(session.id)?);
         set_output_for_test(session.id, "\x1b[?2004h\x1b[?2004l")?;
         assert!(!engine.bracketed_paste_enabled(session.id)?);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_applies_ris_terminal_reset() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 10,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+        let (cwd_osc, expected_cwd) = if cfg!(windows) {
+            (
+                "\x1b]7;file://localhost/D:/code/unterm\x07",
+                "D:\\code\\unterm",
+            )
+        } else {
+            ("\x1b]7;file://localhost/tmp/unterm\x07", "/tmp/unterm")
+        };
+        set_output_for_test(
+            session.id,
+            &format!(
+                "{cwd_osc}\x1b]0;Reset Test\x07main\x1b[?1049halt\x1b[31m\x1b[?7l\x1b[?6h\x1b[?2004h\x1b[3g\x1b[2;3r\x1b[?25l\x1bcZ\tT"
+            ),
+        )?;
+
+        let screen = engine.read_screen(session.id)?;
+        assert_eq!(screen.lines, vec!["Z       T"]);
+        assert_eq!(screen.cursor.x, 9);
+        assert_eq!(screen.cursor.y, 0);
+        assert!(screen.cursor.visible);
+        assert_eq!(screen.cursor.shape, "Default");
+        assert_eq!(screen.scrollback_rows, 0);
+        assert!(!engine.bracketed_paste_enabled(session.id)?);
+        assert_eq!(engine.get_session(session.id)?.title, "Reset Test");
+        assert_eq!(engine.shell(session.id)?.cwd.as_deref(), Some(expected_cwd));
+
+        let styled = engine.read_styled_screen(session.id)?;
+        assert_eq!(styled.lines[0].cells[0].style, CellStyle::default());
+        assert_eq!(styled.lines[0].cells[8].style, CellStyle::default());
 
         engine.destroy_session(session.id)?;
         Ok(())
