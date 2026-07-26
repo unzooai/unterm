@@ -50,7 +50,7 @@ Current covered operations:
 
 Known gaps:
 
-- GUI viewport scrolling/jump
+- real GUI viewport scrolling/jump for the future next-core renderer
 - pane resolution without WezTerm `Pane`
 - PTY write confirmation without WezTerm pane object
 - exec wait shell detection without WezTerm pane object
@@ -125,7 +125,7 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 | `screen.scrollback_text` | Engine-neutral | `ScreenEngine::read_scrollback_text` plus active-session fallback | Active fallback currently uses engine sessions; OK. |
 | `screen.cursor` | Engine-neutral | `ScreenEngine::cursor` | Baseline next-core capability. |
 | `screen.scroll` | Engine-neutral | `ScreenEngine::read_lines` | Method name is read-only despite "scroll". |
-| `screen.search` | Engine-neutral | `ScreenEngine::search`; optional `goto` routes through `WindowEngine::scroll_viewport_to` | `next-core` returns matches and reports `goto_skipped` until it owns GUI viewport state. |
+| `screen.search` | Engine-neutral | `ScreenEngine::search`; optional `goto` routes through `WindowEngine::scroll_viewport_to` | `next-core` updates its logical viewport so later `screen.read`/`screen.text` calls show the matched region; real GUI viewport integration comes with the next-core renderer. |
 | `screen.detect_errors` | Engine-neutral | `ScreenEngine::read_screen` plus product heuristics | Product-only heuristic on engine snapshot. |
 
 ## Agent, Cockpit, Fleet, Review

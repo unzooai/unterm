@@ -195,6 +195,7 @@ struct RecordingIndexEntry {
 struct NextCoreScreen {
     scrollback: Vec<Vec<ScreenCell>>,
     lines: Vec<Vec<ScreenCell>>,
+    viewport_top: Option<usize>,
     cursor_x: usize,
     cursor_y: usize,
     cursor_visible: bool,
@@ -217,6 +218,7 @@ struct NextCoreScreen {
 struct ScreenState {
     scrollback: Vec<Vec<ScreenCell>>,
     lines: Vec<Vec<ScreenCell>>,
+    viewport_top: Option<usize>,
     cursor_x: usize,
     cursor_y: usize,
     cursor_visible: bool,
@@ -389,13 +391,13 @@ impl NextCoreScreen {
     }
 
     fn snapshot_viewport_lines(&self) -> Vec<String> {
-        self.lines.iter().map(Self::line_text).collect()
+        self.history_text_range(self.viewport_start(), self.rows)
     }
 
     #[allow(dead_code)]
     fn styled_viewport_lines(&self, first_row: i64) -> Vec<StyledScreenLine> {
-        self.lines
-            .iter()
+        self.history_range(self.viewport_start(), self.rows)
+            .into_iter()
             .enumerate()
             .map(|(idx, line)| StyledScreenLine {
                 row: first_row + idx as i64,
@@ -441,7 +443,27 @@ impl NextCoreScreen {
         self.scrollback.len() + self.lines.len()
     }
 
-    fn history_text_range(&self, start: usize, count: usize) -> Vec<String> {
+    fn viewport_start(&self) -> usize {
+        let bottom = self.history_len().saturating_sub(self.rows);
+        self.viewport_top
+            .map(|top| top.min(bottom))
+            .unwrap_or(bottom)
+    }
+
+    fn viewport_first_row(&self) -> i64 {
+        self.viewport_start() as i64
+    }
+
+    fn set_viewport_top_near(&mut self, target: isize) {
+        let max_top = self.history_len().saturating_sub(self.rows);
+        let target = target.max(0) as usize;
+        let top = target.saturating_sub(self.rows / 4).min(max_top);
+        self.viewport_top = Some(top);
+        self.revision = self.revision.saturating_add(1);
+        self.mark_all_dirty();
+    }
+
+    fn history_range(&self, start: usize, count: usize) -> Vec<&Vec<ScreenCell>> {
         let end = start.saturating_add(count).min(self.history_len());
         (start..end)
             .filter_map(|idx| {
@@ -451,6 +473,12 @@ impl NextCoreScreen {
                     self.lines.get(idx - self.scrollback.len())
                 }
             })
+            .collect()
+    }
+
+    fn history_text_range(&self, start: usize, count: usize) -> Vec<String> {
+        self.history_range(start, count)
+            .into_iter()
             .map(Self::line_text)
             .collect()
     }
@@ -926,6 +954,7 @@ impl NextCoreScreen {
         let main = ScreenState {
             scrollback: std::mem::take(&mut self.scrollback),
             lines: std::mem::take(&mut self.lines),
+            viewport_top: self.viewport_top.take(),
             cursor_x: self.cursor_x,
             cursor_y: self.cursor_y,
             cursor_visible: self.cursor_visible,
@@ -955,6 +984,7 @@ impl NextCoreScreen {
         if let Some(main) = self.alternate.take() {
             self.scrollback = main.scrollback;
             self.lines = main.lines;
+            self.viewport_top = main.viewport_top;
             self.cursor_x = main.cursor_x;
             self.cursor_y = main.cursor_y;
             self.cursor_visible = main.cursor_visible;
@@ -1557,6 +1587,23 @@ impl NextCoreEngine {
         Ok(lines)
     }
 
+    fn viewport_first_row(&self, pane_id: usize) -> Result<i64> {
+        let screen = {
+            let state = state().read();
+            let Some(session) = state
+                .sessions
+                .iter()
+                .find(|session| session.snapshot.id == pane_id)
+            else {
+                bail!("next-core session {pane_id} not found");
+            };
+            Arc::clone(&session.screen)
+        };
+
+        let first_row = screen.lock().viewport_first_row();
+        Ok(first_row)
+    }
+
     #[allow(dead_code)]
     fn styled_viewport_lines(
         &self,
@@ -1650,6 +1697,23 @@ impl NextCoreEngine {
 
         let dirty_rows = screen.lock().dirty_rows();
         Ok(dirty_rows)
+    }
+
+    pub fn scroll_viewport_to(&self, pane_id: usize, target: isize) -> Result<()> {
+        let screen = {
+            let state = state().read();
+            let Some(session) = state
+                .sessions
+                .iter()
+                .find(|session| session.snapshot.id == pane_id)
+            else {
+                bail!("next-core session {pane_id} not found");
+            };
+            Arc::clone(&session.screen)
+        };
+
+        screen.lock().set_viewport_top_near(target);
+        Ok(())
     }
 
     fn screen_cursor(&self, pane_id: usize) -> Result<CursorSnapshot> {
@@ -2167,7 +2231,7 @@ impl ScreenEngine for NextCoreEngine {
         let session = self.session(pane_id)?;
         let visible = self.viewport_lines(pane_id)?;
         let scrollback_rows = self.scrollback_rows(pane_id)?;
-        let first_row = scrollback_rows as i64;
+        let first_row = self.viewport_first_row(pane_id)?;
         let cells = visible
             .iter()
             .enumerate()
@@ -2192,7 +2256,7 @@ impl ScreenEngine for NextCoreEngine {
     fn read_styled_screen(&self, pane_id: usize) -> Result<StyledScreenSnapshot> {
         let session = self.session(pane_id)?;
         let scrollback_rows = self.scrollback_rows(pane_id)?;
-        let first_row = scrollback_rows as i64;
+        let first_row = self.viewport_first_row(pane_id)?;
 
         Ok(StyledScreenSnapshot {
             lines: self.styled_viewport_lines(pane_id, first_row)?,
@@ -3570,6 +3634,19 @@ mod tests {
         assert_eq!(scrollback_text.first_row, 1);
         assert_eq!(scrollback_text.row_count, 3);
         assert_eq!(engine.search(session.id, "one", 1)?[0].row, 0);
+
+        engine.scroll_viewport_to(session.id, 1)?;
+        let scrolled = engine.read_screen(session.id)?;
+        assert_eq!(scrolled.lines, vec!["two", "three", "four"]);
+        assert_eq!(
+            scrolled
+                .cells
+                .iter()
+                .map(|line| (line.row, line.text.as_str()))
+                .collect::<Vec<_>>(),
+            vec![(1, "two"), (2, "three"), (3, "four")]
+        );
+        assert!(scrolled.revision > screen.revision);
 
         engine.destroy_session(session.id)?;
         Ok(())

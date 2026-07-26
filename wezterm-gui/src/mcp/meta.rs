@@ -48,7 +48,7 @@ pub fn engine_capabilities(engine: &str) -> Value {
         vec![
             json!({
                 "name": "screen.search",
-                "limitation": "goto returns goto_skipped until next-core owns GUI viewport state",
+                "limitation": "goto updates next-core's logical viewport; real GUI viewport integration comes with the next-core renderer",
             }),
             json!({
                 "name": "cockpit.inbox",
@@ -192,6 +192,14 @@ mod tests {
         assert!(limited
             .iter()
             .any(|item| item["name"].as_str() == Some("screen.search")));
+        let search = limited
+            .iter()
+            .find(|item| item["name"].as_str() == Some("screen.search"))
+            .expect("screen search limitation");
+        assert!(search["limitation"]
+            .as_str()
+            .expect("limitation text")
+            .contains("logical viewport"));
         let inbox = limited
             .iter()
             .find(|item| item["name"].as_str() == Some("cockpit.inbox"))

@@ -436,21 +436,26 @@ mod engine_neutral_handler_tests {
     }
 
     #[test]
-    fn screen_search_goto_is_read_only_for_next_core() {
+    fn screen_search_goto_scrolls_next_core_logical_viewport() {
         let _guard = env_lock().lock();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
-        let result: Result<(serde_json::Value, usize)> = (|| {
+        let result: Result<(serde_json::Value, serde_json::Value, usize)> = (|| {
             let handler = McpHandler::new();
             let ctx = ConnectionContext::internal("handler-test");
+            let command = if cfg!(windows) {
+                "for /L %i in (1,1,8) do @echo next-core-goto-%i"
+            } else {
+                "for i in 1 2 3 4 5 6 7 8; do echo next-core-goto-$i; done"
+            };
             let created = handler.handle(
                 &ctx,
                 "session.create",
                 &json!({
                     "cols": 80,
-                    "rows": 4,
-                    "command": "echo next-core-search"
+                    "rows": 3,
+                    "command": command
                 }),
             )?;
             let pane_id = created["id"].as_u64().expect("session id") as usize;
@@ -462,7 +467,7 @@ mod engine_neutral_handler_tests {
                     "screen.search",
                     &json!({
                         "pane_id": pane_id,
-                        "pattern": "next-core-search",
+                        "pattern": "next-core-goto-2",
                         "goto": true,
                     }),
                 )?;
@@ -472,8 +477,9 @@ mod engine_neutral_handler_tests {
                 std::thread::sleep(std::time::Duration::from_millis(50));
             }
 
+            let text = handler.handle(&ctx, "screen.text", &json!({ "pane_id": pane_id }))?;
             let _ = handler.handle(&ctx, "session.destroy", &json!({ "pane_id": pane_id }));
-            Ok((search, pane_id))
+            Ok((search, text, pane_id))
         })();
 
         match previous_engine {
@@ -481,14 +487,16 @@ mod engine_neutral_handler_tests {
             None => std::env::remove_var("UNTERM_ENGINE"),
         }
 
-        let (search, pane_id) = result.expect("search next-core session through MCP handler");
+        let (search, text, pane_id) = result.expect("search next-core session through MCP handler");
         assert!(next_core().get_session(pane_id).is_err());
         assert!(search["total"].as_u64().unwrap_or_default() > 0);
-        assert_eq!(search["scrolled_to"], Value::Null);
-        assert_eq!(
-            search["goto_skipped"]["reason"],
-            "engine_has_no_gui_viewport"
-        );
+        assert_eq!(search["goto_skipped"], Value::Null);
+        assert_eq!(search["scrolled_to"]["row"], 1);
+        assert_eq!(search["scrolled_to"]["match_index"], 0);
+        let visible = text["lines"].as_array().expect("visible lines");
+        assert!(visible
+            .iter()
+            .any(|line| line.as_str() == Some("next-core-goto-2")));
     }
 
     #[test]

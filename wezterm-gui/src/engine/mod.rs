@@ -33,6 +33,7 @@ pub struct PaneLocation {
 }
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub enum ViewportScrollResult {
     Scrolled,
     Unsupported { reason: String },
@@ -381,9 +382,10 @@ impl WindowEngine for CurrentTerminalEngine {
     ) -> anyhow::Result<ViewportScrollResult> {
         match self {
             Self::WezTerm(engine) => engine.scroll_viewport_to(pane_id, target),
-            Self::NextCore(_) => Ok(ViewportScrollResult::Unsupported {
-                reason: "engine_has_no_gui_viewport".to_string(),
-            }),
+            Self::NextCore(engine) => {
+                engine.scroll_viewport_to(pane_id, target)?;
+                Ok(ViewportScrollResult::Scrolled)
+            }
         }
     }
 }
