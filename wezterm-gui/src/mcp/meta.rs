@@ -52,7 +52,7 @@ pub fn engine_capabilities(engine: &str) -> Value {
             }),
             json!({
                 "name": "cockpit.inbox",
-                "limitation": "pane location metadata is empty until next-core owns GUI tabs/windows",
+                "limitation": "pane location metadata is synthetic until next-core owns real GUI tabs/windows",
             }),
             json!({
                 "name": "capture.scrollback",
@@ -175,6 +175,14 @@ mod tests {
         assert!(limited
             .iter()
             .any(|item| item["name"].as_str() == Some("screen.search")));
+        let inbox = limited
+            .iter()
+            .find(|item| item["name"].as_str() == Some("cockpit.inbox"))
+            .expect("cockpit inbox limitation");
+        assert!(inbox["limitation"]
+            .as_str()
+            .expect("limitation text")
+            .contains("synthetic"));
         assert!(limited
             .iter()
             .any(|item| item["name"].as_str() == Some("capture.scrollback")));
