@@ -15,6 +15,7 @@ struct Args {
     cwd: Option<String>,
     command: Option<Vec<String>>,
     bench_input_writes: Option<usize>,
+    bench_input_burst: Option<usize>,
     bench_echo: Option<usize>,
     bench_flood_lines: Option<usize>,
     bench_scrollback_lines: Option<usize>,
@@ -41,6 +42,7 @@ fn parse_args() -> Result<Args> {
         cwd: None,
         command: None,
         bench_input_writes: None,
+        bench_input_burst: None,
         bench_echo: None,
         bench_flood_lines: None,
         bench_scrollback_lines: None,
@@ -107,6 +109,13 @@ fn parse_args() -> Result<Args> {
                 parsed.bench_input_writes = Some(
                     args.next()
                         .ok_or_else(|| anyhow::anyhow!("--bench-input-writes requires a value"))?
+                        .parse()?,
+                );
+            }
+            "--bench-input-burst" => {
+                parsed.bench_input_burst = Some(
+                    args.next()
+                        .ok_or_else(|| anyhow::anyhow!("--bench-input-burst requires a value"))?
                         .parse()?,
                 );
             }
@@ -204,7 +213,7 @@ fn parse_args() -> Result<Args> {
             }
             "--help" | "-h" => {
                 println!(
-                    "Usage: unterm-next-core [--cols N] [--rows N] [--wait-ms N] [--poll-ms N] [--timeout-ms N] [--bench-input-writes N] [--bench-echo N] [--bench-flood-lines N] [--bench-scrollback-lines N] [--bench-viewport-scrolls N] [--bench-paste-kb N] [--bench-dual-agent-lines N] [--bench-screen-read-lines N] [--bench-focus-switches N] [--bench-session-create N] [--bench-session-ready N] [--cwd PATH] [--write TEXT] [--paste TEXT] [--json] [-- COMMAND [ARG...]]"
+                    "Usage: unterm-next-core [--cols N] [--rows N] [--wait-ms N] [--poll-ms N] [--timeout-ms N] [--bench-input-writes N] [--bench-input-burst N] [--bench-echo N] [--bench-flood-lines N] [--bench-scrollback-lines N] [--bench-viewport-scrolls N] [--bench-paste-kb N] [--bench-dual-agent-lines N] [--bench-screen-read-lines N] [--bench-focus-switches N] [--bench-session-create N] [--bench-session-ready N] [--cwd PATH] [--write TEXT] [--paste TEXT] [--json] [-- COMMAND [ARG...]]"
                 );
                 std::process::exit(0);
             }
@@ -620,6 +629,58 @@ fn run_input_write_benchmark(
     Ok(())
 }
 
+fn run_input_burst_benchmark(
+    engine: &unterm_engine::next_core::NextCoreEngine,
+    interactive_pane_id: usize,
+    cols: usize,
+    rows: usize,
+    rounds: usize,
+    poll_interval: Duration,
+    timeout: Duration,
+) -> Result<()> {
+    if rounds == 0 {
+        bail!("--bench-input-burst must be greater than 0");
+    }
+
+    let flood_lines = rounds.saturating_mul(20).max(1000);
+    let first_agent = engine.create_session(cmd_session(cols, rows))?;
+    let second_agent = engine.create_session(cmd_session(cols, rows))?;
+    let first_run = start_flood_stream(engine, first_agent.id, flood_lines)?;
+    let second_run = start_flood_stream(engine, second_agent.id, flood_lines)?;
+
+    let result = (|| -> Result<Vec<u128>> {
+        let mut latencies_us = Vec::with_capacity(rounds);
+        for _ in 0..rounds {
+            let before = Instant::now();
+            engine.write_input(interactive_pane_id, "\x1b[C")?;
+            latencies_us.push(before.elapsed().as_micros());
+        }
+        latencies_us.sort_unstable();
+        Ok(latencies_us)
+    })();
+
+    let first_wait = wait_for_marker(engine, first_agent.id, &first_run, poll_interval, timeout);
+    let second_wait = wait_for_marker(engine, second_agent.id, &second_run, poll_interval, timeout);
+    engine.destroy_session(first_agent.id)?;
+    engine.destroy_session(second_agent.id)?;
+
+    let latencies_us = result?;
+    let (first_elapsed, first_bytes) = first_wait?;
+    let (second_elapsed, second_bytes) = second_wait?;
+    println!(
+        "bench_input_burst rounds={} background_sessions=2 background_lines_per_session={} background_bytes={} background_elapsed_ms={} min_us={} p50_us={} p95_us={} max_us={}",
+        rounds,
+        flood_lines,
+        first_bytes + second_bytes,
+        first_elapsed.max(second_elapsed).as_millis(),
+        latencies_us[0],
+        percentile(&latencies_us, 0.50),
+        percentile(&latencies_us, 0.95),
+        *latencies_us.last().unwrap_or(&0)
+    );
+    Ok(())
+}
+
 fn cmd_session(cols: usize, rows: usize) -> CreateSessionRequest {
     CreateSessionRequest {
         cols,
@@ -832,6 +893,19 @@ fn main() -> Result<()> {
     if let Some(rounds) = args.bench_input_writes {
         run_input_write_benchmark(&engine, session.id, rounds)
             .with_context(|| format!("bench_input_write failed for session {}", session.id))?;
+    }
+
+    if let Some(rounds) = args.bench_input_burst {
+        run_input_burst_benchmark(
+            &engine,
+            session.id,
+            args.cols,
+            args.rows,
+            rounds,
+            Duration::from_millis(args.poll_ms),
+            Duration::from_millis(args.timeout_ms),
+        )
+        .with_context(|| format!("bench_input_burst failed for session {}", session.id))?;
     }
 
     if let Some(rounds) = args.bench_echo {

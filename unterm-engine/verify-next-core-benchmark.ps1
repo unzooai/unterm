@@ -1,7 +1,7 @@
 param(
     [string]$SummaryJsonPath = "",
-    [int]$ExpectedGateCount = 10,
-    [int]$ExpectedBenchmarkCount = 11,
+    [int]$ExpectedGateCount = 11,
+    [int]$ExpectedBenchmarkCount = 12,
     [switch]$SkipCommitReachabilityCheck
 )
 
@@ -46,6 +46,7 @@ if ($gates.Count -ne $ExpectedGateCount) {
 
 $requiredGates = @(
     "input write p95",
+    "input burst p95",
     "echo p95",
     "dual-agent echo p95",
     "paste 10kb elapsed",
@@ -76,6 +77,7 @@ if ($benchmarks.Count -ne $ExpectedBenchmarkCount) {
 
 $requiredBenchmarks = @(
     "input write latency",
+    "input burst under output",
     "echo latency",
     "output flood",
     "paste 10kb",

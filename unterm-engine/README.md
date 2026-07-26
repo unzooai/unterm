@@ -32,7 +32,7 @@ Run the Phase 2 next-core benchmark suite and generate `docs/next-core-benchmark
 .\unterm-engine\bench-next-core.ps1
 ```
 
-The runner builds `unterm-next-core`, verifies the machine-readable `--json` probe output, executes the current input-write/echo/output/scrollback/viewport-scroll/paste/dual-agent/screen-read/focus-switch/session-create/session-ready benchmarks, writes human-readable summary and raw output into the Markdown report, and writes machine-readable gate results into the JSON summary. Any failed benchmark or gate exits non-zero.
+The runner builds `unterm-next-core`, verifies the machine-readable `--json` probe output, executes the current input-write/input-burst/echo/output/scrollback/viewport-scroll/paste/dual-agent/screen-read/focus-switch/session-create/session-ready benchmarks, writes human-readable summary and raw output into the Markdown report, and writes machine-readable gate results into the JSON summary. Any failed benchmark or gate exits non-zero.
 
 Verify an existing JSON summary without rerunning the benchmark suite:
 
@@ -74,6 +74,14 @@ cargo run -p unterm-engine --bin unterm-next-core -- --bench-input-writes 1000 -
 ```
 
 The input write benchmark measures the engine `write_input` call path with right-arrow escape sequences and reports min/p50/p95/max microsecond latency. It intentionally does not wait for shell echo, so it isolates the path behind typing and completion-accept writes.
+
+Input burst benchmark under output pressure:
+
+```powershell
+cargo run -p unterm-engine --bin unterm-next-core -- --bench-input-burst 1000 --timeout-ms 30000 --wait-ms 100 --write "exit`r" -- cmd.exe
+```
+
+The burst benchmark starts two background pseudo-agent sessions that emit output while the interactive session receives repeated right-arrow escape writes. It tracks the p95 latency of the foreground write path under load, which is the closest standalone proxy for completion-accept and cursor-move stalls while Codex/Claude panes are streaming.
 
 Echo latency benchmark:
 
