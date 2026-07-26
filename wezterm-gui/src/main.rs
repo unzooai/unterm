@@ -40,6 +40,7 @@ mod colorease;
 mod commands;
 mod customglyph;
 mod download;
+mod engine;
 mod frontend;
 mod ghost_text;
 mod glyphcache;

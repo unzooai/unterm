@@ -1,6 +1,7 @@
 //! MCP request handler — bridges JSON-RPC methods to WezTerm's Mux API.
 //! Implements all methods required by unterm-cli compatibility.
 
+use crate::engine::TerminalEngine;
 use anyhow::{anyhow, Context, Result};
 use base64::Engine as _;
 use config::keyassignment::SpawnTabDomain;
@@ -1375,24 +1376,28 @@ impl McpHandler {
         Mux::try_get().ok_or_else(|| anyhow!("Mux not available"))
     }
 
+    fn pane_id_from_params(params: &Value) -> Result<usize> {
+        let id_val = params
+            .get("id")
+            .or_else(|| params.get("session_id"))
+            .or_else(|| params.get("pane_id"));
+        match id_val {
+            Some(v) if v.is_u64() => Ok(v.as_u64().unwrap() as usize),
+            Some(v) if v.is_string() => v
+                .as_str()
+                .unwrap()
+                .parse::<usize>()
+                .map_err(|_| anyhow!("Invalid session_id: {}", v)),
+            _ => Err(anyhow!("Missing 'id' or 'session_id' parameter")),
+        }
+    }
+
     fn get_pane(&self, params: &Value) -> Result<Arc<dyn Pane>> {
         let mux = self.get_mux()?;
         // Accept numeric "id", string "session_id", and the documented
         // standard "pane_id" (P_PANE_ID in mcp_meta) — the cockpit
         // methods pass the latter.
-        let id_val = params
-            .get("id")
-            .or_else(|| params.get("session_id"))
-            .or_else(|| params.get("pane_id"));
-        let id = match id_val {
-            Some(v) if v.is_u64() => v.as_u64().unwrap() as usize,
-            Some(v) if v.is_string() => v
-                .as_str()
-                .unwrap()
-                .parse::<usize>()
-                .map_err(|_| anyhow!("Invalid session_id: {}", v))?,
-            _ => return Err(anyhow!("Missing 'id' or 'session_id' parameter")),
-        };
+        let id = Self::pane_id_from_params(params)?;
 
         mux.get_pane(id)
             .ok_or_else(|| anyhow!("Session {} not found", id))
@@ -1660,45 +1665,25 @@ impl McpHandler {
     }
 
     fn session_list(&self) -> Result<Value> {
-        let mux = self.get_mux()?;
-        // iter_panes walks a HashMap, so impose a stable order: clients
-        // (unterm-cli among them) default to picking a pane from this
-        // list, and an unstable order turns "no --id given" into writes
-        // landing in a random pane.
-        let mut panes = mux.iter_panes();
-        panes.sort_by_key(|pane| pane.pane_id());
-
-        // The pane the user is actually looking at, so clients can
-        // default to it instead of guessing.
-        let active_pane_id = mux
-            .iter_windows()
+        let engine = crate::engine::wezterm::WezTermEngine;
+        let sessions: Vec<Value> = engine
+            .list_sessions()?
             .into_iter()
-            .find_map(|wid| mux.get_active_tab_for_window(wid))
-            .and_then(|tab| tab.get_active_pane())
-            .map(|pane| pane.pane_id());
-
-        let sessions: Vec<Value> = panes
-            .iter()
-            .map(|pane| {
-                let dims = pane.get_dimensions();
-                let cursor = pane.get_cursor_position();
-                let is_dead = pane.is_dead();
-                let shell = Self::detect_shell(pane);
-
+            .map(|session| {
                 json!({
-                    "id": pane.pane_id(),
-                    "title": pane.get_title(),
-                    "cols": dims.cols,
-                    "rows": dims.viewport_rows,
+                    "id": session.id,
+                    "title": session.title,
+                    "cols": session.cols,
+                    "rows": session.rows,
                     "cursor": {
-                        "x": cursor.x,
-                        "y": cursor.y,
-                        "visible": cursor.visibility == termwiz::surface::CursorVisibility::Visible,
+                        "x": session.cursor.x,
+                        "y": session.cursor.y,
+                        "visible": session.cursor.visible,
                     },
-                    "is_dead": is_dead,
-                    "is_active": Some(pane.pane_id()) == active_pane_id,
-                    "domain_id": pane.domain_id(),
-                    "shell": shell,
+                    "is_dead": session.is_dead,
+                    "is_active": session.is_active,
+                    "domain_id": session.domain_id,
+                    "shell": session.shell,
                 })
             })
             .collect();
@@ -1707,25 +1692,23 @@ impl McpHandler {
     }
 
     fn session_get(&self, params: &Value) -> Result<Value> {
-        let pane = self.get_pane(params)?;
-        let dims = pane.get_dimensions();
-        let cursor = pane.get_cursor_position();
-        let shell = Self::detect_shell(&pane);
+        let engine = crate::engine::wezterm::WezTermEngine;
+        let session = engine.get_session(Self::pane_id_from_params(params)?)?;
 
         Ok(json!({
-            "id": pane.pane_id(),
-            "title": pane.get_title(),
-            "cols": dims.cols,
-            "rows": dims.viewport_rows,
-            "scrollback_rows": dims.scrollback_rows,
+            "id": session.id,
+            "title": session.title,
+            "cols": session.cols,
+            "rows": session.rows,
+            "scrollback_rows": session.scrollback_rows,
             "cursor": {
-                "x": cursor.x,
-                "y": cursor.y,
-                "visible": cursor.visibility == termwiz::surface::CursorVisibility::Visible,
+                "x": session.cursor.x,
+                "y": session.cursor.y,
+                "visible": session.cursor.visible,
             },
-            "is_dead": pane.is_dead(),
-            "domain_id": pane.domain_id(),
-            "shell": shell,
+            "is_dead": session.is_dead,
+            "domain_id": session.domain_id,
+            "shell": session.shell,
         }))
     }
 
@@ -1757,7 +1740,9 @@ impl McpHandler {
                     .map(|n| n as usize)
                     .or_else(|| v.as_str().and_then(|s| s.parse::<usize>().ok()))
             })
-            .ok_or_else(|| anyhow!("Missing 'id' / 'session_id' / 'pane_id' (source pane to split)"))?;
+            .ok_or_else(|| {
+                anyhow!("Missing 'id' / 'session_id' / 'pane_id' (source pane to split)")
+            })?;
 
         // Take an owned String here so the value can cross the async
         // closure boundary below — &str borrowed from `params` would
@@ -2756,7 +2741,9 @@ impl McpHandler {
             .get("suggestion_id")
             .or_else(|| params.get("id"))
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing 'suggestion_id' (or compatibility alias 'id') parameter"))?;
+            .ok_or_else(|| {
+                anyhow!("Missing 'suggestion_id' (or compatibility alias 'id') parameter")
+            })?;
         let state = mcp_state().lock();
         let suggestion = state
             .suggestions
@@ -2770,7 +2757,9 @@ impl McpHandler {
             .get("suggestion_id")
             .or_else(|| params.get("id"))
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing 'suggestion_id' (or compatibility alias 'id') parameter"))?
+            .ok_or_else(|| {
+                anyhow!("Missing 'suggestion_id' (or compatibility alias 'id') parameter")
+            })?
             .to_string();
         let mut state = mcp_state().lock();
         let suggestion = state
@@ -4189,60 +4178,31 @@ impl McpHandler {
     }
 
     fn screen_read(&self, params: &Value) -> Result<Value> {
-        let pane = self.get_pane(params)?;
-        let dims = pane.get_dimensions();
-        let cursor = pane.get_cursor_position();
-
-        // Read visible lines
-        let first_row = dims.physical_top;
-        let last_row = first_row + dims.viewport_rows as isize;
-        let (first, lines) = pane.get_lines(first_row..last_row);
-
-        let cells: Vec<Value> = lines
-            .iter()
-            .enumerate()
-            .map(|(row_idx, line)| {
-                let text = line.as_str().to_string();
-                let text = text.trim_end().to_string();
-                json!({
-                    "row": first as i64 + row_idx as i64,
-                    "text": text,
-                })
-            })
-            .collect();
+        let engine = crate::engine::wezterm::WezTermEngine;
+        let screen = engine.read_screen(Self::pane_id_from_params(params)?)?;
 
         Ok(json!({
-            "cells": cells,
+            "cells": screen.cells,
             "cursor": {
-                "x": cursor.x,
-                "y": cursor.y,
-                "visible": cursor.visibility == termwiz::surface::CursorVisibility::Visible,
+                "x": screen.cursor.x,
+                "y": screen.cursor.y,
+                "visible": screen.cursor.visible,
             },
-            "cols": dims.cols,
-            "rows": dims.viewport_rows,
-            "scrollback_rows": dims.scrollback_rows,
+            "cols": screen.cols,
+            "rows": screen.rows,
+            "scrollback_rows": screen.scrollback_rows,
         }))
     }
 
     fn screen_text(&self, params: &Value) -> Result<Value> {
-        let pane = self.get_pane(params)?;
-        let dims = pane.get_dimensions();
-        let cursor = pane.get_cursor_position();
-
-        let first_row = dims.physical_top;
-        let last_row = first_row + dims.viewport_rows as isize;
-        let (_first, lines) = pane.get_lines(first_row..last_row);
-
-        let text_lines: Vec<String> = lines
-            .iter()
-            .map(|line| line.as_str().trim_end().to_string())
-            .collect();
+        let engine = crate::engine::wezterm::WezTermEngine;
+        let screen = engine.read_screen(Self::pane_id_from_params(params)?)?;
 
         Ok(json!({
-            "lines": text_lines,
-            "cursor": { "x": cursor.x, "y": cursor.y },
-            "cols": dims.cols,
-            "rows": dims.viewport_rows,
+            "lines": screen.lines,
+            "cursor": { "x": screen.cursor.x, "y": screen.cursor.y },
+            "cols": screen.cols,
+            "rows": screen.rows,
         }))
     }
 
@@ -4353,14 +4313,14 @@ impl McpHandler {
     }
 
     fn screen_cursor(&self, params: &Value) -> Result<Value> {
-        let pane = self.get_pane(params)?;
-        let cursor = pane.get_cursor_position();
+        let engine = crate::engine::wezterm::WezTermEngine;
+        let cursor = engine.cursor(Self::pane_id_from_params(params)?)?;
 
         Ok(json!({
             "x": cursor.x,
             "y": cursor.y,
-            "visible": cursor.visibility == termwiz::surface::CursorVisibility::Visible,
-            "shape": format!("{:?}", cursor.shape),
+            "visible": cursor.visible,
+            "shape": cursor.shape,
         }))
     }
 
@@ -5347,10 +5307,7 @@ mod exec_wait_tests {
         let marker = "__UNTERM_DONE_0123456789abcdef__";
         let wrapped = "output\n__UNTERM_DONE_012345\n6789abcdef__\nPS>";
         assert!(contains_ignoring_line_breaks(wrapped, marker));
-        assert_eq!(
-            strip_ignoring_line_breaks(wrapped, marker),
-            "output\nPS>"
-        );
+        assert_eq!(strip_ignoring_line_breaks(wrapped, marker), "output\nPS>");
     }
 
     #[test]
@@ -5566,11 +5523,7 @@ fn clipboard_read_win32() -> Result<Value> {
                         *((ptr as *const u8).add(offset + 3)),
                     ])
                 };
-                let alpha_mask = if header_size >= 56 {
-                    read_mask(52)
-                } else {
-                    0
-                };
+                let alpha_mask = if header_size >= 56 { read_mask(52) } else { 0 };
                 channel_masks = Some((
                     read_mask(mask_offset),
                     read_mask(mask_offset + 4),
