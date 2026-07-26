@@ -845,12 +845,13 @@ mod engine_neutral_handler_tests {
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
-        let result: Result<(serde_json::Value, serde_json::Value)> = (|| {
+        let result = (|| -> Result<(serde_json::Value, serde_json::Value, serde_json::Value)> {
             let handler = McpHandler::new();
             let ctx = ConnectionContext::internal("handler-test");
             let info = handler.handle(&ctx, "instance.info", &json!({}))?;
             let list = handler.handle(&ctx, "instance.list", &json!({}))?;
-            Ok((info, list))
+            let title = handler.handle(&ctx, "instance.set_title", &json!({ "title": null }))?;
+            Ok((info, list, title))
         })();
 
         match previous_engine {
@@ -858,11 +859,13 @@ mod engine_neutral_handler_tests {
             None => std::env::remove_var("UNTERM_ENGINE"),
         }
 
-        let (info, list) = result.expect("read instance metadata without WezTerm mux");
+        let (info, list, title) = result.expect("read instance metadata without WezTerm mux");
         assert!(info.get("id").is_some());
         assert!(info.get("pid").is_some());
         assert!(info.get("mcp_port").is_some());
         assert!(list["instances"].is_array());
+        assert_eq!(title["ok"], true);
+        assert!(title["title"].is_null());
     }
 
     #[test]
@@ -1020,6 +1023,41 @@ mod engine_neutral_handler_tests {
         assert_eq!(health["engine_health"]["engine"], "next-core");
         assert_eq!(health["engine_health"]["ready"], true);
         assert_eq!(health["mux"]["available"], false);
+    }
+
+    #[test]
+    fn product_system_methods_do_not_require_terminal_engine() {
+        let _guard = env_lock().lock();
+        let previous_engine = std::env::var("UNTERM_ENGINE").ok();
+        std::env::set_var("UNTERM_ENGINE", "next-core");
+
+        let result: Result<(serde_json::Value, serde_json::Value)> = (|| {
+            let handler = McpHandler::new();
+            let ctx = ConnectionContext::internal("handler-test");
+            let info = handler.handle(&ctx, "system.info", &json!({}))?;
+            let admin = handler.handle(
+                &ctx,
+                "system.launch_admin",
+                &json!({ "dry_run": true, "shell": "pwsh" }),
+            );
+            match admin {
+                Ok(admin) => Ok((info, admin)),
+                Err(err) if cfg!(not(windows)) => {
+                    Ok((info, json!({ "unsupported": err.to_string() })))
+                }
+                Err(err) => Err(err),
+            }
+        })();
+
+        match previous_engine {
+            Some(value) => std::env::set_var("UNTERM_ENGINE", value),
+            None => std::env::remove_var("UNTERM_ENGINE"),
+        }
+
+        let (info, admin) = result.expect("read product system methods without WezTerm mux");
+        assert_eq!(info["engine"], "Unterm (next-core)");
+        assert!(info["active_sessions"].is_number());
+        assert!(admin.get("status").is_some() || admin.get("unsupported").is_some());
     }
 }
 
@@ -4858,8 +4896,7 @@ impl McpHandler {
     // --- System ---
 
     fn system_info(&self) -> Result<Value> {
-        let mux = self.get_mux()?;
-        let pane_count = mux.iter_panes().len();
+        let pane_count = self.engine().list_sessions()?.len();
         Ok(json!({
             "name": "Unterm",
             "version": "2.0.0",

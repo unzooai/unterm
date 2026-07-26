@@ -67,8 +67,8 @@ Known gaps:
 |---|---:|---|
 | Engine-neutral | 42 | `session.list`, `session.get`, `session.status`, `session.create`, `session.split`, `session.focus`, `session.input`, `session.paste`, `session.idle`, `session.cwd`, `session.history`, `session.resize`, `session.destroy`, `session.recording_start`, `session.recording_stop`, `session.recording_status`, `session.recording_attach_trace`, `session.export_markdown`, `screen.read`, `screen.text`, `screen.scrollback_text`, `screen.cursor`, `screen.search`, `screen.detect_errors`, `exec.run`, `exec.send`, `exec.run_wait`, `exec.status`, `exec.cancel`, `signal.send`, `orchestrate.launch`, `orchestrate.broadcast`, `orchestrate.wait`, `workspace.save`, `workspace.restore`, `screen.scroll`, `agent.status`, `fleet.launch`, `fleet.retry`, `fleet.clean`, `server.info`, `server.health` |
 | Partial | 4 | `agent.signal`, `cockpit.inbox`, `capture.screen`, `capture.window` |
-| Product-only | 46 | `meta.surface`, `session.audit_log`, `session.suggest`, `session.suggest_status`, `session.suggest_cancel`, `session.suggest_list`, `agent.identify`, `agent.whoami`, `agent.list_trusted`, `agent.trust`, `agent.untrust`, `policy.set`, `policy.check`, `server.capabilities`, `profile.list`, `profile.current`, `profile.audit`, `fleet.list`, `review.list`, `review.diff`, `review.verify`, `review.rollback`, `review.merge`, `review.discard`, `proxy.status`, `proxy.nodes`, `proxy.switch`, `proxy.speedtest`, `proxy.configure`, `proxy.disable`, `proxy.env`, `proxy.rotation`, `proxy.set_nodes`, `proxy.clash_status`, `proxy.clash_select`, `proxy.clash_set_controller`, `upload.file`, `system.info`, `selftest.run`, `workspace.list`, `session.recording_list`, `session.recording_read`, `instance.list`, `instance.info`, `ghost.debug`, `capture.clipboard` |
-| WezTerm-only | 6 | `capture.select`, `capture.scrollback`, `capture.window_scroll`, `instance.set_title`, `instance.focus`, `system.launch_admin` |
+| Product-only | 48 | `meta.surface`, `session.audit_log`, `session.suggest`, `session.suggest_status`, `session.suggest_cancel`, `session.suggest_list`, `agent.identify`, `agent.whoami`, `agent.list_trusted`, `agent.trust`, `agent.untrust`, `policy.set`, `policy.check`, `server.capabilities`, `profile.list`, `profile.current`, `profile.audit`, `fleet.list`, `review.list`, `review.diff`, `review.verify`, `review.rollback`, `review.merge`, `review.discard`, `proxy.status`, `proxy.nodes`, `proxy.switch`, `proxy.speedtest`, `proxy.configure`, `proxy.disable`, `proxy.env`, `proxy.rotation`, `proxy.set_nodes`, `proxy.clash_status`, `proxy.clash_select`, `proxy.clash_set_controller`, `upload.file`, `system.info`, `system.launch_admin`, `selftest.run`, `workspace.list`, `session.recording_list`, `session.recording_read`, `instance.list`, `instance.info`, `instance.set_title`, `ghost.debug`, `capture.clipboard` |
+| WezTerm-only | 4 | `capture.select`, `capture.scrollback`, `capture.window_scroll`, `instance.focus` |
 | Unsupported stub | 2 | `session.env`, `session.set_env` |
 
 The counts intentionally include aliases (`session.get` / `session.status`, `exec.send` via `session.input`) because `meta.surface` exposes them as separate public contracts. The current `MCP_METHODS` inventory contains 100 public methods, excluding `auth.login`.
@@ -174,11 +174,11 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 | `capture.scrollback` | WezTerm-only | Headless scrollback renderer tied to current rendering stack | Needs `CaptureEngine::render_scrollback` fed by screen model. |
 | `capture.window_scroll` | WezTerm-only | Platform app scrolling/stitching | Product-level platform service. |
 | `upload.file` | Product-only | Upload config and local file IO | Engine-independent. |
-| `system.info` | Product-only | OS/env/server metadata | Adds engine label; no terminal dependency. |
-| `system.launch_admin` | WezTerm-only | Relaunches GUI/platform executable | Product-level platform service. |
+| `system.info` | Product-only | OS/env/server metadata plus `SessionEngine::list_sessions` count | Adds engine label without direct WezTerm mux access. |
+| `system.launch_admin` | Product-only | Platform executable relaunch command | Windows UAC launcher; dry-run path is engine-independent. |
 | `instance.list` | Product-only | Runtime instance registry files plus PID liveness filtering | GUI focus/window ownership remains separate in `instance.focus`. |
 | `instance.info` | Product-only | Current process instance metadata from server-info registry | Engine-independent. |
-| `instance.set_title` | WezTerm-only | Window title override | Needs `WindowEngine`. |
+| `instance.set_title` | Product-only | Server-info title override registry | Current MCP path only updates product metadata; live GUI title application remains separate. |
 | `instance.focus` | WezTerm-only | Platform window focus | Needs `WindowEngine`. |
 
 ## Proxy, Profile, Policy, Governance
