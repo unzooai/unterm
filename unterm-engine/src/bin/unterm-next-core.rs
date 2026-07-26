@@ -18,6 +18,7 @@ struct Args {
     bench_echo: Option<usize>,
     bench_flood_lines: Option<usize>,
     bench_scrollback_lines: Option<usize>,
+    bench_viewport_scrolls: Option<usize>,
     bench_paste_kb: Option<usize>,
     bench_dual_agent_lines: Option<usize>,
     bench_screen_read_lines: Option<usize>,
@@ -40,6 +41,7 @@ fn parse_args() -> Result<Args> {
         bench_echo: None,
         bench_flood_lines: None,
         bench_scrollback_lines: None,
+        bench_viewport_scrolls: None,
         bench_paste_kb: None,
         bench_dual_agent_lines: None,
         bench_screen_read_lines: None,
@@ -118,6 +120,15 @@ fn parse_args() -> Result<Args> {
                         .parse()?,
                 );
             }
+            "--bench-viewport-scrolls" => {
+                parsed.bench_viewport_scrolls = Some(
+                    args.next()
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("--bench-viewport-scrolls requires a value")
+                        })?
+                        .parse()?,
+                );
+            }
             "--bench-paste-kb" => {
                 parsed.bench_paste_kb = Some(
                     args.next()
@@ -166,7 +177,7 @@ fn parse_args() -> Result<Args> {
             }
             "--help" | "-h" => {
                 println!(
-                    "Usage: unterm-next-core [--cols N] [--rows N] [--wait-ms N] [--poll-ms N] [--timeout-ms N] [--bench-input-writes N] [--bench-echo N] [--bench-flood-lines N] [--bench-scrollback-lines N] [--bench-paste-kb N] [--bench-dual-agent-lines N] [--bench-screen-read-lines N] [--cwd PATH] [--write TEXT] [--paste TEXT] [--json] [-- COMMAND [ARG...]]"
+                    "Usage: unterm-next-core [--cols N] [--rows N] [--wait-ms N] [--poll-ms N] [--timeout-ms N] [--bench-input-writes N] [--bench-echo N] [--bench-flood-lines N] [--bench-scrollback-lines N] [--bench-viewport-scrolls N] [--bench-paste-kb N] [--bench-dual-agent-lines N] [--bench-screen-read-lines N] [--cwd PATH] [--write TEXT] [--paste TEXT] [--json] [-- COMMAND [ARG...]]"
                 );
                 std::process::exit(0);
             }
@@ -324,6 +335,57 @@ fn run_scrollback_benchmark(
         p50,
         p95,
         max
+    );
+    Ok(())
+}
+
+fn run_viewport_scroll_benchmark(
+    engine: &unterm_engine::next_core::NextCoreEngine,
+    pane_id: usize,
+    lines: usize,
+    poll_interval: Duration,
+    timeout: Duration,
+) -> Result<()> {
+    if lines == 0 {
+        bail!("--bench-viewport-scrolls must be greater than 0");
+    }
+
+    run_flood_benchmark(engine, pane_id, lines, poll_interval, timeout)?;
+
+    let screen = engine.read_screen(pane_id)?;
+    let page_rows = screen.rows.max(1);
+    let total_rows = screen.scrollback_rows + screen.rows;
+    let mut targets = Vec::new();
+    let mut start = total_rows.saturating_sub(page_rows);
+    loop {
+        targets.push(start as isize);
+        if start == 0 {
+            break;
+        }
+        start = start.saturating_sub(page_rows);
+    }
+
+    let before = Instant::now();
+    let mut latencies_us = Vec::with_capacity(targets.len());
+    let mut rows_read = 0usize;
+    for target in targets.iter().copied() {
+        let page_before = Instant::now();
+        engine.scroll_viewport_to(pane_id, target)?;
+        rows_read += engine.read_screen(pane_id)?.lines.len();
+        latencies_us.push(page_before.elapsed().as_micros());
+    }
+
+    latencies_us.sort_unstable();
+    println!(
+        "bench_viewport_scroll lines={} pages={} rows_read={} total_ms={} min_us={} p50_us={} p95_us={} max_us={}",
+        lines,
+        targets.len(),
+        rows_read,
+        before.elapsed().as_millis(),
+        latencies_us[0],
+        percentile(&latencies_us, 0.50),
+        percentile(&latencies_us, 0.95),
+        *latencies_us.last().unwrap_or(&0)
     );
     Ok(())
 }
@@ -637,6 +699,17 @@ fn main() -> Result<()> {
             Duration::from_millis(args.timeout_ms),
         )
         .with_context(|| format!("bench_scrollback failed for session {}", session.id))?;
+    }
+
+    if let Some(lines) = args.bench_viewport_scrolls {
+        run_viewport_scroll_benchmark(
+            &engine,
+            session.id,
+            lines,
+            Duration::from_millis(args.poll_ms),
+            Duration::from_millis(args.timeout_ms),
+        )
+        .with_context(|| format!("bench_viewport_scroll failed for session {}", session.id))?;
     }
 
     if let Some(kb) = args.bench_paste_kb {
