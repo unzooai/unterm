@@ -60,7 +60,7 @@ Current covered operations:
 - configured theme palette resolution for next-core standalone styled scrollback PNG rendering
 - bold/italic font matching for next-core standalone styled scrollback PNG rendering
 - engine readiness and next-core aggregate I/O health counters
-- next-core terminal status, cursor-position, and primary/secondary device-attribute query responses, including parameterized DA forms, through the PTY writer in input order
+- next-core terminal status, cursor-position, DEC private cursor-position, and primary/secondary device-attribute query responses, including parameterized DA forms, through the PTY writer in input order
 
 Known gaps:
 
