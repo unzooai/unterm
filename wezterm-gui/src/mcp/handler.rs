@@ -308,7 +308,7 @@ impl ConnectionContext {
 mod engine_neutral_handler_tests {
     use super::{ConnectionContext, McpHandler};
     use crate::engine::{next_core, SessionEngine};
-    use anyhow::Result;
+    use anyhow::{anyhow, Context, Result};
     use parking_lot::Mutex;
     use serde_json::{json, Value};
     use std::sync::OnceLock;
@@ -548,6 +548,96 @@ mod engine_neutral_handler_tests {
         assert_eq!(resized["status"], "ok");
         assert_eq!(session["cols"], 100);
         assert_eq!(session["rows"], 8);
+    }
+
+    #[test]
+    fn fleet_launch_uses_next_core_session_engine() {
+        let _guard = env_lock().lock();
+        let previous_engine = std::env::var("UNTERM_ENGINE").ok();
+        let previous_fleets_path = std::env::var("UNTERM_FLEETS_PATH").ok();
+        std::env::set_var("UNTERM_ENGINE", "next-core");
+
+        let temp_root = std::env::temp_dir().join(format!(
+            "unterm-next-core-fleet-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time")
+                .as_nanos()
+        ));
+        let repo = temp_root.join("repo");
+        std::fs::create_dir_all(&repo).expect("create temp repo");
+        std::env::set_var(
+            "UNTERM_FLEETS_PATH",
+            temp_root.join("fleets.json").display().to_string(),
+        );
+        crate::cockpit::fleet::reset_store_for_tests();
+
+        let run_git = |args: &[&str]| -> Result<()> {
+            let out = std::process::Command::new("git")
+                .arg("-C")
+                .arg(&repo)
+                .args(args)
+                .output()
+                .with_context(|| format!("run git {args:?}"))?;
+            if !out.status.success() {
+                return Err(anyhow!(
+                    "git {:?}: {}",
+                    args,
+                    String::from_utf8_lossy(&out.stderr).trim()
+                ));
+            }
+            Ok(())
+        };
+        run_git(&["init", "-b", "main"]).expect("git init");
+        run_git(&["config", "user.email", "test@unterm.invalid"]).expect("git email");
+        run_git(&["config", "user.name", "Unterm Test"]).expect("git name");
+        std::fs::write(repo.join("README.md"), "fleet test\n").expect("write readme");
+        run_git(&["add", "README.md"]).expect("git add");
+        run_git(&["commit", "-m", "initial"]).expect("git commit");
+
+        let result: Result<serde_json::Value> = (|| {
+            let handler = McpHandler::new();
+            let ctx = ConnectionContext::internal("handler-test");
+            handler.handle(
+                &ctx,
+                "fleet.launch",
+                &json!({
+                    "cwd": repo.display().to_string(),
+                    "task": "next-core-fleet",
+                    "agents": ["echo"],
+                }),
+            )
+        })();
+
+        match previous_engine {
+            Some(value) => std::env::set_var("UNTERM_ENGINE", value),
+            None => std::env::remove_var("UNTERM_ENGINE"),
+        }
+        match previous_fleets_path {
+            Some(value) => std::env::set_var("UNTERM_FLEETS_PATH", value),
+            None => std::env::remove_var("UNTERM_FLEETS_PATH"),
+        }
+
+        let fleet = result.expect("launch fleet through next-core engine");
+        let pane_id = fleet["members"][0]["pane_id"]
+            .as_u64()
+            .expect("fleet member pane id") as usize;
+        let session = next_core()
+            .get_session(pane_id)
+            .expect("next-core fleet session");
+        assert!(session
+            .shell
+            .cwd
+            .as_deref()
+            .unwrap_or_default()
+            .contains(".fleet"));
+        assert_eq!(fleet["members"][0]["agent"], "echo");
+        assert_eq!(fleet["members"][0]["last_launch_error"], Value::Null);
+
+        next_core().destroy_session(pane_id).ok();
+        crate::cockpit::fleet::reset_store_for_tests();
+        std::fs::remove_dir_all(&temp_root).ok();
     }
 
     #[test]
@@ -2569,15 +2659,36 @@ impl McpHandler {
     /// `fleet.launch` — one task × N agents × N git worktrees. Blocking
     /// (worktree creation + tab spawn), which is fine on the MCP thread.
     fn fleet_launch(&self, params: &Value) -> Result<Value> {
+        struct EngineFleetSpawner {
+            engine: CurrentTerminalEngine,
+        }
+
+        impl crate::cockpit::fleet::FleetPaneSpawner for EngineFleetSpawner {
+            fn spawn_member(&mut self, cwd: &std::path::Path, command: &str) -> Result<u64> {
+                let session = self.engine.create_session(CreateSessionRequest {
+                    cols: 120,
+                    rows: 32,
+                    command_dir: Some(cwd.display().to_string()),
+                    command: None,
+                })?;
+                std::thread::sleep(std::time::Duration::from_millis(600));
+                self.engine
+                    .write_input(session.id, &format!("{command}\r"))?;
+                Ok(session.id as u64)
+            }
+        }
+
+        let engine = self.engine();
         let cwd = params
             .get("cwd")
             .and_then(|v| v.as_str())
             .map(std::path::PathBuf::from)
             .or_else(|| {
-                self.get_pane(&json!({})).ok().and_then(|p| {
-                    p.get_current_working_dir(mux::pane::CachePolicy::AllowStale)
-                        .and_then(|u| u.to_file_path().ok())
-                })
+                engine
+                    .list_sessions()
+                    .ok()
+                    .and_then(|sessions| sessions.into_iter().find(|session| session.is_active))
+                    .and_then(|session| session.shell.cwd.map(std::path::PathBuf::from))
             })
             .ok_or_else(|| anyhow!("Missing 'cwd' and no active pane to take it from"))?;
         let task = params
@@ -2595,7 +2706,8 @@ impl McpHandler {
             })
             .filter(|v: &Vec<String>| !v.is_empty())
             .ok_or_else(|| anyhow!("Missing 'agents' (e.g. [\"claude\",\"claude\"])"))?;
-        let fleet = crate::cockpit::fleet::launch(&cwd, task, &agents)?;
+        let mut spawner = EngineFleetSpawner { engine };
+        let fleet = crate::cockpit::fleet::launch_with_spawner(&cwd, task, &agents, &mut spawner)?;
         self.audit(
             "fleet.launch",
             None,

@@ -65,7 +65,15 @@ struct FleetFile {
 }
 
 fn fleets_path() -> Option<PathBuf> {
+    if let Some(path) = std::env::var_os("UNTERM_FLEETS_PATH") {
+        return Some(PathBuf::from(path));
+    }
     dirs_next::home_dir().map(|h| h.join(".unterm").join("fleets.json"))
+}
+
+#[cfg(test)]
+pub(crate) fn reset_store_for_tests() {
+    store().lock().clear();
 }
 
 fn store() -> &'static Mutex<Vec<Fleet>> {
@@ -164,6 +172,18 @@ fn slugify(task: &str) -> String {
     }
     slug.truncate(32);
     slug
+}
+
+pub trait FleetPaneSpawner {
+    fn spawn_member(&mut self, cwd: &Path, command: &str) -> Result<u64>;
+}
+
+struct WezTermTabSpawner;
+
+impl FleetPaneSpawner for WezTermTabSpawner {
+    fn spawn_member(&mut self, cwd: &Path, command: &str) -> Result<u64> {
+        spawn_member_tab(cwd, command)
+    }
 }
 
 /// Spawn a tab whose shell starts in `cwd`, then type `command` into it.
@@ -280,6 +300,16 @@ fn binary_on_path(bin: &str) -> bool {
 
 /// Launch a fleet. Blocking; call from a worker/MCP thread.
 pub fn launch(cwd: &Path, task: &str, agents: &[String]) -> Result<Fleet> {
+    let mut spawner = WezTermTabSpawner;
+    launch_with_spawner(cwd, task, agents, &mut spawner)
+}
+
+pub fn launch_with_spawner(
+    cwd: &Path,
+    task: &str,
+    agents: &[String],
+    spawner: &mut dyn FleetPaneSpawner,
+) -> Result<Fleet> {
     if agents.is_empty() {
         bail!("fleet needs at least one agent");
     }
@@ -336,7 +366,7 @@ pub fn launch(cwd: &Path, task: &str, agents: &[String]) -> Result<Fleet> {
         )
         .with_context(|| format!("add worktree for member {n}"))?;
         let agent_cmd = agent_command(agent, task);
-        let (pane_id, last_launch_error) = match spawn_member_tab(&worktree, &agent_cmd) {
+        let (pane_id, last_launch_error) = match spawner.spawn_member(&worktree, &agent_cmd) {
             Ok(id) => {
                 super::status::set_fleet(id, Some(fleet_id.clone()));
                 (Some(id), None)
