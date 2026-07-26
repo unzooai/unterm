@@ -716,6 +716,19 @@ impl NextCoreScreen {
         self.cursor_x = next_tab.min(self.cols.saturating_sub(1));
     }
 
+    fn reverse_horizontal_tab(&mut self, count: usize) {
+        self.mark_dirty_row(self.cursor_y);
+        for _ in 0..count.max(1) {
+            let previous = self
+                .tab_stops
+                .range(..self.cursor_x)
+                .next_back()
+                .copied()
+                .unwrap_or(0);
+            self.cursor_x = previous;
+        }
+    }
+
     fn set_tab_stop(&mut self) {
         if self.cursor_x < self.cols {
             self.tab_stops.insert(self.cursor_x);
@@ -821,6 +834,24 @@ impl NextCoreScreen {
     fn move_cursor_left(&mut self, count: usize) {
         self.mark_dirty_row(self.cursor_y);
         self.cursor_x = self.cursor_x.saturating_sub(count);
+    }
+
+    fn cursor_next_line(&mut self, count: usize) {
+        self.move_cursor_down(count.max(1));
+        self.cursor_x = 0;
+    }
+
+    fn cursor_previous_line(&mut self, count: usize) {
+        self.move_cursor_up(count.max(1));
+        self.cursor_x = 0;
+    }
+
+    fn set_horizontal_position(&mut self, col: usize) {
+        self.set_cursor(self.cursor_y, col);
+    }
+
+    fn set_vertical_position(&mut self, row: usize) {
+        self.set_cursor_position(row, self.cursor_x);
     }
 
     fn clear_screen(&mut self) {
@@ -1382,12 +1413,21 @@ impl<'a> ScreenParser<'a> {
             'B' => self.screen.move_cursor_down(first()),
             'C' => self.screen.move_cursor_right(first()),
             'D' => self.screen.move_cursor_left(first()),
+            'E' => self.screen.cursor_next_line(first()),
+            'F' => self.screen.cursor_previous_line(first()),
             'X' => self.screen.erase_chars(first()),
             'L' => self.screen.insert_lines(first()),
             'M' => self.screen.delete_lines(first()),
             'P' => self.screen.delete_chars(first()),
             'S' => self.screen.scroll_up(first()),
             'T' => self.screen.scroll_down(first()),
+            'Z' => self.screen.reverse_horizontal_tab(first()),
+            '`' => self
+                .screen
+                .set_horizontal_position(first().saturating_sub(1)),
+            'a' => self.screen.move_cursor_right(first()),
+            'd' => self.screen.set_vertical_position(first().saturating_sub(1)),
+            'e' => self.screen.move_cursor_down(first()),
             'G' => {
                 let row = self.screen.cursor_y;
                 self.screen.set_cursor(row, first().saturating_sub(1));
@@ -5085,6 +5125,60 @@ mod tests {
         let screen = engine.read_screen(session.id)?;
         assert_eq!(screen.lines, vec!["oneYX"]);
         assert_eq!(screen.cursor.x, 4);
+        assert_eq!(screen.cursor.y, 0);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_applies_extended_cursor_positioning() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 12,
+            rows: 5,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(
+            session.id,
+            concat!("A", "\x1b[2EB", "\x1b[1FC", "\x1b[6`D", "\x1b[2aE", "\x1b[4dF", "\x1b[1eG"),
+        )?;
+        let screen = engine.read_screen(session.id)?;
+        assert_eq!(
+            screen.lines,
+            vec!["A", "C    D  E", "B", "         F", "          G"]
+        );
+        assert_eq!(screen.cursor.x, 11);
+        assert_eq!(screen.cursor.y, 4);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_applies_reverse_tab_positioning() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 16,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(session.id, "\x1b[5G\x1bH\x1b[13GX\x1b[ZY\x1b[2ZZ")?;
+        let screen = engine.read_screen(session.id)?;
+        assert_eq!(screen.lines, vec!["    Z   Y   X"]);
+        assert_eq!(screen.cursor.x, 5);
         assert_eq!(screen.cursor.y, 0);
 
         engine.destroy_session(session.id)?;
