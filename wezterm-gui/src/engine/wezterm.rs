@@ -97,6 +97,7 @@ impl WezTermEngine {
             shell_type,
             process_name,
             cwd,
+            launch_env_keys: Vec::new(),
         }
     }
 

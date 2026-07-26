@@ -295,7 +295,7 @@ impl ConnectionContext {
 #[cfg(test)]
 mod engine_neutral_handler_tests {
     use super::{compute_agent_cwd, ConnectionContext, McpHandler};
-    use crate::engine::{next_core, SessionEngine};
+    use crate::engine::{next_core, CreateSessionRequest, SessionEngine};
     use anyhow::{anyhow, Context, Result};
     use parking_lot::Mutex;
     use serde_json::{json, Value};
@@ -338,6 +338,41 @@ mod engine_neutral_handler_tests {
         let (destroyed, pane_id) = result.expect("destroy next-core session through MCP handler");
         assert_eq!(destroyed["destroyed"], true);
         assert!(next_core().get_session(pane_id).is_err());
+    }
+
+    #[test]
+    fn session_env_reads_next_core_launch_env_keys_without_values() {
+        let _guard = env_lock().lock();
+        let previous_engine = std::env::var("UNTERM_ENGINE").ok();
+        std::env::set_var("UNTERM_ENGINE", "next-core");
+
+        let result: Result<(serde_json::Value, usize)> = (|| {
+            let engine = next_core();
+            let session = engine.create_session(CreateSessionRequest {
+                cols: 80,
+                rows: 4,
+                command_dir: None,
+                command: None,
+                env: vec![("GITHUB_TOKEN".to_string(), "secret-token".to_string())],
+            })?;
+            let handler = McpHandler::new();
+            let ctx = ConnectionContext::internal("handler-test");
+            let env = handler.handle(&ctx, "session.env", &json!({ "pane_id": session.id }))?;
+            Ok((env, session.id))
+        })();
+
+        match previous_engine {
+            Some(value) => std::env::set_var("UNTERM_ENGINE", value),
+            None => std::env::remove_var("UNTERM_ENGINE"),
+        }
+
+        let (env, pane_id) = result.expect("read next-core launch env through MCP handler");
+        assert_eq!(env["supported"], true);
+        assert_eq!(env["mutable"], false);
+        assert_eq!(env["variables"][0]["name"], "GITHUB_TOKEN");
+        assert_eq!(env["variables"][0]["value"], Value::Null);
+        assert_eq!(env["variables"][0]["redacted"], true);
+        next_core().destroy_session(pane_id).ok();
     }
 
     #[test]
@@ -3005,17 +3040,54 @@ impl McpHandler {
         Ok(json!({"cwd": cwd}))
     }
 
-    fn session_env(&self, _params: &Value) -> Result<Value> {
-        // WezTerm doesn't expose per-pane env vars directly
-        Ok(
-            json!({"value": null, "message": "Environment variable reading not supported in WezTerm mode"}),
-        )
+    fn session_env(&self, params: &Value) -> Result<Value> {
+        let engine = self.engine();
+        if engine.name() == "wezterm" {
+            // WezTerm doesn't expose per-pane env vars directly.
+            return Ok(
+                json!({"supported": false, "value": null, "message": "Environment variable reading not supported in WezTerm mode"}),
+            );
+        }
+
+        let pane_id = Self::pane_id_from_params(params)?;
+        let shell = engine.shell(pane_id)?;
+        let name_filter = params
+            .get("name")
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
+        let mut names = shell.launch_env_keys;
+        names.sort();
+        names.dedup();
+        if let Some(filter) = name_filter.as_deref() {
+            names.retain(|name| name == filter);
+        }
+        let variables: Vec<Value> = names
+            .into_iter()
+            .map(|name| {
+                json!({
+                    "name": name,
+                    "value": null,
+                    "redacted": true,
+                    "scope": "launch",
+                })
+            })
+            .collect();
+
+        Ok(json!({
+            "supported": true,
+            "mutable": false,
+            "scope": "launch",
+            "variables": variables,
+            "message": "Only launch environment variable names are exposed; values are redacted to avoid leaking profile secrets.",
+        }))
     }
 
     fn session_set_env(&self, _params: &Value) -> Result<Value> {
-        Ok(
-            json!({"status": "ok", "message": "Environment variable setting not supported in WezTerm mode"}),
-        )
+        Ok(json!({
+            "status": "ok",
+            "supported": false,
+            "message": "Live environment variable mutation is not supported; use session.create launch env/profile/proxy context for child shells.",
+        }))
     }
 
     fn session_history(&self, params: &Value) -> Result<Value> {

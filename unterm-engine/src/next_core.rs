@@ -1589,6 +1589,7 @@ impl NextCoreEngine {
         rows: usize,
         command: portable_pty::CommandBuilder,
         cwd: Option<String>,
+        launch_env_keys: Vec<String>,
     ) -> Result<NextCoreSession> {
         let label = Self::command_label(&command);
         let pair = native_pty_system().openpty(Self::pty_size(cols, rows))?;
@@ -1612,6 +1613,7 @@ impl NextCoreEngine {
             shell_type: Self::shell_type(&label),
             process_name: label,
             cwd,
+            launch_env_keys,
         };
 
         Ok(NextCoreSession {
@@ -1769,6 +1771,7 @@ impl SessionEngine for NextCoreEngine {
     }
 
     fn create_session(&self, request: CreateSessionRequest) -> Result<SessionSnapshot> {
+        let launch_env_keys = request.env.iter().map(|(key, _)| key.clone()).collect();
         let (command, cwd) =
             Self::prepare_command(request.command, request.command_dir, request.env);
         let mut state_guard = state().write();
@@ -1782,6 +1785,7 @@ impl SessionEngine for NextCoreEngine {
             request.rows,
             command,
             cwd,
+            launch_env_keys,
         )?;
 
         let snapshot = session.snapshot.clone();
@@ -1808,6 +1812,7 @@ impl SessionEngine for NextCoreEngine {
             command.cwd(cwd);
         }
         let cwd = Self::command_cwd(&command, None);
+        let launch_env_keys = Vec::new();
 
         let mut state_guard = state().write();
         let id = Self::next_session_id(&mut state_guard);
@@ -1820,6 +1825,7 @@ impl SessionEngine for NextCoreEngine {
             source.rows,
             command,
             cwd,
+            launch_env_keys,
         )?;
 
         let snapshot = session.snapshot.clone();
@@ -2392,6 +2398,30 @@ mod tests {
                 .and_then(|value| value.to_str()),
             Some("http://127.0.0.1:7890")
         );
+    }
+
+    #[test]
+    fn session_snapshot_records_launch_env_keys_without_values() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 24,
+            command_dir: None,
+            command: None,
+            env: vec![
+                ("UNTERM_PROFILE".to_string(), "work-acme".to_string()),
+                ("GITHUB_TOKEN".to_string(), "secret-token".to_string()),
+            ],
+        })?;
+
+        let mut keys = engine.shell(session.id)?.launch_env_keys;
+        keys.sort();
+        assert_eq!(keys, vec!["GITHUB_TOKEN", "UNTERM_PROFILE"]);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
     }
 
     #[test]

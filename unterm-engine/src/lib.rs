@@ -33,6 +33,7 @@ pub struct ShellSnapshot {
     pub shell_type: String,
     pub process_name: String,
     pub cwd: Option<String>,
+    pub launch_env_keys: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]

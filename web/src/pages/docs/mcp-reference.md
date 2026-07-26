@@ -187,7 +187,14 @@ Get the pane's current working directory (from OSC 7 if the shell sets it, falls
 
 ### `session.env` / `session.set_env`
 
-Read or write a pane's environment variables. **Currently stubs** — both return `{ value: null, message: "Environment variable reading not supported in WezTerm mode" }` (or `set`/`status: ok` equivalent). Don't rely on these. If you need to set env for a child process, prepend `export FOO=bar; ` to the command via `exec.run` instead.
+Read launch environment metadata for a pane, or request live env mutation.
+
+`session.env` is engine-specific:
+
+- `next-core`: returns launch env variable names with values redacted: `{ supported: true, mutable: false, scope: "launch", variables: [{ name, value: null, redacted: true, scope: "launch" }] }`.
+- WezTerm mode: returns `{ supported: false, value: null, message }` because live per-pane env is not exposed.
+
+`session.set_env` remains unsupported. Use `session.create` profile/proxy launch context for new shells, or write shell-specific `export`/`set` commands when you intentionally want to mutate the running shell.
 
 ### `session.history`
 
@@ -1311,7 +1318,7 @@ Every method, alphabetical, with one-line descriptions. Use this as a flat looku
 | `session.create` | Spawn a new pane in the active window |
 | `session.cwd` | Get the pane's current working directory |
 | `session.destroy` | Kill the pane |
-| `session.env` | Stub: env-var read not supported in this build |
+| `session.env` | Read launch env variable names where supported; values are redacted |
 | `session.export_markdown` | One-off render of pane scrollback to redacted markdown |
 | `session.focus` | Bring a pane into focus |
 | `session.get` | Full pane state (alias `session.status`) |
