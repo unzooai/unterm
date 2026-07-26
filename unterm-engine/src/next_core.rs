@@ -15,6 +15,7 @@ use parking_lot::{Mutex, RwLock};
 use portable_pty::{native_pty_system, Child, MasterPty, PtySize};
 use procinfo::LocalProcessInfo;
 use serde::{Deserialize, Serialize};
+use std::fmt::Write as FmtWrite;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -1762,12 +1763,194 @@ impl NextCoreEngine {
         }
     }
 
-    fn write_recording_markdown(recording: &NextCoreRecording) -> Result<()> {
+    fn write_recording_markdown(
+        recording: &NextCoreRecording,
+        ended_at: Option<&str>,
+        exit_reason: &str,
+    ) -> Result<usize> {
         if let Some(parent) = recording.md_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        std::fs::write(&recording.md_path, recording.text_preview.as_bytes())?;
-        Ok(())
+        let markdown = Self::render_recording_markdown(recording, ended_at, exit_reason);
+        std::fs::write(&recording.md_path, markdown.as_bytes())?;
+        Ok(markdown.len())
+    }
+
+    fn render_recording_markdown(
+        recording: &NextCoreRecording,
+        ended_at: Option<&str>,
+        exit_reason: &str,
+    ) -> String {
+        let stripped = Self::strip_ansi(&recording.text_preview);
+        let (redacted, redaction_count) = Self::redact_recording_text(&stripped);
+        let total_lines = redacted.lines().count() as u64;
+        let mut md = String::new();
+
+        writeln!(&mut md, "---").ok();
+        writeln!(&mut md, "unterm_session_id: {}", recording.session_id).ok();
+        writeln!(&mut md, "tab_id: {}", recording.pane_id).ok();
+        match &recording.project_path {
+            Some(path) => writeln!(&mut md, "project_path: {}", path).ok(),
+            None => writeln!(&mut md, "project_path: null").ok(),
+        };
+        writeln!(&mut md, "project_slug: {}", recording.project_slug).ok();
+        writeln!(&mut md, "shell: {}", Self::env_var_or("SHELL", "next-core")).ok();
+        writeln!(&mut md, "hostname: {}", Self::hostname()).ok();
+        writeln!(&mut md, "unterm_version: next-core").ok();
+        writeln!(&mut md, "started_at: {}", recording.started_at).ok();
+        match ended_at {
+            Some(value) => writeln!(&mut md, "ended_at: {}", value).ok(),
+            None => writeln!(&mut md, "ended_at: null").ok(),
+        };
+        writeln!(&mut md, "exit_reason: {}", exit_reason).ok();
+        writeln!(&mut md, "osc133_active: false").ok();
+        writeln!(&mut md, "block_count: {}", recording.block_count).ok();
+        writeln!(&mut md, "total_lines: {}", total_lines).ok();
+        writeln!(&mut md, "bytes_raw: {}", recording.bytes_raw).ok();
+        writeln!(
+            &mut md,
+            "trace_ids: {}",
+            Self::yaml_string_array(&recording.trace_ids)
+        )
+        .ok();
+        writeln!(&mut md, "redaction_active: true").ok();
+        writeln!(&mut md, "redaction_count: {}", redaction_count).ok();
+        writeln!(&mut md, "parent_session_id: null").ok();
+        writeln!(&mut md, "---\n").ok();
+
+        let title_ts = recording
+            .started_at
+            .split('+')
+            .next()
+            .unwrap_or(&recording.started_at)
+            .replace('T', " ");
+        writeln!(&mut md, "# Unterm session - {}\n", title_ts).ok();
+        writeln!(
+            &mut md,
+            "> next-core fallback recording; shell command markers were not captured.\n"
+        )
+        .ok();
+        writeln!(&mut md, "```\n{}\n```", redacted.trim_end()).ok();
+
+        md
+    }
+
+    fn env_var_or(name: &str, default: &str) -> String {
+        std::env::var(name).unwrap_or_else(|_| default.to_string())
+    }
+
+    fn hostname() -> String {
+        std::env::var("COMPUTERNAME")
+            .or_else(|_| std::env::var("HOSTNAME"))
+            .unwrap_or_default()
+    }
+
+    fn yaml_string_array(values: &[String]) -> String {
+        if values.is_empty() {
+            return "[]".to_string();
+        }
+        let inner = values
+            .iter()
+            .map(|value| format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\"")))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("[{inner}]")
+    }
+
+    fn redact_recording_text(text: &str) -> (String, u64) {
+        let mut redaction_count = 0;
+        let mut lines = Vec::new();
+        for line in text.lines() {
+            let mut words = Vec::new();
+            for word in line.split_whitespace() {
+                if Self::looks_sensitive_token(word) {
+                    redaction_count += 1;
+                    words.push("[REDACTED]");
+                } else {
+                    words.push(word);
+                }
+            }
+            if words.is_empty() {
+                lines.push(String::new());
+            } else {
+                lines.push(words.join(" "));
+            }
+        }
+        let mut rendered = lines.join("\n");
+        if text.ends_with('\n') {
+            rendered.push('\n');
+        }
+        (rendered, redaction_count)
+    }
+
+    fn looks_sensitive_token(word: &str) -> bool {
+        let trimmed = word.trim_matches(|ch: char| {
+            matches!(
+                ch,
+                '"' | '\'' | '`' | ',' | ';' | ':' | ')' | ']' | '}' | '(' | '[' | '{'
+            )
+        });
+        let lower = trimmed.to_ascii_lowercase();
+        let has_secret_key = lower.contains("token")
+            || lower.contains("secret")
+            || lower.contains("password")
+            || lower.contains("api_key")
+            || lower.contains("apikey")
+            || lower.contains("auth");
+        if has_secret_key && trimmed.contains('=') {
+            return true;
+        }
+        trimmed.len() >= 24
+            && trimmed.chars().all(|ch| {
+                ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.' | '/' | '+' | '=')
+            })
+    }
+
+    fn strip_ansi(text: &str) -> String {
+        let bytes = text.as_bytes();
+        let mut out = Vec::with_capacity(bytes.len());
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] == 0x1b {
+                i += 1;
+                if i >= bytes.len() {
+                    break;
+                }
+                match bytes[i] {
+                    b'[' => {
+                        i += 1;
+                        while i < bytes.len() {
+                            let byte = bytes[i];
+                            i += 1;
+                            if (0x40..=0x7e).contains(&byte) {
+                                break;
+                            }
+                        }
+                    }
+                    b']' => {
+                        i += 1;
+                        while i < bytes.len() {
+                            if bytes[i] == 0x07 {
+                                i += 1;
+                                break;
+                            }
+                            if bytes[i] == 0x1b && i + 1 < bytes.len() && bytes[i + 1] == b'\\' {
+                                i += 2;
+                                break;
+                            }
+                            i += 1;
+                        }
+                    }
+                    _ => {
+                        i += 1;
+                    }
+                }
+            } else {
+                out.push(bytes[i]);
+                i += 1;
+            }
+        }
+        String::from_utf8_lossy(&out).into_owned()
     }
 
     fn screen_lines(&self, pane_id: usize) -> Result<Vec<String>> {
@@ -2922,8 +3105,8 @@ impl RecordingEngine for NextCoreEngine {
         };
         drop(slot);
 
-        Self::write_recording_markdown(&recording)?;
         let ended_at = Self::timestamp_string();
+        Self::write_recording_markdown(&recording, Some(&ended_at), "recording_stopped")?;
         Self::upsert_recording_index(&recording, Some(ended_at.clone()))?;
 
         Ok(RecordingStopResult {
@@ -3026,12 +3209,12 @@ impl RecordingEngine for NextCoreEngine {
         if let Some(target_path) = target_path {
             export.md_path = PathBuf::from(target_path);
         }
-        Self::write_recording_markdown(&export)?;
+        let bytes = Self::write_recording_markdown(&export, None, "recording_exported")?;
 
         Ok(RecordingExportResult {
             session_id: export.session_id,
             path: export.md_path.display().to_string(),
-            bytes: export.text_preview.len(),
+            bytes,
             block_count: export.block_count,
         })
     }
@@ -4531,7 +4714,10 @@ mod tests {
         })?;
 
         let started = engine.start_recording(session.id)?;
-        set_output_for_test(session.id, "hello from next-core\n")?;
+        set_output_for_test(
+            session.id,
+            "\x1b[31mhello from next-core\x1b[0m token=super-secret-value\n",
+        )?;
         let traces = engine.attach_recording_trace(session.id, "trace-1".to_string())?;
         let status = engine.recording_status(session.id)?;
         let stopped = engine.stop_recording(session.id)?;
@@ -4546,7 +4732,17 @@ mod tests {
         assert!(status.enabled);
         assert!(status.block_count.unwrap_or_default() >= 1);
         assert!(std::fs::read_to_string(&started.log_path)?.contains("\tout\t"));
-        assert!(std::fs::read_to_string(&stopped.md_path)?.contains("hello from next-core"));
+        let markdown = std::fs::read_to_string(&stopped.md_path)?;
+        assert!(markdown.starts_with("---\n"));
+        assert!(markdown.contains("unterm_session_id: "));
+        assert!(markdown.contains("exit_reason: recording_stopped"));
+        assert!(markdown.contains("ended_at: "));
+        assert!(markdown.contains("osc133_active: false"));
+        assert!(markdown.contains("trace_ids: [\"trace-1\"]"));
+        assert!(markdown.contains("redaction_count: 1"));
+        assert!(markdown.contains("hello from next-core [REDACTED]"));
+        assert!(!markdown.contains("\x1b[31m"));
+        assert!(!markdown.contains("super-secret-value"));
         assert!(std::fs::read_to_string(sessions_root.join("index.json"))?.contains("trace-1"));
 
         engine.destroy_session(session.id)?;
