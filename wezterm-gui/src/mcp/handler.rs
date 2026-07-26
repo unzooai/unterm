@@ -669,6 +669,63 @@ mod engine_neutral_handler_tests {
     }
 
     #[test]
+    fn agent_status_uses_pane_id_registry_path() {
+        let _guard = env_lock().lock();
+        let previous_engine = std::env::var("UNTERM_ENGINE").ok();
+        std::env::set_var("UNTERM_ENGINE", "next-core");
+        crate::cockpit::status::reset_for_tests();
+
+        let result: Result<(serde_json::Value, serde_json::Value, usize)> = (|| {
+            let handler = McpHandler::new();
+            let ctx = ConnectionContext::internal("handler-test");
+            let created = handler.handle(
+                &ctx,
+                "session.create",
+                &json!({
+                    "cols": 80,
+                    "rows": 4,
+                }),
+            )?;
+            let pane_id = created["id"].as_u64().expect("session id") as usize;
+            assert!(crate::cockpit::on_hook_signal(
+                pane_id as u64,
+                "codex",
+                "waiting"
+            ));
+
+            let single = handler.handle(
+                &ctx,
+                "agent.status",
+                &json!({
+                    "pane_id": pane_id,
+                }),
+            )?;
+            let all = handler.handle(&ctx, "agent.status", &json!({}))?;
+            let _ = handler.handle(&ctx, "session.destroy", &json!({ "pane_id": pane_id }));
+            Ok((single, all, pane_id))
+        })();
+
+        match previous_engine {
+            Some(value) => std::env::set_var("UNTERM_ENGINE", value),
+            None => std::env::remove_var("UNTERM_ENGINE"),
+        }
+
+        let (single, all, pane_id) = result.expect("read cockpit status through handler");
+        assert!(next_core().get_session(pane_id).is_err());
+        assert_eq!(single["enabled"], true);
+        assert_eq!(single["agent"]["pane_id"], pane_id as u64);
+        assert_eq!(single["agent"]["agent"], "codex");
+        assert_eq!(single["agent"]["state"], "waiting");
+        assert_eq!(all["enabled"], true);
+        assert!(all["agents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| { entry["pane_id"] == pane_id as u64 && entry["state"] == "waiting" }));
+        crate::cockpit::status::reset_for_tests();
+    }
+
+    #[test]
     fn server_health_uses_selected_next_core_engine() {
         let _guard = env_lock().lock();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
@@ -2627,9 +2684,9 @@ impl McpHandler {
         }
         let explicit_pane = params.get("pane_id").or_else(|| params.get("session_id"));
         if explicit_pane.is_some() {
-            let pane = self.get_pane(params)?;
-            let status = crate::cockpit::status_for_pane(pane.pane_id() as u64)
-                .map(|s| Self::cockpit_status_json(&s));
+            let pane_id = Self::pane_id_from_params(params)? as u64;
+            let status =
+                crate::cockpit::status_for_pane(pane_id).map(|s| Self::cockpit_status_json(&s));
             return Ok(json!({ "enabled": true, "agent": status }));
         }
         let agents: Vec<Value> = crate::cockpit::snapshot()
