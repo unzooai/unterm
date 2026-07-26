@@ -110,6 +110,15 @@ pub const MCP_METHODS: &[McpMethod] = &[
         ],
     },
     McpMethod {
+        name: "session.paste",
+        namespace: "session",
+        summary: "Paste text into the pane using the terminal paste path.",
+        params: &[
+            P_PANE_ID,
+            Param { name: "text", kind: "string", required: true, summary: "Text to paste." },
+        ],
+    },
+    McpMethod {
         name: "session.resize",
         namespace: "session",
         summary: "Resize a pane to the given cols/rows.",
@@ -608,6 +617,7 @@ mod tests {
             "orchestrate.launch",
             "orchestrate.broadcast",
             "orchestrate.wait",
+            "session.paste",
             "session.recording_attach_trace",
         ] {
             assert!(

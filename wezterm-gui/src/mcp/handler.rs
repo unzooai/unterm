@@ -1273,6 +1273,7 @@ impl McpHandler {
             "session.split" => self.session_split(params),
             "session.focus" => self.session_focus(params),
             "session.input" => self.session_input(params),
+            "session.paste" => self.session_paste(params),
             "session.resize" => self.session_resize(params),
             "session.destroy" => self.session_destroy(params),
             "session.idle" => self.session_idle(params),
@@ -1881,6 +1882,31 @@ impl McpHandler {
         );
         let engine = self.engine();
         engine.write_input(pane.pane_id(), input)?;
+        Ok(json!({"status": "ok"}))
+    }
+
+    fn session_paste(&self, params: &Value) -> Result<Value> {
+        let pane = self.get_pane(params)?;
+        let text = params
+            .get("text")
+            .or_else(|| params.get("input"))
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing 'text' (or compatibility alias 'input') parameter"))?;
+
+        match self.gate_pty_write("session.paste", &pane, text)? {
+            GateOutcome::Allow => {}
+            GateOutcome::Block => {
+                return Err(anyhow!("user denied"));
+            }
+        }
+
+        self.audit(
+            "session.paste",
+            Some(&pane.pane_id().to_string()),
+            &input_preview(text),
+        );
+        let engine = self.engine();
+        engine.paste_input(pane.pane_id(), text)?;
         Ok(json!({"status": "ok"}))
     }
 
@@ -2701,7 +2727,7 @@ impl McpHandler {
         // screen.read or session.list shouldn't make the chip flash.
         if matches!(
             method,
-            "session.input" | "exec.send" | "exec.run" | "exec.run_wait"
+            "session.input" | "session.paste" | "exec.send" | "exec.run" | "exec.run_wait"
         ) {
             // Attribute the pane to the writing agent for the left tab
             // bar's "agent · dir" subtitle.
@@ -2712,7 +2738,7 @@ impl McpHandler {
                     .insert(pane_id, (agent, std::time::Instant::now()));
             }
         }
-        if method == "session.input" || method == "exec.send" {
+        if matches!(method, "session.input" | "session.paste" | "exec.send") {
             state.input_event_count = state.input_event_count.saturating_add(1);
             state.last_input_at = Some(std::time::Instant::now());
             // Stamp "first PTY write from this agent" — the soft
