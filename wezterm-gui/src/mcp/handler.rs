@@ -482,6 +482,7 @@ mod engine_neutral_handler_tests {
             serde_json::Value,
             serde_json::Value,
             serde_json::Value,
+            serde_json::Value,
             usize,
         )> = (|| {
             let handler = McpHandler::new();
@@ -514,7 +515,7 @@ mod engine_neutral_handler_tests {
             let pane_id = session["id"].as_u64().expect("session id") as usize;
             let env = handler.handle(&ctx, "session.env", &json!({ "pane_id": pane_id }))?;
             let _ = handler.handle(&ctx, "session.destroy", &json!({ "pane_id": pane_id }));
-            Ok((profile_set, proxy_set, env, pane_id))
+            Ok((profile_set, proxy_set, session, env, pane_id))
         })();
 
         {
@@ -527,13 +528,34 @@ mod engine_neutral_handler_tests {
             None => std::env::remove_var("UNTERM_ENGINE"),
         }
 
-        let (profile_set, proxy_set, env, pane_id) =
+        let (profile_set, proxy_set, session, env, pane_id) =
             result.expect("future launch overlay applies through next-core");
         assert!(next_core().get_session(pane_id).is_err());
         assert_eq!(profile_set["supported"], true);
         assert_eq!(profile_set["scope"], "future_launch");
         assert_eq!(proxy_set["supported"], true);
         assert_eq!(proxy_set["scope"], "future_launch");
+        assert_eq!(session["launch"]["context"]["profile"], "overlay-profile");
+        assert_eq!(session["launch"]["decision"]["source"], "session.create");
+        assert_eq!(session["launch"]["decision"]["profile_requested"], false);
+        assert_eq!(session["launch"]["decision"]["command_provided"], true);
+        assert_eq!(session["launch"]["decision"]["values_redacted"], true);
+        let launch_overlay_keys = session["launch"]["decision"]["overlay_env_keys"]
+            .as_array()
+            .expect("launch overlay keys");
+        assert!(launch_overlay_keys
+            .iter()
+            .any(|key| key.as_str() == Some("UNTERM_PROFILE")));
+        assert!(launch_overlay_keys
+            .iter()
+            .any(|key| key.as_str() == Some("HTTPS_PROXY")));
+        let launch_proxy_keys = session["launch"]["decision"]["proxy_env_keys"]
+            .as_array()
+            .expect("launch proxy keys");
+        assert!(launch_proxy_keys
+            .iter()
+            .any(|key| key.as_str() == Some("HTTPS_PROXY")));
+        assert!(!session.to_string().contains("http://127.0.0.1:7890"));
         let variable_names = env["variables"]
             .as_array()
             .expect("variables array")
@@ -1746,6 +1768,10 @@ mod engine_neutral_handler_tests {
             true
         );
         assert_eq!(
+            surface["engine_capabilities"]["diagnostics"]["session_create_launch_decision"],
+            true
+        );
+        assert_eq!(
             surface["engine_capabilities"]["diagnostics"]["styled_scrollback_png"],
             true
         );
@@ -1776,6 +1802,10 @@ mod engine_neutral_handler_tests {
         );
         assert_eq!(
             capabilities["_engine_capabilities"]["diagnostics"]["launch_context"],
+            true
+        );
+        assert_eq!(
+            capabilities["_engine_capabilities"]["diagnostics"]["session_create_launch_decision"],
             true
         );
         assert_eq!(
@@ -3728,6 +3758,8 @@ impl McpHandler {
                     .map(|(key, value)| (key.clone(), value.clone())),
             );
         }
+        let mut overlay_keys_sorted = overlay_keys.clone();
+        overlay_keys_sorted.sort();
         let resolved_profile = if let Some(profile) = profile.as_deref() {
             let (profile_id, profile_env) = resolve_profile_env(profile)?;
             env.extend(profile_env);
@@ -3752,6 +3784,8 @@ impl McpHandler {
             env,
             launch_policy,
         })?;
+        let launch_context = session.shell.launch_context.clone();
+        let launch_proxy_env_keys = launch_context.proxy_env_keys.clone();
 
         Ok(json!({
             "id": session.id,
@@ -3761,6 +3795,17 @@ impl McpHandler {
             "rows": session.rows,
             "profile": resolved_profile,
             "command": command,
+            "launch": {
+                "context": launch_context,
+                "decision": {
+                    "source": "session.create",
+                    "profile_requested": profile.is_some(),
+                    "overlay_env_keys": overlay_keys_sorted,
+                    "proxy_env_keys": launch_proxy_env_keys,
+                    "command_provided": command.is_some(),
+                    "values_redacted": true,
+                },
+            },
         }))
     }
 

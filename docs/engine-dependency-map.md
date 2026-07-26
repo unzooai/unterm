@@ -48,6 +48,7 @@ Current covered operations:
 - PTY write confirmation diagnostics without WezTerm pane-object ownership
 - recording lifecycle/export with next-core chunked-output block markdown
 - validated explicit `capture.scrollback` pane ids through the shared session resolver
+- redacted `session.create` launch decision summary for profile/proxy/overlay/command provenance
 - engine readiness and next-core aggregate I/O health counters
 
 Known gaps:
@@ -57,7 +58,7 @@ Known gaps:
 - full font/theme styled scrollback PNG parity for `next-core`
 - native window capture/focus/title ownership beyond the explicit host-window bridge contract
 - instance lifecycle ownership
-- higher-level launch policy decisions beyond typed env/profile/proxy provenance
+- default-shell and workspace-template launch policy decisions beyond typed env/profile/proxy/overlay provenance
 
 ## MCP Coverage Summary
 

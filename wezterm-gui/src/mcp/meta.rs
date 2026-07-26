@@ -95,6 +95,7 @@ pub fn engine_capabilities(engine: &str) -> Value {
         "diagnostics": {
             "health_io_summary": engine == "next-core",
             "launch_context": engine == "next-core",
+            "session_create_launch_decision": true,
             "styled_scrollback_png": engine == "next-core",
             "pty_write_confirmation": true,
             "recording_block_markdown": engine == "next-core",
@@ -189,6 +190,7 @@ mod tests {
         assert!(supported.contains(&"capture.scrollback"));
         assert_eq!(caps["diagnostics"]["health_io_summary"], false);
         assert_eq!(caps["diagnostics"]["launch_context"], false);
+        assert_eq!(caps["diagnostics"]["session_create_launch_decision"], true);
         assert_eq!(caps["diagnostics"]["pty_write_confirmation"], true);
         assert_eq!(caps["diagnostics"]["recording_block_markdown"], false);
         assert_eq!(
@@ -271,6 +273,7 @@ mod tests {
 
         assert_eq!(caps["diagnostics"]["health_io_summary"], true);
         assert_eq!(caps["diagnostics"]["launch_context"], true);
+        assert_eq!(caps["diagnostics"]["session_create_launch_decision"], true);
         assert_eq!(caps["diagnostics"]["styled_scrollback_png"], true);
         assert_eq!(caps["diagnostics"]["pty_write_confirmation"], true);
         assert_eq!(caps["diagnostics"]["recording_block_markdown"], true);
