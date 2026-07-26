@@ -38,7 +38,7 @@ Current covered operations:
 - shell/cwd/activity snapshots
 - visible screen read
 - styled screen read
-- next-core cols-aware screen wrapping, DECAWM auto-wrap mode, DECOM origin mode for scroll-region-relative cursor positioning, HT/HTS/TBC/CBT tab-stop cursor movement/control, ESC IND/NEL/RI scroll-region movement, IL/DL line mutation within scroll regions, CSI CNL/CPL/HPA/HPR/VPA/VPR positioning, CSI/DEC private save/restore cursor, erase-line/erase-character styled blank backfill, delete-character right-margin backfill, REP repeat-character handling, CSI 3J scrollback clearing, semicolon/colon SGR extended-color parsing, and resize truncation
+- next-core cols-aware screen wrapping, DECAWM auto-wrap mode, DECOM origin mode for scroll-region-relative cursor positioning, HT/CHT/HTS/TBC/CBT tab-stop cursor movement/control, ESC IND/NEL/RI scroll-region movement, IL/DL line mutation within scroll regions, CSI CNL/CPL/HPA/HPR/VPA/VPR positioning, CSI/DEC private save/restore cursor, erase-line/erase-character styled blank backfill, delete-character right-margin backfill, REP repeat-character handling, CSI 3J scrollback clearing, semicolon/colon SGR extended-color parsing, and resize truncation
 - visible text read
 - line/scrollback reads
 - scrollback text export

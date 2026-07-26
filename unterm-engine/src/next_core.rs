@@ -728,14 +728,20 @@ impl NextCoreScreen {
     }
 
     fn horizontal_tab(&mut self) {
+        self.cursor_forward_tab(1);
+    }
+
+    fn cursor_forward_tab(&mut self, count: usize) {
         self.mark_dirty_row(self.cursor_y);
-        let next_tab = self
-            .tab_stops
-            .range((self.cursor_x + 1)..)
-            .next()
-            .copied()
-            .unwrap_or_else(|| self.cols.saturating_sub(1));
-        self.cursor_x = next_tab.min(self.cols.saturating_sub(1));
+        for _ in 0..count.max(1) {
+            let next_tab = self
+                .tab_stops
+                .range((self.cursor_x + 1)..)
+                .next()
+                .copied()
+                .unwrap_or_else(|| self.cols.saturating_sub(1));
+            self.cursor_x = next_tab.min(self.cols.saturating_sub(1));
+        }
     }
 
     fn reverse_horizontal_tab(&mut self, count: usize) {
@@ -1566,6 +1572,7 @@ impl<'a> ScreenParser<'a> {
                 let row = self.screen.cursor_y;
                 self.screen.set_cursor(row, first().saturating_sub(1));
             }
+            'I' => self.screen.cursor_forward_tab(first()),
             'g' => self
                 .screen
                 .clear_tab_stop(numbers.first().copied().unwrap_or(0)),
@@ -4795,6 +4802,78 @@ mod tests {
         let screen = engine.read_screen(session.id)?;
         assert_eq!(screen.lines, vec!["A   B"]);
         assert_eq!(screen.cursor.x, 5);
+        assert_eq!(screen.cursor.y, 0);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_applies_forward_tab_csi() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 20,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(session.id, "A\x1b[2IB")?;
+        let screen = engine.read_screen(session.id)?;
+        assert_eq!(screen.lines, vec!["A               B"]);
+        assert_eq!(screen.cursor.x, 17);
+        assert_eq!(screen.cursor.y, 0);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_forward_tab_csi_uses_custom_tab_stops() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 12,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(session.id, "\x1b[5G\x1bH\x1b[9G\x1bH\rA\x1b[2IB")?;
+        let screen = engine.read_screen(session.id)?;
+        assert_eq!(screen.lines, vec!["A       B"]);
+        assert_eq!(screen.cursor.x, 9);
+        assert_eq!(screen.cursor.y, 0);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_forward_tab_csi_clamps_at_right_edge() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 10,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(session.id, "A\x1b[5IZ")?;
+        let screen = engine.read_screen(session.id)?;
+        assert_eq!(screen.lines, vec!["A        Z"]);
+        assert_eq!(screen.cursor.x, 10);
         assert_eq!(screen.cursor.y, 0);
 
         engine.destroy_session(session.id)?;
