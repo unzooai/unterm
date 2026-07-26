@@ -21,6 +21,7 @@ struct NextCoreSession {
     child: Mutex<Box<dyn Child + Send + Sync>>,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     output: Arc<Mutex<String>>,
+    screen: Arc<Mutex<NextCoreScreen>>,
 }
 
 impl Drop for NextCoreSession {
@@ -35,6 +36,121 @@ struct NextCoreState {
     sessions: Vec<NextCoreSession>,
 }
 
+#[derive(Default)]
+struct NextCoreScreen {
+    lines: Vec<String>,
+    current: Vec<char>,
+    cursor_x: usize,
+}
+
+impl NextCoreScreen {
+    fn feed(&mut self, chunk: &str) {
+        let mut parser = ScreenParser::new(self);
+        parser.feed(chunk);
+    }
+
+    fn snapshot_lines(&self) -> Vec<String> {
+        let mut lines = self.lines.clone();
+        let current = self.current.iter().collect::<String>();
+        if !current.is_empty() {
+            lines.push(current.trim_end().to_string());
+        }
+        lines
+    }
+
+    fn put_char(&mut self, c: char) {
+        if self.cursor_x > self.current.len() {
+            self.current.resize(self.cursor_x, ' ');
+        }
+        if self.cursor_x == self.current.len() {
+            self.current.push(c);
+        } else {
+            self.current[self.cursor_x] = c;
+        }
+        self.cursor_x += 1;
+    }
+
+    fn newline(&mut self) {
+        let line = self.current.iter().collect::<String>();
+        self.lines.push(line.trim_end().to_string());
+        self.current.clear();
+        self.cursor_x = 0;
+    }
+
+    fn carriage_return(&mut self) {
+        self.cursor_x = 0;
+    }
+
+    fn backspace(&mut self) {
+        self.cursor_x = self.cursor_x.saturating_sub(1);
+    }
+}
+
+struct ScreenParser<'a> {
+    screen: &'a mut NextCoreScreen,
+    state: ParserState,
+}
+
+enum ParserState {
+    Ground,
+    Escape,
+    Csi,
+    Osc,
+    OscEscape,
+}
+
+impl<'a> ScreenParser<'a> {
+    fn new(screen: &'a mut NextCoreScreen) -> Self {
+        Self {
+            screen,
+            state: ParserState::Ground,
+        }
+    }
+
+    fn feed(&mut self, chunk: &str) {
+        for c in chunk.chars() {
+            self.feed_char(c);
+        }
+    }
+
+    fn feed_char(&mut self, c: char) {
+        match self.state {
+            ParserState::Ground => match c {
+                '\x1b' => self.state = ParserState::Escape,
+                '\r' => self.screen.carriage_return(),
+                '\n' => self.screen.newline(),
+                '\x08' => self.screen.backspace(),
+                '\t' => {
+                    let next_tab = ((self.screen.cursor_x / 8) + 1) * 8;
+                    while self.screen.cursor_x < next_tab {
+                        self.screen.put_char(' ');
+                    }
+                }
+                c if !c.is_control() => self.screen.put_char(c),
+                _ => {}
+            },
+            ParserState::Escape => match c {
+                '[' => self.state = ParserState::Csi,
+                ']' => self.state = ParserState::Osc,
+                _ => self.state = ParserState::Ground,
+            },
+            ParserState::Csi => {
+                if ('@'..='~').contains(&c) {
+                    self.state = ParserState::Ground;
+                }
+            }
+            ParserState::Osc => match c {
+                '\x07' => self.state = ParserState::Ground,
+                '\x1b' => self.state = ParserState::OscEscape,
+                _ => {}
+            },
+            ParserState::OscEscape => {
+                self.state = ParserState::Ground;
+            }
+        }
+    }
+}
+
 fn state() -> &'static RwLock<NextCoreState> {
     static STATE: OnceLock<RwLock<NextCoreState>> = OnceLock::new();
     STATE.get_or_init(|| RwLock::new(NextCoreState::default()))
@@ -47,7 +163,7 @@ fn reset_state_for_test() {
 
 #[cfg(test)]
 fn set_output_for_test(pane_id: usize, text: &str) -> Result<()> {
-    let output = {
+    let (output, screen) = {
         let state = state().read();
         let Some(session) = state
             .sessions
@@ -56,9 +172,12 @@ fn set_output_for_test(pane_id: usize, text: &str) -> Result<()> {
         else {
             bail!("next-core session {pane_id} not found");
         };
-        Arc::clone(&session.output)
+        (Arc::clone(&session.output), Arc::clone(&session.screen))
     };
     *output.lock() = text.to_string();
+    let mut screen = screen.lock();
+    *screen = NextCoreScreen::default();
+    screen.feed(text);
     Ok(())
 }
 
@@ -97,6 +216,23 @@ impl NextCoreEngine {
 
         let text = output.lock().clone();
         Ok(text)
+    }
+
+    fn screen_lines(&self, pane_id: usize) -> Result<Vec<String>> {
+        let screen = {
+            let state = state().read();
+            let Some(session) = state
+                .sessions
+                .iter()
+                .find(|session| session.snapshot.id == pane_id)
+            else {
+                bail!("next-core session {pane_id} not found");
+            };
+            Arc::clone(&session.screen)
+        };
+
+        let lines = screen.lock().snapshot_lines();
+        Ok(lines)
     }
 
     fn next_session_id(state: &mut NextCoreState) -> usize {
@@ -199,7 +335,14 @@ impl NextCoreEngine {
         let child = pair.slave.spawn_command(command)?;
         let writer = Arc::new(Mutex::new(pair.master.take_writer()?));
         let output = Arc::new(Mutex::new(String::new()));
-        Self::spawn_reader_thread(id, Arc::clone(&output), Arc::clone(&writer), reader);
+        let screen = Arc::new(Mutex::new(NextCoreScreen::default()));
+        Self::spawn_reader_thread(
+            id,
+            Arc::clone(&output),
+            Arc::clone(&screen),
+            Arc::clone(&writer),
+            reader,
+        );
         let shell = ShellSnapshot {
             shell_type: Self::shell_type(&label),
             process_name: label,
@@ -223,12 +366,14 @@ impl NextCoreEngine {
             child: Mutex::new(child),
             writer,
             output,
+            screen,
         })
     }
 
     fn spawn_reader_thread(
         pane_id: usize,
         output: Arc<Mutex<String>>,
+        screen: Arc<Mutex<NextCoreScreen>>,
         writer: Arc<Mutex<Box<dyn Write + Send>>>,
         mut reader: Box<dyn Read + Send>,
     ) {
@@ -253,6 +398,7 @@ impl NextCoreEngine {
                                     .unwrap_or(0);
                                 output.drain(..keep_from);
                             }
+                            screen.lock().feed(&chunk);
                         }
                         Err(_) => break,
                     }
@@ -435,8 +581,7 @@ impl SessionEngine for NextCoreEngine {
 impl ScreenEngine for NextCoreEngine {
     fn read_screen(&self, pane_id: usize) -> Result<ScreenSnapshot> {
         let session = self.session(pane_id)?;
-        let output = self.output(pane_id)?;
-        let lines = Self::output_lines(&output);
+        let lines = self.screen_lines(pane_id)?;
         let visible = Self::tail_lines(&lines, session.rows);
         let first_row = lines.len().saturating_sub(visible.len()) as i64;
         let cells = visible
@@ -463,8 +608,7 @@ impl ScreenEngine for NextCoreEngine {
     }
 
     fn read_lines(&self, pane_id: usize, start: i64, count: usize) -> Result<Vec<ScreenLine>> {
-        let output = self.output(pane_id)?;
-        let lines = Self::output_lines(&output);
+        let lines = self.screen_lines(pane_id)?;
         let start = start.max(0) as usize;
         Ok(lines
             .iter()
@@ -479,8 +623,8 @@ impl ScreenEngine for NextCoreEngine {
     }
 
     fn read_scrollback(&self, pane_id: usize, limit: usize) -> Result<Vec<String>> {
-        let output = self.output(pane_id)?;
-        let lines = Self::output_lines(&output)
+        let lines = self
+            .screen_lines(pane_id)?
             .into_iter()
             .filter(|line| !line.is_empty())
             .collect::<Vec<_>>();
@@ -493,8 +637,11 @@ impl ScreenEngine for NextCoreEngine {
         request: ScrollbackTextRequest,
     ) -> Result<ScrollbackTextSnapshot> {
         let session = self.session(pane_id)?;
-        let output = self.output(pane_id)?;
-        let lines = Self::output_lines(&output);
+        let lines = if request.escapes {
+            Self::output_lines(&self.output(pane_id)?)
+        } else {
+            self.screen_lines(pane_id)?
+        };
         let end = request
             .end_line
             .map(|end| end.max(0) as usize)
@@ -514,12 +661,12 @@ impl ScreenEngine for NextCoreEngine {
         let selected = lines[start..end].to_vec();
         Ok(ScrollbackTextSnapshot {
             text: if request.escapes {
-                String::new()
+                selected.join("\n")
             } else {
                 selected.join("\n")
             },
             lines: if request.escapes {
-                Vec::new()
+                selected.clone()
             } else {
                 selected
             },
@@ -539,8 +686,7 @@ impl ScreenEngine for NextCoreEngine {
         pattern: &str,
         max_results: usize,
     ) -> Result<Vec<ScreenSearchMatch>> {
-        let output = self.output(pane_id)?;
-        let lines = Self::output_lines(&output);
+        let lines = self.screen_lines(pane_id)?;
         let mut matches = Vec::new();
         for (row, line) in lines.iter().enumerate() {
             if let Some(col) = line.find(pattern) {
@@ -663,6 +809,32 @@ mod tests {
             },
         )?;
         assert!(scrollback.text.contains("next-core-output"));
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_strips_terminal_control_sequences() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 24,
+            command_dir: None,
+            command: None,
+        })?;
+        set_output_for_test(
+            session.id,
+            "\x1b[1t\x1b[6n\x1b[c\x1b[31mred\x1b[0m\rOK\nplain\x1b]0;title\x07\n",
+        )?;
+
+        let text = engine.read_visible_text(session.id)?;
+        assert!(text.contains("OKd"));
+        assert!(text.contains("plain"));
+        assert!(!text.contains("\x1b["));
+        assert!(!text.contains("title"));
 
         engine.destroy_session(session.id)?;
         Ok(())
