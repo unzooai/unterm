@@ -60,7 +60,7 @@ pub fn engine_capabilities(engine: &str) -> Value {
             }),
             json!({
                 "name": "capture.scrollback",
-                "limitation": "renders styled cell PNGs from next-core scrollback; full theme palette and bold/italic font matching parity are still in progress",
+                "limitation": "renders styled cell PNGs from next-core scrollback and reports renderer parity metadata; full theme palette and bold/italic font matching parity are still in progress",
             }),
             json!({
                 "name": "instance.focus",
@@ -99,6 +99,7 @@ pub fn engine_capabilities(engine: &str) -> Value {
             "session_create_launch_decision": true,
             "workspace_restore_launch_plan": true,
             "styled_scrollback_png": engine == "next-core",
+            "styled_scrollback_renderer_metadata": true,
             "pty_write_confirmation": true,
             "recording_block_markdown": engine == "next-core",
             "validated_capture_scrollback_pane_ids": true,
@@ -202,6 +203,10 @@ mod tests {
             caps["diagnostics"]["validated_capture_scrollback_pane_ids"],
             true
         );
+        assert_eq!(
+            caps["diagnostics"]["styled_scrollback_renderer_metadata"],
+            true
+        );
         assert_eq!(caps["diagnostics"]["host_window_bridge"], true);
         assert_eq!(
             caps["diagnostics"]["instance_lifecycle_observability"],
@@ -286,6 +291,10 @@ mod tests {
         assert_eq!(caps["diagnostics"]["session_create_launch_decision"], true);
         assert_eq!(caps["diagnostics"]["workspace_restore_launch_plan"], true);
         assert_eq!(caps["diagnostics"]["styled_scrollback_png"], true);
+        assert_eq!(
+            caps["diagnostics"]["styled_scrollback_renderer_metadata"],
+            true
+        );
         assert_eq!(caps["diagnostics"]["pty_write_confirmation"], true);
         assert_eq!(caps["diagnostics"]["recording_block_markdown"], true);
         assert_eq!(

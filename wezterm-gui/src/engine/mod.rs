@@ -55,6 +55,54 @@ pub trait WindowEngine {
 pub struct RenderedScrollbackPng {
     pub image: crate::scrollshot::ScrollbackPng,
     pub session_id: usize,
+    pub renderer: serde_json::Value,
+}
+
+pub fn wezterm_scrollback_renderer_metadata() -> serde_json::Value {
+    serde_json::json!({
+        "engine": "wezterm",
+        "renderer": "wezterm-pane",
+        "source": "pane-styled-cells",
+        "uses_wezterm_pane": true,
+        "standalone": false,
+        "styled": true,
+        "palette": "pane-resolved",
+        "supported_styles": [
+            "fg",
+            "bg",
+            "inverse",
+            "underline",
+            "bold",
+            "italic",
+            "theme_palette",
+        ],
+        "missing_parity": [],
+    })
+}
+
+pub fn next_core_scrollback_renderer_metadata() -> serde_json::Value {
+    serde_json::json!({
+        "engine": "next-core",
+        "renderer": "standalone-styled",
+        "source": "engine-styled-scrollback",
+        "uses_wezterm_pane": false,
+        "standalone": true,
+        "styled": true,
+        "palette": "ansi-256-fallback",
+        "supported_styles": [
+            "fg",
+            "bg",
+            "palette_index",
+            "rgb",
+            "inverse",
+            "underline",
+        ],
+        "missing_parity": [
+            "theme_palette_resolution",
+            "bold_font_face",
+            "italic_font_face",
+        ],
+    })
 }
 
 pub trait CaptureEngine {
@@ -446,6 +494,7 @@ impl CaptureEngine for CurrentTerminalEngine {
                 Ok(RenderedScrollbackPng {
                     image,
                     session_id: pane_id,
+                    renderer: next_core_scrollback_renderer_metadata(),
                 })
             }
         }

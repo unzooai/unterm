@@ -712,6 +712,10 @@ impl CaptureEngine for WezTermEngine {
         };
         let session_id = pane.pane_id();
         let image = crate::scrollshot::render_scrollback_png(&pane, path, opts)?;
-        Ok(RenderedScrollbackPng { image, session_id })
+        Ok(RenderedScrollbackPng {
+            image,
+            session_id,
+            renderer: crate::engine::wezterm_scrollback_renderer_metadata(),
+        })
     }
 }

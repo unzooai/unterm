@@ -1005,6 +1005,23 @@ mod engine_neutral_handler_tests {
         let (image, pane_id) = result.expect("render next-core scrollback PNG");
         assert!(next_core().get_session(pane_id).is_err());
         assert_eq!(image["type"], "image/png");
+        assert_eq!(image["renderer"]["engine"], "next-core");
+        assert_eq!(image["renderer"]["renderer"], "standalone-styled");
+        assert_eq!(image["renderer"]["uses_wezterm_pane"], false);
+        assert_eq!(image["renderer"]["standalone"], true);
+        assert_eq!(image["renderer"]["palette"], "ansi-256-fallback");
+        let supported_styles = image["renderer"]["supported_styles"]
+            .as_array()
+            .expect("supported styles");
+        assert!(supported_styles.iter().any(|style| style == "fg"));
+        assert!(supported_styles.iter().any(|style| style == "underline"));
+        let missing_parity = image["renderer"]["missing_parity"]
+            .as_array()
+            .expect("missing parity");
+        assert!(missing_parity
+            .iter()
+            .any(|item| item == "theme_palette_resolution"));
+        assert!(missing_parity.iter().any(|item| item == "bold_font_face"));
         assert!(image["width"].as_u64().unwrap_or_default() > 0);
         assert!(image["height"].as_u64().unwrap_or_default() > 0);
         let path = std::path::PathBuf::from(image["path"].as_str().expect("png path"));
@@ -1955,6 +1972,10 @@ mod engine_neutral_handler_tests {
             true
         );
         assert_eq!(
+            surface["engine_capabilities"]["diagnostics"]["styled_scrollback_renderer_metadata"],
+            true
+        );
+        assert_eq!(
             surface["engine_capabilities"]["diagnostics"]["pty_write_confirmation"],
             true
         );
@@ -1993,6 +2014,11 @@ mod engine_neutral_handler_tests {
         );
         assert_eq!(
             capabilities["_engine_capabilities"]["diagnostics"]["styled_scrollback_png"],
+            true
+        );
+        assert_eq!(
+            capabilities["_engine_capabilities"]["diagnostics"]
+                ["styled_scrollback_renderer_metadata"],
             true
         );
         assert_eq!(
@@ -6281,6 +6307,7 @@ impl McpHandler {
             "truncated": r.image.truncated,
             "first_row": r.image.first_row,
             "session_id": session,
+            "renderer": r.renderer,
             "type": "image/png",
         }))
     }

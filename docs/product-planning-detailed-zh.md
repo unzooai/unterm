@@ -4,7 +4,7 @@
 更新时间：2026-07-27  
 规划周期：12 个月  
 适用范围：当前 WezTerm 内核、engine-neutral 产品层、实验性 `next-core`
-当前进展：`next-core` 已具备启动环境元数据、typed launch policy provenance、future-launch env overlay、session.create launch decision summary、default-shell launch decision、workspace.restore launch plan、profile/proxy launch-context 诊断、scrollback 文本截图、styled scrollback snapshot 与基础 styled PNG 渲染、styled_scrollback_png capability 诊断、capture.scrollback 显式 pane id 活 session 校验、host-window bridge capability 诊断、实例生命周期 ownership 诊断与实例窗口元数据、PTY write confirmation capability/health 诊断、OSC 7 cwd、session activity、input/output/paste 指标、exec.run_wait engine-neutral shell detection、session/exec/screen/agent.signal 核心 MCP handler 共享 pane-id resolver、active recording YAML markdown/redaction、chunked-output block markdown、server health 聚合 I/O 诊断、逻辑 viewport goto 和 UTF-8 安全粘贴分块基础能力。
+当前进展：`next-core` 已具备启动环境元数据、typed launch policy provenance、future-launch env overlay、session.create launch decision summary、default-shell launch decision、workspace.restore launch plan、profile/proxy launch-context 诊断、scrollback 文本截图、styled scrollback snapshot 与基础 styled PNG 渲染、styled_scrollback_png capability 诊断、styled scrollback renderer parity metadata、capture.scrollback 显式 pane id 活 session 校验、host-window bridge capability 诊断、实例生命周期 ownership 诊断与实例窗口元数据、PTY write confirmation capability/health 诊断、OSC 7 cwd、session activity、input/output/paste 指标、exec.run_wait engine-neutral shell detection、session/exec/screen/agent.signal 核心 MCP handler 共享 pane-id resolver、active recording YAML markdown/redaction、chunked-output block markdown、server health 聚合 I/O 诊断、逻辑 viewport goto 和 UTF-8 安全粘贴分块基础能力。
 
 ## 1. 产品结论
 
