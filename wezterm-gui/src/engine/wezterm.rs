@@ -305,6 +305,10 @@ impl ScreenEngine for WezTermEngine {
         })
     }
 
+    fn read_visible_text(&self, pane_id: usize) -> Result<String> {
+        Ok(self.read_screen(pane_id)?.lines.join("\n"))
+    }
+
     fn read_lines(&self, pane_id: usize, start: i64, count: usize) -> Result<Vec<ScreenLine>> {
         let pane = self.pane(pane_id)?;
         let start = start as isize;

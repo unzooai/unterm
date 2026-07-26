@@ -4034,15 +4034,8 @@ impl McpHandler {
     // --- Helpers ---
 
     fn read_pane_text(&self, pane: &Arc<dyn Pane>) -> String {
-        let dims = pane.get_dimensions();
-        let first_row = dims.physical_top;
-        let last_row = first_row + dims.viewport_rows as isize;
-        let (_first, lines) = pane.get_lines(first_row..last_row);
-        lines
-            .iter()
-            .map(|line| line.as_str().trim_end().to_string())
-            .collect::<Vec<_>>()
-            .join("\n")
+        let engine = crate::engine::wezterm::WezTermEngine;
+        engine.read_visible_text(pane.pane_id()).unwrap_or_default()
     }
 
     fn screen_read(&self, params: &Value) -> Result<Value> {
@@ -4186,12 +4179,8 @@ impl McpHandler {
     }
 
     fn screen_detect_errors(&self, params: &Value) -> Result<Value> {
-        let pane = self.get_pane(params)?;
-        let dims = pane.get_dimensions();
-
-        let first_row = dims.physical_top;
-        let last_row = first_row + dims.viewport_rows as isize;
-        let (_first, lines) = pane.get_lines(first_row..last_row);
+        let engine = crate::engine::wezterm::WezTermEngine;
+        let screen = engine.read_screen(Self::pane_id_from_params(params)?)?;
 
         let error_patterns = [
             "error:",
@@ -4220,8 +4209,8 @@ impl McpHandler {
 
         let mut errors: Vec<Value> = Vec::new();
 
-        for (row_idx, line) in lines.iter().enumerate() {
-            let text = line.as_str().to_string();
+        for line in screen.cells {
+            let text = line.text;
             let trimmed = text.trim();
             if trimmed.is_empty() {
                 continue;
@@ -4229,7 +4218,7 @@ impl McpHandler {
             for pattern in &error_patterns {
                 if trimmed.contains(pattern) {
                     errors.push(json!({
-                        "row": first_row as i64 + row_idx as i64,
+                        "row": line.row,
                         "text": trimmed,
                         "pattern": pattern,
                     }));

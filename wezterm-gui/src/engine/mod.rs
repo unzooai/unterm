@@ -136,6 +136,7 @@ pub trait SessionEngine {
 
 pub trait ScreenEngine {
     fn read_screen(&self, pane_id: usize) -> Result<ScreenSnapshot>;
+    fn read_visible_text(&self, pane_id: usize) -> Result<String>;
     fn read_lines(&self, pane_id: usize, start: i64, count: usize) -> Result<Vec<ScreenLine>>;
     fn read_scrollback(&self, pane_id: usize, limit: usize) -> Result<Vec<String>>;
     fn read_scrollback_text(
