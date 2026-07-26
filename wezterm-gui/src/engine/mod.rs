@@ -6,6 +6,7 @@
 //! WezTerm mux, and next-core will implement the same shapes from its own pane
 //! model.
 
+pub mod next_core;
 pub mod wezterm;
 
 use anyhow::Result;
@@ -16,6 +17,11 @@ pub type CurrentTerminalEngine = wezterm::WezTermEngine;
 
 pub fn current() -> CurrentTerminalEngine {
     wezterm::WezTermEngine
+}
+
+#[allow(dead_code)]
+pub fn next_core() -> next_core::NextCoreEngine {
+    next_core::NextCoreEngine
 }
 
 #[derive(Clone, Debug, Serialize)]
