@@ -801,6 +801,17 @@ pub fn export_scrollback_markdown(
     export_scrollback_markdown_with_events(pane_id, project_path, scroll_text, target, Vec::new())
 }
 
+/// Engine-neutral wrapper for MCP callers that should not mention WezTerm's
+/// pane id type directly.
+pub fn export_scrollback_markdown_for_session(
+    pane_id: usize,
+    project_path: Option<String>,
+    scroll_text: String,
+    target: Option<PathBuf>,
+) -> Result<(PathBuf, RenderOutput)> {
+    export_scrollback_markdown(pane_id as PaneId, project_path, scroll_text, target)
+}
+
 fn export_scrollback_markdown_with_events(
     pane_id: PaneId,
     project_path: Option<String>,

@@ -32,10 +32,21 @@ pub struct PaneLocation {
     pub tab_id: usize,
 }
 
+#[derive(Clone, Debug)]
+pub enum ViewportScrollResult {
+    Scrolled,
+    Unsupported { reason: String },
+}
+
 pub trait WindowEngine {
     fn focus_current_instance_window(&self) -> anyhow::Result<WindowFocusResult>;
     fn active_pane_id(&self) -> anyhow::Result<Option<u64>>;
     fn pane_locations(&self) -> anyhow::Result<HashMap<u64, PaneLocation>>;
+    fn scroll_viewport_to(
+        &self,
+        pane_id: usize,
+        target: isize,
+    ) -> anyhow::Result<ViewportScrollResult>;
 }
 
 pub struct RenderedScrollbackPng {
@@ -340,6 +351,19 @@ impl WindowEngine for CurrentTerminalEngine {
         match self {
             Self::WezTerm(engine) => engine.pane_locations(),
             Self::NextCore(_) => Ok(HashMap::new()),
+        }
+    }
+
+    fn scroll_viewport_to(
+        &self,
+        pane_id: usize,
+        target: isize,
+    ) -> anyhow::Result<ViewportScrollResult> {
+        match self {
+            Self::WezTerm(engine) => engine.scroll_viewport_to(pane_id, target),
+            Self::NextCore(_) => Ok(ViewportScrollResult::Unsupported {
+                reason: "engine_has_no_gui_viewport".to_string(),
+            }),
         }
     }
 }

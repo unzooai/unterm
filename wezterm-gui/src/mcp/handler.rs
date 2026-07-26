@@ -1,14 +1,13 @@
-//! MCP request handler — bridges JSON-RPC methods to WezTerm's Mux API.
+//! MCP request handler — bridges JSON-RPC methods to terminal engine APIs.
 //! Implements all methods required by unterm-cli compatibility.
 
 use crate::engine::{
     CaptureEngine, CreateSessionRequest, CurrentTerminalEngine, HealthEngine, InputEngine,
     RecordingEngine, ScreenEngine, ScrollbackTextRequest, SessionEngine, SplitDirection,
-    SplitSessionRequest, WindowEngine,
+    SplitSessionRequest, ViewportScrollResult, WindowEngine,
 };
 use anyhow::{anyhow, Context, Result};
 use base64::Engine as _;
-use mux::Mux;
 use parking_lot::Mutex;
 use portable_pty::CommandBuilder;
 use serde_json::{json, Value};
@@ -16,7 +15,6 @@ use std::collections::HashMap;
 #[cfg(not(windows))]
 use std::ffi::OsString;
 use std::net::ToSocketAddrs;
-use std::sync::Arc;
 
 /// Audit log entry
 #[derive(Clone, serde::Serialize)]
@@ -2361,10 +2359,6 @@ impl McpHandler {
         }
     }
 
-    fn get_mux(&self) -> Result<Arc<Mux>> {
-        Mux::try_get().ok_or_else(|| anyhow!("Mux not available"))
-    }
-
     fn engine(&self) -> CurrentTerminalEngine {
         crate::engine::current()
     }
@@ -3986,16 +3980,18 @@ impl McpHandler {
                 .unwrap_or(0) as usize;
             let index = index.min(match_rows.len() - 1);
             let target = match_rows[index];
-            if engine_name == "wezterm" {
-                self.scroll_pane_viewport_to(pane_id, target)?;
-                scrolled_to = json!({ "row": target, "match_index": index });
-            } else {
-                goto_skipped = json!({
-                    "reason": "engine_has_no_gui_viewport",
-                    "engine": engine_name,
-                    "row": target,
-                    "match_index": index,
-                });
+            match engine.scroll_viewport_to(pane_id, target)? {
+                ViewportScrollResult::Scrolled => {
+                    scrolled_to = json!({ "row": target, "match_index": index });
+                }
+                ViewportScrollResult::Unsupported { reason } => {
+                    goto_skipped = json!({
+                        "reason": reason,
+                        "engine": engine_name,
+                        "row": target,
+                        "match_index": index,
+                    });
+                }
             }
         }
 
@@ -4005,46 +4001,6 @@ impl McpHandler {
             "scrolled_to": scrolled_to,
             "goto_skipped": goto_skipped,
         }))
-    }
-
-    /// Scroll the GUI viewport of `pane_id` so that stable row `target` is
-    /// on screen, with ~1/4 of the viewport above it for context. The
-    /// viewport is per-TermWindow GUI state, not Mux state, so this hops to
-    /// the main thread and applies through the owning window's notify queue.
-    fn scroll_pane_viewport_to(&self, pane_id: usize, target: isize) -> Result<()> {
-        let mux = self.get_mux()?;
-        let (_domain, mux_window_id, _tab) = mux
-            .resolve_pane_id(pane_id)
-            .ok_or_else(|| anyhow!("pane {pane_id} not found in any window"))?;
-
-        let (tx, rx) = std::sync::mpsc::channel();
-        promise::spawn::spawn_into_main_thread(async move {
-            let result = (|| -> Result<()> {
-                use ::window::WindowOps;
-                let gui = crate::frontend::front_end()
-                    .gui_window_for_mux_window(mux_window_id)
-                    .ok_or_else(|| anyhow!("no GUI window for mux window {mux_window_id}"))?;
-                gui.window
-                    .notify(crate::termwindow::TermWindowNotif::Apply(Box::new(
-                        move |term_window| {
-                            if let Some(pane) = Mux::get().get_pane(pane_id) {
-                                let dims = pane.get_dimensions();
-                                let top = (target - dims.viewport_rows as isize / 4)
-                                    .max(dims.scrollback_top);
-                                // set_viewport itself clamps "past the bottom"
-                                // back to live-follow mode.
-                                term_window.set_viewport(pane_id, Some(top), dims);
-                            }
-                        },
-                    )));
-                Ok(())
-            })();
-            tx.send(result).ok();
-        })
-        .detach();
-
-        rx.recv_timeout(std::time::Duration::from_secs(5))
-            .map_err(|_| anyhow!("timeout scrolling pane {pane_id} to row {target}"))?
     }
 
     // --- Orchestrate ---
@@ -5603,8 +5559,8 @@ impl McpHandler {
                     escapes: false,
                 },
             )?;
-            crate::recording::export_scrollback_markdown(
-                pane_id as mux::pane::PaneId,
+            crate::recording::export_scrollback_markdown_for_session(
+                pane_id,
                 project_path,
                 scrollback.text,
                 path,

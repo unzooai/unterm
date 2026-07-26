@@ -5,7 +5,7 @@ use super::{
     RenderedScrollbackPng, ScreenEngine, ScreenLine, ScreenSearchMatch, ScreenSnapshot,
     ScrollbackTextRequest, ScrollbackTextSnapshot, SessionActivitySnapshot, SessionEngine,
     SessionSnapshot, ShellSnapshot, SplitDirection, SplitSessionRequest, StyledCell,
-    StyledScreenLine, StyledScreenSnapshot, WindowEngine, WindowFocusResult,
+    StyledScreenLine, StyledScreenSnapshot, ViewportScrollResult, WindowEngine, WindowFocusResult,
 };
 use anyhow::{anyhow, Context, Result};
 use config::keyassignment::SpawnTabDomain;
@@ -612,6 +612,41 @@ impl WindowEngine for WezTermEngine {
             }
         }
         Ok(locations)
+    }
+
+    fn scroll_viewport_to(&self, pane_id: usize, target: isize) -> Result<ViewportScrollResult> {
+        let mux = self.mux()?;
+        let (_domain, mux_window_id, _tab) = mux
+            .resolve_pane_id(pane_id)
+            .ok_or_else(|| anyhow!("pane {pane_id} not found in any window"))?;
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        promise::spawn::spawn_into_main_thread(async move {
+            let result = (|| -> Result<()> {
+                use ::window::WindowOps;
+                let gui = crate::frontend::front_end()
+                    .gui_window_for_mux_window(mux_window_id)
+                    .ok_or_else(|| anyhow!("no GUI window for mux window {mux_window_id}"))?;
+                gui.window
+                    .notify(crate::termwindow::TermWindowNotif::Apply(Box::new(
+                        move |term_window| {
+                            if let Some(pane) = Mux::get().get_pane(pane_id) {
+                                let dims = pane.get_dimensions();
+                                let top = (target - dims.viewport_rows as isize / 4)
+                                    .max(dims.scrollback_top);
+                                term_window.set_viewport(pane_id, Some(top), dims);
+                            }
+                        },
+                    )));
+                Ok(())
+            })();
+            tx.send(result).ok();
+        })
+        .detach();
+
+        rx.recv_timeout(std::time::Duration::from_secs(5))
+            .map_err(|_| anyhow!("timeout scrolling pane {pane_id} to row {target}"))??;
+        Ok(ViewportScrollResult::Scrolled)
     }
 }
 

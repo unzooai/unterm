@@ -125,7 +125,7 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 | `screen.scrollback_text` | Engine-neutral | `ScreenEngine::read_scrollback_text` plus active-session fallback | Active fallback currently uses engine sessions; OK. |
 | `screen.cursor` | Engine-neutral | `ScreenEngine::cursor` | Baseline next-core capability. |
 | `screen.scroll` | Engine-neutral | `ScreenEngine::read_lines` | Method name is read-only despite "scroll". |
-| `screen.search` | Engine-neutral | `ScreenEngine::search`; optional `goto` only applies when current engine owns a WezTerm GUI viewport | `next-core` returns matches and reports `goto_skipped` instead of reaching into WezTerm Mux/window state. |
+| `screen.search` | Engine-neutral | `ScreenEngine::search`; optional `goto` routes through `WindowEngine::scroll_viewport_to` | `next-core` returns matches and reports `goto_skipped` until it owns GUI viewport state. |
 | `screen.detect_errors` | Engine-neutral | `ScreenEngine::read_screen` plus product heuristics | Product-only heuristic on engine snapshot. |
 
 ## Agent, Cockpit, Fleet, Review
