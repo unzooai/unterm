@@ -281,6 +281,24 @@ impl NextCoreScreen {
         self.scrollback.iter().chain(self.lines.iter()).collect()
     }
 
+    fn history_len(&self) -> usize {
+        self.scrollback.len() + self.lines.len()
+    }
+
+    fn history_text_range(&self, start: usize, count: usize) -> Vec<String> {
+        let end = start.saturating_add(count).min(self.history_len());
+        (start..end)
+            .filter_map(|idx| {
+                if idx < self.scrollback.len() {
+                    self.scrollback.get(idx)
+                } else {
+                    self.lines.get(idx - self.scrollback.len())
+                }
+            })
+            .map(Self::line_text)
+            .collect()
+    }
+
     fn line_text(line: &Vec<ScreenCell>) -> String {
         line.iter()
             .filter(|cell| cell.width > 0)
@@ -1065,6 +1083,45 @@ impl NextCoreEngine {
         Ok(lines)
     }
 
+    fn screen_line_count(&self, pane_id: usize) -> Result<usize> {
+        let screen = {
+            let state = state().read();
+            let Some(session) = state
+                .sessions
+                .iter()
+                .find(|session| session.snapshot.id == pane_id)
+            else {
+                bail!("next-core session {pane_id} not found");
+            };
+            Arc::clone(&session.screen)
+        };
+
+        let count = screen.lock().history_len();
+        Ok(count)
+    }
+
+    fn screen_line_text_range(
+        &self,
+        pane_id: usize,
+        start: usize,
+        count: usize,
+    ) -> Result<Vec<String>> {
+        let screen = {
+            let state = state().read();
+            let Some(session) = state
+                .sessions
+                .iter()
+                .find(|session| session.snapshot.id == pane_id)
+            else {
+                bail!("next-core session {pane_id} not found");
+            };
+            Arc::clone(&session.screen)
+        };
+
+        let lines = screen.lock().history_text_range(start, count);
+        Ok(lines)
+    }
+
     fn viewport_lines(&self, pane_id: usize) -> Result<Vec<String>> {
         let screen = {
             let state = state().read();
@@ -1657,16 +1714,14 @@ impl ScreenEngine for NextCoreEngine {
     }
 
     fn read_lines(&self, pane_id: usize, start: i64, count: usize) -> Result<Vec<ScreenLine>> {
-        let lines = self.screen_lines(pane_id)?;
         let start = start.max(0) as usize;
-        Ok(lines
-            .iter()
-            .skip(start)
-            .take(count)
+        Ok(self
+            .screen_line_text_range(pane_id, start, count)?
+            .into_iter()
             .enumerate()
             .map(|(idx, text)| ScreenLine {
                 row: (start + idx) as i64,
-                text: text.clone(),
+                text,
             })
             .collect())
     }
@@ -1686,16 +1741,20 @@ impl ScreenEngine for NextCoreEngine {
         request: ScrollbackTextRequest,
     ) -> Result<ScrollbackTextSnapshot> {
         let session = self.session(pane_id)?;
-        let lines = if request.escapes {
-            Self::output_lines(&self.output(pane_id)?)
+        let raw_lines;
+        let line_count;
+        if request.escapes {
+            raw_lines = Some(Self::output_lines(&self.output(pane_id)?));
+            line_count = raw_lines.as_ref().map_or(0, Vec::len);
         } else {
-            self.screen_lines(pane_id)?
-        };
+            raw_lines = None;
+            line_count = self.screen_line_count(pane_id)?;
+        }
         let end = request
             .end_line
             .map(|end| end.max(0) as usize)
-            .unwrap_or(lines.len())
-            .min(lines.len());
+            .unwrap_or(line_count)
+            .min(line_count);
         let mut start = request
             .start_line
             .map(|start| start.max(0) as usize)
@@ -1707,24 +1766,20 @@ impl ScreenEngine for NextCoreEngine {
             }
         }
 
-        let selected = lines[start..end].to_vec();
+        let selected = if let Some(lines) = raw_lines {
+            lines[start..end].to_vec()
+        } else {
+            self.screen_line_text_range(pane_id, start, end.saturating_sub(start))?
+        };
         Ok(ScrollbackTextSnapshot {
-            text: if request.escapes {
-                selected.join("\n")
-            } else {
-                selected.join("\n")
-            },
-            lines: if request.escapes {
-                selected.clone()
-            } else {
-                selected
-            },
+            text: selected.join("\n"),
+            lines: selected,
             first_row: start as i64,
             row_count: end.saturating_sub(start) as i64,
             cols: session.cols,
             escapes: request.escapes,
             scrollback_top: 0,
-            physical_top: lines.len().saturating_sub(session.rows) as i64,
+            physical_top: line_count.saturating_sub(session.rows) as i64,
             viewport_rows: session.rows,
         })
     }
@@ -2394,6 +2449,26 @@ mod tests {
             .map(|line| line.text.as_str())
             .collect::<Vec<_>>();
         assert_eq!(text, vec!["one", "two", "three", "four", "five"]);
+        let middle = engine.read_lines(session.id, 1, 3)?;
+        assert_eq!(
+            middle
+                .iter()
+                .map(|line| (line.row, line.text.as_str()))
+                .collect::<Vec<_>>(),
+            vec![(1, "two"), (2, "three"), (3, "four")]
+        );
+        let scrollback_text = engine.read_scrollback_text(
+            session.id,
+            ScrollbackTextRequest {
+                start_line: Some(1),
+                end_line: Some(4),
+                tail_lines: None,
+                escapes: false,
+            },
+        )?;
+        assert_eq!(scrollback_text.lines, vec!["two", "three", "four"]);
+        assert_eq!(scrollback_text.first_row, 1);
+        assert_eq!(scrollback_text.row_count, 3);
         assert_eq!(engine.search(session.id, "one", 1)?[0].row, 0);
 
         engine.destroy_session(session.id)?;

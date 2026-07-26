@@ -37,3 +37,11 @@ cargo run -p unterm-engine --bin unterm-next-core -- --bench-flood-lines 1000 --
 ```
 
 The flood benchmark emits many lines through `cmd.exe`, waits for a completion marker, and reports elapsed time plus line/byte throughput.
+
+Scrollback paging benchmark:
+
+```powershell
+cargo run -p unterm-engine --bin unterm-next-core -- --bench-scrollback-lines 10000 --timeout-ms 30000 --wait-ms 100 --write "exit`r" -- cmd.exe
+```
+
+The scrollback benchmark first fills the terminal through the PTY, then reads the captured history in viewport-sized pages and reports per-page read latency.

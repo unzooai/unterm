@@ -12,6 +12,7 @@ struct Args {
     command: Option<Vec<String>>,
     bench_echo: Option<usize>,
     bench_flood_lines: Option<usize>,
+    bench_scrollback_lines: Option<usize>,
     poll_ms: u64,
     timeout_ms: u64,
 }
@@ -27,6 +28,7 @@ fn parse_args() -> Result<Args> {
         command: None,
         bench_echo: None,
         bench_flood_lines: None,
+        bench_scrollback_lines: None,
         poll_ms: 5,
         timeout_ms: 5000,
     };
@@ -85,6 +87,15 @@ fn parse_args() -> Result<Args> {
                         .parse()?,
                 );
             }
+            "--bench-scrollback-lines" => {
+                parsed.bench_scrollback_lines = Some(
+                    args.next()
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("--bench-scrollback-lines requires a value")
+                        })?
+                        .parse()?,
+                );
+            }
             "--write" => {
                 parsed.write = Some(
                     args.next()
@@ -99,7 +110,7 @@ fn parse_args() -> Result<Args> {
             }
             "--help" | "-h" => {
                 println!(
-                    "Usage: unterm-next-core [--cols N] [--rows N] [--wait-ms N] [--poll-ms N] [--timeout-ms N] [--bench-echo N] [--bench-flood-lines N] [--cwd PATH] [--write TEXT] [-- COMMAND [ARG...]]"
+                    "Usage: unterm-next-core [--cols N] [--rows N] [--wait-ms N] [--poll-ms N] [--timeout-ms N] [--bench-echo N] [--bench-flood-lines N] [--bench-scrollback-lines N] [--cwd PATH] [--write TEXT] [-- COMMAND [ARG...]]"
                 );
                 std::process::exit(0);
             }
@@ -177,6 +188,60 @@ fn run_flood_benchmark(
     }
 }
 
+fn run_scrollback_benchmark(
+    engine: &unterm_engine::next_core::NextCoreEngine,
+    pane_id: usize,
+    lines: usize,
+    poll_interval: Duration,
+    timeout: Duration,
+) -> Result<()> {
+    if lines == 0 {
+        bail!("--bench-scrollback-lines must be greater than 0");
+    }
+
+    run_flood_benchmark(engine, pane_id, lines, poll_interval, timeout)?;
+
+    let screen = engine.read_screen(pane_id)?;
+    let page_rows = screen.rows.max(1);
+    let total_rows = screen.scrollback_rows + screen.rows;
+    let mut pages = Vec::new();
+    let mut start = total_rows.saturating_sub(page_rows);
+    loop {
+        pages.push(start as i64);
+        if start == 0 {
+            break;
+        }
+        start = start.saturating_sub(page_rows);
+    }
+
+    let before = Instant::now();
+    let mut latencies_us = Vec::with_capacity(pages.len());
+    let mut rows_read = 0usize;
+    for start in pages.iter().copied() {
+        let page_before = Instant::now();
+        rows_read += engine.read_lines(pane_id, start, page_rows)?.len();
+        latencies_us.push(page_before.elapsed().as_micros());
+    }
+
+    latencies_us.sort_unstable();
+    let min = latencies_us[0];
+    let p50 = percentile(&latencies_us, 0.50);
+    let p95 = percentile(&latencies_us, 0.95);
+    let max = *latencies_us.last().unwrap_or(&0);
+    println!(
+        "bench_scrollback lines={} pages={} rows_read={} total_ms={} min_us={} p50_us={} p95_us={} max_us={}",
+        lines,
+        pages.len(),
+        rows_read,
+        before.elapsed().as_millis(),
+        min,
+        p50,
+        p95,
+        max
+    );
+    Ok(())
+}
+
 fn run_echo_benchmark(
     engine: &unterm_engine::next_core::NextCoreEngine,
     pane_id: usize,
@@ -252,6 +317,17 @@ fn main() -> Result<()> {
             Duration::from_millis(args.timeout_ms),
         )
         .with_context(|| format!("bench_flood failed for session {}", session.id))?;
+    }
+
+    if let Some(lines) = args.bench_scrollback_lines {
+        run_scrollback_benchmark(
+            &engine,
+            session.id,
+            lines,
+            Duration::from_millis(args.poll_ms),
+            Duration::from_millis(args.timeout_ms),
+        )
+        .with_context(|| format!("bench_scrollback failed for session {}", session.id))?;
     }
 
     if let Some(input) = args.write {
