@@ -31,6 +31,8 @@ const MAX_RECORDING_BLOCKS: usize = 256;
 const MAX_SCROLLBACK_LINES: usize = 10_000;
 const ACTIVITY_IDLE_AFTER: Duration = Duration::from_secs(2);
 const PASTE_CHUNK_BYTES: usize = 4096;
+const HEADLESS_CELL_WIDTH_PX: usize = 8;
+const HEADLESS_CELL_HEIGHT_PX: usize = 16;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct NextCoreEngine;
@@ -3332,6 +3334,16 @@ impl NextCoreEngine {
                     format!("\x1b[?{};{}R", screen.cursor_y + 1, screen.cursor_x + 1).as_bytes(),
                 );
                 idx += "\x1b[?6n".len();
+            } else if rest.starts_with("\x1b[14t") {
+                response.extend_from_slice(
+                    format!(
+                        "\x1b[4;{};{}t",
+                        screen.rows * HEADLESS_CELL_HEIGHT_PX,
+                        screen.cols * HEADLESS_CELL_WIDTH_PX
+                    )
+                    .as_bytes(),
+                );
+                idx += "\x1b[14t".len();
             } else if rest.starts_with("\x1b[18t") {
                 response.extend_from_slice(
                     format!("\x1b[8;{};{}t", screen.rows, screen.cols).as_bytes(),
@@ -4341,6 +4353,21 @@ mod tests {
     }
 
     #[test]
+    fn answers_window_pixel_size_queries_from_headless_cell_dimensions() {
+        let _guard = test_guard();
+        let screen = NextCoreScreen::new(132, 43);
+        let bytes = Arc::new(Mutex::new(Vec::new()));
+        let writer: Arc<Mutex<Box<dyn Write + Send>>> =
+            Arc::new(Mutex::new(Box::new(SharedWriter {
+                bytes: Arc::clone(&bytes),
+            })));
+
+        NextCoreEngine::answer_terminal_queries("\x1b[14t", &screen, &writer);
+
+        assert_eq!(bytes.lock().as_slice(), b"\x1b[4;688;1056t");
+    }
+
+    #[test]
     fn answers_multiple_terminal_queries_in_chunk() {
         let _guard = test_guard();
         let mut screen = NextCoreScreen::new(80, 10);
@@ -4352,14 +4379,14 @@ mod tests {
             })));
 
         NextCoreEngine::answer_terminal_queries(
-            "\x1b[5n\x1b[?6n\x1b[18t\x1b[6n\x1b[>c\x1b[c",
+            "\x1b[5n\x1b[?6n\x1b[14t\x1b[18t\x1b[6n\x1b[>c\x1b[c",
             &screen,
             &writer,
         );
 
         assert_eq!(
             bytes.lock().as_slice(),
-            b"\x1b[0n\x1b[?3;5R\x1b[8;10;80t\x1b[3;5R\x1b[>0;0;0c\x1b[?64;1;2;6;9;15;18;21;22c"
+            b"\x1b[0n\x1b[?3;5R\x1b[4;160;640t\x1b[8;10;80t\x1b[3;5R\x1b[>0;0;0c\x1b[?64;1;2;6;9;15;18;21;22c"
         );
     }
 
