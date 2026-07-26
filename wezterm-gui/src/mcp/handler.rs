@@ -2,8 +2,8 @@
 //! Implements all methods required by unterm-cli compatibility.
 
 use crate::engine::{
-    CreateSessionRequest, CurrentTerminalEngine, InputEngine, ScreenEngine, ScrollbackTextRequest,
-    SessionEngine, SplitDirection, SplitSessionRequest,
+    CreateSessionRequest, CurrentTerminalEngine, InputEngine, RecordingEngine, ScreenEngine,
+    ScrollbackTextRequest, SessionEngine, SplitDirection, SplitSessionRequest,
 };
 use anyhow::{anyhow, Context, Result};
 use base64::Engine as _;
@@ -4485,14 +4485,13 @@ impl McpHandler {
     // ----------------------------------------------------------------
 
     fn session_recording_start(&self, params: &Value) -> Result<Value> {
-        let pane = self.get_pane(params)?;
-        let pane_id = pane.pane_id();
+        let pane_id = Self::pane_id_from_params(params)?;
         self.audit(
             "session.recording_start",
             Some(&pane_id.to_string()),
             "start",
         );
-        let r = crate::recording::start_recording(pane_id)?;
+        let r = self.engine().start_recording(pane_id)?;
         Ok(json!({
             "session_id": r.session_id,
             "log_path": r.log_path,
@@ -4501,10 +4500,9 @@ impl McpHandler {
     }
 
     fn session_recording_stop(&self, params: &Value) -> Result<Value> {
-        let pane = self.get_pane(params)?;
-        let pane_id = pane.pane_id();
+        let pane_id = Self::pane_id_from_params(params)?;
         self.audit("session.recording_stop", Some(&pane_id.to_string()), "stop");
-        let r = crate::recording::stop_recording(pane_id)?;
+        let r = self.engine().stop_recording(pane_id)?;
         Ok(json!({
             "session_id": r.session_id,
             "ended_at": r.ended_at,
@@ -4516,9 +4514,18 @@ impl McpHandler {
 
     fn session_recording_status(&self, params: &Value) -> Result<Value> {
         let pane_id = Self::pane_id_from_params(params)?;
-        Ok(crate::recording::recording_status(
-            pane_id as mux::pane::PaneId,
-        ))
+        let status = self.engine().recording_status(pane_id)?;
+        if status.enabled {
+            Ok(json!({
+                "enabled": true,
+                "session_id": status.session_id,
+                "started_at": status.started_at,
+                "block_count": status.block_count,
+                "bytes": status.bytes,
+            }))
+        } else {
+            Ok(json!({"enabled": false}))
+        }
     }
 
     fn session_recording_list(&self, params: &Value) -> Result<Value> {
@@ -4554,13 +4561,13 @@ impl McpHandler {
     }
 
     fn session_recording_attach_trace(&self, params: &Value) -> Result<Value> {
-        let pane = self.get_pane(params)?;
+        let pane_id = Self::pane_id_from_params(params)?;
         let trace_id = params
             .get("trace_id")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing 'trace_id'"))?
             .to_string();
-        let traces = crate::recording::attach_trace(pane.pane_id(), trace_id)?;
+        let traces = self.engine().attach_recording_trace(pane_id, trace_id)?;
         Ok(json!({"trace_ids": traces}))
     }
 

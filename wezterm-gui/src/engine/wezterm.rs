@@ -1,6 +1,7 @@
 use super::{
-    CellStyle, CreateSessionRequest, CursorSnapshot, InputEngine, PaneDimensions, ScreenEngine,
-    ScreenLine, ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot,
+    CellStyle, CreateSessionRequest, CursorSnapshot, InputEngine, PaneDimensions, RecordingEngine,
+    RecordingStartResult, RecordingStatusSnapshot, RecordingStopResult, ScreenEngine, ScreenLine,
+    ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot,
     SessionActivitySnapshot, SessionEngine, SessionSnapshot, ShellSnapshot, SplitDirection,
     SplitSessionRequest, StyledCell, StyledScreenLine, StyledScreenSnapshot,
 };
@@ -496,5 +497,37 @@ impl InputEngine for WezTermEngine {
     fn paste_input(&self, pane_id: usize, text: &str) -> Result<()> {
         let pane = self.pane(pane_id)?;
         pane.send_paste(text)
+    }
+}
+
+impl RecordingEngine for WezTermEngine {
+    fn start_recording(&self, pane_id: usize) -> Result<RecordingStartResult> {
+        let result = crate::recording::start_recording(pane_id as mux::pane::PaneId)?;
+        Ok(RecordingStartResult {
+            session_id: result.session_id,
+            log_path: result.log_path,
+            md_path: result.md_path,
+        })
+    }
+
+    fn stop_recording(&self, pane_id: usize) -> Result<RecordingStopResult> {
+        let result = crate::recording::stop_recording(pane_id as mux::pane::PaneId)?;
+        Ok(RecordingStopResult {
+            session_id: result.session_id,
+            ended_at: result.ended_at,
+            block_count: result.block_count,
+            exit_reason: result.exit_reason,
+            md_path: result.md_path,
+        })
+    }
+
+    fn recording_status(&self, pane_id: usize) -> Result<RecordingStatusSnapshot> {
+        Ok(crate::recording::recording_status_snapshot(
+            pane_id as mux::pane::PaneId,
+        ))
+    }
+
+    fn attach_recording_trace(&self, pane_id: usize, trace_id: String) -> Result<Vec<String>> {
+        crate::recording::attach_trace(pane_id as mux::pane::PaneId, trace_id)
     }
 }

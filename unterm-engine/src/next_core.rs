@@ -1,6 +1,7 @@
 use super::{
-    CellStyle, CreateSessionRequest, CursorSnapshot, DirtyRows, InputEngine, ScreenEngine,
-    ScreenLine, ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot,
+    CellStyle, CreateSessionRequest, CursorSnapshot, DirtyRows, InputEngine, RecordingEngine,
+    RecordingStartResult, RecordingStatusSnapshot, RecordingStopResult, ScreenEngine, ScreenLine,
+    ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot,
     SessionActivitySnapshot, SessionEngine, SessionSnapshot, ShellSnapshot, SplitSessionRequest,
     StyledCell, StyledColor, StyledScreenLine, StyledScreenSnapshot,
 };
@@ -1838,6 +1839,30 @@ impl InputEngine for NextCoreEngine {
     }
 }
 
+impl RecordingEngine for NextCoreEngine {
+    fn start_recording(&self, _pane_id: usize) -> Result<RecordingStartResult> {
+        bail!("next-core recording stream tap is not implemented yet")
+    }
+
+    fn stop_recording(&self, _pane_id: usize) -> Result<RecordingStopResult> {
+        bail!("next-core recording stream tap is not implemented yet")
+    }
+
+    fn recording_status(&self, _pane_id: usize) -> Result<RecordingStatusSnapshot> {
+        Ok(RecordingStatusSnapshot {
+            enabled: false,
+            session_id: None,
+            started_at: None,
+            block_count: None,
+            bytes: None,
+        })
+    }
+
+    fn attach_recording_trace(&self, _pane_id: usize, _trace_id: String) -> Result<Vec<String>> {
+        bail!("next-core recording stream tap is not implemented yet")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2562,5 +2587,25 @@ mod tests {
 
         engine.destroy_session(session.id)?;
         Ok(())
+    }
+
+    #[test]
+    fn recording_status_is_inactive_until_stream_tap_exists() {
+        let engine = NextCoreEngine;
+        let status = engine.recording_status(123).unwrap();
+
+        assert!(!status.enabled);
+        assert_eq!(status.session_id, None);
+        assert_eq!(status.started_at, None);
+        assert_eq!(status.block_count, None);
+        assert_eq!(status.bytes, None);
+    }
+
+    #[test]
+    fn recording_start_reports_stream_tap_unsupported() {
+        let engine = NextCoreEngine;
+        let error = engine.start_recording(123).unwrap_err().to_string();
+
+        assert!(error.contains("recording stream tap is not implemented"));
     }
 }

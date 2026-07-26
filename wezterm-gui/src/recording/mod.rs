@@ -21,7 +21,8 @@ mod render;
 
 pub use recorder::{
     attach_trace, export_pane_markdown, export_scrollback_markdown, list_sessions,
-    read_session_markdown, recording_status, start_recording, stop_recording,
+    read_session_markdown, recording_status, recording_status_snapshot, start_recording,
+    stop_recording,
 };
 
 /// Apply the recording subsystem's built-in and user-configured secret

@@ -9,7 +9,8 @@ pub mod wezterm;
 #[allow(unused_imports)]
 pub use unterm_engine::{
     next_core, CellStyle, CreateSessionRequest, CursorSnapshot, DirtyRows, InputEngine,
-    PaneDimensions, ScreenEngine, ScreenLine, ScreenSearchMatch, ScreenSnapshot,
+    PaneDimensions, RecordingEngine, RecordingStartResult, RecordingStatusSnapshot,
+    RecordingStopResult, ScreenEngine, ScreenLine, ScreenSearchMatch, ScreenSnapshot,
     ScrollbackTextRequest, ScrollbackTextSnapshot, SessionActivitySnapshot, SessionEngine,
     SessionSnapshot, ShellSnapshot, SplitDirection, SplitSessionRequest, StyledCell, StyledColor,
     StyledScreenLine, StyledScreenSnapshot, TerminalEngine,
@@ -225,6 +226,40 @@ impl InputEngine for CurrentTerminalEngine {
         match self {
             Self::WezTerm(engine) => engine.paste_input(pane_id, text),
             Self::NextCore(engine) => engine.paste_input(pane_id, text),
+        }
+    }
+}
+
+impl RecordingEngine for CurrentTerminalEngine {
+    fn start_recording(&self, pane_id: usize) -> anyhow::Result<RecordingStartResult> {
+        match self {
+            Self::WezTerm(engine) => engine.start_recording(pane_id),
+            Self::NextCore(engine) => engine.start_recording(pane_id),
+        }
+    }
+
+    fn stop_recording(&self, pane_id: usize) -> anyhow::Result<RecordingStopResult> {
+        match self {
+            Self::WezTerm(engine) => engine.stop_recording(pane_id),
+            Self::NextCore(engine) => engine.stop_recording(pane_id),
+        }
+    }
+
+    fn recording_status(&self, pane_id: usize) -> anyhow::Result<RecordingStatusSnapshot> {
+        match self {
+            Self::WezTerm(engine) => engine.recording_status(pane_id),
+            Self::NextCore(engine) => engine.recording_status(pane_id),
+        }
+    }
+
+    fn attach_recording_trace(
+        &self,
+        pane_id: usize,
+        trace_id: String,
+    ) -> anyhow::Result<Vec<String>> {
+        match self {
+            Self::WezTerm(engine) => engine.attach_recording_trace(pane_id, trace_id),
+            Self::NextCore(engine) => engine.attach_recording_trace(pane_id, trace_id),
         }
     }
 }

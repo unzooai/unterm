@@ -615,19 +615,40 @@ pub fn current_session(pane_id: PaneId) -> Option<Arc<PaneRecorder>> {
 }
 
 pub fn recording_status(pane_id: PaneId) -> serde_json::Value {
+    let snapshot = recording_status_snapshot(pane_id);
+    if snapshot.enabled {
+        serde_json::json!({
+            "enabled": true,
+            "session_id": snapshot.session_id,
+            "started_at": snapshot.started_at,
+            "block_count": snapshot.block_count,
+            "bytes": snapshot.bytes,
+        })
+    } else {
+        serde_json::json!({"enabled": false})
+    }
+}
+
+pub fn recording_status_snapshot(pane_id: PaneId) -> unterm_engine::RecordingStatusSnapshot {
     let reg = registry().lock();
     if let Some(r) = reg.get(&pane_id) {
         let m = r.metrics();
         let inner = r.inner.lock();
-        serde_json::json!({
-            "enabled": true,
-            "session_id": inner.session_id,
-            "started_at": inner.started_at_iso,
-            "block_count": m.block_count,
-            "bytes": m.bytes,
-        })
+        unterm_engine::RecordingStatusSnapshot {
+            enabled: true,
+            session_id: Some(inner.session_id.clone()),
+            started_at: Some(inner.started_at_iso.clone()),
+            block_count: Some(m.block_count),
+            bytes: Some(m.bytes),
+        }
     } else {
-        serde_json::json!({"enabled": false})
+        unterm_engine::RecordingStatusSnapshot {
+            enabled: false,
+            session_id: None,
+            started_at: None,
+            block_count: None,
+            bytes: None,
+        }
     }
 }
 

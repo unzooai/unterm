@@ -153,6 +153,31 @@ pub struct SessionActivitySnapshot {
     pub foreground_process: String,
 }
 
+#[derive(Clone, Debug, Serialize)]
+pub struct RecordingStartResult {
+    pub session_id: String,
+    pub log_path: String,
+    pub md_path: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct RecordingStopResult {
+    pub session_id: String,
+    pub ended_at: String,
+    pub block_count: u64,
+    pub exit_reason: String,
+    pub md_path: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct RecordingStatusSnapshot {
+    pub enabled: bool,
+    pub session_id: Option<String>,
+    pub started_at: Option<String>,
+    pub block_count: Option<u64>,
+    pub bytes: Option<u64>,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub enum SplitDirection {
     Right,
@@ -219,7 +244,14 @@ pub trait InputEngine {
     }
 }
 
-#[allow(dead_code)]
-pub trait TerminalEngine: SessionEngine + ScreenEngine + InputEngine {}
+pub trait RecordingEngine {
+    fn start_recording(&self, pane_id: usize) -> Result<RecordingStartResult>;
+    fn stop_recording(&self, pane_id: usize) -> Result<RecordingStopResult>;
+    fn recording_status(&self, pane_id: usize) -> Result<RecordingStatusSnapshot>;
+    fn attach_recording_trace(&self, pane_id: usize, trace_id: String) -> Result<Vec<String>>;
+}
 
-impl<T> TerminalEngine for T where T: SessionEngine + ScreenEngine + InputEngine {}
+#[allow(dead_code)]
+pub trait TerminalEngine: SessionEngine + ScreenEngine + InputEngine + RecordingEngine {}
+
+impl<T> TerminalEngine for T where T: SessionEngine + ScreenEngine + InputEngine + RecordingEngine {}
