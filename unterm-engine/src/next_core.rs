@@ -2214,17 +2214,20 @@ impl ScreenEngine for NextCoreEngine {
         pattern: &str,
         max_results: usize,
     ) -> Result<Vec<ScreenSearchMatch>> {
+        if pattern.is_empty() || max_results == 0 {
+            return Ok(Vec::new());
+        }
         let lines = self.screen_lines(pane_id)?;
         let mut matches = Vec::new();
         for (row, line) in lines.iter().enumerate() {
-            if let Some(col) = line.find(pattern) {
+            for (byte_col, _) in line.match_indices(pattern) {
                 matches.push(ScreenSearchMatch {
                     row: row as i64,
-                    col,
+                    col: line[..byte_col].chars().count(),
                     text: line.clone(),
                 });
                 if matches.len() >= max_results {
-                    break;
+                    return Ok(matches);
                 }
             }
         }
@@ -3286,6 +3289,36 @@ mod tests {
         assert_eq!(scrollback_text.first_row, 1);
         assert_eq!(scrollback_text.row_count, 3);
         assert_eq!(engine.search(session.id, "one", 1)?[0].row, 0);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn search_reports_multiple_matches_and_character_columns() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+        })?;
+        set_output_for_test(session.id, "你abc abc\nabc\n")?;
+
+        let matches = engine.search(session.id, "abc", 10)?;
+        assert_eq!(
+            matches
+                .iter()
+                .map(|m| (m.row, m.col, m.text.as_str()))
+                .collect::<Vec<_>>(),
+            vec![(0, 1, "你abc abc"), (0, 5, "你abc abc"), (1, 0, "abc")]
+        );
+        assert_eq!(engine.search(session.id, "abc", 2)?.len(), 2);
+        assert!(engine.search(session.id, "", 10)?.is_empty());
+        assert!(engine.search(session.id, "abc", 0)?.is_empty());
 
         engine.destroy_session(session.id)?;
         Ok(())

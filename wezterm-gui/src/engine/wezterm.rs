@@ -497,6 +497,9 @@ impl ScreenEngine for WezTermEngine {
         pattern: &str,
         max_results: usize,
     ) -> Result<Vec<ScreenSearchMatch>> {
+        if pattern.is_empty() || max_results == 0 {
+            return Ok(Vec::new());
+        }
         let pane = self.pane(pane_id)?;
         let dims = pane.get_dimensions();
         let start = dims.scrollback_top;
@@ -506,14 +509,14 @@ impl ScreenEngine for WezTermEngine {
         let mut matches = Vec::new();
         for (idx, line) in lines.iter().enumerate() {
             let text = line.as_str().to_string();
-            if let Some(byte_off) = text.find(pattern) {
+            for (byte_off, _) in text.match_indices(pattern) {
                 matches.push(ScreenSearchMatch {
                     row: first as i64 + idx as i64,
                     col: text[..byte_off].chars().count(),
                     text: text.trim_end().to_string(),
                 });
                 if matches.len() >= max_results {
-                    break;
+                    return Ok(matches);
                 }
             }
         }
