@@ -551,7 +551,7 @@ mod engine_neutral_handler_tests {
     }
 
     #[test]
-    fn fleet_launch_and_retry_use_next_core_session_engine() {
+    fn fleet_lifecycle_uses_next_core_session_engine() {
         let _guard = env_lock().lock();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         let previous_fleets_path = std::env::var("UNTERM_FLEETS_PATH").ok();
@@ -596,7 +596,12 @@ mod engine_neutral_handler_tests {
         run_git(&["add", "README.md"]).expect("git add");
         run_git(&["commit", "-m", "initial"]).expect("git commit");
 
-        let result: Result<(serde_json::Value, serde_json::Value)> = (|| {
+        let result: Result<(
+            serde_json::Value,
+            serde_json::Value,
+            serde_json::Value,
+            Option<String>,
+        )> = (|| {
             let handler = McpHandler::new();
             let ctx = ConnectionContext::internal("handler-test");
             let launched = handler.handle(
@@ -616,7 +621,17 @@ mod engine_neutral_handler_tests {
                     "member": "1",
                 }),
             )?;
-            Ok((launched, retried))
+            let retried_pane_id = retried["pane_id"].as_u64().expect("retried pane id") as usize;
+            let retried_cwd = next_core().get_session(retried_pane_id)?.shell.cwd;
+            let cleaned = handler.handle(
+                &ctx,
+                "fleet.clean",
+                &json!({
+                    "id": launched["id"],
+                    "force": true,
+                }),
+            )?;
+            Ok((launched, retried, cleaned, retried_cwd))
         })();
 
         match previous_engine {
@@ -628,19 +643,15 @@ mod engine_neutral_handler_tests {
             None => std::env::remove_var("UNTERM_FLEETS_PATH"),
         }
 
-        let (fleet, retried) = result.expect("launch and retry fleet through next-core engine");
+        let (fleet, retried, cleaned, retried_cwd) =
+            result.expect("launch, retry, and clean fleet through next-core engine");
         let old_pane_id = fleet["members"][0]["pane_id"]
             .as_u64()
             .expect("fleet member pane id") as usize;
         let new_pane_id = retried["pane_id"].as_u64().expect("retried member pane id") as usize;
         assert_ne!(old_pane_id, new_pane_id);
         assert!(next_core().get_session(old_pane_id).is_err());
-        let session = next_core()
-            .get_session(new_pane_id)
-            .expect("retried next-core fleet session");
-        assert!(session
-            .shell
-            .cwd
+        assert!(retried_cwd
             .as_deref()
             .unwrap_or_default()
             .contains(".fleet"));
@@ -648,8 +659,11 @@ mod engine_neutral_handler_tests {
         assert_eq!(retried["agent"], "echo");
         assert_eq!(retried["attempt"], 2);
         assert_eq!(retried["last_launch_error"], Value::Null);
+        assert_eq!(cleaned["ok"], true);
+        assert_eq!(cleaned["id"], fleet["id"]);
+        assert!(next_core().get_session(new_pane_id).is_err());
+        assert!(crate::cockpit::fleet::get(fleet["id"].as_str().expect("fleet id")).is_none());
 
-        next_core().destroy_session(new_pane_id).ok();
         crate::cockpit::fleet::reset_store_for_tests();
         std::fs::remove_dir_all(&temp_root).ok();
     }
@@ -2752,7 +2766,8 @@ impl McpHandler {
             .get("force")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
-        crate::cockpit::fleet::clean(id, force)?;
+        let mut remover = self.engine_fleet_driver();
+        crate::cockpit::fleet::clean_with_remover(id, force, &mut remover)?;
         self.audit("fleet.clean", None, &format!("id={id} force={force}"));
         Ok(json!({ "ok": true, "id": id }))
     }

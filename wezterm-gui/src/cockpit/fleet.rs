@@ -591,6 +591,15 @@ fn remove_member_pane(pane_id: u64) {
 /// `force`; even with force, a worktree that still has uncommitted or
 /// unmerged work aborts unless `force` (the caller confirmed).
 pub fn clean(fleet_id: &str, force: bool) -> Result<()> {
+    let mut remover = WezTermPaneRemover;
+    clean_with_remover(fleet_id, force, &mut remover)
+}
+
+pub fn clean_with_remover(
+    fleet_id: &str,
+    force: bool,
+    remover: &mut dyn FleetPaneRemover,
+) -> Result<()> {
     let fleet = get(fleet_id).ok_or_else(|| anyhow!("no fleet {fleet_id:?}"))?;
     if !force {
         let pending = fleet
@@ -604,7 +613,7 @@ pub fn clean(fleet_id: &str, force: bool) -> Result<()> {
     }
     for m in &fleet.members {
         if let Some(pane_id) = m.pane_id {
-            remove_member_pane(pane_id);
+            remover.remove_member(pane_id).ok();
         }
         if m.worktree.exists() {
             git(
