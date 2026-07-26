@@ -5,6 +5,7 @@ use crate::engine::{
     CreateSessionRequest, InputEngine, ScreenEngine, ScrollbackTextRequest, SessionEngine,
     SplitDirection, SplitSessionRequest,
 };
+use crate::engine::wezterm::WezTermEngine;
 use anyhow::{anyhow, Context, Result};
 use base64::Engine as _;
 use mux::pane::Pane;
@@ -1379,6 +1380,10 @@ impl McpHandler {
         Mux::try_get().ok_or_else(|| anyhow!("Mux not available"))
     }
 
+    fn engine(&self) -> WezTermEngine {
+        WezTermEngine
+    }
+
     fn pane_id_from_params(params: &Value) -> Result<usize> {
         let id_val = params
             .get("id")
@@ -1668,7 +1673,7 @@ impl McpHandler {
     }
 
     fn session_list(&self) -> Result<Value> {
-        let engine = crate::engine::wezterm::WezTermEngine;
+        let engine = self.engine();
         let sessions: Vec<Value> = engine
             .list_sessions()?
             .into_iter()
@@ -1695,7 +1700,7 @@ impl McpHandler {
     }
 
     fn session_get(&self, params: &Value) -> Result<Value> {
-        let engine = crate::engine::wezterm::WezTermEngine;
+        let engine = self.engine();
         let session = engine.get_session(Self::pane_id_from_params(params)?)?;
 
         Ok(json!({
@@ -1768,7 +1773,7 @@ impl McpHandler {
             command_dir: params.get("cwd").and_then(|v| v.as_str()).map(String::from),
         };
 
-        let engine = crate::engine::wezterm::WezTermEngine;
+        let engine = self.engine();
         let session = engine.split_session(request)?;
         Ok(json!({
             "id": session.id,
@@ -1795,7 +1800,7 @@ impl McpHandler {
 
         // Focus is an engine operation; the MCP layer only preserves
         // the documented parameter and response contract.
-        let engine = crate::engine::wezterm::WezTermEngine;
+        let engine = self.engine();
         engine.focus_session(pane_id)?;
         Ok(json!({ "ok": true, "id": pane_id }))
     }
@@ -1832,7 +1837,7 @@ impl McpHandler {
             None
         };
 
-        let engine = crate::engine::wezterm::WezTermEngine;
+        let engine = self.engine();
         let session = engine.create_session(CreateSessionRequest {
             cols,
             rows,
@@ -1875,7 +1880,7 @@ impl McpHandler {
             Some(&pane.pane_id().to_string()),
             &input_preview(input),
         );
-        let engine = crate::engine::wezterm::WezTermEngine;
+        let engine = self.engine();
         engine.write_input(pane.pane_id(), input)?;
         Ok(json!({"status": "ok"}))
     }
@@ -2026,7 +2031,7 @@ impl McpHandler {
             ));
         }
 
-        let engine = crate::engine::wezterm::WezTermEngine;
+        let engine = self.engine();
         engine.resize_session(pane_id, cols, rows)?;
         Ok(json!({"status": "ok"}))
     }
@@ -2038,13 +2043,13 @@ impl McpHandler {
             Some(&pane.pane_id().to_string()),
             "destroy",
         );
-        let engine = crate::engine::wezterm::WezTermEngine;
+        let engine = self.engine();
         engine.destroy_session(pane.pane_id())?;
         Ok(json!({"status": "ok", "destroyed": true}))
     }
 
     fn session_idle(&self, params: &Value) -> Result<Value> {
-        let engine = crate::engine::wezterm::WezTermEngine;
+        let engine = self.engine();
         let activity = engine.activity(Self::pane_id_from_params(params)?)?;
         Ok(json!({
             "idle": activity.idle,
@@ -2053,7 +2058,7 @@ impl McpHandler {
     }
 
     fn session_cwd(&self, params: &Value) -> Result<Value> {
-        let engine = crate::engine::wezterm::WezTermEngine;
+        let engine = self.engine();
         let cwd = engine
             .shell(Self::pane_id_from_params(params)?)?
             .cwd
@@ -2076,7 +2081,7 @@ impl McpHandler {
 
     fn session_history(&self, params: &Value) -> Result<Value> {
         let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(100) as usize;
-        let engine = crate::engine::wezterm::WezTermEngine;
+        let engine = self.engine();
         let entries: Vec<Value> = engine
             .read_scrollback(Self::pane_id_from_params(params)?, limit)?
             .into_iter()
@@ -2745,7 +2750,7 @@ impl McpHandler {
 
         // Send command with newline
         let input = format!("{}\r", command);
-        let engine = crate::engine::wezterm::WezTermEngine;
+        let engine = self.engine();
         engine.write_input(pane.pane_id(), &input)?;
         Ok(json!({"sent": true}))
     }
@@ -2777,7 +2782,7 @@ impl McpHandler {
 
         // Send command
         let input = format!("{}\r", wait_command);
-        let engine = crate::engine::wezterm::WezTermEngine;
+        let engine = self.engine();
         engine.write_input(pane.pane_id(), &input)?;
 
         // Poll until the injected sentinel is rendered. This gives CLI/MCP
@@ -2815,7 +2820,7 @@ impl McpHandler {
     }
 
     fn exec_status(&self, params: &Value) -> Result<Value> {
-        let engine = crate::engine::wezterm::WezTermEngine;
+        let engine = self.engine();
         let activity = engine.activity(Self::pane_id_from_params(params)?)?;
         let status = if activity.idle { "idle" } else { "running" };
         Ok(json!({
@@ -2828,7 +2833,7 @@ impl McpHandler {
         let pane = self.get_pane(params)?;
         self.audit("exec.cancel", Some(&pane.pane_id().to_string()), "Ctrl+C");
         // Send Ctrl+C
-        let engine = crate::engine::wezterm::WezTermEngine;
+        let engine = self.engine();
         engine.write_input(pane.pane_id(), "\x03")?;
         Ok(json!({"cancelled": true}))
     }
@@ -2844,7 +2849,7 @@ impl McpHandler {
 
         self.audit("signal.send", Some(&pane.pane_id().to_string()), signal);
 
-        let engine = crate::engine::wezterm::WezTermEngine;
+        let engine = self.engine();
         match signal.to_uppercase().as_str() {
             "SIGINT" | "INT" => engine.write_input(pane.pane_id(), "\x03")?,
             "SIGTSTP" | "TSTP" => engine.write_input(pane.pane_id(), "\x1a")?,
@@ -2860,7 +2865,7 @@ impl McpHandler {
     fn screen_scroll(&self, params: &Value) -> Result<Value> {
         let offset = params.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as isize;
         let count = params.get("count").and_then(|v| v.as_u64()).unwrap_or(100) as isize;
-        let engine = crate::engine::wezterm::WezTermEngine;
+        let engine = self.engine();
         let text_lines: Vec<String> = engine
             .read_lines(
                 Self::pane_id_from_params(params)?,
@@ -2901,7 +2906,7 @@ impl McpHandler {
             .and_then(|v| v.as_u64())
             .unwrap_or(50) as usize;
 
-        let engine = crate::engine::wezterm::WezTermEngine;
+        let engine = self.engine();
         let search_matches = engine.search(pane_id, pattern, max_results)?;
         let match_rows: Vec<isize> = search_matches
             .iter()
@@ -2993,7 +2998,7 @@ impl McpHandler {
             if let Some(command) = params.get("command").and_then(|v| v.as_str()) {
                 // Brief delay to let shell initialize
                 std::thread::sleep(std::time::Duration::from_millis(500));
-                let engine = crate::engine::wezterm::WezTermEngine;
+                let engine = self.engine();
                 let input = format!("{}\r", command);
                 let _ = engine.write_input(pane_id as usize, &input);
             }
@@ -3013,7 +3018,7 @@ impl McpHandler {
 
         let mut results = Vec::new();
         let input = format!("{}\r", command);
-        let engine = crate::engine::wezterm::WezTermEngine;
+        let engine = self.engine();
 
         for sid in sessions {
             let id_str = sid.as_str().unwrap_or("");
@@ -4034,12 +4039,12 @@ impl McpHandler {
     // --- Helpers ---
 
     fn read_pane_text(&self, pane: &Arc<dyn Pane>) -> String {
-        let engine = crate::engine::wezterm::WezTermEngine;
+        let engine = self.engine();
         engine.read_visible_text(pane.pane_id()).unwrap_or_default()
     }
 
     fn screen_read(&self, params: &Value) -> Result<Value> {
-        let engine = crate::engine::wezterm::WezTermEngine;
+        let engine = self.engine();
         let screen = engine.read_screen(Self::pane_id_from_params(params)?)?;
 
         Ok(json!({
@@ -4056,7 +4061,7 @@ impl McpHandler {
     }
 
     fn screen_text(&self, params: &Value) -> Result<Value> {
-        let engine = crate::engine::wezterm::WezTermEngine;
+        let engine = self.engine();
         let screen = engine.read_screen(Self::pane_id_from_params(params)?)?;
 
         Ok(json!({
@@ -4089,7 +4094,7 @@ impl McpHandler {
         // fall back to the active pane of the first window — the typical
         // agent intent is "dump *this* terminal," not "dump some specific
         // session id I don't know yet."
-        let engine = crate::engine::wezterm::WezTermEngine;
+        let engine = self.engine();
         let fallback_active_pane_id = || -> Result<usize> {
             engine
                 .list_sessions()?
@@ -4167,7 +4172,7 @@ impl McpHandler {
     }
 
     fn screen_cursor(&self, params: &Value) -> Result<Value> {
-        let engine = crate::engine::wezterm::WezTermEngine;
+        let engine = self.engine();
         let cursor = engine.cursor(Self::pane_id_from_params(params)?)?;
 
         Ok(json!({
@@ -4179,7 +4184,7 @@ impl McpHandler {
     }
 
     fn screen_detect_errors(&self, params: &Value) -> Result<Value> {
-        let engine = crate::engine::wezterm::WezTermEngine;
+        let engine = self.engine();
         let screen = engine.read_screen(Self::pane_id_from_params(params)?)?;
 
         let error_patterns = [
