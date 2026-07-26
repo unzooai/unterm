@@ -93,7 +93,7 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 | `session.set_env` | Unsupported stub | Returns unsupported marker | Prefer launch-context env over mutating live shells. |
 | `session.history` | Engine-neutral | `ScreenEngine::read_scrollback` | Rename eventually? It is scrollback, not shell history. |
 | `session.audit_log` | Product-only | MCP in-memory audit state | Engine-independent. |
-| `session.suggest` | Product-only | MCP suggestion queue | Needs UI renderer support in `next-core`, but service is product-only. |
+| `session.suggest` | Product-only | MCP suggestion queue plus `SessionEngine::get_session` target validation | Needs UI renderer support in `next-core`, but queue state is product-owned and handler no longer resolves a WezTerm pane. |
 | `session.suggest_status` | Product-only | MCP suggestion queue | Engine-independent. |
 | `session.suggest_cancel` | Product-only | MCP suggestion queue | Engine-independent. |
 | `session.suggest_list` | Product-only | MCP suggestion queue | Engine-independent. |

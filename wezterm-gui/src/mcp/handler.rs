@@ -8,7 +8,6 @@ use crate::engine::{
 };
 use anyhow::{anyhow, Context, Result};
 use base64::Engine as _;
-use mux::pane::Pane;
 use mux::Mux;
 use parking_lot::Mutex;
 use portable_pty::CommandBuilder;
@@ -1139,6 +1138,46 @@ mod engine_neutral_handler_tests {
         assert!(info["active_sessions"].is_number());
         assert!(admin.get("status").is_some() || admin.get("unsupported").is_some());
     }
+
+    #[test]
+    fn session_suggest_uses_terminal_engine_session_lookup() {
+        let _guard = env_lock().lock();
+        let previous_engine = std::env::var("UNTERM_ENGINE").ok();
+        std::env::set_var("UNTERM_ENGINE", "next-core");
+
+        let result: Result<serde_json::Value> = (|| {
+            let handler = McpHandler::new();
+            let ctx = ConnectionContext::internal("handler-test");
+            let created = handler.handle(
+                &ctx,
+                "session.create",
+                &json!({
+                    "cols": 80,
+                    "rows": 4,
+                }),
+            )?;
+            let pane_id = created["id"].as_u64().expect("session id") as usize;
+            let suggest = handler.handle(
+                &ctx,
+                "session.suggest",
+                &json!({
+                    "pane_id": pane_id,
+                    "text": "git status",
+                }),
+            );
+            let _ = handler.handle(&ctx, "session.destroy", &json!({ "pane_id": pane_id }));
+            suggest
+        })();
+
+        match previous_engine {
+            Some(value) => std::env::set_var("UNTERM_ENGINE", value),
+            None => std::env::remove_var("UNTERM_ENGINE"),
+        }
+
+        let suggest = result.expect("queue suggestion without WezTerm mux");
+        assert_eq!(suggest["status"], "queued");
+        assert!(suggest["suggestion_id"].as_str().is_some());
+    }
 }
 
 /// Decision the user (or a timeout) returns to a pending MCP
@@ -2264,17 +2303,6 @@ impl McpHandler {
                 .map_err(|_| anyhow!("Invalid session_id: {}", v)),
             _ => Err(anyhow!("Missing 'id' or 'session_id' parameter")),
         }
-    }
-
-    fn get_pane(&self, params: &Value) -> Result<Arc<dyn Pane>> {
-        let mux = self.get_mux()?;
-        // Accept numeric "id", string "session_id", and the documented
-        // standard "pane_id" (P_PANE_ID in mcp_meta) — the cockpit
-        // methods pass the latter.
-        let id = Self::pane_id_from_params(params)?;
-
-        mux.get_pane(id)
-            .ok_or_else(|| anyhow!("Session {} not found", id))
     }
 
     fn server_info(&self) -> Result<Value> {
@@ -3411,8 +3439,9 @@ impl McpHandler {
     /// uses this method. Returns a suggestion id the caller can use
     /// for status / cancel.
     fn session_suggest(&self, ctx: &ConnectionContext, params: &Value) -> Result<Value> {
-        let pane = self.get_pane(params)?;
-        let pane_id = pane.pane_id() as u64;
+        let pane_id = Self::pane_id_from_params(params)?;
+        self.engine().get_session(pane_id)?;
+        let pane_id = pane_id as u64;
 
         let text = params
             .get("text")
