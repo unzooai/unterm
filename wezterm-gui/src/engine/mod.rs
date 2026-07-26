@@ -99,6 +99,13 @@ pub struct StyledScreenLine {
 }
 
 #[allow(dead_code)]
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+pub struct DirtyRows {
+    pub start: usize,
+    pub end: usize,
+}
+
+#[allow(dead_code)]
 #[derive(Clone, Debug, Serialize)]
 pub struct StyledScreenSnapshot {
     pub lines: Vec<StyledScreenLine>,
@@ -107,6 +114,7 @@ pub struct StyledScreenSnapshot {
     pub rows: usize,
     pub scrollback_rows: usize,
     pub revision: u64,
+    pub dirty_rows: Option<DirtyRows>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -125,6 +133,7 @@ pub struct ScreenSnapshot {
     pub rows: usize,
     pub scrollback_rows: usize,
     pub revision: u64,
+    pub dirty_rows: Option<DirtyRows>,
 }
 
 #[derive(Clone, Debug)]

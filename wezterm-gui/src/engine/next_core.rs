@@ -1,5 +1,5 @@
 use super::{
-    CellStyle, CreateSessionRequest, CursorSnapshot, InputEngine, ScreenEngine, ScreenLine,
+    CellStyle, CreateSessionRequest, CursorSnapshot, DirtyRows, InputEngine, ScreenEngine, ScreenLine,
     ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot,
     SessionActivitySnapshot, SessionEngine, SessionSnapshot, ShellSnapshot, SplitSessionRequest,
     StyledCell, StyledColor, StyledScreenLine, StyledScreenSnapshot,
@@ -48,6 +48,7 @@ struct NextCoreScreen {
     current_attr: CellAttributes,
     title: Option<String>,
     revision: u64,
+    dirty_rows: Option<DirtyRows>,
     rows: usize,
     saved_cursor_x: usize,
     saved_cursor_y: usize,
@@ -142,6 +143,7 @@ impl NextCoreScreen {
     fn feed(&mut self, chunk: &str) {
         if !chunk.is_empty() {
             self.bump_revision();
+            self.clear_dirty_rows();
         }
         let mut parser = ScreenParser::new(self);
         parser.feed(chunk);
@@ -149,6 +151,44 @@ impl NextCoreScreen {
 
     fn bump_revision(&mut self) {
         self.revision = self.revision.wrapping_add(1).max(1);
+    }
+
+    fn clear_dirty_rows(&mut self) {
+        self.dirty_rows = None;
+    }
+
+    fn mark_dirty_row(&mut self, row: usize) {
+        let row = row.min(self.rows.saturating_sub(1));
+        self.dirty_rows = Some(match self.dirty_rows {
+            Some(dirty) => DirtyRows {
+                start: dirty.start.min(row),
+                end: dirty.end.max(row),
+            },
+            None => DirtyRows { start: row, end: row },
+        });
+    }
+
+    fn mark_dirty_range(&mut self, start: usize, end: usize) {
+        if self.rows == 0 {
+            return;
+        }
+        let start = start.min(self.rows - 1);
+        let end = end.min(self.rows - 1);
+        if start <= end {
+            self.dirty_rows = Some(match self.dirty_rows {
+                Some(dirty) => DirtyRows {
+                    start: dirty.start.min(start),
+                    end: dirty.end.max(end),
+                },
+                None => DirtyRows { start, end },
+            });
+        }
+    }
+
+    fn mark_all_dirty(&mut self) {
+        if self.rows > 0 {
+            self.mark_dirty_range(0, self.rows - 1);
+        }
     }
 
     fn snapshot_lines(&self) -> Vec<String> {
@@ -182,6 +222,10 @@ impl NextCoreScreen {
         self.revision
     }
 
+    fn dirty_rows(&self) -> Option<DirtyRows> {
+        self.dirty_rows
+    }
+
     fn cursor_snapshot(&self) -> CursorSnapshot {
         CursorSnapshot {
             x: self.cursor_x,
@@ -209,6 +253,7 @@ impl NextCoreScreen {
 
     fn put_char(&mut self, c: char) {
         self.ensure_cursor_line();
+        self.mark_dirty_row(self.cursor_y);
         let line = &mut self.lines[self.cursor_y];
         if self.cursor_x > line.len() {
             line.resize(self.cursor_x, ScreenCell::blank(self.current_attr));
@@ -222,20 +267,25 @@ impl NextCoreScreen {
     }
 
     fn newline(&mut self) {
+        let old_y = self.cursor_y;
         self.cursor_x = 0;
         if self.cursor_y + 1 >= self.rows {
             self.scroll_up(1);
         } else {
             self.cursor_y += 1;
+            self.mark_dirty_row(old_y);
+            self.mark_dirty_row(self.cursor_y);
         }
         self.ensure_cursor_line();
     }
 
     fn carriage_return(&mut self) {
+        self.mark_dirty_row(self.cursor_y);
         self.cursor_x = 0;
     }
 
     fn backspace(&mut self) {
+        self.mark_dirty_row(self.cursor_y);
         self.cursor_x = self.cursor_x.saturating_sub(1);
     }
 
@@ -245,9 +295,11 @@ impl NextCoreScreen {
     }
 
     fn restore_cursor(&mut self) {
+        self.mark_dirty_row(self.cursor_y);
         self.cursor_x = self.saved_cursor_x;
         self.cursor_y = self.saved_cursor_y;
         self.ensure_cursor_line();
+        self.mark_dirty_row(self.cursor_y);
     }
 
     fn ensure_cursor_line(&mut self) {
@@ -257,25 +309,33 @@ impl NextCoreScreen {
     }
 
     fn set_cursor(&mut self, row: usize, col: usize) {
+        self.mark_dirty_row(self.cursor_y);
         self.cursor_y = row.min(self.rows.saturating_sub(1));
         self.cursor_x = col;
         self.ensure_cursor_line();
+        self.mark_dirty_row(self.cursor_y);
     }
 
     fn move_cursor_up(&mut self, count: usize) {
+        self.mark_dirty_row(self.cursor_y);
         self.cursor_y = self.cursor_y.saturating_sub(count);
+        self.mark_dirty_row(self.cursor_y);
     }
 
     fn move_cursor_down(&mut self, count: usize) {
+        self.mark_dirty_row(self.cursor_y);
         self.cursor_y = (self.cursor_y + count).min(self.rows.saturating_sub(1));
         self.ensure_cursor_line();
+        self.mark_dirty_row(self.cursor_y);
     }
 
     fn move_cursor_right(&mut self, count: usize) {
+        self.mark_dirty_row(self.cursor_y);
         self.cursor_x += count;
     }
 
     fn move_cursor_left(&mut self, count: usize) {
+        self.mark_dirty_row(self.cursor_y);
         self.cursor_x = self.cursor_x.saturating_sub(count);
     }
 
@@ -284,11 +344,13 @@ impl NextCoreScreen {
         self.cursor_x = 0;
         self.cursor_y = 0;
         self.ensure_cursor_line();
+        self.mark_all_dirty();
     }
 
     fn clear_to_end_of_line(&mut self) {
         self.ensure_cursor_line();
         self.lines[self.cursor_y].truncate(self.cursor_x);
+        self.mark_dirty_row(self.cursor_y);
     }
 
     #[cfg(test)]
@@ -366,6 +428,7 @@ impl NextCoreScreen {
 
     fn insert_lines(&mut self, count: usize) {
         self.ensure_cursor_line();
+        self.mark_dirty_range(self.cursor_y, self.rows.saturating_sub(1));
         for _ in 0..count.max(1) {
             self.lines.insert(self.cursor_y, Vec::new());
             if self.lines.len() > self.rows {
@@ -376,6 +439,7 @@ impl NextCoreScreen {
 
     fn delete_lines(&mut self, count: usize) {
         self.ensure_cursor_line();
+        self.mark_dirty_range(self.cursor_y, self.rows.saturating_sub(1));
         for _ in 0..count.max(1) {
             if self.cursor_y < self.lines.len() {
                 self.lines.remove(self.cursor_y);
@@ -385,6 +449,7 @@ impl NextCoreScreen {
     }
 
     fn scroll_up(&mut self, count: usize) {
+        self.mark_all_dirty();
         for _ in 0..count.max(1) {
             if !self.lines.is_empty() {
                 let removed = self.lines.remove(0);
@@ -402,6 +467,7 @@ impl NextCoreScreen {
     }
 
     fn scroll_down(&mut self, count: usize) {
+        self.mark_all_dirty();
         for _ in 0..count.max(1) {
             self.lines.insert(0, Vec::new());
             if self.lines.len() > self.rows {
@@ -414,6 +480,8 @@ impl NextCoreScreen {
     fn resize(&mut self, rows: usize) {
         self.rows = rows.max(1);
         self.bump_revision();
+        self.clear_dirty_rows();
+        self.mark_all_dirty();
         if self.lines.len() > self.rows {
             let trim = self.lines.len() - self.rows;
             let drained = self.lines.drain(..trim).collect::<Vec<_>>();
@@ -456,6 +524,7 @@ impl NextCoreScreen {
         self.saved_cursor_y = 0;
         self.lines.clear();
         self.ensure_cursor_line();
+        self.mark_all_dirty();
     }
 
     fn leave_alternate_screen(&mut self) {
@@ -475,6 +544,7 @@ impl NextCoreScreen {
                 self.saved_cursor_y = self.saved_cursor_y.saturating_sub(trim);
             }
             self.ensure_cursor_line();
+            self.mark_all_dirty();
         }
     }
 }
@@ -589,7 +659,10 @@ impl<'a> ScreenParser<'a> {
             'M' => self.screen.delete_lines(first()),
             'S' => self.screen.scroll_up(first()),
             'T' => self.screen.scroll_down(first()),
-            'G' => self.screen.cursor_x = first().saturating_sub(1),
+            'G' => {
+                self.screen.mark_dirty_row(self.screen.cursor_y);
+                self.screen.cursor_x = first().saturating_sub(1);
+            }
             'H' | 'f' => {
                 let row = numbers.first().copied().filter(|n| *n > 0).unwrap_or(1);
                 let col = numbers.get(1).copied().filter(|n| *n > 0).unwrap_or(1);
@@ -608,6 +681,7 @@ impl<'a> ScreenParser<'a> {
                     self.screen.enter_alternate_screen(true);
                 } else if private && numbers.iter().any(|n| *n == 25) {
                     self.screen.cursor_visible = true;
+                    self.screen.mark_dirty_row(self.screen.cursor_y);
                 }
             }
             'l' => {
@@ -615,6 +689,7 @@ impl<'a> ScreenParser<'a> {
                     self.screen.leave_alternate_screen();
                 } else if private && numbers.iter().any(|n| *n == 25) {
                     self.screen.cursor_visible = false;
+                    self.screen.mark_dirty_row(self.screen.cursor_y);
                 }
             }
             _ => {}
@@ -832,6 +907,23 @@ impl NextCoreEngine {
 
         let revision = screen.lock().revision();
         Ok(revision)
+    }
+
+    fn screen_dirty_rows(&self, pane_id: usize) -> Result<Option<DirtyRows>> {
+        let screen = {
+            let state = state().read();
+            let Some(session) = state
+                .sessions
+                .iter()
+                .find(|session| session.snapshot.id == pane_id)
+            else {
+                bail!("next-core session {pane_id} not found");
+            };
+            Arc::clone(&session.screen)
+        };
+
+        let dirty_rows = screen.lock().dirty_rows();
+        Ok(dirty_rows)
     }
 
     fn screen_cursor(&self, pane_id: usize) -> Result<CursorSnapshot> {
@@ -1218,6 +1310,7 @@ impl ScreenEngine for NextCoreEngine {
             rows: session.rows,
             scrollback_rows,
             revision: self.screen_revision(pane_id)?,
+            dirty_rows: self.screen_dirty_rows(pane_id)?,
         })
     }
 
@@ -1233,6 +1326,7 @@ impl ScreenEngine for NextCoreEngine {
             rows: session.rows,
             scrollback_rows,
             revision: self.screen_revision(pane_id)?,
+            dirty_rows: self.screen_dirty_rows(pane_id)?,
         })
     }
 
@@ -1459,21 +1553,27 @@ mod tests {
             command: None,
         })?;
 
-        assert_eq!(engine.read_screen(session.id)?.revision, 0);
+        let initial = engine.read_screen(session.id)?;
+        assert_eq!(initial.revision, 0);
+        assert_eq!(initial.dirty_rows, None);
 
         set_output_for_test(session.id, "first")?;
         let first = engine.read_screen(session.id)?;
         let styled = engine.read_styled_screen(session.id)?;
         assert!(first.revision > 0);
+        assert_eq!(first.dirty_rows, Some(DirtyRows { start: 0, end: 0 }));
         assert_eq!(styled.revision, first.revision);
+        assert_eq!(styled.dirty_rows, first.dirty_rows);
 
         set_output_for_test(session.id, "second")?;
         let second = engine.read_screen(session.id)?;
         assert!(second.revision > first.revision);
+        assert_eq!(second.dirty_rows, Some(DirtyRows { start: 0, end: 0 }));
 
         engine.resize_session(session.id, 80, 3)?;
         let resized = engine.read_screen(session.id)?;
         assert!(resized.revision > second.revision);
+        assert_eq!(resized.dirty_rows, Some(DirtyRows { start: 0, end: 2 }));
 
         engine.destroy_session(session.id)?;
         Ok(())

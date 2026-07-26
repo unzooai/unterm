@@ -303,6 +303,7 @@ impl ScreenEngine for WezTermEngine {
             rows: dims.viewport_rows,
             scrollback_rows: dims.scrollback_rows,
             revision: 0,
+            dirty_rows: None,
         })
     }
 
@@ -331,6 +332,7 @@ impl ScreenEngine for WezTermEngine {
             rows: screen.rows,
             scrollback_rows: screen.scrollback_rows,
             revision: screen.revision,
+            dirty_rows: screen.dirty_rows,
         })
     }
 
