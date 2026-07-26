@@ -9,6 +9,7 @@
 pub mod wezterm;
 
 use anyhow::Result;
+use portable_pty::CommandBuilder;
 use serde::Serialize;
 
 #[derive(Clone, Debug, Serialize)]
@@ -63,9 +64,36 @@ pub struct ScreenSnapshot {
     pub scrollback_rows: usize,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub enum SplitDirection {
+    Right,
+    Left,
+    Down,
+    Up,
+}
+
+#[derive(Debug)]
+pub struct CreateSessionRequest {
+    pub cols: usize,
+    pub rows: usize,
+    pub command_dir: Option<String>,
+    pub command: Option<CommandBuilder>,
+}
+
+#[derive(Clone, Debug)]
+pub struct SplitSessionRequest {
+    pub source_pane_id: usize,
+    pub direction: SplitDirection,
+    pub size_percent: u8,
+    pub command_dir: Option<String>,
+}
+
 pub trait TerminalEngine {
     fn list_sessions(&self) -> Result<Vec<SessionSnapshot>>;
     fn get_session(&self, pane_id: usize) -> Result<SessionSnapshot>;
+    fn create_session(&self, request: CreateSessionRequest) -> Result<SessionSnapshot>;
+    fn split_session(&self, request: SplitSessionRequest) -> Result<SessionSnapshot>;
+    fn focus_session(&self, pane_id: usize) -> Result<()>;
     fn read_screen(&self, pane_id: usize) -> Result<ScreenSnapshot>;
     fn cursor(&self, pane_id: usize) -> Result<CursorSnapshot>;
     fn write_input(&self, pane_id: usize, input: &str) -> Result<()>;

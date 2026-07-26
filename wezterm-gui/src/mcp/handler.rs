@@ -1,16 +1,16 @@
 //! MCP request handler — bridges JSON-RPC methods to WezTerm's Mux API.
 //! Implements all methods required by unterm-cli compatibility.
 
-use crate::engine::TerminalEngine;
+use crate::engine::{CreateSessionRequest, SplitDirection, SplitSessionRequest, TerminalEngine};
 use anyhow::{anyhow, Context, Result};
 use base64::Engine as _;
-use config::keyassignment::SpawnTabDomain;
 use mux::pane::Pane;
 use mux::Mux;
 use parking_lot::Mutex;
 use portable_pty::CommandBuilder;
 use serde_json::{json, Value};
 use std::collections::HashMap;
+#[cfg(not(windows))]
 use std::ffi::OsString;
 use std::net::ToSocketAddrs;
 use std::sync::Arc;
@@ -1725,24 +1725,11 @@ impl McpHandler {
     ///
     /// Returns the same shape as `session.create`.
     fn session_split(&self, params: &Value) -> Result<Value> {
-        use config::keyassignment::SpawnTabDomain;
-        use mux::domain::SplitSource;
-        use mux::tab::{SplitDirection, SplitRequest, SplitSize};
-
         // Source pane: accept the same id/session_id duality as get_pane
         // so callers don't have to remember which method takes which.
-        let src_pane_id = params
-            .get("id")
-            .or_else(|| params.get("session_id"))
-            .or_else(|| params.get("pane_id"))
-            .and_then(|v| {
-                v.as_u64()
-                    .map(|n| n as usize)
-                    .or_else(|| v.as_str().and_then(|s| s.parse::<usize>().ok()))
-            })
-            .ok_or_else(|| {
-                anyhow!("Missing 'id' / 'session_id' / 'pane_id' (source pane to split)")
-            })?;
+        let src_pane_id = Self::pane_id_from_params(params).map_err(|_| {
+            anyhow!("Missing 'id' / 'session_id' / 'pane_id' (source pane to split)")
+        })?;
 
         // Take an owned String here so the value can cross the async
         // closure boundary below — &str borrowed from `params` would
@@ -1753,11 +1740,11 @@ impl McpHandler {
             .and_then(|v| v.as_str())
             .unwrap_or("right")
             .to_string();
-        let (direction, target_is_second) = match dir_str.as_str() {
-            "right" => (SplitDirection::Horizontal, true),
-            "left" => (SplitDirection::Horizontal, false),
-            "down" | "bottom" => (SplitDirection::Vertical, true),
-            "up" | "top" => (SplitDirection::Vertical, false),
+        let direction = match dir_str.as_str() {
+            "right" => SplitDirection::Right,
+            "left" => SplitDirection::Left,
+            "down" | "bottom" => SplitDirection::Down,
+            "up" | "top" => SplitDirection::Up,
             other => {
                 return Err(anyhow!(
                     "invalid direction {other:?} (use right|left|down|up)"
@@ -1771,57 +1758,25 @@ impl McpHandler {
             .map(|n| n.min(100) as u8)
             .unwrap_or(50);
 
-        let request = SplitRequest {
+        let request = SplitSessionRequest {
+            source_pane_id: src_pane_id,
             direction,
-            target_is_second,
-            top_level: false,
-            size: SplitSize::Percent(size_percent),
+            size_percent,
+            command_dir: params.get("cwd").and_then(|v| v.as_str()).map(String::from),
         };
 
-        let command_dir = params.get("cwd").and_then(|v| v.as_str()).map(String::from);
-
-        // Same two-level spawn dance as session.create so we get the
-        // async split_pane future back into this sync context. 10s cap
-        // is generous; split should complete in <100ms once Mux is up.
-        let (tx, rx) = std::sync::mpsc::channel();
-        promise::spawn::spawn_into_main_thread(async move {
-            promise::spawn::spawn(async move {
-                let result = async {
-                    let mux = Mux::get();
-                    let (pane, _size) = mux
-                        .split_pane(
-                            src_pane_id,
-                            request,
-                            SplitSource::Spawn {
-                                command: None,
-                                command_dir,
-                            },
-                            SpawnTabDomain::DefaultDomain,
-                        )
-                        .await
-                        .context("split_pane")?;
-                    let dims = pane.get_dimensions();
-                    let pid = pane.pane_id();
-                    Ok::<Value, anyhow::Error>(json!({
-                        "id": pid,
-                        "session_id": pid.to_string(),
-                        "title": pane.get_title(),
-                        "cols": dims.cols,
-                        "rows": dims.viewport_rows,
-                        "direction": dir_str,
-                        "src_pane_id": src_pane_id,
-                        "size_percent": size_percent,
-                    }))
-                }
-                .await;
-                tx.send(result).ok();
-            })
-            .detach();
-        })
-        .detach();
-
-        rx.recv_timeout(std::time::Duration::from_secs(10))
-            .map_err(|_| anyhow!("Timeout waiting for session.split"))?
+        let engine = crate::engine::wezterm::WezTermEngine;
+        let session = engine.split_session(request)?;
+        Ok(json!({
+            "id": session.id,
+            "session_id": session.id.to_string(),
+            "title": session.title,
+            "cols": session.cols,
+            "rows": session.rows,
+            "direction": dir_str,
+            "src_pane_id": src_pane_id,
+            "size_percent": size_percent,
+        }))
     }
 
     /// `session.focus` — make this pane the active one in its tab
@@ -1833,24 +1788,12 @@ impl McpHandler {
     /// Params: `id` or `session_id` (required).
     /// Returns: `{ ok: true, id: <focused-pane-id> }`.
     fn session_focus(&self, params: &Value) -> Result<Value> {
-        let pane_id = params
-            .get("id")
-            .or_else(|| params.get("session_id"))
-            .or_else(|| params.get("pane_id"))
-            .and_then(|v| {
-                v.as_u64()
-                    .map(|n| n as usize)
-                    .or_else(|| v.as_str().and_then(|s| s.parse::<usize>().ok()))
-            })
-            .ok_or_else(|| anyhow!("Missing 'id' / 'session_id' / 'pane_id'"))?;
+        let pane_id = Self::pane_id_from_params(params)?;
 
-        // focus_pane_and_containing_tab does the whole work: walks up
-        // to find the owning tab + window, sets the tab's active pane,
-        // and activates the tab inside the window. No need for an
-        // async hop — it's a synchronous Mux operation.
-        let mux = self.get_mux()?;
-        mux.focus_pane_and_containing_tab(pane_id)
-            .with_context(|| format!("focus pane {pane_id}"))?;
+        // Focus is an engine operation; the MCP layer only preserves
+        // the documented parameter and response contract.
+        let engine = crate::engine::wezterm::WezTermEngine;
+        engine.focus_session(pane_id)?;
         Ok(json!({ "ok": true, "id": pane_id }))
     }
 
@@ -1886,68 +1829,23 @@ impl McpHandler {
             None
         };
 
-        let size = wezterm_term::TerminalSize {
-            rows,
+        let engine = crate::engine::wezterm::WezTermEngine;
+        let session = engine.create_session(CreateSessionRequest {
             cols,
-            pixel_width: 0,
-            pixel_height: 0,
-            dpi: 0,
-        };
+            rows,
+            command_dir,
+            command: cmd_builder,
+        })?;
 
-        // Use a channel to get the async result back to this sync context.
-        // Two-level spawn pattern (same as wezterm-mux-server-impl) because
-        // domain.spawn() returns non-Send futures.
-        let (tx, rx) = std::sync::mpsc::channel();
-
-        promise::spawn::spawn_into_main_thread(async move {
-            promise::spawn::spawn(async move {
-                let result = async {
-                    let mux = Mux::get();
-                    let window_id = mux
-                        .iter_windows()
-                        .into_iter()
-                        .next()
-                        .ok_or_else(|| anyhow!("No windows available"))?;
-
-                    let (_tab, pane, _wid) = mux
-                        .spawn_tab_or_window(
-                            Some(window_id),
-                            SpawnTabDomain::DefaultDomain,
-                            cmd_builder,
-                            command_dir,
-                            size,
-                            None,
-                            String::new(),
-                            None,
-                        )
-                        .await
-                        .context("spawn_tab_or_window")?;
-
-                    let dims = pane.get_dimensions();
-                    let pid = pane.pane_id();
-                    Ok::<Value, anyhow::Error>(json!({
-                        "id": pid,
-                        "session_id": pid.to_string(),
-                        "title": pane.get_title(),
-                        "cols": dims.cols,
-                        "rows": dims.viewport_rows,
-                        "profile": resolved_profile,
-                        "command": command,
-                    }))
-                }
-                .await;
-                tx.send(result).ok();
-            })
-            .detach();
-        })
-        .detach();
-
-        // Wait for the spawn to complete (up to 10 seconds)
-        let result = rx
-            .recv_timeout(std::time::Duration::from_secs(10))
-            .map_err(|_| anyhow!("Timeout waiting for session creation"))?;
-
-        result
+        Ok(json!({
+            "id": session.id,
+            "session_id": session.id.to_string(),
+            "title": session.title,
+            "cols": session.cols,
+            "rows": session.rows,
+            "profile": resolved_profile,
+            "command": command,
+        }))
     }
 
     fn session_input(&self, params: &Value) -> Result<Value> {

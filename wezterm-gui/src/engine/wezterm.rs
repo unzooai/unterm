@@ -1,9 +1,12 @@
 use super::{
-    CursorSnapshot, PaneDimensions, ScreenLine, ScreenSnapshot, SessionSnapshot, ShellSnapshot,
-    TerminalEngine,
+    CreateSessionRequest, CursorSnapshot, PaneDimensions, ScreenLine, ScreenSnapshot,
+    SessionSnapshot, ShellSnapshot, SplitDirection, SplitSessionRequest, TerminalEngine,
 };
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
+use config::keyassignment::SpawnTabDomain;
+use mux::domain::SplitSource;
 use mux::pane::{CachePolicy, Pane};
+use mux::tab::{SplitDirection as MuxSplitDirection, SplitRequest, SplitSize};
 use mux::Mux;
 use std::sync::Arc;
 
@@ -128,6 +131,114 @@ impl TerminalEngine for WezTermEngine {
             .get_pane(pane_id)
             .ok_or_else(|| anyhow!("Session {} not found", pane_id))?;
         Ok(Self::session_snapshot(&pane, active_pane_id))
+    }
+
+    fn create_session(&self, request: CreateSessionRequest) -> Result<SessionSnapshot> {
+        let size = wezterm_term::TerminalSize {
+            rows: request.rows,
+            cols: request.cols,
+            pixel_width: 0,
+            pixel_height: 0,
+            dpi: 0,
+        };
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        promise::spawn::spawn_into_main_thread(async move {
+            promise::spawn::spawn(async move {
+                let result = async {
+                    let mux = Mux::get();
+                    let window_id = mux
+                        .iter_windows()
+                        .into_iter()
+                        .next()
+                        .ok_or_else(|| anyhow!("No windows available"))?;
+
+                    let (_tab, pane, _wid) = mux
+                        .spawn_tab_or_window(
+                            Some(window_id),
+                            SpawnTabDomain::DefaultDomain,
+                            request.command,
+                            request.command_dir,
+                            size,
+                            None,
+                            String::new(),
+                            None,
+                        )
+                        .await
+                        .context("spawn_tab_or_window")?;
+
+                    let active_pane_id = WezTermEngine.active_pane_id(&mux);
+                    Ok::<SessionSnapshot, anyhow::Error>(WezTermEngine::session_snapshot(
+                        &pane,
+                        active_pane_id,
+                    ))
+                }
+                .await;
+                tx.send(result).ok();
+            })
+            .detach();
+        })
+        .detach();
+
+        rx.recv_timeout(std::time::Duration::from_secs(10))
+            .map_err(|_| anyhow!("Timeout waiting for session creation"))?
+    }
+
+    fn split_session(&self, request: SplitSessionRequest) -> Result<SessionSnapshot> {
+        let (direction, target_is_second) = match request.direction {
+            SplitDirection::Right => (MuxSplitDirection::Horizontal, true),
+            SplitDirection::Left => (MuxSplitDirection::Horizontal, false),
+            SplitDirection::Down => (MuxSplitDirection::Vertical, true),
+            SplitDirection::Up => (MuxSplitDirection::Vertical, false),
+        };
+
+        let split_request = SplitRequest {
+            direction,
+            target_is_second,
+            top_level: false,
+            size: SplitSize::Percent(request.size_percent),
+        };
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        promise::spawn::spawn_into_main_thread(async move {
+            promise::spawn::spawn(async move {
+                let result = async {
+                    let mux = Mux::get();
+                    let (pane, _size) = mux
+                        .split_pane(
+                            request.source_pane_id,
+                            split_request,
+                            SplitSource::Spawn {
+                                command: None,
+                                command_dir: request.command_dir,
+                            },
+                            SpawnTabDomain::DefaultDomain,
+                        )
+                        .await
+                        .context("split_pane")?;
+
+                    let active_pane_id = WezTermEngine.active_pane_id(&mux);
+                    Ok::<SessionSnapshot, anyhow::Error>(WezTermEngine::session_snapshot(
+                        &pane,
+                        active_pane_id,
+                    ))
+                }
+                .await;
+                tx.send(result).ok();
+            })
+            .detach();
+        })
+        .detach();
+
+        rx.recv_timeout(std::time::Duration::from_secs(10))
+            .map_err(|_| anyhow!("Timeout waiting for session.split"))?
+    }
+
+    fn focus_session(&self, pane_id: usize) -> Result<()> {
+        self.mux()?
+            .focus_pane_and_containing_tab(pane_id)
+            .with_context(|| format!("focus pane {pane_id}"))?;
+        Ok(())
     }
 
     fn read_screen(&self, pane_id: usize) -> Result<ScreenSnapshot> {
