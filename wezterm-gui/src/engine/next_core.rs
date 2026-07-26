@@ -403,9 +403,68 @@ impl NextCoreScreen {
         self.mark_all_dirty();
     }
 
-    fn clear_to_end_of_line(&mut self) {
+    fn erase_in_display(&mut self, mode: usize) {
+        match mode {
+            0 => {
+                self.erase_in_line(0);
+                let start = self.cursor_y + 1;
+                if start < self.lines.len() {
+                    for line in self.lines.iter_mut().skip(start) {
+                        line.clear();
+                    }
+                    self.mark_dirty_range(start, self.rows.saturating_sub(1));
+                }
+            }
+            1 => {
+                let end = self.cursor_y.min(self.lines.len().saturating_sub(1));
+                for line in self.lines.iter_mut().take(end) {
+                    line.clear();
+                }
+                self.erase_in_line(1);
+                self.mark_dirty_range(0, self.cursor_y);
+            }
+            2 => self.clear_screen(),
+            _ => {}
+        }
+    }
+
+    fn erase_in_line(&mut self, mode: usize) {
         self.ensure_cursor_line();
-        self.lines[self.cursor_y].truncate(self.cursor_x);
+        let line = &mut self.lines[self.cursor_y];
+        match mode {
+            0 => line.truncate(self.cursor_x),
+            1 => {
+                let end = self.cursor_x.saturating_add(1).min(line.len());
+                for cell in line.iter_mut().take(end) {
+                    *cell = ScreenCell::blank(self.current_attr);
+                }
+            }
+            2 => line.clear(),
+            _ => {}
+        }
+        self.mark_dirty_row(self.cursor_y);
+    }
+
+    fn insert_chars(&mut self, count: usize) {
+        self.ensure_cursor_line();
+        let line = &mut self.lines[self.cursor_y];
+        if self.cursor_x > line.len() {
+            line.resize(self.cursor_x, ScreenCell::blank(self.current_attr));
+        }
+        for _ in 0..count.max(1) {
+            line.insert(self.cursor_x, ScreenCell::blank(self.current_attr));
+        }
+        self.mark_dirty_row(self.cursor_y);
+    }
+
+    fn delete_chars(&mut self, count: usize) {
+        self.ensure_cursor_line();
+        let line = &mut self.lines[self.cursor_y];
+        for _ in 0..count.max(1) {
+            if self.cursor_x < line.len() {
+                line.remove(self.cursor_x);
+            }
+        }
         self.mark_dirty_row(self.cursor_y);
     }
 
@@ -745,12 +804,14 @@ impl<'a> ScreenParser<'a> {
         let first = || numbers.first().copied().filter(|n| *n > 0).unwrap_or(1);
 
         match final_byte {
+            '@' => self.screen.insert_chars(first()),
             'A' => self.screen.move_cursor_up(first()),
             'B' => self.screen.move_cursor_down(first()),
             'C' => self.screen.move_cursor_right(first()),
             'D' => self.screen.move_cursor_left(first()),
             'L' => self.screen.insert_lines(first()),
             'M' => self.screen.delete_lines(first()),
+            'P' => self.screen.delete_chars(first()),
             'S' => self.screen.scroll_up(first()),
             'T' => self.screen.scroll_down(first()),
             'G' => {
@@ -763,12 +824,8 @@ impl<'a> ScreenParser<'a> {
                 self.screen
                     .set_cursor(row.saturating_sub(1), col.saturating_sub(1));
             }
-            'J' => {
-                if numbers.first().copied().unwrap_or(0) == 2 {
-                    self.screen.clear_screen();
-                }
-            }
-            'K' => self.screen.clear_to_end_of_line(),
+            'J' => self.screen.erase_in_display(numbers.first().copied().unwrap_or(0)),
+            'K' => self.screen.erase_in_line(numbers.first().copied().unwrap_or(0)),
             'm' => self.screen.apply_sgr(&numbers),
             'r' => {
                 let top = numbers.first().copied().filter(|n| *n > 0).unwrap_or(1);
@@ -1838,6 +1895,77 @@ mod tests {
         assert!(lines.iter().any(|line| line == "world"));
 
         engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_applies_character_edit_and_erase_modes() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 5,
+            command_dir: None,
+            command: None,
+        })?;
+        set_output_for_test(
+            session.id,
+            concat!(
+                "abcde",
+                "\x1b[1;3H",
+                "\x1b[2@",
+                "XY",
+                "\x1b[1;5H",
+                "\x1b[2P",
+                "\x1b[2;1Hkeep",
+                "\x1b[3;1Hprefix-tail",
+                "\x1b[3;7H",
+                "\x1b[K",
+                "\x1b[4;1Herase-left",
+                "\x1b[4;6H",
+                "\x1b[1K",
+                "\x1b[5;1Herase-all",
+                "\x1b[2K"
+            ),
+        )?;
+
+        let lines = engine.read_screen(session.id)?.lines;
+        assert_eq!(lines, vec!["abXYe", "keep", "prefix", "      left", ""]);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_applies_display_erase_modes() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 3,
+            command_dir: None,
+            command: None,
+        })?;
+        set_output_for_test(session.id, "one\nprefix-tail\nthree\x1b[2;7H\x1b[J")?;
+        assert_eq!(engine.read_screen(session.id)?.lines, vec!["one", "prefix", ""]);
+        engine.destroy_session(session.id)?;
+
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 3,
+            command_dir: None,
+            command: None,
+        })?;
+        set_output_for_test(session.id, "one\ntwo-three\nthree\x1b[2;4H\x1b[1J")?;
+        assert_eq!(
+            engine.read_screen(session.id)?.lines,
+            vec!["", "    three", "three"]
+        );
+        engine.destroy_session(session.id)?;
+
         Ok(())
     }
 
