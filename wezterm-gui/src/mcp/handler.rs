@@ -840,6 +840,32 @@ mod engine_neutral_handler_tests {
     }
 
     #[test]
+    fn instance_metadata_methods_do_not_require_terminal_engine() {
+        let _guard = env_lock().lock();
+        let previous_engine = std::env::var("UNTERM_ENGINE").ok();
+        std::env::set_var("UNTERM_ENGINE", "next-core");
+
+        let result: Result<(serde_json::Value, serde_json::Value)> = (|| {
+            let handler = McpHandler::new();
+            let ctx = ConnectionContext::internal("handler-test");
+            let info = handler.handle(&ctx, "instance.info", &json!({}))?;
+            let list = handler.handle(&ctx, "instance.list", &json!({}))?;
+            Ok((info, list))
+        })();
+
+        match previous_engine {
+            Some(value) => std::env::set_var("UNTERM_ENGINE", value),
+            None => std::env::remove_var("UNTERM_ENGINE"),
+        }
+
+        let (info, list) = result.expect("read instance metadata without WezTerm mux");
+        assert!(info.get("id").is_some());
+        assert!(info.get("pid").is_some());
+        assert!(info.get("mcp_port").is_some());
+        assert!(list["instances"].is_array());
+    }
+
+    #[test]
     fn server_health_uses_selected_next_core_engine() {
         let _guard = env_lock().lock();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
