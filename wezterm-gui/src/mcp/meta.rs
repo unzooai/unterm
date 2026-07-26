@@ -24,7 +24,7 @@ use serde_json::{json, Value};
 pub use unterm_agents::mcp_meta::{CLI_COMMANDS, MCP_METHODS};
 
 const WEZTERM_UNSUPPORTED_METHODS: &[&str] = &["session.env", "session.set_env"];
-const NEXT_CORE_UNSUPPORTED_METHODS: &[&str] = &["session.set_env"];
+const NEXT_CORE_UNSUPPORTED_METHODS: &[&str] = &[];
 
 fn engine_unsupported_methods(engine: &str) -> Vec<&'static str> {
     let mut methods = if engine == "next-core" {
@@ -182,13 +182,14 @@ mod tests {
         let caps = engine_capabilities("next-core");
         let unsupported = strings_at(&caps, "unsupported_methods");
 
-        assert!(unsupported.contains(&"session.set_env"));
+        assert!(!unsupported.contains(&"session.set_env"));
         assert!(!unsupported.contains(&"session.env"));
         assert!(!unsupported.contains(&"capture.scrollback"));
 
         let supported = strings_at(&caps, "supported_methods");
         assert!(supported.contains(&"session.input"));
         assert!(supported.contains(&"session.env"));
+        assert!(supported.contains(&"session.set_env"));
         assert!(supported.contains(&"screen.text"));
         assert!(supported.contains(&"capture.scrollback"));
 

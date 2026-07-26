@@ -294,7 +294,9 @@ impl ConnectionContext {
 
 #[cfg(test)]
 mod engine_neutral_handler_tests {
-    use super::{compute_agent_cwd, shell_command_builder, ConnectionContext, McpHandler};
+    use super::{
+        compute_agent_cwd, mcp_state, shell_command_builder, ConnectionContext, McpHandler,
+    };
     use crate::engine::{next_core, CreateSessionRequest, InputEngine, SessionEngine};
     use anyhow::{anyhow, Context, Result};
     use parking_lot::Mutex;
@@ -394,6 +396,94 @@ mod engine_neutral_handler_tests {
         assert_eq!(env["launch_context"]["proxy_env_keys"][0], "HTTPS_PROXY");
         assert_eq!(env["launch_context"]["env_key_count"], 3);
         next_core().destroy_session(pane_id).ok();
+    }
+
+    #[test]
+    fn session_set_env_applies_next_core_future_launch_overlay_without_values() {
+        let _guard = env_lock().lock();
+        let previous_engine = std::env::var("UNTERM_ENGINE").ok();
+        std::env::set_var("UNTERM_ENGINE", "next-core");
+        {
+            let mut state = mcp_state().lock();
+            state.launch_env_overlay.remove("UNTERM_PROFILE");
+            state.launch_env_overlay.remove("HTTPS_PROXY");
+        }
+
+        let result: Result<(
+            serde_json::Value,
+            serde_json::Value,
+            serde_json::Value,
+            usize,
+        )> = (|| {
+            let handler = McpHandler::new();
+            let ctx = ConnectionContext::internal("handler-test");
+            let profile_set = handler.handle(
+                &ctx,
+                "session.set_env",
+                &json!({
+                    "name": "UNTERM_PROFILE",
+                    "value": "overlay-profile",
+                }),
+            )?;
+            let proxy_set = handler.handle(
+                &ctx,
+                "session.set_env",
+                &json!({
+                    "name": "HTTPS_PROXY",
+                    "value": "http://127.0.0.1:7890",
+                }),
+            )?;
+            let session = handler.handle(
+                &ctx,
+                "session.create",
+                &json!({
+                    "cols": 80,
+                    "rows": 4,
+                    "command": "echo next-core-launch-overlay",
+                }),
+            )?;
+            let pane_id = session["id"].as_u64().expect("session id") as usize;
+            let env = handler.handle(&ctx, "session.env", &json!({ "pane_id": pane_id }))?;
+            let _ = handler.handle(&ctx, "session.destroy", &json!({ "pane_id": pane_id }));
+            Ok((profile_set, proxy_set, env, pane_id))
+        })();
+
+        {
+            let mut state = mcp_state().lock();
+            state.launch_env_overlay.remove("UNTERM_PROFILE");
+            state.launch_env_overlay.remove("HTTPS_PROXY");
+        }
+        match previous_engine {
+            Some(value) => std::env::set_var("UNTERM_ENGINE", value),
+            None => std::env::remove_var("UNTERM_ENGINE"),
+        }
+
+        let (profile_set, proxy_set, env, pane_id) =
+            result.expect("future launch overlay applies through next-core");
+        assert!(next_core().get_session(pane_id).is_err());
+        assert_eq!(profile_set["supported"], true);
+        assert_eq!(profile_set["scope"], "future_launch");
+        assert_eq!(proxy_set["supported"], true);
+        assert_eq!(proxy_set["scope"], "future_launch");
+        let variable_names = env["variables"]
+            .as_array()
+            .expect("variables array")
+            .iter()
+            .map(|var| var["name"].as_str().unwrap_or_default().to_string())
+            .collect::<Vec<_>>();
+        assert!(variable_names.contains(&"UNTERM_PROFILE".to_string()));
+        assert!(variable_names.contains(&"HTTPS_PROXY".to_string()));
+        for variable in env["variables"].as_array().expect("variables array") {
+            assert_eq!(variable["value"], Value::Null);
+            assert_eq!(variable["redacted"], true);
+        }
+        assert_eq!(env["launch_context"]["profile"], "overlay-profile");
+        let proxy_keys = env["launch_context"]["proxy_env_keys"]
+            .as_array()
+            .expect("proxy env keys");
+        assert!(proxy_keys
+            .iter()
+            .any(|key| key.as_str() == Some("HTTPS_PROXY")));
     }
 
     #[test]
@@ -1797,6 +1887,11 @@ struct McpState {
     audit_log: Vec<AuditEntry>,
     policy: CommandPolicy,
     proxy: ProxySettings,
+    /// Future session launch environment overlay requested through
+    /// `session.set_env`. This does not mutate existing shells; it is
+    /// merged into subsequent `session.create` requests where the
+    /// selected engine can apply it safely at process launch.
+    launch_env_overlay: HashMap<String, String>,
     /// Monotonically-increasing count of PTY writes that came from an
     /// MCP client (session.input / exec.send). Surfaced in the status
     /// bar so the user can see "AI just wrote N times" at a glance.
@@ -2580,6 +2675,7 @@ fn mcp_state() -> &'static Mutex<McpState> {
             audit_log: Vec::new(),
             policy: CommandPolicy::default(),
             proxy: load_proxy_settings(),
+            launch_env_overlay: HashMap::new(),
             input_event_count: 0,
             last_input_at: None,
             agents_by_connection: HashMap::new(),
@@ -3168,6 +3264,15 @@ impl McpHandler {
             }
         }
         let mut env = crate::spawn::read_unterm_proxy_env().unwrap_or_default();
+        {
+            let state = mcp_state().lock();
+            env.extend(
+                state
+                    .launch_env_overlay
+                    .iter()
+                    .map(|(key, value)| (key.clone(), value.clone())),
+            );
+        }
         let resolved_profile = if let Some(profile) = profile.as_deref() {
             let (profile_id, profile_env) = resolve_profile_env(profile)?;
             env.extend(profile_env);
@@ -3456,11 +3561,57 @@ impl McpHandler {
         }))
     }
 
-    fn session_set_env(&self, _params: &Value) -> Result<Value> {
+    fn session_set_env(&self, params: &Value) -> Result<Value> {
+        let engine = self.engine();
+        if engine.name() == "wezterm" {
+            return Ok(json!({
+                "status": "ok",
+                "supported": false,
+                "message": "Live environment variable mutation is not supported in WezTerm mode; use session.create launch env/profile/proxy context for child shells.",
+            }));
+        }
+
+        let name = params
+            .get("name")
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| anyhow!("Missing 'name' parameter"))?;
+        if !name.chars().enumerate().all(|(index, ch)| {
+            ch == '_' || ch.is_ascii_alphanumeric() && (index > 0 || !ch.is_ascii_digit())
+        }) {
+            return Err(anyhow!("Invalid environment variable name: {name}"));
+        }
+
+        let mut state = mcp_state().lock();
+        let removed = match params.get("value") {
+            Some(value) if !value.is_null() => {
+                let value = value
+                    .as_str()
+                    .ok_or_else(|| anyhow!("'value' must be a string or null"))?;
+                state
+                    .launch_env_overlay
+                    .insert(name.to_string(), value.to_string());
+                false
+            }
+            _ => state.launch_env_overlay.remove(name).is_some(),
+        };
+        let mut names = state
+            .launch_env_overlay
+            .keys()
+            .cloned()
+            .collect::<Vec<String>>();
+        names.sort();
+
         Ok(json!({
             "status": "ok",
-            "supported": false,
-            "message": "Live environment variable mutation is not supported; use session.create launch env/profile/proxy context for child shells.",
+            "supported": true,
+            "mutable": false,
+            "scope": "future_launch",
+            "name": name,
+            "removed": removed,
+            "overlay_keys": names,
+            "message": "Stored a future-launch environment overlay for new sessions only; existing shells are not mutated and values are not returned.",
         }))
     }
 

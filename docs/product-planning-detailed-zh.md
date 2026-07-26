@@ -4,7 +4,7 @@
 更新时间：2026-07-27  
 规划周期：12 个月  
 适用范围：当前 WezTerm 内核、engine-neutral 产品层、实验性 `next-core`
-当前进展：`next-core` 已具备启动环境元数据、profile/proxy launch-context 诊断、scrollback 文本截图、OSC 7 cwd、session activity、input/output/paste 指标、server health 聚合 I/O 诊断、逻辑 viewport goto 和 UTF-8 安全粘贴分块基础能力。
+当前进展：`next-core` 已具备启动环境元数据、future-launch env overlay、profile/proxy launch-context 诊断、scrollback 文本截图、OSC 7 cwd、session activity、input/output/paste 指标、server health 聚合 I/O 诊断、逻辑 viewport goto 和 UTF-8 安全粘贴分块基础能力。
 
 ## 1. 产品结论
 
@@ -242,7 +242,7 @@ Unterm 的产品目标不是“再做一个终端”，而是做一个本地优�
 - tabs、splits、selection、copy/paste、search、scrollback。
 - CJK width、emoji fallback MVP。
 - title/cwd/process metadata。
-- profile/proxy env injection，基于 engine-neutral launch env overlay。
+- profile/proxy env injection，基于 engine-neutral launch env overlay 和 next-core future-launch env overlay。
 - recording MVP。
 - agent state MVP。
 - CLI/MCP session/input/screen parity。

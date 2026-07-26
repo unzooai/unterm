@@ -151,12 +151,12 @@ pub const MCP_METHODS: &[McpMethod] = &[
     McpMethod {
         name: "session.set_env",
         namespace: "session",
-        summary: "Request pane environment mutation; returns an unsupported marker in WezTerm mode.",
+        summary: "Set or clear a future-launch environment overlay; existing shells are not mutated.",
         params: &[
             P_PANE_ID,
             P_SESSION_ID,
-            Param { name: "name", kind: "string", required: false, summary: "Environment variable name." },
-            Param { name: "value", kind: "string", required: false, summary: "Environment variable value." },
+            Param { name: "name", kind: "string", required: true, summary: "Environment variable name." },
+            Param { name: "value", kind: "string", required: false, summary: "Environment variable value; omit or pass null to clear the future-launch overlay." },
         ],
     },
     McpMethod {
