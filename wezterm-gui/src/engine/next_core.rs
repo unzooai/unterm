@@ -38,9 +38,9 @@ struct NextCoreState {
 
 #[derive(Default)]
 struct NextCoreScreen {
-    lines: Vec<String>,
-    current: Vec<char>,
+    lines: Vec<Vec<char>>,
     cursor_x: usize,
+    cursor_y: usize,
 }
 
 impl NextCoreScreen {
@@ -50,31 +50,30 @@ impl NextCoreScreen {
     }
 
     fn snapshot_lines(&self) -> Vec<String> {
-        let mut lines = self.lines.clone();
-        let current = self.current.iter().collect::<String>();
-        if !current.is_empty() {
-            lines.push(current.trim_end().to_string());
-        }
-        lines
+        self.lines
+            .iter()
+            .map(|line| line.iter().collect::<String>().trim_end().to_string())
+            .collect()
     }
 
     fn put_char(&mut self, c: char) {
-        if self.cursor_x > self.current.len() {
-            self.current.resize(self.cursor_x, ' ');
+        self.ensure_cursor_line();
+        let line = &mut self.lines[self.cursor_y];
+        if self.cursor_x > line.len() {
+            line.resize(self.cursor_x, ' ');
         }
-        if self.cursor_x == self.current.len() {
-            self.current.push(c);
+        if self.cursor_x == line.len() {
+            line.push(c);
         } else {
-            self.current[self.cursor_x] = c;
+            line[self.cursor_x] = c;
         }
         self.cursor_x += 1;
     }
 
     fn newline(&mut self) {
-        let line = self.current.iter().collect::<String>();
-        self.lines.push(line.trim_end().to_string());
-        self.current.clear();
+        self.cursor_y += 1;
         self.cursor_x = 0;
+        self.ensure_cursor_line();
     }
 
     fn carriage_return(&mut self) {
@@ -83,6 +82,47 @@ impl NextCoreScreen {
 
     fn backspace(&mut self) {
         self.cursor_x = self.cursor_x.saturating_sub(1);
+    }
+
+    fn ensure_cursor_line(&mut self) {
+        while self.lines.len() <= self.cursor_y {
+            self.lines.push(Vec::new());
+        }
+    }
+
+    fn set_cursor(&mut self, row: usize, col: usize) {
+        self.cursor_y = row;
+        self.cursor_x = col;
+        self.ensure_cursor_line();
+    }
+
+    fn move_cursor_up(&mut self, count: usize) {
+        self.cursor_y = self.cursor_y.saturating_sub(count);
+    }
+
+    fn move_cursor_down(&mut self, count: usize) {
+        self.cursor_y += count;
+        self.ensure_cursor_line();
+    }
+
+    fn move_cursor_right(&mut self, count: usize) {
+        self.cursor_x += count;
+    }
+
+    fn move_cursor_left(&mut self, count: usize) {
+        self.cursor_x = self.cursor_x.saturating_sub(count);
+    }
+
+    fn clear_screen(&mut self) {
+        self.lines.clear();
+        self.cursor_x = 0;
+        self.cursor_y = 0;
+        self.ensure_cursor_line();
+    }
+
+    fn clear_to_end_of_line(&mut self) {
+        self.ensure_cursor_line();
+        self.lines[self.cursor_y].truncate(self.cursor_x);
     }
 }
 
@@ -94,7 +134,7 @@ struct ScreenParser<'a> {
 enum ParserState {
     Ground,
     Escape,
-    Csi,
+    Csi(String),
     Osc,
     OscEscape,
 }
@@ -130,13 +170,18 @@ impl<'a> ScreenParser<'a> {
                 _ => {}
             },
             ParserState::Escape => match c {
-                '[' => self.state = ParserState::Csi,
+                '[' => self.state = ParserState::Csi(String::new()),
                 ']' => self.state = ParserState::Osc,
                 _ => self.state = ParserState::Ground,
             },
-            ParserState::Csi => {
+            ParserState::Csi(ref mut sequence) => {
                 if ('@'..='~').contains(&c) {
+                    sequence.push(c);
+                    let sequence = std::mem::take(sequence);
+                    self.handle_csi(&sequence);
                     self.state = ParserState::Ground;
+                } else {
+                    sequence.push(c);
                 }
             }
             ParserState::Osc => match c {
@@ -147,6 +192,40 @@ impl<'a> ScreenParser<'a> {
             ParserState::OscEscape => {
                 self.state = ParserState::Ground;
             }
+        }
+    }
+
+    fn handle_csi(&mut self, sequence: &str) {
+        let Some(final_byte) = sequence.chars().last() else {
+            return;
+        };
+        let params = &sequence[..sequence.len().saturating_sub(final_byte.len_utf8())];
+        let params = params.trim_start_matches('?');
+        let numbers = params
+            .split(';')
+            .map(|part| part.parse::<usize>().unwrap_or(0))
+            .collect::<Vec<_>>();
+        let first = || numbers.first().copied().filter(|n| *n > 0).unwrap_or(1);
+
+        match final_byte {
+            'A' => self.screen.move_cursor_up(first()),
+            'B' => self.screen.move_cursor_down(first()),
+            'C' => self.screen.move_cursor_right(first()),
+            'D' => self.screen.move_cursor_left(first()),
+            'G' => self.screen.cursor_x = first().saturating_sub(1),
+            'H' | 'f' => {
+                let row = numbers.first().copied().filter(|n| *n > 0).unwrap_or(1);
+                let col = numbers.get(1).copied().filter(|n| *n > 0).unwrap_or(1);
+                self.screen
+                    .set_cursor(row.saturating_sub(1), col.saturating_sub(1));
+            }
+            'J' => {
+                if numbers.first().copied().unwrap_or(0) == 2 {
+                    self.screen.clear_screen();
+                }
+            }
+            'K' => self.screen.clear_to_end_of_line(),
+            _ => {}
         }
     }
 }
@@ -835,6 +914,31 @@ mod tests {
         assert!(text.contains("plain"));
         assert!(!text.contains("\x1b["));
         assert!(!text.contains("title"));
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_applies_basic_csi_screen_operations() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 24,
+            command_dir: None,
+            command: None,
+        })?;
+        set_output_for_test(
+            session.id,
+            "old line\n\x1b[2J\x1b[Hhello\nworld\x1b[1A\x1b[3G!\x1b[K",
+        )?;
+
+        let lines = engine.read_screen(session.id)?.lines;
+        assert!(!lines.iter().any(|line| line.contains("old line")));
+        assert!(lines.iter().any(|line| line == "he!"));
+        assert!(lines.iter().any(|line| line == "world"));
 
         engine.destroy_session(session.id)?;
         Ok(())
