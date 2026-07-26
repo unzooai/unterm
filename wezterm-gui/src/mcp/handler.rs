@@ -866,6 +866,46 @@ mod engine_neutral_handler_tests {
     }
 
     #[test]
+    fn ghost_debug_reads_product_registry_by_pane_id() {
+        let _guard = env_lock().lock();
+        let previous_engine = std::env::var("UNTERM_ENGINE").ok();
+        std::env::set_var("UNTERM_ENGINE", "next-core");
+
+        let result: Result<(serde_json::Value, usize)> = (|| {
+            let handler = McpHandler::new();
+            let ctx = ConnectionContext::internal("handler-test");
+            let created = handler.handle(
+                &ctx,
+                "session.create",
+                &json!({
+                    "cols": 80,
+                    "rows": 4,
+                }),
+            )?;
+            let pane_id = created["id"].as_u64().expect("session id") as usize;
+            crate::ghost_text::observe(
+                pane_id as u64,
+                crate::ghost_text::InputEvent::Char('g'),
+                &["git status".to_string()],
+            );
+            let debug = handler.handle(&ctx, "ghost.debug", &json!({ "pane_id": pane_id }))?;
+            let _ = handler.handle(&ctx, "session.destroy", &json!({ "pane_id": pane_id }));
+            Ok((debug, pane_id))
+        })();
+
+        match previous_engine {
+            Some(value) => std::env::set_var("UNTERM_ENGINE", value),
+            None => std::env::remove_var("UNTERM_ENGINE"),
+        }
+
+        let (debug, pane_id) = result.expect("read ghost debug without WezTerm mux");
+        assert!(next_core().get_session(pane_id).is_err());
+        assert_eq!(debug["input_buffer"], "g");
+        assert_eq!(debug["ghost"], "it status");
+        assert_eq!(debug["input_buffer_len"], 1);
+    }
+
+    #[test]
     fn server_health_uses_selected_next_core_engine() {
         let _guard = env_lock().lock();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
