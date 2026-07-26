@@ -1516,6 +1516,15 @@ mod engine_neutral_handler_tests {
         assert!(metrics.iter().any(|metric| metric == "input_writes"));
         assert!(metrics.iter().any(|metric| metric == "output_bytes"));
         assert!(metrics.iter().any(|metric| metric == "paste_count"));
+        let scroll_check = checks
+            .iter()
+            .find(|check| check["name"] == "next_core.screen_scroll_viewport")
+            .expect("next-core screen scroll viewport check");
+        assert_eq!(scroll_check["ok"], true);
+        assert_eq!(scroll_check["detail"]["found_tail"], true);
+        assert_eq!(scroll_check["detail"]["scrolled"], true);
+        assert_eq!(scroll_check["detail"]["target_visible"], true);
+        assert_eq!(scroll_check["detail"]["destroyed"], true);
     }
 
     #[test]
@@ -5770,6 +5779,21 @@ impl McpHandler {
                     "required_metrics": required_metrics,
                 },
             }));
+
+            let viewport = self.selftest_next_core_scroll_viewport();
+            checks.push(json!({
+                "name": "next_core.screen_scroll_viewport",
+                "ok": viewport
+                    .as_ref()
+                    .ok()
+                    .and_then(|value| value.get("ok"))
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(false),
+                "detail": match viewport {
+                    Ok(value) => value,
+                    Err(err) => json!({"error": err.to_string()}),
+                },
+            }));
         }
 
         let policy = self.policy_check(&json!({"command": "echo unterm-selftest"}));
@@ -5897,6 +5921,88 @@ impl McpHandler {
             "ok": ok,
             "checks": checks,
         }))
+    }
+
+    fn selftest_next_core_scroll_viewport(&self) -> Result<Value> {
+        let command = if cfg!(windows) {
+            "for /L %i in (1,1,8) do @echo next-core-selftest-scroll-%i"
+        } else {
+            "for i in 1 2 3 4 5 6 7 8; do echo next-core-selftest-scroll-$i; done"
+        };
+        let created = self.session_create(&json!({
+            "cols": 80,
+            "rows": 3,
+            "command": command,
+        }))?;
+        let pane_id = created["id"]
+            .as_u64()
+            .ok_or_else(|| anyhow!("next-core selftest session.create did not return id"))?
+            as usize;
+
+        let probe = (|| -> Result<Value> {
+            let mut found_tail = false;
+            let mut search = Value::Null;
+            for _ in 0..20 {
+                search = self.screen_search(&json!({
+                    "pane_id": pane_id,
+                    "pattern": "next-core-selftest-scroll-8",
+                }))?;
+                if search["total"].as_u64().unwrap_or_default() > 0 {
+                    found_tail = true;
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+
+            let mut scroll = Value::Null;
+            let mut text = Value::Null;
+            let mut target_visible = false;
+            if found_tail {
+                scroll = self.screen_scroll(&json!({
+                    "pane_id": pane_id,
+                    "offset": 1,
+                    "count": 3,
+                    "goto": true,
+                }))?;
+                text = self.screen_text(&json!({ "pane_id": pane_id }))?;
+                target_visible = text["lines"]
+                    .as_array()
+                    .is_some_and(|lines| {
+                        lines
+                            .iter()
+                            .any(|line| line.as_str() == Some("next-core-selftest-scroll-2"))
+                    });
+            }
+
+            let scrolled = scroll["scrolled_to"]["row"].as_i64() == Some(1)
+                && scroll["goto_skipped"].is_null();
+            Ok(json!({
+                "ok": found_tail && scrolled && target_visible,
+                "pane_id": pane_id,
+                "found_tail": found_tail,
+                "scrolled": scrolled,
+                "target_visible": target_visible,
+                "search": search,
+                "scroll": scroll,
+                "text": text,
+            }))
+        })();
+
+        let destroyed = self.session_destroy(&json!({ "pane_id": pane_id }));
+        let mut detail = match probe {
+            Ok(value) => value,
+            Err(err) => json!({
+                "ok": false,
+                "pane_id": pane_id,
+                "error": err.to_string(),
+            }),
+        };
+        detail["destroyed"] = json!(destroyed.is_ok());
+        if let Err(err) = destroyed {
+            detail["destroy_error"] = json!(err.to_string());
+            detail["ok"] = json!(false);
+        }
+        Ok(detail)
     }
 
     // ----------------------------------------------------------------
