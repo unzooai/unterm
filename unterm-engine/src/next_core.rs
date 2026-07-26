@@ -295,6 +295,7 @@ struct NextCoreScreen {
     auto_wrap: bool,
     reverse_video: bool,
     application_cursor_keys: bool,
+    focus_event_reporting: bool,
     origin_mode: bool,
     insert_mode: bool,
     tab_stops: BTreeSet<usize>,
@@ -324,6 +325,7 @@ struct ScreenState {
     cursor_shape: String,
     auto_wrap: bool,
     application_cursor_keys: bool,
+    focus_event_reporting: bool,
     origin_mode: bool,
     insert_mode: bool,
     tab_stops: BTreeSet<usize>,
@@ -980,6 +982,7 @@ impl NextCoreScreen {
         self.auto_wrap = true;
         self.reverse_video = false;
         self.application_cursor_keys = false;
+        self.focus_event_reporting = false;
         self.cursor_visible = true;
         self.cursor_shape = "Default".to_string();
         self.tab_stops = Self::default_tab_stops(self.cols);
@@ -1534,6 +1537,7 @@ impl NextCoreScreen {
             cursor_shape: self.cursor_shape.clone(),
             auto_wrap: self.auto_wrap,
             application_cursor_keys: self.application_cursor_keys,
+            focus_event_reporting: self.focus_event_reporting,
             origin_mode: self.origin_mode,
             insert_mode: self.insert_mode,
             tab_stops: std::mem::take(&mut self.tab_stops),
@@ -1552,6 +1556,7 @@ impl NextCoreScreen {
         self.cursor_shape = "Default".to_string();
         self.auto_wrap = true;
         self.application_cursor_keys = false;
+        self.focus_event_reporting = false;
         self.origin_mode = false;
         self.insert_mode = false;
         self.tab_stops = Self::default_tab_stops(self.cols);
@@ -1575,6 +1580,7 @@ impl NextCoreScreen {
             self.cursor_shape = main.cursor_shape;
             self.auto_wrap = main.auto_wrap;
             self.application_cursor_keys = main.application_cursor_keys;
+            self.focus_event_reporting = main.focus_event_reporting;
             self.origin_mode = main.origin_mode;
             self.insert_mode = main.insert_mode;
             self.tab_stops = main.tab_stops;
@@ -1839,6 +1845,7 @@ impl<'a> ScreenParser<'a> {
                                 self.screen.cursor_visible = true;
                                 self.screen.mark_dirty_row(self.screen.cursor_y);
                             }
+                            1004 => self.screen.focus_event_reporting = true,
                             2004 => self.screen.set_bracketed_paste(true),
                             _ => {}
                         }
@@ -1864,6 +1871,7 @@ impl<'a> ScreenParser<'a> {
                                 self.screen.cursor_visible = false;
                                 self.screen.mark_dirty_row(self.screen.cursor_y);
                             }
+                            1004 => self.screen.focus_event_reporting = false,
                             2004 => self.screen.set_bracketed_paste(false),
                             _ => {}
                         }
@@ -3375,6 +3383,15 @@ impl NextCoreEngine {
                     .as_bytes(),
                 );
                 idx += "\x1b[?1049$p".len();
+            } else if rest.starts_with("\x1b[?1004$p") {
+                response.extend_from_slice(
+                    format!(
+                        "\x1b[?1004;{}$y",
+                        Self::mode_report_state(screen.focus_event_reporting)
+                    )
+                    .as_bytes(),
+                );
+                idx += "\x1b[?1004$p".len();
             } else if rest.starts_with("\x1b[?2004$p") {
                 response.extend_from_slice(
                     format!(
@@ -4439,7 +4456,7 @@ mod tests {
     fn answers_mode_report_queries_from_screen_state() {
         let _guard = test_guard();
         let mut screen = NextCoreScreen::new(80, 10);
-        screen.feed("\x1b[?1h\x1b[?5h\x1b[?6h\x1b[?25l\x1b[?2004h\x1b[4h");
+        screen.feed("\x1b[?1h\x1b[?5h\x1b[?6h\x1b[?25l\x1b[?1004h\x1b[?2004h\x1b[4h");
         let bytes = Arc::new(Mutex::new(Vec::new()));
         let writer: Arc<Mutex<Box<dyn Write + Send>>> =
             Arc::new(Mutex::new(Box::new(SharedWriter {
@@ -4447,14 +4464,14 @@ mod tests {
             })));
 
         NextCoreEngine::answer_terminal_queries(
-            "\x1b[?1$p\x1b[?5$p\x1b[?6$p\x1b[?7$p\x1b[?25$p\x1b[?2004$p\x1b[4$p",
+            "\x1b[?1$p\x1b[?5$p\x1b[?6$p\x1b[?7$p\x1b[?25$p\x1b[?1004$p\x1b[?2004$p\x1b[4$p",
             &screen,
             &writer,
         );
 
         assert_eq!(
             bytes.lock().as_slice(),
-            b"\x1b[?1;1$y\x1b[?5;1$y\x1b[?6;1$y\x1b[?7;1$y\x1b[?25;2$y\x1b[?2004;1$y\x1b[4;1$y"
+            b"\x1b[?1;1$y\x1b[?5;1$y\x1b[?6;1$y\x1b[?7;1$y\x1b[?25;2$y\x1b[?1004;1$y\x1b[?2004;1$y\x1b[4;1$y"
         );
     }
 
@@ -4469,14 +4486,14 @@ mod tests {
             })));
 
         NextCoreEngine::answer_terminal_queries(
-            "\x1b[?1$p\x1b[?5$p\x1b[?6$p\x1b[?1049$p\x1b[?2004$p\x1b[4$p",
+            "\x1b[?1$p\x1b[?5$p\x1b[?6$p\x1b[?1004$p\x1b[?1049$p\x1b[?2004$p\x1b[4$p",
             &screen,
             &writer,
         );
 
         assert_eq!(
             bytes.lock().as_slice(),
-            b"\x1b[?1;2$y\x1b[?5;2$y\x1b[?6;2$y\x1b[?1049;2$y\x1b[?2004;2$y\x1b[4;2$y"
+            b"\x1b[?1;2$y\x1b[?5;2$y\x1b[?6;2$y\x1b[?1004;2$y\x1b[?1049;2$y\x1b[?2004;2$y\x1b[4;2$y"
         );
     }
 
@@ -6720,6 +6737,23 @@ mod tests {
         assert!(!screen.application_cursor_keys);
         screen.feed("\x1b[?1h\x1b[!p");
         assert!(!screen.application_cursor_keys);
+
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_tracks_focus_event_reporting_mode() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let mut screen = NextCoreScreen::new(80, 3);
+
+        assert!(!screen.focus_event_reporting);
+        screen.feed("\x1b[?1004h");
+        assert!(screen.focus_event_reporting);
+        screen.feed("\x1b[?1004l");
+        assert!(!screen.focus_event_reporting);
+        screen.feed("\x1b[?1004h\x1b[!p");
+        assert!(!screen.focus_event_reporting);
 
         Ok(())
     }
