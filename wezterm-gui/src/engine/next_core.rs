@@ -41,6 +41,7 @@ struct NextCoreScreen {
     lines: Vec<Vec<char>>,
     cursor_x: usize,
     cursor_y: usize,
+    rows: usize,
     saved_cursor_x: usize,
     saved_cursor_y: usize,
     alternate: Option<ScreenState>,
@@ -56,6 +57,15 @@ struct ScreenState {
 }
 
 impl NextCoreScreen {
+    fn new(rows: usize) -> Self {
+        let mut screen = Self {
+            rows: rows.max(1),
+            ..Self::default()
+        };
+        screen.ensure_cursor_line();
+        screen
+    }
+
     fn feed(&mut self, chunk: &str) {
         let mut parser = ScreenParser::new(self);
         parser.feed(chunk);
@@ -83,8 +93,12 @@ impl NextCoreScreen {
     }
 
     fn newline(&mut self) {
-        self.cursor_y += 1;
         self.cursor_x = 0;
+        if self.cursor_y + 1 >= self.rows {
+            self.scroll_up(1);
+        } else {
+            self.cursor_y += 1;
+        }
         self.ensure_cursor_line();
     }
 
@@ -152,6 +166,9 @@ impl NextCoreScreen {
         self.ensure_cursor_line();
         for _ in 0..count.max(1) {
             self.lines.insert(self.cursor_y, Vec::new());
+            if self.lines.len() > self.rows {
+                self.lines.pop();
+            }
         }
     }
 
@@ -162,6 +179,38 @@ impl NextCoreScreen {
                 self.lines.remove(self.cursor_y);
             }
         }
+        self.ensure_cursor_line();
+    }
+
+    fn scroll_up(&mut self, count: usize) {
+        for _ in 0..count.max(1) {
+            if !self.lines.is_empty() {
+                self.lines.remove(0);
+            }
+            self.lines.push(Vec::new());
+        }
+        self.cursor_y = self.cursor_y.min(self.rows.saturating_sub(1));
+    }
+
+    fn scroll_down(&mut self, count: usize) {
+        for _ in 0..count.max(1) {
+            self.lines.insert(0, Vec::new());
+            if self.lines.len() > self.rows {
+                self.lines.pop();
+            }
+        }
+        self.cursor_y = self.cursor_y.min(self.rows.saturating_sub(1));
+    }
+
+    fn resize(&mut self, rows: usize) {
+        self.rows = rows.max(1);
+        if self.lines.len() > self.rows {
+            let trim = self.lines.len() - self.rows;
+            self.lines.drain(..trim);
+            self.cursor_y = self.cursor_y.saturating_sub(trim);
+            self.saved_cursor_y = self.saved_cursor_y.saturating_sub(trim);
+        }
+        self.cursor_y = self.cursor_y.min(self.rows.saturating_sub(1));
         self.ensure_cursor_line();
     }
 
@@ -196,6 +245,12 @@ impl NextCoreScreen {
             self.cursor_y = main.cursor_y;
             self.saved_cursor_x = main.saved_cursor_x;
             self.saved_cursor_y = main.saved_cursor_y;
+            if self.lines.len() > self.rows {
+                let trim = self.lines.len() - self.rows;
+                self.lines.drain(..trim);
+                self.cursor_y = self.cursor_y.saturating_sub(trim);
+                self.saved_cursor_y = self.saved_cursor_y.saturating_sub(trim);
+            }
             self.ensure_cursor_line();
         }
     }
@@ -297,6 +352,8 @@ impl<'a> ScreenParser<'a> {
             'D' => self.screen.move_cursor_left(first()),
             'L' => self.screen.insert_lines(first()),
             'M' => self.screen.delete_lines(first()),
+            'S' => self.screen.scroll_up(first()),
+            'T' => self.screen.scroll_down(first()),
             'G' => self.screen.cursor_x = first().saturating_sub(1),
             'H' | 'f' => {
                 let row = numbers.first().copied().filter(|n| *n > 0).unwrap_or(1);
@@ -337,7 +394,7 @@ fn reset_state_for_test() {
 
 #[cfg(test)]
 fn set_output_for_test(pane_id: usize, text: &str) -> Result<()> {
-    let (output, screen) = {
+    let (output, screen, rows) = {
         let state = state().read();
         let Some(session) = state
             .sessions
@@ -346,11 +403,15 @@ fn set_output_for_test(pane_id: usize, text: &str) -> Result<()> {
         else {
             bail!("next-core session {pane_id} not found");
         };
-        (Arc::clone(&session.output), Arc::clone(&session.screen))
+        (
+            Arc::clone(&session.output),
+            Arc::clone(&session.screen),
+            session.snapshot.rows,
+        )
     };
     *output.lock() = text.to_string();
     let mut screen = screen.lock();
-    *screen = NextCoreScreen::default();
+    *screen = NextCoreScreen::new(rows);
     screen.feed(text);
     Ok(())
 }
@@ -509,7 +570,7 @@ impl NextCoreEngine {
         let child = pair.slave.spawn_command(command)?;
         let writer = Arc::new(Mutex::new(pair.master.take_writer()?));
         let output = Arc::new(Mutex::new(String::new()));
-        let screen = Arc::new(Mutex::new(NextCoreScreen::default()));
+        let screen = Arc::new(Mutex::new(NextCoreScreen::new(rows)));
         Self::spawn_reader_thread(
             id,
             Arc::clone(&output),
@@ -723,6 +784,7 @@ impl SessionEngine for NextCoreEngine {
         session.master.lock().resize(Self::pty_size(cols, rows))?;
         session.snapshot.cols = cols;
         session.snapshot.rows = rows;
+        session.screen.lock().resize(rows);
         Ok(())
     }
 
@@ -1075,6 +1137,53 @@ mod tests {
         assert!(lines.iter().any(|line| line == "."));
         assert!(!lines.iter().any(|line| line.contains("alt-only")));
         assert!(!lines.iter().any(|line| line.contains("main-two")));
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_scrolls_when_output_exceeds_viewport() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 3,
+            command_dir: None,
+            command: None,
+        })?;
+        set_output_for_test(session.id, "one\ntwo\nthree\nfour\nfive")?;
+
+        let screen = engine.read_screen(session.id)?;
+        assert_eq!(screen.rows, 3);
+        assert_eq!(screen.lines, vec!["three", "four", "five"]);
+        assert!(!screen.lines.iter().any(|line| line == "one"));
+        assert!(!screen.lines.iter().any(|line| line == "two"));
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_applies_explicit_scroll_commands() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 3,
+            command_dir: None,
+            command: None,
+        })?;
+        set_output_for_test(session.id, "a\nb\nc\x1b[S")?;
+
+        let lines = engine.read_screen(session.id)?.lines;
+        assert_eq!(lines, vec!["b", "c", ""]);
+
+        set_output_for_test(session.id, "a\nb\nc\x1b[T")?;
+        let lines = engine.read_screen(session.id)?.lines;
+        assert_eq!(lines, vec!["", "a", "b"]);
 
         engine.destroy_session(session.id)?;
         Ok(())
