@@ -22,7 +22,7 @@ Machine-readable probe output:
 cargo run -p unterm-engine --bin unterm-next-core -- --json --wait-ms 500 -- cmd.exe /c "echo next-core-probe"
 ```
 
-The JSON output includes the session snapshot, screen snapshot, activity snapshot, engine health, raw output byte count, and visible text. Use this for CI or agent dogfood checks instead of parsing the human-readable snapshot. In `next-core`, session snapshots include `dead_reason` for exited/closed PTY paths, `shell.launch_context` summarizes the selected profile id plus proxy env key names without exposing env values, terminal status/cursor/primary and secondary device-attribute queries are answered through the PTY writer, `health.lifecycle` summarizes session create/destroy/dead counters and the latest death reason, and `health.io` summarizes input writes/bytes, output chunks/bytes, paste counts/text bytes, screen reads, and viewport scrolls across live sessions.
+The JSON output includes the session snapshot, screen snapshot, activity snapshot, engine health, raw output byte count, and visible text. Use this for CI or agent dogfood checks instead of parsing the human-readable snapshot. In `next-core`, session snapshots include `dead_reason` for exited/closed PTY paths, `shell.launch_context` summarizes the selected profile id plus proxy env key names without exposing env values, terminal status/cursor/primary and secondary device-attribute queries, including parameterized DA forms, are answered through the PTY writer, `health.lifecycle` summarizes session create/destroy/dead counters and the latest death reason, and `health.io` summarizes input writes/bytes, output chunks/bytes, paste counts/text bytes, screen reads, and viewport scrolls across live sessions.
 
 Launch-context probe:
 
