@@ -6,6 +6,8 @@
 
 pub mod wezterm;
 
+use window::WindowOps;
+
 #[allow(unused_imports)]
 pub use unterm_engine::{
     next_core, CellStyle, CreateSessionRequest, CursorSnapshot, DirtyRows, EngineHealthSnapshot,
@@ -16,6 +18,15 @@ pub use unterm_engine::{
     SplitSessionRequest, StyledCell, StyledColor, StyledScreenLine, StyledScreenSnapshot,
     TerminalEngine,
 };
+
+#[derive(Clone, Debug)]
+pub struct WindowFocusResult {
+    pub mux_window_id: usize,
+}
+
+pub trait WindowEngine {
+    fn focus_current_instance_window(&self) -> anyhow::Result<WindowFocusResult>;
+}
 
 #[derive(Clone, Copy, Debug)]
 pub enum CurrentTerminalEngine {
@@ -283,4 +294,20 @@ impl HealthEngine for CurrentTerminalEngine {
             Self::NextCore(engine) => engine.health(),
         }
     }
+}
+
+impl WindowEngine for CurrentTerminalEngine {
+    fn focus_current_instance_window(&self) -> anyhow::Result<WindowFocusResult> {
+        focus_current_instance_window()
+    }
+}
+
+fn focus_current_instance_window() -> anyhow::Result<WindowFocusResult> {
+    let window = crate::frontend::try_front_end()
+        .and_then(|fe| fe.gui_windows().into_iter().next())
+        .ok_or_else(|| anyhow::anyhow!("no GUI window is registered for this instance"))?;
+    window.window.focus();
+    Ok(WindowFocusResult {
+        mux_window_id: window.mux_window_id,
+    })
 }

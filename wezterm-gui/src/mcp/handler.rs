@@ -4,6 +4,7 @@
 use crate::engine::{
     CreateSessionRequest, CurrentTerminalEngine, HealthEngine, InputEngine, RecordingEngine,
     ScreenEngine, ScrollbackTextRequest, SessionEngine, SplitDirection, SplitSessionRequest,
+    WindowEngine,
 };
 use anyhow::{anyhow, Context, Result};
 use base64::Engine as _;
@@ -17,7 +18,6 @@ use std::collections::HashMap;
 use std::ffi::OsString;
 use std::net::ToSocketAddrs;
 use std::sync::Arc;
-use window::WindowOps;
 
 /// Audit log entry
 #[derive(Clone, serde::Serialize)]
@@ -845,13 +845,19 @@ mod engine_neutral_handler_tests {
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
-        let result = (|| -> Result<(serde_json::Value, serde_json::Value, serde_json::Value)> {
+        let result = (|| -> Result<(
+            serde_json::Value,
+            serde_json::Value,
+            serde_json::Value,
+            Result<serde_json::Value>,
+        )> {
             let handler = McpHandler::new();
             let ctx = ConnectionContext::internal("handler-test");
             let info = handler.handle(&ctx, "instance.info", &json!({}))?;
             let list = handler.handle(&ctx, "instance.list", &json!({}))?;
             let title = handler.handle(&ctx, "instance.set_title", &json!({ "title": null }))?;
-            Ok((info, list, title))
+            let focus = handler.handle(&ctx, "instance.focus", &json!({}));
+            Ok((info, list, title, focus))
         })();
 
         match previous_engine {
@@ -859,13 +865,22 @@ mod engine_neutral_handler_tests {
             None => std::env::remove_var("UNTERM_ENGINE"),
         }
 
-        let (info, list, title) = result.expect("read instance metadata without WezTerm mux");
+        let (info, list, title, focus) =
+            result.expect("read instance metadata without WezTerm mux");
         assert!(info.get("id").is_some());
         assert!(info.get("pid").is_some());
         assert!(info.get("mcp_port").is_some());
         assert!(list["instances"].is_array());
         assert_eq!(title["ok"], true);
         assert!(title["title"].is_null());
+        if let Err(err) = focus {
+            let message = format!("{err:#}");
+            assert!(
+                !message.contains("Mux not available"),
+                "instance.focus should not require WezTerm mux: {}",
+                message
+            );
+        }
     }
 
     #[test]
@@ -2359,18 +2374,21 @@ impl McpHandler {
     /// instance; cross-instance focus is still modeled by connecting to that
     /// peer with `--instance <id>` and calling `instance.focus` there.
     fn instance_focus(&self, _params: &Value) -> Result<Value> {
+        if !promise::spawn::is_scheduler_configured() {
+            return Err(anyhow!(
+                "GUI scheduler is not configured for instance.focus"
+            ));
+        }
+
+        let engine = self.engine();
         let (tx, rx) = std::sync::mpsc::channel();
         promise::spawn::spawn_into_main_thread(async move {
-            let result = crate::frontend::try_front_end()
-                .and_then(|fe| fe.gui_windows().into_iter().next())
-                .map(|win| {
-                    win.window.focus();
-                    json!({
-                        "ok": true,
-                        "mux_window_id": win.mux_window_id,
-                    })
+            let result = engine.focus_current_instance_window().map(|focus| {
+                json!({
+                    "ok": true,
+                    "mux_window_id": focus.mux_window_id,
                 })
-                .ok_or_else(|| anyhow!("no GUI window is registered for this instance"));
+            });
             tx.send(result).ok();
         })
         .detach();
