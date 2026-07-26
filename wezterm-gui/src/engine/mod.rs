@@ -97,11 +97,10 @@ pub fn next_core_scrollback_renderer_metadata() -> serde_json::Value {
             "inverse",
             "underline",
             "theme_palette",
+            "bold",
+            "italic",
         ],
-        "missing_parity": [
-            "bold_font_face",
-            "italic_font_face",
-        ],
+        "missing_parity": [],
     })
 }
 

@@ -1018,13 +1018,16 @@ mod engine_neutral_handler_tests {
         assert!(supported_styles
             .iter()
             .any(|style| style == "theme_palette"));
+        assert!(supported_styles.iter().any(|style| style == "bold"));
+        assert!(supported_styles.iter().any(|style| style == "italic"));
         let missing_parity = image["renderer"]["missing_parity"]
             .as_array()
             .expect("missing parity");
         assert!(!missing_parity
             .iter()
             .any(|item| item == "theme_palette_resolution"));
-        assert!(missing_parity.iter().any(|item| item == "bold_font_face"));
+        assert!(!missing_parity.iter().any(|item| item == "bold_font_face"));
+        assert!(!missing_parity.iter().any(|item| item == "italic_font_face"));
         assert!(image["width"].as_u64().unwrap_or_default() > 0);
         assert!(image["height"].as_u64().unwrap_or_default() > 0);
         let path = std::path::PathBuf::from(image["path"].as_str().expect("png path"));

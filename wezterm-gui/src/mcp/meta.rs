@@ -60,7 +60,7 @@ pub fn engine_capabilities(engine: &str) -> Value {
             }),
             json!({
                 "name": "capture.scrollback",
-                "limitation": "renders styled cell PNGs from next-core scrollback with configured theme palette resolution and reports renderer parity metadata; bold/italic font matching parity is still in progress",
+                "limitation": "renders styled cell PNGs from next-core scrollback through a standalone headless renderer and reports renderer parity metadata; real GUI renderer integration comes with the next-core renderer",
             }),
             json!({
                 "name": "instance.focus",
@@ -267,7 +267,7 @@ mod tests {
             .expect("capture scrollback limitation");
         let capture_limitation = capture["limitation"].as_str().expect("limitation text");
         assert!(capture_limitation.contains("styled cell PNGs"));
-        assert!(capture_limitation.contains("bold/italic font matching"));
+        assert!(capture_limitation.contains("standalone headless renderer"));
         let focus = limited
             .iter()
             .find(|item| item["name"].as_str() == Some("instance.focus"))

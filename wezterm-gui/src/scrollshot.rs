@@ -24,9 +24,9 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
-use termwiz::cell::Underline;
-use termwiz::color::ColorAttribute;
-use unterm_engine::{StyledColor, StyledScreenLine};
+use termwiz::cell::{CellAttributes as TwCellAttributes, Intensity, Underline};
+use termwiz::color::{ColorAttribute, SrgbaTuple};
+use unterm_engine::{CellStyle, StyledColor, StyledScreenLine};
 use wezterm_font::shaper::{Direction, PresentationWidth};
 use wezterm_font::{FontConfiguration, LoadedFont, RasterizedGlyph};
 use wezterm_term::color::ColorPalette;
@@ -178,7 +178,6 @@ pub fn render_styled_scrollback_png(
     let cols = cols.max(text_cols).max(1);
 
     let fonts = Rc::new(FontConfiguration::new(None, opts.dpi)?);
-    let font = fonts.default_font()?;
     let metrics = fonts.default_font_metrics()?;
     let cell_w = metrics.cell_width.get();
     let cell_h = metrics.cell_height.get().ceil().max(1.0);
@@ -201,9 +200,8 @@ pub fn render_styled_scrollback_png(
 
     let mut band = BandCanvas::new(width_px as usize, cell_h as usize);
     let mut raster_cache: HashMap<(usize, usize, u32), Rc<RasterizedGlyph>> = HashMap::new();
-    let font_key = Rc::as_ptr(&font) as usize;
     let config: ConfigHandle = config::configuration();
-    let palette = config::TermConfig::with_config(config).color_palette();
+    let palette = config::TermConfig::with_config(config.clone()).color_palette();
     let default_bg = srgb8(palette.resolve_bg(ColorAttribute::Default));
     let default_fg = srgb8(palette.resolve_fg(ColorAttribute::Default));
 
@@ -227,6 +225,10 @@ pub fn render_styled_scrollback_png(
 
                 if !cell.ch.is_whitespace() {
                     let text = cell.ch.to_string();
+                    let attrs = styled_cell_attributes(cell.style);
+                    let style = fonts.match_style(&config, &attrs);
+                    let font: Rc<LoadedFont> = fonts.resolve_font(style)?;
+                    let font_key = Rc::as_ptr(&font) as usize;
                     let glyphs = match font.blocking_shape(
                         &text,
                         None,
@@ -308,6 +310,41 @@ fn resolve_styled_color(
             srgb8(palette.resolve_fg(ColorAttribute::PaletteIndex(idx)))
         }
         None => default,
+    }
+}
+
+fn styled_cell_attributes(style: CellStyle) -> TwCellAttributes {
+    let mut attrs = TwCellAttributes::default();
+    if style.bold {
+        attrs.set_intensity(Intensity::Bold);
+    }
+    if style.italic {
+        attrs.set_italic(true);
+    }
+    if style.underline {
+        attrs.set_underline(Underline::Single);
+    }
+    if style.inverse {
+        attrs.set_reverse(true);
+    }
+    if let Some(fg) = style.fg {
+        attrs.set_foreground(styled_color_attribute(fg));
+    }
+    if let Some(bg) = style.bg {
+        attrs.set_background(styled_color_attribute(bg));
+    }
+    attrs
+}
+
+fn styled_color_attribute(color: StyledColor) -> ColorAttribute {
+    match color {
+        StyledColor::Palette(idx) => ColorAttribute::PaletteIndex(idx),
+        StyledColor::Rgb(r, g, b) => ColorAttribute::TrueColorWithDefaultFallback(SrgbaTuple(
+            r as f32 / 255.0,
+            g as f32 / 255.0,
+            b as f32 / 255.0,
+            1.0,
+        )),
     }
 }
 
