@@ -1553,6 +1553,47 @@ mod engine_neutral_handler_tests {
     }
 
     #[test]
+    fn capture_scrollback_rejects_stale_explicit_pane_id() {
+        let _guard = env_lock().lock();
+        let previous_engine = std::env::var("UNTERM_ENGINE").ok();
+        std::env::set_var("UNTERM_ENGINE", "next-core");
+
+        let result = (|| -> Result<(Result<serde_json::Value>, usize)> {
+            let handler = McpHandler::new();
+            let ctx = ConnectionContext::internal("handler-test");
+            let created = handler.handle(
+                &ctx,
+                "session.create",
+                &json!({
+                    "cols": 80,
+                    "rows": 4,
+                    "command": "echo stale-capture"
+                }),
+            )?;
+            let pane_id = created["id"].as_u64().expect("session id") as usize;
+            let _ = handler.handle(&ctx, "session.destroy", &json!({ "pane_id": pane_id }));
+            let capture =
+                handler.handle(&ctx, "capture.scrollback", &json!({ "pane_id": pane_id }));
+            Ok((capture, pane_id))
+        })();
+
+        match previous_engine {
+            Some(value) => std::env::set_var("UNTERM_ENGINE", value),
+            None => std::env::remove_var("UNTERM_ENGINE"),
+        }
+
+        let (capture, pane_id) = result.expect("stale capture setup");
+        assert!(next_core().get_session(pane_id).is_err());
+        let err = capture.expect_err("stale explicit pane id should be rejected");
+        let message = format!("{err:#}");
+        assert!(
+            message.contains("resolve pane"),
+            "expected stale pane resolution error, got: {}",
+            message
+        );
+    }
+
+    #[test]
     fn product_capture_methods_do_not_require_terminal_engine() {
         let _guard = env_lock().lock();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
@@ -1717,6 +1758,10 @@ mod engine_neutral_handler_tests {
             true
         );
         assert_eq!(
+            surface["engine_capabilities"]["diagnostics"]["validated_capture_scrollback_pane_ids"],
+            true
+        );
+        assert_eq!(
             surface["engine_capabilities"]["diagnostics"]["host_window_bridge"],
             true
         );
@@ -1743,6 +1788,11 @@ mod engine_neutral_handler_tests {
         );
         assert_eq!(
             capabilities["_engine_capabilities"]["diagnostics"]["recording_block_markdown"],
+            true
+        );
+        assert_eq!(
+            capabilities["_engine_capabilities"]["diagnostics"]
+                ["validated_capture_scrollback_pane_ids"],
             true
         );
         assert_eq!(
@@ -5922,7 +5972,12 @@ impl McpHandler {
     /// occlusion constraints). `screen.scrollback_text` remains the
     /// AI-friendly text path; this is the human-shareable image path.
     fn capture_scrollback(&self, params: &Value) -> Result<Value> {
-        let pane_id = Self::pane_id_from_params(params).ok();
+        let engine = self.engine();
+        let pane_id = if Self::pane_id_param(params)?.is_some() {
+            Some(self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?)
+        } else {
+            None
+        };
         let mut opts = crate::scrollshot::ScrollbackPngOptions::default();
         if let Some(n) = params.get("max_rows").and_then(|v| v.as_u64()) {
             opts.max_rows = (n as usize).max(1);
@@ -5935,7 +5990,6 @@ impl McpHandler {
             "scrollback_{}.png",
             chrono::Local::now().format("%Y%m%d_%H%M%S_%3f")
         ));
-        let engine = self.engine();
         let r = engine.render_scrollback_png(pane_id, &path, &opts)?;
         let session = r.session_id.to_string();
         self.audit("capture.scrollback", Some(&session), "");
