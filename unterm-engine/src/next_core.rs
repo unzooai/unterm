@@ -1503,6 +1503,14 @@ impl<'a> ScreenParser<'a> {
         match self.state {
             ParserState::Ground => match c {
                 '\x1b' => self.state = ParserState::Escape,
+                '\u{0084}' => self.screen.index(),
+                '\u{0085}' => self.screen.next_line(),
+                '\u{008d}' => self.screen.reverse_index(),
+                '\u{0090}' | '\u{0098}' | '\u{009e}' | '\u{009f}' => {
+                    self.state = ParserState::IgnoredString;
+                }
+                '\u{009b}' => self.state = ParserState::Csi(String::new()),
+                '\u{009d}' => self.state = ParserState::Osc(String::new()),
                 '\r' => self.screen.carriage_return(),
                 '\n' => self.screen.newline(),
                 '\x08' => self.screen.backspace(),
@@ -1562,7 +1570,7 @@ impl<'a> ScreenParser<'a> {
                 self.state = ParserState::Ground;
             }
             ParserState::IgnoredString => match c {
-                '\x07' => self.state = ParserState::Ground,
+                '\x07' | '\u{009c}' => self.state = ParserState::Ground,
                 '\x1b' => self.state = ParserState::IgnoredStringEscape,
                 _ => {}
             },
@@ -1584,7 +1592,7 @@ impl<'a> ScreenParser<'a> {
                 }
             }
             ParserState::Osc(ref mut sequence) => match c {
-                '\x07' => {
+                '\x07' | '\u{009c}' => {
                     let sequence = std::mem::take(sequence);
                     self.screen.apply_osc(&sequence);
                     self.state = ParserState::Ground;
@@ -5786,6 +5794,33 @@ mod tests {
             "ab\x1bP1;payload\x1b\\cd\x1b_should-not-print\x07ef\x1b^hidden\x1b\\gh\x1bXmore\x07ij",
         )?;
         assert_eq!(engine.read_screen(session.id)?.lines, vec!["abcdefghij"]);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_handles_c1_control_forms() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 16,
+            rows: 4,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(
+            session.id,
+            "ab\u{009b}2GZ\u{009d}0;C1 Title\u{009c}\u{0090}hidden\u{009c}\u{0085}next\u{0084}ind\u{008d}ri",
+        )?;
+
+        let screen = engine.read_screen(session.id)?;
+        assert_eq!(screen.lines, vec!["aZ", "next   ri", "    ind"]);
+        assert_eq!(engine.get_session(session.id)?.title, "C1 Title");
 
         engine.destroy_session(session.id)?;
         Ok(())
