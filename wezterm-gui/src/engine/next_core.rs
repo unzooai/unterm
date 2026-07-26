@@ -11,6 +11,7 @@ use std::sync::{Arc, OnceLock};
 use std::thread;
 
 const MAX_OUTPUT_BYTES: usize = 1024 * 1024;
+const MAX_SCROLLBACK_LINES: usize = 10_000;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct NextCoreEngine;
@@ -38,6 +39,7 @@ struct NextCoreState {
 
 #[derive(Default)]
 struct NextCoreScreen {
+    scrollback: Vec<Vec<char>>,
     lines: Vec<Vec<char>>,
     cursor_x: usize,
     cursor_y: usize,
@@ -49,6 +51,7 @@ struct NextCoreScreen {
 
 #[derive(Default)]
 struct ScreenState {
+    scrollback: Vec<Vec<char>>,
     lines: Vec<Vec<char>>,
     cursor_x: usize,
     cursor_y: usize,
@@ -72,10 +75,25 @@ impl NextCoreScreen {
     }
 
     fn snapshot_lines(&self) -> Vec<String> {
+        self.history_lines()
+            .into_iter()
+            .map(|line| line.iter().collect::<String>().trim_end().to_string())
+            .collect()
+    }
+
+    fn snapshot_viewport_lines(&self) -> Vec<String> {
         self.lines
             .iter()
             .map(|line| line.iter().collect::<String>().trim_end().to_string())
             .collect()
+    }
+
+    fn scrollback_rows(&self) -> usize {
+        self.scrollback.len()
+    }
+
+    fn history_lines(&self) -> Vec<&Vec<char>> {
+        self.scrollback.iter().chain(self.lines.iter()).collect()
     }
 
     fn put_char(&mut self, c: char) {
@@ -138,7 +156,7 @@ impl NextCoreScreen {
     }
 
     fn move_cursor_down(&mut self, count: usize) {
-        self.cursor_y += count;
+        self.cursor_y = (self.cursor_y + count).min(self.rows.saturating_sub(1));
         self.ensure_cursor_line();
     }
 
@@ -185,7 +203,14 @@ impl NextCoreScreen {
     fn scroll_up(&mut self, count: usize) {
         for _ in 0..count.max(1) {
             if !self.lines.is_empty() {
-                self.lines.remove(0);
+                let removed = self.lines.remove(0);
+                if self.alternate.is_none() {
+                    self.scrollback.push(removed);
+                    if self.scrollback.len() > MAX_SCROLLBACK_LINES {
+                        let overflow = self.scrollback.len() - MAX_SCROLLBACK_LINES;
+                        self.scrollback.drain(..overflow);
+                    }
+                }
             }
             self.lines.push(Vec::new());
         }
@@ -206,7 +231,14 @@ impl NextCoreScreen {
         self.rows = rows.max(1);
         if self.lines.len() > self.rows {
             let trim = self.lines.len() - self.rows;
-            self.lines.drain(..trim);
+            let drained = self.lines.drain(..trim).collect::<Vec<_>>();
+            if self.alternate.is_none() {
+                self.scrollback.extend(drained);
+                if self.scrollback.len() > MAX_SCROLLBACK_LINES {
+                    let overflow = self.scrollback.len() - MAX_SCROLLBACK_LINES;
+                    self.scrollback.drain(..overflow);
+                }
+            }
             self.cursor_y = self.cursor_y.saturating_sub(trim);
             self.saved_cursor_y = self.saved_cursor_y.saturating_sub(trim);
         }
@@ -223,6 +255,7 @@ impl NextCoreScreen {
         }
 
         let main = ScreenState {
+            scrollback: std::mem::take(&mut self.scrollback),
             lines: std::mem::take(&mut self.lines),
             cursor_x: self.cursor_x,
             cursor_y: self.cursor_y,
@@ -240,6 +273,7 @@ impl NextCoreScreen {
 
     fn leave_alternate_screen(&mut self) {
         if let Some(main) = self.alternate.take() {
+            self.scrollback = main.scrollback;
             self.lines = main.lines;
             self.cursor_x = main.cursor_x;
             self.cursor_y = main.cursor_y;
@@ -468,6 +502,62 @@ impl NextCoreEngine {
 
         let lines = screen.lock().snapshot_lines();
         Ok(lines)
+    }
+
+    fn viewport_lines(&self, pane_id: usize) -> Result<Vec<String>> {
+        let screen = {
+            let state = state().read();
+            let Some(session) = state
+                .sessions
+                .iter()
+                .find(|session| session.snapshot.id == pane_id)
+            else {
+                bail!("next-core session {pane_id} not found");
+            };
+            Arc::clone(&session.screen)
+        };
+
+        let lines = screen.lock().snapshot_viewport_lines();
+        Ok(lines)
+    }
+
+    fn scrollback_lines(&self, pane_id: usize) -> Result<Vec<String>> {
+        let screen = {
+            let state = state().read();
+            let Some(session) = state
+                .sessions
+                .iter()
+                .find(|session| session.snapshot.id == pane_id)
+            else {
+                bail!("next-core session {pane_id} not found");
+            };
+            Arc::clone(&session.screen)
+        };
+
+        let lines = screen
+            .lock()
+            .scrollback
+            .iter()
+            .map(|line| line.iter().collect::<String>().trim_end().to_string())
+            .collect();
+        Ok(lines)
+    }
+
+    fn scrollback_rows(&self, pane_id: usize) -> Result<usize> {
+        let screen = {
+            let state = state().read();
+            let Some(session) = state
+                .sessions
+                .iter()
+                .find(|session| session.snapshot.id == pane_id)
+            else {
+                bail!("next-core session {pane_id} not found");
+            };
+            Arc::clone(&session.screen)
+        };
+
+        let rows = screen.lock().scrollback_rows();
+        Ok(rows)
     }
 
     fn next_session_id(state: &mut NextCoreState) -> usize {
@@ -817,9 +907,9 @@ impl SessionEngine for NextCoreEngine {
 impl ScreenEngine for NextCoreEngine {
     fn read_screen(&self, pane_id: usize) -> Result<ScreenSnapshot> {
         let session = self.session(pane_id)?;
-        let lines = self.screen_lines(pane_id)?;
-        let visible = Self::tail_lines(&lines, session.rows);
-        let first_row = lines.len().saturating_sub(visible.len()) as i64;
+        let visible = self.viewport_lines(pane_id)?;
+        let scrollback_rows = self.scrollback_rows(pane_id)?;
+        let first_row = scrollback_rows as i64;
         let cells = visible
             .iter()
             .enumerate()
@@ -835,7 +925,7 @@ impl ScreenEngine for NextCoreEngine {
             cursor: session.cursor,
             cols: session.cols,
             rows: session.rows,
-            scrollback_rows: lines.len().saturating_sub(session.rows),
+            scrollback_rows,
         })
     }
 
@@ -860,7 +950,7 @@ impl ScreenEngine for NextCoreEngine {
 
     fn read_scrollback(&self, pane_id: usize, limit: usize) -> Result<Vec<String>> {
         let lines = self
-            .screen_lines(pane_id)?
+            .scrollback_lines(pane_id)?
             .into_iter()
             .filter(|line| !line.is_empty())
             .collect::<Vec<_>>();
@@ -1157,9 +1247,19 @@ mod tests {
 
         let screen = engine.read_screen(session.id)?;
         assert_eq!(screen.rows, 3);
+        assert_eq!(screen.scrollback_rows, 2);
         assert_eq!(screen.lines, vec!["three", "four", "five"]);
         assert!(!screen.lines.iter().any(|line| line == "one"));
         assert!(!screen.lines.iter().any(|line| line == "two"));
+
+        assert_eq!(engine.read_scrollback(session.id, 10)?, vec!["one", "two"]);
+        let lines = engine.read_lines(session.id, 0, 5)?;
+        let text = lines
+            .iter()
+            .map(|line| line.text.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(text, vec!["one", "two", "three", "four", "five"]);
+        assert_eq!(engine.search(session.id, "one", 1)?[0].row, 0);
 
         engine.destroy_session(session.id)?;
         Ok(())
@@ -1184,6 +1284,36 @@ mod tests {
         set_output_for_test(session.id, "a\nb\nc\x1b[T")?;
         let lines = engine.read_screen(session.id)?.lines;
         assert_eq!(lines, vec!["", "a", "b"]);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_keeps_alternate_screen_out_of_main_scrollback() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 2,
+            command_dir: None,
+            command: None,
+        })?;
+        set_output_for_test(
+            session.id,
+            concat!(
+                "main-one\nmain-two",
+                "\x1b[?1049h",
+                "alt-one\nalt-two\nalt-three",
+                "\x1b[?1049l"
+            ),
+        )?;
+
+        let screen = engine.read_screen(session.id)?;
+        assert_eq!(screen.lines, vec!["main-one", "main-two"]);
+        assert!(engine.search(session.id, "alt-three", 1)?.is_empty());
+        assert!(engine.read_scrollback(session.id, 10)?.is_empty());
 
         engine.destroy_session(session.id)?;
         Ok(())
