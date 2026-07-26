@@ -145,12 +145,23 @@ pub enum StyledBlink {
 }
 
 #[allow(dead_code)]
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+pub enum StyledUnderline {
+    Single,
+    Double,
+    Curly,
+    Dotted,
+    Dashed,
+}
+
+#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, Default, Serialize, PartialEq, Eq)]
 pub struct CellStyle {
     pub bold: bool,
     pub faint: bool,
     pub italic: bool,
     pub underline: bool,
+    pub underline_style: Option<StyledUnderline>,
     pub strikethrough: bool,
     pub hidden: bool,
     pub overline: bool,

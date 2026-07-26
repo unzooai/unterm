@@ -26,7 +26,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use termwiz::cell::{Blink, CellAttributes as TwCellAttributes, Intensity, Underline};
 use termwiz::color::{ColorAttribute, SrgbaTuple};
-use unterm_engine::{CellStyle, StyledBlink, StyledColor, StyledScreenLine};
+use unterm_engine::{CellStyle, StyledBlink, StyledColor, StyledScreenLine, StyledUnderline};
 use wezterm_font::shaper::{Direction, PresentationWidth};
 use wezterm_font::{FontConfiguration, LoadedFont, RasterizedGlyph};
 use wezterm_term::color::ColorPalette;
@@ -275,7 +275,16 @@ pub fn render_styled_scrollback_png(
                 if cell.style.underline && !cell.style.hidden {
                     let thickness = metrics.underline_thickness.get().round().max(1.0) as isize;
                     let uy = (baseline - metrics.underline_position.get()).round() as isize;
-                    band.fill_rect(cx0, uy.min(cell_h as isize - thickness), cw, thickness, fg);
+                    band.draw_underline(
+                        cx0,
+                        uy.min(cell_h as isize - thickness),
+                        cw,
+                        thickness,
+                        fg,
+                        cell.style
+                            .underline_style
+                            .unwrap_or(StyledUnderline::Single),
+                    );
                 }
                 if cell.style.overline && !cell.style.hidden {
                     let thickness = metrics.underline_thickness.get().round().max(1.0) as isize;
@@ -328,7 +337,7 @@ fn styled_cell_attributes(style: CellStyle) -> TwCellAttributes {
         attrs.set_italic(true);
     }
     if style.underline {
-        attrs.set_underline(Underline::Single);
+        attrs.set_underline(styled_underline(style.underline_style));
     }
     if style.strikethrough {
         attrs.set_strikethrough(true);
@@ -352,6 +361,16 @@ fn styled_cell_attributes(style: CellStyle) -> TwCellAttributes {
         attrs.set_background(styled_color_attribute(bg));
     }
     attrs
+}
+
+fn styled_underline(underline: Option<StyledUnderline>) -> Underline {
+    match underline.unwrap_or(StyledUnderline::Single) {
+        StyledUnderline::Single => Underline::Single,
+        StyledUnderline::Double => Underline::Double,
+        StyledUnderline::Curly => Underline::Curly,
+        StyledUnderline::Dotted => Underline::Dotted,
+        StyledUnderline::Dashed => Underline::Dashed,
+    }
 }
 
 fn styled_color_attribute(color: StyledColor) -> ColorAttribute {
@@ -431,6 +450,42 @@ impl BandCanvas {
                 self.data[o + 1] = rgb.1;
                 self.data[o + 2] = rgb.2;
                 self.data[o + 3] = 0xff;
+            }
+        }
+    }
+
+    fn draw_underline(
+        &mut self,
+        x0: isize,
+        y0: isize,
+        w: isize,
+        thickness: isize,
+        rgb: (u8, u8, u8),
+        style: StyledUnderline,
+    ) {
+        match style {
+            StyledUnderline::Single => self.fill_rect(x0, y0, w, thickness, rgb),
+            StyledUnderline::Double => {
+                self.fill_rect(x0, y0, w, thickness, rgb);
+                self.fill_rect(x0, (y0 - thickness - 1).max(0), w, thickness, rgb);
+            }
+            StyledUnderline::Dotted => {
+                let dot = thickness.max(1);
+                let gap = dot;
+                let mut dx = 0;
+                while dx < w {
+                    self.fill_rect(x0 + dx, y0, dot.min(w - dx), thickness, rgb);
+                    dx += dot + gap;
+                }
+            }
+            StyledUnderline::Dashed | StyledUnderline::Curly => {
+                let dash = (thickness * 3).max(3);
+                let gap = thickness.max(1);
+                let mut dx = 0;
+                while dx < w {
+                    self.fill_rect(x0 + dx, y0, dash.min(w - dx), thickness, rgb);
+                    dx += dash + gap;
+                }
             }
         }
     }

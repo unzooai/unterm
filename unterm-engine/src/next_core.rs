@@ -8,7 +8,7 @@ use super::{
     ScreenEngine, ScreenLine, ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest,
     ScrollbackTextSnapshot, SessionActivitySnapshot, SessionEngine, SessionSnapshot, ShellSnapshot,
     SplitSessionRequest, StyledBlink, StyledCell, StyledColor, StyledScreenLine,
-    StyledScreenSnapshot, StyledScrollbackSnapshot,
+    StyledScreenSnapshot, StyledScrollbackSnapshot, StyledUnderline,
 };
 use anyhow::{bail, Result};
 use base64::Engine as _;
@@ -383,6 +383,7 @@ struct CellAttributes {
     faint: bool,
     italic: bool,
     underline: bool,
+    underline_style: Option<StyledUnderline>,
     strikethrough: bool,
     hidden: bool,
     overline: bool,
@@ -390,6 +391,18 @@ struct CellAttributes {
     inverse: bool,
     fg: Option<TerminalColor>,
     bg: Option<TerminalColor>,
+}
+
+impl CellAttributes {
+    fn set_underline(&mut self, style: StyledUnderline) {
+        self.underline = true;
+        self.underline_style = Some(style);
+    }
+
+    fn clear_underline(&mut self) {
+        self.underline = false;
+        self.underline_style = None;
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -405,6 +418,7 @@ impl From<CellAttributes> for CellStyle {
             faint: attr.faint,
             italic: attr.italic,
             underline: attr.underline,
+            underline_style: attr.underline_style,
             strikethrough: attr.strikethrough,
             hidden: attr.hidden,
             overline: attr.overline,
@@ -426,6 +440,8 @@ impl From<TerminalColor> for StyledColor {
 }
 
 impl NextCoreScreen {
+    const SGR_UNDERLINE_STYLE_BASE: usize = 10_000;
+
     fn new(cols: usize, rows: usize) -> Self {
         let mut screen = Self {
             cols: cols.max(1),
@@ -1065,7 +1081,7 @@ impl NextCoreScreen {
                 1 => self.current_attr.bold = true,
                 2 => self.current_attr.faint = true,
                 3 => self.current_attr.italic = true,
-                4 => self.current_attr.underline = true,
+                4 => self.current_attr.set_underline(StyledUnderline::Single),
                 5 => self.current_attr.blink = Some(StyledBlink::Slow),
                 6 => self.current_attr.blink = Some(StyledBlink::Rapid),
                 7 => self.current_attr.inverse = true,
@@ -1076,13 +1092,28 @@ impl NextCoreScreen {
                     self.current_attr.faint = false;
                 }
                 23 => self.current_attr.italic = false,
-                24 => self.current_attr.underline = false,
+                21 => self.current_attr.set_underline(StyledUnderline::Double),
+                24 => self.current_attr.clear_underline(),
                 25 => self.current_attr.blink = None,
                 27 => self.current_attr.inverse = false,
                 28 => self.current_attr.hidden = false,
                 29 => self.current_attr.strikethrough = false,
                 53 => self.current_attr.overline = true,
                 55 => self.current_attr.overline = false,
+                underline_style
+                    if (Self::SGR_UNDERLINE_STYLE_BASE..=Self::SGR_UNDERLINE_STYLE_BASE + 5)
+                        .contains(&underline_style) =>
+                {
+                    match underline_style - Self::SGR_UNDERLINE_STYLE_BASE {
+                        0 => self.current_attr.clear_underline(),
+                        1 => self.current_attr.set_underline(StyledUnderline::Single),
+                        2 => self.current_attr.set_underline(StyledUnderline::Double),
+                        3 => self.current_attr.set_underline(StyledUnderline::Curly),
+                        4 => self.current_attr.set_underline(StyledUnderline::Dotted),
+                        5 => self.current_attr.set_underline(StyledUnderline::Dashed),
+                        _ => {}
+                    }
+                }
                 30..=37 => {
                     self.current_attr.fg = Some(TerminalColor::Palette(params[idx] as u8 - 30))
                 }
@@ -1214,6 +1245,8 @@ impl NextCoreScreen {
                 params.push(0);
             } else if part.starts_with("38:") || part.starts_with("48:") {
                 params.extend(Self::parse_colon_color_sgr_params(part));
+            } else if let Some(underline) = Self::parse_colon_underline_sgr_param(part) {
+                params.push(underline);
             } else if let Some((first, _)) = part.split_once(':') {
                 params.push(first.trim().parse::<usize>().unwrap_or(0));
             } else {
@@ -1263,6 +1296,21 @@ impl NextCoreScreen {
             }
             _ => vec![target],
         }
+    }
+
+    fn parse_colon_underline_sgr_param(part: &str) -> Option<usize> {
+        let (prefix, value) = part.split_once(':')?;
+        if prefix.trim() != "4" {
+            return None;
+        }
+        let value = value
+            .split(':')
+            .next()
+            .unwrap_or_default()
+            .trim()
+            .parse::<usize>()
+            .ok()?;
+        Some(Self::SGR_UNDERLINE_STYLE_BASE + value.min(5))
     }
 
     fn insert_lines(&mut self, count: usize) {
@@ -5391,6 +5439,7 @@ mod tests {
 
         assert!(line[14].italic);
         assert!(line[14].underline);
+        assert_eq!(line[14].underline_style, Some(StyledUnderline::Single));
         assert!(line[14].inverse);
         assert_eq!(line[14].fg, Some(TerminalColor::Palette(202)));
         assert_eq!(line[14].bg, Some(TerminalColor::Rgb(1, 2, 3)));
@@ -5475,7 +5524,7 @@ mod tests {
     }
 
     #[test]
-    fn screen_buffer_treats_colon_sgr_underline_style_as_underline() -> Result<()> {
+    fn screen_buffer_tracks_extended_underline_styles() -> Result<()> {
         let _guard = test_guard();
         reset_state_for_test();
         let engine = NextCoreEngine;
@@ -5487,12 +5536,52 @@ mod tests {
             env: Vec::new(),
             launch_policy: Default::default(),
         })?;
-        set_output_for_test(session.id, "\x1b[4:3mU")?;
+        set_output_for_test(
+            session.id,
+            concat!(
+                "\x1b[4:3mC",
+                "\x1b[4:4mD",
+                "\x1b[4:5mS",
+                "\x1b[4:0mN",
+                "\x1b[21mB",
+                "\x1b[24mR"
+            ),
+        )?;
 
         let attrs = viewport_attrs_for_test(session.id)?;
-        let attr = attrs[0][0];
-        assert!(attr.underline);
-        assert!(!attr.italic);
+        let line = &attrs[0];
+        assert!(line[0].underline);
+        assert_eq!(line[0].underline_style, Some(StyledUnderline::Curly));
+        assert!(!line[0].italic);
+        assert!(line[1].underline);
+        assert_eq!(line[1].underline_style, Some(StyledUnderline::Dotted));
+        assert!(line[2].underline);
+        assert_eq!(line[2].underline_style, Some(StyledUnderline::Dashed));
+        assert!(!line[3].underline);
+        assert_eq!(line[3].underline_style, None);
+        assert!(line[4].underline);
+        assert_eq!(line[4].underline_style, Some(StyledUnderline::Double));
+        assert!(!line[5].underline);
+        assert_eq!(line[5].underline_style, None);
+
+        let styled = engine.read_styled_screen(session.id)?;
+        assert_eq!(
+            styled.lines[0].cells[0].style.underline_style,
+            Some(StyledUnderline::Curly)
+        );
+        assert_eq!(
+            styled.lines[0].cells[1].style.underline_style,
+            Some(StyledUnderline::Dotted)
+        );
+        assert_eq!(
+            styled.lines[0].cells[2].style.underline_style,
+            Some(StyledUnderline::Dashed)
+        );
+        assert_eq!(
+            styled.lines[0].cells[4].style.underline_style,
+            Some(StyledUnderline::Double)
+        );
+        assert_eq!(styled.lines[0].cells[5].style, CellStyle::default());
 
         engine.destroy_session(session.id)?;
         Ok(())
