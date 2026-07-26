@@ -3656,17 +3656,15 @@ impl McpHandler {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing 'name'"))?;
 
-        let mux = self.get_mux()?;
-        let panes = mux.iter_panes();
-        let sessions: Vec<Value> = panes
-            .iter()
-            .map(|pane| {
-                let cwd = pane
-                    .get_current_working_dir(mux::pane::CachePolicy::AllowStale)
-                    .and_then(|u| cwd_url_to_path(&u.to_string()));
+        let engine = self.engine();
+        let sessions: Vec<Value> = engine
+            .list_sessions()?
+            .into_iter()
+            .map(|session| {
+                let cwd = session.shell.cwd.as_deref().and_then(cwd_url_to_path);
                 json!({
-                    "id": pane.pane_id(),
-                    "title": pane.get_title(),
+                    "id": session.id,
+                    "title": session.title,
                     "cwd": cwd,
                 })
             })
