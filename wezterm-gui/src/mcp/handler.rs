@@ -1693,6 +1693,7 @@ mod engine_neutral_handler_tests {
             serde_json::Value,
             serde_json::Value,
             serde_json::Value,
+            serde_json::Value,
             Result<serde_json::Value>,
         )> {
             let handler = McpHandler::new();
@@ -1700,9 +1701,10 @@ mod engine_neutral_handler_tests {
             let server = handler.handle(&ctx, "server.info", &json!({}))?;
             let info = handler.handle(&ctx, "instance.info", &json!({}))?;
             let list = handler.handle(&ctx, "instance.list", &json!({}))?;
+            let lifecycle = handler.handle(&ctx, "instance.lifecycle", &json!({}))?;
             let title = handler.handle(&ctx, "instance.set_title", &json!({ "title": null }))?;
             let focus = handler.handle(&ctx, "instance.focus", &json!({}));
-            Ok((server, info, list, title, focus))
+            Ok((server, info, list, lifecycle, title, focus))
         })();
 
         match previous_engine {
@@ -1710,7 +1712,7 @@ mod engine_neutral_handler_tests {
             None => std::env::remove_var("UNTERM_ENGINE"),
         }
 
-        let (server, info, list, title, focus) =
+        let (server, info, list, lifecycle, title, focus) =
             result.expect("read instance metadata without WezTerm mux");
         assert_eq!(server["lifecycle"]["registry_owner"], "server_info");
         assert_eq!(server["lifecycle"]["window_owner"], "host_gui");
@@ -1747,6 +1749,16 @@ mod engine_neutral_handler_tests {
         assert!(list["registry"]["empty_files"].is_number());
         assert!(list["registry"]["unreadable_files"].is_number());
         assert_eq!(list["registry"]["values_redacted"], true);
+        assert_eq!(lifecycle["owner"], "server_info");
+        assert_eq!(lifecycle["operation"], "dry_run");
+        assert_eq!(lifecycle["plan"]["registration_owner"], "server_info");
+        assert_eq!(
+            lifecycle["plan"]["shutdown"]["native_window_lifecycle"],
+            "host_owned"
+        );
+        assert_eq!(lifecycle["native_window"]["owner"], "host_gui");
+        assert_eq!(lifecycle["native_window"]["can_close_from_mcp"], false);
+        assert_eq!(lifecycle["values_redacted"], true);
         assert_eq!(title["ok"], true);
         assert!(title["title"].is_null());
         assert_eq!(title["window"]["engine"], "wezterm-host");
@@ -2171,6 +2183,10 @@ mod engine_neutral_handler_tests {
             true
         );
         assert_eq!(
+            surface["engine_capabilities"]["diagnostics"]["instance_shutdown_dry_run"],
+            true
+        );
+        assert_eq!(
             surface["engine_capabilities"]["diagnostics"]["native_window_lifecycle"],
             false
         );
@@ -2227,6 +2243,10 @@ mod engine_neutral_handler_tests {
         );
         assert_eq!(
             capabilities["_engine_capabilities"]["diagnostics"]["instance_registry_diagnostics"],
+            true
+        );
+        assert_eq!(
+            capabilities["_engine_capabilities"]["diagnostics"]["instance_shutdown_dry_run"],
             true
         );
         assert_eq!(
@@ -3656,6 +3676,7 @@ impl McpHandler {
             // each with a NATO-phonetic name like "alpha", "bravo", ...)
             "instance.list" => self.instance_list(),
             "instance.info" => self.instance_info(),
+            "instance.lifecycle" => self.instance_lifecycle(),
             "instance.set_title" => self.instance_set_title(params),
             "instance.focus" => self.instance_focus(params),
             // Identity profiles: read-only surface for agents. Writes
@@ -3894,6 +3915,24 @@ impl McpHandler {
             "cwd": i.cwd,
             "version": i.version,
             "platform": i.platform,
+        }))
+    }
+
+    /// Read-only instance lifecycle ownership and shutdown dry-run plan.
+    /// This intentionally does not close windows; native close remains
+    /// host-owned until next-core owns its own window lifecycle.
+    fn instance_lifecycle(&self) -> Result<Value> {
+        let plan = crate::server_info::instance_lifecycle_plan();
+        Ok(json!({
+            "owner": "server_info",
+            "operation": "dry_run",
+            "plan": plan,
+            "native_window": {
+                "owner": "host_gui",
+                "lifecycle": "host_owned",
+                "can_close_from_mcp": false,
+            },
+            "values_redacted": true,
         }))
     }
 

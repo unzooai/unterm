@@ -545,6 +545,7 @@ pub const MCP_METHODS: &[McpMethod] = &[
     // ---- instance ----
     McpMethod { name: "instance.list", namespace: "instance", summary: "Enumerate live Unterm instances on this machine.", params: NO_PARAMS },
     McpMethod { name: "instance.info", namespace: "instance", summary: "Details for one instance (this one by default).", params: &[Param { name: "id", kind: "string", required: false, summary: "alpha|bravo|charlie…" }] },
+    McpMethod { name: "instance.lifecycle", namespace: "instance", summary: "Read instance registration and shutdown dry-run diagnostics.", params: NO_PARAMS },
     McpMethod { name: "instance.set_title", namespace: "instance", summary: "Override the instance window title.", params: &[Param { name: "title", kind: "string", required: true, summary: "" }] },
     McpMethod { name: "instance.focus", namespace: "instance", summary: "Bring this instance's main window to the front.", params: NO_PARAMS },
 ];
@@ -616,6 +617,7 @@ mod tests {
             "profile.list",
             "profile.current",
             "profile.audit",
+            "instance.lifecycle",
             "orchestrate.launch",
             "orchestrate.broadcast",
             "orchestrate.wait",

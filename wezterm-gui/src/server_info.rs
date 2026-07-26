@@ -92,6 +92,33 @@ pub struct InstanceRegistrySnapshot {
     pub active_source: String,
 }
 
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct InstanceShutdownPlan {
+    pub current_id: Option<String>,
+    pub registry_file_exists: bool,
+    pub active_id: Option<String>,
+    pub active_pid_alive: Option<bool>,
+    pub would_remove_registry_file: bool,
+    pub would_clear_active_pointer: bool,
+    pub handoff_id: Option<String>,
+    pub would_update_legacy_server: bool,
+    pub close_owner: String,
+    pub native_window_lifecycle: String,
+    pub values_redacted: bool,
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct InstanceLifecyclePlan {
+    pub current_id: Option<String>,
+    pub registration_owner: String,
+    pub registry_file_exists: bool,
+    pub active_id: Option<String>,
+    pub active_pid_alive: Option<bool>,
+    pub live_count: usize,
+    pub shutdown: InstanceShutdownPlan,
+    pub values_redacted: bool,
+}
+
 /// Compat alias: legacy server.json schema. The current process always
 /// writes the *full* InstanceInfo into server.json (extra fields are
 /// ignored by older deserializers), so older agents that only read
@@ -108,6 +135,10 @@ fn instances_dir() -> PathBuf {
 
 fn instance_file(id: &str) -> PathBuf {
     instances_dir().join(format!("{}.json", id))
+}
+
+fn instance_file_in_dir(dir: &Path, id: &str) -> PathBuf {
+    dir.join(format!("{}.json", id))
 }
 
 fn server_info_path() -> PathBuf {
@@ -308,6 +339,64 @@ pub fn list_live_instances() -> Vec<InstanceInfo> {
 pub fn instance_registry_snapshot() -> InstanceRegistrySnapshot {
     let _g = file_lock().lock();
     instance_registry_snapshot_locked()
+}
+
+fn instance_lifecycle_plan_from_paths_locked(
+    current_id: Option<&str>,
+    dir: &Path,
+    active_path: &Path,
+) -> InstanceLifecyclePlan {
+    let snapshot = instance_registry_snapshot_from_paths_locked(dir, active_path);
+    let registry_file_exists = current_id
+        .map(|id| instance_file_in_dir(dir, id).exists())
+        .unwrap_or(false);
+    let handoff_id = current_id.and_then(|id| {
+        let mut candidates: Vec<_> = snapshot
+            .live
+            .iter()
+            .filter(|info| info.id != id)
+            .cloned()
+            .collect();
+        candidates.sort_by(|a, b| b.started_at.cmp(&a.started_at));
+        candidates.into_iter().next().map(|info| info.id)
+    });
+    let would_clear_active_pointer = current_id
+        .zip(snapshot.active_id.as_deref())
+        .map(|(current, active)| current == active)
+        .unwrap_or(false);
+    let shutdown = InstanceShutdownPlan {
+        current_id: current_id.map(str::to_string),
+        registry_file_exists,
+        active_id: snapshot.active_id.clone(),
+        active_pid_alive: snapshot.active_pid_alive,
+        would_remove_registry_file: registry_file_exists,
+        would_clear_active_pointer,
+        would_update_legacy_server: would_clear_active_pointer,
+        handoff_id,
+        close_owner: "server_info".to_string(),
+        native_window_lifecycle: "host_owned".to_string(),
+        values_redacted: true,
+    };
+    InstanceLifecyclePlan {
+        current_id: current_id.map(str::to_string),
+        registration_owner: "server_info".to_string(),
+        registry_file_exists,
+        active_id: snapshot.active_id,
+        active_pid_alive: snapshot.active_pid_alive,
+        live_count: snapshot.live_count,
+        shutdown,
+        values_redacted: true,
+    }
+}
+
+pub fn instance_lifecycle_plan() -> InstanceLifecyclePlan {
+    let current = current_instance_id();
+    let _g = file_lock().lock();
+    instance_lifecycle_plan_from_paths_locked(
+        current.as_deref(),
+        &instances_dir(),
+        &active_pointer_path(),
+    )
 }
 
 /// Pick the lowest-NATO name not currently taken by a live instance,
@@ -670,6 +759,50 @@ mod tests {
         assert_eq!(snapshot.active_pid_alive, Some(true));
         assert_eq!(snapshot.active_source, "active_pointer");
         assert!(!instances.join("bravo.json").exists());
+
+        let _ = fs::remove_dir_all(&root);
+        Ok(())
+    }
+
+    #[test]
+    fn lifecycle_plan_reports_shutdown_handoff_without_closing() -> Result<()> {
+        let root = test_dir("lifecycle-plan");
+        let instances = root.join("instances");
+        let active = root.join("active.json");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&instances)?;
+
+        let current = InstanceInfo {
+            id: "alpha".to_string(),
+            pid: std::process::id(),
+            started_at: "2026-07-27T00:00:00+08:00".to_string(),
+            ..Default::default()
+        };
+        let next = InstanceInfo {
+            id: "bravo".to_string(),
+            pid: std::process::id(),
+            started_at: "2026-07-27T00:00:01+08:00".to_string(),
+            ..Default::default()
+        };
+        write_atomic(&instances.join("alpha.json"), &current)?;
+        write_atomic(&instances.join("bravo.json"), &next)?;
+        write_atomic(&active, &current)?;
+
+        let plan = instance_lifecycle_plan_from_paths_locked(Some("alpha"), &instances, &active);
+
+        assert_eq!(plan.current_id.as_deref(), Some("alpha"));
+        assert_eq!(plan.registration_owner, "server_info");
+        assert_eq!(plan.registry_file_exists, true);
+        assert_eq!(plan.active_id.as_deref(), Some("alpha"));
+        assert_eq!(plan.live_count, 2);
+        assert_eq!(plan.shutdown.would_remove_registry_file, true);
+        assert_eq!(plan.shutdown.would_clear_active_pointer, true);
+        assert_eq!(plan.shutdown.would_update_legacy_server, true);
+        assert_eq!(plan.shutdown.handoff_id.as_deref(), Some("bravo"));
+        assert_eq!(plan.shutdown.native_window_lifecycle, "host_owned");
+        assert_eq!(plan.shutdown.values_redacted, true);
+        assert!(instances.join("alpha.json").exists());
+        assert!(active.exists());
 
         let _ = fs::remove_dir_all(&root);
         Ok(())

@@ -54,7 +54,7 @@ Current covered operations:
 - typed launch policy decision metadata for domain, privilege, proxy rotation, and restart handling, including explicit `session.create` request diagnostics
 - instance lifecycle ownership diagnostics for server-info registry vs host GUI window ownership
 - instance title bridge result metadata through `WindowEngine`
-- instance registry cleanup and active-pointer diagnostics in `instance.list`
+- instance registry cleanup, active-pointer diagnostics, and shutdown dry-run lifecycle planning
 - styled scrollback renderer metadata for WezTerm pane rendering vs next-core standalone rendering
 - configured theme palette resolution for next-core standalone styled scrollback PNG rendering
 - bold/italic font matching for next-core standalone styled scrollback PNG rendering
@@ -64,7 +64,7 @@ Known gaps:
 
 - real GUI viewport scrolling/jump for the future next-core renderer
 - native window capture/focus/title ownership beyond the explicit host-window and title bridge contracts
-- native instance create/close lifecycle ownership beyond server-info registry cleanup and active-pointer observability
+- native instance create/close execution beyond server-info registry cleanup, active-pointer observability, and shutdown dry-run planning
 - enforcement of non-local domain, privilege elevation, proxy rotation, and restart launch policy behavior beyond current typed explicit-request decision metadata
 
 ## MCP Coverage Summary
@@ -73,11 +73,11 @@ Known gaps:
 |---|---:|---|
 | Engine-neutral | 48 | `session.list`, `session.get`, `session.status`, `session.create`, `session.split`, `session.focus`, `session.input`, `session.paste`, `session.idle`, `session.cwd`, `session.env`, `session.history`, `session.resize`, `session.destroy`, `session.recording_start`, `session.recording_stop`, `session.recording_status`, `session.recording_attach_trace`, `session.export_markdown`, `screen.read`, `screen.text`, `screen.scrollback_text`, `screen.cursor`, `screen.search`, `screen.detect_errors`, `exec.run`, `exec.send`, `exec.run_wait`, `exec.status`, `exec.cancel`, `signal.send`, `orchestrate.launch`, `orchestrate.broadcast`, `orchestrate.wait`, `workspace.save`, `workspace.restore`, `screen.scroll`, `agent.status`, `agent.signal`, `cockpit.inbox`, `fleet.launch`, `fleet.retry`, `fleet.clean`, `capture.screen`, `capture.window`, `capture.scrollback`, `server.info`, `server.health` |
 | Partial | 0 | |
-| Product-only | 52 | `meta.surface`, `session.audit_log`, `session.set_env`, `session.suggest`, `session.suggest_status`, `session.suggest_cancel`, `session.suggest_list`, `agent.identify`, `agent.whoami`, `agent.list_trusted`, `agent.trust`, `agent.untrust`, `policy.set`, `policy.check`, `server.capabilities`, `profile.list`, `profile.current`, `profile.audit`, `fleet.list`, `review.list`, `review.diff`, `review.verify`, `review.rollback`, `review.merge`, `review.discard`, `proxy.status`, `proxy.nodes`, `proxy.switch`, `proxy.speedtest`, `proxy.configure`, `proxy.disable`, `proxy.env`, `proxy.rotation`, `proxy.set_nodes`, `proxy.clash_status`, `proxy.clash_select`, `proxy.clash_set_controller`, `upload.file`, `system.info`, `system.launch_admin`, `selftest.run`, `workspace.list`, `session.recording_list`, `session.recording_read`, `instance.list`, `instance.info`, `instance.set_title`, `instance.focus`, `ghost.debug`, `capture.clipboard`, `capture.select`, `capture.window_scroll` |
+| Product-only | 53 | `meta.surface`, `session.audit_log`, `session.set_env`, `session.suggest`, `session.suggest_status`, `session.suggest_cancel`, `session.suggest_list`, `agent.identify`, `agent.whoami`, `agent.list_trusted`, `agent.trust`, `agent.untrust`, `policy.set`, `policy.check`, `server.capabilities`, `profile.list`, `profile.current`, `profile.audit`, `fleet.list`, `review.list`, `review.diff`, `review.verify`, `review.rollback`, `review.merge`, `review.discard`, `proxy.status`, `proxy.nodes`, `proxy.switch`, `proxy.speedtest`, `proxy.configure`, `proxy.disable`, `proxy.env`, `proxy.rotation`, `proxy.set_nodes`, `proxy.clash_status`, `proxy.clash_select`, `proxy.clash_set_controller`, `upload.file`, `system.info`, `system.launch_admin`, `selftest.run`, `workspace.list`, `session.recording_list`, `session.recording_read`, `instance.list`, `instance.info`, `instance.lifecycle`, `instance.set_title`, `instance.focus`, `ghost.debug`, `capture.clipboard`, `capture.select`, `capture.window_scroll` |
 | WezTerm-only | 0 | |
 | Unsupported stub | 0 | |
 
-The counts intentionally include aliases (`session.get` / `session.status`, `exec.send` via `session.input`) because `meta.surface` exposes them as separate public contracts. The current `MCP_METHODS` inventory contains 100 public methods, excluding `auth.login`.
+The counts intentionally include aliases (`session.get` / `session.status`, `exec.send` via `session.input`) because `meta.surface` exposes them as separate public contracts. The current `MCP_METHODS` inventory contains 101 public methods, excluding `auth.login`.
 
 ## Session Methods
 
@@ -184,6 +184,7 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 | `system.launch_admin` | Product-only | Platform executable relaunch command | Windows UAC launcher; dry-run path is engine-independent. |
 | `instance.list` | Product-only | Runtime instance registry files plus PID liveness filtering, cleanup counters, active-pointer diagnostics, and lifecycle ownership diagnostics | GUI focus/window ownership remains separate in `instance.focus`; registry ownership and cleanup side effects are now explicit for agents. |
 | `instance.info` | Product-only | Current process instance metadata from server-info registry plus lifecycle ownership diagnostics | Engine-independent; native window lifecycle is still host-owned. |
+| `instance.lifecycle` | Product-only | Server-info registration state plus shutdown dry-run plan for registry removal, active-pointer handoff, and legacy server pointer update | Read-only by design; native window close execution remains host-owned until next-core owns windows. |
 | `instance.set_title` | Product-only | `WindowEngine::set_current_instance_title` writes server-info title override registry metadata and returns title/native-window ownership diagnostics | Current MCP path is engine-neutral and reports that live GUI title application remains host-owned. |
 | `instance.focus` | Product-only | `WindowEngine::focus_current_instance_window` platform/window boundary | Handler no longer reaches into the WezTerm frontend; next-core can reuse the same window service. |
 
