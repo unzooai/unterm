@@ -264,7 +264,7 @@ pub enum UIItemType {
         track_height: usize,
     },
     /// A tab row in the left vertical tab bar. Click activates; keep
-    /// dragging to reorder; double-click renames; right-click menus.
+    /// dragging to reorder; same-row double-click renames; right-click menus.
     LeftTabBarTab(usize),
     /// A project group header in the left vertical tab bar. Click toggles its
     /// collapsed state; the string is the normalized full project identity.
@@ -305,6 +305,54 @@ pub enum UIItemType {
     /// The popup menu card itself — swallows clicks that miss every row so
     /// they don't fall through to the pane below.
     PopupMenuCard,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct LeftTabBarClick {
+    tab_idx: usize,
+    button: MousePress,
+    x: isize,
+    y: isize,
+    time: Instant,
+    streak: usize,
+}
+
+impl LeftTabBarClick {
+    pub(crate) fn new(tab_idx: usize, button: MousePress, x: isize, y: isize) -> Self {
+        Self {
+            tab_idx,
+            button,
+            x,
+            y,
+            time: Instant::now(),
+            streak: 1,
+        }
+    }
+
+    pub(crate) fn add(&self, tab_idx: usize, button: MousePress, x: isize, y: isize) -> Self {
+        const DOUBLE_CLICK_INTERVAL: Duration = Duration::from_millis(500);
+        const DOUBLE_CLICK_SLOP_PX: isize = 8;
+
+        let now = Instant::now();
+        let same_target = tab_idx == self.tab_idx
+            && button == self.button
+            && (x - self.x).abs() <= DOUBLE_CLICK_SLOP_PX
+            && (y - self.y).abs() <= DOUBLE_CLICK_SLOP_PX
+            && now.duration_since(self.time) <= DOUBLE_CLICK_INTERVAL;
+
+        Self {
+            tab_idx,
+            button,
+            x,
+            y,
+            time: now,
+            streak: if same_target { self.streak + 1 } else { 1 },
+        }
+    }
+
+    pub(crate) fn streak(&self) -> usize {
+        self.streak
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -579,6 +627,7 @@ pub struct TermWindow {
 
     /// Keeps track of double and triple clicks
     last_mouse_click: Option<LastMouseClick>,
+    last_left_tab_bar_click: Option<LeftTabBarClick>,
 
     /// The URL over which we are currently hovering
     current_highlight: Option<Arc<Hyperlink>>,
@@ -1018,6 +1067,7 @@ impl TermWindow {
             current_mouse_buttons: vec![],
             current_mouse_capture: None,
             last_mouse_click: None,
+            last_left_tab_bar_click: None,
             current_highlight: None,
             quad_generation: 0,
             shape_generation: 0,
