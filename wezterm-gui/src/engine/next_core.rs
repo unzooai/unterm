@@ -45,6 +45,7 @@ struct NextCoreScreen {
     cursor_x: usize,
     cursor_y: usize,
     cursor_visible: bool,
+    cursor_shape: String,
     current_attr: CellAttributes,
     title: Option<String>,
     revision: u64,
@@ -64,6 +65,7 @@ struct ScreenState {
     cursor_x: usize,
     cursor_y: usize,
     cursor_visible: bool,
+    cursor_shape: String,
     current_attr: CellAttributes,
     scroll_top: usize,
     scroll_bottom: usize,
@@ -161,6 +163,7 @@ impl NextCoreScreen {
         let mut screen = Self {
             rows: rows.max(1),
             cursor_visible: true,
+            cursor_shape: "Default".to_string(),
             ..Self::default()
         };
         screen.scroll_bottom = screen.rows - 1;
@@ -259,7 +262,7 @@ impl NextCoreScreen {
             x: self.cursor_x,
             y: self.cursor_y as isize,
             visible: self.cursor_visible,
-            shape: "Default".to_string(),
+            shape: self.cursor_shape.clone(),
         }
     }
 
@@ -349,6 +352,20 @@ impl NextCoreScreen {
         self.cursor_x = self.saved_cursor_x;
         self.cursor_y = self.saved_cursor_y;
         self.ensure_cursor_line();
+        self.mark_dirty_row(self.cursor_y);
+    }
+
+    fn set_cursor_shape(&mut self, shape: usize) {
+        self.cursor_shape = match shape {
+            1 => "BlinkingBlock",
+            2 => "SteadyBlock",
+            3 => "BlinkingUnderline",
+            4 => "SteadyUnderline",
+            5 => "BlinkingBar",
+            6 => "SteadyBar",
+            _ => "Default",
+        }
+        .to_string();
         self.mark_dirty_row(self.cursor_y);
     }
 
@@ -660,6 +677,7 @@ impl NextCoreScreen {
             cursor_x: self.cursor_x,
             cursor_y: self.cursor_y,
             cursor_visible: self.cursor_visible,
+            cursor_shape: self.cursor_shape.clone(),
             current_attr: self.current_attr,
             scroll_top: self.scroll_top,
             scroll_bottom: self.scroll_bottom,
@@ -671,6 +689,7 @@ impl NextCoreScreen {
         self.cursor_y = 0;
         self.saved_cursor_x = 0;
         self.saved_cursor_y = 0;
+        self.cursor_shape = "Default".to_string();
         self.scroll_top = 0;
         self.scroll_bottom = self.rows.saturating_sub(1);
         self.lines.clear();
@@ -685,6 +704,7 @@ impl NextCoreScreen {
             self.cursor_x = main.cursor_x;
             self.cursor_y = main.cursor_y;
             self.cursor_visible = main.cursor_visible;
+            self.cursor_shape = main.cursor_shape;
             self.current_attr = main.current_attr;
             self.scroll_top = main.scroll_top;
             self.scroll_bottom = main.scroll_bottom;
@@ -799,7 +819,7 @@ impl<'a> ScreenParser<'a> {
         let numeric_params = raw_params.trim_start_matches('?');
         let numbers = numeric_params
             .split(';')
-            .map(|part| part.parse::<usize>().unwrap_or(0))
+            .map(|part| part.trim().parse::<usize>().unwrap_or(0))
             .collect::<Vec<_>>();
         let first = || numbers.first().copied().filter(|n| *n > 0).unwrap_or(1);
 
@@ -827,6 +847,11 @@ impl<'a> ScreenParser<'a> {
             'J' => self.screen.erase_in_display(numbers.first().copied().unwrap_or(0)),
             'K' => self.screen.erase_in_line(numbers.first().copied().unwrap_or(0)),
             'm' => self.screen.apply_sgr(&numbers),
+            'q' => {
+                if raw_params.ends_with(' ') {
+                    self.screen.set_cursor_shape(numbers.first().copied().unwrap_or(0));
+                }
+            }
             'r' => {
                 let top = numbers.first().copied().filter(|n| *n > 0).unwrap_or(1);
                 let bottom = numbers
@@ -2039,6 +2064,40 @@ mod tests {
         assert_eq!(listed.cursor.x, screen.cursor.x);
         assert_eq!(listed.cursor.y, screen.cursor.y);
         assert_eq!(listed.cursor.visible, screen.cursor.visible);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_tracks_cursor_shape() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 3,
+            command_dir: None,
+            command: None,
+        })?;
+        set_output_for_test(session.id, "abc\x1b[5 q")?;
+
+        let screen = engine.read_screen(session.id)?;
+        assert_eq!(screen.cursor.shape, "BlinkingBar");
+        assert_eq!(engine.cursor(session.id)?.shape, "BlinkingBar");
+        assert_eq!(engine.list_sessions()?.remove(0).cursor.shape, "BlinkingBar");
+
+        set_output_for_test(
+            session.id,
+            concat!(
+                "main\x1b[4 q",
+                "\x1b[?1049h",
+                "\x1b[2 q",
+                "\x1b[?1049l"
+            ),
+        )?;
+
+        assert_eq!(engine.cursor(session.id)?.shape, "SteadyUnderline");
 
         engine.destroy_session(session.id)?;
         Ok(())
