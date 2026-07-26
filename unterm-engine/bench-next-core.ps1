@@ -9,6 +9,13 @@ param(
     [int]$DualAgentLines = 5000,
     [int]$ScreenReadLines = 5000,
     [int]$TimeoutMs = 120000,
+    [int]$MaxInputWriteP95Us = 16000,
+    [int]$MaxEchoP95Us = 16000,
+    [int]$MaxDualAgentEchoP95Us = 33000,
+    [int]$MaxPaste10KbMs = 50,
+    [int]$MaxScrollbackPageP95Us = 1000,
+    [int]$MaxViewportScrollP95Us = 1000,
+    [int]$MaxScreenReadFloodP95Us = 50000,
     [switch]$SkipBuild
 )
 
@@ -42,6 +49,52 @@ function Invoke-Benchmark {
                 }) -join " ")
         Summary = $summary
         Output = $lines
+    }
+}
+
+function Get-BenchMetric {
+    param(
+        [pscustomobject]$Result,
+        [string]$LinePrefix,
+        [string]$Metric
+    )
+
+    $line = @($Result.Summary | Where-Object { $_ -like "$LinePrefix*" } | Select-Object -First 1)
+    if ($line.Count -eq 0) {
+        return $null
+    }
+
+    $match = [regex]::Match($line[0], "(^|\s)$Metric=([0-9]+(?:\.[0-9]+)?)")
+    if (-not $match.Success) {
+        return $null
+    }
+    return [double]$match.Groups[2].Value
+}
+
+function Find-BenchmarkResult {
+    param(
+        [pscustomobject[]]$Results,
+        [string]$Name
+    )
+
+    return @($Results | Where-Object { $_.Name -eq $Name } | Select-Object -First 1)[0]
+}
+
+function New-Gate {
+    param(
+        [string]$GateName,
+        [Nullable[double]]$Actual,
+        [double]$Max,
+        [string]$Unit
+    )
+
+    $ok = ($null -ne $Actual) -and ($Actual -le $Max)
+    [pscustomobject]@{
+        Name = $GateName
+        Actual = $Actual
+        Max = $Max
+        Unit = $Unit
+        Ok = $ok
     }
 }
 
@@ -110,6 +163,22 @@ try {
     $results += Invoke-Benchmark -Name "dual pseudo-agent output" -BenchArgs ([string[]](@("--bench-dual-agent-lines", "$DualAgentLines") + $commonTail))
     $results += Invoke-Benchmark -Name "screen read during flood" -BenchArgs ([string[]](@("--bench-screen-read-lines", "$ScreenReadLines") + $commonTail))
 
+    $inputWrite = Find-BenchmarkResult -Results $results -Name "input write latency"
+    $echo = Find-BenchmarkResult -Results $results -Name "echo latency"
+    $paste = Find-BenchmarkResult -Results $results -Name "paste 10kb"
+    $scrollback = Find-BenchmarkResult -Results $results -Name "scrollback paging"
+    $viewportScroll = Find-BenchmarkResult -Results $results -Name "viewport scroll paging"
+    $dualAgent = Find-BenchmarkResult -Results $results -Name "dual pseudo-agent output"
+    $screenRead = Find-BenchmarkResult -Results $results -Name "screen read during flood"
+    $gates = @()
+    $gates += New-Gate -GateName "input write p95" -Actual (Get-BenchMetric -Result $inputWrite -LinePrefix "bench_input_write" -Metric "p95_us") -Max $MaxInputWriteP95Us -Unit "us"
+    $gates += New-Gate -GateName "echo p95" -Actual (Get-BenchMetric -Result $echo -LinePrefix "bench_echo" -Metric "p95_us") -Max $MaxEchoP95Us -Unit "us"
+    $gates += New-Gate -GateName "dual-agent echo p95" -Actual (Get-BenchMetric -Result $dualAgent -LinePrefix "bench_dual_agents_echo" -Metric "p95_us") -Max $MaxDualAgentEchoP95Us -Unit "us"
+    $gates += New-Gate -GateName "paste 10kb elapsed" -Actual (Get-BenchMetric -Result $paste -LinePrefix "bench_paste" -Metric "elapsed_ms") -Max $MaxPaste10KbMs -Unit "ms"
+    $gates += New-Gate -GateName "scrollback page p95" -Actual (Get-BenchMetric -Result $scrollback -LinePrefix "bench_scrollback" -Metric "p95_us") -Max $MaxScrollbackPageP95Us -Unit "us"
+    $gates += New-Gate -GateName "viewport scroll p95" -Actual (Get-BenchMetric -Result $viewportScroll -LinePrefix "bench_viewport_scroll" -Metric "p95_us") -Max $MaxViewportScrollP95Us -Unit "us"
+    $gates += New-Gate -GateName "screen read under flood p95" -Actual (Get-BenchMetric -Result $screenRead -LinePrefix "bench_screen_read_flood" -Metric "p95_us") -Max $MaxScreenReadFloodP95Us -Unit "us"
+
     $commit = (& git rev-parse --short HEAD).Trim()
     $date = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss zzz")
     $machine = "$([System.Environment]::MachineName)"
@@ -124,6 +193,17 @@ try {
     $report.Add("- OS: ``$os``")
     $report.Add("- Binary: ``target\debug\unterm-next-core.exe``")
     $report.Add("- JSON smoke: ``$($jsonSmoke.Engine) $($jsonSmoke.Screen) raw_bytes=$($jsonSmoke.RawBytes)``")
+    $report.Add("")
+    $report.Add("## Gates")
+    $report.Add("")
+    $report.Add("| Gate | Actual | Max | Status |")
+    $report.Add("| --- | ---: | ---: | --- |")
+    foreach ($gate in $gates) {
+        $actual = if ($null -eq $gate.Actual) { "missing" } else { "$($gate.Actual) $($gate.Unit)" }
+        $max = "$($gate.Max) $($gate.Unit)"
+        $status = if ($gate.Ok) { "ok" } else { "failed" }
+        $report.Add("| $($gate.Name) | $actual | $max | $status |")
+    }
     $report.Add("")
     $report.Add("## Summary")
     $report.Add("")
@@ -171,6 +251,10 @@ try {
     $failed = @($results | Where-Object { $_.ExitCode -ne 0 })
     if ($failed.Count -gt 0) {
         throw "$($failed.Count) benchmark(s) failed"
+    }
+    $failedGates = @($gates | Where-Object { -not $_.Ok })
+    if ($failedGates.Count -gt 0) {
+        throw "$($failedGates.Count) benchmark gate(s) failed"
     }
 }
 finally {
