@@ -1,7 +1,6 @@
 use crate::tabbar::TabBarItem;
 use crate::termwindow::{
-    GuiWin, LeftTabBarClick, MouseCapture, PositionedSplit, ScrollHit, TermWindowNotif, UIItem,
-    UIItemType, TMB,
+    GuiWin, MouseCapture, PositionedSplit, ScrollHit, TermWindowNotif, UIItem, UIItemType, TMB,
 };
 use ::window::{
     MouseButtons as WMB, MouseCursor, MouseEvent, MouseEventKind as WMEK, MousePress,
@@ -1066,37 +1065,15 @@ impl super::TermWindow {
                 self.left_tab_bar_scroll_by(-(n as isize));
             }
             WMEK::Press(MousePress::Left) => {
-                let click = match self.last_left_tab_bar_click.take() {
-                    Some(click) => click.add(
-                        tab_idx,
-                        MousePress::Left,
-                        event.coords.x,
-                        event.coords.y,
-                    ),
-                    None => LeftTabBarClick::new(
-                        tab_idx,
-                        MousePress::Left,
-                        event.coords.x,
-                        event.coords.y,
-                    ),
-                };
-                let double = click.streak() == 2 && event.modifiers == ::window::Modifiers::NONE;
-                self.last_left_tab_bar_click = Some(click);
-
-                if double {
-                    self.show_left_tab_rename(tab_idx);
-                } else {
-                    let _ = self.activate_tab(tab_idx as isize);
-                    // Keep the press armed as a drag so moving the cursor
-                    // reorders the (now active) tab live. The drag path has
-                    // a small movement threshold so a normal click with
-                    // device jitter does not repeatedly reorder tabs.
-                    self.dragging.replace((item, event));
-                }
+                let _ = self.activate_tab(tab_idx as isize);
+                // Keep the press armed as a drag so moving the cursor
+                // reorders the (now active) tab live. The drag path has
+                // a small movement threshold so a normal click with
+                // device jitter does not repeatedly reorder tabs.
+                self.dragging.replace((item, event));
                 context.invalidate();
             }
             WMEK::Press(MousePress::Right) => {
-                self.last_left_tab_bar_click = None;
                 self.show_tab_context_menu(tab_idx);
             }
             _ => {}
@@ -1119,8 +1096,6 @@ impl super::TermWindow {
             self.dragging.replace((item, start_event));
             return;
         }
-        self.last_left_tab_bar_click = None;
-
         let y = event.coords.y;
         let target = self
             .ui_items

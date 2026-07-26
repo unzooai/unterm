@@ -47,37 +47,6 @@ impl LineEditorHost for PromptHost {
     }
 }
 
-/// Inline tab-rename prompt (left tab bar double-click). Unlike
-/// show_line_prompt_overlay this doesn't round-trip through a lua
-/// event: an accepted line is applied straight to the mux tab. An
-/// empty line clears the explicit title so auto-titling resumes.
-pub fn show_tab_rename_overlay(
-    mut term: TermWizTerminal,
-    tab_id: mux::tab::TabId,
-    initial: String,
-) -> anyhow::Result<()> {
-    term.no_grab_mouse_in_raw_mode();
-    term.render(&[Change::Text(
-        "Rename tab — Enter applies, empty resets to auto-title, Esc cancels\r\n".to_string(),
-    )])?;
-
-    let mut host = PromptHost::new();
-    let mut editor = LineEditor::new(&mut term);
-    editor.set_prompt("> ");
-    let line = editor.read_line_with_optional_initial_value(&mut host, Some(&initial))?;
-
-    if let Some(line) = line {
-        promise::spawn::spawn_into_main_thread(async move {
-            let mux = mux::Mux::get();
-            if let Some(tab) = mux.get_tab(tab_id) {
-                tab.set_title(line.trim());
-            }
-        })
-        .detach();
-    }
-    Ok(())
-}
-
 pub fn show_line_prompt_overlay(
     mut term: TermWizTerminal,
     args: PromptInputLine,
