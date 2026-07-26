@@ -58,7 +58,7 @@ Known gaps:
 - styled scrollback PNG parity for `next-core`
 - window capture/focus/title
 - instance lifecycle ownership
-- richer foreground argv/process-tree metadata in engine snapshots
+- foreground argv/process-tree metadata beyond the launch process in `next-core`
 - richer profile/proxy launch semantics beyond the current `CreateSessionRequest::env` overlay
 
 ## MCP Coverage Summary
@@ -87,7 +87,7 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 | `session.paste` | Engine-neutral | `InputEngine::paste_input` plus pane-id based write gate | Add paste-size and bracketed-paste semantics to trait before next-core alpha. |
 | `session.resize` | Engine-neutral | `SessionEngine::resize_session`; WezTerm adapter owns GUI-layout resize rejection | Handler no longer resolves a WezTerm pane or Mux for resize policy. |
 | `session.destroy` | Engine-neutral | `SessionEngine::destroy_session` | Handler resolves pane id without WezTerm pane access. |
-| `session.idle` | Engine-neutral | `SessionEngine::activity` | `next-core` must provide foreground activity. |
+| `session.idle` | Engine-neutral | `SessionEngine::activity`; `next-core` uses recent input/output timestamps and liveness | Add foreground child-process detection later for precise running-command names. |
 | `session.cwd` | Engine-neutral | `SessionEngine::shell`; `next-core` updates cwd from OSC 7 shell-integration sequences | Add process-tree fallback later for shells that do not emit OSC 7. |
 | `session.env` | Engine-neutral | `SessionEngine::shell` launch env key snapshot; values are redacted | `next-core` exposes launch env variable names; WezTerm mode reports unsupported because live pane env is not available. |
 | `session.set_env` | Unsupported stub | Returns unsupported marker | Prefer launch-context env over mutating live shells. |
@@ -112,7 +112,7 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 | `exec.run` | Engine-neutral | `InputEngine::write_input` plus pane-id based write gate | Preserves policy check and audit before sending command + CR. |
 | `exec.send` | Engine-neutral | `InputEngine::write_input` plus pane-id based write gate | Accepts documented `bytes` plus `input`/`text` aliases. |
 | `exec.run_wait` | Engine-neutral | `SessionEngine::shell`, `ScreenEngine::read_visible_text`, `InputEngine::write_input`, pane-id based write gate | Uses sentinel wrapping and keeps the previous output JSON shape. |
-| `exec.status` | Engine-neutral | `SessionEngine::activity` | Good next-core smoke candidate. |
+| `exec.status` | Engine-neutral | `SessionEngine::activity` | In `next-core`, status reflects recent I/O activity and liveness; foreground process is still the launch shell until process-tree tracking lands. |
 | `exec.cancel` | Engine-neutral | `InputEngine::write_input` plus pane-id based write gate | Sends Ctrl+C after confirmation/audit. |
 | `signal.send` | Engine-neutral | `InputEngine::write_input` plus pane-id based write gate | Validates supported signal before confirmation/audit. |
 

@@ -17,10 +17,11 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::thread;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const MAX_OUTPUT_BYTES: usize = 1024 * 1024;
 const MAX_SCROLLBACK_LINES: usize = 10_000;
+const ACTIVITY_IDLE_AFTER: Duration = Duration::from_secs(2);
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct NextCoreEngine;
@@ -33,6 +34,7 @@ struct NextCoreSession {
     output: Arc<Mutex<String>>,
     screen: Arc<Mutex<NextCoreScreen>>,
     recording: Arc<Mutex<Option<NextCoreRecording>>>,
+    activity: Arc<Mutex<SessionIoActivity>>,
     dead: Arc<AtomicBool>,
 }
 
@@ -61,6 +63,46 @@ struct NextCoreRecording {
     block_count: u64,
     trace_ids: Vec<String>,
     text_preview: String,
+}
+
+#[derive(Clone, Debug)]
+struct SessionIoActivity {
+    created_at: Instant,
+    last_input_at: Option<Instant>,
+    last_output_at: Option<Instant>,
+}
+
+impl SessionIoActivity {
+    fn new() -> Self {
+        Self {
+            created_at: Instant::now(),
+            last_input_at: None,
+            last_output_at: None,
+        }
+    }
+
+    fn mark_input(&mut self) {
+        self.last_input_at = Some(Instant::now());
+    }
+
+    fn mark_output(&mut self) {
+        self.last_output_at = Some(Instant::now());
+    }
+
+    fn last_io_at(&self) -> Option<Instant> {
+        match (self.last_input_at, self.last_output_at) {
+            (Some(input), Some(output)) => Some(input.max(output)),
+            (Some(input), None) => Some(input),
+            (None, Some(output)) => Some(output),
+            (None, None) => None,
+        }
+    }
+
+    fn is_idle(&self, now: Instant) -> bool {
+        self.last_io_at()
+            .map(|last_io| now.duration_since(last_io) >= ACTIVITY_IDLE_AFTER)
+            .unwrap_or_else(|| now.duration_since(self.created_at) >= ACTIVITY_IDLE_AFTER)
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -1063,7 +1105,7 @@ fn reset_state_for_test() {
 
 #[cfg(test)]
 fn set_output_for_test(pane_id: usize, text: &str) -> Result<()> {
-    let (output, screen, recording, rows) = {
+    let (output, screen, recording, activity, rows) = {
         let state = state().read();
         let Some(session) = state
             .sessions
@@ -1076,6 +1118,7 @@ fn set_output_for_test(pane_id: usize, text: &str) -> Result<()> {
             Arc::clone(&session.output),
             Arc::clone(&session.screen),
             Arc::clone(&session.recording),
+            Arc::clone(&session.activity),
             session.snapshot.rows,
         )
     };
@@ -1088,6 +1131,7 @@ fn set_output_for_test(pane_id: usize, text: &str) -> Result<()> {
     if let Some(recording) = recording.lock().as_mut() {
         NextCoreEngine::append_recording_output(recording, text);
     }
+    activity.lock().mark_output();
     Ok(())
 }
 
@@ -1103,6 +1147,25 @@ fn mark_dead_for_test(pane_id: usize) -> Result<()> {
     };
 
     session.dead.store(true, Ordering::Release);
+    Ok(())
+}
+
+#[cfg(test)]
+fn make_activity_stale_for_test(pane_id: usize) -> Result<()> {
+    let state = state().read();
+    let Some(session) = state
+        .sessions
+        .iter()
+        .find(|session| session.snapshot.id == pane_id)
+    else {
+        bail!("next-core session {pane_id} not found");
+    };
+
+    let stale_at = Instant::now() - ACTIVITY_IDLE_AFTER - Duration::from_millis(1);
+    let mut activity = session.activity.lock();
+    activity.created_at = stale_at;
+    activity.last_input_at = None;
+    activity.last_output_at = None;
     Ok(())
 }
 
@@ -1669,12 +1732,14 @@ impl NextCoreEngine {
         let output = Arc::new(Mutex::new(String::new()));
         let screen = Arc::new(Mutex::new(NextCoreScreen::new(rows)));
         let recording = Arc::new(Mutex::new(None));
+        let activity = Arc::new(Mutex::new(SessionIoActivity::new()));
         let dead = Arc::new(AtomicBool::new(false));
         Self::spawn_reader_thread(
             id,
             Arc::clone(&output),
             Arc::clone(&screen),
             Arc::clone(&recording),
+            Arc::clone(&activity),
             Arc::clone(&writer),
             Arc::clone(&dead),
             reader,
@@ -1705,6 +1770,7 @@ impl NextCoreEngine {
             output,
             screen,
             recording,
+            activity,
             dead,
         })
     }
@@ -1714,6 +1780,7 @@ impl NextCoreEngine {
         output: Arc<Mutex<String>>,
         screen: Arc<Mutex<NextCoreScreen>>,
         recording: Arc<Mutex<Option<NextCoreRecording>>>,
+        activity: Arc<Mutex<SessionIoActivity>>,
         writer: Arc<Mutex<Box<dyn Write + Send>>>,
         dead: Arc<AtomicBool>,
         mut reader: Box<dyn Read + Send>,
@@ -1745,6 +1812,7 @@ impl NextCoreEngine {
                             let mut screen = screen.lock();
                             screen.feed(chunk.as_str());
                             Self::answer_terminal_queries(chunk.as_str(), &screen, &writer);
+                            activity.lock().mark_output();
                             if let Some(recording) = recording.lock().as_mut() {
                                 Self::append_recording_output(recording, chunk.as_str());
                             }
@@ -1923,12 +1991,20 @@ impl SessionEngine for NextCoreEngine {
     }
 
     fn activity(&self, pane_id: usize) -> Result<SessionActivitySnapshot> {
-        let session = self.session(pane_id)?;
-        let foreground_process = session.shell.process_name;
+        let mut state = state().write();
+        let Some(session) = state
+            .sessions
+            .iter_mut()
+            .find(|session| session.snapshot.id == pane_id)
+        else {
+            bail!("next-core session {pane_id} not found");
+        };
+        Self::refresh_liveness(session);
+        let is_dead = session.snapshot.is_dead;
+        let foreground_process = session.snapshot.shell.process_name.clone();
+        let idle = is_dead || session.activity.lock().is_idle(Instant::now());
         Ok(SessionActivitySnapshot {
-            idle: session.is_dead
-                || foreground_process.is_empty()
-                || foreground_process == "unknown",
+            idle,
             foreground_process,
         })
     }
@@ -2125,7 +2201,7 @@ impl ScreenEngine for NextCoreEngine {
 
 impl InputEngine for NextCoreEngine {
     fn write_input(&self, pane_id: usize, input: &str) -> Result<()> {
-        let writer = {
+        let (writer, activity) = {
             let state = state().read();
             let Some(session) = state
                 .sessions
@@ -2134,12 +2210,15 @@ impl InputEngine for NextCoreEngine {
             else {
                 bail!("next-core session {pane_id} not found");
             };
-            Arc::clone(&session.writer)
+            (Arc::clone(&session.writer), Arc::clone(&session.activity))
         };
 
         let mut writer = writer.lock();
         writer.write_all(input.as_bytes())?;
         writer.flush()?;
+        if !input.is_empty() {
+            activity.lock().mark_input();
+        }
         Ok(())
     }
 
@@ -2557,6 +2636,34 @@ mod tests {
         mark_dead_for_test(session.id)?;
         assert!(engine.get_session(session.id)?.is_dead);
         assert!(engine.activity(session.id)?.idle);
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn session_activity_tracks_recent_next_core_io() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 24,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+        })?;
+
+        make_activity_stale_for_test(session.id)?;
+        assert!(engine.activity(session.id)?.idle);
+
+        set_output_for_test(session.id, "recent output")?;
+        let activity = engine.activity(session.id)?;
+        assert!(!activity.idle);
+        assert_eq!(
+            activity.foreground_process,
+            engine.shell(session.id)?.process_name
+        );
+
         engine.destroy_session(session.id)?;
         Ok(())
     }

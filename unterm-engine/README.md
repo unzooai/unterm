@@ -100,3 +100,5 @@ ESC ] 7 ; file://localhost/C:/Users/alex/project BEL
 ```
 
 Values are decoded from `file://` URIs. On Windows, `/C:/...` paths are normalized to `C:\...`. Shells that do not emit OSC 7 still report the launch cwd until a process-tree fallback is added.
+
+`SessionEngine::activity()` is based on `next-core`'s own PTY liveness and recent input/output timestamps. A session is reported as running shortly after input or output and idle after a quiet period. The foreground process name is still the launch shell until child-process tracking is added.
