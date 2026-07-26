@@ -1112,21 +1112,37 @@ impl NextCoreScreen {
 
     fn insert_lines(&mut self, count: usize) {
         self.ensure_cursor_line();
-        self.mark_dirty_range(self.cursor_y, self.rows.saturating_sub(1));
+        let bottom = if self.cursor_y >= self.scroll_top && self.cursor_y <= self.scroll_bottom {
+            self.scroll_bottom
+        } else {
+            self.rows.saturating_sub(1)
+        };
+        self.ensure_rows_through(bottom);
+        self.mark_dirty_range(self.cursor_y, bottom);
         for _ in 0..count.max(1) {
             self.lines.insert(self.cursor_y, Vec::new());
-            if self.lines.len() > self.rows {
-                self.lines.pop();
+            if self.lines.len() > bottom + 1 {
+                self.lines.remove(bottom + 1);
             }
         }
     }
 
     fn delete_lines(&mut self, count: usize) {
         self.ensure_cursor_line();
-        self.mark_dirty_range(self.cursor_y, self.rows.saturating_sub(1));
+        let bottom = if self.cursor_y >= self.scroll_top && self.cursor_y <= self.scroll_bottom {
+            self.scroll_bottom
+        } else {
+            self.rows.saturating_sub(1)
+        };
+        self.ensure_rows_through(bottom);
+        self.mark_dirty_range(self.cursor_y, bottom);
         for _ in 0..count.max(1) {
-            if self.cursor_y < self.lines.len() {
+            if self.cursor_y <= bottom && self.cursor_y < self.lines.len() {
                 self.lines.remove(self.cursor_y);
+            }
+            self.lines.insert(bottom, Vec::new());
+            if self.lines.len() > self.rows {
+                self.lines.truncate(self.rows);
             }
         }
         self.ensure_cursor_line();
@@ -5604,6 +5620,69 @@ mod tests {
         assert_eq!(screen.scrollback_rows, 0);
 
         engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_limits_line_insert_delete_to_scroll_region() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 5,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+        set_output_for_test(
+            session.id,
+            concat!(
+                "\x1b[1;1Htop",
+                "\x1b[2;1Hone",
+                "\x1b[3;1Htwo",
+                "\x1b[4;1Hthree",
+                "\x1b[5;1Hbottom",
+                "\x1b[2;4r",
+                "\x1b[3;1H",
+                "\x1b[L"
+            ),
+        )?;
+        assert_eq!(
+            engine.read_screen(session.id)?.lines,
+            vec!["top", "one", "", "two", "bottom"]
+        );
+        engine.destroy_session(session.id)?;
+
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 5,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+        set_output_for_test(
+            session.id,
+            concat!(
+                "\x1b[1;1Htop",
+                "\x1b[2;1Hone",
+                "\x1b[3;1Htwo",
+                "\x1b[4;1Hthree",
+                "\x1b[5;1Hbottom",
+                "\x1b[2;4r",
+                "\x1b[2;1H",
+                "\x1b[M"
+            ),
+        )?;
+        assert_eq!(
+            engine.read_screen(session.id)?.lines,
+            vec!["top", "two", "three", "", "bottom"]
+        );
+        engine.destroy_session(session.id)?;
+
         Ok(())
     }
 
