@@ -1371,6 +1371,10 @@ mod engine_neutral_handler_tests {
         assert!(info.get("id").is_some());
         assert!(info.get("pid").is_some());
         assert!(info.get("mcp_port").is_some());
+        assert_eq!(info["window"]["engine"], "wezterm-host");
+        assert_eq!(info["window"]["title_owner"], "server_info");
+        assert_eq!(info["window"]["focus_owner"], "host_gui");
+        assert_eq!(info["window"]["uses_host_window"], true);
         assert!(list["instances"].is_array());
         assert_eq!(title["ok"], true);
         assert!(title["title"].is_null());
@@ -1699,6 +1703,14 @@ mod engine_neutral_handler_tests {
             surface["engine_capabilities"]["diagnostics"]["styled_scrollback_png"],
             true
         );
+        assert_eq!(
+            surface["engine_capabilities"]["diagnostics"]["host_window_bridge"],
+            true
+        );
+        assert_eq!(
+            surface["engine_capabilities"]["diagnostics"]["native_window_lifecycle"],
+            false
+        );
         assert_eq!(capabilities["_engine"], "next-core");
         assert_eq!(
             capabilities["_engine_capabilities"]["diagnostics"]["health_io_summary"],
@@ -1711,6 +1723,14 @@ mod engine_neutral_handler_tests {
         assert_eq!(
             capabilities["_engine_capabilities"]["diagnostics"]["styled_scrollback_png"],
             true
+        );
+        assert_eq!(
+            capabilities["_engine_capabilities"]["diagnostics"]["host_window_bridge"],
+            true
+        );
+        assert_eq!(
+            capabilities["_engine_capabilities"]["diagnostics"]["native_window_lifecycle"],
+            false
         );
         let metrics = surface["engine_capabilities"]["diagnostics"]["health_metrics"]
             .as_array()
@@ -3207,6 +3227,8 @@ impl McpHandler {
             "name": "Unterm MCP Server",
             "version": "2.0.0",
             "engine": self.engine_label(),
+            "window_engine": "wezterm-host",
+            "uses_host_window": true,
             "protocol": "json-rpc-2.0",
         }))
     }
@@ -3307,6 +3329,12 @@ impl McpHandler {
             "http_port": i.http_port,
             "auth_token": i.auth_token,
             "title": i.title,
+            "window": {
+                "engine": "wezterm-host",
+                "title_owner": "server_info",
+                "focus_owner": "host_gui",
+                "uses_host_window": true,
+            },
             "cwd": i.cwd,
             "version": i.version,
             "platform": i.platform,
@@ -3353,6 +3381,8 @@ impl McpHandler {
                 json!({
                     "ok": true,
                     "mux_window_id": focus.mux_window_id,
+                    "window_engine": focus.window_engine,
+                    "uses_host_window": focus.uses_host_window,
                 })
             });
             tx.send(result).ok();

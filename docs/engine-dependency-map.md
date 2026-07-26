@@ -55,7 +55,7 @@ Known gaps:
 - PTY write confirmation without WezTerm pane object
 - full OSC133/block-level active recording render parity
 - full font/theme styled scrollback PNG parity for `next-core`
-- window capture/focus/title
+- native window capture/focus/title ownership beyond the explicit host-window bridge contract
 - instance lifecycle ownership
 - higher-level launch policy decisions beyond typed env/profile/proxy provenance
 

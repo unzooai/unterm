@@ -24,6 +24,8 @@ pub use unterm_engine::{
 #[derive(Clone, Debug)]
 pub struct WindowFocusResult {
     pub mux_window_id: usize,
+    pub window_engine: &'static str,
+    pub uses_host_window: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -457,5 +459,7 @@ fn focus_current_instance_window() -> anyhow::Result<WindowFocusResult> {
     window.window.focus();
     Ok(WindowFocusResult {
         mux_window_id: window.mux_window_id,
+        window_engine: "wezterm-host",
+        uses_host_window: true,
     })
 }

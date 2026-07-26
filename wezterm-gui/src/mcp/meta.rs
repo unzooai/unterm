@@ -62,6 +62,14 @@ pub fn engine_capabilities(engine: &str) -> Value {
                 "name": "capture.scrollback",
                 "limitation": "renders styled cell PNGs from next-core scrollback; full theme palette and bold/italic font matching parity are still in progress",
             }),
+            json!({
+                "name": "instance.focus",
+                "limitation": "focuses the current host GUI window; next-core does not own native window lifecycle yet",
+            }),
+            json!({
+                "name": "instance.set_title",
+                "limitation": "persists server_info title metadata; native window title ownership stays with the host GUI until next-core owns windows",
+            }),
         ]
     } else {
         Vec::new()
@@ -88,6 +96,8 @@ pub fn engine_capabilities(engine: &str) -> Value {
             "health_io_summary": engine == "next-core",
             "launch_context": engine == "next-core",
             "styled_scrollback_png": engine == "next-core",
+            "host_window_bridge": true,
+            "native_window_lifecycle": false,
             "health_metrics": health_metrics,
         },
     })
@@ -176,6 +186,8 @@ mod tests {
         assert!(supported.contains(&"capture.scrollback"));
         assert_eq!(caps["diagnostics"]["health_io_summary"], false);
         assert_eq!(caps["diagnostics"]["launch_context"], false);
+        assert_eq!(caps["diagnostics"]["host_window_bridge"], true);
+        assert_eq!(caps["diagnostics"]["native_window_lifecycle"], false);
     }
 
     #[test]
@@ -231,10 +243,28 @@ mod tests {
         let capture_limitation = capture["limitation"].as_str().expect("limitation text");
         assert!(capture_limitation.contains("styled cell PNGs"));
         assert!(capture_limitation.contains("bold/italic font matching"));
+        let focus = limited
+            .iter()
+            .find(|item| item["name"].as_str() == Some("instance.focus"))
+            .expect("instance focus limitation");
+        assert!(focus["limitation"]
+            .as_str()
+            .expect("limitation text")
+            .contains("host GUI window"));
+        let title = limited
+            .iter()
+            .find(|item| item["name"].as_str() == Some("instance.set_title"))
+            .expect("instance title limitation");
+        assert!(title["limitation"]
+            .as_str()
+            .expect("limitation text")
+            .contains("server_info title metadata"));
 
         assert_eq!(caps["diagnostics"]["health_io_summary"], true);
         assert_eq!(caps["diagnostics"]["launch_context"], true);
         assert_eq!(caps["diagnostics"]["styled_scrollback_png"], true);
+        assert_eq!(caps["diagnostics"]["host_window_bridge"], true);
+        assert_eq!(caps["diagnostics"]["native_window_lifecycle"], false);
         let metrics = strings_at(&caps["diagnostics"], "health_metrics");
         assert!(metrics.contains(&"input_writes"));
         assert!(metrics.contains(&"output_bytes"));
