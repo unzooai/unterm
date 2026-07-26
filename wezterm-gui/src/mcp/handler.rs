@@ -4,8 +4,8 @@
 use crate::engine::{
     CaptureEngine, CreateSessionRequest, CurrentTerminalEngine, HealthEngine, InputEngine,
     LaunchEnvBinding, LaunchEnvSource, LaunchPolicySnapshot, RecordingEngine, ScreenEngine,
-    ScrollbackTextRequest, SessionEngine, SplitDirection, SplitSessionRequest,
-    ViewportScrollResult, WindowEngine,
+    ScrollbackTextRequest, SessionActivitySnapshot, SessionEngine, ShellSnapshot, SplitDirection,
+    SplitSessionRequest, ViewportScrollResult, WindowEngine,
 };
 use anyhow::{anyhow, Context, Result};
 use base64::Engine as _;
@@ -4484,10 +4484,11 @@ impl McpHandler {
 
         let engine = self.engine();
         let shell = engine.shell(pane_id)?;
-        let shell_type = shell.shell_type.as_str();
+        let activity = engine.activity(pane_id).ok();
+        let wait_shell = resolve_exec_wait_shell(&shell, activity.as_ref());
 
         let marker = format!("__UNTERM_DONE_{}__", uuid::Uuid::new_v4().simple());
-        let wait_command = wait_wrapped_command(command, shell_type, &marker);
+        let wait_command = wait_wrapped_command(command, wait_shell.kind.as_str(), &marker);
 
         match self.gate_pty_write("exec.run_wait", pane_id, command)? {
             GateOutcome::Allow => {}
@@ -4523,6 +4524,8 @@ impl McpHandler {
                     "exit_status": "completed",
                     "timed_out": false,
                     "marker": marker,
+                    "shell_type": wait_shell.kind,
+                    "shell_source": wait_shell.source,
                 }));
             }
 
@@ -4534,6 +4537,8 @@ impl McpHandler {
                     "exit_status": "timeout",
                     "timed_out": true,
                     "marker": marker,
+                    "shell_type": wait_shell.kind,
+                    "shell_source": wait_shell.source,
                 }));
             }
         }
@@ -7145,6 +7150,83 @@ fn wait_wrapped_command(command: &str, shell_type: &str, marker: &str) -> String
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ResolvedWaitShell {
+    kind: String,
+    source: String,
+}
+
+fn resolve_exec_wait_shell(
+    shell: &ShellSnapshot,
+    activity: Option<&SessionActivitySnapshot>,
+) -> ResolvedWaitShell {
+    if shell.shell_type != "unknown" {
+        return ResolvedWaitShell {
+            kind: shell.shell_type.clone(),
+            source: "shell.shell_type".to_string(),
+        };
+    }
+
+    let candidates = [
+        ("shell.process_name", Some(shell.process_name.as_str())),
+        (
+            "activity.process.root_process",
+            activity
+                .and_then(|activity| activity.process.as_ref())
+                .map(|process| process.root_process.as_str()),
+        ),
+        (
+            "activity.process.foreground_process",
+            activity
+                .and_then(|activity| activity.process.as_ref())
+                .map(|process| process.foreground_process.as_str()),
+        ),
+        (
+            "activity.foreground_process",
+            activity.map(|activity| activity.foreground_process.as_str()),
+        ),
+    ];
+    for (source, candidate) in candidates {
+        if let Some(kind) = candidate.and_then(detect_wait_shell_from_process_name) {
+            return ResolvedWaitShell {
+                kind,
+                source: source.to_string(),
+            };
+        }
+    }
+
+    ResolvedWaitShell {
+        kind: default_wait_shell().to_string(),
+        source: "platform.default".to_string(),
+    }
+}
+
+fn detect_wait_shell_from_process_name(process_name: &str) -> Option<String> {
+    let bare = std::path::Path::new(process_name)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(process_name)
+        .to_ascii_lowercase();
+    let bare = bare.trim_end_matches(".exe");
+    if bare.contains("powershell") || bare == "pwsh" {
+        Some("powershell".to_string())
+    } else if bare == "cmd" || bare == "cmd32" || bare == "cmd64" {
+        Some("cmd".to_string())
+    } else if matches!(bare, "bash" | "zsh" | "fish" | "sh" | "dash" | "ksh") {
+        Some("posix".to_string())
+    } else {
+        None
+    }
+}
+
+fn default_wait_shell() -> &'static str {
+    if cfg!(windows) {
+        "cmd"
+    } else {
+        "posix"
+    }
+}
+
 fn contains_ignoring_line_breaks(text: &str, needle: &str) -> bool {
     if text.contains(needle) {
         return true;
@@ -7221,7 +7303,12 @@ fn extract_wait_output(before: &str, after: &str, command: &str, marker: &str) -
 
 #[cfg(test)]
 mod exec_wait_tests {
-    use super::{contains_ignoring_line_breaks, extract_wait_output, strip_ignoring_line_breaks};
+    use super::{
+        contains_ignoring_line_breaks, extract_wait_output, resolve_exec_wait_shell,
+        strip_ignoring_line_breaks,
+    };
+    use crate::engine::{SessionActivitySnapshot, ShellSnapshot};
+    use unterm_engine::{LaunchContextSnapshot, ProcessTreeSnapshot};
 
     #[test]
     fn completion_marker_survives_narrow_pane_wrapping() {
@@ -7237,6 +7324,59 @@ mod exec_wait_tests {
         let after = "PS> command\nRIGHT_PANE_OK\n__UNTERM_DONE_012345\n6789abcdef__\nPS>";
         let output = extract_wait_output("PS>", after, "command", marker);
         assert_eq!(output, "RIGHT_PANE_OK");
+    }
+
+    #[test]
+    fn wait_shell_uses_engine_shell_type_when_available() {
+        let shell = shell_snapshot("powershell", "codex.exe");
+        let resolved = resolve_exec_wait_shell(&shell, None);
+        assert_eq!(resolved.kind, "powershell");
+        assert_eq!(resolved.source, "shell.shell_type");
+    }
+
+    #[test]
+    fn wait_shell_falls_back_to_process_tree_root_for_agent_foreground() {
+        let shell = shell_snapshot("unknown", "codex.exe");
+        let activity = SessionActivitySnapshot {
+            idle: false,
+            foreground_process: "codex.exe".to_string(),
+            process: Some(ProcessTreeSnapshot {
+                root_pid: Some(10),
+                root_process: "C:\\Windows\\System32\\cmd.exe".to_string(),
+                root_cwd: None,
+                foreground_pid: Some(11),
+                foreground_process: "codex.exe".to_string(),
+                foreground_cwd: None,
+                foreground_argv: Vec::new(),
+                child_count: 1,
+                detected_agent: Some("codex".to_string()),
+            }),
+            input: None,
+            output: None,
+            paste: None,
+            screen: None,
+        };
+        let resolved = resolve_exec_wait_shell(&shell, Some(&activity));
+        assert_eq!(resolved.kind, "cmd");
+        assert_eq!(resolved.source, "activity.process.root_process");
+    }
+
+    #[test]
+    fn wait_shell_defaults_to_windows_cmd_or_posix_without_process_signal() {
+        let shell = shell_snapshot("unknown", "codex.exe");
+        let resolved = resolve_exec_wait_shell(&shell, None);
+        assert_eq!(resolved.kind, if cfg!(windows) { "cmd" } else { "posix" });
+        assert_eq!(resolved.source, "platform.default");
+    }
+
+    fn shell_snapshot(shell_type: &str, process_name: &str) -> ShellSnapshot {
+        ShellSnapshot {
+            shell_type: shell_type.to_string(),
+            process_name: process_name.to_string(),
+            cwd: None,
+            launch_env_keys: Vec::new(),
+            launch_context: LaunchContextSnapshot::default(),
+        }
     }
 }
 

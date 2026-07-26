@@ -53,7 +53,6 @@ Known gaps:
 - real GUI viewport scrolling/jump for the future next-core renderer
 - pane resolution without WezTerm `Pane`
 - PTY write confirmation without WezTerm pane object
-- exec wait shell detection without WezTerm pane object
 - active recording render parity
 - full font/theme styled scrollback PNG parity for `next-core`
 - window capture/focus/title
@@ -110,7 +109,7 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 |---|---|---|---|
 | `exec.run` | Engine-neutral | `InputEngine::write_input` plus pane-id based write gate | Preserves policy check and audit before sending command + CR. |
 | `exec.send` | Engine-neutral | `InputEngine::write_input` plus pane-id based write gate | Accepts documented `bytes` plus `input`/`text` aliases. |
-| `exec.run_wait` | Engine-neutral | `SessionEngine::shell`, `ScreenEngine::read_visible_text`, `InputEngine::write_input`, pane-id based write gate | Uses sentinel wrapping and keeps the previous output JSON shape. |
+| `exec.run_wait` | Engine-neutral | `SessionEngine::shell`, `SessionEngine::activity`, `ScreenEngine::read_visible_text`, `InputEngine::write_input`, pane-id based write gate | Uses sentinel wrapping and resolves shell syntax from engine-neutral shell metadata, next-core process-tree root/foreground summaries, and platform fallback without reaching through a WezTerm pane. |
 | `exec.status` | Engine-neutral | `SessionEngine::activity` | In `next-core`, status reflects recent I/O activity, liveness, input metrics, output metrics, paste metrics, and process-tree foreground/agent diagnostics. |
 | `exec.cancel` | Engine-neutral | `InputEngine::write_input` plus pane-id based write gate | Sends Ctrl+C after confirmation/audit. |
 | `signal.send` | Engine-neutral | `InputEngine::write_input` plus pane-id based write gate | Validates supported signal before confirmation/audit. |
