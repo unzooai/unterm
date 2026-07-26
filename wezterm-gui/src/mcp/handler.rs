@@ -2858,17 +2858,17 @@ impl McpHandler {
     // --- Screen extensions ---
 
     fn screen_scroll(&self, params: &Value) -> Result<Value> {
-        let pane = self.get_pane(params)?;
         let offset = params.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as isize;
         let count = params.get("count").and_then(|v| v.as_u64()).unwrap_or(100) as isize;
-
-        let start = offset;
-        let end = offset + count;
-        let (_first, lines) = pane.get_lines(start..end);
-
-        let text_lines: Vec<String> = lines
-            .iter()
-            .map(|line| line.as_str().trim_end().to_string())
+        let engine = crate::engine::wezterm::WezTermEngine;
+        let text_lines: Vec<String> = engine
+            .read_lines(
+                Self::pane_id_from_params(params)?,
+                offset as i64,
+                count.max(0) as usize,
+            )?
+            .into_iter()
+            .map(|line| line.text)
             .collect();
 
         Ok(json!({"lines": text_lines, "offset": offset, "count": text_lines.len()}))
@@ -2891,7 +2891,7 @@ impl McpHandler {
     /// stay addressable even as new output scrolls in, plus the column of
     /// the first occurrence in that line.
     fn screen_search(&self, params: &Value) -> Result<Value> {
-        let pane = self.get_pane(params)?;
+        let pane_id = Self::pane_id_from_params(params)?;
         let pattern = params
             .get("pattern")
             .and_then(|v| v.as_str())
@@ -2901,28 +2901,22 @@ impl McpHandler {
             .and_then(|v| v.as_u64())
             .unwrap_or(50) as usize;
 
-        let dims = pane.get_dimensions();
-        let start = dims.scrollback_top;
-        let end = dims.physical_top + dims.viewport_rows as isize;
-        let (first, lines) = pane.get_lines(start..end);
-
-        let mut matches: Vec<Value> = Vec::new();
-        let mut match_rows: Vec<isize> = Vec::new();
-        for (idx, line) in lines.iter().enumerate() {
-            let text = line.as_str().to_string();
-            if let Some(byte_off) = text.find(pattern) {
-                let row = first + idx as isize;
-                matches.push(json!({
-                    "row": row,
-                    "col": text[..byte_off].chars().count(),
-                    "text": text.trim_end(),
-                }));
-                match_rows.push(row);
-                if matches.len() >= max_results {
-                    break;
-                }
-            }
-        }
+        let engine = crate::engine::wezterm::WezTermEngine;
+        let search_matches = engine.search(pane_id, pattern, max_results)?;
+        let match_rows: Vec<isize> = search_matches
+            .iter()
+            .map(|m| m.row as isize)
+            .collect();
+        let matches: Vec<Value> = search_matches
+            .into_iter()
+            .map(|m| {
+                json!({
+                    "row": m.row,
+                    "col": m.col,
+                    "text": m.text,
+                })
+            })
+            .collect();
 
         let goto_requested = params
             .get("goto")
@@ -2938,7 +2932,7 @@ impl McpHandler {
                 .unwrap_or(0) as usize;
             let index = index.min(match_rows.len() - 1);
             let target = match_rows[index];
-            self.scroll_pane_viewport_to(pane.pane_id(), target)?;
+            self.scroll_pane_viewport_to(pane_id, target)?;
             scrolled_to = json!({ "row": target, "match_index": index });
         }
 

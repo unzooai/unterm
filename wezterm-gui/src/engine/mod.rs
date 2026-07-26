@@ -55,6 +55,13 @@ pub struct ScreenLine {
 }
 
 #[derive(Clone, Debug, Serialize)]
+pub struct ScreenSearchMatch {
+    pub row: i64,
+    pub col: usize,
+    pub text: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
 pub struct ScreenSnapshot {
     pub lines: Vec<String>,
     pub cells: Vec<ScreenLine>,
@@ -108,7 +115,10 @@ pub trait SessionEngine {
 
 pub trait ScreenEngine {
     fn read_screen(&self, pane_id: usize) -> Result<ScreenSnapshot>;
+    fn read_lines(&self, pane_id: usize, start: i64, count: usize) -> Result<Vec<ScreenLine>>;
     fn read_scrollback(&self, pane_id: usize, limit: usize) -> Result<Vec<String>>;
+    fn search(&self, pane_id: usize, pattern: &str, max_results: usize)
+        -> Result<Vec<ScreenSearchMatch>>;
     fn cursor(&self, pane_id: usize) -> Result<CursorSnapshot>;
 }
 

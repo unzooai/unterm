@@ -1,7 +1,7 @@
 use super::{
-    CreateSessionRequest, CursorSnapshot, PaneDimensions, ScreenLine, ScreenSnapshot,
-    InputEngine, ScreenEngine, SessionActivitySnapshot, SessionEngine, SessionSnapshot,
-    ShellSnapshot, SplitDirection, SplitSessionRequest,
+    CreateSessionRequest, CursorSnapshot, InputEngine, PaneDimensions, ScreenLine,
+    ScreenSearchMatch, ScreenSnapshot, ScreenEngine, SessionActivitySnapshot, SessionEngine,
+    SessionSnapshot, ShellSnapshot, SplitDirection, SplitSessionRequest,
 };
 use anyhow::{anyhow, Context, Result};
 use config::keyassignment::SpawnTabDomain;
@@ -304,6 +304,22 @@ impl ScreenEngine for WezTermEngine {
         })
     }
 
+    fn read_lines(&self, pane_id: usize, start: i64, count: usize) -> Result<Vec<ScreenLine>> {
+        let pane = self.pane(pane_id)?;
+        let start = start as isize;
+        let end = start + count as isize;
+        let (first, lines) = pane.get_lines(start..end);
+
+        Ok(lines
+            .iter()
+            .enumerate()
+            .map(|(idx, line)| ScreenLine {
+                row: first as i64 + idx as i64,
+                text: line.as_str().trim_end().to_string(),
+            })
+            .collect())
+    }
+
     fn read_scrollback(&self, pane_id: usize, limit: usize) -> Result<Vec<String>> {
         let pane = self.pane(pane_id)?;
         let dims = pane.get_dimensions();
@@ -316,6 +332,36 @@ impl ScreenEngine for WezTermEngine {
             .map(|line| line.as_str().trim_end().to_string())
             .filter(|text| !text.is_empty())
             .collect())
+    }
+
+    fn search(
+        &self,
+        pane_id: usize,
+        pattern: &str,
+        max_results: usize,
+    ) -> Result<Vec<ScreenSearchMatch>> {
+        let pane = self.pane(pane_id)?;
+        let dims = pane.get_dimensions();
+        let start = dims.scrollback_top;
+        let end = dims.physical_top + dims.viewport_rows as isize;
+        let (first, lines) = pane.get_lines(start..end);
+
+        let mut matches = Vec::new();
+        for (idx, line) in lines.iter().enumerate() {
+            let text = line.as_str().to_string();
+            if let Some(byte_off) = text.find(pattern) {
+                matches.push(ScreenSearchMatch {
+                    row: first as i64 + idx as i64,
+                    col: text[..byte_off].chars().count(),
+                    text: text.trim_end().to_string(),
+                });
+                if matches.len() >= max_results {
+                    break;
+                }
+            }
+        }
+
+        Ok(matches)
     }
 
     fn cursor(&self, pane_id: usize) -> Result<CursorSnapshot> {
