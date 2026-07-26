@@ -1974,7 +1974,8 @@ impl McpHandler {
             Some(&pane.pane_id().to_string()),
             &input_preview(input),
         );
-        pane.writer().write_all(input.as_bytes())?;
+        let engine = crate::engine::wezterm::WezTermEngine;
+        engine.write_input(pane.pane_id(), input)?;
         Ok(json!({"status": "ok"}))
     }
 
@@ -2124,14 +2125,8 @@ impl McpHandler {
             ));
         }
 
-        let size = wezterm_term::TerminalSize {
-            rows,
-            cols,
-            pixel_width: 0,
-            pixel_height: 0,
-            dpi: 0,
-        };
-        pane.resize(size)?;
+        let engine = crate::engine::wezterm::WezTermEngine;
+        engine.resize_session(pane_id, cols, rows)?;
         Ok(json!({"status": "ok"}))
     }
 
@@ -2142,7 +2137,8 @@ impl McpHandler {
             Some(&pane.pane_id().to_string()),
             "destroy",
         );
-        pane.kill();
+        let engine = crate::engine::wezterm::WezTermEngine;
+        engine.destroy_session(pane.pane_id())?;
         Ok(json!({"status": "ok", "destroyed": true}))
     }
 
@@ -2866,7 +2862,8 @@ impl McpHandler {
 
         // Send command with newline
         let input = format!("{}\r", command);
-        pane.writer().write_all(input.as_bytes())?;
+        let engine = crate::engine::wezterm::WezTermEngine;
+        engine.write_input(pane.pane_id(), &input)?;
         Ok(json!({"sent": true}))
     }
 
@@ -2897,7 +2894,8 @@ impl McpHandler {
 
         // Send command
         let input = format!("{}\r", wait_command);
-        pane.writer().write_all(input.as_bytes())?;
+        let engine = crate::engine::wezterm::WezTermEngine;
+        engine.write_input(pane.pane_id(), &input)?;
 
         // Poll until the injected sentinel is rendered. This gives CLI/MCP
         // automation a deterministic completion condition across shells.
@@ -2953,7 +2951,8 @@ impl McpHandler {
         let pane = self.get_pane(params)?;
         self.audit("exec.cancel", Some(&pane.pane_id().to_string()), "Ctrl+C");
         // Send Ctrl+C
-        pane.writer().write_all(b"\x03")?;
+        let engine = crate::engine::wezterm::WezTermEngine;
+        engine.write_input(pane.pane_id(), "\x03")?;
         Ok(json!({"cancelled": true}))
     }
 
@@ -2968,11 +2967,12 @@ impl McpHandler {
 
         self.audit("signal.send", Some(&pane.pane_id().to_string()), signal);
 
+        let engine = crate::engine::wezterm::WezTermEngine;
         match signal.to_uppercase().as_str() {
-            "SIGINT" | "INT" => pane.writer().write_all(b"\x03")?,
-            "SIGTSTP" | "TSTP" => pane.writer().write_all(b"\x1a")?,
-            "SIGQUIT" | "QUIT" => pane.writer().write_all(b"\x1c")?,
-            "EOF" => pane.writer().write_all(b"\x04")?,
+            "SIGINT" | "INT" => engine.write_input(pane.pane_id(), "\x03")?,
+            "SIGTSTP" | "TSTP" => engine.write_input(pane.pane_id(), "\x1a")?,
+            "SIGQUIT" | "QUIT" => engine.write_input(pane.pane_id(), "\x1c")?,
+            "EOF" => engine.write_input(pane.pane_id(), "\x04")?,
             _ => return Err(anyhow!("Unsupported signal: {}", signal)),
         }
         Ok(json!({"sent": true, "signal": signal}))
@@ -3122,12 +3122,9 @@ impl McpHandler {
             if let Some(command) = params.get("command").and_then(|v| v.as_str()) {
                 // Brief delay to let shell initialize
                 std::thread::sleep(std::time::Duration::from_millis(500));
-                if let Ok(mux) = self.get_mux() {
-                    if let Some(pane) = mux.get_pane(pane_id as usize) {
-                        let input = format!("{}\r", command);
-                        let _ = pane.writer().write_all(input.as_bytes());
-                    }
-                }
+                let engine = crate::engine::wezterm::WezTermEngine;
+                let input = format!("{}\r", command);
+                let _ = engine.write_input(pane_id as usize, &input);
             }
         }
         Ok(result)
@@ -3143,22 +3140,22 @@ impl McpHandler {
             .and_then(|v| v.as_array())
             .ok_or_else(|| anyhow!("Missing 'sessions'"))?;
 
-        let mux = self.get_mux()?;
         let mut results = Vec::new();
         let input = format!("{}\r", command);
+        let engine = crate::engine::wezterm::WezTermEngine;
 
         for sid in sessions {
             let id_str = sid.as_str().unwrap_or("");
             if let Ok(id) = id_str.parse::<usize>() {
-                if let Some(pane) = mux.get_pane(id) {
-                    match pane.writer().write_all(input.as_bytes()) {
-                        Ok(_) => results.push(json!({"session_id": id_str, "sent": true})),
-                        Err(e) => {
-                            results.push(json!({"session_id": id_str, "error": e.to_string()}))
-                        }
-                    }
-                } else {
+                if engine.get_session(id).is_err() {
                     results.push(json!({"session_id": id_str, "error": "not found"}));
+                    continue;
+                }
+                match engine.write_input(id, &input) {
+                    Ok(_) => results.push(json!({"session_id": id_str, "sent": true})),
+                    Err(e) => {
+                        results.push(json!({"session_id": id_str, "error": e.to_string()}))
+                    }
                 }
             }
         }

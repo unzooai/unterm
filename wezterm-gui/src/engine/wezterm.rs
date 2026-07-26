@@ -162,4 +162,29 @@ impl TerminalEngine for WezTermEngine {
         let pane = self.pane(pane_id)?;
         Ok(Self::cursor_snapshot(&pane))
     }
+
+    fn write_input(&self, pane_id: usize, input: &str) -> Result<()> {
+        let pane = self.pane(pane_id)?;
+        pane.writer().write_all(input.as_bytes())?;
+        Ok(())
+    }
+
+    fn resize_session(&self, pane_id: usize, cols: usize, rows: usize) -> Result<()> {
+        let pane = self.pane(pane_id)?;
+        let size = wezterm_term::TerminalSize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+            dpi: 0,
+        };
+        pane.resize(size)?;
+        Ok(())
+    }
+
+    fn destroy_session(&self, pane_id: usize) -> Result<()> {
+        let pane = self.pane(pane_id)?;
+        pane.kill();
+        Ok(())
+    }
 }

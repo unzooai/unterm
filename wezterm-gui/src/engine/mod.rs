@@ -68,4 +68,7 @@ pub trait TerminalEngine {
     fn get_session(&self, pane_id: usize) -> Result<SessionSnapshot>;
     fn read_screen(&self, pane_id: usize) -> Result<ScreenSnapshot>;
     fn cursor(&self, pane_id: usize) -> Result<CursorSnapshot>;
+    fn write_input(&self, pane_id: usize, input: &str) -> Result<()>;
+    fn resize_session(&self, pane_id: usize, cols: usize, rows: usize) -> Result<()>;
+    fn destroy_session(&self, pane_id: usize) -> Result<()>;
 }
