@@ -13,12 +13,12 @@ use window::WindowOps;
 #[allow(unused_imports)]
 pub use unterm_engine::{
     next_core, CellStyle, CreateSessionRequest, CursorSnapshot, DirtyRows, EngineHealthSnapshot,
-    HealthEngine, InputEngine, PaneDimensions, RecordingEngine, RecordingExportResult,
-    RecordingStartResult, RecordingStatusSnapshot, RecordingStopResult, ScreenEngine, ScreenLine,
-    ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot,
-    SessionActivitySnapshot, SessionEngine, SessionSnapshot, ShellSnapshot, SplitDirection,
-    SplitSessionRequest, StyledCell, StyledColor, StyledScreenLine, StyledScreenSnapshot,
-    StyledScrollbackSnapshot, TerminalEngine,
+    HealthEngine, InputEngine, LaunchEnvBinding, LaunchEnvSource, LaunchPolicySnapshot,
+    PaneDimensions, RecordingEngine, RecordingExportResult, RecordingStartResult,
+    RecordingStatusSnapshot, RecordingStopResult, ScreenEngine, ScreenLine, ScreenSearchMatch,
+    ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot, SessionActivitySnapshot,
+    SessionEngine, SessionSnapshot, ShellSnapshot, SplitDirection, SplitSessionRequest, StyledCell,
+    StyledColor, StyledScreenLine, StyledScreenSnapshot, StyledScrollbackSnapshot, TerminalEngine,
 };
 
 #[derive(Clone, Debug)]

@@ -42,6 +42,30 @@ pub struct LaunchContextSnapshot {
     pub profile: Option<String>,
     pub proxy_env_keys: Vec<String>,
     pub env_key_count: usize,
+    pub policy: LaunchPolicySnapshot,
+}
+
+#[derive(Clone, Copy, Debug, Default, Serialize, PartialEq, Eq)]
+pub enum LaunchEnvSource {
+    Proxy,
+    Profile,
+    Overlay,
+    Explicit,
+    #[default]
+    Unknown,
+}
+
+#[derive(Clone, Debug, Default, Serialize, PartialEq, Eq)]
+pub struct LaunchEnvBinding {
+    pub key: String,
+    pub source: LaunchEnvSource,
+}
+
+#[derive(Clone, Debug, Default, Serialize, PartialEq, Eq)]
+pub struct LaunchPolicySnapshot {
+    pub profile: Option<String>,
+    pub env: Vec<LaunchEnvBinding>,
+    pub proxy_env_keys: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -310,6 +334,7 @@ pub struct CreateSessionRequest {
     pub command_dir: Option<String>,
     pub command: Option<CommandBuilder>,
     pub env: Vec<(String, String)>,
+    pub launch_policy: LaunchPolicySnapshot,
 }
 
 #[derive(Clone, Debug)]

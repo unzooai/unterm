@@ -1,12 +1,13 @@
 use super::{
     CellStyle, CreateSessionRequest, CursorSnapshot, DirtyRows, EngineHealthSnapshot,
     EngineIoHealthSnapshot, EngineLifecycleHealthSnapshot, HealthEngine, InputActivitySnapshot,
-    InputEngine, LaunchContextSnapshot, OutputActivitySnapshot, PasteActivitySnapshot,
-    ProcessTreeSnapshot, RecordingEngine, RecordingExportResult, RecordingStartResult,
-    RecordingStatusSnapshot, RecordingStopResult, ScreenActivitySnapshot, ScreenEngine, ScreenLine,
-    ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot,
-    SessionActivitySnapshot, SessionEngine, SessionSnapshot, ShellSnapshot, SplitSessionRequest,
-    StyledCell, StyledColor, StyledScreenLine, StyledScreenSnapshot, StyledScrollbackSnapshot,
+    InputEngine, LaunchContextSnapshot, LaunchEnvBinding, LaunchEnvSource, LaunchPolicySnapshot,
+    OutputActivitySnapshot, PasteActivitySnapshot, ProcessTreeSnapshot, RecordingEngine,
+    RecordingExportResult, RecordingStartResult, RecordingStatusSnapshot, RecordingStopResult,
+    ScreenActivitySnapshot, ScreenEngine, ScreenLine, ScreenSearchMatch, ScreenSnapshot,
+    ScrollbackTextRequest, ScrollbackTextSnapshot, SessionActivitySnapshot, SessionEngine,
+    SessionSnapshot, ShellSnapshot, SplitSessionRequest, StyledCell, StyledColor, StyledScreenLine,
+    StyledScreenSnapshot, StyledScrollbackSnapshot,
 };
 use anyhow::{bail, Result};
 use base64::Engine as _;
@@ -1973,7 +1974,10 @@ impl NextCoreEngine {
             .or(fallback)
     }
 
-    fn launch_context(env: &[(String, String)]) -> LaunchContextSnapshot {
+    fn launch_context(
+        env: &[(String, String)],
+        launch_policy: &LaunchPolicySnapshot,
+    ) -> LaunchContextSnapshot {
         let mut proxy_env_keys = env
             .iter()
             .filter_map(|(key, _)| {
@@ -1988,14 +1992,71 @@ impl NextCoreEngine {
         proxy_env_keys.sort();
         proxy_env_keys.dedup();
 
+        let mut policy = if launch_policy.env.is_empty()
+            && launch_policy.profile.is_none()
+            && launch_policy.proxy_env_keys.is_empty()
+        {
+            Self::infer_launch_policy(env)
+        } else {
+            launch_policy.clone()
+        };
+        if policy.profile.is_none() {
+            policy.profile = env
+                .iter()
+                .find(|(key, _)| key.eq_ignore_ascii_case("UNTERM_PROFILE"))
+                .map(|(_, value)| value.clone())
+                .filter(|value| !value.trim().is_empty());
+        }
+        if policy.proxy_env_keys.is_empty() {
+            policy.proxy_env_keys = proxy_env_keys.clone();
+        }
+
         LaunchContextSnapshot {
+            profile: policy.profile.clone().or_else(|| {
+                env.iter()
+                    .find(|(key, _)| key.eq_ignore_ascii_case("UNTERM_PROFILE"))
+                    .map(|(_, value)| value.clone())
+                    .filter(|value| !value.trim().is_empty())
+            }),
+            proxy_env_keys,
+            env_key_count: env.len(),
+            policy,
+        }
+    }
+
+    fn infer_launch_policy(env: &[(String, String)]) -> LaunchPolicySnapshot {
+        let mut proxy_env_keys = Vec::new();
+        let bindings = env
+            .iter()
+            .map(|(key, _)| {
+                let upper = key.to_ascii_uppercase();
+                let source = if key.eq_ignore_ascii_case("UNTERM_PROFILE") {
+                    LaunchEnvSource::Profile
+                } else if matches!(
+                    upper.as_str(),
+                    "HTTP_PROXY" | "HTTPS_PROXY" | "ALL_PROXY" | "NO_PROXY"
+                ) {
+                    proxy_env_keys.push(key.clone());
+                    LaunchEnvSource::Proxy
+                } else {
+                    LaunchEnvSource::Explicit
+                };
+                LaunchEnvBinding {
+                    key: key.clone(),
+                    source,
+                }
+            })
+            .collect();
+        proxy_env_keys.sort();
+        proxy_env_keys.dedup();
+        LaunchPolicySnapshot {
             profile: env
                 .iter()
                 .find(|(key, _)| key.eq_ignore_ascii_case("UNTERM_PROFILE"))
                 .map(|(_, value)| value.clone())
                 .filter(|value| !value.trim().is_empty()),
             proxy_env_keys,
-            env_key_count: env.len(),
+            env: bindings,
         }
     }
 
@@ -2265,7 +2326,7 @@ impl SessionEngine for NextCoreEngine {
 
     fn create_session(&self, request: CreateSessionRequest) -> Result<SessionSnapshot> {
         let launch_env_keys = request.env.iter().map(|(key, _)| key.clone()).collect();
-        let launch_context = Self::launch_context(&request.env);
+        let launch_context = Self::launch_context(&request.env, &request.launch_policy);
         let (command, cwd) =
             Self::prepare_command(request.command, request.command_dir, request.env);
         let mut state_guard = state().write();
@@ -3176,6 +3237,7 @@ mod tests {
             command_dir: None,
             command: Some(quiet_wait_command_for_test()),
             env: Vec::new(),
+            launch_policy: Default::default(),
         })?;
 
         let text = format!("{}{}", "a".repeat(PASTE_CHUNK_BYTES + 1), "你");
@@ -3221,6 +3283,7 @@ mod tests {
             command_dir: None,
             command: None,
             env: Vec::new(),
+            launch_policy: Default::default(),
         })?;
 
         engine.write_input(session.id, "abc")?;
@@ -3340,6 +3403,7 @@ mod tests {
             command_dir: None,
             command: Some(quiet_wait_command_for_test()),
             env: Vec::new(),
+            launch_policy: Default::default(),
         })?;
 
         let process_cwd = engine
@@ -3378,6 +3442,7 @@ mod tests {
             command_dir: None,
             command: Some(quiet_wait_command_for_test()),
             env: Vec::new(),
+            launch_policy: Default::default(),
         })?;
 
         reset_activity_for_test(session.id)?;
@@ -3417,6 +3482,7 @@ mod tests {
             command_dir: None,
             command: None,
             env: Vec::new(),
+            launch_policy: Default::default(),
         })?;
 
         engine.write_input(session.id, "abc")?;
@@ -3493,7 +3559,7 @@ mod tests {
 
     #[test]
     fn launch_context_summarizes_profile_and_proxy_env_without_values() {
-        let context = NextCoreEngine::launch_context(&[
+        let env = [
             ("GITHUB_TOKEN".to_string(), "secret-token".to_string()),
             ("UNTERM_PROFILE".to_string(), "work-acme".to_string()),
             (
@@ -3501,11 +3567,27 @@ mod tests {
                 "http://127.0.0.1:7890".to_string(),
             ),
             ("NO_PROXY".to_string(), "localhost".to_string()),
-        ]);
+        ];
+        let context = NextCoreEngine::launch_context(&env, &Default::default());
 
         assert_eq!(context.profile.as_deref(), Some("work-acme"));
         assert_eq!(context.proxy_env_keys, vec!["HTTPS_PROXY", "NO_PROXY"]);
         assert_eq!(context.env_key_count, 4);
+        assert_eq!(context.policy.profile.as_deref(), Some("work-acme"));
+        assert_eq!(
+            context
+                .policy
+                .env
+                .iter()
+                .map(|binding| (binding.key.as_str(), binding.source))
+                .collect::<Vec<_>>(),
+            vec![
+                ("GITHUB_TOKEN", LaunchEnvSource::Explicit),
+                ("UNTERM_PROFILE", LaunchEnvSource::Profile),
+                ("HTTPS_PROXY", LaunchEnvSource::Proxy),
+                ("NO_PROXY", LaunchEnvSource::Proxy)
+            ]
+        );
     }
 
     #[test]
@@ -3526,6 +3608,7 @@ mod tests {
                     "http://127.0.0.1:7890".to_string(),
                 ),
             ],
+            launch_policy: Default::default(),
         })?;
 
         let mut keys = engine.shell(session.id)?.launch_env_keys;
@@ -3555,6 +3638,7 @@ mod tests {
             command_dir: cwd,
             command: None,
             env: Vec::new(),
+            launch_policy: Default::default(),
         })?;
         assert_eq!(first.id, 1);
         assert!(first.is_active);
@@ -3598,6 +3682,7 @@ mod tests {
             command_dir: None,
             command: Some(quiet_wait_command_for_test()),
             env: Vec::new(),
+            launch_policy: Default::default(),
         })?;
 
         mark_dead_for_test(session.id)?;
@@ -3631,6 +3716,7 @@ mod tests {
             command_dir: None,
             command: Some(quiet_wait_command_for_test()),
             env: Vec::new(),
+            launch_policy: Default::default(),
         })?;
 
         reset_activity_for_test(session.id)?;
@@ -3661,6 +3747,7 @@ mod tests {
             command_dir: None,
             command: None,
             env: Vec::new(),
+            launch_policy: Default::default(),
         })?;
         set_output_for_test(session.id, "line-one\r\nnext-core-output\r\nline-three\r\n")?;
 
@@ -3694,6 +3781,7 @@ mod tests {
             command_dir: None,
             command: None,
             env: Vec::new(),
+            launch_policy: Default::default(),
         })?;
 
         let initial = engine.read_screen(session.id)?;
@@ -3733,6 +3821,7 @@ mod tests {
             command_dir: None,
             command: None,
             env: Vec::new(),
+            launch_policy: Default::default(),
         })?;
         set_output_for_test(
             session.id,
@@ -3760,6 +3849,7 @@ mod tests {
             command_dir: None,
             command: None,
             env: Vec::new(),
+            launch_policy: Default::default(),
         })?;
         set_output_for_test(
             session.id,
@@ -3786,6 +3876,7 @@ mod tests {
             command_dir: Some(launch_cwd),
             command: None,
             env: Vec::new(),
+            launch_policy: Default::default(),
         })?;
 
         set_output_for_test(
@@ -3821,6 +3912,7 @@ mod tests {
             command_dir: Some(launch_cwd),
             command: None,
             env: Vec::new(),
+            launch_policy: Default::default(),
         })?;
         let initial = engine.shell(session.id)?.cwd;
 
@@ -3843,6 +3935,7 @@ mod tests {
             command_dir: None,
             command: None,
             env: Vec::new(),
+            launch_policy: Default::default(),
         })?;
         set_output_for_test(
             session.id,
@@ -3901,6 +3994,7 @@ mod tests {
             command_dir: None,
             command: None,
             env: Vec::new(),
+            launch_policy: Default::default(),
         })?;
         set_output_for_test(session.id, "你A")?;
 
@@ -3931,6 +4025,7 @@ mod tests {
             command_dir: None,
             command: None,
             env: Vec::new(),
+            launch_policy: Default::default(),
         })?;
         set_output_for_test(session.id, "one \x1b[31mred\x1b[0m\nplain\n")?;
 
@@ -3968,6 +4063,7 @@ mod tests {
             command_dir: None,
             command: None,
             env: Vec::new(),
+            launch_policy: Default::default(),
         })?;
         set_output_for_test(
             session.id,
@@ -3994,6 +4090,7 @@ mod tests {
             command_dir: None,
             command: None,
             env: Vec::new(),
+            launch_policy: Default::default(),
         })?;
         set_output_for_test(
             session.id,
@@ -4035,6 +4132,7 @@ mod tests {
             command_dir: None,
             command: None,
             env: Vec::new(),
+            launch_policy: Default::default(),
         })?;
         set_output_for_test(session.id, "one\nprefix-tail\nthree\x1b[2;7H\x1b[J")?;
         assert_eq!(
@@ -4049,6 +4147,7 @@ mod tests {
             command_dir: None,
             command: None,
             env: Vec::new(),
+            launch_policy: Default::default(),
         })?;
         set_output_for_test(session.id, "one\ntwo-three\nthree\x1b[2;4H\x1b[1J")?;
         assert_eq!(
@@ -4071,6 +4170,7 @@ mod tests {
             command_dir: None,
             command: None,
             env: Vec::new(),
+            launch_policy: Default::default(),
         })?;
         set_output_for_test(
             session.id,
@@ -4108,6 +4208,7 @@ mod tests {
             command_dir: None,
             command: None,
             env: Vec::new(),
+            launch_policy: Default::default(),
         })?;
         set_output_for_test(session.id, "abc\x1b[5 q")?;
 
@@ -4141,6 +4242,7 @@ mod tests {
             command_dir: None,
             command: None,
             env: Vec::new(),
+            launch_policy: Default::default(),
         })?;
 
         assert!(!engine.bracketed_paste_enabled(session.id)?);
@@ -4164,6 +4266,7 @@ mod tests {
             command_dir: None,
             command: None,
             env: Vec::new(),
+            launch_policy: Default::default(),
         })?;
         set_output_for_test(
             session.id,
@@ -4206,6 +4309,7 @@ mod tests {
             command_dir: None,
             command: None,
             env: Vec::new(),
+            launch_policy: Default::default(),
         })?;
         set_output_for_test(session.id, "one\ntwo\nthree\nfour\nfive")?;
 
@@ -4273,6 +4377,7 @@ mod tests {
             command_dir: None,
             command: None,
             env: Vec::new(),
+            launch_policy: Default::default(),
         })?;
         set_output_for_test(session.id, "你abc abc\nabc\n")?;
 
@@ -4303,6 +4408,7 @@ mod tests {
             command_dir: None,
             command: None,
             env: Vec::new(),
+            launch_policy: Default::default(),
         })?;
         set_output_for_test(session.id, "a\nb\nc\x1b[S")?;
 
@@ -4328,6 +4434,7 @@ mod tests {
             command_dir: None,
             command: None,
             env: Vec::new(),
+            launch_policy: Default::default(),
         })?;
         set_output_for_test(
             session.id,
@@ -4361,6 +4468,7 @@ mod tests {
             command_dir: None,
             command: None,
             env: Vec::new(),
+            launch_policy: Default::default(),
         })?;
         set_output_for_test(
             session.id,
@@ -4419,6 +4527,7 @@ mod tests {
             command_dir: Some(project_dir.display().to_string()),
             command: None,
             env: Vec::new(),
+            launch_policy: Default::default(),
         })?;
 
         let started = engine.start_recording(session.id)?;

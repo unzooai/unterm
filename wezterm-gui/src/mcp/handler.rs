@@ -3,8 +3,9 @@
 
 use crate::engine::{
     CaptureEngine, CreateSessionRequest, CurrentTerminalEngine, HealthEngine, InputEngine,
-    RecordingEngine, ScreenEngine, ScrollbackTextRequest, SessionEngine, SplitDirection,
-    SplitSessionRequest, ViewportScrollResult, WindowEngine,
+    LaunchEnvBinding, LaunchEnvSource, LaunchPolicySnapshot, RecordingEngine, ScreenEngine,
+    ScrollbackTextRequest, SessionEngine, SplitDirection, SplitSessionRequest,
+    ViewportScrollResult, WindowEngine,
 };
 use anyhow::{anyhow, Context, Result};
 use base64::Engine as _;
@@ -122,6 +123,49 @@ fn resolve_profile_env(profile: &str) -> Result<(String, Vec<(String, String)>)>
         .resolve_env(store.as_ref(), &profile_id)
         .with_context(|| format!("resolve profile env for {profile_id}"))?;
     Ok((profile_id, env.into_iter().collect()))
+}
+
+fn launch_policy_for_env(
+    env: &[(String, String)],
+    overlay_keys: &[String],
+    profile_id: Option<&str>,
+) -> LaunchPolicySnapshot {
+    let mut proxy_env_keys = Vec::new();
+    let env = env
+        .iter()
+        .map(|(key, _)| {
+            let upper = key.to_ascii_uppercase();
+            let source = if overlay_keys
+                .iter()
+                .any(|overlay| overlay.eq_ignore_ascii_case(key))
+            {
+                LaunchEnvSource::Overlay
+            } else if key.eq_ignore_ascii_case("UNTERM_PROFILE") {
+                LaunchEnvSource::Profile
+            } else if matches!(
+                upper.as_str(),
+                "HTTP_PROXY" | "HTTPS_PROXY" | "ALL_PROXY" | "NO_PROXY"
+            ) {
+                proxy_env_keys.push(key.clone());
+                LaunchEnvSource::Proxy
+            } else if profile_id.is_some() {
+                LaunchEnvSource::Profile
+            } else {
+                LaunchEnvSource::Explicit
+            };
+            LaunchEnvBinding {
+                key: key.clone(),
+                source,
+            }
+        })
+        .collect();
+    proxy_env_keys.sort();
+    proxy_env_keys.dedup();
+    LaunchPolicySnapshot {
+        profile: profile_id.map(str::to_string),
+        env,
+        proxy_env_keys,
+    }
 }
 
 fn cwd_url_to_path(raw: &str) -> Option<String> {
@@ -350,19 +394,21 @@ mod engine_neutral_handler_tests {
 
         let result: Result<(serde_json::Value, usize)> = (|| {
             let engine = next_core();
+            let launch_env = vec![
+                ("GITHUB_TOKEN".to_string(), "secret-token".to_string()),
+                ("UNTERM_PROFILE".to_string(), "work-acme".to_string()),
+                (
+                    "HTTPS_PROXY".to_string(),
+                    "http://127.0.0.1:7890".to_string(),
+                ),
+            ];
             let session = engine.create_session(CreateSessionRequest {
                 cols: 80,
                 rows: 4,
                 command_dir: None,
                 command: None,
-                env: vec![
-                    ("GITHUB_TOKEN".to_string(), "secret-token".to_string()),
-                    ("UNTERM_PROFILE".to_string(), "work-acme".to_string()),
-                    (
-                        "HTTPS_PROXY".to_string(),
-                        "http://127.0.0.1:7890".to_string(),
-                    ),
-                ],
+                env: launch_env,
+                launch_policy: Default::default(),
             })?;
             let handler = McpHandler::new();
             let ctx = ConnectionContext::internal("handler-test");
@@ -395,6 +441,29 @@ mod engine_neutral_handler_tests {
         assert_eq!(env["launch_context"]["profile"], "work-acme");
         assert_eq!(env["launch_context"]["proxy_env_keys"][0], "HTTPS_PROXY");
         assert_eq!(env["launch_context"]["env_key_count"], 3);
+        assert_eq!(
+            env["launch_context"]["policy"]["profile"],
+            Value::String("work-acme".to_string())
+        );
+        let policy_sources = env["launch_context"]["policy"]["env"]
+            .as_array()
+            .expect("policy env array")
+            .iter()
+            .map(|binding| {
+                (
+                    binding["key"].as_str().unwrap_or_default().to_string(),
+                    binding["source"].as_str().unwrap_or_default().to_string(),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            policy_sources,
+            vec![
+                ("GITHUB_TOKEN".to_string(), "Explicit".to_string()),
+                ("UNTERM_PROFILE".to_string(), "Profile".to_string()),
+                ("HTTPS_PROXY".to_string(), "Proxy".to_string())
+            ]
+        );
         next_core().destroy_session(pane_id).ok();
     }
 
@@ -484,6 +553,19 @@ mod engine_neutral_handler_tests {
         assert!(proxy_keys
             .iter()
             .any(|key| key.as_str() == Some("HTTPS_PROXY")));
+        let policy_sources = env["launch_context"]["policy"]["env"]
+            .as_array()
+            .expect("policy env array")
+            .iter()
+            .map(|binding| {
+                (
+                    binding["key"].as_str().unwrap_or_default().to_string(),
+                    binding["source"].as_str().unwrap_or_default().to_string(),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert!(policy_sources.contains(&("UNTERM_PROFILE".to_string(), "Overlay".to_string())));
+        assert!(policy_sources.contains(&("HTTPS_PROXY".to_string(), "Overlay".to_string())));
     }
 
     #[test]
@@ -500,6 +582,7 @@ mod engine_neutral_handler_tests {
                 command_dir: None,
                 command: Some(shell_command_builder("echo next-core-activity-metrics")),
                 env: Vec::new(),
+                launch_policy: Default::default(),
             })?;
             let pane_id = session.id;
 
@@ -1505,6 +1588,7 @@ mod engine_neutral_handler_tests {
                 command_dir: None,
                 command: Some(shell_command_builder("echo next-core-health-io")),
                 env: Vec::new(),
+                launch_policy: Default::default(),
             })?;
             let pane_id = session.id;
 
@@ -1790,12 +1874,15 @@ struct EngineFleetDriver {
 
 impl crate::cockpit::fleet::FleetPaneSpawner for EngineFleetDriver {
     fn spawn_member(&mut self, cwd: &std::path::Path, command: &str) -> Result<u64> {
+        let env = crate::spawn::read_unterm_proxy_env().unwrap_or_default();
+        let launch_policy = launch_policy_for_env(&env, &[], None);
         let session = self.engine.create_session(CreateSessionRequest {
             cols: 120,
             rows: 32,
             command_dir: Some(cwd.display().to_string()),
             command: None,
-            env: crate::spawn::read_unterm_proxy_env().unwrap_or_default(),
+            env,
+            launch_policy,
         })?;
         std::thread::sleep(std::time::Duration::from_millis(600));
         self.engine
@@ -3264,8 +3351,10 @@ impl McpHandler {
             }
         }
         let mut env = crate::spawn::read_unterm_proxy_env().unwrap_or_default();
+        let overlay_keys;
         {
             let state = mcp_state().lock();
+            overlay_keys = state.launch_env_overlay.keys().cloned().collect::<Vec<_>>();
             env.extend(
                 state
                     .launch_env_overlay
@@ -3286,6 +3375,7 @@ impl McpHandler {
         } else {
             None
         };
+        let launch_policy = launch_policy_for_env(&env, &overlay_keys, resolved_profile.as_deref());
 
         let engine = self.engine();
         let session = engine.create_session(CreateSessionRequest {
@@ -3294,6 +3384,7 @@ impl McpHandler {
             command_dir,
             command: cmd_builder,
             env,
+            launch_policy,
         })?;
 
         Ok(json!({
@@ -6137,6 +6228,14 @@ impl McpHandler {
     }
 
     fn selftest_next_core_launch_context(&self) -> Result<Value> {
+        let env = vec![
+            ("UNTERM_PROFILE".to_string(), "selftest-profile".to_string()),
+            (
+                "HTTPS_PROXY".to_string(),
+                "http://127.0.0.1:7890".to_string(),
+            ),
+        ];
+        let launch_policy = launch_policy_for_env(&env, &[], Some("selftest-profile"));
         let created = self.engine().create_session(CreateSessionRequest {
             cols: 80,
             rows: 3,
@@ -6144,13 +6243,8 @@ impl McpHandler {
             command: Some(shell_command_builder(
                 "echo next-core-selftest-launch-context",
             )),
-            env: vec![
-                ("UNTERM_PROFILE".to_string(), "selftest-profile".to_string()),
-                (
-                    "HTTPS_PROXY".to_string(),
-                    "http://127.0.0.1:7890".to_string(),
-                ),
-            ],
+            env,
+            launch_policy,
         })?;
         let pane_id = created.id;
 
@@ -6185,6 +6279,17 @@ impl McpHandler {
                 .as_array()
                 .is_some_and(|keys| keys.iter().any(|key| key.as_str() == Some("HTTPS_PROXY")));
             let env_key_count_ok = context["env_key_count"].as_u64().unwrap_or_default() >= 2;
+            let policy = &context["policy"];
+            let policy_profile_ok = policy["profile"].as_str() == Some("selftest-profile");
+            let policy_sources = policy["env"].as_array().cloned().unwrap_or_default();
+            let policy_profile_source_ok = policy_sources.iter().any(|binding| {
+                binding["key"].as_str() == Some("UNTERM_PROFILE")
+                    && binding["source"].as_str() == Some("Profile")
+            });
+            let policy_proxy_source_ok = policy_sources.iter().any(|binding| {
+                binding["key"].as_str() == Some("HTTPS_PROXY")
+                    && binding["source"].as_str() == Some("Proxy")
+            });
 
             Ok(json!({
                 "ok": found_marker
@@ -6193,7 +6298,10 @@ impl McpHandler {
                     && values_redacted
                     && profile_ok
                     && proxy_ok
-                    && env_key_count_ok,
+                    && env_key_count_ok
+                    && policy_profile_ok
+                    && policy_profile_source_ok
+                    && policy_proxy_source_ok,
                 "pane_id": pane_id,
                 "found_marker": found_marker,
                 "has_profile_key": has_profile_key,
@@ -6202,6 +6310,9 @@ impl McpHandler {
                 "profile": context["profile"].clone(),
                 "proxy_key": if proxy_ok { "HTTPS_PROXY" } else { "" },
                 "env_key_count": context["env_key_count"].clone(),
+                "policy_profile": policy["profile"].clone(),
+                "policy_profile_source_ok": policy_profile_source_ok,
+                "policy_proxy_source_ok": policy_proxy_source_ok,
             }))
         })();
 

@@ -3,7 +3,8 @@ use portable_pty::CommandBuilder;
 use serde_json::json;
 use std::time::{Duration, Instant};
 use unterm_engine::{
-    next_core, CreateSessionRequest, HealthEngine, InputEngine, ScreenEngine, SessionEngine,
+    next_core, CreateSessionRequest, HealthEngine, InputEngine, LaunchEnvBinding, LaunchEnvSource,
+    LaunchPolicySnapshot, ScreenEngine, SessionEngine,
 };
 
 struct Args {
@@ -769,6 +770,7 @@ fn cmd_session(cols: usize, rows: usize) -> CreateSessionRequest {
         command_dir: None,
         command: Some(CommandBuilder::new("cmd.exe")),
         env: Vec::new(),
+        launch_policy: Default::default(),
     }
 }
 
@@ -912,6 +914,7 @@ fn ready_session(marker: &str, cols: usize, rows: usize) -> CreateSessionRequest
         command_dir: None,
         command: Some(command),
         env: Vec::new(),
+        launch_policy: Default::default(),
     }
 }
 
@@ -960,15 +963,45 @@ fn run_session_ready_benchmark(
     Ok(())
 }
 
+fn explicit_launch_policy(env: &[(String, String)]) -> LaunchPolicySnapshot {
+    LaunchPolicySnapshot {
+        profile: env
+            .iter()
+            .find(|(key, _)| key.eq_ignore_ascii_case("UNTERM_PROFILE"))
+            .map(|(_, value)| value.clone())
+            .filter(|value| !value.trim().is_empty()),
+        proxy_env_keys: env
+            .iter()
+            .filter_map(|(key, _)| {
+                let upper = key.to_ascii_uppercase();
+                matches!(
+                    upper.as_str(),
+                    "HTTP_PROXY" | "HTTPS_PROXY" | "ALL_PROXY" | "NO_PROXY"
+                )
+                .then(|| key.clone())
+            })
+            .collect(),
+        env: env
+            .iter()
+            .map(|(key, _)| LaunchEnvBinding {
+                key: key.clone(),
+                source: LaunchEnvSource::Explicit,
+            })
+            .collect(),
+    }
+}
+
 fn main() -> Result<()> {
     let args = parse_args()?;
     let engine = next_core();
+    let launch_policy = explicit_launch_policy(&args.env);
     let session = engine.create_session(CreateSessionRequest {
         cols: args.cols,
         rows: args.rows,
         command_dir: args.cwd,
         command: command_builder(args.command),
         env: args.env,
+        launch_policy,
     })?;
 
     if let Some(rounds) = args.bench_input_writes {

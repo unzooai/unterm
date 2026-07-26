@@ -150,6 +150,7 @@ impl SessionEngine for WezTermEngine {
             command_dir,
             command,
             env,
+            ..
         } = request;
         let size = wezterm_term::TerminalSize {
             rows,
