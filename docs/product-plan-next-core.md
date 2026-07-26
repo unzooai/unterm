@@ -329,6 +329,8 @@ Terminal Engine Interface
 5. Keep public MCP/CLI behavior unchanged.
 6. Add adapter tests for core methods.
 
+Tracking document: [`docs/engine-dependency-map.md`](engine-dependency-map.md).
+
 ### Acceptance Criteria
 
 - MCP handler can call engine traits for session/input/screen operations.
