@@ -43,6 +43,7 @@ struct NextCoreScreen {
     lines: Vec<Vec<char>>,
     cursor_x: usize,
     cursor_y: usize,
+    cursor_visible: bool,
     rows: usize,
     saved_cursor_x: usize,
     saved_cursor_y: usize,
@@ -55,6 +56,7 @@ struct ScreenState {
     lines: Vec<Vec<char>>,
     cursor_x: usize,
     cursor_y: usize,
+    cursor_visible: bool,
     saved_cursor_x: usize,
     saved_cursor_y: usize,
 }
@@ -63,6 +65,7 @@ impl NextCoreScreen {
     fn new(rows: usize) -> Self {
         let mut screen = Self {
             rows: rows.max(1),
+            cursor_visible: true,
             ..Self::default()
         };
         screen.ensure_cursor_line();
@@ -90,6 +93,15 @@ impl NextCoreScreen {
 
     fn scrollback_rows(&self) -> usize {
         self.scrollback.len()
+    }
+
+    fn cursor_snapshot(&self) -> CursorSnapshot {
+        CursorSnapshot {
+            x: self.cursor_x,
+            y: self.cursor_y as isize,
+            visible: self.cursor_visible,
+            shape: "Default".to_string(),
+        }
     }
 
     fn history_lines(&self) -> Vec<&Vec<char>> {
@@ -146,7 +158,7 @@ impl NextCoreScreen {
     }
 
     fn set_cursor(&mut self, row: usize, col: usize) {
-        self.cursor_y = row;
+        self.cursor_y = row.min(self.rows.saturating_sub(1));
         self.cursor_x = col;
         self.ensure_cursor_line();
     }
@@ -259,6 +271,7 @@ impl NextCoreScreen {
             lines: std::mem::take(&mut self.lines),
             cursor_x: self.cursor_x,
             cursor_y: self.cursor_y,
+            cursor_visible: self.cursor_visible,
             saved_cursor_x: self.saved_cursor_x,
             saved_cursor_y: self.saved_cursor_y,
         };
@@ -277,6 +290,7 @@ impl NextCoreScreen {
             self.lines = main.lines;
             self.cursor_x = main.cursor_x;
             self.cursor_y = main.cursor_y;
+            self.cursor_visible = main.cursor_visible;
             self.saved_cursor_x = main.saved_cursor_x;
             self.saved_cursor_y = main.saved_cursor_y;
             if self.lines.len() > self.rows {
@@ -372,6 +386,7 @@ impl<'a> ScreenParser<'a> {
             return;
         };
         let raw_params = &sequence[..sequence.len().saturating_sub(final_byte.len_utf8())];
+        let private = raw_params.starts_with('?');
         let numeric_params = raw_params.trim_start_matches('?');
         let numbers = numeric_params
             .split(';')
@@ -402,13 +417,17 @@ impl<'a> ScreenParser<'a> {
             }
             'K' => self.screen.clear_to_end_of_line(),
             'h' => {
-                if raw_params == "?1049" || raw_params == "?47" || raw_params == "?1047" {
+                if private && numbers.iter().any(|n| matches!(*n, 1049 | 1047 | 47)) {
                     self.screen.enter_alternate_screen(true);
+                } else if private && numbers.iter().any(|n| *n == 25) {
+                    self.screen.cursor_visible = true;
                 }
             }
             'l' => {
-                if raw_params == "?1049" || raw_params == "?47" || raw_params == "?1047" {
+                if private && numbers.iter().any(|n| matches!(*n, 1049 | 1047 | 47)) {
                     self.screen.leave_alternate_screen();
+                } else if private && numbers.iter().any(|n| *n == 25) {
+                    self.screen.cursor_visible = false;
                 }
             }
             _ => {}
@@ -456,7 +475,13 @@ impl NextCoreEngine {
             .read()
             .sessions
             .iter()
-            .map(|session| session.snapshot.clone())
+            .map(|session| {
+                let mut snapshot = session.snapshot.clone();
+                let screen = session.screen.lock();
+                snapshot.cursor = screen.cursor_snapshot();
+                snapshot.scrollback_rows = screen.scrollback_rows();
+                snapshot
+            })
             .collect()
     }
 
@@ -558,6 +583,23 @@ impl NextCoreEngine {
 
         let rows = screen.lock().scrollback_rows();
         Ok(rows)
+    }
+
+    fn screen_cursor(&self, pane_id: usize) -> Result<CursorSnapshot> {
+        let screen = {
+            let state = state().read();
+            let Some(session) = state
+                .sessions
+                .iter()
+                .find(|session| session.snapshot.id == pane_id)
+            else {
+                bail!("next-core session {pane_id} not found");
+            };
+            Arc::clone(&session.screen)
+        };
+
+        let cursor = screen.lock().cursor_snapshot();
+        Ok(cursor)
     }
 
     fn next_session_id(state: &mut NextCoreState) -> usize {
@@ -922,7 +964,7 @@ impl ScreenEngine for NextCoreEngine {
         Ok(ScreenSnapshot {
             lines: visible,
             cells,
-            cursor: session.cursor,
+            cursor: self.screen_cursor(pane_id)?,
             cols: session.cols,
             rows: session.rows,
             scrollback_rows,
@@ -1030,7 +1072,7 @@ impl ScreenEngine for NextCoreEngine {
     }
 
     fn cursor(&self, pane_id: usize) -> Result<CursorSnapshot> {
-        Ok(self.session(pane_id)?.cursor)
+        self.screen_cursor(pane_id)
     }
 }
 
@@ -1186,6 +1228,42 @@ mod tests {
         assert!(!lines.iter().any(|line| line.contains("old line")));
         assert!(lines.iter().any(|line| line == "he!"));
         assert!(lines.iter().any(|line| line == "world"));
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_reports_cursor_state() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 3,
+            command_dir: None,
+            command: None,
+        })?;
+        set_output_for_test(
+            session.id,
+            "abc\nxx\x1b[1A\x1b[3G!\x1b7\x1b[3;4Hq\x1b8z\x1b[?25l",
+        )?;
+
+        let screen = engine.read_screen(session.id)?;
+        assert!(screen.lines.iter().any(|line| line == "ab!z"));
+        assert_eq!(screen.cursor.x, 4);
+        assert_eq!(screen.cursor.y, 0);
+        assert!(!screen.cursor.visible);
+
+        let cursor = engine.cursor(session.id)?;
+        assert_eq!(cursor.x, screen.cursor.x);
+        assert_eq!(cursor.y, screen.cursor.y);
+        assert_eq!(cursor.visible, screen.cursor.visible);
+
+        let listed = engine.list_sessions()?.remove(0);
+        assert_eq!(listed.cursor.x, screen.cursor.x);
+        assert_eq!(listed.cursor.y, screen.cursor.y);
+        assert_eq!(listed.cursor.visible, screen.cursor.visible);
 
         engine.destroy_session(session.id)?;
         Ok(())
