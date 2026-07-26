@@ -4,6 +4,7 @@
 更新时间：2026-07-27  
 规划周期：12 个月  
 适用范围：当前 WezTerm 内核、engine-neutral 产品层、实验性 `next-core`
+当前进展：`next-core` 已具备启动环境元数据、scrollback 文本截图、OSC 7 cwd、session activity 和 UTF-8 安全粘贴分块基础能力。
 
 ## 1. 产品结论
 
@@ -550,7 +551,7 @@ Windows 优先，每天跑：
 3. 排查 Codex startup stall。
 4. 排查输入、粘贴、ghost completion 是否共用阻塞路径。
 5. 修 right arrow completion accept。
-6. 修右键粘贴 retry / chunk / bracketed paste。
+6. 当前内核修右键粘贴 retry；`next-core` 已完成 UTF-8 安全 paste chunk 和 bracketed paste marker 保留。
 7. 修 PageUp/PageDown 卡顿。
 8. 修 tab switch 误触 Rename tab。
 9. 修项目栏目录选择跑动。
