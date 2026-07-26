@@ -66,6 +66,48 @@ pub struct ScreenLine {
     pub text: String,
 }
 
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+pub enum StyledColor {
+    Palette(u8),
+    Rgb(u8, u8, u8),
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, Default, Serialize, PartialEq, Eq)]
+pub struct CellStyle {
+    pub bold: bool,
+    pub italic: bool,
+    pub underline: bool,
+    pub inverse: bool,
+    pub fg: Option<StyledColor>,
+    pub bg: Option<StyledColor>,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+pub struct StyledCell {
+    pub ch: char,
+    pub style: CellStyle,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+pub struct StyledScreenLine {
+    pub row: i64,
+    pub cells: Vec<StyledCell>,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug, Serialize)]
+pub struct StyledScreenSnapshot {
+    pub lines: Vec<StyledScreenLine>,
+    pub cursor: CursorSnapshot,
+    pub cols: usize,
+    pub rows: usize,
+    pub scrollback_rows: usize,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct ScreenSearchMatch {
     pub row: i64,
@@ -148,6 +190,8 @@ pub trait SessionEngine {
 
 pub trait ScreenEngine {
     fn read_screen(&self, pane_id: usize) -> Result<ScreenSnapshot>;
+    #[allow(dead_code)]
+    fn read_styled_screen(&self, pane_id: usize) -> Result<StyledScreenSnapshot>;
     fn read_visible_text(&self, pane_id: usize) -> Result<String>;
     fn read_lines(&self, pane_id: usize, start: i64, count: usize) -> Result<Vec<ScreenLine>>;
     fn read_scrollback(&self, pane_id: usize, limit: usize) -> Result<Vec<String>>;

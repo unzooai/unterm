@@ -1,8 +1,8 @@
 use super::{
-    CreateSessionRequest, CursorSnapshot, InputEngine, PaneDimensions, ScreenLine,
+    CellStyle, CreateSessionRequest, CursorSnapshot, InputEngine, PaneDimensions, ScreenLine,
     ScreenSearchMatch, ScreenSnapshot, ScreenEngine, ScrollbackTextRequest,
     ScrollbackTextSnapshot, SessionActivitySnapshot, SessionEngine, SessionSnapshot, ShellSnapshot,
-    SplitDirection, SplitSessionRequest,
+    SplitDirection, SplitSessionRequest, StyledCell, StyledScreenLine, StyledScreenSnapshot,
 };
 use anyhow::{anyhow, Context, Result};
 use config::keyassignment::SpawnTabDomain;
@@ -302,6 +302,33 @@ impl ScreenEngine for WezTermEngine {
             cols: dims.cols,
             rows: dims.viewport_rows,
             scrollback_rows: dims.scrollback_rows,
+        })
+    }
+
+    fn read_styled_screen(&self, pane_id: usize) -> Result<StyledScreenSnapshot> {
+        let screen = self.read_screen(pane_id)?;
+        let lines = screen
+            .cells
+            .iter()
+            .map(|line| StyledScreenLine {
+                row: line.row,
+                cells: line
+                    .text
+                    .chars()
+                    .map(|ch| StyledCell {
+                        ch,
+                        style: CellStyle::default(),
+                    })
+                    .collect(),
+            })
+            .collect();
+
+        Ok(StyledScreenSnapshot {
+            lines,
+            cursor: screen.cursor,
+            cols: screen.cols,
+            rows: screen.rows,
+            scrollback_rows: screen.scrollback_rows,
         })
     }
 

@@ -1,7 +1,8 @@
 use super::{
-    CreateSessionRequest, CursorSnapshot, InputEngine, ScreenEngine, ScreenLine,
+    CellStyle, CreateSessionRequest, CursorSnapshot, InputEngine, ScreenEngine, ScreenLine,
     ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot,
     SessionActivitySnapshot, SessionEngine, SessionSnapshot, ShellSnapshot, SplitSessionRequest,
+    StyledCell, StyledColor, StyledScreenLine, StyledScreenSnapshot,
 };
 use anyhow::{bail, Result};
 use parking_lot::{Mutex, RwLock};
@@ -77,6 +78,14 @@ impl ScreenCell {
     fn blank(attr: CellAttributes) -> Self {
         Self { ch: ' ', attr }
     }
+
+    #[allow(dead_code)]
+    fn styled(&self) -> StyledCell {
+        StyledCell {
+            ch: self.ch,
+            style: self.attr.into(),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -93,6 +102,28 @@ struct CellAttributes {
 enum TerminalColor {
     Palette(u8),
     Rgb(u8, u8, u8),
+}
+
+impl From<CellAttributes> for CellStyle {
+    fn from(attr: CellAttributes) -> Self {
+        Self {
+            bold: attr.bold,
+            italic: attr.italic,
+            underline: attr.underline,
+            inverse: attr.inverse,
+            fg: attr.fg.map(Into::into),
+            bg: attr.bg.map(Into::into),
+        }
+    }
+}
+
+impl From<TerminalColor> for StyledColor {
+    fn from(color: TerminalColor) -> Self {
+        match color {
+            TerminalColor::Palette(idx) => StyledColor::Palette(idx),
+            TerminalColor::Rgb(r, g, b) => StyledColor::Rgb(r, g, b),
+        }
+    }
 }
 
 impl NextCoreScreen {
@@ -120,6 +151,18 @@ impl NextCoreScreen {
 
     fn snapshot_viewport_lines(&self) -> Vec<String> {
         self.lines.iter().map(Self::line_text).collect()
+    }
+
+    #[allow(dead_code)]
+    fn styled_viewport_lines(&self, first_row: i64) -> Vec<StyledScreenLine> {
+        self.lines
+            .iter()
+            .enumerate()
+            .map(|(idx, line)| StyledScreenLine {
+                row: first_row + idx as i64,
+                cells: line.iter().map(ScreenCell::styled).collect(),
+            })
+            .collect()
     }
 
     fn scrollback_rows(&self) -> usize {
@@ -670,6 +713,28 @@ impl NextCoreEngine {
         Ok(lines)
     }
 
+    #[allow(dead_code)]
+    fn styled_viewport_lines(
+        &self,
+        pane_id: usize,
+        first_row: i64,
+    ) -> Result<Vec<StyledScreenLine>> {
+        let screen = {
+            let state = state().read();
+            let Some(session) = state
+                .sessions
+                .iter()
+                .find(|session| session.snapshot.id == pane_id)
+            else {
+                bail!("next-core session {pane_id} not found");
+            };
+            Arc::clone(&session.screen)
+        };
+
+        let lines = screen.lock().styled_viewport_lines(first_row);
+        Ok(lines)
+    }
+
     fn scrollback_lines(&self, pane_id: usize) -> Result<Vec<String>> {
         let screen = {
             let state = state().read();
@@ -1095,6 +1160,20 @@ impl ScreenEngine for NextCoreEngine {
         })
     }
 
+    fn read_styled_screen(&self, pane_id: usize) -> Result<StyledScreenSnapshot> {
+        let session = self.session(pane_id)?;
+        let scrollback_rows = self.scrollback_rows(pane_id)?;
+        let first_row = scrollback_rows as i64;
+
+        Ok(StyledScreenSnapshot {
+            lines: self.styled_viewport_lines(pane_id, first_row)?,
+            cursor: self.screen_cursor(pane_id)?,
+            cols: session.cols,
+            rows: session.rows,
+            scrollback_rows,
+        })
+    }
+
     fn read_visible_text(&self, pane_id: usize) -> Result<String> {
         Ok(self.read_screen(pane_id)?.lines.join("\n"))
     }
@@ -1370,6 +1449,17 @@ mod tests {
         assert_eq!(line[2].bg, Some(TerminalColor::Rgb(1, 2, 3)));
 
         assert_eq!(line[3], CellAttributes::default());
+
+        let styled = engine.read_styled_screen(session.id)?;
+        assert_eq!(styled.lines[0].row, 0);
+        assert_eq!(styled.lines[0].cells[0].ch, 'R');
+        assert!(styled.lines[0].cells[0].style.bold);
+        assert_eq!(styled.lines[0].cells[0].style.fg, Some(StyledColor::Palette(1)));
+        assert_eq!(
+            styled.lines[0].cells[2].style.bg,
+            Some(StyledColor::Rgb(1, 2, 3))
+        );
+        assert_eq!(styled.lines[0].cells[3].style, CellStyle::default());
 
         engine.destroy_session(session.id)?;
         Ok(())
