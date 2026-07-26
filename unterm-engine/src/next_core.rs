@@ -291,6 +291,7 @@ struct NextCoreScreen {
     cursor_visible: bool,
     cursor_shape: String,
     auto_wrap: bool,
+    reverse_video: bool,
     origin_mode: bool,
     insert_mode: bool,
     tab_stops: BTreeSet<usize>,
@@ -369,9 +370,17 @@ impl ScreenCell {
 
     #[allow(dead_code)]
     fn styled(&self) -> StyledCell {
+        self.styled_with_reverse_video(false)
+    }
+
+    fn styled_with_reverse_video(&self, reverse_video: bool) -> StyledCell {
+        let mut style: CellStyle = self.attr.into();
+        if reverse_video {
+            style.inverse = !style.inverse;
+        }
         StyledCell {
             ch: self.ch,
-            style: self.attr.into(),
+            style,
             width: self.width,
         }
     }
@@ -533,7 +542,10 @@ impl NextCoreScreen {
             .enumerate()
             .map(|(idx, line)| StyledScreenLine {
                 row: first_row + idx as i64,
-                cells: line.iter().map(ScreenCell::styled).collect(),
+                cells: line
+                    .iter()
+                    .map(|cell| cell.styled_with_reverse_video(self.reverse_video))
+                    .collect(),
             })
             .collect()
     }
@@ -544,7 +556,10 @@ impl NextCoreScreen {
             .enumerate()
             .map(|(idx, line)| StyledScreenLine {
                 row: start as i64 + idx as i64,
-                cells: line.iter().map(ScreenCell::styled).collect(),
+                cells: line
+                    .iter()
+                    .map(|cell| cell.styled_with_reverse_video(self.reverse_video))
+                    .collect(),
             })
             .collect()
     }
@@ -959,6 +974,7 @@ impl NextCoreScreen {
         self.insert_mode = false;
         self.origin_mode = false;
         self.auto_wrap = true;
+        self.reverse_video = false;
         self.cursor_visible = true;
         self.cursor_shape = "Default".to_string();
         self.tab_stops = Self::default_tab_stops(self.cols);
@@ -1804,6 +1820,10 @@ impl<'a> ScreenParser<'a> {
                         match *mode {
                             1049 | 1047 | 47 => self.screen.enter_alternate_screen(true),
                             1048 => self.screen.save_cursor(),
+                            5 => {
+                                self.screen.reverse_video = true;
+                                self.screen.mark_all_dirty();
+                            }
                             6 => self.screen.set_origin_mode(true),
                             7 => self.screen.auto_wrap = true,
                             25 => {
@@ -1824,6 +1844,10 @@ impl<'a> ScreenParser<'a> {
                         match *mode {
                             1049 | 1047 | 47 => self.screen.leave_alternate_screen(),
                             1048 => self.screen.restore_cursor(),
+                            5 => {
+                                self.screen.reverse_video = false;
+                                self.screen.mark_all_dirty();
+                            }
                             6 => self.screen.set_origin_mode(false),
                             7 => self.screen.auto_wrap = false,
                             25 => {
@@ -5538,6 +5562,32 @@ mod tests {
         assert_eq!(styled.lines[0].cells[18].style, CellStyle::default());
 
         engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_applies_reverse_video_mode_to_styled_cells() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let mut screen = NextCoreScreen::new(80, 24);
+        screen.feed("\x1b[?5hA\x1b[7mB\x1b[27mC");
+
+        assert_eq!(screen.snapshot_viewport_lines()[0], "ABC");
+        let styled = screen.styled_viewport_lines(0);
+        let cells = &styled[0].cells;
+        assert!(cells[0].style.inverse);
+        assert!(!cells[1].style.inverse);
+        assert!(cells[2].style.inverse);
+
+        screen.feed("\x1b[?5lD");
+        assert_eq!(screen.snapshot_viewport_lines()[0], "ABCD");
+        let styled = screen.styled_viewport_lines(0);
+        let cells = &styled[0].cells;
+        assert!(!cells[0].style.inverse);
+        assert!(cells[1].style.inverse);
+        assert!(!cells[2].style.inverse);
+        assert!(!cells[3].style.inverse);
+
         Ok(())
     }
 
