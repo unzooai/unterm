@@ -163,7 +163,9 @@ try {
     if (-not (Test-Path $outputDir)) {
         New-Item -ItemType Directory -Path $outputDir | Out-Null
     }
-    $report | Set-Content -Path $OutputPath -Encoding UTF8
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    $resolvedOutputPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutputPath)
+    [System.IO.File]::WriteAllText($resolvedOutputPath, (($report -join "`n") + "`n"), $utf8NoBom)
     Write-Host "Wrote $OutputPath"
 
     $failed = @($results | Where-Object { $_.ExitCode -ne 0 })
