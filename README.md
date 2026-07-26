@@ -108,6 +108,7 @@ The full Unterm docs live at **https://unterm.app/docs/**:
 - [Agent recipes](https://unterm.app/docs/agent-recipes) — copy-paste patterns for common agent-drives-terminal workflows
 - [Product roadmap](https://unterm.app/docs/product-roadmap) — the five directions we are executing now
 - [Product requirements](docs/product-requirements.md) — complete product scope, functional requirements, MCP/CLI coverage, and acceptance criteria
+- [Detailed product planning](docs/product-planning-detailed-zh.md) — Chinese execution plan covering user scenarios, version roadmap, priorities, validation, and next-core migration
 - [Next-core product plan](docs/product-plan-next-core.md) — staged plan to stabilize the current engine while building Unterm's own terminal core
 - [MCP reference](https://unterm.app/docs/mcp-reference) — every JSON-RPC method, parameters, return shape
 - [Multi-instance](https://unterm.app/docs/multi-instance) — NATO names, instances directory, picking the right window
