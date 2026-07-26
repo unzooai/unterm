@@ -6,6 +6,7 @@
 
 pub mod wezterm;
 
+use std::path::Path;
 use window::WindowOps;
 
 #[allow(unused_imports)]
@@ -26,6 +27,20 @@ pub struct WindowFocusResult {
 
 pub trait WindowEngine {
     fn focus_current_instance_window(&self) -> anyhow::Result<WindowFocusResult>;
+}
+
+pub struct RenderedScrollbackPng {
+    pub image: crate::scrollshot::ScrollbackPng,
+    pub session_id: usize,
+}
+
+pub trait CaptureEngine {
+    fn render_scrollback_png(
+        &self,
+        pane_id: Option<usize>,
+        path: &Path,
+        opts: &crate::scrollshot::ScrollbackPngOptions,
+    ) -> anyhow::Result<RenderedScrollbackPng>;
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -299,6 +314,22 @@ impl HealthEngine for CurrentTerminalEngine {
 impl WindowEngine for CurrentTerminalEngine {
     fn focus_current_instance_window(&self) -> anyhow::Result<WindowFocusResult> {
         focus_current_instance_window()
+    }
+}
+
+impl CaptureEngine for CurrentTerminalEngine {
+    fn render_scrollback_png(
+        &self,
+        pane_id: Option<usize>,
+        path: &Path,
+        opts: &crate::scrollshot::ScrollbackPngOptions,
+    ) -> anyhow::Result<RenderedScrollbackPng> {
+        match self {
+            Self::WezTerm(engine) => engine.render_scrollback_png(pane_id, path, opts),
+            Self::NextCore(_) => {
+                anyhow::bail!("capture.scrollback PNG rendering is not implemented for next-core")
+            }
+        }
     }
 }
 

@@ -1,10 +1,10 @@
 use super::{
-    CellStyle, CreateSessionRequest, CursorSnapshot, EngineHealthSnapshot, HealthEngine,
-    InputEngine, PaneDimensions, RecordingEngine, RecordingExportResult, RecordingStartResult,
-    RecordingStatusSnapshot, RecordingStopResult, ScreenEngine, ScreenLine, ScreenSearchMatch,
-    ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot, SessionActivitySnapshot,
-    SessionEngine, SessionSnapshot, ShellSnapshot, SplitDirection, SplitSessionRequest, StyledCell,
-    StyledScreenLine, StyledScreenSnapshot,
+    CaptureEngine, CellStyle, CreateSessionRequest, CursorSnapshot, EngineHealthSnapshot,
+    HealthEngine, InputEngine, PaneDimensions, RecordingEngine, RecordingExportResult,
+    RecordingStartResult, RecordingStatusSnapshot, RecordingStopResult, RenderedScrollbackPng,
+    ScreenEngine, ScreenLine, ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest,
+    ScrollbackTextSnapshot, SessionActivitySnapshot, SessionEngine, SessionSnapshot, ShellSnapshot,
+    SplitDirection, SplitSessionRequest, StyledCell, StyledScreenLine, StyledScreenSnapshot,
 };
 use anyhow::{anyhow, Context, Result};
 use config::keyassignment::SpawnTabDomain;
@@ -12,6 +12,7 @@ use mux::domain::SplitSource;
 use mux::pane::{CachePolicy, Pane};
 use mux::tab::{SplitDirection as MuxSplitDirection, SplitRequest, SplitSize};
 use mux::Mux;
+use std::path::Path;
 use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -584,5 +585,27 @@ impl HealthEngine for WezTermEngine {
             },
             pane_count,
         })
+    }
+}
+
+impl CaptureEngine for WezTermEngine {
+    fn render_scrollback_png(
+        &self,
+        pane_id: Option<usize>,
+        path: &Path,
+        opts: &crate::scrollshot::ScrollbackPngOptions,
+    ) -> Result<RenderedScrollbackPng> {
+        let pane = if let Some(pane_id) = pane_id {
+            self.pane(pane_id)?
+        } else {
+            let mux = self.mux()?;
+            let pane_id = self
+                .active_pane_id(&mux)
+                .ok_or_else(|| anyhow!("no active pane available"))?;
+            self.pane(pane_id)?
+        };
+        let session_id = pane.pane_id();
+        let image = crate::scrollshot::render_scrollback_png(&pane, path, opts)?;
+        Ok(RenderedScrollbackPng { image, session_id })
     }
 }

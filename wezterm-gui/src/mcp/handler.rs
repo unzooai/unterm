@@ -2,9 +2,9 @@
 //! Implements all methods required by unterm-cli compatibility.
 
 use crate::engine::{
-    CreateSessionRequest, CurrentTerminalEngine, HealthEngine, InputEngine, RecordingEngine,
-    ScreenEngine, ScrollbackTextRequest, SessionEngine, SplitDirection, SplitSessionRequest,
-    WindowEngine,
+    CaptureEngine, CreateSessionRequest, CurrentTerminalEngine, HealthEngine, InputEngine,
+    RecordingEngine, ScreenEngine, ScrollbackTextRequest, SessionEngine, SplitDirection,
+    SplitSessionRequest, WindowEngine,
 };
 use anyhow::{anyhow, Context, Result};
 use base64::Engine as _;
@@ -1009,6 +1009,38 @@ mod engine_neutral_handler_tests {
                 assert!(
                     !message.contains("Mux not available"),
                     "window text snapshot should not require WezTerm mux: {}",
+                    message
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn capture_scrollback_routes_through_capture_engine() {
+        let _guard = env_lock().lock();
+        let previous_engine = std::env::var("UNTERM_ENGINE").ok();
+        std::env::set_var("UNTERM_ENGINE", "next-core");
+
+        let result = {
+            let handler = McpHandler::new();
+            let ctx = ConnectionContext::internal("handler-test");
+            handler.handle(&ctx, "capture.scrollback", &json!({}))
+        };
+
+        match previous_engine {
+            Some(value) => std::env::set_var("UNTERM_ENGINE", value),
+            None => std::env::remove_var("UNTERM_ENGINE"),
+        }
+
+        match result {
+            Ok(capture) => {
+                assert_eq!(capture["type"], "image/png");
+            }
+            Err(err) => {
+                let message = format!("{err:#}");
+                assert!(
+                    !message.contains("Mux not available"),
+                    "capture.scrollback should not require handler access to WezTerm mux: {}",
                     message
                 );
             }
@@ -4784,17 +4816,7 @@ impl McpHandler {
     /// occlusion constraints). `screen.scrollback_text` remains the
     /// AI-friendly text path; this is the human-shareable image path.
     fn capture_scrollback(&self, params: &Value) -> Result<Value> {
-        let pane = match self.get_pane(params) {
-            Ok(p) => p,
-            Err(_) => {
-                let mux = self.get_mux()?;
-                mux.iter_windows()
-                    .into_iter()
-                    .find_map(|wid| mux.get_active_tab_for_window(wid))
-                    .and_then(|tab| tab.get_active_pane())
-                    .ok_or_else(|| anyhow!("no active pane available"))?
-            }
-        };
+        let pane_id = Self::pane_id_from_params(params).ok();
         let mut opts = crate::scrollshot::ScrollbackPngOptions::default();
         if let Some(n) = params.get("max_rows").and_then(|v| v.as_u64()) {
             opts.max_rows = (n as usize).max(1);
@@ -4807,17 +4829,18 @@ impl McpHandler {
             "scrollback_{}.png",
             chrono::Local::now().format("%Y%m%d_%H%M%S_%3f")
         ));
-        let session = pane.pane_id().to_string();
+        let engine = self.engine();
+        let r = engine.render_scrollback_png(pane_id, &path, &opts)?;
+        let session = r.session_id.to_string();
         self.audit("capture.scrollback", Some(&session), "");
-        let r = crate::scrollshot::render_scrollback_png(&pane, &path, &opts)?;
         Ok(json!({
-            "path": r.path.display().to_string(),
-            "width": r.width,
-            "height": r.height,
-            "rows": r.rows,
-            "cols": r.cols,
-            "truncated": r.truncated,
-            "first_row": r.first_row,
+            "path": r.image.path.display().to_string(),
+            "width": r.image.width,
+            "height": r.image.height,
+            "rows": r.image.rows,
+            "cols": r.image.cols,
+            "truncated": r.image.truncated,
+            "first_row": r.image.first_row,
             "session_id": session,
             "type": "image/png",
         }))

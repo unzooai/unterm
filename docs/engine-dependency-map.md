@@ -66,9 +66,9 @@ Known gaps:
 | Category | Count | Methods |
 |---|---:|---|
 | Engine-neutral | 42 | `session.list`, `session.get`, `session.status`, `session.create`, `session.split`, `session.focus`, `session.input`, `session.paste`, `session.idle`, `session.cwd`, `session.history`, `session.resize`, `session.destroy`, `session.recording_start`, `session.recording_stop`, `session.recording_status`, `session.recording_attach_trace`, `session.export_markdown`, `screen.read`, `screen.text`, `screen.scrollback_text`, `screen.cursor`, `screen.search`, `screen.detect_errors`, `exec.run`, `exec.send`, `exec.run_wait`, `exec.status`, `exec.cancel`, `signal.send`, `orchestrate.launch`, `orchestrate.broadcast`, `orchestrate.wait`, `workspace.save`, `workspace.restore`, `screen.scroll`, `agent.status`, `fleet.launch`, `fleet.retry`, `fleet.clean`, `server.info`, `server.health` |
-| Partial | 4 | `agent.signal`, `cockpit.inbox`, `capture.screen`, `capture.window` |
+| Partial | 5 | `agent.signal`, `cockpit.inbox`, `capture.screen`, `capture.window`, `capture.scrollback` |
 | Product-only | 51 | `meta.surface`, `session.audit_log`, `session.suggest`, `session.suggest_status`, `session.suggest_cancel`, `session.suggest_list`, `agent.identify`, `agent.whoami`, `agent.list_trusted`, `agent.trust`, `agent.untrust`, `policy.set`, `policy.check`, `server.capabilities`, `profile.list`, `profile.current`, `profile.audit`, `fleet.list`, `review.list`, `review.diff`, `review.verify`, `review.rollback`, `review.merge`, `review.discard`, `proxy.status`, `proxy.nodes`, `proxy.switch`, `proxy.speedtest`, `proxy.configure`, `proxy.disable`, `proxy.env`, `proxy.rotation`, `proxy.set_nodes`, `proxy.clash_status`, `proxy.clash_select`, `proxy.clash_set_controller`, `upload.file`, `system.info`, `system.launch_admin`, `selftest.run`, `workspace.list`, `session.recording_list`, `session.recording_read`, `instance.list`, `instance.info`, `instance.set_title`, `instance.focus`, `ghost.debug`, `capture.clipboard`, `capture.select`, `capture.window_scroll` |
-| WezTerm-only | 1 | `capture.scrollback` |
+| WezTerm-only | 0 | |
 | Unsupported stub | 2 | `session.env`, `session.set_env` |
 
 The counts intentionally include aliases (`session.get` / `session.status`, `exec.send` via `session.input`) because `meta.surface` exposes them as separate public contracts. The current `MCP_METHODS` inventory contains 100 public methods, excluding `auth.login`.
@@ -171,7 +171,7 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 | `capture.window` | Partial | Terminal text match via `SessionEngine::list_sessions` and `ScreenEngine::read_visible_text`; image still uses platform window capture | Move image capture behind `CaptureEngine` or product capture service. |
 | `capture.select` | Product-only | Platform screen capture fallback for headless MCP | Interactive region selection remains a GUI concern, but the public MCP method no longer requires terminal core. |
 | `capture.clipboard` | Product-only | Platform clipboard snapshot | Engine-independent platform service. |
-| `capture.scrollback` | WezTerm-only | Headless scrollback renderer tied to current rendering stack | Needs `CaptureEngine::render_scrollback` fed by screen model. |
+| `capture.scrollback` | Partial | `CaptureEngine::render_scrollback_png`; WezTerm adapter renders via existing pane renderer, next-core returns explicit unsupported | Implement next-core rendering from the engine screen/scrollback model. |
 | `capture.window_scroll` | Product-only | Platform app scrolling/stitching | Product-level platform service; currently macOS-only and engine-independent. |
 | `upload.file` | Product-only | Upload config and local file IO | Engine-independent. |
 | `system.info` | Product-only | OS/env/server metadata plus `SessionEngine::list_sessions` count | Adds engine label without direct WezTerm mux access. |
