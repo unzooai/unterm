@@ -1579,6 +1579,8 @@ impl<'a> ScreenParser<'a> {
             'h' => {
                 if private && numbers.iter().any(|n| matches!(*n, 1049 | 1047 | 47)) {
                     self.screen.enter_alternate_screen(true);
+                } else if private && numbers.iter().any(|n| *n == 1048) {
+                    self.screen.save_cursor();
                 } else if private && numbers.iter().any(|n| *n == 6) {
                     self.screen.set_origin_mode(true);
                 } else if private && numbers.iter().any(|n| *n == 7) {
@@ -1593,6 +1595,8 @@ impl<'a> ScreenParser<'a> {
             'l' => {
                 if private && numbers.iter().any(|n| matches!(*n, 1049 | 1047 | 47)) {
                     self.screen.leave_alternate_screen();
+                } else if private && numbers.iter().any(|n| *n == 1048) {
+                    self.screen.restore_cursor();
                 } else if private && numbers.iter().any(|n| *n == 6) {
                     self.screen.set_origin_mode(false);
                 } else if private && numbers.iter().any(|n| *n == 7) {
@@ -5362,6 +5366,30 @@ mod tests {
         let screen = engine.read_screen(session.id)?;
         assert_eq!(screen.lines, vec!["oneYX"]);
         assert_eq!(screen.cursor.x, 4);
+        assert_eq!(screen.cursor.y, 0);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_applies_dec_private_cursor_save_and_restore() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 8,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(session.id, "ab\x1b[?1048h\x1b[3;5HZ\x1b[?1048lY")?;
+        let screen = engine.read_screen(session.id)?;
+        assert_eq!(screen.lines, vec!["abY", "", "    Z"]);
+        assert_eq!(screen.cursor.x, 3);
         assert_eq!(screen.cursor.y, 0);
 
         engine.destroy_session(session.id)?;
