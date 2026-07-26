@@ -676,6 +676,12 @@ impl NextCoreScreen {
         self.cursor_x = self.cursor_x.saturating_sub(1);
     }
 
+    fn horizontal_tab(&mut self) {
+        self.mark_dirty_row(self.cursor_y);
+        let next_tab = ((self.cursor_x / 8) + 1) * 8;
+        self.cursor_x = next_tab.min(self.cols.saturating_sub(1));
+    }
+
     fn save_cursor(&mut self) {
         self.saved_cursor_x = self.cursor_x;
         self.saved_cursor_y = self.cursor_y;
@@ -1199,12 +1205,7 @@ impl<'a> ScreenParser<'a> {
                 '\r' => self.screen.carriage_return(),
                 '\n' => self.screen.newline(),
                 '\x08' => self.screen.backspace(),
-                '\t' => {
-                    let next_tab = ((self.screen.cursor_x / 8) + 1) * 8;
-                    while self.screen.cursor_x < next_tab {
-                        self.screen.put_char(' ');
-                    }
-                }
+                '\t' => self.screen.horizontal_tab(),
                 c if !c.is_control() => self.screen.put_char(c),
                 _ => {}
             },
@@ -4424,6 +4425,54 @@ mod tests {
         assert_eq!(reenabled.lines, vec!["abcde", "f"]);
         assert_eq!(reenabled.cursor.x, 1);
         assert_eq!(reenabled.cursor.y, 1);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_treats_tab_as_cursor_movement() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 10,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(session.id, "a\tb")?;
+        let screen = engine.read_screen(session.id)?;
+        assert_eq!(screen.lines, vec!["a       b"]);
+        assert_eq!(screen.cursor.x, 9);
+        assert_eq!(screen.cursor.y, 0);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_clamps_tab_at_right_edge_without_wrapping() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 5,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(session.id, "abcd\tZ")?;
+        let screen = engine.read_screen(session.id)?;
+        assert_eq!(screen.lines, vec!["abcdZ"]);
+        assert_eq!(screen.cursor.x, 5);
+        assert_eq!(screen.cursor.y, 0);
 
         engine.destroy_session(session.id)?;
         Ok(())

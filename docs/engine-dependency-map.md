@@ -38,7 +38,7 @@ Current covered operations:
 - shell/cwd/activity snapshots
 - visible screen read
 - styled screen read
-- next-core cols-aware screen wrapping, DECAWM auto-wrap mode, and resize truncation
+- next-core cols-aware screen wrapping, DECAWM auto-wrap mode, HT tab-stop cursor movement, and resize truncation
 - visible text read
 - line/scrollback reads
 - scrollback text export
