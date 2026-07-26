@@ -58,7 +58,6 @@ Known gaps:
 - styled scrollback PNG parity for `next-core`
 - window capture/focus/title
 - instance lifecycle ownership
-- cwd fallback from process-tree metadata when shell integration is unavailable
 - richer profile/proxy launch semantics beyond the current `CreateSessionRequest::env` overlay
 
 ## MCP Coverage Summary
@@ -87,8 +86,8 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 | `session.paste` | Engine-neutral | `InputEngine::paste_input` plus pane-id based write gate; `next-core` chunks large UTF-8 paste payloads, preserves bracketed paste markers, and records paste telemetry on the session activity snapshot | Expand paste telemetry to current-core after the WezTerm paste path exposes completion timing. |
 | `session.resize` | Engine-neutral | `SessionEngine::resize_session`; WezTerm adapter owns GUI-layout resize rejection | Handler no longer resolves a WezTerm pane or Mux for resize policy. |
 | `session.destroy` | Engine-neutral | `SessionEngine::destroy_session` | Handler resolves pane id without WezTerm pane access. |
-| `session.idle` | Engine-neutral | `SessionEngine::activity`; `next-core` uses recent input/output timestamps, liveness, input metrics, output metrics, paste metrics, and a process-tree activity summary with root/foreground pid, argv, child count, and known agent detection; WezTerm reports `process: null`, `input: null`, `output: null`, and `paste: null` | Add cwd fallback later for shells that do not emit OSC 7. |
-| `session.cwd` | Engine-neutral | `SessionEngine::shell`; `next-core` updates cwd from OSC 7 shell-integration sequences | Add process-tree fallback later for shells that do not emit OSC 7. |
+| `session.idle` | Engine-neutral | `SessionEngine::activity`; `next-core` uses recent input/output timestamps, liveness, input metrics, output metrics, paste metrics, and a process-tree activity summary with root/foreground pid, cwd, argv, child count, and known agent detection; WezTerm reports `process: null`, `input: null`, `output: null`, and `paste: null` | Keep process-tree scans off UI paint paths; query only from explicit status/cwd calls. |
+| `session.cwd` | Engine-neutral | `SessionEngine::shell`; `next-core` updates cwd from OSC 7 shell-integration sequences and falls back to foreground/root process cwd when shell integration is unavailable | OSC 7 remains preferred because it follows shell-level directory changes immediately. |
 | `session.env` | Engine-neutral | `SessionEngine::shell` launch env key snapshot; values are redacted | `next-core` exposes launch env variable names; WezTerm mode reports unsupported because live pane env is not available. |
 | `session.set_env` | Unsupported stub | Returns unsupported marker | Prefer launch-context env over mutating live shells. |
 | `session.history` | Engine-neutral | `ScreenEngine::read_scrollback` | Rename eventually? It is scrollback, not shell history. |

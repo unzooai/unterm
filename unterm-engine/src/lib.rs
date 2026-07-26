@@ -189,8 +189,10 @@ pub struct ScreenActivitySnapshot {
 pub struct ProcessTreeSnapshot {
     pub root_pid: Option<u32>,
     pub root_process: String,
+    pub root_cwd: Option<String>,
     pub foreground_pid: Option<u32>,
     pub foreground_process: String,
+    pub foreground_cwd: Option<String>,
     pub foreground_argv: Vec<String>,
     pub child_count: usize,
     pub detected_agent: Option<String>,

@@ -1143,18 +1143,22 @@ fn main() -> Result<()> {
                 .map(|pid| pid.to_string())
                 .unwrap_or_else(|| "none".to_string());
             let detected_agent = process.detected_agent.as_deref().unwrap_or("none");
+            let foreground_cwd = process.foreground_cwd.as_deref().unwrap_or("none");
+            let root_cwd = process.root_cwd.as_deref().unwrap_or("none");
             println!(
-                "activity_process foreground={} foreground_pid={} root={} root_pid={} child_count={} detected_agent={}",
+                "activity_process foreground={} foreground_pid={} foreground_cwd={} root={} root_pid={} root_cwd={} child_count={} detected_agent={}",
                 process.foreground_process,
                 foreground_pid,
+                foreground_cwd,
                 process.root_process,
                 root_pid,
+                root_cwd,
                 process.child_count,
                 detected_agent
             );
         } else {
             println!(
-                "activity_process foreground={} foreground_pid=none root=none root_pid=none child_count=0 detected_agent=none",
+                "activity_process foreground={} foreground_pid=none foreground_cwd=none root=none root_pid=none root_cwd=none child_count=0 detected_agent=none",
                 activity.foreground_process
             );
         }

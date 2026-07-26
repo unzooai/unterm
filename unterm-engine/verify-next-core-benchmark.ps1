@@ -41,8 +41,14 @@ if ($summary.json_smoke.Engine -ne "next-core") {
 if ($summary.json_smoke.ScreenReads -lt 1) {
     throw "json smoke did not include screen read diagnostics"
 }
-if ([string]::IsNullOrWhiteSpace($summary.json_smoke.DeadReason)) {
-    throw "json smoke did not include session dead_reason diagnostics"
+if (-not ($summary.json_smoke.PSObject.Properties.Name -contains "DeadReason")) {
+    throw "json smoke did not include session dead_reason field"
+}
+if ([string]::IsNullOrWhiteSpace($summary.json_smoke.ForegroundProcess)) {
+    throw "json smoke did not include foreground process diagnostics"
+}
+if ([string]::IsNullOrWhiteSpace($summary.json_smoke.Cwd)) {
+    throw "json smoke did not include session cwd fallback diagnostics"
 }
 if ($summary.json_smoke.LifecycleCreated -lt 1) {
     throw "json smoke did not include lifecycle diagnostics"

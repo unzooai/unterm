@@ -54,6 +54,7 @@ impl Drop for NextCoreSession {
 struct ProcessNodeSummary {
     pid: u32,
     name: String,
+    cwd: Option<String>,
     argv: Vec<String>,
     start_time: u64,
     child_count: usize,
@@ -1377,8 +1378,10 @@ impl NextCoreEngine {
             ProcessTreeSnapshot {
                 root_pid,
                 root_process: fallback_process.to_string(),
+                root_cwd: None,
                 foreground_pid: root_pid,
                 foreground_process: fallback_process.to_string(),
+                foreground_cwd: None,
                 foreground_argv: Vec::new(),
                 child_count: 0,
                 detected_agent: NextCoreEngine::detect_known_agent_name(fallback_process)
@@ -1392,22 +1395,29 @@ impl NextCoreEngine {
         let Some(root) = LocalProcessInfo::with_root_pid(pid) else {
             return Some(fallback(Some(pid), fallback_process));
         };
+        Some(Self::process_tree_snapshot_from_root(&root))
+    }
+
+    fn process_tree_snapshot_from_root(root: &LocalProcessInfo) -> ProcessTreeSnapshot {
         let foreground = Self::foreground_process_summary(&root);
-        Some(ProcessTreeSnapshot {
+        ProcessTreeSnapshot {
             root_pid: Some(root.pid),
             root_process: root.name.clone(),
+            root_cwd: Self::path_to_non_empty_string(&root.cwd),
             foreground_pid: Some(foreground.pid),
             foreground_process: foreground.name,
+            foreground_cwd: foreground.cwd,
             foreground_argv: foreground.argv,
             child_count: Self::count_descendants(&root),
             detected_agent: Self::detect_agent_in_process_tree(&root),
-        })
+        }
     }
 
     fn foreground_process_summary(root: &LocalProcessInfo) -> ProcessNodeSummary {
         let mut best = ProcessNodeSummary {
             pid: root.pid,
             name: root.name.clone(),
+            cwd: Self::path_to_non_empty_string(&root.cwd),
             argv: root.argv.clone(),
             start_time: root.start_time,
             child_count: Self::count_descendants(root),
@@ -1436,6 +1446,11 @@ impl NextCoreEngine {
             }
         }
         best
+    }
+
+    fn path_to_non_empty_string(path: &Path) -> Option<String> {
+        let text = path.to_string_lossy();
+        (!text.is_empty()).then(|| text.into_owned())
     }
 
     fn count_descendants(root: &LocalProcessInfo) -> usize {
@@ -1502,6 +1517,12 @@ impl NextCoreEngine {
             }
             if let Some(cwd) = screen.current_dir() {
                 snapshot.shell.cwd = Some(cwd);
+            } else if snapshot.shell.cwd.is_none() {
+                if let Some(process) =
+                    Self::process_tree_snapshot(session.root_pid, &snapshot.shell.process_name)
+                {
+                    snapshot.shell.cwd = process.foreground_cwd.or(process.root_cwd);
+                }
             }
             snapshots.push(snapshot);
         }
@@ -1519,6 +1540,36 @@ impl NextCoreEngine {
         }
 
         bail!("next-core session {pane_id} not found")
+    }
+
+    fn shell_snapshot(&self, pane_id: usize) -> Result<ShellSnapshot> {
+        let (mut shell, screen, root_pid) = {
+            let state = state().read();
+            let Some(session) = state
+                .sessions
+                .iter()
+                .find(|session| session.snapshot.id == pane_id)
+            else {
+                bail!("next-core session {pane_id} not found");
+            };
+            (
+                session.snapshot.shell.clone(),
+                Arc::clone(&session.screen),
+                session.root_pid,
+            )
+        };
+
+        if let Some(cwd) = screen.lock().current_dir() {
+            shell.cwd = Some(cwd);
+            return Ok(shell);
+        }
+
+        if shell.cwd.is_none() {
+            if let Some(process) = Self::process_tree_snapshot(root_pid, &shell.process_name) {
+                shell.cwd = process.foreground_cwd.or(process.root_cwd);
+            }
+        }
+        Ok(shell)
     }
 
     fn output(&self, pane_id: usize) -> Result<String> {
@@ -2255,7 +2306,7 @@ impl SessionEngine for NextCoreEngine {
     }
 
     fn shell(&self, pane_id: usize) -> Result<ShellSnapshot> {
-        Ok(self.session(pane_id)?.shell)
+        self.shell_snapshot(pane_id)
     }
 
     fn activity(&self, pane_id: usize) -> Result<SessionActivitySnapshot> {
@@ -3085,7 +3136,7 @@ mod tests {
             name: name.to_string(),
             executable: PathBuf::from(name),
             argv,
-            cwd: PathBuf::new(),
+            cwd: PathBuf::from(format!("C:\\work\\{name}-{pid}")),
             status: procinfo::LocalProcessStatus::Run,
             start_time,
             #[cfg(windows)]
@@ -3125,6 +3176,16 @@ mod tests {
         let foreground = NextCoreEngine::foreground_process_summary(&root);
         assert_eq!(foreground.pid, 40);
         assert_eq!(foreground.detected_agent.as_deref(), Some("codex"));
+        assert_eq!(foreground.cwd.as_deref(), Some("C:\\work\\node.exe-40"));
+        let snapshot = NextCoreEngine::process_tree_snapshot_from_root(&root);
+        assert_eq!(
+            snapshot.root_cwd.as_deref(),
+            Some("C:\\work\\powershell.exe-10")
+        );
+        assert_eq!(
+            snapshot.foreground_cwd.as_deref(),
+            Some("C:\\work\\node.exe-40")
+        );
         assert_eq!(
             NextCoreEngine::detect_agent_in_process_tree(&root).as_deref(),
             Some("codex")
@@ -3142,6 +3203,44 @@ mod tests {
         assert_eq!(foreground.pid, 40);
         assert_eq!(foreground.name, "cargo.exe");
         assert_eq!(foreground.detected_agent, None);
+    }
+
+    #[test]
+    fn shell_uses_process_cwd_fallback_until_osc7_updates() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 24,
+            command_dir: None,
+            command: Some(quiet_wait_command_for_test()),
+            env: Vec::new(),
+        })?;
+
+        let process_cwd = engine
+            .activity(session.id)?
+            .process
+            .and_then(|process| process.foreground_cwd.or(process.root_cwd));
+        let shell_cwd = engine.shell(session.id)?.cwd;
+        assert_eq!(shell_cwd, process_cwd);
+        assert_eq!(engine.get_session(session.id)?.shell.cwd, shell_cwd);
+
+        set_output_for_test(
+            session.id,
+            "\x1b]7;file://localhost/C:/Users/alex/osc-project\x07",
+        )?;
+        assert_eq!(
+            engine.shell(session.id)?.cwd.as_deref(),
+            Some("C:\\Users\\alex\\osc-project")
+        );
+        assert_eq!(
+            engine.get_session(session.id)?.shell.cwd.as_deref(),
+            Some("C:\\Users\\alex\\osc-project")
+        );
+
+        engine.destroy_session(session.id)?;
+        Ok(())
     }
 
     #[test]

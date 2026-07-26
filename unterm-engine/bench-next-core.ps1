@@ -128,7 +128,7 @@ function New-Gate {
 function Invoke-JsonSmoke {
     Write-Host "Running JSON probe smoke..."
     $marker = "next-core-json-smoke"
-    $output = & $script:ExePath --json --wait-ms 500 -- cmd.exe /c "echo $marker" 2>&1
+    $output = & $script:ExePath --json --wait-ms 500 --write "echo $marker`r" 2>&1
     $exitCode = $LASTEXITCODE
     $lines = @($output | ForEach-Object { $_.ToString() })
     if ($exitCode -ne 0) {
@@ -157,6 +157,12 @@ function Invoke-JsonSmoke {
     if ($null -eq $json.activity.process -or [string]::IsNullOrWhiteSpace($json.activity.process.foreground_process)) {
         throw "JSON probe did not include next-core process activity diagnostics"
     }
+    if ([string]::IsNullOrWhiteSpace($json.session.shell.cwd)) {
+        throw "JSON probe did not include next-core session cwd fallback"
+    }
+    if ([string]::IsNullOrWhiteSpace($json.activity.process.foreground_cwd) -and [string]::IsNullOrWhiteSpace($json.activity.process.root_cwd)) {
+        throw "JSON probe did not include next-core process cwd diagnostics"
+    }
     if ($null -eq $json.activity.screen -or $json.activity.screen.total_reads -lt 1) {
         throw "JSON probe did not include screen activity counters"
     }
@@ -177,6 +183,7 @@ function Invoke-JsonSmoke {
         RawBytes = $json.raw_bytes
         ScreenReads = $json.health.io.screen_reads
         ForegroundProcess = $json.activity.process.foreground_process
+        Cwd = $json.session.shell.cwd
         DeadReason = $json.session.dead_reason
         LifecycleCreated = $json.health.lifecycle.total_created
     }
@@ -255,7 +262,7 @@ try {
     $report.Add("- Machine: ``$machine``")
     $report.Add("- OS: ``$os``")
     $report.Add("- Binary: ``target\debug\unterm-next-core.exe``")
-    $report.Add("- JSON smoke: ``$($jsonSmoke.Engine) $($jsonSmoke.Screen) raw_bytes=$($jsonSmoke.RawBytes) foreground=$($jsonSmoke.ForegroundProcess) screen_reads=$($jsonSmoke.ScreenReads) lifecycle_created=$($jsonSmoke.LifecycleCreated) dead_reason=$($jsonSmoke.DeadReason)``")
+    $report.Add("- JSON smoke: ``$($jsonSmoke.Engine) $($jsonSmoke.Screen) raw_bytes=$($jsonSmoke.RawBytes) foreground=$($jsonSmoke.ForegroundProcess) cwd=$($jsonSmoke.Cwd) screen_reads=$($jsonSmoke.ScreenReads) lifecycle_created=$($jsonSmoke.LifecycleCreated) dead_reason=$($jsonSmoke.DeadReason)``")
     $report.Add("")
     $report.Add("## Gates")
     $report.Add("")
