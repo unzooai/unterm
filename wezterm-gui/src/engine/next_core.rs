@@ -8,6 +8,7 @@ use anyhow::{bail, Result};
 use parking_lot::{Mutex, RwLock};
 use portable_pty::{native_pty_system, Child, MasterPty, PtySize};
 use std::io::{Read, Write};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::thread;
 
@@ -24,6 +25,7 @@ struct NextCoreSession {
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     output: Arc<Mutex<String>>,
     screen: Arc<Mutex<NextCoreScreen>>,
+    dead: Arc<AtomicBool>,
 }
 
 impl Drop for NextCoreSession {
@@ -933,6 +935,21 @@ fn set_output_for_test(pane_id: usize, text: &str) -> Result<()> {
 }
 
 #[cfg(test)]
+fn mark_dead_for_test(pane_id: usize) -> Result<()> {
+    let state = state().read();
+    let Some(session) = state
+        .sessions
+        .iter()
+        .find(|session| session.snapshot.id == pane_id)
+    else {
+        bail!("next-core session {pane_id} not found");
+    };
+
+    session.dead.store(true, Ordering::Release);
+    Ok(())
+}
+
+#[cfg(test)]
 fn viewport_attrs_for_test(pane_id: usize) -> Result<Vec<Vec<CellAttributes>>> {
     let screen = {
         let state = state().read();
@@ -951,12 +968,29 @@ fn viewport_attrs_for_test(pane_id: usize) -> Result<Vec<Vec<CellAttributes>>> {
 }
 
 impl NextCoreEngine {
+    fn refresh_liveness(session: &mut NextCoreSession) {
+        if session.snapshot.is_dead {
+            return;
+        }
+
+        if session.dead.load(Ordering::Acquire) {
+            session.snapshot.is_dead = true;
+            return;
+        }
+
+        if matches!(session.child.lock().try_wait(), Ok(Some(_))) {
+            session.snapshot.is_dead = true;
+            session.dead.store(true, Ordering::Release);
+        }
+    }
+
     fn sessions(&self) -> Vec<SessionSnapshot> {
         state()
-            .read()
+            .write()
             .sessions
-            .iter()
+            .iter_mut()
             .map(|session| {
+                Self::refresh_liveness(session);
                 let mut snapshot = session.snapshot.clone();
                 let screen = session.screen.lock();
                 snapshot.cursor = screen.cursor_snapshot();
@@ -1261,11 +1295,13 @@ impl NextCoreEngine {
         let writer = Arc::new(Mutex::new(pair.master.take_writer()?));
         let output = Arc::new(Mutex::new(String::new()));
         let screen = Arc::new(Mutex::new(NextCoreScreen::new(rows)));
+        let dead = Arc::new(AtomicBool::new(false));
         Self::spawn_reader_thread(
             id,
             Arc::clone(&output),
             Arc::clone(&screen),
             Arc::clone(&writer),
+            Arc::clone(&dead),
             reader,
         );
         let shell = ShellSnapshot {
@@ -1292,6 +1328,7 @@ impl NextCoreEngine {
             writer,
             output,
             screen,
+            dead,
         })
     }
 
@@ -1300,6 +1337,7 @@ impl NextCoreEngine {
         output: Arc<Mutex<String>>,
         screen: Arc<Mutex<NextCoreScreen>>,
         writer: Arc<Mutex<Box<dyn Write + Send>>>,
+        dead: Arc<AtomicBool>,
         mut reader: Box<dyn Read + Send>,
     ) {
         thread::Builder::new()
@@ -1333,6 +1371,7 @@ impl NextCoreEngine {
                         Err(_) => break,
                     }
                 }
+                dead.store(true, Ordering::Release);
             })
             .ok();
     }
@@ -1412,7 +1451,6 @@ impl NextCoreEngine {
             text.to_string()
         }
     }
-
 }
 
 impl SessionEngine for NextCoreEngine {
@@ -1502,10 +1540,12 @@ impl SessionEngine for NextCoreEngine {
     }
 
     fn activity(&self, pane_id: usize) -> Result<SessionActivitySnapshot> {
-        let shell = self.shell(pane_id)?;
-        let foreground_process = shell.process_name;
+        let session = self.session(pane_id)?;
+        let foreground_process = session.shell.process_name;
         Ok(SessionActivitySnapshot {
-            idle: foreground_process.is_empty() || foreground_process == "unknown",
+            idle: session.is_dead
+                || foreground_process.is_empty()
+                || foreground_process == "unknown",
             foreground_process,
         })
     }
@@ -1540,6 +1580,7 @@ impl SessionEngine for NextCoreEngine {
         let was_active = state.sessions[idx].snapshot.is_active;
         let mut session = state.sessions.remove(idx);
         session.snapshot.is_dead = true;
+        session.dead.store(true, Ordering::Release);
         session.child.lock().kill().ok();
 
         if was_active {
@@ -1839,6 +1880,25 @@ mod tests {
         assert_eq!(engine.list_sessions()?.len(), 1);
         engine.destroy_session(second.id)?;
 
+        Ok(())
+    }
+
+    #[test]
+    fn propagates_reader_dead_marker_to_session_snapshots() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 24,
+            command_dir: None,
+            command: None,
+        })?;
+
+        mark_dead_for_test(session.id)?;
+        assert!(engine.get_session(session.id)?.is_dead);
+        assert!(engine.activity(session.id)?.idle);
+        engine.destroy_session(session.id)?;
         Ok(())
     }
 
