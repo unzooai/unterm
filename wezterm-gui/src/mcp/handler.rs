@@ -1713,6 +1713,10 @@ mod engine_neutral_handler_tests {
             true
         );
         assert_eq!(
+            surface["engine_capabilities"]["diagnostics"]["recording_block_markdown"],
+            true
+        );
+        assert_eq!(
             surface["engine_capabilities"]["diagnostics"]["host_window_bridge"],
             true
         );
@@ -1735,6 +1739,10 @@ mod engine_neutral_handler_tests {
         );
         assert_eq!(
             capabilities["_engine_capabilities"]["diagnostics"]["pty_write_confirmation"],
+            true
+        );
+        assert_eq!(
+            capabilities["_engine_capabilities"]["diagnostics"]["recording_block_markdown"],
             true
         );
         assert_eq!(

@@ -25,6 +25,7 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const MAX_OUTPUT_BYTES: usize = 1024 * 1024;
+const MAX_RECORDING_BLOCKS: usize = 256;
 const MAX_SCROLLBACK_LINES: usize = 10_000;
 const ACTIVITY_IDLE_AFTER: Duration = Duration::from_secs(2);
 const PASTE_CHUNK_BYTES: usize = 4096;
@@ -86,6 +87,14 @@ struct NextCoreRecording {
     block_count: u64,
     trace_ids: Vec<String>,
     text_preview: String,
+    blocks: Vec<NextCoreRecordingBlock>,
+}
+
+#[derive(Clone, Debug)]
+struct NextCoreRecordingBlock {
+    index: u64,
+    timestamp_micros: u128,
+    text: String,
 }
 
 #[derive(Clone, Debug)]
@@ -1740,7 +1749,8 @@ impl NextCoreEngine {
             return;
         }
         let encoded = base64::engine::general_purpose::STANDARD.encode(text.as_bytes());
-        let line = format!("{}\tout\t{}\n", Self::unix_micros(), encoded);
+        let timestamp_micros = Self::unix_micros();
+        let line = format!("{}\tout\t{}\n", timestamp_micros, encoded);
         if let Ok(mut file) = OpenOptions::new()
             .create(true)
             .append(true)
@@ -1750,6 +1760,16 @@ impl NextCoreEngine {
         }
         recording.bytes_raw = recording.bytes_raw.saturating_add(text.len() as u64);
         recording.block_count = recording.block_count.saturating_add(1);
+        recording.blocks.push(NextCoreRecordingBlock {
+            index: recording.block_count,
+            timestamp_micros,
+            text: text.to_string(),
+        });
+        if recording.blocks.len() > MAX_RECORDING_BLOCKS {
+            recording
+                .blocks
+                .drain(..recording.blocks.len() - MAX_RECORDING_BLOCKS);
+        }
         recording.text_preview.push_str(text);
         if recording.text_preview.len() > MAX_OUTPUT_BYTES {
             let keep_from = recording.text_preview.len() - MAX_OUTPUT_BYTES;
@@ -1804,6 +1824,7 @@ impl NextCoreEngine {
         };
         writeln!(&mut md, "exit_reason: {}", exit_reason).ok();
         writeln!(&mut md, "osc133_active: false").ok();
+        writeln!(&mut md, "block_render: chunked_output").ok();
         writeln!(&mut md, "block_count: {}", recording.block_count).ok();
         writeln!(&mut md, "total_lines: {}", total_lines).ok();
         writeln!(&mut md, "bytes_raw: {}", recording.bytes_raw).ok();
@@ -1830,6 +1851,26 @@ impl NextCoreEngine {
             "> next-core fallback recording; shell command markers were not captured.\n"
         )
         .ok();
+        if !recording.blocks.is_empty() {
+            writeln!(
+                &mut md,
+                "## Output Blocks\n\nThese blocks are output chunks captured by next-core; OSC133 command markers are not available yet.\n"
+            )
+            .ok();
+            for block in &recording.blocks {
+                let stripped = Self::strip_ansi(&block.text);
+                let (redacted_block, _) = Self::redact_recording_text(&stripped);
+                writeln!(
+                    &mut md,
+                    "### Block {} `{}`\n\n```\n{}\n```\n",
+                    block.index,
+                    block.timestamp_micros,
+                    redacted_block.trim_end()
+                )
+                .ok();
+            }
+            writeln!(&mut md, "## Aggregated Preview\n").ok();
+        }
         writeln!(&mut md, "```\n{}\n```", redacted.trim_end()).ok();
 
         md
@@ -3076,6 +3117,7 @@ impl RecordingEngine for NextCoreEngine {
             block_count: 0,
             trace_ids: Vec::new(),
             text_preview: String::new(),
+            blocks: Vec::new(),
         };
         Self::upsert_recording_index(&recording, None)?;
         *slot = Some(recording);
@@ -4738,6 +4780,10 @@ mod tests {
         assert!(markdown.contains("exit_reason: recording_stopped"));
         assert!(markdown.contains("ended_at: "));
         assert!(markdown.contains("osc133_active: false"));
+        assert!(markdown.contains("block_render: chunked_output"));
+        assert!(markdown.contains("## Output Blocks"));
+        assert!(markdown.contains("### Block 1 `"));
+        assert!(markdown.contains("## Aggregated Preview"));
         assert!(markdown.contains("trace_ids: [\"trace-1\"]"));
         assert!(markdown.contains("redaction_count: 1"));
         assert!(markdown.contains("hello from next-core [REDACTED]"));
