@@ -52,6 +52,11 @@ fn index_lock() -> &'static Mutex<()> {
 }
 
 pub fn sessions_root() -> PathBuf {
+    if let Ok(root) = std::env::var("UNTERM_SESSIONS_ROOT") {
+        if !root.trim().is_empty() {
+            return PathBuf::from(root);
+        }
+    }
     dirs_next::home_dir()
         .unwrap_or_default()
         .join(".unterm")

@@ -62,9 +62,9 @@ Known gaps:
 | Category | Count | Methods |
 |---|---:|---|
 | Engine-neutral | 29 | `session.list`, `session.get`, `session.status`, `session.create`, `session.split`, `session.focus`, `session.input`, `session.paste`, `session.idle`, `session.cwd`, `session.history`, `screen.read`, `screen.text`, `screen.scrollback_text`, `screen.cursor`, `screen.detect_errors`, `exec.run`, `exec.send`, `exec.run_wait`, `exec.status`, `exec.cancel`, `signal.send`, `orchestrate.launch`, `orchestrate.broadcast`, `orchestrate.wait`, `workspace.save`, `workspace.restore`, `screen.scroll`, `server.info` |
-| Partial | 4 | `session.resize`, `session.destroy`, `screen.search`, `server.health` |
+| Partial | 5 | `session.resize`, `session.destroy`, `session.export_markdown`, `screen.search`, `server.health` |
 | Product-only | 40 | `meta.surface`, `session.audit_log`, `session.suggest`, `session.suggest_status`, `session.suggest_cancel`, `session.suggest_list`, `agent.identify`, `agent.whoami`, `agent.list_trusted`, `agent.trust`, `agent.untrust`, `policy.set`, `policy.check`, `server.capabilities`, `profile.list`, `profile.current`, `profile.audit`, `fleet.list`, `review.list`, `review.diff`, `review.verify`, `review.rollback`, `review.merge`, `review.discard`, `proxy.status`, `proxy.nodes`, `proxy.switch`, `proxy.speedtest`, `proxy.configure`, `proxy.disable`, `proxy.env`, `proxy.rotation`, `proxy.set_nodes`, `proxy.clash_status`, `proxy.clash_select`, `proxy.clash_set_controller`, `upload.file`, `system.info`, `selftest.run`, `workspace.list` |
-| WezTerm-only | 25 | `agent.status`, `agent.signal`, `cockpit.inbox`, `fleet.launch`, `fleet.clean`, `fleet.retry`, `ghost.debug`, `capture.screen`, `capture.window`, `capture.select`, `capture.clipboard`, `capture.scrollback`, `capture.window_scroll`, `session.recording_start`, `session.recording_stop`, `session.recording_status`, `session.recording_list`, `session.recording_read`, `session.recording_attach_trace`, `session.export_markdown`, `instance.list`, `instance.info`, `instance.set_title`, `instance.focus`, `system.launch_admin` |
+| WezTerm-only | 24 | `agent.status`, `agent.signal`, `cockpit.inbox`, `fleet.launch`, `fleet.clean`, `fleet.retry`, `ghost.debug`, `capture.screen`, `capture.window`, `capture.select`, `capture.clipboard`, `capture.scrollback`, `capture.window_scroll`, `session.recording_start`, `session.recording_stop`, `session.recording_status`, `session.recording_list`, `session.recording_read`, `session.recording_attach_trace`, `instance.list`, `instance.info`, `instance.set_title`, `instance.focus`, `system.launch_admin` |
 | Unsupported stub | 2 | `session.env`, `session.set_env` |
 
 The counts intentionally include aliases (`session.get` / `session.status`, `exec.send` via `session.input`) because `meta.surface` exposes them as separate public contracts. The current `MCP_METHODS` inventory contains 100 public methods, excluding `auth.login`.
@@ -99,7 +99,7 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 | `session.recording_list` | WezTerm-only | Recording archive plus project/cwd assumptions | Archive is product-only; active recording state is not. |
 | `session.recording_read` | WezTerm-only | Recording archive | Can become product-only after archive service extraction. |
 | `session.recording_attach_trace` | WezTerm-only | Active recording state | Needs engine-neutral recording id. |
-| `session.export_markdown` | WezTerm-only | Scrollback export/recording helpers | Can use `ScreenEngine::read_scrollback_text` for text path. |
+| `session.export_markdown` | Partial | Inactive export uses `ScreenEngine::read_scrollback_text`; active recording still renders from WezTerm-backed recorder log | Finish by extracting recording registry/stream tap behind a `RecordingEngine`. |
 
 ## Exec and Signal Methods
 
@@ -234,12 +234,13 @@ Methods unlocked:
 
 Work:
 
-- Implement one-shot markdown export from `ScreenEngine::read_scrollback_text`.
-- Keep live stream recording as a later `RecordingEngine`.
+- Keep one-shot markdown export on `ScreenEngine::read_scrollback_text`.
+- Extract live stream recording behind a later `RecordingEngine`.
 
 Acceptance:
 
 - `session.export_markdown` works in `next-core` for plain text scrollback.
+- Active recording state no longer depends on WezTerm pane storage.
 
 ## Maintenance Rule
 

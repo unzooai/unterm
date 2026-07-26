@@ -714,8 +714,59 @@ pub fn export_pane_markdown(
         .collect::<Vec<_>>()
         .join("\n");
 
-    let (project_path, project_slug) = project_info(&pane);
-    let tab_id = pane.pane_id() as u64;
+    let semantic_events = pane
+        .get_semantic_zones()
+        .map(|zones| {
+            zones
+                .into_iter()
+                .map(|zone| match zone.semantic_type {
+                    wezterm_term::SemanticType::Prompt => "block_prompt",
+                    wezterm_term::SemanticType::Input => "block_input",
+                    wezterm_term::SemanticType::Output => "block_output",
+                })
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    let (project_path, _project_slug) = project_info(&pane);
+    export_scrollback_markdown_with_events(
+        pane_id,
+        project_path,
+        scroll_text,
+        target,
+        semantic_events,
+    )
+}
+
+/// One-shot export from a screen-engine scrollback snapshot.
+pub fn export_scrollback_markdown(
+    pane_id: PaneId,
+    project_path: Option<String>,
+    scroll_text: String,
+    target: Option<PathBuf>,
+) -> Result<(PathBuf, RenderOutput)> {
+    export_scrollback_markdown_with_events(pane_id, project_path, scroll_text, target, Vec::new())
+}
+
+fn export_scrollback_markdown_with_events(
+    pane_id: PaneId,
+    project_path: Option<String>,
+    scroll_text: String,
+    target: Option<PathBuf>,
+    semantic_events: Vec<String>,
+) -> Result<(PathBuf, RenderOutput)> {
+    let project_slug = project_path
+        .as_deref()
+        .and_then(|path| {
+            Path::new(path)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .filter(|name| !name.is_empty())
+                .map(sanitize_slug)
+        })
+        .unwrap_or_else(|| "_orphan".to_string());
+    let tab_id = pane_id as u64;
     let (_log_path_unused, md_path, started_at_iso, _stem) =
         build_paths(project_path.as_deref(), &project_slug, tab_id);
     let session_id = uuid::Uuid::new_v4().to_string();
@@ -737,25 +788,18 @@ pub fn export_pane_markdown(
     std::fs::write(&log_path, log_line)?;
 
     // Try semantic zones: emit synthetic OSC 133 events per zone.
-    if let Ok(zones) = pane.get_semantic_zones() {
-        if !zones.is_empty() {
-            let mut bytes: Vec<u8> = Vec::new();
-            for zone in zones {
-                let micros = Utc::now().timestamp_micros();
-                let event = match zone.semantic_type {
-                    wezterm_term::SemanticType::Prompt => "block_prompt",
-                    wezterm_term::SemanticType::Input => "block_input",
-                    wezterm_term::SemanticType::Output => "block_output",
-                };
-                let line = format!("{}\t{}\t\n", micros, event);
-                bytes.extend_from_slice(line.as_bytes());
-            }
-            // Append the scrollback as the actual output bytes
-            let micros2 = Utc::now().timestamp_micros();
-            let b64 = base64::engine::general_purpose::STANDARD.encode(scroll_text.as_bytes());
-            bytes.extend_from_slice(format!("{}\tout\t{}\n", micros2, b64).as_bytes());
-            std::fs::write(&log_path, &bytes)?;
+    if !semantic_events.is_empty() {
+        let mut bytes: Vec<u8> = Vec::new();
+        for event in semantic_events {
+            let micros = Utc::now().timestamp_micros();
+            let line = format!("{}\t{}\t\n", micros, event);
+            bytes.extend_from_slice(line.as_bytes());
         }
+        // Append the scrollback as the actual output bytes.
+        let micros2 = Utc::now().timestamp_micros();
+        let b64 = base64::engine::general_purpose::STANDARD.encode(scroll_text.as_bytes());
+        bytes.extend_from_slice(format!("{}\tout\t{}\n", micros2, b64).as_bytes());
+        std::fs::write(&log_path, &bytes)?;
     }
 
     let entry = IndexEntry {
@@ -798,4 +842,46 @@ pub fn export_pane_markdown(
     index::upsert_entry(entry2).ok();
 
     Ok((dest, out))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Mutex, OnceLock};
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    #[test]
+    fn exports_scrollback_markdown_without_wezterm_pane() {
+        let _guard = env_lock().lock().unwrap();
+        let sessions_root = tempfile::tempdir().unwrap();
+        let project = tempfile::tempdir().unwrap();
+        let export_path = sessions_root.path().join("exports").join("pane.md");
+        let previous_root = std::env::var("UNTERM_SESSIONS_ROOT").ok();
+        std::env::set_var("UNTERM_SESSIONS_ROOT", sessions_root.path());
+
+        let result = export_scrollback_markdown(
+            77,
+            Some(project.path().display().to_string()),
+            "prompt> echo hello\nhello\n".to_string(),
+            Some(export_path.clone()),
+        );
+
+        match previous_root {
+            Some(value) => std::env::set_var("UNTERM_SESSIONS_ROOT", value),
+            None => std::env::remove_var("UNTERM_SESSIONS_ROOT"),
+        }
+
+        let (dest, out) = result.unwrap();
+        assert_eq!(dest, export_path);
+        assert!(dest.exists());
+        assert!(out.markdown.contains("hello"));
+
+        let index_path = sessions_root.path().join("index.json");
+        let index = std::fs::read_to_string(index_path).unwrap();
+        assert!(index.contains("\"tab_id\": 77"));
+    }
 }

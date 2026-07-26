@@ -4563,12 +4563,36 @@ impl McpHandler {
     }
 
     fn session_export_markdown(&self, params: &Value) -> Result<Value> {
-        let pane = self.get_pane(params)?;
+        let pane_id = Self::pane_id_from_params(params)?;
         let path = params
             .get("path")
             .and_then(|v| v.as_str())
             .map(std::path::PathBuf::from);
-        let (dest, out) = crate::recording::export_pane_markdown(pane.pane_id(), path)?;
+        let (dest, out) = if crate::recording::recorder::current_session(
+            pane_id as mux::pane::PaneId,
+        )
+        .is_some()
+        {
+            crate::recording::export_pane_markdown(pane_id as mux::pane::PaneId, path)?
+        } else {
+            let engine = self.engine();
+            let project_path = engine.shell(pane_id)?.cwd;
+            let scrollback = engine.read_scrollback_text(
+                pane_id,
+                ScrollbackTextRequest {
+                    start_line: None,
+                    end_line: None,
+                    tail_lines: None,
+                    escapes: false,
+                },
+            )?;
+            crate::recording::export_scrollback_markdown(
+                pane_id as mux::pane::PaneId,
+                project_path,
+                scrollback.text,
+                path,
+            )?
+        };
         Ok(json!({
             "session_id": uuid::Uuid::new_v4().to_string(),
             "path": dest.display().to_string(),
