@@ -1736,6 +1736,16 @@ mod engine_neutral_handler_tests {
         assert_eq!(scroll_check["detail"]["scrolled"], true);
         assert_eq!(scroll_check["detail"]["target_visible"], true);
         assert_eq!(scroll_check["detail"]["destroyed"], true);
+        let styled_capture_check = checks
+            .iter()
+            .find(|check| check["name"] == "next_core.styled_scrollback_capture")
+            .expect("next-core styled scrollback capture check");
+        assert_eq!(styled_capture_check["ok"], true);
+        assert_eq!(styled_capture_check["detail"]["advertised"], true);
+        assert_eq!(styled_capture_check["detail"]["found_marker"], true);
+        assert_eq!(styled_capture_check["detail"]["png_header_ok"], true);
+        assert_eq!(styled_capture_check["detail"]["dimensions_ok"], true);
+        assert_eq!(styled_capture_check["detail"]["destroyed"], true);
         let launch_check = checks
             .iter()
             .find(|check| check["name"] == "next_core.launch_context_diagnostics")
@@ -6311,6 +6321,21 @@ impl McpHandler {
                     Err(err) => json!({"error": err.to_string()}),
                 },
             }));
+
+            let styled_capture = self.selftest_next_core_styled_scrollback_capture(&caps);
+            checks.push(json!({
+                "name": "next_core.styled_scrollback_capture",
+                "ok": styled_capture
+                    .as_ref()
+                    .ok()
+                    .and_then(|value| value.get("ok"))
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(false),
+                "detail": match styled_capture {
+                    Ok(value) => value,
+                    Err(err) => json!({"error": err.to_string()}),
+                },
+            }));
         }
 
         let policy = self.policy_check(&json!({"command": "echo unterm-selftest"}));
@@ -6615,6 +6640,87 @@ impl McpHandler {
             Err(err) => json!({
                 "ok": false,
                 "pane_id": pane_id,
+                "error": err.to_string(),
+            }),
+        };
+        detail["destroyed"] = json!(destroyed.is_ok());
+        if let Err(err) = destroyed {
+            detail["destroy_error"] = json!(err.to_string());
+            detail["ok"] = json!(false);
+        }
+        Ok(detail)
+    }
+
+    fn selftest_next_core_styled_scrollback_capture(&self, caps: &Value) -> Result<Value> {
+        let advertised = caps
+            .pointer("/_engine_capabilities/diagnostics/styled_scrollback_png")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false);
+        let command = "echo \u{001b}[31;1mnext-core-selftest-styled-capture\u{001b}[0m";
+        let created = self.session_create(&json!({
+            "cols": 80,
+            "rows": 3,
+            "command": command,
+        }))?;
+        let pane_id = created["id"].as_u64().ok_or_else(|| {
+            anyhow!("next-core styled capture selftest session.create did not return id")
+        })? as usize;
+
+        let probe = (|| -> Result<Value> {
+            let mut found_marker = false;
+            for _ in 0..20 {
+                let search = self.screen_search(&json!({
+                    "pane_id": pane_id,
+                    "pattern": "next-core-selftest-styled-capture",
+                }))?;
+                if search["total"].as_u64().unwrap_or_default() > 0 {
+                    found_marker = true;
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+
+            let capture = self.capture_scrollback(&json!({
+                "pane_id": pane_id,
+                "max_rows": 10,
+                "dpi": 48,
+            }))?;
+            let path = capture["path"].as_str().unwrap_or_default().to_string();
+            let path_exists = !path.is_empty() && std::path::Path::new(&path).exists();
+            let png_header_ok = if path_exists {
+                std::fs::read(&path)
+                    .map(|bytes| bytes.starts_with(b"\x89PNG\r\n\x1a\n"))
+                    .unwrap_or(false)
+            } else {
+                false
+            };
+            if path_exists {
+                let _ = std::fs::remove_file(&path);
+            }
+            let dimensions_ok = capture["width"].as_u64().unwrap_or_default() > 0
+                && capture["height"].as_u64().unwrap_or_default() > 0;
+            let type_ok = capture["type"].as_str() == Some("image/png");
+
+            Ok(json!({
+                "ok": advertised && found_marker && type_ok && path_exists && png_header_ok && dimensions_ok,
+                "pane_id": pane_id,
+                "advertised": advertised,
+                "found_marker": found_marker,
+                "type_ok": type_ok,
+                "path_exists": path_exists,
+                "png_header_ok": png_header_ok,
+                "dimensions_ok": dimensions_ok,
+                "capture": capture,
+            }))
+        })();
+
+        let destroyed = self.session_destroy(&json!({ "pane_id": pane_id }));
+        let mut detail = match probe {
+            Ok(value) => value,
+            Err(err) => json!({
+                "ok": false,
+                "pane_id": pane_id,
+                "advertised": advertised,
                 "error": err.to_string(),
             }),
         };
