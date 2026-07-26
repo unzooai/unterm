@@ -154,12 +154,19 @@ function Invoke-JsonSmoke {
     if ($null -eq $json.activity) {
         throw "JSON probe did not include an activity snapshot"
     }
+    if ($null -eq $json.activity.screen -or $json.activity.screen.total_reads -lt 1) {
+        throw "JSON probe did not include screen activity counters"
+    }
+    if ($null -eq $json.health.io -or $json.health.io.screen_reads -lt 1) {
+        throw "JSON probe did not include aggregate screen read counters"
+    }
 
     [pscustomobject]@{
         Marker = $marker
         Engine = $json.health.engine
         Screen = "$($json.screen.cols)x$($json.screen.rows)"
         RawBytes = $json.raw_bytes
+        ScreenReads = $json.health.io.screen_reads
     }
 }
 
@@ -236,7 +243,7 @@ try {
     $report.Add("- Machine: ``$machine``")
     $report.Add("- OS: ``$os``")
     $report.Add("- Binary: ``target\debug\unterm-next-core.exe``")
-    $report.Add("- JSON smoke: ``$($jsonSmoke.Engine) $($jsonSmoke.Screen) raw_bytes=$($jsonSmoke.RawBytes)``")
+    $report.Add("- JSON smoke: ``$($jsonSmoke.Engine) $($jsonSmoke.Screen) raw_bytes=$($jsonSmoke.RawBytes) screen_reads=$($jsonSmoke.ScreenReads)``")
     $report.Add("")
     $report.Add("## Gates")
     $report.Add("")

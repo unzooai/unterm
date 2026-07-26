@@ -2,10 +2,10 @@ use super::{
     CellStyle, CreateSessionRequest, CursorSnapshot, DirtyRows, EngineHealthSnapshot,
     EngineIoHealthSnapshot, HealthEngine, InputActivitySnapshot, InputEngine,
     OutputActivitySnapshot, PasteActivitySnapshot, RecordingEngine, RecordingExportResult,
-    RecordingStartResult, RecordingStatusSnapshot, RecordingStopResult, ScreenEngine, ScreenLine,
-    ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot,
-    SessionActivitySnapshot, SessionEngine, SessionSnapshot, ShellSnapshot, SplitSessionRequest,
-    StyledCell, StyledColor, StyledScreenLine, StyledScreenSnapshot,
+    RecordingStartResult, RecordingStatusSnapshot, RecordingStopResult, ScreenActivitySnapshot,
+    ScreenEngine, ScreenLine, ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest,
+    ScrollbackTextSnapshot, SessionActivitySnapshot, SessionEngine, SessionSnapshot, ShellSnapshot,
+    SplitSessionRequest, StyledCell, StyledColor, StyledScreenLine, StyledScreenSnapshot,
 };
 use anyhow::{bail, Result};
 use base64::Engine as _;
@@ -75,6 +75,7 @@ struct SessionIoActivity {
     input: Option<InputActivitySnapshot>,
     output: Option<OutputActivitySnapshot>,
     paste: Option<PasteActivitySnapshot>,
+    screen: Option<ScreenActivitySnapshot>,
 }
 
 impl SessionIoActivity {
@@ -86,6 +87,7 @@ impl SessionIoActivity {
             input: None,
             output: None,
             paste: None,
+            screen: None,
         }
     }
 
@@ -146,6 +148,30 @@ impl SessionIoActivity {
         snapshot.last_bracketed = bracketed;
         snapshot.last_duration_ms = duration.as_millis().min(u64::MAX as u128) as u64;
         self.paste = Some(snapshot);
+    }
+
+    fn mark_screen_read(&mut self, duration: Duration) {
+        let mut snapshot = self.screen.clone().unwrap_or(ScreenActivitySnapshot {
+            total_reads: 0,
+            total_viewport_scrolls: 0,
+            last_read_duration_ms: 0,
+            last_scroll_duration_ms: 0,
+        });
+        snapshot.total_reads = snapshot.total_reads.saturating_add(1);
+        snapshot.last_read_duration_ms = duration.as_millis().min(u64::MAX as u128) as u64;
+        self.screen = Some(snapshot);
+    }
+
+    fn mark_viewport_scroll(&mut self, duration: Duration) {
+        let mut snapshot = self.screen.clone().unwrap_or(ScreenActivitySnapshot {
+            total_reads: 0,
+            total_viewport_scrolls: 0,
+            last_read_duration_ms: 0,
+            last_scroll_duration_ms: 0,
+        });
+        snapshot.total_viewport_scrolls = snapshot.total_viewport_scrolls.saturating_add(1);
+        snapshot.last_scroll_duration_ms = duration.as_millis().min(u64::MAX as u128) as u64;
+        self.screen = Some(snapshot);
     }
 
     fn last_io_at(&self) -> Option<Instant> {
@@ -1570,62 +1596,6 @@ impl NextCoreEngine {
         Ok(lines)
     }
 
-    fn viewport_lines(&self, pane_id: usize) -> Result<Vec<String>> {
-        let screen = {
-            let state = state().read();
-            let Some(session) = state
-                .sessions
-                .iter()
-                .find(|session| session.snapshot.id == pane_id)
-            else {
-                bail!("next-core session {pane_id} not found");
-            };
-            Arc::clone(&session.screen)
-        };
-
-        let lines = screen.lock().snapshot_viewport_lines();
-        Ok(lines)
-    }
-
-    fn viewport_first_row(&self, pane_id: usize) -> Result<i64> {
-        let screen = {
-            let state = state().read();
-            let Some(session) = state
-                .sessions
-                .iter()
-                .find(|session| session.snapshot.id == pane_id)
-            else {
-                bail!("next-core session {pane_id} not found");
-            };
-            Arc::clone(&session.screen)
-        };
-
-        let first_row = screen.lock().viewport_first_row();
-        Ok(first_row)
-    }
-
-    #[allow(dead_code)]
-    fn styled_viewport_lines(
-        &self,
-        pane_id: usize,
-        first_row: i64,
-    ) -> Result<Vec<StyledScreenLine>> {
-        let screen = {
-            let state = state().read();
-            let Some(session) = state
-                .sessions
-                .iter()
-                .find(|session| session.snapshot.id == pane_id)
-            else {
-                bail!("next-core session {pane_id} not found");
-            };
-            Arc::clone(&session.screen)
-        };
-
-        let lines = screen.lock().styled_viewport_lines(first_row);
-        Ok(lines)
-    }
-
     fn scrollback_lines(&self, pane_id: usize) -> Result<Vec<String>> {
         let screen = {
             let state = state().read();
@@ -1648,59 +1618,9 @@ impl NextCoreEngine {
         Ok(lines)
     }
 
-    fn scrollback_rows(&self, pane_id: usize) -> Result<usize> {
-        let screen = {
-            let state = state().read();
-            let Some(session) = state
-                .sessions
-                .iter()
-                .find(|session| session.snapshot.id == pane_id)
-            else {
-                bail!("next-core session {pane_id} not found");
-            };
-            Arc::clone(&session.screen)
-        };
-
-        let rows = screen.lock().scrollback_rows();
-        Ok(rows)
-    }
-
-    fn screen_revision(&self, pane_id: usize) -> Result<u64> {
-        let screen = {
-            let state = state().read();
-            let Some(session) = state
-                .sessions
-                .iter()
-                .find(|session| session.snapshot.id == pane_id)
-            else {
-                bail!("next-core session {pane_id} not found");
-            };
-            Arc::clone(&session.screen)
-        };
-
-        let revision = screen.lock().revision();
-        Ok(revision)
-    }
-
-    fn screen_dirty_rows(&self, pane_id: usize) -> Result<Option<DirtyRows>> {
-        let screen = {
-            let state = state().read();
-            let Some(session) = state
-                .sessions
-                .iter()
-                .find(|session| session.snapshot.id == pane_id)
-            else {
-                bail!("next-core session {pane_id} not found");
-            };
-            Arc::clone(&session.screen)
-        };
-
-        let dirty_rows = screen.lock().dirty_rows();
-        Ok(dirty_rows)
-    }
-
     pub fn scroll_viewport_to(&self, pane_id: usize, target: isize) -> Result<()> {
-        let screen = {
+        let started_at = Instant::now();
+        let (screen, activity) = {
             let state = state().read();
             let Some(session) = state
                 .sessions
@@ -1709,10 +1629,11 @@ impl NextCoreEngine {
             else {
                 bail!("next-core session {pane_id} not found");
             };
-            Arc::clone(&session.screen)
+            (Arc::clone(&session.screen), Arc::clone(&session.activity))
         };
 
         screen.lock().set_viewport_top_near(target);
+        activity.lock().mark_viewport_scroll(started_at.elapsed());
         Ok(())
     }
 
@@ -2172,6 +2093,7 @@ impl SessionEngine for NextCoreEngine {
         let input = activity.input.clone();
         let output = activity.output.clone();
         let paste = activity.paste.clone();
+        let screen = activity.screen.clone();
         drop(activity);
         Ok(SessionActivitySnapshot {
             idle,
@@ -2179,6 +2101,7 @@ impl SessionEngine for NextCoreEngine {
             input,
             output,
             paste,
+            screen,
         })
     }
 
@@ -2228,45 +2151,88 @@ impl SessionEngine for NextCoreEngine {
 
 impl ScreenEngine for NextCoreEngine {
     fn read_screen(&self, pane_id: usize) -> Result<ScreenSnapshot> {
-        let session = self.session(pane_id)?;
-        let visible = self.viewport_lines(pane_id)?;
-        let scrollback_rows = self.scrollback_rows(pane_id)?;
-        let first_row = self.viewport_first_row(pane_id)?;
-        let cells = visible
-            .iter()
-            .enumerate()
-            .map(|(idx, text)| ScreenLine {
-                row: first_row + idx as i64,
-                text: text.clone(),
-            })
-            .collect();
+        let started_at = Instant::now();
+        let (session, screen_handle, activity_handle) = {
+            let state = state().read();
+            let Some(session) = state
+                .sessions
+                .iter()
+                .find(|session| session.snapshot.id == pane_id)
+            else {
+                bail!("next-core session {pane_id} not found");
+            };
+            (
+                session.snapshot.clone(),
+                Arc::clone(&session.screen),
+                Arc::clone(&session.activity),
+            )
+        };
 
-        Ok(ScreenSnapshot {
-            lines: visible,
-            cells,
-            cursor: self.screen_cursor(pane_id)?,
-            cols: session.cols,
-            rows: session.rows,
-            scrollback_rows,
-            revision: self.screen_revision(pane_id)?,
-            dirty_rows: self.screen_dirty_rows(pane_id)?,
-        })
+        let snapshot = {
+            let screen = screen_handle.lock();
+            let visible = screen.snapshot_viewport_lines();
+            let first_row = screen.viewport_first_row();
+            let cells = visible
+                .iter()
+                .enumerate()
+                .map(|(idx, text)| ScreenLine {
+                    row: first_row + idx as i64,
+                    text: text.clone(),
+                })
+                .collect();
+
+            ScreenSnapshot {
+                lines: visible,
+                cells,
+                cursor: screen.cursor_snapshot(),
+                cols: session.cols,
+                rows: session.rows,
+                scrollback_rows: screen.scrollback_rows(),
+                revision: screen.revision(),
+                dirty_rows: screen.dirty_rows(),
+            }
+        };
+        activity_handle
+            .lock()
+            .mark_screen_read(started_at.elapsed());
+        Ok(snapshot)
     }
 
     fn read_styled_screen(&self, pane_id: usize) -> Result<StyledScreenSnapshot> {
-        let session = self.session(pane_id)?;
-        let scrollback_rows = self.scrollback_rows(pane_id)?;
-        let first_row = self.viewport_first_row(pane_id)?;
+        let started_at = Instant::now();
+        let (session, screen_handle, activity_handle) = {
+            let state = state().read();
+            let Some(session) = state
+                .sessions
+                .iter()
+                .find(|session| session.snapshot.id == pane_id)
+            else {
+                bail!("next-core session {pane_id} not found");
+            };
+            (
+                session.snapshot.clone(),
+                Arc::clone(&session.screen),
+                Arc::clone(&session.activity),
+            )
+        };
 
-        Ok(StyledScreenSnapshot {
-            lines: self.styled_viewport_lines(pane_id, first_row)?,
-            cursor: self.screen_cursor(pane_id)?,
-            cols: session.cols,
-            rows: session.rows,
-            scrollback_rows,
-            revision: self.screen_revision(pane_id)?,
-            dirty_rows: self.screen_dirty_rows(pane_id)?,
-        })
+        let snapshot = {
+            let screen = screen_handle.lock();
+            let first_row = screen.viewport_first_row();
+            StyledScreenSnapshot {
+                lines: screen.styled_viewport_lines(first_row),
+                cursor: screen.cursor_snapshot(),
+                cols: session.cols,
+                rows: session.rows,
+                scrollback_rows: screen.scrollback_rows(),
+                revision: screen.revision(),
+                dirty_rows: screen.dirty_rows(),
+            }
+        };
+        activity_handle
+            .lock()
+            .mark_screen_read(started_at.elapsed());
+        Ok(snapshot)
     }
 
     fn read_visible_text(&self, pane_id: usize) -> Result<String> {
@@ -2640,6 +2606,8 @@ impl HealthEngine for NextCoreEngine {
             output_bytes: 0,
             paste_count: 0,
             paste_text_bytes: 0,
+            screen_reads: 0,
+            viewport_scrolls: 0,
         };
         for session in &state.sessions {
             let activity = session.activity.lock();
@@ -2654,6 +2622,12 @@ impl HealthEngine for NextCoreEngine {
             if let Some(paste) = &activity.paste {
                 io.paste_count = io.paste_count.saturating_add(paste.total_pastes);
                 io.paste_text_bytes = io.paste_text_bytes.saturating_add(paste.total_text_bytes);
+            }
+            if let Some(screen) = &activity.screen {
+                io.screen_reads = io.screen_reads.saturating_add(screen.total_reads);
+                io.viewport_scrolls = io
+                    .viewport_scrolls
+                    .saturating_add(screen.total_viewport_scrolls);
             }
         }
         Ok(EngineHealthSnapshot {
@@ -2908,7 +2882,9 @@ mod tests {
 
         engine.write_input(session.id, "abc")?;
         engine.paste_input(session.id, "token")?;
-        set_output_for_test(session.id, "hello")?;
+        set_output_for_test(session.id, "one\ntwo\nthree\nfour")?;
+        let _ = engine.read_screen(session.id)?;
+        engine.scroll_viewport_to(session.id, 1)?;
 
         let health = engine.health()?;
         let io = health.io.expect("next-core io health");
@@ -2918,7 +2894,9 @@ mod tests {
         assert_eq!(io.paste_count, 1);
         assert_eq!(io.paste_text_bytes, 5);
         assert_eq!(io.output_chunks, 1);
-        assert_eq!(io.output_bytes, 5);
+        assert_eq!(io.output_bytes, 18);
+        assert_eq!(io.screen_reads, 1);
+        assert_eq!(io.viewport_scrolls, 1);
 
         engine.destroy_session(session.id)?;
         Ok(())
@@ -3066,12 +3044,17 @@ mod tests {
         assert!(engine.activity(session.id)?.idle);
 
         set_output_for_test(session.id, "recent output")?;
+        let _ = engine.read_visible_text(session.id)?;
+        engine.scroll_viewport_to(session.id, 0)?;
         let activity = engine.activity(session.id)?;
         assert!(!activity.idle);
         assert_eq!(
             activity.foreground_process,
             engine.shell(session.id)?.process_name
         );
+        let screen = activity.screen.expect("screen activity");
+        assert_eq!(screen.total_reads, 1);
+        assert_eq!(screen.total_viewport_scrolls, 1);
 
         engine.destroy_session(session.id)?;
         Ok(())

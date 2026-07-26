@@ -177,12 +177,21 @@ pub struct PasteActivitySnapshot {
 }
 
 #[derive(Clone, Debug, Serialize)]
+pub struct ScreenActivitySnapshot {
+    pub total_reads: u64,
+    pub total_viewport_scrolls: u64,
+    pub last_read_duration_ms: u64,
+    pub last_scroll_duration_ms: u64,
+}
+
+#[derive(Clone, Debug, Serialize)]
 pub struct SessionActivitySnapshot {
     pub idle: bool,
     pub foreground_process: String,
     pub input: Option<InputActivitySnapshot>,
     pub output: Option<OutputActivitySnapshot>,
     pub paste: Option<PasteActivitySnapshot>,
+    pub screen: Option<ScreenActivitySnapshot>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -226,6 +235,8 @@ pub struct EngineIoHealthSnapshot {
     pub output_bytes: u64,
     pub paste_count: u64,
     pub paste_text_bytes: u64,
+    pub screen_reads: u64,
+    pub viewport_scrolls: u64,
 }
 
 #[derive(Clone, Debug, Serialize)]

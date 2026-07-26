@@ -38,6 +38,9 @@ if (-not $SkipCommitReachabilityCheck) {
 if ($summary.json_smoke.Engine -ne "next-core") {
     throw "json smoke engine is not next-core: $($summary.json_smoke.Engine)"
 }
+if ($summary.json_smoke.ScreenReads -lt 1) {
+    throw "json smoke did not include screen read diagnostics"
+}
 
 $gates = @($summary.gates)
 if ($gates.Count -ne $ExpectedGateCount) {

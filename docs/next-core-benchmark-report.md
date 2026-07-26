@@ -1,11 +1,11 @@
 # Next-Core Benchmark Report
 
-- Generated: 2026-07-27 02:45:48 +08:00
-- Commit: `c324320`
+- Generated: 2026-07-27 02:51:58 +08:00
+- Commit: `d4bdb82`
 - Machine: `ZHITONG-OMEN`
 - OS: `Microsoft Windows NT 10.0.26200.0`
 - Binary: `target\debug\unterm-next-core.exe`
-- JSON smoke: `next-core 100x30 raw_bytes=65`
+- JSON smoke: `next-core 100x30 raw_bytes=65 screen_reads=2`
 
 ## Gates
 
@@ -13,16 +13,16 @@
 | --- | ---: | ---: | --- |
 | input write p95 | 1 us | 16000 us | ok |
 | input burst p95 | 1 us | 33000 us | ok |
-| echo p95 | 5639 us | 16000 us | ok |
-| dual-agent echo p95 | 5541 us | 33000 us | ok |
-| paste 10kb elapsed | 19 ms | 50 ms | ok |
-| scrollback page p95 | 46 us | 1000 us | ok |
-| viewport scroll p95 | 57 us | 1000 us | ok |
-| viewport scroll under flood p95 | 357 us | 50000 us | ok |
-| screen read under flood p95 | 223 us | 50000 us | ok |
-| focus switch p95 | 35 us | 100000 us | ok |
-| session create p95 | 49541 us | 100000 us | ok |
-| session ready p95 | 78562 us | 100000 us | ok |
+| echo p95 | 5687 us | 16000 us | ok |
+| dual-agent echo p95 | 5605 us | 33000 us | ok |
+| paste 10kb elapsed | 24 ms | 50 ms | ok |
+| scrollback page p95 | 44 us | 1000 us | ok |
+| viewport scroll p95 | 50 us | 1000 us | ok |
+| viewport scroll under flood p95 | 265 us | 50000 us | ok |
+| screen read under flood p95 | 135 us | 50000 us | ok |
+| focus switch p95 | 44 us | 100000 us | ok |
+| session create p95 | 11706 us | 100000 us | ok |
+| session ready p95 | 44287 us | 100000 us | ok |
 
 ## Summary
 
@@ -32,7 +32,7 @@
 - Args: `--bench-input-writes 1000 --timeout-ms 120000 --wait-ms 0 --write exit\r -- cmd.exe`
 
 ```text
-bench_input_write rounds=1000 bytes=3000 min_us=0 p50_us=0 p95_us=1 max_us=28 bytes_per_sec=14354067.0
+bench_input_write rounds=1000 bytes=3000 min_us=0 p50_us=0 p95_us=1 max_us=15 bytes_per_sec=7712082.3
 session id=1 cols=100 rows=30 dead=false cursor=(0, 0) raw_bytes=0
 ```
 
@@ -42,7 +42,7 @@ session id=1 cols=100 rows=30 dead=false cursor=(0, 0) raw_bytes=0
 - Args: `--bench-input-burst 1000 --timeout-ms 120000 --wait-ms 0 --write exit\r -- cmd.exe`
 
 ```text
-bench_input_burst rounds=1000 background_sessions=2 background_lines_per_session=20000 background_bytes=2097152 background_elapsed_ms=2985 min_us=0 p50_us=1 p95_us=1 max_us=92
+bench_input_burst rounds=1000 background_sessions=2 background_lines_per_session=20000 background_bytes=2097152 background_elapsed_ms=3294 min_us=0 p50_us=1 p95_us=1 max_us=114
 session id=1 cols=100 rows=30 dead=false cursor=(15, 3) raw_bytes=155
 ```
 
@@ -52,8 +52,9 @@ session id=1 cols=100 rows=30 dead=false cursor=(15, 3) raw_bytes=155
 - Args: `--bench-echo 50 --timeout-ms 120000 --wait-ms 0 --write exit\r -- cmd.exe`
 
 ```text
-bench_echo rounds=50 min_us=5198 p50_us=5524 p95_us=5639 max_us=16357
-session id=1 cols=100 rows=30 dead=false cursor=(15, 29) raw_bytes=10464
+bench_echo rounds=50 min_us=5217 p50_us=5511 p95_us=5687 max_us=32563
+session id=1 cols=100 rows=30 dead=false cursor=(15, 29) raw_bytes=10442
+UNTERM_NEXT_CORE_BENCH_0040
 C:\Users\lixd2>echo UNTERM_NEXT_CORE_BENCH_0041
 UNTERM_NEXT_CORE_BENCH_0041
 C:\Users\lixd2>echo UNTERM_NEXT_CORE_BENCH_0042
@@ -80,7 +81,7 @@ UNTERM_NEXT_CORE_BENCH_0049
 - Args: `--bench-flood-lines 100000 --timeout-ms 120000 --wait-ms 0 --write exit\r -- cmd.exe`
 
 ```text
-bench_flood lines=100000 bytes=1048576 elapsed_ms=28711 lines_per_sec=3483.0 bytes_per_sec=36521.6
+bench_flood lines=100000 bytes=1048576 elapsed_ms=31495 lines_per_sec=3175.1 bytes_per_sec=33293.3
 session id=1 cols=100 rows=30 dead=false cursor=(15, 29) raw_bytes=1048576
 ```
 
@@ -90,7 +91,7 @@ session id=1 cols=100 rows=30 dead=false cursor=(15, 29) raw_bytes=1048576
 - Args: `--bench-paste-kb 10 --timeout-ms 120000 --wait-ms 0 --write exit\r -- cmd.exe`
 
 ```text
-bench_paste bytes=10240 elapsed_ms=19 bytes_per_sec=519151.3
+bench_paste bytes=10240 elapsed_ms=24 bytes_per_sec=425577.9
 session id=1 cols=100 rows=30 dead=false cursor=(0, 4) raw_bytes=319
 ```
 
@@ -100,8 +101,8 @@ session id=1 cols=100 rows=30 dead=false cursor=(0, 4) raw_bytes=319
 - Args: `--bench-scrollback-lines 10000 --timeout-ms 120000 --wait-ms 0 --write exit\r -- cmd.exe`
 
 ```text
-bench_flood lines=10000 bytes=1048576 elapsed_ms=1221 lines_per_sec=8188.1 bytes_per_sec=858583.4
-bench_scrollback lines=10000 pages=334 rows_read=10020 total_ms=13 min_us=30 p50_us=39 p95_us=46 max_us=166
+bench_flood lines=10000 bytes=1048576 elapsed_ms=1196 lines_per_sec=8359.8 bytes_per_sec=876593.4
+bench_scrollback lines=10000 pages=334 rows_read=10020 total_ms=11 min_us=28 p50_us=33 p95_us=44 max_us=65
 session id=1 cols=100 rows=30 dead=false cursor=(15, 29) raw_bytes=1048576
 ```
 
@@ -111,8 +112,8 @@ session id=1 cols=100 rows=30 dead=false cursor=(15, 29) raw_bytes=1048576
 - Args: `--bench-viewport-scrolls 10000 --timeout-ms 120000 --wait-ms 0 --write exit\r -- cmd.exe`
 
 ```text
-bench_flood lines=10000 bytes=1048576 elapsed_ms=1290 lines_per_sec=7747.0 bytes_per_sec=812332.6
-bench_viewport_scroll lines=10000 pages=334 rows_read=10020 total_ms=15 min_us=36 p50_us=45 p95_us=57 max_us=135
+bench_flood lines=10000 bytes=1048576 elapsed_ms=1261 lines_per_sec=7924.9 bytes_per_sec=830982.9
+bench_viewport_scroll lines=10000 pages=334 rows_read=10020 total_ms=13 min_us=30 p50_us=39 p95_us=50 max_us=117
 session id=1 cols=100 rows=30 dead=false cursor=(15, 29) raw_bytes=1048576
 ```
 
@@ -122,7 +123,7 @@ session id=1 cols=100 rows=30 dead=false cursor=(15, 29) raw_bytes=1048576
 - Args: `--bench-viewport-scroll-flood 5000 --timeout-ms 120000 --wait-ms 0 --write exit\r -- cmd.exe`
 
 ```text
-bench_viewport_scroll_flood lines=5000 scrolls=107 rows_read=3094 total_ms=617 min_us=49 p50_us=244 p95_us=357 max_us=495
+bench_viewport_scroll_flood lines=5000 scrolls=115 rows_read=3350 total_ms=664 min_us=24 p50_us=179 p95_us=265 max_us=371
 session id=1 cols=100 rows=30 dead=false cursor=(15, 29) raw_bytes=653251
 ```
 
@@ -132,8 +133,8 @@ session id=1 cols=100 rows=30 dead=false cursor=(15, 29) raw_bytes=653251
 - Args: `--bench-dual-agent-lines 5000 --timeout-ms 120000 --wait-ms 0 --write exit\r -- cmd.exe`
 
 ```text
-bench_dual_agents_echo rounds=20 min_us=5050 p50_us=5500 p95_us=5541 max_us=5566
-bench_dual_agents lines_per_agent=5000 total_bytes=1306502 elapsed_ms=723 combined_lines_per_sec=13830.4 combined_bytes_per_sec=1806938.5
+bench_dual_agents_echo rounds=20 min_us=5059 p50_us=5518 p95_us=5605 max_us=21234
+bench_dual_agents lines_per_agent=5000 total_bytes=1306354 elapsed_ms=768 combined_lines_per_sec=13005.4 combined_bytes_per_sec=1698963.6
 session id=1 cols=100 rows=30 dead=false cursor=(15, 29) raw_bytes=4262
 UNTERM_NEXT_CORE_BENCH_0010
 C:\Users\lixd2>echo UNTERM_NEXT_CORE_BENCH_0011
@@ -162,7 +163,7 @@ UNTERM_NEXT_CORE_BENCH_0019
 - Args: `--bench-screen-read-lines 5000 --timeout-ms 120000 --wait-ms 0 --write exit\r -- cmd.exe`
 
 ```text
-bench_screen_read_flood lines=5000 reads=115 total_ms=653 min_us=35 p50_us=134 p95_us=223 max_us=332 text_bytes=86974
+bench_screen_read_flood lines=5000 reads=110 total_ms=617 min_us=16 p50_us=64 p95_us=135 max_us=207 text_bytes=82320
 session id=1 cols=100 rows=30 dead=false cursor=(15, 29) raw_bytes=653251
 ```
 
@@ -172,7 +173,7 @@ session id=1 cols=100 rows=30 dead=false cursor=(15, 29) raw_bytes=653251
 - Args: `--bench-focus-switches 1000 --timeout-ms 120000 --wait-ms 0 --write exit\r -- cmd.exe`
 
 ```text
-bench_focus_switch rounds=1000 sessions=4 min_us=10 p50_us=15 p95_us=35 max_us=161
+bench_focus_switch rounds=1000 sessions=4 min_us=13 p50_us=17 p95_us=44 max_us=188
 session id=1 cols=100 rows=30 dead=false cursor=(15, 3) raw_bytes=155
 ```
 
@@ -182,7 +183,7 @@ session id=1 cols=100 rows=30 dead=false cursor=(15, 3) raw_bytes=155
 - Args: `--bench-session-create 20 --timeout-ms 120000 --wait-ms 0 --write exit\r -- cmd.exe`
 
 ```text
-bench_session_create rounds=20 min_us=6673 p50_us=9286 p95_us=49541 max_us=51154
+bench_session_create rounds=20 min_us=9052 p50_us=10245 p95_us=11706 max_us=45624
 session id=1 cols=100 rows=30 dead=false cursor=(15, 3) raw_bytes=155
 ```
 
@@ -192,7 +193,7 @@ session id=1 cols=100 rows=30 dead=false cursor=(15, 3) raw_bytes=155
 - Args: `--bench-session-ready 20 --timeout-ms 120000 --wait-ms 0 --write exit\r -- cmd.exe`
 
 ```text
-bench_session_ready rounds=20 min_us=34564 p50_us=43990 p95_us=78562 max_us=81423
+bench_session_ready rounds=20 min_us=32552 p50_us=38102 p95_us=44287 max_us=57029
 session id=1 cols=100 rows=30 dead=false cursor=(15, 3) raw_bytes=155
 ```
 
@@ -201,7 +202,7 @@ session id=1 cols=100 rows=30 dead=false cursor=(15, 3) raw_bytes=155
 ### input write latency
 
 ```text
-bench_input_write rounds=1000 bytes=3000 min_us=0 p50_us=0 p95_us=1 max_us=28 bytes_per_sec=14354067.0
+bench_input_write rounds=1000 bytes=3000 min_us=0 p50_us=0 p95_us=1 max_us=15 bytes_per_sec=7712082.3
 session id=1 cols=100 rows=30 dead=false cursor=(0, 0) raw_bytes=0
 
 ```
@@ -209,7 +210,7 @@ session id=1 cols=100 rows=30 dead=false cursor=(0, 0) raw_bytes=0
 ### input burst under output
 
 ```text
-bench_input_burst rounds=1000 background_sessions=2 background_lines_per_session=20000 background_bytes=2097152 background_elapsed_ms=2985 min_us=0 p50_us=1 p95_us=1 max_us=92
+bench_input_burst rounds=1000 background_sessions=2 background_lines_per_session=20000 background_bytes=2097152 background_elapsed_ms=3294 min_us=0 p50_us=1 p95_us=1 max_us=114
 session id=1 cols=100 rows=30 dead=false cursor=(15, 3) raw_bytes=155
 Microsoft Windows [版本 10.0.26200.8875]
 (c) Microsoft Corporation。保留所有权利。
@@ -220,8 +221,9 @@ C:\Users\lixd2>
 ### echo latency
 
 ```text
-bench_echo rounds=50 min_us=5198 p50_us=5524 p95_us=5639 max_us=16357
-session id=1 cols=100 rows=30 dead=false cursor=(15, 29) raw_bytes=10464
+bench_echo rounds=50 min_us=5217 p50_us=5511 p95_us=5687 max_us=32563
+session id=1 cols=100 rows=30 dead=false cursor=(15, 29) raw_bytes=10442
+UNTERM_NEXT_CORE_BENCH_0040
 
 C:\Users\lixd2>echo UNTERM_NEXT_CORE_BENCH_0041
 UNTERM_NEXT_CORE_BENCH_0041
@@ -250,15 +252,15 @@ UNTERM_NEXT_CORE_BENCH_0048
 C:\Users\lixd2>echo UNTERM_NEXT_CORE_BENCH_0049
 UNTERM_NEXT_CORE_BENCH_0049
 
-C:\Users\lixd2>exit
-
+C:\Users\lixd2>
 ```
 
 ### output flood
 
 ```text
-bench_flood lines=100000 bytes=1048576 elapsed_ms=28711 lines_per_sec=3483.0 bytes_per_sec=36521.6
+bench_flood lines=100000 bytes=1048576 elapsed_ms=31495 lines_per_sec=3175.1 bytes_per_sec=33293.3
 session id=1 cols=100 rows=30 dead=false cursor=(15, 29) raw_bytes=1048576
+UNTERM_NEXT_CORE_FLOOD_99976
 UNTERM_NEXT_CORE_FLOOD_99977
 UNTERM_NEXT_CORE_FLOOD_99978
 UNTERM_NEXT_CORE_FLOOD_99979
@@ -288,13 +290,12 @@ C:\Users\lixd2>echo UNTERM_NEXT_CORE_FLOOD_DONE_100000_1
 UNTERM_NEXT_CORE_FLOOD_DONE_100000_1
 
 C:\Users\lixd2>exit
-
 ```
 
 ### paste 10kb
 
 ```text
-bench_paste bytes=10240 elapsed_ms=19 bytes_per_sec=519151.3
+bench_paste bytes=10240 elapsed_ms=24 bytes_per_sec=425577.9
 session id=1 cols=100 rows=30 dead=false cursor=(0, 4) raw_bytes=319
 Microsoft Windows [版本 10.0.26200.8875]
 (c) Microsoft Corporation。保留所有权利。
@@ -306,8 +307,8 @@ C:\Users\lixd2>set /p UNTERM_NEXT_CORE_PASTE_INPUT=&echo UNTERM_NEXT_CORE_PASTE_
 ### scrollback paging
 
 ```text
-bench_flood lines=10000 bytes=1048576 elapsed_ms=1221 lines_per_sec=8188.1 bytes_per_sec=858583.4
-bench_scrollback lines=10000 pages=334 rows_read=10020 total_ms=13 min_us=30 p50_us=39 p95_us=46 max_us=166
+bench_flood lines=10000 bytes=1048576 elapsed_ms=1196 lines_per_sec=8359.8 bytes_per_sec=876593.4
+bench_scrollback lines=10000 pages=334 rows_read=10020 total_ms=11 min_us=28 p50_us=33 p95_us=44 max_us=65
 session id=1 cols=100 rows=30 dead=false cursor=(15, 29) raw_bytes=1048576
 UNTERM_NEXT_CORE_FLOOD_9976
 UNTERM_NEXT_CORE_FLOOD_9977
@@ -344,8 +345,8 @@ C:\Users\lixd2>
 ### viewport scroll paging
 
 ```text
-bench_flood lines=10000 bytes=1048576 elapsed_ms=1290 lines_per_sec=7747.0 bytes_per_sec=812332.6
-bench_viewport_scroll lines=10000 pages=334 rows_read=10020 total_ms=15 min_us=36 p50_us=45 p95_us=57 max_us=135
+bench_flood lines=10000 bytes=1048576 elapsed_ms=1261 lines_per_sec=7924.9 bytes_per_sec=830982.9
+bench_viewport_scroll lines=10000 pages=334 rows_read=10020 total_ms=13 min_us=30 p50_us=39 p95_us=50 max_us=117
 session id=1 cols=100 rows=30 dead=false cursor=(15, 29) raw_bytes=1048576
 Microsoft Windows [版本 10.0.26200.8875]
 (c) Microsoft Corporation。保留所有权利。
@@ -382,45 +383,45 @@ UNTERM_NEXT_CORE_FLOOD_26
 ### viewport scroll during flood
 
 ```text
-bench_viewport_scroll_flood lines=5000 scrolls=107 rows_read=3094 total_ms=617 min_us=49 p50_us=244 p95_us=357 max_us=495
+bench_viewport_scroll_flood lines=5000 scrolls=115 rows_read=3350 total_ms=664 min_us=24 p50_us=179 p95_us=265 max_us=371
 session id=1 cols=100 rows=30 dead=false cursor=(15, 29) raw_bytes=653251
-UNTERM_NEXT_CORE_FLOOD_904
-UNTERM_NEXT_CORE_FLOOD_905
-UNTERM_NEXT_CORE_FLOOD_906
-UNTERM_NEXT_CORE_FLOOD_907
-UNTERM_NEXT_CORE_FLOOD_908
-UNTERM_NEXT_CORE_FLOOD_909
-UNTERM_NEXT_CORE_FLOOD_910
-UNTERM_NEXT_CORE_FLOOD_911
-UNTERM_NEXT_CORE_FLOOD_912
-UNTERM_NEXT_CORE_FLOOD_913
-UNTERM_NEXT_CORE_FLOOD_914
-UNTERM_NEXT_CORE_FLOOD_915
-UNTERM_NEXT_CORE_FLOOD_916
-UNTERM_NEXT_CORE_FLOOD_917
-UNTERM_NEXT_CORE_FLOOD_918
-UNTERM_NEXT_CORE_FLOOD_919
-UNTERM_NEXT_CORE_FLOOD_920
-UNTERM_NEXT_CORE_FLOOD_921
-UNTERM_NEXT_CORE_FLOOD_922
-UNTERM_NEXT_CORE_FLOOD_923
-UNTERM_NEXT_CORE_FLOOD_924
-UNTERM_NEXT_CORE_FLOOD_925
-UNTERM_NEXT_CORE_FLOOD_926
-UNTERM_NEXT_CORE_FLOOD_927
-UNTERM_NEXT_CORE_FLOOD_928
-UNTERM_NEXT_CORE_FLOOD_929
-UNTERM_NEXT_CORE_FLOOD_930
-UNTERM_NEXT_CORE_FLOOD_931
-UNTERM_NEXT_CORE_FLOOD_932
-UNTERM_NEXT_CORE_FLOOD_933
+UNTERM_NEXT_CORE_FLOOD_2347
+UNTERM_NEXT_CORE_FLOOD_2348
+UNTERM_NEXT_CORE_FLOOD_2349
+UNTERM_NEXT_CORE_FLOOD_2350
+UNTERM_NEXT_CORE_FLOOD_2351
+UNTERM_NEXT_CORE_FLOOD_2352
+UNTERM_NEXT_CORE_FLOOD_2353
+UNTERM_NEXT_CORE_FLOOD_2354
+UNTERM_NEXT_CORE_FLOOD_2355
+UNTERM_NEXT_CORE_FLOOD_2356
+UNTERM_NEXT_CORE_FLOOD_2357
+UNTERM_NEXT_CORE_FLOOD_2358
+UNTERM_NEXT_CORE_FLOOD_2359
+UNTERM_NEXT_CORE_FLOOD_2360
+UNTERM_NEXT_CORE_FLOOD_2361
+UNTERM_NEXT_CORE_FLOOD_2362
+UNTERM_NEXT_CORE_FLOOD_2363
+UNTERM_NEXT_CORE_FLOOD_2364
+UNTERM_NEXT_CORE_FLOOD_2365
+UNTERM_NEXT_CORE_FLOOD_2366
+UNTERM_NEXT_CORE_FLOOD_2367
+UNTERM_NEXT_CORE_FLOOD_2368
+UNTERM_NEXT_CORE_FLOOD_2369
+UNTERM_NEXT_CORE_FLOOD_2370
+UNTERM_NEXT_CORE_FLOOD_2371
+UNTERM_NEXT_CORE_FLOOD_2372
+UNTERM_NEXT_CORE_FLOOD_2373
+UNTERM_NEXT_CORE_FLOOD_2374
+UNTERM_NEXT_CORE_FLOOD_2375
+UNTERM_NEXT_CORE_FLOOD_2376
 ```
 
 ### dual pseudo-agent output
 
 ```text
-bench_dual_agents_echo rounds=20 min_us=5050 p50_us=5500 p95_us=5541 max_us=5566
-bench_dual_agents lines_per_agent=5000 total_bytes=1306502 elapsed_ms=723 combined_lines_per_sec=13830.4 combined_bytes_per_sec=1806938.5
+bench_dual_agents_echo rounds=20 min_us=5059 p50_us=5518 p95_us=5605 max_us=21234
+bench_dual_agents lines_per_agent=5000 total_bytes=1306354 elapsed_ms=768 combined_lines_per_sec=13005.4 combined_bytes_per_sec=1698963.6
 session id=1 cols=100 rows=30 dead=false cursor=(15, 29) raw_bytes=4262
 UNTERM_NEXT_CORE_BENCH_0010
 
@@ -457,7 +458,7 @@ C:\Users\lixd2>
 ### screen read during flood
 
 ```text
-bench_screen_read_flood lines=5000 reads=115 total_ms=653 min_us=35 p50_us=134 p95_us=223 max_us=332 text_bytes=86974
+bench_screen_read_flood lines=5000 reads=110 total_ms=617 min_us=16 p50_us=64 p95_us=135 max_us=207 text_bytes=82320
 session id=1 cols=100 rows=30 dead=false cursor=(15, 29) raw_bytes=653251
 UNTERM_NEXT_CORE_FLOOD_4976
 UNTERM_NEXT_CORE_FLOOD_4977
@@ -488,13 +489,13 @@ UNTERM_NEXT_CORE_FLOOD_5000
 C:\Users\lixd2>echo UNTERM_NEXT_CORE_FLOOD_DONE_5000_1
 UNTERM_NEXT_CORE_FLOOD_DONE_5000_1
 
-C:\Users\lixd2>exit
+C:\Users\lixd2>
 ```
 
 ### focus switch latency
 
 ```text
-bench_focus_switch rounds=1000 sessions=4 min_us=10 p50_us=15 p95_us=35 max_us=161
+bench_focus_switch rounds=1000 sessions=4 min_us=13 p50_us=17 p95_us=44 max_us=188
 session id=1 cols=100 rows=30 dead=false cursor=(15, 3) raw_bytes=155
 Microsoft Windows [版本 10.0.26200.8875]
 (c) Microsoft Corporation。保留所有权利。
@@ -505,7 +506,7 @@ C:\Users\lixd2>
 ### session create latency
 
 ```text
-bench_session_create rounds=20 min_us=6673 p50_us=9286 p95_us=49541 max_us=51154
+bench_session_create rounds=20 min_us=9052 p50_us=10245 p95_us=11706 max_us=45624
 session id=1 cols=100 rows=30 dead=false cursor=(15, 3) raw_bytes=155
 Microsoft Windows [版本 10.0.26200.8875]
 (c) Microsoft Corporation。保留所有权利。
@@ -516,7 +517,7 @@ C:\Users\lixd2>
 ### session ready latency
 
 ```text
-bench_session_ready rounds=20 min_us=34564 p50_us=43990 p95_us=78562 max_us=81423
+bench_session_ready rounds=20 min_us=32552 p50_us=38102 p95_us=44287 max_us=57029
 session id=1 cols=100 rows=30 dead=false cursor=(15, 3) raw_bytes=155
 Microsoft Windows [版本 10.0.26200.8875]
 (c) Microsoft Corporation。保留所有权利。
