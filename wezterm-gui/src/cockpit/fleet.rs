@@ -178,11 +178,23 @@ pub trait FleetPaneSpawner {
     fn spawn_member(&mut self, cwd: &Path, command: &str) -> Result<u64>;
 }
 
+pub trait FleetPaneRemover {
+    fn remove_member(&mut self, pane_id: u64) -> Result<()>;
+}
+
 struct WezTermTabSpawner;
+struct WezTermPaneRemover;
 
 impl FleetPaneSpawner for WezTermTabSpawner {
     fn spawn_member(&mut self, cwd: &Path, command: &str) -> Result<u64> {
         spawn_member_tab(cwd, command)
+    }
+}
+
+impl FleetPaneRemover for WezTermPaneRemover {
+    fn remove_member(&mut self, pane_id: u64) -> Result<()> {
+        remove_member_pane(pane_id);
+        Ok(())
     }
 }
 
@@ -474,6 +486,17 @@ pub fn resolve_member(fleet: &Fleet, member: &str) -> Result<FleetMember> {
 /// work. The previous pane is closed before the new agent starts to prevent two
 /// processes from concurrently editing the same worktree.
 pub fn retry_member(fleet_id: &str, member: &str) -> Result<FleetMember> {
+    let mut spawner = WezTermTabSpawner;
+    let mut remover = WezTermPaneRemover;
+    retry_member_with_driver(fleet_id, member, &mut spawner, &mut remover)
+}
+
+pub fn retry_member_with_driver(
+    fleet_id: &str,
+    member: &str,
+    spawner: &mut dyn FleetPaneSpawner,
+    remover: &mut dyn FleetPaneRemover,
+) -> Result<FleetMember> {
     let (old_pane_id, worktree, branch, agent_cmd) = {
         let s = store().lock();
         let fleet = s
@@ -505,10 +528,10 @@ pub fn retry_member(fleet_id: &str, member: &str) -> Result<FleetMember> {
     }
 
     if let Some(pane_id) = old_pane_id {
-        remove_member_pane(pane_id);
+        remover.remove_member(pane_id).ok();
     }
 
-    let pane_id = match spawn_member_tab(&worktree, &agent_cmd) {
+    let pane_id = match spawner.spawn_member(&worktree, &agent_cmd) {
         Ok(pane_id) => pane_id,
         Err(err) => {
             let message = format!("{err:#}");
@@ -526,7 +549,7 @@ pub fn retry_member(fleet_id: &str, member: &str) -> Result<FleetMember> {
 
     let mut s = store().lock();
     let Some(fleet) = s.iter_mut().find(|f| f.id == fleet_id) else {
-        remove_member_pane(pane_id);
+        remover.remove_member(pane_id).ok();
         bail!("fleet {fleet_id:?} was removed while retrying");
     };
     let m = resolve_member_mut(fleet, &branch)?;

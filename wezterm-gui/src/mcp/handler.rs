@@ -551,7 +551,7 @@ mod engine_neutral_handler_tests {
     }
 
     #[test]
-    fn fleet_launch_uses_next_core_session_engine() {
+    fn fleet_launch_and_retry_use_next_core_session_engine() {
         let _guard = env_lock().lock();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         let previous_fleets_path = std::env::var("UNTERM_FLEETS_PATH").ok();
@@ -596,10 +596,10 @@ mod engine_neutral_handler_tests {
         run_git(&["add", "README.md"]).expect("git add");
         run_git(&["commit", "-m", "initial"]).expect("git commit");
 
-        let result: Result<serde_json::Value> = (|| {
+        let result: Result<(serde_json::Value, serde_json::Value)> = (|| {
             let handler = McpHandler::new();
             let ctx = ConnectionContext::internal("handler-test");
-            handler.handle(
+            let launched = handler.handle(
                 &ctx,
                 "fleet.launch",
                 &json!({
@@ -607,7 +607,16 @@ mod engine_neutral_handler_tests {
                     "task": "next-core-fleet",
                     "agents": ["echo"],
                 }),
-            )
+            )?;
+            let retried = handler.handle(
+                &ctx,
+                "fleet.retry",
+                &json!({
+                    "fleet_id": launched["id"],
+                    "member": "1",
+                }),
+            )?;
+            Ok((launched, retried))
         })();
 
         match previous_engine {
@@ -619,13 +628,16 @@ mod engine_neutral_handler_tests {
             None => std::env::remove_var("UNTERM_FLEETS_PATH"),
         }
 
-        let fleet = result.expect("launch fleet through next-core engine");
-        let pane_id = fleet["members"][0]["pane_id"]
+        let (fleet, retried) = result.expect("launch and retry fleet through next-core engine");
+        let old_pane_id = fleet["members"][0]["pane_id"]
             .as_u64()
             .expect("fleet member pane id") as usize;
+        let new_pane_id = retried["pane_id"].as_u64().expect("retried member pane id") as usize;
+        assert_ne!(old_pane_id, new_pane_id);
+        assert!(next_core().get_session(old_pane_id).is_err());
         let session = next_core()
-            .get_session(pane_id)
-            .expect("next-core fleet session");
+            .get_session(new_pane_id)
+            .expect("retried next-core fleet session");
         assert!(session
             .shell
             .cwd
@@ -633,9 +645,11 @@ mod engine_neutral_handler_tests {
             .unwrap_or_default()
             .contains(".fleet"));
         assert_eq!(fleet["members"][0]["agent"], "echo");
-        assert_eq!(fleet["members"][0]["last_launch_error"], Value::Null);
+        assert_eq!(retried["agent"], "echo");
+        assert_eq!(retried["attempt"], 2);
+        assert_eq!(retried["last_launch_error"], Value::Null);
 
-        next_core().destroy_session(pane_id).ok();
+        next_core().destroy_session(new_pane_id).ok();
         crate::cockpit::fleet::reset_store_for_tests();
         std::fs::remove_dir_all(&temp_root).ok();
     }
@@ -681,6 +695,31 @@ pub enum ConfirmationDecision {
 enum GateOutcome {
     Allow,
     Block,
+}
+
+struct EngineFleetDriver {
+    engine: CurrentTerminalEngine,
+}
+
+impl crate::cockpit::fleet::FleetPaneSpawner for EngineFleetDriver {
+    fn spawn_member(&mut self, cwd: &std::path::Path, command: &str) -> Result<u64> {
+        let session = self.engine.create_session(CreateSessionRequest {
+            cols: 120,
+            rows: 32,
+            command_dir: Some(cwd.display().to_string()),
+            command: None,
+        })?;
+        std::thread::sleep(std::time::Duration::from_millis(600));
+        self.engine
+            .write_input(session.id, &format!("{command}\r"))?;
+        Ok(session.id as u64)
+    }
+}
+
+impl crate::cockpit::fleet::FleetPaneRemover for EngineFleetDriver {
+    fn remove_member(&mut self, pane_id: u64) -> Result<()> {
+        self.engine.destroy_session(pane_id as usize)
+    }
 }
 
 /// Pending confirmation request. The MCP-worker thread parks on
@@ -2656,28 +2695,15 @@ impl McpHandler {
 
     // --- Cockpit: fleet + review ---
 
+    fn engine_fleet_driver(&self) -> EngineFleetDriver {
+        EngineFleetDriver {
+            engine: self.engine(),
+        }
+    }
+
     /// `fleet.launch` — one task × N agents × N git worktrees. Blocking
     /// (worktree creation + tab spawn), which is fine on the MCP thread.
     fn fleet_launch(&self, params: &Value) -> Result<Value> {
-        struct EngineFleetSpawner {
-            engine: CurrentTerminalEngine,
-        }
-
-        impl crate::cockpit::fleet::FleetPaneSpawner for EngineFleetSpawner {
-            fn spawn_member(&mut self, cwd: &std::path::Path, command: &str) -> Result<u64> {
-                let session = self.engine.create_session(CreateSessionRequest {
-                    cols: 120,
-                    rows: 32,
-                    command_dir: Some(cwd.display().to_string()),
-                    command: None,
-                })?;
-                std::thread::sleep(std::time::Duration::from_millis(600));
-                self.engine
-                    .write_input(session.id, &format!("{command}\r"))?;
-                Ok(session.id as u64)
-            }
-        }
-
         let engine = self.engine();
         let cwd = params
             .get("cwd")
@@ -2706,7 +2732,7 @@ impl McpHandler {
             })
             .filter(|v: &Vec<String>| !v.is_empty())
             .ok_or_else(|| anyhow!("Missing 'agents' (e.g. [\"claude\",\"claude\"])"))?;
-        let mut spawner = EngineFleetSpawner { engine };
+        let mut spawner = EngineFleetDriver { engine };
         let fleet = crate::cockpit::fleet::launch_with_spawner(&cwd, task, &agents, &mut spawner)?;
         self.audit(
             "fleet.launch",
@@ -2740,7 +2766,14 @@ impl McpHandler {
             .get("member")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing 'member'"))?;
-        let retried = crate::cockpit::fleet::retry_member(fleet_id, member)?;
+        let mut spawner = self.engine_fleet_driver();
+        let mut remover = self.engine_fleet_driver();
+        let retried = crate::cockpit::fleet::retry_member_with_driver(
+            fleet_id,
+            member,
+            &mut spawner,
+            &mut remover,
+        )?;
         self.audit(
             "fleet.retry",
             None,
