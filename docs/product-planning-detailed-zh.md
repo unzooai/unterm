@@ -199,8 +199,8 @@ Unterm 的产品目标不是“再做一个终端”，而是做一个本地优�
 - MCP handler 不再直接触达 WezTerm 深层类型。
 - `SessionEngine`、`InputEngine`、`ScreenEngine`、`CaptureEngine`、`WindowEngine` 覆盖核心路径。
 - `docs/engine-dependency-map.md` 中 WezTerm-only 保持为 0。
-- `capture.scrollback` 的 next-core 语义明确：实现或标为清晰 unsupported。
-- `server.capabilities` / `meta.surface` 表达 per-engine 能力，尤其让 agent 能看见 next-core 暂不支持 `capture.scrollback`。
+- `capture.scrollback` 的 next-core 语义明确：先支持纯文本 PNG，后续补 styled cell parity。
+- `server.capabilities` / `meta.surface` 表达 per-engine 能力，尤其让 agent 能看见 next-core 的受限能力而不是猜测。
 
 验收：
 

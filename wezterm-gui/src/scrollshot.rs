@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 use termwiz::cell::Underline;
-use wezterm_font::shaper::PresentationWidth;
+use wezterm_font::shaper::{Direction, PresentationWidth};
 use wezterm_font::{FontConfiguration, LoadedFont, RasterizedGlyph};
 
 pub struct ScrollbackPngOptions {
@@ -54,6 +54,103 @@ pub struct ScrollbackPng {
     pub cols: usize,
     pub truncated: bool,
     pub first_row: isize,
+}
+
+/// Render engine-owned plain-text scrollback to PNG. This is the `next-core`
+/// bridge while styled cell parity is still evolving: it uses the same font
+/// stack and PNG streaming path as the pane renderer, but applies the default
+/// terminal colors to every cell.
+pub fn render_plain_scrollback_png(
+    lines: &[String],
+    cols: usize,
+    first_row: i64,
+    truncated: bool,
+    out_path: &Path,
+    opts: &ScrollbackPngOptions,
+) -> Result<ScrollbackPng> {
+    let rows = lines.len().max(1);
+    let text_cols = lines
+        .iter()
+        .map(|line| line.chars().count())
+        .max()
+        .unwrap_or(0);
+    let cols = cols.max(text_cols).max(1);
+
+    let fonts = Rc::new(FontConfiguration::new(None, opts.dpi)?);
+    let font = fonts.default_font()?;
+    let metrics = fonts.default_font_metrics()?;
+    let cell_w = metrics.cell_width.get();
+    let cell_h = metrics.cell_height.get().ceil().max(1.0);
+    let baseline = metrics.cell_height.get() + metrics.descender.get();
+
+    let width_px = (cols as f64 * cell_w).ceil() as u32;
+    let height_px = rows as u32 * cell_h as u32;
+
+    if let Some(parent) = out_path.parent() {
+        std::fs::create_dir_all(parent).ok();
+    }
+    let file = std::fs::File::create(out_path)
+        .with_context(|| format!("create {}", out_path.display()))?;
+    let bufw = std::io::BufWriter::new(file);
+    let mut enc = png::Encoder::new(bufw, width_px, height_px);
+    enc.set_color(png::ColorType::Rgba);
+    enc.set_depth(png::BitDepth::Eight);
+    let mut writer = enc.write_header().context("write png header")?;
+    let mut stream = writer.stream_writer().context("png stream writer")?;
+
+    let mut band = BandCanvas::new(width_px as usize, cell_h as usize);
+    let mut raster_cache: HashMap<(usize, usize, u32), Rc<RasterizedGlyph>> = HashMap::new();
+    let font_key = Rc::as_ptr(&font) as usize;
+    let default_bg = (0x0b, 0x10, 0x1d);
+    let default_fg = (0xd8, 0xde, 0xe9);
+
+    for idx in 0..rows {
+        band.fill(default_bg);
+        let line = lines.get(idx).map(String::as_str).unwrap_or("");
+        let line = line.replace('\t', "    ");
+        let glyphs = match font.blocking_shape(&line, None, Direction::LeftToRight, None, None) {
+            Ok(glyphs) => glyphs,
+            Err(_) => Vec::new(),
+        };
+        let mut pen_x = 0.0;
+        for info in &glyphs {
+            if !info.is_space {
+                let key = (font_key, info.font_idx, info.glyph_pos);
+                let glyph = match raster_cache.get(&key) {
+                    Some(glyph) => Rc::clone(glyph),
+                    None => {
+                        let glyph = Rc::new(font.rasterize_glyph(info.glyph_pos, info.font_idx)?);
+                        raster_cache.insert(key, Rc::clone(&glyph));
+                        glyph
+                    }
+                };
+                if glyph.width > 0 && glyph.height > 0 {
+                    let x0 = pen_x + info.x_offset.get() + glyph.bearing_x.get();
+                    let y0 = baseline - info.y_offset.get() - glyph.bearing_y.get();
+                    band.blit_glyph(&glyph, x0, y0, default_fg, 1.0);
+                }
+            }
+            pen_x += info.x_advance.get();
+            if pen_x > width_px as f64 {
+                break;
+            }
+        }
+
+        use std::io::Write as _;
+        stream.write_all(&band.data).context("write png band")?;
+    }
+
+    stream.finish().context("finish png stream")?;
+
+    Ok(ScrollbackPng {
+        path: out_path.to_path_buf(),
+        width: width_px,
+        height: height_px,
+        rows,
+        cols,
+        truncated,
+        first_row: first_row as isize,
+    })
 }
 
 /// sRGB u8 -> linear f32 lookup, built once. Gamma-correct text blending is

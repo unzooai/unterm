@@ -432,6 +432,70 @@ mod engine_neutral_handler_tests {
     }
 
     #[test]
+    fn capture_scrollback_renders_next_core_text_png() {
+        let _guard = env_lock().lock();
+        let previous_engine = std::env::var("UNTERM_ENGINE").ok();
+        std::env::set_var("UNTERM_ENGINE", "next-core");
+
+        let result: Result<(serde_json::Value, usize)> = (|| {
+            let handler = McpHandler::new();
+            let ctx = ConnectionContext::internal("handler-test");
+            let created = handler.handle(
+                &ctx,
+                "session.create",
+                &json!({
+                    "cols": 80,
+                    "rows": 4,
+                    "command": "echo next-core-scrollback-capture"
+                }),
+            )?;
+            let pane_id = created["id"].as_u64().expect("session id") as usize;
+
+            for _ in 0..20 {
+                let search = handler.handle(
+                    &ctx,
+                    "screen.search",
+                    &json!({
+                        "pane_id": pane_id,
+                        "pattern": "next-core-scrollback-capture",
+                    }),
+                )?;
+                if search["total"].as_u64().unwrap_or_default() > 0 {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+
+            let image = handler.handle(
+                &ctx,
+                "capture.scrollback",
+                &json!({
+                    "pane_id": pane_id,
+                    "max_rows": 20,
+                    "dpi": 48,
+                }),
+            )?;
+            let _ = handler.handle(&ctx, "session.destroy", &json!({ "pane_id": pane_id }));
+            Ok((image, pane_id))
+        })();
+
+        match previous_engine {
+            Some(value) => std::env::set_var("UNTERM_ENGINE", value),
+            None => std::env::remove_var("UNTERM_ENGINE"),
+        }
+
+        let (image, pane_id) = result.expect("render next-core scrollback PNG");
+        assert!(next_core().get_session(pane_id).is_err());
+        assert_eq!(image["type"], "image/png");
+        assert!(image["width"].as_u64().unwrap_or_default() > 0);
+        assert!(image["height"].as_u64().unwrap_or_default() > 0);
+        let path = std::path::PathBuf::from(image["path"].as_str().expect("png path"));
+        let bytes = std::fs::read(&path).expect("read generated png");
+        assert!(bytes.starts_with(b"\x89PNG\r\n\x1a\n"));
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
     fn active_recording_export_uses_next_core_engine() {
         let _guard = env_lock().lock();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();

@@ -398,8 +398,39 @@ impl CaptureEngine for CurrentTerminalEngine {
     ) -> anyhow::Result<RenderedScrollbackPng> {
         match self {
             Self::WezTerm(engine) => engine.render_scrollback_png(pane_id, path, opts),
-            Self::NextCore(_) => {
-                anyhow::bail!("capture.scrollback PNG rendering is not implemented for next-core")
+            Self::NextCore(engine) => {
+                let pane_id = match pane_id {
+                    Some(pane_id) => pane_id,
+                    None => engine
+                        .list_sessions()?
+                        .into_iter()
+                        .find(|session| session.is_active)
+                        .map(|session| session.id)
+                        .ok_or_else(|| anyhow::anyhow!("no active next-core session"))?,
+                };
+                let text = engine.read_scrollback_text(
+                    pane_id,
+                    ScrollbackTextRequest {
+                        start_line: None,
+                        end_line: None,
+                        tail_lines: Some(opts.max_rows as i64),
+                        escapes: false,
+                    },
+                )?;
+                let total_rows = text.physical_top + text.viewport_rows as i64;
+                let image = crate::scrollshot::render_plain_scrollback_png(
+                    &text.lines,
+                    text.cols,
+                    text.first_row,
+                    text.first_row > text.scrollback_top
+                        || total_rows.saturating_sub(text.scrollback_top) > text.row_count,
+                    path,
+                    opts,
+                )?;
+                Ok(RenderedScrollbackPng {
+                    image,
+                    session_id: pane_id,
+                })
             }
         }
     }

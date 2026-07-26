@@ -55,7 +55,7 @@ Known gaps:
 - PTY write confirmation without WezTerm pane object
 - exec wait shell detection without WezTerm pane object
 - active recording render parity
-- scrollback PNG rendering
+- styled scrollback PNG parity for `next-core`
 - window capture/focus/title
 - instance lifecycle ownership
 - richer foreground argv/process-tree metadata in engine snapshots
@@ -65,8 +65,8 @@ Known gaps:
 
 | Category | Count | Methods |
 |---|---:|---|
-| Engine-neutral | 47 | `session.list`, `session.get`, `session.status`, `session.create`, `session.split`, `session.focus`, `session.input`, `session.paste`, `session.idle`, `session.cwd`, `session.env`, `session.history`, `session.resize`, `session.destroy`, `session.recording_start`, `session.recording_stop`, `session.recording_status`, `session.recording_attach_trace`, `session.export_markdown`, `screen.read`, `screen.text`, `screen.scrollback_text`, `screen.cursor`, `screen.search`, `screen.detect_errors`, `exec.run`, `exec.send`, `exec.run_wait`, `exec.status`, `exec.cancel`, `signal.send`, `orchestrate.launch`, `orchestrate.broadcast`, `orchestrate.wait`, `workspace.save`, `workspace.restore`, `screen.scroll`, `agent.status`, `agent.signal`, `cockpit.inbox`, `fleet.launch`, `fleet.retry`, `fleet.clean`, `capture.screen`, `capture.window`, `server.info`, `server.health` |
-| Partial | 1 | `capture.scrollback` |
+| Engine-neutral | 48 | `session.list`, `session.get`, `session.status`, `session.create`, `session.split`, `session.focus`, `session.input`, `session.paste`, `session.idle`, `session.cwd`, `session.env`, `session.history`, `session.resize`, `session.destroy`, `session.recording_start`, `session.recording_stop`, `session.recording_status`, `session.recording_attach_trace`, `session.export_markdown`, `screen.read`, `screen.text`, `screen.scrollback_text`, `screen.cursor`, `screen.search`, `screen.detect_errors`, `exec.run`, `exec.send`, `exec.run_wait`, `exec.status`, `exec.cancel`, `signal.send`, `orchestrate.launch`, `orchestrate.broadcast`, `orchestrate.wait`, `workspace.save`, `workspace.restore`, `screen.scroll`, `agent.status`, `agent.signal`, `cockpit.inbox`, `fleet.launch`, `fleet.retry`, `fleet.clean`, `capture.screen`, `capture.window`, `capture.scrollback`, `server.info`, `server.health` |
+| Partial | 0 | |
 | Product-only | 51 | `meta.surface`, `session.audit_log`, `session.suggest`, `session.suggest_status`, `session.suggest_cancel`, `session.suggest_list`, `agent.identify`, `agent.whoami`, `agent.list_trusted`, `agent.trust`, `agent.untrust`, `policy.set`, `policy.check`, `server.capabilities`, `profile.list`, `profile.current`, `profile.audit`, `fleet.list`, `review.list`, `review.diff`, `review.verify`, `review.rollback`, `review.merge`, `review.discard`, `proxy.status`, `proxy.nodes`, `proxy.switch`, `proxy.speedtest`, `proxy.configure`, `proxy.disable`, `proxy.env`, `proxy.rotation`, `proxy.set_nodes`, `proxy.clash_status`, `proxy.clash_select`, `proxy.clash_set_controller`, `upload.file`, `system.info`, `system.launch_admin`, `selftest.run`, `workspace.list`, `session.recording_list`, `session.recording_read`, `instance.list`, `instance.info`, `instance.set_title`, `instance.focus`, `ghost.debug`, `capture.clipboard`, `capture.select`, `capture.window_scroll` |
 | WezTerm-only | 0 | |
 | Unsupported stub | 1 | `session.set_env` |
@@ -171,7 +171,7 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 | `capture.window` | Engine-neutral | Terminal text match via `SessionEngine::list_sessions`/`ScreenEngine::read_visible_text`; image via `CaptureEngine::capture_window_image` | Platform pixels are behind the capture boundary; next-core can reuse the same product capture service. |
 | `capture.select` | Product-only | Platform screen capture fallback for headless MCP | Interactive region selection remains a GUI concern, but the public MCP method no longer requires terminal core. |
 | `capture.clipboard` | Product-only | Platform clipboard snapshot | Engine-independent platform service. |
-| `capture.scrollback` | Partial | `CaptureEngine::render_scrollback_png`; WezTerm adapter renders via existing pane renderer, next-core returns explicit unsupported | Implement next-core rendering from the engine screen/scrollback model. |
+| `capture.scrollback` | Engine-neutral | `CaptureEngine::render_scrollback_png`; WezTerm adapter renders styled pane cells, `next-core` renders a plain-text PNG from `ScreenEngine::read_scrollback_text` | Upgrade `next-core` to styled-cell rendering after styled scrollback snapshots are exposed. |
 | `capture.window_scroll` | Product-only | Platform app scrolling/stitching | Product-level platform service; currently macOS-only and engine-independent. |
 | `upload.file` | Product-only | Upload config and local file IO | Engine-independent. |
 | `system.info` | Product-only | OS/env/server metadata plus `SessionEngine::list_sessions` count | Adds engine label without direct WezTerm mux access. |

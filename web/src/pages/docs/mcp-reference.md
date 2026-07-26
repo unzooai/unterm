@@ -503,7 +503,7 @@ Used to mean "interactive region selection". In headless MCP mode this is imposs
 
 ### `capture.scrollback`
 
-Render a terminal pane's entire scrollback plus viewport into one tall PNG. This is a headless re-render from the pane text model, not a stitched screen capture, so it works while the window is occluded.
+Render a terminal pane's entire scrollback plus viewport into one tall PNG. This is a headless re-render from the pane text model, not a stitched screen capture, so it works while the window is occluded. In `next-core`, this currently renders a plain-text PNG with default terminal colors; styled cell parity comes later.
 
 **Params:**
 
