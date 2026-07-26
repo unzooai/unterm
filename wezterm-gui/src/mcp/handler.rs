@@ -111,10 +111,7 @@ fn shell_command_builder(command: &str) -> CommandBuilder {
     }
 }
 
-fn apply_profile_env_to_builder(
-    cmd_builder: &mut Option<CommandBuilder>,
-    profile: &str,
-) -> Result<String> {
+fn resolve_profile_env(profile: &str) -> Result<(String, Vec<(String, String)>)> {
     let registry = unterm_profile::ProfileRegistry::load().context("load profile registry")?;
     let (profile_id, _) = registry
         .resolve(profile)
@@ -124,13 +121,7 @@ fn apply_profile_env_to_builder(
     let env = registry
         .resolve_env(store.as_ref(), &profile_id)
         .with_context(|| format!("resolve profile env for {profile_id}"))?;
-    if !env.is_empty() {
-        let builder = cmd_builder.get_or_insert_with(CommandBuilder::new_default_prog);
-        for (key, value) in env {
-            builder.env(key, value);
-        }
-    }
-    Ok(profile_id)
+    Ok((profile_id, env.into_iter().collect()))
 }
 
 fn cwd_url_to_path(raw: &str) -> Option<String> {
@@ -1316,6 +1307,7 @@ impl crate::cockpit::fleet::FleetPaneSpawner for EngineFleetDriver {
             rows: 32,
             command_dir: Some(cwd.display().to_string()),
             command: None,
+            env: crate::spawn::read_unterm_proxy_env().unwrap_or_default(),
         })?;
         std::thread::sleep(std::time::Duration::from_millis(600));
         self.engine
@@ -2777,8 +2769,11 @@ impl McpHandler {
                 builder.cwd(cwd);
             }
         }
+        let mut env = crate::spawn::read_unterm_proxy_env().unwrap_or_default();
         let resolved_profile = if let Some(profile) = profile.as_deref() {
-            Some(apply_profile_env_to_builder(&mut cmd_builder, profile)?)
+            let (profile_id, profile_env) = resolve_profile_env(profile)?;
+            env.extend(profile_env);
+            Some(profile_id)
         } else {
             None
         };
@@ -2789,6 +2784,7 @@ impl McpHandler {
             rows,
             command_dir,
             command: cmd_builder,
+            env,
         })?;
 
         Ok(json!({

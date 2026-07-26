@@ -474,6 +474,7 @@ fn cmd_session(cols: usize, rows: usize) -> CreateSessionRequest {
         rows,
         command_dir: None,
         command: Some(CommandBuilder::new("cmd.exe")),
+        env: Vec::new(),
     }
 }
 
@@ -534,6 +535,7 @@ fn main() -> Result<()> {
         rows: args.rows,
         command_dir: args.cwd,
         command: command_builder(args.command),
+        env: Vec::new(),
     })?;
 
     if let Some(rounds) = args.bench_echo {

@@ -389,7 +389,7 @@ pub(crate) fn apply_unterm_windows_utf8_to_spawn(spawn: &mut config::keyassignme
 pub(crate) fn apply_unterm_windows_utf8_to_spawn(_spawn: &mut config::keyassignment::SpawnCommand) {
 }
 
-fn read_unterm_proxy_env() -> Option<Vec<(String, String)>> {
+pub(crate) fn read_unterm_proxy_env() -> Option<Vec<(String, String)>> {
     // Reads ~/.unterm/proxy.json (managed by the ▼ menu / Web Settings).
     // Schema: { enabled, mode: "auto" | "manual", http_proxy, socks_proxy, no_proxy }.
     // In auto mode (default), system_proxy::detect() runs at every spawn and

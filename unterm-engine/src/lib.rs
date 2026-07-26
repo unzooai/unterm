@@ -209,6 +209,7 @@ pub struct CreateSessionRequest {
     pub rows: usize,
     pub command_dir: Option<String>,
     pub command: Option<CommandBuilder>,
+    pub env: Vec<(String, String)>,
 }
 
 #[derive(Clone, Debug)]

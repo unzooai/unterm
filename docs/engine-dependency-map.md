@@ -59,7 +59,7 @@ Known gaps:
 - window capture/focus/title
 - instance lifecycle ownership
 - richer foreground argv/process-tree metadata in engine snapshots
-- profile/proxy injection as first-class engine launch context
+- richer profile/proxy launch semantics beyond the current `CreateSessionRequest::env` overlay
 
 ## MCP Coverage Summary
 
@@ -78,7 +78,7 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 | Method | Status | Current dependency | Migration note |
 |---|---|---|---|
 | `session.list` | Engine-neutral | `SessionEngine::list_sessions` | Keep as baseline adapter test. |
-| `session.create` | Engine-neutral | `SessionEngine::create_session` plus product profile env preparation | Move profile/proxy/env launch context into `CreateSessionRequest` before alpha. |
+| `session.create` | Engine-neutral | `SessionEngine::create_session` plus `CreateSessionRequest::env` launch overlay for profile/proxy env | Profile/proxy env can now cross the engine boundary; later expand this into a typed launch context for alpha. |
 | `session.status` | Engine-neutral | `SessionEngine::get_session` | Alias of `session.get`. |
 | `session.get` | Engine-neutral | `SessionEngine::get_session` | Keep output shape stable. |
 | `session.split` | Engine-neutral | `SessionEngine::split_session` | `next-core` must decide split semantics before GUI alpha. |

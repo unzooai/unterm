@@ -238,7 +238,7 @@ Unterm 的产品目标不是“再做一个终端”，而是做一个本地优�
 - tabs、splits、selection、copy/paste、search、scrollback。
 - CJK width、emoji fallback MVP。
 - title/cwd/process metadata。
-- profile/proxy env injection。
+- profile/proxy env injection，基于 engine-neutral launch env overlay。
 - recording MVP。
 - agent state MVP。
 - CLI/MCP session/input/screen parity。

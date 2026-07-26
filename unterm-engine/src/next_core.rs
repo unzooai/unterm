@@ -1567,12 +1567,16 @@ impl NextCoreEngine {
     fn prepare_command(
         command: Option<portable_pty::CommandBuilder>,
         command_dir: Option<String>,
+        env: Vec<(String, String)>,
     ) -> (portable_pty::CommandBuilder, Option<String>) {
         let mut command = command.unwrap_or_else(portable_pty::CommandBuilder::new_default_prog);
         if let Some(command_dir) = command_dir {
             if command.get_cwd().is_none() {
                 command.cwd(&command_dir);
             }
+        }
+        for (key, value) in env {
+            command.env(key, value);
         }
         let cwd = Self::command_cwd(&command, None);
         (command, cwd)
@@ -1765,7 +1769,8 @@ impl SessionEngine for NextCoreEngine {
     }
 
     fn create_session(&self, request: CreateSessionRequest) -> Result<SessionSnapshot> {
-        let (command, cwd) = Self::prepare_command(request.command, request.command_dir);
+        let (command, cwd) =
+            Self::prepare_command(request.command, request.command_dir, request.env);
         let mut state_guard = state().write();
         let id = Self::next_session_id(&mut state_guard);
         drop(state_guard);
@@ -2356,6 +2361,40 @@ mod tests {
     }
 
     #[test]
+    fn prepare_command_applies_launch_env_overlay() {
+        let expected_cwd = std::env::current_dir()
+            .expect("current dir")
+            .display()
+            .to_string();
+        let (command, cwd) = NextCoreEngine::prepare_command(
+            None,
+            Some(expected_cwd.clone()),
+            vec![
+                ("UNTERM_PROFILE".to_string(), "work-acme".to_string()),
+                (
+                    "HTTPS_PROXY".to_string(),
+                    "http://127.0.0.1:7890".to_string(),
+                ),
+            ],
+        );
+
+        assert!(command.is_default_prog());
+        assert_eq!(cwd.as_deref(), Some(expected_cwd.as_str()));
+        assert_eq!(
+            command
+                .get_env("UNTERM_PROFILE")
+                .and_then(|value| value.to_str()),
+            Some("work-acme")
+        );
+        assert_eq!(
+            command
+                .get_env("HTTPS_PROXY")
+                .and_then(|value| value.to_str()),
+            Some("http://127.0.0.1:7890")
+        );
+    }
+
+    #[test]
     fn manages_session_metadata_lifecycle() -> Result<()> {
         let _guard = test_guard();
         reset_state_for_test();
@@ -2369,6 +2408,7 @@ mod tests {
             rows: 30,
             command_dir: cwd,
             command: None,
+            env: Vec::new(),
         })?;
         assert_eq!(first.id, 1);
         assert!(first.is_active);
@@ -2411,6 +2451,7 @@ mod tests {
             rows: 24,
             command_dir: None,
             command: None,
+            env: Vec::new(),
         })?;
 
         mark_dead_for_test(session.id)?;
@@ -2430,6 +2471,7 @@ mod tests {
             rows: 24,
             command_dir: None,
             command: None,
+            env: Vec::new(),
         })?;
         set_output_for_test(session.id, "line-one\r\nnext-core-output\r\nline-three\r\n")?;
 
@@ -2462,6 +2504,7 @@ mod tests {
             rows: 4,
             command_dir: None,
             command: None,
+            env: Vec::new(),
         })?;
 
         let initial = engine.read_screen(session.id)?;
@@ -2500,6 +2543,7 @@ mod tests {
             rows: 24,
             command_dir: None,
             command: None,
+            env: Vec::new(),
         })?;
         set_output_for_test(
             session.id,
@@ -2526,6 +2570,7 @@ mod tests {
             rows: 24,
             command_dir: None,
             command: None,
+            env: Vec::new(),
         })?;
         set_output_for_test(
             session.id,
@@ -2550,6 +2595,7 @@ mod tests {
             rows: 24,
             command_dir: None,
             command: None,
+            env: Vec::new(),
         })?;
         set_output_for_test(
             session.id,
@@ -2607,6 +2653,7 @@ mod tests {
             rows: 24,
             command_dir: None,
             command: None,
+            env: Vec::new(),
         })?;
         set_output_for_test(session.id, "你A")?;
 
@@ -2636,6 +2683,7 @@ mod tests {
             rows: 24,
             command_dir: None,
             command: None,
+            env: Vec::new(),
         })?;
         set_output_for_test(
             session.id,
@@ -2661,6 +2709,7 @@ mod tests {
             rows: 5,
             command_dir: None,
             command: None,
+            env: Vec::new(),
         })?;
         set_output_for_test(
             session.id,
@@ -2701,6 +2750,7 @@ mod tests {
             rows: 3,
             command_dir: None,
             command: None,
+            env: Vec::new(),
         })?;
         set_output_for_test(session.id, "one\nprefix-tail\nthree\x1b[2;7H\x1b[J")?;
         assert_eq!(
@@ -2714,6 +2764,7 @@ mod tests {
             rows: 3,
             command_dir: None,
             command: None,
+            env: Vec::new(),
         })?;
         set_output_for_test(session.id, "one\ntwo-three\nthree\x1b[2;4H\x1b[1J")?;
         assert_eq!(
@@ -2735,6 +2786,7 @@ mod tests {
             rows: 3,
             command_dir: None,
             command: None,
+            env: Vec::new(),
         })?;
         set_output_for_test(
             session.id,
@@ -2771,6 +2823,7 @@ mod tests {
             rows: 3,
             command_dir: None,
             command: None,
+            env: Vec::new(),
         })?;
         set_output_for_test(session.id, "abc\x1b[5 q")?;
 
@@ -2803,6 +2856,7 @@ mod tests {
             rows: 3,
             command_dir: None,
             command: None,
+            env: Vec::new(),
         })?;
 
         assert!(!engine.bracketed_paste_enabled(session.id)?);
@@ -2825,6 +2879,7 @@ mod tests {
             rows: 24,
             command_dir: None,
             command: None,
+            env: Vec::new(),
         })?;
         set_output_for_test(
             session.id,
@@ -2866,6 +2921,7 @@ mod tests {
             rows: 3,
             command_dir: None,
             command: None,
+            env: Vec::new(),
         })?;
         set_output_for_test(session.id, "one\ntwo\nthree\nfour\nfive")?;
 
@@ -2919,6 +2975,7 @@ mod tests {
             rows: 3,
             command_dir: None,
             command: None,
+            env: Vec::new(),
         })?;
         set_output_for_test(session.id, "a\nb\nc\x1b[S")?;
 
@@ -2943,6 +3000,7 @@ mod tests {
             rows: 5,
             command_dir: None,
             command: None,
+            env: Vec::new(),
         })?;
         set_output_for_test(
             session.id,
@@ -2975,6 +3033,7 @@ mod tests {
             rows: 2,
             command_dir: None,
             command: None,
+            env: Vec::new(),
         })?;
         set_output_for_test(
             session.id,
@@ -3032,6 +3091,7 @@ mod tests {
             rows: 4,
             command_dir: Some(project_dir.display().to_string()),
             command: None,
+            env: Vec::new(),
         })?;
 
         let started = engine.start_recording(session.id)?;

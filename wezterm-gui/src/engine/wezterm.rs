@@ -141,12 +141,29 @@ impl SessionEngine for WezTermEngine {
     }
 
     fn create_session(&self, request: CreateSessionRequest) -> Result<SessionSnapshot> {
+        let CreateSessionRequest {
+            cols,
+            rows,
+            command_dir,
+            command,
+            env,
+        } = request;
         let size = wezterm_term::TerminalSize {
-            rows: request.rows,
-            cols: request.cols,
+            rows,
+            cols,
             pixel_width: 0,
             pixel_height: 0,
             dpi: 0,
+        };
+        let command = if env.is_empty() {
+            command
+        } else {
+            let mut command =
+                command.unwrap_or_else(portable_pty::CommandBuilder::new_default_prog);
+            for (key, value) in env {
+                command.env(key, value);
+            }
+            Some(command)
         };
 
         let (tx, rx) = std::sync::mpsc::channel();
@@ -164,8 +181,8 @@ impl SessionEngine for WezTermEngine {
                         .spawn_tab_or_window(
                             Some(window_id),
                             SpawnTabDomain::DefaultDomain,
-                            request.command,
-                            request.command_dir,
+                            command,
+                            command_dir,
                             size,
                             None,
                             String::new(),
