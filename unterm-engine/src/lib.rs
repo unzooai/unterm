@@ -144,6 +144,7 @@ pub struct CellStyle {
     pub faint: bool,
     pub italic: bool,
     pub underline: bool,
+    pub strikethrough: bool,
     pub inverse: bool,
     pub fg: Option<StyledColor>,
     pub bg: Option<StyledColor>,

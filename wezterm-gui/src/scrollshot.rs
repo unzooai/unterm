@@ -326,6 +326,9 @@ fn styled_cell_attributes(style: CellStyle) -> TwCellAttributes {
     if style.underline {
         attrs.set_underline(Underline::Single);
     }
+    if style.strikethrough {
+        attrs.set_strikethrough(true);
+    }
     if style.inverse {
         attrs.set_reverse(true);
     }
