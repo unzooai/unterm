@@ -32,7 +32,7 @@ Run the Phase 2 next-core benchmark suite and generate `docs/next-core-benchmark
 .\unterm-engine\bench-next-core.ps1
 ```
 
-The runner builds `unterm-next-core`, verifies the machine-readable `--json` probe output, executes the current input-write/input-burst/echo/output/scrollback/viewport-scroll/paste/dual-agent/screen-read/focus-switch/session-create/session-ready benchmarks, writes human-readable summary and raw output into the Markdown report, and writes machine-readable gate results into the JSON summary. Any failed benchmark or gate exits non-zero.
+The runner builds `unterm-next-core`, verifies the machine-readable `--json` probe output, executes the current input-write/input-burst/echo/output/scrollback/viewport-scroll/viewport-scroll-under-flood/paste/dual-agent/screen-read/focus-switch/session-create/session-ready benchmarks, writes human-readable summary and raw output into the Markdown report, and writes machine-readable gate results into the JSON summary. Any failed benchmark or gate exits non-zero.
 
 Verify an existing JSON summary without rerunning the benchmark suite:
 
@@ -106,6 +106,14 @@ cargo run -p unterm-engine --bin unterm-next-core -- --bench-scrollback-lines 10
 ```
 
 The scrollback benchmark first fills the terminal through the PTY, then reads the captured history in viewport-sized pages and reports per-page read latency.
+
+Viewport scroll under output flood benchmark:
+
+```powershell
+cargo run -p unterm-engine --bin unterm-next-core -- --bench-viewport-scroll-flood 5000 --timeout-ms 30000 --wait-ms 100 --write "exit`r" -- cmd.exe
+```
+
+This benchmark keeps the PTY output stream active while repeatedly scrolling the logical viewport and reading the screen snapshot. It covers the core cost behind PageUp/PageDown smoothness while an agent or shell is still producing output.
 
 Paste benchmark:
 

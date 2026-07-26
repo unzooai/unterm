@@ -20,6 +20,7 @@ struct Args {
     bench_flood_lines: Option<usize>,
     bench_scrollback_lines: Option<usize>,
     bench_viewport_scrolls: Option<usize>,
+    bench_viewport_scroll_flood: Option<usize>,
     bench_paste_kb: Option<usize>,
     bench_dual_agent_lines: Option<usize>,
     bench_screen_read_lines: Option<usize>,
@@ -47,6 +48,7 @@ fn parse_args() -> Result<Args> {
         bench_flood_lines: None,
         bench_scrollback_lines: None,
         bench_viewport_scrolls: None,
+        bench_viewport_scroll_flood: None,
         bench_paste_kb: None,
         bench_dual_agent_lines: None,
         bench_screen_read_lines: None,
@@ -144,6 +146,15 @@ fn parse_args() -> Result<Args> {
                         .parse()?,
                 );
             }
+            "--bench-viewport-scroll-flood" => {
+                parsed.bench_viewport_scroll_flood = Some(
+                    args.next()
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("--bench-viewport-scroll-flood requires a value")
+                        })?
+                        .parse()?,
+                );
+            }
             "--bench-paste-kb" => {
                 parsed.bench_paste_kb = Some(
                     args.next()
@@ -213,7 +224,7 @@ fn parse_args() -> Result<Args> {
             }
             "--help" | "-h" => {
                 println!(
-                    "Usage: unterm-next-core [--cols N] [--rows N] [--wait-ms N] [--poll-ms N] [--timeout-ms N] [--bench-input-writes N] [--bench-input-burst N] [--bench-echo N] [--bench-flood-lines N] [--bench-scrollback-lines N] [--bench-viewport-scrolls N] [--bench-paste-kb N] [--bench-dual-agent-lines N] [--bench-screen-read-lines N] [--bench-focus-switches N] [--bench-session-create N] [--bench-session-ready N] [--cwd PATH] [--write TEXT] [--paste TEXT] [--json] [-- COMMAND [ARG...]]"
+                    "Usage: unterm-next-core [--cols N] [--rows N] [--wait-ms N] [--poll-ms N] [--timeout-ms N] [--bench-input-writes N] [--bench-input-burst N] [--bench-echo N] [--bench-flood-lines N] [--bench-scrollback-lines N] [--bench-viewport-scrolls N] [--bench-viewport-scroll-flood N] [--bench-paste-kb N] [--bench-dual-agent-lines N] [--bench-screen-read-lines N] [--bench-focus-switches N] [--bench-session-create N] [--bench-session-ready N] [--cwd PATH] [--write TEXT] [--paste TEXT] [--json] [-- COMMAND [ARG...]]"
                 );
                 std::process::exit(0);
             }
@@ -424,6 +435,62 @@ fn run_viewport_scroll_benchmark(
         *latencies_us.last().unwrap_or(&0)
     );
     Ok(())
+}
+
+fn run_viewport_scroll_during_flood_benchmark(
+    engine: &unterm_engine::next_core::NextCoreEngine,
+    pane_id: usize,
+    lines: usize,
+    poll_interval: Duration,
+    timeout: Duration,
+) -> Result<()> {
+    if lines == 0 {
+        bail!("--bench-viewport-scroll-flood must be greater than 0");
+    }
+
+    let run = start_flood_stream(engine, pane_id, lines)?;
+    let mut latencies_us = Vec::new();
+    let mut scrolls = 0usize;
+    let mut rows_read = 0usize;
+    let mut target = 0isize;
+    loop {
+        let read_before = Instant::now();
+        let screen = engine.read_screen(pane_id)?;
+        let total_rows = screen.scrollback_rows + screen.rows;
+        let max_top = total_rows.saturating_sub(screen.rows) as isize;
+        if max_top > 0 {
+            target = if target <= 0 { max_top } else { target - 1 };
+        }
+        engine.scroll_viewport_to(pane_id, target)?;
+        rows_read += engine.read_screen(pane_id)?.lines.len();
+        latencies_us.push(read_before.elapsed().as_micros());
+        scrolls += 1;
+
+        let raw = engine.debug_output(pane_id)?;
+        if raw[run.before_raw_len.min(raw.len())..].contains(run.marker.as_str()) {
+            let elapsed = run.started_at.elapsed();
+            latencies_us.sort_unstable();
+            println!(
+                "bench_viewport_scroll_flood lines={} scrolls={} rows_read={} total_ms={} min_us={} p50_us={} p95_us={} max_us={}",
+                lines,
+                scrolls,
+                rows_read,
+                elapsed.as_millis(),
+                latencies_us[0],
+                percentile(&latencies_us, 0.50),
+                percentile(&latencies_us, 0.95),
+                *latencies_us.last().unwrap_or(&0)
+            );
+            return Ok(());
+        }
+        if run.started_at.elapsed() >= timeout {
+            bail!(
+                "timed out waiting for viewport-scroll flood marker {}",
+                run.marker
+            );
+        }
+        std::thread::sleep(poll_interval);
+    }
 }
 
 fn run_screen_read_during_flood_benchmark(
@@ -950,6 +1017,22 @@ fn main() -> Result<()> {
             Duration::from_millis(args.timeout_ms),
         )
         .with_context(|| format!("bench_viewport_scroll failed for session {}", session.id))?;
+    }
+
+    if let Some(lines) = args.bench_viewport_scroll_flood {
+        run_viewport_scroll_during_flood_benchmark(
+            &engine,
+            session.id,
+            lines,
+            Duration::from_millis(args.poll_ms),
+            Duration::from_millis(args.timeout_ms),
+        )
+        .with_context(|| {
+            format!(
+                "bench_viewport_scroll_flood failed for session {}",
+                session.id
+            )
+        })?;
     }
 
     if let Some(kb) = args.bench_paste_kb {
