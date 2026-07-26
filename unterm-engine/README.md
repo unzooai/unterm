@@ -16,6 +16,14 @@ The probe creates a next-core session, optionally writes text or runs a command,
 
 On Windows, the command above should print `next-core-probe`. A blank snapshot means the standalone ConPTY smoke path has regressed before the GUI is involved.
 
+Machine-readable probe output:
+
+```powershell
+cargo run -p unterm-engine --bin unterm-next-core -- --json --wait-ms 500 -- cmd.exe /c "echo next-core-probe"
+```
+
+The JSON output includes the session snapshot, screen snapshot, engine health, raw output byte count, and visible text. Use this for CI or agent dogfood checks instead of parsing the human-readable snapshot.
+
 ## Benchmark Report
 
 Run the Phase 2 next-core benchmark suite and generate `docs/next-core-benchmark-report.md`:

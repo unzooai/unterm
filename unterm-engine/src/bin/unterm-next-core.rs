@@ -1,7 +1,10 @@
 use anyhow::{bail, Context, Result};
 use portable_pty::CommandBuilder;
+use serde_json::json;
 use std::time::{Duration, Instant};
-use unterm_engine::{next_core, CreateSessionRequest, InputEngine, ScreenEngine, SessionEngine};
+use unterm_engine::{
+    next_core, CreateSessionRequest, HealthEngine, InputEngine, ScreenEngine, SessionEngine,
+};
 
 struct Args {
     cols: usize,
@@ -18,6 +21,7 @@ struct Args {
     bench_screen_read_lines: Option<usize>,
     poll_ms: u64,
     timeout_ms: u64,
+    json: bool,
 }
 
 fn parse_args() -> Result<Args> {
@@ -37,6 +41,7 @@ fn parse_args() -> Result<Args> {
         bench_screen_read_lines: None,
         poll_ms: 5,
         timeout_ms: 5000,
+        json: false,
     };
 
     while let Some(arg) = args.next() {
@@ -139,9 +144,12 @@ fn parse_args() -> Result<Args> {
                         .ok_or_else(|| anyhow::anyhow!("--cwd requires a value"))?,
                 );
             }
+            "--json" => {
+                parsed.json = true;
+            }
             "--help" | "-h" => {
                 println!(
-                    "Usage: unterm-next-core [--cols N] [--rows N] [--wait-ms N] [--poll-ms N] [--timeout-ms N] [--bench-echo N] [--bench-flood-lines N] [--bench-scrollback-lines N] [--bench-paste-kb N] [--bench-dual-agent-lines N] [--bench-screen-read-lines N] [--cwd PATH] [--write TEXT] [-- COMMAND [ARG...]]"
+                    "Usage: unterm-next-core [--cols N] [--rows N] [--wait-ms N] [--poll-ms N] [--timeout-ms N] [--bench-echo N] [--bench-flood-lines N] [--bench-scrollback-lines N] [--bench-paste-kb N] [--bench-dual-agent-lines N] [--bench-screen-read-lines N] [--cwd PATH] [--write TEXT] [--json] [-- COMMAND [ARG...]]"
                 );
                 std::process::exit(0);
             }
@@ -614,17 +622,32 @@ fn main() -> Result<()> {
 
     let session = engine.get_session(session.id)?;
     let screen = engine.read_screen(session.id)?;
-    println!(
-        "session id={} cols={} rows={} dead={} cursor=({}, {}) raw_bytes={}",
-        session.id,
-        screen.cols,
-        screen.rows,
-        session.is_dead,
-        screen.cursor.x,
-        screen.cursor.y,
-        engine.debug_output(session.id)?.len()
-    );
-    println!("{}", engine.read_visible_text(session.id)?);
+    let raw_bytes = engine.debug_output(session.id)?.len();
+    let visible_text = engine.read_visible_text(session.id)?;
+    if args.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "session": session,
+                "screen": screen,
+                "health": engine.health()?,
+                "raw_bytes": raw_bytes,
+                "visible_text": visible_text,
+            }))?
+        );
+    } else {
+        println!(
+            "session id={} cols={} rows={} dead={} cursor=({}, {}) raw_bytes={}",
+            session.id,
+            screen.cols,
+            screen.rows,
+            session.is_dead,
+            screen.cursor.x,
+            screen.cursor.y,
+            raw_bytes
+        );
+        println!("{visible_text}");
+    }
     engine.destroy_session(session.id)?;
     Ok(())
 }
