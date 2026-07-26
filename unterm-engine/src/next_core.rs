@@ -3329,7 +3329,67 @@ impl NextCoreEngine {
             }
 
             let rest = &chunk[idx..];
-            if rest.starts_with("\x1b[?6n") {
+            if rest.starts_with("\x1b[?1$p") {
+                response.extend_from_slice(
+                    format!(
+                        "\x1b[?1;{}$y",
+                        Self::mode_report_state(screen.application_cursor_keys)
+                    )
+                    .as_bytes(),
+                );
+                idx += "\x1b[?1$p".len();
+            } else if rest.starts_with("\x1b[?5$p") {
+                response.extend_from_slice(
+                    format!(
+                        "\x1b[?5;{}$y",
+                        Self::mode_report_state(screen.reverse_video)
+                    )
+                    .as_bytes(),
+                );
+                idx += "\x1b[?5$p".len();
+            } else if rest.starts_with("\x1b[?6$p") {
+                response.extend_from_slice(
+                    format!("\x1b[?6;{}$y", Self::mode_report_state(screen.origin_mode)).as_bytes(),
+                );
+                idx += "\x1b[?6$p".len();
+            } else if rest.starts_with("\x1b[?7$p") {
+                response.extend_from_slice(
+                    format!("\x1b[?7;{}$y", Self::mode_report_state(screen.auto_wrap)).as_bytes(),
+                );
+                idx += "\x1b[?7$p".len();
+            } else if rest.starts_with("\x1b[?25$p") {
+                response.extend_from_slice(
+                    format!(
+                        "\x1b[?25;{}$y",
+                        Self::mode_report_state(screen.cursor_visible)
+                    )
+                    .as_bytes(),
+                );
+                idx += "\x1b[?25$p".len();
+            } else if rest.starts_with("\x1b[?1049$p") {
+                response.extend_from_slice(
+                    format!(
+                        "\x1b[?1049;{}$y",
+                        Self::mode_report_state(screen.alternate.is_some())
+                    )
+                    .as_bytes(),
+                );
+                idx += "\x1b[?1049$p".len();
+            } else if rest.starts_with("\x1b[?2004$p") {
+                response.extend_from_slice(
+                    format!(
+                        "\x1b[?2004;{}$y",
+                        Self::mode_report_state(screen.bracketed_paste)
+                    )
+                    .as_bytes(),
+                );
+                idx += "\x1b[?2004$p".len();
+            } else if rest.starts_with("\x1b[4$p") {
+                response.extend_from_slice(
+                    format!("\x1b[4;{}$y", Self::mode_report_state(screen.insert_mode)).as_bytes(),
+                );
+                idx += "\x1b[4$p".len();
+            } else if rest.starts_with("\x1b[?6n") {
                 response.extend_from_slice(
                     format!("\x1b[?{};{}R", screen.cursor_y + 1, screen.cursor_x + 1).as_bytes(),
                 );
@@ -3377,6 +3437,14 @@ impl NextCoreEngine {
             let mut writer = writer.lock();
             writer.write_all(&response).ok();
             writer.flush().ok();
+        }
+    }
+
+    fn mode_report_state(enabled: bool) -> usize {
+        if enabled {
+            1
+        } else {
+            2
         }
     }
 
@@ -4368,9 +4436,55 @@ mod tests {
     }
 
     #[test]
+    fn answers_mode_report_queries_from_screen_state() {
+        let _guard = test_guard();
+        let mut screen = NextCoreScreen::new(80, 10);
+        screen.feed("\x1b[?1h\x1b[?5h\x1b[?6h\x1b[?25l\x1b[?2004h\x1b[4h");
+        let bytes = Arc::new(Mutex::new(Vec::new()));
+        let writer: Arc<Mutex<Box<dyn Write + Send>>> =
+            Arc::new(Mutex::new(Box::new(SharedWriter {
+                bytes: Arc::clone(&bytes),
+            })));
+
+        NextCoreEngine::answer_terminal_queries(
+            "\x1b[?1$p\x1b[?5$p\x1b[?6$p\x1b[?7$p\x1b[?25$p\x1b[?2004$p\x1b[4$p",
+            &screen,
+            &writer,
+        );
+
+        assert_eq!(
+            bytes.lock().as_slice(),
+            b"\x1b[?1;1$y\x1b[?5;1$y\x1b[?6;1$y\x1b[?7;1$y\x1b[?25;2$y\x1b[?2004;1$y\x1b[4;1$y"
+        );
+    }
+
+    #[test]
+    fn answers_reset_mode_report_queries_from_default_screen_state() {
+        let _guard = test_guard();
+        let screen = NextCoreScreen::new(80, 10);
+        let bytes = Arc::new(Mutex::new(Vec::new()));
+        let writer: Arc<Mutex<Box<dyn Write + Send>>> =
+            Arc::new(Mutex::new(Box::new(SharedWriter {
+                bytes: Arc::clone(&bytes),
+            })));
+
+        NextCoreEngine::answer_terminal_queries(
+            "\x1b[?1$p\x1b[?5$p\x1b[?6$p\x1b[?1049$p\x1b[?2004$p\x1b[4$p",
+            &screen,
+            &writer,
+        );
+
+        assert_eq!(
+            bytes.lock().as_slice(),
+            b"\x1b[?1;2$y\x1b[?5;2$y\x1b[?6;2$y\x1b[?1049;2$y\x1b[?2004;2$y\x1b[4;2$y"
+        );
+    }
+
+    #[test]
     fn answers_multiple_terminal_queries_in_chunk() {
         let _guard = test_guard();
         let mut screen = NextCoreScreen::new(80, 10);
+        screen.feed("\x1b[?1h");
         screen.set_cursor(2, 4);
         let bytes = Arc::new(Mutex::new(Vec::new()));
         let writer: Arc<Mutex<Box<dyn Write + Send>>> =
@@ -4379,14 +4493,14 @@ mod tests {
             })));
 
         NextCoreEngine::answer_terminal_queries(
-            "\x1b[5n\x1b[?6n\x1b[14t\x1b[18t\x1b[6n\x1b[>c\x1b[c",
+            "\x1b[5n\x1b[?1$p\x1b[?6n\x1b[14t\x1b[18t\x1b[6n\x1b[>c\x1b[c",
             &screen,
             &writer,
         );
 
         assert_eq!(
             bytes.lock().as_slice(),
-            b"\x1b[0n\x1b[?3;5R\x1b[4;160;640t\x1b[8;10;80t\x1b[3;5R\x1b[>0;0;0c\x1b[?64;1;2;6;9;15;18;21;22c"
+            b"\x1b[0n\x1b[?1;1$y\x1b[?3;5R\x1b[4;160;640t\x1b[8;10;80t\x1b[3;5R\x1b[>0;0;0c\x1b[?64;1;2;6;9;15;18;21;22c"
         );
     }
 
