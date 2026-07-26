@@ -140,6 +140,14 @@ const jsonLd = seo?.jsonLd ?? defaultJsonLd;
     <link rel="icon" type="image/png" sizes="32x32" href="/assets/icon-32.png?v=0.57.0" />
     <link rel="icon" type="image/png" sizes="256x256" href="/assets/icon-256.png?v=0.57.0" />
     <link rel="icon" type="image/svg+xml" href="/assets/icon.svg?v=0.57.0" />
+
+    <!-- Cloudflare Web Analytics (privacy-first, no cookies) -->
+    <script
+      is:inline
+      type="module"
+      src="https://static.cloudflareinsights.com/beacon.min.js"
+      data-cf-beacon='{"token": "6daea7bd6ed24e82a9f3b5463dbcc3f0"}'
+    ></script>
   </head>
   <body class="bg-notion-bg text-notion-ink antialiased font-sans">
 
