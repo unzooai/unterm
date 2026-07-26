@@ -292,6 +292,7 @@ struct NextCoreScreen {
     cursor_shape: String,
     auto_wrap: bool,
     reverse_video: bool,
+    application_cursor_keys: bool,
     origin_mode: bool,
     insert_mode: bool,
     tab_stops: BTreeSet<usize>,
@@ -320,6 +321,7 @@ struct ScreenState {
     cursor_visible: bool,
     cursor_shape: String,
     auto_wrap: bool,
+    application_cursor_keys: bool,
     origin_mode: bool,
     insert_mode: bool,
     tab_stops: BTreeSet<usize>,
@@ -975,6 +977,7 @@ impl NextCoreScreen {
         self.origin_mode = false;
         self.auto_wrap = true;
         self.reverse_video = false;
+        self.application_cursor_keys = false;
         self.cursor_visible = true;
         self.cursor_shape = "Default".to_string();
         self.tab_stops = Self::default_tab_stops(self.cols);
@@ -1528,6 +1531,7 @@ impl NextCoreScreen {
             cursor_visible: self.cursor_visible,
             cursor_shape: self.cursor_shape.clone(),
             auto_wrap: self.auto_wrap,
+            application_cursor_keys: self.application_cursor_keys,
             origin_mode: self.origin_mode,
             insert_mode: self.insert_mode,
             tab_stops: std::mem::take(&mut self.tab_stops),
@@ -1545,6 +1549,7 @@ impl NextCoreScreen {
         self.saved_cursor_y = 0;
         self.cursor_shape = "Default".to_string();
         self.auto_wrap = true;
+        self.application_cursor_keys = false;
         self.origin_mode = false;
         self.insert_mode = false;
         self.tab_stops = Self::default_tab_stops(self.cols);
@@ -1567,6 +1572,7 @@ impl NextCoreScreen {
             self.cursor_visible = main.cursor_visible;
             self.cursor_shape = main.cursor_shape;
             self.auto_wrap = main.auto_wrap;
+            self.application_cursor_keys = main.application_cursor_keys;
             self.origin_mode = main.origin_mode;
             self.insert_mode = main.insert_mode;
             self.tab_stops = main.tab_stops;
@@ -1824,6 +1830,7 @@ impl<'a> ScreenParser<'a> {
                                 self.screen.reverse_video = true;
                                 self.screen.mark_all_dirty();
                             }
+                            1 => self.screen.application_cursor_keys = true,
                             6 => self.screen.set_origin_mode(true),
                             7 => self.screen.auto_wrap = true,
                             25 => {
@@ -1848,6 +1855,7 @@ impl<'a> ScreenParser<'a> {
                                 self.screen.reverse_video = false;
                                 self.screen.mark_all_dirty();
                             }
+                            1 => self.screen.application_cursor_keys = false,
                             6 => self.screen.set_origin_mode(false),
                             7 => self.screen.auto_wrap = false,
                             25 => {
@@ -3378,6 +3386,18 @@ impl NextCoreEngine {
         }
     }
 
+    fn application_cursor_input(input: &str, enabled: bool) -> String {
+        if !enabled {
+            return input.to_string();
+        }
+
+        input
+            .replace("\x1b[A", "\x1bOA")
+            .replace("\x1b[B", "\x1bOB")
+            .replace("\x1b[C", "\x1bOC")
+            .replace("\x1b[D", "\x1bOD")
+    }
+
     fn split_utf8_chunks(text: &str, max_bytes: usize) -> Vec<&str> {
         if text.is_empty() {
             return vec![""];
@@ -3885,7 +3905,7 @@ impl ScreenEngine for NextCoreEngine {
 
 impl InputEngine for NextCoreEngine {
     fn write_input(&self, pane_id: usize, input: &str) -> Result<()> {
-        let (writer, activity) = {
+        let (writer, activity, application_cursor_keys) = {
             let state = state().read();
             let Some(session) = state
                 .sessions
@@ -3894,10 +3914,16 @@ impl InputEngine for NextCoreEngine {
             else {
                 bail!("next-core session {pane_id} not found");
             };
-            (Arc::clone(&session.writer), Arc::clone(&session.activity))
+            let application_cursor_keys = session.screen.lock().application_cursor_keys;
+            (
+                Arc::clone(&session.writer),
+                Arc::clone(&session.activity),
+                application_cursor_keys,
+            )
         };
 
         let started_at = Instant::now();
+        let input = Self::application_cursor_input(input, application_cursor_keys);
         let bytes = input.len();
         let mut writer = writer.lock();
         writer.write_all(input.as_bytes())?;
@@ -4446,6 +4472,24 @@ mod tests {
         assert_eq!(chunks.first().map(String::as_str), Some("\x1b[200~"));
         assert_eq!(chunks.last().map(String::as_str), Some("\x1b[201~"));
         assert_eq!(chunks[1..chunks.len() - 1].concat(), text);
+    }
+
+    #[test]
+    fn translates_arrow_keys_in_application_cursor_mode() {
+        let _guard = test_guard();
+
+        assert_eq!(
+            NextCoreEngine::application_cursor_input("\x1b[A\x1b[B\x1b[C\x1b[D", true),
+            "\x1bOA\x1bOB\x1bOC\x1bOD"
+        );
+        assert_eq!(
+            NextCoreEngine::application_cursor_input("x\x1b[C你", true),
+            "x\x1bOC你"
+        );
+        assert_eq!(
+            NextCoreEngine::application_cursor_input("\x1b[C", false),
+            "\x1b[C"
+        );
     }
 
     #[test]
@@ -6475,6 +6519,23 @@ mod tests {
         assert!(!engine.bracketed_paste_enabled(session.id)?);
 
         engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_tracks_application_cursor_key_mode() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let mut screen = NextCoreScreen::new(80, 3);
+
+        assert!(!screen.application_cursor_keys);
+        screen.feed("\x1b[?1h");
+        assert!(screen.application_cursor_keys);
+        screen.feed("\x1b[?1l");
+        assert!(!screen.application_cursor_keys);
+        screen.feed("\x1b[?1h\x1b[!p");
+        assert!(!screen.application_cursor_keys);
+
         Ok(())
     }
 
