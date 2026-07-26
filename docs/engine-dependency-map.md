@@ -51,7 +51,7 @@ Current covered operations:
 - redacted `session.create` launch decision summary for profile/proxy/overlay/command provenance
 - redacted `workspace.restore` template launch plan for cwd/profile/command provenance
 - redacted default-shell launch decision summary for command-less `session.create`
-- typed launch policy decision metadata for domain, privilege, proxy rotation, and restart handling
+- typed launch policy decision metadata for domain, privilege, proxy rotation, and restart handling, including explicit `session.create` request diagnostics
 - instance lifecycle ownership diagnostics for server-info registry vs host GUI window ownership
 - instance title bridge result metadata through `WindowEngine`
 - styled scrollback renderer metadata for WezTerm pane rendering vs next-core standalone rendering
@@ -64,7 +64,7 @@ Known gaps:
 - real GUI viewport scrolling/jump for the future next-core renderer
 - native window capture/focus/title ownership beyond the explicit host-window and title bridge contracts
 - native instance create/close lifecycle ownership beyond server-info registry observability
-- enforcement of non-local domain, privilege elevation, proxy rotation, and restart launch policy behavior beyond current typed decision metadata
+- enforcement of non-local domain, privilege elevation, proxy rotation, and restart launch policy behavior beyond current typed explicit-request decision metadata
 
 ## MCP Coverage Summary
 
@@ -83,7 +83,7 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 | Method | Status | Current dependency | Migration note |
 |---|---|---|---|
 | `session.list` | Engine-neutral | `SessionEngine::list_sessions` | Keep as baseline adapter test. |
-| `session.create` | Engine-neutral | `SessionEngine::create_session` plus `CreateSessionRequest::env` and typed `launch_policy`; `next-core` records `ShellSnapshot.launch_context` profile/proxy diagnostics, env provenance, explicit-command/default-shell decisions, domain/privilege/proxy-rotation/restart decision metadata, and no secret values | Later enforce non-local domain, privilege elevation, proxy rotation, and restart behavior instead of only reporting the decision state. |
+| `session.create` | Engine-neutral | `SessionEngine::create_session` plus `CreateSessionRequest::env` and typed `launch_policy`; `next-core` records `ShellSnapshot.launch_context` profile/proxy diagnostics, env provenance, explicit-command/default-shell decisions, explicit domain/privilege/proxy-rotation/restart request decisions, and no secret values | Later enforce non-local domain, privilege elevation, proxy rotation, and restart behavior instead of only reporting the decision state. |
 | `session.status` | Engine-neutral | Shared pane-id resolver plus `SessionEngine::get_session` | Alias of `session.get`. |
 | `session.get` | Engine-neutral | Shared pane-id resolver plus `SessionEngine::get_session` | Keep output shape stable. |
 | `session.split` | Engine-neutral | Shared pane-id resolver plus `SessionEngine::split_session` | `next-core` must decide split semantics before GUI alpha. |

@@ -3,9 +3,10 @@
 
 use crate::engine::{
     CaptureEngine, CreateSessionRequest, CurrentTerminalEngine, HealthEngine, InputEngine,
-    LaunchEnvBinding, LaunchEnvSource, LaunchPolicySnapshot, RecordingEngine, ScreenEngine,
-    ScrollbackTextRequest, SessionActivitySnapshot, SessionEngine, ShellSnapshot, SplitDirection,
-    SplitSessionRequest, ViewportScrollResult, WindowEngine,
+    LaunchEnvBinding, LaunchEnvSource, LaunchPolicyDecision, LaunchPolicyDecisionSnapshot,
+    LaunchPolicySnapshot, RecordingEngine, ScreenEngine, ScrollbackTextRequest,
+    SessionActivitySnapshot, SessionEngine, ShellSnapshot, SplitDirection, SplitSessionRequest,
+    ViewportScrollResult, WindowEngine,
 };
 use anyhow::{anyhow, Context, Result};
 use base64::Engine as _;
@@ -166,6 +167,74 @@ fn launch_policy_for_env(
         env,
         proxy_env_keys,
         ..Default::default()
+    }
+}
+
+fn bool_param(params: &Value, name: &str) -> Option<bool> {
+    params.get(name).and_then(|value| {
+        value.as_bool().or_else(|| {
+            value
+                .as_str()
+                .map(str::trim)
+                .and_then(|raw| match raw.to_ascii_lowercase().as_str() {
+                    "1" | "true" | "yes" | "on" | "admin" | "elevated" => Some(true),
+                    "0" | "false" | "no" | "off" | "none" | "standard" => Some(false),
+                    _ => None,
+                })
+        })
+    })
+}
+
+fn apply_launch_policy_requests(params: &Value, policy: &mut LaunchPolicySnapshot) {
+    if let Some(domain) = params
+        .get("domain")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        policy.domain = if matches!(
+            domain.to_ascii_lowercase().as_str(),
+            "local" | "default" | "local-domain"
+        ) {
+            LaunchPolicyDecisionSnapshot::new(
+                LaunchPolicyDecision::Applied,
+                true,
+                "local-domain launch requested and applied",
+            )
+        } else {
+            LaunchPolicyDecisionSnapshot::new(
+                LaunchPolicyDecision::Unsupported,
+                false,
+                format!("non-local domain '{domain}' is not supported by next-core launch"),
+            )
+        };
+    }
+
+    let privilege_requested = bool_param(params, "privilege")
+        .or_else(|| bool_param(params, "elevated"))
+        .unwrap_or(false);
+    if privilege_requested {
+        policy.privilege = LaunchPolicyDecisionSnapshot::new(
+            LaunchPolicyDecision::Unsupported,
+            false,
+            "privilege elevation must be handled by host launch flow",
+        );
+    }
+
+    if bool_param(params, "proxy_rotation").unwrap_or(false) {
+        policy.proxy_rotation = LaunchPolicyDecisionSnapshot::new(
+            LaunchPolicyDecision::Deferred,
+            false,
+            "proxy rotation is requested but remains product-managed before launch",
+        );
+    }
+
+    if bool_param(params, "restart").unwrap_or(false) {
+        policy.restart = LaunchPolicyDecisionSnapshot::new(
+            LaunchPolicyDecision::Unsupported,
+            false,
+            "restart launch policy is not supported by session.create",
+        );
     }
 }
 
@@ -706,6 +775,55 @@ mod engine_neutral_handler_tests {
             .as_str()
             .map(|shell| !shell.trim().is_empty())
             .unwrap_or(false));
+    }
+
+    #[test]
+    fn session_create_reports_explicit_launch_policy_requests() {
+        let _guard = env_lock().lock();
+        let previous_engine = std::env::var("UNTERM_ENGINE").ok();
+        std::env::set_var("UNTERM_ENGINE", "next-core");
+
+        let result: Result<Value> = (|| {
+            let handler = McpHandler::new();
+            let ctx = ConnectionContext::internal("handler-test");
+            let session = handler.handle(
+                &ctx,
+                "session.create",
+                &json!({
+                    "cols": 80,
+                    "rows": 4,
+                    "command": "echo next-core-launch-policy-requests",
+                    "domain": "ssh:prod",
+                    "privilege": true,
+                    "proxy_rotation": true,
+                    "restart": true,
+                }),
+            )?;
+            let pane_id = session["id"].as_u64().expect("session id") as usize;
+            let _ = handler.handle(&ctx, "session.destroy", &json!({ "pane_id": pane_id }));
+            Ok(session)
+        })();
+
+        match previous_engine {
+            Some(value) => std::env::set_var("UNTERM_ENGINE", value),
+            None => std::env::remove_var("UNTERM_ENGINE"),
+        }
+
+        let session = result.expect("session.create reports requested launch policy decisions");
+        let policy = &session["launch"]["decision"]["policy"];
+        assert_eq!(policy["domain"]["decision"], "unsupported");
+        assert_eq!(policy["domain"]["supported"], false);
+        assert!(policy["domain"]["reason"]
+            .as_str()
+            .expect("domain reason")
+            .contains("ssh:prod"));
+        assert_eq!(policy["privilege"]["decision"], "unsupported");
+        assert_eq!(policy["privilege"]["supported"], false);
+        assert_eq!(policy["proxy_rotation"]["decision"], "deferred");
+        assert_eq!(policy["proxy_rotation"]["supported"], false);
+        assert_eq!(policy["restart"]["decision"], "unsupported");
+        assert_eq!(policy["restart"]["supported"], false);
+        assert_eq!(session["launch"]["decision"]["values_redacted"], true);
     }
 
     #[test]
@@ -4085,7 +4203,9 @@ impl McpHandler {
         } else {
             None
         };
-        let launch_policy = launch_policy_for_env(&env, &overlay_keys, resolved_profile.as_deref());
+        let mut launch_policy =
+            launch_policy_for_env(&env, &overlay_keys, resolved_profile.as_deref());
+        apply_launch_policy_requests(params, &mut launch_policy);
 
         let engine = self.engine();
         let session = engine.create_session(CreateSessionRequest {
