@@ -951,6 +951,29 @@ impl NextCoreScreen {
         self.mark_all_dirty();
     }
 
+    fn soft_reset_terminal(&mut self) {
+        if self.alternate.is_some() {
+            self.leave_alternate_screen();
+        }
+        self.current_attr = CellAttributes::default();
+        self.insert_mode = false;
+        self.origin_mode = false;
+        self.auto_wrap = true;
+        self.cursor_visible = true;
+        self.cursor_shape = "Default".to_string();
+        self.tab_stops = Self::default_tab_stops(self.cols);
+        self.scroll_top = 0;
+        self.scroll_bottom = self.rows.saturating_sub(1);
+        self.saved_cursor_x = 0;
+        self.saved_cursor_y = 0;
+        if let Some(alternate) = self.alternate.as_mut() {
+            alternate.saved_cursor_x = 0;
+            alternate.saved_cursor_y = 0;
+        }
+        self.ensure_cursor_line();
+        self.mark_all_dirty();
+    }
+
     fn erase_in_display(&mut self, mode: usize) {
         match mode {
             0 => {
@@ -1752,6 +1775,11 @@ impl<'a> ScreenParser<'a> {
             'm' => self
                 .screen
                 .apply_sgr(&NextCoreScreen::parse_sgr_params(raw_params)),
+            'p' => {
+                if raw_params == "!" {
+                    self.screen.soft_reset_terminal();
+                }
+            }
             'q' => {
                 if raw_params.ends_with(' ') {
                     self.screen
@@ -6467,6 +6495,51 @@ mod tests {
 
         let styled = engine.read_styled_screen(session.id)?;
         assert_eq!(styled.lines[0].cells[0].style, CellStyle::default());
+        assert_eq!(styled.lines[0].cells[8].style, CellStyle::default());
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_applies_decstr_soft_reset() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 10,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+        set_output_for_test(
+            session.id,
+            concat!(
+                "\x1b]0;Soft Reset\x07",
+                "\x1b[31mA",
+                "\x1b[?7l",
+                "\x1b[4h",
+                "\x1b[3g",
+                "\x1b[?25l",
+                "\x1b[!p",
+                "B\tC"
+            ),
+        )?;
+
+        let screen = engine.read_screen(session.id)?;
+        assert_eq!(screen.lines, vec!["AB      C"]);
+        assert!(screen.cursor.visible);
+        assert_eq!(screen.cursor.shape, "Default");
+        assert_eq!(engine.get_session(session.id)?.title, "Soft Reset");
+
+        let styled = engine.read_styled_screen(session.id)?;
+        assert_eq!(
+            styled.lines[0].cells[0].style.fg,
+            Some(StyledColor::Palette(1))
+        );
+        assert_eq!(styled.lines[0].cells[1].style, CellStyle::default());
         assert_eq!(styled.lines[0].cells[8].style, CellStyle::default());
 
         engine.destroy_session(session.id)?;
