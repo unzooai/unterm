@@ -249,10 +249,10 @@ These wrap the `crate::recording` module. They write an OSC-133-aware redacted m
 - Params: `id`/`session_id` (pane), `trace_id` (string, required).
 - Returns: `{ trace_ids: [...] }` — full list of trace ids attached so far.
 
-**`session.export_markdown`** — render a one-off markdown of a pane's *current* scrollback, no recording session needed. The output is the same redacted format used by recordings, just without the streaming hook.
+**`session.export_markdown`** — render markdown for a pane. If recording is active, it exports from the live recording stream; otherwise it renders a one-off snapshot of the pane's current scrollback.
 
 - Params: `id`/`session_id`, optional `path` (string) — destination file. If omitted, the recording module picks a default under the project's `.unterm/sessions/`.
-- Returns: `{ session_id, path, bytes, block_count }`. The `session_id` here is a freshly-generated UUID, not a recording id.
+- Returns: `{ session_id, path, bytes, block_count }`. Active recording export returns the recording id; inactive one-off export returns a freshly-generated UUID.
 
 ---
 

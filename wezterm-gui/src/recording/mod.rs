@@ -20,7 +20,7 @@ mod redact;
 mod render;
 
 pub use recorder::{
-    attach_trace, export_pane_markdown, export_scrollback_markdown, list_sessions,
+    attach_trace, export_active_recording_markdown, export_scrollback_markdown, list_sessions,
     read_session_markdown, recording_status, recording_status_snapshot, start_recording,
     stop_recording,
 };

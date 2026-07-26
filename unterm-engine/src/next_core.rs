@@ -1,10 +1,10 @@
 use super::{
     CellStyle, CreateSessionRequest, CursorSnapshot, DirtyRows, EngineHealthSnapshot, HealthEngine,
-    InputEngine, RecordingEngine, RecordingStartResult, RecordingStatusSnapshot,
-    RecordingStopResult, ScreenEngine, ScreenLine, ScreenSearchMatch, ScreenSnapshot,
-    ScrollbackTextRequest, ScrollbackTextSnapshot, SessionActivitySnapshot, SessionEngine,
-    SessionSnapshot, ShellSnapshot, SplitSessionRequest, StyledCell, StyledColor, StyledScreenLine,
-    StyledScreenSnapshot,
+    InputEngine, RecordingEngine, RecordingExportResult, RecordingStartResult,
+    RecordingStatusSnapshot, RecordingStopResult, ScreenEngine, ScreenLine, ScreenSearchMatch,
+    ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot, SessionActivitySnapshot,
+    SessionEngine, SessionSnapshot, ShellSnapshot, SplitSessionRequest, StyledCell, StyledColor,
+    StyledScreenLine, StyledScreenSnapshot,
 };
 use anyhow::{bail, Result};
 use base64::Engine as _;
@@ -2217,6 +2217,42 @@ impl RecordingEngine for NextCoreEngine {
         }
         Self::upsert_recording_index(recording, None)?;
         Ok(recording.trace_ids.clone())
+    }
+
+    fn export_markdown(
+        &self,
+        pane_id: usize,
+        target_path: Option<String>,
+    ) -> Result<RecordingExportResult> {
+        let recording_handle = {
+            let state = state().read();
+            let Some(session) = state
+                .sessions
+                .iter()
+                .find(|session| session.snapshot.id == pane_id)
+            else {
+                bail!("next-core session {pane_id} not found");
+            };
+            Arc::clone(&session.recording)
+        };
+        let slot = recording_handle.lock();
+        let Some(recording) = slot.as_ref() else {
+            bail!("No active recording for pane {pane_id}");
+        };
+        let mut export = recording.clone();
+        drop(slot);
+
+        if let Some(target_path) = target_path {
+            export.md_path = PathBuf::from(target_path);
+        }
+        Self::write_recording_markdown(&export)?;
+
+        Ok(RecordingExportResult {
+            session_id: export.session_id,
+            path: export.md_path.display().to_string(),
+            bytes: export.text_preview.len(),
+            block_count: export.block_count,
+        })
     }
 }
 

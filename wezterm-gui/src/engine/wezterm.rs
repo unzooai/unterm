@@ -1,9 +1,9 @@
 use super::{
     CellStyle, CreateSessionRequest, CursorSnapshot, EngineHealthSnapshot, HealthEngine,
-    InputEngine, PaneDimensions, RecordingEngine, RecordingStartResult, RecordingStatusSnapshot,
-    RecordingStopResult, ScreenEngine, ScreenLine, ScreenSearchMatch, ScreenSnapshot,
-    ScrollbackTextRequest, ScrollbackTextSnapshot, SessionActivitySnapshot, SessionEngine,
-    SessionSnapshot, ShellSnapshot, SplitDirection, SplitSessionRequest, StyledCell,
+    InputEngine, PaneDimensions, RecordingEngine, RecordingExportResult, RecordingStartResult,
+    RecordingStatusSnapshot, RecordingStopResult, ScreenEngine, ScreenLine, ScreenSearchMatch,
+    ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot, SessionActivitySnapshot,
+    SessionEngine, SessionSnapshot, ShellSnapshot, SplitDirection, SplitSessionRequest, StyledCell,
     StyledScreenLine, StyledScreenSnapshot,
 };
 use anyhow::{anyhow, Context, Result};
@@ -530,6 +530,23 @@ impl RecordingEngine for WezTermEngine {
 
     fn attach_recording_trace(&self, pane_id: usize, trace_id: String) -> Result<Vec<String>> {
         crate::recording::attach_trace(pane_id as mux::pane::PaneId, trace_id)
+    }
+
+    fn export_markdown(
+        &self,
+        pane_id: usize,
+        target_path: Option<String>,
+    ) -> Result<RecordingExportResult> {
+        let result = crate::recording::export_active_recording_markdown(
+            pane_id as mux::pane::PaneId,
+            target_path.map(std::path::PathBuf::from),
+        )?;
+        Ok(RecordingExportResult {
+            session_id: result.session_id,
+            path: result.path,
+            bytes: result.bytes,
+            block_count: result.block_count,
+        })
     }
 }
 

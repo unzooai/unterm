@@ -28,6 +28,8 @@ Implemented in `unterm-engine` and dispatched by `wezterm-gui/src/engine/mod.rs`
 - `SessionEngine`
 - `ScreenEngine`
 - `InputEngine`
+- `RecordingEngine`
+- `HealthEngine`
 - `TerminalEngine`
 
 Current covered operations:
@@ -43,6 +45,8 @@ Current covered operations:
 - cursor
 - write input
 - paste input
+- recording lifecycle/export
+- engine readiness
 
 Known gaps:
 
@@ -50,7 +54,7 @@ Known gaps:
 - pane resolution without WezTerm `Pane`
 - PTY write confirmation without WezTerm pane object
 - exec wait shell detection without WezTerm pane object
-- recording stream attachment
+- active recording render parity
 - scrollback PNG rendering
 - window capture/focus/title
 - instance lifecycle ownership
@@ -61,8 +65,8 @@ Known gaps:
 
 | Category | Count | Methods |
 |---|---:|---|
-| Engine-neutral | 36 | `session.list`, `session.get`, `session.status`, `session.create`, `session.split`, `session.focus`, `session.input`, `session.paste`, `session.idle`, `session.cwd`, `session.history`, `session.destroy`, `session.recording_start`, `session.recording_stop`, `session.recording_status`, `session.recording_attach_trace`, `screen.read`, `screen.text`, `screen.scrollback_text`, `screen.cursor`, `screen.search`, `screen.detect_errors`, `exec.run`, `exec.send`, `exec.run_wait`, `exec.status`, `exec.cancel`, `signal.send`, `orchestrate.launch`, `orchestrate.broadcast`, `orchestrate.wait`, `workspace.save`, `workspace.restore`, `screen.scroll`, `server.info`, `server.health` |
-| Partial | 2 | `session.resize`, `session.export_markdown` |
+| Engine-neutral | 37 | `session.list`, `session.get`, `session.status`, `session.create`, `session.split`, `session.focus`, `session.input`, `session.paste`, `session.idle`, `session.cwd`, `session.history`, `session.destroy`, `session.recording_start`, `session.recording_stop`, `session.recording_status`, `session.recording_attach_trace`, `session.export_markdown`, `screen.read`, `screen.text`, `screen.scrollback_text`, `screen.cursor`, `screen.search`, `screen.detect_errors`, `exec.run`, `exec.send`, `exec.run_wait`, `exec.status`, `exec.cancel`, `signal.send`, `orchestrate.launch`, `orchestrate.broadcast`, `orchestrate.wait`, `workspace.save`, `workspace.restore`, `screen.scroll`, `server.info`, `server.health` |
+| Partial | 1 | `session.resize` |
 | Product-only | 42 | `meta.surface`, `session.audit_log`, `session.suggest`, `session.suggest_status`, `session.suggest_cancel`, `session.suggest_list`, `agent.identify`, `agent.whoami`, `agent.list_trusted`, `agent.trust`, `agent.untrust`, `policy.set`, `policy.check`, `server.capabilities`, `profile.list`, `profile.current`, `profile.audit`, `fleet.list`, `review.list`, `review.diff`, `review.verify`, `review.rollback`, `review.merge`, `review.discard`, `proxy.status`, `proxy.nodes`, `proxy.switch`, `proxy.speedtest`, `proxy.configure`, `proxy.disable`, `proxy.env`, `proxy.rotation`, `proxy.set_nodes`, `proxy.clash_status`, `proxy.clash_select`, `proxy.clash_set_controller`, `upload.file`, `system.info`, `selftest.run`, `workspace.list`, `session.recording_list`, `session.recording_read` |
 | WezTerm-only | 18 | `agent.status`, `agent.signal`, `cockpit.inbox`, `fleet.launch`, `fleet.clean`, `fleet.retry`, `ghost.debug`, `capture.screen`, `capture.window`, `capture.select`, `capture.clipboard`, `capture.scrollback`, `capture.window_scroll`, `instance.list`, `instance.info`, `instance.set_title`, `instance.focus`, `system.launch_admin` |
 | Unsupported stub | 2 | `session.env`, `session.set_env` |
@@ -99,7 +103,7 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 | `session.recording_list` | Product-only | Recording archive index | No live terminal dependency. |
 | `session.recording_read` | Product-only | Recording archive log renderer | No live terminal dependency. |
 | `session.recording_attach_trace` | Engine-neutral | `RecordingEngine::attach_recording_trace` | Trace ids are stored in active recording state. |
-| `session.export_markdown` | Partial | Inactive export uses `ScreenEngine::read_scrollback_text`; active recording still renders from WezTerm-backed recorder log | Finish by extracting recording registry/stream tap behind a `RecordingEngine`. |
+| `session.export_markdown` | Engine-neutral | `RecordingEngine::export_markdown` for active recordings; `ScreenEngine::read_scrollback_text` for inactive snapshots | Active and inactive export no longer require handler access to WezTerm recorder or pane. |
 
 ## Exec and Signal Methods
 
@@ -229,19 +233,19 @@ Acceptance:
 
 Methods unlocked:
 
-- `session.export_markdown`
-- part of `session.recording_*`
+- part of future capture/export polish
 
 Work:
 
 - Keep one-shot markdown export on `ScreenEngine::read_scrollback_text`.
-- Route live stream recording through `RecordingEngine`.
+- Keep live stream recording and active export behind `RecordingEngine`.
 - Keep raw PTY stream tap implemented in `next-core`.
+- Move remaining render formatting differences into product-level recording services.
 
 Acceptance:
 
-- `session.export_markdown` works in `next-core` for plain text scrollback.
-- Recording lifecycle MCP methods call `RecordingEngine` rather than WezTerm helpers directly.
+- `session.export_markdown` works in `next-core` for inactive scrollback and active recording export.
+- Recording lifecycle/export MCP methods call `RecordingEngine` rather than WezTerm helpers directly.
 - Active recording state no longer depends on WezTerm pane storage.
 
 ## Maintenance Rule

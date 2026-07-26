@@ -9,11 +9,12 @@ pub mod wezterm;
 #[allow(unused_imports)]
 pub use unterm_engine::{
     next_core, CellStyle, CreateSessionRequest, CursorSnapshot, DirtyRows, EngineHealthSnapshot,
-    HealthEngine, InputEngine, PaneDimensions, RecordingEngine, RecordingStartResult,
-    RecordingStatusSnapshot, RecordingStopResult, ScreenEngine, ScreenLine, ScreenSearchMatch,
-    ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot, SessionActivitySnapshot,
-    SessionEngine, SessionSnapshot, ShellSnapshot, SplitDirection, SplitSessionRequest, StyledCell,
-    StyledColor, StyledScreenLine, StyledScreenSnapshot, TerminalEngine,
+    HealthEngine, InputEngine, PaneDimensions, RecordingEngine, RecordingExportResult,
+    RecordingStartResult, RecordingStatusSnapshot, RecordingStopResult, ScreenEngine, ScreenLine,
+    ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot,
+    SessionActivitySnapshot, SessionEngine, SessionSnapshot, ShellSnapshot, SplitDirection,
+    SplitSessionRequest, StyledCell, StyledColor, StyledScreenLine, StyledScreenSnapshot,
+    TerminalEngine,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -260,6 +261,17 @@ impl RecordingEngine for CurrentTerminalEngine {
         match self {
             Self::WezTerm(engine) => engine.attach_recording_trace(pane_id, trace_id),
             Self::NextCore(engine) => engine.attach_recording_trace(pane_id, trace_id),
+        }
+    }
+
+    fn export_markdown(
+        &self,
+        pane_id: usize,
+        target_path: Option<String>,
+    ) -> anyhow::Result<RecordingExportResult> {
+        match self {
+            Self::WezTerm(engine) => engine.export_markdown(pane_id, target_path),
+            Self::NextCore(engine) => engine.export_markdown(pane_id, target_path),
         }
     }
 }

@@ -409,6 +409,102 @@ mod engine_neutral_handler_tests {
     }
 
     #[test]
+    fn active_recording_export_uses_next_core_engine() {
+        let _guard = env_lock().lock();
+        let previous_engine = std::env::var("UNTERM_ENGINE").ok();
+        std::env::set_var("UNTERM_ENGINE", "next-core");
+
+        let temp_root = std::env::temp_dir().join(format!(
+            "unterm-next-core-export-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time")
+                .as_nanos()
+        ));
+        let project_dir = temp_root.join("project");
+        let export_path = temp_root.join("active-export.md");
+        std::fs::create_dir_all(&project_dir).expect("create temp project dir");
+
+        #[cfg(windows)]
+        let command =
+            "echo ready & ping -n 2 127.0.0.1 > nul & echo next-core-active-export & ping -n 2 127.0.0.1 > nul";
+        #[cfg(not(windows))]
+        let command = "echo ready; sleep 1; echo next-core-active-export; sleep 1";
+
+        let result: Result<(serde_json::Value, usize)> = (|| {
+            let handler = McpHandler::new();
+            let ctx = ConnectionContext::internal("handler-test");
+            let created = handler.handle(
+                &ctx,
+                "session.create",
+                &json!({
+                    "cols": 80,
+                    "rows": 6,
+                    "cwd": project_dir.display().to_string(),
+                    "command": command,
+                }),
+            )?;
+            let pane_id = created["id"].as_u64().expect("session id") as usize;
+
+            handler.handle(
+                &ctx,
+                "session.recording_start",
+                &json!({ "pane_id": pane_id }),
+            )?;
+
+            let mut search = json!({});
+            for _ in 0..40 {
+                search = handler.handle(
+                    &ctx,
+                    "screen.search",
+                    &json!({
+                        "pane_id": pane_id,
+                        "pattern": "next-core-active-export",
+                    }),
+                )?;
+                if search["total"].as_u64().unwrap_or_default() > 0 {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            assert!(search["total"].as_u64().unwrap_or_default() > 0);
+
+            let exported = handler.handle(
+                &ctx,
+                "session.export_markdown",
+                &json!({
+                    "pane_id": pane_id,
+                    "path": export_path.display().to_string(),
+                }),
+            )?;
+
+            let _ = handler.handle(
+                &ctx,
+                "session.recording_stop",
+                &json!({ "pane_id": pane_id }),
+            );
+            let _ = handler.handle(&ctx, "session.destroy", &json!({ "pane_id": pane_id }));
+
+            Ok((exported, pane_id))
+        })();
+
+        match previous_engine {
+            Some(value) => std::env::set_var("UNTERM_ENGINE", value),
+            None => std::env::remove_var("UNTERM_ENGINE"),
+        }
+
+        let (exported, pane_id) = result.expect("export active next-core recording");
+        assert!(next_core().get_session(pane_id).is_err());
+        assert_eq!(exported["path"], export_path.display().to_string());
+        assert!(exported["bytes"].as_u64().unwrap_or_default() > 0);
+        assert!(exported["block_count"].as_u64().unwrap_or_default() >= 1);
+        let markdown = std::fs::read_to_string(&export_path).expect("read exported markdown");
+        assert!(markdown.contains("next-core-active-export"));
+        std::fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
     fn server_health_uses_selected_next_core_engine() {
         let _guard = env_lock().lock();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
@@ -4718,14 +4814,20 @@ impl McpHandler {
             .get("path")
             .and_then(|v| v.as_str())
             .map(std::path::PathBuf::from);
-        let (dest, out) = if crate::recording::recorder::current_session(
-            pane_id as mux::pane::PaneId,
-        )
-        .is_some()
-        {
-            crate::recording::export_pane_markdown(pane_id as mux::pane::PaneId, path)?
-        } else {
-            let engine = self.engine();
+        let engine = self.engine();
+        let status = engine.recording_status(pane_id)?;
+        if status.enabled {
+            let target_path = path.map(|path| path.display().to_string());
+            let out = engine.export_markdown(pane_id, target_path)?;
+            return Ok(json!({
+                "session_id": out.session_id,
+                "path": out.path,
+                "bytes": out.bytes,
+                "block_count": out.block_count,
+            }));
+        }
+
+        let (dest, out) = {
             let project_path = engine.shell(pane_id)?.cwd;
             let scrollback = engine.read_scrollback_text(
                 pane_id,
@@ -4743,6 +4845,7 @@ impl McpHandler {
                 path,
             )?
         };
+
         Ok(json!({
             "session_id": uuid::Uuid::new_v4().to_string(),
             "path": dest.display().to_string(),

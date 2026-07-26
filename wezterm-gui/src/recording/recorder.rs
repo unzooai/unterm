@@ -347,6 +347,13 @@ pub struct StopResult {
     pub md_path: String,
 }
 
+pub struct ExportResult {
+    pub session_id: String,
+    pub path: String,
+    pub bytes: usize,
+    pub block_count: u64,
+}
+
 fn project_info(pane: &Arc<dyn Pane>) -> (Option<String>, String) {
     let cwd = pane.get_current_working_dir(mux::pane::CachePolicy::AllowStale);
     if let Some(url) = cwd {
@@ -660,6 +667,36 @@ pub fn attach_trace(pane_id: PaneId, trace_id: String) -> Result<Vec<String>> {
     Ok(r.add_trace(trace_id))
 }
 
+pub fn export_active_recording_markdown(
+    pane_id: PaneId,
+    target: Option<PathBuf>,
+) -> Result<ExportResult> {
+    let rec = current_session(pane_id)
+        .ok_or_else(|| anyhow!("No active recording for pane {}", pane_id))?;
+    rec.flush_now();
+    let (log_path, _md_path, session_id) = rec.paths();
+    let cfg = load_config();
+    let render_cfg = RenderConfig {
+        redaction_enabled: cfg.redaction.enabled,
+        custom_patterns: cfg.redaction.custom_patterns.clone(),
+    };
+    let entry = index::find_entry(&session_id)?.ok_or_else(|| anyhow!("session entry missing"))?;
+    let out = render::render_log(&log_path, &entry, &render_cfg)?;
+    let dest =
+        target.unwrap_or_else(|| index::sessions_root().join(format!("export-{}.md", session_id)));
+    if let Some(p) = dest.parent() {
+        let _ = std::fs::create_dir_all(p);
+    }
+    std::fs::write(&dest, out.markdown.as_bytes())
+        .with_context(|| format!("write {}", dest.display()))?;
+    Ok(ExportResult {
+        session_id,
+        path: dest.display().to_string(),
+        bytes: out.markdown.len(),
+        block_count: out.block_count,
+    })
+}
+
 pub fn list_sessions(project_filter: Option<&str>) -> Result<Vec<IndexEntry>> {
     let entries = index::load_index()?;
     let filtered: Vec<IndexEntry> = entries
@@ -702,24 +739,18 @@ pub fn export_pane_markdown(
 
     // If recording is active, prefer rendering from the .log (it's the
     // authoritative source of truth).
-    if let Some(rec) = current_session(pane_id) {
-        rec.flush_now();
-        let (log_path, _md_path, session_id) = rec.paths();
-        let cfg = load_config();
-        let render_cfg = RenderConfig {
-            redaction_enabled: cfg.redaction.enabled,
-            custom_patterns: cfg.redaction.custom_patterns.clone(),
+    if current_session(pane_id).is_some() {
+        let export = export_active_recording_markdown(pane_id, target)?;
+        let out = RenderOutput {
+            markdown: std::fs::read_to_string(&export.path)
+                .with_context(|| format!("read {}", export.path))?,
+            block_count: export.block_count,
+            redaction_count: 0,
+            osc133_active: false,
+            total_lines: 0,
+            bytes_raw: export.bytes as u64,
         };
-        let entry =
-            index::find_entry(&session_id)?.ok_or_else(|| anyhow!("session entry missing"))?;
-        let out = render::render_log(&log_path, &entry, &render_cfg)?;
-        let dest = target
-            .unwrap_or_else(|| index::sessions_root().join(format!("export-{}.md", session_id)));
-        if let Some(p) = dest.parent() {
-            let _ = std::fs::create_dir_all(p);
-        }
-        std::fs::write(&dest, out.markdown.as_bytes())
-            .with_context(|| format!("write {}", dest.display()))?;
+        let dest = PathBuf::from(export.path);
         return Ok((dest, out));
     }
 

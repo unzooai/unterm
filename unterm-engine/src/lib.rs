@@ -170,6 +170,14 @@ pub struct RecordingStopResult {
 }
 
 #[derive(Clone, Debug, Serialize)]
+pub struct RecordingExportResult {
+    pub session_id: String,
+    pub path: String,
+    pub bytes: usize,
+    pub block_count: u64,
+}
+
+#[derive(Clone, Debug, Serialize)]
 pub struct RecordingStatusSnapshot {
     pub enabled: bool,
     pub session_id: Option<String>,
@@ -258,6 +266,11 @@ pub trait RecordingEngine {
     fn stop_recording(&self, pane_id: usize) -> Result<RecordingStopResult>;
     fn recording_status(&self, pane_id: usize) -> Result<RecordingStatusSnapshot>;
     fn attach_recording_trace(&self, pane_id: usize, trace_id: String) -> Result<Vec<String>>;
+    fn export_markdown(
+        &self,
+        pane_id: usize,
+        target_path: Option<String>,
+    ) -> Result<RecordingExportResult>;
 }
 
 pub trait HealthEngine {
