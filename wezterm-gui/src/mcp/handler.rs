@@ -1694,6 +1694,7 @@ mod engine_neutral_handler_tests {
             serde_json::Value,
             serde_json::Value,
             serde_json::Value,
+            serde_json::Value,
             Result<serde_json::Value>,
         )> {
             let handler = McpHandler::new();
@@ -1702,9 +1703,10 @@ mod engine_neutral_handler_tests {
             let info = handler.handle(&ctx, "instance.info", &json!({}))?;
             let list = handler.handle(&ctx, "instance.list", &json!({}))?;
             let lifecycle = handler.handle(&ctx, "instance.lifecycle", &json!({}))?;
+            let close = handler.handle(&ctx, "instance.close", &json!({}))?;
             let title = handler.handle(&ctx, "instance.set_title", &json!({ "title": null }))?;
             let focus = handler.handle(&ctx, "instance.focus", &json!({}));
-            Ok((server, info, list, lifecycle, title, focus))
+            Ok((server, info, list, lifecycle, close, title, focus))
         })();
 
         match previous_engine {
@@ -1712,7 +1714,7 @@ mod engine_neutral_handler_tests {
             None => std::env::remove_var("UNTERM_ENGINE"),
         }
 
-        let (server, info, list, lifecycle, title, focus) =
+        let (server, info, list, lifecycle, close, title, focus) =
             result.expect("read instance metadata without WezTerm mux");
         assert_eq!(server["lifecycle"]["registry_owner"], "server_info");
         assert_eq!(server["lifecycle"]["window_owner"], "host_gui");
@@ -1759,6 +1761,12 @@ mod engine_neutral_handler_tests {
         assert_eq!(lifecycle["native_window"]["owner"], "host_gui");
         assert_eq!(lifecycle["native_window"]["can_close_from_mcp"], false);
         assert_eq!(lifecycle["values_redacted"], true);
+        assert_eq!(close["ok"], true);
+        assert_eq!(close["operation"], "dry_run");
+        assert_eq!(close["requires_confirm"], "unregister-current-instance");
+        assert_eq!(close["native_window"]["owner"], "host_gui");
+        assert_eq!(close["native_window"]["closed"], false);
+        assert_eq!(close["values_redacted"], true);
         assert_eq!(title["ok"], true);
         assert!(title["title"].is_null());
         assert_eq!(title["window"]["engine"], "wezterm-host");
@@ -2187,6 +2195,10 @@ mod engine_neutral_handler_tests {
             true
         );
         assert_eq!(
+            surface["engine_capabilities"]["diagnostics"]["instance_registry_unregister"],
+            true
+        );
+        assert_eq!(
             surface["engine_capabilities"]["diagnostics"]["native_window_lifecycle"],
             false
         );
@@ -2247,6 +2259,10 @@ mod engine_neutral_handler_tests {
         );
         assert_eq!(
             capabilities["_engine_capabilities"]["diagnostics"]["instance_shutdown_dry_run"],
+            true
+        );
+        assert_eq!(
+            capabilities["_engine_capabilities"]["diagnostics"]["instance_registry_unregister"],
             true
         );
         assert_eq!(
@@ -3677,6 +3693,7 @@ impl McpHandler {
             "instance.list" => self.instance_list(),
             "instance.info" => self.instance_info(),
             "instance.lifecycle" => self.instance_lifecycle(),
+            "instance.close" => self.instance_close(params),
             "instance.set_title" => self.instance_set_title(params),
             "instance.focus" => self.instance_focus(params),
             // Identity profiles: read-only surface for agents. Writes
@@ -3931,6 +3948,48 @@ impl McpHandler {
                 "owner": "host_gui",
                 "lifecycle": "host_owned",
                 "can_close_from_mcp": false,
+            },
+            "values_redacted": true,
+        }))
+    }
+
+    /// Protected registry-level close hook. This does not terminate the
+    /// process or close the native window; it executes the same registry
+    /// unregister path that a future native close lifecycle service will call.
+    fn instance_close(&self, params: &Value) -> Result<Value> {
+        let apply = bool_param(params, "apply").unwrap_or(false);
+        let confirmed = params.get("confirm").and_then(|value| value.as_str())
+            == Some("unregister-current-instance");
+
+        if !apply {
+            return Ok(json!({
+                "ok": true,
+                "operation": "dry_run",
+                "requires_confirm": "unregister-current-instance",
+                "plan": crate::server_info::instance_lifecycle_plan().shutdown,
+                "native_window": {
+                    "owner": "host_gui",
+                    "lifecycle": "host_owned",
+                    "closed": false,
+                },
+                "values_redacted": true,
+            }));
+        }
+        if !confirmed {
+            return Err(anyhow!(
+                "instance.close apply requires confirm=\"unregister-current-instance\""
+            ));
+        }
+
+        let result = crate::server_info::unregister_current_instance();
+        Ok(json!({
+            "ok": result.errors.is_empty(),
+            "operation": "apply",
+            "result": result,
+            "native_window": {
+                "owner": "host_gui",
+                "lifecycle": "host_owned",
+                "closed": false,
             },
             "values_redacted": true,
         }))

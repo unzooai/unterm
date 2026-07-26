@@ -119,6 +119,20 @@ pub struct InstanceLifecyclePlan {
     pub values_redacted: bool,
 }
 
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct InstanceShutdownResult {
+    pub applied: bool,
+    pub plan: InstanceShutdownPlan,
+    pub registry_file_removed: bool,
+    pub active_pointer_cleared: bool,
+    pub legacy_server_removed: bool,
+    pub legacy_token_updated: bool,
+    pub handoff_id: Option<String>,
+    pub native_window_closed: bool,
+    pub errors: Vec<String>,
+    pub values_redacted: bool,
+}
+
 /// Compat alias: legacy server.json schema. The current process always
 /// writes the *full* InstanceInfo into server.json (extra fields are
 /// ignored by older deserializers), so older agents that only read
@@ -397,6 +411,113 @@ pub fn instance_lifecycle_plan() -> InstanceLifecyclePlan {
         &instances_dir(),
         &active_pointer_path(),
     )
+}
+
+fn apply_instance_shutdown_from_paths_locked(
+    current_id: Option<&str>,
+    dir: &Path,
+    active_path: &Path,
+    server_path: &Path,
+    token_path: &Path,
+) -> InstanceShutdownResult {
+    let lifecycle = instance_lifecycle_plan_from_paths_locked(current_id, dir, active_path);
+    let plan = lifecycle.shutdown;
+    let mut result = InstanceShutdownResult {
+        applied: true,
+        handoff_id: plan.handoff_id.clone(),
+        plan,
+        native_window_closed: false,
+        values_redacted: true,
+        ..Default::default()
+    };
+
+    let Some(current_id) = current_id else {
+        return result;
+    };
+
+    if result.plan.would_remove_registry_file {
+        match fs::remove_file(instance_file_in_dir(dir, current_id)) {
+            Ok(()) => result.registry_file_removed = true,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => result
+                .errors
+                .push(format!("remove registry file failed: {err}")),
+        }
+    }
+
+    if result.plan.would_clear_active_pointer {
+        match fs::remove_file(active_path) {
+            Ok(()) => result.active_pointer_cleared = true,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => result
+                .errors
+                .push(format!("remove active pointer failed: {err}")),
+        }
+        match fs::remove_file(server_path) {
+            Ok(()) => result.legacy_server_removed = true,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => result
+                .errors
+                .push(format!("remove legacy server file failed: {err}")),
+        }
+
+        if let Some(handoff_id) = result.plan.handoff_id.as_deref() {
+            let handoff_path = instance_file_in_dir(dir, handoff_id);
+            match fs::read_to_string(&handoff_path)
+                .ok()
+                .and_then(|content| serde_json::from_str::<InstanceInfo>(&content).ok())
+            {
+                Some(next) => {
+                    if let Err(err) = write_atomic(active_path, &next) {
+                        result
+                            .errors
+                            .push(format!("write active pointer handoff failed: {err}"));
+                    }
+                    if let Err(err) = write_atomic(server_path, &next) {
+                        result
+                            .errors
+                            .push(format!("write legacy server handoff failed: {err}"));
+                    }
+                    if let Some(parent) = token_path.parent() {
+                        if let Err(err) = fs::create_dir_all(parent) {
+                            result
+                                .errors
+                                .push(format!("create legacy auth token dir failed: {err}"));
+                        }
+                    }
+                    if let Err(err) = fs::write(token_path, &next.auth_token) {
+                        result
+                            .errors
+                            .push(format!("write legacy auth token handoff failed: {err}"));
+                    } else {
+                        result.legacy_token_updated = true;
+                    }
+                }
+                None => result.errors.push(format!(
+                    "handoff instance metadata not readable: {handoff_id}"
+                )),
+            }
+        }
+    }
+
+    result
+}
+
+pub fn unregister_current_instance() -> InstanceShutdownResult {
+    let current = current_instance_id();
+    let _g = file_lock().lock();
+    let result = apply_instance_shutdown_from_paths_locked(
+        current.as_deref(),
+        &instances_dir(),
+        &active_pointer_path(),
+        &server_info_path(),
+        &auth_token_path(),
+    );
+    if result.registry_file_removed {
+        *current_info().lock() = None;
+        *current_id().lock() = None;
+    }
+    result
 }
 
 /// Pick the lowest-NATO name not currently taken by a live instance,
@@ -803,6 +924,65 @@ mod tests {
         assert_eq!(plan.shutdown.values_redacted, true);
         assert!(instances.join("alpha.json").exists());
         assert!(active.exists());
+
+        let _ = fs::remove_dir_all(&root);
+        Ok(())
+    }
+
+    #[test]
+    fn shutdown_apply_unregisters_current_and_hands_off_active_pointer() -> Result<()> {
+        let root = test_dir("shutdown-apply");
+        let instances = root.join("instances");
+        let active = root.join("active.json");
+        let server = root.join("server.json");
+        let token = root.join("auth_token");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&instances)?;
+
+        let current = InstanceInfo {
+            id: "alpha".to_string(),
+            pid: std::process::id(),
+            started_at: "2026-07-27T00:00:00+08:00".to_string(),
+            auth_token: "alpha-token".to_string(),
+            ..Default::default()
+        };
+        let next = InstanceInfo {
+            id: "bravo".to_string(),
+            pid: std::process::id(),
+            started_at: "2026-07-27T00:00:01+08:00".to_string(),
+            auth_token: "bravo-token".to_string(),
+            ..Default::default()
+        };
+        write_atomic(&instances.join("alpha.json"), &current)?;
+        write_atomic(&instances.join("bravo.json"), &next)?;
+        write_atomic(&active, &current)?;
+        write_atomic(&server, &current)?;
+        fs::write(&token, &current.auth_token)?;
+
+        let result = apply_instance_shutdown_from_paths_locked(
+            Some("alpha"),
+            &instances,
+            &active,
+            &server,
+            &token,
+        );
+
+        assert_eq!(result.applied, true);
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(result.registry_file_removed, true);
+        assert_eq!(result.active_pointer_cleared, true);
+        assert_eq!(result.legacy_server_removed, true);
+        assert_eq!(result.legacy_token_updated, true);
+        assert_eq!(result.handoff_id.as_deref(), Some("bravo"));
+        assert_eq!(result.native_window_closed, false);
+        assert!(!instances.join("alpha.json").exists());
+        assert!(instances.join("bravo.json").exists());
+
+        let active_after: InstanceInfo = serde_json::from_str(&fs::read_to_string(&active)?)?;
+        let server_after: InstanceInfo = serde_json::from_str(&fs::read_to_string(&server)?)?;
+        assert_eq!(active_after.id, "bravo");
+        assert_eq!(server_after.id, "bravo");
+        assert_eq!(fs::read_to_string(&token)?, "bravo-token");
 
         let _ = fs::remove_dir_all(&root);
         Ok(())

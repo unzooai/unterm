@@ -546,6 +546,10 @@ pub const MCP_METHODS: &[McpMethod] = &[
     McpMethod { name: "instance.list", namespace: "instance", summary: "Enumerate live Unterm instances on this machine.", params: NO_PARAMS },
     McpMethod { name: "instance.info", namespace: "instance", summary: "Details for one instance (this one by default).", params: &[Param { name: "id", kind: "string", required: false, summary: "alpha|bravo|charlie…" }] },
     McpMethod { name: "instance.lifecycle", namespace: "instance", summary: "Read instance registration and shutdown dry-run diagnostics.", params: NO_PARAMS },
+    McpMethod { name: "instance.close", namespace: "instance", summary: "Dry-run or explicitly unregister the current instance registry entry.", params: &[
+        Param { name: "apply", kind: "bool", required: false, summary: "Default false; true executes registry unregister." },
+        Param { name: "confirm", kind: "string", required: false, summary: "Must be unregister-current-instance when apply=true." },
+    ] },
     McpMethod { name: "instance.set_title", namespace: "instance", summary: "Override the instance window title.", params: &[Param { name: "title", kind: "string", required: true, summary: "" }] },
     McpMethod { name: "instance.focus", namespace: "instance", summary: "Bring this instance's main window to the front.", params: NO_PARAMS },
 ];
@@ -618,6 +622,7 @@ mod tests {
             "profile.current",
             "profile.audit",
             "instance.lifecycle",
+            "instance.close",
             "orchestrate.launch",
             "orchestrate.broadcast",
             "orchestrate.wait",

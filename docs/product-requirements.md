@@ -591,7 +591,7 @@ FR-REL-006: Website/docs/release metadata must match shipped product capabilitie
 
 ## 9. MCP Method Coverage Requirement
 
-The product must document and keep working these 101 public MCP methods plus `auth.login`:
+The product must document and keep working these 102 public MCP methods plus `auth.login`:
 
 - `agent.identify`
 - `agent.list_trusted`
@@ -617,6 +617,7 @@ The product must document and keep working these 101 public MCP methods plus `au
 - `fleet.list`
 - `fleet.retry`
 - `ghost.debug`
+- `instance.close`
 - `instance.focus`
 - `instance.info`
 - `instance.lifecycle`

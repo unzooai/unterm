@@ -74,6 +74,10 @@ pub fn engine_capabilities(engine: &str) -> Value {
                 "name": "instance.lifecycle",
                 "limitation": "reports server_info registration and shutdown dry-run ownership; native window close remains host-owned until next-core owns windows",
             }),
+            json!({
+                "name": "instance.close",
+                "limitation": "can explicitly unregister the current server_info entry; native window close remains host-owned until next-core owns windows",
+            }),
         ]
     } else {
         Vec::new()
@@ -114,6 +118,7 @@ pub fn engine_capabilities(engine: &str) -> Value {
             "instance_lifecycle_observability": true,
             "instance_registry_diagnostics": true,
             "instance_shutdown_dry_run": true,
+            "instance_registry_unregister": true,
             "native_window_lifecycle": false,
             "health_metrics": health_metrics,
         },
@@ -229,6 +234,7 @@ mod tests {
         );
         assert_eq!(caps["diagnostics"]["instance_registry_diagnostics"], true);
         assert_eq!(caps["diagnostics"]["instance_shutdown_dry_run"], true);
+        assert_eq!(caps["diagnostics"]["instance_registry_unregister"], true);
         assert_eq!(caps["diagnostics"]["native_window_lifecycle"], false);
     }
 
@@ -328,6 +334,7 @@ mod tests {
         );
         assert_eq!(caps["diagnostics"]["instance_registry_diagnostics"], true);
         assert_eq!(caps["diagnostics"]["instance_shutdown_dry_run"], true);
+        assert_eq!(caps["diagnostics"]["instance_registry_unregister"], true);
         assert_eq!(caps["diagnostics"]["native_window_lifecycle"], false);
         let metrics = strings_at(&caps["diagnostics"], "health_metrics");
         assert!(metrics.contains(&"input_writes"));
