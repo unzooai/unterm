@@ -906,6 +906,32 @@ mod engine_neutral_handler_tests {
     }
 
     #[test]
+    fn capture_clipboard_does_not_require_terminal_engine() {
+        let _guard = env_lock().lock();
+        let previous_engine = std::env::var("UNTERM_ENGINE").ok();
+        std::env::set_var("UNTERM_ENGINE", "next-core");
+
+        let result = {
+            let handler = McpHandler::new();
+            let ctx = ConnectionContext::internal("handler-test");
+            handler.handle(&ctx, "capture.clipboard", &json!({}))
+        };
+
+        match previous_engine {
+            Some(value) => std::env::set_var("UNTERM_ENGINE", value),
+            None => std::env::remove_var("UNTERM_ENGINE"),
+        }
+
+        if let Err(err) = result {
+            let message = format!("{err:#}");
+            assert!(
+                !message.contains("Mux not available"),
+                "clipboard capture should not require WezTerm mux: {message}"
+            );
+        }
+    }
+
+    #[test]
     fn server_health_uses_selected_next_core_engine() {
         let _guard = env_lock().lock();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
