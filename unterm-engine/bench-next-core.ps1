@@ -10,6 +10,7 @@ param(
     [int]$ScreenReadLines = 5000,
     [int]$FocusSwitches = 1000,
     [int]$SessionCreates = 20,
+    [int]$SessionReadyRounds = 20,
     [int]$TimeoutMs = 120000,
     [int]$MaxInputWriteP95Us = 16000,
     [int]$MaxEchoP95Us = 16000,
@@ -20,6 +21,7 @@ param(
     [int]$MaxScreenReadFloodP95Us = 50000,
     [int]$MaxFocusSwitchP95Us = 100000,
     [int]$MaxSessionCreateP95Us = 100000,
+    [int]$MaxSessionReadyP95Us = 100000,
     [switch]$SkipBuild
 )
 
@@ -168,6 +170,7 @@ try {
     $results += Invoke-Benchmark -Name "screen read during flood" -BenchArgs ([string[]](@("--bench-screen-read-lines", "$ScreenReadLines") + $commonTail))
     $results += Invoke-Benchmark -Name "focus switch latency" -BenchArgs ([string[]](@("--bench-focus-switches", "$FocusSwitches") + $commonTail))
     $results += Invoke-Benchmark -Name "session create latency" -BenchArgs ([string[]](@("--bench-session-create", "$SessionCreates") + $commonTail))
+    $results += Invoke-Benchmark -Name "session ready latency" -BenchArgs ([string[]](@("--bench-session-ready", "$SessionReadyRounds") + $commonTail))
 
     $inputWrite = Find-BenchmarkResult -Results $results -Name "input write latency"
     $echo = Find-BenchmarkResult -Results $results -Name "echo latency"
@@ -178,6 +181,7 @@ try {
     $screenRead = Find-BenchmarkResult -Results $results -Name "screen read during flood"
     $focusSwitch = Find-BenchmarkResult -Results $results -Name "focus switch latency"
     $sessionCreate = Find-BenchmarkResult -Results $results -Name "session create latency"
+    $sessionReady = Find-BenchmarkResult -Results $results -Name "session ready latency"
     $gates = @()
     $gates += New-Gate -GateName "input write p95" -Actual (Get-BenchMetric -Result $inputWrite -LinePrefix "bench_input_write" -Metric "p95_us") -Max $MaxInputWriteP95Us -Unit "us"
     $gates += New-Gate -GateName "echo p95" -Actual (Get-BenchMetric -Result $echo -LinePrefix "bench_echo" -Metric "p95_us") -Max $MaxEchoP95Us -Unit "us"
@@ -188,6 +192,7 @@ try {
     $gates += New-Gate -GateName "screen read under flood p95" -Actual (Get-BenchMetric -Result $screenRead -LinePrefix "bench_screen_read_flood" -Metric "p95_us") -Max $MaxScreenReadFloodP95Us -Unit "us"
     $gates += New-Gate -GateName "focus switch p95" -Actual (Get-BenchMetric -Result $focusSwitch -LinePrefix "bench_focus_switch" -Metric "p95_us") -Max $MaxFocusSwitchP95Us -Unit "us"
     $gates += New-Gate -GateName "session create p95" -Actual (Get-BenchMetric -Result $sessionCreate -LinePrefix "bench_session_create" -Metric "p95_us") -Max $MaxSessionCreateP95Us -Unit "us"
+    $gates += New-Gate -GateName "session ready p95" -Actual (Get-BenchMetric -Result $sessionReady -LinePrefix "bench_session_ready" -Metric "p95_us") -Max $MaxSessionReadyP95Us -Unit "us"
 
     $commit = (& git rev-parse --short HEAD).Trim()
     $date = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss zzz")
