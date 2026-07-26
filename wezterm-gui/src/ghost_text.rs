@@ -92,10 +92,6 @@ fn push_global_commit(cmd: &str) {
     }
 }
 
-fn snapshot_global_commits() -> Vec<String> {
-    global_commits().lock().clone()
-}
-
 /// Record a keyboard event on `pane_id`. `external_candidates` is
 /// merged with the pane's own commit history when recomputing the
 /// ghost — caller typically passes recent scrollback lines so the
@@ -277,37 +273,38 @@ fn recompute_ghost(state: &mut PaneGhostState, external: &[String]) {
         return;
     }
     let prefix = &state.input;
-    // Search newest-first: a freshly-typed command is the strongest
-    // signal of what the user is about to retype.
-    let mut best: Option<String> = None;
+
+    fn first_prefix_match<'a>(
+        prefix: &str,
+        candidates: impl Iterator<Item = &'a String>,
+    ) -> Option<String> {
+        for candidate in candidates.take(MAX_CANDIDATES_SCANNED) {
+            if candidate.len() <= prefix.len() {
+                continue;
+            }
+            if !candidate.starts_with(prefix) {
+                continue;
+            }
+            let rest = &candidate[prefix.len()..];
+            if rest.is_empty() {
+                continue;
+            }
+            return Some(rest.to_string());
+        }
+        None
+    }
+
     // Priority: pane-local > cross-pane global > caller-supplied
     // external pool. Pane-local wins because the user has just been
     // working in this pane; their last commands are the strongest
     // signal of what they're about to retype.
-    //
-    // We snapshot the global pool to a local Vec to avoid holding
-    // its lock across the loop (registry lock is already held).
-    let global_snapshot = snapshot_global_commits();
-    let candidates = state
-        .commits
-        .iter()
-        .rev()
-        .chain(global_snapshot.iter().rev())
-        .chain(external.iter().rev())
-        .take(MAX_CANDIDATES_SCANNED);
-    for candidate in candidates {
-        if candidate.len() <= prefix.len() {
-            continue;
-        }
-        if !candidate.starts_with(prefix.as_str()) {
-            continue;
-        }
-        let rest = &candidate[prefix.len()..];
-        if rest.is_empty() {
-            continue;
-        }
-        best = Some(rest.to_string());
-        break;
+    let mut best = first_prefix_match(prefix, state.commits.iter().rev());
+    if best.is_none() {
+        let global = global_commits().lock();
+        best = first_prefix_match(prefix, global.iter().rev());
+    }
+    if best.is_none() {
+        best = first_prefix_match(prefix, external.iter().rev());
     }
     // Fallback: if shell history didn't predict anything and the user is
     // typing a known AI coding-CLI, offer a flag completion from that CLI's
@@ -326,34 +323,13 @@ fn recompute_ghost(state: &mut PaneGhostState, external: &[String]) {
     state.ghost = best;
 }
 
-/// Map of agent exec name → flag completion tokens, built lazily from the
-/// offline manifest set (baked / on-disk cache — never hits the network).
-/// `OnceLock` so the disk read happens at most once per process; flag
-/// catalogs don't change mid-session in practice.
+/// Map of agent exec name → flag completion tokens. Keep this fully in-memory:
+/// the key-event path calls it while the user types, so even an offline
+/// manifest disk read is too expensive here.
 fn agent_flag_tokens() -> &'static HashMap<String, Vec<String>> {
     static MAP: OnceLock<HashMap<String, Vec<String>>> = OnceLock::new();
     MAP.get_or_init(|| {
         let mut m: HashMap<String, Vec<String>> = HashMap::new();
-        // 1) Whatever the signed manifest set offers (may be a small subset).
-        if let Ok(set) = unterm_agents::fetch_manifests_offline() {
-            for manifest in set.for_current_platform() {
-                let toks: Vec<String> = manifest
-                    .launch
-                    .flag_catalog
-                    .iter()
-                    .map(|f| flag_completion_token(&f.arg))
-                    .collect();
-                if !toks.is_empty() {
-                    m.entry(manifest.launch.exec.clone())
-                        .or_default()
-                        .extend(toks);
-                }
-            }
-        }
-        // 2) Merge a built-in, comprehensive flag set per known agent so
-        // argument completion is full — the manifest's flag_catalog only ever
-        // carried a handful, which is why completion felt partial. Independent
-        // of the signed manifest (no re-signing needed).
         for (exec, args) in BUILTIN_AGENT_FLAGS {
             let bucket = m.entry((*exec).to_string()).or_default();
             for arg in *args {
