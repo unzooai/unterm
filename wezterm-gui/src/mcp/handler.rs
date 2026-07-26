@@ -1384,6 +1384,10 @@ impl McpHandler {
         crate::engine::current()
     }
 
+    fn engine_label(&self) -> String {
+        format!("Unterm ({})", self.engine().name())
+    }
+
     fn pane_id_from_params(params: &Value) -> Result<usize> {
         let id_val = params
             .get("id")
@@ -1456,7 +1460,7 @@ impl McpHandler {
         Ok(json!({
             "name": "Unterm MCP Server",
             "version": "2.0.0",
-            "engine": "Unterm (WezTerm)",
+            "engine": self.engine_label(),
             "protocol": "json-rpc-2.0",
         }))
     }
@@ -1471,7 +1475,7 @@ impl McpHandler {
 
         Ok(json!({
             "status": if mux_available { "ok" } else { "degraded" },
-            "engine": "Unterm (WezTerm)",
+            "engine": self.engine_label(),
             "mcp": {
                 "bind": "127.0.0.1",
                 "port": instance.mcp_port,
@@ -1857,12 +1861,24 @@ impl McpHandler {
     }
 
     fn session_input(&self, params: &Value) -> Result<Value> {
-        let pane = self.get_pane(params)?;
         let input = params
             .get("input")
             .or_else(|| params.get("text"))
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing 'input' (or compatibility alias 'text') parameter"))?;
+        let engine = self.engine();
+        if engine.name() == "next-core" {
+            let pane_id = Self::pane_id_from_params(params)?;
+            self.audit(
+                "session.input",
+                Some(&pane_id.to_string()),
+                &input_preview(input),
+            );
+            engine.write_input(pane_id, input)?;
+            return Ok(json!({"status": "ok"}));
+        }
+
+        let pane = self.get_pane(params)?;
 
         // Gate the write on a user confirmation banner if policy
         // demands it. `Allow` continues to the audit + write below;
@@ -1880,18 +1896,29 @@ impl McpHandler {
             Some(&pane.pane_id().to_string()),
             &input_preview(input),
         );
-        let engine = self.engine();
         engine.write_input(pane.pane_id(), input)?;
         Ok(json!({"status": "ok"}))
     }
 
     fn session_paste(&self, params: &Value) -> Result<Value> {
-        let pane = self.get_pane(params)?;
         let text = params
             .get("text")
             .or_else(|| params.get("input"))
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing 'text' (or compatibility alias 'input') parameter"))?;
+        let engine = self.engine();
+        if engine.name() == "next-core" {
+            let pane_id = Self::pane_id_from_params(params)?;
+            self.audit(
+                "session.paste",
+                Some(&pane_id.to_string()),
+                &input_preview(text),
+            );
+            engine.paste_input(pane_id, text)?;
+            return Ok(json!({"status": "ok"}));
+        }
+
+        let pane = self.get_pane(params)?;
 
         match self.gate_pty_write("session.paste", &pane, text)? {
             GateOutcome::Allow => {}
@@ -1905,7 +1932,6 @@ impl McpHandler {
             Some(&pane.pane_id().to_string()),
             &input_preview(text),
         );
-        let engine = self.engine();
         engine.paste_input(pane.pane_id(), text)?;
         Ok(json!({"status": "ok"}))
     }
@@ -4017,7 +4043,7 @@ impl McpHandler {
         Ok(json!({
             "name": "Unterm",
             "version": "2.0.0",
-            "engine": "Unterm (WezTerm)",
+            "engine": self.engine_label(),
             "platform": std::env::consts::OS,
             "arch": std::env::consts::ARCH,
             "active_sessions": pane_count,
