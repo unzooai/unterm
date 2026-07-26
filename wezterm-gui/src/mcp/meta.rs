@@ -23,6 +23,49 @@ use serde_json::{json, Value};
 
 pub use unterm_agents::mcp_meta::{CLI_COMMANDS, MCP_METHODS};
 
+const BASE_UNSUPPORTED_METHODS: &[&str] = &["session.env", "session.set_env"];
+const NEXT_CORE_UNSUPPORTED_METHODS: &[&str] = &["capture.scrollback"];
+
+fn engine_unsupported_methods(engine: &str) -> Vec<&'static str> {
+    let mut methods = BASE_UNSUPPORTED_METHODS.to_vec();
+    if engine == "next-core" {
+        methods.extend_from_slice(NEXT_CORE_UNSUPPORTED_METHODS);
+    }
+    methods.sort_unstable();
+    methods.dedup();
+    methods
+}
+
+pub fn engine_capabilities(engine: &str) -> Value {
+    let unsupported_methods = engine_unsupported_methods(engine);
+    let supported_methods: Vec<_> = MCP_METHODS
+        .iter()
+        .map(|method| method.name)
+        .filter(|name| !unsupported_methods.contains(name))
+        .collect();
+    let engine_limited_methods = if engine == "next-core" {
+        vec![
+            json!({
+                "name": "screen.search",
+                "limitation": "goto returns goto_skipped until next-core owns GUI viewport state",
+            }),
+            json!({
+                "name": "cockpit.inbox",
+                "limitation": "pane location metadata is empty until next-core owns GUI tabs/windows",
+            }),
+        ]
+    } else {
+        Vec::new()
+    };
+
+    json!({
+        "engine": engine,
+        "supported_methods": supported_methods,
+        "unsupported_methods": unsupported_methods,
+        "engine_limited_methods": engine_limited_methods,
+    })
+}
+
 /// Read the effective keybindings from the current config and return them
 /// as serializable rows. The InputMap is built fresh from `config::configuration()`
 /// so the listing reflects the user's actual unterm.lua at call time.
@@ -68,10 +111,63 @@ pub fn keybindings_inventory() -> Vec<Value> {
 
 /// `meta.surface` MCP handler.
 pub fn surface(_params: &Value) -> Result<Value> {
+    let engine = crate::engine::selected_engine_name();
     Ok(json!({
         "version": env!("CARGO_PKG_VERSION"),
+        "engine": engine,
+        "engine_capabilities": engine_capabilities(engine),
         "mcp_methods": MCP_METHODS,
         "cli_commands": CLI_COMMANDS,
         "keybindings": keybindings_inventory(),
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn strings_at<'a>(value: &'a Value, key: &str) -> Vec<&'a str> {
+        value[key]
+            .as_array()
+            .expect("expected array")
+            .iter()
+            .map(|v| v.as_str().expect("expected string"))
+            .collect()
+    }
+
+    #[test]
+    fn wezterm_capabilities_mark_only_explicit_stubs_unsupported() {
+        let caps = engine_capabilities("wezterm");
+        let unsupported = strings_at(&caps, "unsupported_methods");
+
+        assert!(unsupported.contains(&"session.env"));
+        assert!(unsupported.contains(&"session.set_env"));
+        assert!(!unsupported.contains(&"capture.scrollback"));
+
+        let supported = strings_at(&caps, "supported_methods");
+        assert!(supported.contains(&"session.input"));
+        assert!(supported.contains(&"capture.scrollback"));
+    }
+
+    #[test]
+    fn next_core_capabilities_expose_scrollback_png_gap() {
+        let caps = engine_capabilities("next-core");
+        let unsupported = strings_at(&caps, "unsupported_methods");
+
+        assert!(unsupported.contains(&"session.env"));
+        assert!(unsupported.contains(&"session.set_env"));
+        assert!(unsupported.contains(&"capture.scrollback"));
+
+        let supported = strings_at(&caps, "supported_methods");
+        assert!(supported.contains(&"session.input"));
+        assert!(supported.contains(&"screen.text"));
+        assert!(!supported.contains(&"capture.scrollback"));
+
+        let limited = caps["engine_limited_methods"]
+            .as_array()
+            .expect("expected limited method array");
+        assert!(limited
+            .iter()
+            .any(|item| item["name"].as_str() == Some("screen.search")));
+    }
 }

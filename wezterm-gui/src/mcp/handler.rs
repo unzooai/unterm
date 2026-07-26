@@ -2434,7 +2434,16 @@ impl McpHandler {
         for m in crate::mcp::meta::MCP_METHODS {
             grouped.entry(m.namespace).or_default().push(m.name);
         }
-        Ok(serde_json::to_value(&grouped)?)
+        let mut value = serde_json::to_value(&grouped)?;
+        if let Some(object) = value.as_object_mut() {
+            let engine = crate::engine::selected_engine_name();
+            object.insert("_engine".to_string(), json!(engine));
+            object.insert(
+                "_engine_capabilities".to_string(),
+                crate::mcp::meta::engine_capabilities(engine),
+            );
+        }
+        Ok(value)
     }
 
     /// Enumerate every live Unterm instance on this machine. An "instance"

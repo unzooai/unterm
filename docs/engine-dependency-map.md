@@ -201,12 +201,12 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 | `policy.check` | Product-only | Policy checker | Engine-independent. |
 | `server.info` | Engine-neutral | Server metadata plus engine label | Already reports selected engine. |
 | `server.health` | Engine-neutral | `HealthEngine::health` plus product server metadata | WezTerm readiness is adapter-owned; `next-core` readiness does not depend on WezTerm Mux state. |
-| `server.capabilities` | Product-only | `MCP_METHODS` inventory | Should later include per-engine support flags. |
+| `server.capabilities` | Product-only | `MCP_METHODS` inventory plus `_engine_capabilities` | Keeps the legacy namespace map while exposing selected engine support/unsupported method flags. |
 | `selftest.run` | Product-only | MCP selftest orchestration plus `HealthEngine`/`SessionEngine` probes | Selftest no longer treats WezTerm mux availability as the engine readiness source. Needs broader per-engine test matrix. |
 | `profile.list` | Product-only | Profile registry, no secrets | Engine-independent. |
 | `profile.current` | Product-only | Current profile metadata | Engine-independent. |
 | `profile.audit` | Product-only | Profile registry/vault metadata | Engine-independent. |
-| `meta.surface` | Product-only | Static inventory + live keybindings | Needs per-engine capabilities before beta. |
+| `meta.surface` | Product-only | Static inventory + live keybindings + selected engine capability flags | Agents can detect current engine support without guessing from docs. |
 
 ## Next Extraction Targets
 
