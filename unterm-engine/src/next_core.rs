@@ -1,9 +1,10 @@
 use super::{
-    CellStyle, CreateSessionRequest, CursorSnapshot, DirtyRows, InputEngine, RecordingEngine,
-    RecordingStartResult, RecordingStatusSnapshot, RecordingStopResult, ScreenEngine, ScreenLine,
-    ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot,
-    SessionActivitySnapshot, SessionEngine, SessionSnapshot, ShellSnapshot, SplitSessionRequest,
-    StyledCell, StyledColor, StyledScreenLine, StyledScreenSnapshot,
+    CellStyle, CreateSessionRequest, CursorSnapshot, DirtyRows, EngineHealthSnapshot, HealthEngine,
+    InputEngine, RecordingEngine, RecordingStartResult, RecordingStatusSnapshot,
+    RecordingStopResult, ScreenEngine, ScreenLine, ScreenSearchMatch, ScreenSnapshot,
+    ScrollbackTextRequest, ScrollbackTextSnapshot, SessionActivitySnapshot, SessionEngine,
+    SessionSnapshot, ShellSnapshot, SplitSessionRequest, StyledCell, StyledColor, StyledScreenLine,
+    StyledScreenSnapshot,
 };
 use anyhow::{bail, Result};
 use base64::Engine as _;
@@ -2216,6 +2217,19 @@ impl RecordingEngine for NextCoreEngine {
         }
         Self::upsert_recording_index(recording, None)?;
         Ok(recording.trace_ids.clone())
+    }
+}
+
+impl HealthEngine for NextCoreEngine {
+    fn health(&self) -> Result<EngineHealthSnapshot> {
+        let pane_count = state().read().sessions.len();
+        Ok(EngineHealthSnapshot {
+            engine: "next-core".to_string(),
+            ready: true,
+            status: "ok".to_string(),
+            detail: "next-core session registry is available".to_string(),
+            pane_count: Some(pane_count),
+        })
     }
 }
 

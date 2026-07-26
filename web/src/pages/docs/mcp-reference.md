@@ -1116,11 +1116,13 @@ Server identity. Static, doesn't reach into the mux.
 
 ### `server.health`
 
-Health probe — checks the mux is available and reads a few stats out of it. Returns `status: "degraded"` if the mux is not yet up (rare; only happens during startup).
+Health probe — asks the selected terminal engine for readiness and includes MCP/server config details. For the WezTerm engine this still reports mux readiness; for next-core it reports the next-core session registry instead of depending on WezTerm mux state.
 
 **Params:** none.
 
-**Returns:** `{ status: "ok"|"degraded", engine, mcp: { bind, port, auth }, mux: { available, pane_count }, terminal: { initial_cols, initial_rows, color_scheme, term } }`
+**Returns:** `{ status: "ok"|"degraded", engine, engine_health: { engine, ready, status, detail, pane_count }, mcp: { bind, port, auth }, mux: { available, pane_count }, terminal: { initial_cols, initial_rows, color_scheme, term } }`
+
+`mux` is retained as a compatibility field. When the selected engine is next-core, `mux.available` is `false` even if the health status is `ok`.
 
 Note: the `mcp.port` field in the response is the *preferred* port (`19876`), not the actually-bound one. To get the actually-bound port, read `~/.unterm/server.json` or `instance.info`.
 

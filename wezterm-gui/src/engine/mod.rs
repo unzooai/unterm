@@ -8,12 +8,12 @@ pub mod wezterm;
 
 #[allow(unused_imports)]
 pub use unterm_engine::{
-    next_core, CellStyle, CreateSessionRequest, CursorSnapshot, DirtyRows, InputEngine,
-    PaneDimensions, RecordingEngine, RecordingStartResult, RecordingStatusSnapshot,
-    RecordingStopResult, ScreenEngine, ScreenLine, ScreenSearchMatch, ScreenSnapshot,
-    ScrollbackTextRequest, ScrollbackTextSnapshot, SessionActivitySnapshot, SessionEngine,
-    SessionSnapshot, ShellSnapshot, SplitDirection, SplitSessionRequest, StyledCell, StyledColor,
-    StyledScreenLine, StyledScreenSnapshot, TerminalEngine,
+    next_core, CellStyle, CreateSessionRequest, CursorSnapshot, DirtyRows, EngineHealthSnapshot,
+    HealthEngine, InputEngine, PaneDimensions, RecordingEngine, RecordingStartResult,
+    RecordingStatusSnapshot, RecordingStopResult, ScreenEngine, ScreenLine, ScreenSearchMatch,
+    ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot, SessionActivitySnapshot,
+    SessionEngine, SessionSnapshot, ShellSnapshot, SplitDirection, SplitSessionRequest, StyledCell,
+    StyledColor, StyledScreenLine, StyledScreenSnapshot, TerminalEngine,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -260,6 +260,15 @@ impl RecordingEngine for CurrentTerminalEngine {
         match self {
             Self::WezTerm(engine) => engine.attach_recording_trace(pane_id, trace_id),
             Self::NextCore(engine) => engine.attach_recording_trace(pane_id, trace_id),
+        }
+    }
+}
+
+impl HealthEngine for CurrentTerminalEngine {
+    fn health(&self) -> anyhow::Result<EngineHealthSnapshot> {
+        match self {
+            Self::WezTerm(engine) => engine.health(),
+            Self::NextCore(engine) => engine.health(),
         }
     }
 }

@@ -61,8 +61,8 @@ Known gaps:
 
 | Category | Count | Methods |
 |---|---:|---|
-| Engine-neutral | 35 | `session.list`, `session.get`, `session.status`, `session.create`, `session.split`, `session.focus`, `session.input`, `session.paste`, `session.idle`, `session.cwd`, `session.history`, `session.destroy`, `session.recording_start`, `session.recording_stop`, `session.recording_status`, `session.recording_attach_trace`, `screen.read`, `screen.text`, `screen.scrollback_text`, `screen.cursor`, `screen.search`, `screen.detect_errors`, `exec.run`, `exec.send`, `exec.run_wait`, `exec.status`, `exec.cancel`, `signal.send`, `orchestrate.launch`, `orchestrate.broadcast`, `orchestrate.wait`, `workspace.save`, `workspace.restore`, `screen.scroll`, `server.info` |
-| Partial | 3 | `session.resize`, `session.export_markdown`, `server.health` |
+| Engine-neutral | 36 | `session.list`, `session.get`, `session.status`, `session.create`, `session.split`, `session.focus`, `session.input`, `session.paste`, `session.idle`, `session.cwd`, `session.history`, `session.destroy`, `session.recording_start`, `session.recording_stop`, `session.recording_status`, `session.recording_attach_trace`, `screen.read`, `screen.text`, `screen.scrollback_text`, `screen.cursor`, `screen.search`, `screen.detect_errors`, `exec.run`, `exec.send`, `exec.run_wait`, `exec.status`, `exec.cancel`, `signal.send`, `orchestrate.launch`, `orchestrate.broadcast`, `orchestrate.wait`, `workspace.save`, `workspace.restore`, `screen.scroll`, `server.info`, `server.health` |
+| Partial | 2 | `session.resize`, `session.export_markdown` |
 | Product-only | 42 | `meta.surface`, `session.audit_log`, `session.suggest`, `session.suggest_status`, `session.suggest_cancel`, `session.suggest_list`, `agent.identify`, `agent.whoami`, `agent.list_trusted`, `agent.trust`, `agent.untrust`, `policy.set`, `policy.check`, `server.capabilities`, `profile.list`, `profile.current`, `profile.audit`, `fleet.list`, `review.list`, `review.diff`, `review.verify`, `review.rollback`, `review.merge`, `review.discard`, `proxy.status`, `proxy.nodes`, `proxy.switch`, `proxy.speedtest`, `proxy.configure`, `proxy.disable`, `proxy.env`, `proxy.rotation`, `proxy.set_nodes`, `proxy.clash_status`, `proxy.clash_select`, `proxy.clash_set_controller`, `upload.file`, `system.info`, `selftest.run`, `workspace.list`, `session.recording_list`, `session.recording_read` |
 | WezTerm-only | 18 | `agent.status`, `agent.signal`, `cockpit.inbox`, `fleet.launch`, `fleet.clean`, `fleet.retry`, `ghost.debug`, `capture.screen`, `capture.window`, `capture.select`, `capture.clipboard`, `capture.scrollback`, `capture.window_scroll`, `instance.list`, `instance.info`, `instance.set_title`, `instance.focus`, `system.launch_admin` |
 | Unsupported stub | 2 | `session.env`, `session.set_env` |
@@ -196,7 +196,7 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 | `policy.set` | Product-only | Policy config | Engine-independent. |
 | `policy.check` | Product-only | Policy checker | Engine-independent. |
 | `server.info` | Engine-neutral | Server metadata plus engine label | Already reports selected engine. |
-| `server.health` | Partial | Server metadata plus engine label; health still mostly current runtime | Add engine-specific readiness checks. |
+| `server.health` | Engine-neutral | `HealthEngine::health` plus product server metadata | WezTerm readiness is adapter-owned; `next-core` readiness does not depend on WezTerm Mux state. |
 | `server.capabilities` | Product-only | `MCP_METHODS` inventory | Should later include per-engine support flags. |
 | `selftest.run` | Product-only | MCP selftest orchestration | Needs per-engine test matrix. |
 | `profile.list` | Product-only | Profile registry, no secrets | Engine-independent. |

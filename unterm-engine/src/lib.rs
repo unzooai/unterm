@@ -178,6 +178,15 @@ pub struct RecordingStatusSnapshot {
     pub bytes: Option<u64>,
 }
 
+#[derive(Clone, Debug, Serialize)]
+pub struct EngineHealthSnapshot {
+    pub engine: String,
+    pub ready: bool,
+    pub status: String,
+    pub detail: String,
+    pub pane_count: Option<usize>,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub enum SplitDirection {
     Right,
@@ -251,7 +260,17 @@ pub trait RecordingEngine {
     fn attach_recording_trace(&self, pane_id: usize, trace_id: String) -> Result<Vec<String>>;
 }
 
-#[allow(dead_code)]
-pub trait TerminalEngine: SessionEngine + ScreenEngine + InputEngine + RecordingEngine {}
+pub trait HealthEngine {
+    fn health(&self) -> Result<EngineHealthSnapshot>;
+}
 
-impl<T> TerminalEngine for T where T: SessionEngine + ScreenEngine + InputEngine + RecordingEngine {}
+#[allow(dead_code)]
+pub trait TerminalEngine:
+    SessionEngine + ScreenEngine + InputEngine + RecordingEngine + HealthEngine
+{
+}
+
+impl<T> TerminalEngine for T where
+    T: SessionEngine + ScreenEngine + InputEngine + RecordingEngine + HealthEngine
+{
+}

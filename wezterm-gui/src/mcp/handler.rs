@@ -2,8 +2,8 @@
 //! Implements all methods required by unterm-cli compatibility.
 
 use crate::engine::{
-    CreateSessionRequest, CurrentTerminalEngine, InputEngine, RecordingEngine, ScreenEngine,
-    ScrollbackTextRequest, SessionEngine, SplitDirection, SplitSessionRequest,
+    CreateSessionRequest, CurrentTerminalEngine, HealthEngine, InputEngine, RecordingEngine,
+    ScreenEngine, ScrollbackTextRequest, SessionEngine, SplitDirection, SplitSessionRequest,
 };
 use anyhow::{anyhow, Context, Result};
 use base64::Engine as _;
@@ -406,6 +406,31 @@ mod engine_neutral_handler_tests {
             search["goto_skipped"]["reason"],
             "engine_has_no_gui_viewport"
         );
+    }
+
+    #[test]
+    fn server_health_uses_selected_next_core_engine() {
+        let _guard = env_lock().lock();
+        let previous_engine = std::env::var("UNTERM_ENGINE").ok();
+        std::env::set_var("UNTERM_ENGINE", "next-core");
+
+        let result: Result<serde_json::Value> = (|| {
+            let handler = McpHandler::new();
+            let ctx = ConnectionContext::internal("handler-test");
+            handler.handle(&ctx, "server.health", &json!({}))
+        })();
+
+        match previous_engine {
+            Some(value) => std::env::set_var("UNTERM_ENGINE", value),
+            None => std::env::remove_var("UNTERM_ENGINE"),
+        }
+
+        let health = result.expect("server.health through MCP handler");
+        assert_eq!(health["status"], "ok");
+        assert_eq!(health["engine"], "Unterm (next-core)");
+        assert_eq!(health["engine_health"]["engine"], "next-core");
+        assert_eq!(health["engine_health"]["ready"], true);
+        assert_eq!(health["mux"]["available"], false);
     }
 }
 
@@ -1530,23 +1555,26 @@ impl McpHandler {
     }
 
     fn server_health(&self) -> Result<Value> {
-        let mux_available = Mux::try_get().is_some();
-        let pane_count = Mux::try_get()
-            .map(|mux| mux.iter_panes().len())
-            .unwrap_or_default();
+        let engine = self.engine();
+        let engine_health = engine.health()?;
         let config = config::configuration();
         let instance = crate::server_info::read_current();
+        let status = engine_health.status.clone();
+        let engine_name = engine_health.engine.clone();
+        let engine_ready = engine_health.ready;
+        let pane_count = engine_health.pane_count.unwrap_or_default();
 
         Ok(json!({
-            "status": if mux_available { "ok" } else { "degraded" },
-            "engine": self.engine_label(),
+            "status": status,
+            "engine": format!("Unterm ({})", engine_name),
+            "engine_health": engine_health,
             "mcp": {
                 "bind": "127.0.0.1",
                 "port": instance.mcp_port,
                 "auth": "token",
             },
             "mux": {
-                "available": mux_available,
+                "available": engine_name == "wezterm" && engine_ready,
                 "pane_count": pane_count,
             },
             "terminal": {

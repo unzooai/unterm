@@ -1,9 +1,10 @@
 use super::{
-    CellStyle, CreateSessionRequest, CursorSnapshot, InputEngine, PaneDimensions, RecordingEngine,
-    RecordingStartResult, RecordingStatusSnapshot, RecordingStopResult, ScreenEngine, ScreenLine,
-    ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot,
-    SessionActivitySnapshot, SessionEngine, SessionSnapshot, ShellSnapshot, SplitDirection,
-    SplitSessionRequest, StyledCell, StyledScreenLine, StyledScreenSnapshot,
+    CellStyle, CreateSessionRequest, CursorSnapshot, EngineHealthSnapshot, HealthEngine,
+    InputEngine, PaneDimensions, RecordingEngine, RecordingStartResult, RecordingStatusSnapshot,
+    RecordingStopResult, ScreenEngine, ScreenLine, ScreenSearchMatch, ScreenSnapshot,
+    ScrollbackTextRequest, ScrollbackTextSnapshot, SessionActivitySnapshot, SessionEngine,
+    SessionSnapshot, ShellSnapshot, SplitDirection, SplitSessionRequest, StyledCell,
+    StyledScreenLine, StyledScreenSnapshot,
 };
 use anyhow::{anyhow, Context, Result};
 use config::keyassignment::SpawnTabDomain;
@@ -529,5 +530,24 @@ impl RecordingEngine for WezTermEngine {
 
     fn attach_recording_trace(&self, pane_id: usize, trace_id: String) -> Result<Vec<String>> {
         crate::recording::attach_trace(pane_id as mux::pane::PaneId, trace_id)
+    }
+}
+
+impl HealthEngine for WezTermEngine {
+    fn health(&self) -> Result<EngineHealthSnapshot> {
+        let mux = Mux::try_get();
+        let pane_count = mux.as_ref().map(|mux| mux.iter_panes().len());
+        let ready = mux.is_some();
+        Ok(EngineHealthSnapshot {
+            engine: "wezterm".to_string(),
+            ready,
+            status: if ready { "ok" } else { "degraded" }.to_string(),
+            detail: if ready {
+                "WezTerm mux is available".to_string()
+            } else {
+                "WezTerm mux is not available".to_string()
+            },
+            pane_count,
+        })
     }
 }
