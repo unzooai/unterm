@@ -50,6 +50,7 @@ Current covered operations:
 - validated explicit `capture.scrollback` pane ids through the shared session resolver
 - redacted `session.create` launch decision summary for profile/proxy/overlay/command provenance
 - redacted `workspace.restore` template launch plan for cwd/profile/command provenance
+- redacted default-shell launch decision summary for command-less `session.create`
 - engine readiness and next-core aggregate I/O health counters
 
 Known gaps:
@@ -59,7 +60,7 @@ Known gaps:
 - full font/theme styled scrollback PNG parity for `next-core`
 - native window capture/focus/title ownership beyond the explicit host-window bridge contract
 - instance lifecycle ownership
-- default-shell launch policy decisions beyond typed env/profile/proxy/overlay/workspace-template provenance
+- domain, privilege, proxy rotation, and restart launch policy decisions beyond typed env/profile/proxy/overlay/workspace-template/default-shell provenance
 
 ## MCP Coverage Summary
 
@@ -78,7 +79,7 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 | Method | Status | Current dependency | Migration note |
 |---|---|---|---|
 | `session.list` | Engine-neutral | `SessionEngine::list_sessions` | Keep as baseline adapter test. |
-| `session.create` | Engine-neutral | `SessionEngine::create_session` plus `CreateSessionRequest::env` and typed `launch_policy`; `next-core` records `ShellSnapshot.launch_context` profile/proxy diagnostics and env provenance without secret values | Later expand typed launch policy from provenance into launch decisions such as shell profile, domain, privilege, proxy rotation, and restart behavior. |
+| `session.create` | Engine-neutral | `SessionEngine::create_session` plus `CreateSessionRequest::env` and typed `launch_policy`; `next-core` records `ShellSnapshot.launch_context` profile/proxy diagnostics, env provenance, explicit-command/default-shell decisions, and no secret values | Later expand typed launch policy from provenance into launch decisions such as domain, privilege, proxy rotation, and restart behavior. |
 | `session.status` | Engine-neutral | Shared pane-id resolver plus `SessionEngine::get_session` | Alias of `session.get`. |
 | `session.get` | Engine-neutral | Shared pane-id resolver plus `SessionEngine::get_session` | Keep output shape stable. |
 | `session.split` | Engine-neutral | Shared pane-id resolver plus `SessionEngine::split_session` | `next-core` must decide split semantics before GUI alpha. |

@@ -201,6 +201,19 @@ fn workspace_template_launch_decision(
     })
 }
 
+fn default_shell_launch_decision(command_provided: bool) -> Value {
+    if command_provided {
+        Value::Null
+    } else {
+        let command = CommandBuilder::new_default_prog();
+        json!({
+            "source": "portable_pty.default_prog",
+            "shell": command.get_shell(),
+            "values_redacted": true,
+        })
+    }
+}
+
 /// Command execution policy
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 struct CommandPolicy {
@@ -557,6 +570,11 @@ mod engine_neutral_handler_tests {
         assert_eq!(session["launch"]["decision"]["source"], "session.create");
         assert_eq!(session["launch"]["decision"]["profile_requested"], false);
         assert_eq!(session["launch"]["decision"]["command_provided"], true);
+        assert_eq!(
+            session["launch"]["decision"]["command_source"],
+            "explicit_command"
+        );
+        assert_eq!(session["launch"]["decision"]["default_shell"], Value::Null);
         assert_eq!(session["launch"]["decision"]["values_redacted"], true);
         let launch_overlay_keys = session["launch"]["decision"]["overlay_env_keys"]
             .as_array()
@@ -606,6 +624,50 @@ mod engine_neutral_handler_tests {
             .collect::<Vec<_>>();
         assert!(policy_sources.contains(&("UNTERM_PROFILE".to_string(), "Overlay".to_string())));
         assert!(policy_sources.contains(&("HTTPS_PROXY".to_string(), "Overlay".to_string())));
+    }
+
+    #[test]
+    fn session_create_reports_default_shell_launch_decision() {
+        let _guard = env_lock().lock();
+        let previous_engine = std::env::var("UNTERM_ENGINE").ok();
+        std::env::set_var("UNTERM_ENGINE", "next-core");
+
+        let result: Result<(Value, usize)> = (|| {
+            let handler = McpHandler::new();
+            let ctx = ConnectionContext::internal("handler-test");
+            let session = handler.handle(
+                &ctx,
+                "session.create",
+                &json!({
+                    "cols": 80,
+                    "rows": 4,
+                }),
+            )?;
+            let pane_id = session["id"].as_u64().expect("session id") as usize;
+            let _ = handler.handle(&ctx, "session.destroy", &json!({ "pane_id": pane_id }));
+            Ok((session, pane_id))
+        })();
+
+        match previous_engine {
+            Some(value) => std::env::set_var("UNTERM_ENGINE", value),
+            None => std::env::remove_var("UNTERM_ENGINE"),
+        }
+
+        let (session, pane_id) = result.expect("create next-core default shell session");
+        assert!(next_core().get_session(pane_id).is_err());
+        let decision = &session["launch"]["decision"];
+        assert_eq!(decision["source"], "session.create");
+        assert_eq!(decision["command_provided"], false);
+        assert_eq!(decision["command_source"], "default_shell");
+        assert_eq!(
+            decision["default_shell"]["source"],
+            "portable_pty.default_prog"
+        );
+        assert_eq!(decision["default_shell"]["values_redacted"], true);
+        assert!(decision["default_shell"]["shell"]
+            .as_str()
+            .map(|shell| !shell.trim().is_empty())
+            .unwrap_or(false));
     }
 
     #[test]
@@ -3820,6 +3882,8 @@ impl McpHandler {
             .map(|s| s.to_string());
 
         let mut cmd_builder = command.as_deref().map(shell_command_builder);
+        let command_provided = command.is_some();
+        let default_shell = default_shell_launch_decision(command_provided);
         if let Some(cwd) = command_dir.as_deref() {
             if let Some(builder) = cmd_builder.as_mut() {
                 builder.cwd(cwd);
@@ -3881,7 +3945,9 @@ impl McpHandler {
                     "profile_requested": profile.is_some(),
                     "overlay_env_keys": overlay_keys_sorted,
                     "proxy_env_keys": launch_proxy_env_keys,
-                    "command_provided": command.is_some(),
+                    "command_provided": command_provided,
+                    "command_source": if command_provided { "explicit_command" } else { "default_shell" },
+                    "default_shell": default_shell,
                     "values_redacted": true,
                 },
             },
