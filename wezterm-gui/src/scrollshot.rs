@@ -24,9 +24,14 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
-use termwiz::cell::{Blink, CellAttributes as TwCellAttributes, Intensity, Underline};
+use termwiz::cell::{
+    Blink, CellAttributes as TwCellAttributes, Intensity, Underline,
+    VerticalAlign as TwVerticalAlign,
+};
 use termwiz::color::{ColorAttribute, SrgbaTuple};
-use unterm_engine::{CellStyle, StyledBlink, StyledColor, StyledScreenLine, StyledUnderline};
+use unterm_engine::{
+    CellStyle, StyledBlink, StyledColor, StyledScreenLine, StyledUnderline, StyledVerticalAlign,
+};
 use wezterm_font::shaper::{Direction, PresentationWidth};
 use wezterm_font::{FontConfiguration, LoadedFont, RasterizedGlyph};
 use wezterm_term::color::ColorPalette;
@@ -269,7 +274,9 @@ pub fn render_styled_scrollback_png(
                         let x0 = cell_x as f64 * cell_w
                             + info.x_offset.get()
                             + glyph.bearing_x.get() * scale;
-                        let y0 = baseline - info.y_offset.get() - glyph.bearing_y.get() * scale;
+                        let valign_adjust = styled_vertical_align_adjust(cell.style, cell_h);
+                        let y0 = baseline - info.y_offset.get() - glyph.bearing_y.get() * scale
+                            + valign_adjust;
                         band.blit_glyph(&glyph, x0, y0, fg, scale);
                     }
                 }
@@ -356,6 +363,12 @@ fn styled_cell_attributes(style: CellStyle) -> TwCellAttributes {
             StyledBlink::Rapid => Blink::Rapid,
         });
     }
+    if let Some(align) = style.vertical_align {
+        attrs.set_vertical_align(match align {
+            StyledVerticalAlign::SuperScript => TwVerticalAlign::SuperScript,
+            StyledVerticalAlign::SubScript => TwVerticalAlign::SubScript,
+        });
+    }
     if style.inverse {
         attrs.set_reverse(true);
     }
@@ -366,6 +379,14 @@ fn styled_cell_attributes(style: CellStyle) -> TwCellAttributes {
         attrs.set_background(styled_color_attribute(bg));
     }
     attrs
+}
+
+fn styled_vertical_align_adjust(style: CellStyle, cell_h: f64) -> f64 {
+    match style.vertical_align {
+        Some(StyledVerticalAlign::SuperScript) => cell_h * -0.25,
+        Some(StyledVerticalAlign::SubScript) => cell_h * 0.25,
+        None => 0.0,
+    }
 }
 
 fn styled_underline(underline: Option<StyledUnderline>) -> Underline {

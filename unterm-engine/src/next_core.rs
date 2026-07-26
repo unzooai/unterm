@@ -8,7 +8,7 @@ use super::{
     ScreenEngine, ScreenLine, ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest,
     ScrollbackTextSnapshot, SessionActivitySnapshot, SessionEngine, SessionSnapshot, ShellSnapshot,
     SplitSessionRequest, StyledBlink, StyledCell, StyledColor, StyledScreenLine,
-    StyledScreenSnapshot, StyledScrollbackSnapshot, StyledUnderline,
+    StyledScreenSnapshot, StyledScrollbackSnapshot, StyledUnderline, StyledVerticalAlign,
 };
 use anyhow::{bail, Result};
 use base64::Engine as _;
@@ -389,6 +389,7 @@ struct CellAttributes {
     hidden: bool,
     overline: bool,
     blink: Option<StyledBlink>,
+    vertical_align: Option<StyledVerticalAlign>,
     inverse: bool,
     fg: Option<TerminalColor>,
     bg: Option<TerminalColor>,
@@ -425,6 +426,7 @@ impl From<CellAttributes> for CellStyle {
             hidden: attr.hidden,
             overline: attr.overline,
             blink: attr.blink,
+            vertical_align: attr.vertical_align,
             inverse: attr.inverse,
             fg: attr.fg.map(Into::into),
             bg: attr.bg.map(Into::into),
@@ -1102,6 +1104,9 @@ impl NextCoreScreen {
                 29 => self.current_attr.strikethrough = false,
                 53 => self.current_attr.overline = true,
                 55 => self.current_attr.overline = false,
+                73 => self.current_attr.vertical_align = Some(StyledVerticalAlign::SuperScript),
+                74 => self.current_attr.vertical_align = Some(StyledVerticalAlign::SubScript),
+                75 => self.current_attr.vertical_align = None,
                 underline_style
                     if (Self::SGR_UNDERLINE_STYLE_BASE..=Self::SGR_UNDERLINE_STYLE_BASE + 5)
                         .contains(&underline_style) =>
@@ -5408,12 +5413,15 @@ mod tests {
                 "\x1b[25mQ",
                 "\x1b[53mO",
                 "\x1b[55mP",
+                "\x1b[73mA",
+                "\x1b[74mB",
+                "\x1b[75mC",
                 "\x1b[3;4;7;38;5;202;48;2;1;2;3mX",
-                "\x1b[22;23;24;25;27;28;29;55;39;49mY"
+                "\x1b[22;23;24;25;27;28;29;55;75;39;49mY"
             ),
         )?;
 
-        assert_eq!(engine.read_visible_text(session.id)?, "RNFBISTHVLRQOPXY");
+        assert_eq!(engine.read_visible_text(session.id)?, "RNFBISTHVLRQOPABCXY");
         let attrs = viewport_attrs_for_test(session.id)?;
         let line = &attrs[0];
 
@@ -5441,15 +5449,24 @@ mod tests {
         assert_eq!(line[11].blink, None);
         assert!(line[12].overline);
         assert!(!line[13].overline);
+        assert_eq!(
+            line[14].vertical_align,
+            Some(StyledVerticalAlign::SuperScript)
+        );
+        assert_eq!(
+            line[15].vertical_align,
+            Some(StyledVerticalAlign::SubScript)
+        );
+        assert_eq!(line[16].vertical_align, None);
 
-        assert!(line[14].italic);
-        assert!(line[14].underline);
-        assert_eq!(line[14].underline_style, Some(StyledUnderline::Single));
-        assert!(line[14].inverse);
-        assert_eq!(line[14].fg, Some(TerminalColor::Palette(202)));
-        assert_eq!(line[14].bg, Some(TerminalColor::Rgb(1, 2, 3)));
+        assert!(line[17].italic);
+        assert!(line[17].underline);
+        assert_eq!(line[17].underline_style, Some(StyledUnderline::Single));
+        assert!(line[17].inverse);
+        assert_eq!(line[17].fg, Some(TerminalColor::Palette(202)));
+        assert_eq!(line[17].bg, Some(TerminalColor::Rgb(1, 2, 3)));
 
-        assert_eq!(line[15], CellAttributes::default());
+        assert_eq!(line[18], CellAttributes::default());
 
         let styled = engine.read_styled_screen(session.id)?;
         assert_eq!(styled.lines[0].row, 0);
@@ -5474,14 +5491,23 @@ mod tests {
         assert!(styled.lines[0].cells[12].style.overline);
         assert!(!styled.lines[0].cells[13].style.overline);
         assert_eq!(
+            styled.lines[0].cells[14].style.vertical_align,
+            Some(StyledVerticalAlign::SuperScript)
+        );
+        assert_eq!(
+            styled.lines[0].cells[15].style.vertical_align,
+            Some(StyledVerticalAlign::SubScript)
+        );
+        assert_eq!(styled.lines[0].cells[16].style.vertical_align, None);
+        assert_eq!(
             styled.lines[0].cells[0].style.fg,
             Some(StyledColor::Palette(1))
         );
         assert_eq!(
-            styled.lines[0].cells[14].style.bg,
+            styled.lines[0].cells[17].style.bg,
             Some(StyledColor::Rgb(1, 2, 3))
         );
-        assert_eq!(styled.lines[0].cells[15].style, CellStyle::default());
+        assert_eq!(styled.lines[0].cells[18].style, CellStyle::default());
 
         engine.destroy_session(session.id)?;
         Ok(())

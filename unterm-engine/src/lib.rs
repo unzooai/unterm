@@ -155,6 +155,13 @@ pub enum StyledUnderline {
 }
 
 #[allow(dead_code)]
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+pub enum StyledVerticalAlign {
+    SuperScript,
+    SubScript,
+}
+
+#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, Default, Serialize, PartialEq, Eq)]
 pub struct CellStyle {
     pub bold: bool,
@@ -167,6 +174,7 @@ pub struct CellStyle {
     pub hidden: bool,
     pub overline: bool,
     pub blink: Option<StyledBlink>,
+    pub vertical_align: Option<StyledVerticalAlign>,
     pub inverse: bool,
     pub fg: Option<StyledColor>,
     pub bg: Option<StyledColor>,
