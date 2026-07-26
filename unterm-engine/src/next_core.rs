@@ -1481,6 +1481,8 @@ enum ParserState {
     Csi(String),
     Osc(String),
     OscEscape(String),
+    IgnoredString,
+    IgnoredStringEscape,
 }
 
 impl<'a> ScreenParser<'a> {
@@ -1516,6 +1518,9 @@ impl<'a> ScreenParser<'a> {
                 }
                 '#' => {
                     self.state = ParserState::EscapeHash;
+                }
+                'P' | 'X' | '^' | '_' => {
+                    self.state = ParserState::IgnoredString;
                 }
                 '7' => {
                     self.screen.save_cursor();
@@ -1555,6 +1560,18 @@ impl<'a> ScreenParser<'a> {
                     self.screen.fill_alignment_test();
                 }
                 self.state = ParserState::Ground;
+            }
+            ParserState::IgnoredString => match c {
+                '\x07' => self.state = ParserState::Ground,
+                '\x1b' => self.state = ParserState::IgnoredStringEscape,
+                _ => {}
+            },
+            ParserState::IgnoredStringEscape => {
+                if c == '\\' {
+                    self.state = ParserState::Ground;
+                } else {
+                    self.state = ParserState::IgnoredString;
+                }
             }
             ParserState::Csi(ref mut sequence) => {
                 if ('@'..='~').contains(&c) {
@@ -5745,6 +5762,30 @@ mod tests {
 
         set_output_for_test(session.id, "ab\x1b(Bcd\x1b)0ef\x1b%Ggh")?;
         assert_eq!(engine.read_screen(session.id)?.lines, vec!["abcdefgh"]);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_ignores_non_osc_string_controls() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 24,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(
+            session.id,
+            "ab\x1bP1;payload\x1b\\cd\x1b_should-not-print\x07ef\x1b^hidden\x1b\\gh\x1bXmore\x07ij",
+        )?;
+        assert_eq!(engine.read_screen(session.id)?.lines, vec!["abcdefghij"]);
 
         engine.destroy_session(session.id)?;
         Ok(())
