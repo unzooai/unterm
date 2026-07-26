@@ -183,6 +183,24 @@ fn cwd_url_to_path(raw: &str) -> Option<String> {
     Some(raw.to_string())
 }
 
+fn workspace_template_launch_decision(
+    saved_id: Value,
+    title: &str,
+    cwd: Option<&str>,
+    profile: Option<&str>,
+    command: Option<&str>,
+) -> Value {
+    json!({
+        "source": "workspace.restore",
+        "saved_id": saved_id,
+        "title": title,
+        "cwd_provided": cwd.is_some(),
+        "profile_requested": profile.is_some(),
+        "command_provided": command.is_some(),
+        "values_redacted": true,
+    })
+}
+
 /// Command execution policy
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 struct CommandPolicy {
@@ -588,6 +606,67 @@ mod engine_neutral_handler_tests {
             .collect::<Vec<_>>();
         assert!(policy_sources.contains(&("UNTERM_PROFILE".to_string(), "Overlay".to_string())));
         assert!(policy_sources.contains(&("HTTPS_PROXY".to_string(), "Overlay".to_string())));
+    }
+
+    #[test]
+    fn workspace_restore_dry_run_reports_template_launch_decisions() {
+        let _guard = env_lock().lock();
+        let previous_engine = std::env::var("UNTERM_ENGINE").ok();
+        std::env::set_var("UNTERM_ENGINE", "next-core");
+
+        let name = format!("unterm-workspace-plan-test-{}", std::process::id());
+        let dir = dirs_next::home_dir()
+            .unwrap_or_default()
+            .join(".unterm")
+            .join("workspaces");
+        let path = dir.join(format!("{name}.json"));
+        let result: Result<Value> = (|| {
+            std::fs::create_dir_all(&dir)?;
+            let workspace = json!({
+                "name": name,
+                "sessions": [
+                    {
+                        "id": 42,
+                        "title": "saved shell",
+                        "cwd": "D:\\code\\unterm",
+                        "profile": "saved-profile",
+                        "command": "echo workspace-restore"
+                    }
+                ],
+                "saved_at": "2026-07-27T00:00:00+08:00"
+            });
+            std::fs::write(&path, serde_json::to_string_pretty(&workspace)?)?;
+
+            let handler = McpHandler::new();
+            let ctx = ConnectionContext::internal("handler-test");
+            handler.handle(
+                &ctx,
+                "workspace.restore",
+                &json!({
+                    "name": name,
+                    "dry_run": true,
+                }),
+            )
+        })();
+
+        let _ = std::fs::remove_file(&path);
+        match previous_engine {
+            Some(value) => std::env::set_var("UNTERM_ENGINE", value),
+            None => std::env::remove_var("UNTERM_ENGINE"),
+        }
+
+        let restored = result.expect("restore workspace dry-run launch plan");
+        assert_eq!(restored["dry_run"], true);
+        assert_eq!(restored["restored"], false);
+        assert_eq!(restored["created"].as_array().expect("created").len(), 0);
+        let decision = &restored["planned"][0]["launch"]["decision"];
+        assert_eq!(decision["source"], "workspace.restore");
+        assert_eq!(decision["saved_id"], 42);
+        assert_eq!(decision["title"], "saved shell");
+        assert_eq!(decision["cwd_provided"], true);
+        assert_eq!(decision["profile_requested"], true);
+        assert_eq!(decision["command_provided"], true);
+        assert_eq!(decision["values_redacted"], true);
     }
 
     #[test]
@@ -5762,10 +5841,16 @@ impl McpHandler {
             .into_iter()
             .map(|session| {
                 let cwd = session.shell.cwd.as_deref().and_then(cwd_url_to_path);
+                let profile = session.shell.launch_context.profile.clone();
                 json!({
                     "id": session.id,
                     "title": session.title,
                     "cwd": cwd,
+                    "profile": profile,
+                    "launch": {
+                        "context": session.shell.launch_context,
+                        "values_redacted": true,
+                    },
                 })
             })
             .collect();
@@ -5831,11 +5916,31 @@ impl McpHandler {
                 .get("cwd")
                 .and_then(|v| v.as_str())
                 .and_then(cwd_url_to_path);
+            let profile = session
+                .get("profile")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.trim().is_empty())
+                .map(str::to_string);
+            let command = session
+                .get("command")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.trim().is_empty())
+                .map(str::to_string);
+            let launch_decision = workspace_template_launch_decision(
+                saved_id.clone(),
+                &title,
+                cwd.as_deref(),
+                profile.as_deref(),
+                command.as_deref(),
+            );
 
             planned.push(json!({
                 "saved_id": saved_id,
                 "title": title,
                 "cwd": cwd,
+                "launch": {
+                    "decision": launch_decision,
+                },
             }));
 
             if dry_run {
@@ -5846,11 +5951,20 @@ impl McpHandler {
             if let Some(cwd) = &cwd {
                 create_params["cwd"] = json!(cwd);
             }
+            if let Some(profile) = &profile {
+                create_params["profile"] = json!(profile);
+            }
+            if let Some(command) = &command {
+                create_params["command"] = json!(command);
+            }
             match self.session_create(&create_params) {
                 Ok(value) => {
                     created.push(json!({
                         "saved_id": saved_id,
                         "cwd": cwd,
+                        "launch": {
+                            "decision": value.get("launch").and_then(|launch| launch.get("decision")).cloned().unwrap_or(Value::Null),
+                        },
                         "created": value,
                     }));
                 }

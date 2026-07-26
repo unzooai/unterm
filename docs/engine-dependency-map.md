@@ -49,6 +49,7 @@ Current covered operations:
 - recording lifecycle/export with next-core chunked-output block markdown
 - validated explicit `capture.scrollback` pane ids through the shared session resolver
 - redacted `session.create` launch decision summary for profile/proxy/overlay/command provenance
+- redacted `workspace.restore` template launch plan for cwd/profile/command provenance
 - engine readiness and next-core aggregate I/O health counters
 
 Known gaps:
@@ -58,7 +59,7 @@ Known gaps:
 - full font/theme styled scrollback PNG parity for `next-core`
 - native window capture/focus/title ownership beyond the explicit host-window bridge contract
 - instance lifecycle ownership
-- default-shell and workspace-template launch policy decisions beyond typed env/profile/proxy/overlay provenance
+- default-shell launch policy decisions beyond typed env/profile/proxy/overlay/workspace-template provenance
 
 ## MCP Coverage Summary
 
@@ -159,7 +160,7 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 | `orchestrate.broadcast` | Engine-neutral | `SessionEngine::get_session`, pane-id write gate, `InputEngine::write_input` | Per-session result shape is preserved. |
 | `orchestrate.wait` | Engine-neutral | Shared pane-id resolver plus `ScreenEngine::read_visible_text` | Timeout result shape is preserved. |
 | `workspace.save` | Engine-neutral | `SessionEngine::list_sessions` plus workspace file write | Saves id/title/cwd from engine snapshots. |
-| `workspace.restore` | Engine-neutral | Workspace file read plus `SessionEngine::create_session` through `session_create` | Dry-run and archive handling remain product-layer behavior. |
+| `workspace.restore` | Engine-neutral | Workspace file read plus `SessionEngine::create_session` through `session_create`; dry-run exposes redacted workspace-template launch decisions | Restore reuses the same launch path as `session.create`, including created-session launch decisions; archive handling remains product-layer behavior. |
 | `workspace.list` | Product-only | Workspace archive directory read | No live terminal dependency. |
 
 ## Capture, Upload, System, Instance
