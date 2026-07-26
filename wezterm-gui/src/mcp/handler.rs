@@ -1207,6 +1207,38 @@ mod engine_neutral_handler_tests {
     }
 
     #[test]
+    fn agent_signal_rejects_stale_explicit_pane_id() {
+        let _guard = env_lock().lock();
+        let previous_engine = std::env::var("UNTERM_ENGINE").ok();
+        std::env::set_var("UNTERM_ENGINE", "next-core");
+        crate::cockpit::status::reset_for_tests();
+
+        let result = {
+            let handler = McpHandler::new();
+            let ctx = ConnectionContext::internal("handler-test");
+            handler.handle(
+                &ctx,
+                "agent.signal",
+                &json!({
+                    "pane_id": 999999999_u64,
+                    "agent": "claude",
+                    "event": "waiting",
+                }),
+            )
+        };
+
+        match previous_engine {
+            Some(value) => std::env::set_var("UNTERM_ENGINE", value),
+            None => std::env::remove_var("UNTERM_ENGINE"),
+        }
+
+        let err = result.expect_err("stale explicit pane id should be rejected");
+        assert!(err.to_string().contains("resolve pane"), "{}", err);
+        assert!(crate::cockpit::snapshot().is_empty());
+        crate::cockpit::status::reset_for_tests();
+    }
+
+    #[test]
     fn agent_signal_fallback_uses_terminal_engine_active_session() {
         let _guard = env_lock().lock();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
@@ -2022,6 +2054,12 @@ impl PaneResolutionOptions {
     const ACTIVE_EXISTING: Self = Self {
         active_fallback: true,
         fallback_on_invalid_explicit: true,
+        validate_session: true,
+    };
+
+    const ACTIVE_REQUIRED: Self = Self {
+        active_fallback: true,
+        fallback_on_invalid_explicit: false,
         validate_session: true,
     };
 }
@@ -4116,17 +4154,9 @@ impl McpHandler {
             .ok_or_else(|| anyhow!("Missing 'event' (working|waiting|done|idle)"))?;
         // Hooks pass $WEZTERM_PANE; a bare CLI call falls back to the
         // pane the user is looking at.
-        let explicit_pane = params
-            .get("id")
-            .or_else(|| params.get("session_id"))
-            .or_else(|| params.get("pane_id"));
-        let pane_id = if explicit_pane.is_some() {
-            Self::pane_id_from_params(params)? as u64
-        } else {
-            self.engine()
-                .active_pane_id()?
-                .ok_or_else(|| anyhow!("no active pane"))?
-        };
+        let engine = self.engine();
+        let pane_id =
+            self.resolve_pane_id(&engine, params, PaneResolutionOptions::ACTIVE_REQUIRED)? as u64;
         let agent = params
             .get("agent")
             .and_then(|v| v.as_str())

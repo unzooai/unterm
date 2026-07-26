@@ -51,7 +51,7 @@ Current covered operations:
 Known gaps:
 
 - real GUI viewport scrolling/jump for the future next-core renderer
-- remaining pane resolution call-site migration onto the shared engine-neutral resolver
+- remaining product-registry/optional-capture id parsing that intentionally does not validate live terminal sessions
 - PTY write confirmation without WezTerm pane object
 - full OSC133/block-level active recording render parity
 - full font/theme styled scrollback PNG parity for `next-core`
@@ -136,7 +136,7 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 | `agent.trust` | Product-only | Trust config/state | Engine-independent. |
 | `agent.untrust` | Product-only | Trust config/state | Engine-independent. |
 | `agent.status` | Engine-neutral | Cockpit registry lookup by pane id; all-pane snapshot from product state | Handler no longer resolves a WezTerm pane for single-pane status. |
-| `agent.signal` | Engine-neutral | Explicit pane-id signals write directly to the cockpit registry; omitted pane id resolves through `WindowEngine::active_pane_id` | `next-core` resolves active session from engine session snapshots until it owns GUI focus state. |
+| `agent.signal` | Engine-neutral | Shared pane-id resolver; explicit pane ids are validated as live sessions, omitted pane id resolves through `WindowEngine::active_pane_id` | `next-core` resolves active session from engine session snapshots until it owns GUI focus state. |
 | `cockpit.inbox` | Engine-neutral | Agent registry joined with `SessionEngine::list_sessions`; optional tab/window jump metadata comes from `WindowEngine::pane_locations` | `next-core` returns synthetic window/tab locations from its session registry until it owns real GUI tabs/windows. |
 | `fleet.launch` | Engine-neutral | Fleet worktree registry plus `SessionEngine::create_session` and `InputEngine::write_input` via a pane spawner | Handler launches members without calling WezTerm tab APIs; default GUI fleet launcher still uses the WezTerm spawner. |
 | `fleet.list` | Product-only | Review/fleet registry | Engine-independent except live state enrichment. |
