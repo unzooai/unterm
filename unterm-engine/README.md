@@ -22,7 +22,7 @@ Machine-readable probe output:
 cargo run -p unterm-engine --bin unterm-next-core -- --json --wait-ms 500 -- cmd.exe /c "echo next-core-probe"
 ```
 
-The JSON output includes the session snapshot, screen snapshot, activity snapshot, engine health, raw output byte count, and visible text. Use this for CI or agent dogfood checks instead of parsing the human-readable snapshot.
+The JSON output includes the session snapshot, screen snapshot, activity snapshot, engine health, raw output byte count, and visible text. Use this for CI or agent dogfood checks instead of parsing the human-readable snapshot. In `next-core`, `health.io` summarizes input writes/bytes, output chunks/bytes, and paste counts/text bytes across live sessions.
 
 ## Benchmark Report
 
@@ -127,4 +127,4 @@ ESC ] 7 ; file://localhost/C:/Users/alex/project BEL
 
 Values are decoded from `file://` URIs. On Windows, `/C:/...` paths are normalized to `C:\...`. Shells that do not emit OSC 7 still report the launch cwd until a process-tree fallback is added.
 
-`SessionEngine::activity()` is based on `next-core`'s own PTY liveness and recent input/output timestamps. A session is reported as running shortly after input or output and idle after a quiet period. The activity snapshot also includes input, output, and paste counters so agents can diagnose slow typing, completion, auth-code paste, and heavy agent output paths. The foreground process name is still the launch shell until child-process tracking is added.
+`SessionEngine::activity()` is based on `next-core`'s own PTY liveness and recent input/output timestamps. A session is reported as running shortly after input or output and idle after a quiet period. The activity snapshot also includes input, output, and paste counters so agents can diagnose slow typing, completion, auth-code paste, and heavy agent output paths. `HealthEngine::health()` exposes the same class of counters as an aggregate `io` summary across live `next-core` sessions for server-level diagnostics. The foreground process name is still the launch shell until child-process tracking is added.

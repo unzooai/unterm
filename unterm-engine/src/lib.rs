@@ -219,12 +219,23 @@ pub struct RecordingStatusSnapshot {
 }
 
 #[derive(Clone, Debug, Serialize)]
+pub struct EngineIoHealthSnapshot {
+    pub input_writes: u64,
+    pub input_bytes: u64,
+    pub output_chunks: u64,
+    pub output_bytes: u64,
+    pub paste_count: u64,
+    pub paste_text_bytes: u64,
+}
+
+#[derive(Clone, Debug, Serialize)]
 pub struct EngineHealthSnapshot {
     pub engine: String,
     pub ready: bool,
     pub status: String,
     pub detail: String,
     pub pane_count: Option<usize>,
+    pub io: Option<EngineIoHealthSnapshot>,
 }
 
 #[derive(Clone, Copy, Debug)]

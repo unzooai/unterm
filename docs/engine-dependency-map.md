@@ -46,7 +46,7 @@ Current covered operations:
 - write input
 - paste input
 - recording lifecycle/export
-- engine readiness
+- engine readiness and next-core aggregate I/O health counters
 
 Known gaps:
 
@@ -200,7 +200,7 @@ The counts intentionally include aliases (`session.get` / `session.status`, `exe
 | `policy.set` | Product-only | Policy config | Engine-independent. |
 | `policy.check` | Product-only | Policy checker | Engine-independent. |
 | `server.info` | Engine-neutral | Server metadata plus engine label | Already reports selected engine. |
-| `server.health` | Engine-neutral | `HealthEngine::health` plus product server metadata | WezTerm readiness is adapter-owned; `next-core` readiness does not depend on WezTerm Mux state. |
+| `server.health` | Engine-neutral | `HealthEngine::health` plus product server metadata | WezTerm readiness is adapter-owned; `next-core` readiness does not depend on WezTerm Mux state and includes aggregate input/output/paste health counters. |
 | `server.capabilities` | Product-only | `MCP_METHODS` inventory plus `_engine_capabilities` | Keeps the legacy namespace map while exposing selected engine support/unsupported method flags. |
 | `selftest.run` | Product-only | MCP selftest orchestration plus `HealthEngine`/`SessionEngine` probes | Selftest no longer treats WezTerm mux availability as the engine readiness source. Needs broader per-engine test matrix. |
 | `profile.list` | Product-only | Profile registry, no secrets | Engine-independent. |

@@ -610,6 +610,7 @@ impl HealthEngine for WezTermEngine {
                 "WezTerm mux is not available".to_string()
             },
             pane_count,
+            io: None,
         })
     }
 }

@@ -1,11 +1,11 @@
 use super::{
-    CellStyle, CreateSessionRequest, CursorSnapshot, DirtyRows, EngineHealthSnapshot, HealthEngine,
-    InputActivitySnapshot, InputEngine, OutputActivitySnapshot, PasteActivitySnapshot,
-    RecordingEngine, RecordingExportResult, RecordingStartResult, RecordingStatusSnapshot,
-    RecordingStopResult, ScreenEngine, ScreenLine, ScreenSearchMatch, ScreenSnapshot,
-    ScrollbackTextRequest, ScrollbackTextSnapshot, SessionActivitySnapshot, SessionEngine,
-    SessionSnapshot, ShellSnapshot, SplitSessionRequest, StyledCell, StyledColor, StyledScreenLine,
-    StyledScreenSnapshot,
+    CellStyle, CreateSessionRequest, CursorSnapshot, DirtyRows, EngineHealthSnapshot,
+    EngineIoHealthSnapshot, HealthEngine, InputActivitySnapshot, InputEngine,
+    OutputActivitySnapshot, PasteActivitySnapshot, RecordingEngine, RecordingExportResult,
+    RecordingStartResult, RecordingStatusSnapshot, RecordingStopResult, ScreenEngine, ScreenLine,
+    ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot,
+    SessionActivitySnapshot, SessionEngine, SessionSnapshot, ShellSnapshot, SplitSessionRequest,
+    StyledCell, StyledColor, StyledScreenLine, StyledScreenSnapshot,
 };
 use anyhow::{bail, Result};
 use base64::Engine as _;
@@ -2567,13 +2567,38 @@ impl RecordingEngine for NextCoreEngine {
 
 impl HealthEngine for NextCoreEngine {
     fn health(&self) -> Result<EngineHealthSnapshot> {
-        let pane_count = state().read().sessions.len();
+        let state = state().read();
+        let pane_count = state.sessions.len();
+        let mut io = EngineIoHealthSnapshot {
+            input_writes: 0,
+            input_bytes: 0,
+            output_chunks: 0,
+            output_bytes: 0,
+            paste_count: 0,
+            paste_text_bytes: 0,
+        };
+        for session in &state.sessions {
+            let activity = session.activity.lock();
+            if let Some(input) = &activity.input {
+                io.input_writes = io.input_writes.saturating_add(input.total_writes);
+                io.input_bytes = io.input_bytes.saturating_add(input.total_bytes);
+            }
+            if let Some(output) = &activity.output {
+                io.output_chunks = io.output_chunks.saturating_add(output.total_chunks);
+                io.output_bytes = io.output_bytes.saturating_add(output.total_bytes);
+            }
+            if let Some(paste) = &activity.paste {
+                io.paste_count = io.paste_count.saturating_add(paste.total_pastes);
+                io.paste_text_bytes = io.paste_text_bytes.saturating_add(paste.total_text_bytes);
+            }
+        }
         Ok(EngineHealthSnapshot {
             engine: "next-core".to_string(),
             ready: true,
             status: "ok".to_string(),
             detail: "next-core session registry is available".to_string(),
             pane_count: Some(pane_count),
+            io: Some(io),
         })
     }
 }
@@ -2799,6 +2824,37 @@ mod tests {
         assert_eq!(output.total_chunks, 2);
         assert_eq!(output.total_bytes, 16);
         assert_eq!(output.last_bytes, 11);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn health_reports_aggregate_io_metrics() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+        })?;
+
+        engine.write_input(session.id, "abc")?;
+        engine.paste_input(session.id, "token")?;
+        set_output_for_test(session.id, "hello")?;
+
+        let health = engine.health()?;
+        let io = health.io.expect("next-core io health");
+        assert_eq!(health.pane_count, Some(1));
+        assert_eq!(io.input_writes, 2);
+        assert_eq!(io.input_bytes, 8);
+        assert_eq!(io.paste_count, 1);
+        assert_eq!(io.paste_text_bytes, 5);
+        assert_eq!(io.output_chunks, 1);
+        assert_eq!(io.output_bytes, 5);
 
         engine.destroy_session(session.id)?;
         Ok(())

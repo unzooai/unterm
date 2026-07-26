@@ -1297,6 +1297,64 @@ mod engine_neutral_handler_tests {
     }
 
     #[test]
+    fn server_health_exposes_next_core_io_summary() {
+        let _guard = env_lock().lock();
+        let previous_engine = std::env::var("UNTERM_ENGINE").ok();
+        std::env::set_var("UNTERM_ENGINE", "next-core");
+
+        let result: Result<(serde_json::Value, usize)> = (|| {
+            let engine = next_core();
+            let session = engine.create_session(CreateSessionRequest {
+                cols: 80,
+                rows: 4,
+                command_dir: None,
+                command: Some(shell_command_builder("echo next-core-health-io")),
+                env: Vec::new(),
+            })?;
+            let pane_id = session.id;
+
+            let handler = McpHandler::new();
+            let ctx = ConnectionContext::internal("handler-test");
+            for _ in 0..20 {
+                let search = handler.handle(
+                    &ctx,
+                    "screen.search",
+                    &json!({
+                        "pane_id": pane_id,
+                        "pattern": "next-core-health-io",
+                    }),
+                )?;
+                if search["total"].as_u64().unwrap_or_default() > 0 {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+
+            engine.write_input(pane_id, "abc")?;
+            engine.paste_input(pane_id, "AUTH-CODE-123456")?;
+
+            let health = handler.handle(&ctx, "server.health", &json!({}))?;
+            let _ = handler.handle(&ctx, "session.destroy", &json!({ "pane_id": pane_id }));
+            Ok((health, pane_id))
+        })();
+
+        match previous_engine {
+            Some(value) => std::env::set_var("UNTERM_ENGINE", value),
+            None => std::env::remove_var("UNTERM_ENGINE"),
+        }
+
+        let (health, pane_id) = result.expect("server.health exposes next-core io summary");
+        assert!(next_core().get_session(pane_id).is_err());
+        let io = &health["engine_health"]["io"];
+        assert!(io["input_writes"].as_u64().unwrap_or_default() >= 2);
+        assert!(io["input_bytes"].as_u64().unwrap_or_default() >= 19);
+        assert!(io["output_chunks"].as_u64().unwrap_or_default() > 0);
+        assert!(io["output_bytes"].as_u64().unwrap_or_default() > 0);
+        assert_eq!(io["paste_count"], 1);
+        assert_eq!(io["paste_text_bytes"], 16);
+    }
+
+    #[test]
     fn selftest_run_uses_selected_terminal_engine() {
         let _guard = env_lock().lock();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
