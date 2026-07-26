@@ -27,9 +27,11 @@ use crate::termwindow::{UIItem, UIItemType};
 use crate::utilsprites::RenderMetrics;
 use config::ui_tokens;
 use config::{Dimension, DimensionContext};
+use mux::pane::Pane;
 use mux::tab::TabId;
 use mux::Mux;
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use wezterm_term::color::ColorAttribute;
 use wezterm_term::terminal::Progress;
@@ -88,6 +90,10 @@ pub struct LeftTabBar {
     cached: Option<ComputedElement>,
     cached_key: Option<LeftTabBarCacheKey>,
     cached_at: Option<Instant>,
+    /// Short-lived cache of per-tab metadata. Terminal scrolling repaints the
+    /// chrome at high frequency; collecting agent/cwd/progress for every tab
+    /// on each frame competes with busy Codex/Claude panes on Windows.
+    metadata_cache: Option<(LeftTabBarMetadataKey, Vec<RowInfo>, Instant)>,
     /// Last time a live resize-drag ran the expensive PTY reflow, used to
     /// throttle it to ~25fps so dragging the divider stays smooth.
     last_reflow: Option<Instant>,
@@ -116,6 +122,20 @@ struct LeftTabBarCacheKey {
 // The key already captures geometry, active row, scroll position and visible
 // row text; keep the TTL only as a fallback for theme/color changes.
 const LEFT_TAB_BAR_CACHE_TTL: Duration = Duration::from_secs(5);
+const LEFT_TAB_BAR_METADATA_CACHE_TTL: Duration = Duration::from_millis(350);
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct LeftTabBarMetadataKey {
+    active_idx: usize,
+    tabs: Vec<LeftTabBarTabKey>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct LeftTabBarTabKey {
+    tab_id: TabId,
+    active_pane_id: Option<u64>,
+    title: String,
+}
 
 /// One row's snapshot, captured from the mux ahead of element building
 /// so we don't hold borrows across rendering. Pulled straight from the
@@ -389,6 +409,7 @@ impl LeftTabBar {
         self.cached = None;
         self.cached_key = None;
         self.cached_at = None;
+        self.metadata_cache = None;
     }
 }
 
@@ -849,11 +870,10 @@ impl crate::TermWindow {
         };
         self.left_tab_bar.borrow_mut().last_tab_count = tabs.len();
         trace_mark("tabs");
-        // Resolve metadata for EVERY tab (cheap now: `agent_and_cwd_for_pane`
-        // is a cached, non-blocking lookup that refreshes off-thread). We need
-        // every tab's project to group them, so the old "visible rows only"
-        // gather no longer applies.
-        let metas: Vec<RowInfo> = tabs
+        // Resolve metadata for EVERY tab because grouping needs every project.
+        // Keep a very short cache so PageUp/PageDown and wheel scroll don't
+        // redo all agent/cwd/progress lookups on every repaint.
+        let tab_snapshots: Vec<(usize, TabId, Option<Arc<dyn Pane>>, String)> = tabs
             .iter()
             .enumerate()
             .map(|(idx, tab)| {
@@ -867,46 +887,83 @@ impl crate::TermWindow {
                     };
                     // Agents animate a spinner glyph in their title (braille
                     // frames several times a second). The raw title sits in
-                    // the sidebar cache key, so every spinner frame forced a
-                    // full (~44ms) sidebar rebuild while an agent worked.
-                    // Strip the state-glyph prefix: the cockpit dot already
-                    // shows the state, and the cache stays warm.
+                    // cache keys, so every spinner frame forced rebuilds while
+                    // an agent worked. Strip the state-glyph prefix: the
+                    // cockpit dot already shows the state.
                     strip_agent_title_prefix(&t).to_string()
                 };
-                let (agent, foreground, cwd, cwd_path, project, project_path) = match &pane {
-                    Some(p) => crate::mcp::handler::agent_fg_cwd_path_for_pane(p.pane_id() as u64),
-                    None => (None, None, None, None, None, None),
-                };
-                let dir = project.or(cwd);
-                let cwd_path = project_path.or(cwd_path);
-                let has_unseen = pane
-                    .as_ref()
-                    .map(|p| p.has_unseen_output())
-                    .unwrap_or(false);
-                let progress = pane.as_ref().map(|p| p.get_progress()).unwrap_or_default();
-                let agent_state = {
-                    let pane_ids: Vec<u64> = tab
-                        .iter_panes_ignoring_zoom()
-                        .iter()
-                        .map(|p| p.pane.pane_id() as u64)
-                        .collect();
-                    crate::cockpit::tab_state(&pane_ids)
-                };
-                RowInfo {
-                    tab_idx: idx,
-                    tab_id: tab.tab_id(),
-                    active: idx == active_idx,
-                    title,
-                    agent,
-                    foreground,
-                    dir,
-                    cwd_path,
-                    has_unseen,
-                    progress,
-                    agent_state,
-                }
+                (idx, tab.tab_id(), pane, title)
             })
             .collect();
+        let metadata_key = LeftTabBarMetadataKey {
+            active_idx,
+            tabs: tab_snapshots
+                .iter()
+                .map(|(_, tab_id, pane, title)| LeftTabBarTabKey {
+                    tab_id: *tab_id,
+                    active_pane_id: pane.as_ref().map(|p| p.pane_id() as u64),
+                    title: title.clone(),
+                })
+                .collect(),
+        };
+        let cached_metas = {
+            let bar = self.left_tab_bar.borrow();
+            match &bar.metadata_cache {
+                Some((key, metas, cached_at))
+                    if key == &metadata_key
+                        && cached_at.elapsed() <= LEFT_TAB_BAR_METADATA_CACHE_TTL =>
+                {
+                    Some(metas.clone())
+                }
+                _ => None,
+            }
+        };
+        let metas: Vec<RowInfo> = if let Some(metas) = cached_metas {
+            metas
+        } else {
+            let metas: Vec<RowInfo> = tab_snapshots
+                .iter()
+                .map(|(idx, tab_id, pane, title)| {
+                    let (agent, foreground, cwd, cwd_path, project, project_path) = match pane {
+                        Some(p) => {
+                            crate::mcp::handler::agent_fg_cwd_path_for_pane(p.pane_id() as u64)
+                        }
+                        None => (None, None, None, None, None, None),
+                    };
+                    let dir = project.or(cwd);
+                    let cwd_path = project_path.or(cwd_path);
+                    let has_unseen = pane
+                        .as_ref()
+                        .map(|p| p.has_unseen_output())
+                        .unwrap_or(false);
+                    let progress = pane.as_ref().map(|p| p.get_progress()).unwrap_or_default();
+                    let agent_state = {
+                        let pane_ids: Vec<u64> = tabs[*idx]
+                            .iter_panes_ignoring_zoom()
+                            .iter()
+                            .map(|p| p.pane.pane_id() as u64)
+                            .collect();
+                        crate::cockpit::tab_state(&pane_ids)
+                    };
+                    RowInfo {
+                        tab_idx: *idx,
+                        tab_id: *tab_id,
+                        active: *idx == active_idx,
+                        title: title.clone(),
+                        agent,
+                        foreground,
+                        dir,
+                        cwd_path,
+                        has_unseen,
+                        progress,
+                        agent_state,
+                    }
+                })
+                .collect();
+            self.left_tab_bar.borrow_mut().metadata_cache =
+                Some((metadata_key, metas.clone(), Instant::now()));
+            metas
+        };
         trace_mark("metadata");
 
         // Keep working-agent indicators static. The previous breathing pulse
@@ -1052,9 +1109,8 @@ impl crate::TermWindow {
             // moved a previously-visible active row out of the viewport:
             // re-reveal it. A user who scrolled away themselves leaves the
             // active index unchanged and is not yanked back.
-            let shifted_out_of_view = !active_changed
-                && bar.last_active_display_pos != Some(active_pos)
-                && {
+            let shifted_out_of_view =
+                !active_changed && bar.last_active_display_pos != Some(active_pos) && {
                     let prev_visible = bar.last_active_display_pos.is_some_and(|pos| {
                         pos >= bar.scroll_top
                             && pos < bar.scroll_top.saturating_add(bar.visible_rows.max(1))
