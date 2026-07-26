@@ -317,6 +317,8 @@ fn styled_cell_attributes(style: CellStyle) -> TwCellAttributes {
     let mut attrs = TwCellAttributes::default();
     if style.bold {
         attrs.set_intensity(Intensity::Bold);
+    } else if style.faint {
+        attrs.set_intensity(Intensity::Half);
     }
     if style.italic {
         attrs.set_italic(true);

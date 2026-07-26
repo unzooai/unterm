@@ -141,6 +141,7 @@ pub enum StyledColor {
 #[derive(Clone, Copy, Debug, Default, Serialize, PartialEq, Eq)]
 pub struct CellStyle {
     pub bold: bool,
+    pub faint: bool,
     pub italic: bool,
     pub underline: bool,
     pub inverse: bool,
