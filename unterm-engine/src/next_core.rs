@@ -660,10 +660,33 @@ impl NextCoreScreen {
     fn newline(&mut self) {
         let old_y = self.cursor_y;
         self.cursor_x = 0;
+        self.index();
+        self.mark_dirty_row(old_y);
+    }
+
+    fn index(&mut self) {
+        let old_y = self.cursor_y;
         if self.cursor_y >= self.scroll_bottom {
             self.scroll_up_region(self.scroll_top, self.scroll_bottom, 1);
         } else {
             self.cursor_y += 1;
+            self.mark_dirty_row(old_y);
+            self.mark_dirty_row(self.cursor_y);
+        }
+        self.ensure_cursor_line();
+    }
+
+    fn next_line(&mut self) {
+        self.cursor_x = 0;
+        self.index();
+    }
+
+    fn reverse_index(&mut self) {
+        let old_y = self.cursor_y;
+        if self.cursor_y <= self.scroll_top {
+            self.scroll_down_region(self.scroll_top, self.scroll_bottom, 1);
+        } else {
+            self.cursor_y = self.cursor_y.saturating_sub(1);
             self.mark_dirty_row(old_y);
             self.mark_dirty_row(self.cursor_y);
         }
@@ -858,6 +881,19 @@ impl NextCoreScreen {
             if self.cursor_x < line.len() {
                 line.remove(self.cursor_x);
             }
+        }
+        self.mark_dirty_row(self.cursor_y);
+    }
+
+    fn erase_chars(&mut self, count: usize) {
+        self.ensure_cursor_line();
+        let line = &mut self.lines[self.cursor_y];
+        let end = self.cursor_x.saturating_add(count.max(1)).min(self.cols);
+        if line.len() < end {
+            line.resize(end, ScreenCell::blank(self.current_attr));
+        }
+        for cell in line.iter_mut().take(end).skip(self.cursor_x) {
+            *cell = ScreenCell::blank(self.current_attr);
         }
         self.mark_dirty_row(self.cursor_y);
     }
@@ -1255,8 +1291,20 @@ impl<'a> ScreenParser<'a> {
                     self.screen.restore_cursor();
                     self.state = ParserState::Ground;
                 }
+                'D' => {
+                    self.screen.index();
+                    self.state = ParserState::Ground;
+                }
+                'E' => {
+                    self.screen.next_line();
+                    self.state = ParserState::Ground;
+                }
                 'H' => {
                     self.screen.set_tab_stop();
+                    self.state = ParserState::Ground;
+                }
+                'M' => {
+                    self.screen.reverse_index();
                     self.state = ParserState::Ground;
                 }
                 _ => self.state = ParserState::Ground,
@@ -1312,6 +1360,7 @@ impl<'a> ScreenParser<'a> {
             'B' => self.screen.move_cursor_down(first()),
             'C' => self.screen.move_cursor_right(first()),
             'D' => self.screen.move_cursor_left(first()),
+            'X' => self.screen.erase_chars(first()),
             'L' => self.screen.insert_lines(first()),
             'M' => self.screen.delete_lines(first()),
             'P' => self.screen.delete_chars(first()),
@@ -1343,6 +1392,8 @@ impl<'a> ScreenParser<'a> {
                         .set_cursor_shape(numbers.first().copied().unwrap_or(0));
                 }
             }
+            's' => self.screen.save_cursor(),
+            'u' => self.screen.restore_cursor(),
             'r' => {
                 let top = numbers.first().copied().filter(|n| *n > 0).unwrap_or(1);
                 let bottom = numbers
@@ -4917,7 +4968,7 @@ mod tests {
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 80,
-            rows: 5,
+            rows: 6,
             command_dir: None,
             command: None,
             env: Vec::new(),
@@ -4940,12 +4991,75 @@ mod tests {
                 "\x1b[4;6H",
                 "\x1b[1K",
                 "\x1b[5;1Herase-all",
-                "\x1b[2K"
+                "\x1b[2K",
+                "\x1b[6;1Herase-chars",
+                "\x1b[6;6H",
+                "\x1b[3X"
             ),
         )?;
 
         let lines = engine.read_screen(session.id)?.lines;
-        assert_eq!(lines, vec!["abXYe", "keep", "prefix", "      left", ""]);
+        assert_eq!(
+            lines,
+            vec!["abXYe", "keep", "prefix", "      left", "", "erase   ars"]
+        );
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_applies_escape_index_sequences() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 8,
+            rows: 4,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(session.id, "A\x1bDB\x1bEC")?;
+        let screen = engine.read_screen(session.id)?;
+        assert_eq!(screen.lines, vec!["A", " B", "C"]);
+        assert_eq!(screen.cursor.x, 1);
+        assert_eq!(screen.cursor.y, 2);
+
+        set_output_for_test(
+            session.id,
+            "\x1b[2J\x1b[Hr0\nr1\nr2\nr3\x1b[2;4r\x1b[2;1H\x1bM",
+        )?;
+        let screen = engine.read_screen(session.id)?;
+        assert_eq!(screen.lines, vec!["r0", "", "r1", "r2"]);
+        assert_eq!(screen.cursor.x, 0);
+        assert_eq!(screen.cursor.y, 1);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_applies_csi_save_and_restore_cursor() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 12,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(session.id, "one\x1b[sXX\x1b[uY")?;
+        let screen = engine.read_screen(session.id)?;
+        assert_eq!(screen.lines, vec!["oneYX"]);
+        assert_eq!(screen.cursor.x, 4);
+        assert_eq!(screen.cursor.y, 0);
 
         engine.destroy_session(session.id)?;
         Ok(())
