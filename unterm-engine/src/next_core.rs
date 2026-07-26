@@ -289,6 +289,7 @@ struct NextCoreScreen {
     cursor_y: usize,
     cursor_visible: bool,
     cursor_shape: String,
+    auto_wrap: bool,
     bracketed_paste: bool,
     current_attr: CellAttributes,
     title: Option<String>,
@@ -313,6 +314,7 @@ struct ScreenState {
     cursor_y: usize,
     cursor_visible: bool,
     cursor_shape: String,
+    auto_wrap: bool,
     bracketed_paste: bool,
     current_attr: CellAttributes,
     scroll_top: usize,
@@ -413,6 +415,7 @@ impl NextCoreScreen {
             rows: rows.max(1),
             cursor_visible: true,
             cursor_shape: "Default".to_string(),
+            auto_wrap: true,
             ..Self::default()
         };
         screen.scroll_bottom = screen.rows - 1;
@@ -609,9 +612,13 @@ impl NextCoreScreen {
         }
         let width = cell.width;
         if self.cursor_x >= self.cols || self.cursor_x + width > self.cols {
-            self.newline();
-            self.ensure_cursor_line();
-            self.mark_dirty_row(self.cursor_y);
+            if self.auto_wrap {
+                self.newline();
+                self.ensure_cursor_line();
+                self.mark_dirty_row(self.cursor_y);
+            } else {
+                self.cursor_x = self.cols.saturating_sub(width.min(self.cols));
+            }
         }
         {
             let line = &mut self.lines[self.cursor_y];
@@ -1106,6 +1113,7 @@ impl NextCoreScreen {
             cursor_y: self.cursor_y,
             cursor_visible: self.cursor_visible,
             cursor_shape: self.cursor_shape.clone(),
+            auto_wrap: self.auto_wrap,
             bracketed_paste: self.bracketed_paste,
             current_attr: self.current_attr,
             scroll_top: self.scroll_top,
@@ -1119,6 +1127,7 @@ impl NextCoreScreen {
         self.saved_cursor_x = 0;
         self.saved_cursor_y = 0;
         self.cursor_shape = "Default".to_string();
+        self.auto_wrap = true;
         self.bracketed_paste = false;
         self.scroll_top = 0;
         self.scroll_bottom = self.rows.saturating_sub(1);
@@ -1137,6 +1146,7 @@ impl NextCoreScreen {
             self.cursor_y = main.cursor_y;
             self.cursor_visible = main.cursor_visible;
             self.cursor_shape = main.cursor_shape;
+            self.auto_wrap = main.auto_wrap;
             self.bracketed_paste = main.bracketed_paste;
             self.current_attr = main.current_attr;
             self.scroll_top = main.scroll_top;
@@ -1303,6 +1313,8 @@ impl<'a> ScreenParser<'a> {
             'h' => {
                 if private && numbers.iter().any(|n| matches!(*n, 1049 | 1047 | 47)) {
                     self.screen.enter_alternate_screen(true);
+                } else if private && numbers.iter().any(|n| *n == 7) {
+                    self.screen.auto_wrap = true;
                 } else if private && numbers.iter().any(|n| *n == 25) {
                     self.screen.cursor_visible = true;
                     self.screen.mark_dirty_row(self.screen.cursor_y);
@@ -1313,6 +1325,8 @@ impl<'a> ScreenParser<'a> {
             'l' => {
                 if private && numbers.iter().any(|n| matches!(*n, 1049 | 1047 | 47)) {
                     self.screen.leave_alternate_screen();
+                } else if private && numbers.iter().any(|n| *n == 7) {
+                    self.screen.auto_wrap = false;
                 } else if private && numbers.iter().any(|n| *n == 25) {
                     self.screen.cursor_visible = false;
                     self.screen.mark_dirty_row(self.screen.cursor_y);
@@ -4380,6 +4394,36 @@ mod tests {
         assert_eq!(screen.lines, vec!["abcde", "fgh"]);
         assert_eq!(screen.cursor.x, 3);
         assert_eq!(screen.cursor.y, 1);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_honors_decawm_auto_wrap_mode() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 5,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(session.id, "\x1b[?7labcdef")?;
+        let disabled = engine.read_screen(session.id)?;
+        assert_eq!(disabled.lines, vec!["abcdf"]);
+        assert_eq!(disabled.cursor.x, 5);
+        assert_eq!(disabled.cursor.y, 0);
+
+        set_output_for_test(session.id, "\x1b[?7labcde\x1b[?7hf")?;
+        let reenabled = engine.read_screen(session.id)?;
+        assert_eq!(reenabled.lines, vec!["abcde", "f"]);
+        assert_eq!(reenabled.cursor.x, 1);
+        assert_eq!(reenabled.cursor.y, 1);
 
         engine.destroy_session(session.id)?;
         Ok(())
