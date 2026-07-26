@@ -94,7 +94,7 @@ pub struct SplitSessionRequest {
     pub command_dir: Option<String>,
 }
 
-pub trait TerminalEngine {
+pub trait SessionEngine {
     fn list_sessions(&self) -> Result<Vec<SessionSnapshot>>;
     fn get_session(&self, pane_id: usize) -> Result<SessionSnapshot>;
     fn create_session(&self, request: CreateSessionRequest) -> Result<SessionSnapshot>;
@@ -102,10 +102,21 @@ pub trait TerminalEngine {
     fn focus_session(&self, pane_id: usize) -> Result<()>;
     fn shell(&self, pane_id: usize) -> Result<ShellSnapshot>;
     fn activity(&self, pane_id: usize) -> Result<SessionActivitySnapshot>;
-    fn read_screen(&self, pane_id: usize) -> Result<ScreenSnapshot>;
-    fn read_scrollback(&self, pane_id: usize, limit: usize) -> Result<Vec<String>>;
-    fn cursor(&self, pane_id: usize) -> Result<CursorSnapshot>;
-    fn write_input(&self, pane_id: usize, input: &str) -> Result<()>;
     fn resize_session(&self, pane_id: usize, cols: usize, rows: usize) -> Result<()>;
     fn destroy_session(&self, pane_id: usize) -> Result<()>;
 }
+
+pub trait ScreenEngine {
+    fn read_screen(&self, pane_id: usize) -> Result<ScreenSnapshot>;
+    fn read_scrollback(&self, pane_id: usize, limit: usize) -> Result<Vec<String>>;
+    fn cursor(&self, pane_id: usize) -> Result<CursorSnapshot>;
+}
+
+pub trait InputEngine {
+    fn write_input(&self, pane_id: usize, input: &str) -> Result<()>;
+}
+
+#[allow(dead_code)]
+pub trait TerminalEngine: SessionEngine + ScreenEngine + InputEngine {}
+
+impl<T> TerminalEngine for T where T: SessionEngine + ScreenEngine + InputEngine {}

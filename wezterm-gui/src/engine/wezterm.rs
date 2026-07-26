@@ -1,7 +1,7 @@
 use super::{
     CreateSessionRequest, CursorSnapshot, PaneDimensions, ScreenLine, ScreenSnapshot,
-    SessionActivitySnapshot, SessionSnapshot, ShellSnapshot, SplitDirection, SplitSessionRequest,
-    TerminalEngine,
+    InputEngine, ScreenEngine, SessionActivitySnapshot, SessionEngine, SessionSnapshot,
+    ShellSnapshot, SplitDirection, SplitSessionRequest,
 };
 use anyhow::{anyhow, Context, Result};
 use config::keyassignment::SpawnTabDomain;
@@ -111,7 +111,7 @@ impl WezTermEngine {
     }
 }
 
-impl TerminalEngine for WezTermEngine {
+impl SessionEngine for WezTermEngine {
     fn list_sessions(&self) -> Result<Vec<SessionSnapshot>> {
         let mux = self.mux()?;
         let active_pane_id = self.active_pane_id(&mux);
@@ -255,6 +255,27 @@ impl TerminalEngine for WezTermEngine {
         })
     }
 
+    fn resize_session(&self, pane_id: usize, cols: usize, rows: usize) -> Result<()> {
+        let pane = self.pane(pane_id)?;
+        let size = wezterm_term::TerminalSize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+            dpi: 0,
+        };
+        pane.resize(size)?;
+        Ok(())
+    }
+
+    fn destroy_session(&self, pane_id: usize) -> Result<()> {
+        let pane = self.pane(pane_id)?;
+        pane.kill();
+        Ok(())
+    }
+}
+
+impl ScreenEngine for WezTermEngine {
     fn read_screen(&self, pane_id: usize) -> Result<ScreenSnapshot> {
         let pane = self.pane(pane_id)?;
         let dims = pane.get_dimensions();
@@ -301,29 +322,12 @@ impl TerminalEngine for WezTermEngine {
         let pane = self.pane(pane_id)?;
         Ok(Self::cursor_snapshot(&pane))
     }
+}
 
+impl InputEngine for WezTermEngine {
     fn write_input(&self, pane_id: usize, input: &str) -> Result<()> {
         let pane = self.pane(pane_id)?;
         pane.writer().write_all(input.as_bytes())?;
-        Ok(())
-    }
-
-    fn resize_session(&self, pane_id: usize, cols: usize, rows: usize) -> Result<()> {
-        let pane = self.pane(pane_id)?;
-        let size = wezterm_term::TerminalSize {
-            rows,
-            cols,
-            pixel_width: 0,
-            pixel_height: 0,
-            dpi: 0,
-        };
-        pane.resize(size)?;
-        Ok(())
-    }
-
-    fn destroy_session(&self, pane_id: usize) -> Result<()> {
-        let pane = self.pane(pane_id)?;
-        pane.kill();
         Ok(())
     }
 }

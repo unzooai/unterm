@@ -1,7 +1,10 @@
 //! MCP request handler — bridges JSON-RPC methods to WezTerm's Mux API.
 //! Implements all methods required by unterm-cli compatibility.
 
-use crate::engine::{CreateSessionRequest, SplitDirection, SplitSessionRequest, TerminalEngine};
+use crate::engine::{
+    CreateSessionRequest, InputEngine, ScreenEngine, SessionEngine, SplitDirection,
+    SplitSessionRequest,
+};
 use anyhow::{anyhow, Context, Result};
 use base64::Engine as _;
 use mux::pane::Pane;
