@@ -1,4 +1,4 @@
-use super::super::{session_creation, session_snapshots, NextCoreSession};
+use super::super::{session_creation, NextCoreSession};
 use super::{scheduler, session_registry, with_current, with_current_mut};
 use crate::{CreateSessionRequest, SessionSnapshot, SplitSessionRequest};
 use anyhow::Result;
@@ -37,12 +37,12 @@ pub(in crate::next_core) fn with_session_optional<T>(
     with_current(|state| session_registry::session(state, pane_id).ok().map(visit))
 }
 
-pub(in crate::next_core) fn list_sessions() -> Vec<SessionSnapshot> {
-    with_current_mut(session_snapshots::list)
+pub(in crate::next_core) fn list_sessions() -> Result<Vec<SessionSnapshot>> {
+    scheduler::list_sessions()
 }
 
 pub(in crate::next_core) fn get_session(pane_id: usize) -> Result<SessionSnapshot> {
-    with_current_mut(|state| session_snapshots::get(state, pane_id))
+    scheduler::get_session(pane_id)
 }
 
 pub(in crate::next_core) fn create_session(

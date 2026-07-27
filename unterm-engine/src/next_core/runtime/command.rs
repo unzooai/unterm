@@ -5,6 +5,7 @@ use crate::{CreateSessionRequest, ScrollbackTextRequest, SplitSessionRequest};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::next_core) enum RuntimeCommandClass {
     SessionLifecycle,
+    SessionQuery,
     Input,
     ScreenRead,
     ScreenMutation,
@@ -37,6 +38,10 @@ impl RuntimeCommandLane {
 pub(in crate::next_core) enum RuntimeCommand {
     CreateSession(Box<CreateSessionRequest>),
     SplitSession(SplitSessionRequest),
+    ListSessions,
+    GetSession {
+        pane_id: usize,
+    },
     FocusSession {
         pane_id: usize,
     },
@@ -135,6 +140,7 @@ impl RuntimeCommand {
             | Self::FocusSession { .. }
             | Self::ResizeSession { .. }
             | Self::DestroySession { .. } => RuntimeCommandClass::SessionLifecycle,
+            Self::ListSessions | Self::GetSession { .. } => RuntimeCommandClass::SessionQuery,
             Self::WriteInput { .. } | Self::PasteInput { .. } => RuntimeCommandClass::Input,
             Self::ScrollViewport { .. } => RuntimeCommandClass::ScreenMutation,
             Self::ReadScreen { .. }
@@ -161,9 +167,10 @@ impl RuntimeCommand {
 
     pub(in crate::next_core) fn pane_id(&self) -> Option<usize> {
         match self {
-            Self::CreateSession(_) | Self::HealthSnapshot => None,
+            Self::CreateSession(_) | Self::ListSessions | Self::HealthSnapshot => None,
             Self::SplitSession(request) => Some(request.source_pane_id),
-            Self::FocusSession { pane_id }
+            Self::GetSession { pane_id }
+            | Self::FocusSession { pane_id }
             | Self::ResizeSession { pane_id, .. }
             | Self::DestroySession { pane_id }
             | Self::WriteInput { pane_id, .. }
@@ -197,6 +204,7 @@ impl RuntimeCommand {
             | Self::FocusSession { .. }
             | Self::ResizeSession { .. }
             | Self::DestroySession { .. } => RuntimeCommandLane::Lifecycle,
+            Self::ListSessions | Self::GetSession { .. } => RuntimeCommandLane::Background,
             Self::WriteInput { .. } | Self::PasteInput { .. } => RuntimeCommandLane::Input,
             Self::ReadRenderFrame { .. } => RuntimeCommandLane::Render,
             Self::ScrollViewport { .. }

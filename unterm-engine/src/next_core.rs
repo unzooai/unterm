@@ -1601,7 +1601,7 @@ impl NextCoreEngine {
 
 impl SessionEngine for NextCoreEngine {
     fn list_sessions(&self) -> Result<Vec<SessionSnapshot>> {
-        Ok(runtime::list_sessions())
+        runtime::list_sessions()
     }
 
     fn get_session(&self, pane_id: usize) -> Result<SessionSnapshot> {

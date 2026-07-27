@@ -2,13 +2,14 @@
 
 use super::{
     command::{RuntimeCommand, RuntimeCommandClass},
-    input_executor, recording_executor, screen_executor, session_executor, status_executor,
+    input_executor, recording_executor, screen_executor, session_executor, session_query_executor,
+    status_executor,
 };
 use crate::{
     CursorSnapshot, EngineHealthSnapshot, RecordingExportResult, RecordingStartResult,
     RecordingStatusSnapshot, RecordingStopResult, RenderFrameSnapshot, ScreenLine,
     ScreenSearchMatch, ScreenSnapshot, ScrollbackTextSnapshot, SessionActivitySnapshot,
-    ShellSnapshot, StyledScreenSnapshot, StyledScrollbackSnapshot,
+    SessionSnapshot, ShellSnapshot, StyledScreenSnapshot, StyledScrollbackSnapshot,
 };
 use anyhow::{bail, Result};
 
@@ -34,6 +35,8 @@ pub(in crate::next_core) enum RuntimeDispatchResult {
     RecordingStatus(RecordingStatusSnapshot),
     RecordingTraceIds(Vec<String>),
     RecordingExport(RecordingExportResult),
+    Sessions(Vec<SessionSnapshot>),
+    Session(SessionSnapshot),
 }
 
 pub(in crate::next_core) fn execute(command: RuntimeCommand) -> Result<RuntimeDispatchResult> {
@@ -50,9 +53,22 @@ pub(in crate::next_core) fn execute(command: RuntimeCommand) -> Result<RuntimeDi
             session_executor::execute(command)?;
             Ok(RuntimeDispatchResult::Unit)
         }
+        RuntimeCommandClass::SessionQuery => execute_session_query(command),
         RuntimeCommandClass::ScreenRead => execute_screen_read(command),
         RuntimeCommandClass::Status => execute_status(command),
         RuntimeCommandClass::Recording => execute_recording(command),
+    }
+}
+
+fn execute_session_query(command: RuntimeCommand) -> Result<RuntimeDispatchResult> {
+    match command {
+        RuntimeCommand::ListSessions => Ok(RuntimeDispatchResult::Sessions(
+            session_query_executor::execute_list(command)?,
+        )),
+        RuntimeCommand::GetSession { .. } => Ok(RuntimeDispatchResult::Session(
+            session_query_executor::execute_get(command)?,
+        )),
+        _ => bail!("runtime dispatch expected session query command"),
     }
 }
 
@@ -166,6 +182,15 @@ mod tests {
             .expect_err("missing pane should come from session executor");
 
         assert!(err.to_string().contains("next-core session 404 not found"));
+    }
+
+    #[test]
+    fn dispatch_routes_session_queries_to_session_query_executor() {
+        test_facade::reset();
+
+        let result = execute(RuntimeCommand::ListSessions).expect("list should dispatch");
+
+        assert!(matches!(result, RuntimeDispatchResult::Sessions(_)));
     }
 
     #[test]

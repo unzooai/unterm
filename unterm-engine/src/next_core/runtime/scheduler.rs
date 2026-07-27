@@ -7,7 +7,8 @@ use crate::{
     CursorSnapshot, EngineHealthSnapshot, RecordingExportResult, RecordingStartResult,
     RecordingStatusSnapshot, RecordingStopResult, RenderFrameSnapshot, ScreenLine,
     ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot,
-    SessionActivitySnapshot, ShellSnapshot, StyledScreenSnapshot, StyledScrollbackSnapshot,
+    SessionActivitySnapshot, SessionSnapshot, ShellSnapshot, StyledScreenSnapshot,
+    StyledScrollbackSnapshot,
 };
 use anyhow::{bail, Result};
 
@@ -60,6 +61,27 @@ pub(in crate::next_core) fn destroy_session(pane_id: usize) -> Result<()> {
         RuntimeDispatchResult::Unit => Ok(()),
         other => bail!(
             "runtime scheduler expected destroy-session dispatch result, got {:?}",
+            other
+        ),
+    }
+}
+
+pub(in crate::next_core) fn list_sessions() -> Result<Vec<SessionSnapshot>> {
+    match consumer::submit_and_dispatch_response(RuntimeCommand::ListSessions)? {
+        RuntimeDispatchResult::Sessions(sessions) => Ok(sessions),
+        other => bail!(
+            "runtime scheduler expected list-sessions dispatch result, got {:?}",
+            other
+        ),
+    }
+}
+
+pub(in crate::next_core) fn get_session(pane_id: usize) -> Result<SessionSnapshot> {
+    let command = RuntimeCommand::GetSession { pane_id };
+    match consumer::submit_and_dispatch_response(command)? {
+        RuntimeDispatchResult::Session(session) => Ok(session),
+        other => bail!(
+            "runtime scheduler expected get-session dispatch result, got {:?}",
             other
         ),
     }
@@ -476,6 +498,52 @@ mod tests {
         assert_eq!(stats.pending_lanes.lifecycle, 0);
         assert_eq!(stats.pending_lanes.render, 1);
         assert_eq!(stats.pending_lanes.screen, 1);
+    }
+
+    #[test]
+    fn session_queries_enter_runtime_queue_before_dispatch() {
+        test_facade::reset();
+
+        let sessions = list_sessions().expect("list should dispatch through runtime queue");
+
+        assert!(sessions.is_empty());
+        assert_eq!(queue_stats().pending_commands, 0);
+        assert_eq!(queue_stats().rejected_commands, 0);
+    }
+
+    #[test]
+    fn session_queries_use_background_backpressure() {
+        test_facade::reset();
+        install_zero_command_budget();
+
+        let err = get_session(1).expect_err("zero command budget should reject get-session");
+
+        assert!(err
+            .to_string()
+            .contains("runtime background queue rejected command"));
+        assert_eq!(queue_stats().rejected_commands, 1);
+    }
+
+    #[test]
+    fn session_query_backlog_waits_behind_input() {
+        test_facade::reset();
+        with_current_mut(|state| {
+            state
+                .command_queue
+                .enqueue(RuntimeCommand::ListSessions)
+                .unwrap();
+        });
+
+        let err = submit_input(RuntimeCommand::WriteInput {
+            pane_id: 404,
+            text: "x".to_string(),
+        })
+        .expect_err("missing input pane should fail first");
+
+        assert!(err.to_string().contains("next-core session 404 not found"));
+        let stats = queue_stats();
+        assert_eq!(stats.pending_lanes.input, 0);
+        assert_eq!(stats.pending_lanes.background, 1);
     }
 
     #[test]
