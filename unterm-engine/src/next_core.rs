@@ -1,13 +1,12 @@
 use super::{
     CellStyle, CreateSessionRequest, CursorSnapshot, DirtyRows, EngineHealthSnapshot,
     EngineIoHealthSnapshot, EngineLifecycleHealthSnapshot, HealthEngine, InputEngine,
-    LaunchContextSnapshot, LaunchEnvBinding, LaunchEnvSource, LaunchPolicyDecision,
-    LaunchPolicyDecisionSnapshot, LaunchPolicySnapshot, ProcessTreeSnapshot, RecordingEngine,
-    RecordingExportResult, RecordingStartResult, RecordingStatusSnapshot, RecordingStopResult,
-    RenderFrameSnapshot, ScreenEngine, ScreenLine, ScreenSearchMatch, ScreenSnapshot,
-    ScrollbackTextRequest, ScrollbackTextSnapshot, SessionActivitySnapshot, SessionEngine,
-    SessionSnapshot, ShellSnapshot, SplitSessionRequest, StyledBlink, StyledCell, StyledScreenLine,
-    StyledScreenSnapshot, StyledScrollbackSnapshot, StyledUnderline,
+    ProcessTreeSnapshot, RecordingEngine, RecordingExportResult, RecordingStartResult,
+    RecordingStatusSnapshot, RecordingStopResult, RenderFrameSnapshot, ScreenEngine, ScreenLine,
+    ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot,
+    SessionActivitySnapshot, SessionEngine, SessionSnapshot, ShellSnapshot, SplitSessionRequest,
+    StyledBlink, StyledCell, StyledScreenLine, StyledScreenSnapshot, StyledScrollbackSnapshot,
+    StyledUnderline,
 };
 use anyhow::{bail, Result};
 use base64::Engine as _;
@@ -27,6 +26,7 @@ mod cell;
 mod csi_params;
 mod history;
 mod input_pipeline;
+mod launch;
 mod osc133;
 mod osc_params;
 mod parser_state;
@@ -40,6 +40,8 @@ mod sgr;
 mod terminal_parser;
 mod terminal_queries;
 
+#[cfg(test)]
+use super::{LaunchEnvSource, LaunchPolicyDecision};
 #[cfg(test)]
 use crate::StyledVerticalAlign;
 use activity::SessionIoActivity;
@@ -2119,193 +2121,6 @@ impl NextCoreEngine {
         }
     }
 
-    fn command_label(command: &portable_pty::CommandBuilder) -> String {
-        if command.is_default_prog() {
-            command.get_shell()
-        } else {
-            command
-                .get_argv()
-                .first()
-                .and_then(|arg| arg.to_str())
-                .unwrap_or("command")
-                .to_string()
-        }
-    }
-
-    fn shell_type(label: &str) -> String {
-        let label = label.to_lowercase();
-        if label.contains("powershell") || label.contains("pwsh") {
-            "powershell"
-        } else if label.contains("cmd") {
-            "cmd"
-        } else if label.contains("bash") {
-            "bash"
-        } else if label.contains("zsh") {
-            "zsh"
-        } else if label.contains("fish") {
-            "fish"
-        } else {
-            "unknown"
-        }
-        .to_string()
-    }
-
-    fn command_cwd(
-        command: &portable_pty::CommandBuilder,
-        fallback: Option<String>,
-    ) -> Option<String> {
-        command
-            .get_cwd()
-            .and_then(|cwd| cwd.to_str().map(|cwd| cwd.to_string()))
-            .or(fallback)
-    }
-
-    fn launch_context(
-        env: &[(String, String)],
-        launch_policy: &LaunchPolicySnapshot,
-    ) -> LaunchContextSnapshot {
-        let mut proxy_env_keys = env
-            .iter()
-            .filter_map(|(key, _)| {
-                let upper = key.to_ascii_uppercase();
-                matches!(
-                    upper.as_str(),
-                    "HTTP_PROXY" | "HTTPS_PROXY" | "ALL_PROXY" | "NO_PROXY"
-                )
-                .then(|| key.clone())
-            })
-            .collect::<Vec<_>>();
-        proxy_env_keys.sort();
-        proxy_env_keys.dedup();
-
-        let mut policy = if launch_policy.env.is_empty()
-            && launch_policy.profile.is_none()
-            && launch_policy.proxy_env_keys.is_empty()
-        {
-            Self::infer_launch_policy(env)
-        } else {
-            launch_policy.clone()
-        };
-        if policy.profile.is_none() {
-            policy.profile = env
-                .iter()
-                .find(|(key, _)| key.eq_ignore_ascii_case("UNTERM_PROFILE"))
-                .map(|(_, value)| value.clone())
-                .filter(|value| !value.trim().is_empty());
-        }
-        if policy.proxy_env_keys.is_empty() {
-            policy.proxy_env_keys = proxy_env_keys.clone();
-        }
-        Self::complete_launch_policy_decisions(&mut policy);
-
-        LaunchContextSnapshot {
-            profile: policy.profile.clone().or_else(|| {
-                env.iter()
-                    .find(|(key, _)| key.eq_ignore_ascii_case("UNTERM_PROFILE"))
-                    .map(|(_, value)| value.clone())
-                    .filter(|value| !value.trim().is_empty())
-            }),
-            proxy_env_keys,
-            env_key_count: env.len(),
-            policy,
-        }
-    }
-
-    fn complete_launch_policy_decisions(policy: &mut LaunchPolicySnapshot) {
-        let default_decision = LaunchPolicyDecisionSnapshot::default();
-        if policy.domain == default_decision {
-            policy.domain = LaunchPolicyDecisionSnapshot::new(
-                LaunchPolicyDecision::NotRequested,
-                false,
-                "next-core currently launches local-domain sessions only",
-            );
-        }
-        if policy.privilege == default_decision {
-            policy.privilege = LaunchPolicyDecisionSnapshot::new(
-                LaunchPolicyDecision::NotRequested,
-                false,
-                "elevation is host-owned and not applied by next-core launch",
-            );
-        }
-        if policy.proxy_rotation == default_decision {
-            policy.proxy_rotation = if policy.proxy_env_keys.is_empty() {
-                LaunchPolicyDecisionSnapshot::new(
-                    LaunchPolicyDecision::NotRequested,
-                    false,
-                    "no proxy env keys were provided",
-                )
-            } else {
-                LaunchPolicyDecisionSnapshot::new(
-                    LaunchPolicyDecision::Deferred,
-                    false,
-                    "proxy env is applied; proxy rotation remains product-managed",
-                )
-            };
-        }
-        if policy.restart == default_decision {
-            policy.restart = LaunchPolicyDecisionSnapshot::new(
-                LaunchPolicyDecision::NotRequested,
-                false,
-                "restart policy is not applied during next-core session launch",
-            );
-        }
-    }
-
-    fn infer_launch_policy(env: &[(String, String)]) -> LaunchPolicySnapshot {
-        let mut proxy_env_keys = Vec::new();
-        let bindings = env
-            .iter()
-            .map(|(key, _)| {
-                let upper = key.to_ascii_uppercase();
-                let source = if key.eq_ignore_ascii_case("UNTERM_PROFILE") {
-                    LaunchEnvSource::Profile
-                } else if matches!(
-                    upper.as_str(),
-                    "HTTP_PROXY" | "HTTPS_PROXY" | "ALL_PROXY" | "NO_PROXY"
-                ) {
-                    proxy_env_keys.push(key.clone());
-                    LaunchEnvSource::Proxy
-                } else {
-                    LaunchEnvSource::Explicit
-                };
-                LaunchEnvBinding {
-                    key: key.clone(),
-                    source,
-                }
-            })
-            .collect();
-        proxy_env_keys.sort();
-        proxy_env_keys.dedup();
-        LaunchPolicySnapshot {
-            profile: env
-                .iter()
-                .find(|(key, _)| key.eq_ignore_ascii_case("UNTERM_PROFILE"))
-                .map(|(_, value)| value.clone())
-                .filter(|value| !value.trim().is_empty()),
-            proxy_env_keys,
-            env: bindings,
-            ..Default::default()
-        }
-    }
-
-    fn prepare_command(
-        command: Option<portable_pty::CommandBuilder>,
-        command_dir: Option<String>,
-        env: Vec<(String, String)>,
-    ) -> (portable_pty::CommandBuilder, Option<String>) {
-        let mut command = command.unwrap_or_else(portable_pty::CommandBuilder::new_default_prog);
-        if let Some(command_dir) = command_dir {
-            if command.get_cwd().is_none() {
-                command.cwd(&command_dir);
-            }
-        }
-        for (key, value) in env {
-            command.env(key, value);
-        }
-        let cwd = Self::command_cwd(&command, None);
-        (command, cwd)
-    }
-
     fn spawn_session(
         id: usize,
         title: String,
@@ -2315,7 +2130,7 @@ impl NextCoreEngine {
         cwd: Option<String>,
         launch_env_keys: Vec<String>,
     ) -> Result<NextCoreSession> {
-        let label = Self::command_label(&command);
+        let label = launch::command_label(&command);
         let pair = native_pty_system().openpty(Self::pty_size(cols, rows))?;
         let child = pair.slave.spawn_command(command)?;
         let root_pid = child.process_id();
@@ -2339,7 +2154,7 @@ impl NextCoreEngine {
             reader,
         );
         let shell = ShellSnapshot {
-            shell_type: Self::shell_type(&label),
+            shell_type: launch::shell_type(&label),
             process_name: label,
             cwd,
             launch_env_keys,
@@ -2526,9 +2341,9 @@ impl SessionEngine for NextCoreEngine {
 
     fn create_session(&self, request: CreateSessionRequest) -> Result<SessionSnapshot> {
         let launch_env_keys = request.env.iter().map(|(key, _)| key.clone()).collect();
-        let launch_context = Self::launch_context(&request.env, &request.launch_policy);
+        let launch_context = launch::launch_context(&request.env, &request.launch_policy);
         let (command, cwd) =
-            Self::prepare_command(request.command, request.command_dir, request.env);
+            launch::prepare_command(request.command, request.command_dir, request.env);
         let mut state_guard = state().write();
         let id = Self::next_session_id(&mut state_guard);
         drop(state_guard);
@@ -2570,7 +2385,7 @@ impl SessionEngine for NextCoreEngine {
         if let Some(cwd) = request.command_dir.or(source.shell.cwd) {
             command.cwd(cwd);
         }
-        let cwd = Self::command_cwd(&command, None);
+        let cwd = launch::command_cwd(&command, None);
         let launch_env_keys = Vec::new();
 
         let mut state_guard = state().write();
@@ -4087,7 +3902,7 @@ mod tests {
             .expect("current dir")
             .display()
             .to_string();
-        let (command, cwd) = NextCoreEngine::prepare_command(
+        let (command, cwd) = launch::prepare_command(
             None,
             Some(expected_cwd.clone()),
             vec![
@@ -4126,7 +3941,7 @@ mod tests {
             ),
             ("NO_PROXY".to_string(), "localhost".to_string()),
         ];
-        let context = NextCoreEngine::launch_context(&env, &Default::default());
+        let context = launch::launch_context(&env, &Default::default());
 
         assert_eq!(context.profile.as_deref(), Some("work-acme"));
         assert_eq!(context.proxy_env_keys, vec!["HTTPS_PROXY", "NO_PROXY"]);
