@@ -4,8 +4,31 @@
 //! wgpu backend will execute, without making tests depend on a window, adapter,
 //! font atlas, or swapchain.
 
-use super::{CellStyle, EngineRenderCommitBatch, RenderRect};
+use super::{CellStyle, EngineRenderCommitBatch, RenderRect, StyledColor};
 use wgpu::util::DeviceExt;
+
+const NEXT_CORE_RENDER_SHADER: &str = r#"
+struct VertexOut {
+    @builtin(position) position: vec4<f32>,
+    @location(0) color: vec4<f32>,
+};
+
+@vertex
+fn vs_main(
+    @location(0) position: vec2<f32>,
+    @location(1) color: vec4<f32>,
+) -> VertexOut {
+    var out: VertexOut;
+    out.position = vec4<f32>(position, 0.0, 1.0);
+    out.color = color;
+    return out;
+}
+
+@fragment
+fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
+    return in.color;
+}
+"#;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[allow(dead_code)]
@@ -50,6 +73,7 @@ pub enum EngineRenderVertexLayer {
 #[allow(dead_code)]
 pub struct EngineRenderVertex {
     pub position: [f32; 2],
+    pub color: [f32; 4],
     pub layer: EngineRenderVertexLayer,
     pub command_index: u32,
 }
@@ -71,6 +95,7 @@ pub struct EngineRenderBufferPlan {
 #[allow(dead_code)]
 pub struct EngineRenderGpuVertex {
     pub position: [f32; 2],
+    pub color: [f32; 4],
     pub layer: u32,
     pub command_index: u32,
 }
@@ -79,12 +104,31 @@ impl From<EngineRenderVertex> for EngineRenderGpuVertex {
     fn from(vertex: EngineRenderVertex) -> Self {
         Self {
             position: vertex.position,
+            color: vertex.color,
             layer: match vertex.layer {
                 EngineRenderVertexLayer::Background => 0,
                 EngineRenderVertexLayer::Text => 1,
                 EngineRenderVertexLayer::Cursor => 2,
             },
             command_index: vertex.command_index,
+        }
+    }
+}
+
+#[allow(dead_code)]
+impl EngineRenderGpuVertex {
+    const ATTRIBS: [wgpu::VertexAttribute; 4] = wgpu::vertex_attr_array![
+        0 => Float32x2,
+        1 => Float32x4,
+        2 => Uint32,
+        3 => Uint32,
+    ];
+
+    pub fn desc() -> wgpu::VertexBufferLayout<'static> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<Self>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &Self::ATTRIBS,
         }
     }
 }
@@ -113,6 +157,40 @@ impl EngineRenderGpuUploadPlan {
         }
     }
 
+    pub fn from_buffer_plan_for_viewport(
+        plan: &EngineRenderBufferPlan,
+        viewport_width_px: f32,
+        viewport_height_px: f32,
+    ) -> Self {
+        let viewport_width_px = viewport_width_px.max(1.0);
+        let viewport_height_px = viewport_height_px.max(1.0);
+        Self {
+            pane_id: plan.pane_id,
+            submitted: plan.submitted,
+            revision: plan.revision,
+            requires_full_repaint: plan.requires_full_repaint,
+            vertices: plan
+                .vertices
+                .iter()
+                .copied()
+                .map(|vertex| EngineRenderGpuVertex {
+                    position: [
+                        (vertex.position[0] / viewport_width_px) * 2.0 - 1.0,
+                        1.0 - (vertex.position[1] / viewport_height_px) * 2.0,
+                    ],
+                    color: vertex.color,
+                    layer: match vertex.layer {
+                        EngineRenderVertexLayer::Background => 0,
+                        EngineRenderVertexLayer::Text => 1,
+                        EngineRenderVertexLayer::Cursor => 2,
+                    },
+                    command_index: vertex.command_index,
+                })
+                .collect(),
+            indices: plan.indices.clone(),
+        }
+    }
+
     pub fn vertex_bytes_len(&self) -> usize {
         self.vertices.len() * std::mem::size_of::<EngineRenderGpuVertex>()
     }
@@ -124,6 +202,12 @@ impl EngineRenderGpuUploadPlan {
     pub fn is_empty(&self) -> bool {
         self.vertices.is_empty() || self.indices.is_empty()
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
+pub struct EngineWgpuPipelineConfig {
+    pub target_format: wgpu::TextureFormat,
 }
 
 #[allow(dead_code)]
@@ -179,6 +263,71 @@ pub struct EngineWgpuRenderBackend;
 impl EngineWgpuRenderBackend {
     pub fn prepare_upload(plan: &EngineRenderBufferPlan) -> EngineRenderGpuUploadPlan {
         EngineRenderGpuUploadPlan::from_buffer_plan(plan)
+    }
+
+    pub fn prepare_upload_for_viewport(
+        plan: &EngineRenderBufferPlan,
+        viewport_width_px: f32,
+        viewport_height_px: f32,
+    ) -> EngineRenderGpuUploadPlan {
+        EngineRenderGpuUploadPlan::from_buffer_plan_for_viewport(
+            plan,
+            viewport_width_px,
+            viewport_height_px,
+        )
+    }
+
+    pub fn create_pipeline(
+        &self,
+        device: &wgpu::Device,
+        config: EngineWgpuPipelineConfig,
+    ) -> wgpu::RenderPipeline {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("next-core render shader"),
+            source: wgpu::ShaderSource::Wgsl(NEXT_CORE_RENDER_SHADER.into()),
+        });
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("next-core render pipeline layout"),
+            bind_group_layouts: &[],
+            push_constant_ranges: &[],
+        });
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("next-core render pipeline"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                buffers: &[EngineRenderGpuVertex::desc()],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.target_format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview: None,
+            cache: None,
+        })
     }
 
     pub fn upload(
@@ -264,19 +413,23 @@ impl EngineRenderBufferPlan {
             match command {
                 EngineRenderBackendCommand::Damage(rect) => damage_rects.push(*rect),
                 EngineRenderBackendCommand::Background { rect, .. } => {
+                    let color = background_color_for_command(command);
                     push_quad_vertices(
                         &mut vertices,
                         &mut indices,
                         *rect,
+                        color,
                         EngineRenderVertexLayer::Background,
                         command_index,
                     );
                 }
                 EngineRenderBackendCommand::Text { rect, .. } => {
+                    let color = foreground_color_for_command(command);
                     push_quad_vertices(
                         &mut vertices,
                         &mut indices,
                         *rect,
+                        color,
                         EngineRenderVertexLayer::Text,
                         command_index,
                     );
@@ -286,6 +439,7 @@ impl EngineRenderBufferPlan {
                         &mut vertices,
                         &mut indices,
                         *rect,
+                        [1.0, 1.0, 1.0, 1.0],
                         EngineRenderVertexLayer::Cursor,
                         command_index,
                     );
@@ -318,6 +472,7 @@ fn push_quad_vertices(
     vertices: &mut Vec<EngineRenderVertex>,
     indices: &mut Vec<u32>,
     rect: RenderRect,
+    color: [f32; 4],
     layer: EngineRenderVertexLayer,
     command_index: usize,
 ) {
@@ -331,26 +486,105 @@ fn push_quad_vertices(
     vertices.extend([
         EngineRenderVertex {
             position: [left, top],
+            color,
             layer,
             command_index,
         },
         EngineRenderVertex {
             position: [right, top],
+            color,
             layer,
             command_index,
         },
         EngineRenderVertex {
             position: [left, bottom],
+            color,
             layer,
             command_index,
         },
         EngineRenderVertex {
             position: [right, bottom],
+            color,
             layer,
             command_index,
         },
     ]);
     indices.extend([base, base + 1, base + 2, base + 1, base + 2, base + 3]);
+}
+
+fn background_color_for_command(command: &EngineRenderBackendCommand) -> [f32; 4] {
+    match command {
+        EngineRenderBackendCommand::Background { style, .. } => {
+            styled_color_rgba(style.bg).unwrap_or([0.0, 0.0, 0.0, 1.0])
+        }
+        _ => [0.0, 0.0, 0.0, 1.0],
+    }
+}
+
+fn foreground_color_for_command(command: &EngineRenderBackendCommand) -> [f32; 4] {
+    match command {
+        EngineRenderBackendCommand::Text { style, .. } => {
+            styled_color_rgba(style.fg).unwrap_or([1.0, 1.0, 1.0, 1.0])
+        }
+        _ => [1.0, 1.0, 1.0, 1.0],
+    }
+}
+
+fn styled_color_rgba(color: Option<StyledColor>) -> Option<[f32; 4]> {
+    match color? {
+        StyledColor::Rgb(r, g, b) => {
+            Some([r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 1.0])
+        }
+        StyledColor::Palette(index) => {
+            let [r, g, b] = ansi_palette_rgb(index);
+            Some([r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 1.0])
+        }
+    }
+}
+
+fn ansi_palette_rgb(index: u8) -> [u8; 3] {
+    const ANSI_16: [[u8; 3]; 16] = [
+        [0x00, 0x00, 0x00],
+        [0xcd, 0x31, 0x31],
+        [0x0d, 0xa1, 0x0d],
+        [0xe5, 0xe5, 0x10],
+        [0x24, 0x71, 0xd1],
+        [0xbc, 0x3f, 0xbc],
+        [0x11, 0xa8, 0xcd],
+        [0xe5, 0xe5, 0xe5],
+        [0x66, 0x66, 0x66],
+        [0xf1, 0x4c, 0x4c],
+        [0x23, 0xd1, 0x8b],
+        [0xf5, 0xf5, 0x43],
+        [0x3b, 0x8e, 0xf3],
+        [0xd6, 0x70, 0xd6],
+        [0x29, 0xb8, 0xdb],
+        [0xff, 0xff, 0xff],
+    ];
+    if index < 16 {
+        ANSI_16[index as usize]
+    } else if index < 232 {
+        let cube = index - 16;
+        let r = cube / 36;
+        let g = (cube % 36) / 6;
+        let b = cube % 6;
+        [
+            color_cube_channel(r),
+            color_cube_channel(g),
+            color_cube_channel(b),
+        ]
+    } else {
+        let gray = 8 + (index - 232) * 10;
+        [gray, gray, gray]
+    }
+}
+
+fn color_cube_channel(value: u8) -> u8 {
+    if value == 0 {
+        0
+    } else {
+        55 + value * 40
+    }
 }
 
 #[derive(Clone, Debug, Default)]

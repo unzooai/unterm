@@ -16,8 +16,8 @@ use window::WindowOps;
 pub use render_backend::{
     CommandListRenderBackend, EngineRenderBackend, EngineRenderBackendCommand,
     EngineRenderBackendFrame, EngineRenderBufferPlan, EngineRenderGpuUploadPlan,
-    EngineRenderGpuVertex, EngineRenderVertexLayer, EngineWgpuRenderBackend,
-    EngineWgpuRenderPassPlan,
+    EngineRenderGpuVertex, EngineRenderVertexLayer, EngineWgpuPipelineConfig,
+    EngineWgpuRenderBackend, EngineWgpuRenderPassPlan,
 };
 #[allow(unused_imports)]
 pub use render_consumer::{EngineRenderCommitBatch, EngineRenderCommitStats, EngineRenderConsumer};
@@ -192,9 +192,9 @@ mod tests {
         next_core, selected_engine_name_from_env, CommandListRenderBackend, CreateSessionRequest,
         CurrentTerminalEngine, EngineRenderBackend, EngineRenderBackendCommand,
         EngineRenderBufferPlan, EngineRenderConsumer, EngineRenderGpuUploadPlan,
-        EngineRenderGpuVertex, EngineRenderVertexLayer, EngineWgpuRenderBackend,
-        EngineWgpuRenderPassPlan, LaunchPolicySnapshot, RenderCellMetrics, RenderConsumerState,
-        ScreenEngine, SessionEngine,
+        EngineRenderGpuVertex, EngineRenderVertexLayer, EngineWgpuPipelineConfig,
+        EngineWgpuRenderBackend, EngineWgpuRenderPassPlan, LaunchPolicySnapshot, RenderCellMetrics,
+        RenderConsumerState, ScreenEngine, SessionEngine,
     };
 
     #[test]
@@ -347,6 +347,10 @@ mod tests {
             .vertices
             .iter()
             .any(|vertex| vertex.layer == EngineRenderVertexLayer::Background));
+        assert!(buffer_plan
+            .vertices
+            .iter()
+            .any(|vertex| vertex.color == [0.0, 0.0, 0.0, 1.0]));
         let upload_plan = EngineWgpuRenderBackend::prepare_upload(&buffer_plan);
         assert_eq!(upload_plan.pane_id, session.id);
         assert_eq!(upload_plan.revision, frame.revision);
@@ -361,6 +365,32 @@ mod tests {
             upload_plan.indices.len() * std::mem::size_of::<u32>()
         );
         assert!(upload_plan.vertices.iter().any(|vertex| vertex.layer == 0));
+        assert!(upload_plan
+            .vertices
+            .iter()
+            .any(|vertex| vertex.color == [0.0, 0.0, 0.0, 1.0]));
+        let viewport_upload = EngineWgpuRenderBackend::prepare_upload_for_viewport(
+            &buffer_plan,
+            20.0 * 8.0,
+            4.0 * 16.0,
+        );
+        assert!(viewport_upload.vertices.iter().all(|vertex| {
+            vertex.position[0] >= -1.0
+                && vertex.position[0] <= 1.0
+                && vertex.position[1] >= -1.0
+                && vertex.position[1] <= 1.0
+        }));
+        assert_eq!(
+            EngineRenderGpuVertex::desc().array_stride,
+            std::mem::size_of::<EngineRenderGpuVertex>() as wgpu::BufferAddress
+        );
+        let pipeline_config = EngineWgpuPipelineConfig {
+            target_format: wgpu::TextureFormat::Rgba8UnormSrgb,
+        };
+        assert_eq!(
+            pipeline_config.target_format,
+            wgpu::TextureFormat::Rgba8UnormSrgb
+        );
         let pass_plan =
             EngineWgpuRenderPassPlan::from_upload_plan(&upload_plan, Some([0.0, 0.0, 0.0, 1.0]));
         assert!(pass_plan.draw);
