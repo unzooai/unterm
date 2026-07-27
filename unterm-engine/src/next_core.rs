@@ -27,8 +27,10 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 mod cell;
+mod screen_state;
 
 use cell::{CellAttributes, ScreenCell, TerminalColor};
+use screen_state::{MouseTrackingMode, ScreenState};
 
 const MAX_OUTPUT_BYTES: usize = 1024 * 1024;
 const MAX_RECORDING_BLOCKS: usize = 256;
@@ -335,56 +337,6 @@ struct NextCoreScreen {
     saved_cursor_attr: CellAttributes,
     alternate: Option<ScreenState>,
     parser_state: ParserState,
-}
-
-#[derive(Default)]
-struct ScreenState {
-    cols: usize,
-    scrollback: Vec<Vec<ScreenCell>>,
-    lines: Vec<Vec<ScreenCell>>,
-    viewport_top: Option<usize>,
-    cursor_x: usize,
-    cursor_y: usize,
-    cursor_visible: bool,
-    cursor_blinking: bool,
-    cursor_shape: String,
-    column_132_mode: bool,
-    auto_wrap: bool,
-    reverse_video: bool,
-    application_cursor_keys: bool,
-    application_keypad: bool,
-    focus_event_reporting: bool,
-    mouse_tracking: MouseTrackingMode,
-    utf8_mouse: bool,
-    urxvt_mouse: bool,
-    sgr_mouse: bool,
-    alternate_scroll: bool,
-    sgr_pixel_mouse: bool,
-    meta_sends_escape: bool,
-    synchronized_output: bool,
-    alternate_screen_modes: BTreeSet<usize>,
-    origin_mode: bool,
-    insert_mode: bool,
-    left_right_margin_mode: bool,
-    tab_stops: BTreeSet<usize>,
-    bracketed_paste: bool,
-    current_attr: CellAttributes,
-    scroll_top: usize,
-    scroll_bottom: usize,
-    left_margin: usize,
-    right_margin: usize,
-    saved_cursor_x: usize,
-    saved_cursor_y: usize,
-    saved_cursor_attr: CellAttributes,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-enum MouseTrackingMode {
-    #[default]
-    None,
-    X10,
-    ButtonEvent,
-    AnyEvent,
 }
 
 impl NextCoreScreen {
