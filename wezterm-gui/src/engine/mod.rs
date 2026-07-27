@@ -4,11 +4,15 @@
 //! This module keeps the current WezTerm adapter available to GUI callers while
 //! letting product services migrate away from WezTerm internals.
 
+pub mod render_consumer;
 pub mod wezterm;
 
 use std::collections::HashMap;
 use std::path::Path;
 use window::WindowOps;
+
+#[allow(unused_imports)]
+pub use render_consumer::{EngineRenderCommitBatch, EngineRenderCommitStats, EngineRenderConsumer};
 
 #[allow(unused_imports)]
 pub use unterm_engine::{
@@ -178,7 +182,8 @@ impl CurrentTerminalEngine {
 mod tests {
     use super::{
         next_core, selected_engine_name_from_env, CreateSessionRequest, CurrentTerminalEngine,
-        LaunchPolicySnapshot, RenderCellMetrics, RenderConsumerState, ScreenEngine, SessionEngine,
+        EngineRenderConsumer, LaunchPolicySnapshot, RenderCellMetrics, RenderConsumerState,
+        ScreenEngine, SessionEngine,
     };
 
     #[test]
@@ -233,6 +238,46 @@ mod tests {
         assert!(first.submit);
         assert!(first.requires_full_repaint);
         assert!(first.submission.is_some());
+        engine
+            .destroy_session(session.id)
+            .expect("destroy next-core test session");
+    }
+
+    #[test]
+    fn engine_render_consumer_skips_repeated_next_core_revision() {
+        let engine = CurrentTerminalEngine::NextCore(next_core());
+        let session = engine
+            .create_session(CreateSessionRequest {
+                cols: 20,
+                rows: 4,
+                command_dir: None,
+                command: Some(quiet_wait_command_for_test()),
+                env: Vec::new(),
+                launch_policy: LaunchPolicySnapshot::default(),
+            })
+            .expect("create next-core session");
+        let mut consumer = EngineRenderConsumer::new(
+            session.id,
+            RenderCellMetrics {
+                cell_width_px: 8,
+                cell_height_px: 16,
+            },
+        );
+
+        let first = consumer
+            .read_commit(&engine)
+            .expect("read first render commit batch");
+        assert!(first.stats.submit);
+        assert!(first.stats.requires_full_repaint);
+        assert_eq!(first.stats.damage_rect_count, 1);
+        assert!(first.commit.submission.is_some());
+
+        let repeat = consumer
+            .read_commit(&engine)
+            .expect("read repeated render commit batch");
+        assert!(!repeat.stats.submit);
+        assert_eq!(repeat.stats.previous_revision, Some(first.stats.revision));
+        assert!(repeat.commit.submission.is_none());
         engine
             .destroy_session(session.id)
             .expect("destroy next-core test session");

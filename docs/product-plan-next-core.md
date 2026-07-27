@@ -409,6 +409,7 @@ Supported:
 - renderer commit state that tracks submitted revisions, skips duplicate frames, and forces full repaint on first frame or viewport changes
 - engine-level render commit plan reads that hide frame/draw/geometry/submission chaining from the future GUI renderer, covered by a dedicated benchmark gate
 - GUI engine facade access to render-frame, render draw-plan, and render commit-plan APIs, so the future next-core renderer has an engine-neutral entry point
+- renderer-side `EngineRenderConsumer` that stores pane metrics and submitted revision state, reads commit batches through `ScreenEngine`, and skips repeated revisions before the real wgpu backend lands
 - `session.list`
 - `session.input`
 - `screen.text`
