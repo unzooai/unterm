@@ -3,7 +3,7 @@ use super::runtime::NextCoreRuntime;
 #[cfg(test)]
 use super::session_registry;
 use super::{
-    activity::SessionIoActivity, launch, pty_io, runtime, session_defaults, session_output,
+    activity::SessionIoActivity, launch, pty_io, session_defaults, session_output,
     NextCoreRecording, NextCoreScreen, NextCoreSession,
 };
 use crate::{SessionSnapshot, ShellSnapshot};
@@ -35,11 +35,11 @@ pub(super) fn resize(
     resize_session(session, cols, rows)
 }
 
-pub(super) fn resize_current(pane_id: usize, cols: usize, rows: usize) -> Result<()> {
-    runtime::with_session_mut(pane_id, |session| resize_session(session, cols, rows))
-}
-
-fn resize_session(session: &mut NextCoreSession, cols: usize, rows: usize) -> Result<()> {
+pub(super) fn resize_session(
+    session: &mut NextCoreSession,
+    cols: usize,
+    rows: usize,
+) -> Result<()> {
     session.master.lock().resize(pty_size(cols, rows))?;
     session.snapshot.cols = cols;
     session.snapshot.rows = rows;

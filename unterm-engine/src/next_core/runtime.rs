@@ -1,6 +1,6 @@
 use super::{
     health_snapshot, recording_lifecycle, session_activity, session_queries, session_registry,
-    session_snapshots, NextCoreSession,
+    session_runtime, session_snapshots, NextCoreSession,
 };
 use crate::{
     EngineHealthSnapshot, RecordingExportResult, RecordingStartResult, RecordingStatusSnapshot,
@@ -44,6 +44,12 @@ pub(super) fn insert_created(session: NextCoreSession) {
 
 pub(super) fn destroy(pane_id: usize) -> Result<()> {
     with_current_mut(|state| session_registry::destroy(state, pane_id))
+}
+
+pub(super) fn resize(pane_id: usize, cols: usize, rows: usize) -> Result<()> {
+    with_session_mut(pane_id, |session| {
+        session_runtime::resize_session(session, cols, rows)
+    })
 }
 
 pub(super) fn with_session_mut<T>(

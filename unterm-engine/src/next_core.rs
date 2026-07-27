@@ -1629,7 +1629,7 @@ impl SessionEngine for NextCoreEngine {
     }
 
     fn resize_session(&self, pane_id: usize, cols: usize, rows: usize) -> Result<()> {
-        session_runtime::resize_current(pane_id, cols, rows)
+        runtime::resize(pane_id, cols, rows)
     }
 
     fn destroy_session(&self, pane_id: usize) -> Result<()> {
