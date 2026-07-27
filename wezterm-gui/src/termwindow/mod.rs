@@ -26,7 +26,7 @@ use crate::termwindow::render::{
     CachedLineState, LineQuadCacheKey, LineQuadCacheValue, LineToEleShapeCacheKey,
     LineToElementShapeItem,
 };
-use crate::termwindow::webgpu::WebGpuState;
+use crate::termwindow::webgpu::{NextCoreWebGpuPaneFrame, WebGpuState};
 use ::wezterm_term::input::{ClickPosition, MouseButton as TMB};
 use ::window::*;
 use anyhow::{anyhow, ensure, Context};
@@ -5151,11 +5151,31 @@ impl TermWindow {
             cell_width_px: self.render_metrics.cell_size.width as usize,
             cell_height_px: self.render_metrics.cell_size.height as usize,
         };
-        self.next_core_render_consumers.borrow_mut().read_buffer_plan(
-            &engine,
-            pane_id as usize,
-            metrics,
-        )
+        self.next_core_render_consumers
+            .borrow_mut()
+            .read_buffer_plan(&engine, pane_id as usize, metrics)
+    }
+
+    #[allow(dead_code)]
+    fn prepare_next_core_webgpu_pane_frame(
+        &self,
+        pane_id: PaneId,
+        replace_requested: bool,
+    ) -> anyhow::Result<NextCoreWebGpuPaneFrame> {
+        let webgpu = self
+            .webgpu
+            .as_ref()
+            .ok_or_else(|| anyhow!("next-core WebGPU pane frame requested without WebGPU state"))?;
+        let batch = self.prepare_next_core_render_buffer_plan(pane_id)?;
+        let font = match self.fonts.default_font() {
+            Ok(font) => Some(font),
+            Err(err) => {
+                log::debug!("next-core WebGPU font raster source skipped: {err:#}");
+                None
+            }
+        };
+
+        Ok(webgpu.prepare_next_core_pane_frame(batch, font, replace_requested))
     }
 
     pub fn tab_state(&self, tab_id: TabId) -> RefMut<'_, TabState> {

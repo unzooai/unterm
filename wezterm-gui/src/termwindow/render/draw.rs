@@ -35,10 +35,13 @@ impl crate::TermWindow {
             });
 
         let next_core_mode = next_core_webgpu_pane_mode();
-        let next_core_buffer_batch = if next_core_mode.is_enabled() {
+        let next_core_pane_frame = if next_core_mode.is_enabled() {
             if let Some(pane) = self.get_active_pane_no_overlay() {
-                match self.prepare_next_core_render_buffer_plan(pane.pane_id()) {
-                    Ok(batch) => Some(batch),
+                match self.prepare_next_core_webgpu_pane_frame(
+                    pane.pane_id(),
+                    next_core_mode == NextCoreWebGpuPaneMode::Replace,
+                ) {
+                    Ok(frame) => Some(frame),
                     Err(err) => {
                         log::debug!("next-core WebGPU pane render skipped: {err:#}");
                         None
@@ -50,25 +53,6 @@ impl crate::TermWindow {
         } else {
             None
         };
-        let next_core_default_font =
-            if next_core_mode.is_enabled() && next_core_buffer_batch.is_some() {
-                match self.fonts.default_font() {
-                    Ok(font) => Some(font),
-                    Err(err) => {
-                        log::debug!("next-core WebGPU font raster source skipped: {err:#}");
-                        None
-                    }
-                }
-            } else {
-                None
-            };
-        let next_core_pane_frame = next_core_buffer_batch.map(|batch| {
-            webgpu.prepare_next_core_pane_frame(
-                batch,
-                next_core_default_font,
-                next_core_mode == NextCoreWebGpuPaneMode::Replace,
-            )
-        });
         let next_core_replace_diagnostics = match (
             next_core_mode == NextCoreWebGpuPaneMode::Replace,
             next_core_pane_frame.as_ref(),
