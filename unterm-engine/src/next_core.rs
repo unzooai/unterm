@@ -6,12 +6,14 @@ use super::{
     SessionActivitySnapshot, SessionEngine, SessionSnapshot, ShellSnapshot, SplitSessionRequest,
     StyledBlink, StyledScreenLine, StyledScreenSnapshot, StyledScrollbackSnapshot, StyledUnderline,
 };
-use anyhow::{bail, Result};
+#[cfg(test)]
+use anyhow::bail;
+use anyhow::Result;
 use base64::Engine as _;
 use parking_lot::{Mutex, RwLock};
 use portable_pty::{Child, MasterPty};
 use std::collections::BTreeSet;
-use std::fs::{File, OpenOptions};
+use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
@@ -35,6 +37,7 @@ mod parser_state;
 mod process_tree;
 mod pty_io;
 mod recording_archive;
+mod recording_lifecycle;
 mod recording_markdown;
 mod recording_text;
 mod render_frame;
@@ -2037,132 +2040,19 @@ impl InputEngine for NextCoreEngine {
 
 impl RecordingEngine for NextCoreEngine {
     fn start_recording(&self, pane_id: usize) -> Result<RecordingStartResult> {
-        let handles = {
-            let state = state().read();
-            session_handles::recording(&state, pane_id)?
-        };
-
-        let mut slot = handles.recording.lock();
-        if slot.is_some() {
-            bail!("Recording already active for pane {pane_id}");
-        }
-
-        let project_slug = recording_archive::project_slug(handles.project_path.as_deref());
-        let started_at = Self::timestamp_string();
-        let (log_path, md_path) = recording_archive::paths(
-            pane_id,
-            handles.project_path.as_deref(),
-            &project_slug,
-            &started_at,
-        );
-        if let Some(parent) = log_path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        File::create(&log_path)?;
-
-        let session_id = format!("next-core-{pane_id}-{started_at}");
-        let recording = NextCoreRecording {
-            session_id: session_id.clone(),
-            pane_id,
-            project_path: handles.project_path,
-            project_slug,
-            started_at,
-            log_path: log_path.clone(),
-            md_path: md_path.clone(),
-            bytes_raw: 0,
-            block_count: 0,
-            trace_ids: Vec::new(),
-            text_preview: String::new(),
-            blocks: Vec::new(),
-            osc133_seen: false,
-            command_blocks: Vec::new(),
-            active_command: None,
-        };
-        recording_archive::upsert_index(&recording, None)?;
-        *slot = Some(recording);
-
-        Ok(RecordingStartResult {
-            session_id,
-            log_path: log_path.display().to_string(),
-            md_path: md_path.display().to_string(),
-        })
+        recording_lifecycle::start(pane_id, Self::timestamp_string())
     }
 
     fn stop_recording(&self, pane_id: usize) -> Result<RecordingStopResult> {
-        let recording_handle = {
-            let state = state().read();
-            session_handles::recording(&state, pane_id)?.recording
-        };
-        let mut slot = recording_handle.lock();
-        let Some(recording) = slot.take() else {
-            bail!("No active recording for pane {pane_id}");
-        };
-        drop(slot);
-
-        let ended_at = Self::timestamp_string();
-        recording_markdown::write(&recording, Some(&ended_at), "recording_stopped")?;
-        recording_archive::upsert_index(&recording, Some(ended_at.clone()))?;
-
-        Ok(RecordingStopResult {
-            session_id: recording.session_id,
-            ended_at,
-            block_count: recording.block_count,
-            exit_reason: "recording_stopped".to_string(),
-            md_path: recording.md_path.display().to_string(),
-        })
+        recording_lifecycle::stop(pane_id, Self::timestamp_string())
     }
 
     fn recording_status(&self, pane_id: usize) -> Result<RecordingStatusSnapshot> {
-        let Some(recording_handle) = ({
-            let state = state().read();
-            session_handles::recording_optional(&state, pane_id)
-        }) else {
-            return Ok(RecordingStatusSnapshot {
-                enabled: false,
-                session_id: None,
-                started_at: None,
-                block_count: None,
-                bytes: None,
-            });
-        };
-        let slot = recording_handle.lock();
-        if let Some(recording) = slot.as_ref() {
-            Ok(RecordingStatusSnapshot {
-                enabled: true,
-                session_id: Some(recording.session_id.clone()),
-                started_at: Some(recording.started_at.clone()),
-                block_count: Some(recording.block_count),
-                bytes: Some(recording.bytes_raw),
-            })
-        } else {
-            Ok(RecordingStatusSnapshot {
-                enabled: false,
-                session_id: None,
-                started_at: None,
-                block_count: None,
-                bytes: None,
-            })
-        }
+        recording_lifecycle::status(pane_id)
     }
 
     fn attach_recording_trace(&self, pane_id: usize, trace_id: String) -> Result<Vec<String>> {
-        let recording_handle = {
-            let state = state().read();
-            session_handles::recording(&state, pane_id)?.recording
-        };
-        let mut slot = recording_handle.lock();
-        let Some(recording) = slot.as_mut() else {
-            bail!("No active recording for pane {pane_id}");
-        };
-        if !recording
-            .trace_ids
-            .iter()
-            .any(|existing| existing == &trace_id)
-        {
-            recording.trace_ids.push(trace_id);
-        }
-        recording_archive::upsert_index(recording, None)?;
-        Ok(recording.trace_ids.clone())
+        recording_lifecycle::attach_trace(pane_id, trace_id)
     }
 
     fn export_markdown(
@@ -2170,28 +2060,7 @@ impl RecordingEngine for NextCoreEngine {
         pane_id: usize,
         target_path: Option<String>,
     ) -> Result<RecordingExportResult> {
-        let recording_handle = {
-            let state = state().read();
-            session_handles::recording(&state, pane_id)?.recording
-        };
-        let slot = recording_handle.lock();
-        let Some(recording) = slot.as_ref() else {
-            bail!("No active recording for pane {pane_id}");
-        };
-        let mut export = recording.clone();
-        drop(slot);
-
-        if let Some(target_path) = target_path {
-            export.md_path = PathBuf::from(target_path);
-        }
-        let bytes = recording_markdown::write(&export, None, "recording_exported")?;
-
-        Ok(RecordingExportResult {
-            session_id: export.session_id,
-            path: export.md_path.display().to_string(),
-            bytes,
-            block_count: export.block_count,
-        })
+        recording_lifecycle::export_markdown(pane_id, target_path)
     }
 }
 
