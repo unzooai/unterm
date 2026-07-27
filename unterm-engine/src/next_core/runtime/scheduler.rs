@@ -69,8 +69,13 @@ pub(in crate::next_core) fn read_styled_screen(pane_id: usize) -> Result<StyledS
 
 pub(in crate::next_core) fn read_visible_text(pane_id: usize) -> Result<String> {
     let command = RuntimeCommand::ReadVisibleText { pane_id };
-    let command = consumer::consume_sync(command)?;
-    screen_executor::execute_visible_text(command)
+    match consumer::submit_and_dispatch_response(command)? {
+        RuntimeDispatchResult::VisibleText(text) => Ok(text),
+        other => bail!(
+            "runtime scheduler expected visible-text dispatch result, got {:?}",
+            other
+        ),
+    }
 }
 
 pub(in crate::next_core) fn read_lines(
@@ -83,14 +88,24 @@ pub(in crate::next_core) fn read_lines(
         start,
         count,
     };
-    let command = consumer::consume_sync(command)?;
-    screen_executor::execute_lines(command)
+    match consumer::submit_and_dispatch_response(command)? {
+        RuntimeDispatchResult::Lines(lines) => Ok(lines),
+        other => bail!(
+            "runtime scheduler expected line-range dispatch result, got {:?}",
+            other
+        ),
+    }
 }
 
 pub(in crate::next_core) fn read_scrollback(pane_id: usize, limit: usize) -> Result<Vec<String>> {
     let command = RuntimeCommand::ReadScrollback { pane_id, limit };
-    let command = consumer::consume_sync(command)?;
-    screen_executor::execute_scrollback(command)
+    match consumer::submit_and_dispatch_response(command)? {
+        RuntimeDispatchResult::Scrollback(lines) => Ok(lines),
+        other => bail!(
+            "runtime scheduler expected scrollback dispatch result, got {:?}",
+            other
+        ),
+    }
 }
 
 pub(in crate::next_core) fn read_scrollback_text(
@@ -98,8 +113,13 @@ pub(in crate::next_core) fn read_scrollback_text(
     request: ScrollbackTextRequest,
 ) -> Result<ScrollbackTextSnapshot> {
     let command = RuntimeCommand::ReadScrollbackText { pane_id, request };
-    let command = consumer::consume_sync(command)?;
-    screen_executor::execute_scrollback_text(command)
+    match consumer::submit_and_dispatch_response(command)? {
+        RuntimeDispatchResult::ScrollbackText(snapshot) => Ok(snapshot),
+        other => bail!(
+            "runtime scheduler expected scrollback-text dispatch result, got {:?}",
+            other
+        ),
+    }
 }
 
 pub(in crate::next_core) fn read_styled_scrollback(
@@ -107,8 +127,13 @@ pub(in crate::next_core) fn read_styled_scrollback(
     request: ScrollbackTextRequest,
 ) -> Result<StyledScrollbackSnapshot> {
     let command = RuntimeCommand::ReadStyledScrollback { pane_id, request };
-    let command = consumer::consume_sync(command)?;
-    screen_executor::execute_styled_scrollback(command)
+    match consumer::submit_and_dispatch_response(command)? {
+        RuntimeDispatchResult::StyledScrollback(snapshot) => Ok(snapshot),
+        other => bail!(
+            "runtime scheduler expected styled-scrollback dispatch result, got {:?}",
+            other
+        ),
+    }
 }
 
 pub(in crate::next_core) fn search_screen(
@@ -121,14 +146,24 @@ pub(in crate::next_core) fn search_screen(
         pattern: pattern.to_string(),
         max_results,
     };
-    let command = consumer::consume_sync(command)?;
-    screen_executor::execute_search(command)
+    match consumer::submit_and_dispatch_response(command)? {
+        RuntimeDispatchResult::Search(matches) => Ok(matches),
+        other => bail!(
+            "runtime scheduler expected search dispatch result, got {:?}",
+            other
+        ),
+    }
 }
 
 pub(in crate::next_core) fn cursor(pane_id: usize) -> Result<CursorSnapshot> {
     let command = RuntimeCommand::Cursor { pane_id };
-    let command = consumer::consume_sync(command)?;
-    screen_executor::execute_cursor(command)
+    match consumer::submit_and_dispatch_response(command)? {
+        RuntimeDispatchResult::Cursor(cursor) => Ok(cursor),
+        other => bail!(
+            "runtime scheduler expected cursor dispatch result, got {:?}",
+            other
+        ),
+    }
 }
 
 #[cfg(test)]
@@ -141,6 +176,17 @@ mod tests {
 
     fn queue_stats() -> RuntimeQueueStats {
         with_current(|state| state.command_queue.stats())
+    }
+
+    fn install_zero_command_budget() {
+        with_current_mut(|state| {
+            state.command_queue =
+                super::super::queue::RuntimeCommandQueue::new(RuntimeQueuePolicy {
+                    max_pending_commands: 0,
+                    max_pending_input_bytes: 1024,
+                    max_render_wakeups_per_second: 120,
+                });
+        });
     }
 
     #[test]
@@ -176,14 +222,7 @@ mod tests {
     fn render_frame_reads_use_command_backpressure() {
         test_facade::reset();
 
-        with_current_mut(|state| {
-            state.command_queue =
-                super::super::queue::RuntimeCommandQueue::new(RuntimeQueuePolicy {
-                    max_pending_commands: 0,
-                    max_pending_input_bytes: 1024,
-                    max_render_wakeups_per_second: 120,
-                });
-        });
+        install_zero_command_budget();
 
         let err = read_render_frame(1, None).expect_err("zero command budget should reject read");
 
@@ -208,14 +247,7 @@ mod tests {
     fn plain_screen_reads_use_command_backpressure() {
         test_facade::reset();
 
-        with_current_mut(|state| {
-            state.command_queue =
-                super::super::queue::RuntimeCommandQueue::new(RuntimeQueuePolicy {
-                    max_pending_commands: 0,
-                    max_pending_input_bytes: 1024,
-                    max_render_wakeups_per_second: 120,
-                });
-        });
+        install_zero_command_budget();
 
         let err = read_screen(1).expect_err("zero command budget should reject read");
 
@@ -240,14 +272,7 @@ mod tests {
     fn styled_screen_reads_use_command_backpressure() {
         test_facade::reset();
 
-        with_current_mut(|state| {
-            state.command_queue =
-                super::super::queue::RuntimeCommandQueue::new(RuntimeQueuePolicy {
-                    max_pending_commands: 0,
-                    max_pending_input_bytes: 1024,
-                    max_render_wakeups_per_second: 120,
-                });
-        });
+        install_zero_command_budget();
 
         let err = read_styled_screen(1).expect_err("zero command budget should reject read");
 
@@ -266,6 +291,78 @@ mod tests {
         assert!(err.to_string().contains("next-core session 404 not found"));
         assert_eq!(queue_stats().pending_commands, 0);
         assert_eq!(queue_stats().rejected_commands, 0);
+    }
+
+    #[test]
+    fn remaining_screen_reads_use_command_backpressure() {
+        test_facade::reset();
+        install_zero_command_budget();
+
+        let err = read_visible_text(1).expect_err("zero command budget should reject visible text");
+        assert!(err
+            .to_string()
+            .contains("runtime screen queue rejected command"));
+
+        test_facade::reset();
+        install_zero_command_budget();
+        let err = read_lines(1, 0, 1).expect_err("zero command budget should reject line read");
+        assert!(err
+            .to_string()
+            .contains("runtime screen queue rejected command"));
+
+        test_facade::reset();
+        install_zero_command_budget();
+        let err = read_scrollback(1, 1).expect_err("zero command budget should reject scrollback");
+        assert!(err
+            .to_string()
+            .contains("runtime screen queue rejected command"));
+
+        test_facade::reset();
+        install_zero_command_budget();
+        let err = read_scrollback_text(
+            1,
+            ScrollbackTextRequest {
+                start_line: None,
+                end_line: None,
+                tail_lines: Some(1),
+                escapes: false,
+            },
+        )
+        .expect_err("zero command budget should reject scrollback text");
+        assert!(err
+            .to_string()
+            .contains("runtime screen queue rejected command"));
+
+        test_facade::reset();
+        install_zero_command_budget();
+        let err = read_styled_scrollback(
+            1,
+            ScrollbackTextRequest {
+                start_line: None,
+                end_line: None,
+                tail_lines: Some(1),
+                escapes: false,
+            },
+        )
+        .expect_err("zero command budget should reject styled scrollback");
+        assert!(err
+            .to_string()
+            .contains("runtime screen queue rejected command"));
+
+        test_facade::reset();
+        install_zero_command_budget();
+        let err =
+            search_screen(1, "needle", 1).expect_err("zero command budget should reject search");
+        assert!(err
+            .to_string()
+            .contains("runtime screen queue rejected command"));
+
+        test_facade::reset();
+        install_zero_command_budget();
+        let err = cursor(1).expect_err("zero command budget should reject cursor read");
+        assert!(err
+            .to_string()
+            .contains("runtime screen queue rejected command"));
     }
 
     #[test]
