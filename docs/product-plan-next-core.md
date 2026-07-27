@@ -108,6 +108,7 @@ Open-source reference posture:
 
 - Follow Ghostty's library boundary model: terminal core as a reusable engine, GUI as a consumer.
 - Follow Alacritty's parser posture: proven VTE state machine first, terminal semantics implemented behind a narrow trait.
+- Keep VT parsing and terminal query replies stream-stateful: PTY chunks are arbitrary, so DSR/DA/DECRQM responses cannot depend on one read containing one full escape sequence.
 - Borrow Rio/Alacritty's renderer lesson: GPU acceleration matters, but the renderer must stay a consumer of dirty cell snapshots.
 - Treat xterm/VTE behavior as compatibility evidence, not as permission to import every legacy feature.
 

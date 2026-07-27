@@ -34,6 +34,7 @@ const ACTIVITY_IDLE_AFTER: Duration = Duration::from_secs(2);
 const PASTE_CHUNK_BYTES: usize = 4096;
 const HEADLESS_CELL_WIDTH_PX: usize = 8;
 const HEADLESS_CELL_HEIGHT_PX: usize = 16;
+const MAX_PENDING_TERMINAL_QUERY_BYTES: usize = 128;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct NextCoreEngine;
@@ -3709,6 +3710,7 @@ impl NextCoreEngine {
             .spawn(move || {
                 let mut buf = [0u8; 8192];
                 let mut pending_utf8 = Vec::new();
+                let mut pending_terminal_query = String::new();
                 loop {
                     match reader.read(&mut buf) {
                         Ok(0) => {
@@ -3734,7 +3736,12 @@ impl NextCoreEngine {
                             }
                             let mut screen = screen.lock();
                             screen.feed(chunk.as_str());
-                            Self::answer_terminal_queries(chunk.as_str(), &screen, &writer);
+                            Self::answer_terminal_queries_with_pending(
+                                chunk.as_str(),
+                                &screen,
+                                &writer,
+                                &mut pending_terminal_query,
+                            );
                             activity
                                 .lock()
                                 .mark_output(chunk.len(), output_started_at.elapsed());
@@ -3782,275 +3789,63 @@ impl NextCoreEngine {
         }
     }
 
+    #[cfg(test)]
     fn answer_terminal_queries(
         chunk: &str,
         screen: &NextCoreScreen,
         writer: &Arc<Mutex<Box<dyn Write + Send>>>,
     ) {
+        let mut pending = String::new();
+        Self::answer_terminal_queries_with_pending(chunk, screen, writer, &mut pending);
+    }
+
+    fn answer_terminal_queries_with_pending(
+        chunk: &str,
+        screen: &NextCoreScreen,
+        writer: &Arc<Mutex<Box<dyn Write + Send>>>,
+        pending: &mut String,
+    ) {
         let mut response = Vec::new();
-        let bytes = chunk.as_bytes();
+        let input = if pending.is_empty() {
+            chunk.to_string()
+        } else {
+            let mut input = std::mem::take(pending);
+            input.push_str(chunk);
+            input
+        };
+        let bytes = input.as_bytes();
         let mut idx = 0;
         while idx < bytes.len() {
-            if bytes[idx] != 0x1b || bytes.get(idx + 1) != Some(&b'[') {
+            if bytes[idx] != 0x1b {
                 idx += 1;
                 continue;
             }
 
-            let rest = &chunk[idx..];
-            if rest.starts_with("\x1b[?1$p") {
-                response.extend_from_slice(
-                    format!(
-                        "\x1b[?1;{}$y",
-                        Self::mode_report_state(screen.application_cursor_keys)
-                    )
-                    .as_bytes(),
-                );
-                idx += "\x1b[?1$p".len();
-            } else if rest.starts_with("\x1b[?3$p") {
-                response.extend_from_slice(
-                    format!(
-                        "\x1b[?3;{}$y",
-                        Self::mode_report_state(screen.column_132_mode)
-                    )
-                    .as_bytes(),
-                );
-                idx += "\x1b[?3$p".len();
-            } else if rest.starts_with("\x1b[?5$p") {
-                response.extend_from_slice(
-                    format!(
-                        "\x1b[?5;{}$y",
-                        Self::mode_report_state(screen.reverse_video)
-                    )
-                    .as_bytes(),
-                );
-                idx += "\x1b[?5$p".len();
-            } else if rest.starts_with("\x1b[?6$p") {
-                response.extend_from_slice(
-                    format!("\x1b[?6;{}$y", Self::mode_report_state(screen.origin_mode)).as_bytes(),
-                );
-                idx += "\x1b[?6$p".len();
-            } else if rest.starts_with("\x1b[?7$p") {
-                response.extend_from_slice(
-                    format!("\x1b[?7;{}$y", Self::mode_report_state(screen.auto_wrap)).as_bytes(),
-                );
-                idx += "\x1b[?7$p".len();
-            } else if rest.starts_with("\x1b[?12$p") {
-                response.extend_from_slice(
-                    format!(
-                        "\x1b[?12;{}$y",
-                        Self::mode_report_state(screen.cursor_blinking)
-                    )
-                    .as_bytes(),
-                );
-                idx += "\x1b[?12$p".len();
-            } else if rest.starts_with("\x1b[?25$p") {
-                response.extend_from_slice(
-                    format!(
-                        "\x1b[?25;{}$y",
-                        Self::mode_report_state(screen.cursor_visible)
-                    )
-                    .as_bytes(),
-                );
-                idx += "\x1b[?25$p".len();
-            } else if rest.starts_with("\x1b[?66$p") {
-                response.extend_from_slice(
-                    format!(
-                        "\x1b[?66;{}$y",
-                        Self::mode_report_state(screen.application_keypad)
-                    )
-                    .as_bytes(),
-                );
-                idx += "\x1b[?66$p".len();
-            } else if rest.starts_with("\x1b[?69$p") {
-                response.extend_from_slice(
-                    format!(
-                        "\x1b[?69;{}$y",
-                        Self::mode_report_state(screen.left_right_margin_mode)
-                    )
-                    .as_bytes(),
-                );
-                idx += "\x1b[?69$p".len();
-            } else if rest.starts_with("\x1b[?1000$p") {
-                response.extend_from_slice(
-                    format!(
-                        "\x1b[?1000;{}$y",
-                        Self::mode_report_state(screen.mouse_tracking == MouseTrackingMode::X10)
-                    )
-                    .as_bytes(),
-                );
-                idx += "\x1b[?1000$p".len();
-            } else if rest.starts_with("\x1b[?1002$p") {
-                response.extend_from_slice(
-                    format!(
-                        "\x1b[?1002;{}$y",
-                        Self::mode_report_state(
-                            screen.mouse_tracking == MouseTrackingMode::ButtonEvent
-                        )
-                    )
-                    .as_bytes(),
-                );
-                idx += "\x1b[?1002$p".len();
-            } else if rest.starts_with("\x1b[?1003$p") {
-                response.extend_from_slice(
-                    format!(
-                        "\x1b[?1003;{}$y",
-                        Self::mode_report_state(
-                            screen.mouse_tracking == MouseTrackingMode::AnyEvent
-                        )
-                    )
-                    .as_bytes(),
-                );
-                idx += "\x1b[?1003$p".len();
-            } else if rest.starts_with("\x1b[?47$p") {
-                response.extend_from_slice(
-                    format!(
-                        "\x1b[?47;{}$y",
-                        Self::mode_report_state(screen.alternate_screen_modes.contains(&47))
-                    )
-                    .as_bytes(),
-                );
-                idx += "\x1b[?47$p".len();
-            } else if rest.starts_with("\x1b[?1047$p") {
-                response.extend_from_slice(
-                    format!(
-                        "\x1b[?1047;{}$y",
-                        Self::mode_report_state(screen.alternate_screen_modes.contains(&1047))
-                    )
-                    .as_bytes(),
-                );
-                idx += "\x1b[?1047$p".len();
-            } else if rest.starts_with("\x1b[?1049$p") {
-                response.extend_from_slice(
-                    format!(
-                        "\x1b[?1049;{}$y",
-                        Self::mode_report_state(screen.alternate_screen_modes.contains(&1049))
-                    )
-                    .as_bytes(),
-                );
-                idx += "\x1b[?1049$p".len();
-            } else if rest.starts_with("\x1b[?1004$p") {
-                response.extend_from_slice(
-                    format!(
-                        "\x1b[?1004;{}$y",
-                        Self::mode_report_state(screen.focus_event_reporting)
-                    )
-                    .as_bytes(),
-                );
-                idx += "\x1b[?1004$p".len();
-            } else if rest.starts_with("\x1b[?1005$p") {
-                response.extend_from_slice(
-                    format!(
-                        "\x1b[?1005;{}$y",
-                        Self::mode_report_state(screen.utf8_mouse)
-                    )
-                    .as_bytes(),
-                );
-                idx += "\x1b[?1005$p".len();
-            } else if rest.starts_with("\x1b[?1006$p") {
-                response.extend_from_slice(
-                    format!("\x1b[?1006;{}$y", Self::mode_report_state(screen.sgr_mouse))
-                        .as_bytes(),
-                );
-                idx += "\x1b[?1006$p".len();
-            } else if rest.starts_with("\x1b[?1007$p") {
-                response.extend_from_slice(
-                    format!(
-                        "\x1b[?1007;{}$y",
-                        Self::mode_report_state(screen.alternate_scroll)
-                    )
-                    .as_bytes(),
-                );
-                idx += "\x1b[?1007$p".len();
-            } else if rest.starts_with("\x1b[?1015$p") {
-                response.extend_from_slice(
-                    format!(
-                        "\x1b[?1015;{}$y",
-                        Self::mode_report_state(screen.urxvt_mouse)
-                    )
-                    .as_bytes(),
-                );
-                idx += "\x1b[?1015$p".len();
-            } else if rest.starts_with("\x1b[?1016$p") {
-                response.extend_from_slice(
-                    format!(
-                        "\x1b[?1016;{}$y",
-                        Self::mode_report_state(screen.sgr_pixel_mouse)
-                    )
-                    .as_bytes(),
-                );
-                idx += "\x1b[?1016$p".len();
-            } else if rest.starts_with("\x1b[?1034$p") {
-                response.extend_from_slice(
-                    format!(
-                        "\x1b[?1034;{}$y",
-                        Self::mode_report_state(screen.meta_sends_escape)
-                    )
-                    .as_bytes(),
-                );
-                idx += "\x1b[?1034$p".len();
-            } else if rest.starts_with("\x1b[?2004$p") {
-                response.extend_from_slice(
-                    format!(
-                        "\x1b[?2004;{}$y",
-                        Self::mode_report_state(screen.bracketed_paste)
-                    )
-                    .as_bytes(),
-                );
-                idx += "\x1b[?2004$p".len();
-            } else if rest.starts_with("\x1b[?2026$p") {
-                response.extend_from_slice(
-                    format!(
-                        "\x1b[?2026;{}$y",
-                        Self::mode_report_state(screen.synchronized_output)
-                    )
-                    .as_bytes(),
-                );
-                idx += "\x1b[?2026$p".len();
-            } else if rest.starts_with("\x1b[4$p") {
-                response.extend_from_slice(
-                    format!("\x1b[4;{}$y", Self::mode_report_state(screen.insert_mode)).as_bytes(),
-                );
-                idx += "\x1b[4$p".len();
-            } else if rest.starts_with("\x1b[?6n") {
-                response.extend_from_slice(
-                    format!("\x1b[?{};{}R", screen.cursor_y + 1, screen.cursor_x + 1).as_bytes(),
-                );
-                idx += "\x1b[?6n".len();
-            } else if rest.starts_with("\x1b[14t") {
-                response.extend_from_slice(
-                    format!(
-                        "\x1b[4;{};{}t",
-                        screen.rows * HEADLESS_CELL_HEIGHT_PX,
-                        screen.cols * HEADLESS_CELL_WIDTH_PX
-                    )
-                    .as_bytes(),
-                );
-                idx += "\x1b[14t".len();
-            } else if rest.starts_with("\x1b[18t") {
-                response.extend_from_slice(
-                    format!("\x1b[8;{};{}t", screen.rows, screen.cols).as_bytes(),
-                );
-                idx += "\x1b[18t".len();
-            } else if rest.starts_with("\x1b[5n") {
-                response.extend_from_slice(b"\x1b[0n");
-                idx += "\x1b[5n".len();
-            } else if rest.starts_with("\x1b[6n") {
-                response.extend_from_slice(
-                    format!("\x1b[{};{}R", screen.cursor_y + 1, screen.cursor_x + 1).as_bytes(),
-                );
-                idx += "\x1b[6n".len();
-            } else if rest.starts_with("\x1b[>0c") {
-                response.extend_from_slice(b"\x1b[>0;0;0c");
-                idx += "\x1b[>0c".len();
-            } else if rest.starts_with("\x1b[>c") {
-                response.extend_from_slice(b"\x1b[>0;0;0c");
-                idx += "\x1b[>c".len();
-            } else if rest.starts_with("\x1b[0c") {
-                response.extend_from_slice(b"\x1b[?64;1;2;6;9;15;18;21;22c");
-                idx += "\x1b[0c".len();
-            } else if rest.starts_with("\x1b[c") {
-                response.extend_from_slice(b"\x1b[?64;1;2;6;9;15;18;21;22c");
-                idx += "\x1b[c".len();
+            if bytes.get(idx + 1) != Some(&b'[') {
+                if idx + 1 >= bytes.len() {
+                    Self::set_pending_terminal_query(pending, &input[idx..]);
+                    break;
+                }
+                idx += 1;
+                continue;
+            }
+
+            let mut final_end = None;
+            for (offset, c) in input[idx + 2..].char_indices() {
+                if ('@'..='~').contains(&c) {
+                    final_end = Some(idx + 2 + offset + c.len_utf8());
+                    break;
+                }
+            }
+
+            let Some(end) = final_end else {
+                Self::set_pending_terminal_query(pending, &input[idx..]);
+                break;
+            };
+
+            if let Some(answer) = Self::terminal_query_response(&input[idx + 2..end], screen) {
+                response.extend_from_slice(answer.as_slice());
+                idx = end;
             } else {
                 idx += 1;
             }
@@ -4059,6 +3854,86 @@ impl NextCoreEngine {
             let mut writer = writer.lock();
             writer.write_all(&response).ok();
             writer.flush().ok();
+        }
+    }
+
+    fn set_pending_terminal_query(pending: &mut String, value: &str) {
+        pending.clear();
+        if value.len() <= MAX_PENDING_TERMINAL_QUERY_BYTES {
+            pending.push_str(value);
+        }
+    }
+
+    fn terminal_query_response(csi: &str, screen: &NextCoreScreen) -> Option<Vec<u8>> {
+        if let Some(mode) = csi
+            .strip_prefix('?')
+            .and_then(|params| params.strip_suffix("$p"))
+            .and_then(|params| params.parse::<usize>().ok())
+        {
+            let enabled = match mode {
+                1 => screen.application_cursor_keys,
+                3 => screen.column_132_mode,
+                5 => screen.reverse_video,
+                6 => screen.origin_mode,
+                7 => screen.auto_wrap,
+                12 => screen.cursor_blinking,
+                25 => screen.cursor_visible,
+                47 => screen.alternate_screen_modes.contains(&47),
+                66 => screen.application_keypad,
+                69 => screen.left_right_margin_mode,
+                1000 => screen.mouse_tracking == MouseTrackingMode::X10,
+                1002 => screen.mouse_tracking == MouseTrackingMode::ButtonEvent,
+                1003 => screen.mouse_tracking == MouseTrackingMode::AnyEvent,
+                1004 => screen.focus_event_reporting,
+                1005 => screen.utf8_mouse,
+                1006 => screen.sgr_mouse,
+                1007 => screen.alternate_scroll,
+                1015 => screen.urxvt_mouse,
+                1016 => screen.sgr_pixel_mouse,
+                1034 => screen.meta_sends_escape,
+                1047 => screen.alternate_screen_modes.contains(&1047),
+                1049 => screen.alternate_screen_modes.contains(&1049),
+                2004 => screen.bracketed_paste,
+                2026 => screen.synchronized_output,
+                _ => return None,
+            };
+            return Some(
+                format!("\x1b[?{mode};{}$y", Self::mode_report_state(enabled)).into_bytes(),
+            );
+        }
+
+        if let Some(mode) = csi
+            .strip_suffix("$p")
+            .and_then(|params| params.parse::<usize>().ok())
+        {
+            if mode == 4 {
+                return Some(
+                    format!("\x1b[4;{}$y", Self::mode_report_state(screen.insert_mode))
+                        .into_bytes(),
+                );
+            }
+        }
+
+        match csi {
+            "?6n" => {
+                Some(format!("\x1b[?{};{}R", screen.cursor_y + 1, screen.cursor_x + 1).into_bytes())
+            }
+            "14t" => Some(
+                format!(
+                    "\x1b[4;{};{}t",
+                    screen.rows * HEADLESS_CELL_HEIGHT_PX,
+                    screen.cols * HEADLESS_CELL_WIDTH_PX
+                )
+                .into_bytes(),
+            ),
+            "18t" => Some(format!("\x1b[8;{};{}t", screen.rows, screen.cols).into_bytes()),
+            "5n" => Some(b"\x1b[0n".to_vec()),
+            "6n" => {
+                Some(format!("\x1b[{};{}R", screen.cursor_y + 1, screen.cursor_x + 1).into_bytes())
+            }
+            ">c" | ">0c" => Some(b"\x1b[>0;0;0c".to_vec()),
+            "c" | "0c" => Some(b"\x1b[?64;1;2;6;9;15;18;21;22c".to_vec()),
+            _ => None,
         }
     }
 
@@ -5258,6 +5133,78 @@ mod tests {
             bytes.lock().as_slice(),
             b"\x1b[?64;1;2;6;9;15;18;21;22c\x1b[3;5R\x1b[0n\x1b[>0;0;0c"
         );
+    }
+
+    #[test]
+    fn answers_terminal_queries_across_split_chunks() {
+        let _guard = test_guard();
+        let mut screen = NextCoreScreen::new(80, 10);
+        screen.feed("\x1b[?1h\x1b[4h");
+        screen.set_cursor(2, 4);
+        let bytes = Arc::new(Mutex::new(Vec::new()));
+        let writer: Arc<Mutex<Box<dyn Write + Send>>> =
+            Arc::new(Mutex::new(Box::new(SharedWriter {
+                bytes: Arc::clone(&bytes),
+            })));
+        let mut pending = String::new();
+
+        NextCoreEngine::answer_terminal_queries_with_pending(
+            "x\x1b[?",
+            &screen,
+            &writer,
+            &mut pending,
+        );
+        assert_eq!(bytes.lock().as_slice(), b"");
+        assert_eq!(pending, "\x1b[?");
+
+        NextCoreEngine::answer_terminal_queries_with_pending(
+            "1$p y\x1b[",
+            &screen,
+            &writer,
+            &mut pending,
+        );
+        NextCoreEngine::answer_terminal_queries_with_pending("6", &screen, &writer, &mut pending);
+        NextCoreEngine::answer_terminal_queries_with_pending(
+            "n\x1b[>0",
+            &screen,
+            &writer,
+            &mut pending,
+        );
+        NextCoreEngine::answer_terminal_queries_with_pending(
+            "c\x1b[4",
+            &screen,
+            &writer,
+            &mut pending,
+        );
+        NextCoreEngine::answer_terminal_queries_with_pending("$p", &screen, &writer, &mut pending);
+
+        assert_eq!(
+            bytes.lock().as_slice(),
+            b"\x1b[?1;1$y\x1b[3;5R\x1b[>0;0;0c\x1b[4;1$y"
+        );
+        assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn terminal_query_pending_buffer_drops_overlong_incomplete_sequences() {
+        let _guard = test_guard();
+        let screen = NextCoreScreen::new(80, 10);
+        let bytes = Arc::new(Mutex::new(Vec::new()));
+        let writer: Arc<Mutex<Box<dyn Write + Send>>> =
+            Arc::new(Mutex::new(Box::new(SharedWriter {
+                bytes: Arc::clone(&bytes),
+            })));
+        let mut pending = String::new();
+
+        NextCoreEngine::answer_terminal_queries_with_pending(
+            &format!("\x1b[{}", "1".repeat(MAX_PENDING_TERMINAL_QUERY_BYTES + 1)),
+            &screen,
+            &writer,
+            &mut pending,
+        );
+
+        assert!(pending.is_empty());
+        assert!(bytes.lock().is_empty());
     }
 
     #[test]
