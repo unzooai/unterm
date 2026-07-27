@@ -94,6 +94,23 @@ pub fn engine_capabilities(engine: &str) -> Value {
     } else {
         Vec::new()
     };
+    let runtime_pump_metrics = if engine == "next-core" {
+        vec![
+            "drain_calls",
+            "dispatched_commands",
+            "dispatched_lifecycle_commands",
+            "dispatched_input_commands",
+            "dispatched_render_commands",
+            "dispatched_screen_commands",
+            "dispatched_background_commands",
+            "total_dispatch_elapsed_micros",
+            "max_dispatch_elapsed_micros",
+            "total_drain_elapsed_micros",
+            "max_drain_elapsed_micros",
+        ]
+    } else {
+        Vec::new()
+    };
 
     json!({
         "engine": engine,
@@ -102,6 +119,7 @@ pub fn engine_capabilities(engine: &str) -> Value {
         "engine_limited_methods": engine_limited_methods,
         "diagnostics": {
             "health_io_summary": engine == "next-core",
+            "runtime_pump_summary": engine == "next-core",
             "launch_context": engine == "next-core",
             "launch_policy_decisions": engine == "next-core",
             "default_shell_launch_decision": true,
@@ -121,6 +139,7 @@ pub fn engine_capabilities(engine: &str) -> Value {
             "instance_registry_unregister": true,
             "native_window_lifecycle": false,
             "health_metrics": health_metrics,
+            "runtime_pump_metrics": runtime_pump_metrics,
         },
     })
 }
@@ -207,6 +226,7 @@ mod tests {
         assert!(supported.contains(&"session.input"));
         assert!(supported.contains(&"capture.scrollback"));
         assert_eq!(caps["diagnostics"]["health_io_summary"], false);
+        assert_eq!(caps["diagnostics"]["runtime_pump_summary"], false);
         assert_eq!(caps["diagnostics"]["launch_context"], false);
         assert_eq!(caps["diagnostics"]["launch_policy_decisions"], false);
         assert_eq!(caps["diagnostics"]["default_shell_launch_decision"], true);
@@ -236,6 +256,7 @@ mod tests {
         assert_eq!(caps["diagnostics"]["instance_shutdown_dry_run"], true);
         assert_eq!(caps["diagnostics"]["instance_registry_unregister"], true);
         assert_eq!(caps["diagnostics"]["native_window_lifecycle"], false);
+        assert!(strings_at(&caps["diagnostics"], "runtime_pump_metrics").is_empty());
     }
 
     #[test]
@@ -309,6 +330,7 @@ mod tests {
             .contains("server_info title metadata"));
 
         assert_eq!(caps["diagnostics"]["health_io_summary"], true);
+        assert_eq!(caps["diagnostics"]["runtime_pump_summary"], true);
         assert_eq!(caps["diagnostics"]["launch_context"], true);
         assert_eq!(caps["diagnostics"]["launch_policy_decisions"], true);
         assert_eq!(caps["diagnostics"]["default_shell_launch_decision"], true);
@@ -340,5 +362,10 @@ mod tests {
         assert!(metrics.contains(&"input_writes"));
         assert!(metrics.contains(&"output_bytes"));
         assert!(metrics.contains(&"paste_count"));
+        let pump_metrics = strings_at(&caps["diagnostics"], "runtime_pump_metrics");
+        assert!(pump_metrics.contains(&"drain_calls"));
+        assert!(pump_metrics.contains(&"dispatched_commands"));
+        assert!(pump_metrics.contains(&"dispatched_screen_commands"));
+        assert!(pump_metrics.contains(&"max_dispatch_elapsed_micros"));
     }
 }

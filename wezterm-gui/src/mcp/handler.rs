@@ -2143,6 +2143,10 @@ mod engine_neutral_handler_tests {
             true
         );
         assert_eq!(
+            surface["engine_capabilities"]["diagnostics"]["runtime_pump_summary"],
+            true
+        );
+        assert_eq!(
             surface["engine_capabilities"]["diagnostics"]["launch_context"],
             true
         );
@@ -2205,6 +2209,10 @@ mod engine_neutral_handler_tests {
         assert_eq!(capabilities["_engine"], "next-core");
         assert_eq!(
             capabilities["_engine_capabilities"]["diagnostics"]["health_io_summary"],
+            true
+        );
+        assert_eq!(
+            capabilities["_engine_capabilities"]["diagnostics"]["runtime_pump_summary"],
             true
         );
         assert_eq!(
@@ -2275,6 +2283,19 @@ mod engine_neutral_handler_tests {
         assert!(metrics.iter().any(|metric| metric == "input_writes"));
         assert!(metrics.iter().any(|metric| metric == "output_bytes"));
         assert!(metrics.iter().any(|metric| metric == "paste_count"));
+        let pump_metrics = surface["engine_capabilities"]["diagnostics"]["runtime_pump_metrics"]
+            .as_array()
+            .expect("runtime pump metrics");
+        assert!(pump_metrics.iter().any(|metric| metric == "drain_calls"));
+        assert!(pump_metrics
+            .iter()
+            .any(|metric| metric == "dispatched_commands"));
+        assert!(pump_metrics
+            .iter()
+            .any(|metric| metric == "dispatched_screen_commands"));
+        assert!(pump_metrics
+            .iter()
+            .any(|metric| metric == "max_dispatch_elapsed_micros"));
     }
 
     #[test]
@@ -2316,6 +2337,21 @@ mod engine_neutral_handler_tests {
         assert!(metrics.iter().any(|metric| metric == "input_writes"));
         assert!(metrics.iter().any(|metric| metric == "output_bytes"));
         assert!(metrics.iter().any(|metric| metric == "paste_count"));
+        let pump_check = checks
+            .iter()
+            .find(|check| check["name"] == "next_core.runtime_pump_diagnostics")
+            .expect("next-core runtime pump diagnostics check");
+        assert_eq!(pump_check["ok"], true);
+        let pump_metrics = pump_check["detail"]["advertised_metrics"]
+            .as_array()
+            .expect("advertised pump metrics");
+        assert!(pump_metrics.iter().any(|metric| metric == "drain_calls"));
+        assert!(pump_metrics
+            .iter()
+            .any(|metric| metric == "dispatched_commands"));
+        assert!(pump_check["detail"]["runtime_pump"]["drain_calls"]
+            .as_u64()
+            .is_some());
         let scroll_check = checks
             .iter()
             .find(|check| check["name"] == "next_core.screen_scroll_viewport")
@@ -7086,6 +7122,45 @@ impl McpHandler {
                     "advertised_metrics": advertised_metrics,
                     "health_io": health_io.cloned().unwrap_or(Value::Null),
                     "required_metrics": required_metrics,
+                },
+            }));
+
+            let advertised_pump_metrics = caps
+                .pointer("/_engine_capabilities/diagnostics/runtime_pump_metrics")
+                .and_then(|value| value.as_array())
+                .cloned()
+                .unwrap_or_default();
+            let runtime_pump = health.pointer("/engine_health/runtime_pump");
+            let required_pump_metrics = [
+                "drain_calls",
+                "dispatched_commands",
+                "dispatched_lifecycle_commands",
+                "dispatched_input_commands",
+                "dispatched_render_commands",
+                "dispatched_screen_commands",
+                "dispatched_background_commands",
+                "total_dispatch_elapsed_micros",
+                "max_dispatch_elapsed_micros",
+                "total_drain_elapsed_micros",
+                "max_drain_elapsed_micros",
+            ];
+            let advertised_pump_all = required_pump_metrics.iter().all(|name| {
+                advertised_pump_metrics
+                    .iter()
+                    .any(|metric| metric.as_str() == Some(*name))
+            });
+            let runtime_pump_has_all = runtime_pump.is_some_and(|pump| {
+                required_pump_metrics
+                    .iter()
+                    .all(|name| pump.get(*name).and_then(|value| value.as_u64()).is_some())
+            });
+            checks.push(json!({
+                "name": "next_core.runtime_pump_diagnostics",
+                "ok": advertised_pump_all && runtime_pump_has_all,
+                "detail": {
+                    "advertised_metrics": advertised_pump_metrics,
+                    "runtime_pump": runtime_pump.cloned().unwrap_or(Value::Null),
+                    "required_metrics": required_pump_metrics,
                 },
             }));
 
