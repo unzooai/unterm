@@ -7,6 +7,7 @@ use crate::engine::{
     EngineRenderPreparedPaneFrame, EngineRenderShaperGlyph, EngineRenderTextAtlasPlan,
     EngineRenderTexturedGlyphLayoutDiff, EngineRenderTexturedGlyphUploadPlan,
     EngineWgpuPipelineConfig, EngineWgpuPreparedFramePlan, EngineWgpuRenderBackend,
+    EngineWgpuRenderPassPlan, EngineWgpuTexturedGlyphPassPlan,
 };
 use crate::quad::Vertex;
 use anyhow::anyhow;
@@ -99,6 +100,16 @@ pub struct NextCoreCachedGlyphUpload {
 pub struct NextCoreWebGpuPaneDrawFrame {
     pub engine_frame: EngineRenderPreparedPaneFrame,
     font: Option<Rc<LoadedFont>>,
+}
+
+struct NextCoreWebGpuRenderBuffers {
+    vertex_buffer: wgpu::Buffer,
+    index_buffer: wgpu::Buffer,
+}
+
+struct NextCoreWebGpuTexturedGlyphBuffers {
+    vertex_buffer: wgpu::Buffer,
+    index_buffer: wgpu::Buffer,
 }
 
 #[derive(Clone, Debug)]
@@ -1209,18 +1220,138 @@ impl WebGpuState {
         })
     }
 
-    pub fn next_core_render_parts(&self) -> (&EngineWgpuRenderBackend, &wgpu::RenderPipeline) {
-        (
-            &self.next_core_render_backend,
-            &self.next_core_render_pipeline,
-        )
-    }
-
     #[allow(dead_code)]
     pub fn remove_next_core_glyph_atlas_pane(&self, pane_id: usize) {
         self.next_core_glyph_atlases
             .borrow_mut()
             .remove_pane(pane_id);
+    }
+
+    fn upload_next_core_buffers(
+        &self,
+        upload: &EngineRenderGpuUploadPlan,
+    ) -> Option<NextCoreWebGpuRenderBuffers> {
+        if !upload.submitted || upload.is_empty() {
+            return None;
+        }
+
+        let vertex_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("next-core render vertex buffer"),
+                contents: bytemuck::cast_slice(&upload.vertices),
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            });
+        let index_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("next-core render index buffer"),
+                contents: bytemuck::cast_slice(&upload.indices),
+                usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
+            });
+
+        Some(NextCoreWebGpuRenderBuffers {
+            vertex_buffer,
+            index_buffer,
+        })
+    }
+
+    fn upload_next_core_textured_glyph_buffers(
+        &self,
+        upload: &EngineRenderTexturedGlyphUploadPlan,
+    ) -> Option<NextCoreWebGpuTexturedGlyphBuffers> {
+        if !upload.submitted || upload.is_empty() || !upload.missing_key_indices.is_empty() {
+            return None;
+        }
+
+        let vertex_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("next-core textured glyph vertex buffer"),
+                contents: bytemuck::cast_slice(&upload.vertices),
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            });
+        let index_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("next-core textured glyph index buffer"),
+                contents: bytemuck::cast_slice(&upload.indices),
+                usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
+            });
+
+        Some(NextCoreWebGpuTexturedGlyphBuffers {
+            vertex_buffer,
+            index_buffer,
+        })
+    }
+
+    fn encode_next_core_pass(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::TextureView,
+        buffers: &NextCoreWebGpuRenderBuffers,
+        pass: &EngineWgpuRenderPassPlan,
+    ) -> bool {
+        if !pass.draw || pass.index_count == 0 || pass.vertex_count == 0 {
+            return false;
+        }
+
+        let load = match pass.clear_color {
+            Some([r, g, b, a]) => wgpu::LoadOp::Clear(wgpu::Color { r, g, b, a }),
+            None => wgpu::LoadOp::Load,
+        };
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("next-core render pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: target,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            occlusion_query_set: None,
+            timestamp_writes: None,
+        });
+        render_pass.set_pipeline(&self.next_core_render_pipeline);
+        render_pass.set_vertex_buffer(0, buffers.vertex_buffer.slice(..));
+        render_pass.set_index_buffer(buffers.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+        render_pass.draw_indexed(0..pass.index_count as u32, 0, 0..1);
+        true
+    }
+
+    fn encode_next_core_textured_glyph_pass(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::TextureView,
+        buffers: &NextCoreWebGpuTexturedGlyphBuffers,
+        pass: &EngineWgpuTexturedGlyphPassPlan,
+    ) -> bool {
+        if !pass.draw || pass.index_count == 0 || pass.vertex_count == 0 {
+            return false;
+        }
+
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("next-core textured glyph render pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: target,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            occlusion_query_set: None,
+            timestamp_writes: None,
+        });
+        render_pass.set_pipeline(&self.next_core_textured_glyph_pipeline);
+        render_pass.set_bind_group(0, &self.next_core_glyph_texture_bind_group, &[]);
+        render_pass.set_vertex_buffer(0, buffers.vertex_buffer.slice(..));
+        render_pass.set_index_buffer(buffers.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+        render_pass.draw_indexed(0..pass.index_count as u32, 0, 0..1);
+        true
     }
 
     #[allow(dead_code)]
@@ -1231,19 +1362,13 @@ impl WebGpuState {
         upload: &EngineRenderGpuUploadPlan,
         clear_color: Option<[f64; 4]>,
     ) -> bool {
-        let Some(buffers) = self.next_core_render_backend.upload(&self.device, upload) else {
+        let Some(buffers) = self.upload_next_core_buffers(upload) else {
             return false;
         };
         let pass = self
             .next_core_render_backend
             .prepare_pass(upload, clear_color);
-        self.next_core_render_backend.encode_pass(
-            encoder,
-            target,
-            &self.next_core_render_pipeline,
-            &buffers,
-            &pass,
-        )
+        self.encode_next_core_pass(encoder, target, &buffers, &pass)
     }
 
     #[allow(dead_code)]
@@ -1253,23 +1378,13 @@ impl WebGpuState {
         target: &wgpu::TextureView,
         upload: &EngineRenderTexturedGlyphUploadPlan,
     ) -> bool {
-        let Some(buffers) = self
-            .next_core_render_backend
-            .upload_textured_glyphs(&self.device, upload)
-        else {
+        let Some(buffers) = self.upload_next_core_textured_glyph_buffers(upload) else {
             return false;
         };
         let pass = self
             .next_core_render_backend
             .prepare_textured_glyph_pass(upload);
-        self.next_core_render_backend.encode_textured_glyph_pass(
-            encoder,
-            target,
-            &self.next_core_textured_glyph_pipeline,
-            &self.next_core_glyph_texture_bind_group,
-            &buffers,
-            &pass,
-        )
+        self.encode_next_core_textured_glyph_pass(encoder, target, &buffers, &pass)
     }
 
     fn next_core_viewport_pixels(&self) -> (f32, f32) {

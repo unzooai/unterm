@@ -256,11 +256,11 @@ next-core 已经在 screen/parser 方向具备基础能力，包括：
 - `EngineWgpuRenderBackend` 已持有 textured glyph pipeline/pass ABI，`WebGpuState` 会把 next-core glyph atlas texture 绑定到 sampler 后，在 solid next-core pass 之后追加 textured glyph pass
 - `EngineRenderTexturedGlyphUploadPlan` 已把 glyph atlas placement 转成带 clip-space position 和 atlas UV 的 textured glyph vertices；真实 font raster/cache 接入前，texture draw ABI 已先固定
 - `EngineWgpuRenderBackend::prepare_frame_for_viewport` 已把 clip-space upload buffers、text-atlas input 与 glyph-atlas instances 合并为同一帧 preparation；WebGPU pane encoder 现在会先生成 combined frame plan 再绘制
-- `EngineWgpuRenderBackend` 已提供最小 wgpu upload skeleton：把 buffer plan 转成 POD GPU vertex ABI，并创建 vertex/index buffers；该层复用 GUI 现有 `wgpu`，不把 GPU 依赖塞进 `unterm-engine`
-- `EngineWgpuRenderPassPlan` 已固定最小 indexed draw-pass 契约，`EngineWgpuRenderBackend::encode_pass` 可以把已上传 buffer 写入真实 `wgpu::CommandEncoder`，重复 revision/空帧不会产生 draw
+- `EngineWgpuRenderBackend` 已把 buffer plan 转成 POD GPU vertex ABI，但具体 `wgpu` vertex/index buffer 创建下沉到 WebGPU renderer；engine facade 继续停留在 CPU-side render plan 边界
+- `EngineWgpuRenderPassPlan` 已固定最小 indexed draw-pass 契约，WebGPU renderer 根据该 pass plan 把已上传 buffer 写入真实 `wgpu::CommandEncoder`，重复 revision/空帧不会产生 draw
 - `EngineWgpuPipelineConfig`、next-core GPU vertex layout 和最小 WGSL shader 已固定 solid-color quad pipeline ABI；背景/文本/光标顶点携带 RGBA，窗口接入时通过 viewport 尺寸转换为 clip-space，字体 atlas 仍留给后续独立步骤
 - `WebGpuState` 已在设备初始化时缓存 next-core solid-quad backend/pipeline，与现有 legacy pipeline 并存；后续 pane 绘制只需提交 commit buffers，不需要每帧创建 shader/pipeline
-- `WebGpuState::encode_next_core_upload` 已把 next-core GPU upload plan、缓存 pipeline 和 `wgpu::CommandEncoder` 串成一个 GUI 侧调用点；当前 legacy draw loop 仍保持不变
+- `WebGpuState::encode_next_core_upload` 已把 next-core GPU upload plan、renderer-owned buffer upload、缓存 pipeline 和 `wgpu::CommandEncoder` 串成一个 GUI 侧调用点；当前 legacy draw loop 仍保持不变
 - `WebGpuState::encode_next_core_pane_frame` 已消费 renderer-owned pane draw frame 并统一进入 pane-frame encoder helper，复用其中的 engine-prepared frame、当前 viewport 尺寸、viewport-to-clip 转换和缓存 pipeline；pane draw loop 不再暴露 raw buffer-plan 编码入口，engine prepared frame 也不再携带 GUI 字体对象
 - JSON probe smoke 已输出并校验 render draw/geometry/submission/commit plan 的 revision、run/quad counts、viewport、damage rects、cursor state 和首帧 full-repaint state，让 renderer 输入契约进入 CI 可见面
 - benchmark 已覆盖 input write、key-to-screen、input burst under output、echo、paste、output flood、scrollback paging、viewport scroll、screen-read under flood、render-frame empty/dirty/cursor-move delta、render draw plan、render geometry plan、render submission plan、render commit plan API、focus/session lifecycle

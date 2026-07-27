@@ -449,11 +449,11 @@ Supported:
 - `EngineWgpuRenderBackend` textured glyph pipeline/pass ABI, with `WebGpuState` binding the next-core glyph atlas texture and appending the textured glyph pass after the solid next-core pass
 - `EngineRenderTexturedGlyphUploadPlan` that maps glyph atlas placements into textured glyph vertices with clip-space positions and atlas UVs, fixing the texture draw ABI before the real font raster/cache is attached
 - `EngineWgpuRenderBackend::prepare_frame_for_viewport`, which prepares clip-space upload buffers, text-atlas input, and glyph-atlas instances in one frame plan now consumed by the WebGPU pane encoder
-- `EngineWgpuRenderBackend` upload skeleton that turns buffer plans into a POD GPU vertex ABI and creates wgpu vertex/index buffers while keeping `unterm-engine` free of GPU dependencies
-- `EngineWgpuRenderPassPlan` and `EngineWgpuRenderBackend::encode_pass` that define the first indexed draw-pass contract for submitted next-core buffers without moving renderer semantics into the terminal core
+- `EngineWgpuRenderBackend` upload skeleton that turns buffer plans into a POD GPU vertex ABI while concrete `wgpu` vertex/index buffer creation stays in the WebGPU renderer
+- `EngineWgpuRenderPassPlan` plus renderer-owned WebGPU encoding define the first indexed draw-pass contract for submitted next-core buffers without moving renderer semantics into the terminal core
 - `EngineWgpuPipelineConfig`, next-core GPU vertex layout, viewport-to-clip upload path, and minimal WGSL shader ABI for solid-color quads before glyph atlas/text rendering lands
 - cached next-core solid-quad backend/pipeline in `WebGpuState`, sharing the existing WebGPU device lifetime and avoiding per-frame pipeline creation
-- `WebGpuState::encode_next_core_upload`, a GUI-side bridge from prepared next-core upload plans to encoded wgpu render passes while the legacy draw loop remains the default path
+- `WebGpuState::encode_next_core_upload`, a GUI-side bridge that owns concrete `wgpu` buffer upload and render-pass encoding around prepared next-core upload plans while the legacy draw loop remains the default path
 - `WebGpuState::encode_next_core_pane_frame`, a pane-level GUI bridge that consumes renderer-owned `NextCoreWebGpuPaneDrawFrame` values wrapping an `EngineRenderPreparedPaneFrame`, funnels encoding through a pane-frame helper, applies current viewport dimensions, and keeps raw buffer-plan encoding plus GUI font state out of the pane draw branch
 - `session.list`
 - `session.input`

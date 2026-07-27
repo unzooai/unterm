@@ -29,7 +29,7 @@ pub use render_backend::{
     EngineRenderTexturedGlyphVertex, EngineRenderVertex, EngineRenderVertexLayer,
     EngineWgpuPipelineConfig, EngineWgpuPreparedFrameDiagnostics, EngineWgpuPreparedFramePlan,
     EngineWgpuPreparedFrameReadinessIssue, EngineWgpuRenderBackend, EngineWgpuRenderPassPlan,
-    EngineWgpuTexturedGlyphBuffers, EngineWgpuTexturedGlyphPassPlan,
+    EngineWgpuTexturedGlyphPassPlan,
 };
 #[allow(unused_imports)]
 pub use render_consumer::{

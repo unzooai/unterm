@@ -7,7 +7,6 @@
 use super::{
     CellStyle, EngineRenderCommitBatch, RenderRect, RenderTextRun, StyledColor, StyledVerticalAlign,
 };
-use wgpu::util::DeviceExt;
 
 const NEXT_CORE_RENDER_SHADER: &str = r#"
 struct VertexOut {
@@ -855,26 +854,6 @@ pub struct EngineWgpuPipelineConfig {
     pub target_format: wgpu::TextureFormat,
 }
 
-#[allow(dead_code)]
-pub struct EngineWgpuRenderBuffers {
-    pub pane_id: usize,
-    pub revision: u64,
-    pub vertex_count: usize,
-    pub index_count: usize,
-    pub vertex_buffer: wgpu::Buffer,
-    pub index_buffer: wgpu::Buffer,
-}
-
-#[allow(dead_code)]
-pub struct EngineWgpuTexturedGlyphBuffers {
-    pub pane_id: usize,
-    pub revision: u64,
-    pub vertex_count: usize,
-    pub index_count: usize,
-    pub vertex_buffer: wgpu::Buffer,
-    pub index_buffer: wgpu::Buffer,
-}
-
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[allow(dead_code)]
 pub struct EngineWgpuRenderPassPlan {
@@ -909,13 +888,6 @@ impl EngineWgpuRenderPassPlan {
             vertex_count: plan.vertices.len(),
             index_count: plan.indices.len(),
             clear_color,
-        }
-    }
-
-    fn load_op(&self) -> wgpu::LoadOp<wgpu::Color> {
-        match self.clear_color {
-            Some([r, g, b, a]) => wgpu::LoadOp::Clear(wgpu::Color { r, g, b, a }),
-            None => wgpu::LoadOp::Load,
         }
     }
 }
@@ -1168,66 +1140,6 @@ impl EngineWgpuRenderBackend {
         })
     }
 
-    pub fn upload(
-        &self,
-        device: &wgpu::Device,
-        plan: &EngineRenderGpuUploadPlan,
-    ) -> Option<EngineWgpuRenderBuffers> {
-        if !plan.submitted || plan.is_empty() {
-            return None;
-        }
-
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("next-core render vertex buffer"),
-            contents: bytemuck::cast_slice(&plan.vertices),
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-        });
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("next-core render index buffer"),
-            contents: bytemuck::cast_slice(&plan.indices),
-            usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
-        });
-
-        Some(EngineWgpuRenderBuffers {
-            pane_id: plan.pane_id,
-            revision: plan.revision,
-            vertex_count: plan.vertices.len(),
-            index_count: plan.indices.len(),
-            vertex_buffer,
-            index_buffer,
-        })
-    }
-
-    pub fn upload_textured_glyphs(
-        &self,
-        device: &wgpu::Device,
-        plan: &EngineRenderTexturedGlyphUploadPlan,
-    ) -> Option<EngineWgpuTexturedGlyphBuffers> {
-        if !plan.submitted || plan.is_empty() || !plan.missing_key_indices.is_empty() {
-            return None;
-        }
-
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("next-core textured glyph vertex buffer"),
-            contents: bytemuck::cast_slice(&plan.vertices),
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-        });
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("next-core textured glyph index buffer"),
-            contents: bytemuck::cast_slice(&plan.indices),
-            usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
-        });
-
-        Some(EngineWgpuTexturedGlyphBuffers {
-            pane_id: plan.pane_id,
-            revision: plan.revision,
-            vertex_count: plan.vertices.len(),
-            index_count: plan.indices.len(),
-            vertex_buffer,
-            index_buffer,
-        })
-    }
-
     pub fn prepare_pass(
         &self,
         plan: &EngineRenderGpuUploadPlan,
@@ -1241,74 +1153,6 @@ impl EngineWgpuRenderBackend {
         plan: &EngineRenderTexturedGlyphUploadPlan,
     ) -> EngineWgpuTexturedGlyphPassPlan {
         EngineWgpuTexturedGlyphPassPlan::from_upload_plan(plan)
-    }
-
-    pub fn encode_pass(
-        &self,
-        encoder: &mut wgpu::CommandEncoder,
-        target: &wgpu::TextureView,
-        pipeline: &wgpu::RenderPipeline,
-        buffers: &EngineWgpuRenderBuffers,
-        plan: &EngineWgpuRenderPassPlan,
-    ) -> bool {
-        if !plan.draw || plan.index_count == 0 || plan.vertex_count == 0 {
-            return false;
-        }
-
-        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("next-core render pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: target,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: plan.load_op(),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            occlusion_query_set: None,
-            timestamp_writes: None,
-        });
-        render_pass.set_pipeline(pipeline);
-        render_pass.set_vertex_buffer(0, buffers.vertex_buffer.slice(..));
-        render_pass.set_index_buffer(buffers.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-        render_pass.draw_indexed(0..plan.index_count as u32, 0, 0..1);
-        true
-    }
-
-    pub fn encode_textured_glyph_pass(
-        &self,
-        encoder: &mut wgpu::CommandEncoder,
-        target: &wgpu::TextureView,
-        pipeline: &wgpu::RenderPipeline,
-        glyph_texture_bind_group: &wgpu::BindGroup,
-        buffers: &EngineWgpuTexturedGlyphBuffers,
-        plan: &EngineWgpuTexturedGlyphPassPlan,
-    ) -> bool {
-        if !plan.draw || plan.index_count == 0 || plan.vertex_count == 0 {
-            return false;
-        }
-
-        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("next-core textured glyph render pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: target,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Load,
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            occlusion_query_set: None,
-            timestamp_writes: None,
-        });
-        render_pass.set_pipeline(pipeline);
-        render_pass.set_bind_group(0, glyph_texture_bind_group, &[]);
-        render_pass.set_vertex_buffer(0, buffers.vertex_buffer.slice(..));
-        render_pass.set_index_buffer(buffers.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-        render_pass.draw_indexed(0..plan.index_count as u32, 0, 0..1);
-        true
     }
 }
 
