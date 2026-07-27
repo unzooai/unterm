@@ -344,6 +344,37 @@ pub struct EngineRenderTexturedGlyphQuad {
     pub uv_bottom_px: usize,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+#[allow(dead_code)]
+pub struct EngineRenderTexturedGlyphLayoutEntry {
+    pub key_index: usize,
+    pub row: usize,
+    pub col: usize,
+    pub cells: usize,
+    pub text: String,
+    pub source_rect: RenderRect,
+    pub atlas_rect: RenderRect,
+    pub quad: EngineRenderTexturedGlyphQuad,
+    pub x_advance_px: i32,
+    pub x_offset_px: i32,
+    pub y_offset_px: i32,
+    pub bearing_x_px: i32,
+    pub bearing_y_px: i32,
+    pub foreground: [f32; 4],
+    pub uses_raster_metrics: bool,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+#[allow(dead_code)]
+pub struct EngineRenderTexturedGlyphLayoutReport {
+    pub pane_id: usize,
+    pub submitted: bool,
+    pub revision: u64,
+    pub requires_full_repaint: bool,
+    pub entries: Vec<EngineRenderTexturedGlyphLayoutEntry>,
+    pub missing_key_indices: Vec<usize>,
+}
+
 #[allow(dead_code)]
 impl EngineRenderTexturedGlyphVertex {
     const ATTRIBS: [wgpu::VertexAttribute; 4] = wgpu::vertex_attr_array![
@@ -369,6 +400,7 @@ pub struct EngineRenderTexturedGlyphUploadPlan {
     pub submitted: bool,
     pub revision: u64,
     pub requires_full_repaint: bool,
+    pub layout: EngineRenderTexturedGlyphLayoutReport,
     pub vertices: Vec<EngineRenderTexturedGlyphVertex>,
     pub indices: Vec<u32>,
     pub missing_key_indices: Vec<usize>,
@@ -1449,6 +1481,57 @@ impl EngineRenderGlyphAtlasTextureUpdatePlan {
 
 #[allow(dead_code)]
 impl EngineRenderTexturedGlyphUploadPlan {
+    pub fn layout_report_from_glyph_atlas_plan(
+        plan: &EngineRenderGlyphAtlasPlan,
+        placements: &[EngineRenderGlyphAtlasPlacement],
+    ) -> EngineRenderTexturedGlyphLayoutReport {
+        let mut entries = Vec::new();
+        let mut missing_key_indices = Vec::new();
+
+        if plan.submitted {
+            for instance in &plan.instances {
+                let Some(placement) = placements
+                    .iter()
+                    .find(|placement| placement.key_index == instance.key_index)
+                else {
+                    push_unique_usize(&mut missing_key_indices, instance.key_index);
+                    continue;
+                };
+                let text = plan
+                    .keys
+                    .get(instance.key_index)
+                    .map(|key| key.text.clone())
+                    .unwrap_or_default();
+                entries.push(EngineRenderTexturedGlyphLayoutEntry {
+                    key_index: instance.key_index,
+                    row: instance.row,
+                    col: instance.col,
+                    cells: instance.cells,
+                    text,
+                    source_rect: instance.rect,
+                    atlas_rect: placement.rect,
+                    quad: textured_glyph_quad_pixels(instance, placement),
+                    x_advance_px: instance.x_advance_px,
+                    x_offset_px: instance.x_offset_px,
+                    y_offset_px: instance.y_offset_px,
+                    bearing_x_px: placement.bearing_x_px,
+                    bearing_y_px: placement.bearing_y_px,
+                    foreground: instance.foreground,
+                    uses_raster_metrics: placement.uses_raster_metrics,
+                });
+            }
+        }
+
+        EngineRenderTexturedGlyphLayoutReport {
+            pane_id: plan.pane_id,
+            submitted: plan.submitted,
+            revision: plan.revision,
+            requires_full_repaint: plan.requires_full_repaint,
+            entries,
+            missing_key_indices,
+        }
+    }
+
     pub fn from_glyph_atlas_plan_for_viewport(
         plan: &EngineRenderGlyphAtlasPlan,
         placements: &[EngineRenderGlyphAtlasPlacement],
@@ -1461,24 +1544,16 @@ impl EngineRenderTexturedGlyphUploadPlan {
         let viewport_height_px = viewport_height_px.max(1.0);
         let atlas_width_px = atlas_width_px.max(1.0);
         let atlas_height_px = atlas_height_px.max(1.0);
+        let layout = Self::layout_report_from_glyph_atlas_plan(plan, placements);
         let mut vertices = Vec::new();
         let mut indices = Vec::new();
-        let mut missing_key_indices = Vec::new();
 
-        if plan.submitted {
-            for instance in &plan.instances {
-                let Some(placement) = placements
-                    .iter()
-                    .find(|placement| placement.key_index == instance.key_index)
-                else {
-                    push_unique_usize(&mut missing_key_indices, instance.key_index);
-                    continue;
-                };
-                push_textured_glyph_quad(
+        if plan.submitted && layout.missing_key_indices.is_empty() {
+            for entry in &layout.entries {
+                push_textured_glyph_quad_from_layout(
                     &mut vertices,
                     &mut indices,
-                    instance,
-                    placement,
+                    entry,
                     viewport_width_px,
                     viewport_height_px,
                     atlas_width_px,
@@ -1492,9 +1567,10 @@ impl EngineRenderTexturedGlyphUploadPlan {
             submitted: plan.submitted,
             revision: plan.revision,
             requires_full_repaint: plan.requires_full_repaint,
+            missing_key_indices: layout.missing_key_indices.clone(),
+            layout,
             vertices,
             indices,
-            missing_key_indices,
         }
     }
 
@@ -1733,23 +1809,22 @@ fn push_glyph_atlas_instance(
     instances.push(instance);
 }
 
-fn push_textured_glyph_quad(
+fn push_textured_glyph_quad_from_layout(
     vertices: &mut Vec<EngineRenderTexturedGlyphVertex>,
     indices: &mut Vec<u32>,
-    instance: &EngineRenderGlyphAtlasInstance,
-    placement: &EngineRenderGlyphAtlasPlacement,
+    entry: &EngineRenderTexturedGlyphLayoutEntry,
     viewport_width_px: f32,
     viewport_height_px: f32,
     atlas_width_px: f32,
     atlas_height_px: f32,
 ) {
     let base = vertices.len() as u32;
-    let quad = textured_glyph_quad_pixels(instance, placement);
+    let quad = entry.quad;
     let uv_left = quad.uv_left_px as f32 / atlas_width_px;
     let uv_top = quad.uv_top_px as f32 / atlas_height_px;
     let uv_right = quad.uv_right_px as f32 / atlas_width_px;
     let uv_bottom = quad.uv_bottom_px as f32 / atlas_height_px;
-    let key_index = instance.key_index as u32;
+    let key_index = entry.key_index as u32;
 
     vertices.extend([
         EngineRenderTexturedGlyphVertex {
@@ -1760,7 +1835,7 @@ fn push_textured_glyph_quad(
                 viewport_height_px,
             ),
             uv: [uv_left, uv_top],
-            color: instance.foreground,
+            color: entry.foreground,
             key_index,
         },
         EngineRenderTexturedGlyphVertex {
@@ -1771,7 +1846,7 @@ fn push_textured_glyph_quad(
                 viewport_height_px,
             ),
             uv: [uv_right, uv_top],
-            color: instance.foreground,
+            color: entry.foreground,
             key_index,
         },
         EngineRenderTexturedGlyphVertex {
@@ -1782,7 +1857,7 @@ fn push_textured_glyph_quad(
                 viewport_height_px,
             ),
             uv: [uv_left, uv_bottom],
-            color: instance.foreground,
+            color: entry.foreground,
             key_index,
         },
         EngineRenderTexturedGlyphVertex {
@@ -1793,7 +1868,7 @@ fn push_textured_glyph_quad(
                 viewport_height_px,
             ),
             uv: [uv_right, uv_bottom],
-            color: instance.foreground,
+            color: entry.foreground,
             key_index,
         },
     ]);
@@ -2431,6 +2506,11 @@ mod tests {
         assert_eq!(upload.vertices[1].uv, [0.375, 0.25]);
         assert_eq!(upload.vertices[2].uv, [0.25, 0.75]);
         assert_eq!(upload.vertices[3].uv, [0.375, 0.75]);
+        assert_eq!(upload.layout.entries.len(), 1);
+        assert_eq!(upload.layout.entries[0].text, "z");
+        assert_eq!(upload.layout.entries[0].quad.left_px, 10.0);
+        assert_eq!(upload.layout.entries[0].quad.right_px, 30.0);
+        assert_eq!(upload.layout.entries[0].quad.uv_right_px, 24);
         assert_eq!(
             upload.vertices[0].color,
             [
@@ -2591,6 +2671,7 @@ mod tests {
             submitted: true,
             revision: 19,
             requires_full_repaint: false,
+            layout: empty_textured_layout_report(12, 19, vec![0]),
             vertices: vec![EngineRenderTexturedGlyphVertex::default(); 4],
             indices: vec![0, 1, 2, 1, 2, 3],
             missing_key_indices: vec![0],
@@ -2612,6 +2693,7 @@ mod tests {
             submitted: true,
             revision: 20,
             requires_full_repaint: false,
+            layout: empty_textured_layout_report(13, 20, Vec::new()),
             vertices: vec![EngineRenderTexturedGlyphVertex::default(); 4],
             indices: vec![0, 1, 2, 1, 2, 3],
             missing_key_indices: Vec::new(),
@@ -3031,6 +3113,21 @@ mod tests {
             actual,
             expected
         );
+    }
+
+    fn empty_textured_layout_report(
+        pane_id: usize,
+        revision: u64,
+        missing_key_indices: Vec<usize>,
+    ) -> EngineRenderTexturedGlyphLayoutReport {
+        EngineRenderTexturedGlyphLayoutReport {
+            pane_id,
+            submitted: true,
+            revision,
+            requires_full_repaint: false,
+            entries: Vec::new(),
+            missing_key_indices,
+        }
     }
 
     fn glyph_key(text: &str, cells: usize) -> EngineRenderGlyphAtlasKey {
