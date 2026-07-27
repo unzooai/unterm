@@ -211,7 +211,7 @@ next-core 已经在 screen/parser 方向具备基础能力，包括：
 - render-frame full snapshot 稳定返回完整 `rows x cols` viewport grid，dirty snapshot 稳定返回 dirty range 内每一行的 `cols` 个 cell；缺失内容以 styled blank cell 表达，避免 renderer 自行推断
 - render-frame cursor-only movement 也会返回 dirty row 和新 cursor snapshot，保证 renderer 能重画旧/新光标位置
 - `ScreenEngine::read_render_draw_plan` 将 styled cell grid 合并成 glyph runs、cell style runs 和 cursor draw state，作为未来 wgpu renderer 的轻量 CPU 输入层；dirty frame 生成的 draw run row 必须保留 viewport row，避免局部重绘写错屏幕行
-- JSON probe smoke 已输出并校验 render draw plan 的 revision、glyph runs、cell style runs 和 cursor draw state，让 renderer 输入契约进入 CI 可见面
+- JSON probe smoke 已输出并校验 render draw plan 的 full/unchanged-delta revision、glyph runs、cell style runs 和 cursor draw state，让 renderer 输入契约进入 CI 可见面
 - benchmark 已覆盖 input write、key-to-screen、input burst under output、echo、paste、output flood、scrollback paging、viewport scroll、screen-read under flood、render-frame empty/dirty/cursor-move delta、render draw plan、focus/session lifecycle
 - zero-width combining marks attach to preceding visible cells without advancing cursor position
 - DECFRA、DECERA、DECCARA、DECRARA 矩形操作

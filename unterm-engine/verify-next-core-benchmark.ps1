@@ -84,6 +84,15 @@ if ($summary.json_smoke.RenderDrawPlanCellRuns -lt $jsonSmokeRows) {
 if ($summary.json_smoke.RenderDrawPlanCursor -ne $true) {
     throw "json smoke did not include render draw plan cursor state"
 }
+if ($summary.json_smoke.RenderDrawDeltaGlyphRuns -ne 0) {
+    throw "json smoke unchanged render draw delta glyph runs were not empty"
+}
+if ($summary.json_smoke.RenderDrawDeltaCellRuns -ne 0) {
+    throw "json smoke unchanged render draw delta cell runs were not empty"
+}
+if ($summary.json_smoke.RenderDrawDeltaCursor -ne $true) {
+    throw "json smoke unchanged render draw delta did not include cursor state"
+}
 if (-not ($summary.json_smoke.PSObject.Properties.Name -contains "DeadReason")) {
     throw "json smoke did not include session dead_reason field"
 }
