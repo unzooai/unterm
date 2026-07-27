@@ -45,7 +45,7 @@ pub(in crate::next_core) fn read_scrollback_text(
     pane_id: usize,
     request: ScrollbackTextRequest,
 ) -> Result<ScrollbackTextSnapshot> {
-    screen_dispatch::read_scrollback_text(pane_id, request)
+    scheduler::read_scrollback_text(pane_id, request)
 }
 
 pub(in crate::next_core) fn read_styled_scrollback(
@@ -60,7 +60,7 @@ pub(in crate::next_core) fn search_screen(
     pattern: &str,
     max_results: usize,
 ) -> Result<Vec<ScreenSearchMatch>> {
-    screen_dispatch::search(pane_id, pattern, max_results)
+    scheduler::search_screen(pane_id, pattern, max_results)
 }
 
 pub(in crate::next_core) fn cursor(pane_id: usize) -> Result<CursorSnapshot> {
