@@ -45,3 +45,17 @@ pub(super) fn with_session_mut<T>(
 ) -> Result<T> {
     with_current_mut(|state| visit(session_registry::session_mut(state, pane_id)?))
 }
+
+pub(super) fn with_session<T>(
+    pane_id: usize,
+    visit: impl FnOnce(&NextCoreSession) -> Result<T>,
+) -> Result<T> {
+    with_current(|state| visit(session_registry::session(state, pane_id)?))
+}
+
+pub(super) fn with_session_optional<T>(
+    pane_id: usize,
+    visit: impl FnOnce(&NextCoreSession) -> T,
+) -> Option<T> {
+    with_current(|state| session_registry::session(state, pane_id).ok().map(visit))
+}

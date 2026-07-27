@@ -37,12 +37,13 @@ pub(super) fn get(state: &mut NextCoreRuntime, pane_id: usize) -> Result<Session
         .ok_or_else(|| anyhow::anyhow!("next-core session {pane_id} not found"))
 }
 
+#[cfg(test)]
 pub(super) fn clone_base(state: &NextCoreRuntime, pane_id: usize) -> Result<SessionSnapshot> {
     Ok(session_registry::session(state, pane_id)?.snapshot.clone())
 }
 
 pub(super) fn clone_base_current(pane_id: usize) -> Result<SessionSnapshot> {
-    runtime::with_current(|state| clone_base(state, pane_id))
+    runtime::with_session(pane_id, |session| Ok(session.snapshot.clone()))
 }
 
 fn snapshot(session: &mut NextCoreSession) -> (SessionSnapshot, Option<String>) {
