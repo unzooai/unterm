@@ -38,6 +38,7 @@ mod recording_markdown;
 mod recording_text;
 mod render_state;
 mod screen_state;
+mod screen_text;
 mod sgr;
 mod terminal_parser;
 mod terminal_queries;
@@ -2227,20 +2228,6 @@ impl NextCoreEngine {
         terminal_queries::answer_with_pending(chunk, screen, writer, pending);
     }
 
-    fn output_lines(output: &str) -> Vec<String> {
-        output
-            .replace("\r\n", "\n")
-            .replace('\r', "\n")
-            .lines()
-            .map(|line| line.trim_end().to_string())
-            .collect()
-    }
-
-    fn tail_lines(lines: &[String], limit: usize) -> Vec<String> {
-        let start = lines.len().saturating_sub(limit);
-        lines[start..].to_vec()
-    }
-
     #[allow(dead_code)]
     fn paste_payload(text: &str, bracketed: bool) -> String {
         input_pipeline::paste_payload(text, bracketed)
@@ -2627,7 +2614,7 @@ impl ScreenEngine for NextCoreEngine {
             .into_iter()
             .filter(|line| !line.is_empty())
             .collect::<Vec<_>>();
-        let lines = Self::tail_lines(&lines, limit);
+        let lines = screen_text::tail_lines(&lines, limit);
         self.mark_screen_read_for_pane(pane_id, started_at.elapsed())?;
         Ok(lines)
     }
@@ -2642,27 +2629,18 @@ impl ScreenEngine for NextCoreEngine {
         let raw_lines;
         let line_count;
         if request.escapes {
-            raw_lines = Some(Self::output_lines(&self.output(pane_id)?));
+            raw_lines = Some(screen_text::output_lines(&self.output(pane_id)?));
             line_count = raw_lines.as_ref().map_or(0, Vec::len);
         } else {
             raw_lines = None;
             line_count = self.screen_line_count(pane_id)?;
         }
-        let end = request
-            .end_line
-            .map(|end| end.max(0) as usize)
-            .unwrap_or(line_count)
-            .min(line_count);
-        let mut start = request
-            .start_line
-            .map(|start| start.max(0) as usize)
-            .unwrap_or(0)
-            .min(end);
-        if let Some(tail) = request.tail_lines {
-            if tail > 0 {
-                start = start.max(end.saturating_sub(tail as usize));
-            }
-        }
+        let (start, end) = screen_text::bounded_range(
+            line_count,
+            request.start_line,
+            request.end_line,
+            request.tail_lines,
+        );
 
         let selected = if let Some(lines) = raw_lines {
             lines[start..end].to_vec()
@@ -2740,21 +2718,12 @@ impl ScreenEngine for NextCoreEngine {
 
         let screen = screen.lock();
         let line_count = screen.history_len();
-        let end = request
-            .end_line
-            .map(|end| end.max(0) as usize)
-            .unwrap_or(line_count)
-            .min(line_count);
-        let mut start = request
-            .start_line
-            .map(|start| start.max(0) as usize)
-            .unwrap_or(0)
-            .min(end);
-        if let Some(tail) = request.tail_lines {
-            if tail > 0 {
-                start = start.max(end.saturating_sub(tail as usize));
-            }
-        }
+        let (start, end) = screen_text::bounded_range(
+            line_count,
+            request.start_line,
+            request.end_line,
+            request.tail_lines,
+        );
         let count = end.saturating_sub(start);
         let snapshot = StyledScrollbackSnapshot {
             lines: screen.styled_history_range(start, count),
