@@ -1,22 +1,13 @@
 use super::{
     command::{RuntimeCommand, RuntimeCommandClass},
-    input_executor,
-    queue::RuntimeQueueRejection,
-    screen_executor, with_current_mut,
+    consumer::{self, RuntimeConsumerLane},
+    input_executor, screen_executor,
 };
 use crate::{
     CursorSnapshot, RenderFrameSnapshot, ScreenLine, ScreenSearchMatch, ScreenSnapshot,
     ScrollbackTextRequest, ScrollbackTextSnapshot, StyledScreenSnapshot, StyledScrollbackSnapshot,
 };
-use anyhow::{anyhow, bail, Result};
-
-fn enqueue(command: RuntimeCommand) -> Result<(), RuntimeQueueRejection> {
-    with_current_mut(|state| state.command_queue.enqueue(command))
-}
-
-fn dequeue() -> Option<RuntimeCommand> {
-    with_current_mut(|state| state.command_queue.dequeue())
-}
+use anyhow::{bail, Result};
 
 pub(in crate::next_core) fn submit_input(command: RuntimeCommand) -> Result<()> {
     if command.class() != RuntimeCommandClass::Input {
@@ -26,8 +17,7 @@ pub(in crate::next_core) fn submit_input(command: RuntimeCommand) -> Result<()> 
         );
     }
 
-    enqueue(command).map_err(|err| anyhow!("runtime input queue rejected command: {err:?}"))?;
-    let command = dequeue().ok_or_else(|| anyhow!("runtime input queue lost enqueued command"))?;
+    let command = consumer::consume_sync(command, RuntimeConsumerLane::Input)?;
     input_executor::execute(command)
 }
 
@@ -39,36 +29,31 @@ pub(in crate::next_core) fn read_render_frame(
         pane_id,
         since_revision,
     };
-    enqueue(command).map_err(|err| anyhow!("runtime render queue rejected command: {err:?}"))?;
-    let command = dequeue().ok_or_else(|| anyhow!("runtime render queue lost enqueued command"))?;
+    let command = consumer::consume_sync(command, RuntimeConsumerLane::Render)?;
     screen_executor::execute_render_frame(command)
 }
 
 pub(in crate::next_core) fn scroll_viewport_to(pane_id: usize, target: isize) -> Result<()> {
     let command = RuntimeCommand::ScrollViewport { pane_id, target };
-    enqueue(command).map_err(|err| anyhow!("runtime screen queue rejected command: {err:?}"))?;
-    let command = dequeue().ok_or_else(|| anyhow!("runtime screen queue lost enqueued command"))?;
+    let command = consumer::consume_sync(command, RuntimeConsumerLane::Screen)?;
     screen_executor::execute_screen_mutation(command)
 }
 
 pub(in crate::next_core) fn read_screen(pane_id: usize) -> Result<ScreenSnapshot> {
     let command = RuntimeCommand::ReadScreen { pane_id };
-    enqueue(command).map_err(|err| anyhow!("runtime screen queue rejected command: {err:?}"))?;
-    let command = dequeue().ok_or_else(|| anyhow!("runtime screen queue lost enqueued command"))?;
+    let command = consumer::consume_sync(command, RuntimeConsumerLane::Screen)?;
     screen_executor::execute_screen(command)
 }
 
 pub(in crate::next_core) fn read_styled_screen(pane_id: usize) -> Result<StyledScreenSnapshot> {
     let command = RuntimeCommand::ReadStyledScreen { pane_id };
-    enqueue(command).map_err(|err| anyhow!("runtime screen queue rejected command: {err:?}"))?;
-    let command = dequeue().ok_or_else(|| anyhow!("runtime screen queue lost enqueued command"))?;
+    let command = consumer::consume_sync(command, RuntimeConsumerLane::Screen)?;
     screen_executor::execute_styled_screen(command)
 }
 
 pub(in crate::next_core) fn read_visible_text(pane_id: usize) -> Result<String> {
     let command = RuntimeCommand::ReadVisibleText { pane_id };
-    enqueue(command).map_err(|err| anyhow!("runtime screen queue rejected command: {err:?}"))?;
-    let command = dequeue().ok_or_else(|| anyhow!("runtime screen queue lost enqueued command"))?;
+    let command = consumer::consume_sync(command, RuntimeConsumerLane::Screen)?;
     screen_executor::execute_visible_text(command)
 }
 
@@ -82,15 +67,13 @@ pub(in crate::next_core) fn read_lines(
         start,
         count,
     };
-    enqueue(command).map_err(|err| anyhow!("runtime screen queue rejected command: {err:?}"))?;
-    let command = dequeue().ok_or_else(|| anyhow!("runtime screen queue lost enqueued command"))?;
+    let command = consumer::consume_sync(command, RuntimeConsumerLane::Screen)?;
     screen_executor::execute_lines(command)
 }
 
 pub(in crate::next_core) fn read_scrollback(pane_id: usize, limit: usize) -> Result<Vec<String>> {
     let command = RuntimeCommand::ReadScrollback { pane_id, limit };
-    enqueue(command).map_err(|err| anyhow!("runtime screen queue rejected command: {err:?}"))?;
-    let command = dequeue().ok_or_else(|| anyhow!("runtime screen queue lost enqueued command"))?;
+    let command = consumer::consume_sync(command, RuntimeConsumerLane::Screen)?;
     screen_executor::execute_scrollback(command)
 }
 
@@ -99,8 +82,7 @@ pub(in crate::next_core) fn read_scrollback_text(
     request: ScrollbackTextRequest,
 ) -> Result<ScrollbackTextSnapshot> {
     let command = RuntimeCommand::ReadScrollbackText { pane_id, request };
-    enqueue(command).map_err(|err| anyhow!("runtime screen queue rejected command: {err:?}"))?;
-    let command = dequeue().ok_or_else(|| anyhow!("runtime screen queue lost enqueued command"))?;
+    let command = consumer::consume_sync(command, RuntimeConsumerLane::Screen)?;
     screen_executor::execute_scrollback_text(command)
 }
 
@@ -109,8 +91,7 @@ pub(in crate::next_core) fn read_styled_scrollback(
     request: ScrollbackTextRequest,
 ) -> Result<StyledScrollbackSnapshot> {
     let command = RuntimeCommand::ReadStyledScrollback { pane_id, request };
-    enqueue(command).map_err(|err| anyhow!("runtime screen queue rejected command: {err:?}"))?;
-    let command = dequeue().ok_or_else(|| anyhow!("runtime screen queue lost enqueued command"))?;
+    let command = consumer::consume_sync(command, RuntimeConsumerLane::Screen)?;
     screen_executor::execute_styled_scrollback(command)
 }
 
@@ -124,15 +105,13 @@ pub(in crate::next_core) fn search_screen(
         pattern: pattern.to_string(),
         max_results,
     };
-    enqueue(command).map_err(|err| anyhow!("runtime screen queue rejected command: {err:?}"))?;
-    let command = dequeue().ok_or_else(|| anyhow!("runtime screen queue lost enqueued command"))?;
+    let command = consumer::consume_sync(command, RuntimeConsumerLane::Screen)?;
     screen_executor::execute_search(command)
 }
 
 pub(in crate::next_core) fn cursor(pane_id: usize) -> Result<CursorSnapshot> {
     let command = RuntimeCommand::Cursor { pane_id };
-    enqueue(command).map_err(|err| anyhow!("runtime screen queue rejected command: {err:?}"))?;
-    let command = dequeue().ok_or_else(|| anyhow!("runtime screen queue lost enqueued command"))?;
+    let command = consumer::consume_sync(command, RuntimeConsumerLane::Screen)?;
     screen_executor::execute_cursor(command)
 }
 
@@ -140,7 +119,8 @@ pub(in crate::next_core) fn cursor(pane_id: usize) -> Result<CursorSnapshot> {
 mod tests {
     use super::*;
     use crate::next_core::runtime::{
-        command::RuntimeQueuePolicy, queue::RuntimeQueueStats, test_facade, with_current,
+        command::RuntimeQueuePolicy, consumer, queue::RuntimeQueueStats, test_facade, with_current,
+        with_current_mut,
     };
 
     fn queue_stats() -> RuntimeQueueStats {
@@ -338,20 +318,19 @@ mod tests {
                 });
         });
 
-        let err = enqueue(RuntimeCommand::PasteInput {
-            pane_id: 1,
-            text: "abc".to_string(),
-        })
+        let err = consumer::consume_sync(
+            RuntimeCommand::PasteInput {
+                pane_id: 1,
+                text: "abc".to_string(),
+            },
+            RuntimeConsumerLane::Input,
+        )
         .expect_err("input larger than budget should be rejected");
 
-        assert_eq!(
-            err,
-            RuntimeQueueRejection::InputBackpressure {
-                pending_input_bytes: 0,
-                command_input_bytes: 3,
-                max_pending_input_bytes: 2,
-            }
-        );
+        assert!(err
+            .to_string()
+            .contains("runtime input queue rejected command"));
+        assert!(err.to_string().contains("InputBackpressure"));
         assert_eq!(queue_stats().rejected_input_bytes, 3);
     }
 }
