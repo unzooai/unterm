@@ -8,6 +8,19 @@ pub(super) fn next_session_id(state: &mut NextCoreState) -> usize {
     id
 }
 
+pub(super) fn pane_count(state: &NextCoreState) -> usize {
+    state.sessions.len()
+}
+
+pub(super) fn for_each_session_mut(
+    state: &mut NextCoreState,
+    mut visit: impl FnMut(&mut NextCoreSession),
+) {
+    for session in &mut state.sessions {
+        visit(session);
+    }
+}
+
 pub(super) fn set_active(state: &mut NextCoreState, pane_id: usize) {
     for session in &mut state.sessions {
         session.snapshot.is_active = session.snapshot.id == pane_id;
@@ -92,6 +105,13 @@ mod tests {
 
         assert_eq!(next_session_id(&mut state), 1);
         assert_eq!(next_session_id(&mut state), 2);
+    }
+
+    #[test]
+    fn pane_count_reports_empty_registry() {
+        let state = NextCoreState::default();
+
+        assert_eq!(pane_count(&state), 0);
     }
 
     #[test]

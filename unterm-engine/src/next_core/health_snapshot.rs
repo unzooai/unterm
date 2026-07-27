@@ -1,4 +1,4 @@
-use super::{activity::SessionIoActivity, lifecycle, state, NextCoreState};
+use super::{activity::SessionIoActivity, lifecycle, session_registry, state, NextCoreState};
 use crate::{EngineHealthSnapshot, EngineIoHealthSnapshot, EngineLifecycleHealthSnapshot};
 
 pub(super) fn current() -> EngineHealthSnapshot {
@@ -7,7 +7,7 @@ pub(super) fn current() -> EngineHealthSnapshot {
 }
 
 pub(super) fn snapshot(state: &mut NextCoreState) -> EngineHealthSnapshot {
-    let pane_count = state.sessions.len();
+    let pane_count = session_registry::pane_count(state);
     let mut io = EngineIoHealthSnapshot {
         input_writes: 0,
         input_bytes: 0,
@@ -20,7 +20,7 @@ pub(super) fn snapshot(state: &mut NextCoreState) -> EngineHealthSnapshot {
     };
     let mut dead_reasons = Vec::new();
     let mut dead_sessions = 0u64;
-    for session in &mut state.sessions {
+    session_registry::for_each_session_mut(state, |session| {
         if let Some(reason) = lifecycle::refresh_liveness(session) {
             dead_reasons.push(reason);
         }
@@ -28,7 +28,7 @@ pub(super) fn snapshot(state: &mut NextCoreState) -> EngineHealthSnapshot {
             dead_sessions = dead_sessions.saturating_add(1);
         }
         add_activity_io(&mut io, &session.activity.lock());
-    }
+    });
     for reason in dead_reasons {
         lifecycle::record_dead_reason(state, reason);
     }
