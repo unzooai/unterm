@@ -309,6 +309,7 @@ struct NextCoreScreen {
     synchronized_output: bool,
     origin_mode: bool,
     insert_mode: bool,
+    left_right_margin_mode: bool,
     tab_stops: BTreeSet<usize>,
     bracketed_paste: bool,
     current_attr: CellAttributes,
@@ -321,6 +322,8 @@ struct NextCoreScreen {
     rows: usize,
     scroll_top: usize,
     scroll_bottom: usize,
+    left_margin: usize,
+    right_margin: usize,
     saved_cursor_x: usize,
     saved_cursor_y: usize,
     alternate: Option<ScreenState>,
@@ -353,11 +356,14 @@ struct ScreenState {
     synchronized_output: bool,
     origin_mode: bool,
     insert_mode: bool,
+    left_right_margin_mode: bool,
     tab_stops: BTreeSet<usize>,
     bracketed_paste: bool,
     current_attr: CellAttributes,
     scroll_top: usize,
     scroll_bottom: usize,
+    left_margin: usize,
+    right_margin: usize,
     saved_cursor_x: usize,
     saved_cursor_y: usize,
 }
@@ -511,6 +517,7 @@ impl NextCoreScreen {
         };
         screen.tab_stops = Self::default_tab_stops(screen.cols);
         screen.scroll_bottom = screen.rows - 1;
+        screen.right_margin = screen.cols - 1;
         screen.ensure_cursor_line();
         screen
     }
@@ -738,13 +745,16 @@ impl NextCoreScreen {
     fn put_cell(&mut self, cell: ScreenCell) {
         let width = cell.width;
         let attr = cell.attr;
-        if self.cursor_x >= self.cols || self.cursor_x + width > self.cols {
+        let left_margin = self.active_left_margin();
+        let right_margin = self.active_right_margin();
+        if self.cursor_x > right_margin || self.cursor_x + width - 1 > right_margin {
             if self.auto_wrap {
                 self.newline();
+                self.cursor_x = left_margin;
                 self.ensure_cursor_line();
                 self.mark_dirty_row(self.cursor_y);
             } else {
-                self.cursor_x = self.cols.saturating_sub(width.min(self.cols));
+                self.cursor_x = right_margin.saturating_sub(width.saturating_sub(1));
             }
         }
         {
@@ -938,6 +948,24 @@ impl NextCoreScreen {
         self.bracketed_paste = enabled;
     }
 
+    fn active_left_margin(&self) -> usize {
+        if self.left_right_margin_mode {
+            self.left_margin.min(self.cols.saturating_sub(1))
+        } else {
+            0
+        }
+    }
+
+    fn active_right_margin(&self) -> usize {
+        if self.left_right_margin_mode {
+            self.right_margin
+                .min(self.cols.saturating_sub(1))
+                .max(self.active_left_margin())
+        } else {
+            self.cols.saturating_sub(1)
+        }
+    }
+
     fn set_origin_mode(&mut self, enabled: bool) {
         self.origin_mode = enabled;
         self.set_cursor_position(0, 0);
@@ -958,7 +986,9 @@ impl NextCoreScreen {
     fn set_cursor(&mut self, row: usize, col: usize) {
         self.mark_dirty_row(self.cursor_y);
         self.cursor_y = row.min(self.rows.saturating_sub(1));
-        self.cursor_x = col.min(self.cols.saturating_sub(1));
+        self.cursor_x = col
+            .max(self.active_left_margin())
+            .min(self.active_right_margin());
         self.ensure_cursor_line();
         self.mark_dirty_row(self.cursor_y);
     }
@@ -971,6 +1001,11 @@ impl NextCoreScreen {
                 .min(self.rows.saturating_sub(1))
         } else {
             row.min(self.rows.saturating_sub(1))
+        };
+        let col = if self.origin_mode && self.left_right_margin_mode {
+            self.active_left_margin().saturating_add(col)
+        } else {
+            col
         };
         self.set_cursor(row, col);
     }
@@ -990,12 +1025,15 @@ impl NextCoreScreen {
 
     fn move_cursor_right(&mut self, count: usize) {
         self.mark_dirty_row(self.cursor_y);
-        self.cursor_x = (self.cursor_x + count).min(self.cols.saturating_sub(1));
+        self.cursor_x = (self.cursor_x + count).min(self.active_right_margin());
     }
 
     fn move_cursor_left(&mut self, count: usize) {
         self.mark_dirty_row(self.cursor_y);
-        self.cursor_x = self.cursor_x.saturating_sub(count);
+        self.cursor_x = self
+            .cursor_x
+            .saturating_sub(count)
+            .max(self.active_left_margin());
     }
 
     fn cursor_next_line(&mut self, count: usize) {
@@ -1009,6 +1047,11 @@ impl NextCoreScreen {
     }
 
     fn set_horizontal_position(&mut self, col: usize) {
+        let col = if self.origin_mode && self.left_right_margin_mode {
+            self.active_left_margin().saturating_add(col)
+        } else {
+            col
+        };
         self.set_cursor(self.cursor_y, col);
     }
 
@@ -1051,6 +1094,7 @@ impl NextCoreScreen {
         }
         self.current_attr = CellAttributes::default();
         self.insert_mode = false;
+        self.left_right_margin_mode = false;
         self.origin_mode = false;
         self.auto_wrap = true;
         self.reverse_video = false;
@@ -1071,6 +1115,8 @@ impl NextCoreScreen {
         self.tab_stops = Self::default_tab_stops(self.cols);
         self.scroll_top = 0;
         self.scroll_bottom = self.rows.saturating_sub(1);
+        self.left_margin = 0;
+        self.right_margin = self.cols.saturating_sub(1);
         self.saved_cursor_x = 0;
         self.saved_cursor_y = 0;
         if let Some(alternate) = self.alternate.as_mut() {
@@ -1146,6 +1192,11 @@ impl NextCoreScreen {
 
     fn insert_chars(&mut self, count: usize) {
         self.ensure_cursor_line();
+        let right_margin = if self.left_right_margin_mode {
+            self.right_margin.min(self.cols.saturating_sub(1))
+        } else {
+            self.cols.saturating_sub(1)
+        };
         let line = &mut self.lines[self.cursor_y];
         if self.cursor_x > line.len() {
             line.resize(
@@ -1154,11 +1205,11 @@ impl NextCoreScreen {
             );
         }
         for _ in 0..count.max(1) {
-            if self.cursor_x < self.cols {
+            if self.cursor_x <= right_margin {
                 line.insert(self.cursor_x, ScreenCell::blank(self.current_attr));
             }
-            if line.len() > self.cols {
-                line.truncate(self.cols);
+            if line.len() > right_margin + 1 {
+                line.remove(right_margin + 1);
             }
         }
         self.mark_dirty_row(self.cursor_y);
@@ -1166,20 +1217,25 @@ impl NextCoreScreen {
 
     fn delete_chars(&mut self, count: usize) {
         self.ensure_cursor_line();
-        let line = &mut self.lines[self.cursor_y];
         let count = count.max(1);
-        let blanks = if self.cursor_x < self.cols {
-            count.min(self.cols - self.cursor_x)
+        let right_margin = if self.left_right_margin_mode {
+            self.right_margin.min(self.cols.saturating_sub(1))
+        } else {
+            self.cols.saturating_sub(1)
+        };
+        let blanks = if self.cursor_x <= right_margin {
+            count.min(right_margin + 1 - self.cursor_x)
         } else {
             0
         };
+        let line = &mut self.lines[self.cursor_y];
         for _ in 0..count {
-            if self.cursor_x < line.len() {
+            if self.cursor_x < line.len() && self.cursor_x <= right_margin {
                 line.remove(self.cursor_x);
             }
         }
         if blanks > 0 {
-            let desired_len = (line.len() + blanks).min(self.cols);
+            let desired_len = (line.len() + blanks).min(right_margin + 1);
             line.resize(desired_len, ScreenCell::blank(self.current_attr));
         }
         self.mark_dirty_row(self.cursor_y);
@@ -1187,8 +1243,11 @@ impl NextCoreScreen {
 
     fn erase_chars(&mut self, count: usize) {
         self.ensure_cursor_line();
+        let end = self
+            .cursor_x
+            .saturating_add(count.max(1))
+            .min(self.active_right_margin() + 1);
         let line = &mut self.lines[self.cursor_y];
-        let end = self.cursor_x.saturating_add(count.max(1)).min(self.cols);
         if line.len() < end {
             line.resize(end, ScreenCell::blank(self.current_attr));
         }
@@ -1564,6 +1623,20 @@ impl NextCoreScreen {
         self.mark_all_dirty();
     }
 
+    fn set_horizontal_margins(&mut self, left: usize, right: usize) {
+        let left = left.min(self.cols.saturating_sub(1));
+        let right = right.min(self.cols.saturating_sub(1));
+        if left >= right {
+            self.left_margin = 0;
+            self.right_margin = self.cols.saturating_sub(1);
+        } else {
+            self.left_margin = left;
+            self.right_margin = right;
+        }
+        self.set_cursor_position(0, 0);
+        self.mark_all_dirty();
+    }
+
     fn resize(&mut self, cols: usize, rows: usize) {
         self.cols = cols.max(1);
         self.rows = rows.max(1);
@@ -1601,6 +1674,12 @@ impl NextCoreScreen {
             self.scroll_top = 0;
             self.scroll_bottom = self.rows.saturating_sub(1);
         }
+        self.left_margin = self.left_margin.min(self.cols.saturating_sub(1));
+        self.right_margin = self.right_margin.min(self.cols.saturating_sub(1));
+        if self.left_margin >= self.right_margin {
+            self.left_margin = 0;
+            self.right_margin = self.cols.saturating_sub(1);
+        }
         self.ensure_cursor_line();
     }
 
@@ -1616,6 +1695,9 @@ impl NextCoreScreen {
         self.saved_cursor_y = 0;
         self.scroll_top = 0;
         self.scroll_bottom = self.rows.saturating_sub(1);
+        self.left_right_margin_mode = false;
+        self.left_margin = 0;
+        self.right_margin = self.cols.saturating_sub(1);
         self.tab_stops = Self::default_tab_stops(self.cols);
         self.ensure_cursor_line();
         self.mark_all_dirty();
@@ -1666,11 +1748,14 @@ impl NextCoreScreen {
             synchronized_output: self.synchronized_output,
             origin_mode: self.origin_mode,
             insert_mode: self.insert_mode,
+            left_right_margin_mode: self.left_right_margin_mode,
             tab_stops: std::mem::take(&mut self.tab_stops),
             bracketed_paste: self.bracketed_paste,
             current_attr: self.current_attr,
             scroll_top: self.scroll_top,
             scroll_bottom: self.scroll_bottom,
+            left_margin: self.left_margin,
+            right_margin: self.right_margin,
             saved_cursor_x: self.saved_cursor_x,
             saved_cursor_y: self.saved_cursor_y,
         };
@@ -1695,10 +1780,13 @@ impl NextCoreScreen {
         self.synchronized_output = false;
         self.origin_mode = false;
         self.insert_mode = false;
+        self.left_right_margin_mode = false;
         self.tab_stops = Self::default_tab_stops(self.cols);
         self.bracketed_paste = false;
         self.scroll_top = 0;
         self.scroll_bottom = self.rows.saturating_sub(1);
+        self.left_margin = 0;
+        self.right_margin = self.cols.saturating_sub(1);
         self.lines.clear();
         self.ensure_cursor_line();
         self.mark_all_dirty();
@@ -1730,11 +1818,14 @@ impl NextCoreScreen {
             self.synchronized_output = main.synchronized_output;
             self.origin_mode = main.origin_mode;
             self.insert_mode = main.insert_mode;
+            self.left_right_margin_mode = main.left_right_margin_mode;
             self.tab_stops = main.tab_stops;
             self.bracketed_paste = main.bracketed_paste;
             self.current_attr = main.current_attr;
             self.scroll_top = main.scroll_top;
             self.scroll_bottom = main.scroll_bottom;
+            self.left_margin = main.left_margin;
+            self.right_margin = main.right_margin;
             self.saved_cursor_x = main.saved_cursor_x;
             self.saved_cursor_y = main.saved_cursor_y;
             if self.lines.len() > self.rows {
@@ -1970,7 +2061,20 @@ impl<'a> ScreenParser<'a> {
                         .set_cursor_shape(numbers.first().copied().unwrap_or(0));
                 }
             }
-            's' => self.screen.save_cursor(),
+            's' => {
+                if !private && self.screen.left_right_margin_mode && numbers.len() >= 2 {
+                    let left = numbers.first().copied().filter(|n| *n > 0).unwrap_or(1);
+                    let right = numbers
+                        .get(1)
+                        .copied()
+                        .filter(|n| *n > 0)
+                        .unwrap_or(self.screen.cols);
+                    self.screen
+                        .set_horizontal_margins(left.saturating_sub(1), right.saturating_sub(1));
+                } else {
+                    self.screen.save_cursor();
+                }
+            }
             'u' => self.screen.restore_cursor(),
             't' => self.handle_window_operation(&numbers),
             'r' => {
@@ -2006,6 +2110,7 @@ impl<'a> ScreenParser<'a> {
                                 self.screen.mark_dirty_row(self.screen.cursor_y);
                             }
                             66 => self.screen.application_keypad = true,
+                            69 => self.screen.left_right_margin_mode = true,
                             1000 => self.screen.mouse_tracking = MouseTrackingMode::X10,
                             1002 => self.screen.mouse_tracking = MouseTrackingMode::ButtonEvent,
                             1003 => self.screen.mouse_tracking = MouseTrackingMode::AnyEvent,
@@ -2048,6 +2153,11 @@ impl<'a> ScreenParser<'a> {
                                 self.screen.mark_dirty_row(self.screen.cursor_y);
                             }
                             66 => self.screen.application_keypad = false,
+                            69 => {
+                                self.screen.left_right_margin_mode = false;
+                                self.screen
+                                    .set_horizontal_margins(0, self.screen.cols.saturating_sub(1));
+                            }
                             1000 => {
                                 if self.screen.mouse_tracking == MouseTrackingMode::X10 {
                                     self.screen.mouse_tracking = MouseTrackingMode::None;
@@ -3626,6 +3736,15 @@ impl NextCoreEngine {
                     .as_bytes(),
                 );
                 idx += "\x1b[?66$p".len();
+            } else if rest.starts_with("\x1b[?69$p") {
+                response.extend_from_slice(
+                    format!(
+                        "\x1b[?69;{}$y",
+                        Self::mode_report_state(screen.left_right_margin_mode)
+                    )
+                    .as_bytes(),
+                );
+                idx += "\x1b[?69$p".len();
             } else if rest.starts_with("\x1b[?1000$p") {
                 response.extend_from_slice(
                     format!(
@@ -4830,7 +4949,7 @@ mod tests {
         let _guard = test_guard();
         let mut screen = NextCoreScreen::new(80, 10);
         screen.feed(
-            "\x1b[?1047h\x1b[?3h\x1b[?1h\x1b[?5h\x1b[?6h\x1b[?12l\x1b[?25l\x1b[?66h\x1b[?1002h\x1b[?1004h\x1b[?1005h\x1b[?1006h\x1b[?1007h\x1b[?1015h\x1b[?1016h\x1b[?1034h\x1b[?2004h\x1b[?2026h\x1b[4h",
+            "\x1b[?1047h\x1b[?3h\x1b[?1h\x1b[?5h\x1b[?6h\x1b[?12l\x1b[?25l\x1b[?66h\x1b[?69h\x1b[?1002h\x1b[?1004h\x1b[?1005h\x1b[?1006h\x1b[?1007h\x1b[?1015h\x1b[?1016h\x1b[?1034h\x1b[?2004h\x1b[?2026h\x1b[4h",
         );
         let bytes = Arc::new(Mutex::new(Vec::new()));
         let writer: Arc<Mutex<Box<dyn Write + Send>>> =
@@ -4839,14 +4958,14 @@ mod tests {
             })));
 
         NextCoreEngine::answer_terminal_queries(
-            "\x1b[?1$p\x1b[?3$p\x1b[?5$p\x1b[?6$p\x1b[?7$p\x1b[?12$p\x1b[?25$p\x1b[?66$p\x1b[?1000$p\x1b[?1002$p\x1b[?1003$p\x1b[?1004$p\x1b[?1005$p\x1b[?1006$p\x1b[?1007$p\x1b[?1015$p\x1b[?1016$p\x1b[?1034$p\x1b[?47$p\x1b[?1047$p\x1b[?1049$p\x1b[?2004$p\x1b[?2026$p\x1b[4$p",
+            "\x1b[?1$p\x1b[?3$p\x1b[?5$p\x1b[?6$p\x1b[?7$p\x1b[?12$p\x1b[?25$p\x1b[?66$p\x1b[?69$p\x1b[?1000$p\x1b[?1002$p\x1b[?1003$p\x1b[?1004$p\x1b[?1005$p\x1b[?1006$p\x1b[?1007$p\x1b[?1015$p\x1b[?1016$p\x1b[?1034$p\x1b[?47$p\x1b[?1047$p\x1b[?1049$p\x1b[?2004$p\x1b[?2026$p\x1b[4$p",
             &screen,
             &writer,
         );
 
         assert_eq!(
             bytes.lock().as_slice(),
-            b"\x1b[?1;1$y\x1b[?3;1$y\x1b[?5;1$y\x1b[?6;1$y\x1b[?7;1$y\x1b[?12;2$y\x1b[?25;2$y\x1b[?66;1$y\x1b[?1000;2$y\x1b[?1002;1$y\x1b[?1003;2$y\x1b[?1004;1$y\x1b[?1005;1$y\x1b[?1006;1$y\x1b[?1007;1$y\x1b[?1015;1$y\x1b[?1016;1$y\x1b[?1034;1$y\x1b[?47;1$y\x1b[?1047;1$y\x1b[?1049;1$y\x1b[?2004;1$y\x1b[?2026;1$y\x1b[4;1$y"
+            b"\x1b[?1;1$y\x1b[?3;1$y\x1b[?5;1$y\x1b[?6;1$y\x1b[?7;1$y\x1b[?12;2$y\x1b[?25;2$y\x1b[?66;1$y\x1b[?69;1$y\x1b[?1000;2$y\x1b[?1002;1$y\x1b[?1003;2$y\x1b[?1004;1$y\x1b[?1005;1$y\x1b[?1006;1$y\x1b[?1007;1$y\x1b[?1015;1$y\x1b[?1016;1$y\x1b[?1034;1$y\x1b[?47;1$y\x1b[?1047;1$y\x1b[?1049;1$y\x1b[?2004;1$y\x1b[?2026;1$y\x1b[4;1$y"
         );
     }
 
@@ -4861,14 +4980,14 @@ mod tests {
             })));
 
         NextCoreEngine::answer_terminal_queries(
-            "\x1b[?1$p\x1b[?3$p\x1b[?5$p\x1b[?6$p\x1b[?12$p\x1b[?66$p\x1b[?1000$p\x1b[?1002$p\x1b[?1003$p\x1b[?1004$p\x1b[?1005$p\x1b[?1006$p\x1b[?1007$p\x1b[?1015$p\x1b[?1016$p\x1b[?1034$p\x1b[?47$p\x1b[?1047$p\x1b[?1049$p\x1b[?2004$p\x1b[?2026$p\x1b[4$p",
+            "\x1b[?1$p\x1b[?3$p\x1b[?5$p\x1b[?6$p\x1b[?12$p\x1b[?66$p\x1b[?69$p\x1b[?1000$p\x1b[?1002$p\x1b[?1003$p\x1b[?1004$p\x1b[?1005$p\x1b[?1006$p\x1b[?1007$p\x1b[?1015$p\x1b[?1016$p\x1b[?1034$p\x1b[?47$p\x1b[?1047$p\x1b[?1049$p\x1b[?2004$p\x1b[?2026$p\x1b[4$p",
             &screen,
             &writer,
         );
 
         assert_eq!(
             bytes.lock().as_slice(),
-            b"\x1b[?1;2$y\x1b[?3;2$y\x1b[?5;2$y\x1b[?6;2$y\x1b[?12;1$y\x1b[?66;2$y\x1b[?1000;2$y\x1b[?1002;2$y\x1b[?1003;2$y\x1b[?1004;2$y\x1b[?1005;2$y\x1b[?1006;2$y\x1b[?1007;2$y\x1b[?1015;2$y\x1b[?1016;2$y\x1b[?1034;2$y\x1b[?47;2$y\x1b[?1047;2$y\x1b[?1049;2$y\x1b[?2004;2$y\x1b[?2026;2$y\x1b[4;2$y"
+            b"\x1b[?1;2$y\x1b[?3;2$y\x1b[?5;2$y\x1b[?6;2$y\x1b[?12;1$y\x1b[?66;2$y\x1b[?69;2$y\x1b[?1000;2$y\x1b[?1002;2$y\x1b[?1003;2$y\x1b[?1004;2$y\x1b[?1005;2$y\x1b[?1006;2$y\x1b[?1007;2$y\x1b[?1015;2$y\x1b[?1016;2$y\x1b[?1034;2$y\x1b[?47;2$y\x1b[?1047;2$y\x1b[?1049;2$y\x1b[?2004;2$y\x1b[?2026;2$y\x1b[4;2$y"
         );
     }
 
@@ -7314,6 +7433,34 @@ mod tests {
         assert_eq!(narrow.cursor.x, 6);
         assert_eq!(narrow.cursor.y, 0);
         assert_eq!(narrow.lines, vec!["narrow"]);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_honors_left_right_margins() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 10,
+            rows: 4,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(
+            session.id,
+            "\x1b[?69h\x1b[3;6s\x1b[1;6HAB\x1b[?69l\x1b[1;1HC",
+        )?;
+        let screen = engine.read_screen(session.id)?;
+
+        assert_eq!(screen.lines, vec!["C    A", "  B"]);
+        assert_eq!(screen.cursor.x, 1);
+        assert_eq!(screen.cursor.y, 0);
 
         engine.destroy_session(session.id)?;
         Ok(())
