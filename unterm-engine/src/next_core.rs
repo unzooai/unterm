@@ -1761,26 +1761,6 @@ impl NextCoreEngine {
         session_runtime::pty_size(cols, rows)
     }
 
-    #[cfg(test)]
-    fn answer_terminal_queries(
-        chunk: &str,
-        screen: &NextCoreScreen,
-        writer: &Arc<Mutex<Box<dyn Write + Send>>>,
-    ) {
-        let mut pending = String::new();
-        Self::answer_terminal_queries_with_pending(chunk, screen, writer, &mut pending);
-    }
-
-    #[cfg(test)]
-    fn answer_terminal_queries_with_pending(
-        chunk: &str,
-        screen: &NextCoreScreen,
-        writer: &Arc<Mutex<Box<dyn Write + Send>>>,
-        pending: &mut String,
-    ) {
-        terminal_queries::answer_with_pending(chunk, screen, writer, pending);
-    }
-
     #[allow(dead_code)]
     fn paste_payload(text: &str, bracketed: bool) -> String {
         input_pipeline::paste_payload(text, bracketed)
@@ -1980,6 +1960,24 @@ mod tests {
         }
     }
 
+    fn answer_terminal_queries(
+        chunk: &str,
+        screen: &NextCoreScreen,
+        writer: &Arc<Mutex<Box<dyn Write + Send>>>,
+    ) {
+        let mut pending = String::new();
+        answer_terminal_queries_with_pending(chunk, screen, writer, &mut pending);
+    }
+
+    fn answer_terminal_queries_with_pending(
+        chunk: &str,
+        screen: &NextCoreScreen,
+        writer: &Arc<Mutex<Box<dyn Write + Send>>>,
+        pending: &mut String,
+    ) {
+        terminal_queries::answer_with_pending(chunk, screen, writer, pending);
+    }
+
     fn test_guard() -> MutexGuard<'static, ()> {
         static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         TEST_LOCK.get_or_init(|| Mutex::new(())).lock()
@@ -2011,7 +2009,7 @@ mod tests {
                 bytes: Arc::clone(&bytes),
             })));
 
-        NextCoreEngine::answer_terminal_queries("\x1b[6n", &screen, &writer);
+        answer_terminal_queries("\x1b[6n", &screen, &writer);
 
         assert_eq!(bytes.lock().as_slice(), b"\x1b[3;5R");
     }
@@ -2027,7 +2025,7 @@ mod tests {
                 bytes: Arc::clone(&bytes),
             })));
 
-        NextCoreEngine::answer_terminal_queries("\x1b[?6n", &screen, &writer);
+        answer_terminal_queries("\x1b[?6n", &screen, &writer);
 
         assert_eq!(bytes.lock().as_slice(), b"\x1b[?3;5R");
     }
@@ -2042,7 +2040,7 @@ mod tests {
                 bytes: Arc::clone(&bytes),
             })));
 
-        NextCoreEngine::answer_terminal_queries("\x1b[5n", &screen, &writer);
+        answer_terminal_queries("\x1b[5n", &screen, &writer);
 
         assert_eq!(bytes.lock().as_slice(), b"\x1b[0n");
     }
@@ -2057,7 +2055,7 @@ mod tests {
                 bytes: Arc::clone(&bytes),
             })));
 
-        NextCoreEngine::answer_terminal_queries("\x1b[18t", &screen, &writer);
+        answer_terminal_queries("\x1b[18t", &screen, &writer);
 
         assert_eq!(bytes.lock().as_slice(), b"\x1b[8;43;132t");
     }
@@ -2072,7 +2070,7 @@ mod tests {
                 bytes: Arc::clone(&bytes),
             })));
 
-        NextCoreEngine::answer_terminal_queries("\x1b[14t", &screen, &writer);
+        answer_terminal_queries("\x1b[14t", &screen, &writer);
 
         assert_eq!(bytes.lock().as_slice(), b"\x1b[4;688;1056t");
     }
@@ -2090,7 +2088,7 @@ mod tests {
                 bytes: Arc::clone(&bytes),
             })));
 
-        NextCoreEngine::answer_terminal_queries(
+        answer_terminal_queries(
             "\x1b[?1$p\x1b[?3$p\x1b[?5$p\x1b[?6$p\x1b[?7$p\x1b[?12$p\x1b[?25$p\x1b[?66$p\x1b[?69$p\x1b[?1000$p\x1b[?1002$p\x1b[?1003$p\x1b[?1004$p\x1b[?1005$p\x1b[?1006$p\x1b[?1007$p\x1b[?1015$p\x1b[?1016$p\x1b[?1034$p\x1b[?47$p\x1b[?1047$p\x1b[?1049$p\x1b[?2004$p\x1b[?2026$p\x1b[4$p",
             &screen,
             &writer,
@@ -2112,7 +2110,7 @@ mod tests {
                 bytes: Arc::clone(&bytes),
             })));
 
-        NextCoreEngine::answer_terminal_queries(
+        answer_terminal_queries(
             "\x1b[?1$p\x1b[?3$p\x1b[?5$p\x1b[?6$p\x1b[?12$p\x1b[?66$p\x1b[?69$p\x1b[?1000$p\x1b[?1002$p\x1b[?1003$p\x1b[?1004$p\x1b[?1005$p\x1b[?1006$p\x1b[?1007$p\x1b[?1015$p\x1b[?1016$p\x1b[?1034$p\x1b[?47$p\x1b[?1047$p\x1b[?1049$p\x1b[?2004$p\x1b[?2026$p\x1b[4$p",
             &screen,
             &writer,
@@ -2135,11 +2133,7 @@ mod tests {
                 bytes: Arc::clone(&bytes),
             })));
 
-        NextCoreEngine::answer_terminal_queries(
-            "\x1b[?47$p\x1b[?1047$p\x1b[?1049$p",
-            &screen,
-            &writer,
-        );
+        answer_terminal_queries("\x1b[?47$p\x1b[?1047$p\x1b[?1049$p", &screen, &writer);
 
         assert_eq!(
             bytes.lock().as_slice(),
@@ -2159,7 +2153,7 @@ mod tests {
                 bytes: Arc::clone(&bytes),
             })));
 
-        NextCoreEngine::answer_terminal_queries(
+        answer_terminal_queries(
             "\x1b[5n\x1b[?1$p\x1b[?6n\x1b[14t\x1b[18t\x1b[6n\x1b[>c\x1b[c",
             &screen,
             &writer,
@@ -2182,7 +2176,7 @@ mod tests {
                 bytes: Arc::clone(&bytes),
             })));
 
-        NextCoreEngine::answer_terminal_queries("x\x1b[c\x1b[6ny\x1b[5n\x1b[>0c", &screen, &writer);
+        answer_terminal_queries("x\x1b[c\x1b[6ny\x1b[5n\x1b[>0c", &screen, &writer);
 
         assert_eq!(
             bytes.lock().as_slice(),
@@ -2203,35 +2197,15 @@ mod tests {
             })));
         let mut pending = String::new();
 
-        NextCoreEngine::answer_terminal_queries_with_pending(
-            "x\x1b[?",
-            &screen,
-            &writer,
-            &mut pending,
-        );
+        answer_terminal_queries_with_pending("x\x1b[?", &screen, &writer, &mut pending);
         assert_eq!(bytes.lock().as_slice(), b"");
         assert_eq!(pending, "\x1b[?");
 
-        NextCoreEngine::answer_terminal_queries_with_pending(
-            "1$p y\x1b[",
-            &screen,
-            &writer,
-            &mut pending,
-        );
-        NextCoreEngine::answer_terminal_queries_with_pending("6", &screen, &writer, &mut pending);
-        NextCoreEngine::answer_terminal_queries_with_pending(
-            "n\x1b[>0",
-            &screen,
-            &writer,
-            &mut pending,
-        );
-        NextCoreEngine::answer_terminal_queries_with_pending(
-            "c\x1b[4",
-            &screen,
-            &writer,
-            &mut pending,
-        );
-        NextCoreEngine::answer_terminal_queries_with_pending("$p", &screen, &writer, &mut pending);
+        answer_terminal_queries_with_pending("1$p y\x1b[", &screen, &writer, &mut pending);
+        answer_terminal_queries_with_pending("6", &screen, &writer, &mut pending);
+        answer_terminal_queries_with_pending("n\x1b[>0", &screen, &writer, &mut pending);
+        answer_terminal_queries_with_pending("c\x1b[4", &screen, &writer, &mut pending);
+        answer_terminal_queries_with_pending("$p", &screen, &writer, &mut pending);
 
         assert_eq!(
             bytes.lock().as_slice(),
@@ -2251,7 +2225,7 @@ mod tests {
             })));
         let mut pending = String::new();
 
-        NextCoreEngine::answer_terminal_queries_with_pending(
+        answer_terminal_queries_with_pending(
             &format!(
                 "\x1b[{}",
                 "1".repeat(terminal_queries::MAX_PENDING_TERMINAL_QUERY_BYTES + 1)
@@ -2275,7 +2249,7 @@ mod tests {
                 bytes: Arc::clone(&bytes),
             })));
 
-        NextCoreEngine::answer_terminal_queries("\x1b[c", &screen, &writer);
+        answer_terminal_queries("\x1b[c", &screen, &writer);
 
         assert_eq!(bytes.lock().as_slice(), b"\x1b[?64;1;2;6;9;15;18;21;22c");
     }
@@ -2290,7 +2264,7 @@ mod tests {
                 bytes: Arc::clone(&bytes),
             })));
 
-        NextCoreEngine::answer_terminal_queries("\x1b[0c", &screen, &writer);
+        answer_terminal_queries("\x1b[0c", &screen, &writer);
 
         assert_eq!(bytes.lock().as_slice(), b"\x1b[?64;1;2;6;9;15;18;21;22c");
     }
@@ -2305,7 +2279,7 @@ mod tests {
                 bytes: Arc::clone(&bytes),
             })));
 
-        NextCoreEngine::answer_terminal_queries("\x1b[>c", &screen, &writer);
+        answer_terminal_queries("\x1b[>c", &screen, &writer);
 
         assert_eq!(bytes.lock().as_slice(), b"\x1b[>0;0;0c");
     }
@@ -2320,7 +2294,7 @@ mod tests {
                 bytes: Arc::clone(&bytes),
             })));
 
-        NextCoreEngine::answer_terminal_queries("\x1b[>0c", &screen, &writer);
+        answer_terminal_queries("\x1b[>0c", &screen, &writer);
 
         assert_eq!(bytes.lock().as_slice(), b"\x1b[>0;0;0c");
     }
