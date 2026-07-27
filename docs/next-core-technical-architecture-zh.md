@@ -218,6 +218,7 @@ next-core 已经在 screen/parser 方向具备基础能力，包括：
 - `wezterm-gui/src/engine/mod.rs` 的 `CurrentTerminalEngine` 已 re-export render contract 类型，并显式转发 `read_render_frame`、`read_render_draw_plan`、`read_render_commit_plan`，未来真实 GUI renderer 可以经 engine-neutral facade 消费 next-core commit plan
 - `wezterm-gui/src/engine/render_consumer.rs` 已提供 `EngineRenderConsumer`，把 pane id、cell metrics、submitted revision state 和 commit batch 读取封装为 renderer-side 对象；真实 wgpu backend 后续只替换提交到 GPU 的部分
 - `wezterm-gui/src/engine/render_backend.rs` 已提供 GPU-free `CommandListRenderBackend`，将 damage/background/text/cursor submission 展开为稳定顺序的 backend command list，为后续 wgpu command encoder 接入固定输入契约
+- `EngineRenderBufferPlan` 已将 backend command 转为 damage rects、quad vertices 和 indices，先固定 GPU buffer preparation contract，再接真实 wgpu device/swapchain/font atlas
 - JSON probe smoke 已输出并校验 render draw/geometry/submission/commit plan 的 revision、run/quad counts、viewport、damage rects、cursor state 和首帧 full-repaint state，让 renderer 输入契约进入 CI 可见面
 - benchmark 已覆盖 input write、key-to-screen、input burst under output、echo、paste、output flood、scrollback paging、viewport scroll、screen-read under flood、render-frame empty/dirty/cursor-move delta、render draw plan、render geometry plan、render submission plan、render commit plan API、focus/session lifecycle
 - zero-width combining marks attach to preceding visible cells without advancing cursor position

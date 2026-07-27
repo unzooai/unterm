@@ -37,12 +37,132 @@ pub struct EngineRenderBackendFrame {
     pub commands: Vec<EngineRenderBackendCommand>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
+pub enum EngineRenderVertexLayer {
+    Background,
+    Text,
+    Cursor,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[allow(dead_code)]
+pub struct EngineRenderVertex {
+    pub position: [f32; 2],
+    pub layer: EngineRenderVertexLayer,
+    pub command_index: u32,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+#[allow(dead_code)]
+pub struct EngineRenderBufferPlan {
+    pub pane_id: usize,
+    pub submitted: bool,
+    pub revision: u64,
+    pub requires_full_repaint: bool,
+    pub damage_rects: Vec<RenderRect>,
+    pub vertices: Vec<EngineRenderVertex>,
+    pub indices: Vec<u32>,
+}
+
+#[allow(dead_code)]
+impl EngineRenderBufferPlan {
+    pub fn from_frame(frame: &EngineRenderBackendFrame) -> Self {
+        let mut damage_rects = Vec::new();
+        let mut vertices = Vec::new();
+        let mut indices = Vec::new();
+
+        for (command_index, command) in frame.commands.iter().enumerate() {
+            match command {
+                EngineRenderBackendCommand::Damage(rect) => damage_rects.push(*rect),
+                EngineRenderBackendCommand::Background { rect, .. } => {
+                    push_quad_vertices(
+                        &mut vertices,
+                        &mut indices,
+                        *rect,
+                        EngineRenderVertexLayer::Background,
+                        command_index,
+                    );
+                }
+                EngineRenderBackendCommand::Text { rect, .. } => {
+                    push_quad_vertices(
+                        &mut vertices,
+                        &mut indices,
+                        *rect,
+                        EngineRenderVertexLayer::Text,
+                        command_index,
+                    );
+                }
+                EngineRenderBackendCommand::Cursor { rect, .. } => {
+                    push_quad_vertices(
+                        &mut vertices,
+                        &mut indices,
+                        *rect,
+                        EngineRenderVertexLayer::Cursor,
+                        command_index,
+                    );
+                }
+            }
+        }
+
+        Self {
+            pane_id: frame.pane_id,
+            submitted: frame.submitted,
+            revision: frame.revision,
+            requires_full_repaint: frame.requires_full_repaint,
+            damage_rects,
+            vertices,
+            indices,
+        }
+    }
+}
+
 #[allow(dead_code)]
 pub trait EngineRenderBackend {
     fn submit(
         &mut self,
         batch: &EngineRenderCommitBatch,
     ) -> anyhow::Result<EngineRenderBackendFrame>;
+}
+
+#[allow(dead_code)]
+fn push_quad_vertices(
+    vertices: &mut Vec<EngineRenderVertex>,
+    indices: &mut Vec<u32>,
+    rect: RenderRect,
+    layer: EngineRenderVertexLayer,
+    command_index: usize,
+) {
+    let base = vertices.len() as u32;
+    let left = rect.x as f32;
+    let top = rect.y as f32;
+    let right = rect.x.saturating_add(rect.width) as f32;
+    let bottom = rect.y.saturating_add(rect.height) as f32;
+    let command_index = command_index as u32;
+
+    vertices.extend([
+        EngineRenderVertex {
+            position: [left, top],
+            layer,
+            command_index,
+        },
+        EngineRenderVertex {
+            position: [right, top],
+            layer,
+            command_index,
+        },
+        EngineRenderVertex {
+            position: [left, bottom],
+            layer,
+            command_index,
+        },
+        EngineRenderVertex {
+            position: [right, bottom],
+            layer,
+            command_index,
+        },
+    ]);
+    indices.extend([base, base + 1, base + 2, base + 1, base + 2, base + 3]);
 }
 
 #[derive(Clone, Debug, Default)]

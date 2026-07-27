@@ -15,7 +15,7 @@ use window::WindowOps;
 #[allow(unused_imports)]
 pub use render_backend::{
     CommandListRenderBackend, EngineRenderBackend, EngineRenderBackendCommand,
-    EngineRenderBackendFrame,
+    EngineRenderBackendFrame, EngineRenderBufferPlan, EngineRenderVertexLayer,
 };
 #[allow(unused_imports)]
 pub use render_consumer::{EngineRenderCommitBatch, EngineRenderCommitStats, EngineRenderConsumer};
@@ -189,8 +189,8 @@ mod tests {
     use super::{
         next_core, selected_engine_name_from_env, CommandListRenderBackend, CreateSessionRequest,
         CurrentTerminalEngine, EngineRenderBackend, EngineRenderBackendCommand,
-        EngineRenderConsumer, LaunchPolicySnapshot, RenderCellMetrics, RenderConsumerState,
-        ScreenEngine, SessionEngine,
+        EngineRenderBufferPlan, EngineRenderConsumer, EngineRenderVertexLayer,
+        LaunchPolicySnapshot, RenderCellMetrics, RenderConsumerState, ScreenEngine, SessionEngine,
     };
 
     #[test]
@@ -330,6 +330,19 @@ mod tests {
             .commands
             .iter()
             .any(|command| matches!(command, EngineRenderBackendCommand::Background { .. })));
+        let buffer_plan = EngineRenderBufferPlan::from_frame(&frame);
+        assert_eq!(buffer_plan.pane_id, session.id);
+        assert_eq!(
+            buffer_plan.damage_rects.len(),
+            first.stats.damage_rect_count
+        );
+        assert_eq!(buffer_plan.vertices.len() % 4, 0);
+        assert_eq!(buffer_plan.indices.len() % 6, 0);
+        assert_eq!(&buffer_plan.indices[0..6], &[0, 1, 2, 1, 2, 3]);
+        assert!(buffer_plan
+            .vertices
+            .iter()
+            .any(|vertex| vertex.layer == EngineRenderVertexLayer::Background));
 
         let repeat = consumer
             .read_commit(&engine)
@@ -337,8 +350,11 @@ mod tests {
         let skipped = backend
             .submit(&repeat)
             .expect("prepare repeated backend frame");
+        let skipped_buffer = EngineRenderBufferPlan::from_frame(&skipped);
         assert!(!skipped.submitted);
         assert!(skipped.commands.is_empty());
+        assert!(skipped_buffer.vertices.is_empty());
+        assert!(skipped_buffer.indices.is_empty());
         engine
             .destroy_session(session.id)
             .expect("destroy next-core test session");

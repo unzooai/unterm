@@ -63,6 +63,7 @@ Current covered operations:
 - GUI `CurrentTerminalEngine` facade re-exports render contract types and explicitly dispatches `read_render_frame`, `read_render_draw_plan`, and `read_render_commit_plan`, so a future renderer can consume next-core commits through engine traits instead of reaching into next-core internals
 - GUI `EngineRenderConsumer` keeps renderer-side pane metrics and submitted revision state, reads commit batches through `ScreenEngine`, and skips repeated next-core revisions before a real GPU backend is attached
 - GUI `CommandListRenderBackend` expands submitted damage/background/text/cursor plans into ordered backend commands, fixing the future wgpu submission contract without requiring a GPU device in tests
+- GUI `EngineRenderBufferPlan` converts backend commands into damage rects plus quad vertex/index buffers, giving the future wgpu backend a stable buffer-preparation contract before device/swapchain integration
 - engine readiness and next-core aggregate I/O health counters
 - next-core terminal status, cursor-position, DEC private cursor-position, text-area-size, headless window-pixel-size, mode-report, and primary/secondary device-attribute query responses, including parameterized DA forms, through the PTY writer in input order
 
