@@ -309,6 +309,7 @@ struct NextCoreScreen {
     current_attr: CellAttributes,
     hyperlinks: Vec<String>,
     title: Option<String>,
+    title_stack: Vec<Option<String>>,
     current_dir: Option<String>,
     revision: u64,
     dirty_rows: Option<DirtyRows>,
@@ -910,6 +911,16 @@ impl NextCoreScreen {
         }
         .to_string();
         self.mark_dirty_row(self.cursor_y);
+    }
+
+    fn push_title(&mut self) {
+        self.title_stack.push(self.title.clone());
+    }
+
+    fn pop_title(&mut self) {
+        if let Some(title) = self.title_stack.pop() {
+            self.title = title;
+        }
     }
 
     fn set_bracketed_paste(&mut self, enabled: bool) {
@@ -1915,6 +1926,7 @@ impl<'a> ScreenParser<'a> {
             }
             's' => self.screen.save_cursor(),
             'u' => self.screen.restore_cursor(),
+            't' => self.handle_window_operation(&numbers),
             'r' => {
                 let top = numbers.first().copied().filter(|n| *n > 0).unwrap_or(1);
                 let bottom = numbers
@@ -2005,6 +2017,16 @@ impl<'a> ScreenParser<'a> {
                     }
                 }
             }
+            _ => {}
+        }
+    }
+
+    fn handle_window_operation(&mut self, numbers: &[usize]) {
+        let op = numbers.first().copied().unwrap_or(0);
+        let target = numbers.get(1).copied().unwrap_or(0);
+        match (op, target) {
+            (22, 0 | 2) => self.screen.push_title(),
+            (23, 0 | 2) => self.screen.pop_title(),
             _ => {}
         }
     }
@@ -5945,6 +5967,32 @@ mod tests {
         assert_eq!(engine.read_visible_text(session.id)?, "beforeafter");
         assert_eq!(engine.get_session(session.id)?.title, "Codex Pane");
         assert_eq!(engine.list_sessions()?[0].title, "Codex Pane");
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_applies_title_stack_window_operations() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 24,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(
+            session.id,
+            "pre\x1b]2;Original\x07\x1b[22;0t\x1b]2;Temporary\x1b\\mid\x1b[22;2t\x1b]2;Nested\x07\x1b[23;2t\x1b[23;0tpost",
+        )?;
+
+        assert_eq!(engine.read_visible_text(session.id)?, "premidpost");
+        assert_eq!(engine.get_session(session.id)?.title, "Original");
 
         engine.destroy_session(session.id)?;
         Ok(())
