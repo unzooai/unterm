@@ -43,6 +43,7 @@ mod screen_snapshot;
 mod screen_state;
 mod screen_text;
 mod session_activity;
+mod session_creation;
 mod session_handles;
 mod session_registry;
 mod session_runtime;
@@ -1948,18 +1949,6 @@ impl NextCoreEngine {
         session_runtime::pty_size(cols, rows)
     }
 
-    fn spawn_session(
-        id: usize,
-        title: String,
-        cols: usize,
-        rows: usize,
-        command: portable_pty::CommandBuilder,
-        cwd: Option<String>,
-        launch_env_keys: Vec<String>,
-    ) -> Result<NextCoreSession> {
-        session_runtime::spawn(id, title, cols, rows, command, cwd, launch_env_keys)
-    }
-
     #[cfg(test)]
     fn answer_terminal_queries(
         chunk: &str,
@@ -2003,70 +1992,11 @@ impl SessionEngine for NextCoreEngine {
     }
 
     fn create_session(&self, request: CreateSessionRequest) -> Result<SessionSnapshot> {
-        let launch_env_keys = request.env.iter().map(|(key, _)| key.clone()).collect();
-        let launch_context = launch::launch_context(&request.env, &request.launch_policy);
-        let (command, cwd) =
-            launch::prepare_command(request.command, request.command_dir, request.env);
-        let mut state_guard = state().write();
-        let id = session_registry::next_session_id(&mut state_guard);
-        drop(state_guard);
-
-        let session = Self::spawn_session(
-            id,
-            format!("next-core:{id}"),
-            request.cols,
-            request.rows,
-            command,
-            cwd,
-            launch_env_keys,
-        )?;
-
-        let mut snapshot = session.snapshot.clone();
-        snapshot.shell.launch_context = launch_context.clone();
-        let mut session = session;
-        session.snapshot.shell.launch_context = launch_context;
-        let mut state_guard = state().write();
-        session_registry::insert_created(&mut state_guard, session);
-        Ok(snapshot)
+        session_creation::create(request)
     }
 
     fn split_session(&self, request: SplitSessionRequest) -> Result<SessionSnapshot> {
-        let state_guard = state().read();
-        let source = state_guard
-            .sessions
-            .iter()
-            .find(|session| session.snapshot.id == request.source_pane_id)
-            .map(|session| session.snapshot.clone());
-        drop(state_guard);
-        let Some(source) = source else {
-            bail!("next-core session {} not found", request.source_pane_id);
-        };
-
-        let mut command = portable_pty::CommandBuilder::new_default_prog();
-        if let Some(cwd) = request.command_dir.or(source.shell.cwd) {
-            command.cwd(cwd);
-        }
-        let cwd = launch::command_cwd(&command, None);
-        let launch_env_keys = Vec::new();
-
-        let mut state_guard = state().write();
-        let id = session_registry::next_session_id(&mut state_guard);
-        drop(state_guard);
-
-        let session = Self::spawn_session(
-            id,
-            format!("next-core:{id}"),
-            source.cols,
-            source.rows,
-            command,
-            cwd,
-            launch_env_keys,
-        )?;
-
-        let snapshot = session.snapshot.clone();
-        let mut state_guard = state().write();
-        session_registry::insert_created(&mut state_guard, session);
-        Ok(snapshot)
+        session_creation::split(request)
     }
 
     fn focus_session(&self, pane_id: usize) -> Result<()> {
