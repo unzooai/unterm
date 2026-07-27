@@ -47,6 +47,28 @@ if ($summary.json_smoke.RenderFrameRevision -lt 1) {
 if ($summary.json_smoke.RenderFrameLines -lt 1) {
     throw "json smoke did not include render frame lines"
 }
+if ([string]::IsNullOrWhiteSpace($summary.json_smoke.Screen) -or $summary.json_smoke.Screen -notmatch "^(\d+)x(\d+)$") {
+    throw "json smoke did not include parseable screen dimensions: $($summary.json_smoke.Screen)"
+}
+$jsonSmokeCols = [int]$Matches[1]
+$jsonSmokeRows = [int]$Matches[2]
+if ($summary.json_smoke.RenderFrameLines -ne $jsonSmokeRows) {
+    throw "json smoke render frame lines $($summary.json_smoke.RenderFrameLines) did not match screen rows $jsonSmokeRows"
+}
+if ($summary.json_smoke.RenderFrameCols -ne $jsonSmokeCols) {
+    throw "json smoke render frame cols $($summary.json_smoke.RenderFrameCols) did not match screen cols $jsonSmokeCols"
+}
+$renderFrameCellCounts = @($summary.json_smoke.RenderFrameCellCounts)
+if ($renderFrameCellCounts.Count -ne $jsonSmokeRows) {
+    throw "json smoke render frame cell-count rows $($renderFrameCellCounts.Count) did not match screen rows $jsonSmokeRows"
+}
+$badRenderFrameCellCounts = @($renderFrameCellCounts | Where-Object { $_ -ne $jsonSmokeCols })
+if ($badRenderFrameCellCounts.Count -ne 0) {
+    throw "json smoke render frame cell counts did not all match screen cols $jsonSmokeCols`: $($renderFrameCellCounts -join ',')"
+}
+if ($summary.json_smoke.RenderFrameGridCells -ne ($jsonSmokeRows * $jsonSmokeCols)) {
+    throw "json smoke render frame grid cells $($summary.json_smoke.RenderFrameGridCells) did not match rows*cols $($jsonSmokeRows * $jsonSmokeCols)"
+}
 if ($summary.json_smoke.RenderDeltaLines -ne 0) {
     throw "json smoke unchanged render delta was not empty"
 }
