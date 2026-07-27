@@ -1,11 +1,27 @@
 use super::{
+    activity::SessionIoActivity,
     render_frame::{self, FrameSelection},
     screen_snapshot::{self, ScreenSnapshotMeta},
-    session_handles, state,
+    screen_text, session_handles, state, NextCoreScreen,
 };
-use crate::{CursorSnapshot, RenderFrameSnapshot, ScreenSnapshot, StyledScreenSnapshot};
-use anyhow::Result;
-use std::time::{Duration, Instant};
+use crate::{
+    CursorSnapshot, RenderFrameSnapshot, ScreenSnapshot, ScrollbackTextRequest,
+    ScrollbackTextSnapshot, StyledScreenSnapshot, StyledScrollbackSnapshot,
+};
+use anyhow::{bail, Result};
+use parking_lot::Mutex;
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
+
+struct ScrollbackHandles {
+    screen: Arc<Mutex<NextCoreScreen>>,
+    output: Arc<Mutex<String>>,
+    activity: Arc<Mutex<SessionIoActivity>>,
+    cols: usize,
+    rows: usize,
+}
 
 pub(super) fn read_plain_viewport(pane_id: usize) -> Result<ScreenSnapshot> {
     let started_at = Instant::now();
@@ -121,16 +137,6 @@ pub(super) fn snapshot_lines(pane_id: usize) -> Result<Vec<String>> {
     Ok(lines)
 }
 
-pub(super) fn line_count(pane_id: usize) -> Result<usize> {
-    let screen = {
-        let state = state().read();
-        session_handles::screen(&state, pane_id)?
-    };
-
-    let count = screen.lock().history_len();
-    Ok(count)
-}
-
 pub(super) fn line_text_range(pane_id: usize, start: usize, count: usize) -> Result<Vec<String>> {
     let screen = {
         let state = state().read();
@@ -155,6 +161,104 @@ pub(super) fn scrollback_lines(pane_id: usize) -> Result<Vec<String>> {
         .map(super::NextCoreScreen::line_text)
         .collect();
     Ok(lines)
+}
+
+pub(super) fn read_scrollback_text(
+    pane_id: usize,
+    request: ScrollbackTextRequest,
+) -> Result<ScrollbackTextSnapshot> {
+    let started_at = Instant::now();
+    let handles = scrollback_handles(pane_id)?;
+
+    let (selected, line_count, start, end) = if request.escapes {
+        let output = handles.output.lock();
+        let lines = screen_text::output_lines(&output);
+        let line_count = lines.len();
+        let (start, end) = screen_text::bounded_range(
+            line_count,
+            request.start_line,
+            request.end_line,
+            request.tail_lines,
+        );
+        (lines[start..end].to_vec(), line_count, start, end)
+    } else {
+        let screen = handles.screen.lock();
+        let line_count = screen.history_len();
+        let (start, end) = screen_text::bounded_range(
+            line_count,
+            request.start_line,
+            request.end_line,
+            request.tail_lines,
+        );
+        (
+            screen.history_text_range(start, end.saturating_sub(start)),
+            line_count,
+            start,
+            end,
+        )
+    };
+
+    let snapshot = ScrollbackTextSnapshot {
+        text: selected.join("\n"),
+        lines: selected,
+        first_row: start as i64,
+        row_count: end.saturating_sub(start) as i64,
+        cols: handles.cols,
+        escapes: request.escapes,
+        scrollback_top: 0,
+        physical_top: line_count.saturating_sub(handles.rows) as i64,
+        viewport_rows: handles.rows,
+    };
+    handles
+        .activity
+        .lock()
+        .mark_screen_read(started_at.elapsed());
+    Ok(snapshot)
+}
+
+pub(super) fn read_styled_scrollback(
+    pane_id: usize,
+    request: ScrollbackTextRequest,
+) -> Result<StyledScrollbackSnapshot> {
+    if request.escapes {
+        let text = read_scrollback_text(pane_id, request)?;
+        return Ok(screen_snapshot::escaped_styled_scrollback(
+            &text.lines,
+            text.first_row,
+            text.row_count,
+            text.cols,
+            text.scrollback_top,
+            text.physical_top,
+            text.viewport_rows,
+        ));
+    }
+
+    let started_at = Instant::now();
+    let handles = scrollback_handles(pane_id)?;
+    let screen = handles.screen.lock();
+    let line_count = screen.history_len();
+    let (start, end) = screen_text::bounded_range(
+        line_count,
+        request.start_line,
+        request.end_line,
+        request.tail_lines,
+    );
+    let count = end.saturating_sub(start);
+    let snapshot = StyledScrollbackSnapshot {
+        lines: screen.styled_history_range(start, count),
+        first_row: start as i64,
+        row_count: count as i64,
+        cols: handles.cols,
+        scrollback_top: 0,
+        physical_top: line_count.saturating_sub(handles.rows) as i64,
+        viewport_rows: handles.rows,
+    };
+    drop(screen);
+    handles
+        .activity
+        .lock()
+        .mark_screen_read(started_at.elapsed());
+    Ok(snapshot)
 }
 
 pub(super) fn mark_screen_read(pane_id: usize, duration: Duration) -> Result<()> {
@@ -199,6 +303,25 @@ fn meta(screen: &super::NextCoreScreen) -> ScreenSnapshotMeta {
     }
 }
 
+fn scrollback_handles(pane_id: usize) -> Result<ScrollbackHandles> {
+    let state = state().read();
+    let Some(session) = state
+        .sessions
+        .iter()
+        .find(|session| session.snapshot.id == pane_id)
+    else {
+        bail!("next-core session {pane_id} not found");
+    };
+
+    Ok(ScrollbackHandles {
+        screen: Arc::clone(&session.screen),
+        output: Arc::clone(&session.output),
+        activity: Arc::clone(&session.activity),
+        cols: session.snapshot.cols,
+        rows: session.snapshot.rows,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -217,7 +340,23 @@ mod tests {
 
     #[test]
     fn line_helpers_report_missing_session() {
-        let err = line_count(404).expect_err("missing session should fail");
+        let err = line_text_range(404, 0, 1).expect_err("missing session should fail");
+
+        assert!(err.to_string().contains("next-core session 404 not found"));
+    }
+
+    #[test]
+    fn scrollback_text_reports_missing_session() {
+        let err = read_scrollback_text(
+            404,
+            ScrollbackTextRequest {
+                start_line: None,
+                end_line: None,
+                tail_lines: None,
+                escapes: false,
+            },
+        )
+        .expect_err("missing session should fail");
 
         assert!(err.to_string().contains("next-core session 404 not found"));
     }

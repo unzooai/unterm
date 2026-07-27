@@ -1996,42 +1996,7 @@ impl ScreenEngine for NextCoreEngine {
         pane_id: usize,
         request: ScrollbackTextRequest,
     ) -> Result<ScrollbackTextSnapshot> {
-        let started_at = Instant::now();
-        let session = self.session(pane_id)?;
-        let raw_lines;
-        let line_count;
-        if request.escapes {
-            raw_lines = Some(screen_text::output_lines(&self.output(pane_id)?));
-            line_count = raw_lines.as_ref().map_or(0, Vec::len);
-        } else {
-            raw_lines = None;
-            line_count = screen_dispatch::line_count(pane_id)?;
-        }
-        let (start, end) = screen_text::bounded_range(
-            line_count,
-            request.start_line,
-            request.end_line,
-            request.tail_lines,
-        );
-
-        let selected = if let Some(lines) = raw_lines {
-            lines[start..end].to_vec()
-        } else {
-            screen_dispatch::line_text_range(pane_id, start, end.saturating_sub(start))?
-        };
-        let snapshot = ScrollbackTextSnapshot {
-            text: selected.join("\n"),
-            lines: selected,
-            first_row: start as i64,
-            row_count: end.saturating_sub(start) as i64,
-            cols: session.cols,
-            escapes: request.escapes,
-            scrollback_top: 0,
-            physical_top: line_count.saturating_sub(session.rows) as i64,
-            viewport_rows: session.rows,
-        };
-        screen_dispatch::mark_screen_read(pane_id, started_at.elapsed())?;
-        Ok(snapshot)
+        screen_dispatch::read_scrollback_text(pane_id, request)
     }
 
     fn read_styled_scrollback(
@@ -2039,47 +2004,7 @@ impl ScreenEngine for NextCoreEngine {
         pane_id: usize,
         request: ScrollbackTextRequest,
     ) -> Result<StyledScrollbackSnapshot> {
-        if request.escapes {
-            let text = self.read_scrollback_text(pane_id, request)?;
-            return Ok(screen_snapshot::escaped_styled_scrollback(
-                &text.lines,
-                text.first_row,
-                text.row_count,
-                text.cols,
-                text.scrollback_top,
-                text.physical_top,
-                text.viewport_rows,
-            ));
-        }
-
-        let started_at = Instant::now();
-        let session = self.session(pane_id)?;
-        let screen = {
-            let state = state().read();
-            session_handles::screen(&state, pane_id)?
-        };
-
-        let screen = screen.lock();
-        let line_count = screen.history_len();
-        let (start, end) = screen_text::bounded_range(
-            line_count,
-            request.start_line,
-            request.end_line,
-            request.tail_lines,
-        );
-        let count = end.saturating_sub(start);
-        let snapshot = StyledScrollbackSnapshot {
-            lines: screen.styled_history_range(start, count),
-            first_row: start as i64,
-            row_count: count as i64,
-            cols: session.cols,
-            scrollback_top: 0,
-            physical_top: line_count.saturating_sub(session.rows) as i64,
-            viewport_rows: session.rows,
-        };
-        drop(screen);
-        screen_dispatch::mark_screen_read(pane_id, started_at.elapsed())?;
-        Ok(snapshot)
+        screen_dispatch::read_styled_scrollback(pane_id, request)
     }
 
     fn search(
