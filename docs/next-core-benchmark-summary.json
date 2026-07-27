@@ -1,7 +1,7 @@
 {
     "ok":  true,
-    "generated":  "2026-07-27 11:08:03 +08:00",
-    "commit":  "b533251",
+    "generated":  "2026-07-27 11:33:51 +08:00",
+    "commit":  "b0ad801",
     "machine":  "ZHITONG-OMEN",
     "os":  "Microsoft Windows NT 10.0.26200.0",
     "binary":  "target\\debug\\unterm-next-core.exe",
@@ -26,70 +26,70 @@
     "gates":  [
                   {
                       "name":  "input write p95",
-                      "actual":  2,
+                      "actual":  1,
                       "max":  16000,
                       "unit":  "us",
                       "ok":  true
                   },
                   {
                       "name":  "input burst p95",
-                      "actual":  3,
+                      "actual":  4,
                       "max":  33000,
                       "unit":  "us",
                       "ok":  true
                   },
                   {
                       "name":  "echo p95",
-                      "actual":  5975,
+                      "actual":  5794,
                       "max":  16000,
                       "unit":  "us",
                       "ok":  true
                   },
                   {
                       "name":  "dual-agent echo p95",
-                      "actual":  5680,
+                      "actual":  5547,
                       "max":  33000,
                       "unit":  "us",
                       "ok":  true
                   },
                   {
                       "name":  "agent startup input p95",
-                      "actual":  33,
+                      "actual":  23,
                       "max":  33000,
                       "unit":  "us",
                       "ok":  true
                   },
                   {
                       "name":  "paste 10kb elapsed",
-                      "actual":  18,
+                      "actual":  27,
                       "max":  50,
                       "unit":  "ms",
                       "ok":  true
                   },
                   {
                       "name":  "scrollback page p95",
-                      "actual":  47,
+                      "actual":  74,
                       "max":  1000,
                       "unit":  "us",
                       "ok":  true
                   },
                   {
                       "name":  "viewport scroll p95",
-                      "actual":  47,
+                      "actual":  66,
                       "max":  1000,
                       "unit":  "us",
                       "ok":  true
                   },
                   {
                       "name":  "viewport scroll under flood p95",
-                      "actual":  257,
+                      "actual":  307,
                       "max":  50000,
                       "unit":  "us",
                       "ok":  true
                   },
                   {
                       "name":  "screen read under flood p95",
-                      "actual":  128,
+                      "actual":  132,
                       "max":  50000,
                       "unit":  "us",
                       "ok":  true
@@ -103,21 +103,21 @@
                   },
                   {
                       "name":  "focus switch p95",
-                      "actual":  420,
+                      "actual":  372,
                       "max":  100000,
                       "unit":  "us",
                       "ok":  true
                   },
                   {
                       "name":  "session create p95",
-                      "actual":  12081,
+                      "actual":  51952,
                       "max":  100000,
                       "unit":  "us",
                       "ok":  true
                   },
                   {
                       "name":  "session ready p95",
-                      "actual":  74215,
+                      "actual":  80283,
                       "max":  100000,
                       "unit":  "us",
                       "ok":  true
@@ -129,9 +129,9 @@
                            "exit_code":  0,
                            "args":  "--bench-input-writes 1000 --timeout-ms 120000 --wait-ms 0 --write exit\\r -- cmd.exe",
                            "summary":  [
-                                           "bench_input_write rounds=1000 bytes=3000 min_us=1 p50_us=1 p95_us=2 max_us=51 bytes_per_sec=2238806.0",
+                                           "bench_input_write rounds=1000 bytes=3000 min_us=0 p50_us=1 p95_us=1 max_us=42 bytes_per_sec=2535925.6",
                                            "session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(0, 0) raw_bytes=33",
-                                           "activity_process foreground=cmd.exe foreground_pid=33596 foreground_cwd=C:\\Users\\lixd2\\ root=cmd.exe root_pid=33596 root_cwd=C:\\Users\\lixd2\\ child_count=0 detected_agent=none",
+                                           "activity_process foreground=cmd.exe foreground_pid=79148 foreground_cwd=C:\\Users\\lixd2\\ root=cmd.exe root_pid=79148 root_cwd=C:\\Users\\lixd2\\ child_count=0 detected_agent=none",
                                            "health_io input_writes=1001 input_bytes=3005 output_chunks=3 output_bytes=33 paste_count=0 paste_text_bytes=0 screen_reads=3 viewport_scrolls=0",
                                            "health_lifecycle live_sessions=1 dead_sessions=0 total_created=1 total_destroyed=0 total_marked_dead=0 last_dead_reason=none"
                                        ]
@@ -141,10 +141,10 @@
                            "exit_code":  0,
                            "args":  "--bench-input-burst 1000 --timeout-ms 120000 --wait-ms 0 --write exit\\r -- cmd.exe",
                            "summary":  [
-                                           "bench_input_burst rounds=1000 background_sessions=2 background_lines_per_session=20000 background_bytes=2097152 background_elapsed_ms=4394 min_us=0 p50_us=1 p95_us=3 max_us=76",
+                                           "bench_input_burst rounds=1000 background_sessions=2 background_lines_per_session=20000 background_bytes=2097152 background_elapsed_ms=3366 min_us=1 p50_us=1 p95_us=4 max_us=107",
                                            "session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(19, 3) raw_bytes=255",
-                                           "activity_process foreground=cmd.exe foreground_pid=84840 foreground_cwd=none root=cmd.exe root_pid=84840 root_cwd=none child_count=0 detected_agent=none",
-                                           "health_io input_writes=1001 input_bytes=3005 output_chunks=9 output_bytes=255 paste_count=0 paste_text_bytes=0 screen_reads=3 viewport_scrolls=0",
+                                           "activity_process foreground=cmd.exe foreground_pid=77888 foreground_cwd=none root=cmd.exe root_pid=77888 root_cwd=none child_count=0 detected_agent=none",
+                                           "health_io input_writes=1001 input_bytes=3005 output_chunks=11 output_bytes=255 paste_count=0 paste_text_bytes=0 screen_reads=3 viewport_scrolls=0",
                                            "health_lifecycle live_sessions=0 dead_sessions=1 total_created=3 total_destroyed=2 total_marked_dead=3 last_dead_reason=process_exited:Success"
                                        ]
                        },
@@ -153,10 +153,10 @@
                            "exit_code":  0,
                            "args":  "--bench-echo 50 --timeout-ms 120000 --wait-ms 0 --write exit\\r -- cmd.exe",
                            "summary":  [
-                                           "bench_echo rounds=50 min_us=5152 p50_us=5495 p95_us=5975 max_us=16906",
-                                           "session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(0, 29) raw_bytes=10537",
-                                           "activity_process foreground=cmd.exe foreground_pid=28352 foreground_cwd=none root=cmd.exe root_pid=28352 root_cwd=none child_count=0 detected_agent=none",
-                                           "health_io input_writes=51 input_bytes=1655 output_chunks=363 output_bytes=10537 paste_count=0 paste_text_bytes=0 screen_reads=3 viewport_scrolls=0",
+                                           "bench_echo rounds=50 min_us=5115 p50_us=5324 p95_us=5794 max_us=16401",
+                                           "session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(0, 29) raw_bytes=10545",
+                                           "activity_process foreground=cmd.exe foreground_pid=80328 foreground_cwd=none root=cmd.exe root_pid=80328 root_cwd=none child_count=0 detected_agent=none",
+                                           "health_io input_writes=51 input_bytes=1655 output_chunks=350 output_bytes=10545 paste_count=0 paste_text_bytes=0 screen_reads=3 viewport_scrolls=0",
                                            "health_lifecycle live_sessions=0 dead_sessions=1 total_created=1 total_destroyed=0 total_marked_dead=1 last_dead_reason=process_exited:Success",
                                            "C:\\Users\\lixd2\u003eecho UNTERM_NEXT_CORE_BENCH_0041",
                                            "UNTERM_NEXT_CORE_BENCH_0041",
@@ -183,10 +183,10 @@
                            "exit_code":  0,
                            "args":  "--bench-flood-lines 100000 --timeout-ms 120000 --wait-ms 0 --write exit\\r -- cmd.exe",
                            "summary":  [
-                                           "bench_flood lines=100000 bytes=1048576 elapsed_ms=18133 lines_per_sec=5514.8 bytes_per_sec=57826.4",
+                                           "bench_flood lines=100000 bytes=1048576 elapsed_ms=25059 lines_per_sec=3990.5 bytes_per_sec=41843.9",
                                            "session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(19, 29) raw_bytes=1048576",
-                                           "activity_process foreground=cmd.exe foreground_pid=69596 foreground_cwd=none root=cmd.exe root_pid=69596 root_cwd=none child_count=0 detected_agent=none",
-                                           "health_io input_writes=3 input_bytes=108 output_chunks=80307 output_bytes=13278283 paste_count=0 paste_text_bytes=0 screen_reads=3 viewport_scrolls=0",
+                                           "activity_process foreground=cmd.exe foreground_pid=38184 foreground_cwd=none root=cmd.exe root_pid=38184 root_cwd=none child_count=0 detected_agent=none",
+                                           "health_io input_writes=3 input_bytes=108 output_chunks=133579 output_bytes=13278366 paste_count=0 paste_text_bytes=0 screen_reads=3 viewport_scrolls=0",
                                            "health_lifecycle live_sessions=0 dead_sessions=1 total_created=1 total_destroyed=0 total_marked_dead=1 last_dead_reason=process_exited:Success"
                                        ]
                        },
@@ -195,10 +195,10 @@
                            "exit_code":  0,
                            "args":  "--bench-paste-kb 10 --timeout-ms 120000 --wait-ms 0 --write exit\\r -- cmd.exe",
                            "summary":  [
-                                           "bench_paste bytes=10240 elapsed_ms=18 bytes_per_sec=549488.9",
+                                           "bench_paste bytes=10240 elapsed_ms=27 bytes_per_sec=377978.3",
                                            "session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(40, 29) raw_bytes=3600",
-                                           "activity_process foreground=cmd.exe foreground_pid=26388 foreground_cwd=none root=cmd.exe root_pid=26388 root_cwd=none child_count=0 detected_agent=none",
-                                           "health_io input_writes=3 input_bytes=10322 output_chunks=14 output_bytes=3600 paste_count=1 paste_text_bytes=10241 screen_reads=3 viewport_scrolls=0",
+                                           "activity_process foreground=cmd.exe foreground_pid=41748 foreground_cwd=none root=cmd.exe root_pid=41748 root_cwd=none child_count=0 detected_agent=none",
+                                           "health_io input_writes=3 input_bytes=10322 output_chunks=12 output_bytes=3273 paste_count=1 paste_text_bytes=10241 screen_reads=3 viewport_scrolls=0",
                                            "health_lifecycle live_sessions=0 dead_sessions=1 total_created=1 total_destroyed=0 total_marked_dead=1 last_dead_reason=process_exited:Success"
                                        ]
                        },
@@ -207,11 +207,11 @@
                            "exit_code":  0,
                            "args":  "--bench-scrollback-lines 10000 --timeout-ms 120000 --wait-ms 0 --write exit\\r -- cmd.exe",
                            "summary":  [
-                                           "bench_flood lines=10000 bytes=1048576 elapsed_ms=1151 lines_per_sec=8680.9 bytes_per_sec=910263.1",
-                                           "bench_scrollback lines=10000 pages=334 rows_read=10020 total_ms=11 min_us=29 p50_us=31 p95_us=47 max_us=188",
-                                           "session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(19, 29) raw_bytes=1048576",
-                                           "activity_process foreground=cmd.exe foreground_pid=27928 foreground_cwd=none root=cmd.exe root_pid=27928 root_cwd=none child_count=0 detected_agent=none",
-                                           "health_io input_writes=3 input_bytes=106 output_chunks=24856 output_bytes=1308360 paste_count=0 paste_text_bytes=0 screen_reads=338 viewport_scrolls=0",
+                                           "bench_flood lines=10000 bytes=1048576 elapsed_ms=1080 lines_per_sec=9259.1 bytes_per_sec=970882.3",
+                                           "bench_scrollback lines=10000 pages=334 rows_read=10020 total_ms=18 min_us=46 p50_us=50 p95_us=74 max_us=89",
+                                           "session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(0, 29) raw_bytes=1048576",
+                                           "activity_process foreground=cmd.exe foreground_pid=68752 foreground_cwd=none root=cmd.exe root_pid=68752 root_cwd=none child_count=0 detected_agent=none",
+                                           "health_io input_writes=3 input_bytes=106 output_chunks=24709 output_bytes=1308360 paste_count=0 paste_text_bytes=0 screen_reads=338 viewport_scrolls=0",
                                            "health_lifecycle live_sessions=0 dead_sessions=1 total_created=1 total_destroyed=0 total_marked_dead=1 last_dead_reason=process_exited:Success"
                                        ]
                        },
@@ -220,11 +220,11 @@
                            "exit_code":  0,
                            "args":  "--bench-viewport-scrolls 10000 --timeout-ms 120000 --wait-ms 0 --write exit\\r -- cmd.exe",
                            "summary":  [
-                                           "bench_flood lines=10000 bytes=1048576 elapsed_ms=1168 lines_per_sec=8561.3 bytes_per_sec=897717.1",
-                                           "bench_viewport_scroll lines=10000 pages=334 rows_read=10020 total_ms=12 min_us=31 p50_us=33 p95_us=47 max_us=65",
-                                           "session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(19, 29) raw_bytes=1048576",
-                                           "activity_process foreground=cmd.exe foreground_pid=75700 foreground_cwd=none root=cmd.exe root_pid=75700 root_cwd=none child_count=0 detected_agent=none",
-                                           "health_io input_writes=3 input_bytes=106 output_chunks=24906 output_bytes=1308360 paste_count=0 paste_text_bytes=0 screen_reads=338 viewport_scrolls=334",
+                                           "bench_flood lines=10000 bytes=1048576 elapsed_ms=1106 lines_per_sec=9034.0 bytes_per_sec=947286.9",
+                                           "bench_viewport_scroll lines=10000 pages=334 rows_read=10020 total_ms=18 min_us=49 p50_us=51 p95_us=66 max_us=117",
+                                           "session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(0, 29) raw_bytes=1048576",
+                                           "activity_process foreground=cmd.exe foreground_pid=61852 foreground_cwd=none root=cmd.exe root_pid=61852 root_cwd=none child_count=0 detected_agent=none",
+                                           "health_io input_writes=3 input_bytes=106 output_chunks=24734 output_bytes=1308360 paste_count=0 paste_text_bytes=0 screen_reads=338 viewport_scrolls=334",
                                            "health_lifecycle live_sessions=0 dead_sessions=1 total_created=1 total_destroyed=0 total_marked_dead=1 last_dead_reason=process_exited:Success"
                                        ]
                        },
@@ -233,10 +233,10 @@
                            "exit_code":  0,
                            "args":  "--bench-viewport-scroll-flood 5000 --timeout-ms 120000 --wait-ms 0 --write exit\\r -- cmd.exe",
                            "summary":  [
-                                           "bench_viewport_scroll_flood lines=5000 scrolls=112 rows_read=3273 total_ms=654 min_us=13 p50_us=170 p95_us=257 max_us=291",
+                                           "bench_viewport_scroll_flood lines=5000 scrolls=99 rows_read=2857 total_ms=567 min_us=17 p50_us=200 p95_us=307 max_us=391",
                                            "session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(19, 29) raw_bytes=653354",
-                                           "activity_process foreground=cmd.exe foreground_pid=49456 foreground_cwd=none root=cmd.exe root_pid=49456 root_cwd=none child_count=0 detected_agent=none",
-                                           "health_io input_writes=3 input_bytes=104 output_chunks=14679 output_bytes=653354 paste_count=0 paste_text_bytes=0 screen_reads=227 viewport_scrolls=112",
+                                           "activity_process foreground=cmd.exe foreground_pid=29772 foreground_cwd=none root=cmd.exe root_pid=29772 root_cwd=none child_count=0 detected_agent=none",
+                                           "health_io input_writes=3 input_bytes=104 output_chunks=14502 output_bytes=653354 paste_count=0 paste_text_bytes=0 screen_reads=201 viewport_scrolls=99",
                                            "health_lifecycle live_sessions=0 dead_sessions=1 total_created=1 total_destroyed=0 total_marked_dead=1 last_dead_reason=process_exited:Success"
                                        ]
                        },
@@ -245,11 +245,11 @@
                            "exit_code":  0,
                            "args":  "--bench-dual-agent-lines 5000 --timeout-ms 120000 --wait-ms 0 --write exit\\r -- cmd.exe",
                            "summary":  [
-                                           "bench_dual_agents_echo rounds=20 min_us=5109 p50_us=5436 p95_us=5680 max_us=5714",
-                                           "bench_dual_agents lines_per_agent=5000 total_bytes=1306502 elapsed_ms=767 combined_lines_per_sec=13029.6 combined_bytes_per_sec=1702317.3",
+                                           "bench_dual_agents_echo rounds=20 min_us=5061 p50_us=5238 p95_us=5547 max_us=5554",
+                                           "bench_dual_agents lines_per_agent=5000 total_bytes=1306502 elapsed_ms=757 combined_lines_per_sec=13204.7 combined_bytes_per_sec=1725191.0",
                                            "session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(19, 29) raw_bytes=4372",
-                                           "activity_process foreground=cmd.exe foreground_pid=45204 foreground_cwd=none root=cmd.exe root_pid=45204 root_cwd=none child_count=0 detected_agent=none",
-                                           "health_io input_writes=21 input_bytes=665 output_chunks=154 output_bytes=4372 paste_count=0 paste_text_bytes=0 screen_reads=3 viewport_scrolls=0",
+                                           "activity_process foreground=cmd.exe foreground_pid=64668 foreground_cwd=none root=cmd.exe root_pid=64668 root_cwd=none child_count=0 detected_agent=none",
+                                           "health_io input_writes=21 input_bytes=665 output_chunks=150 output_bytes=4372 paste_count=0 paste_text_bytes=0 screen_reads=3 viewport_scrolls=0",
                                            "health_lifecycle live_sessions=0 dead_sessions=1 total_created=3 total_destroyed=2 total_marked_dead=3 last_dead_reason=process_exited:Success",
                                            "C:\\Users\\lixd2\u003eecho UNTERM_NEXT_CORE_BENCH_0011",
                                            "UNTERM_NEXT_CORE_BENCH_0011",
@@ -276,9 +276,9 @@
                            "exit_code":  0,
                            "args":  "--bench-agent-startup-lines 5000 --timeout-ms 120000 --wait-ms 0 --write exit\\r -- cmd.exe",
                            "summary":  [
-                                           "bench_agent_startup_stall lines=5000 bytes=653251 input_writes=105 screen_reads=105 elapsed_ms=595 input_min_us=2 input_p50_us=8 input_p95_us=33 input_max_us=62 screen_read_min_us=9 screen_read_p50_us=18 screen_read_p95_us=39 screen_read_max_us=89",
+                                           "bench_agent_startup_stall lines=5000 bytes=653251 input_writes=105 screen_reads=105 elapsed_ms=584 input_min_us=4 input_p50_us=7 input_p95_us=23 input_max_us=82 screen_read_min_us=11 screen_read_p50_us=18 screen_read_p95_us=29 screen_read_max_us=49",
                                            "session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(19, 3) raw_bytes=255",
-                                           "activity_process foreground=cmd.exe foreground_pid=85092 foreground_cwd=none root=cmd.exe root_pid=85092 root_cwd=none child_count=0 detected_agent=none",
+                                           "activity_process foreground=cmd.exe foreground_pid=24096 foreground_cwd=none root=cmd.exe root_pid=24096 root_cwd=none child_count=0 detected_agent=none",
                                            "health_io input_writes=106 input_bytes=320 output_chunks=11 output_bytes=255 paste_count=0 paste_text_bytes=0 screen_reads=108 viewport_scrolls=0",
                                            "health_lifecycle live_sessions=0 dead_sessions=1 total_created=2 total_destroyed=1 total_marked_dead=2 last_dead_reason=process_exited:Success"
                                        ]
@@ -288,10 +288,10 @@
                            "exit_code":  0,
                            "args":  "--bench-screen-read-lines 5000 --timeout-ms 120000 --wait-ms 0 --write exit\\r -- cmd.exe",
                            "summary":  [
-                                           "bench_screen_read_flood lines=5000 reads=117 total_ms=677 min_us=19 p50_us=76 p95_us=128 max_us=240 text_bytes=88100",
+                                           "bench_screen_read_flood lines=5000 reads=100 total_ms=564 min_us=16 p50_us=82 p95_us=132 max_us=281 text_bytes=75280",
                                            "session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(19, 29) raw_bytes=653354",
-                                           "activity_process foreground=cmd.exe foreground_pid=2956 foreground_cwd=none root=cmd.exe root_pid=2956 root_cwd=none child_count=0 detected_agent=none",
-                                           "health_io input_writes=3 input_bytes=104 output_chunks=14715 output_bytes=653354 paste_count=0 paste_text_bytes=0 screen_reads=120 viewport_scrolls=0",
+                                           "activity_process foreground=cmd.exe foreground_pid=5728 foreground_cwd=none root=cmd.exe root_pid=5728 root_cwd=none child_count=0 detected_agent=none",
+                                           "health_io input_writes=3 input_bytes=104 output_chunks=14648 output_bytes=653354 paste_count=0 paste_text_bytes=0 screen_reads=103 viewport_scrolls=0",
                                            "health_lifecycle live_sessions=0 dead_sessions=1 total_created=1 total_destroyed=0 total_marked_dead=1 last_dead_reason=process_exited:Success"
                                        ]
                        },
@@ -300,9 +300,9 @@
                            "exit_code":  0,
                            "args":  "--bench-render-frames 1000 --timeout-ms 120000 --wait-ms 0 --write exit\\r -- cmd.exe",
                            "summary":  [
-                                           "bench_render_frame rounds=1000 full_us=95 full_lines=30 empty_deltas=1000 min_us=0 p50_us=0 p95_us=0 max_us=0",
-                                           "session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(19, 29) raw_bytes=3895",
-                                           "activity_process foreground=cmd.exe foreground_pid=18256 foreground_cwd=none root=cmd.exe root_pid=18256 root_cwd=none child_count=0 detected_agent=none",
+                                           "bench_render_frame rounds=1000 full_us=86 full_lines=30 empty_deltas=1000 min_us=0 p50_us=0 p95_us=0 max_us=1",
+                                           "session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(0, 29) raw_bytes=3895",
+                                           "activity_process foreground=cmd.exe foreground_pid=87500 foreground_cwd=none root=cmd.exe root_pid=87500 root_cwd=none child_count=0 detected_agent=none",
                                            "health_io input_writes=2 input_bytes=58 output_chunks=104 output_bytes=3895 paste_count=0 paste_text_bytes=0 screen_reads=1004 viewport_scrolls=0",
                                            "health_lifecycle live_sessions=0 dead_sessions=1 total_created=1 total_destroyed=0 total_marked_dead=1 last_dead_reason=process_exited:Success",
                                            "RENDER_FRAME_BENCH_4",
@@ -339,10 +339,10 @@
                            "exit_code":  0,
                            "args":  "--bench-focus-switches 1000 --timeout-ms 120000 --wait-ms 0 --write exit\\r -- cmd.exe",
                            "summary":  [
-                                           "bench_focus_switch rounds=1000 sessions=4 min_us=206 p50_us=277 p95_us=420 max_us=20130",
+                                           "bench_focus_switch rounds=1000 sessions=4 min_us=208 p50_us=262 p95_us=372 max_us=17262",
                                            "session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(15, 3) raw_bytes=155",
-                                           "activity_process foreground=cmd.exe foreground_pid=82572 foreground_cwd=C:\\Users\\lixd2\\ root=cmd.exe root_pid=82572 root_cwd=C:\\Users\\lixd2\\ child_count=0 detected_agent=none",
-                                           "health_io input_writes=1 input_bytes=5 output_chunks=11 output_bytes=155 paste_count=0 paste_text_bytes=0 screen_reads=3 viewport_scrolls=0",
+                                           "activity_process foreground=cmd.exe foreground_pid=23220 foreground_cwd=C:\\Users\\lixd2\\ root=cmd.exe root_pid=23220 root_cwd=C:\\Users\\lixd2\\ child_count=0 detected_agent=none",
+                                           "health_io input_writes=1 input_bytes=5 output_chunks=10 output_bytes=155 paste_count=0 paste_text_bytes=0 screen_reads=3 viewport_scrolls=0",
                                            "health_lifecycle live_sessions=1 dead_sessions=0 total_created=4 total_destroyed=3 total_marked_dead=3 last_dead_reason=destroyed"
                                        ]
                        },
@@ -351,9 +351,9 @@
                            "exit_code":  0,
                            "args":  "--bench-session-create 20 --timeout-ms 120000 --wait-ms 0 --write exit\\r -- cmd.exe",
                            "summary":  [
-                                           "bench_session_create rounds=20 min_us=7195 p50_us=10072 p95_us=12081 max_us=49027",
+                                           "bench_session_create rounds=20 min_us=7690 p50_us=11102 p95_us=51952 max_us=52067",
                                            "session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(19, 3) raw_bytes=255",
-                                           "activity_process foreground=cmd.exe foreground_pid=2824 foreground_cwd=none root=cmd.exe root_pid=2824 root_cwd=none child_count=0 detected_agent=none",
+                                           "activity_process foreground=cmd.exe foreground_pid=61968 foreground_cwd=none root=cmd.exe root_pid=61968 root_cwd=none child_count=0 detected_agent=none",
                                            "health_io input_writes=1 input_bytes=5 output_chunks=13 output_bytes=255 paste_count=0 paste_text_bytes=0 screen_reads=3 viewport_scrolls=0",
                                            "health_lifecycle live_sessions=0 dead_sessions=1 total_created=21 total_destroyed=20 total_marked_dead=21 last_dead_reason=process_exited:Success"
                                        ]
@@ -363,9 +363,9 @@
                            "exit_code":  0,
                            "args":  "--bench-session-ready 20 --timeout-ms 120000 --wait-ms 0 --write exit\\r -- cmd.exe",
                            "summary":  [
-                                           "bench_session_ready rounds=20 min_us=32616 p50_us=37716 p95_us=74215 max_us=80019",
-                                           "session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(19, 3) raw_bytes=255",
-                                           "activity_process foreground=cmd.exe foreground_pid=13268 foreground_cwd=none root=cmd.exe root_pid=13268 root_cwd=none child_count=0 detected_agent=none",
+                                           "bench_session_ready rounds=20 min_us=28509 p50_us=36579 p95_us=80283 max_us=83668",
+                                           "session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(0, 4) raw_bytes=255",
+                                           "activity_process foreground=cmd.exe foreground_pid=3104 foreground_cwd=none root=cmd.exe root_pid=3104 root_cwd=none child_count=0 detected_agent=none",
                                            "health_io input_writes=1 input_bytes=5 output_chunks=11 output_bytes=255 paste_count=0 paste_text_bytes=0 screen_reads=3 viewport_scrolls=0",
                                            "health_lifecycle live_sessions=0 dead_sessions=1 total_created=21 total_destroyed=20 total_marked_dead=21 last_dead_reason=process_exited:Success"
                                        ]
