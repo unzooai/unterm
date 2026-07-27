@@ -1120,6 +1120,61 @@ mod engine_neutral_handler_tests {
     }
 
     #[test]
+    fn screen_detect_errors_uses_next_core_screen_snapshot() {
+        let _guard = env_lock().lock();
+        let previous_engine = std::env::var("UNTERM_ENGINE").ok();
+        std::env::set_var("UNTERM_ENGINE", "next-core");
+
+        let result: Result<(serde_json::Value, usize)> = (|| {
+            let handler = McpHandler::new();
+            let ctx = ConnectionContext::internal("handler-test");
+            let created = handler.handle(
+                &ctx,
+                "session.create",
+                &json!({
+                    "cols": 80,
+                    "rows": 4,
+                    "command": "echo Error: next-core-detect-errors",
+                }),
+            )?;
+            let pane_id = created["id"].as_u64().expect("session id") as usize;
+            wait_for_screen_pattern(&handler, &ctx, pane_id, "next-core-detect-errors")?;
+
+            let detect = handler.handle(
+                &ctx,
+                "screen.detect_errors",
+                &json!({
+                    "pane_id": pane_id,
+                }),
+            )?;
+            let _ = handler.handle(&ctx, "session.destroy", &json!({ "pane_id": pane_id }));
+
+            Ok((detect, pane_id))
+        })();
+
+        match previous_engine {
+            Some(value) => std::env::set_var("UNTERM_ENGINE", value),
+            None => std::env::remove_var("UNTERM_ENGINE"),
+        }
+
+        let (detect, pane_id) = result.expect("detect errors through next-core screen snapshot");
+        assert!(next_core().get_session(pane_id).is_err());
+        assert_eq!(detect["has_errors"], true);
+        let errors = detect["errors"].as_array().expect("errors array");
+        assert!(
+            errors.iter().any(|error| {
+                error["pattern"] == "Error:"
+                    && error["text"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .contains("next-core-detect-errors")
+            }),
+            "screen.detect_errors did not report next-core marker: {}",
+            detect
+        );
+    }
+
+    #[test]
     fn screen_search_goto_scrolls_next_core_logical_viewport() {
         let _guard = env_lock().lock();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
