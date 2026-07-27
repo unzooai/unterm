@@ -2,18 +2,20 @@ use crate::engine::{
     EngineRenderBufferPlan, EngineRenderFontGlyphRasterSource, EngineRenderGlyphAtlasCache,
     EngineRenderGlyphAtlasCacheUpdate, EngineRenderGlyphAtlasPlan,
     EngineRenderGlyphAtlasTextureRegion, EngineRenderGlyphAtlasTextureUpdatePlan,
-    EngineRenderGlyphRasterSource, EngineRenderGpuUploadPlan, EngineRenderTexturedGlyphUploadPlan,
-    EngineWgpuPipelineConfig, EngineWgpuRenderBackend,
+    EngineRenderGlyphRasterSource, EngineRenderGpuUploadPlan, EngineRenderTextAtlasPlan,
+    EngineRenderTexturedGlyphUploadPlan, EngineWgpuPipelineConfig, EngineWgpuRenderBackend,
 };
 use crate::quad::Vertex;
 use anyhow::anyhow;
 use config::{ConfigHandle, GpuInfo, WebGpuPowerPreference};
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{hash_map::DefaultHasher, HashMap};
+use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 use std::sync::Arc;
+use unterm_engine::{CellStyle, StyledBlink, StyledColor, StyledUnderline, StyledVerticalAlign};
 use wezterm_font::shaper::Direction;
-use wezterm_font::LoadedFont;
+use wezterm_font::{GlyphInfo, LoadedFont};
 use wgpu::util::DeviceExt;
 use window::bitmaps::Texture2d;
 use window::raw_window_handle::{
@@ -60,6 +62,7 @@ const NEXT_CORE_GLYPH_ATLAS_HEIGHT_PX: usize = 2048;
 #[derive(Debug, Default)]
 pub struct NextCoreGlyphAtlasState {
     panes: HashMap<usize, NextCorePaneGlyphAtlasState>,
+    shaped_glyph_atlases: HashMap<usize, NextCoreShapedGlyphAtlasCacheEntry>,
 }
 
 #[derive(Debug)]
@@ -67,6 +70,14 @@ struct NextCorePaneGlyphAtlasState {
     cell_width_px: usize,
     cell_height_px: usize,
     cache: EngineRenderGlyphAtlasCache,
+}
+
+#[derive(Clone, Debug)]
+struct NextCoreShapedGlyphAtlasCacheEntry {
+    revision: u64,
+    font_id: usize,
+    fingerprint: u64,
+    glyphs: EngineRenderGlyphAtlasPlan,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -408,15 +419,64 @@ impl NextCoreGlyphAtlasState {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.panes.is_empty()
+        self.panes.is_empty() && self.shaped_glyph_atlases.is_empty()
     }
 
     pub fn remove_pane(&mut self, pane_id: usize) {
         self.panes.remove(&pane_id);
+        self.shaped_glyph_atlases.remove(&pane_id);
     }
 
     pub fn clear(&mut self) {
         self.panes.clear();
+        self.shaped_glyph_atlases.clear();
+    }
+
+    pub fn prepare_shaped_glyph_atlas_with_shaper<F>(
+        &mut self,
+        text_atlas: &EngineRenderTextAtlasPlan,
+        font_id: usize,
+        mut shape_run: F,
+    ) -> Option<EngineRenderGlyphAtlasPlan>
+    where
+        F: FnMut(&str) -> Option<Vec<GlyphInfo>>,
+    {
+        if !text_atlas.submitted || text_atlas.runs.is_empty() {
+            return None;
+        }
+
+        let fingerprint = text_atlas_fingerprint(text_atlas);
+        if let Some(entry) = self.shaped_glyph_atlases.get(&text_atlas.pane_id) {
+            if entry.revision == text_atlas.revision
+                && entry.font_id == font_id
+                && entry.fingerprint == fingerprint
+            {
+                return Some(entry.glyphs.clone());
+            }
+        }
+
+        let mut shaped_runs = Vec::with_capacity(text_atlas.runs.len());
+        for run in &text_atlas.runs {
+            shaped_runs.push(shape_run(&run.text)?);
+        }
+        let shaped = EngineWgpuRenderBackend::prepare_shaped_glyph_plan_from_glyph_infos(
+            text_atlas,
+            &shaped_runs,
+        );
+        if shaped.is_empty() {
+            return None;
+        }
+        let glyphs = EngineWgpuRenderBackend::prepare_glyph_atlas_from_shaped_glyphs(&shaped);
+        self.shaped_glyph_atlases.insert(
+            text_atlas.pane_id,
+            NextCoreShapedGlyphAtlasCacheEntry {
+                revision: text_atlas.revision,
+                font_id,
+                fingerprint,
+                glyphs: glyphs.clone(),
+            },
+        );
+        Some(glyphs)
     }
 
     pub fn prepare_cached_upload(
@@ -537,6 +597,87 @@ fn infer_cell_metrics_from_buffer_plan(plan: &EngineRenderBufferPlan) -> Option<
         }
         Some(((run.rect.width / run.cells).max(1), run.rect.height.max(1)))
     })
+}
+
+fn text_atlas_fingerprint(text_atlas: &EngineRenderTextAtlasPlan) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    text_atlas.pane_id.hash(&mut hasher);
+    text_atlas.submitted.hash(&mut hasher);
+    text_atlas.revision.hash(&mut hasher);
+    text_atlas.requires_full_repaint.hash(&mut hasher);
+    text_atlas.runs.len().hash(&mut hasher);
+    for run in &text_atlas.runs {
+        run.row.hash(&mut hasher);
+        run.col.hash(&mut hasher);
+        run.cells.hash(&mut hasher);
+        run.text.hash(&mut hasher);
+        run.rect.x.hash(&mut hasher);
+        run.rect.y.hash(&mut hasher);
+        run.rect.width.hash(&mut hasher);
+        run.rect.height.hash(&mut hasher);
+        for channel in run.foreground {
+            channel.to_bits().hash(&mut hasher);
+        }
+        cell_style_fingerprint(&run.style).hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
+fn cell_style_fingerprint(style: &CellStyle) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    style.bold.hash(&mut hasher);
+    style.faint.hash(&mut hasher);
+    style.italic.hash(&mut hasher);
+    style.underline.hash(&mut hasher);
+    styled_underline_fingerprint(style.underline_style).hash(&mut hasher);
+    styled_color_fingerprint(style.underline_color).hash(&mut hasher);
+    style.strikethrough.hash(&mut hasher);
+    style.hidden.hash(&mut hasher);
+    style.overline.hash(&mut hasher);
+    styled_blink_fingerprint(style.blink).hash(&mut hasher);
+    styled_vertical_align_fingerprint(style.vertical_align).hash(&mut hasher);
+    style.inverse.hash(&mut hasher);
+    styled_color_fingerprint(style.fg).hash(&mut hasher);
+    styled_color_fingerprint(style.bg).hash(&mut hasher);
+    style.hyperlink.hash(&mut hasher);
+    hasher.finish()
+}
+
+fn styled_color_fingerprint(color: Option<StyledColor>) -> u64 {
+    match color {
+        None => 0,
+        Some(StyledColor::Palette(index)) => 0x100 | u64::from(index),
+        Some(StyledColor::Rgb(r, g, b)) => {
+            0x200 | (u64::from(r) << 16) | (u64::from(g) << 8) | u64::from(b)
+        }
+    }
+}
+
+fn styled_blink_fingerprint(blink: Option<StyledBlink>) -> u8 {
+    match blink {
+        None => 0,
+        Some(StyledBlink::Slow) => 1,
+        Some(StyledBlink::Rapid) => 2,
+    }
+}
+
+fn styled_underline_fingerprint(underline: Option<StyledUnderline>) -> u8 {
+    match underline {
+        None => 0,
+        Some(StyledUnderline::Single) => 1,
+        Some(StyledUnderline::Double) => 2,
+        Some(StyledUnderline::Curly) => 3,
+        Some(StyledUnderline::Dotted) => 4,
+        Some(StyledUnderline::Dashed) => 5,
+    }
+}
+
+fn styled_vertical_align_fingerprint(vertical_align: Option<StyledVerticalAlign>) -> u8 {
+    match vertical_align {
+        None => 0,
+        Some(StyledVerticalAlign::SuperScript) => 1,
+        Some(StyledVerticalAlign::SubScript) => 2,
+    }
 }
 
 pub fn adapter_info_to_gpu_info(info: wgpu::AdapterInfo) -> GpuInfo {
@@ -1063,34 +1204,25 @@ impl WebGpuState {
         }
         let mut textured_glyph_upload = None;
         let shaped_glyph_atlas = font.as_ref().and_then(|font| {
-            let mut shaped_runs = Vec::with_capacity(prepared.text_atlas.runs.len());
-            for run in &prepared.text_atlas.runs {
-                let glyph_infos = match font.shape(
-                    &run.text,
-                    || {},
-                    |_| {},
-                    None,
-                    Direction::LeftToRight,
-                    None,
-                    None,
-                ) {
-                    Ok(glyph_infos) => glyph_infos,
-                    Err(err) => {
-                        log::debug!("next-core font shaping skipped for {:?}: {err:#}", run.text);
-                        return None;
+            self.next_core_glyph_atlases
+                .borrow_mut()
+                .prepare_shaped_glyph_atlas_with_shaper(&prepared.text_atlas, font.id(), |text| {
+                    match font.shape(
+                        text,
+                        || {},
+                        |_| {},
+                        None,
+                        Direction::LeftToRight,
+                        None,
+                        None,
+                    ) {
+                        Ok(glyph_infos) => Some(glyph_infos),
+                        Err(err) => {
+                            log::debug!("next-core font shaping skipped for {text:?}: {err:#}");
+                            None
+                        }
                     }
-                };
-                shaped_runs.push(glyph_infos);
-            }
-            let shaped = EngineWgpuRenderBackend::prepare_shaped_glyph_plan_from_glyph_infos(
-                &prepared.text_atlas,
-                &shaped_runs,
-            );
-            if shaped.is_empty() {
-                None
-            } else {
-                Some(EngineWgpuRenderBackend::prepare_glyph_atlas_from_shaped_glyphs(&shaped))
-            }
+                })
         });
         let font_raster_source = font.map(EngineRenderFontGlyphRasterSource::new);
         let glyph_upload = if let (Some(shaped_glyph_atlas), Some(font_raster_source)) =
@@ -1302,6 +1434,38 @@ mod tests {
     }
 
     #[test]
+    fn next_core_shaped_glyph_atlas_reuses_cached_shape_for_same_font_revision() {
+        let mut state = NextCoreGlyphAtlasState::new();
+        let plan = buffer_plan_with_text(11, 3, "q", 1, 8, 16);
+        let text_atlas = EngineWgpuRenderBackend::prepare_text_atlas(&plan);
+        let mut shape_calls = 0usize;
+
+        let first = state
+            .prepare_shaped_glyph_atlas_with_shaper(&text_atlas, 700, |text| {
+                shape_calls += 1;
+                Some(vec![glyph_info(text, 0, 44, 8.0, 1)])
+            })
+            .expect("first shaped atlas");
+        let repeat = state
+            .prepare_shaped_glyph_atlas_with_shaper(&text_atlas, 700, |text| {
+                shape_calls += 1;
+                Some(vec![glyph_info(text, 0, 45, 8.0, 1)])
+            })
+            .expect("cached shaped atlas");
+        let different_font = state
+            .prepare_shaped_glyph_atlas_with_shaper(&text_atlas, 701, |text| {
+                shape_calls += 1;
+                Some(vec![glyph_info(text, 0, 46, 8.0, 1)])
+            })
+            .expect("reshaped atlas");
+
+        assert_eq!(shape_calls, 2);
+        assert_eq!(repeat, first);
+        assert_ne!(different_font, first);
+        assert_eq!(different_font.keys[0].raster_identity(), Some((0, 46)));
+    }
+
+    #[test]
     fn next_core_glyph_texture_region_validation_reports_stats() {
         let region = texture_region(0, 1, 2, 3, 4, 48);
 
@@ -1388,6 +1552,28 @@ mod tests {
             width_px,
             height_px,
             bytes_rgba: vec![0xff; byte_count],
+        }
+    }
+
+    fn glyph_info(
+        text: &str,
+        font_idx: usize,
+        glyph_pos: u32,
+        x_advance: f64,
+        num_cells: u8,
+    ) -> GlyphInfo {
+        GlyphInfo {
+            text: text.to_string(),
+            only_char: text.chars().next(),
+            is_space: false,
+            num_cells,
+            cluster: 0,
+            font_idx,
+            glyph_pos,
+            x_advance: wezterm_font::units::PixelLength::new(x_advance),
+            y_advance: wezterm_font::units::PixelLength::new(0.0),
+            x_offset: wezterm_font::units::PixelLength::new(0.0),
+            y_offset: wezterm_font::units::PixelLength::new(0.0),
         }
     }
 }
