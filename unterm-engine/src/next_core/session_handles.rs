@@ -107,10 +107,8 @@ pub(super) fn recording_optional(
     state: &NextCoreState,
     pane_id: usize,
 ) -> Option<Arc<Mutex<Option<NextCoreRecording>>>> {
-    state
-        .sessions
-        .iter()
-        .find(|session| session.snapshot.id == pane_id)
+    session(state, pane_id)
+        .ok()
         .map(|session| Arc::clone(&session.recording))
 }
 
@@ -126,5 +124,10 @@ mod tests {
         };
 
         assert!(err.to_string().contains("next-core session 42 not found"));
+    }
+
+    #[test]
+    fn optional_recording_reports_none_for_missing_session() {
+        assert!(recording_optional(&NextCoreState::default(), 42).is_none());
     }
 }
