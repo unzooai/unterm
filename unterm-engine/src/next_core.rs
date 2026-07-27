@@ -3577,6 +3577,24 @@ impl NextCoreEngine {
                     .as_bytes(),
                 );
                 idx += "\x1b[?1003$p".len();
+            } else if rest.starts_with("\x1b[?47$p") {
+                response.extend_from_slice(
+                    format!(
+                        "\x1b[?47;{}$y",
+                        Self::mode_report_state(screen.alternate.is_some())
+                    )
+                    .as_bytes(),
+                );
+                idx += "\x1b[?47$p".len();
+            } else if rest.starts_with("\x1b[?1047$p") {
+                response.extend_from_slice(
+                    format!(
+                        "\x1b[?1047;{}$y",
+                        Self::mode_report_state(screen.alternate.is_some())
+                    )
+                    .as_bytes(),
+                );
+                idx += "\x1b[?1047$p".len();
             } else if rest.starts_with("\x1b[?1049$p") {
                 response.extend_from_slice(
                     format!(
@@ -4713,7 +4731,7 @@ mod tests {
         let _guard = test_guard();
         let mut screen = NextCoreScreen::new(80, 10);
         screen.feed(
-            "\x1b[?1h\x1b[?5h\x1b[?6h\x1b[?25l\x1b[?66h\x1b[?1002h\x1b[?1004h\x1b[?1005h\x1b[?1006h\x1b[?1015h\x1b[?2004h\x1b[?2026h\x1b[4h",
+            "\x1b[?1047h\x1b[?1h\x1b[?5h\x1b[?6h\x1b[?25l\x1b[?66h\x1b[?1002h\x1b[?1004h\x1b[?1005h\x1b[?1006h\x1b[?1015h\x1b[?2004h\x1b[?2026h\x1b[4h",
         );
         let bytes = Arc::new(Mutex::new(Vec::new()));
         let writer: Arc<Mutex<Box<dyn Write + Send>>> =
@@ -4722,14 +4740,14 @@ mod tests {
             })));
 
         NextCoreEngine::answer_terminal_queries(
-            "\x1b[?1$p\x1b[?5$p\x1b[?6$p\x1b[?7$p\x1b[?25$p\x1b[?66$p\x1b[?1000$p\x1b[?1002$p\x1b[?1003$p\x1b[?1004$p\x1b[?1005$p\x1b[?1006$p\x1b[?1015$p\x1b[?2004$p\x1b[?2026$p\x1b[4$p",
+            "\x1b[?1$p\x1b[?5$p\x1b[?6$p\x1b[?7$p\x1b[?25$p\x1b[?66$p\x1b[?1000$p\x1b[?1002$p\x1b[?1003$p\x1b[?1004$p\x1b[?1005$p\x1b[?1006$p\x1b[?1015$p\x1b[?47$p\x1b[?1047$p\x1b[?1049$p\x1b[?2004$p\x1b[?2026$p\x1b[4$p",
             &screen,
             &writer,
         );
 
         assert_eq!(
             bytes.lock().as_slice(),
-            b"\x1b[?1;1$y\x1b[?5;1$y\x1b[?6;1$y\x1b[?7;1$y\x1b[?25;2$y\x1b[?66;1$y\x1b[?1000;2$y\x1b[?1002;1$y\x1b[?1003;2$y\x1b[?1004;1$y\x1b[?1005;1$y\x1b[?1006;1$y\x1b[?1015;1$y\x1b[?2004;1$y\x1b[?2026;1$y\x1b[4;1$y"
+            b"\x1b[?1;1$y\x1b[?5;1$y\x1b[?6;1$y\x1b[?7;1$y\x1b[?25;2$y\x1b[?66;1$y\x1b[?1000;2$y\x1b[?1002;1$y\x1b[?1003;2$y\x1b[?1004;1$y\x1b[?1005;1$y\x1b[?1006;1$y\x1b[?1015;1$y\x1b[?47;1$y\x1b[?1047;1$y\x1b[?1049;1$y\x1b[?2004;1$y\x1b[?2026;1$y\x1b[4;1$y"
         );
     }
 
@@ -4744,14 +4762,14 @@ mod tests {
             })));
 
         NextCoreEngine::answer_terminal_queries(
-            "\x1b[?1$p\x1b[?5$p\x1b[?6$p\x1b[?66$p\x1b[?1000$p\x1b[?1002$p\x1b[?1003$p\x1b[?1004$p\x1b[?1005$p\x1b[?1006$p\x1b[?1015$p\x1b[?1049$p\x1b[?2004$p\x1b[?2026$p\x1b[4$p",
+            "\x1b[?1$p\x1b[?5$p\x1b[?6$p\x1b[?66$p\x1b[?1000$p\x1b[?1002$p\x1b[?1003$p\x1b[?1004$p\x1b[?1005$p\x1b[?1006$p\x1b[?1015$p\x1b[?47$p\x1b[?1047$p\x1b[?1049$p\x1b[?2004$p\x1b[?2026$p\x1b[4$p",
             &screen,
             &writer,
         );
 
         assert_eq!(
             bytes.lock().as_slice(),
-            b"\x1b[?1;2$y\x1b[?5;2$y\x1b[?6;2$y\x1b[?66;2$y\x1b[?1000;2$y\x1b[?1002;2$y\x1b[?1003;2$y\x1b[?1004;2$y\x1b[?1005;2$y\x1b[?1006;2$y\x1b[?1015;2$y\x1b[?1049;2$y\x1b[?2004;2$y\x1b[?2026;2$y\x1b[4;2$y"
+            b"\x1b[?1;2$y\x1b[?5;2$y\x1b[?6;2$y\x1b[?66;2$y\x1b[?1000;2$y\x1b[?1002;2$y\x1b[?1003;2$y\x1b[?1004;2$y\x1b[?1005;2$y\x1b[?1006;2$y\x1b[?1015;2$y\x1b[?47;2$y\x1b[?1047;2$y\x1b[?1049;2$y\x1b[?2004;2$y\x1b[?2026;2$y\x1b[4;2$y"
         );
     }
 
