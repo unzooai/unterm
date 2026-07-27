@@ -1,6 +1,27 @@
-use super::{lifecycle, process_tree, NextCoreSession};
+use super::{lifecycle, process_tree, NextCoreSession, NextCoreState};
 use crate::SessionActivitySnapshot;
+use anyhow::{bail, Result};
 use std::time::Instant;
+
+pub(super) fn read_snapshot(
+    state: &mut NextCoreState,
+    pane_id: usize,
+    now: Instant,
+) -> Result<SessionActivitySnapshot> {
+    let Some(session) = state
+        .sessions
+        .iter_mut()
+        .find(|session| session.snapshot.id == pane_id)
+    else {
+        bail!("next-core session {pane_id} not found");
+    };
+
+    let (snapshot, dead_reason) = snapshot(session, now);
+    if let Some(reason) = dead_reason {
+        lifecycle::record_dead_reason(state, reason);
+    }
+    Ok(snapshot)
+}
 
 pub(super) fn snapshot(
     session: &mut NextCoreSession,
@@ -48,6 +69,15 @@ mod tests {
         assert!(activity.idle);
         assert!(!activity.foreground_process.is_empty());
         assert_eq!(reason.as_deref(), Some("reader_eof"));
+    }
+
+    #[test]
+    fn read_snapshot_reports_missing_session() {
+        let mut state = super::super::NextCoreState::default();
+
+        let err = read_snapshot(&mut state, 42, Instant::now()).expect_err("missing session");
+
+        assert_eq!(err.to_string(), "next-core session 42 not found");
     }
 
     fn sample_session() -> NextCoreSession {

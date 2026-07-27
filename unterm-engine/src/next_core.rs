@@ -1934,18 +1934,7 @@ impl SessionEngine for NextCoreEngine {
 
     fn activity(&self, pane_id: usize) -> Result<SessionActivitySnapshot> {
         let mut state = state().write();
-        let Some(session) = state
-            .sessions
-            .iter_mut()
-            .find(|session| session.snapshot.id == pane_id)
-        else {
-            bail!("next-core session {pane_id} not found");
-        };
-        let (snapshot, dead_reason) = session_activity::snapshot(session, Instant::now());
-        if let Some(reason) = dead_reason {
-            lifecycle::record_dead_reason(&mut state, reason);
-        }
-        Ok(snapshot)
+        session_activity::read_snapshot(&mut state, pane_id, Instant::now())
     }
 
     fn resize_session(&self, pane_id: usize, cols: usize, rows: usize) -> Result<()> {
