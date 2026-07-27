@@ -1,4 +1,6 @@
-use super::{activity::SessionIoActivity, NextCoreScreen, NextCoreSession, NextCoreState};
+use super::{
+    activity::SessionIoActivity, NextCoreRecording, NextCoreScreen, NextCoreSession, NextCoreState,
+};
 use anyhow::Result;
 use parking_lot::Mutex;
 use std::io::Write;
@@ -9,6 +11,11 @@ pub(super) struct InputHandles {
     pub(super) activity: Arc<Mutex<SessionIoActivity>>,
     pub(super) application_cursor_keys: bool,
     pub(super) bracketed_paste: bool,
+}
+
+pub(super) struct RecordingHandles {
+    pub(super) recording: Arc<Mutex<Option<NextCoreRecording>>>,
+    pub(super) project_path: Option<String>,
 }
 
 fn session(state: &NextCoreState, pane_id: usize) -> Result<&NextCoreSession> {
@@ -51,6 +58,25 @@ pub(super) fn input(state: &NextCoreState, pane_id: usize) -> Result<InputHandle
         application_cursor_keys: screen.application_cursor_keys,
         bracketed_paste: screen.bracketed_paste,
     })
+}
+
+pub(super) fn recording(state: &NextCoreState, pane_id: usize) -> Result<RecordingHandles> {
+    let session = session(state, pane_id)?;
+    Ok(RecordingHandles {
+        recording: Arc::clone(&session.recording),
+        project_path: session.snapshot.shell.cwd.clone(),
+    })
+}
+
+pub(super) fn recording_optional(
+    state: &NextCoreState,
+    pane_id: usize,
+) -> Option<Arc<Mutex<Option<NextCoreRecording>>>> {
+    state
+        .sessions
+        .iter()
+        .find(|session| session.snapshot.id == pane_id)
+        .map(|session| Arc::clone(&session.recording))
 }
 
 #[cfg(test)]

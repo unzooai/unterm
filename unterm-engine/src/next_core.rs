@@ -2668,30 +2668,24 @@ impl InputEngine for NextCoreEngine {
 
 impl RecordingEngine for NextCoreEngine {
     fn start_recording(&self, pane_id: usize) -> Result<RecordingStartResult> {
-        let recording_handle;
-        let project_path;
-        {
+        let handles = {
             let state = state().read();
-            let Some(session) = state
-                .sessions
-                .iter()
-                .find(|session| session.snapshot.id == pane_id)
-            else {
-                bail!("next-core session {pane_id} not found");
-            };
-            recording_handle = Arc::clone(&session.recording);
-            project_path = session.snapshot.shell.cwd.clone();
-        }
+            session_handles::recording(&state, pane_id)?
+        };
 
-        let mut slot = recording_handle.lock();
+        let mut slot = handles.recording.lock();
         if slot.is_some() {
             bail!("Recording already active for pane {pane_id}");
         }
 
-        let project_slug = recording_archive::project_slug(project_path.as_deref());
+        let project_slug = recording_archive::project_slug(handles.project_path.as_deref());
         let started_at = Self::timestamp_string();
-        let (log_path, md_path) =
-            recording_archive::paths(pane_id, project_path.as_deref(), &project_slug, &started_at);
+        let (log_path, md_path) = recording_archive::paths(
+            pane_id,
+            handles.project_path.as_deref(),
+            &project_slug,
+            &started_at,
+        );
         if let Some(parent) = log_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -2701,7 +2695,7 @@ impl RecordingEngine for NextCoreEngine {
         let recording = NextCoreRecording {
             session_id: session_id.clone(),
             pane_id,
-            project_path,
+            project_path: handles.project_path,
             project_slug,
             started_at,
             log_path: log_path.clone(),
@@ -2728,14 +2722,7 @@ impl RecordingEngine for NextCoreEngine {
     fn stop_recording(&self, pane_id: usize) -> Result<RecordingStopResult> {
         let recording_handle = {
             let state = state().read();
-            let Some(session) = state
-                .sessions
-                .iter()
-                .find(|session| session.snapshot.id == pane_id)
-            else {
-                bail!("next-core session {pane_id} not found");
-            };
-            Arc::clone(&session.recording)
+            session_handles::recording(&state, pane_id)?.recording
         };
         let mut slot = recording_handle.lock();
         let Some(recording) = slot.take() else {
@@ -2757,22 +2744,17 @@ impl RecordingEngine for NextCoreEngine {
     }
 
     fn recording_status(&self, pane_id: usize) -> Result<RecordingStatusSnapshot> {
-        let recording_handle = {
+        let Some(recording_handle) = ({
             let state = state().read();
-            let Some(session) = state
-                .sessions
-                .iter()
-                .find(|session| session.snapshot.id == pane_id)
-            else {
-                return Ok(RecordingStatusSnapshot {
-                    enabled: false,
-                    session_id: None,
-                    started_at: None,
-                    block_count: None,
-                    bytes: None,
-                });
-            };
-            Arc::clone(&session.recording)
+            session_handles::recording_optional(&state, pane_id)
+        }) else {
+            return Ok(RecordingStatusSnapshot {
+                enabled: false,
+                session_id: None,
+                started_at: None,
+                block_count: None,
+                bytes: None,
+            });
         };
         let slot = recording_handle.lock();
         if let Some(recording) = slot.as_ref() {
@@ -2797,14 +2779,7 @@ impl RecordingEngine for NextCoreEngine {
     fn attach_recording_trace(&self, pane_id: usize, trace_id: String) -> Result<Vec<String>> {
         let recording_handle = {
             let state = state().read();
-            let Some(session) = state
-                .sessions
-                .iter()
-                .find(|session| session.snapshot.id == pane_id)
-            else {
-                bail!("next-core session {pane_id} not found");
-            };
-            Arc::clone(&session.recording)
+            session_handles::recording(&state, pane_id)?.recording
         };
         let mut slot = recording_handle.lock();
         let Some(recording) = slot.as_mut() else {
@@ -2828,14 +2803,7 @@ impl RecordingEngine for NextCoreEngine {
     ) -> Result<RecordingExportResult> {
         let recording_handle = {
             let state = state().read();
-            let Some(session) = state
-                .sessions
-                .iter()
-                .find(|session| session.snapshot.id == pane_id)
-            else {
-                bail!("next-core session {pane_id} not found");
-            };
-            Arc::clone(&session.recording)
+            session_handles::recording(&state, pane_id)?.recording
         };
         let slot = recording_handle.lock();
         let Some(recording) = slot.as_ref() else {
