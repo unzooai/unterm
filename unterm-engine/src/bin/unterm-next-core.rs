@@ -30,6 +30,7 @@ struct Args {
     bench_screen_read_lines: Option<usize>,
     bench_render_frames: Option<usize>,
     bench_render_plans: Option<usize>,
+    bench_render_geometry_plans: Option<usize>,
     bench_render_cursor_moves: Option<usize>,
     bench_focus_switches: Option<usize>,
     bench_session_create: Option<usize>,
@@ -64,6 +65,7 @@ fn parse_args() -> Result<Args> {
         bench_screen_read_lines: None,
         bench_render_frames: None,
         bench_render_plans: None,
+        bench_render_geometry_plans: None,
         bench_render_cursor_moves: None,
         bench_focus_switches: None,
         bench_session_create: None,
@@ -220,6 +222,15 @@ fn parse_args() -> Result<Args> {
                 parsed.bench_render_plans = Some(
                     args.next()
                         .ok_or_else(|| anyhow::anyhow!("--bench-render-plans requires a value"))?
+                        .parse()?,
+                );
+            }
+            "--bench-render-geometry-plans" => {
+                parsed.bench_render_geometry_plans = Some(
+                    args.next()
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("--bench-render-geometry-plans requires a value")
+                        })?
                         .parse()?,
                 );
             }
@@ -776,6 +787,85 @@ fn run_render_plan_benchmark(
         rounds,
         glyph_runs,
         cell_runs,
+        latencies_us[0],
+        percentile(&latencies_us, 0.50),
+        percentile(&latencies_us, 0.95),
+        *latencies_us.last().unwrap_or(&0)
+    );
+    Ok(())
+}
+
+fn run_render_geometry_plan_benchmark(
+    engine: &unterm_engine::next_core::NextCoreEngine,
+    pane_id: usize,
+    rounds: usize,
+    poll_interval: Duration,
+    timeout: Duration,
+) -> Result<()> {
+    if rounds == 0 {
+        bail!("--bench-render-geometry-plans must be greater than 0");
+    }
+
+    let ready_marker = "RENDER_GEOMETRY_PLAN_BENCH_READY";
+    let ready_run = FloodRun {
+        marker: ready_marker.to_string(),
+        before_raw_len: engine.debug_output(pane_id)?.len(),
+        started_at: Instant::now(),
+    };
+    engine.write_input(
+        pane_id,
+        "for /L %i in (1,1,30) do @echo RENDER_GEOMETRY_PLAN_BENCH_%i abcdefghijklmnopqrstuvwxyz\r",
+    )?;
+    engine.write_input(pane_id, format!("echo {ready_marker}\r").as_str())?;
+    wait_for_marker(engine, pane_id, &ready_run, poll_interval, timeout)?;
+
+    let frame = engine.read_render_frame(pane_id, None)?;
+    if !frame.full || frame.lines.is_empty() {
+        bail!("render geometry plan benchmark frame was empty");
+    }
+    let draw_plan = frame.to_draw_plan();
+    if draw_plan.glyph_runs.is_empty() || draw_plan.cell_runs.is_empty() {
+        bail!("render geometry plan benchmark draw plan had no runs");
+    }
+
+    let metrics = unterm_engine::RenderCellMetrics {
+        cell_width_px: 8,
+        cell_height_px: 16,
+    };
+    let mut latencies_us = Vec::with_capacity(rounds);
+    let mut glyph_runs = 0usize;
+    let mut cell_runs = 0usize;
+    let mut viewport_width = 0usize;
+    let mut viewport_height = 0usize;
+    for _ in 0..rounds {
+        let before = Instant::now();
+        let geometry = draw_plan.to_geometry_plan(metrics);
+        latencies_us.push(before.elapsed().as_micros());
+        glyph_runs = geometry.glyph_runs.len();
+        cell_runs = geometry.cell_runs.len();
+        viewport_width = geometry.viewport.width;
+        viewport_height = geometry.viewport.height;
+        if geometry.viewport.width != draw_plan.cols * metrics.cell_width_px
+            || geometry.viewport.height != draw_plan.rows * metrics.cell_height_px
+        {
+            bail!(
+                "render geometry viewport changed: plan={}x{} viewport={}x{}",
+                draw_plan.cols,
+                draw_plan.rows,
+                geometry.viewport.width,
+                geometry.viewport.height
+            );
+        }
+    }
+
+    latencies_us.sort_unstable();
+    println!(
+        "bench_render_geometry_plan rounds={} glyph_runs={} cell_runs={} viewport={}x{} min_us={} p50_us={} p95_us={} max_us={}",
+        rounds,
+        glyph_runs,
+        cell_runs,
+        viewport_width,
+        viewport_height,
         latencies_us[0],
         percentile(&latencies_us, 0.50),
         percentile(&latencies_us, 0.95),
@@ -1636,6 +1726,22 @@ fn main() -> Result<()> {
             Duration::from_millis(args.timeout_ms),
         )
         .with_context(|| format!("bench_render_plan failed for session {}", session.id))?;
+    }
+
+    if let Some(rounds) = args.bench_render_geometry_plans {
+        run_render_geometry_plan_benchmark(
+            &engine,
+            session.id,
+            rounds,
+            Duration::from_millis(args.poll_ms),
+            Duration::from_millis(args.timeout_ms),
+        )
+        .with_context(|| {
+            format!(
+                "bench_render_geometry_plan failed for session {}",
+                session.id
+            )
+        })?;
     }
 
     if let Some(rounds) = args.bench_render_cursor_moves {
