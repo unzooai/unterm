@@ -376,6 +376,20 @@ impl NextCoreScreen {
     fn put_char(&mut self, c: char) {
         self.ensure_cursor_line();
         self.mark_dirty_row(self.cursor_y);
+        {
+            let line = &mut self.lines[self.cursor_y];
+            let end = self.cursor_x.min(line.len());
+            if end > 0 {
+                if let Some(previous) = line[..end]
+                    .iter_mut()
+                    .rev()
+                    .find(|cell| cell.width > 0 && cell.expects_joined_char())
+                {
+                    previous.push_combining(c);
+                    return;
+                }
+            }
+        }
         let cell = ScreenCell::new(c, self.current_attr);
         if cell.width == 0 {
             let line = &mut self.lines[self.cursor_y];
@@ -3840,6 +3854,68 @@ mod tests {
         let styled = engine.read_styled_screen(session.id)?;
         let cells = &styled.lines[0].cells;
         assert_eq!(cells[0].ch, '你');
+        assert_eq!(cells[0].width, 2);
+        assert_eq!(cells[1].width, 0);
+        assert_eq!(cells[2].ch, 'A');
+        assert_eq!(cells[2].width, 1);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_preserves_emoji_variation_selector_width() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 8,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+        set_output_for_test(session.id, "☕\u{fe0f}A")?;
+
+        let screen = engine.read_screen(session.id)?;
+        assert_eq!(screen.lines, vec!["☕\u{fe0f}A"]);
+        assert_eq!(screen.cursor.x, 3);
+
+        let styled = engine.read_styled_screen(session.id)?;
+        let cells = &styled.lines[0].cells;
+        assert_eq!(cells[0].ch, '☕');
+        assert_eq!(cells[0].width, 2);
+        assert_eq!(cells[1].width, 0);
+        assert_eq!(cells[2].ch, 'A');
+        assert_eq!(cells[2].width, 1);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_keeps_zwj_emoji_sequence_in_one_wide_cell() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 8,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+        set_output_for_test(session.id, "👨\u{200d}💻A")?;
+
+        let screen = engine.read_screen(session.id)?;
+        assert_eq!(screen.lines, vec!["👨\u{200d}💻A"]);
+        assert_eq!(screen.cursor.x, 3);
+
+        let styled = engine.read_styled_screen(session.id)?;
+        let cells = &styled.lines[0].cells;
+        assert_eq!(cells[0].ch, '👨');
         assert_eq!(cells[0].width, 2);
         assert_eq!(cells[1].width, 0);
         assert_eq!(cells[2].ch, 'A');

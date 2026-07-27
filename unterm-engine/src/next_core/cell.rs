@@ -47,6 +47,10 @@ impl ScreenCell {
         self.combining.push(ch);
     }
 
+    pub(super) fn expects_joined_char(&self) -> bool {
+        self.combining.ends_with('\u{200d}')
+    }
+
     #[allow(dead_code)]
     pub(super) fn styled(&self) -> StyledCell {
         self.styled_with_reverse_video(false, &[])
