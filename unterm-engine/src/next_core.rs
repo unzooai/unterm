@@ -405,17 +405,23 @@ impl NextCoreScreen {
 
     #[allow(dead_code)]
     fn styled_viewport_lines(&self, first_row: i64) -> Vec<StyledScreenLine> {
-        self.history_range(self.viewport_start(), self.rows)
-            .into_iter()
-            .enumerate()
-            .map(|(idx, line)| StyledScreenLine {
-                row: first_row + idx as i64,
-                cells: line
-                    .iter()
-                    .map(|cell| {
-                        cell.styled_with_reverse_video(self.reverse_video, &self.hyperlinks)
+        let viewport_start = self.viewport_start();
+        (0..self.rows)
+            .map(|idx| {
+                let cells = self
+                    .history_line(viewport_start + idx)
+                    .map(|line| {
+                        line.iter()
+                            .map(|cell| {
+                                cell.styled_with_reverse_video(self.reverse_video, &self.hyperlinks)
+                            })
+                            .collect()
                     })
-                    .collect(),
+                    .unwrap_or_default();
+                StyledScreenLine {
+                    row: first_row + idx as i64,
+                    cells,
+                }
             })
             .collect()
     }
@@ -425,20 +431,25 @@ impl NextCoreScreen {
         dirty_rows: DirtyRows,
         first_row: i64,
     ) -> Vec<StyledScreenLine> {
-        self.history_range(
-            self.viewport_start().saturating_add(dirty_rows.start),
-            dirty_rows.end.saturating_sub(dirty_rows.start) + 1,
-        )
-        .into_iter()
-        .enumerate()
-        .map(|(idx, line)| StyledScreenLine {
-            row: first_row + dirty_rows.start as i64 + idx as i64,
-            cells: line
-                .iter()
-                .map(|cell| cell.styled_with_reverse_video(self.reverse_video, &self.hyperlinks))
-                .collect(),
-        })
-        .collect()
+        let viewport_start = self.viewport_start();
+        (dirty_rows.start..=dirty_rows.end)
+            .map(|row| {
+                let cells = self
+                    .history_line(viewport_start + row)
+                    .map(|line| {
+                        line.iter()
+                            .map(|cell| {
+                                cell.styled_with_reverse_video(self.reverse_video, &self.hyperlinks)
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                StyledScreenLine {
+                    row: first_row + row as i64,
+                    cells,
+                }
+            })
+            .collect()
     }
 
     fn styled_history_range(&self, start: usize, count: usize) -> Vec<StyledScreenLine> {
@@ -515,6 +526,10 @@ impl NextCoreScreen {
 
     fn history_range(&self, start: usize, count: usize) -> Vec<&Vec<ScreenCell>> {
         self.history.history_range(&self.lines, start, count)
+    }
+
+    fn history_line(&self, index: usize) -> Option<&Vec<ScreenCell>> {
+        self.history.history_line(&self.lines, index)
     }
 
     fn history_text_range(&self, start: usize, count: usize) -> Vec<String> {
@@ -6139,6 +6154,7 @@ mod tests {
         let full = engine.read_render_frame(session.id, None)?;
         assert!(full.full);
         assert_eq!(full.dirty_rows, Some(DirtyRows { start: 0, end: 3 }));
+        assert_eq!(full.lines.len(), 4);
         assert_eq!(full.lines[0].row, 0);
         assert_eq!(
             full.lines[0]
@@ -6216,7 +6232,7 @@ mod tests {
         let stale = engine.read_render_frame(session.id, Some(baseline.revision))?;
         assert!(stale.full);
         assert_eq!(stale.dirty_rows, Some(DirtyRows { start: 0, end: 3 }));
-        assert_eq!(stale.lines.len(), 2);
+        assert_eq!(stale.lines.len(), 4);
 
         engine.destroy_session(session.id)?;
         Ok(())

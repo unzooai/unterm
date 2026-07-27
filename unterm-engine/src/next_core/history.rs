@@ -106,6 +106,18 @@ impl HistoryBuffer {
             .collect()
     }
 
+    pub(super) fn history_line<'a>(
+        &'a self,
+        live_lines: &'a [Vec<ScreenCell>],
+        index: usize,
+    ) -> Option<&'a Vec<ScreenCell>> {
+        if index < self.scrollback.len() {
+            self.scrollback.get(index)
+        } else {
+            live_lines.get(index - self.scrollback.len())
+        }
+    }
+
     pub(super) fn scrollback(&self) -> &[Vec<ScreenCell>] {
         &self.scrollback
     }
