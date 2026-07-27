@@ -62,6 +62,7 @@ Current covered operations:
 - next-core styled render-frame snapshots with full-frame fallback and dirty-row deltas for the future GUI renderer
 - GUI `CurrentTerminalEngine` facade re-exports render contract types and explicitly dispatches `read_render_frame`, `read_render_draw_plan`, and `read_render_commit_plan`, so a future renderer can consume next-core commits through engine traits instead of reaching into next-core internals
 - GUI `EngineRenderConsumer` keeps renderer-side pane metrics and submitted revision state, reads commit batches through `ScreenEngine`, and skips repeated next-core revisions before a real GPU backend is attached
+- GUI `EngineRenderConsumer::read_buffer_plan` now turns engine-neutral commit batches into render buffer plans through the command-list backend, giving the future pane draw branch a single renderer-side frame preparation call before GPU upload
 - GUI `CommandListRenderBackend` expands submitted damage/background/text/cursor plans into ordered backend commands, fixing the future wgpu submission contract without requiring a GPU device in tests
 - GUI `EngineRenderBufferPlan` converts backend commands into damage rects plus quad vertex/index buffers, giving the future wgpu backend a stable buffer-preparation contract before device/swapchain integration
 - GUI `EngineWgpuRenderBackend` converts buffer plans into a POD GPU upload ABI and owns the minimal wgpu vertex/index buffer creation skeleton, reusing the existing GUI `wgpu` dependency without expanding next-core dependencies

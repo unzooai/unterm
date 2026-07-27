@@ -4,7 +4,10 @@
 //! contract. The actual GPU layer should consume the returned commit batch
 //! rather than reaching into next-core screen internals.
 
-use super::{RenderCellMetrics, RenderCommitPlan, RenderConsumerState, RenderRect, ScreenEngine};
+use super::{
+    CommandListRenderBackend, EngineRenderBackend, EngineRenderBufferPlan, RenderCellMetrics,
+    RenderCommitPlan, RenderConsumerState, RenderRect, ScreenEngine,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EngineRenderCommitStats {
@@ -26,6 +29,13 @@ pub struct EngineRenderCommitBatch {
     pub pane_id: usize,
     pub commit: RenderCommitPlan,
     pub stats: EngineRenderCommitStats,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct EngineRenderBufferBatch {
+    pub pane_id: usize,
+    pub stats: EngineRenderCommitStats,
+    pub buffer_plan: EngineRenderBufferPlan,
 }
 
 #[derive(Clone, Debug)]
@@ -70,6 +80,21 @@ impl EngineRenderConsumer {
             pane_id: self.pane_id,
             stats: EngineRenderCommitStats::from_commit(&commit),
             commit,
+        })
+    }
+
+    pub fn read_buffer_plan<E: ScreenEngine + ?Sized>(
+        &mut self,
+        engine: &E,
+    ) -> anyhow::Result<EngineRenderBufferBatch> {
+        let batch = self.read_commit(engine)?;
+        let mut backend = CommandListRenderBackend::default();
+        let frame = backend.submit(&batch)?;
+        let buffer_plan = EngineRenderBufferPlan::from_frame(&frame);
+        Ok(EngineRenderBufferBatch {
+            pane_id: batch.pane_id,
+            stats: batch.stats,
+            buffer_plan,
         })
     }
 }

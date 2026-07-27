@@ -410,6 +410,7 @@ Supported:
 - engine-level render commit plan reads that hide frame/draw/geometry/submission chaining from the future GUI renderer, covered by a dedicated benchmark gate
 - GUI engine facade access to render-frame, render draw-plan, and render commit-plan APIs, so the future next-core renderer has an engine-neutral entry point
 - renderer-side `EngineRenderConsumer` that stores pane metrics and submitted revision state, reads commit batches through `ScreenEngine`, and skips repeated revisions before the real wgpu backend lands
+- `EngineRenderConsumer::read_buffer_plan`, a renderer-side frame preparation call that converts engine-neutral commits into render buffer plans before the real pane draw branch hands them to WebGPU
 - GPU-free `CommandListRenderBackend` that expands commit submissions into ordered damage/background/text/cursor backend commands before the real wgpu backend lands
 - `EngineRenderBufferPlan` that turns backend commands into damage rects plus quad vertex/index buffers, keeping the next wgpu step focused on device upload and command encoding
 - `EngineWgpuRenderBackend` upload skeleton that turns buffer plans into a POD GPU vertex ABI and creates wgpu vertex/index buffers while keeping `unterm-engine` free of GPU dependencies

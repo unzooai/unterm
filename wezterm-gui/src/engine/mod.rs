@@ -20,7 +20,9 @@ pub use render_backend::{
     EngineWgpuRenderBackend, EngineWgpuRenderPassPlan,
 };
 #[allow(unused_imports)]
-pub use render_consumer::{EngineRenderCommitBatch, EngineRenderCommitStats, EngineRenderConsumer};
+pub use render_consumer::{
+    EngineRenderBufferBatch, EngineRenderCommitBatch, EngineRenderCommitStats, EngineRenderConsumer,
+};
 
 #[allow(unused_imports)]
 pub use unterm_engine::{
@@ -191,10 +193,10 @@ mod tests {
     use super::{
         next_core, selected_engine_name_from_env, CommandListRenderBackend, CreateSessionRequest,
         CurrentTerminalEngine, EngineRenderBackend, EngineRenderBackendCommand,
-        EngineRenderBufferPlan, EngineRenderConsumer, EngineRenderGpuUploadPlan,
-        EngineRenderGpuVertex, EngineRenderVertexLayer, EngineWgpuPipelineConfig,
-        EngineWgpuRenderBackend, EngineWgpuRenderPassPlan, LaunchPolicySnapshot, RenderCellMetrics,
-        RenderConsumerState, ScreenEngine, SessionEngine,
+        EngineRenderBufferBatch, EngineRenderBufferPlan, EngineRenderConsumer,
+        EngineRenderGpuUploadPlan, EngineRenderGpuVertex, EngineRenderVertexLayer,
+        EngineWgpuPipelineConfig, EngineWgpuRenderBackend, EngineWgpuRenderPassPlan,
+        LaunchPolicySnapshot, RenderCellMetrics, RenderConsumerState, ScreenEngine, SessionEngine,
     };
 
     #[test]
@@ -416,6 +418,55 @@ mod tests {
         assert!(!skipped_pass.draw);
         assert_eq!(skipped_pass.vertex_count, 0);
         assert_eq!(skipped_pass.index_count, 0);
+        engine
+            .destroy_session(session.id)
+            .expect("destroy next-core test session");
+    }
+
+    #[test]
+    fn engine_render_consumer_reads_next_core_buffer_plan() {
+        let engine = CurrentTerminalEngine::NextCore(next_core());
+        let session = engine
+            .create_session(CreateSessionRequest {
+                cols: 20,
+                rows: 4,
+                command_dir: None,
+                command: Some(quiet_wait_command_for_test()),
+                env: Vec::new(),
+                launch_policy: LaunchPolicySnapshot::default(),
+            })
+            .expect("create next-core session");
+        let mut consumer = EngineRenderConsumer::new(
+            session.id,
+            RenderCellMetrics {
+                cell_width_px: 8,
+                cell_height_px: 16,
+            },
+        );
+
+        let first: EngineRenderBufferBatch = consumer
+            .read_buffer_plan(&engine)
+            .expect("read first render buffer plan");
+        assert!(first.stats.submit);
+        assert!(first.buffer_plan.submitted);
+        assert_eq!(first.pane_id, session.id);
+        assert_eq!(first.buffer_plan.pane_id, session.id);
+        assert_eq!(first.buffer_plan.revision, first.stats.revision);
+        assert_eq!(
+            first.buffer_plan.damage_rects.len(),
+            first.stats.damage_rect_count
+        );
+        assert!(!first.buffer_plan.vertices.is_empty());
+        assert!(!first.buffer_plan.indices.is_empty());
+
+        let repeat = consumer
+            .read_buffer_plan(&engine)
+            .expect("read repeated render buffer plan");
+        assert!(!repeat.stats.submit);
+        assert!(!repeat.buffer_plan.submitted);
+        assert_eq!(repeat.stats.previous_revision, Some(first.stats.revision));
+        assert!(repeat.buffer_plan.vertices.is_empty());
+        assert!(repeat.buffer_plan.indices.is_empty());
         engine
             .destroy_session(session.id)
             .expect("destroy next-core test session");
