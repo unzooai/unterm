@@ -113,7 +113,7 @@ Render draw-plan benchmark:
 cargo run -p unterm-engine --bin unterm-next-core -- --bench-render-plans 1000 --timeout-ms 30000 --wait-ms 100 --write "exit`r" -- cmd.exe
 ```
 
-The draw-plan benchmark converts a full styled render-frame into merged glyph runs, cell style runs, and cursor draw state. It is the lightweight CPU contract that the future GPU renderer should consume before font shaping and actual `wgpu` submission.
+The draw-plan benchmark validates `ScreenEngine::read_render_draw_plan`, which converts a styled render-frame into merged glyph runs, cell style runs, and cursor draw state. It is the lightweight CPU contract that the future GPU renderer should consume before font shaping and actual `wgpu` submission.
 
 Input burst benchmark under output pressure:
 

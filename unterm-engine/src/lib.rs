@@ -645,6 +645,16 @@ pub trait ScreenEngine {
             full: true,
         })
     }
+    #[allow(dead_code)]
+    fn read_render_draw_plan(
+        &self,
+        pane_id: usize,
+        since_revision: Option<u64>,
+    ) -> Result<RenderDrawPlan> {
+        Ok(self
+            .read_render_frame(pane_id, since_revision)?
+            .to_draw_plan())
+    }
     fn read_visible_text(&self, pane_id: usize) -> Result<String>;
     fn read_lines(&self, pane_id: usize, start: i64, count: usize) -> Result<Vec<ScreenLine>>;
     fn read_scrollback(&self, pane_id: usize, limit: usize) -> Result<Vec<String>>;
@@ -741,6 +751,77 @@ impl<T> TerminalEngine for T where
 mod tests {
     use super::*;
 
+    struct FakeScreenEngine;
+
+    impl ScreenEngine for FakeScreenEngine {
+        fn read_screen(&self, _pane_id: usize) -> Result<ScreenSnapshot> {
+            unimplemented!("not needed by draw-plan fallback test")
+        }
+
+        fn read_styled_screen(&self, _pane_id: usize) -> Result<StyledScreenSnapshot> {
+            Ok(StyledScreenSnapshot {
+                lines: vec![StyledScreenLine {
+                    row: 0,
+                    cells: vec![cell('x', CellStyle::default(), 1)],
+                }],
+                cursor: CursorSnapshot {
+                    x: 0,
+                    y: 0,
+                    visible: true,
+                    shape: "block".to_string(),
+                },
+                cols: 1,
+                rows: 1,
+                scrollback_rows: 0,
+                revision: 11,
+                dirty_rows: Some(DirtyRows { start: 0, end: 0 }),
+            })
+        }
+
+        fn read_visible_text(&self, _pane_id: usize) -> Result<String> {
+            Ok("x".to_string())
+        }
+
+        fn read_lines(
+            &self,
+            _pane_id: usize,
+            _start: i64,
+            _count: usize,
+        ) -> Result<Vec<ScreenLine>> {
+            Ok(Vec::new())
+        }
+
+        fn read_scrollback(&self, _pane_id: usize, _limit: usize) -> Result<Vec<String>> {
+            Ok(Vec::new())
+        }
+
+        fn read_scrollback_text(
+            &self,
+            _pane_id: usize,
+            _request: ScrollbackTextRequest,
+        ) -> Result<ScrollbackTextSnapshot> {
+            unimplemented!("not needed by draw-plan fallback test")
+        }
+
+        fn search(
+            &self,
+            _pane_id: usize,
+            _pattern: &str,
+            _max_results: usize,
+        ) -> Result<Vec<ScreenSearchMatch>> {
+            Ok(Vec::new())
+        }
+
+        fn cursor(&self, _pane_id: usize) -> Result<CursorSnapshot> {
+            Ok(CursorSnapshot {
+                x: 0,
+                y: 0,
+                visible: true,
+                shape: "block".to_string(),
+            })
+        }
+    }
+
     fn cell(ch: char, style: CellStyle, width: usize) -> StyledCell {
         StyledCell { ch, style, width }
     }
@@ -801,6 +882,29 @@ mod tests {
             Some(RenderCursorDraw {
                 row: 0,
                 col: 2,
+                visible: true,
+                shape: "block".to_string()
+            })
+        );
+    }
+
+    #[test]
+    fn screen_engine_default_reads_render_draw_plan() {
+        let engine = FakeScreenEngine;
+        let plan = engine.read_render_draw_plan(1, None).unwrap();
+        assert!(plan.full);
+        assert_eq!(plan.revision, 11);
+        assert_eq!(plan.glyph_runs.len(), 1);
+        assert_eq!(plan.glyph_runs[0].text, "x");
+
+        let unchanged = engine.read_render_draw_plan(1, Some(11)).unwrap();
+        assert!(!unchanged.full);
+        assert!(unchanged.glyph_runs.is_empty());
+        assert_eq!(
+            unchanged.cursor,
+            Some(RenderCursorDraw {
+                row: 0,
+                col: 0,
                 visible: true,
                 shape: "block".to_string()
             })

@@ -740,6 +740,11 @@ fn run_render_plan_benchmark(
     engine.write_input(pane_id, format!("echo {ready_marker}\r").as_str())?;
     wait_for_marker(engine, pane_id, &ready_run, poll_interval, timeout)?;
 
+    let api_plan = engine.read_render_draw_plan(pane_id, None)?;
+    if api_plan.cols == 0 || api_plan.rows == 0 {
+        bail!("render draw-plan API returned empty dimensions");
+    }
+
     let frame = engine.read_render_frame(pane_id, None)?;
     if !frame.full || frame.lines.is_empty() {
         bail!("render plan benchmark frame was empty");
