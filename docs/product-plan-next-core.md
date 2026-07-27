@@ -415,6 +415,7 @@ Supported:
 - `EngineWgpuRenderBackend` upload skeleton that turns buffer plans into a POD GPU vertex ABI and creates wgpu vertex/index buffers while keeping `unterm-engine` free of GPU dependencies
 - `EngineWgpuRenderPassPlan` and `EngineWgpuRenderBackend::encode_pass` that define the first indexed draw-pass contract for submitted next-core buffers without moving renderer semantics into the terminal core
 - `EngineWgpuPipelineConfig`, next-core GPU vertex layout, viewport-to-clip upload path, and minimal WGSL shader ABI for solid-color quads before glyph atlas/text rendering lands
+- cached next-core solid-quad backend/pipeline in `WebGpuState`, sharing the existing WebGPU device lifetime and avoiding per-frame pipeline creation
 - `session.list`
 - `session.input`
 - `screen.text`

@@ -1,3 +1,4 @@
+use crate::engine::{EngineWgpuPipelineConfig, EngineWgpuRenderBackend};
 use crate::quad::Vertex;
 use anyhow::anyhow;
 use config::{ConfigHandle, GpuInfo, WebGpuPowerPreference};
@@ -30,6 +31,8 @@ pub struct WebGpuState {
     pub config: RefCell<wgpu::SurfaceConfiguration>,
     pub dimensions: RefCell<Dimensions>,
     pub render_pipeline: wgpu::RenderPipeline,
+    pub next_core_render_backend: EngineWgpuRenderBackend,
+    pub next_core_render_pipeline: wgpu::RenderPipeline,
     shader_uniform_bind_group_layout: wgpu::BindGroupLayout,
     pub texture_bind_group_layout: wgpu::BindGroupLayout,
     pub texture_nearest_sampler: wgpu::Sampler,
@@ -499,6 +502,13 @@ impl WebGpuState {
             multiview: None,
             cache: None,
         });
+        let next_core_render_backend = EngineWgpuRenderBackend::default();
+        let next_core_render_pipeline = next_core_render_backend.create_pipeline(
+            &device,
+            EngineWgpuPipelineConfig {
+                target_format: config.format,
+            },
+        );
 
         Ok(Self {
             adapter_info,
@@ -509,6 +519,8 @@ impl WebGpuState {
             config: RefCell::new(config),
             dimensions: RefCell::new(dimensions),
             render_pipeline,
+            next_core_render_backend,
+            next_core_render_pipeline,
             handle,
             shader_uniform_bind_group_layout,
             texture_bind_group_layout,
@@ -533,6 +545,13 @@ impl WebGpuState {
             }],
             label: Some("ShaderUniform Bind Group"),
         })
+    }
+
+    pub fn next_core_render_parts(&self) -> (&EngineWgpuRenderBackend, &wgpu::RenderPipeline) {
+        (
+            &self.next_core_render_backend,
+            &self.next_core_render_pipeline,
+        )
     }
 
     #[allow(unused_mut)]

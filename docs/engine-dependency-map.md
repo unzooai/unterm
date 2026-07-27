@@ -67,6 +67,7 @@ Current covered operations:
 - GUI `EngineWgpuRenderBackend` converts buffer plans into a POD GPU upload ABI and owns the minimal wgpu vertex/index buffer creation skeleton, reusing the existing GUI `wgpu` dependency without expanding next-core dependencies
 - GUI `EngineWgpuRenderPassPlan` fixes the minimal indexed draw-pass contract for next-core buffers, so command encoder integration can draw submitted frames without letting the renderer infer revision or skip semantics
 - GUI `EngineWgpuPipelineConfig` and the next-core GPU vertex layout fix the first shader/pipeline ABI for solid-color background/text/cursor quads, with viewport-to-clip conversion kept outside `unterm-engine`
+- GUI `WebGpuState` now owns a cached next-core solid-quad backend and render pipeline alongside the legacy pipeline, so future next-core pane drawing can reuse device lifetime instead of creating GPU state per frame
 - engine readiness and next-core aggregate I/O health counters
 - next-core terminal status, cursor-position, DEC private cursor-position, text-area-size, headless window-pixel-size, mode-report, and primary/secondary device-attribute query responses, including parameterized DA forms, through the PTY writer in input order
 
