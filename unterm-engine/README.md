@@ -91,6 +91,14 @@ cargo run -p unterm-engine --bin unterm-next-core -- --bench-input-writes 1000 -
 
 The input write benchmark measures the engine `write_input` call path with right-arrow escape sequences and reports min/p50/p95/max microsecond latency. It intentionally does not wait for shell echo, so it isolates the path behind typing and completion-accept writes.
 
+Key-to-screen benchmark:
+
+```powershell
+cargo run -p unterm-engine --bin unterm-next-core -- --bench-key-to-screen 50 --timeout-ms 30000 --wait-ms 100 --write "exit`r" -- cmd.exe
+```
+
+The key-to-screen benchmark writes unique command markers into the PTY and reports min/p50/p95/max microsecond latency until each marker is visible through a next-core screen snapshot. It covers input write, ConPTY echo, parser update, and screen-read visibility, but does not measure final GUI paint latency.
+
 Input burst benchmark under output pressure:
 
 ```powershell

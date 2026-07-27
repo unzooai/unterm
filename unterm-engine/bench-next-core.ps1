@@ -2,6 +2,7 @@ param(
     [string]$OutputPath = "",
     [string]$SummaryJsonPath = "",
     [int]$InputWrites = 1000,
+    [int]$KeyToScreenRounds = 50,
     [int]$InputBurstWrites = 1000,
     [int]$EchoRounds = 50,
     [int]$FloodLines = 100000,
@@ -18,6 +19,7 @@ param(
     [int]$SessionReadyRounds = 20,
     [int]$TimeoutMs = 120000,
     [int]$MaxInputWriteP95Us = 16000,
+    [int]$MaxKeyToScreenP95Us = 16000,
     [int]$MaxInputBurstP95Us = 33000,
     [int]$MaxEchoP95Us = 16000,
     [int]$MaxDualAgentEchoP95Us = 33000,
@@ -244,6 +246,7 @@ try {
     $commonTail = @("--timeout-ms", "$TimeoutMs", "--wait-ms", "0", "--write", "exit`r", "--", "cmd.exe")
     $results = @()
     $results += Invoke-Benchmark -Name "input write latency" -BenchArgs ([string[]](@("--bench-input-writes", "$InputWrites") + $commonTail))
+    $results += Invoke-Benchmark -Name "key-to-screen latency" -BenchArgs ([string[]](@("--bench-key-to-screen", "$KeyToScreenRounds") + $commonTail))
     $results += Invoke-Benchmark -Name "input burst under output" -BenchArgs ([string[]](@("--bench-input-burst", "$InputBurstWrites") + $commonTail))
     $results += Invoke-Benchmark -Name "echo latency" -BenchArgs ([string[]](@("--bench-echo", "$EchoRounds") + $commonTail))
     $results += Invoke-Benchmark -Name "output flood" -BenchArgs ([string[]](@("--bench-flood-lines", "$FloodLines") + $commonTail))
@@ -260,6 +263,7 @@ try {
     $results += Invoke-Benchmark -Name "session ready latency" -BenchArgs ([string[]](@("--bench-session-ready", "$SessionReadyRounds") + $commonTail))
 
     $inputWrite = Find-BenchmarkResult -Results $results -Name "input write latency"
+    $keyToScreen = Find-BenchmarkResult -Results $results -Name "key-to-screen latency"
     $inputBurst = Find-BenchmarkResult -Results $results -Name "input burst under output"
     $echo = Find-BenchmarkResult -Results $results -Name "echo latency"
     $paste = Find-BenchmarkResult -Results $results -Name "paste 10kb"
@@ -275,6 +279,7 @@ try {
     $sessionReady = Find-BenchmarkResult -Results $results -Name "session ready latency"
     $gates = @()
     $gates += New-Gate -GateName "input write p95" -Actual (Get-BenchMetric -Result $inputWrite -LinePrefix "bench_input_write" -Metric "p95_us") -Max $MaxInputWriteP95Us -Unit "us"
+    $gates += New-Gate -GateName "key-to-screen p95" -Actual (Get-BenchMetric -Result $keyToScreen -LinePrefix "bench_key_to_screen" -Metric "p95_us") -Max $MaxKeyToScreenP95Us -Unit "us"
     $gates += New-Gate -GateName "input burst p95" -Actual (Get-BenchMetric -Result $inputBurst -LinePrefix "bench_input_burst" -Metric "p95_us") -Max $MaxInputBurstP95Us -Unit "us"
     $gates += New-Gate -GateName "echo p95" -Actual (Get-BenchMetric -Result $echo -LinePrefix "bench_echo" -Metric "p95_us") -Max $MaxEchoP95Us -Unit "us"
     $gates += New-Gate -GateName "dual-agent echo p95" -Actual (Get-BenchMetric -Result $dualAgent -LinePrefix "bench_dual_agents_echo" -Metric "p95_us") -Max $MaxDualAgentEchoP95Us -Unit "us"

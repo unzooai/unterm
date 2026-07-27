@@ -17,6 +17,7 @@ struct Args {
     env: Vec<(String, String)>,
     command: Option<Vec<String>>,
     bench_input_writes: Option<usize>,
+    bench_key_to_screen: Option<usize>,
     bench_input_burst: Option<usize>,
     bench_echo: Option<usize>,
     bench_flood_lines: Option<usize>,
@@ -48,6 +49,7 @@ fn parse_args() -> Result<Args> {
         env: Vec::new(),
         command: None,
         bench_input_writes: None,
+        bench_key_to_screen: None,
         bench_input_burst: None,
         bench_echo: None,
         bench_flood_lines: None,
@@ -118,6 +120,13 @@ fn parse_args() -> Result<Args> {
                 parsed.bench_input_writes = Some(
                     args.next()
                         .ok_or_else(|| anyhow::anyhow!("--bench-input-writes requires a value"))?
+                        .parse()?,
+                );
+            }
+            "--bench-key-to-screen" => {
+                parsed.bench_key_to_screen = Some(
+                    args.next()
+                        .ok_or_else(|| anyhow::anyhow!("--bench-key-to-screen requires a value"))?
                         .parse()?,
                 );
             }
@@ -259,7 +268,7 @@ fn parse_args() -> Result<Args> {
             }
             "--help" | "-h" => {
                 println!(
-                    "Usage: unterm-next-core [--cols N] [--rows N] [--wait-ms N] [--poll-ms N] [--timeout-ms N] [--bench-input-writes N] [--bench-input-burst N] [--bench-echo N] [--bench-flood-lines N] [--bench-scrollback-lines N] [--bench-viewport-scrolls N] [--bench-viewport-scroll-flood N] [--bench-paste-kb N] [--bench-dual-agent-lines N] [--bench-agent-startup-lines N] [--bench-screen-read-lines N] [--bench-render-frames N] [--bench-focus-switches N] [--bench-session-create N] [--bench-session-ready N] [--cwd PATH] [--env KEY=VALUE] [--write TEXT] [--paste TEXT] [--json] [-- COMMAND [ARG...]]"
+                    "Usage: unterm-next-core [--cols N] [--rows N] [--wait-ms N] [--poll-ms N] [--timeout-ms N] [--bench-input-writes N] [--bench-key-to-screen N] [--bench-input-burst N] [--bench-echo N] [--bench-flood-lines N] [--bench-scrollback-lines N] [--bench-viewport-scrolls N] [--bench-viewport-scroll-flood N] [--bench-paste-kb N] [--bench-dual-agent-lines N] [--bench-agent-startup-lines N] [--bench-screen-read-lines N] [--bench-render-frames N] [--bench-focus-switches N] [--bench-session-create N] [--bench-session-ready N] [--cwd PATH] [--env KEY=VALUE] [--write TEXT] [--paste TEXT] [--json] [-- COMMAND [ARG...]]"
                 );
                 std::process::exit(0);
             }
@@ -779,6 +788,54 @@ fn run_input_write_benchmark(
     Ok(())
 }
 
+fn run_key_to_screen_benchmark(
+    engine: &unterm_engine::next_core::NextCoreEngine,
+    pane_id: usize,
+    rounds: usize,
+    poll_interval: Duration,
+    timeout: Duration,
+) -> Result<()> {
+    if rounds == 0 {
+        bail!("--bench-key-to-screen must be greater than 0");
+    }
+
+    let mut latencies_us = Vec::with_capacity(rounds);
+    let mut snapshots = 0usize;
+    for idx in 0..rounds {
+        let marker = format!("KTS{idx:04}");
+        let before = Instant::now();
+        engine.write_input(pane_id, format!("echo {marker}\r").as_str())?;
+        loop {
+            let screen = engine.read_screen(pane_id)?;
+            snapshots += 1;
+            if screen
+                .lines
+                .iter()
+                .any(|line| line.contains(marker.as_str()))
+            {
+                latencies_us.push(before.elapsed().as_micros());
+                break;
+            }
+            if before.elapsed() >= timeout {
+                bail!("timed out waiting for key-to-screen marker {marker}");
+            }
+            std::thread::sleep(poll_interval);
+        }
+    }
+
+    latencies_us.sort_unstable();
+    println!(
+        "bench_key_to_screen rounds={} snapshots={} min_us={} p50_us={} p95_us={} max_us={}",
+        rounds,
+        snapshots,
+        latencies_us[0],
+        percentile(&latencies_us, 0.50),
+        percentile(&latencies_us, 0.95),
+        *latencies_us.last().unwrap_or(&0)
+    );
+    Ok(())
+}
+
 fn run_input_burst_benchmark(
     engine: &unterm_engine::next_core::NextCoreEngine,
     interactive_pane_id: usize,
@@ -1148,6 +1205,17 @@ fn main() -> Result<()> {
     if let Some(rounds) = args.bench_input_writes {
         run_input_write_benchmark(&engine, session.id, rounds)
             .with_context(|| format!("bench_input_write failed for session {}", session.id))?;
+    }
+
+    if let Some(rounds) = args.bench_key_to_screen {
+        run_key_to_screen_benchmark(
+            &engine,
+            session.id,
+            rounds,
+            Duration::from_millis(args.poll_ms),
+            Duration::from_millis(args.timeout_ms),
+        )
+        .with_context(|| format!("bench_key_to_screen failed for session {}", session.id))?;
     }
 
     if let Some(rounds) = args.bench_input_burst {

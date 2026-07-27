@@ -844,6 +844,7 @@ Pass condition:
 Build benchmark harness for:
 
 - input latency
+- key-to-screen latency
 - output flood
 - agent startup stall
 - scrollback paging

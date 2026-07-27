@@ -194,7 +194,7 @@ Alpha 必须进入 core 的内容：
 1. 继续扩 next-core VT 兼容测试，覆盖常见 shell/TUI 真实序列。
 2. 继续收紧 `TerminalParser` 边界，后续可替换为 `vte`。
 3. 继续把 screen model 拆成小模块，优先收紧 live viewport、selection 边界。
-4. 增加 benchmark：key-to-screen、paste、output flood、PageUp/PageDown、MCP screen read。
+4. 继续收紧 benchmark：paste、output flood、PageUp/PageDown、MCP screen read、真实 GUI key-to-paint。
 5. 做 wgpu renderer spike，只消费已有 render-frame snapshot。
 6. 做字体方案 spike：ASCII/CJK/emoji 宽度、fallback、缓存开销。
 7. 对比 current-core 与 next-core，达不到指标就不扩大范围。
@@ -207,6 +207,7 @@ next-core 已经在 screen/parser 方向具备基础能力，包括：
 - 基础 VT 光标、滚动区、模式报告、DA/DSR/DECRQM query response
 - SGR 样式、扩展色、OSC 8 hyperlink
 - scrollback ring、logical viewport、styled render-frame full/delta snapshot
+- benchmark 已覆盖 input write、key-to-screen、input burst under output、echo、paste、output flood、scrollback paging、viewport scroll、screen-read under flood、render-frame delta、focus/session lifecycle
 - zero-width combining marks attach to preceding visible cells without advancing cursor position
 - DECFRA、DECERA、DECCARA、DECRARA 矩形操作
 - DECSCA protected/erasable cell 属性
