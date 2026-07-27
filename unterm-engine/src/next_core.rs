@@ -14,6 +14,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, OnceLock};
+#[cfg(test)]
 use std::time::{SystemTime, UNIX_EPOCH};
 
 mod activity;
@@ -1621,17 +1622,6 @@ impl NextCoreEngine {
         self.output(pane_id)
     }
 
-    fn unix_micros() -> u128 {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|duration| duration.as_micros())
-            .unwrap_or_default()
-    }
-
-    fn timestamp_string() -> String {
-        Self::unix_micros().to_string()
-    }
-
     pub fn scroll_viewport_to(&self, pane_id: usize, target: isize) -> Result<()> {
         screen_dispatch::scroll_viewport_to(pane_id, target)
     }
@@ -1751,11 +1741,11 @@ impl InputEngine for NextCoreEngine {
 
 impl RecordingEngine for NextCoreEngine {
     fn start_recording(&self, pane_id: usize) -> Result<RecordingStartResult> {
-        recording_lifecycle::start(pane_id, Self::timestamp_string())
+        recording_lifecycle::start_current(pane_id)
     }
 
     fn stop_recording(&self, pane_id: usize) -> Result<RecordingStopResult> {
-        recording_lifecycle::stop(pane_id, Self::timestamp_string())
+        recording_lifecycle::stop_current(pane_id)
     }
 
     fn recording_status(&self, pane_id: usize) -> Result<RecordingStatusSnapshot> {

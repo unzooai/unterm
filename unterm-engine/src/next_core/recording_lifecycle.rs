@@ -3,7 +3,30 @@ use crate::{
     RecordingExportResult, RecordingStartResult, RecordingStatusSnapshot, RecordingStopResult,
 };
 use anyhow::{bail, Result};
-use std::{fs::File, path::PathBuf};
+use std::{
+    fs::File,
+    path::PathBuf,
+    time::{SystemTime, UNIX_EPOCH},
+};
+
+pub(super) fn start_current(pane_id: usize) -> Result<RecordingStartResult> {
+    start(pane_id, timestamp_string())
+}
+
+pub(super) fn stop_current(pane_id: usize) -> Result<RecordingStopResult> {
+    stop(pane_id, timestamp_string())
+}
+
+fn timestamp_string() -> String {
+    unix_micros().to_string()
+}
+
+fn unix_micros() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_micros())
+        .unwrap_or_default()
+}
 
 pub(super) fn start(pane_id: usize, started_at: String) -> Result<RecordingStartResult> {
     let handles = {
