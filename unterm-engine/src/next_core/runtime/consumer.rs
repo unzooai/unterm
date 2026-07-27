@@ -2,6 +2,7 @@ use super::{
     command::{RuntimeCommand, RuntimeCommandLane},
     dispatch::{self, RuntimeDispatchResult},
     queue::{RuntimeQueueRejection, RuntimeQueuedCommand},
+    response::{self, RuntimeResponseReceiver},
     scheduling::RuntimeSchedulePolicy,
     with_current_mut,
 };
@@ -16,15 +17,45 @@ pub(in crate::next_core) fn consume_sync(command: RuntimeCommand) -> Result<Runt
 }
 
 #[allow(dead_code)]
+pub(in crate::next_core) fn submit_with_response(
+    command: RuntimeCommand,
+) -> RuntimeResponseReceiver {
+    let lane = command.lane();
+    let (tx, rx) = response::channel();
+    if let Err(err) = enqueue_with_response(command, Some(tx)) {
+        let (tx, rx) = response::channel();
+        tx.complete(Err(rejected_error(lane, err)));
+        return rx;
+    }
+    rx
+}
+
+#[allow(dead_code)]
 pub(in crate::next_core) fn dispatch_next_scheduled() -> Result<Option<RuntimeDispatchResult>> {
     let Some(queued) = dequeue_next_scheduled() else {
         return Ok(None);
     };
-    dispatch::execute(queued.command).map(Some)
+    dispatch_queued(queued)
+}
+
+fn dispatch_queued(queued: RuntimeQueuedCommand) -> Result<Option<RuntimeDispatchResult>> {
+    let result = dispatch::execute(queued.command);
+    if let Some(response) = queued.response {
+        response.complete(result);
+        return Ok(None);
+    }
+    result.map(Some)
 }
 
 fn enqueue(command: RuntimeCommand) -> Result<(), RuntimeQueueRejection> {
     with_current_mut(|state| state.command_queue.enqueue(command))
+}
+
+fn enqueue_with_response(
+    command: RuntimeCommand,
+    response: Option<response::RuntimeResponseSender>,
+) -> Result<(), RuntimeQueueRejection> {
+    with_current_mut(|state| state.command_queue.enqueue_with_response(command, response))
 }
 
 fn dequeue_lane(lane: RuntimeCommandLane) -> Option<RuntimeQueuedCommand> {
@@ -46,7 +77,8 @@ fn rejected_error(lane: RuntimeCommandLane, err: RuntimeQueueRejection) -> anyho
 mod tests {
     use super::*;
     use crate::next_core::runtime::{
-        command::RuntimeQueuePolicy, queue::RuntimeCommandQueue, test_facade, with_current,
+        command::RuntimeQueuePolicy, queue::RuntimeCommandQueue, response, test_facade,
+        with_current,
     };
 
     #[test]
@@ -135,5 +167,49 @@ mod tests {
         let stats = with_current(|state| state.command_queue.stats());
         assert_eq!(stats.pending_lanes.input, 0);
         assert_eq!(stats.pending_lanes.screen, 1);
+    }
+
+    #[test]
+    fn dispatch_next_scheduled_completes_attached_response() {
+        test_facade::reset();
+        let (tx, rx) = response::channel();
+        with_current_mut(|state| {
+            state
+                .command_queue
+                .enqueue_with_response(RuntimeCommand::ReadScreen { pane_id: 404 }, Some(tx))
+                .unwrap();
+        });
+
+        let returned = dispatch_next_scheduled().expect("dispatch should run");
+
+        assert!(returned.is_none());
+        assert!(rx
+            .recv()
+            .unwrap_err()
+            .to_string()
+            .contains("next-core session 404 not found"));
+    }
+
+    #[test]
+    fn submit_with_response_completes_rejected_commands() {
+        test_facade::reset();
+        with_current_mut(|state| {
+            state.command_queue = RuntimeCommandQueue::new(RuntimeQueuePolicy {
+                max_pending_commands: 0,
+                max_pending_input_bytes: 1024,
+                max_render_wakeups_per_second: 120,
+            });
+        });
+
+        let rx = submit_with_response(RuntimeCommand::ReadRenderFrame {
+            pane_id: 1,
+            since_revision: None,
+        });
+
+        assert!(rx
+            .recv()
+            .unwrap_err()
+            .to_string()
+            .contains("runtime render queue rejected command"));
     }
 }

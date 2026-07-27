@@ -1,6 +1,9 @@
 #![allow(dead_code)]
 
-use super::command::{RuntimeCommand, RuntimeCommandLane, RuntimeQueuePolicy};
+use super::{
+    command::{RuntimeCommand, RuntimeCommandLane, RuntimeQueuePolicy},
+    response::RuntimeResponseSender,
+};
 use std::collections::VecDeque;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -69,13 +72,15 @@ pub(in crate::next_core) enum RuntimeQueueRejection {
 pub(in crate::next_core) struct RuntimeQueuedCommand {
     pub(in crate::next_core) lane: RuntimeCommandLane,
     pub(in crate::next_core) command: RuntimeCommand,
+    pub(in crate::next_core) response: Option<RuntimeResponseSender>,
 }
 
 impl RuntimeQueuedCommand {
-    fn new(command: RuntimeCommand) -> Self {
+    fn new(command: RuntimeCommand, response: Option<RuntimeResponseSender>) -> Self {
         Self {
             lane: command.lane(),
             command,
+            response,
         }
     }
 }
@@ -105,6 +110,14 @@ impl RuntimeCommandQueue {
         &mut self,
         command: RuntimeCommand,
     ) -> Result<(), RuntimeQueueRejection> {
+        self.enqueue_with_response(command, None)
+    }
+
+    pub(in crate::next_core) fn enqueue_with_response(
+        &mut self,
+        command: RuntimeCommand,
+        response: Option<RuntimeResponseSender>,
+    ) -> Result<(), RuntimeQueueRejection> {
         if self.pending.len() >= self.policy.max_pending_commands {
             self.rejected_commands += 1;
             return Err(RuntimeQueueRejection::CommandBackpressure {
@@ -114,7 +127,7 @@ impl RuntimeCommandQueue {
         }
 
         let command_input_bytes = command.input_bytes();
-        let queued = RuntimeQueuedCommand::new(command);
+        let queued = RuntimeQueuedCommand::new(command, response);
         if self.pending_input_bytes.saturating_add(command_input_bytes)
             > self.policy.max_pending_input_bytes
         {
