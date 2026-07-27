@@ -107,7 +107,7 @@ impl Drop for NextCoreSession {
 #[derive(Default)]
 struct NextCoreState {
     next_session_id: usize,
-    sessions: Vec<NextCoreSession>,
+    registry: session_registry::SessionRegistry,
     total_sessions_created: u64,
     total_sessions_destroyed: u64,
     total_sessions_marked_dead: u64,
