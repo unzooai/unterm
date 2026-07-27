@@ -1,6 +1,8 @@
 use super::{
     command::{RuntimeCommand, RuntimeCommandClass},
-    consumer, input_executor, screen_executor,
+    consumer,
+    dispatch::RuntimeDispatchResult,
+    input_executor, screen_executor,
 };
 use crate::{
     CursorSnapshot, RenderFrameSnapshot, ScreenLine, ScreenSearchMatch, ScreenSnapshot,
@@ -28,8 +30,13 @@ pub(in crate::next_core) fn read_render_frame(
         pane_id,
         since_revision,
     };
-    let command = consumer::consume_sync(command)?;
-    screen_executor::execute_render_frame(command)
+    match consumer::submit_and_dispatch_response(command)? {
+        RuntimeDispatchResult::RenderFrame(frame) => Ok(frame),
+        other => bail!(
+            "runtime scheduler expected render-frame dispatch result, got {:?}",
+            other
+        ),
+    }
 }
 
 pub(in crate::next_core) fn scroll_viewport_to(pane_id: usize, target: isize) -> Result<()> {

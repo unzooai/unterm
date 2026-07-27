@@ -4,7 +4,7 @@ use super::dispatch::RuntimeDispatchResult;
 use anyhow::{anyhow, Result};
 use std::{
     fmt,
-    sync::mpsc::{self, Receiver, Sender},
+    sync::mpsc::{self, Receiver, Sender, TryRecvError},
 };
 
 pub(in crate::next_core) type RuntimeResponseResult = Result<RuntimeDispatchResult, String>;
@@ -29,6 +29,16 @@ impl RuntimeResponseSender {
 }
 
 impl RuntimeResponseReceiver {
+    pub(in crate::next_core) fn try_recv(&self) -> Result<Option<RuntimeDispatchResult>> {
+        match self.rx.try_recv() {
+            Ok(result) => result.map(Some).map_err(|err| anyhow!(err)),
+            Err(TryRecvError::Empty) => Ok(None),
+            Err(TryRecvError::Disconnected) => {
+                Err(anyhow!("runtime response channel closed before completion"))
+            }
+        }
+    }
+
     pub(in crate::next_core) fn recv(self) -> Result<RuntimeDispatchResult> {
         self.rx
             .recv()
@@ -64,5 +74,12 @@ mod tests {
         tx.complete(Err(anyhow!("boom")));
 
         assert!(rx.recv().unwrap_err().to_string().contains("boom"));
+    }
+
+    #[test]
+    fn response_try_recv_reports_empty_before_completion() {
+        let (_tx, rx) = channel();
+
+        assert!(rx.try_recv().unwrap().is_none());
     }
 }

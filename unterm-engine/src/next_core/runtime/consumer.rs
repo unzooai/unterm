@@ -31,6 +31,21 @@ pub(in crate::next_core) fn submit_with_response(
 }
 
 #[allow(dead_code)]
+pub(in crate::next_core) fn submit_and_dispatch_response(
+    command: RuntimeCommand,
+) -> Result<RuntimeDispatchResult> {
+    let rx = submit_with_response(command);
+    loop {
+        if let Some(result) = rx.try_recv()? {
+            return Ok(result);
+        }
+        if dispatch_next_scheduled()?.is_none() {
+            return rx.recv();
+        }
+    }
+}
+
+#[allow(dead_code)]
 pub(in crate::next_core) fn dispatch_next_scheduled() -> Result<Option<RuntimeDispatchResult>> {
     let Some(queued) = dequeue_next_scheduled() else {
         return Ok(None);
@@ -211,5 +226,20 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("runtime render queue rejected command"));
+    }
+
+    #[test]
+    fn submit_and_dispatch_response_returns_dispatch_result() {
+        test_facade::reset();
+
+        let err = submit_and_dispatch_response(RuntimeCommand::ReadScreen { pane_id: 404 })
+            .expect_err("missing pane should flow through response receiver");
+
+        assert!(err.to_string().contains("next-core session 404 not found"));
+        assert_eq!(queue_stats().pending_commands, 0);
+    }
+
+    fn queue_stats() -> super::super::queue::RuntimeQueueStats {
+        with_current(|state| state.command_queue.stats())
     }
 }
