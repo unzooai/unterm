@@ -118,21 +118,11 @@ pub(super) fn for_each_session_mut(
     }
 }
 
-pub(super) fn with_current_runtime<T>(visit: impl FnOnce(&NextCoreRuntime) -> T) -> T {
-    let state = runtime::current().read();
-    visit(&state)
-}
-
-pub(super) fn with_current_runtime_mut<T>(visit: impl FnOnce(&mut NextCoreRuntime) -> T) -> T {
-    let mut state = runtime::current().write();
-    visit(&mut state)
-}
-
 pub(super) fn with_session_mut_current<T>(
     pane_id: usize,
     visit: impl FnOnce(&mut NextCoreSession) -> Result<T>,
 ) -> Result<T> {
-    with_current_runtime_mut(|state| visit(session_mut(state, pane_id)?))
+    runtime::with_current_mut(|state| visit(session_mut(state, pane_id)?))
 }
 
 pub(super) fn set_active(state: &mut NextCoreRuntime, pane_id: usize) {
@@ -267,19 +257,19 @@ mod tests {
     }
 
     #[test]
-    fn with_current_runtime_visits_registry_state() {
+    fn runtime_with_current_visits_registry_state() {
         crate::next_core::test_support::reset_state_for_test();
 
-        let pane_count = with_current_runtime(pane_count);
+        let pane_count = runtime::with_current(pane_count);
 
         assert_eq!(pane_count, 0);
     }
 
     #[test]
-    fn with_current_runtime_mut_visits_registry_state() {
+    fn runtime_with_current_mut_visits_registry_state() {
         crate::next_core::test_support::reset_state_for_test();
 
-        let id = with_current_runtime_mut(next_session_id);
+        let id = runtime::with_current_mut(next_session_id);
 
         assert_eq!(id, 1);
     }

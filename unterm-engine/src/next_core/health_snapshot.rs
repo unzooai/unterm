@@ -1,8 +1,13 @@
-use super::{activity::SessionIoActivity, lifecycle, runtime::NextCoreRuntime, session_registry};
+use super::{
+    activity::SessionIoActivity,
+    lifecycle,
+    runtime::{self, NextCoreRuntime},
+    session_registry,
+};
 use crate::{EngineHealthSnapshot, EngineIoHealthSnapshot, EngineLifecycleHealthSnapshot};
 
 pub(super) fn current() -> EngineHealthSnapshot {
-    session_registry::with_current_runtime_mut(snapshot)
+    runtime::with_current_mut(snapshot)
 }
 
 pub(super) fn snapshot(state: &mut NextCoreRuntime) -> EngineHealthSnapshot {
