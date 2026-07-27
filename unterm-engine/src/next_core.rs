@@ -27,6 +27,7 @@ mod csi_params;
 mod history;
 mod input_pipeline;
 mod launch;
+mod lifecycle;
 mod osc133;
 mod osc_params;
 mod parser_state;
@@ -1703,46 +1704,12 @@ fn viewport_attrs_for_test(pane_id: usize) -> Result<Vec<Vec<CellAttributes>>> {
 }
 
 impl NextCoreEngine {
-    fn refresh_liveness(session: &mut NextCoreSession) -> Option<String> {
-        if session.snapshot.is_dead {
-            return None;
-        }
-
-        if session.dead.load(Ordering::Acquire) {
-            session.snapshot.is_dead = true;
-            if session.snapshot.dead_reason.is_none() {
-                session.snapshot.dead_reason = session
-                    .dead_reason
-                    .lock()
-                    .clone()
-                    .or_else(|| Some("unknown".to_string()));
-            }
-            return session.snapshot.dead_reason.clone();
-        }
-
-        if let Ok(Some(status)) = session.child.lock().try_wait() {
-            let reason = format!("process_exited:{status}");
-            session.snapshot.is_dead = true;
-            session.snapshot.dead_reason = Some(reason.clone());
-            *session.dead_reason.lock() = Some(reason);
-            session.dead.store(true, Ordering::Release);
-            return session.snapshot.dead_reason.clone();
-        }
-
-        None
-    }
-
-    fn record_dead_reason(state: &mut NextCoreState, reason: String) {
-        state.total_sessions_marked_dead = state.total_sessions_marked_dead.saturating_add(1);
-        state.last_dead_reason = Some(reason);
-    }
-
     fn sessions(&self) -> Vec<SessionSnapshot> {
         let mut state = state().write();
         let mut snapshots = Vec::with_capacity(state.sessions.len());
         let mut dead_reasons = Vec::new();
         for session in &mut state.sessions {
-            if let Some(reason) = Self::refresh_liveness(session) {
+            if let Some(reason) = lifecycle::refresh_liveness(session) {
                 dead_reasons.push(reason);
             }
             let mut snapshot = session.snapshot.clone();
@@ -1764,7 +1731,7 @@ impl NextCoreEngine {
             snapshots.push(snapshot);
         }
         for reason in dead_reasons {
-            Self::record_dead_reason(&mut state, reason);
+            lifecycle::record_dead_reason(&mut state, reason);
         }
         snapshots
     }
@@ -2436,7 +2403,7 @@ impl SessionEngine for NextCoreEngine {
         else {
             bail!("next-core session {pane_id} not found");
         };
-        let dead_reason = Self::refresh_liveness(session);
+        let dead_reason = lifecycle::refresh_liveness(session);
         let is_dead = session.snapshot.is_dead;
         let process =
             process_tree::snapshot(session.root_pid, &session.snapshot.shell.process_name);
@@ -2452,7 +2419,7 @@ impl SessionEngine for NextCoreEngine {
         let screen = activity.screen.clone();
         drop(activity);
         if let Some(reason) = dead_reason {
-            Self::record_dead_reason(&mut state, reason);
+            lifecycle::record_dead_reason(&mut state, reason);
         }
         Ok(SessionActivitySnapshot {
             idle,
@@ -2494,21 +2461,10 @@ impl SessionEngine for NextCoreEngine {
 
         let was_active = state.sessions[idx].snapshot.is_active;
         let mut session = state.sessions.remove(idx);
-        let previous_dead = session.snapshot.is_dead;
-        session.snapshot.is_dead = true;
-        let reason = session
-            .snapshot
-            .dead_reason
-            .clone()
-            .or_else(|| session.dead_reason.lock().clone())
-            .unwrap_or_else(|| "destroyed".to_string());
-        session.snapshot.dead_reason = Some(reason.clone());
-        *session.dead_reason.lock() = Some(reason.clone());
-        session.dead.store(true, Ordering::Release);
-        session.child.lock().kill().ok();
+        let (previous_dead, reason) = lifecycle::mark_destroyed(&mut session);
         state.total_sessions_destroyed = state.total_sessions_destroyed.saturating_add(1);
         if !previous_dead {
-            Self::record_dead_reason(&mut state, reason);
+            lifecycle::record_dead_reason(&mut state, reason);
         } else {
             state.last_dead_reason = Some(reason);
         }
@@ -3171,7 +3127,7 @@ impl HealthEngine for NextCoreEngine {
         let mut dead_reasons = Vec::new();
         let mut dead_sessions = 0u64;
         for session in &mut state.sessions {
-            if let Some(reason) = Self::refresh_liveness(session) {
+            if let Some(reason) = lifecycle::refresh_liveness(session) {
                 dead_reasons.push(reason);
             }
             if session.snapshot.is_dead {
@@ -3198,7 +3154,7 @@ impl HealthEngine for NextCoreEngine {
             }
         }
         for reason in dead_reasons {
-            Self::record_dead_reason(&mut state, reason);
+            lifecycle::record_dead_reason(&mut state, reason);
         }
         let lifecycle = EngineLifecycleHealthSnapshot {
             live_sessions: pane_count.saturating_sub(dead_sessions as usize) as u64,
