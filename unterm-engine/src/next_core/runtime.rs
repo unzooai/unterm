@@ -2,6 +2,7 @@ use super::session_registry;
 use parking_lot::RwLock;
 use std::sync::OnceLock;
 
+pub(in crate::next_core) mod command;
 mod io_facade;
 mod recording_facade;
 mod session_facade;
