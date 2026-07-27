@@ -1,6 +1,7 @@
 param(
     [switch]$RunBenchmark,
     [switch]$SkipSizeBudget,
+    [switch]$SkipRuntime,
     [switch]$SkipUnicode,
     [switch]$SkipGuiRender,
     [switch]$SkipWebGpuRender,
@@ -39,6 +40,13 @@ if ($LASTEXITCODE -ne 0) {
 
 if (-not $SkipSizeBudget) {
     & (Join-Path $EngineDir "verify-next-core-size-budget.ps1")
+    if ($LASTEXITCODE -ne 0) {
+        exit $LASTEXITCODE
+    }
+}
+
+if (-not $SkipRuntime) {
+    & (Join-Path $CiDir "next-core-runtime.ps1")
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
     }
