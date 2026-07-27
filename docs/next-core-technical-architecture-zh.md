@@ -225,6 +225,7 @@ next-core 已经在 screen/parser 方向具备基础能力，包括：
 - `wezterm-gui/src/engine/render_backend.rs` 已提供 GPU-free `CommandListRenderBackend`，将 damage/background/text/cursor submission 展开为稳定顺序的 backend command list，为后续 wgpu command encoder 接入固定输入契约
 - `EngineRenderBufferPlan` 已将 backend command 转为 damage rects、quad vertices 和 indices，并保留原始 `RenderTextRun` 的 row/col/cell-span/text/style/rect 元数据；下一步 glyph atlas 可以消费真实文本与单元格跨度信息，而不是只能看到匿名纯色 text quad
 - `EngineRenderTextAtlasPlan` 已把 submitted text runs 准备成 GPU-free atlas/shaping 输入，保留 foreground color、cell span、text、style 和 pixel rects；真实字体 atlas 后续只需要替换该 preparation 层的消费端
+- `EngineRenderShapedGlyphPlan` 已固定真实 GUI shaper 的下一层输入 ABI：shaped glyph 可以携带 text、rect、style、foreground、cells、`font_idx` 和 `glyph_pos`，再进入共享 atlas/cache/upload 路径
 - `EngineRenderGlyphAtlasPlan` 已把 text-atlas runs 转成稳定 glyph cache key 和 cell-aligned glyph instance；glyph key 已能携带可选 shaped `(font_idx, glyph_pos)` raster identity，后续接真实 shaper/font raster source 时不会把不同 fallback font 或 glyph id 错误复用成同一张 atlas 图
 - `EngineRenderGlyphAtlasCache` 已提供确定性的 shelf placement，记录已插入和 overflow 的 glyph key；未来 WebGPU glyph texture 可以按 cache update 更新 atlas 区域，而不是每帧重建 placement state
 - `WebGpuState` 已持有按 pane 划分的 next-core glyph atlas state，并在 pane render consumer 清理时同步释放；glyph placement 复用现在具备跨 paint 生命周期，不再停留在单帧局部计划

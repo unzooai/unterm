@@ -149,6 +149,30 @@ pub struct EngineRenderTextAtlasPlan {
     pub runs: Vec<EngineRenderTextAtlasRun>,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+#[allow(dead_code)]
+pub struct EngineRenderShapedGlyph {
+    pub row: usize,
+    pub col: usize,
+    pub cells: usize,
+    pub text: String,
+    pub rect: RenderRect,
+    pub foreground: [f32; 4],
+    pub style: CellStyle,
+    pub font_idx: usize,
+    pub glyph_pos: u32,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+#[allow(dead_code)]
+pub struct EngineRenderShapedGlyphPlan {
+    pub pane_id: usize,
+    pub submitted: bool,
+    pub revision: u64,
+    pub requires_full_repaint: bool,
+    pub glyphs: Vec<EngineRenderShapedGlyph>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[allow(dead_code)]
 pub struct EngineRenderGlyphAtlasKey {
@@ -556,6 +580,12 @@ impl EngineWgpuRenderBackend {
 
     pub fn prepare_glyph_atlas(plan: &EngineRenderBufferPlan) -> EngineRenderGlyphAtlasPlan {
         EngineRenderGlyphAtlasPlan::from_text_atlas_plan(&Self::prepare_text_atlas(plan))
+    }
+
+    pub fn prepare_glyph_atlas_from_shaped_glyphs(
+        plan: &EngineRenderShapedGlyphPlan,
+    ) -> EngineRenderGlyphAtlasPlan {
+        EngineRenderGlyphAtlasPlan::from_shaped_glyph_plan(plan)
     }
 
     pub fn prepare_textured_glyph_upload_for_viewport(
@@ -1040,6 +1070,26 @@ impl EngineRenderGlyphAtlasPlan {
         }
     }
 
+    pub fn from_shaped_glyph_plan(plan: &EngineRenderShapedGlyphPlan) -> Self {
+        let mut keys = Vec::new();
+        let mut instances = Vec::new();
+
+        if plan.submitted {
+            for glyph in &plan.glyphs {
+                push_shaped_glyph_atlas_instance(&mut keys, &mut instances, glyph);
+            }
+        }
+
+        Self {
+            pane_id: plan.pane_id,
+            submitted: plan.submitted,
+            revision: plan.revision,
+            requires_full_repaint: plan.requires_full_repaint,
+            keys,
+            instances,
+        }
+    }
+
     pub fn is_empty(&self) -> bool {
         self.instances.is_empty()
     }
@@ -1402,6 +1452,32 @@ fn push_glyph_atlas_instances(
             },
         );
     }
+}
+
+fn push_shaped_glyph_atlas_instance(
+    keys: &mut Vec<EngineRenderGlyphAtlasKey>,
+    instances: &mut Vec<EngineRenderGlyphAtlasInstance>,
+    glyph: &EngineRenderShapedGlyph,
+) {
+    push_glyph_atlas_instance(
+        keys,
+        instances,
+        EngineRenderGlyphAtlasKey::from_shaped_glyph(
+            glyph.text.clone(),
+            glyph.cells,
+            &glyph.style,
+            glyph.font_idx,
+            glyph.glyph_pos,
+        ),
+        EngineRenderGlyphAtlasInstance {
+            key_index: 0,
+            row: glyph.row,
+            col: glyph.col,
+            cells: glyph.cells,
+            rect: glyph.rect,
+            foreground: glyph.foreground,
+        },
+    );
 }
 
 fn push_glyph_atlas_instance(
@@ -1804,6 +1880,39 @@ mod tests {
                 height: 16,
             }
         );
+    }
+
+    #[test]
+    fn shaped_glyph_plan_feeds_raster_identity_into_glyph_atlas() {
+        let style = CellStyle {
+            italic: true,
+            ..Default::default()
+        };
+        let plan = EngineRenderShapedGlyphPlan {
+            pane_id: 14,
+            submitted: true,
+            revision: 21,
+            requires_full_repaint: true,
+            glyphs: vec![
+                shaped_glyph("a", 0, 0, 2, 42, style.clone()),
+                shaped_glyph("a", 0, 1, 2, 42, style.clone()),
+                shaped_glyph("a", 0, 2, 2, 43, style.clone()),
+            ],
+        };
+
+        let atlas = EngineWgpuRenderBackend::prepare_glyph_atlas_from_shaped_glyphs(&plan);
+
+        assert_eq!(atlas.pane_id, 14);
+        assert!(atlas.submitted);
+        assert!(atlas.requires_full_repaint);
+        assert_eq!(atlas.keys.len(), 2);
+        assert_eq!(atlas.keys[0].raster_identity(), Some((2, 42)));
+        assert_eq!(atlas.keys[1].raster_identity(), Some((2, 43)));
+        assert_eq!(atlas.instances.len(), 3);
+        assert_eq!(atlas.instances[0].key_index, 0);
+        assert_eq!(atlas.instances[1].key_index, 0);
+        assert_eq!(atlas.instances[2].key_index, 1);
+        assert_eq!(atlas.instances[2].col, 2);
     }
 
     #[test]
@@ -2330,6 +2439,32 @@ mod tests {
 
     fn glyph_key(text: &str, cells: usize) -> EngineRenderGlyphAtlasKey {
         EngineRenderGlyphAtlasKey::from_text(text.to_string(), cells, &CellStyle::default())
+    }
+
+    fn shaped_glyph(
+        text: &str,
+        row: usize,
+        col: usize,
+        font_idx: usize,
+        glyph_pos: u32,
+        style: CellStyle,
+    ) -> EngineRenderShapedGlyph {
+        EngineRenderShapedGlyph {
+            row,
+            col,
+            cells: 1,
+            text: text.to_string(),
+            rect: RenderRect {
+                x: col * 8,
+                y: row * 16,
+                width: 8,
+                height: 16,
+            },
+            foreground: [1.0, 1.0, 1.0, 1.0],
+            style,
+            font_idx,
+            glyph_pos,
+        }
     }
 }
 

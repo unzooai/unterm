@@ -418,6 +418,7 @@ Supported:
 - GPU-free `CommandListRenderBackend` that expands commit submissions into ordered damage/background/text/cursor backend commands before the real wgpu backend lands
 - `EngineRenderBufferPlan` that turns backend commands into damage rects plus quad vertex/index buffers and preserves `RenderTextRun` row/col/cell-span/text/style/rect metadata so the GUI glyph-atlas path can render real text instead of anonymous text quads
 - `EngineRenderTextAtlasPlan` that turns submitted text runs into GPU-free atlas/shaping preparation runs with foreground color, cell span, text, style, and pixel rects before the real font atlas is attached
+- `EngineRenderShapedGlyphPlan`, the next input ABI for a real GUI shaper, carrying shaped text, rect, style, foreground, cells, `font_idx`, and `glyph_pos` into the shared atlas/cache/upload path
 - `EngineRenderGlyphAtlasPlan` that turns text-atlas runs into stable glyph cache keys and cell-aligned glyph instances, with optional shaped `(font_idx, glyph_pos)` raster identity so the future font raster source can distinguish fallback fonts and glyph ids
 - `EngineRenderGlyphAtlasCache` with deterministic shelf placement and inserted/overflow key reporting, so the future WebGPU glyph texture can update atlas regions without rebuilding placement state per frame
 - `WebGpuState` pane-scoped next-core glyph atlas state, reusing glyph placements across paints and clearing them when pane renderer state is removed
