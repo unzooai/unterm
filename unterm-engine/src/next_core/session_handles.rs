@@ -25,6 +25,14 @@ pub(super) struct ShellHandles {
     pub(super) root_pid: Option<u32>,
 }
 
+pub(super) struct ScrollbackHandles {
+    pub(super) screen: Arc<Mutex<NextCoreScreen>>,
+    pub(super) output: Arc<Mutex<String>>,
+    pub(super) activity: Arc<Mutex<SessionIoActivity>>,
+    pub(super) cols: usize,
+    pub(super) rows: usize,
+}
+
 fn session(state: &NextCoreState, pane_id: usize) -> Result<&NextCoreSession> {
     state
         .sessions
@@ -73,6 +81,17 @@ pub(super) fn shell(state: &NextCoreState, pane_id: usize) -> Result<ShellHandle
         shell: session.snapshot.shell.clone(),
         screen: Arc::clone(&session.screen),
         root_pid: session.root_pid,
+    })
+}
+
+pub(super) fn scrollback(state: &NextCoreState, pane_id: usize) -> Result<ScrollbackHandles> {
+    let session = session(state, pane_id)?;
+    Ok(ScrollbackHandles {
+        screen: Arc::clone(&session.screen),
+        output: Arc::clone(&session.output),
+        activity: Arc::clone(&session.activity),
+        cols: session.snapshot.cols,
+        rows: session.snapshot.rows,
     })
 }
 

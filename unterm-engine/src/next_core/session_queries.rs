@@ -32,6 +32,7 @@ pub(super) fn output(pane_id: usize) -> Result<String> {
     Ok(text)
 }
 
+#[cfg(test)]
 pub(super) fn bracketed_paste_enabled(pane_id: usize) -> Result<bool> {
     let screen = {
         let state = state().read();

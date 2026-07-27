@@ -1,28 +1,17 @@
 use super::{
-    activity::SessionIoActivity,
     render_frame::{self, FrameSelection},
     screen_search,
     screen_snapshot::{self, ScreenSnapshotMeta},
-    screen_text, session_handles, state, NextCoreScreen,
+    screen_text,
+    session_handles::{self, ScrollbackHandles},
+    state,
 };
 use crate::{
     CursorSnapshot, RenderFrameSnapshot, ScreenLine, ScreenSearchMatch, ScreenSnapshot,
     ScrollbackTextRequest, ScrollbackTextSnapshot, StyledScreenSnapshot, StyledScrollbackSnapshot,
 };
-use anyhow::{bail, Result};
-use parking_lot::Mutex;
-use std::{
-    sync::Arc,
-    time::{Duration, Instant},
-};
-
-struct ScrollbackHandles {
-    screen: Arc<Mutex<NextCoreScreen>>,
-    output: Arc<Mutex<String>>,
-    activity: Arc<Mutex<SessionIoActivity>>,
-    cols: usize,
-    rows: usize,
-}
+use anyhow::Result;
+use std::time::{Duration, Instant};
 
 pub(super) fn read_plain_viewport(pane_id: usize) -> Result<ScreenSnapshot> {
     let started_at = Instant::now();
@@ -59,6 +48,10 @@ pub(super) fn read_styled_viewport(pane_id: usize) -> Result<StyledScreenSnapsho
         .lock()
         .mark_screen_read(started_at.elapsed());
     Ok(snapshot)
+}
+
+pub(super) fn read_visible_text(pane_id: usize) -> Result<String> {
+    Ok(read_plain_viewport(pane_id)?.lines.join("\n"))
 }
 
 pub(super) fn read_render_frame(
@@ -337,21 +330,7 @@ fn meta(screen: &super::NextCoreScreen) -> ScreenSnapshotMeta {
 
 fn scrollback_handles(pane_id: usize) -> Result<ScrollbackHandles> {
     let state = state().read();
-    let Some(session) = state
-        .sessions
-        .iter()
-        .find(|session| session.snapshot.id == pane_id)
-    else {
-        bail!("next-core session {pane_id} not found");
-    };
-
-    Ok(ScrollbackHandles {
-        screen: Arc::clone(&session.screen),
-        output: Arc::clone(&session.output),
-        activity: Arc::clone(&session.activity),
-        cols: session.snapshot.cols,
-        rows: session.snapshot.rows,
-    })
+    session_handles::scrollback(&state, pane_id)
 }
 
 #[cfg(test)]

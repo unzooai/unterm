@@ -1601,44 +1601,23 @@ fn state() -> &'static RwLock<NextCoreState> {
 }
 
 impl NextCoreEngine {
-    fn sessions(&self) -> Vec<SessionSnapshot> {
-        session_snapshots::list_current()
-    }
-
-    fn session(&self, pane_id: usize) -> Result<SessionSnapshot> {
-        session_snapshots::get_current(pane_id)
-    }
-
-    fn shell_snapshot(&self, pane_id: usize) -> Result<ShellSnapshot> {
-        session_queries::shell_snapshot(pane_id)
-    }
-
-    fn output(&self, pane_id: usize) -> Result<String> {
-        session_queries::output(pane_id)
-    }
-
     #[doc(hidden)]
     pub fn debug_output(&self, pane_id: usize) -> Result<String> {
-        self.output(pane_id)
+        session_queries::output(pane_id)
     }
 
     pub fn scroll_viewport_to(&self, pane_id: usize, target: isize) -> Result<()> {
         screen_dispatch::scroll_viewport_to(pane_id, target)
     }
-
-    #[allow(dead_code)]
-    fn bracketed_paste_enabled(&self, pane_id: usize) -> Result<bool> {
-        session_queries::bracketed_paste_enabled(pane_id)
-    }
 }
 
 impl SessionEngine for NextCoreEngine {
     fn list_sessions(&self) -> Result<Vec<SessionSnapshot>> {
-        Ok(self.sessions())
+        Ok(session_snapshots::list_current())
     }
 
     fn get_session(&self, pane_id: usize) -> Result<SessionSnapshot> {
-        self.session(pane_id)
+        session_snapshots::get_current(pane_id)
     }
 
     fn create_session(&self, request: CreateSessionRequest) -> Result<SessionSnapshot> {
@@ -1654,7 +1633,7 @@ impl SessionEngine for NextCoreEngine {
     }
 
     fn shell(&self, pane_id: usize) -> Result<ShellSnapshot> {
-        self.shell_snapshot(pane_id)
+        session_queries::shell_snapshot(pane_id)
     }
 
     fn activity(&self, pane_id: usize) -> Result<SessionActivitySnapshot> {
@@ -1688,7 +1667,7 @@ impl ScreenEngine for NextCoreEngine {
     }
 
     fn read_visible_text(&self, pane_id: usize) -> Result<String> {
-        Ok(self.read_screen(pane_id)?.lines.join("\n"))
+        screen_dispatch::read_visible_text(pane_id)
     }
 
     fn read_lines(&self, pane_id: usize, start: i64, count: usize) -> Result<Vec<ScreenLine>> {
@@ -5319,11 +5298,11 @@ mod tests {
             launch_policy: Default::default(),
         })?;
 
-        assert!(!engine.bracketed_paste_enabled(session.id)?);
+        assert!(!session_queries::bracketed_paste_enabled(session.id)?);
         set_output_for_test(session.id, "\x1b[?2004h")?;
-        assert!(engine.bracketed_paste_enabled(session.id)?);
+        assert!(session_queries::bracketed_paste_enabled(session.id)?);
         set_output_for_test(session.id, "\x1b[?2004h\x1b[?2004l")?;
-        assert!(!engine.bracketed_paste_enabled(session.id)?);
+        assert!(!session_queries::bracketed_paste_enabled(session.id)?);
 
         engine.destroy_session(session.id)?;
         Ok(())
@@ -5584,12 +5563,12 @@ mod tests {
 
         set_output_for_test(session.id, "\x1b[?1049;2004halt")?;
         assert_eq!(engine.read_screen(session.id)?.lines, vec!["alt"]);
-        assert!(engine.bracketed_paste_enabled(session.id)?);
+        assert!(session_queries::bracketed_paste_enabled(session.id)?);
 
         set_output_for_test(session.id, "\x1b[?25;2004lmain")?;
         let screen = engine.read_screen(session.id)?;
         assert!(!screen.cursor.visible);
-        assert!(!engine.bracketed_paste_enabled(session.id)?);
+        assert!(!session_queries::bracketed_paste_enabled(session.id)?);
 
         engine.destroy_session(session.id)?;
         Ok(())
@@ -5630,7 +5609,7 @@ mod tests {
         assert!(screen.cursor.visible);
         assert_eq!(screen.cursor.shape, "Default");
         assert_eq!(screen.scrollback_rows, 0);
-        assert!(!engine.bracketed_paste_enabled(session.id)?);
+        assert!(!session_queries::bracketed_paste_enabled(session.id)?);
         assert_eq!(engine.get_session(session.id)?.title, "Reset Test");
         assert_eq!(engine.shell(session.id)?.cwd.as_deref(), Some(expected_cwd));
 
