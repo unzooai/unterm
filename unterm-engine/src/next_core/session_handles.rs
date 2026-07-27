@@ -55,7 +55,6 @@ pub(super) fn screen(state: &NextCoreState, pane_id: usize) -> Result<Arc<Mutex<
     Ok(Arc::clone(&session(state, pane_id)?.screen))
 }
 
-#[cfg(test)]
 pub(super) fn screen_current(pane_id: usize) -> Result<Arc<Mutex<NextCoreScreen>>> {
     let state = state().read();
     screen(&state, pane_id)
@@ -68,12 +67,24 @@ pub(super) fn activity(
     Ok(Arc::clone(&session(state, pane_id)?.activity))
 }
 
+pub(super) fn activity_current(pane_id: usize) -> Result<Arc<Mutex<SessionIoActivity>>> {
+    let state = state().read();
+    activity(&state, pane_id)
+}
+
 pub(super) fn screen_activity(
     state: &NextCoreState,
     pane_id: usize,
 ) -> Result<(Arc<Mutex<NextCoreScreen>>, Arc<Mutex<SessionIoActivity>>)> {
     let session = session(state, pane_id)?;
     Ok((Arc::clone(&session.screen), Arc::clone(&session.activity)))
+}
+
+pub(super) fn screen_activity_current(
+    pane_id: usize,
+) -> Result<(Arc<Mutex<NextCoreScreen>>, Arc<Mutex<SessionIoActivity>>)> {
+    let state = state().read();
+    screen_activity(&state, pane_id)
 }
 
 pub(super) fn input(state: &NextCoreState, pane_id: usize) -> Result<InputHandles> {
@@ -115,6 +126,11 @@ pub(super) fn scrollback(state: &NextCoreState, pane_id: usize) -> Result<Scroll
         cols: session.snapshot.cols,
         rows: session.snapshot.rows,
     })
+}
+
+pub(super) fn scrollback_current(pane_id: usize) -> Result<ScrollbackHandles> {
+    let state = state().read();
+    scrollback(&state, pane_id)
 }
 
 pub(super) fn recording(state: &NextCoreState, pane_id: usize) -> Result<RecordingHandles> {

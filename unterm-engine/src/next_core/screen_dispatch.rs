@@ -4,7 +4,6 @@ use super::{
     screen_snapshot::{self, ScreenSnapshotMeta},
     screen_text,
     session_handles::{self, ScrollbackHandles},
-    state,
 };
 use crate::{
     CursorSnapshot, RenderFrameSnapshot, ScreenLine, ScreenSearchMatch, ScreenSnapshot,
@@ -15,10 +14,7 @@ use std::time::{Duration, Instant};
 
 pub(super) fn read_plain_viewport(pane_id: usize) -> Result<ScreenSnapshot> {
     let started_at = Instant::now();
-    let (screen_handle, activity_handle) = {
-        let state = state().read();
-        session_handles::screen_activity(&state, pane_id)?
-    };
+    let (screen_handle, activity_handle) = session_handles::screen_activity_current(pane_id)?;
 
     let snapshot = {
         let screen = screen_handle.lock();
@@ -34,10 +30,7 @@ pub(super) fn read_plain_viewport(pane_id: usize) -> Result<ScreenSnapshot> {
 
 pub(super) fn read_styled_viewport(pane_id: usize) -> Result<StyledScreenSnapshot> {
     let started_at = Instant::now();
-    let (screen_handle, activity_handle) = {
-        let state = state().read();
-        session_handles::screen_activity(&state, pane_id)?
-    };
+    let (screen_handle, activity_handle) = session_handles::screen_activity_current(pane_id)?;
 
     let snapshot = {
         let screen = screen_handle.lock();
@@ -59,10 +52,7 @@ pub(super) fn read_render_frame(
     since_revision: Option<u64>,
 ) -> Result<RenderFrameSnapshot> {
     let started_at = Instant::now();
-    let (screen_handle, activity_handle) = {
-        let state = state().read();
-        session_handles::screen_activity(&state, pane_id)?
-    };
+    let (screen_handle, activity_handle) = session_handles::screen_activity_current(pane_id)?;
 
     let snapshot = {
         let mut screen = screen_handle.lock();
@@ -153,30 +143,21 @@ pub(super) fn search(
 }
 
 pub(super) fn snapshot_lines(pane_id: usize) -> Result<Vec<String>> {
-    let screen = {
-        let state = state().read();
-        session_handles::screen(&state, pane_id)?
-    };
+    let screen = session_handles::screen_current(pane_id)?;
 
     let lines = screen.lock().snapshot_lines();
     Ok(lines)
 }
 
 pub(super) fn line_text_range(pane_id: usize, start: usize, count: usize) -> Result<Vec<String>> {
-    let screen = {
-        let state = state().read();
-        session_handles::screen(&state, pane_id)?
-    };
+    let screen = session_handles::screen_current(pane_id)?;
 
     let lines = screen.lock().history_text_range(start, count);
     Ok(lines)
 }
 
 pub(super) fn scrollback_lines(pane_id: usize) -> Result<Vec<String>> {
-    let screen = {
-        let state = state().read();
-        session_handles::screen(&state, pane_id)?
-    };
+    let screen = session_handles::screen_current(pane_id)?;
 
     let lines = screen
         .lock()
@@ -287,20 +268,14 @@ pub(super) fn read_styled_scrollback(
 }
 
 pub(super) fn mark_screen_read(pane_id: usize, duration: Duration) -> Result<()> {
-    let activity = {
-        let state = state().read();
-        session_handles::activity(&state, pane_id)?
-    };
+    let activity = session_handles::activity_current(pane_id)?;
     activity.lock().mark_screen_read(duration);
     Ok(())
 }
 
 pub(super) fn scroll_viewport_to(pane_id: usize, target: isize) -> Result<()> {
     let started_at = Instant::now();
-    let (screen, activity) = {
-        let state = state().read();
-        session_handles::screen_activity(&state, pane_id)?
-    };
+    let (screen, activity) = session_handles::screen_activity_current(pane_id)?;
 
     screen.lock().set_viewport_top_near(target);
     activity.lock().mark_viewport_scroll(started_at.elapsed());
@@ -308,10 +283,7 @@ pub(super) fn scroll_viewport_to(pane_id: usize, target: isize) -> Result<()> {
 }
 
 pub(super) fn cursor(pane_id: usize) -> Result<CursorSnapshot> {
-    let screen = {
-        let state = state().read();
-        session_handles::screen(&state, pane_id)?
-    };
+    let screen = session_handles::screen_current(pane_id)?;
 
     let cursor = screen.lock().cursor_snapshot();
     Ok(cursor)
@@ -329,8 +301,7 @@ fn meta(screen: &super::NextCoreScreen) -> ScreenSnapshotMeta {
 }
 
 fn scrollback_handles(pane_id: usize) -> Result<ScrollbackHandles> {
-    let state = state().read();
-    session_handles::scrollback(&state, pane_id)
+    session_handles::scrollback_current(pane_id)
 }
 
 #[cfg(test)]
