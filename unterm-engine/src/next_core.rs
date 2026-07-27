@@ -407,21 +407,9 @@ impl NextCoreScreen {
     fn styled_viewport_lines(&self, first_row: i64) -> Vec<StyledScreenLine> {
         let viewport_start = self.viewport_start();
         (0..self.rows)
-            .map(|idx| {
-                let cells = self
-                    .history_line(viewport_start + idx)
-                    .map(|line| {
-                        line.iter()
-                            .map(|cell| {
-                                cell.styled_with_reverse_video(self.reverse_video, &self.hyperlinks)
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                StyledScreenLine {
-                    row: first_row + idx as i64,
-                    cells,
-                }
+            .map(|idx| StyledScreenLine {
+                row: first_row + idx as i64,
+                cells: self.styled_viewport_cells(self.history_line(viewport_start + idx)),
             })
             .collect()
     }
@@ -433,23 +421,29 @@ impl NextCoreScreen {
     ) -> Vec<StyledScreenLine> {
         let viewport_start = self.viewport_start();
         (dirty_rows.start..=dirty_rows.end)
-            .map(|row| {
-                let cells = self
-                    .history_line(viewport_start + row)
-                    .map(|line| {
-                        line.iter()
-                            .map(|cell| {
-                                cell.styled_with_reverse_video(self.reverse_video, &self.hyperlinks)
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                StyledScreenLine {
-                    row: first_row + row as i64,
-                    cells,
-                }
+            .map(|row| StyledScreenLine {
+                row: first_row + row as i64,
+                cells: self.styled_viewport_cells(self.history_line(viewport_start + row)),
             })
             .collect()
+    }
+
+    fn styled_viewport_cells(&self, line: Option<&Vec<ScreenCell>>) -> Vec<StyledCell> {
+        let mut cells: Vec<StyledCell> = line
+            .into_iter()
+            .flat_map(|line| {
+                line.iter().take(self.cols).map(|cell| {
+                    cell.styled_with_reverse_video(self.reverse_video, &self.hyperlinks)
+                })
+            })
+            .collect();
+        while cells.len() < self.cols {
+            cells.push(
+                ScreenCell::blank(CellAttributes::default())
+                    .styled_with_reverse_video(self.reverse_video, &self.hyperlinks),
+            );
+        }
+        cells
     }
 
     fn styled_history_range(&self, start: usize, count: usize) -> Vec<StyledScreenLine> {
@@ -6155,6 +6149,7 @@ mod tests {
         assert!(full.full);
         assert_eq!(full.dirty_rows, Some(DirtyRows { start: 0, end: 3 }));
         assert_eq!(full.lines.len(), 4);
+        assert!(full.lines.iter().all(|line| line.cells.len() == 12));
         assert_eq!(full.lines[0].row, 0);
         assert_eq!(
             full.lines[0]
@@ -6162,7 +6157,15 @@ mod tests {
                 .iter()
                 .map(|cell| cell.ch)
                 .collect::<String>(),
-            "alpha"
+            "alpha       "
+        );
+        assert_eq!(
+            full.lines[3]
+                .cells
+                .iter()
+                .map(|cell| cell.ch)
+                .collect::<String>(),
+            "            "
         );
 
         let unchanged = engine.read_render_frame(session.id, Some(full.revision))?;
@@ -6175,6 +6178,7 @@ mod tests {
         assert!(!delta.full);
         assert_eq!(delta.dirty_rows, Some(DirtyRows { start: 0, end: 0 }));
         assert_eq!(delta.lines.len(), 1);
+        assert_eq!(delta.lines[0].cells.len(), 12);
         assert_eq!(delta.lines[0].row, 0);
         assert_eq!(
             delta.lines[0]
@@ -6182,7 +6186,7 @@ mod tests {
                 .iter()
                 .map(|cell| cell.ch)
                 .collect::<String>(),
-            "alpha!"
+            "alpha!      "
         );
 
         engine.destroy_session(session.id)?;
@@ -6224,6 +6228,7 @@ mod tests {
         assert!(!delta.full);
         assert_eq!(delta.dirty_rows, Some(DirtyRows { start: 0, end: 1 }));
         assert_eq!(delta.lines.len(), 2);
+        assert!(delta.lines.iter().all(|line| line.cells.len() == 12));
         assert_eq!(delta.lines[0].row, 0);
         assert_eq!(delta.lines[0].cells[0].ch, 'A');
         assert_eq!(delta.lines[1].row, 1);
@@ -6233,6 +6238,7 @@ mod tests {
         assert!(stale.full);
         assert_eq!(stale.dirty_rows, Some(DirtyRows { start: 0, end: 3 }));
         assert_eq!(stale.lines.len(), 4);
+        assert!(stale.lines.iter().all(|line| line.cells.len() == 12));
 
         engine.destroy_session(session.id)?;
         Ok(())
