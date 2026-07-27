@@ -1,21 +1,24 @@
 use super::{
-    health_snapshot, input_dispatch, recording_lifecycle, screen_dispatch, session_activity,
-    session_queries, session_registry,
+    health_snapshot, recording_lifecycle, session_activity, session_queries, session_registry,
 };
 use crate::{
-    CursorSnapshot, EngineHealthSnapshot, RecordingExportResult, RecordingStartResult,
-    RecordingStatusSnapshot, RecordingStopResult, RenderFrameSnapshot, ScreenLine,
-    ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot,
-    SessionActivitySnapshot, ShellSnapshot, StyledScreenSnapshot, StyledScrollbackSnapshot,
+    EngineHealthSnapshot, RecordingExportResult, RecordingStartResult, RecordingStatusSnapshot,
+    RecordingStopResult, SessionActivitySnapshot, ShellSnapshot,
 };
 use anyhow::Result;
 use parking_lot::RwLock;
 use std::sync::OnceLock;
 
+mod io_facade;
 mod session_facade;
 #[cfg(test)]
 pub(super) mod test_facade;
 
+pub(super) use io_facade::{
+    cursor, paste_input, read_lines, read_render_frame, read_screen, read_scrollback,
+    read_scrollback_text, read_styled_screen, read_styled_scrollback, read_visible_text,
+    scroll_viewport_to, search_screen, write_input,
+};
 pub(super) use session_facade::{
     clone_session_base, create_session, destroy, focus, get_session, insert_created, list_sessions,
     next_session_id, resize, split_session, with_session, with_session_optional,
@@ -47,71 +50,6 @@ pub(super) fn shell_snapshot(pane_id: usize) -> Result<ShellSnapshot> {
 
 pub(super) fn output(pane_id: usize) -> Result<String> {
     session_queries::output(pane_id)
-}
-
-pub(super) fn scroll_viewport_to(pane_id: usize, target: isize) -> Result<()> {
-    screen_dispatch::scroll_viewport_to(pane_id, target)
-}
-
-pub(super) fn read_screen(pane_id: usize) -> Result<ScreenSnapshot> {
-    screen_dispatch::read_plain_viewport(pane_id)
-}
-
-pub(super) fn read_styled_screen(pane_id: usize) -> Result<StyledScreenSnapshot> {
-    screen_dispatch::read_styled_viewport(pane_id)
-}
-
-pub(super) fn read_render_frame(
-    pane_id: usize,
-    since_revision: Option<u64>,
-) -> Result<RenderFrameSnapshot> {
-    screen_dispatch::read_render_frame(pane_id, since_revision)
-}
-
-pub(super) fn read_visible_text(pane_id: usize) -> Result<String> {
-    screen_dispatch::read_visible_text(pane_id)
-}
-
-pub(super) fn read_lines(pane_id: usize, start: i64, count: usize) -> Result<Vec<ScreenLine>> {
-    screen_dispatch::read_lines(pane_id, start, count)
-}
-
-pub(super) fn read_scrollback(pane_id: usize, limit: usize) -> Result<Vec<String>> {
-    screen_dispatch::read_scrollback(pane_id, limit)
-}
-
-pub(super) fn read_scrollback_text(
-    pane_id: usize,
-    request: ScrollbackTextRequest,
-) -> Result<ScrollbackTextSnapshot> {
-    screen_dispatch::read_scrollback_text(pane_id, request)
-}
-
-pub(super) fn read_styled_scrollback(
-    pane_id: usize,
-    request: ScrollbackTextRequest,
-) -> Result<StyledScrollbackSnapshot> {
-    screen_dispatch::read_styled_scrollback(pane_id, request)
-}
-
-pub(super) fn search_screen(
-    pane_id: usize,
-    pattern: &str,
-    max_results: usize,
-) -> Result<Vec<ScreenSearchMatch>> {
-    screen_dispatch::search(pane_id, pattern, max_results)
-}
-
-pub(super) fn cursor(pane_id: usize) -> Result<CursorSnapshot> {
-    screen_dispatch::cursor(pane_id)
-}
-
-pub(super) fn write_input(pane_id: usize, input: &str) -> Result<()> {
-    input_dispatch::write(pane_id, input)
-}
-
-pub(super) fn paste_input(pane_id: usize, text: &str) -> Result<()> {
-    input_dispatch::paste(pane_id, text)
 }
 
 pub(super) fn session_activity(pane_id: usize) -> Result<SessionActivitySnapshot> {
