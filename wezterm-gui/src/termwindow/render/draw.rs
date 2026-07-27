@@ -53,16 +53,11 @@ impl crate::TermWindow {
         } else {
             None
         };
-        let next_core_replace_diagnostics = match (
-            next_core_mode == NextCoreWebGpuPaneMode::Replace,
-            next_core_pane_frame.as_ref(),
-        ) {
-            (true, Some(frame)) => Some(frame.replace_diagnostics),
-            (true, None) => {
-                Some(crate::engine::EngineRenderPaneReplaceDiagnostics::requested_missing_frame())
-            }
-            (false, _) => None,
-        };
+        let next_core_replace_diagnostics =
+            crate::engine::EngineRenderPreparedPaneFrame::replace_diagnostics_for_request(
+                next_core_mode == NextCoreWebGpuPaneMode::Replace,
+                next_core_pane_frame.as_ref(),
+            );
         let replace_legacy_pane =
             should_replace_legacy_pane(next_core_replace_diagnostics.as_ref());
         {

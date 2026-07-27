@@ -583,6 +583,28 @@ mod tests {
         assert!(frame.replace_diagnostics.prepared_frame_matches_batch);
         assert_eq!(frame.replace_diagnostics.readiness_issue_count(), 0);
         assert!(frame.replace_diagnostics.readiness_issues().is_empty());
+
+        let frame_diagnostics =
+            EngineRenderPreparedPaneFrame::replace_diagnostics_for_request(true, Some(&frame))
+                .expect("requested frame diagnostics");
+        assert!(frame_diagnostics.should_replace_legacy_pane());
+
+        let missing_frame_diagnostics =
+            EngineRenderPreparedPaneFrame::replace_diagnostics_for_request(true, None)
+                .expect("requested missing-frame diagnostics");
+        assert!(missing_frame_diagnostics.should_log_replace_fallback());
+        assert_eq!(
+            missing_frame_diagnostics.readiness_issues(),
+            vec![
+                EngineRenderPaneReplaceReadinessIssue::MissingBufferBatch,
+                EngineRenderPaneReplaceReadinessIssue::MissingPreparedFrame,
+            ]
+        );
+
+        assert!(
+            EngineRenderPreparedPaneFrame::replace_diagnostics_for_request(false, Some(&frame))
+                .is_none()
+        );
     }
 
     #[test]

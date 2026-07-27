@@ -77,6 +77,17 @@ impl EngineRenderPreparedPaneFrame {
             font,
         }
     }
+
+    pub fn replace_diagnostics_for_request(
+        replace_requested: bool,
+        frame: Option<&Self>,
+    ) -> Option<EngineRenderPaneReplaceDiagnostics> {
+        match (replace_requested, frame) {
+            (true, Some(frame)) => Some(frame.replace_diagnostics),
+            (true, None) => Some(EngineRenderPaneReplaceDiagnostics::requested_missing_frame()),
+            (false, _) => None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
