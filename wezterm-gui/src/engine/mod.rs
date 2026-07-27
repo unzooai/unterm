@@ -344,6 +344,7 @@ mod tests {
             buffer_plan.damage_rects.len(),
             first.stats.damage_rect_count
         );
+        assert_eq!(buffer_plan.text_runs.len(), first.stats.text_run_count);
         assert_eq!(buffer_plan.vertices.len() % 4, 0);
         assert_eq!(buffer_plan.indices.len() % 6, 0);
         assert_eq!(&buffer_plan.indices[0..6], &[0, 1, 2, 1, 2, 3]);
@@ -412,6 +413,7 @@ mod tests {
         let skipped_buffer = EngineRenderBufferPlan::from_frame(&skipped);
         assert!(!skipped.submitted);
         assert!(skipped.commands.is_empty());
+        assert!(skipped_buffer.text_runs.is_empty());
         assert!(skipped_buffer.vertices.is_empty());
         assert!(skipped_buffer.indices.is_empty());
         let skipped_upload = EngineRenderGpuUploadPlan::from_buffer_plan(&skipped_buffer);
@@ -458,6 +460,10 @@ mod tests {
             first.buffer_plan.damage_rects.len(),
             first.stats.damage_rect_count
         );
+        assert_eq!(
+            first.buffer_plan.text_runs.len(),
+            first.stats.text_run_count
+        );
         assert!(!first.buffer_plan.vertices.is_empty());
         assert!(!first.buffer_plan.indices.is_empty());
 
@@ -467,6 +473,7 @@ mod tests {
         assert!(!repeat.stats.submit);
         assert!(!repeat.buffer_plan.submitted);
         assert_eq!(repeat.stats.previous_revision, Some(first.stats.revision));
+        assert!(repeat.buffer_plan.text_runs.is_empty());
         assert!(repeat.buffer_plan.vertices.is_empty());
         assert!(repeat.buffer_plan.indices.is_empty());
         engine

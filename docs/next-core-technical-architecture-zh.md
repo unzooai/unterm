@@ -223,7 +223,7 @@ next-core 已经在 screen/parser 方向具备基础能力，包括：
 - `TermWindow::prepare_next_core_render_buffer_plan` 已把当前 engine、pane id、当前 cell metrics 和持久 renderer consumer cache 收敛为单个 frame preparation 入口；下一步 WebGPU pane draw branch 只需要拿该 buffer plan 交给 `WebGpuState::encode_next_core_buffer_plan`
 - WebGPU draw loop 已提供 `UNTERM_NEXT_CORE_WEBGPU_PANE` 实验分支：默认不启用；`1/true/on/append` 在 legacy pass 后追加 next-core buffer plan pass；`replace` 会跳过 legacy pane quad ranges，由 next-core 绘制 pane，同时保留 legacy chrome/UI，用于验证 pane-only 替代路径
 - `wezterm-gui/src/engine/render_backend.rs` 已提供 GPU-free `CommandListRenderBackend`，将 damage/background/text/cursor submission 展开为稳定顺序的 backend command list，为后续 wgpu command encoder 接入固定输入契约
-- `EngineRenderBufferPlan` 已将 backend command 转为 damage rects、quad vertices 和 indices，先固定 GPU buffer preparation contract，再接真实 wgpu device/swapchain/font atlas
+- `EngineRenderBufferPlan` 已将 backend command 转为 damage rects、quad vertices 和 indices，并保留原始 `RenderTextRun` 的 text/style/rect 元数据；下一步 glyph atlas 可以消费真实文本信息，而不是只能看到匿名纯色 text quad
 - `EngineWgpuRenderBackend` 已提供最小 wgpu upload skeleton：把 buffer plan 转成 POD GPU vertex ABI，并创建 vertex/index buffers；该层复用 GUI 现有 `wgpu`，不把 GPU 依赖塞进 `unterm-engine`
 - `EngineWgpuRenderPassPlan` 已固定最小 indexed draw-pass 契约，`EngineWgpuRenderBackend::encode_pass` 可以把已上传 buffer 写入真实 `wgpu::CommandEncoder`，重复 revision/空帧不会产生 draw
 - `EngineWgpuPipelineConfig`、next-core GPU vertex layout 和最小 WGSL shader 已固定 solid-color quad pipeline ABI；背景/文本/光标顶点携带 RGBA，窗口接入时通过 viewport 尺寸转换为 clip-space，字体 atlas 仍留给后续独立步骤

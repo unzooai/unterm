@@ -4,7 +4,7 @@
 //! wgpu backend will execute, without making tests depend on a window, adapter,
 //! font atlas, or swapchain.
 
-use super::{CellStyle, EngineRenderCommitBatch, RenderRect, StyledColor};
+use super::{CellStyle, EngineRenderCommitBatch, RenderRect, RenderTextRun, StyledColor};
 use wgpu::util::DeviceExt;
 
 const NEXT_CORE_RENDER_SHADER: &str = r#"
@@ -86,6 +86,7 @@ pub struct EngineRenderBufferPlan {
     pub revision: u64,
     pub requires_full_repaint: bool,
     pub damage_rects: Vec<RenderRect>,
+    pub text_runs: Vec<RenderTextRun>,
     pub vertices: Vec<EngineRenderVertex>,
     pub indices: Vec<u32>,
 }
@@ -406,6 +407,7 @@ impl EngineWgpuRenderBackend {
 impl EngineRenderBufferPlan {
     pub fn from_frame(frame: &EngineRenderBackendFrame) -> Self {
         let mut damage_rects = Vec::new();
+        let mut text_runs = Vec::new();
         let mut vertices = Vec::new();
         let mut indices = Vec::new();
 
@@ -423,7 +425,12 @@ impl EngineRenderBufferPlan {
                         command_index,
                     );
                 }
-                EngineRenderBackendCommand::Text { rect, .. } => {
+                EngineRenderBackendCommand::Text { rect, text, style } => {
+                    text_runs.push(RenderTextRun {
+                        text: text.clone(),
+                        rect: *rect,
+                        style: style.clone(),
+                    });
                     let color = foreground_color_for_command(command);
                     push_quad_vertices(
                         &mut vertices,
@@ -453,6 +460,7 @@ impl EngineRenderBufferPlan {
             revision: frame.revision,
             requires_full_repaint: frame.requires_full_repaint,
             damage_rects,
+            text_runs,
             vertices,
             indices,
         }
@@ -576,6 +584,47 @@ fn ansi_palette_rgb(index: u8) -> [u8; 3] {
     } else {
         let gray = 8 + (index - 232) * 10;
         [gray, gray, gray]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn buffer_plan_preserves_text_run_metadata() {
+        let style = CellStyle {
+            fg: Some(StyledColor::Rgb(0xaa, 0xbb, 0xcc)),
+            bg: Some(StyledColor::Rgb(0x01, 0x02, 0x03)),
+            ..Default::default()
+        };
+        let rect = RenderRect {
+            x: 8,
+            y: 16,
+            width: 24,
+            height: 16,
+        };
+        let frame = EngineRenderBackendFrame {
+            pane_id: 7,
+            submitted: true,
+            revision: 42,
+            requires_full_repaint: false,
+            skipped_revisions: 0,
+            commands: vec![EngineRenderBackendCommand::Text {
+                rect,
+                text: "abc".to_string(),
+                style: style.clone(),
+            }],
+        };
+
+        let plan = EngineRenderBufferPlan::from_frame(&frame);
+
+        assert_eq!(plan.text_runs.len(), 1);
+        assert_eq!(plan.text_runs[0].text, "abc");
+        assert_eq!(plan.text_runs[0].rect, rect);
+        assert_eq!(plan.text_runs[0].style, style);
+        assert_eq!(plan.vertices.len(), 4);
+        assert_eq!(plan.indices, vec![0, 1, 2, 1, 2, 3]);
     }
 }
 
