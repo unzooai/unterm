@@ -134,7 +134,7 @@ unterm-core
   input translator -> pty writer
 
 unterm-render
-  dirty snapshot -> shaped glyph runs -> GPU frame
+  render-frame snapshot -> shaped glyph runs -> GPU frame
 
 unterm-app
   windows/tabs/panes/IME/selection -> product services -> engine traits
@@ -399,6 +399,7 @@ Supported:
 - keyboard input
 - paste
 - visible screen text read
+- styled render-frame snapshots with full-frame fallback and dirty-row deltas
 - `session.list`
 - `session.input`
 - `screen.text`

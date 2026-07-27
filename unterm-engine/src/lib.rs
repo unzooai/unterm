@@ -217,6 +217,19 @@ pub struct StyledScreenSnapshot {
 
 #[allow(dead_code)]
 #[derive(Clone, Debug, Serialize)]
+pub struct RenderFrameSnapshot {
+    pub lines: Vec<StyledScreenLine>,
+    pub cursor: CursorSnapshot,
+    pub cols: usize,
+    pub rows: usize,
+    pub scrollback_rows: usize,
+    pub revision: u64,
+    pub dirty_rows: Option<DirtyRows>,
+    pub full: bool,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug, Serialize)]
 pub struct StyledScrollbackSnapshot {
     pub lines: Vec<StyledScreenLine>,
     pub first_row: i64,
@@ -435,6 +448,45 @@ pub trait ScreenEngine {
     fn read_screen(&self, pane_id: usize) -> Result<ScreenSnapshot>;
     #[allow(dead_code)]
     fn read_styled_screen(&self, pane_id: usize) -> Result<StyledScreenSnapshot>;
+    #[allow(dead_code)]
+    fn read_render_frame(
+        &self,
+        pane_id: usize,
+        since_revision: Option<u64>,
+    ) -> Result<RenderFrameSnapshot> {
+        let screen = self.read_styled_screen(pane_id)?;
+        if since_revision == Some(screen.revision) {
+            return Ok(RenderFrameSnapshot {
+                lines: Vec::new(),
+                cursor: screen.cursor,
+                cols: screen.cols,
+                rows: screen.rows,
+                scrollback_rows: screen.scrollback_rows,
+                revision: screen.revision,
+                dirty_rows: None,
+                full: false,
+            });
+        }
+
+        let dirty_rows = if screen.rows == 0 {
+            None
+        } else {
+            Some(DirtyRows {
+                start: 0,
+                end: screen.rows - 1,
+            })
+        };
+        Ok(RenderFrameSnapshot {
+            lines: screen.lines,
+            cursor: screen.cursor,
+            cols: screen.cols,
+            rows: screen.rows,
+            scrollback_rows: screen.scrollback_rows,
+            revision: screen.revision,
+            dirty_rows,
+            full: true,
+        })
+    }
     fn read_visible_text(&self, pane_id: usize) -> Result<String>;
     fn read_lines(&self, pane_id: usize, start: i64, count: usize) -> Result<Vec<ScreenLine>>;
     fn read_scrollback(&self, pane_id: usize, limit: usize) -> Result<Vec<String>>;

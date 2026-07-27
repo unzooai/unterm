@@ -4,11 +4,12 @@ use super::{
     InputEngine, LaunchContextSnapshot, LaunchEnvBinding, LaunchEnvSource, LaunchPolicyDecision,
     LaunchPolicyDecisionSnapshot, LaunchPolicySnapshot, OutputActivitySnapshot,
     PasteActivitySnapshot, ProcessTreeSnapshot, RecordingEngine, RecordingExportResult,
-    RecordingStartResult, RecordingStatusSnapshot, RecordingStopResult, ScreenActivitySnapshot,
-    ScreenEngine, ScreenLine, ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest,
-    ScrollbackTextSnapshot, SessionActivitySnapshot, SessionEngine, SessionSnapshot, ShellSnapshot,
-    SplitSessionRequest, StyledBlink, StyledCell, StyledColor, StyledScreenLine,
-    StyledScreenSnapshot, StyledScrollbackSnapshot, StyledUnderline, StyledVerticalAlign,
+    RecordingStartResult, RecordingStatusSnapshot, RecordingStopResult, RenderFrameSnapshot,
+    ScreenActivitySnapshot, ScreenEngine, ScreenLine, ScreenSearchMatch, ScreenSnapshot,
+    ScrollbackTextRequest, ScrollbackTextSnapshot, SessionActivitySnapshot, SessionEngine,
+    SessionSnapshot, ShellSnapshot, SplitSessionRequest, StyledBlink, StyledCell, StyledColor,
+    StyledScreenLine, StyledScreenSnapshot, StyledScrollbackSnapshot, StyledUnderline,
+    StyledVerticalAlign,
 };
 use anyhow::{bail, Result};
 use base64::Engine as _;
@@ -612,6 +613,27 @@ impl NextCoreScreen {
                     .collect(),
             })
             .collect()
+    }
+
+    fn styled_viewport_dirty_lines(
+        &self,
+        dirty_rows: DirtyRows,
+        first_row: i64,
+    ) -> Vec<StyledScreenLine> {
+        self.history_range(
+            self.viewport_start().saturating_add(dirty_rows.start),
+            dirty_rows.end.saturating_sub(dirty_rows.start) + 1,
+        )
+        .into_iter()
+        .enumerate()
+        .map(|(idx, line)| StyledScreenLine {
+            row: first_row + dirty_rows.start as i64 + idx as i64,
+            cells: line
+                .iter()
+                .map(|cell| cell.styled_with_reverse_video(self.reverse_video, &self.hyperlinks))
+                .collect(),
+        })
+        .collect()
     }
 
     fn styled_history_range(&self, start: usize, count: usize) -> Vec<StyledScreenLine> {
@@ -4396,6 +4418,84 @@ impl ScreenEngine for NextCoreEngine {
         Ok(snapshot)
     }
 
+    fn read_render_frame(
+        &self,
+        pane_id: usize,
+        since_revision: Option<u64>,
+    ) -> Result<RenderFrameSnapshot> {
+        let started_at = Instant::now();
+        let (screen_handle, activity_handle) = {
+            let state = state().read();
+            let Some(session) = state
+                .sessions
+                .iter()
+                .find(|session| session.snapshot.id == pane_id)
+            else {
+                bail!("next-core session {pane_id} not found");
+            };
+            (Arc::clone(&session.screen), Arc::clone(&session.activity))
+        };
+
+        let snapshot = {
+            let screen = screen_handle.lock();
+            let first_row = screen.viewport_first_row();
+            let revision = screen.revision();
+            let all_rows = if screen.rows == 0 {
+                None
+            } else {
+                Some(DirtyRows {
+                    start: 0,
+                    end: screen.rows - 1,
+                })
+            };
+
+            if since_revision == Some(revision) {
+                RenderFrameSnapshot {
+                    lines: Vec::new(),
+                    cursor: screen.cursor_snapshot(),
+                    cols: screen.cols,
+                    rows: screen.rows,
+                    scrollback_rows: screen.scrollback_rows(),
+                    revision,
+                    dirty_rows: None,
+                    full: false,
+                }
+            } else {
+                let force_full = since_revision.is_none()
+                    || since_revision.is_some_and(|since| since > revision)
+                    || screen.dirty_rows().is_none();
+                let dirty_rows = if force_full {
+                    all_rows
+                } else if screen.viewport_top.is_some() && screen.dirty_rows() != all_rows {
+                    None
+                } else {
+                    screen.dirty_rows()
+                };
+                let full = dirty_rows.is_some() && dirty_rows == all_rows;
+                let lines = match dirty_rows {
+                    Some(rows) if full => screen.styled_viewport_lines(first_row),
+                    Some(rows) => screen.styled_viewport_dirty_lines(rows, first_row),
+                    None => Vec::new(),
+                };
+
+                RenderFrameSnapshot {
+                    lines,
+                    cursor: screen.cursor_snapshot(),
+                    cols: screen.cols,
+                    rows: screen.rows,
+                    scrollback_rows: screen.scrollback_rows(),
+                    revision,
+                    dirty_rows,
+                    full,
+                }
+            }
+        };
+        activity_handle
+            .lock()
+            .mark_screen_read(started_at.elapsed());
+        Ok(snapshot)
+    }
+
     fn read_visible_text(&self, pane_id: usize) -> Result<String> {
         Ok(self.read_screen(pane_id)?.lines.join("\n"))
     }
@@ -5955,6 +6055,69 @@ mod tests {
         let resized = engine.read_screen(session.id)?;
         assert!(resized.revision > second.revision);
         assert_eq!(resized.dirty_rows, Some(DirtyRows { start: 0, end: 2 }));
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn render_frames_report_full_then_dirty_delta() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 12,
+            rows: 4,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+        let screen_handle = {
+            let state = state().read();
+            Arc::clone(
+                &state
+                    .sessions
+                    .iter()
+                    .find(|candidate| candidate.snapshot.id == session.id)
+                    .expect("session exists")
+                    .screen,
+            )
+        };
+
+        screen_handle.lock().feed("alpha");
+        let full = engine.read_render_frame(session.id, None)?;
+        assert!(full.full);
+        assert_eq!(full.dirty_rows, Some(DirtyRows { start: 0, end: 3 }));
+        assert_eq!(full.lines[0].row, 0);
+        assert_eq!(
+            full.lines[0]
+                .cells
+                .iter()
+                .map(|cell| cell.ch)
+                .collect::<String>(),
+            "alpha"
+        );
+
+        let unchanged = engine.read_render_frame(session.id, Some(full.revision))?;
+        assert!(!unchanged.full);
+        assert_eq!(unchanged.dirty_rows, None);
+        assert!(unchanged.lines.is_empty());
+
+        screen_handle.lock().feed("!");
+        let delta = engine.read_render_frame(session.id, Some(full.revision))?;
+        assert!(!delta.full);
+        assert_eq!(delta.dirty_rows, Some(DirtyRows { start: 0, end: 0 }));
+        assert_eq!(delta.lines.len(), 1);
+        assert_eq!(delta.lines[0].row, 0);
+        assert_eq!(
+            delta.lines[0]
+                .cells
+                .iter()
+                .map(|cell| cell.ch)
+                .collect::<String>(),
+            "alpha!"
+        );
 
         engine.destroy_session(session.id)?;
         Ok(())

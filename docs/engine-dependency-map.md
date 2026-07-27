@@ -59,6 +59,7 @@ Current covered operations:
 - styled scrollback renderer metadata for WezTerm pane rendering vs next-core standalone rendering
 - configured theme palette resolution for next-core standalone styled scrollback PNG rendering
 - bold/italic font matching for next-core standalone styled scrollback PNG rendering
+- next-core styled render-frame snapshots with full-frame fallback and dirty-row deltas for the future GUI renderer
 - engine readiness and next-core aggregate I/O health counters
 - next-core terminal status, cursor-position, DEC private cursor-position, text-area-size, headless window-pixel-size, mode-report, and primary/secondary device-attribute query responses, including parameterized DA forms, through the PTY writer in input order
 
