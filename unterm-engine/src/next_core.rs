@@ -29,11 +29,13 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 mod cell;
 mod history;
 mod parser_state;
+mod render_state;
 mod screen_state;
 
 use cell::{CellAttributes, ScreenCell, TerminalColor};
 use history::HistoryBuffer;
 use parser_state::ParserState;
+use render_state::RenderState;
 use screen_state::{MouseTrackingMode, ScreenState};
 
 const MAX_OUTPUT_BYTES: usize = 1024 * 1024;
@@ -328,8 +330,7 @@ struct NextCoreScreen {
     title: Option<String>,
     title_stack: Vec<Option<String>>,
     current_dir: Option<String>,
-    revision: u64,
-    dirty_rows: Option<DirtyRows>,
+    render_state: RenderState,
     rows: usize,
     scroll_top: usize,
     scroll_bottom: usize,
@@ -373,48 +374,23 @@ impl NextCoreScreen {
     }
 
     fn bump_revision(&mut self) {
-        self.revision = self.revision.wrapping_add(1).max(1);
+        self.render_state.bump_revision();
     }
 
     fn clear_dirty_rows(&mut self) {
-        self.dirty_rows = None;
+        self.render_state.clear_dirty_rows();
     }
 
     fn mark_dirty_row(&mut self, row: usize) {
-        let row = row.min(self.rows.saturating_sub(1));
-        self.dirty_rows = Some(match self.dirty_rows {
-            Some(dirty) => DirtyRows {
-                start: dirty.start.min(row),
-                end: dirty.end.max(row),
-            },
-            None => DirtyRows {
-                start: row,
-                end: row,
-            },
-        });
+        self.render_state.mark_dirty_row(row, self.rows);
     }
 
     fn mark_dirty_range(&mut self, start: usize, end: usize) {
-        if self.rows == 0 {
-            return;
-        }
-        let start = start.min(self.rows - 1);
-        let end = end.min(self.rows - 1);
-        if start <= end {
-            self.dirty_rows = Some(match self.dirty_rows {
-                Some(dirty) => DirtyRows {
-                    start: dirty.start.min(start),
-                    end: dirty.end.max(end),
-                },
-                None => DirtyRows { start, end },
-            });
-        }
+        self.render_state.mark_dirty_range(start, end, self.rows);
     }
 
     fn mark_all_dirty(&mut self) {
-        if self.rows > 0 {
-            self.mark_dirty_range(0, self.rows - 1);
-        }
+        self.render_state.mark_all_dirty(self.rows);
     }
 
     fn snapshot_lines(&self) -> Vec<String> {
@@ -487,11 +463,11 @@ impl NextCoreScreen {
     }
 
     fn revision(&self) -> u64 {
-        self.revision
+        self.render_state.revision()
     }
 
     fn dirty_rows(&self) -> Option<DirtyRows> {
-        self.dirty_rows
+        self.render_state.dirty_rows()
     }
 
     fn cursor_snapshot(&self) -> CursorSnapshot {
@@ -530,7 +506,7 @@ impl NextCoreScreen {
     fn set_viewport_top_near(&mut self, target: isize) {
         self.history
             .set_viewport_top_near(target, self.rows, self.lines.len());
-        self.revision = self.revision.saturating_add(1);
+        self.bump_revision();
         self.mark_all_dirty();
     }
 
@@ -1152,12 +1128,12 @@ impl NextCoreScreen {
     fn reset_terminal(&mut self) {
         let cols = self.cols;
         let rows = self.rows;
-        let revision = self.revision;
+        let revision = self.revision();
         let title = self.title.take();
         let current_dir = self.current_dir.take();
 
         *self = Self::new(cols, rows);
-        self.revision = revision;
+        self.render_state.set_revision(revision);
         self.title = title;
         self.current_dir = current_dir;
         self.mark_all_dirty();
@@ -2486,7 +2462,7 @@ fn set_output_for_test(pane_id: usize, text: &str) -> Result<()> {
     let mut screen = screen.lock();
     let revision = screen.revision();
     *screen = NextCoreScreen::new(cols, rows);
-    screen.revision = revision;
+    screen.render_state.set_revision(revision);
     screen.feed(text);
     if let Some(recording) = recording.lock().as_mut() {
         NextCoreEngine::append_recording_output(recording, text);
