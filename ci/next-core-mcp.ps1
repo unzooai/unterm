@@ -23,6 +23,7 @@ $RequiredTests = @(
     "mcp::handler::engine_neutral_handler_tests::activity_methods_expose_next_core_io_metrics",
     "mcp::handler::engine_neutral_handler_tests::capture_scrollback_renders_next_core_styled_png",
     "mcp::handler::engine_neutral_handler_tests::active_recording_export_uses_next_core_engine",
+    "mcp::handler::engine_neutral_handler_tests::cockpit_inbox_uses_engine_session_snapshot",
     "mcp::handler::engine_neutral_handler_tests::fleet_lifecycle_uses_next_core_session_engine"
 )
 

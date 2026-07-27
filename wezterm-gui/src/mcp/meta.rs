@@ -276,6 +276,7 @@ mod tests {
         assert!(supported.contains(&"session.set_env"));
         assert!(supported.contains(&"screen.text"));
         assert!(supported.contains(&"capture.scrollback"));
+        assert!(supported.contains(&"cockpit.inbox"));
 
         let limited = caps["engine_limited_methods"]
             .as_array()
