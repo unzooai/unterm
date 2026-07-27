@@ -220,8 +220,8 @@ next-core 已经在 screen/parser 方向具备基础能力，包括：
 - `EngineRenderConsumer::read_buffer_plan` 已把 engine-neutral commit batch、command-list backend 和 `EngineRenderBufferPlan` 串成单个 renderer-side frame preparation 调用；未来 pane draw branch 不需要自己组装 commit/backend/buffer 三段流程
 - `EngineRenderConsumerSet` 已按 pane id 缓存 renderer consumer，并在 cell metrics 变化时更新 consumer 而不丢 submitted revision；真实 WebGPU pane draw 分支后续可以跨 paint 复用增量状态，只在 viewport metrics 变化时强制 full repaint
 - `TermWindow` 已持有持久化 next-core render consumer cache，并在直接 pane/window 清理路径同步移除对应状态；后续真实 WebGPU pane 分支可以从窗口长期状态读取增量 renderer consumer，而不是在 draw loop 局部重建
-- `TermWindow::prepare_next_core_render_buffer_plan` 已把当前 engine、pane id、当前 cell metrics 和持久 renderer consumer cache 收敛为单个 frame preparation 入口；下一步 WebGPU pane draw branch 只需要拿该 buffer plan 交给 `WebGpuState::encode_next_core_buffer_plan`
-- WebGPU draw loop 已提供 `UNTERM_NEXT_CORE_WEBGPU_PANE` 实验分支：默认不启用；`1/true/on/append` 在 legacy pass 后追加 next-core buffer plan pass；`replace` 会跳过 legacy pane quad ranges，由 next-core 绘制 pane，同时保留 legacy chrome/UI，用于验证 pane-only 替代路径
+- `TermWindow::prepare_next_core_render_buffer_plan` 已把当前 engine、pane id、当前 cell metrics 和持久 renderer consumer cache 收敛为单个 frame preparation 入口；WebGPU pane draw branch 现在通过 `TermWindow::prepare_next_core_webgpu_pane_frame` 读取该 buffer plan 并生成 `NextCoreWebGpuPaneFrame`
+- WebGPU draw loop 已提供 `UNTERM_NEXT_CORE_WEBGPU_PANE` 实验分支：默认不启用；`1/true/on/append` 在 legacy pass 后追加 prepared pane-frame pass；`replace` 会跳过 legacy pane quad ranges，由 next-core 绘制 pane，同时保留 legacy chrome/UI，用于验证 pane-only 替代路径
 - WebGPU `replace` 模式现在会同时检查 next-core buffer batch 是否 draw-ready、prepared frame 是否 replace-ready；重复 revision、空 buffer 或 preparation 不完整都会保留 legacy pane 兜底，并暴露结构化 readiness issues，避免 pane-only 替换实验出现空白帧
 - WebGPU `replace` readiness 已收敛成结构化 diagnostics，包含 mode、pane/revision、batch presence/readiness、prepared-frame presence/readiness 和明确 fallback issues；未来 pane replacement 自动化门禁可以直接消费诊断对象，而不是复刻 draw-loop 条件
 - `EngineRenderPaneReplaceDiagnostics` 已移动到 engine facade 后的共享边界；WebGPU draw 和未来 CI replacement checks 可以共用同一份 pane replacement readiness contract
@@ -261,7 +261,7 @@ next-core 已经在 screen/parser 方向具备基础能力，包括：
 - `EngineWgpuPipelineConfig`、next-core GPU vertex layout 和最小 WGSL shader 已固定 solid-color quad pipeline ABI；背景/文本/光标顶点携带 RGBA，窗口接入时通过 viewport 尺寸转换为 clip-space，字体 atlas 仍留给后续独立步骤
 - `WebGpuState` 已在设备初始化时缓存 next-core solid-quad backend/pipeline，与现有 legacy pipeline 并存；后续 pane 绘制只需提交 commit buffers，不需要每帧创建 shader/pipeline
 - `WebGpuState::encode_next_core_upload` 已把 next-core GPU upload plan、缓存 pipeline 和 `wgpu::CommandEncoder` 串成一个 GUI 侧调用点；当前 legacy draw loop 仍保持不变
-- `WebGpuState::encode_next_core_buffer_plan` 已把 render buffer plan、当前 viewport 尺寸、viewport-to-clip 转换和缓存 pipeline 串成更高层 GUI 入口；下一步接具体 pane 分支时不需要在 draw loop 里散落 upload/pass 细节
+- `WebGpuState::encode_next_core_pane_frame` 已消费 `NextCoreWebGpuPaneFrame`，复用其 prepared frame、当前 viewport 尺寸、viewport-to-clip 转换和缓存 pipeline；pane draw loop 不再暴露 raw buffer-plan 编码入口
 - JSON probe smoke 已输出并校验 render draw/geometry/submission/commit plan 的 revision、run/quad counts、viewport、damage rects、cursor state 和首帧 full-repaint state，让 renderer 输入契约进入 CI 可见面
 - benchmark 已覆盖 input write、key-to-screen、input burst under output、echo、paste、output flood、scrollback paging、viewport scroll、screen-read under flood、render-frame empty/dirty/cursor-move delta、render draw plan、render geometry plan、render submission plan、render commit plan API、focus/session lifecycle
 - zero-width combining marks attach to preceding visible cells without advancing cursor position

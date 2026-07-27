@@ -1205,17 +1205,6 @@ impl WebGpuState {
         )
     }
 
-    #[allow(dead_code)]
-    pub fn encode_next_core_buffer_plan(
-        &self,
-        encoder: &mut wgpu::CommandEncoder,
-        target: &wgpu::TextureView,
-        plan: &EngineRenderBufferPlan,
-        clear_color: Option<[f64; 4]>,
-    ) -> bool {
-        self.encode_next_core_buffer_plan_with_font(encoder, target, plan, clear_color, None)
-    }
-
     fn next_core_viewport_pixels(&self) -> (f32, f32) {
         let dimensions = self.dimensions.borrow();
         (
@@ -1310,33 +1299,6 @@ impl WebGpuState {
             )
         };
         glyph_upload.map(|upload| upload.diagnostics())
-    }
-
-    #[allow(dead_code)]
-    pub fn encode_next_core_buffer_plan_with_font(
-        &self,
-        encoder: &mut wgpu::CommandEncoder,
-        target: &wgpu::TextureView,
-        plan: &EngineRenderBufferPlan,
-        clear_color: Option<[f64; 4]>,
-        font: Option<Rc<LoadedFont>>,
-    ) -> bool {
-        let (viewport_width_px, viewport_height_px) = self.next_core_viewport_pixels();
-        let prepared = EngineWgpuRenderBackend::prepare_frame_for_viewport(
-            plan,
-            viewport_width_px,
-            viewport_height_px,
-        );
-        self.encode_prepared_next_core_buffer_plan_with_font(
-            encoder,
-            target,
-            plan,
-            &prepared,
-            viewport_width_px,
-            viewport_height_px,
-            clear_color,
-            font,
-        )
     }
 
     #[allow(dead_code)]
