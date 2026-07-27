@@ -2,7 +2,6 @@ use super::{
     command::{RuntimeCommand, RuntimeCommandClass},
     consumer,
     dispatch::RuntimeDispatchResult,
-    screen_executor,
 };
 use crate::{
     CursorSnapshot, RenderFrameSnapshot, ScreenLine, ScreenSearchMatch, ScreenSnapshot,
@@ -46,8 +45,13 @@ pub(in crate::next_core) fn read_render_frame(
 
 pub(in crate::next_core) fn scroll_viewport_to(pane_id: usize, target: isize) -> Result<()> {
     let command = RuntimeCommand::ScrollViewport { pane_id, target };
-    let command = consumer::consume_sync(command)?;
-    screen_executor::execute_screen_mutation(command)
+    match consumer::submit_and_dispatch_response(command)? {
+        RuntimeDispatchResult::Unit => Ok(()),
+        other => bail!(
+            "runtime scheduler expected screen-mutation dispatch result, got {:?}",
+            other
+        ),
+    }
 }
 
 pub(in crate::next_core) fn read_screen(pane_id: usize) -> Result<ScreenSnapshot> {
@@ -467,6 +471,38 @@ mod tests {
         assert!(err.to_string().contains("next-core session 404 not found"));
         assert_eq!(queue_stats().pending_commands, 0);
         assert_eq!(queue_stats().rejected_commands, 0);
+    }
+
+    #[test]
+    fn viewport_scrolls_use_command_backpressure() {
+        test_facade::reset();
+
+        install_zero_command_budget();
+
+        let err = scroll_viewport_to(1, 5).expect_err("zero command budget should reject scroll");
+
+        assert!(err
+            .to_string()
+            .contains("runtime screen queue rejected command"));
+        assert_eq!(queue_stats().rejected_commands, 1);
+    }
+
+    #[test]
+    fn viewport_scrolls_dispatch_before_background_backlog() {
+        test_facade::reset();
+        with_current_mut(|state| {
+            state
+                .command_queue
+                .enqueue(RuntimeCommand::HealthSnapshot)
+                .unwrap();
+        });
+
+        let err = scroll_viewport_to(404, 5).expect_err("missing pane should fail after scroll");
+
+        assert!(err.to_string().contains("next-core session 404 not found"));
+        let stats = queue_stats();
+        assert_eq!(stats.pending_lanes.screen, 0);
+        assert_eq!(stats.pending_lanes.background, 1);
     }
 
     #[test]

@@ -8,6 +8,7 @@ use super::{
 };
 use anyhow::{anyhow, Result};
 
+#[allow(dead_code)]
 pub(in crate::next_core) fn consume_sync(command: RuntimeCommand) -> Result<RuntimeCommand> {
     let lane = command.lane();
     enqueue(command).map_err(|err| rejected_error(lane, err))?;
@@ -62,6 +63,7 @@ fn dispatch_queued(queued: RuntimeQueuedCommand) -> Result<Option<RuntimeDispatc
     result.map(Some)
 }
 
+#[allow(dead_code)]
 fn enqueue(command: RuntimeCommand) -> Result<(), RuntimeQueueRejection> {
     with_current_mut(|state| state.command_queue.enqueue(command))
 }
@@ -73,6 +75,7 @@ fn enqueue_with_response(
     with_current_mut(|state| state.command_queue.enqueue_with_response(command, response))
 }
 
+#[allow(dead_code)]
 fn dequeue_lane(lane: RuntimeCommandLane) -> Option<RuntimeQueuedCommand> {
     with_current_mut(|state| state.command_queue.dequeue_lane(lane))
 }
