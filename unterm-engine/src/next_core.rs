@@ -45,6 +45,7 @@ mod session_activity;
 mod session_handles;
 mod session_registry;
 mod session_runtime;
+mod session_snapshots;
 mod sgr;
 mod styled_snapshot;
 mod terminal_parser;
@@ -1696,44 +1697,12 @@ fn viewport_attrs_for_test(pane_id: usize) -> Result<Vec<Vec<CellAttributes>>> {
 impl NextCoreEngine {
     fn sessions(&self) -> Vec<SessionSnapshot> {
         let mut state = state().write();
-        let mut snapshots = Vec::with_capacity(state.sessions.len());
-        let mut dead_reasons = Vec::new();
-        for session in &mut state.sessions {
-            if let Some(reason) = lifecycle::refresh_liveness(session) {
-                dead_reasons.push(reason);
-            }
-            let mut snapshot = session.snapshot.clone();
-            let screen = session.screen.lock();
-            snapshot.cursor = screen.cursor_snapshot();
-            snapshot.scrollback_rows = screen.scrollback_rows();
-            if let Some(title) = screen.title() {
-                snapshot.title = title;
-            }
-            if let Some(cwd) = screen.current_dir() {
-                snapshot.shell.cwd = Some(cwd);
-            } else if snapshot.shell.cwd.is_none() {
-                if let Some(process) =
-                    process_tree::snapshot(session.root_pid, &snapshot.shell.process_name)
-                {
-                    snapshot.shell.cwd = process.foreground_cwd.or(process.root_cwd);
-                }
-            }
-            snapshots.push(snapshot);
-        }
-        for reason in dead_reasons {
-            lifecycle::record_dead_reason(&mut state, reason);
-        }
-        snapshots
+        session_snapshots::list(&mut state)
     }
 
     fn session(&self, pane_id: usize) -> Result<SessionSnapshot> {
-        for session in self.sessions() {
-            if session.id == pane_id {
-                return Ok(session);
-            }
-        }
-
-        bail!("next-core session {pane_id} not found")
+        let mut state = state().write();
+        session_snapshots::get(&mut state, pane_id)
     }
 
     fn shell_snapshot(&self, pane_id: usize) -> Result<ShellSnapshot> {
