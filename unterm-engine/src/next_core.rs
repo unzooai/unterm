@@ -7,13 +7,15 @@ use super::{
     StyledBlink, StyledScreenLine, StyledScreenSnapshot, StyledScrollbackSnapshot, StyledUnderline,
 };
 use anyhow::Result;
-use parking_lot::{Mutex, RwLock};
+use parking_lot::Mutex;
 use portable_pty::{Child, MasterPty};
 use std::collections::BTreeSet;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
+#[cfg(test)]
+use std::sync::OnceLock;
 #[cfg(test)]
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -38,6 +40,7 @@ mod recording_output;
 mod recording_text;
 mod render_frame;
 mod render_state;
+mod runtime;
 mod screen_dispatch;
 mod screen_search;
 mod screen_snapshot;
@@ -102,11 +105,6 @@ impl Drop for NextCoreSession {
     fn drop(&mut self) {
         self.child.lock().kill().ok();
     }
-}
-
-#[derive(Default)]
-struct NextCoreRuntime {
-    registry: session_registry::SessionRegistry,
 }
 
 #[derive(Clone, Debug)]
@@ -1588,11 +1586,6 @@ impl NextCoreScreen {
         self.ensure_cursor_line();
         self.mark_all_dirty();
     }
-}
-
-fn runtime() -> &'static RwLock<NextCoreRuntime> {
-    static RUNTIME: OnceLock<RwLock<NextCoreRuntime>> = OnceLock::new();
-    RUNTIME.get_or_init(|| RwLock::new(NextCoreRuntime::default()))
 }
 
 impl NextCoreEngine {

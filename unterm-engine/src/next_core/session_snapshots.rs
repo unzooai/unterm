@@ -1,4 +1,4 @@
-use super::{lifecycle, process_tree, session_registry, NextCoreRuntime, NextCoreSession};
+use super::{lifecycle, process_tree, runtime::NextCoreRuntime, session_registry, NextCoreSession};
 use crate::SessionSnapshot;
 use anyhow::Result;
 

@@ -1,4 +1,4 @@
-use super::{session_registry, NextCoreRuntime, NextCoreSession};
+use super::{runtime::NextCoreRuntime, session_registry, NextCoreSession};
 use std::sync::atomic::Ordering;
 
 pub(super) fn refresh_liveness(session: &mut NextCoreSession) -> Option<String> {

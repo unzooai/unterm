@@ -1,4 +1,4 @@
-use super::{activity::SessionIoActivity, lifecycle, session_registry, NextCoreRuntime};
+use super::{activity::SessionIoActivity, lifecycle, runtime::NextCoreRuntime, session_registry};
 use crate::{EngineHealthSnapshot, EngineIoHealthSnapshot, EngineLifecycleHealthSnapshot};
 
 pub(super) fn current() -> EngineHealthSnapshot {

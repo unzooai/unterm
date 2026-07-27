@@ -1,4 +1,4 @@
-use super::{lifecycle, process_tree, session_registry, NextCoreRuntime, NextCoreSession};
+use super::{lifecycle, process_tree, runtime::NextCoreRuntime, session_registry, NextCoreSession};
 use crate::SessionActivitySnapshot;
 use anyhow::Result;
 use std::time::Instant;
@@ -72,7 +72,7 @@ mod tests {
 
     #[test]
     fn read_snapshot_reports_missing_session() {
-        let mut state = super::super::NextCoreRuntime::default();
+        let mut state = super::super::runtime::NextCoreRuntime::default();
 
         let err = read_snapshot(&mut state, 42, Instant::now()).expect_err("missing session");
 

@@ -1,4 +1,8 @@
-use super::{lifecycle, runtime, NextCoreRuntime, NextCoreSession};
+use super::{
+    lifecycle,
+    runtime::{self, NextCoreRuntime},
+    NextCoreSession,
+};
 use anyhow::{bail, Result};
 
 #[derive(Default)]
@@ -97,7 +101,7 @@ pub(super) fn next_session_id(state: &mut NextCoreRuntime) -> usize {
 }
 
 pub(super) fn next_session_id_current() -> usize {
-    let mut state = runtime().write();
+    let mut state = runtime::current().write();
     next_session_id(&mut state)
 }
 
@@ -115,12 +119,12 @@ pub(super) fn for_each_session_mut(
 }
 
 pub(super) fn with_current_runtime<T>(visit: impl FnOnce(&NextCoreRuntime) -> T) -> T {
-    let state = runtime().read();
+    let state = runtime::current().read();
     visit(&state)
 }
 
 pub(super) fn with_current_runtime_mut<T>(visit: impl FnOnce(&mut NextCoreRuntime) -> T) -> T {
-    let mut state = runtime().write();
+    let mut state = runtime::current().write();
     visit(&mut state)
 }
 
@@ -163,7 +167,7 @@ pub(super) fn focus(state: &mut NextCoreRuntime, pane_id: usize) -> Result<()> {
 }
 
 pub(super) fn focus_current(pane_id: usize) -> Result<()> {
-    let mut state = runtime().write();
+    let mut state = runtime::current().write();
     focus(&mut state, pane_id)
 }
 
@@ -174,7 +178,7 @@ pub(super) fn insert_created(state: &mut NextCoreRuntime, session: NextCoreSessi
 }
 
 pub(super) fn insert_created_current(session: NextCoreSession) {
-    let mut state = runtime().write();
+    let mut state = runtime::current().write();
     insert_created(&mut state, session);
 }
 
@@ -202,7 +206,7 @@ pub(super) fn destroy(state: &mut NextCoreRuntime, pane_id: usize) -> Result<()>
 }
 
 pub(super) fn destroy_current(pane_id: usize) -> Result<()> {
-    let mut state = runtime().write();
+    let mut state = runtime::current().write();
     destroy(&mut state, pane_id)
 }
 

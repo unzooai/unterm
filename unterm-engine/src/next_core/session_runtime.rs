@@ -1,5 +1,5 @@
 #[cfg(test)]
-use super::NextCoreRuntime;
+use super::runtime::NextCoreRuntime;
 use super::{
     activity::SessionIoActivity, launch, pty_io, session_defaults, session_output,
     session_registry, NextCoreRecording, NextCoreScreen, NextCoreSession,

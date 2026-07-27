@@ -1,6 +1,6 @@
 use super::{
-    activity::SessionIoActivity, recording_output, session_registry, CellAttributes,
-    NextCoreRuntime, NextCoreScreen,
+    activity::SessionIoActivity, recording_output, runtime::NextCoreRuntime, session_registry,
+    CellAttributes, NextCoreScreen,
 };
 use anyhow::Result;
 use std::{sync::atomic::Ordering, sync::Arc, time::Instant};

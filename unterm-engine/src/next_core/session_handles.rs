@@ -1,5 +1,5 @@
 use super::{
-    activity::SessionIoActivity, session_registry, NextCoreRecording, NextCoreRuntime,
+    activity::SessionIoActivity, runtime::NextCoreRuntime, session_registry, NextCoreRecording,
     NextCoreScreen,
 };
 use crate::ShellSnapshot;
