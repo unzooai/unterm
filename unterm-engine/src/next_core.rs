@@ -32,6 +32,7 @@ mod osc133;
 mod osc_params;
 mod parser_state;
 mod process_tree;
+mod pty_io;
 mod recording_archive;
 mod recording_markdown;
 mod recording_text;
@@ -2180,7 +2181,8 @@ impl NextCoreEngine {
                         }
                         Ok(n) => {
                             let output_started_at = Instant::now();
-                            let Some(chunk) = Self::decode_pty_chunk(&mut pending_utf8, &buf[..n])
+                            let Some(chunk) =
+                                pty_io::decode_pty_chunk(&mut pending_utf8, &buf[..n])
                             else {
                                 continue;
                             };
@@ -2219,35 +2221,6 @@ impl NextCoreEngine {
                 dead.store(true, Ordering::Release);
             })
             .ok();
-    }
-
-    fn decode_pty_chunk(pending: &mut Vec<u8>, bytes: &[u8]) -> Option<String> {
-        pending.extend_from_slice(bytes);
-        match std::str::from_utf8(pending.as_slice()) {
-            Ok(text) => {
-                let text = text.to_string();
-                pending.clear();
-                if text.is_empty() {
-                    None
-                } else {
-                    Some(text)
-                }
-            }
-            Err(err) if err.error_len().is_none() => {
-                let valid_up_to = err.valid_up_to();
-                if valid_up_to == 0 {
-                    return None;
-                }
-                let text = String::from_utf8(pending[..valid_up_to].to_vec()).ok()?;
-                pending.drain(..valid_up_to);
-                Some(text)
-            }
-            Err(_) => {
-                let text = String::from_utf8_lossy(pending.as_slice()).to_string();
-                pending.clear();
-                Some(text)
-            }
-        }
     }
 
     #[cfg(test)]
@@ -3548,16 +3521,13 @@ mod tests {
         let mut pending = Vec::new();
         let bytes = "你A".as_bytes();
 
+        assert_eq!(pty_io::decode_pty_chunk(&mut pending, &bytes[..1]), None);
         assert_eq!(
-            NextCoreEngine::decode_pty_chunk(&mut pending, &bytes[..1]),
-            None
-        );
-        assert_eq!(
-            NextCoreEngine::decode_pty_chunk(&mut pending, &bytes[1..3]),
+            pty_io::decode_pty_chunk(&mut pending, &bytes[1..3]),
             Some("你".to_string())
         );
         assert_eq!(
-            NextCoreEngine::decode_pty_chunk(&mut pending, &bytes[3..]),
+            pty_io::decode_pty_chunk(&mut pending, &bytes[3..]),
             Some("A".to_string())
         );
         assert!(pending.is_empty());
