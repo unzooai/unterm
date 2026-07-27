@@ -1,11 +1,10 @@
 use super::{
-    CreateSessionRequest, CursorSnapshot, DirtyRows, EngineHealthSnapshot, EngineIoHealthSnapshot,
-    EngineLifecycleHealthSnapshot, HealthEngine, InputEngine, ProcessTreeSnapshot, RecordingEngine,
-    RecordingExportResult, RecordingStartResult, RecordingStatusSnapshot, RecordingStopResult,
-    RenderFrameSnapshot, ScreenEngine, ScreenLine, ScreenSearchMatch, ScreenSnapshot,
-    ScrollbackTextRequest, ScrollbackTextSnapshot, SessionActivitySnapshot, SessionEngine,
-    SessionSnapshot, ShellSnapshot, SplitSessionRequest, StyledBlink, StyledScreenLine,
-    StyledScreenSnapshot, StyledScrollbackSnapshot, StyledUnderline,
+    CreateSessionRequest, CursorSnapshot, DirtyRows, EngineHealthSnapshot, HealthEngine,
+    InputEngine, ProcessTreeSnapshot, RecordingEngine, RecordingExportResult, RecordingStartResult,
+    RecordingStatusSnapshot, RecordingStopResult, RenderFrameSnapshot, ScreenEngine, ScreenLine,
+    ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot,
+    SessionActivitySnapshot, SessionEngine, SessionSnapshot, ShellSnapshot, SplitSessionRequest,
+    StyledBlink, StyledScreenLine, StyledScreenSnapshot, StyledScrollbackSnapshot, StyledUnderline,
 };
 use anyhow::{bail, Result};
 use base64::Engine as _;
@@ -24,6 +23,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 mod activity;
 mod cell;
 mod csi_params;
+mod health_snapshot;
 mod history;
 mod input_dispatch;
 mod input_pipeline;
@@ -2284,66 +2284,7 @@ impl RecordingEngine for NextCoreEngine {
 impl HealthEngine for NextCoreEngine {
     fn health(&self) -> Result<EngineHealthSnapshot> {
         let mut state = state().write();
-        let pane_count = state.sessions.len();
-        let mut io = EngineIoHealthSnapshot {
-            input_writes: 0,
-            input_bytes: 0,
-            output_chunks: 0,
-            output_bytes: 0,
-            paste_count: 0,
-            paste_text_bytes: 0,
-            screen_reads: 0,
-            viewport_scrolls: 0,
-        };
-        let mut dead_reasons = Vec::new();
-        let mut dead_sessions = 0u64;
-        for session in &mut state.sessions {
-            if let Some(reason) = lifecycle::refresh_liveness(session) {
-                dead_reasons.push(reason);
-            }
-            if session.snapshot.is_dead {
-                dead_sessions = dead_sessions.saturating_add(1);
-            }
-            let activity = session.activity.lock();
-            if let Some(input) = &activity.input {
-                io.input_writes = io.input_writes.saturating_add(input.total_writes);
-                io.input_bytes = io.input_bytes.saturating_add(input.total_bytes);
-            }
-            if let Some(output) = &activity.output {
-                io.output_chunks = io.output_chunks.saturating_add(output.total_chunks);
-                io.output_bytes = io.output_bytes.saturating_add(output.total_bytes);
-            }
-            if let Some(paste) = &activity.paste {
-                io.paste_count = io.paste_count.saturating_add(paste.total_pastes);
-                io.paste_text_bytes = io.paste_text_bytes.saturating_add(paste.total_text_bytes);
-            }
-            if let Some(screen) = &activity.screen {
-                io.screen_reads = io.screen_reads.saturating_add(screen.total_reads);
-                io.viewport_scrolls = io
-                    .viewport_scrolls
-                    .saturating_add(screen.total_viewport_scrolls);
-            }
-        }
-        for reason in dead_reasons {
-            lifecycle::record_dead_reason(&mut state, reason);
-        }
-        let lifecycle = EngineLifecycleHealthSnapshot {
-            live_sessions: pane_count.saturating_sub(dead_sessions as usize) as u64,
-            dead_sessions,
-            total_created: state.total_sessions_created,
-            total_destroyed: state.total_sessions_destroyed,
-            total_marked_dead: state.total_sessions_marked_dead,
-            last_dead_reason: state.last_dead_reason.clone(),
-        };
-        Ok(EngineHealthSnapshot {
-            engine: "next-core".to_string(),
-            ready: true,
-            status: "ok".to_string(),
-            detail: "next-core session registry is available".to_string(),
-            pane_count: Some(pane_count),
-            io: Some(io),
-            lifecycle: Some(lifecycle),
-        })
+        Ok(health_snapshot::snapshot(&mut state))
     }
 }
 

@@ -286,6 +286,7 @@ next-core 已经在 screen/parser 方向具备基础能力，包括：
 - `next_core/render_frame.rs` 已拆出 full/delta/unchanged frame selection 策略，让渲染帧调度、dirty row 清理和 viewport pinned 行为可以独立测试
 - `next_core/process_tree.rs` 已拆出 root/foreground process snapshot 和已知 agent 检测，让 Codex/Claude activity 诊断从 session 生命周期中分离，后续可独立加缓存或后台扫描，避免进入输入、滚动、渲染热路径
 - `next_core/activity.rs` 已拆出 input/output/paste/screen-read counters 和 idle detection，让热路径遥测可以独立测试，不再和 session 生命周期、未来 renderer scheduling 混在一起
+- `next_core/health_snapshot.rs` 已拆出 health snapshot 聚合、session liveness refresh、IO counter 汇总和 lifecycle 统计，让 HealthEngine 不再直接扫描 session runtime 内部结构
 - `next_core/input_dispatch.rs` 已拆出 write/paste 的 session input handle lookup、application cursor translation、UTF-8 safe paste wire chunking、writer flush 和 input/paste activity 记账，让 InputEngine 不再直接持有热路径写入细节
 - `next_core/launch.rs` 已拆出 command preparation、launch env/policy inference、profile/proxy metadata summary 和 shell type labeling，让 PTY/session registry 主体不再持有产品启动策略细节
 - `next_core/lifecycle.rs` 已拆出 reader/process death refresh、dead reason 记账和 destroy 标记规则，让 session registry 后续重写时不需要复制死亡状态机
