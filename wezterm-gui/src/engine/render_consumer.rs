@@ -301,6 +301,18 @@ impl EngineRenderPaneReplaceDiagnostics {
         }
         issues
     }
+
+    pub fn should_replace_legacy_pane(&self) -> bool {
+        self.replace_ready
+    }
+
+    pub fn should_log_replace_fallback(&self) -> bool {
+        self.requested && !self.replace_ready
+    }
+
+    pub fn readiness_issue_count(&self) -> usize {
+        self.readiness_issues().len()
+    }
 }
 
 #[allow(dead_code)]

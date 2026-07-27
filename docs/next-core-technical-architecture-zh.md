@@ -227,7 +227,7 @@ next-core 已经在 screen/parser 方向具备基础能力，包括：
 - `EngineRenderPaneReplaceDiagnostics` 已移动到 engine facade 后的共享边界；WebGPU draw 和未来 CI replacement checks 可以共用同一份 pane replacement readiness contract
 - WebGPU `replace` readiness 对 text frame 现在还会要求 cached glyph texture/upload diagnostics ready；preflight 在克隆的 glyph atlas state 上运行，避免在真正 draw 前污染 WebGPU cache
 - WebGPU `replace` readiness 现在会校验 prepared-frame 与 cached-glyph diagnostics 的 pane/revision 必须匹配当前 buffer batch；过期 frame 或跨 pane 诊断会保留 legacy pane 兜底
-- `EngineRenderPreparedPaneFrame` 已通过 engine facade 携带 prepared WebGPU frame，并根据 batch、prepared-frame 与 cached-glyph 输入自行生成 replace diagnostics；`replace` 模式的兜底判断和最终 encode 复用同一份 CPU frame preparation，避免同一帧重复 prepare
+- `EngineRenderPreparedPaneFrame` 已通过 engine facade 携带 prepared WebGPU frame，并根据 batch、prepared-frame 与 cached-glyph 输入自行生成 replace diagnostics；共享 diagnostics contract 现在暴露 legacy-pane 替换与 fallback 判断，WebGPU draw loop 只消费判断结果
 - `TermWindow::prepare_next_core_webgpu_pane_frame` 已把 pane-id render consumer、默认字体查找和 WebGPU pane-frame preparation 收敛到 draw loop 之前；WebGPU draw loop 只保留 legacy/next-core pass 顺序控制，不再组装 next-core frame
 - `EngineRenderPaneReplaceDiagnostics::requested_missing_frame` 已把“请求 replace 但没有 prepared frame”的兜底诊断放进共享 engine contract；draw-loop fallback 日志不再为了合成 missing-frame diagnostics 调用 WebGPU preflight helper
 - `wezterm-gui/src/engine/render_backend.rs` 已提供 GPU-free `CommandListRenderBackend`，将 damage/background/text/cursor submission 展开为稳定顺序的 backend command list，为后续 wgpu command encoder 接入固定输入契约

@@ -64,7 +64,7 @@ impl crate::TermWindow {
             (false, _) => None,
         };
         let replace_legacy_pane =
-            should_replace_legacy_pane(next_core_mode, next_core_replace_diagnostics.as_ref());
+            should_replace_legacy_pane(next_core_replace_diagnostics.as_ref());
         {
             let render_state = self.render_state.as_ref().unwrap();
             let tex = render_state.glyph_cache.borrow().atlas.texture();
@@ -360,18 +360,17 @@ fn next_core_webgpu_pane_mode() -> NextCoreWebGpuPaneMode {
 }
 
 fn should_replace_legacy_pane(
-    mode: NextCoreWebGpuPaneMode,
     diagnostics: Option<&crate::engine::EngineRenderPaneReplaceDiagnostics>,
 ) -> bool {
     let Some(diagnostics) = diagnostics else {
         return false;
     };
-    if !diagnostics.replace_ready && mode == NextCoreWebGpuPaneMode::Replace {
+    if diagnostics.should_log_replace_fallback() {
         log::trace!(
             "next-core WebGPU replace fallback pane={:?} revision={:?} issues={} batch_ready={} batch_readiness_issues={} prepared_frame_ready={} prepared_frame_matches_batch={} prepared_frame_readiness_issues={} cached_glyph_required={} cached_glyph_ready={} cached_glyph_matches_batch={} cached_glyph_readiness_issues={}",
             diagnostics.pane_id,
             diagnostics.revision,
-            diagnostics.readiness_issues().len(),
+            diagnostics.readiness_issue_count(),
             diagnostics.batch_ready,
             diagnostics.batch_readiness_issue_count,
             diagnostics.prepared_frame_ready,
@@ -383,7 +382,7 @@ fn should_replace_legacy_pane(
             diagnostics.cached_glyph_upload_readiness_issue_count
         );
     }
-    diagnostics.replace_ready
+    diagnostics.should_replace_legacy_pane()
 }
 
 #[cfg(test)]
@@ -395,7 +394,7 @@ fn should_replace_legacy_pane_from_parts(
 ) -> bool {
     let diagnostics =
         next_core_webgpu_replace_diagnostics(mode, batch, prepared_frame, cached_glyph_upload);
-    should_replace_legacy_pane(mode, Some(&diagnostics))
+    should_replace_legacy_pane(Some(&diagnostics))
 }
 
 #[cfg(test)]

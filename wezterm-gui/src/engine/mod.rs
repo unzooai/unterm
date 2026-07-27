@@ -576,9 +576,12 @@ mod tests {
         let frame = EngineRenderPreparedPaneFrame::from_parts(batch, prepared, true, None, None);
 
         assert!(frame.replace_diagnostics.replace_ready);
+        assert!(frame.replace_diagnostics.should_replace_legacy_pane());
+        assert!(!frame.replace_diagnostics.should_log_replace_fallback());
         assert_eq!(frame.replace_diagnostics.pane_id, Some(42));
         assert_eq!(frame.replace_diagnostics.revision, Some(9));
         assert!(frame.replace_diagnostics.prepared_frame_matches_batch);
+        assert_eq!(frame.replace_diagnostics.readiness_issue_count(), 0);
         assert!(frame.replace_diagnostics.readiness_issues().is_empty());
     }
 
