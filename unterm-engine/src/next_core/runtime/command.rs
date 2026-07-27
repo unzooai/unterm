@@ -107,6 +107,14 @@ pub(in crate::next_core) enum RuntimeCommand {
     RecordingStatus {
         pane_id: usize,
     },
+    AttachRecordingTrace {
+        pane_id: usize,
+        trace_id: String,
+    },
+    ExportRecordingMarkdown {
+        pane_id: usize,
+        target_path: Option<String>,
+    },
     RawOutput {
         pane_id: usize,
     },
@@ -141,7 +149,9 @@ impl RuntimeCommand {
             | Self::Cursor { .. } => RuntimeCommandClass::ScreenRead,
             Self::StartRecording { .. }
             | Self::StopRecording { .. }
-            | Self::RecordingStatus { .. } => RuntimeCommandClass::Recording,
+            | Self::RecordingStatus { .. }
+            | Self::AttachRecordingTrace { .. }
+            | Self::ExportRecordingMarkdown { .. } => RuntimeCommandClass::Recording,
             Self::RawOutput { .. }
             | Self::ShellSnapshot { .. }
             | Self::SessionActivity { .. }
@@ -172,6 +182,8 @@ impl RuntimeCommand {
             | Self::StartRecording { pane_id }
             | Self::StopRecording { pane_id }
             | Self::RecordingStatus { pane_id }
+            | Self::AttachRecordingTrace { pane_id, .. }
+            | Self::ExportRecordingMarkdown { pane_id, .. }
             | Self::RawOutput { pane_id }
             | Self::ShellSnapshot { pane_id }
             | Self::SessionActivity { pane_id } => Some(*pane_id),
@@ -200,6 +212,8 @@ impl RuntimeCommand {
             Self::StartRecording { .. }
             | Self::StopRecording { .. }
             | Self::RecordingStatus { .. }
+            | Self::AttachRecordingTrace { .. }
+            | Self::ExportRecordingMarkdown { .. }
             | Self::RawOutput { .. }
             | Self::ShellSnapshot { .. }
             | Self::SessionActivity { .. }
@@ -220,6 +234,8 @@ impl RuntimeCommand {
                 | Self::ScrollViewport { .. }
                 | Self::StartRecording { .. }
                 | Self::StopRecording { .. }
+                | Self::AttachRecordingTrace { .. }
+                | Self::ExportRecordingMarkdown { .. }
         )
     }
 

@@ -2,12 +2,13 @@
 
 use super::{
     command::{RuntimeCommand, RuntimeCommandClass},
-    input_executor, screen_executor, session_executor, status_executor,
+    input_executor, recording_executor, screen_executor, session_executor, status_executor,
 };
 use crate::{
-    CursorSnapshot, EngineHealthSnapshot, RenderFrameSnapshot, ScreenLine, ScreenSearchMatch,
-    ScreenSnapshot, ScrollbackTextSnapshot, SessionActivitySnapshot, ShellSnapshot,
-    StyledScreenSnapshot, StyledScrollbackSnapshot,
+    CursorSnapshot, EngineHealthSnapshot, RecordingExportResult, RecordingStartResult,
+    RecordingStatusSnapshot, RecordingStopResult, RenderFrameSnapshot, ScreenLine,
+    ScreenSearchMatch, ScreenSnapshot, ScrollbackTextSnapshot, SessionActivitySnapshot,
+    ShellSnapshot, StyledScreenSnapshot, StyledScrollbackSnapshot,
 };
 use anyhow::{bail, Result};
 
@@ -28,6 +29,11 @@ pub(in crate::next_core) enum RuntimeDispatchResult {
     ShellSnapshot(ShellSnapshot),
     SessionActivity(SessionActivitySnapshot),
     HealthSnapshot(EngineHealthSnapshot),
+    RecordingStart(RecordingStartResult),
+    RecordingStop(RecordingStopResult),
+    RecordingStatus(RecordingStatusSnapshot),
+    RecordingTraceIds(Vec<String>),
+    RecordingExport(RecordingExportResult),
 }
 
 pub(in crate::next_core) fn execute(command: RuntimeCommand) -> Result<RuntimeDispatchResult> {
@@ -46,10 +52,32 @@ pub(in crate::next_core) fn execute(command: RuntimeCommand) -> Result<RuntimeDi
         }
         RuntimeCommandClass::ScreenRead => execute_screen_read(command),
         RuntimeCommandClass::Status => execute_status(command),
-        RuntimeCommandClass::Recording => bail!(
-            "runtime dispatch does not yet execute {:?} commands",
-            command.class()
-        ),
+        RuntimeCommandClass::Recording => execute_recording(command),
+    }
+}
+
+fn execute_recording(command: RuntimeCommand) -> Result<RuntimeDispatchResult> {
+    match command {
+        RuntimeCommand::StartRecording { .. } => Ok(RuntimeDispatchResult::RecordingStart(
+            recording_executor::execute_start(command)?,
+        )),
+        RuntimeCommand::StopRecording { .. } => Ok(RuntimeDispatchResult::RecordingStop(
+            recording_executor::execute_stop(command)?,
+        )),
+        RuntimeCommand::RecordingStatus { .. } => Ok(RuntimeDispatchResult::RecordingStatus(
+            recording_executor::execute_status(command)?,
+        )),
+        RuntimeCommand::AttachRecordingTrace { .. } => {
+            Ok(RuntimeDispatchResult::RecordingTraceIds(
+                recording_executor::execute_attach_trace(command)?,
+            ))
+        }
+        RuntimeCommand::ExportRecordingMarkdown { .. } => {
+            Ok(RuntimeDispatchResult::RecordingExport(
+                recording_executor::execute_export_markdown(command)?,
+            ))
+        }
+        _ => bail!("runtime dispatch expected recording command"),
     }
 }
 
@@ -113,11 +141,21 @@ mod tests {
     use crate::next_core::runtime::test_facade;
 
     #[test]
-    fn dispatch_rejects_unimplemented_recording_commands() {
-        let err = execute(RuntimeCommand::RecordingStatus { pane_id: 1 })
-            .expect_err("recording command should wait for response-channel plumbing");
+    fn dispatch_rejects_wrong_recording_shape() {
+        let err = super::execute_recording(RuntimeCommand::HealthSnapshot)
+            .expect_err("wrong command should fail");
 
-        assert!(err.to_string().contains("does not yet execute Recording"));
+        assert!(err.to_string().contains("expected recording command"));
+    }
+
+    #[test]
+    fn dispatch_routes_recording_commands_to_recording_executor() {
+        test_facade::reset();
+
+        let result = execute(RuntimeCommand::RecordingStatus { pane_id: 404 })
+            .expect("missing recording status should be inactive");
+
+        assert!(matches!(result, RuntimeDispatchResult::RecordingStatus(_)));
     }
 
     #[test]

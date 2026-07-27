@@ -9,6 +9,7 @@ mod input_executor;
 mod io_facade;
 mod pump;
 pub(in crate::next_core) mod queue;
+mod recording_executor;
 mod recording_facade;
 mod response;
 mod scheduler;

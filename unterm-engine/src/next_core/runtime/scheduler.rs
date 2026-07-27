@@ -4,9 +4,10 @@ use super::{
     dispatch::RuntimeDispatchResult,
 };
 use crate::{
-    CursorSnapshot, EngineHealthSnapshot, RenderFrameSnapshot, ScreenLine, ScreenSearchMatch,
-    ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot, SessionActivitySnapshot,
-    ShellSnapshot, StyledScreenSnapshot, StyledScrollbackSnapshot,
+    CursorSnapshot, EngineHealthSnapshot, RecordingExportResult, RecordingStartResult,
+    RecordingStatusSnapshot, RecordingStopResult, RenderFrameSnapshot, ScreenLine,
+    ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot,
+    SessionActivitySnapshot, ShellSnapshot, StyledScreenSnapshot, StyledScrollbackSnapshot,
 };
 use anyhow::{bail, Result};
 
@@ -59,6 +60,70 @@ pub(in crate::next_core) fn destroy_session(pane_id: usize) -> Result<()> {
         RuntimeDispatchResult::Unit => Ok(()),
         other => bail!(
             "runtime scheduler expected destroy-session dispatch result, got {:?}",
+            other
+        ),
+    }
+}
+
+pub(in crate::next_core) fn start_recording(pane_id: usize) -> Result<RecordingStartResult> {
+    let command = RuntimeCommand::StartRecording { pane_id };
+    match consumer::submit_and_dispatch_response(command)? {
+        RuntimeDispatchResult::RecordingStart(started) => Ok(started),
+        other => bail!(
+            "runtime scheduler expected start-recording dispatch result, got {:?}",
+            other
+        ),
+    }
+}
+
+pub(in crate::next_core) fn stop_recording(pane_id: usize) -> Result<RecordingStopResult> {
+    let command = RuntimeCommand::StopRecording { pane_id };
+    match consumer::submit_and_dispatch_response(command)? {
+        RuntimeDispatchResult::RecordingStop(stopped) => Ok(stopped),
+        other => bail!(
+            "runtime scheduler expected stop-recording dispatch result, got {:?}",
+            other
+        ),
+    }
+}
+
+pub(in crate::next_core) fn recording_status(pane_id: usize) -> Result<RecordingStatusSnapshot> {
+    let command = RuntimeCommand::RecordingStatus { pane_id };
+    match consumer::submit_and_dispatch_response(command)? {
+        RuntimeDispatchResult::RecordingStatus(status) => Ok(status),
+        other => bail!(
+            "runtime scheduler expected recording-status dispatch result, got {:?}",
+            other
+        ),
+    }
+}
+
+pub(in crate::next_core) fn attach_recording_trace(
+    pane_id: usize,
+    trace_id: String,
+) -> Result<Vec<String>> {
+    let command = RuntimeCommand::AttachRecordingTrace { pane_id, trace_id };
+    match consumer::submit_and_dispatch_response(command)? {
+        RuntimeDispatchResult::RecordingTraceIds(trace_ids) => Ok(trace_ids),
+        other => bail!(
+            "runtime scheduler expected attach-recording-trace dispatch result, got {:?}",
+            other
+        ),
+    }
+}
+
+pub(in crate::next_core) fn export_recording_markdown(
+    pane_id: usize,
+    target_path: Option<String>,
+) -> Result<RecordingExportResult> {
+    let command = RuntimeCommand::ExportRecordingMarkdown {
+        pane_id,
+        target_path,
+    };
+    match consumer::submit_and_dispatch_response(command)? {
+        RuntimeDispatchResult::RecordingExport(export) => Ok(export),
+        other => bail!(
+            "runtime scheduler expected export-recording-markdown dispatch result, got {:?}",
             other
         ),
     }
@@ -411,6 +476,48 @@ mod tests {
         assert_eq!(stats.pending_lanes.lifecycle, 0);
         assert_eq!(stats.pending_lanes.render, 1);
         assert_eq!(stats.pending_lanes.screen, 1);
+    }
+
+    #[test]
+    fn recording_reads_enter_runtime_queue_before_dispatch() {
+        test_facade::reset();
+
+        let status = recording_status(404).expect("missing recording status is inactive");
+
+        assert!(!status.enabled);
+        assert_eq!(queue_stats().pending_commands, 0);
+        assert_eq!(queue_stats().rejected_commands, 0);
+    }
+
+    #[test]
+    fn recording_commands_use_background_backpressure() {
+        test_facade::reset();
+        install_zero_command_budget();
+
+        let err = recording_status(1).expect_err("zero command budget should reject recording");
+
+        assert!(err
+            .to_string()
+            .contains("runtime background queue rejected command"));
+        assert_eq!(queue_stats().rejected_commands, 1);
+    }
+
+    #[test]
+    fn recording_backlog_waits_behind_lifecycle() {
+        test_facade::reset();
+        with_current_mut(|state| {
+            state
+                .command_queue
+                .enqueue(RuntimeCommand::RecordingStatus { pane_id: 404 })
+                .unwrap();
+        });
+
+        let err = focus_session(404).expect_err("missing lifecycle pane should fail first");
+
+        assert!(err.to_string().contains("next-core session 404 not found"));
+        let stats = queue_stats();
+        assert_eq!(stats.pending_lanes.lifecycle, 0);
+        assert_eq!(stats.pending_lanes.background, 1);
     }
 
     #[test]
