@@ -1842,17 +1842,7 @@ impl NextCoreEngine {
                 .command_blocks
                 .drain(..recording.command_blocks.len() - MAX_RECORDING_BLOCKS);
         }
-        recording.text_preview.push_str(text);
-        if recording.text_preview.len() > MAX_OUTPUT_BYTES {
-            let keep_from = recording.text_preview.len() - MAX_OUTPUT_BYTES;
-            let keep_from = recording
-                .text_preview
-                .char_indices()
-                .map(|(idx, _)| idx)
-                .find(|idx| *idx >= keep_from)
-                .unwrap_or(0);
-            recording.text_preview.drain(..keep_from);
-        }
+        pty_io::append_bounded_output(&mut recording.text_preview, text, MAX_OUTPUT_BYTES);
     }
 
     fn record_osc133_command_blocks(
@@ -2187,16 +2177,11 @@ impl NextCoreEngine {
                                 continue;
                             };
                             let mut output = output.lock();
-                            output.push_str(chunk.as_str());
-                            if output.len() > MAX_OUTPUT_BYTES {
-                                let keep_from = output.len() - MAX_OUTPUT_BYTES;
-                                let keep_from = output
-                                    .char_indices()
-                                    .map(|(idx, _)| idx)
-                                    .find(|idx| *idx >= keep_from)
-                                    .unwrap_or(0);
-                                output.drain(..keep_from);
-                            }
+                            pty_io::append_bounded_output(
+                                &mut output,
+                                chunk.as_str(),
+                                MAX_OUTPUT_BYTES,
+                            );
                             let mut screen = screen.lock();
                             screen.feed(chunk.as_str());
                             Self::answer_terminal_queries_with_pending(

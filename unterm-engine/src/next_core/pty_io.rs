@@ -27,6 +27,24 @@ pub(super) fn decode_pty_chunk(pending: &mut Vec<u8>, bytes: &[u8]) -> Option<St
     }
 }
 
+pub(super) fn append_bounded_output(output: &mut String, chunk: &str, max_bytes: usize) {
+    output.push_str(chunk);
+    trim_to_utf8_boundary(output, max_bytes);
+}
+
+pub(super) fn trim_to_utf8_boundary(text: &mut String, max_bytes: usize) {
+    if text.len() <= max_bytes {
+        return;
+    }
+    let keep_from = text.len() - max_bytes;
+    let keep_from = text
+        .char_indices()
+        .map(|(idx, _)| idx)
+        .find(|idx| *idx >= keep_from)
+        .unwrap_or(0);
+    text.drain(..keep_from);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -67,5 +85,24 @@ mod tests {
             Some("\u{fffd}a".to_string())
         );
         assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn bounded_output_preserves_recent_text() {
+        let mut output = String::from("abcdef");
+
+        append_bounded_output(&mut output, "gh", 4);
+
+        assert_eq!(output, "efgh");
+    }
+
+    #[test]
+    fn bounded_output_does_not_split_utf8() {
+        let mut output = String::from("ab你好");
+
+        append_bounded_output(&mut output, "cd", 6);
+
+        assert_eq!(output, "好cd");
+        assert!(std::str::from_utf8(output.as_bytes()).is_ok());
     }
 }
