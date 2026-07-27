@@ -210,7 +210,7 @@ next-core 已经在 screen/parser 方向具备基础能力，包括：
 - render-frame dirty rows 跨 PTY chunk 累计；如果请求 revision 早于当前 dirty baseline，则回退 full frame，避免未来 GUI renderer 漏 repaint
 - render-frame full snapshot 稳定返回完整 `rows x cols` viewport grid，dirty snapshot 稳定返回 dirty range 内每一行的 `cols` 个 cell；缺失内容以 styled blank cell 表达，避免 renderer 自行推断
 - render-frame cursor-only movement 也会返回 dirty row 和新 cursor snapshot，保证 renderer 能重画旧/新光标位置
-- benchmark 已覆盖 input write、key-to-screen、input burst under output、echo、paste、output flood、scrollback paging、viewport scroll、screen-read under flood、render-frame empty/dirty delta、focus/session lifecycle
+- benchmark 已覆盖 input write、key-to-screen、input burst under output、echo、paste、output flood、scrollback paging、viewport scroll、screen-read under flood、render-frame empty/dirty/cursor-move delta、focus/session lifecycle
 - zero-width combining marks attach to preceding visible cells without advancing cursor position
 - DECFRA、DECERA、DECCARA、DECRARA 矩形操作
 - DECSCA protected/erasable cell 属性

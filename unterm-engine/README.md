@@ -40,7 +40,7 @@ Run the Phase 2 next-core benchmark suite and generate `docs/next-core-benchmark
 .\unterm-engine\bench-next-core.ps1
 ```
 
-The runner builds `unterm-next-core`, verifies the machine-readable `--json` probe output, executes the current input-write/input-burst/echo/output/scrollback/viewport-scroll/viewport-scroll-under-flood/paste/dual-agent/agent-startup-stall/screen-read/render-frame empty and dirty delta/focus-switch/session-create/session-ready benchmarks, writes human-readable summary and raw output into the Markdown report, and writes machine-readable gate results into the JSON summary. Any failed benchmark or gate exits non-zero.
+The runner builds `unterm-next-core`, verifies the machine-readable `--json` probe output, executes the current input-write/input-burst/echo/output/scrollback/viewport-scroll/viewport-scroll-under-flood/paste/dual-agent/agent-startup-stall/screen-read/render-frame empty, dirty, and cursor-move delta/focus-switch/session-create/session-ready benchmarks, writes human-readable summary and raw output into the Markdown report, and writes machine-readable gate results into the JSON summary. Any failed benchmark or gate exits non-zero.
 
 Verify an existing JSON summary without rerunning the benchmark suite:
 
@@ -98,6 +98,14 @@ cargo run -p unterm-engine --bin unterm-next-core -- --bench-key-to-screen 50 --
 ```
 
 The key-to-screen benchmark writes unique command markers into the PTY and reports min/p50/p95/max microsecond latency until each marker is visible through a next-core screen snapshot. It covers input write, ConPTY echo, parser update, and screen-read visibility, but does not measure final GUI paint latency.
+
+Render cursor-move benchmark:
+
+```powershell
+cargo run -p unterm-engine --bin unterm-next-core -- --bench-render-cursor-moves 200 --timeout-ms 30000 --wait-ms 100 --write "exit`r" -- cmd.exe
+```
+
+The cursor-move benchmark types a live command-line marker, sends alternating left/right arrow inputs through ConPTY, waits for the screen cursor to move, then requires each render-frame delta to include the cursor row without falling back to a full frame. It covers the core contract behind completion navigation, command-line cursor movement, and tab-switch repaint correctness before a GUI renderer is involved.
 
 Input burst benchmark under output pressure:
 

@@ -14,6 +14,7 @@ param(
     [int]$AgentStartupLines = 5000,
     [int]$ScreenReadLines = 5000,
     [int]$RenderFrameRounds = 1000,
+    [int]$RenderCursorMoveRounds = 200,
     [int]$FocusSwitches = 1000,
     [int]$SessionCreates = 20,
     [int]$SessionReadyRounds = 20,
@@ -31,6 +32,7 @@ param(
     [int]$MaxScreenReadFloodP95Us = 50000,
     [int]$MaxRenderFrameP95Us = 1000,
     [int]$MaxRenderDirtyFrameP95Us = 1000,
+    [int]$MaxRenderCursorMoveP95Us = 1000,
     [int]$MaxFocusSwitchP95Us = 100000,
     [int]$MaxSessionCreateP95Us = 100000,
     [int]$MaxSessionReadyP95Us = 100000,
@@ -267,6 +269,7 @@ try {
     $results += Invoke-Benchmark -Name "agent startup stall" -BenchArgs ([string[]](@("--bench-agent-startup-lines", "$AgentStartupLines") + $commonTail))
     $results += Invoke-Benchmark -Name "screen read during flood" -BenchArgs ([string[]](@("--bench-screen-read-lines", "$ScreenReadLines") + $commonTail))
     $results += Invoke-Benchmark -Name "render frame latency" -BenchArgs ([string[]](@("--bench-render-frames", "$RenderFrameRounds") + $commonTail))
+    $results += Invoke-Benchmark -Name "render cursor move latency" -BenchArgs ([string[]](@("--bench-render-cursor-moves", "$RenderCursorMoveRounds") + $commonTail))
     $results += Invoke-Benchmark -Name "focus switch latency" -BenchArgs ([string[]](@("--bench-focus-switches", "$FocusSwitches") + $commonTail))
     $results += Invoke-Benchmark -Name "session create latency" -BenchArgs ([string[]](@("--bench-session-create", "$SessionCreates") + $commonTail))
     $results += Invoke-Benchmark -Name "session ready latency" -BenchArgs ([string[]](@("--bench-session-ready", "$SessionReadyRounds") + $commonTail))
@@ -283,6 +286,7 @@ try {
     $agentStartup = Find-BenchmarkResult -Results $results -Name "agent startup stall"
     $screenRead = Find-BenchmarkResult -Results $results -Name "screen read during flood"
     $renderFrame = Find-BenchmarkResult -Results $results -Name "render frame latency"
+    $renderCursorMove = Find-BenchmarkResult -Results $results -Name "render cursor move latency"
     $focusSwitch = Find-BenchmarkResult -Results $results -Name "focus switch latency"
     $sessionCreate = Find-BenchmarkResult -Results $results -Name "session create latency"
     $sessionReady = Find-BenchmarkResult -Results $results -Name "session ready latency"
@@ -300,6 +304,7 @@ try {
     $gates += New-Gate -GateName "screen read under flood p95" -Actual (Get-BenchMetric -Result $screenRead -LinePrefix "bench_screen_read_flood" -Metric "p95_us") -Max $MaxScreenReadFloodP95Us -Unit "us"
     $gates += New-Gate -GateName "render frame p95" -Actual (Get-BenchMetric -Result $renderFrame -LinePrefix "bench_render_frame" -Metric "p95_us") -Max $MaxRenderFrameP95Us -Unit "us"
     $gates += New-Gate -GateName "render dirty frame p95" -Actual (Get-BenchMetric -Result $renderFrame -LinePrefix "bench_render_frame" -Metric "dirty_p95_us") -Max $MaxRenderDirtyFrameP95Us -Unit "us"
+    $gates += New-Gate -GateName "render cursor move p95" -Actual (Get-BenchMetric -Result $renderCursorMove -LinePrefix "bench_render_cursor_move" -Metric "p95_us") -Max $MaxRenderCursorMoveP95Us -Unit "us"
     $gates += New-Gate -GateName "focus switch p95" -Actual (Get-BenchMetric -Result $focusSwitch -LinePrefix "bench_focus_switch" -Metric "p95_us") -Max $MaxFocusSwitchP95Us -Unit "us"
     $gates += New-Gate -GateName "session create p95" -Actual (Get-BenchMetric -Result $sessionCreate -LinePrefix "bench_session_create" -Metric "p95_us") -Max $MaxSessionCreateP95Us -Unit "us"
     $gates += New-Gate -GateName "session ready p95" -Actual (Get-BenchMetric -Result $sessionReady -LinePrefix "bench_session_ready" -Metric "p95_us") -Max $MaxSessionReadyP95Us -Unit "us"

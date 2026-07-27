@@ -1,7 +1,7 @@
 param(
     [string]$SummaryJsonPath = "",
-    [int]$ExpectedGateCount = 16,
-    [int]$ExpectedBenchmarkCount = 16,
+    [int]$ExpectedGateCount = 17,
+    [int]$ExpectedBenchmarkCount = 17,
     [switch]$SkipCommitReachabilityCheck
 )
 
@@ -110,6 +110,7 @@ $requiredGates = @(
     "screen read under flood p95",
     "render frame p95",
     "render dirty frame p95",
+    "render cursor move p95",
     "focus switch p95",
     "session create p95",
     "session ready p95"
@@ -146,6 +147,7 @@ $requiredBenchmarks = @(
     "agent startup stall",
     "screen read during flood",
     "render frame latency",
+    "render cursor move latency",
     "focus switch latency",
     "session create latency",
     "session ready latency"

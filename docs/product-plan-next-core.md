@@ -402,7 +402,7 @@ Supported:
 - keyboard input
 - paste
 - visible screen text read
-- styled render-frame snapshots with full-frame fallback and dirty-row deltas
+- styled render-frame snapshots with full-frame fallback plus dirty-row and cursor-move deltas
 - `session.list`
 - `session.input`
 - `screen.text`

@@ -1,32 +1,33 @@
 # Next-Core Benchmark Report
 
-- Generated: 2026-07-27 12:03:50 +08:00
-- Commit: `88795af`
+- Generated: 2026-07-27 12:10:59 +08:00
+- Commit: `4700c5a`
 - Machine: `ZHITONG-OMEN`
 - OS: `Microsoft Windows NT 10.0.26200.0`
 - Binary: `target\debug\unterm-next-core.exe`
-- JSON smoke: `next-core 100x30 raw_bytes=330 foreground=cmd.exe cwd=C:\Users\lixd2\ profile=bench-profile proxy_keys=HTTPS_PROXY screen_reads=3 render_frame_revision=13 render_frame_lines=30 render_frame_cols=100 render_frame_grid_cells=3000 render_delta_lines=0 lifecycle_created=1 dead_reason=`
+- JSON smoke: `next-core 100x30 raw_bytes=330 foreground=cmd.exe cwd=C:\Users\lixd2\ profile=bench-profile proxy_keys=HTTPS_PROXY screen_reads=3 render_frame_revision=16 render_frame_lines=30 render_frame_cols=100 render_frame_grid_cells=3000 render_delta_lines=0 lifecycle_created=1 dead_reason=`
 
 ## Gates
 
 | Gate | Actual | Max | Status |
 | --- | ---: | ---: | --- |
 | input write p95 | 1 us | 16000 us | ok |
-| key-to-screen p95 | 5874 us | 16000 us | ok |
-| input burst p95 | 5 us | 33000 us | ok |
-| echo p95 | 5991 us | 16000 us | ok |
-| dual-agent echo p95 | 5696 us | 33000 us | ok |
-| agent startup input p95 | 28 us | 33000 us | ok |
-| paste 10kb elapsed | 20 ms | 50 ms | ok |
-| scrollback page p95 | 86 us | 1000 us | ok |
-| viewport scroll p95 | 71 us | 1000 us | ok |
-| viewport scroll under flood p95 | 338 us | 50000 us | ok |
-| screen read under flood p95 | 132 us | 50000 us | ok |
+| key-to-screen p95 | 5869 us | 16000 us | ok |
+| input burst p95 | 1 us | 33000 us | ok |
+| echo p95 | 5623 us | 16000 us | ok |
+| dual-agent echo p95 | 5545 us | 33000 us | ok |
+| agent startup input p95 | 27 us | 33000 us | ok |
+| paste 10kb elapsed | 16 ms | 50 ms | ok |
+| scrollback page p95 | 88 us | 1000 us | ok |
+| viewport scroll p95 | 83 us | 1000 us | ok |
+| viewport scroll under flood p95 | 346 us | 50000 us | ok |
+| screen read under flood p95 | 160 us | 50000 us | ok |
 | render frame p95 | 0 us | 1000 us | ok |
-| render dirty frame p95 | 482 us | 1000 us | ok |
-| focus switch p95 | 406 us | 100000 us | ok |
-| session create p95 | 12246 us | 100000 us | ok |
-| session ready p95 | 42570 us | 100000 us | ok |
+| render dirty frame p95 | 930 us | 1000 us | ok |
+| render cursor move p95 | 32 us | 1000 us | ok |
+| focus switch p95 | 419 us | 100000 us | ok |
+| session create p95 | 11886 us | 100000 us | ok |
+| session ready p95 | 41708 us | 100000 us | ok |
 
 ## Summary
 
@@ -36,9 +37,9 @@
 - Args: `--bench-input-writes 1000 --timeout-ms 120000 --wait-ms 0 --write exit\r -- cmd.exe`
 
 ```text
-bench_input_write rounds=1000 bytes=3000 min_us=0 p50_us=1 p95_us=1 max_us=22 bytes_per_sec=3108808.3
+bench_input_write rounds=1000 bytes=3000 min_us=0 p50_us=0 p95_us=1 max_us=16 bytes_per_sec=10869565.2
 session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(0, 0) raw_bytes=33
-activity_process foreground=cmd.exe foreground_pid=47612 foreground_cwd=C:\Users\lixd2\ root=cmd.exe root_pid=47612 root_cwd=C:\Users\lixd2\ child_count=0 detected_agent=none
+activity_process foreground=cmd.exe foreground_pid=67604 foreground_cwd=C:\Users\lixd2\ root=cmd.exe root_pid=67604 root_cwd=C:\Users\lixd2\ child_count=0 detected_agent=none
 health_io input_writes=1001 input_bytes=3005 output_chunks=3 output_bytes=33 paste_count=0 paste_text_bytes=0 screen_reads=3 viewport_scrolls=0
 health_lifecycle live_sessions=1 dead_sessions=0 total_created=1 total_destroyed=0 total_marked_dead=0 last_dead_reason=none
 ```
@@ -49,10 +50,10 @@ health_lifecycle live_sessions=1 dead_sessions=0 total_created=1 total_destroyed
 - Args: `--bench-key-to-screen 50 --timeout-ms 120000 --wait-ms 0 --write exit\r -- cmd.exe`
 
 ```text
-bench_key_to_screen rounds=50 snapshots=102 min_us=5281 p50_us=5592 p95_us=5874 max_us=16838
+bench_key_to_screen rounds=50 snapshots=102 min_us=5137 p50_us=5478 p95_us=5869 max_us=16162
 session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(0, 29) raw_bytes=7545
-activity_process foreground=cmd.exe foreground_pid=68420 foreground_cwd=none root=cmd.exe root_pid=68420 root_cwd=none child_count=0 detected_agent=none
-health_io input_writes=51 input_bytes=655 output_chunks=365 output_bytes=7545 paste_count=0 paste_text_bytes=0 screen_reads=105 viewport_scrolls=0
+activity_process foreground=cmd.exe foreground_pid=44752 foreground_cwd=none root=cmd.exe root_pid=44752 root_cwd=none child_count=0 detected_agent=none
+health_io input_writes=51 input_bytes=655 output_chunks=362 output_bytes=7545 paste_count=0 paste_text_bytes=0 screen_reads=105 viewport_scrolls=0
 health_lifecycle live_sessions=0 dead_sessions=1 total_created=1 total_destroyed=0 total_marked_dead=1 last_dead_reason=process_exited:Success
 ```
 
@@ -62,10 +63,10 @@ health_lifecycle live_sessions=0 dead_sessions=1 total_created=1 total_destroyed
 - Args: `--bench-input-burst 1000 --timeout-ms 120000 --wait-ms 0 --write exit\r -- cmd.exe`
 
 ```text
-bench_input_burst rounds=1000 background_sessions=2 background_lines_per_session=20000 background_bytes=2097152 background_elapsed_ms=2881 min_us=1 p50_us=1 p95_us=5 max_us=34
+bench_input_burst rounds=1000 background_sessions=2 background_lines_per_session=20000 background_bytes=2097152 background_elapsed_ms=2816 min_us=1 p50_us=1 p95_us=1 max_us=90
 session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(19, 3) raw_bytes=255
-activity_process foreground=cmd.exe foreground_pid=25956 foreground_cwd=none root=cmd.exe root_pid=25956 root_cwd=none child_count=0 detected_agent=none
-health_io input_writes=1001 input_bytes=3005 output_chunks=13 output_bytes=255 paste_count=0 paste_text_bytes=0 screen_reads=3 viewport_scrolls=0
+activity_process foreground=cmd.exe foreground_pid=74316 foreground_cwd=none root=cmd.exe root_pid=74316 root_cwd=none child_count=0 detected_agent=none
+health_io input_writes=1001 input_bytes=3005 output_chunks=12 output_bytes=255 paste_count=0 paste_text_bytes=0 screen_reads=3 viewport_scrolls=0
 health_lifecycle live_sessions=0 dead_sessions=1 total_created=3 total_destroyed=2 total_marked_dead=3 last_dead_reason=process_exited:Success
 ```
 
@@ -75,9 +76,9 @@ health_lifecycle live_sessions=0 dead_sessions=1 total_created=3 total_destroyed
 - Args: `--bench-echo 50 --timeout-ms 120000 --wait-ms 0 --write exit\r -- cmd.exe`
 
 ```text
-bench_echo rounds=50 min_us=5105 p50_us=5497 p95_us=5991 max_us=16222
-session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(0, 29) raw_bytes=10545
-activity_process foreground=cmd.exe foreground_pid=75208 foreground_cwd=none root=cmd.exe root_pid=75208 root_cwd=none child_count=0 detected_agent=none
+bench_echo rounds=50 min_us=5065 p50_us=5428 p95_us=5623 max_us=16678
+session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(19, 29) raw_bytes=10545
+activity_process foreground=cmd.exe foreground_pid=85820 foreground_cwd=none root=cmd.exe root_pid=85820 root_cwd=none child_count=0 detected_agent=none
 health_io input_writes=51 input_bytes=1655 output_chunks=361 output_bytes=10545 paste_count=0 paste_text_bytes=0 screen_reads=3 viewport_scrolls=0
 health_lifecycle live_sessions=0 dead_sessions=1 total_created=1 total_destroyed=0 total_marked_dead=1 last_dead_reason=process_exited:Success
 C:\Users\lixd2>echo UNTERM_NEXT_CORE_BENCH_0041
@@ -106,10 +107,10 @@ UNTERM_NEXT_CORE_BENCH_0049
 - Args: `--bench-flood-lines 100000 --timeout-ms 120000 --wait-ms 0 --write exit\r -- cmd.exe`
 
 ```text
-bench_flood lines=100000 bytes=1048576 elapsed_ms=25739 lines_per_sec=3885.1 bytes_per_sec=40738.5
-session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(0, 29) raw_bytes=1048576
-activity_process foreground=cmd.exe foreground_pid=26684 foreground_cwd=none root=cmd.exe root_pid=26684 root_cwd=none child_count=0 detected_agent=none
-health_io input_writes=3 input_bytes=108 output_chunks=169177 output_bytes=13278366 paste_count=0 paste_text_bytes=0 screen_reads=3 viewport_scrolls=0
+bench_flood lines=100000 bytes=1048576 elapsed_ms=26720 lines_per_sec=3742.4 bytes_per_sec=39242.4
+session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(19, 29) raw_bytes=1048576
+activity_process foreground=cmd.exe foreground_pid=24504 foreground_cwd=none root=cmd.exe root_pid=24504 root_cwd=none child_count=0 detected_agent=none
+health_io input_writes=3 input_bytes=108 output_chunks=169821 output_bytes=13278366 paste_count=0 paste_text_bytes=0 screen_reads=3 viewport_scrolls=0
 health_lifecycle live_sessions=0 dead_sessions=1 total_created=1 total_destroyed=0 total_marked_dead=1 last_dead_reason=process_exited:Success
 ```
 
@@ -119,10 +120,10 @@ health_lifecycle live_sessions=0 dead_sessions=1 total_created=1 total_destroyed
 - Args: `--bench-paste-kb 10 --timeout-ms 120000 --wait-ms 0 --write exit\r -- cmd.exe`
 
 ```text
-bench_paste bytes=10240 elapsed_ms=20 bytes_per_sec=507787.9
+bench_paste bytes=10240 elapsed_ms=16 bytes_per_sec=637636.8
 session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(40, 29) raw_bytes=3600
-activity_process foreground=cmd.exe foreground_pid=57156 foreground_cwd=none root=cmd.exe root_pid=57156 root_cwd=none child_count=0 detected_agent=none
-health_io input_writes=3 input_bytes=10322 output_chunks=16 output_bytes=3600 paste_count=1 paste_text_bytes=10241 screen_reads=3 viewport_scrolls=0
+activity_process foreground=cmd.exe foreground_pid=64288 foreground_cwd=none root=cmd.exe root_pid=64288 root_cwd=none child_count=0 detected_agent=none
+health_io input_writes=3 input_bytes=10322 output_chunks=13 output_bytes=3600 paste_count=1 paste_text_bytes=10241 screen_reads=3 viewport_scrolls=0
 health_lifecycle live_sessions=0 dead_sessions=1 total_created=1 total_destroyed=0 total_marked_dead=1 last_dead_reason=process_exited:Success
 ```
 
@@ -132,11 +133,11 @@ health_lifecycle live_sessions=0 dead_sessions=1 total_created=1 total_destroyed
 - Args: `--bench-scrollback-lines 10000 --timeout-ms 120000 --wait-ms 0 --write exit\r -- cmd.exe`
 
 ```text
-bench_flood lines=10000 bytes=1048576 elapsed_ms=1163 lines_per_sec=8597.8 bytes_per_sec=901543.3
-bench_scrollback lines=10000 pages=334 rows_read=10020 total_ms=19 min_us=48 p50_us=51 p95_us=86 max_us=152
+bench_flood lines=10000 bytes=1048576 elapsed_ms=1260 lines_per_sec=7932.4 bytes_per_sec=831776.5
+bench_scrollback lines=10000 pages=334 rows_read=10020 total_ms=22 min_us=49 p50_us=64 p95_us=88 max_us=114
 session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(19, 29) raw_bytes=1048576
-activity_process foreground=cmd.exe foreground_pid=11184 foreground_cwd=none root=cmd.exe root_pid=11184 root_cwd=none child_count=0 detected_agent=none
-health_io input_writes=3 input_bytes=106 output_chunks=24897 output_bytes=1308360 paste_count=0 paste_text_bytes=0 screen_reads=338 viewport_scrolls=0
+activity_process foreground=cmd.exe foreground_pid=18172 foreground_cwd=none root=cmd.exe root_pid=18172 root_cwd=none child_count=0 detected_agent=none
+health_io input_writes=3 input_bytes=106 output_chunks=24793 output_bytes=1308360 paste_count=0 paste_text_bytes=0 screen_reads=338 viewport_scrolls=0
 health_lifecycle live_sessions=0 dead_sessions=1 total_created=1 total_destroyed=0 total_marked_dead=1 last_dead_reason=process_exited:Success
 ```
 
@@ -146,11 +147,11 @@ health_lifecycle live_sessions=0 dead_sessions=1 total_created=1 total_destroyed
 - Args: `--bench-viewport-scrolls 10000 --timeout-ms 120000 --wait-ms 0 --write exit\r -- cmd.exe`
 
 ```text
-bench_flood lines=10000 bytes=1048576 elapsed_ms=1175 lines_per_sec=8504.7 bytes_per_sec=891781.5
-bench_viewport_scroll lines=10000 pages=334 rows_read=10020 total_ms=18 min_us=49 p50_us=52 p95_us=71 max_us=161
+bench_flood lines=10000 bytes=1048576 elapsed_ms=1206 lines_per_sec=8285.7 bytes_per_sec=868818.6
+bench_viewport_scroll lines=10000 pages=334 rows_read=10020 total_ms=22 min_us=50 p50_us=64 p95_us=83 max_us=177
 session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(19, 29) raw_bytes=1048576
-activity_process foreground=cmd.exe foreground_pid=17312 foreground_cwd=none root=cmd.exe root_pid=17312 root_cwd=none child_count=0 detected_agent=none
-health_io input_writes=3 input_bytes=106 output_chunks=24905 output_bytes=1308360 paste_count=0 paste_text_bytes=0 screen_reads=338 viewport_scrolls=334
+activity_process foreground=cmd.exe foreground_pid=15432 foreground_cwd=none root=cmd.exe root_pid=15432 root_cwd=none child_count=0 detected_agent=none
+health_io input_writes=3 input_bytes=106 output_chunks=24791 output_bytes=1308360 paste_count=0 paste_text_bytes=0 screen_reads=338 viewport_scrolls=334
 health_lifecycle live_sessions=0 dead_sessions=1 total_created=1 total_destroyed=0 total_marked_dead=1 last_dead_reason=process_exited:Success
 ```
 
@@ -160,10 +161,10 @@ health_lifecycle live_sessions=0 dead_sessions=1 total_created=1 total_destroyed
 - Args: `--bench-viewport-scroll-flood 5000 --timeout-ms 120000 --wait-ms 0 --write exit\r -- cmd.exe`
 
 ```text
-bench_viewport_scroll_flood lines=5000 scrolls=105 rows_read=3053 total_ms=604 min_us=16 p50_us=231 p95_us=338 max_us=397
-session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(0, 29) raw_bytes=653354
-activity_process foreground=cmd.exe foreground_pid=69404 foreground_cwd=none root=cmd.exe root_pid=69404 root_cwd=none child_count=0 detected_agent=none
-health_io input_writes=3 input_bytes=104 output_chunks=14497 output_bytes=653354 paste_count=0 paste_text_bytes=0 screen_reads=213 viewport_scrolls=105
+bench_viewport_scroll_flood lines=5000 scrolls=116 rows_read=3393 total_ms=673 min_us=13 p50_us=259 p95_us=346 max_us=412
+session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(19, 29) raw_bytes=653354
+activity_process foreground=cmd.exe foreground_pid=50604 foreground_cwd=none root=cmd.exe root_pid=50604 root_cwd=none child_count=0 detected_agent=none
+health_io input_writes=3 input_bytes=104 output_chunks=14398 output_bytes=653354 paste_count=0 paste_text_bytes=0 screen_reads=235 viewport_scrolls=116
 health_lifecycle live_sessions=0 dead_sessions=1 total_created=1 total_destroyed=0 total_marked_dead=1 last_dead_reason=process_exited:Success
 ```
 
@@ -173,11 +174,11 @@ health_lifecycle live_sessions=0 dead_sessions=1 total_created=1 total_destroyed
 - Args: `--bench-dual-agent-lines 5000 --timeout-ms 120000 --wait-ms 0 --write exit\r -- cmd.exe`
 
 ```text
-bench_dual_agents_echo rounds=20 min_us=5077 p50_us=5392 p95_us=5696 max_us=5727
-bench_dual_agents lines_per_agent=5000 total_bytes=1306354 elapsed_ms=728 combined_lines_per_sec=13731.4 combined_bytes_per_sec=1793808.3
+bench_dual_agents_echo rounds=20 min_us=5039 p50_us=5508 p95_us=5545 max_us=5590
+bench_dual_agents lines_per_agent=5000 total_bytes=1306502 elapsed_ms=842 combined_lines_per_sec=11863.4 combined_bytes_per_sec=1549954.6
 session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(19, 29) raw_bytes=4372
-activity_process foreground=cmd.exe foreground_pid=61968 foreground_cwd=none root=cmd.exe root_pid=61968 root_cwd=none child_count=0 detected_agent=none
-health_io input_writes=21 input_bytes=665 output_chunks=151 output_bytes=4372 paste_count=0 paste_text_bytes=0 screen_reads=3 viewport_scrolls=0
+activity_process foreground=cmd.exe foreground_pid=64236 foreground_cwd=none root=cmd.exe root_pid=64236 root_cwd=none child_count=0 detected_agent=none
+health_io input_writes=21 input_bytes=665 output_chunks=153 output_bytes=4372 paste_count=0 paste_text_bytes=0 screen_reads=3 viewport_scrolls=0
 health_lifecycle live_sessions=0 dead_sessions=1 total_created=3 total_destroyed=2 total_marked_dead=3 last_dead_reason=process_exited:Success
 C:\Users\lixd2>echo UNTERM_NEXT_CORE_BENCH_0011
 UNTERM_NEXT_CORE_BENCH_0011
@@ -205,10 +206,10 @@ UNTERM_NEXT_CORE_BENCH_0019
 - Args: `--bench-agent-startup-lines 5000 --timeout-ms 120000 --wait-ms 0 --write exit\r -- cmd.exe`
 
 ```text
-bench_agent_startup_stall lines=5000 bytes=653251 input_writes=102 screen_reads=102 elapsed_ms=567 input_min_us=4 input_p50_us=7 input_p95_us=28 input_max_us=48 screen_read_min_us=11 screen_read_p50_us=17 screen_read_p95_us=38 screen_read_max_us=63
-session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(0, 4) raw_bytes=255
-activity_process foreground=cmd.exe foreground_pid=87720 foreground_cwd=none root=cmd.exe root_pid=87720 root_cwd=none child_count=0 detected_agent=none
-health_io input_writes=103 input_bytes=311 output_chunks=10 output_bytes=255 paste_count=0 paste_text_bytes=0 screen_reads=105 viewport_scrolls=0
+bench_agent_startup_stall lines=5000 bytes=653251 input_writes=110 screen_reads=110 elapsed_ms=611 input_min_us=5 input_p50_us=9 input_p95_us=27 input_max_us=103 screen_read_min_us=14 screen_read_p50_us=21 screen_read_p95_us=34 screen_read_max_us=87
+session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(19, 3) raw_bytes=255
+activity_process foreground=cmd.exe foreground_pid=16024 foreground_cwd=none root=cmd.exe root_pid=16024 root_cwd=none child_count=0 detected_agent=none
+health_io input_writes=111 input_bytes=335 output_chunks=11 output_bytes=255 paste_count=0 paste_text_bytes=0 screen_reads=113 viewport_scrolls=0
 health_lifecycle live_sessions=0 dead_sessions=1 total_created=2 total_destroyed=1 total_marked_dead=2 last_dead_reason=process_exited:Success
 ```
 
@@ -218,10 +219,10 @@ health_lifecycle live_sessions=0 dead_sessions=1 total_created=2 total_destroyed
 - Args: `--bench-screen-read-lines 5000 --timeout-ms 120000 --wait-ms 0 --write exit\r -- cmd.exe`
 
 ```text
-bench_screen_read_flood lines=5000 reads=106 total_ms=593 min_us=10 p50_us=88 p95_us=132 max_us=185 text_bytes=79873
+bench_screen_read_flood lines=5000 reads=114 total_ms=653 min_us=20 p50_us=100 p95_us=160 max_us=197 text_bytes=86092
 session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(19, 29) raw_bytes=653354
-activity_process foreground=cmd.exe foreground_pid=83704 foreground_cwd=none root=cmd.exe root_pid=83704 root_cwd=none child_count=0 detected_agent=none
-health_io input_writes=3 input_bytes=104 output_chunks=14632 output_bytes=653354 paste_count=0 paste_text_bytes=0 screen_reads=109 viewport_scrolls=0
+activity_process foreground=cmd.exe foreground_pid=16376 foreground_cwd=none root=cmd.exe root_pid=16376 root_cwd=none child_count=0 detected_agent=none
+health_io input_writes=3 input_bytes=104 output_chunks=14639 output_bytes=653354 paste_count=0 paste_text_bytes=0 screen_reads=117 viewport_scrolls=0
 health_lifecycle live_sessions=0 dead_sessions=1 total_created=1 total_destroyed=0 total_marked_dead=1 last_dead_reason=process_exited:Success
 ```
 
@@ -231,10 +232,23 @@ health_lifecycle live_sessions=0 dead_sessions=1 total_created=1 total_destroyed
 - Args: `--bench-render-frames 1000 --timeout-ms 120000 --wait-ms 0 --write exit\r -- cmd.exe`
 
 ```text
-bench_render_frame rounds=1000 full_us=351 full_lines=30 empty_deltas=1000 min_us=0 p50_us=0 p95_us=0 max_us=2 dirty_rounds=50 dirty_lines=1500 dirty_min_us=302 dirty_p50_us=373 dirty_p95_us=482 dirty_max_us=557
-session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(0, 29) raw_bytes=13784
-activity_process foreground=cmd.exe foreground_pid=44672 foreground_cwd=none root=cmd.exe root_pid=44672 root_cwd=none child_count=0 detected_agent=none
-health_io input_writes=53 input_bytes=1538 output_chunks=461 output_bytes=13784 paste_count=0 paste_text_bytes=0 screen_reads=1204 viewport_scrolls=0
+bench_render_frame rounds=1000 full_us=459 full_lines=30 empty_deltas=1000 min_us=0 p50_us=0 p95_us=0 max_us=2 dirty_rounds=50 dirty_lines=1500 dirty_min_us=312 dirty_p50_us=488 dirty_p95_us=930 dirty_max_us=944
+session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(19, 29) raw_bytes=13784
+activity_process foreground=cmd.exe foreground_pid=25056 foreground_cwd=none root=cmd.exe root_pid=25056 root_cwd=none child_count=0 detected_agent=none
+health_io input_writes=53 input_bytes=1538 output_chunks=463 output_bytes=13784 paste_count=0 paste_text_bytes=0 screen_reads=1204 viewport_scrolls=0
+health_lifecycle live_sessions=0 dead_sessions=1 total_created=1 total_destroyed=0 total_marked_dead=1 last_dead_reason=process_exited:Success
+```
+
+### render cursor move latency
+
+- Status: ok
+- Args: `--bench-render-cursor-moves 200 --timeout-ms 120000 --wait-ms 0 --write exit\r -- cmd.exe`
+
+```text
+bench_render_cursor_move rounds=200 snapshots=400 dirty_lines=200 full_frames=0 min_us=10 p50_us=20 p95_us=32 max_us=61
+session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(0, 6) raw_bytes=1709
+activity_process foreground=cmd.exe foreground_pid=43140 foreground_cwd=none root=cmd.exe root_pid=43140 root_cwd=none child_count=0 detected_agent=none
+health_io input_writes=203 input_bytes=634 output_chunks=213 output_bytes=1709 paste_count=0 paste_text_bytes=0 screen_reads=608 viewport_scrolls=0
 health_lifecycle live_sessions=0 dead_sessions=1 total_created=1 total_destroyed=0 total_marked_dead=1 last_dead_reason=process_exited:Success
 ```
 
@@ -244,9 +258,9 @@ health_lifecycle live_sessions=0 dead_sessions=1 total_created=1 total_destroyed
 - Args: `--bench-focus-switches 1000 --timeout-ms 120000 --wait-ms 0 --write exit\r -- cmd.exe`
 
 ```text
-bench_focus_switch rounds=1000 sessions=4 min_us=228 p50_us=268 p95_us=406 max_us=19814
+bench_focus_switch rounds=1000 sessions=4 min_us=207 p50_us=285 p95_us=419 max_us=19094
 session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(15, 3) raw_bytes=155
-activity_process foreground=cmd.exe foreground_pid=75484 foreground_cwd=C:\Users\lixd2\ root=cmd.exe root_pid=75484 root_cwd=C:\Users\lixd2\ child_count=0 detected_agent=none
+activity_process foreground=cmd.exe foreground_pid=61640 foreground_cwd=C:\Users\lixd2\ root=cmd.exe root_pid=61640 root_cwd=C:\Users\lixd2\ child_count=0 detected_agent=none
 health_io input_writes=1 input_bytes=5 output_chunks=9 output_bytes=155 paste_count=0 paste_text_bytes=0 screen_reads=3 viewport_scrolls=0
 health_lifecycle live_sessions=1 dead_sessions=0 total_created=4 total_destroyed=3 total_marked_dead=3 last_dead_reason=destroyed
 ```
@@ -257,10 +271,10 @@ health_lifecycle live_sessions=1 dead_sessions=0 total_created=4 total_destroyed
 - Args: `--bench-session-create 20 --timeout-ms 120000 --wait-ms 0 --write exit\r -- cmd.exe`
 
 ```text
-bench_session_create rounds=20 min_us=6755 p50_us=8805 p95_us=12246 max_us=12255
+bench_session_create rounds=20 min_us=6928 p50_us=9516 p95_us=11886 max_us=12548
 session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(19, 3) raw_bytes=255
-activity_process foreground=cmd.exe foreground_pid=26384 foreground_cwd=none root=cmd.exe root_pid=26384 root_cwd=none child_count=0 detected_agent=none
-health_io input_writes=1 input_bytes=5 output_chunks=12 output_bytes=255 paste_count=0 paste_text_bytes=0 screen_reads=3 viewport_scrolls=0
+activity_process foreground=cmd.exe foreground_pid=45244 foreground_cwd=none root=cmd.exe root_pid=45244 root_cwd=none child_count=0 detected_agent=none
+health_io input_writes=1 input_bytes=5 output_chunks=11 output_bytes=255 paste_count=0 paste_text_bytes=0 screen_reads=3 viewport_scrolls=0
 health_lifecycle live_sessions=0 dead_sessions=1 total_created=21 total_destroyed=20 total_marked_dead=21 last_dead_reason=process_exited:Success
 ```
 
@@ -270,10 +284,10 @@ health_lifecycle live_sessions=0 dead_sessions=1 total_created=21 total_destroye
 - Args: `--bench-session-ready 20 --timeout-ms 120000 --wait-ms 0 --write exit\r -- cmd.exe`
 
 ```text
-bench_session_ready rounds=20 min_us=29097 p50_us=36434 p95_us=42570 max_us=76996
+bench_session_ready rounds=20 min_us=29849 p50_us=37675 p95_us=41708 max_us=79986
 session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(0, 4) raw_bytes=255
-activity_process foreground=cmd.exe foreground_pid=46528 foreground_cwd=none root=cmd.exe root_pid=46528 root_cwd=none child_count=0 detected_agent=none
-health_io input_writes=1 input_bytes=5 output_chunks=12 output_bytes=255 paste_count=0 paste_text_bytes=0 screen_reads=3 viewport_scrolls=0
+activity_process foreground=cmd.exe foreground_pid=61484 foreground_cwd=none root=cmd.exe root_pid=61484 root_cwd=none child_count=0 detected_agent=none
+health_io input_writes=1 input_bytes=5 output_chunks=13 output_bytes=255 paste_count=0 paste_text_bytes=0 screen_reads=3 viewport_scrolls=0
 health_lifecycle live_sessions=0 dead_sessions=1 total_created=21 total_destroyed=20 total_marked_dead=21 last_dead_reason=process_exited:Success
 ```
 
@@ -282,10 +296,10 @@ health_lifecycle live_sessions=0 dead_sessions=1 total_created=21 total_destroye
 ### input write latency
 
 ```text
-bench_input_write rounds=1000 bytes=3000 min_us=0 p50_us=1 p95_us=1 max_us=22 bytes_per_sec=3108808.3
+bench_input_write rounds=1000 bytes=3000 min_us=0 p50_us=0 p95_us=1 max_us=16 bytes_per_sec=10869565.2
 session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(0, 0) raw_bytes=33
-render_frame revision=2 full=true dirty_rows=Some(DirtyRows { start: 0, end: 29 }) lines=30 render_delta_lines=1
-activity_process foreground=cmd.exe foreground_pid=47612 foreground_cwd=C:\Users\lixd2\ root=cmd.exe root_pid=47612 root_cwd=C:\Users\lixd2\ child_count=0 detected_agent=none
+render_frame revision=3 full=true dirty_rows=Some(DirtyRows { start: 0, end: 29 }) lines=30 render_delta_lines=0
+activity_process foreground=cmd.exe foreground_pid=67604 foreground_cwd=C:\Users\lixd2\ root=cmd.exe root_pid=67604 root_cwd=C:\Users\lixd2\ child_count=0 detected_agent=none
 health_io input_writes=1001 input_bytes=3005 output_chunks=3 output_bytes=33 paste_count=0 paste_text_bytes=0 screen_reads=3 viewport_scrolls=0
 health_lifecycle live_sessions=1 dead_sessions=0 total_created=1 total_destroyed=0 total_marked_dead=0 last_dead_reason=none
 
@@ -294,11 +308,11 @@ health_lifecycle live_sessions=1 dead_sessions=0 total_created=1 total_destroyed
 ### key-to-screen latency
 
 ```text
-bench_key_to_screen rounds=50 snapshots=102 min_us=5281 p50_us=5592 p95_us=5874 max_us=16838
+bench_key_to_screen rounds=50 snapshots=102 min_us=5137 p50_us=5478 p95_us=5869 max_us=16162
 session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(0, 29) raw_bytes=7545
-render_frame revision=365 full=true dirty_rows=Some(DirtyRows { start: 0, end: 29 }) lines=30 render_delta_lines=0
-activity_process foreground=cmd.exe foreground_pid=68420 foreground_cwd=none root=cmd.exe root_pid=68420 root_cwd=none child_count=0 detected_agent=none
-health_io input_writes=51 input_bytes=655 output_chunks=365 output_bytes=7545 paste_count=0 paste_text_bytes=0 screen_reads=105 viewport_scrolls=0
+render_frame revision=362 full=true dirty_rows=Some(DirtyRows { start: 0, end: 29 }) lines=30 render_delta_lines=0
+activity_process foreground=cmd.exe foreground_pid=44752 foreground_cwd=none root=cmd.exe root_pid=44752 root_cwd=none child_count=0 detected_agent=none
+health_io input_writes=51 input_bytes=655 output_chunks=362 output_bytes=7545 paste_count=0 paste_text_bytes=0 screen_reads=105 viewport_scrolls=0
 health_lifecycle live_sessions=0 dead_sessions=1 total_created=1 total_destroyed=0 total_marked_dead=1 last_dead_reason=process_exited:Success
 
 C:\Users\lixd2>echo KTS0041
@@ -335,11 +349,11 @@ C:\Users\lixd2>exit
 ### input burst under output
 
 ```text
-bench_input_burst rounds=1000 background_sessions=2 background_lines_per_session=20000 background_bytes=2097152 background_elapsed_ms=2881 min_us=1 p50_us=1 p95_us=5 max_us=34
+bench_input_burst rounds=1000 background_sessions=2 background_lines_per_session=20000 background_bytes=2097152 background_elapsed_ms=2816 min_us=1 p50_us=1 p95_us=1 max_us=90
 session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(19, 3) raw_bytes=255
-render_frame revision=12 full=true dirty_rows=Some(DirtyRows { start: 0, end: 29 }) lines=30 render_delta_lines=0
-activity_process foreground=cmd.exe foreground_pid=25956 foreground_cwd=none root=cmd.exe root_pid=25956 root_cwd=none child_count=0 detected_agent=none
-health_io input_writes=1001 input_bytes=3005 output_chunks=13 output_bytes=255 paste_count=0 paste_text_bytes=0 screen_reads=3 viewport_scrolls=0
+render_frame revision=11 full=true dirty_rows=Some(DirtyRows { start: 0, end: 29 }) lines=30 render_delta_lines=0
+activity_process foreground=cmd.exe foreground_pid=74316 foreground_cwd=none root=cmd.exe root_pid=74316 root_cwd=none child_count=0 detected_agent=none
+health_io input_writes=1001 input_bytes=3005 output_chunks=12 output_bytes=255 paste_count=0 paste_text_bytes=0 screen_reads=3 viewport_scrolls=0
 health_lifecycle live_sessions=0 dead_sessions=1 total_created=3 total_destroyed=2 total_marked_dead=3 last_dead_reason=process_exited:Success
 Microsoft Windows [版本 10.0.26200.8875]
 (c) Microsoft Corporation。保留所有权利。
@@ -351,10 +365,10 @@ C:\Users\lixd2>exit
 ### echo latency
 
 ```text
-bench_echo rounds=50 min_us=5105 p50_us=5497 p95_us=5991 max_us=16222
-session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(0, 29) raw_bytes=10545
-render_frame revision=361 full=true dirty_rows=Some(DirtyRows { start: 0, end: 29 }) lines=30 render_delta_lines=0
-activity_process foreground=cmd.exe foreground_pid=75208 foreground_cwd=none root=cmd.exe root_pid=75208 root_cwd=none child_count=0 detected_agent=none
+bench_echo rounds=50 min_us=5065 p50_us=5428 p95_us=5623 max_us=16678
+session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(19, 29) raw_bytes=10545
+render_frame revision=360 full=true dirty_rows=Some(DirtyRows { start: 0, end: 29 }) lines=30 render_delta_lines=30
+activity_process foreground=cmd.exe foreground_pid=85820 foreground_cwd=none root=cmd.exe root_pid=85820 root_cwd=none child_count=0 detected_agent=none
 health_io input_writes=51 input_bytes=1655 output_chunks=361 output_bytes=10545 paste_count=0 paste_text_bytes=0 screen_reads=3 viewport_scrolls=0
 health_lifecycle live_sessions=0 dead_sessions=1 total_created=1 total_destroyed=0 total_marked_dead=1 last_dead_reason=process_exited:Success
 
@@ -392,11 +406,11 @@ C:\Users\lixd2>exit
 ### output flood
 
 ```text
-bench_flood lines=100000 bytes=1048576 elapsed_ms=25739 lines_per_sec=3885.1 bytes_per_sec=40738.5
-session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(0, 29) raw_bytes=1048576
-render_frame revision=169177 full=true dirty_rows=Some(DirtyRows { start: 0, end: 29 }) lines=30 render_delta_lines=0
-activity_process foreground=cmd.exe foreground_pid=26684 foreground_cwd=none root=cmd.exe root_pid=26684 root_cwd=none child_count=0 detected_agent=none
-health_io input_writes=3 input_bytes=108 output_chunks=169177 output_bytes=13278366 paste_count=0 paste_text_bytes=0 screen_reads=3 viewport_scrolls=0
+bench_flood lines=100000 bytes=1048576 elapsed_ms=26720 lines_per_sec=3742.4 bytes_per_sec=39242.4
+session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(19, 29) raw_bytes=1048576
+render_frame revision=169821 full=true dirty_rows=Some(DirtyRows { start: 0, end: 29 }) lines=30 render_delta_lines=0
+activity_process foreground=cmd.exe foreground_pid=24504 foreground_cwd=none root=cmd.exe root_pid=24504 root_cwd=none child_count=0 detected_agent=none
+health_io input_writes=3 input_bytes=108 output_chunks=169821 output_bytes=13278366 paste_count=0 paste_text_bytes=0 screen_reads=3 viewport_scrolls=0
 health_lifecycle live_sessions=0 dead_sessions=1 total_created=1 total_destroyed=0 total_marked_dead=1 last_dead_reason=process_exited:Success
 UNTERM_NEXT_CORE_FLOOD_99977
 UNTERM_NEXT_CORE_FLOOD_99978
@@ -433,11 +447,11 @@ C:\Users\lixd2>exit
 ### paste 10kb
 
 ```text
-bench_paste bytes=10240 elapsed_ms=20 bytes_per_sec=507787.9
+bench_paste bytes=10240 elapsed_ms=16 bytes_per_sec=637636.8
 session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(40, 29) raw_bytes=3600
-render_frame revision=15 full=true dirty_rows=Some(DirtyRows { start: 0, end: 29 }) lines=30 render_delta_lines=30
-activity_process foreground=cmd.exe foreground_pid=57156 foreground_cwd=none root=cmd.exe root_pid=57156 root_cwd=none child_count=0 detected_agent=none
-health_io input_writes=3 input_bytes=10322 output_chunks=16 output_bytes=3600 paste_count=1 paste_text_bytes=10241 screen_reads=3 viewport_scrolls=0
+render_frame revision=12 full=true dirty_rows=Some(DirtyRows { start: 0, end: 29 }) lines=30 render_delta_lines=0
+activity_process foreground=cmd.exe foreground_pid=64288 foreground_cwd=none root=cmd.exe root_pid=64288 root_cwd=none child_count=0 detected_agent=none
+health_io input_writes=3 input_bytes=10322 output_chunks=13 output_bytes=3600 paste_count=1 paste_text_bytes=10241 screen_reads=3 viewport_scrolls=0
 health_lifecycle live_sessions=0 dead_sessions=1 total_created=1 total_destroyed=0 total_marked_dead=1 last_dead_reason=process_exited:Success
 QRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGH
 IJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789
@@ -474,12 +488,12 @@ C:\Users\lixd2>exit
 ### scrollback paging
 
 ```text
-bench_flood lines=10000 bytes=1048576 elapsed_ms=1163 lines_per_sec=8597.8 bytes_per_sec=901543.3
-bench_scrollback lines=10000 pages=334 rows_read=10020 total_ms=19 min_us=48 p50_us=51 p95_us=86 max_us=152
+bench_flood lines=10000 bytes=1048576 elapsed_ms=1260 lines_per_sec=7932.4 bytes_per_sec=831776.5
+bench_scrollback lines=10000 pages=334 rows_read=10020 total_ms=22 min_us=49 p50_us=64 p95_us=88 max_us=114
 session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(19, 29) raw_bytes=1048576
-render_frame revision=24896 full=true dirty_rows=Some(DirtyRows { start: 0, end: 29 }) lines=30 render_delta_lines=0
-activity_process foreground=cmd.exe foreground_pid=11184 foreground_cwd=none root=cmd.exe root_pid=11184 root_cwd=none child_count=0 detected_agent=none
-health_io input_writes=3 input_bytes=106 output_chunks=24897 output_bytes=1308360 paste_count=0 paste_text_bytes=0 screen_reads=338 viewport_scrolls=0
+render_frame revision=24792 full=true dirty_rows=Some(DirtyRows { start: 0, end: 29 }) lines=30 render_delta_lines=0
+activity_process foreground=cmd.exe foreground_pid=18172 foreground_cwd=none root=cmd.exe root_pid=18172 root_cwd=none child_count=0 detected_agent=none
+health_io input_writes=3 input_bytes=106 output_chunks=24793 output_bytes=1308360 paste_count=0 paste_text_bytes=0 screen_reads=338 viewport_scrolls=0
 health_lifecycle live_sessions=0 dead_sessions=1 total_created=1 total_destroyed=0 total_marked_dead=1 last_dead_reason=process_exited:Success
 UNTERM_NEXT_CORE_FLOOD_9977
 UNTERM_NEXT_CORE_FLOOD_9978
@@ -516,12 +530,12 @@ C:\Users\lixd2>exit
 ### viewport scroll paging
 
 ```text
-bench_flood lines=10000 bytes=1048576 elapsed_ms=1175 lines_per_sec=8504.7 bytes_per_sec=891781.5
-bench_viewport_scroll lines=10000 pages=334 rows_read=10020 total_ms=18 min_us=49 p50_us=52 p95_us=71 max_us=161
+bench_flood lines=10000 bytes=1048576 elapsed_ms=1206 lines_per_sec=8285.7 bytes_per_sec=868818.6
+bench_viewport_scroll lines=10000 pages=334 rows_read=10020 total_ms=22 min_us=50 p50_us=64 p95_us=83 max_us=177
 session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(19, 29) raw_bytes=1048576
-render_frame revision=25238 full=true dirty_rows=Some(DirtyRows { start: 0, end: 29 }) lines=30 render_delta_lines=30
-activity_process foreground=cmd.exe foreground_pid=17312 foreground_cwd=none root=cmd.exe root_pid=17312 root_cwd=none child_count=0 detected_agent=none
-health_io input_writes=3 input_bytes=106 output_chunks=24905 output_bytes=1308360 paste_count=0 paste_text_bytes=0 screen_reads=338 viewport_scrolls=334
+render_frame revision=25124 full=true dirty_rows=Some(DirtyRows { start: 0, end: 29 }) lines=30 render_delta_lines=0
+activity_process foreground=cmd.exe foreground_pid=15432 foreground_cwd=none root=cmd.exe root_pid=15432 root_cwd=none child_count=0 detected_agent=none
+health_io input_writes=3 input_bytes=106 output_chunks=24791 output_bytes=1308360 paste_count=0 paste_text_bytes=0 screen_reads=338 viewport_scrolls=334
 health_lifecycle live_sessions=0 dead_sessions=1 total_created=1 total_destroyed=0 total_marked_dead=1 last_dead_reason=process_exited:Success
 Microsoft Windows [版本 10.0.26200.8875]
 (c) Microsoft Corporation。保留所有权利。
@@ -558,53 +572,53 @@ UNTERM_NEXT_CORE_FLOOD_26
 ### viewport scroll during flood
 
 ```text
-bench_viewport_scroll_flood lines=5000 scrolls=105 rows_read=3053 total_ms=604 min_us=16 p50_us=231 p95_us=338 max_us=397
-session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(0, 29) raw_bytes=653354
-render_frame revision=14602 full=true dirty_rows=Some(DirtyRows { start: 0, end: 29 }) lines=30 render_delta_lines=0
-activity_process foreground=cmd.exe foreground_pid=69404 foreground_cwd=none root=cmd.exe root_pid=69404 root_cwd=none child_count=0 detected_agent=none
-health_io input_writes=3 input_bytes=104 output_chunks=14497 output_bytes=653354 paste_count=0 paste_text_bytes=0 screen_reads=213 viewport_scrolls=105
+bench_viewport_scroll_flood lines=5000 scrolls=116 rows_read=3393 total_ms=673 min_us=13 p50_us=259 p95_us=346 max_us=412
+session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(19, 29) raw_bytes=653354
+render_frame revision=14513 full=true dirty_rows=Some(DirtyRows { start: 0, end: 29 }) lines=30 render_delta_lines=0
+activity_process foreground=cmd.exe foreground_pid=50604 foreground_cwd=none root=cmd.exe root_pid=50604 root_cwd=none child_count=0 detected_agent=none
+health_io input_writes=3 input_bytes=104 output_chunks=14398 output_bytes=653354 paste_count=0 paste_text_bytes=0 screen_reads=235 viewport_scrolls=116
 health_lifecycle live_sessions=0 dead_sessions=1 total_created=1 total_destroyed=0 total_marked_dead=1 last_dead_reason=process_exited:Success
-UNTERM_NEXT_CORE_FLOOD_2588
-UNTERM_NEXT_CORE_FLOOD_2589
-UNTERM_NEXT_CORE_FLOOD_2590
-UNTERM_NEXT_CORE_FLOOD_2591
-UNTERM_NEXT_CORE_FLOOD_2592
-UNTERM_NEXT_CORE_FLOOD_2593
-UNTERM_NEXT_CORE_FLOOD_2594
-UNTERM_NEXT_CORE_FLOOD_2595
-UNTERM_NEXT_CORE_FLOOD_2596
-UNTERM_NEXT_CORE_FLOOD_2597
-UNTERM_NEXT_CORE_FLOOD_2598
-UNTERM_NEXT_CORE_FLOOD_2599
-UNTERM_NEXT_CORE_FLOOD_2600
-UNTERM_NEXT_CORE_FLOOD_2601
-UNTERM_NEXT_CORE_FLOOD_2602
-UNTERM_NEXT_CORE_FLOOD_2603
-UNTERM_NEXT_CORE_FLOOD_2604
-UNTERM_NEXT_CORE_FLOOD_2605
-UNTERM_NEXT_CORE_FLOOD_2606
-UNTERM_NEXT_CORE_FLOOD_2607
-UNTERM_NEXT_CORE_FLOOD_2608
-UNTERM_NEXT_CORE_FLOOD_2609
-UNTERM_NEXT_CORE_FLOOD_2610
-UNTERM_NEXT_CORE_FLOOD_2611
-UNTERM_NEXT_CORE_FLOOD_2612
-UNTERM_NEXT_CORE_FLOOD_2613
-UNTERM_NEXT_CORE_FLOOD_2614
-UNTERM_NEXT_CORE_FLOOD_2615
-UNTERM_NEXT_CORE_FLOOD_2616
-UNTERM_NEXT_CORE_FLOOD_2617
+UNTERM_NEXT_CORE_FLOOD_1064
+UNTERM_NEXT_CORE_FLOOD_1065
+UNTERM_NEXT_CORE_FLOOD_1066
+UNTERM_NEXT_CORE_FLOOD_1067
+UNTERM_NEXT_CORE_FLOOD_1068
+UNTERM_NEXT_CORE_FLOOD_1069
+UNTERM_NEXT_CORE_FLOOD_1070
+UNTERM_NEXT_CORE_FLOOD_1071
+UNTERM_NEXT_CORE_FLOOD_1072
+UNTERM_NEXT_CORE_FLOOD_1073
+UNTERM_NEXT_CORE_FLOOD_1074
+UNTERM_NEXT_CORE_FLOOD_1075
+UNTERM_NEXT_CORE_FLOOD_1076
+UNTERM_NEXT_CORE_FLOOD_1077
+UNTERM_NEXT_CORE_FLOOD_1078
+UNTERM_NEXT_CORE_FLOOD_1079
+UNTERM_NEXT_CORE_FLOOD_1080
+UNTERM_NEXT_CORE_FLOOD_1081
+UNTERM_NEXT_CORE_FLOOD_1082
+UNTERM_NEXT_CORE_FLOOD_1083
+UNTERM_NEXT_CORE_FLOOD_1084
+UNTERM_NEXT_CORE_FLOOD_1085
+UNTERM_NEXT_CORE_FLOOD_1086
+UNTERM_NEXT_CORE_FLOOD_1087
+UNTERM_NEXT_CORE_FLOOD_1088
+UNTERM_NEXT_CORE_FLOOD_1089
+UNTERM_NEXT_CORE_FLOOD_1090
+UNTERM_NEXT_CORE_FLOOD_1091
+UNTERM_NEXT_CORE_FLOOD_1092
+UNTERM_NEXT_CORE_FLOOD_1093
 ```
 
 ### dual pseudo-agent output
 
 ```text
-bench_dual_agents_echo rounds=20 min_us=5077 p50_us=5392 p95_us=5696 max_us=5727
-bench_dual_agents lines_per_agent=5000 total_bytes=1306354 elapsed_ms=728 combined_lines_per_sec=13731.4 combined_bytes_per_sec=1793808.3
+bench_dual_agents_echo rounds=20 min_us=5039 p50_us=5508 p95_us=5545 max_us=5590
+bench_dual_agents lines_per_agent=5000 total_bytes=1306502 elapsed_ms=842 combined_lines_per_sec=11863.4 combined_bytes_per_sec=1549954.6
 session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(19, 29) raw_bytes=4372
-render_frame revision=150 full=true dirty_rows=Some(DirtyRows { start: 0, end: 29 }) lines=30 render_delta_lines=0
-activity_process foreground=cmd.exe foreground_pid=61968 foreground_cwd=none root=cmd.exe root_pid=61968 root_cwd=none child_count=0 detected_agent=none
-health_io input_writes=21 input_bytes=665 output_chunks=151 output_bytes=4372 paste_count=0 paste_text_bytes=0 screen_reads=3 viewport_scrolls=0
+render_frame revision=152 full=true dirty_rows=Some(DirtyRows { start: 0, end: 29 }) lines=30 render_delta_lines=0
+activity_process foreground=cmd.exe foreground_pid=64236 foreground_cwd=none root=cmd.exe root_pid=64236 root_cwd=none child_count=0 detected_agent=none
+health_io input_writes=21 input_bytes=665 output_chunks=153 output_bytes=4372 paste_count=0 paste_text_bytes=0 screen_reads=3 viewport_scrolls=0
 health_lifecycle live_sessions=0 dead_sessions=1 total_created=3 total_destroyed=2 total_marked_dead=3 last_dead_reason=process_exited:Success
 
 C:\Users\lixd2>echo UNTERM_NEXT_CORE_BENCH_0011
@@ -641,11 +655,11 @@ C:\Users\lixd2>exit
 ### agent startup stall
 
 ```text
-bench_agent_startup_stall lines=5000 bytes=653251 input_writes=102 screen_reads=102 elapsed_ms=567 input_min_us=4 input_p50_us=7 input_p95_us=28 input_max_us=48 screen_read_min_us=11 screen_read_p50_us=17 screen_read_p95_us=38 screen_read_max_us=63
-session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(0, 4) raw_bytes=255
-render_frame revision=10 full=true dirty_rows=Some(DirtyRows { start: 0, end: 29 }) lines=30 render_delta_lines=0
-activity_process foreground=cmd.exe foreground_pid=87720 foreground_cwd=none root=cmd.exe root_pid=87720 root_cwd=none child_count=0 detected_agent=none
-health_io input_writes=103 input_bytes=311 output_chunks=10 output_bytes=255 paste_count=0 paste_text_bytes=0 screen_reads=105 viewport_scrolls=0
+bench_agent_startup_stall lines=5000 bytes=653251 input_writes=110 screen_reads=110 elapsed_ms=611 input_min_us=5 input_p50_us=9 input_p95_us=27 input_max_us=103 screen_read_min_us=14 screen_read_p50_us=21 screen_read_p95_us=34 screen_read_max_us=87
+session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(19, 3) raw_bytes=255
+render_frame revision=10 full=true dirty_rows=Some(DirtyRows { start: 0, end: 29 }) lines=30 render_delta_lines=2
+activity_process foreground=cmd.exe foreground_pid=16024 foreground_cwd=none root=cmd.exe root_pid=16024 root_cwd=none child_count=0 detected_agent=none
+health_io input_writes=111 input_bytes=335 output_chunks=11 output_bytes=255 paste_count=0 paste_text_bytes=0 screen_reads=113 viewport_scrolls=0
 health_lifecycle live_sessions=0 dead_sessions=1 total_created=2 total_destroyed=1 total_marked_dead=2 last_dead_reason=process_exited:Success
 Microsoft Windows [版本 10.0.26200.8875]
 (c) Microsoft Corporation。保留所有权利。
@@ -657,11 +671,11 @@ C:\Users\lixd2>exit
 ### screen read during flood
 
 ```text
-bench_screen_read_flood lines=5000 reads=106 total_ms=593 min_us=10 p50_us=88 p95_us=132 max_us=185 text_bytes=79873
+bench_screen_read_flood lines=5000 reads=114 total_ms=653 min_us=20 p50_us=100 p95_us=160 max_us=197 text_bytes=86092
 session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(19, 29) raw_bytes=653354
-render_frame revision=14631 full=true dirty_rows=Some(DirtyRows { start: 0, end: 29 }) lines=30 render_delta_lines=0
-activity_process foreground=cmd.exe foreground_pid=83704 foreground_cwd=none root=cmd.exe root_pid=83704 root_cwd=none child_count=0 detected_agent=none
-health_io input_writes=3 input_bytes=104 output_chunks=14632 output_bytes=653354 paste_count=0 paste_text_bytes=0 screen_reads=109 viewport_scrolls=0
+render_frame revision=14638 full=true dirty_rows=Some(DirtyRows { start: 0, end: 29 }) lines=30 render_delta_lines=30
+activity_process foreground=cmd.exe foreground_pid=16376 foreground_cwd=none root=cmd.exe root_pid=16376 root_cwd=none child_count=0 detected_agent=none
+health_io input_writes=3 input_bytes=104 output_chunks=14639 output_bytes=653354 paste_count=0 paste_text_bytes=0 screen_reads=117 viewport_scrolls=0
 health_lifecycle live_sessions=0 dead_sessions=1 total_created=1 total_destroyed=0 total_marked_dead=1 last_dead_reason=process_exited:Success
 UNTERM_NEXT_CORE_FLOOD_4977
 UNTERM_NEXT_CORE_FLOOD_4978
@@ -698,11 +712,11 @@ C:\Users\lixd2>exit
 ### render frame latency
 
 ```text
-bench_render_frame rounds=1000 full_us=351 full_lines=30 empty_deltas=1000 min_us=0 p50_us=0 p95_us=0 max_us=2 dirty_rounds=50 dirty_lines=1500 dirty_min_us=302 dirty_p50_us=373 dirty_p95_us=482 dirty_max_us=557
-session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(0, 29) raw_bytes=13784
-render_frame revision=461 full=true dirty_rows=Some(DirtyRows { start: 0, end: 29 }) lines=30 render_delta_lines=0
-activity_process foreground=cmd.exe foreground_pid=44672 foreground_cwd=none root=cmd.exe root_pid=44672 root_cwd=none child_count=0 detected_agent=none
-health_io input_writes=53 input_bytes=1538 output_chunks=461 output_bytes=13784 paste_count=0 paste_text_bytes=0 screen_reads=1204 viewport_scrolls=0
+bench_render_frame rounds=1000 full_us=459 full_lines=30 empty_deltas=1000 min_us=0 p50_us=0 p95_us=0 max_us=2 dirty_rounds=50 dirty_lines=1500 dirty_min_us=312 dirty_p50_us=488 dirty_p95_us=930 dirty_max_us=944
+session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(19, 29) raw_bytes=13784
+render_frame revision=462 full=true dirty_rows=Some(DirtyRows { start: 0, end: 29 }) lines=30 render_delta_lines=0
+activity_process foreground=cmd.exe foreground_pid=25056 foreground_cwd=none root=cmd.exe root_pid=25056 root_cwd=none child_count=0 detected_agent=none
+health_io input_writes=53 input_bytes=1538 output_chunks=463 output_bytes=13784 paste_count=0 paste_text_bytes=0 screen_reads=1204 viewport_scrolls=0
 health_lifecycle live_sessions=0 dead_sessions=1 total_created=1 total_destroyed=0 total_marked_dead=1 last_dead_reason=process_exited:Success
 
 C:\Users\lixd2>echo RENDER_FRAME_DIRTY_0041
@@ -736,13 +750,31 @@ C:\Users\lixd2>exit
 
 ```
 
+### render cursor move latency
+
+```text
+bench_render_cursor_move rounds=200 snapshots=400 dirty_lines=200 full_frames=0 min_us=10 p50_us=20 p95_us=32 max_us=61
+session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(0, 6) raw_bytes=1709
+render_frame revision=213 full=true dirty_rows=Some(DirtyRows { start: 0, end: 29 }) lines=30 render_delta_lines=0
+activity_process foreground=cmd.exe foreground_pid=43140 foreground_cwd=none root=cmd.exe root_pid=43140 root_cwd=none child_count=0 detected_agent=none
+health_io input_writes=203 input_bytes=634 output_chunks=213 output_bytes=1709 paste_count=0 paste_text_bytes=0 screen_reads=608 viewport_scrolls=0
+health_lifecycle live_sessions=0 dead_sessions=1 total_created=1 total_destroyed=0 total_marked_dead=1 last_dead_reason=process_exited:Success
+Microsoft Windows [版本 10.0.26200.8875]
+(c) Microsoft Corporation。保留所有权利。
+
+C:\Users\lixd2>UNTERM_CURSOR_MOVE_BENCHMARK
+
+C:\Users\lixd2>exit
+
+```
+
 ### focus switch latency
 
 ```text
-bench_focus_switch rounds=1000 sessions=4 min_us=228 p50_us=268 p95_us=406 max_us=19814
+bench_focus_switch rounds=1000 sessions=4 min_us=207 p50_us=285 p95_us=419 max_us=19094
 session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(15, 3) raw_bytes=155
 render_frame revision=9 full=true dirty_rows=Some(DirtyRows { start: 0, end: 29 }) lines=30 render_delta_lines=0
-activity_process foreground=cmd.exe foreground_pid=75484 foreground_cwd=C:\Users\lixd2\ root=cmd.exe root_pid=75484 root_cwd=C:\Users\lixd2\ child_count=0 detected_agent=none
+activity_process foreground=cmd.exe foreground_pid=61640 foreground_cwd=C:\Users\lixd2\ root=cmd.exe root_pid=61640 root_cwd=C:\Users\lixd2\ child_count=0 detected_agent=none
 health_io input_writes=1 input_bytes=5 output_chunks=9 output_bytes=155 paste_count=0 paste_text_bytes=0 screen_reads=3 viewport_scrolls=0
 health_lifecycle live_sessions=1 dead_sessions=0 total_created=4 total_destroyed=3 total_marked_dead=3 last_dead_reason=destroyed
 Microsoft Windows [版本 10.0.26200.8875]
@@ -754,11 +786,11 @@ C:\Users\lixd2>
 ### session create latency
 
 ```text
-bench_session_create rounds=20 min_us=6755 p50_us=8805 p95_us=12246 max_us=12255
+bench_session_create rounds=20 min_us=6928 p50_us=9516 p95_us=11886 max_us=12548
 session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(19, 3) raw_bytes=255
-render_frame revision=11 full=true dirty_rows=Some(DirtyRows { start: 0, end: 29 }) lines=30 render_delta_lines=2
-activity_process foreground=cmd.exe foreground_pid=26384 foreground_cwd=none root=cmd.exe root_pid=26384 root_cwd=none child_count=0 detected_agent=none
-health_io input_writes=1 input_bytes=5 output_chunks=12 output_bytes=255 paste_count=0 paste_text_bytes=0 screen_reads=3 viewport_scrolls=0
+render_frame revision=10 full=true dirty_rows=Some(DirtyRows { start: 0, end: 29 }) lines=30 render_delta_lines=2
+activity_process foreground=cmd.exe foreground_pid=45244 foreground_cwd=none root=cmd.exe root_pid=45244 root_cwd=none child_count=0 detected_agent=none
+health_io input_writes=1 input_bytes=5 output_chunks=11 output_bytes=255 paste_count=0 paste_text_bytes=0 screen_reads=3 viewport_scrolls=0
 health_lifecycle live_sessions=0 dead_sessions=1 total_created=21 total_destroyed=20 total_marked_dead=21 last_dead_reason=process_exited:Success
 Microsoft Windows [版本 10.0.26200.8875]
 (c) Microsoft Corporation。保留所有权利。
@@ -770,11 +802,11 @@ C:\Users\lixd2>exit
 ### session ready latency
 
 ```text
-bench_session_ready rounds=20 min_us=29097 p50_us=36434 p95_us=42570 max_us=76996
+bench_session_ready rounds=20 min_us=29849 p50_us=37675 p95_us=41708 max_us=79986
 session id=1 cols=100 rows=30 dead=false dead_reason=none cursor=(0, 4) raw_bytes=255
-render_frame revision=12 full=true dirty_rows=Some(DirtyRows { start: 0, end: 29 }) lines=30 render_delta_lines=0
-activity_process foreground=cmd.exe foreground_pid=46528 foreground_cwd=none root=cmd.exe root_pid=46528 root_cwd=none child_count=0 detected_agent=none
-health_io input_writes=1 input_bytes=5 output_chunks=12 output_bytes=255 paste_count=0 paste_text_bytes=0 screen_reads=3 viewport_scrolls=0
+render_frame revision=13 full=true dirty_rows=Some(DirtyRows { start: 0, end: 29 }) lines=30 render_delta_lines=0
+activity_process foreground=cmd.exe foreground_pid=61484 foreground_cwd=none root=cmd.exe root_pid=61484 root_cwd=none child_count=0 detected_agent=none
+health_io input_writes=1 input_bytes=5 output_chunks=13 output_bytes=255 paste_count=0 paste_text_bytes=0 screen_reads=3 viewport_scrolls=0
 health_lifecycle live_sessions=0 dead_sessions=1 total_created=21 total_destroyed=20 total_marked_dead=21 last_dead_reason=process_exited:Success
 Microsoft Windows [版本 10.0.26200.8875]
 (c) Microsoft Corporation。保留所有权利。

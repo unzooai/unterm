@@ -29,6 +29,7 @@ struct Args {
     bench_agent_startup_lines: Option<usize>,
     bench_screen_read_lines: Option<usize>,
     bench_render_frames: Option<usize>,
+    bench_render_cursor_moves: Option<usize>,
     bench_focus_switches: Option<usize>,
     bench_session_create: Option<usize>,
     bench_session_ready: Option<usize>,
@@ -61,6 +62,7 @@ fn parse_args() -> Result<Args> {
         bench_agent_startup_lines: None,
         bench_screen_read_lines: None,
         bench_render_frames: None,
+        bench_render_cursor_moves: None,
         bench_focus_switches: None,
         bench_session_create: None,
         bench_session_ready: None,
@@ -212,6 +214,15 @@ fn parse_args() -> Result<Args> {
                         .parse()?,
                 );
             }
+            "--bench-render-cursor-moves" => {
+                parsed.bench_render_cursor_moves = Some(
+                    args.next()
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("--bench-render-cursor-moves requires a value")
+                        })?
+                        .parse()?,
+                );
+            }
             "--bench-focus-switches" => {
                 parsed.bench_focus_switches = Some(
                     args.next()
@@ -268,7 +279,7 @@ fn parse_args() -> Result<Args> {
             }
             "--help" | "-h" => {
                 println!(
-                    "Usage: unterm-next-core [--cols N] [--rows N] [--wait-ms N] [--poll-ms N] [--timeout-ms N] [--bench-input-writes N] [--bench-key-to-screen N] [--bench-input-burst N] [--bench-echo N] [--bench-flood-lines N] [--bench-scrollback-lines N] [--bench-viewport-scrolls N] [--bench-viewport-scroll-flood N] [--bench-paste-kb N] [--bench-dual-agent-lines N] [--bench-agent-startup-lines N] [--bench-screen-read-lines N] [--bench-render-frames N] [--bench-focus-switches N] [--bench-session-create N] [--bench-session-ready N] [--cwd PATH] [--env KEY=VALUE] [--write TEXT] [--paste TEXT] [--json] [-- COMMAND [ARG...]]"
+                    "Usage: unterm-next-core [--cols N] [--rows N] [--wait-ms N] [--poll-ms N] [--timeout-ms N] [--bench-input-writes N] [--bench-key-to-screen N] [--bench-input-burst N] [--bench-echo N] [--bench-flood-lines N] [--bench-scrollback-lines N] [--bench-viewport-scrolls N] [--bench-viewport-scroll-flood N] [--bench-paste-kb N] [--bench-dual-agent-lines N] [--bench-agent-startup-lines N] [--bench-screen-read-lines N] [--bench-render-frames N] [--bench-render-cursor-moves N] [--bench-focus-switches N] [--bench-session-create N] [--bench-session-ready N] [--cwd PATH] [--env KEY=VALUE] [--write TEXT] [--paste TEXT] [--json] [-- COMMAND [ARG...]]"
                 );
                 std::process::exit(0);
             }
@@ -692,6 +703,128 @@ fn run_render_frame_benchmark(
         percentile(&dirty_latencies_us, 0.50),
         percentile(&dirty_latencies_us, 0.95),
         *dirty_latencies_us.last().unwrap_or(&0)
+    );
+    Ok(())
+}
+
+fn run_render_cursor_move_benchmark(
+    engine: &unterm_engine::next_core::NextCoreEngine,
+    pane_id: usize,
+    rounds: usize,
+    poll_interval: Duration,
+    timeout: Duration,
+) -> Result<()> {
+    if rounds == 0 {
+        bail!("--bench-render-cursor-moves must be greater than 0");
+    }
+
+    let marker = "UNTERM_CURSOR_MOVE_BENCHMARK";
+    engine.write_input(pane_id, marker)?;
+    let started = Instant::now();
+    let mut screen = loop {
+        let screen = engine.read_screen(pane_id)?;
+        if screen.lines.iter().any(|line| line.contains(marker)) {
+            break screen;
+        }
+        if started.elapsed() >= timeout {
+            bail!("timed out waiting for cursor-move benchmark marker");
+        }
+        std::thread::sleep(poll_interval);
+    };
+
+    let mut baseline = engine.read_render_frame(pane_id, None)?;
+    if !baseline.full || baseline.lines.is_empty() {
+        bail!("render cursor-move baseline was empty");
+    }
+
+    let mut latencies_us = Vec::with_capacity(rounds);
+    let mut dirty_lines = 0usize;
+    let mut full_frames = 0usize;
+    let mut snapshots = 0usize;
+    for idx in 0..rounds {
+        let moving_left = idx % 2 == 0;
+        let before_cursor = screen.cursor;
+        let expected_x = if moving_left {
+            before_cursor.x.saturating_sub(1)
+        } else {
+            (before_cursor.x + 1).min(screen.cols.saturating_sub(1))
+        };
+        let input = if moving_left { "\x1b[D" } else { "\x1b[C" };
+
+        engine.write_input(pane_id, input)?;
+        let wait_started = Instant::now();
+        loop {
+            screen = engine.read_screen(pane_id)?;
+            snapshots += 1;
+            if screen.cursor.y == before_cursor.y && screen.cursor.x == expected_x {
+                break;
+            }
+            if wait_started.elapsed() >= timeout {
+                bail!(
+                    "timed out waiting for cursor move: before=({}, {}) expected_x={} actual=({}, {})",
+                    before_cursor.x,
+                    before_cursor.y,
+                    expected_x,
+                    screen.cursor.x,
+                    screen.cursor.y
+                );
+            }
+            std::thread::sleep(poll_interval);
+        }
+
+        let before = Instant::now();
+        let frame = engine.read_render_frame(pane_id, Some(baseline.revision))?;
+        latencies_us.push(before.elapsed().as_micros());
+        if frame.full {
+            full_frames += 1;
+        }
+        let Some(dirty_rows) = frame.dirty_rows else {
+            bail!("render cursor-move delta did not include dirty rows");
+        };
+        if screen.cursor.y < 0 {
+            bail!("cursor row was negative: {}", screen.cursor.y);
+        }
+        let cursor_y = screen.cursor.y as usize;
+        if frame.lines.is_empty() || cursor_y < dirty_rows.start || cursor_y > dirty_rows.end {
+            bail!(
+                "render cursor-move dirty rows did not cover cursor row: cursor_y={} dirty_rows={:?} lines={}",
+                cursor_y,
+                dirty_rows,
+                frame.lines.len()
+            );
+        }
+        if frame
+            .lines
+            .iter()
+            .any(|line| line.cells.len() != screen.cols)
+        {
+            bail!(
+                "render cursor-move delta returned an unpadded line: cols={} line_cell_counts={:?}",
+                screen.cols,
+                frame
+                    .lines
+                    .iter()
+                    .map(|line| line.cells.len())
+                    .collect::<Vec<_>>()
+            );
+        }
+        dirty_lines += frame.lines.len();
+        baseline = frame;
+    }
+
+    engine.write_input(pane_id, "\x03")?;
+
+    latencies_us.sort_unstable();
+    println!(
+        "bench_render_cursor_move rounds={} snapshots={} dirty_lines={} full_frames={} min_us={} p50_us={} p95_us={} max_us={}",
+        rounds,
+        snapshots,
+        dirty_lines,
+        full_frames,
+        latencies_us[0],
+        percentile(&latencies_us, 0.50),
+        percentile(&latencies_us, 0.95),
+        *latencies_us.last().unwrap_or(&0)
     );
     Ok(())
 }
@@ -1415,6 +1548,17 @@ fn main() -> Result<()> {
             Duration::from_millis(args.timeout_ms),
         )
         .with_context(|| format!("bench_render_frame failed for session {}", session.id))?;
+    }
+
+    if let Some(rounds) = args.bench_render_cursor_moves {
+        run_render_cursor_move_benchmark(
+            &engine,
+            session.id,
+            rounds,
+            Duration::from_millis(args.poll_ms),
+            Duration::from_millis(args.timeout_ms),
+        )
+        .with_context(|| format!("bench_render_cursor_move failed for session {}", session.id))?;
     }
 
     if let Some(rounds) = args.bench_focus_switches {
