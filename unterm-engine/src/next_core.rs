@@ -293,6 +293,7 @@ struct NextCoreScreen {
     cursor_visible: bool,
     cursor_blinking: bool,
     cursor_shape: String,
+    column_132_mode: bool,
     auto_wrap: bool,
     reverse_video: bool,
     application_cursor_keys: bool,
@@ -337,6 +338,7 @@ struct ScreenState {
     cursor_visible: bool,
     cursor_blinking: bool,
     cursor_shape: String,
+    column_132_mode: bool,
     auto_wrap: bool,
     application_cursor_keys: bool,
     application_keypad: bool,
@@ -1602,6 +1604,23 @@ impl NextCoreScreen {
         self.ensure_cursor_line();
     }
 
+    fn set_column_mode(&mut self, wide: bool) {
+        self.column_132_mode = wide;
+        self.cols = if wide { 132 } else { 80 };
+        self.lines.clear();
+        self.scrollback.clear();
+        self.viewport_top = None;
+        self.cursor_x = 0;
+        self.cursor_y = 0;
+        self.saved_cursor_x = 0;
+        self.saved_cursor_y = 0;
+        self.scroll_top = 0;
+        self.scroll_bottom = self.rows.saturating_sub(1);
+        self.tab_stops = Self::default_tab_stops(self.cols);
+        self.ensure_cursor_line();
+        self.mark_all_dirty();
+    }
+
     fn truncate_lines_to_cols(lines: &mut [Vec<ScreenCell>], cols: usize) {
         for line in lines {
             if line.len() > cols {
@@ -1632,6 +1651,7 @@ impl NextCoreScreen {
             cursor_visible: self.cursor_visible,
             cursor_blinking: self.cursor_blinking,
             cursor_shape: self.cursor_shape.clone(),
+            column_132_mode: self.column_132_mode,
             auto_wrap: self.auto_wrap,
             application_cursor_keys: self.application_cursor_keys,
             application_keypad: self.application_keypad,
@@ -1695,6 +1715,7 @@ impl NextCoreScreen {
             self.cursor_visible = main.cursor_visible;
             self.cursor_blinking = main.cursor_blinking;
             self.cursor_shape = main.cursor_shape;
+            self.column_132_mode = main.column_132_mode;
             self.auto_wrap = main.auto_wrap;
             self.application_cursor_keys = main.application_cursor_keys;
             self.application_keypad = main.application_keypad;
@@ -1973,6 +1994,7 @@ impl<'a> ScreenParser<'a> {
                                 self.screen.mark_all_dirty();
                             }
                             1 => self.screen.application_cursor_keys = true,
+                            3 => self.screen.set_column_mode(true),
                             6 => self.screen.set_origin_mode(true),
                             7 => self.screen.auto_wrap = true,
                             12 => {
@@ -2014,6 +2036,7 @@ impl<'a> ScreenParser<'a> {
                                 self.screen.mark_all_dirty();
                             }
                             1 => self.screen.application_cursor_keys = false,
+                            3 => self.screen.set_column_mode(false),
                             6 => self.screen.set_origin_mode(false),
                             7 => self.screen.auto_wrap = false,
                             12 => {
@@ -3548,6 +3571,15 @@ impl NextCoreEngine {
                     .as_bytes(),
                 );
                 idx += "\x1b[?1$p".len();
+            } else if rest.starts_with("\x1b[?3$p") {
+                response.extend_from_slice(
+                    format!(
+                        "\x1b[?3;{}$y",
+                        Self::mode_report_state(screen.column_132_mode)
+                    )
+                    .as_bytes(),
+                );
+                idx += "\x1b[?3$p".len();
             } else if rest.starts_with("\x1b[?5$p") {
                 response.extend_from_slice(
                     format!(
@@ -4067,7 +4099,7 @@ impl SessionEngine for NextCoreEngine {
 impl ScreenEngine for NextCoreEngine {
     fn read_screen(&self, pane_id: usize) -> Result<ScreenSnapshot> {
         let started_at = Instant::now();
-        let (session, screen_handle, activity_handle) = {
+        let (screen_handle, activity_handle) = {
             let state = state().read();
             let Some(session) = state
                 .sessions
@@ -4076,11 +4108,7 @@ impl ScreenEngine for NextCoreEngine {
             else {
                 bail!("next-core session {pane_id} not found");
             };
-            (
-                session.snapshot.clone(),
-                Arc::clone(&session.screen),
-                Arc::clone(&session.activity),
-            )
+            (Arc::clone(&session.screen), Arc::clone(&session.activity))
         };
 
         let snapshot = {
@@ -4100,8 +4128,8 @@ impl ScreenEngine for NextCoreEngine {
                 lines: visible,
                 cells,
                 cursor: screen.cursor_snapshot(),
-                cols: session.cols,
-                rows: session.rows,
+                cols: screen.cols,
+                rows: screen.rows,
                 scrollback_rows: screen.scrollback_rows(),
                 revision: screen.revision(),
                 dirty_rows: screen.dirty_rows(),
@@ -4115,7 +4143,7 @@ impl ScreenEngine for NextCoreEngine {
 
     fn read_styled_screen(&self, pane_id: usize) -> Result<StyledScreenSnapshot> {
         let started_at = Instant::now();
-        let (session, screen_handle, activity_handle) = {
+        let (screen_handle, activity_handle) = {
             let state = state().read();
             let Some(session) = state
                 .sessions
@@ -4124,11 +4152,7 @@ impl ScreenEngine for NextCoreEngine {
             else {
                 bail!("next-core session {pane_id} not found");
             };
-            (
-                session.snapshot.clone(),
-                Arc::clone(&session.screen),
-                Arc::clone(&session.activity),
-            )
+            (Arc::clone(&session.screen), Arc::clone(&session.activity))
         };
 
         let snapshot = {
@@ -4137,8 +4161,8 @@ impl ScreenEngine for NextCoreEngine {
             StyledScreenSnapshot {
                 lines: screen.styled_viewport_lines(first_row),
                 cursor: screen.cursor_snapshot(),
-                cols: session.cols,
-                rows: session.rows,
+                cols: screen.cols,
+                rows: screen.rows,
                 scrollback_rows: screen.scrollback_rows(),
                 revision: screen.revision(),
                 dirty_rows: screen.dirty_rows(),
@@ -4806,7 +4830,7 @@ mod tests {
         let _guard = test_guard();
         let mut screen = NextCoreScreen::new(80, 10);
         screen.feed(
-            "\x1b[?1047h\x1b[?1h\x1b[?5h\x1b[?6h\x1b[?12l\x1b[?25l\x1b[?66h\x1b[?1002h\x1b[?1004h\x1b[?1005h\x1b[?1006h\x1b[?1007h\x1b[?1015h\x1b[?1016h\x1b[?1034h\x1b[?2004h\x1b[?2026h\x1b[4h",
+            "\x1b[?1047h\x1b[?3h\x1b[?1h\x1b[?5h\x1b[?6h\x1b[?12l\x1b[?25l\x1b[?66h\x1b[?1002h\x1b[?1004h\x1b[?1005h\x1b[?1006h\x1b[?1007h\x1b[?1015h\x1b[?1016h\x1b[?1034h\x1b[?2004h\x1b[?2026h\x1b[4h",
         );
         let bytes = Arc::new(Mutex::new(Vec::new()));
         let writer: Arc<Mutex<Box<dyn Write + Send>>> =
@@ -4815,14 +4839,14 @@ mod tests {
             })));
 
         NextCoreEngine::answer_terminal_queries(
-            "\x1b[?1$p\x1b[?5$p\x1b[?6$p\x1b[?7$p\x1b[?12$p\x1b[?25$p\x1b[?66$p\x1b[?1000$p\x1b[?1002$p\x1b[?1003$p\x1b[?1004$p\x1b[?1005$p\x1b[?1006$p\x1b[?1007$p\x1b[?1015$p\x1b[?1016$p\x1b[?1034$p\x1b[?47$p\x1b[?1047$p\x1b[?1049$p\x1b[?2004$p\x1b[?2026$p\x1b[4$p",
+            "\x1b[?1$p\x1b[?3$p\x1b[?5$p\x1b[?6$p\x1b[?7$p\x1b[?12$p\x1b[?25$p\x1b[?66$p\x1b[?1000$p\x1b[?1002$p\x1b[?1003$p\x1b[?1004$p\x1b[?1005$p\x1b[?1006$p\x1b[?1007$p\x1b[?1015$p\x1b[?1016$p\x1b[?1034$p\x1b[?47$p\x1b[?1047$p\x1b[?1049$p\x1b[?2004$p\x1b[?2026$p\x1b[4$p",
             &screen,
             &writer,
         );
 
         assert_eq!(
             bytes.lock().as_slice(),
-            b"\x1b[?1;1$y\x1b[?5;1$y\x1b[?6;1$y\x1b[?7;1$y\x1b[?12;2$y\x1b[?25;2$y\x1b[?66;1$y\x1b[?1000;2$y\x1b[?1002;1$y\x1b[?1003;2$y\x1b[?1004;1$y\x1b[?1005;1$y\x1b[?1006;1$y\x1b[?1007;1$y\x1b[?1015;1$y\x1b[?1016;1$y\x1b[?1034;1$y\x1b[?47;1$y\x1b[?1047;1$y\x1b[?1049;1$y\x1b[?2004;1$y\x1b[?2026;1$y\x1b[4;1$y"
+            b"\x1b[?1;1$y\x1b[?3;1$y\x1b[?5;1$y\x1b[?6;1$y\x1b[?7;1$y\x1b[?12;2$y\x1b[?25;2$y\x1b[?66;1$y\x1b[?1000;2$y\x1b[?1002;1$y\x1b[?1003;2$y\x1b[?1004;1$y\x1b[?1005;1$y\x1b[?1006;1$y\x1b[?1007;1$y\x1b[?1015;1$y\x1b[?1016;1$y\x1b[?1034;1$y\x1b[?47;1$y\x1b[?1047;1$y\x1b[?1049;1$y\x1b[?2004;1$y\x1b[?2026;1$y\x1b[4;1$y"
         );
     }
 
@@ -4837,14 +4861,14 @@ mod tests {
             })));
 
         NextCoreEngine::answer_terminal_queries(
-            "\x1b[?1$p\x1b[?5$p\x1b[?6$p\x1b[?12$p\x1b[?66$p\x1b[?1000$p\x1b[?1002$p\x1b[?1003$p\x1b[?1004$p\x1b[?1005$p\x1b[?1006$p\x1b[?1007$p\x1b[?1015$p\x1b[?1016$p\x1b[?1034$p\x1b[?47$p\x1b[?1047$p\x1b[?1049$p\x1b[?2004$p\x1b[?2026$p\x1b[4$p",
+            "\x1b[?1$p\x1b[?3$p\x1b[?5$p\x1b[?6$p\x1b[?12$p\x1b[?66$p\x1b[?1000$p\x1b[?1002$p\x1b[?1003$p\x1b[?1004$p\x1b[?1005$p\x1b[?1006$p\x1b[?1007$p\x1b[?1015$p\x1b[?1016$p\x1b[?1034$p\x1b[?47$p\x1b[?1047$p\x1b[?1049$p\x1b[?2004$p\x1b[?2026$p\x1b[4$p",
             &screen,
             &writer,
         );
 
         assert_eq!(
             bytes.lock().as_slice(),
-            b"\x1b[?1;2$y\x1b[?5;2$y\x1b[?6;2$y\x1b[?12;1$y\x1b[?66;2$y\x1b[?1000;2$y\x1b[?1002;2$y\x1b[?1003;2$y\x1b[?1004;2$y\x1b[?1005;2$y\x1b[?1006;2$y\x1b[?1007;2$y\x1b[?1015;2$y\x1b[?1016;2$y\x1b[?1034;2$y\x1b[?47;2$y\x1b[?1047;2$y\x1b[?1049;2$y\x1b[?2004;2$y\x1b[?2026;2$y\x1b[4;2$y"
+            b"\x1b[?1;2$y\x1b[?3;2$y\x1b[?5;2$y\x1b[?6;2$y\x1b[?12;1$y\x1b[?66;2$y\x1b[?1000;2$y\x1b[?1002;2$y\x1b[?1003;2$y\x1b[?1004;2$y\x1b[?1005;2$y\x1b[?1006;2$y\x1b[?1007;2$y\x1b[?1015;2$y\x1b[?1016;2$y\x1b[?1034;2$y\x1b[?47;2$y\x1b[?1047;2$y\x1b[?1049;2$y\x1b[?2004;2$y\x1b[?2026;2$y\x1b[4;2$y"
         );
     }
 
@@ -7260,6 +7284,38 @@ mod tests {
         screen.feed("\x1b[?12l\x1b[!p");
         assert!(screen.cursor_blinking);
 
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_applies_column_mode_switching() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 4,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(session.id, "main\x1b[2;3r\x1b[3;5Hbefore\x1b[?3hwide")?;
+        let wide = engine.read_screen(session.id)?;
+        assert_eq!(wide.cols, 132);
+        assert_eq!(wide.cursor.x, 4);
+        assert_eq!(wide.cursor.y, 0);
+        assert_eq!(wide.lines, vec!["wide"]);
+
+        set_output_for_test(session.id, "\x1b[?3lnarrow")?;
+        let narrow = engine.read_screen(session.id)?;
+        assert_eq!(narrow.cols, 80);
+        assert_eq!(narrow.cursor.x, 6);
+        assert_eq!(narrow.cursor.y, 0);
+        assert_eq!(narrow.lines, vec!["narrow"]);
+
+        engine.destroy_session(session.id)?;
         Ok(())
     }
 
