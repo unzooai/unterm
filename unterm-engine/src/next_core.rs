@@ -1135,13 +1135,9 @@ impl NextCoreScreen {
         if self.rows == 0 || self.cols == 0 {
             return;
         }
-        let top = top.min(self.rows.saturating_sub(1));
-        let bottom = bottom.min(self.rows.saturating_sub(1));
-        let left = left.min(self.cols.saturating_sub(1));
-        let right = right.min(self.cols.saturating_sub(1));
-        if top > bottom || left > right {
+        let Some((top, left, bottom, right)) = self.clip_rect(top, left, bottom, right) else {
             return;
-        }
+        };
 
         self.ensure_rows_through(bottom);
         let cell = ScreenCell::new(ch, self.current_attr);
@@ -1155,6 +1151,46 @@ impl NextCoreScreen {
             }
         }
         self.mark_dirty_range(top, bottom);
+    }
+
+    fn erase_rect(&mut self, top: usize, left: usize, bottom: usize, right: usize) {
+        if self.rows == 0 || self.cols == 0 {
+            return;
+        }
+        let Some((top, left, bottom, right)) = self.clip_rect(top, left, bottom, right) else {
+            return;
+        };
+
+        self.ensure_rows_through(bottom);
+        let blank = ScreenCell::blank(self.current_attr);
+        for row in top..=bottom {
+            let line = &mut self.lines[row];
+            if line.len() <= right {
+                line.resize(right + 1, ScreenCell::blank(self.current_attr));
+            }
+            for col in left..=right {
+                line[col] = blank.clone();
+            }
+        }
+        self.mark_dirty_range(top, bottom);
+    }
+
+    fn clip_rect(
+        &self,
+        top: usize,
+        left: usize,
+        bottom: usize,
+        right: usize,
+    ) -> Option<(usize, usize, usize, usize)> {
+        let top = top.min(self.rows.saturating_sub(1));
+        let bottom = bottom.min(self.rows.saturating_sub(1));
+        let left = left.min(self.cols.saturating_sub(1));
+        let right = right.min(self.cols.saturating_sub(1));
+        if top > bottom || left > right {
+            None
+        } else {
+            Some((top, left, bottom, right))
+        }
     }
 
     fn reset_terminal(&mut self) {
@@ -1613,6 +1649,27 @@ impl NextCoreScreen {
             .split(';')
             .map(|part| part.trim().parse::<usize>().unwrap_or(0))
             .collect()
+    }
+
+    fn rect_from_numbers(&self, numbers: &[usize]) -> (usize, usize, usize, usize) {
+        let top = numbers.first().copied().filter(|n| *n > 0).unwrap_or(1);
+        let left = numbers.get(1).copied().filter(|n| *n > 0).unwrap_or(1);
+        let bottom = numbers
+            .get(2)
+            .copied()
+            .filter(|n| *n > 0)
+            .unwrap_or(self.rows);
+        let right = numbers
+            .get(3)
+            .copied()
+            .filter(|n| *n > 0)
+            .unwrap_or(self.cols);
+        (
+            top.saturating_sub(1),
+            left.saturating_sub(1),
+            bottom.saturating_sub(1),
+            right.saturating_sub(1),
+        )
     }
 
     fn parse_colon_color_sgr_params(part: &str) -> Vec<usize> {
@@ -2250,25 +2307,15 @@ impl<'a> ScreenParser<'a> {
                         .and_then(|code| char::from_u32(code as u32))
                         .filter(|ch| ScreenCell::char_width(*ch) == 1)
                         .unwrap_or(' ');
-                    let top = numbers.get(1).copied().filter(|n| *n > 0).unwrap_or(1);
-                    let left = numbers.get(2).copied().filter(|n| *n > 0).unwrap_or(1);
-                    let bottom = numbers
-                        .get(3)
-                        .copied()
-                        .filter(|n| *n > 0)
-                        .unwrap_or(self.screen.rows);
-                    let right = numbers
-                        .get(4)
-                        .copied()
-                        .filter(|n| *n > 0)
-                        .unwrap_or(self.screen.cols);
-                    self.screen.fill_rect(
-                        ch,
-                        top.saturating_sub(1),
-                        left.saturating_sub(1),
-                        bottom.saturating_sub(1),
-                        right.saturating_sub(1),
-                    );
+                    let (top, left, bottom, right) = self.screen.rect_from_numbers(&numbers[1..]);
+                    self.screen.fill_rect(ch, top, left, bottom, right);
+                }
+            }
+            'z' => {
+                if raw_params.ends_with('$') {
+                    let numbers = NextCoreScreen::parse_csi_numbers(raw_params);
+                    let (top, left, bottom, right) = self.screen.rect_from_numbers(&numbers);
+                    self.screen.erase_rect(top, left, bottom, right);
                 }
             }
             'r' => {
@@ -7647,6 +7694,91 @@ mod tests {
                 .collect::<String>(),
             "      "
         );
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_applies_decera_rectangular_erase() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 10,
+            rows: 4,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(
+            session.id,
+            "0123456789\r\nabcdefghij\r\nABCDEFGHIJ\x1b[1;6H\x1b[32m\x1b[2;3;3;8$z",
+        )?;
+        let screen = engine.read_screen(session.id)?;
+        let styled = engine.read_styled_screen(session.id)?;
+
+        assert_eq!(screen.lines, vec!["0123456789", "ab      ij", "AB      IJ"]);
+        assert_eq!(screen.cursor.x, 5);
+        assert_eq!(screen.cursor.y, 0);
+        assert_eq!(
+            styled.lines[1].cells[2].style.fg,
+            Some(StyledColor::Palette(2))
+        );
+        assert_eq!(
+            styled.lines[2].cells[7].style.fg,
+            Some(StyledColor::Palette(2))
+        );
+        assert_eq!(styled.lines[1].cells[1].style.fg, None);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_decera_clips_and_defaults_to_full_viewport() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 6,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(session.id, "abcdef\r\nABCDEF\x1b[2;5;9;9$z")?;
+        let screen = engine.read_screen(session.id)?;
+        let styled = engine.read_styled_screen(session.id)?;
+
+        assert_eq!(screen.lines, vec!["abcdef", "ABCD", ""]);
+        assert_eq!(
+            styled.lines[1]
+                .cells
+                .iter()
+                .map(|cell| cell.ch)
+                .collect::<String>(),
+            "ABCD  "
+        );
+        assert_eq!(
+            styled.lines[2]
+                .cells
+                .iter()
+                .map(|cell| cell.ch)
+                .collect::<String>(),
+            "      "
+        );
+
+        set_output_for_test(session.id, "abcdef\r\nABCDEF\x1b[$z")?;
+        let styled = engine.read_styled_screen(session.id)?;
+        assert!(styled
+            .lines
+            .iter()
+            .all(|line| line.cells.iter().all(|cell| cell.ch == ' ')));
 
         engine.destroy_session(session.id)?;
         Ok(())
