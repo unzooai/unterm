@@ -414,7 +414,7 @@ Supported:
 - `EngineRenderConsumerSet`, a pane-id keyed renderer state cache that preserves submitted revision state across paints and updates metrics for resize/full-repaint handling before the real WebGPU draw branch is enabled
 - persistent `TermWindow` ownership of the next-core render consumer cache, with direct pane/window lifecycle cleanup, so the future WebGPU pane branch can preserve incremental state across paints
 - `TermWindow::prepare_next_core_render_buffer_plan`, a narrow frame-preparation entry point that combines the selected engine, pane id, current cell metrics, and persistent consumer cache before handing buffers to WebGPU
-- opt-in `UNTERM_NEXT_CORE_WEBGPU_PANE` WebGPU draw branch that appends next-core buffer-plan rendering through the real command encoder while keeping legacy rendering as the default path
+- opt-in `UNTERM_NEXT_CORE_WEBGPU_PANE` WebGPU draw branch with `append` mode for overlay validation and experimental `replace` mode that skips legacy surface rendering so next-core can clear/draw the frame through the real command encoder
 - GPU-free `CommandListRenderBackend` that expands commit submissions into ordered damage/background/text/cursor backend commands before the real wgpu backend lands
 - `EngineRenderBufferPlan` that turns backend commands into damage rects plus quad vertex/index buffers, keeping the next wgpu step focused on device upload and command encoding
 - `EngineWgpuRenderBackend` upload skeleton that turns buffer plans into a POD GPU vertex ABI and creates wgpu vertex/index buffers while keeping `unterm-engine` free of GPU dependencies

@@ -21,7 +21,6 @@ impl crate::TermWindow {
         use crate::termwindow::webgpu::WebGpuTexture;
 
         let webgpu = self.webgpu.as_ref().unwrap().clone();
-        let render_state = self.render_state.as_ref().unwrap();
 
         let output = webgpu.surface.get_current_texture()?;
         let view = output
@@ -32,131 +31,151 @@ impl crate::TermWindow {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Render Encoder"),
             });
-        let tex = render_state.glyph_cache.borrow().atlas.texture();
-        let tex = tex.downcast_ref::<WebGpuTexture>().unwrap();
-        let texture_view = tex.create_view(&wgpu::TextureViewDescriptor::default());
 
-        let texture_linear_bind_group =
-            webgpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &webgpu.texture_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&texture_view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&webgpu.texture_linear_sampler),
-                    },
-                ],
-                label: Some("linear bind group"),
-            });
+        let next_core_mode = next_core_webgpu_pane_mode();
+        if next_core_mode != NextCoreWebGpuPaneMode::Replace {
+            let render_state = self.render_state.as_ref().unwrap();
+            let tex = render_state.glyph_cache.borrow().atlas.texture();
+            let tex = tex.downcast_ref::<WebGpuTexture>().unwrap();
+            let texture_view = tex.create_view(&wgpu::TextureViewDescriptor::default());
 
-        let texture_nearest_bind_group =
-            webgpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &webgpu.texture_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&texture_view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&webgpu.texture_nearest_sampler),
-                    },
-                ],
-                label: Some("nearest bind group"),
-            });
+            let texture_linear_bind_group =
+                webgpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    layout: &webgpu.texture_bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(&texture_view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::Sampler(
+                                &webgpu.texture_linear_sampler,
+                            ),
+                        },
+                    ],
+                    label: Some("linear bind group"),
+                });
 
-        let mut cleared = false;
-        let foreground_text_hsb = self.config.foreground_text_hsb;
-        let foreground_text_hsb = [
-            foreground_text_hsb.hue,
-            foreground_text_hsb.saturation,
-            foreground_text_hsb.brightness,
-        ];
+            let texture_nearest_bind_group =
+                webgpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    layout: &webgpu.texture_bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(&texture_view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::Sampler(
+                                &webgpu.texture_nearest_sampler,
+                            ),
+                        },
+                    ],
+                    label: Some("nearest bind group"),
+                });
 
-        let milliseconds = self.created.elapsed().as_millis() as u32;
-        let projection = euclid::Transform3D::<f32, f32, f32>::ortho(
-            -(self.dimensions.pixel_width as f32) / 2.0,
-            self.dimensions.pixel_width as f32 / 2.0,
-            self.dimensions.pixel_height as f32 / 2.0,
-            -(self.dimensions.pixel_height as f32) / 2.0,
-            -1.0,
-            1.0,
-        )
-        .to_arrays_transposed();
+            let mut cleared = false;
+            let foreground_text_hsb = self.config.foreground_text_hsb;
+            let foreground_text_hsb = [
+                foreground_text_hsb.hue,
+                foreground_text_hsb.saturation,
+                foreground_text_hsb.brightness,
+            ];
 
-        for layer in render_state.layers.borrow().iter() {
-            for idx in 0..3 {
-                let vb = &layer.vb.borrow()[idx];
-                let (vertex_count, index_count) = vb.vertex_index_count();
-                let vertex_buffer;
-                let uniforms;
-                if vertex_count > 0 {
-                    let mut vertices = vb.current_vb_mut();
-                    let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: Some("Render Pass"),
-                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: &view,
-                            resolve_target: None,
-                            ops: wgpu::Operations {
-                                load: if cleared {
-                                    wgpu::LoadOp::Load
-                                } else {
-                                    wgpu::LoadOp::Clear(wgpu::Color {
-                                        r: 0.,
-                                        g: 0.,
-                                        b: 0.,
-                                        a: 1.,
-                                    })
-                                },
-                                store: wgpu::StoreOp::Store,
-                            },
-                        })],
-                        depth_stencil_attachment: None,
-                        occlusion_query_set: None,
-                        timestamp_writes: None,
-                    });
-                    cleared = true;
+            let milliseconds = self.created.elapsed().as_millis() as u32;
+            let projection = euclid::Transform3D::<f32, f32, f32>::ortho(
+                -(self.dimensions.pixel_width as f32) / 2.0,
+                self.dimensions.pixel_width as f32 / 2.0,
+                self.dimensions.pixel_height as f32 / 2.0,
+                -(self.dimensions.pixel_height as f32) / 2.0,
+                -1.0,
+                1.0,
+            )
+            .to_arrays_transposed();
 
-                    uniforms = webgpu.create_uniform(ShaderUniform {
-                        foreground_text_hsb,
-                        milliseconds,
-                        projection,
-                    });
+            for layer in render_state.layers.borrow().iter() {
+                for idx in 0..3 {
+                    let vb = &layer.vb.borrow()[idx];
+                    let (vertex_count, index_count) = vb.vertex_index_count();
+                    let vertex_buffer;
+                    let uniforms;
+                    if vertex_count > 0 {
+                        let mut vertices = vb.current_vb_mut();
+                        let mut render_pass =
+                            encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                                label: Some("Render Pass"),
+                                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                                    view: &view,
+                                    resolve_target: None,
+                                    ops: wgpu::Operations {
+                                        load: if cleared {
+                                            wgpu::LoadOp::Load
+                                        } else {
+                                            wgpu::LoadOp::Clear(wgpu::Color {
+                                                r: 0.,
+                                                g: 0.,
+                                                b: 0.,
+                                                a: 1.,
+                                            })
+                                        },
+                                        store: wgpu::StoreOp::Store,
+                                    },
+                                })],
+                                depth_stencil_attachment: None,
+                                occlusion_query_set: None,
+                                timestamp_writes: None,
+                            });
+                        cleared = true;
 
-                    render_pass.set_pipeline(&webgpu.render_pipeline);
-                    render_pass.set_bind_group(0, &uniforms, &[]);
-                    render_pass.set_bind_group(1, &texture_linear_bind_group, &[]);
-                    render_pass.set_bind_group(2, &texture_nearest_bind_group, &[]);
-                    vertex_buffer = vertices.webgpu_mut().recreate();
-                    vertex_buffer.unmap();
-                    render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-                    render_pass
-                        .set_index_buffer(vb.indices.webgpu().slice(..), wgpu::IndexFormat::Uint32);
-                    render_pass.draw_indexed(0..index_count as _, 0, 0..1);
+                        uniforms = webgpu.create_uniform(ShaderUniform {
+                            foreground_text_hsb,
+                            milliseconds,
+                            projection,
+                        });
+
+                        render_pass.set_pipeline(&webgpu.render_pipeline);
+                        render_pass.set_bind_group(0, &uniforms, &[]);
+                        render_pass.set_bind_group(1, &texture_linear_bind_group, &[]);
+                        render_pass.set_bind_group(2, &texture_nearest_bind_group, &[]);
+                        vertex_buffer = vertices.webgpu_mut().recreate();
+                        vertex_buffer.unmap();
+                        render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+                        render_pass.set_index_buffer(
+                            vb.indices.webgpu().slice(..),
+                            wgpu::IndexFormat::Uint32,
+                        );
+                        render_pass.draw_indexed(0..index_count as _, 0, 0..1);
+                    }
+
+                    vb.next_index();
                 }
-
-                vb.next_index();
             }
         }
 
-        if next_core_webgpu_pane_enabled() {
+        if next_core_mode.is_enabled() {
             if let Some(pane) = self.get_active_pane_no_overlay() {
                 match self.prepare_next_core_render_buffer_plan(pane.pane_id()) {
                     Ok(batch) => {
-                        webgpu.encode_next_core_buffer_plan(
+                        let encoded = webgpu.encode_next_core_buffer_plan(
                             &mut encoder,
                             &view,
                             &batch.buffer_plan,
-                            None,
+                            next_core_mode.clear_color(),
                         );
+                        if !encoded && next_core_mode == NextCoreWebGpuPaneMode::Replace {
+                            clear_webgpu_target(&mut encoder, &view);
+                        }
                     }
                     Err(err) => {
                         log::debug!("next-core WebGPU pane render skipped: {err:#}");
+                        if next_core_mode == NextCoreWebGpuPaneMode::Replace {
+                            clear_webgpu_target(&mut encoder, &view);
+                        }
                     }
                 }
+            } else if next_core_mode == NextCoreWebGpuPaneMode::Replace {
+                clear_webgpu_target(&mut encoder, &view);
             }
         }
 
@@ -293,12 +312,55 @@ impl crate::TermWindow {
     }
 }
 
-fn next_core_webgpu_pane_enabled() -> bool {
-    matches!(
-        std::env::var("UNTERM_NEXT_CORE_WEBGPU_PANE")
-            .ok()
-            .as_deref()
-            .map(str::trim),
-        Some("1" | "true" | "TRUE" | "yes" | "YES" | "on" | "ON")
-    )
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NextCoreWebGpuPaneMode {
+    Disabled,
+    Append,
+    Replace,
+}
+
+impl NextCoreWebGpuPaneMode {
+    fn is_enabled(self) -> bool {
+        self != Self::Disabled
+    }
+
+    fn clear_color(self) -> Option<[f64; 4]> {
+        match self {
+            Self::Replace => Some([0.0, 0.0, 0.0, 1.0]),
+            Self::Append | Self::Disabled => None,
+        }
+    }
+}
+
+fn next_core_webgpu_pane_mode() -> NextCoreWebGpuPaneMode {
+    let Some(raw) = std::env::var("UNTERM_NEXT_CORE_WEBGPU_PANE").ok() else {
+        return NextCoreWebGpuPaneMode::Disabled;
+    };
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "replace" | "replace-pane" | "exclusive" => NextCoreWebGpuPaneMode::Replace,
+        "1" | "true" | "yes" | "on" | "append" => NextCoreWebGpuPaneMode::Append,
+        _ => NextCoreWebGpuPaneMode::Disabled,
+    }
+}
+
+fn clear_webgpu_target(encoder: &mut wgpu::CommandEncoder, target: &wgpu::TextureView) {
+    let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label: Some("next-core empty replace clear"),
+        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            view: target,
+            resolve_target: None,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Clear(wgpu::Color {
+                    r: 0.0,
+                    g: 0.0,
+                    b: 0.0,
+                    a: 1.0,
+                }),
+                store: wgpu::StoreOp::Store,
+            },
+        })],
+        depth_stencil_attachment: None,
+        occlusion_query_set: None,
+        timestamp_writes: None,
+    });
 }
