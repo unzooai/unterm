@@ -14,6 +14,17 @@ pub(super) fn set_active(state: &mut NextCoreState, pane_id: usize) {
     }
 }
 
+pub(super) fn session_mut(
+    state: &mut NextCoreState,
+    pane_id: usize,
+) -> Result<&mut NextCoreSession> {
+    state
+        .sessions
+        .iter_mut()
+        .find(|session| session.snapshot.id == pane_id)
+        .ok_or_else(|| anyhow::anyhow!("next-core session {pane_id} not found"))
+}
+
 pub(super) fn focus(state: &mut NextCoreState, pane_id: usize) -> Result<()> {
     if !state
         .sessions
@@ -90,5 +101,17 @@ mod tests {
         let err = focus(&mut state, 7).unwrap_err();
 
         assert!(err.to_string().contains("next-core session 7 not found"));
+    }
+
+    #[test]
+    fn session_mut_reports_missing_session() {
+        let mut state = NextCoreState::default();
+
+        let err = match session_mut(&mut state, 9) {
+            Ok(_) => panic!("expected missing session error"),
+            Err(err) => err,
+        };
+
+        assert!(err.to_string().contains("next-core session 9 not found"));
     }
 }

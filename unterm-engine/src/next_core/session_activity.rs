@@ -1,6 +1,6 @@
-use super::{lifecycle, process_tree, state, NextCoreSession, NextCoreState};
+use super::{lifecycle, process_tree, session_registry, state, NextCoreSession, NextCoreState};
 use crate::SessionActivitySnapshot;
-use anyhow::{bail, Result};
+use anyhow::Result;
 use std::time::Instant;
 
 pub(super) fn read_current(pane_id: usize) -> Result<SessionActivitySnapshot> {
@@ -13,14 +13,7 @@ pub(super) fn read_snapshot(
     pane_id: usize,
     now: Instant,
 ) -> Result<SessionActivitySnapshot> {
-    let Some(session) = state
-        .sessions
-        .iter_mut()
-        .find(|session| session.snapshot.id == pane_id)
-    else {
-        bail!("next-core session {pane_id} not found");
-    };
-
+    let session = session_registry::session_mut(state, pane_id)?;
     let (snapshot, dead_reason) = snapshot(session, now);
     if let Some(reason) = dead_reason {
         lifecycle::record_dead_reason(state, reason);

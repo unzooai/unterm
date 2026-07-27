@@ -1,9 +1,9 @@
 use super::{
-    activity::SessionIoActivity, launch, pty_io, session_defaults, session_output, state,
-    NextCoreRecording, NextCoreScreen, NextCoreSession, NextCoreState,
+    activity::SessionIoActivity, launch, pty_io, session_defaults, session_output,
+    session_registry, state, NextCoreRecording, NextCoreScreen, NextCoreSession, NextCoreState,
 };
 use crate::{SessionSnapshot, ShellSnapshot};
-use anyhow::{bail, Result};
+use anyhow::Result;
 use parking_lot::Mutex;
 use portable_pty::{native_pty_system, PtySize};
 use std::io::{Read, Write};
@@ -26,14 +26,7 @@ pub(super) fn resize(
     cols: usize,
     rows: usize,
 ) -> Result<()> {
-    let Some(session) = state
-        .sessions
-        .iter_mut()
-        .find(|session| session.snapshot.id == pane_id)
-    else {
-        bail!("next-core session {pane_id} not found");
-    };
-
+    let session = session_registry::session_mut(state, pane_id)?;
     resize_session(session, cols, rows)
 }
 
