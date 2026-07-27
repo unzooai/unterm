@@ -60,6 +60,7 @@ Current covered operations:
 - configured theme palette resolution for next-core standalone styled scrollback PNG rendering
 - bold/italic font matching for next-core standalone styled scrollback PNG rendering
 - next-core styled render-frame snapshots with full-frame fallback and dirty-row deltas for the future GUI renderer
+- GUI `CurrentTerminalEngine` facade re-exports render contract types and explicitly dispatches `read_render_frame`, `read_render_draw_plan`, and `read_render_commit_plan`, so a future renderer can consume next-core commits through engine traits instead of reaching into next-core internals
 - engine readiness and next-core aggregate I/O health counters
 - next-core terminal status, cursor-position, DEC private cursor-position, text-area-size, headless window-pixel-size, mode-report, and primary/secondary device-attribute query responses, including parameterized DA forms, through the PTY writer in input order
 

@@ -16,10 +16,14 @@ pub use unterm_engine::{
     HealthEngine, InputEngine, LaunchEnvBinding, LaunchEnvSource, LaunchPolicyDecision,
     LaunchPolicyDecisionSnapshot, LaunchPolicySnapshot, PaneDimensions, RecordingEngine,
     RecordingExportResult, RecordingStartResult, RecordingStatusSnapshot, RecordingStopResult,
-    ScreenEngine, ScreenLine, ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest,
-    ScrollbackTextSnapshot, SessionActivitySnapshot, SessionEngine, SessionSnapshot, ShellSnapshot,
-    SplitDirection, SplitSessionRequest, StyledCell, StyledColor, StyledScreenLine,
-    StyledScreenSnapshot, StyledScrollbackSnapshot, TerminalEngine,
+    RenderBackgroundQuad, RenderCellMetrics, RenderCellRun, RenderCellRunGeometry,
+    RenderCommitPlan, RenderConsumerState, RenderCursorDraw, RenderCursorGeometry,
+    RenderCursorQuad, RenderDrawPlan, RenderFrameSnapshot, RenderGeometryPlan, RenderGlyphRun,
+    RenderGlyphRunGeometry, RenderRect, RenderSubmissionPlan, RenderTextRun, ScreenEngine,
+    ScreenLine, ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot,
+    SessionActivitySnapshot, SessionEngine, SessionSnapshot, ShellSnapshot, SplitDirection,
+    SplitSessionRequest, StyledCell, StyledColor, StyledScreenLine, StyledScreenSnapshot,
+    StyledScrollbackSnapshot, TerminalEngine,
 };
 
 #[derive(Clone, Debug)]
@@ -172,7 +176,10 @@ impl CurrentTerminalEngine {
 
 #[cfg(test)]
 mod tests {
-    use super::selected_engine_name_from_env;
+    use super::{
+        next_core, selected_engine_name_from_env, CreateSessionRequest, CurrentTerminalEngine,
+        LaunchPolicySnapshot, RenderCellMetrics, RenderConsumerState, ScreenEngine, SessionEngine,
+    };
 
     #[test]
     fn selects_wezterm_by_default() {
@@ -195,6 +202,55 @@ mod tests {
             selected_engine_name_from_env(Some(" next-core ")),
             "next-core"
         );
+    }
+
+    #[test]
+    fn next_core_facade_reads_render_commit_plan() {
+        let engine = CurrentTerminalEngine::NextCore(next_core());
+        let session = engine
+            .create_session(CreateSessionRequest {
+                cols: 20,
+                rows: 4,
+                command_dir: None,
+                command: Some(quiet_wait_command_for_test()),
+                env: Vec::new(),
+                launch_policy: LaunchPolicySnapshot::default(),
+            })
+            .expect("create next-core session");
+        let mut consumer = RenderConsumerState::new();
+
+        let first = engine
+            .read_render_commit_plan(
+                session.id,
+                RenderCellMetrics {
+                    cell_width_px: 8,
+                    cell_height_px: 16,
+                },
+                &mut consumer,
+            )
+            .expect("read render commit plan through facade");
+
+        assert!(first.submit);
+        assert!(first.requires_full_repaint);
+        assert!(first.submission.is_some());
+        engine
+            .destroy_session(session.id)
+            .expect("destroy next-core test session");
+    }
+
+    fn quiet_wait_command_for_test() -> portable_pty::CommandBuilder {
+        #[cfg(windows)]
+        {
+            let mut command = portable_pty::CommandBuilder::new("cmd.exe");
+            command.args(["/c", "ping -n 5 127.0.0.1 >nul"]);
+            command
+        }
+        #[cfg(not(windows))]
+        {
+            let mut command = portable_pty::CommandBuilder::new("sh");
+            command.args(["-c", "sleep 5"]);
+            command
+        }
     }
 }
 
@@ -275,6 +331,40 @@ impl ScreenEngine for CurrentTerminalEngine {
         match self {
             Self::WezTerm(engine) => engine.read_styled_screen(pane_id),
             Self::NextCore(engine) => engine.read_styled_screen(pane_id),
+        }
+    }
+
+    fn read_render_frame(
+        &self,
+        pane_id: usize,
+        since_revision: Option<u64>,
+    ) -> anyhow::Result<RenderFrameSnapshot> {
+        match self {
+            Self::WezTerm(engine) => engine.read_render_frame(pane_id, since_revision),
+            Self::NextCore(engine) => engine.read_render_frame(pane_id, since_revision),
+        }
+    }
+
+    fn read_render_draw_plan(
+        &self,
+        pane_id: usize,
+        since_revision: Option<u64>,
+    ) -> anyhow::Result<RenderDrawPlan> {
+        match self {
+            Self::WezTerm(engine) => engine.read_render_draw_plan(pane_id, since_revision),
+            Self::NextCore(engine) => engine.read_render_draw_plan(pane_id, since_revision),
+        }
+    }
+
+    fn read_render_commit_plan(
+        &self,
+        pane_id: usize,
+        metrics: RenderCellMetrics,
+        consumer: &mut RenderConsumerState,
+    ) -> anyhow::Result<RenderCommitPlan> {
+        match self {
+            Self::WezTerm(engine) => engine.read_render_commit_plan(pane_id, metrics, consumer),
+            Self::NextCore(engine) => engine.read_render_commit_plan(pane_id, metrics, consumer),
         }
     }
 

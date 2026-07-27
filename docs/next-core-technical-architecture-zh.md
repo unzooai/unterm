@@ -215,6 +215,7 @@ next-core 已经在 screen/parser 方向具备基础能力，包括：
 - `RenderGeometryPlan::to_submission_plan` 将像素几何转换成 damage rects、background quads、text runs 和 cursor quad，让未来 wgpu renderer 只消费提交计划，不反向拥有终端语义
 - `RenderConsumerState::prepare_commit` 记录 renderer 已提交 revision，首帧/resize 强制 full repaint，重复 revision 跳过，revision gap 可观测，避免真实 renderer 自己推断增量协议
 - `ScreenEngine::read_render_commit_plan` 将 frame/draw/geometry/submission/commit 链收敛为 engine 级读取接口，GUI renderer 只需要持有 consumer state 和 cell metrics
+- `wezterm-gui/src/engine/mod.rs` 的 `CurrentTerminalEngine` 已 re-export render contract 类型，并显式转发 `read_render_frame`、`read_render_draw_plan`、`read_render_commit_plan`，未来真实 GUI renderer 可以经 engine-neutral facade 消费 next-core commit plan
 - JSON probe smoke 已输出并校验 render draw/geometry/submission/commit plan 的 revision、run/quad counts、viewport、damage rects、cursor state 和首帧 full-repaint state，让 renderer 输入契约进入 CI 可见面
 - benchmark 已覆盖 input write、key-to-screen、input burst under output、echo、paste、output flood、scrollback paging、viewport scroll、screen-read under flood、render-frame empty/dirty/cursor-move delta、render draw plan、render geometry plan、render submission plan、render commit plan API、focus/session lifecycle
 - zero-width combining marks attach to preceding visible cells without advancing cursor position

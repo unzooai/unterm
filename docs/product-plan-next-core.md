@@ -408,6 +408,7 @@ Supported:
 - renderer submission plans with damage rects, background quads, text runs, and cursor quads for a future wgpu consumer, covered by a dedicated benchmark gate
 - renderer commit state that tracks submitted revisions, skips duplicate frames, and forces full repaint on first frame or viewport changes
 - engine-level render commit plan reads that hide frame/draw/geometry/submission chaining from the future GUI renderer, covered by a dedicated benchmark gate
+- GUI engine facade access to render-frame, render draw-plan, and render commit-plan APIs, so the future next-core renderer has an engine-neutral entry point
 - `session.list`
 - `session.input`
 - `screen.text`
