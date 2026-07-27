@@ -1,6 +1,7 @@
 use crate::engine::{
     EngineRenderBufferPlan, EngineRenderGlyphAtlasCache, EngineRenderGlyphAtlasCacheUpdate,
-    EngineRenderGlyphAtlasPlan, EngineRenderGlyphAtlasTextureUpdatePlan, EngineRenderGpuUploadPlan,
+    EngineRenderGlyphAtlasPlan, EngineRenderGlyphAtlasTextureRegion,
+    EngineRenderGlyphAtlasTextureUpdatePlan, EngineRenderGpuUploadPlan,
     EngineRenderTexturedGlyphUploadPlan, EngineWgpuPipelineConfig, EngineWgpuRenderBackend,
 };
 use crate::quad::Vertex;
@@ -39,6 +40,7 @@ pub struct WebGpuState {
     pub next_core_render_backend: EngineWgpuRenderBackend,
     pub next_core_render_pipeline: wgpu::RenderPipeline,
     next_core_glyph_atlases: RefCell<NextCoreGlyphAtlasState>,
+    next_core_glyph_texture: NextCoreGlyphTexture,
     shader_uniform_bind_group_layout: wgpu::BindGroupLayout,
     pub texture_bind_group_layout: wgpu::BindGroupLayout,
     pub texture_nearest_sampler: wgpu::Sampler,
@@ -71,6 +73,20 @@ pub struct NextCoreCachedGlyphUpload {
     pub update: EngineRenderGlyphAtlasCacheUpdate,
     pub texture_update: EngineRenderGlyphAtlasTextureUpdatePlan,
     pub upload: EngineRenderTexturedGlyphUploadPlan,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[allow(dead_code)]
+pub struct NextCoreGlyphTextureUploadStats {
+    pub region_count: usize,
+    pub byte_count: usize,
+}
+
+pub struct NextCoreGlyphTexture {
+    texture: wgpu::Texture,
+    width: u32,
+    height: u32,
+    queue: Arc<wgpu::Queue>,
 }
 
 pub struct RawHandlePair {
@@ -202,6 +218,152 @@ impl WebGpuTexture {
             queue: Arc::clone(&state.queue),
         })
     }
+}
+
+impl NextCoreGlyphTexture {
+    #[allow(dead_code)]
+    pub fn new(state: &WebGpuState) -> anyhow::Result<Self> {
+        Self::new_with_device(
+            NEXT_CORE_GLYPH_ATLAS_WIDTH_PX as u32,
+            NEXT_CORE_GLYPH_ATLAS_HEIGHT_PX as u32,
+            &state.device,
+            &state.queue,
+        )
+    }
+
+    fn new_with_device(
+        width: u32,
+        height: u32,
+        device: &wgpu::Device,
+        queue: &Arc<wgpu::Queue>,
+    ) -> anyhow::Result<Self> {
+        let limit = device.limits().max_texture_dimension_2d;
+        if width > limit || height > limit {
+            anyhow::bail!(
+                "next-core glyph atlas texture dimensions {width}x{height} exceed the \
+                 max dimension {limit} supported by your GPU"
+            );
+        }
+
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            label: Some("next-core glyph texture atlas"),
+            view_formats: &[],
+        });
+
+        Ok(Self {
+            texture,
+            width,
+            height,
+            queue: Arc::clone(queue),
+        })
+    }
+
+    pub fn upload_update(
+        &self,
+        update: &EngineRenderGlyphAtlasTextureUpdatePlan,
+    ) -> anyhow::Result<NextCoreGlyphTextureUploadStats> {
+        if update.atlas_width_px != self.width as usize
+            || update.atlas_height_px != self.height as usize
+        {
+            anyhow::bail!(
+                "next-core glyph texture update atlas size {}x{} does not match texture {}x{}",
+                update.atlas_width_px,
+                update.atlas_height_px,
+                self.width,
+                self.height
+            );
+        }
+        let stats = validate_next_core_glyph_texture_regions(
+            self.width as usize,
+            self.height as usize,
+            &update.regions,
+        )?;
+        for region in &update.regions {
+            self.queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &self.texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d {
+                        x: region.rect.x as u32,
+                        y: region.rect.y as u32,
+                        z: 0,
+                    },
+                    aspect: wgpu::TextureAspect::All,
+                },
+                &region.bytes_rgba,
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(region.width_px as u32 * 4),
+                    rows_per_image: Some(region.height_px as u32),
+                },
+                wgpu::Extent3d {
+                    width: region.width_px as u32,
+                    height: region.height_px as u32,
+                    depth_or_array_layers: 1,
+                },
+            );
+        }
+        Ok(stats)
+    }
+}
+
+fn validate_next_core_glyph_texture_regions(
+    atlas_width_px: usize,
+    atlas_height_px: usize,
+    regions: &[EngineRenderGlyphAtlasTextureRegion],
+) -> anyhow::Result<NextCoreGlyphTextureUploadStats> {
+    let mut byte_count = 0usize;
+    for region in regions {
+        if region.width_px == 0 || region.height_px == 0 {
+            anyhow::bail!(
+                "next-core glyph texture region {} has zero size {}x{}",
+                region.key_index,
+                region.width_px,
+                region.height_px
+            );
+        }
+        if region.rect.x.saturating_add(region.width_px) > atlas_width_px
+            || region.rect.y.saturating_add(region.height_px) > atlas_height_px
+        {
+            anyhow::bail!(
+                "next-core glyph texture region {} overflows atlas: rect=({},{} {}x{}) atlas={}x{}",
+                region.key_index,
+                region.rect.x,
+                region.rect.y,
+                region.width_px,
+                region.height_px,
+                atlas_width_px,
+                atlas_height_px
+            );
+        }
+        let expected_len = region
+            .width_px
+            .saturating_mul(region.height_px)
+            .saturating_mul(4);
+        if region.bytes_rgba.len() != expected_len {
+            anyhow::bail!(
+                "next-core glyph texture region {} has {} bytes, expected {}",
+                region.key_index,
+                region.bytes_rgba.len(),
+                expected_len
+            );
+        }
+        byte_count = byte_count.saturating_add(region.bytes_rgba.len());
+    }
+    Ok(NextCoreGlyphTextureUploadStats {
+        region_count: regions.len(),
+        byte_count,
+    })
 }
 
 #[allow(dead_code)]
@@ -634,6 +796,12 @@ impl WebGpuState {
                 target_format: config.format,
             },
         );
+        let next_core_glyph_texture = NextCoreGlyphTexture::new_with_device(
+            NEXT_CORE_GLYPH_ATLAS_WIDTH_PX as u32,
+            NEXT_CORE_GLYPH_ATLAS_HEIGHT_PX as u32,
+            &device,
+            &queue,
+        )?;
 
         Ok(Self {
             adapter_info,
@@ -647,6 +815,7 @@ impl WebGpuState {
             next_core_render_backend,
             next_core_render_pipeline,
             next_core_glyph_atlases: RefCell::new(NextCoreGlyphAtlasState::new()),
+            next_core_glyph_texture,
             handle,
             shader_uniform_bind_group_layout,
             texture_bind_group_layout,
@@ -746,19 +915,24 @@ impl WebGpuState {
                 viewport_height_px,
             )
         {
+            let texture_stats = match self
+                .next_core_glyph_texture
+                .upload_update(&glyph_upload.texture_update)
+            {
+                Ok(stats) => stats,
+                Err(err) => {
+                    log::warn!("next-core glyph texture upload failed: {err:#}");
+                    NextCoreGlyphTextureUploadStats::default()
+                }
+            };
             log::trace!(
                 "next-core cached glyph atlas pane={} revision={} inserted={} overflow={} texture_regions={} texture_bytes={} vertices={} indices={}",
                 glyph_upload.pane_id,
                 glyph_upload.revision,
                 glyph_upload.update.inserted_key_indices.len(),
                 glyph_upload.update.overflow_key_indices.len(),
-                glyph_upload.texture_update.regions.len(),
-                glyph_upload
-                    .texture_update
-                    .regions
-                    .iter()
-                    .map(|region| region.bytes_rgba.len())
-                    .sum::<usize>(),
+                texture_stats.region_count,
+                texture_stats.byte_count,
                 glyph_upload.upload.vertices.len(),
                 glyph_upload.upload.indices.len()
             );
@@ -865,6 +1039,42 @@ mod tests {
         assert!(state.is_empty());
     }
 
+    #[test]
+    fn next_core_glyph_texture_region_validation_reports_stats() {
+        let region = texture_region(0, 1, 2, 3, 4, 48);
+
+        let stats =
+            validate_next_core_glyph_texture_regions(16, 16, &[region]).expect("validate region");
+
+        assert_eq!(
+            stats,
+            NextCoreGlyphTextureUploadStats {
+                region_count: 1,
+                byte_count: 48,
+            }
+        );
+    }
+
+    #[test]
+    fn next_core_glyph_texture_region_validation_rejects_bad_byte_count() {
+        let region = texture_region(0, 0, 0, 2, 2, 12);
+
+        let err = validate_next_core_glyph_texture_regions(16, 16, &[region])
+            .expect_err("bad byte count should fail");
+
+        assert!(err.to_string().contains("expected 16"));
+    }
+
+    #[test]
+    fn next_core_glyph_texture_region_validation_rejects_overflow() {
+        let region = texture_region(0, 14, 14, 4, 4, 64);
+
+        let err = validate_next_core_glyph_texture_regions(16, 16, &[region])
+            .expect_err("overflow should fail");
+
+        assert!(err.to_string().contains("overflows atlas"));
+    }
+
     fn buffer_plan_with_text(
         pane_id: usize,
         revision: u64,
@@ -894,6 +1104,28 @@ mod tests {
             }],
             vertices: Vec::new(),
             indices: Vec::new(),
+        }
+    }
+
+    fn texture_region(
+        key_index: usize,
+        x: usize,
+        y: usize,
+        width_px: usize,
+        height_px: usize,
+        byte_count: usize,
+    ) -> EngineRenderGlyphAtlasTextureRegion {
+        EngineRenderGlyphAtlasTextureRegion {
+            key_index,
+            rect: RenderRect {
+                x,
+                y,
+                width: width_px,
+                height: height_px,
+            },
+            width_px,
+            height_px,
+            bytes_rgba: vec![0xff; byte_count],
         }
     }
 }

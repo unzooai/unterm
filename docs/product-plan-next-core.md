@@ -422,6 +422,7 @@ Supported:
 - `EngineRenderGlyphAtlasCache` with deterministic shelf placement and inserted/overflow key reporting, so the future WebGPU glyph texture can update atlas regions without rebuilding placement state per frame
 - `WebGpuState` pane-scoped next-core glyph atlas state, reusing glyph placements across paints and clearing them when pane renderer state is removed
 - `EngineRenderGlyphAtlasTextureUpdatePlan` that converts newly inserted atlas keys into texture update regions with deterministic placeholder RGBA bytes, fixing the future texture upload ABI before real font rasterization is attached
+- `NextCoreGlyphTexture`, a dedicated WebGPU glyph texture atlas that validates next-core glyph texture regions and uploads them with `queue.write_texture` before the textured glyph render pass is attached
 - `EngineRenderTexturedGlyphUploadPlan` that maps glyph atlas placements into textured glyph vertices with clip-space positions and atlas UVs, fixing the texture draw ABI before the real font raster/cache is attached
 - `EngineWgpuRenderBackend::prepare_frame_for_viewport`, which prepares clip-space upload buffers, text-atlas input, and glyph-atlas instances in one frame plan now consumed by the WebGPU pane encoder
 - `EngineWgpuRenderBackend` upload skeleton that turns buffer plans into a POD GPU vertex ABI and creates wgpu vertex/index buffers while keeping `unterm-engine` free of GPU dependencies
