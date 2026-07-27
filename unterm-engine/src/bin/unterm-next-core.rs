@@ -1906,7 +1906,14 @@ fn main() -> Result<()> {
         });
     let render_submission_plan = render_geometry_plan.to_submission_plan();
     let mut render_consumer_state = unterm_engine::RenderConsumerState::new();
-    let render_commit_plan = render_consumer_state.prepare_commit(render_submission_plan.clone());
+    let render_commit_plan = engine.read_render_commit_plan(
+        session.id,
+        unterm_engine::RenderCellMetrics {
+            cell_width_px: 8,
+            cell_height_px: 16,
+        },
+        &mut render_consumer_state,
+    )?;
     let activity = engine.activity(session.id)?;
     let health = engine.health()?;
     let raw_bytes = engine.debug_output(session.id)?.len();

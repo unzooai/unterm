@@ -957,6 +957,16 @@ pub trait ScreenEngine {
             .read_render_frame(pane_id, since_revision)?
             .to_draw_plan())
     }
+    #[allow(dead_code)]
+    fn read_render_commit_plan(
+        &self,
+        pane_id: usize,
+        metrics: RenderCellMetrics,
+        consumer: &mut RenderConsumerState,
+    ) -> Result<RenderCommitPlan> {
+        let draw_plan = self.read_render_draw_plan(pane_id, consumer.submitted_revision())?;
+        Ok(consumer.prepare_commit(draw_plan.to_geometry_plan(metrics).to_submission_plan()))
+    }
     fn read_visible_text(&self, pane_id: usize) -> Result<String>;
     fn read_lines(&self, pane_id: usize, start: i64, count: usize) -> Result<Vec<ScreenLine>>;
     fn read_scrollback(&self, pane_id: usize, limit: usize) -> Result<Vec<String>>;
@@ -1211,6 +1221,31 @@ mod tests {
                 shape: "block".to_string()
             })
         );
+    }
+
+    #[test]
+    fn screen_engine_default_reads_render_commit_plan() {
+        let engine = FakeScreenEngine;
+        let mut consumer = RenderConsumerState::new();
+        let metrics = RenderCellMetrics {
+            cell_width_px: 8,
+            cell_height_px: 16,
+        };
+
+        let first = engine
+            .read_render_commit_plan(1, metrics, &mut consumer)
+            .unwrap();
+        assert!(first.submit);
+        assert_eq!(first.revision, 11);
+        assert!(first.requires_full_repaint);
+        assert_eq!(first.submission.unwrap().damage_rects.len(), 1);
+
+        let repeat = engine
+            .read_render_commit_plan(1, metrics, &mut consumer)
+            .unwrap();
+        assert!(!repeat.submit);
+        assert_eq!(repeat.previous_revision, Some(11));
+        assert!(repeat.submission.is_none());
     }
 
     #[test]

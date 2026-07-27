@@ -115,7 +115,7 @@ cargo run -p unterm-engine --bin unterm-next-core -- --bench-render-geometry-pla
 cargo run -p unterm-engine --bin unterm-next-core -- --bench-render-submission-plans 1000 --timeout-ms 30000 --wait-ms 100 --write "exit`r" -- cmd.exe
 ```
 
-The draw-plan benchmark validates `ScreenEngine::read_render_draw_plan`, which converts a styled render-frame into merged glyph runs, cell style runs, and cursor draw state. The geometry-plan benchmark then measures `RenderDrawPlan::to_geometry_plan`, which maps those terminal-grid runs to pixel rectangles using explicit cell metrics. The submission-plan benchmark measures `RenderGeometryPlan::to_submission_plan`, which turns that geometry into damage rects, background quads, text runs, and a cursor quad, giving the future GPU renderer a small CPU-side submit contract before font shaping and actual `wgpu` submission.
+The draw-plan benchmark validates `ScreenEngine::read_render_draw_plan`, which converts a styled render-frame into merged glyph runs, cell style runs, and cursor draw state. The geometry-plan benchmark then measures `RenderDrawPlan::to_geometry_plan`, which maps those terminal-grid runs to pixel rectangles using explicit cell metrics. The submission-plan benchmark measures `RenderGeometryPlan::to_submission_plan`, which turns that geometry into damage rects, background quads, text runs, and a cursor quad. `ScreenEngine::read_render_commit_plan` ties that chain to `RenderConsumerState`, giving the future GPU renderer a small CPU-side submit contract before font shaping and actual `wgpu` submission.
 
 Input burst benchmark under output pressure:
 
