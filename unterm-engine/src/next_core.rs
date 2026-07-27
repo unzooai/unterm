@@ -1591,7 +1591,7 @@ impl NextCoreScreen {
 impl NextCoreEngine {
     #[doc(hidden)]
     pub fn debug_output(&self, pane_id: usize) -> Result<String> {
-        session_queries::output(pane_id)
+        runtime::output(pane_id)
     }
 
     pub fn scroll_viewport_to(&self, pane_id: usize, target: isize) -> Result<()> {
@@ -1621,7 +1621,7 @@ impl SessionEngine for NextCoreEngine {
     }
 
     fn shell(&self, pane_id: usize) -> Result<ShellSnapshot> {
-        session_queries::shell_snapshot(pane_id)
+        runtime::shell_snapshot(pane_id)
     }
 
     fn activity(&self, pane_id: usize) -> Result<SessionActivitySnapshot> {

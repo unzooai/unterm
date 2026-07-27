@@ -1,10 +1,10 @@
 use super::{
-    health_snapshot, recording_lifecycle, session_activity, session_registry, session_snapshots,
-    NextCoreSession,
+    health_snapshot, recording_lifecycle, session_activity, session_queries, session_registry,
+    session_snapshots, NextCoreSession,
 };
 use crate::{
     EngineHealthSnapshot, RecordingExportResult, RecordingStartResult, RecordingStatusSnapshot,
-    RecordingStopResult, SessionActivitySnapshot, SessionSnapshot,
+    RecordingStopResult, SessionActivitySnapshot, SessionSnapshot, ShellSnapshot,
 };
 use anyhow::Result;
 use parking_lot::RwLock;
@@ -77,6 +77,14 @@ pub(super) fn get_session(pane_id: usize) -> Result<SessionSnapshot> {
 
 pub(super) fn clone_session_base(pane_id: usize) -> Result<SessionSnapshot> {
     with_session(pane_id, |session| Ok(session.snapshot.clone()))
+}
+
+pub(super) fn shell_snapshot(pane_id: usize) -> Result<ShellSnapshot> {
+    session_queries::shell_snapshot(pane_id)
+}
+
+pub(super) fn output(pane_id: usize) -> Result<String> {
+    session_queries::output(pane_id)
 }
 
 pub(super) fn session_activity(pane_id: usize) -> Result<SessionActivitySnapshot> {
