@@ -589,6 +589,18 @@ impl NextCoreScreen {
         self.scrollback.len()
     }
 
+    fn trim_scrollback_overflow(&mut self) {
+        if self.scrollback.len() <= MAX_SCROLLBACK_LINES {
+            return;
+        }
+
+        let overflow = self.scrollback.len() - MAX_SCROLLBACK_LINES;
+        self.scrollback.drain(..overflow);
+        if let Some(top) = self.viewport_top.as_mut() {
+            *top = top.saturating_sub(overflow);
+        }
+    }
+
     fn revision(&self) -> u64 {
         self.revision
     }
@@ -1440,10 +1452,7 @@ impl NextCoreScreen {
             let removed = self.lines.remove(top);
             if top == 0 && bottom + 1 >= self.rows && self.alternate.is_none() {
                 self.scrollback.push(removed);
-                if self.scrollback.len() > MAX_SCROLLBACK_LINES {
-                    let overflow = self.scrollback.len() - MAX_SCROLLBACK_LINES;
-                    self.scrollback.drain(..overflow);
-                }
+                self.trim_scrollback_overflow();
             }
             self.lines.insert(bottom, Vec::new());
         }
@@ -1504,10 +1513,7 @@ impl NextCoreScreen {
             let drained = self.lines.drain(..trim).collect::<Vec<_>>();
             if self.alternate.is_none() {
                 self.scrollback.extend(drained);
-                if self.scrollback.len() > MAX_SCROLLBACK_LINES {
-                    let overflow = self.scrollback.len() - MAX_SCROLLBACK_LINES;
-                    self.scrollback.drain(..overflow);
-                }
+                self.trim_scrollback_overflow();
             }
             self.cursor_y = self.cursor_y.saturating_sub(trim);
             self.saved_cursor_y = self.saved_cursor_y.saturating_sub(trim);
@@ -7190,6 +7196,42 @@ mod tests {
         assert!(scrolled.revision > screen.revision);
 
         engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_keeps_viewport_stable_when_scrollback_is_trimmed() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let mut screen = NextCoreScreen::new(80, 3);
+
+        let initial = (0..10_010)
+            .map(|idx| format!("line-{idx:05}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        screen.feed(&initial);
+        assert_eq!(screen.scrollback_rows(), MAX_SCROLLBACK_LINES);
+
+        screen.set_viewport_top_near(107);
+        let before = screen.snapshot_viewport_lines();
+        assert_ne!(
+            before,
+            vec![
+                "line-10007".to_string(),
+                "line-10008".to_string(),
+                "line-10009".to_string()
+            ]
+        );
+
+        let more = (10_010..10_060)
+            .map(|idx| format!("line-{idx:05}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        screen.feed(&format!("\n{more}"));
+
+        assert_eq!(screen.scrollback_rows(), MAX_SCROLLBACK_LINES);
+        assert_eq!(screen.snapshot_viewport_lines(), before);
+
         Ok(())
     }
 
