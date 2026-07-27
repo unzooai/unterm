@@ -1095,6 +1095,12 @@ impl NextCoreScreen {
         self.mark_all_dirty();
     }
 
+    fn clear_display(&mut self) {
+        self.lines.clear();
+        self.ensure_cursor_line();
+        self.mark_all_dirty();
+    }
+
     fn fill_alignment_test(&mut self) {
         self.lines = (0..self.rows)
             .map(|_| vec![ScreenCell::new('E', self.current_attr); self.cols])
@@ -1174,7 +1180,7 @@ impl NextCoreScreen {
                 self.erase_in_line(1);
                 self.mark_dirty_range(0, self.cursor_y);
             }
-            2 => self.clear_screen(),
+            2 => self.clear_display(),
             3 => {
                 self.scrollback.clear();
                 self.viewport_top = None;
@@ -7519,6 +7525,31 @@ mod tests {
         );
         engine.destroy_session(session.id)?;
 
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_display_erase_mode_2_preserves_cursor_position() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 12,
+            rows: 4,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(session.id, "one\ntwo\nthree\x1b[3;5H\x1b[2JZ")?;
+        let screen = engine.read_screen(session.id)?;
+
+        assert_eq!(screen.lines, vec!["", "", "    Z"]);
+        assert_eq!(screen.cursor.x, 5);
+        assert_eq!(screen.cursor.y, 2);
+
+        engine.destroy_session(session.id)?;
         Ok(())
     }
 
