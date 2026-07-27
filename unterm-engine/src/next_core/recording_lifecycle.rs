@@ -9,15 +9,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-pub(super) fn start_current(pane_id: usize) -> Result<RecordingStartResult> {
-    start(pane_id, timestamp_string())
-}
-
-pub(super) fn stop_current(pane_id: usize) -> Result<RecordingStopResult> {
-    stop(pane_id, timestamp_string())
-}
-
-fn timestamp_string() -> String {
+pub(super) fn timestamp_string() -> String {
     unix_micros().to_string()
 }
 

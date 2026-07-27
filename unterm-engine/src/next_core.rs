@@ -1708,19 +1708,19 @@ impl InputEngine for NextCoreEngine {
 
 impl RecordingEngine for NextCoreEngine {
     fn start_recording(&self, pane_id: usize) -> Result<RecordingStartResult> {
-        recording_lifecycle::start_current(pane_id)
+        runtime::start_recording(pane_id)
     }
 
     fn stop_recording(&self, pane_id: usize) -> Result<RecordingStopResult> {
-        recording_lifecycle::stop_current(pane_id)
+        runtime::stop_recording(pane_id)
     }
 
     fn recording_status(&self, pane_id: usize) -> Result<RecordingStatusSnapshot> {
-        recording_lifecycle::status(pane_id)
+        runtime::recording_status(pane_id)
     }
 
     fn attach_recording_trace(&self, pane_id: usize, trace_id: String) -> Result<Vec<String>> {
-        recording_lifecycle::attach_trace(pane_id, trace_id)
+        runtime::attach_recording_trace(pane_id, trace_id)
     }
 
     fn export_markdown(
@@ -1728,7 +1728,7 @@ impl RecordingEngine for NextCoreEngine {
         pane_id: usize,
         target_path: Option<String>,
     ) -> Result<RecordingExportResult> {
-        recording_lifecycle::export_markdown(pane_id, target_path)
+        runtime::export_recording_markdown(pane_id, target_path)
     }
 }
 

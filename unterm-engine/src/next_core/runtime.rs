@@ -1,7 +1,11 @@
 use super::{
-    health_snapshot, session_activity, session_registry, session_snapshots, NextCoreSession,
+    health_snapshot, recording_lifecycle, session_activity, session_registry, session_snapshots,
+    NextCoreSession,
 };
-use crate::{EngineHealthSnapshot, SessionActivitySnapshot, SessionSnapshot};
+use crate::{
+    EngineHealthSnapshot, RecordingExportResult, RecordingStartResult, RecordingStatusSnapshot,
+    RecordingStopResult, SessionActivitySnapshot, SessionSnapshot,
+};
 use anyhow::Result;
 use parking_lot::RwLock;
 use std::sync::OnceLock;
@@ -83,4 +87,27 @@ pub(super) fn session_activity(pane_id: usize) -> Result<SessionActivitySnapshot
 
 pub(super) fn health_snapshot() -> EngineHealthSnapshot {
     with_current_mut(health_snapshot::snapshot)
+}
+
+pub(super) fn start_recording(pane_id: usize) -> Result<RecordingStartResult> {
+    recording_lifecycle::start(pane_id, recording_lifecycle::timestamp_string())
+}
+
+pub(super) fn stop_recording(pane_id: usize) -> Result<RecordingStopResult> {
+    recording_lifecycle::stop(pane_id, recording_lifecycle::timestamp_string())
+}
+
+pub(super) fn recording_status(pane_id: usize) -> Result<RecordingStatusSnapshot> {
+    recording_lifecycle::status(pane_id)
+}
+
+pub(super) fn attach_recording_trace(pane_id: usize, trace_id: String) -> Result<Vec<String>> {
+    recording_lifecycle::attach_trace(pane_id, trace_id)
+}
+
+pub(super) fn export_recording_markdown(
+    pane_id: usize,
+    target_path: Option<String>,
+) -> Result<RecordingExportResult> {
+    recording_lifecycle::export_markdown(pane_id, target_path)
 }
