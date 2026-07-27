@@ -5,8 +5,8 @@ use super::{
     screen_executor, with_current_mut,
 };
 use crate::{
-    RenderFrameSnapshot, ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest,
-    ScrollbackTextSnapshot,
+    CursorSnapshot, RenderFrameSnapshot, ScreenLine, ScreenSearchMatch, ScreenSnapshot,
+    ScrollbackTextRequest, ScrollbackTextSnapshot, StyledScreenSnapshot, StyledScrollbackSnapshot,
 };
 use anyhow::{anyhow, bail, Result};
 
@@ -58,6 +58,42 @@ pub(in crate::next_core) fn read_screen(pane_id: usize) -> Result<ScreenSnapshot
     screen_executor::execute_screen(command)
 }
 
+pub(in crate::next_core) fn read_styled_screen(pane_id: usize) -> Result<StyledScreenSnapshot> {
+    let command = RuntimeCommand::ReadStyledScreen { pane_id };
+    enqueue(command).map_err(|err| anyhow!("runtime screen queue rejected command: {err:?}"))?;
+    let command = dequeue().ok_or_else(|| anyhow!("runtime screen queue lost enqueued command"))?;
+    screen_executor::execute_styled_screen(command)
+}
+
+pub(in crate::next_core) fn read_visible_text(pane_id: usize) -> Result<String> {
+    let command = RuntimeCommand::ReadVisibleText { pane_id };
+    enqueue(command).map_err(|err| anyhow!("runtime screen queue rejected command: {err:?}"))?;
+    let command = dequeue().ok_or_else(|| anyhow!("runtime screen queue lost enqueued command"))?;
+    screen_executor::execute_visible_text(command)
+}
+
+pub(in crate::next_core) fn read_lines(
+    pane_id: usize,
+    start: i64,
+    count: usize,
+) -> Result<Vec<ScreenLine>> {
+    let command = RuntimeCommand::ReadLines {
+        pane_id,
+        start,
+        count,
+    };
+    enqueue(command).map_err(|err| anyhow!("runtime screen queue rejected command: {err:?}"))?;
+    let command = dequeue().ok_or_else(|| anyhow!("runtime screen queue lost enqueued command"))?;
+    screen_executor::execute_lines(command)
+}
+
+pub(in crate::next_core) fn read_scrollback(pane_id: usize, limit: usize) -> Result<Vec<String>> {
+    let command = RuntimeCommand::ReadScrollback { pane_id, limit };
+    enqueue(command).map_err(|err| anyhow!("runtime screen queue rejected command: {err:?}"))?;
+    let command = dequeue().ok_or_else(|| anyhow!("runtime screen queue lost enqueued command"))?;
+    screen_executor::execute_scrollback(command)
+}
+
 pub(in crate::next_core) fn read_scrollback_text(
     pane_id: usize,
     request: ScrollbackTextRequest,
@@ -66,6 +102,16 @@ pub(in crate::next_core) fn read_scrollback_text(
     enqueue(command).map_err(|err| anyhow!("runtime screen queue rejected command: {err:?}"))?;
     let command = dequeue().ok_or_else(|| anyhow!("runtime screen queue lost enqueued command"))?;
     screen_executor::execute_scrollback_text(command)
+}
+
+pub(in crate::next_core) fn read_styled_scrollback(
+    pane_id: usize,
+    request: ScrollbackTextRequest,
+) -> Result<StyledScrollbackSnapshot> {
+    let command = RuntimeCommand::ReadStyledScrollback { pane_id, request };
+    enqueue(command).map_err(|err| anyhow!("runtime screen queue rejected command: {err:?}"))?;
+    let command = dequeue().ok_or_else(|| anyhow!("runtime screen queue lost enqueued command"))?;
+    screen_executor::execute_styled_scrollback(command)
 }
 
 pub(in crate::next_core) fn search_screen(
@@ -81,6 +127,13 @@ pub(in crate::next_core) fn search_screen(
     enqueue(command).map_err(|err| anyhow!("runtime screen queue rejected command: {err:?}"))?;
     let command = dequeue().ok_or_else(|| anyhow!("runtime screen queue lost enqueued command"))?;
     screen_executor::execute_search(command)
+}
+
+pub(in crate::next_core) fn cursor(pane_id: usize) -> Result<CursorSnapshot> {
+    let command = RuntimeCommand::Cursor { pane_id };
+    enqueue(command).map_err(|err| anyhow!("runtime screen queue rejected command: {err:?}"))?;
+    let command = dequeue().ok_or_else(|| anyhow!("runtime screen queue lost enqueued command"))?;
+    screen_executor::execute_cursor(command)
 }
 
 #[cfg(test)]
@@ -156,6 +209,50 @@ mod tests {
     }
 
     #[test]
+    fn styled_screen_reads_enter_runtime_queue_before_dispatch() {
+        test_facade::reset();
+
+        let err = read_styled_screen(404).expect_err("missing pane should fail");
+
+        assert!(err.to_string().contains("next-core session 404 not found"));
+        assert_eq!(queue_stats().pending_commands, 0);
+        assert_eq!(queue_stats().rejected_commands, 0);
+    }
+
+    #[test]
+    fn visible_text_reads_enter_runtime_queue_before_dispatch() {
+        test_facade::reset();
+
+        let err = read_visible_text(404).expect_err("missing pane should fail");
+
+        assert!(err.to_string().contains("next-core session 404 not found"));
+        assert_eq!(queue_stats().pending_commands, 0);
+        assert_eq!(queue_stats().rejected_commands, 0);
+    }
+
+    #[test]
+    fn line_range_reads_enter_runtime_queue_before_dispatch() {
+        test_facade::reset();
+
+        let err = read_lines(404, 0, 1).expect_err("missing pane should fail");
+
+        assert!(err.to_string().contains("next-core session 404 not found"));
+        assert_eq!(queue_stats().pending_commands, 0);
+        assert_eq!(queue_stats().rejected_commands, 0);
+    }
+
+    #[test]
+    fn scrollback_reads_enter_runtime_queue_before_dispatch() {
+        test_facade::reset();
+
+        let err = read_scrollback(404, 10).expect_err("missing pane should fail");
+
+        assert!(err.to_string().contains("next-core session 404 not found"));
+        assert_eq!(queue_stats().pending_commands, 0);
+        assert_eq!(queue_stats().rejected_commands, 0);
+    }
+
+    #[test]
     fn viewport_scrolls_enter_runtime_queue_before_dispatch() {
         test_facade::reset();
 
@@ -187,10 +284,41 @@ mod tests {
     }
 
     #[test]
+    fn styled_scrollback_reads_enter_runtime_queue_before_dispatch() {
+        test_facade::reset();
+
+        let err = read_styled_scrollback(
+            404,
+            ScrollbackTextRequest {
+                start_line: None,
+                end_line: None,
+                tail_lines: Some(10),
+                escapes: false,
+            },
+        )
+        .expect_err("missing pane should fail");
+
+        assert!(err.to_string().contains("next-core session 404 not found"));
+        assert_eq!(queue_stats().pending_commands, 0);
+        assert_eq!(queue_stats().rejected_commands, 0);
+    }
+
+    #[test]
     fn screen_search_reads_enter_runtime_queue_before_dispatch() {
         test_facade::reset();
 
         let err = search_screen(404, "needle", 5).expect_err("missing pane should fail");
+
+        assert!(err.to_string().contains("next-core session 404 not found"));
+        assert_eq!(queue_stats().pending_commands, 0);
+        assert_eq!(queue_stats().rejected_commands, 0);
+    }
+
+    #[test]
+    fn cursor_reads_enter_runtime_queue_before_dispatch() {
+        test_facade::reset();
+
+        let err = cursor(404).expect_err("missing pane should fail");
 
         assert!(err.to_string().contains("next-core session 404 not found"));
         assert_eq!(queue_stats().pending_commands, 0);

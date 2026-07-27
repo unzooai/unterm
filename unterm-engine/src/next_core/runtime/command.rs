@@ -42,11 +42,30 @@ pub(in crate::next_core) enum RuntimeCommand {
     ReadScreen {
         pane_id: usize,
     },
+    ReadStyledScreen {
+        pane_id: usize,
+    },
     ReadRenderFrame {
         pane_id: usize,
         since_revision: Option<u64>,
     },
+    ReadVisibleText {
+        pane_id: usize,
+    },
+    ReadLines {
+        pane_id: usize,
+        start: i64,
+        count: usize,
+    },
+    ReadScrollback {
+        pane_id: usize,
+        limit: usize,
+    },
     ReadScrollbackText {
+        pane_id: usize,
+        request: ScrollbackTextRequest,
+    },
+    ReadStyledScrollback {
         pane_id: usize,
         request: ScrollbackTextRequest,
     },
@@ -54,6 +73,9 @@ pub(in crate::next_core) enum RuntimeCommand {
         pane_id: usize,
         pattern: String,
         max_results: usize,
+    },
+    Cursor {
+        pane_id: usize,
     },
     StartRecording {
         pane_id: usize,
@@ -84,9 +106,15 @@ impl RuntimeCommand {
             Self::WriteInput { .. } | Self::PasteInput { .. } => RuntimeCommandClass::Input,
             Self::ScrollViewport { .. } => RuntimeCommandClass::ScreenMutation,
             Self::ReadScreen { .. }
+            | Self::ReadStyledScreen { .. }
             | Self::ReadRenderFrame { .. }
+            | Self::ReadVisibleText { .. }
+            | Self::ReadLines { .. }
+            | Self::ReadScrollback { .. }
             | Self::ReadScrollbackText { .. }
-            | Self::SearchScreen { .. } => RuntimeCommandClass::ScreenRead,
+            | Self::ReadStyledScrollback { .. }
+            | Self::SearchScreen { .. }
+            | Self::Cursor { .. } => RuntimeCommandClass::ScreenRead,
             Self::StartRecording { .. }
             | Self::StopRecording { .. }
             | Self::RecordingStatus { .. } => RuntimeCommandClass::Recording,
@@ -107,9 +135,15 @@ impl RuntimeCommand {
             | Self::PasteInput { pane_id, .. }
             | Self::ScrollViewport { pane_id, .. }
             | Self::ReadScreen { pane_id }
+            | Self::ReadStyledScreen { pane_id }
             | Self::ReadRenderFrame { pane_id, .. }
+            | Self::ReadVisibleText { pane_id }
+            | Self::ReadLines { pane_id, .. }
+            | Self::ReadScrollback { pane_id, .. }
             | Self::ReadScrollbackText { pane_id, .. }
+            | Self::ReadStyledScrollback { pane_id, .. }
             | Self::SearchScreen { pane_id, .. }
+            | Self::Cursor { pane_id }
             | Self::StartRecording { pane_id }
             | Self::StopRecording { pane_id }
             | Self::RecordingStatus { pane_id }

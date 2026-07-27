@@ -1,4 +1,3 @@
-use super::super::screen_dispatch;
 use super::{command::RuntimeCommand, scheduler};
 use crate::{
     CursorSnapshot, RenderFrameSnapshot, ScreenLine, ScreenSearchMatch, ScreenSnapshot,
@@ -15,7 +14,7 @@ pub(in crate::next_core) fn read_screen(pane_id: usize) -> Result<ScreenSnapshot
 }
 
 pub(in crate::next_core) fn read_styled_screen(pane_id: usize) -> Result<StyledScreenSnapshot> {
-    screen_dispatch::read_styled_viewport(pane_id)
+    scheduler::read_styled_screen(pane_id)
 }
 
 pub(in crate::next_core) fn read_render_frame(
@@ -26,7 +25,7 @@ pub(in crate::next_core) fn read_render_frame(
 }
 
 pub(in crate::next_core) fn read_visible_text(pane_id: usize) -> Result<String> {
-    screen_dispatch::read_visible_text(pane_id)
+    scheduler::read_visible_text(pane_id)
 }
 
 pub(in crate::next_core) fn read_lines(
@@ -34,11 +33,11 @@ pub(in crate::next_core) fn read_lines(
     start: i64,
     count: usize,
 ) -> Result<Vec<ScreenLine>> {
-    screen_dispatch::read_lines(pane_id, start, count)
+    scheduler::read_lines(pane_id, start, count)
 }
 
 pub(in crate::next_core) fn read_scrollback(pane_id: usize, limit: usize) -> Result<Vec<String>> {
-    screen_dispatch::read_scrollback(pane_id, limit)
+    scheduler::read_scrollback(pane_id, limit)
 }
 
 pub(in crate::next_core) fn read_scrollback_text(
@@ -52,7 +51,7 @@ pub(in crate::next_core) fn read_styled_scrollback(
     pane_id: usize,
     request: ScrollbackTextRequest,
 ) -> Result<StyledScrollbackSnapshot> {
-    screen_dispatch::read_styled_scrollback(pane_id, request)
+    scheduler::read_styled_scrollback(pane_id, request)
 }
 
 pub(in crate::next_core) fn search_screen(
@@ -64,7 +63,7 @@ pub(in crate::next_core) fn search_screen(
 }
 
 pub(in crate::next_core) fn cursor(pane_id: usize) -> Result<CursorSnapshot> {
-    screen_dispatch::cursor(pane_id)
+    scheduler::cursor(pane_id)
 }
 
 pub(in crate::next_core) fn write_input(pane_id: usize, input: &str) -> Result<()> {
