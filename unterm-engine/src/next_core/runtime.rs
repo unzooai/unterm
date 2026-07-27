@@ -3,6 +3,7 @@ use parking_lot::RwLock;
 use std::sync::OnceLock;
 
 pub(in crate::next_core) mod command;
+mod input_executor;
 mod io_facade;
 pub(in crate::next_core) mod queue;
 mod recording_facade;
