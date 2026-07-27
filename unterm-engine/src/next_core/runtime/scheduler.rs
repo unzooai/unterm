@@ -2,7 +2,7 @@ use super::{
     command::{RuntimeCommand, RuntimeCommandClass},
     consumer,
     dispatch::RuntimeDispatchResult,
-    input_executor, screen_executor,
+    screen_executor,
 };
 use crate::{
     CursorSnapshot, RenderFrameSnapshot, ScreenLine, ScreenSearchMatch, ScreenSnapshot,
@@ -18,8 +18,13 @@ pub(in crate::next_core) fn submit_input(command: RuntimeCommand) -> Result<()> 
         );
     }
 
-    let command = consumer::consume_sync(command)?;
-    input_executor::execute(command)
+    match consumer::submit_and_dispatch_response(command)? {
+        RuntimeDispatchResult::Unit => Ok(()),
+        other => bail!(
+            "runtime scheduler expected input dispatch result, got {:?}",
+            other
+        ),
+    }
 }
 
 pub(in crate::next_core) fn read_render_frame(
@@ -205,6 +210,72 @@ mod tests {
 
         assert!(err.to_string().contains("expected input command"));
         assert_eq!(queue_stats(), RuntimeQueueStats::default());
+    }
+
+    #[test]
+    fn submit_input_uses_command_backpressure() {
+        test_facade::reset();
+
+        install_zero_command_budget();
+
+        let err = submit_input(RuntimeCommand::WriteInput {
+            pane_id: 1,
+            text: "x".to_string(),
+        })
+        .expect_err("zero command budget should reject input");
+
+        assert!(err
+            .to_string()
+            .contains("runtime input queue rejected command"));
+        assert_eq!(queue_stats().rejected_commands, 1);
+    }
+
+    #[test]
+    fn submit_input_uses_input_byte_backpressure() {
+        test_facade::reset();
+
+        with_current_mut(|state| {
+            state.command_queue =
+                super::super::queue::RuntimeCommandQueue::new(RuntimeQueuePolicy {
+                    max_pending_commands: 4,
+                    max_pending_input_bytes: 2,
+                    max_render_wakeups_per_second: 120,
+                });
+        });
+
+        let err = submit_input(RuntimeCommand::PasteInput {
+            pane_id: 1,
+            text: "abc".to_string(),
+        })
+        .expect_err("input larger than budget should be rejected");
+
+        assert!(err
+            .to_string()
+            .contains("runtime input queue rejected command"));
+        assert!(err.to_string().contains("InputBackpressure"));
+        assert_eq!(queue_stats().rejected_input_bytes, 3);
+    }
+
+    #[test]
+    fn submit_input_dispatches_before_older_screen_backlog() {
+        test_facade::reset();
+        with_current_mut(|state| {
+            state
+                .command_queue
+                .enqueue(RuntimeCommand::ReadScreen { pane_id: 404 })
+                .unwrap();
+        });
+
+        let err = submit_input(RuntimeCommand::WriteInput {
+            pane_id: 404,
+            text: "x".to_string(),
+        })
+        .expect_err("missing input pane should fail after input dispatch");
+
+        assert!(err.to_string().contains("next-core session 404 not found"));
+        let stats = queue_stats();
+        assert_eq!(stats.pending_lanes.input, 0);
+        assert_eq!(stats.pending_lanes.screen, 1);
     }
 
     #[test]
