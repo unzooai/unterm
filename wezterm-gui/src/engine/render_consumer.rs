@@ -61,10 +61,12 @@ pub struct EngineRenderPaneReplaceDiagnostics {
     pub batch_readiness_issue_count: usize,
     pub prepared_frame_present: bool,
     pub prepared_frame_ready: bool,
+    pub prepared_frame_matches_batch: bool,
     pub prepared_frame_readiness_issue_count: usize,
     pub cached_glyph_upload_required: bool,
     pub cached_glyph_upload_present: bool,
     pub cached_glyph_upload_ready: bool,
+    pub cached_glyph_upload_matches_batch: bool,
     pub cached_glyph_upload_readiness_issue_count: usize,
     pub replace_ready: bool,
 }
@@ -77,8 +79,10 @@ pub enum EngineRenderPaneReplaceReadinessIssue {
     BufferBatchNotReady,
     MissingPreparedFrame,
     PreparedFrameNotReady,
+    PreparedFrameBatchMismatch,
     MissingCachedGlyphUpload,
     CachedGlyphUploadNotReady,
+    CachedGlyphUploadBatchMismatch,
 }
 
 #[derive(Clone, Debug)]
@@ -180,6 +184,12 @@ impl EngineRenderPaneReplaceDiagnostics {
         let batch_readiness_issue_count = batch.map_or(0, |batch| batch.readiness_issues().len());
         let prepared_frame_ready =
             prepared_frame.is_some_and(|diagnostics| diagnostics.replace_ready);
+        let prepared_frame_matches_batch = match (batch, prepared_frame) {
+            (Some(batch), Some(diagnostics)) => {
+                diagnostics.pane_id == batch.pane_id && diagnostics.revision == batch.stats.revision
+            }
+            _ => false,
+        };
         let prepared_frame_readiness_issue_count =
             prepared_frame.map_or(0, |diagnostics| usize::from(!diagnostics.replace_ready));
         let cached_glyph_upload_required = prepared_frame.is_some_and(|diagnostics| {
@@ -189,9 +199,16 @@ impl EngineRenderPaneReplaceDiagnostics {
         });
         let cached_glyph_upload_ready =
             cached_glyph_upload.is_some_and(|diagnostics| diagnostics.is_ready());
+        let cached_glyph_upload_matches_batch = match (batch, cached_glyph_upload) {
+            (Some(batch), Some(diagnostics)) => {
+                diagnostics.pane_id == batch.pane_id && diagnostics.revision == batch.stats.revision
+            }
+            _ => false,
+        };
         let cached_glyph_upload_readiness_issue_count =
             cached_glyph_upload.map_or(0, |diagnostics| diagnostics.readiness_issues().len());
-        let glyph_ready = !cached_glyph_upload_required || cached_glyph_upload_ready;
+        let glyph_ready = !cached_glyph_upload_required
+            || (cached_glyph_upload_ready && cached_glyph_upload_matches_batch);
 
         Self {
             requested,
@@ -202,12 +219,18 @@ impl EngineRenderPaneReplaceDiagnostics {
             batch_readiness_issue_count,
             prepared_frame_present: prepared_frame.is_some(),
             prepared_frame_ready,
+            prepared_frame_matches_batch,
             prepared_frame_readiness_issue_count,
             cached_glyph_upload_required,
             cached_glyph_upload_present: cached_glyph_upload.is_some(),
             cached_glyph_upload_ready,
+            cached_glyph_upload_matches_batch,
             cached_glyph_upload_readiness_issue_count,
-            replace_ready: requested && batch_ready && prepared_frame_ready && glyph_ready,
+            replace_ready: requested
+                && batch_ready
+                && prepared_frame_ready
+                && prepared_frame_matches_batch
+                && glyph_ready,
         }
     }
 
@@ -225,11 +248,15 @@ impl EngineRenderPaneReplaceDiagnostics {
             issues.push(EngineRenderPaneReplaceReadinessIssue::MissingPreparedFrame);
         } else if !self.prepared_frame_ready {
             issues.push(EngineRenderPaneReplaceReadinessIssue::PreparedFrameNotReady);
+        } else if !self.prepared_frame_matches_batch {
+            issues.push(EngineRenderPaneReplaceReadinessIssue::PreparedFrameBatchMismatch);
         }
         if self.cached_glyph_upload_required && !self.cached_glyph_upload_present {
             issues.push(EngineRenderPaneReplaceReadinessIssue::MissingCachedGlyphUpload);
         } else if self.cached_glyph_upload_required && !self.cached_glyph_upload_ready {
             issues.push(EngineRenderPaneReplaceReadinessIssue::CachedGlyphUploadNotReady);
+        } else if self.cached_glyph_upload_required && !self.cached_glyph_upload_matches_batch {
+            issues.push(EngineRenderPaneReplaceReadinessIssue::CachedGlyphUploadBatchMismatch);
         }
         issues
     }

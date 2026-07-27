@@ -397,16 +397,18 @@ fn should_replace_legacy_pane(
         next_core_webgpu_replace_diagnostics(mode, batch, prepared_frame, cached_glyph_upload);
     if !diagnostics.replace_ready && mode == NextCoreWebGpuPaneMode::Replace {
         log::trace!(
-            "next-core WebGPU replace fallback pane={:?} revision={:?} issues={} batch_ready={} batch_readiness_issues={} prepared_frame_ready={} prepared_frame_readiness_issues={} cached_glyph_required={} cached_glyph_ready={} cached_glyph_readiness_issues={}",
+            "next-core WebGPU replace fallback pane={:?} revision={:?} issues={} batch_ready={} batch_readiness_issues={} prepared_frame_ready={} prepared_frame_matches_batch={} prepared_frame_readiness_issues={} cached_glyph_required={} cached_glyph_ready={} cached_glyph_matches_batch={} cached_glyph_readiness_issues={}",
             diagnostics.pane_id,
             diagnostics.revision,
             diagnostics.readiness_issues().len(),
             diagnostics.batch_ready,
             diagnostics.batch_readiness_issue_count,
             diagnostics.prepared_frame_ready,
+            diagnostics.prepared_frame_matches_batch,
             diagnostics.prepared_frame_readiness_issue_count,
             diagnostics.cached_glyph_upload_required,
             diagnostics.cached_glyph_upload_ready,
+            diagnostics.cached_glyph_upload_matches_batch,
             diagnostics.cached_glyph_upload_readiness_issue_count
         );
     }
@@ -597,6 +599,43 @@ mod tests {
     }
 
     #[test]
+    fn next_core_replace_requires_matching_batch_diagnostics() {
+        assert!(!should_replace_legacy_pane(
+            NextCoreWebGpuPaneMode::Replace,
+            &Some(buffer_batch(true)),
+            Some(&prepared_frame_diagnostics_for_revision(true, 4)),
+            None
+        ));
+        let stale_frame = next_core_webgpu_replace_diagnostics(
+            NextCoreWebGpuPaneMode::Replace,
+            &Some(buffer_batch(true)),
+            Some(&prepared_frame_diagnostics_for_revision(true, 4)),
+            None,
+        );
+        assert_eq!(
+            stale_frame.readiness_issues(),
+            vec![EngineRenderPaneReplaceReadinessIssue::PreparedFrameBatchMismatch]
+        );
+
+        assert!(!should_replace_legacy_pane(
+            NextCoreWebGpuPaneMode::Replace,
+            &Some(buffer_batch(true)),
+            Some(&prepared_text_frame_diagnostics(true)),
+            Some(&cached_glyph_upload_diagnostics_for_revision(true, 4))
+        ));
+        let stale_glyph_upload = next_core_webgpu_replace_diagnostics(
+            NextCoreWebGpuPaneMode::Replace,
+            &Some(buffer_batch(true)),
+            Some(&prepared_text_frame_diagnostics(true)),
+            Some(&cached_glyph_upload_diagnostics_for_revision(true, 4)),
+        );
+        assert_eq!(
+            stale_glyph_upload.readiness_issues(),
+            vec![EngineRenderPaneReplaceReadinessIssue::CachedGlyphUploadBatchMismatch]
+        );
+    }
+
+    #[test]
     fn next_core_replace_requires_cached_glyph_upload_for_text_frames() {
         assert!(!should_replace_legacy_pane(
             NextCoreWebGpuPaneMode::Replace,
@@ -679,10 +718,17 @@ mod tests {
     }
 
     fn prepared_frame_diagnostics(replace_ready: bool) -> EngineWgpuPreparedFrameDiagnostics {
+        prepared_frame_diagnostics_for_revision(replace_ready, 3)
+    }
+
+    fn prepared_frame_diagnostics_for_revision(
+        replace_ready: bool,
+        revision: u64,
+    ) -> EngineWgpuPreparedFrameDiagnostics {
         EngineWgpuPreparedFrameDiagnostics {
             pane_id: 7,
             submitted: replace_ready,
-            revision: 3,
+            revision,
             solid_vertex_count: usize::from(replace_ready),
             solid_index_count: usize::from(replace_ready),
             text_run_count: 0,
@@ -702,10 +748,17 @@ mod tests {
     }
 
     fn cached_glyph_upload_diagnostics(ready: bool) -> EngineRenderCachedGlyphUploadDiagnostics {
+        cached_glyph_upload_diagnostics_for_revision(ready, 3)
+    }
+
+    fn cached_glyph_upload_diagnostics_for_revision(
+        ready: bool,
+        revision: u64,
+    ) -> EngineRenderCachedGlyphUploadDiagnostics {
         EngineRenderCachedGlyphUploadDiagnostics {
             pane_id: 7,
             submitted: ready,
-            revision: 3,
+            revision,
             cell_width_px: 8,
             cell_height_px: 16,
             inserted_key_count: usize::from(ready),

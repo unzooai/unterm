@@ -517,6 +517,7 @@ mod tests {
             }),
             None,
         );
+        assert!(not_requested.prepared_frame_matches_batch);
         assert_eq!(
             not_requested.readiness_issues(),
             vec![EngineRenderPaneReplaceReadinessIssue::NotRequested]
