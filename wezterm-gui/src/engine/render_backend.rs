@@ -331,6 +331,19 @@ pub struct EngineRenderTexturedGlyphVertex {
     pub key_index: u32,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[allow(dead_code)]
+pub struct EngineRenderTexturedGlyphQuad {
+    pub left_px: f32,
+    pub top_px: f32,
+    pub right_px: f32,
+    pub bottom_px: f32,
+    pub uv_left_px: usize,
+    pub uv_top_px: usize,
+    pub uv_right_px: usize,
+    pub uv_bottom_px: usize,
+}
+
 #[allow(dead_code)]
 impl EngineRenderTexturedGlyphVertex {
     const ATTRIBS: [wgpu::VertexAttribute; 4] = wgpu::vertex_attr_array![
@@ -1731,8 +1744,68 @@ fn push_textured_glyph_quad(
     atlas_height_px: f32,
 ) {
     let base = vertices.len() as u32;
+    let quad = textured_glyph_quad_pixels(instance, placement);
+    let uv_left = quad.uv_left_px as f32 / atlas_width_px;
+    let uv_top = quad.uv_top_px as f32 / atlas_height_px;
+    let uv_right = quad.uv_right_px as f32 / atlas_width_px;
+    let uv_bottom = quad.uv_bottom_px as f32 / atlas_height_px;
+    let key_index = instance.key_index as u32;
+
+    vertices.extend([
+        EngineRenderTexturedGlyphVertex {
+            position: viewport_to_clip(
+                quad.left_px,
+                quad.top_px,
+                viewport_width_px,
+                viewport_height_px,
+            ),
+            uv: [uv_left, uv_top],
+            color: instance.foreground,
+            key_index,
+        },
+        EngineRenderTexturedGlyphVertex {
+            position: viewport_to_clip(
+                quad.right_px,
+                quad.top_px,
+                viewport_width_px,
+                viewport_height_px,
+            ),
+            uv: [uv_right, uv_top],
+            color: instance.foreground,
+            key_index,
+        },
+        EngineRenderTexturedGlyphVertex {
+            position: viewport_to_clip(
+                quad.left_px,
+                quad.bottom_px,
+                viewport_width_px,
+                viewport_height_px,
+            ),
+            uv: [uv_left, uv_bottom],
+            color: instance.foreground,
+            key_index,
+        },
+        EngineRenderTexturedGlyphVertex {
+            position: viewport_to_clip(
+                quad.right_px,
+                quad.bottom_px,
+                viewport_width_px,
+                viewport_height_px,
+            ),
+            uv: [uv_right, uv_bottom],
+            color: instance.foreground,
+            key_index,
+        },
+    ]);
+    indices.extend([base, base + 1, base + 2, base + 1, base + 2, base + 3]);
+}
+
+fn textured_glyph_quad_pixels(
+    instance: &EngineRenderGlyphAtlasInstance,
+    placement: &EngineRenderGlyphAtlasPlacement,
+) -> EngineRenderTexturedGlyphQuad {
     let atlas_rect = placement.rect;
-    let (left, top, right, bottom, uv_width_px, uv_height_px) = if placement.uses_raster_metrics {
+    if placement.uses_raster_metrics {
         let glyph_width = placement
             .source_width_px
             .max(1)
@@ -1744,57 +1817,28 @@ fn push_textured_glyph_quad(
         let left = instance.rect.x as f32 + placement.bearing_x_px as f32;
         let top =
             instance.rect.y as f32 + instance.rect.height as f32 - placement.bearing_y_px as f32;
-        (
-            left,
-            top,
-            left + glyph_width as f32,
-            top + glyph_height as f32,
-            glyph_width,
-            glyph_height,
-        )
+        EngineRenderTexturedGlyphQuad {
+            left_px: left,
+            top_px: top,
+            right_px: left + glyph_width as f32,
+            bottom_px: top + glyph_height as f32,
+            uv_left_px: atlas_rect.x,
+            uv_top_px: atlas_rect.y,
+            uv_right_px: atlas_rect.x.saturating_add(glyph_width),
+            uv_bottom_px: atlas_rect.y.saturating_add(glyph_height),
+        }
     } else {
-        (
-            instance.rect.x as f32,
-            instance.rect.y as f32,
-            instance.rect.x.saturating_add(instance.rect.width) as f32,
-            instance.rect.y.saturating_add(instance.rect.height) as f32,
-            atlas_rect.width,
-            atlas_rect.height,
-        )
-    };
-    let uv_left = atlas_rect.x as f32 / atlas_width_px;
-    let uv_top = atlas_rect.y as f32 / atlas_height_px;
-    let uv_right = atlas_rect.x.saturating_add(uv_width_px) as f32 / atlas_width_px;
-    let uv_bottom = atlas_rect.y.saturating_add(uv_height_px) as f32 / atlas_height_px;
-    let key_index = instance.key_index as u32;
-
-    vertices.extend([
-        EngineRenderTexturedGlyphVertex {
-            position: viewport_to_clip(left, top, viewport_width_px, viewport_height_px),
-            uv: [uv_left, uv_top],
-            color: instance.foreground,
-            key_index,
-        },
-        EngineRenderTexturedGlyphVertex {
-            position: viewport_to_clip(right, top, viewport_width_px, viewport_height_px),
-            uv: [uv_right, uv_top],
-            color: instance.foreground,
-            key_index,
-        },
-        EngineRenderTexturedGlyphVertex {
-            position: viewport_to_clip(left, bottom, viewport_width_px, viewport_height_px),
-            uv: [uv_left, uv_bottom],
-            color: instance.foreground,
-            key_index,
-        },
-        EngineRenderTexturedGlyphVertex {
-            position: viewport_to_clip(right, bottom, viewport_width_px, viewport_height_px),
-            uv: [uv_right, uv_bottom],
-            color: instance.foreground,
-            key_index,
-        },
-    ]);
-    indices.extend([base, base + 1, base + 2, base + 1, base + 2, base + 3]);
+        EngineRenderTexturedGlyphQuad {
+            left_px: instance.rect.x as f32,
+            top_px: instance.rect.y as f32,
+            right_px: instance.rect.x.saturating_add(instance.rect.width) as f32,
+            bottom_px: instance.rect.y.saturating_add(instance.rect.height) as f32,
+            uv_left_px: atlas_rect.x,
+            uv_top_px: atlas_rect.y,
+            uv_right_px: atlas_rect.x.saturating_add(atlas_rect.width),
+            uv_bottom_px: atlas_rect.y.saturating_add(atlas_rect.height),
+        }
+    }
 }
 
 fn placeholder_glyph_texture_bytes(
@@ -2455,6 +2499,51 @@ mod tests {
         assert_eq!(upload.vertices[1].uv, [23.0 / 64.0, 0.25]);
         assert_eq!(upload.vertices[2].uv, [0.25, 17.0 / 32.0]);
         assert_eq!(upload.vertices[3].uv, [23.0 / 64.0, 17.0 / 32.0]);
+    }
+
+    #[test]
+    fn textured_glyph_quad_pixels_matches_baseline_bitmap_formula() {
+        let instance = EngineRenderGlyphAtlasInstance {
+            key_index: 0,
+            row: 0,
+            col: 0,
+            cells: 1,
+            rect: RenderRect {
+                x: 10,
+                y: 3,
+                width: 20,
+                height: 12,
+            },
+            x_advance_px: 9,
+            x_offset_px: 1,
+            y_offset_px: 2,
+            foreground: [1.0, 1.0, 1.0, 1.0],
+        };
+        let placement = EngineRenderGlyphAtlasPlacement {
+            key_index: 0,
+            rect: RenderRect {
+                x: 32,
+                y: 48,
+                width: 20,
+                height: 18,
+            },
+            source_width_px: 8,
+            source_height_px: 10,
+            bearing_x_px: -1,
+            bearing_y_px: 7,
+            uses_raster_metrics: true,
+        };
+
+        let quad = textured_glyph_quad_pixels(&instance, &placement);
+
+        assert_eq!(quad.left_px, 9.0);
+        assert_eq!(quad.top_px, 8.0);
+        assert_eq!(quad.right_px, 17.0);
+        assert_eq!(quad.bottom_px, 18.0);
+        assert_eq!(quad.uv_left_px, 32);
+        assert_eq!(quad.uv_top_px, 48);
+        assert_eq!(quad.uv_right_px, 40);
+        assert_eq!(quad.uv_bottom_px, 58);
     }
 
     #[test]
