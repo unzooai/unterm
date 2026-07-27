@@ -345,6 +345,7 @@ struct ScreenState {
     cursor_shape: String,
     column_132_mode: bool,
     auto_wrap: bool,
+    reverse_video: bool,
     application_cursor_keys: bool,
     application_keypad: bool,
     focus_event_reporting: bool,
@@ -1811,6 +1812,7 @@ impl NextCoreScreen {
             cursor_shape: self.cursor_shape.clone(),
             column_132_mode: self.column_132_mode,
             auto_wrap: self.auto_wrap,
+            reverse_video: self.reverse_video,
             application_cursor_keys: self.application_cursor_keys,
             application_keypad: self.application_keypad,
             focus_event_reporting: self.focus_event_reporting,
@@ -1847,6 +1849,7 @@ impl NextCoreScreen {
         self.cursor_shape = "Default".to_string();
         self.cursor_blinking = true;
         self.auto_wrap = true;
+        self.reverse_video = false;
         self.application_cursor_keys = false;
         self.application_keypad = false;
         self.focus_event_reporting = false;
@@ -1901,6 +1904,7 @@ impl NextCoreScreen {
         self.cursor_shape = main.cursor_shape;
         self.column_132_mode = main.column_132_mode;
         self.auto_wrap = main.auto_wrap;
+        self.reverse_video = main.reverse_video;
         self.application_cursor_keys = main.application_cursor_keys;
         self.application_keypad = main.application_keypad;
         self.focus_event_reporting = main.focus_event_reporting;
@@ -6630,6 +6634,26 @@ mod tests {
         assert!(cells[1].style.inverse);
         assert!(!cells[2].style.inverse);
         assert!(!cells[3].style.inverse);
+
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_keeps_reverse_video_isolated_across_alternate_screen() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let mut screen = NextCoreScreen::new(80, 3);
+
+        screen.feed("\x1b[?5hM\x1b[?1049hA");
+        assert_eq!(screen.snapshot_viewport_lines(), vec!["A"]);
+        let styled = screen.styled_viewport_lines(0);
+        assert!(!styled[0].cells[0].style.inverse);
+
+        screen.feed("\x1b[?5hB\x1b[?1049lC");
+        assert_eq!(screen.snapshot_viewport_lines(), vec!["MC"]);
+        let styled = screen.styled_viewport_lines(0);
+        assert!(styled[0].cells[0].style.inverse);
+        assert!(styled[0].cells[1].style.inverse);
 
         Ok(())
     }
