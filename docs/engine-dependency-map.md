@@ -68,6 +68,7 @@ Current covered operations:
 - GUI `EngineWgpuRenderPassPlan` fixes the minimal indexed draw-pass contract for next-core buffers, so command encoder integration can draw submitted frames without letting the renderer infer revision or skip semantics
 - GUI `EngineWgpuPipelineConfig` and the next-core GPU vertex layout fix the first shader/pipeline ABI for solid-color background/text/cursor quads, with viewport-to-clip conversion kept outside `unterm-engine`
 - GUI `WebGpuState` now owns a cached next-core solid-quad backend and render pipeline alongside the legacy pipeline, so future next-core pane drawing can reuse device lifetime instead of creating GPU state per frame
+- GUI `WebGpuState::encode_next_core_upload` joins prepared next-core GPU upload plans to the cached pipeline, turning uploaded buffers into an encoded render pass without changing the legacy draw loop yet
 - engine readiness and next-core aggregate I/O health counters
 - next-core terminal status, cursor-position, DEC private cursor-position, text-area-size, headless window-pixel-size, mode-report, and primary/secondary device-attribute query responses, including parameterized DA forms, through the PTY writer in input order
 
