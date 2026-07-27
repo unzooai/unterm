@@ -277,6 +277,7 @@ next-core 已经在 screen/parser 方向具备基础能力，包括：
 - `next_core/screen_state.rs` 已拆出 alternate-screen snapshot 和 mouse/mode tracking 状态，为后续 screen model 独立模块化铺路
 - `next_core/terminal_queries.rs` 已拆出 DA/DSR/DECRQM/XTWINOPS 响应和 split-chunk pending buffer，终端协议查询兼容性不再埋在 session engine 主体里
 - `next_core/recording_text.rs` 已拆出 recording markdown 的 ANSI 清洗、secret token redaction 和 YAML 数组格式化，让录制安全导出逻辑可以独立测试，不再和 PTY/session 生命周期混在一起
+- `next_core/process_tree.rs` 已拆出 root/foreground process snapshot 和已知 agent 检测，让 Codex/Claude activity 诊断从 session 生命周期中分离，后续可独立加缓存或后台扫描，避免进入输入、滚动、渲染热路径
 - `TerminalParser` 已成为 screen 的显式 parser 边界，`next_core/parser_state.rs` 存放 parser 状态枚举，为后续替换成 `vte` parser/perform 边界降低耦合
 
 ## 9. 开源参考
