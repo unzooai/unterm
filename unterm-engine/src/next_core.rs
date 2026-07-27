@@ -6245,6 +6245,56 @@ mod tests {
     }
 
     #[test]
+    fn render_frames_mark_cursor_only_moves_dirty() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 12,
+            rows: 4,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+        let screen_handle = {
+            let state = state().read();
+            Arc::clone(
+                &state
+                    .sessions
+                    .iter()
+                    .find(|candidate| candidate.snapshot.id == session.id)
+                    .expect("session exists")
+                    .screen,
+            )
+        };
+
+        screen_handle.lock().feed("cursor");
+        let baseline = engine.read_render_frame(session.id, None)?;
+        assert_eq!(baseline.cursor.x, 6);
+
+        screen_handle.lock().feed("\x1b[2D");
+        let delta = engine.read_render_frame(session.id, Some(baseline.revision))?;
+        assert!(!delta.full);
+        assert_eq!(delta.dirty_rows, Some(DirtyRows { start: 0, end: 0 }));
+        assert_eq!(delta.cursor.x, 4);
+        assert_eq!(delta.lines.len(), 1);
+        assert_eq!(delta.lines[0].row, 0);
+        assert_eq!(delta.lines[0].cells.len(), 12);
+        assert_eq!(
+            delta.lines[0]
+                .cells
+                .iter()
+                .map(|cell| cell.ch)
+                .collect::<String>(),
+            "cursor      "
+        );
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
     fn screen_buffer_wraps_text_at_configured_columns() -> Result<()> {
         let _guard = test_guard();
         reset_state_for_test();
