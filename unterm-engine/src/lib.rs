@@ -871,6 +871,11 @@ pub struct EngineLifecycleHealthSnapshot {
 pub struct EngineRuntimeQueueHealthSnapshot {
     pub pending_commands: usize,
     pub pending_input_bytes: usize,
+    pub pending_lifecycle_commands: usize,
+    pub pending_input_commands: usize,
+    pub pending_render_commands: usize,
+    pub pending_screen_commands: usize,
+    pub pending_background_commands: usize,
     pub rejected_commands: u64,
     pub rejected_input_bytes: u64,
 }

@@ -1,40 +1,34 @@
-use super::{command::RuntimeCommand, queue::RuntimeQueueRejection, with_current_mut};
+use super::{
+    command::{RuntimeCommand, RuntimeCommandLane},
+    queue::{RuntimeQueueRejection, RuntimeQueuedCommand},
+    with_current_mut,
+};
 use anyhow::{anyhow, Result};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(in crate::next_core) enum RuntimeConsumerLane {
-    Input,
-    Render,
-    Screen,
-}
-
-impl RuntimeConsumerLane {
-    fn label(self) -> &'static str {
-        match self {
-            Self::Input => "input",
-            Self::Render => "render",
-            Self::Screen => "screen",
-        }
-    }
-}
-
-pub(in crate::next_core) fn consume_sync(
-    command: RuntimeCommand,
-    lane: RuntimeConsumerLane,
-) -> Result<RuntimeCommand> {
+pub(in crate::next_core) fn consume_sync(command: RuntimeCommand) -> Result<RuntimeCommand> {
+    let lane = command.lane();
     enqueue(command).map_err(|err| rejected_error(lane, err))?;
-    dequeue().ok_or_else(|| anyhow!("runtime {} queue lost enqueued command", lane.label()))
+    let queued =
+        dequeue().ok_or_else(|| anyhow!("runtime {} queue lost enqueued command", lane.label()))?;
+    if queued.lane != lane {
+        return Err(anyhow!(
+            "runtime {} queue dequeued {} command",
+            lane.label(),
+            queued.lane.label()
+        ));
+    }
+    Ok(queued.command)
 }
 
 fn enqueue(command: RuntimeCommand) -> Result<(), RuntimeQueueRejection> {
     with_current_mut(|state| state.command_queue.enqueue(command))
 }
 
-fn dequeue() -> Option<RuntimeCommand> {
+fn dequeue() -> Option<RuntimeQueuedCommand> {
     with_current_mut(|state| state.command_queue.dequeue())
 }
 
-fn rejected_error(lane: RuntimeConsumerLane, err: RuntimeQueueRejection) -> anyhow::Error {
+fn rejected_error(lane: RuntimeCommandLane, err: RuntimeQueueRejection) -> anyhow::Error {
     anyhow!("runtime {} queue rejected command: {err:?}", lane.label())
 }
 
@@ -49,11 +43,8 @@ mod tests {
     fn consume_sync_drains_enqueued_command() {
         test_facade::reset();
 
-        let command = consume_sync(
-            RuntimeCommand::ReadScreen { pane_id: 7 },
-            RuntimeConsumerLane::Screen,
-        )
-        .expect("command should enqueue and dequeue");
+        let command = consume_sync(RuntimeCommand::ReadScreen { pane_id: 7 })
+            .expect("command should enqueue and dequeue");
 
         assert_eq!(command.pane_id(), Some(7));
         assert_eq!(
@@ -73,13 +64,10 @@ mod tests {
             });
         });
 
-        let err = consume_sync(
-            RuntimeCommand::ReadRenderFrame {
-                pane_id: 1,
-                since_revision: None,
-            },
-            RuntimeConsumerLane::Render,
-        )
+        let err = consume_sync(RuntimeCommand::ReadRenderFrame {
+            pane_id: 1,
+            since_revision: None,
+        })
         .expect_err("zero command budget should reject");
 
         assert!(err

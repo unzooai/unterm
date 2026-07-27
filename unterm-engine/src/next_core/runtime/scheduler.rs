@@ -1,7 +1,6 @@
 use super::{
     command::{RuntimeCommand, RuntimeCommandClass},
-    consumer::{self, RuntimeConsumerLane},
-    input_executor, screen_executor,
+    consumer, input_executor, screen_executor,
 };
 use crate::{
     CursorSnapshot, RenderFrameSnapshot, ScreenLine, ScreenSearchMatch, ScreenSnapshot,
@@ -17,7 +16,7 @@ pub(in crate::next_core) fn submit_input(command: RuntimeCommand) -> Result<()> 
         );
     }
 
-    let command = consumer::consume_sync(command, RuntimeConsumerLane::Input)?;
+    let command = consumer::consume_sync(command)?;
     input_executor::execute(command)
 }
 
@@ -29,31 +28,31 @@ pub(in crate::next_core) fn read_render_frame(
         pane_id,
         since_revision,
     };
-    let command = consumer::consume_sync(command, RuntimeConsumerLane::Render)?;
+    let command = consumer::consume_sync(command)?;
     screen_executor::execute_render_frame(command)
 }
 
 pub(in crate::next_core) fn scroll_viewport_to(pane_id: usize, target: isize) -> Result<()> {
     let command = RuntimeCommand::ScrollViewport { pane_id, target };
-    let command = consumer::consume_sync(command, RuntimeConsumerLane::Screen)?;
+    let command = consumer::consume_sync(command)?;
     screen_executor::execute_screen_mutation(command)
 }
 
 pub(in crate::next_core) fn read_screen(pane_id: usize) -> Result<ScreenSnapshot> {
     let command = RuntimeCommand::ReadScreen { pane_id };
-    let command = consumer::consume_sync(command, RuntimeConsumerLane::Screen)?;
+    let command = consumer::consume_sync(command)?;
     screen_executor::execute_screen(command)
 }
 
 pub(in crate::next_core) fn read_styled_screen(pane_id: usize) -> Result<StyledScreenSnapshot> {
     let command = RuntimeCommand::ReadStyledScreen { pane_id };
-    let command = consumer::consume_sync(command, RuntimeConsumerLane::Screen)?;
+    let command = consumer::consume_sync(command)?;
     screen_executor::execute_styled_screen(command)
 }
 
 pub(in crate::next_core) fn read_visible_text(pane_id: usize) -> Result<String> {
     let command = RuntimeCommand::ReadVisibleText { pane_id };
-    let command = consumer::consume_sync(command, RuntimeConsumerLane::Screen)?;
+    let command = consumer::consume_sync(command)?;
     screen_executor::execute_visible_text(command)
 }
 
@@ -67,13 +66,13 @@ pub(in crate::next_core) fn read_lines(
         start,
         count,
     };
-    let command = consumer::consume_sync(command, RuntimeConsumerLane::Screen)?;
+    let command = consumer::consume_sync(command)?;
     screen_executor::execute_lines(command)
 }
 
 pub(in crate::next_core) fn read_scrollback(pane_id: usize, limit: usize) -> Result<Vec<String>> {
     let command = RuntimeCommand::ReadScrollback { pane_id, limit };
-    let command = consumer::consume_sync(command, RuntimeConsumerLane::Screen)?;
+    let command = consumer::consume_sync(command)?;
     screen_executor::execute_scrollback(command)
 }
 
@@ -82,7 +81,7 @@ pub(in crate::next_core) fn read_scrollback_text(
     request: ScrollbackTextRequest,
 ) -> Result<ScrollbackTextSnapshot> {
     let command = RuntimeCommand::ReadScrollbackText { pane_id, request };
-    let command = consumer::consume_sync(command, RuntimeConsumerLane::Screen)?;
+    let command = consumer::consume_sync(command)?;
     screen_executor::execute_scrollback_text(command)
 }
 
@@ -91,7 +90,7 @@ pub(in crate::next_core) fn read_styled_scrollback(
     request: ScrollbackTextRequest,
 ) -> Result<StyledScrollbackSnapshot> {
     let command = RuntimeCommand::ReadStyledScrollback { pane_id, request };
-    let command = consumer::consume_sync(command, RuntimeConsumerLane::Screen)?;
+    let command = consumer::consume_sync(command)?;
     screen_executor::execute_styled_scrollback(command)
 }
 
@@ -105,13 +104,13 @@ pub(in crate::next_core) fn search_screen(
         pattern: pattern.to_string(),
         max_results,
     };
-    let command = consumer::consume_sync(command, RuntimeConsumerLane::Screen)?;
+    let command = consumer::consume_sync(command)?;
     screen_executor::execute_search(command)
 }
 
 pub(in crate::next_core) fn cursor(pane_id: usize) -> Result<CursorSnapshot> {
     let command = RuntimeCommand::Cursor { pane_id };
-    let command = consumer::consume_sync(command, RuntimeConsumerLane::Screen)?;
+    let command = consumer::consume_sync(command)?;
     screen_executor::execute_cursor(command)
 }
 
@@ -318,13 +317,10 @@ mod tests {
                 });
         });
 
-        let err = consumer::consume_sync(
-            RuntimeCommand::PasteInput {
-                pane_id: 1,
-                text: "abc".to_string(),
-            },
-            RuntimeConsumerLane::Input,
-        )
+        let err = consumer::consume_sync(RuntimeCommand::PasteInput {
+            pane_id: 1,
+            text: "abc".to_string(),
+        })
         .expect_err("input larger than budget should be rejected");
 
         assert!(err

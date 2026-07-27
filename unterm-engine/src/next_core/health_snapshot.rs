@@ -51,6 +51,11 @@ pub(super) fn snapshot(state: &mut NextCoreRuntime) -> EngineHealthSnapshot {
         runtime_queue: Some(EngineRuntimeQueueHealthSnapshot {
             pending_commands: queue_stats.pending_commands,
             pending_input_bytes: queue_stats.pending_input_bytes,
+            pending_lifecycle_commands: queue_stats.pending_lanes.lifecycle,
+            pending_input_commands: queue_stats.pending_lanes.input,
+            pending_render_commands: queue_stats.pending_lanes.render,
+            pending_screen_commands: queue_stats.pending_lanes.screen,
+            pending_background_commands: queue_stats.pending_lanes.background,
             rejected_commands: queue_stats.rejected_commands,
             rejected_input_bytes: queue_stats.rejected_input_bytes,
         }),
@@ -95,6 +100,9 @@ mod tests {
         assert_eq!(health.lifecycle.expect("lifecycle").live_sessions, 0);
         let queue = health.runtime_queue.expect("runtime queue");
         assert_eq!(queue.pending_commands, 0);
+        assert_eq!(queue.pending_input_commands, 0);
+        assert_eq!(queue.pending_render_commands, 0);
+        assert_eq!(queue.pending_screen_commands, 0);
         assert_eq!(queue.rejected_input_bytes, 0);
     }
 

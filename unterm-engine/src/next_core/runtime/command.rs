@@ -12,6 +12,27 @@ pub(in crate::next_core) enum RuntimeCommandClass {
     Status,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::next_core) enum RuntimeCommandLane {
+    Lifecycle,
+    Input,
+    Render,
+    Screen,
+    Background,
+}
+
+impl RuntimeCommandLane {
+    pub(in crate::next_core) fn label(self) -> &'static str {
+        match self {
+            Self::Lifecycle => "lifecycle",
+            Self::Input => "input",
+            Self::Render => "render",
+            Self::Screen => "screen",
+            Self::Background => "background",
+        }
+    }
+}
+
 #[derive(Debug)]
 pub(in crate::next_core) enum RuntimeCommand {
     CreateSession(Box<CreateSessionRequest>),
@@ -152,6 +173,34 @@ impl RuntimeCommand {
         }
     }
 
+    pub(in crate::next_core) fn lane(&self) -> RuntimeCommandLane {
+        match self {
+            Self::CreateSession(_)
+            | Self::SplitSession(_)
+            | Self::FocusSession { .. }
+            | Self::ResizeSession { .. }
+            | Self::DestroySession { .. } => RuntimeCommandLane::Lifecycle,
+            Self::WriteInput { .. } | Self::PasteInput { .. } => RuntimeCommandLane::Input,
+            Self::ReadRenderFrame { .. } => RuntimeCommandLane::Render,
+            Self::ScrollViewport { .. }
+            | Self::ReadScreen { .. }
+            | Self::ReadStyledScreen { .. }
+            | Self::ReadVisibleText { .. }
+            | Self::ReadLines { .. }
+            | Self::ReadScrollback { .. }
+            | Self::ReadScrollbackText { .. }
+            | Self::ReadStyledScrollback { .. }
+            | Self::SearchScreen { .. }
+            | Self::Cursor { .. } => RuntimeCommandLane::Screen,
+            Self::StartRecording { .. }
+            | Self::StopRecording { .. }
+            | Self::RecordingStatus { .. }
+            | Self::ShellSnapshot { .. }
+            | Self::SessionActivity { .. }
+            | Self::HealthSnapshot => RuntimeCommandLane::Background,
+        }
+    }
+
     pub(in crate::next_core) fn is_write_path(&self) -> bool {
         matches!(
             self,
@@ -216,6 +265,7 @@ mod tests {
         };
 
         assert_eq!(command.class(), RuntimeCommandClass::Input);
+        assert_eq!(command.lane(), RuntimeCommandLane::Input);
         assert_eq!(command.pane_id(), Some(7));
         assert!(command.is_write_path());
         assert!(command.latency_sensitive());
@@ -229,6 +279,7 @@ mod tests {
         };
 
         assert_eq!(command.class(), RuntimeCommandClass::ScreenRead);
+        assert_eq!(command.lane(), RuntimeCommandLane::Render);
         assert_eq!(command.pane_id(), Some(3));
         assert!(!command.is_write_path());
         assert!(command.latency_sensitive());
@@ -244,6 +295,7 @@ mod tests {
         });
 
         assert_eq!(command.class(), RuntimeCommandClass::SessionLifecycle);
+        assert_eq!(command.lane(), RuntimeCommandLane::Lifecycle);
         assert_eq!(command.pane_id(), Some(9));
         assert!(command.is_write_path());
     }
