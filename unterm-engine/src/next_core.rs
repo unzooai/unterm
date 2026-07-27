@@ -1590,9 +1590,9 @@ impl NextCoreScreen {
     }
 }
 
-fn state() -> &'static RwLock<NextCoreRuntime> {
-    static STATE: OnceLock<RwLock<NextCoreRuntime>> = OnceLock::new();
-    STATE.get_or_init(|| RwLock::new(NextCoreRuntime::default()))
+fn runtime() -> &'static RwLock<NextCoreRuntime> {
+    static RUNTIME: OnceLock<RwLock<NextCoreRuntime>> = OnceLock::new();
+    RUNTIME.get_or_init(|| RwLock::new(NextCoreRuntime::default()))
 }
 
 impl NextCoreEngine {

@@ -3,11 +3,11 @@ use crate::SessionSnapshot;
 use anyhow::Result;
 
 pub(super) fn list_current() -> Vec<SessionSnapshot> {
-    session_registry::with_current_state_mut(list)
+    session_registry::with_current_runtime_mut(list)
 }
 
 pub(super) fn get_current(pane_id: usize) -> Result<SessionSnapshot> {
-    session_registry::with_current_state_mut(|state| get(state, pane_id))
+    session_registry::with_current_runtime_mut(|state| get(state, pane_id))
 }
 
 pub(super) fn list(state: &mut NextCoreRuntime) -> Vec<SessionSnapshot> {
@@ -38,7 +38,7 @@ pub(super) fn clone_base(state: &NextCoreRuntime, pane_id: usize) -> Result<Sess
 }
 
 pub(super) fn clone_base_current(pane_id: usize) -> Result<SessionSnapshot> {
-    session_registry::with_current_state(|state| clone_base(state, pane_id))
+    session_registry::with_current_runtime(|state| clone_base(state, pane_id))
 }
 
 fn snapshot(session: &mut NextCoreSession) -> (SessionSnapshot, Option<String>) {

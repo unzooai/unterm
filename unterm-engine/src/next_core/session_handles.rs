@@ -41,7 +41,7 @@ pub(super) fn output(state: &NextCoreRuntime, pane_id: usize) -> Result<Arc<Mute
 }
 
 pub(super) fn output_current(pane_id: usize) -> Result<Arc<Mutex<String>>> {
-    session_registry::with_current_state(|state| output(state, pane_id))
+    session_registry::with_current_runtime(|state| output(state, pane_id))
 }
 
 pub(super) fn screen(
@@ -54,7 +54,7 @@ pub(super) fn screen(
 }
 
 pub(super) fn screen_current(pane_id: usize) -> Result<Arc<Mutex<NextCoreScreen>>> {
-    session_registry::with_current_state(|state| screen(state, pane_id))
+    session_registry::with_current_runtime(|state| screen(state, pane_id))
 }
 
 pub(super) fn activity(
@@ -67,7 +67,7 @@ pub(super) fn activity(
 }
 
 pub(super) fn activity_current(pane_id: usize) -> Result<Arc<Mutex<SessionIoActivity>>> {
-    session_registry::with_current_state(|state| activity(state, pane_id))
+    session_registry::with_current_runtime(|state| activity(state, pane_id))
 }
 
 pub(super) fn screen_activity(
@@ -81,7 +81,7 @@ pub(super) fn screen_activity(
 pub(super) fn screen_activity_current(
     pane_id: usize,
 ) -> Result<(Arc<Mutex<NextCoreScreen>>, Arc<Mutex<SessionIoActivity>>)> {
-    session_registry::with_current_state(|state| screen_activity(state, pane_id))
+    session_registry::with_current_runtime(|state| screen_activity(state, pane_id))
 }
 
 pub(super) fn input(state: &NextCoreRuntime, pane_id: usize) -> Result<InputHandles> {
@@ -96,7 +96,7 @@ pub(super) fn input(state: &NextCoreRuntime, pane_id: usize) -> Result<InputHand
 }
 
 pub(super) fn input_current(pane_id: usize) -> Result<InputHandles> {
-    session_registry::with_current_state(|state| input(state, pane_id))
+    session_registry::with_current_runtime(|state| input(state, pane_id))
 }
 
 pub(super) fn shell(state: &NextCoreRuntime, pane_id: usize) -> Result<ShellHandles> {
@@ -109,7 +109,7 @@ pub(super) fn shell(state: &NextCoreRuntime, pane_id: usize) -> Result<ShellHand
 }
 
 pub(super) fn shell_current(pane_id: usize) -> Result<ShellHandles> {
-    session_registry::with_current_state(|state| shell(state, pane_id))
+    session_registry::with_current_runtime(|state| shell(state, pane_id))
 }
 
 pub(super) fn scrollback(state: &NextCoreRuntime, pane_id: usize) -> Result<ScrollbackHandles> {
@@ -124,7 +124,7 @@ pub(super) fn scrollback(state: &NextCoreRuntime, pane_id: usize) -> Result<Scro
 }
 
 pub(super) fn scrollback_current(pane_id: usize) -> Result<ScrollbackHandles> {
-    session_registry::with_current_state(|state| scrollback(state, pane_id))
+    session_registry::with_current_runtime(|state| scrollback(state, pane_id))
 }
 
 pub(super) fn recording(state: &NextCoreRuntime, pane_id: usize) -> Result<RecordingHandles> {
@@ -136,7 +136,7 @@ pub(super) fn recording(state: &NextCoreRuntime, pane_id: usize) -> Result<Recor
 }
 
 pub(super) fn recording_current(pane_id: usize) -> Result<RecordingHandles> {
-    session_registry::with_current_state(|state| recording(state, pane_id))
+    session_registry::with_current_runtime(|state| recording(state, pane_id))
 }
 
 pub(super) fn recording_optional(
@@ -151,7 +151,7 @@ pub(super) fn recording_optional(
 pub(super) fn recording_optional_current(
     pane_id: usize,
 ) -> Option<Arc<Mutex<Option<NextCoreRecording>>>> {
-    session_registry::with_current_state(|state| recording_optional(state, pane_id))
+    session_registry::with_current_runtime(|state| recording_optional(state, pane_id))
 }
 
 #[cfg(test)]

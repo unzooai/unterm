@@ -4,7 +4,9 @@ use anyhow::Result;
 use std::time::Instant;
 
 pub(super) fn read_current(pane_id: usize) -> Result<SessionActivitySnapshot> {
-    session_registry::with_current_state_mut(|state| read_snapshot(state, pane_id, Instant::now()))
+    session_registry::with_current_runtime_mut(|state| {
+        read_snapshot(state, pane_id, Instant::now())
+    })
 }
 
 pub(super) fn read_snapshot(

@@ -6,12 +6,12 @@ use anyhow::Result;
 use std::{sync::atomic::Ordering, sync::Arc, time::Instant};
 
 pub(super) fn reset_state_for_test() {
-    session_registry::with_current_state_mut(|state| *state = NextCoreRuntime::default());
+    session_registry::with_current_runtime_mut(|state| *state = NextCoreRuntime::default());
 }
 
 pub(super) fn set_output_for_test(pane_id: usize, text: &str) -> Result<()> {
     let (output, screen, recording, activity, cols, rows) =
-        session_registry::with_current_state(|state| {
+        session_registry::with_current_runtime(|state| {
             session_registry::session(state, pane_id).map(|session| {
                 (
                     Arc::clone(&session.output),
@@ -43,7 +43,7 @@ pub(super) fn set_output_for_test(pane_id: usize, text: &str) -> Result<()> {
 }
 
 pub(super) fn mark_dead_for_test(pane_id: usize) -> Result<()> {
-    let (dead, dead_reason) = session_registry::with_current_state(|state| {
+    let (dead, dead_reason) = session_registry::with_current_runtime(|state| {
         session_registry::session(state, pane_id)
             .map(|session| (Arc::clone(&session.dead), Arc::clone(&session.dead_reason)))
     })?;
@@ -54,7 +54,7 @@ pub(super) fn mark_dead_for_test(pane_id: usize) -> Result<()> {
 }
 
 fn make_activity_stale_for_test(pane_id: usize) -> Result<()> {
-    let activity = session_registry::with_current_state(|state| {
+    let activity = session_registry::with_current_runtime(|state| {
         session_registry::session(state, pane_id).map(|session| Arc::clone(&session.activity))
     })?;
 
@@ -63,7 +63,7 @@ fn make_activity_stale_for_test(pane_id: usize) -> Result<()> {
 }
 
 pub(super) fn reset_activity_for_test(pane_id: usize) -> Result<()> {
-    let activity = session_registry::with_current_state(|state| {
+    let activity = session_registry::with_current_runtime(|state| {
         session_registry::session(state, pane_id).map(|session| Arc::clone(&session.activity))
     })?;
 
@@ -72,7 +72,7 @@ pub(super) fn reset_activity_for_test(pane_id: usize) -> Result<()> {
 }
 
 pub(super) fn viewport_attrs_for_test(pane_id: usize) -> Result<Vec<Vec<CellAttributes>>> {
-    let screen = session_registry::with_current_state(|state| {
+    let screen = session_registry::with_current_runtime(|state| {
         session_registry::session(state, pane_id).map(|session| Arc::clone(&session.screen))
     })?;
 
@@ -81,7 +81,7 @@ pub(super) fn viewport_attrs_for_test(pane_id: usize) -> Result<Vec<Vec<CellAttr
 }
 
 pub(super) fn screen_for_test(pane_id: usize) -> Result<Arc<parking_lot::Mutex<NextCoreScreen>>> {
-    session_registry::with_current_state(|state| {
+    session_registry::with_current_runtime(|state| {
         session_registry::session(state, pane_id).map(|session| Arc::clone(&session.screen))
     })
 }

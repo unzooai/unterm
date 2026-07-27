@@ -2,7 +2,7 @@ use super::{activity::SessionIoActivity, lifecycle, session_registry, NextCoreRu
 use crate::{EngineHealthSnapshot, EngineIoHealthSnapshot, EngineLifecycleHealthSnapshot};
 
 pub(super) fn current() -> EngineHealthSnapshot {
-    session_registry::with_current_state_mut(snapshot)
+    session_registry::with_current_runtime_mut(snapshot)
 }
 
 pub(super) fn snapshot(state: &mut NextCoreRuntime) -> EngineHealthSnapshot {

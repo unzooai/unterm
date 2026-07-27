@@ -1,4 +1,4 @@
-use super::{lifecycle, state, NextCoreRuntime, NextCoreSession};
+use super::{lifecycle, runtime, NextCoreRuntime, NextCoreSession};
 use anyhow::{bail, Result};
 
 #[derive(Default)]
@@ -97,7 +97,7 @@ pub(super) fn next_session_id(state: &mut NextCoreRuntime) -> usize {
 }
 
 pub(super) fn next_session_id_current() -> usize {
-    let mut state = state().write();
+    let mut state = runtime().write();
     next_session_id(&mut state)
 }
 
@@ -114,13 +114,13 @@ pub(super) fn for_each_session_mut(
     }
 }
 
-pub(super) fn with_current_state<T>(visit: impl FnOnce(&NextCoreRuntime) -> T) -> T {
-    let state = state().read();
+pub(super) fn with_current_runtime<T>(visit: impl FnOnce(&NextCoreRuntime) -> T) -> T {
+    let state = runtime().read();
     visit(&state)
 }
 
-pub(super) fn with_current_state_mut<T>(visit: impl FnOnce(&mut NextCoreRuntime) -> T) -> T {
-    let mut state = state().write();
+pub(super) fn with_current_runtime_mut<T>(visit: impl FnOnce(&mut NextCoreRuntime) -> T) -> T {
+    let mut state = runtime().write();
     visit(&mut state)
 }
 
@@ -128,7 +128,7 @@ pub(super) fn with_session_mut_current<T>(
     pane_id: usize,
     visit: impl FnOnce(&mut NextCoreSession) -> Result<T>,
 ) -> Result<T> {
-    with_current_state_mut(|state| visit(session_mut(state, pane_id)?))
+    with_current_runtime_mut(|state| visit(session_mut(state, pane_id)?))
 }
 
 pub(super) fn set_active(state: &mut NextCoreRuntime, pane_id: usize) {
@@ -163,7 +163,7 @@ pub(super) fn focus(state: &mut NextCoreRuntime, pane_id: usize) -> Result<()> {
 }
 
 pub(super) fn focus_current(pane_id: usize) -> Result<()> {
-    let mut state = state().write();
+    let mut state = runtime().write();
     focus(&mut state, pane_id)
 }
 
@@ -174,7 +174,7 @@ pub(super) fn insert_created(state: &mut NextCoreRuntime, session: NextCoreSessi
 }
 
 pub(super) fn insert_created_current(session: NextCoreSession) {
-    let mut state = state().write();
+    let mut state = runtime().write();
     insert_created(&mut state, session);
 }
 
@@ -202,7 +202,7 @@ pub(super) fn destroy(state: &mut NextCoreRuntime, pane_id: usize) -> Result<()>
 }
 
 pub(super) fn destroy_current(pane_id: usize) -> Result<()> {
-    let mut state = state().write();
+    let mut state = runtime().write();
     destroy(&mut state, pane_id)
 }
 
@@ -263,19 +263,19 @@ mod tests {
     }
 
     #[test]
-    fn with_current_state_visits_registry_state() {
+    fn with_current_runtime_visits_registry_state() {
         crate::next_core::test_support::reset_state_for_test();
 
-        let pane_count = with_current_state(pane_count);
+        let pane_count = with_current_runtime(pane_count);
 
         assert_eq!(pane_count, 0);
     }
 
     #[test]
-    fn with_current_state_mut_visits_registry_state() {
+    fn with_current_runtime_mut_visits_registry_state() {
         crate::next_core::test_support::reset_state_for_test();
 
-        let id = with_current_state_mut(next_session_id);
+        let id = with_current_runtime_mut(next_session_id);
 
         assert_eq!(id, 1);
     }
