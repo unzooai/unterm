@@ -1,5 +1,8 @@
 use super::{activity::SessionIoActivity, lifecycle, runtime::NextCoreRuntime, session_registry};
-use crate::{EngineHealthSnapshot, EngineIoHealthSnapshot, EngineLifecycleHealthSnapshot};
+use crate::{
+    EngineHealthSnapshot, EngineIoHealthSnapshot, EngineLifecycleHealthSnapshot,
+    EngineRuntimeQueueHealthSnapshot,
+};
 
 pub(super) fn snapshot(state: &mut NextCoreRuntime) -> EngineHealthSnapshot {
     let pane_count = session_registry::pane_count(state);
@@ -28,6 +31,7 @@ pub(super) fn snapshot(state: &mut NextCoreRuntime) -> EngineHealthSnapshot {
         lifecycle::record_dead_reason(state, reason);
     }
     let stats = session_registry::stats(state);
+    let queue_stats = state.command_queue.stats();
     let lifecycle = EngineLifecycleHealthSnapshot {
         live_sessions: pane_count.saturating_sub(dead_sessions as usize) as u64,
         dead_sessions,
@@ -44,6 +48,12 @@ pub(super) fn snapshot(state: &mut NextCoreRuntime) -> EngineHealthSnapshot {
         pane_count: Some(pane_count),
         io: Some(io),
         lifecycle: Some(lifecycle),
+        runtime_queue: Some(EngineRuntimeQueueHealthSnapshot {
+            pending_commands: queue_stats.pending_commands,
+            pending_input_bytes: queue_stats.pending_input_bytes,
+            rejected_commands: queue_stats.rejected_commands,
+            rejected_input_bytes: queue_stats.rejected_input_bytes,
+        }),
     }
 }
 
@@ -83,6 +93,9 @@ mod tests {
         assert!(health.ready);
         assert_eq!(health.pane_count, Some(0));
         assert_eq!(health.lifecycle.expect("lifecycle").live_sessions, 0);
+        let queue = health.runtime_queue.expect("runtime queue");
+        assert_eq!(queue.pending_commands, 0);
+        assert_eq!(queue.rejected_input_bytes, 0);
     }
 
     #[test]

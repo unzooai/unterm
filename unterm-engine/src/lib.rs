@@ -868,6 +868,14 @@ pub struct EngineLifecycleHealthSnapshot {
 }
 
 #[derive(Clone, Debug, Serialize)]
+pub struct EngineRuntimeQueueHealthSnapshot {
+    pub pending_commands: usize,
+    pub pending_input_bytes: usize,
+    pub rejected_commands: u64,
+    pub rejected_input_bytes: u64,
+}
+
+#[derive(Clone, Debug, Serialize)]
 pub struct EngineHealthSnapshot {
     pub engine: String,
     pub ready: bool,
@@ -876,6 +884,7 @@ pub struct EngineHealthSnapshot {
     pub pane_count: Option<usize>,
     pub io: Option<EngineIoHealthSnapshot>,
     pub lifecycle: Option<EngineLifecycleHealthSnapshot>,
+    pub runtime_queue: Option<EngineRuntimeQueueHealthSnapshot>,
 }
 
 #[derive(Clone, Copy, Debug)]

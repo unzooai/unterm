@@ -1,5 +1,5 @@
 use super::super::screen_dispatch;
-use super::{command::RuntimeCommand, input_executor};
+use super::{command::RuntimeCommand, scheduler};
 use crate::{
     CursorSnapshot, RenderFrameSnapshot, ScreenLine, ScreenSearchMatch, ScreenSnapshot,
     ScrollbackTextRequest, ScrollbackTextSnapshot, StyledScreenSnapshot, StyledScrollbackSnapshot,
@@ -68,14 +68,14 @@ pub(in crate::next_core) fn cursor(pane_id: usize) -> Result<CursorSnapshot> {
 }
 
 pub(in crate::next_core) fn write_input(pane_id: usize, input: &str) -> Result<()> {
-    input_executor::execute(RuntimeCommand::WriteInput {
+    scheduler::submit_input(RuntimeCommand::WriteInput {
         pane_id,
         text: input.to_string(),
     })
 }
 
 pub(in crate::next_core) fn paste_input(pane_id: usize, text: &str) -> Result<()> {
-    input_executor::execute(RuntimeCommand::PasteInput {
+    scheduler::submit_input(RuntimeCommand::PasteInput {
         pane_id,
         text: text.to_string(),
     })

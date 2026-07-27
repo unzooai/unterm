@@ -90,6 +90,12 @@ impl RuntimeCommandQueue {
     }
 }
 
+impl Default for RuntimeCommandQueue {
+    fn default() -> Self {
+        Self::new(RuntimeQueuePolicy::default())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

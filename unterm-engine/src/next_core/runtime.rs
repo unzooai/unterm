@@ -7,6 +7,7 @@ mod input_executor;
 mod io_facade;
 pub(in crate::next_core) mod queue;
 mod recording_facade;
+mod scheduler;
 mod session_facade;
 mod status_facade;
 #[cfg(test)]
@@ -29,6 +30,7 @@ pub(super) use status_facade::{health_snapshot, output, session_activity, shell_
 
 #[derive(Default)]
 pub(super) struct NextCoreRuntime {
+    pub(super) command_queue: queue::RuntimeCommandQueue,
     pub(super) registry: session_registry::SessionRegistry,
 }
 
