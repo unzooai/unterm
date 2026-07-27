@@ -1,6 +1,7 @@
 use crate::engine::render_backend::EngineWgpuPreparedFrameDiagnostics;
 use crate::engine::{
-    EngineRenderBufferPlan, EngineRenderFontGlyphRasterSource, EngineRenderGlyphAtlasCache,
+    EngineRenderBufferPlan, EngineRenderCachedGlyphUploadDiagnostics,
+    EngineRenderFontGlyphRasterSource, EngineRenderGlyphAtlasCache,
     EngineRenderGlyphAtlasCacheUpdate, EngineRenderGlyphAtlasPlan,
     EngineRenderGlyphAtlasTextureRegion, EngineRenderGlyphAtlasTextureUpdatePlan,
     EngineRenderGlyphRasterSource, EngineRenderGpuUploadPlan, EngineRenderTextAtlasPlan,
@@ -94,89 +95,16 @@ pub struct NextCoreCachedGlyphUpload {
     pub upload: EngineRenderTexturedGlyphUploadPlan,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-#[allow(dead_code)]
-pub struct NextCoreCachedGlyphUploadDiagnostics {
-    pub pane_id: usize,
-    pub submitted: bool,
-    pub revision: u64,
-    pub cell_width_px: usize,
-    pub cell_height_px: usize,
-    pub inserted_key_count: usize,
-    pub overflow_key_count: usize,
-    pub texture_region_count: usize,
-    pub texture_missing_key_count: usize,
-    pub layout_entry_count: usize,
-    pub layout_missing_key_count: usize,
-    pub vertex_count: usize,
-    pub index_count: usize,
-    pub draw_ready: bool,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[allow(dead_code)]
-pub enum NextCoreCachedGlyphUploadReadinessIssue {
-    NotSubmitted,
-    EmptyUpload,
-    OverflowKeys,
-    TextureMissingKeys,
-    LayoutMissingKeys,
-    NotDrawReady,
-}
-
-#[allow(dead_code)]
-impl NextCoreCachedGlyphUploadDiagnostics {
-    pub fn readiness_issues(&self) -> Vec<NextCoreCachedGlyphUploadReadinessIssue> {
-        let mut issues = Vec::new();
-        if !self.submitted {
-            issues.push(NextCoreCachedGlyphUploadReadinessIssue::NotSubmitted);
-        }
-        if self.vertex_count == 0 || self.index_count == 0 || self.layout_entry_count == 0 {
-            issues.push(NextCoreCachedGlyphUploadReadinessIssue::EmptyUpload);
-        }
-        if self.overflow_key_count > 0 {
-            issues.push(NextCoreCachedGlyphUploadReadinessIssue::OverflowKeys);
-        }
-        if self.texture_missing_key_count > 0 {
-            issues.push(NextCoreCachedGlyphUploadReadinessIssue::TextureMissingKeys);
-        }
-        if self.layout_missing_key_count > 0 {
-            issues.push(NextCoreCachedGlyphUploadReadinessIssue::LayoutMissingKeys);
-        }
-        if !self.draw_ready {
-            issues.push(NextCoreCachedGlyphUploadReadinessIssue::NotDrawReady);
-        }
-        issues
-    }
-
-    pub fn is_ready(&self) -> bool {
-        self.readiness_issues().is_empty()
-    }
-}
-
 #[allow(dead_code)]
 impl NextCoreCachedGlyphUpload {
-    pub fn diagnostics(&self) -> NextCoreCachedGlyphUploadDiagnostics {
-        NextCoreCachedGlyphUploadDiagnostics {
-            pane_id: self.pane_id,
-            submitted: self.upload.submitted,
-            revision: self.revision,
-            cell_width_px: self.cell_width_px,
-            cell_height_px: self.cell_height_px,
-            inserted_key_count: self.update.inserted_key_indices.len(),
-            overflow_key_count: self.update.overflow_key_indices.len(),
-            texture_region_count: self.texture_update.regions.len(),
-            texture_missing_key_count: self.texture_update.missing_key_indices.len(),
-            layout_entry_count: self.upload.layout.entries.len(),
-            layout_missing_key_count: self.upload.layout.missing_key_indices.len(),
-            vertex_count: self.upload.vertices.len(),
-            index_count: self.upload.indices.len(),
-            draw_ready: self.upload.submitted
-                && !self.upload.is_empty()
-                && self.update.overflow_key_indices.is_empty()
-                && self.texture_update.missing_key_indices.is_empty()
-                && self.upload.missing_key_indices.is_empty(),
-        }
+    pub fn diagnostics(&self) -> EngineRenderCachedGlyphUploadDiagnostics {
+        EngineRenderCachedGlyphUploadDiagnostics::from_parts(
+            self.cell_width_px,
+            self.cell_height_px,
+            &self.update,
+            &self.texture_update,
+            &self.upload,
+        )
     }
 
     pub fn diff_layout_against(
@@ -1528,7 +1456,7 @@ mod tests {
 
         assert_eq!(
             diagnostics,
-            NextCoreCachedGlyphUploadDiagnostics {
+            EngineRenderCachedGlyphUploadDiagnostics {
                 pane_id: 14,
                 submitted: true,
                 revision: 1,
@@ -1571,12 +1499,12 @@ mod tests {
         assert_eq!(
             diagnostics.readiness_issues(),
             vec![
-                NextCoreCachedGlyphUploadReadinessIssue::NotSubmitted,
-                NextCoreCachedGlyphUploadReadinessIssue::EmptyUpload,
-                NextCoreCachedGlyphUploadReadinessIssue::OverflowKeys,
-                NextCoreCachedGlyphUploadReadinessIssue::TextureMissingKeys,
-                NextCoreCachedGlyphUploadReadinessIssue::LayoutMissingKeys,
-                NextCoreCachedGlyphUploadReadinessIssue::NotDrawReady,
+                crate::engine::EngineRenderCachedGlyphUploadReadinessIssue::NotSubmitted,
+                crate::engine::EngineRenderCachedGlyphUploadReadinessIssue::EmptyUpload,
+                crate::engine::EngineRenderCachedGlyphUploadReadinessIssue::OverflowKeys,
+                crate::engine::EngineRenderCachedGlyphUploadReadinessIssue::TextureMissingKeys,
+                crate::engine::EngineRenderCachedGlyphUploadReadinessIssue::LayoutMissingKeys,
+                crate::engine::EngineRenderCachedGlyphUploadReadinessIssue::NotDrawReady,
             ]
         );
     }

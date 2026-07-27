@@ -240,6 +240,7 @@ next-core 已经在 screen/parser 方向具备基础能力，包括：
 - GUI textured glyph upload 已携带 layout report，逐 glyph 暴露 source rect、atlas rect、pixel/UV quad、shaping offset、bearing、前景色和缺失 placement key；后续 next-core/legacy 视觉差异工具可以直接比较 glyph layout，不需要反解 GPU vertices
 - GUI textured glyph layout report 已提供 CPU 侧 diff summary，能报告缺失、多余和布局不一致的 glyph entries；pane 替换路径在进入截图级视觉对比前，先具备自动化 glyph layout parity gate
 - GUI prepared frame plan 已暴露 textured glyph layout report/diff helpers；后续 parity check 可以直接从 pane replacement renderer 将要消费的同一个 frame-preparation object 运行
+- `EngineRenderCachedGlyphUploadDiagnostics` 已移动到 engine facade 后的共享边界；cached glyph texture/upload readiness 后续可以进入 pane replacement gate 和 CI 检查，而不依赖 WebGPU window 私有类型
 - GUI cached next-core glyph upload 已在 pane 级 atlas-cache 输出上暴露 layout parity helpers；后续 append/replace draw modes 可以 gate 实际 cached texture-upload path，而不是只比较 pre-cache frame plan
 - GUI cached next-core glyph upload diagnostics 已包含 layout entry/missing 计数和 draw readiness；真实 WebGPU draw path 会把这些字段连同 texture/cache upload stats 一起写入 trace 日志
 - GUI cached next-core glyph upload diagnostics 已暴露结构化 readiness issues，覆盖 not-submitted、empty upload、overflow keys、texture/layout missing keys 和 not-draw-ready 状态；未来 pane replacement gate 可以消费稳定结构，而不是解析日志

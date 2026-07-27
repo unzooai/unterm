@@ -15,7 +15,8 @@ use window::WindowOps;
 #[allow(unused_imports)]
 pub use render_backend::{
     CommandListRenderBackend, EngineRenderBackend, EngineRenderBackendCommand,
-    EngineRenderBackendFrame, EngineRenderBufferPlan, EngineRenderDeterministicGlyphRasterSource,
+    EngineRenderBackendFrame, EngineRenderBufferPlan, EngineRenderCachedGlyphUploadDiagnostics,
+    EngineRenderCachedGlyphUploadReadinessIssue, EngineRenderDeterministicGlyphRasterSource,
     EngineRenderFontGlyphRasterSource, EngineRenderGlyphAtlasCache,
     EngineRenderGlyphAtlasCacheUpdate, EngineRenderGlyphAtlasInstance, EngineRenderGlyphAtlasKey,
     EngineRenderGlyphAtlasPlacement, EngineRenderGlyphAtlasPlan,

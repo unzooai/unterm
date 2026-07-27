@@ -562,6 +562,36 @@ pub struct EngineRenderTexturedGlyphUploadPlan {
     pub missing_key_indices: Vec<usize>,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[allow(dead_code)]
+pub struct EngineRenderCachedGlyphUploadDiagnostics {
+    pub pane_id: usize,
+    pub submitted: bool,
+    pub revision: u64,
+    pub cell_width_px: usize,
+    pub cell_height_px: usize,
+    pub inserted_key_count: usize,
+    pub overflow_key_count: usize,
+    pub texture_region_count: usize,
+    pub texture_missing_key_count: usize,
+    pub layout_entry_count: usize,
+    pub layout_missing_key_count: usize,
+    pub vertex_count: usize,
+    pub index_count: usize,
+    pub draw_ready: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
+pub enum EngineRenderCachedGlyphUploadReadinessIssue {
+    NotSubmitted,
+    EmptyUpload,
+    OverflowKeys,
+    TextureMissingKeys,
+    LayoutMissingKeys,
+    NotDrawReady,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[allow(dead_code)]
 pub struct EngineRenderGlyphAtlasCache {
@@ -1810,6 +1840,65 @@ impl EngineRenderTexturedGlyphUploadPlan {
 
     pub fn is_empty(&self) -> bool {
         self.vertices.is_empty() || self.indices.is_empty()
+    }
+}
+
+#[allow(dead_code)]
+impl EngineRenderCachedGlyphUploadDiagnostics {
+    pub fn from_parts(
+        cell_width_px: usize,
+        cell_height_px: usize,
+        update: &EngineRenderGlyphAtlasCacheUpdate,
+        texture_update: &EngineRenderGlyphAtlasTextureUpdatePlan,
+        upload: &EngineRenderTexturedGlyphUploadPlan,
+    ) -> Self {
+        Self {
+            pane_id: upload.pane_id,
+            submitted: upload.submitted,
+            revision: upload.revision,
+            cell_width_px,
+            cell_height_px,
+            inserted_key_count: update.inserted_key_indices.len(),
+            overflow_key_count: update.overflow_key_indices.len(),
+            texture_region_count: texture_update.regions.len(),
+            texture_missing_key_count: texture_update.missing_key_indices.len(),
+            layout_entry_count: upload.layout.entries.len(),
+            layout_missing_key_count: upload.layout.missing_key_indices.len(),
+            vertex_count: upload.vertices.len(),
+            index_count: upload.indices.len(),
+            draw_ready: upload.submitted
+                && !upload.is_empty()
+                && update.overflow_key_indices.is_empty()
+                && texture_update.missing_key_indices.is_empty()
+                && upload.missing_key_indices.is_empty(),
+        }
+    }
+
+    pub fn readiness_issues(&self) -> Vec<EngineRenderCachedGlyphUploadReadinessIssue> {
+        let mut issues = Vec::new();
+        if !self.submitted {
+            issues.push(EngineRenderCachedGlyphUploadReadinessIssue::NotSubmitted);
+        }
+        if self.vertex_count == 0 || self.index_count == 0 || self.layout_entry_count == 0 {
+            issues.push(EngineRenderCachedGlyphUploadReadinessIssue::EmptyUpload);
+        }
+        if self.overflow_key_count > 0 {
+            issues.push(EngineRenderCachedGlyphUploadReadinessIssue::OverflowKeys);
+        }
+        if self.texture_missing_key_count > 0 {
+            issues.push(EngineRenderCachedGlyphUploadReadinessIssue::TextureMissingKeys);
+        }
+        if self.layout_missing_key_count > 0 {
+            issues.push(EngineRenderCachedGlyphUploadReadinessIssue::LayoutMissingKeys);
+        }
+        if !self.draw_ready {
+            issues.push(EngineRenderCachedGlyphUploadReadinessIssue::NotDrawReady);
+        }
+        issues
+    }
+
+    pub fn is_ready(&self) -> bool {
+        self.readiness_issues().is_empty()
     }
 }
 
