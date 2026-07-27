@@ -13,6 +13,16 @@ pub(in crate::next_core) struct RuntimeQueueLaneStats {
 }
 
 impl RuntimeQueueLaneStats {
+    pub(in crate::next_core) fn count(self, lane: RuntimeCommandLane) -> usize {
+        match lane {
+            RuntimeCommandLane::Lifecycle => self.lifecycle,
+            RuntimeCommandLane::Input => self.input,
+            RuntimeCommandLane::Render => self.render,
+            RuntimeCommandLane::Screen => self.screen,
+            RuntimeCommandLane::Background => self.background,
+        }
+    }
+
     fn increment(&mut self, lane: RuntimeCommandLane) {
         *self.count_mut(lane) += 1;
     }
@@ -136,21 +146,6 @@ impl RuntimeCommandQueue {
         let queued = self.pending.remove(index)?;
         self.release(&queued);
         Some(queued)
-    }
-
-    pub(in crate::next_core) fn dequeue_scheduled(&mut self) -> Option<RuntimeQueuedCommand> {
-        for lane in [
-            RuntimeCommandLane::Input,
-            RuntimeCommandLane::Lifecycle,
-            RuntimeCommandLane::Render,
-            RuntimeCommandLane::Screen,
-            RuntimeCommandLane::Background,
-        ] {
-            if let Some(queued) = self.dequeue_lane(lane) {
-                return Some(queued);
-            }
-        }
-        None
     }
 
     fn release(&mut self, queued: &RuntimeQueuedCommand) {
@@ -341,34 +336,5 @@ mod tests {
 
         let screen = queue.dequeue().expect("screen command remains queued");
         assert_eq!(screen.lane, RuntimeCommandLane::Screen);
-    }
-
-    #[test]
-    fn dequeue_scheduled_prefers_input_over_older_screen_reads() {
-        let mut queue = RuntimeCommandQueue::new(RuntimeQueuePolicy {
-            max_pending_commands: 4,
-            max_pending_input_bytes: 8,
-            max_render_wakeups_per_second: 120,
-        });
-
-        queue
-            .enqueue(RuntimeCommand::ReadScreen { pane_id: 1 })
-            .unwrap();
-        queue
-            .enqueue(RuntimeCommand::WriteInput {
-                pane_id: 1,
-                text: "x".to_string(),
-            })
-            .unwrap();
-
-        let first = queue
-            .dequeue_scheduled()
-            .expect("scheduler should choose queued command");
-        assert_eq!(first.lane, RuntimeCommandLane::Input);
-
-        let second = queue
-            .dequeue_scheduled()
-            .expect("scheduler should keep older screen command");
-        assert_eq!(second.lane, RuntimeCommandLane::Screen);
     }
 }
