@@ -295,6 +295,7 @@ struct NextCoreScreen {
     auto_wrap: bool,
     reverse_video: bool,
     application_cursor_keys: bool,
+    application_keypad: bool,
     focus_event_reporting: bool,
     mouse_tracking: MouseTrackingMode,
     sgr_mouse: bool,
@@ -327,6 +328,7 @@ struct ScreenState {
     cursor_shape: String,
     auto_wrap: bool,
     application_cursor_keys: bool,
+    application_keypad: bool,
     focus_event_reporting: bool,
     mouse_tracking: MouseTrackingMode,
     sgr_mouse: bool,
@@ -995,6 +997,7 @@ impl NextCoreScreen {
         self.auto_wrap = true;
         self.reverse_video = false;
         self.application_cursor_keys = false;
+        self.application_keypad = false;
         self.focus_event_reporting = false;
         self.mouse_tracking = MouseTrackingMode::None;
         self.sgr_mouse = false;
@@ -1552,6 +1555,7 @@ impl NextCoreScreen {
             cursor_shape: self.cursor_shape.clone(),
             auto_wrap: self.auto_wrap,
             application_cursor_keys: self.application_cursor_keys,
+            application_keypad: self.application_keypad,
             focus_event_reporting: self.focus_event_reporting,
             mouse_tracking: self.mouse_tracking,
             sgr_mouse: self.sgr_mouse,
@@ -1573,6 +1577,7 @@ impl NextCoreScreen {
         self.cursor_shape = "Default".to_string();
         self.auto_wrap = true;
         self.application_cursor_keys = false;
+        self.application_keypad = false;
         self.focus_event_reporting = false;
         self.mouse_tracking = MouseTrackingMode::None;
         self.sgr_mouse = false;
@@ -1599,6 +1604,7 @@ impl NextCoreScreen {
             self.cursor_shape = main.cursor_shape;
             self.auto_wrap = main.auto_wrap;
             self.application_cursor_keys = main.application_cursor_keys;
+            self.application_keypad = main.application_keypad;
             self.focus_event_reporting = main.focus_event_reporting;
             self.mouse_tracking = main.mouse_tracking;
             self.sgr_mouse = main.sgr_mouse;
@@ -1676,6 +1682,14 @@ impl<'a> ScreenParser<'a> {
             ParserState::Escape => match c {
                 '[' => self.state = ParserState::Csi(String::new()),
                 ']' => self.state = ParserState::Osc(String::new()),
+                '=' => {
+                    self.screen.application_keypad = true;
+                    self.state = ParserState::Ground;
+                }
+                '>' => {
+                    self.screen.application_keypad = false;
+                    self.state = ParserState::Ground;
+                }
                 '(' | ')' | '*' | '+' | '-' | '.' | '/' | '%' => {
                     self.state = ParserState::EscapeIgnoreOne;
                 }
@@ -1866,6 +1880,7 @@ impl<'a> ScreenParser<'a> {
                                 self.screen.cursor_visible = true;
                                 self.screen.mark_dirty_row(self.screen.cursor_y);
                             }
+                            66 => self.screen.application_keypad = true,
                             1000 => self.screen.mouse_tracking = MouseTrackingMode::X10,
                             1002 => self.screen.mouse_tracking = MouseTrackingMode::ButtonEvent,
                             1003 => self.screen.mouse_tracking = MouseTrackingMode::AnyEvent,
@@ -1896,6 +1911,7 @@ impl<'a> ScreenParser<'a> {
                                 self.screen.cursor_visible = false;
                                 self.screen.mark_dirty_row(self.screen.cursor_y);
                             }
+                            66 => self.screen.application_keypad = false,
                             1000 => {
                                 if self.screen.mouse_tracking == MouseTrackingMode::X10 {
                                     self.screen.mouse_tracking = MouseTrackingMode::None;
@@ -3415,6 +3431,15 @@ impl NextCoreEngine {
                     .as_bytes(),
                 );
                 idx += "\x1b[?25$p".len();
+            } else if rest.starts_with("\x1b[?66$p") {
+                response.extend_from_slice(
+                    format!(
+                        "\x1b[?66;{}$y",
+                        Self::mode_report_state(screen.application_keypad)
+                    )
+                    .as_bytes(),
+                );
+                idx += "\x1b[?66$p".len();
             } else if rest.starts_with("\x1b[?1000$p") {
                 response.extend_from_slice(
                     format!(
@@ -4535,7 +4560,7 @@ mod tests {
         let _guard = test_guard();
         let mut screen = NextCoreScreen::new(80, 10);
         screen.feed(
-            "\x1b[?1h\x1b[?5h\x1b[?6h\x1b[?25l\x1b[?1002h\x1b[?1004h\x1b[?1006h\x1b[?2004h\x1b[4h",
+            "\x1b[?1h\x1b[?5h\x1b[?6h\x1b[?25l\x1b[?66h\x1b[?1002h\x1b[?1004h\x1b[?1006h\x1b[?2004h\x1b[4h",
         );
         let bytes = Arc::new(Mutex::new(Vec::new()));
         let writer: Arc<Mutex<Box<dyn Write + Send>>> =
@@ -4544,14 +4569,14 @@ mod tests {
             })));
 
         NextCoreEngine::answer_terminal_queries(
-            "\x1b[?1$p\x1b[?5$p\x1b[?6$p\x1b[?7$p\x1b[?25$p\x1b[?1000$p\x1b[?1002$p\x1b[?1003$p\x1b[?1004$p\x1b[?1006$p\x1b[?2004$p\x1b[4$p",
+            "\x1b[?1$p\x1b[?5$p\x1b[?6$p\x1b[?7$p\x1b[?25$p\x1b[?66$p\x1b[?1000$p\x1b[?1002$p\x1b[?1003$p\x1b[?1004$p\x1b[?1006$p\x1b[?2004$p\x1b[4$p",
             &screen,
             &writer,
         );
 
         assert_eq!(
             bytes.lock().as_slice(),
-            b"\x1b[?1;1$y\x1b[?5;1$y\x1b[?6;1$y\x1b[?7;1$y\x1b[?25;2$y\x1b[?1000;2$y\x1b[?1002;1$y\x1b[?1003;2$y\x1b[?1004;1$y\x1b[?1006;1$y\x1b[?2004;1$y\x1b[4;1$y"
+            b"\x1b[?1;1$y\x1b[?5;1$y\x1b[?6;1$y\x1b[?7;1$y\x1b[?25;2$y\x1b[?66;1$y\x1b[?1000;2$y\x1b[?1002;1$y\x1b[?1003;2$y\x1b[?1004;1$y\x1b[?1006;1$y\x1b[?2004;1$y\x1b[4;1$y"
         );
     }
 
@@ -4566,14 +4591,14 @@ mod tests {
             })));
 
         NextCoreEngine::answer_terminal_queries(
-            "\x1b[?1$p\x1b[?5$p\x1b[?6$p\x1b[?1000$p\x1b[?1002$p\x1b[?1003$p\x1b[?1004$p\x1b[?1006$p\x1b[?1049$p\x1b[?2004$p\x1b[4$p",
+            "\x1b[?1$p\x1b[?5$p\x1b[?6$p\x1b[?66$p\x1b[?1000$p\x1b[?1002$p\x1b[?1003$p\x1b[?1004$p\x1b[?1006$p\x1b[?1049$p\x1b[?2004$p\x1b[4$p",
             &screen,
             &writer,
         );
 
         assert_eq!(
             bytes.lock().as_slice(),
-            b"\x1b[?1;2$y\x1b[?5;2$y\x1b[?6;2$y\x1b[?1000;2$y\x1b[?1002;2$y\x1b[?1003;2$y\x1b[?1004;2$y\x1b[?1006;2$y\x1b[?1049;2$y\x1b[?2004;2$y\x1b[4;2$y"
+            b"\x1b[?1;2$y\x1b[?5;2$y\x1b[?6;2$y\x1b[?66;2$y\x1b[?1000;2$y\x1b[?1002;2$y\x1b[?1003;2$y\x1b[?1004;2$y\x1b[?1006;2$y\x1b[?1049;2$y\x1b[?2004;2$y\x1b[4;2$y"
         );
     }
 
@@ -6817,6 +6842,30 @@ mod tests {
         assert!(!screen.application_cursor_keys);
         screen.feed("\x1b[?1h\x1b[!p");
         assert!(!screen.application_cursor_keys);
+
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_tracks_application_keypad_mode() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let mut screen = NextCoreScreen::new(80, 3);
+
+        assert!(!screen.application_keypad);
+
+        screen.feed("\x1b=");
+        assert!(screen.application_keypad);
+        screen.feed("\x1b>");
+        assert!(!screen.application_keypad);
+
+        screen.feed("\x1b[?66h");
+        assert!(screen.application_keypad);
+        screen.feed("\x1b[?66l");
+        assert!(!screen.application_keypad);
+
+        screen.feed("\x1b=\x1b[!p");
+        assert!(!screen.application_keypad);
 
         Ok(())
     }
