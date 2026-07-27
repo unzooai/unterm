@@ -1609,11 +1609,11 @@ impl SessionEngine for NextCoreEngine {
     }
 
     fn create_session(&self, request: CreateSessionRequest) -> Result<SessionSnapshot> {
-        session_creation::create(request)
+        runtime::create_session(request)
     }
 
     fn split_session(&self, request: SplitSessionRequest) -> Result<SessionSnapshot> {
-        session_creation::split(request)
+        runtime::split_session(request)
     }
 
     fn focus_session(&self, pane_id: usize) -> Result<()> {

@@ -1,13 +1,14 @@
 use super::{
     health_snapshot, input_dispatch, recording_lifecycle, screen_dispatch, session_activity,
-    session_queries, session_registry, session_runtime, session_snapshots, NextCoreSession,
+    session_creation, session_queries, session_registry, session_runtime, session_snapshots,
+    NextCoreSession,
 };
 use crate::{
-    CursorSnapshot, EngineHealthSnapshot, RecordingExportResult, RecordingStartResult,
-    RecordingStatusSnapshot, RecordingStopResult, RenderFrameSnapshot, ScreenLine,
-    ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot,
-    SessionActivitySnapshot, SessionSnapshot, ShellSnapshot, StyledScreenSnapshot,
-    StyledScrollbackSnapshot,
+    CreateSessionRequest, CursorSnapshot, EngineHealthSnapshot, RecordingExportResult,
+    RecordingStartResult, RecordingStatusSnapshot, RecordingStopResult, RenderFrameSnapshot,
+    ScreenLine, ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot,
+    SessionActivitySnapshot, SessionSnapshot, ShellSnapshot, SplitSessionRequest,
+    StyledScreenSnapshot, StyledScrollbackSnapshot,
 };
 use anyhow::Result;
 use parking_lot::RwLock;
@@ -82,6 +83,14 @@ pub(super) fn list_sessions() -> Vec<SessionSnapshot> {
 
 pub(super) fn get_session(pane_id: usize) -> Result<SessionSnapshot> {
     with_current_mut(|state| session_snapshots::get(state, pane_id))
+}
+
+pub(super) fn create_session(request: CreateSessionRequest) -> Result<SessionSnapshot> {
+    session_creation::create(request)
+}
+
+pub(super) fn split_session(request: SplitSessionRequest) -> Result<SessionSnapshot> {
+    session_creation::split(request)
 }
 
 pub(super) fn clone_session_base(pane_id: usize) -> Result<SessionSnapshot> {
