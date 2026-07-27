@@ -1,7 +1,7 @@
 use crate::engine::{
     EngineRenderBufferPlan, EngineRenderGlyphAtlasCache, EngineRenderGlyphAtlasCacheUpdate,
-    EngineRenderGlyphAtlasPlan, EngineRenderGpuUploadPlan, EngineRenderTexturedGlyphUploadPlan,
-    EngineWgpuPipelineConfig, EngineWgpuRenderBackend,
+    EngineRenderGlyphAtlasPlan, EngineRenderGlyphAtlasTextureUpdatePlan, EngineRenderGpuUploadPlan,
+    EngineRenderTexturedGlyphUploadPlan, EngineWgpuPipelineConfig, EngineWgpuRenderBackend,
 };
 use crate::quad::Vertex;
 use anyhow::anyhow;
@@ -69,6 +69,7 @@ pub struct NextCoreCachedGlyphUpload {
     pub cell_width_px: usize,
     pub cell_height_px: usize,
     pub update: EngineRenderGlyphAtlasCacheUpdate,
+    pub texture_update: EngineRenderGlyphAtlasTextureUpdatePlan,
     pub upload: EngineRenderTexturedGlyphUploadPlan,
 }
 
@@ -255,12 +256,19 @@ impl NextCoreGlyphAtlasState {
                 viewport_width_px,
                 viewport_height_px,
             );
+        let texture_update = EngineWgpuRenderBackend::prepare_glyph_atlas_texture_update(
+            glyphs,
+            &update,
+            NEXT_CORE_GLYPH_ATLAS_WIDTH_PX,
+            NEXT_CORE_GLYPH_ATLAS_HEIGHT_PX,
+        );
         Some(NextCoreCachedGlyphUpload {
             pane_id: plan.pane_id,
             revision: plan.revision,
             cell_width_px,
             cell_height_px,
             update,
+            texture_update,
             upload,
         })
     }
@@ -739,11 +747,18 @@ impl WebGpuState {
             )
         {
             log::trace!(
-                "next-core cached glyph atlas pane={} revision={} inserted={} overflow={} vertices={} indices={}",
+                "next-core cached glyph atlas pane={} revision={} inserted={} overflow={} texture_regions={} texture_bytes={} vertices={} indices={}",
                 glyph_upload.pane_id,
                 glyph_upload.revision,
                 glyph_upload.update.inserted_key_indices.len(),
                 glyph_upload.update.overflow_key_indices.len(),
+                glyph_upload.texture_update.regions.len(),
+                glyph_upload
+                    .texture_update
+                    .regions
+                    .iter()
+                    .map(|region| region.bytes_rgba.len())
+                    .sum::<usize>(),
                 glyph_upload.upload.vertices.len(),
                 glyph_upload.upload.indices.len()
             );
@@ -801,6 +816,7 @@ mod tests {
         assert_eq!(state.len(), 1);
         assert_eq!(first.update.inserted_key_indices, vec![0, 1]);
         assert!(first.update.overflow_key_indices.is_empty());
+        assert_eq!(first.texture_update.regions.len(), 2);
         assert_eq!(first.upload.vertices.len(), 12);
 
         let repeat = state
@@ -808,6 +824,7 @@ mod tests {
             .expect("repeat upload");
         assert!(repeat.update.inserted_key_indices.is_empty());
         assert!(repeat.update.overflow_key_indices.is_empty());
+        assert!(repeat.texture_update.is_empty());
         assert_eq!(repeat.update.placements, first.update.placements);
     }
 
@@ -830,6 +847,7 @@ mod tests {
         assert_eq!(resized.cell_width_px, 10);
         assert_eq!(resized.cell_height_px, 20);
         assert_eq!(resized.update.inserted_key_indices, vec![0, 1]);
+        assert_eq!(resized.texture_update.regions.len(), 2);
         assert_ne!(resized.update.placements, first.update.placements);
     }
 
