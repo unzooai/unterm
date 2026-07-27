@@ -3601,6 +3601,10 @@ impl NextCoreEngine {
             .replace("\x1b[B", "\x1bOB")
             .replace("\x1b[C", "\x1bOC")
             .replace("\x1b[D", "\x1bOD")
+            .replace("\x1b[H", "\x1bOH")
+            .replace("\x1b[F", "\x1bOF")
+            .replace("\x1b[1~", "\x1bOH")
+            .replace("\x1b[4~", "\x1bOF")
     }
 
     fn split_utf8_chunks(text: &str, max_bytes: usize) -> Vec<&str> {
@@ -4772,6 +4776,24 @@ mod tests {
         assert_eq!(
             NextCoreEngine::application_cursor_input("\x1b[C", false),
             "\x1b[C"
+        );
+    }
+
+    #[test]
+    fn translates_home_end_keys_in_application_cursor_mode() {
+        let _guard = test_guard();
+
+        assert_eq!(
+            NextCoreEngine::application_cursor_input("\x1b[H\x1b[F\x1b[1~\x1b[4~", true),
+            "\x1bOH\x1bOF\x1bOH\x1bOF"
+        );
+        assert_eq!(
+            NextCoreEngine::application_cursor_input("x\x1b[H你\x1b[F", true),
+            "x\x1bOH你\x1bOF"
+        );
+        assert_eq!(
+            NextCoreEngine::application_cursor_input("\x1b[H\x1b[F", false),
+            "\x1b[H\x1b[F"
         );
     }
 
