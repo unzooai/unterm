@@ -153,6 +153,27 @@ function Invoke-JsonSmoke {
     if ($json.screen.cols -le 0 -or $json.screen.rows -le 0) {
         throw "JSON probe screen dimensions were invalid"
     }
+    if ($null -eq $json.render_frame) {
+        throw "JSON probe did not include render_frame"
+    }
+    if ($json.render_frame.revision -ne $json.screen.revision) {
+        throw "JSON probe render_frame revision did not match screen revision"
+    }
+    if ($json.render_frame.full -ne $true) {
+        throw "JSON probe render_frame did not report a full frame"
+    }
+    if ($json.render_frame.lines.Count -lt 1) {
+        throw "JSON probe render_frame did not include styled lines"
+    }
+    if ($null -eq $json.render_delta) {
+        throw "JSON probe did not include render_delta"
+    }
+    if ($json.render_delta.revision -ne $json.render_frame.revision) {
+        throw "JSON probe render_delta revision did not match render_frame revision"
+    }
+    if ($json.render_delta.full -eq $true -or $json.render_delta.lines.Count -ne 0) {
+        throw "JSON probe render_delta for unchanged revision was not empty"
+    }
     if ($null -eq $json.activity) {
         throw "JSON probe did not include an activity snapshot"
     }
@@ -190,6 +211,9 @@ function Invoke-JsonSmoke {
         Screen = "$($json.screen.cols)x$($json.screen.rows)"
         RawBytes = $json.raw_bytes
         ScreenReads = $json.health.io.screen_reads
+        RenderFrameRevision = $json.render_frame.revision
+        RenderFrameLines = $json.render_frame.lines.Count
+        RenderDeltaLines = $json.render_delta.lines.Count
         ForegroundProcess = $json.activity.process.foreground_process
         Cwd = $json.session.shell.cwd
         Profile = $json.session.shell.launch_context.profile
@@ -275,7 +299,7 @@ try {
     $report.Add("- Machine: ``$machine``")
     $report.Add("- OS: ``$os``")
     $report.Add("- Binary: ``target\debug\unterm-next-core.exe``")
-    $report.Add("- JSON smoke: ``$($jsonSmoke.Engine) $($jsonSmoke.Screen) raw_bytes=$($jsonSmoke.RawBytes) foreground=$($jsonSmoke.ForegroundProcess) cwd=$($jsonSmoke.Cwd) profile=$($jsonSmoke.Profile) proxy_keys=$($jsonSmoke.ProxyEnvKeys -join ',') screen_reads=$($jsonSmoke.ScreenReads) lifecycle_created=$($jsonSmoke.LifecycleCreated) dead_reason=$($jsonSmoke.DeadReason)``")
+    $report.Add("- JSON smoke: ``$($jsonSmoke.Engine) $($jsonSmoke.Screen) raw_bytes=$($jsonSmoke.RawBytes) foreground=$($jsonSmoke.ForegroundProcess) cwd=$($jsonSmoke.Cwd) profile=$($jsonSmoke.Profile) proxy_keys=$($jsonSmoke.ProxyEnvKeys -join ',') screen_reads=$($jsonSmoke.ScreenReads) render_frame_revision=$($jsonSmoke.RenderFrameRevision) render_frame_lines=$($jsonSmoke.RenderFrameLines) render_delta_lines=$($jsonSmoke.RenderDeltaLines) lifecycle_created=$($jsonSmoke.LifecycleCreated) dead_reason=$($jsonSmoke.DeadReason)``")
     $report.Add("")
     $report.Add("## Gates")
     $report.Add("")

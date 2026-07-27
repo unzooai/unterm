@@ -1253,6 +1253,8 @@ fn main() -> Result<()> {
 
     let session = engine.get_session(session.id)?;
     let screen = engine.read_screen(session.id)?;
+    let render_frame = engine.read_render_frame(session.id, None)?;
+    let render_delta = engine.read_render_frame(session.id, Some(render_frame.revision))?;
     let activity = engine.activity(session.id)?;
     let health = engine.health()?;
     let raw_bytes = engine.debug_output(session.id)?.len();
@@ -1263,6 +1265,8 @@ fn main() -> Result<()> {
             serde_json::to_string_pretty(&json!({
                 "session": session,
                 "screen": screen,
+                "render_frame": render_frame,
+                "render_delta": render_delta,
                 "activity": activity,
                 "health": health,
                 "raw_bytes": raw_bytes,
@@ -1281,6 +1285,14 @@ fn main() -> Result<()> {
             screen.cursor.x,
             screen.cursor.y,
             raw_bytes
+        );
+        println!(
+            "render_frame revision={} full={} dirty_rows={:?} lines={} render_delta_lines={}",
+            render_frame.revision,
+            render_frame.full,
+            render_frame.dirty_rows,
+            render_frame.lines.len(),
+            render_delta.lines.len()
         );
         if let Some(process) = activity.process.as_ref() {
             let root_pid = process

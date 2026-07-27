@@ -41,6 +41,15 @@ if ($summary.json_smoke.Engine -ne "next-core") {
 if ($summary.json_smoke.ScreenReads -lt 1) {
     throw "json smoke did not include screen read diagnostics"
 }
+if ($summary.json_smoke.RenderFrameRevision -lt 1) {
+    throw "json smoke did not include render frame revision"
+}
+if ($summary.json_smoke.RenderFrameLines -lt 1) {
+    throw "json smoke did not include render frame lines"
+}
+if ($summary.json_smoke.RenderDeltaLines -ne 0) {
+    throw "json smoke unchanged render delta was not empty"
+}
 if (-not ($summary.json_smoke.PSObject.Properties.Name -contains "DeadReason")) {
     throw "json smoke did not include session dead_reason field"
 }
