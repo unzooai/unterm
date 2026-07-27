@@ -1,11 +1,13 @@
 use crate::engine::{
-    EngineRenderBufferPlan, EngineRenderGpuUploadPlan, EngineWgpuPipelineConfig,
-    EngineWgpuRenderBackend,
+    EngineRenderBufferPlan, EngineRenderGlyphAtlasCache, EngineRenderGlyphAtlasCacheUpdate,
+    EngineRenderGlyphAtlasPlan, EngineRenderGpuUploadPlan, EngineRenderTexturedGlyphUploadPlan,
+    EngineWgpuPipelineConfig, EngineWgpuRenderBackend,
 };
 use crate::quad::Vertex;
 use anyhow::anyhow;
 use config::{ConfigHandle, GpuInfo, WebGpuPowerPreference};
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 use window::bitmaps::Texture2d;
@@ -36,11 +38,38 @@ pub struct WebGpuState {
     pub render_pipeline: wgpu::RenderPipeline,
     pub next_core_render_backend: EngineWgpuRenderBackend,
     pub next_core_render_pipeline: wgpu::RenderPipeline,
+    next_core_glyph_atlases: RefCell<NextCoreGlyphAtlasState>,
     shader_uniform_bind_group_layout: wgpu::BindGroupLayout,
     pub texture_bind_group_layout: wgpu::BindGroupLayout,
     pub texture_nearest_sampler: wgpu::Sampler,
     pub texture_linear_sampler: wgpu::Sampler,
     pub handle: RawHandlePair,
+}
+
+const NEXT_CORE_GLYPH_ATLAS_WIDTH_PX: usize = 2048;
+const NEXT_CORE_GLYPH_ATLAS_HEIGHT_PX: usize = 2048;
+
+#[derive(Debug, Default)]
+pub struct NextCoreGlyphAtlasState {
+    panes: HashMap<usize, NextCorePaneGlyphAtlasState>,
+}
+
+#[derive(Debug)]
+struct NextCorePaneGlyphAtlasState {
+    cell_width_px: usize,
+    cell_height_px: usize,
+    cache: EngineRenderGlyphAtlasCache,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+#[allow(dead_code)]
+pub struct NextCoreCachedGlyphUpload {
+    pub pane_id: usize,
+    pub revision: u64,
+    pub cell_width_px: usize,
+    pub cell_height_px: usize,
+    pub update: EngineRenderGlyphAtlasCacheUpdate,
+    pub upload: EngineRenderTexturedGlyphUploadPlan,
 }
 
 pub struct RawHandlePair {
@@ -172,6 +201,91 @@ impl WebGpuTexture {
             queue: Arc::clone(&state.queue),
         })
     }
+}
+
+#[allow(dead_code)]
+impl NextCoreGlyphAtlasState {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn len(&self) -> usize {
+        self.panes.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.panes.is_empty()
+    }
+
+    pub fn remove_pane(&mut self, pane_id: usize) {
+        self.panes.remove(&pane_id);
+    }
+
+    pub fn clear(&mut self) {
+        self.panes.clear();
+    }
+
+    pub fn prepare_cached_upload(
+        &mut self,
+        plan: &EngineRenderBufferPlan,
+        glyphs: &EngineRenderGlyphAtlasPlan,
+        viewport_width_px: f32,
+        viewport_height_px: f32,
+    ) -> Option<NextCoreCachedGlyphUpload> {
+        if !plan.submitted || plan.text_runs.is_empty() {
+            return None;
+        }
+        let (cell_width_px, cell_height_px) = infer_cell_metrics_from_buffer_plan(plan)?;
+        if glyphs.is_empty() {
+            return None;
+        }
+        let pane = self
+            .panes
+            .entry(plan.pane_id)
+            .or_insert_with(|| NextCorePaneGlyphAtlasState::new(cell_width_px, cell_height_px));
+        if pane.cell_width_px != cell_width_px || pane.cell_height_px != cell_height_px {
+            *pane = NextCorePaneGlyphAtlasState::new(cell_width_px, cell_height_px);
+        }
+        let (update, upload) =
+            EngineWgpuRenderBackend::prepare_cached_textured_glyph_upload_for_viewport(
+                &glyphs,
+                &mut pane.cache,
+                cell_width_px,
+                cell_height_px,
+                viewport_width_px,
+                viewport_height_px,
+            );
+        Some(NextCoreCachedGlyphUpload {
+            pane_id: plan.pane_id,
+            revision: plan.revision,
+            cell_width_px,
+            cell_height_px,
+            update,
+            upload,
+        })
+    }
+}
+
+impl NextCorePaneGlyphAtlasState {
+    fn new(cell_width_px: usize, cell_height_px: usize) -> Self {
+        Self {
+            cell_width_px,
+            cell_height_px,
+            cache: EngineRenderGlyphAtlasCache::new(
+                NEXT_CORE_GLYPH_ATLAS_WIDTH_PX,
+                NEXT_CORE_GLYPH_ATLAS_HEIGHT_PX,
+            ),
+        }
+    }
+}
+
+fn infer_cell_metrics_from_buffer_plan(plan: &EngineRenderBufferPlan) -> Option<(usize, usize)> {
+    plan.text_runs.iter().find_map(|run| {
+        if run.cells == 0 || run.rect.width == 0 || run.rect.height == 0 {
+            return None;
+        }
+        Some(((run.rect.width / run.cells).max(1), run.rect.height.max(1)))
+    })
 }
 
 pub fn adapter_info_to_gpu_info(info: wgpu::AdapterInfo) -> GpuInfo {
@@ -524,6 +638,7 @@ impl WebGpuState {
             render_pipeline,
             next_core_render_backend,
             next_core_render_pipeline,
+            next_core_glyph_atlases: RefCell::new(NextCoreGlyphAtlasState::new()),
             handle,
             shader_uniform_bind_group_layout,
             texture_bind_group_layout,
@@ -558,6 +673,13 @@ impl WebGpuState {
     }
 
     #[allow(dead_code)]
+    pub fn remove_next_core_glyph_atlas_pane(&self, pane_id: usize) {
+        self.next_core_glyph_atlases
+            .borrow_mut()
+            .remove_pane(pane_id);
+    }
+
+    #[allow(dead_code)]
     pub fn encode_next_core_upload(
         &self,
         encoder: &mut wgpu::CommandEncoder,
@@ -589,10 +711,12 @@ impl WebGpuState {
         clear_color: Option<[f64; 4]>,
     ) -> bool {
         let dimensions = self.dimensions.borrow();
+        let viewport_width_px = dimensions.pixel_width.max(1) as f32;
+        let viewport_height_px = dimensions.pixel_height.max(1) as f32;
         let prepared = EngineWgpuRenderBackend::prepare_frame_for_viewport(
             plan,
-            dimensions.pixel_width.max(1) as f32,
-            dimensions.pixel_height.max(1) as f32,
+            viewport_width_px,
+            viewport_height_px,
         );
         drop(dimensions);
         if !prepared.text_atlas.is_empty() {
@@ -602,6 +726,26 @@ impl WebGpuState {
                 prepared.glyph_atlas.instances.len(),
                 prepared.text_atlas.pane_id,
                 prepared.text_atlas.revision
+            );
+        }
+        if let Some(glyph_upload) = self
+            .next_core_glyph_atlases
+            .borrow_mut()
+            .prepare_cached_upload(
+                plan,
+                &prepared.glyph_atlas,
+                viewport_width_px,
+                viewport_height_px,
+            )
+        {
+            log::trace!(
+                "next-core cached glyph atlas pane={} revision={} inserted={} overflow={} vertices={} indices={}",
+                glyph_upload.pane_id,
+                glyph_upload.revision,
+                glyph_upload.update.inserted_key_indices.len(),
+                glyph_upload.update.overflow_key_indices.len(),
+                glyph_upload.upload.vertices.len(),
+                glyph_upload.upload.indices.len()
             );
         }
         self.encode_next_core_upload(encoder, target, &prepared.upload, clear_color)
@@ -636,6 +780,102 @@ impl WebGpuState {
             // panic in that case
             // <https://github.com/wezterm/wezterm/issues/2881>
             self.surface.configure(&self.device, &config);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::{CellStyle, RenderRect, RenderTextRun};
+
+    #[test]
+    fn next_core_glyph_atlas_state_reuses_cached_placements() {
+        let mut state = NextCoreGlyphAtlasState::new();
+        let plan = buffer_plan_with_text(7, 1, "aba", 3, 24, 16);
+        let glyphs = EngineWgpuRenderBackend::prepare_glyph_atlas(&plan);
+
+        let first = state
+            .prepare_cached_upload(&plan, &glyphs, 80.0, 40.0)
+            .expect("first upload");
+        assert_eq!(state.len(), 1);
+        assert_eq!(first.update.inserted_key_indices, vec![0, 1]);
+        assert!(first.update.overflow_key_indices.is_empty());
+        assert_eq!(first.upload.vertices.len(), 12);
+
+        let repeat = state
+            .prepare_cached_upload(&plan, &glyphs, 80.0, 40.0)
+            .expect("repeat upload");
+        assert!(repeat.update.inserted_key_indices.is_empty());
+        assert!(repeat.update.overflow_key_indices.is_empty());
+        assert_eq!(repeat.update.placements, first.update.placements);
+    }
+
+    #[test]
+    fn next_core_glyph_atlas_state_resets_when_cell_metrics_change() {
+        let mut state = NextCoreGlyphAtlasState::new();
+        let first_plan = buffer_plan_with_text(8, 1, "ab", 2, 16, 16);
+        let resized_plan = buffer_plan_with_text(8, 2, "ab", 2, 20, 20);
+        let first_glyphs = EngineWgpuRenderBackend::prepare_glyph_atlas(&first_plan);
+        let resized_glyphs = EngineWgpuRenderBackend::prepare_glyph_atlas(&resized_plan);
+
+        let first = state
+            .prepare_cached_upload(&first_plan, &first_glyphs, 80.0, 40.0)
+            .expect("first upload");
+        let resized = state
+            .prepare_cached_upload(&resized_plan, &resized_glyphs, 80.0, 40.0)
+            .expect("resized upload");
+
+        assert_eq!(state.len(), 1);
+        assert_eq!(resized.cell_width_px, 10);
+        assert_eq!(resized.cell_height_px, 20);
+        assert_eq!(resized.update.inserted_key_indices, vec![0, 1]);
+        assert_ne!(resized.update.placements, first.update.placements);
+    }
+
+    #[test]
+    fn next_core_glyph_atlas_state_removes_pane_cache() {
+        let mut state = NextCoreGlyphAtlasState::new();
+        let plan = buffer_plan_with_text(9, 1, "x", 1, 8, 16);
+        let glyphs = EngineWgpuRenderBackend::prepare_glyph_atlas(&plan);
+
+        assert!(state
+            .prepare_cached_upload(&plan, &glyphs, 80.0, 40.0)
+            .is_some());
+        assert_eq!(state.len(), 1);
+        state.remove_pane(9);
+        assert!(state.is_empty());
+    }
+
+    fn buffer_plan_with_text(
+        pane_id: usize,
+        revision: u64,
+        text: &str,
+        cells: usize,
+        width: usize,
+        height: usize,
+    ) -> EngineRenderBufferPlan {
+        EngineRenderBufferPlan {
+            pane_id,
+            submitted: true,
+            revision,
+            requires_full_repaint: true,
+            damage_rects: Vec::new(),
+            text_runs: vec![RenderTextRun {
+                row: 0,
+                col: 0,
+                cells,
+                text: text.to_string(),
+                rect: RenderRect {
+                    x: 0,
+                    y: 0,
+                    width,
+                    height,
+                },
+                style: CellStyle::default(),
+            }],
+            vertices: Vec::new(),
+            indices: Vec::new(),
         }
     }
 }

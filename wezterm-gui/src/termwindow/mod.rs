@@ -5136,6 +5136,9 @@ impl TermWindow {
         self.next_core_render_consumers
             .borrow_mut()
             .remove_pane(pane_id as usize);
+        if let Some(webgpu) = &self.webgpu {
+            webgpu.remove_next_core_glyph_atlas_pane(pane_id as usize);
+        }
     }
 
     #[allow(dead_code)]
