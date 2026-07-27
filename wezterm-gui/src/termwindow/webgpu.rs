@@ -39,8 +39,10 @@ pub struct WebGpuState {
     pub render_pipeline: wgpu::RenderPipeline,
     pub next_core_render_backend: EngineWgpuRenderBackend,
     pub next_core_render_pipeline: wgpu::RenderPipeline,
+    pub next_core_textured_glyph_pipeline: wgpu::RenderPipeline,
     next_core_glyph_atlases: RefCell<NextCoreGlyphAtlasState>,
     next_core_glyph_texture: NextCoreGlyphTexture,
+    next_core_glyph_texture_bind_group: wgpu::BindGroup,
     shader_uniform_bind_group_layout: wgpu::BindGroupLayout,
     pub texture_bind_group_layout: wgpu::BindGroupLayout,
     pub texture_nearest_sampler: wgpu::Sampler,
@@ -84,6 +86,7 @@ pub struct NextCoreGlyphTextureUploadStats {
 
 pub struct NextCoreGlyphTexture {
     texture: wgpu::Texture,
+    view: wgpu::TextureView,
     width: u32,
     height: u32,
     queue: Arc<wgpu::Queue>,
@@ -259,12 +262,36 @@ impl NextCoreGlyphTexture {
             label: Some("next-core glyph texture atlas"),
             view_formats: &[],
         });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         Ok(Self {
             texture,
+            view,
             width,
             height,
             queue: Arc::clone(queue),
+        })
+    }
+
+    fn create_bind_group(
+        &self,
+        device: &wgpu::Device,
+        layout: &wgpu::BindGroupLayout,
+        sampler: &wgpu::Sampler,
+    ) -> wgpu::BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&self.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(sampler),
+                },
+            ],
+            label: Some("next-core glyph texture bind group"),
         })
     }
 
@@ -796,12 +823,47 @@ impl WebGpuState {
                 target_format: config.format,
             },
         );
+        let next_core_glyph_texture_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+                label: Some("next-core glyph texture bind group layout"),
+            });
+        let next_core_textured_glyph_pipeline = next_core_render_backend
+            .create_textured_glyph_pipeline(
+                &device,
+                EngineWgpuPipelineConfig {
+                    target_format: config.format,
+                },
+                &next_core_glyph_texture_bind_group_layout,
+            );
         let next_core_glyph_texture = NextCoreGlyphTexture::new_with_device(
             NEXT_CORE_GLYPH_ATLAS_WIDTH_PX as u32,
             NEXT_CORE_GLYPH_ATLAS_HEIGHT_PX as u32,
             &device,
             &queue,
         )?;
+        let next_core_glyph_texture_bind_group = next_core_glyph_texture.create_bind_group(
+            &device,
+            &next_core_glyph_texture_bind_group_layout,
+            &texture_linear_sampler,
+        );
 
         Ok(Self {
             adapter_info,
@@ -814,8 +876,10 @@ impl WebGpuState {
             render_pipeline,
             next_core_render_backend,
             next_core_render_pipeline,
+            next_core_textured_glyph_pipeline,
             next_core_glyph_atlases: RefCell::new(NextCoreGlyphAtlasState::new()),
             next_core_glyph_texture,
+            next_core_glyph_texture_bind_group,
             handle,
             shader_uniform_bind_group_layout,
             texture_bind_group_layout,
@@ -880,6 +944,32 @@ impl WebGpuState {
     }
 
     #[allow(dead_code)]
+    pub fn encode_next_core_textured_glyph_upload(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::TextureView,
+        upload: &EngineRenderTexturedGlyphUploadPlan,
+    ) -> bool {
+        let Some(buffers) = self
+            .next_core_render_backend
+            .upload_textured_glyphs(&self.device, upload)
+        else {
+            return false;
+        };
+        let pass = self
+            .next_core_render_backend
+            .prepare_textured_glyph_pass(upload);
+        self.next_core_render_backend.encode_textured_glyph_pass(
+            encoder,
+            target,
+            &self.next_core_textured_glyph_pipeline,
+            &self.next_core_glyph_texture_bind_group,
+            &buffers,
+            &pass,
+        )
+    }
+
+    #[allow(dead_code)]
     pub fn encode_next_core_buffer_plan(
         &self,
         encoder: &mut wgpu::CommandEncoder,
@@ -905,6 +995,7 @@ impl WebGpuState {
                 prepared.text_atlas.revision
             );
         }
+        let mut textured_glyph_upload = None;
         if let Some(glyph_upload) = self
             .next_core_glyph_atlases
             .borrow_mut()
@@ -936,8 +1027,14 @@ impl WebGpuState {
                 glyph_upload.upload.vertices.len(),
                 glyph_upload.upload.indices.len()
             );
+            textured_glyph_upload = Some(glyph_upload.upload);
         }
-        self.encode_next_core_upload(encoder, target, &prepared.upload, clear_color)
+        let encoded_solid =
+            self.encode_next_core_upload(encoder, target, &prepared.upload, clear_color);
+        let encoded_glyphs = textured_glyph_upload.as_ref().is_some_and(|upload| {
+            self.encode_next_core_textured_glyph_upload(encoder, target, upload)
+        });
+        encoded_solid || encoded_glyphs
     }
 
     #[allow(unused_mut)]

@@ -22,7 +22,8 @@ pub use render_backend::{
     EngineRenderGpuUploadPlan, EngineRenderGpuVertex, EngineRenderTextAtlasPlan,
     EngineRenderTextAtlasRun, EngineRenderTexturedGlyphUploadPlan, EngineRenderTexturedGlyphVertex,
     EngineRenderVertexLayer, EngineWgpuPipelineConfig, EngineWgpuPreparedFramePlan,
-    EngineWgpuRenderBackend, EngineWgpuRenderPassPlan,
+    EngineWgpuRenderBackend, EngineWgpuRenderPassPlan, EngineWgpuTexturedGlyphBuffers,
+    EngineWgpuTexturedGlyphPassPlan,
 };
 #[allow(unused_imports)]
 pub use render_consumer::{

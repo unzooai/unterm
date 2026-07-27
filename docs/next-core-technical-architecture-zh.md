@@ -229,7 +229,8 @@ next-core 已经在 screen/parser 方向具备基础能力，包括：
 - `EngineRenderGlyphAtlasCache` 已提供确定性的 shelf placement，记录已插入和 overflow 的 glyph key；未来 WebGPU glyph texture 可以按 cache update 更新 atlas 区域，而不是每帧重建 placement state
 - `WebGpuState` 已持有按 pane 划分的 next-core glyph atlas state，并在 pane render consumer 清理时同步释放；glyph placement 复用现在具备跨 paint 生命周期，不再停留在单帧局部计划
 - `EngineRenderGlyphAtlasTextureUpdatePlan` 已把新插入的 glyph key 转成 texture update region 和确定性占位 RGBA bytes；真实字体 raster 接入后只替换 bytes 来源，`queue.write_texture` 上传契约保持不变
-- `NextCoreGlyphTexture` 已持有独立 WebGPU glyph texture atlas，并对 next-core glyph texture region 做尺寸/bytes 校验后用 `queue.write_texture` 上传；剩余工作是把该 atlas 绑定到 textured glyph render pass
+- `NextCoreGlyphTexture` 已持有独立 WebGPU glyph texture atlas，并对 next-core glyph texture region 做尺寸/bytes 校验后用 `queue.write_texture` 上传
+- `EngineWgpuRenderBackend` 已持有 textured glyph pipeline/pass ABI，`WebGpuState` 会把 next-core glyph atlas texture 绑定到 sampler 后，在 solid next-core pass 之后追加 textured glyph pass
 - `EngineRenderTexturedGlyphUploadPlan` 已把 glyph atlas placement 转成带 clip-space position 和 atlas UV 的 textured glyph vertices；真实 font raster/cache 接入前，texture draw ABI 已先固定
 - `EngineWgpuRenderBackend::prepare_frame_for_viewport` 已把 clip-space upload buffers、text-atlas input 与 glyph-atlas instances 合并为同一帧 preparation；WebGPU pane encoder 现在会先生成 combined frame plan 再绘制
 - `EngineWgpuRenderBackend` 已提供最小 wgpu upload skeleton：把 buffer plan 转成 POD GPU vertex ABI，并创建 vertex/index buffers；该层复用 GUI 现有 `wgpu`，不把 GPU 依赖塞进 `unterm-engine`
