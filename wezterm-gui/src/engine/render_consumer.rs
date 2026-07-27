@@ -53,6 +53,32 @@ pub struct EngineRenderPreparedPaneFrame {
     pub font: Option<Rc<LoadedFont>>,
 }
 
+#[allow(dead_code)]
+impl EngineRenderPreparedPaneFrame {
+    pub fn from_parts(
+        batch: EngineRenderBufferBatch,
+        prepared: EngineWgpuPreparedFramePlan,
+        replace_requested: bool,
+        cached_glyph_upload: Option<&EngineRenderCachedGlyphUploadDiagnostics>,
+        font: Option<Rc<LoadedFont>>,
+    ) -> Self {
+        let prepared_diagnostics = prepared.diagnostics();
+        let replace_diagnostics = EngineRenderPaneReplaceDiagnostics::from_parts(
+            replace_requested,
+            Some(&batch),
+            Some(&prepared_diagnostics),
+            cached_glyph_upload,
+        );
+
+        Self {
+            batch,
+            prepared,
+            replace_diagnostics,
+            font,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[allow(dead_code)]
 pub enum EngineRenderBufferReadinessIssue {

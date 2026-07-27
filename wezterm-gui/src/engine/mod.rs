@@ -26,10 +26,10 @@ pub use render_backend::{
     EngineRenderTextAtlasRun, EngineRenderTexturedGlyphLayoutDiff,
     EngineRenderTexturedGlyphLayoutEntry, EngineRenderTexturedGlyphLayoutIdentity,
     EngineRenderTexturedGlyphLayoutMismatch, EngineRenderTexturedGlyphLayoutReport,
-    EngineRenderTexturedGlyphUploadPlan, EngineRenderTexturedGlyphVertex, EngineRenderVertexLayer,
-    EngineWgpuPipelineConfig, EngineWgpuPreparedFrameDiagnostics, EngineWgpuPreparedFramePlan,
-    EngineWgpuPreparedFrameReadinessIssue, EngineWgpuRenderBackend, EngineWgpuRenderPassPlan,
-    EngineWgpuTexturedGlyphBuffers, EngineWgpuTexturedGlyphPassPlan,
+    EngineRenderTexturedGlyphUploadPlan, EngineRenderTexturedGlyphVertex, EngineRenderVertex,
+    EngineRenderVertexLayer, EngineWgpuPipelineConfig, EngineWgpuPreparedFrameDiagnostics,
+    EngineWgpuPreparedFramePlan, EngineWgpuPreparedFrameReadinessIssue, EngineWgpuRenderBackend,
+    EngineWgpuRenderPassPlan, EngineWgpuTexturedGlyphBuffers, EngineWgpuTexturedGlyphPassPlan,
 };
 #[allow(unused_imports)]
 pub use render_consumer::{
@@ -207,9 +207,10 @@ mod tests {
     use super::{
         next_core, selected_engine_name_from_env, CommandListRenderBackend, CreateSessionRequest,
         CurrentTerminalEngine, EngineRenderBackend, EngineRenderBackendCommand,
-        EngineRenderBufferBatch, EngineRenderBufferPlan, EngineRenderConsumer,
-        EngineRenderConsumerSet, EngineRenderGpuUploadPlan, EngineRenderGpuVertex,
-        EngineRenderPaneReplaceDiagnostics, EngineRenderPaneReplaceReadinessIssue,
+        EngineRenderBufferBatch, EngineRenderBufferPlan, EngineRenderCommitStats,
+        EngineRenderConsumer, EngineRenderConsumerSet, EngineRenderGpuUploadPlan,
+        EngineRenderGpuVertex, EngineRenderPaneReplaceDiagnostics,
+        EngineRenderPaneReplaceReadinessIssue, EngineRenderPreparedPaneFrame, EngineRenderVertex,
         EngineRenderVertexLayer, EngineWgpuPipelineConfig, EngineWgpuPreparedFrameDiagnostics,
         EngineWgpuRenderBackend, EngineWgpuRenderPassPlan, LaunchPolicySnapshot, RenderCellMetrics,
         RenderConsumerState, ScreenEngine, SessionEngine,
@@ -534,6 +535,51 @@ mod tests {
         engine
             .destroy_session(session.id)
             .expect("destroy next-core test session");
+    }
+
+    #[test]
+    fn engine_render_prepared_pane_frame_builds_replace_diagnostics() {
+        let batch = EngineRenderBufferBatch {
+            pane_id: 42,
+            stats: EngineRenderCommitStats {
+                submit: true,
+                previous_revision: None,
+                revision: 9,
+                skipped_revisions: 0,
+                requires_full_repaint: true,
+                full: true,
+                viewport: None,
+                damage_rect_count: 0,
+                background_quad_count: 1,
+                text_run_count: 0,
+                cursor_visible: false,
+            },
+            buffer_plan: EngineRenderBufferPlan {
+                pane_id: 42,
+                submitted: true,
+                revision: 9,
+                requires_full_repaint: true,
+                damage_rects: Vec::new(),
+                text_runs: Vec::new(),
+                vertices: vec![EngineRenderVertex {
+                    position: [0.0, 0.0],
+                    color: [1.0, 1.0, 1.0, 1.0],
+                    layer: EngineRenderVertexLayer::Background,
+                    command_index: 0,
+                }],
+                indices: vec![0],
+            },
+        };
+        let prepared =
+            EngineWgpuRenderBackend::prepare_frame_for_viewport(&batch.buffer_plan, 80.0, 40.0);
+
+        let frame = EngineRenderPreparedPaneFrame::from_parts(batch, prepared, true, None, None);
+
+        assert!(frame.replace_diagnostics.replace_ready);
+        assert_eq!(frame.replace_diagnostics.pane_id, Some(42));
+        assert_eq!(frame.replace_diagnostics.revision, Some(9));
+        assert!(frame.replace_diagnostics.prepared_frame_matches_batch);
+        assert!(frame.replace_diagnostics.readiness_issues().is_empty());
     }
 
     #[test]

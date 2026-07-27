@@ -3,8 +3,8 @@ use crate::engine::{
     EngineRenderFontGlyphRasterSource, EngineRenderGlyphAtlasCache,
     EngineRenderGlyphAtlasCacheUpdate, EngineRenderGlyphAtlasPlan,
     EngineRenderGlyphAtlasTextureRegion, EngineRenderGlyphAtlasTextureUpdatePlan,
-    EngineRenderGlyphRasterSource, EngineRenderGpuUploadPlan, EngineRenderPaneReplaceDiagnostics,
-    EngineRenderPreparedPaneFrame, EngineRenderTextAtlasPlan, EngineRenderTexturedGlyphLayoutDiff,
+    EngineRenderGlyphRasterSource, EngineRenderGpuUploadPlan, EngineRenderPreparedPaneFrame,
+    EngineRenderTextAtlasPlan, EngineRenderTexturedGlyphLayoutDiff,
     EngineRenderTexturedGlyphUploadPlan, EngineWgpuPipelineConfig, EngineWgpuPreparedFramePlan,
     EngineWgpuRenderBackend,
 };
@@ -1217,7 +1217,6 @@ impl WebGpuState {
             viewport_width_px,
             viewport_height_px,
         );
-        let prepared_diagnostics = prepared.diagnostics();
         let cached_glyph_upload = replace_requested
             .then(|| {
                 self.next_core_cached_glyph_upload_diagnostics_for_prepared(
@@ -1229,19 +1228,14 @@ impl WebGpuState {
                 )
             })
             .flatten();
-        let replace_diagnostics = EngineRenderPaneReplaceDiagnostics::from_parts(
-            replace_requested,
-            Some(&batch),
-            Some(&prepared_diagnostics),
-            cached_glyph_upload.as_ref(),
-        );
 
-        EngineRenderPreparedPaneFrame {
+        EngineRenderPreparedPaneFrame::from_parts(
             batch,
             prepared,
-            replace_diagnostics,
+            replace_requested,
+            cached_glyph_upload.as_ref(),
             font,
-        }
+        )
     }
 
     fn next_core_cached_glyph_upload_diagnostics_for_prepared(
