@@ -234,6 +234,26 @@ pub struct EngineRenderTexturedGlyphUploadPlan {
     pub missing_key_indices: Vec<usize>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
+pub struct EngineRenderGlyphAtlasCache {
+    pub width_px: usize,
+    pub height_px: usize,
+    pub padding_px: usize,
+    pub next_x_px: usize,
+    pub next_y_px: usize,
+    pub row_height_px: usize,
+    pub placements: Vec<EngineRenderGlyphAtlasPlacement>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
+pub struct EngineRenderGlyphAtlasCacheUpdate {
+    pub placements: Vec<EngineRenderGlyphAtlasPlacement>,
+    pub inserted_key_indices: Vec<usize>,
+    pub overflow_key_indices: Vec<usize>,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 #[allow(dead_code)]
 pub struct EngineWgpuPreparedFramePlan {
@@ -383,6 +403,29 @@ impl EngineWgpuRenderBackend {
             atlas_width_px,
             atlas_height_px,
         )
+    }
+
+    pub fn prepare_cached_textured_glyph_upload_for_viewport(
+        glyphs: &EngineRenderGlyphAtlasPlan,
+        cache: &mut EngineRenderGlyphAtlasCache,
+        cell_width_px: usize,
+        cell_height_px: usize,
+        viewport_width_px: f32,
+        viewport_height_px: f32,
+    ) -> (
+        EngineRenderGlyphAtlasCacheUpdate,
+        EngineRenderTexturedGlyphUploadPlan,
+    ) {
+        let update = cache.ensure_glyphs(glyphs, cell_width_px, cell_height_px);
+        let upload = Self::prepare_textured_glyph_upload_for_viewport(
+            glyphs,
+            &update.placements,
+            viewport_width_px,
+            viewport_height_px,
+            cache.width_px as f32,
+            cache.height_px as f32,
+        );
+        (update, upload)
     }
 
     pub fn prepare_frame_for_viewport(
@@ -672,6 +715,98 @@ impl EngineRenderGlyphAtlasPlan {
 
     pub fn is_empty(&self) -> bool {
         self.instances.is_empty()
+    }
+}
+
+#[allow(dead_code)]
+impl EngineRenderGlyphAtlasCache {
+    pub fn new(width_px: usize, height_px: usize) -> Self {
+        Self {
+            width_px: width_px.max(1),
+            height_px: height_px.max(1),
+            padding_px: 1,
+            next_x_px: 0,
+            next_y_px: 0,
+            row_height_px: 0,
+            placements: Vec::new(),
+        }
+    }
+
+    pub fn ensure_glyphs(
+        &mut self,
+        plan: &EngineRenderGlyphAtlasPlan,
+        cell_width_px: usize,
+        cell_height_px: usize,
+    ) -> EngineRenderGlyphAtlasCacheUpdate {
+        let mut inserted_key_indices = Vec::new();
+        let mut overflow_key_indices = Vec::new();
+
+        if plan.submitted {
+            for (key_index, key) in plan.keys.iter().enumerate() {
+                if self.has_placement(key_index) {
+                    continue;
+                }
+                let width = key
+                    .cells
+                    .max(1)
+                    .saturating_mul(cell_width_px.max(1))
+                    .saturating_add(self.padding_px.saturating_mul(2));
+                let height = cell_height_px
+                    .max(1)
+                    .saturating_add(self.padding_px.saturating_mul(2));
+                match self.allocate(key_index, width, height) {
+                    Some(placement) => {
+                        self.placements.push(placement);
+                        inserted_key_indices.push(key_index);
+                    }
+                    None => push_unique_usize(&mut overflow_key_indices, key_index),
+                }
+            }
+        }
+
+        EngineRenderGlyphAtlasCacheUpdate {
+            placements: self.placements.clone(),
+            inserted_key_indices,
+            overflow_key_indices,
+        }
+    }
+
+    fn has_placement(&self, key_index: usize) -> bool {
+        self.placements
+            .iter()
+            .any(|placement| placement.key_index == key_index)
+    }
+
+    fn allocate(
+        &mut self,
+        key_index: usize,
+        width_px: usize,
+        height_px: usize,
+    ) -> Option<EngineRenderGlyphAtlasPlacement> {
+        if width_px > self.width_px || height_px > self.height_px {
+            return None;
+        }
+        if self.next_x_px.saturating_add(width_px) > self.width_px {
+            self.next_x_px = 0;
+            self.next_y_px = self.next_y_px.saturating_add(self.row_height_px);
+            self.row_height_px = 0;
+        }
+        if self.next_y_px.saturating_add(height_px) > self.height_px {
+            return None;
+        }
+
+        let placement = EngineRenderGlyphAtlasPlacement {
+            key_index,
+            rect: RenderRect {
+                x: self.next_x_px.saturating_add(self.padding_px),
+                y: self.next_y_px.saturating_add(self.padding_px),
+                width: width_px.saturating_sub(self.padding_px.saturating_mul(2)),
+                height: height_px.saturating_sub(self.padding_px.saturating_mul(2)),
+            },
+        };
+        self.next_x_px = self.next_x_px.saturating_add(width_px);
+        self.row_height_px = self.row_height_px.max(height_px);
+        Some(placement)
     }
 }
 
@@ -1402,6 +1537,142 @@ mod tests {
         assert_eq!(upload.missing_key_indices, vec![0]);
     }
 
+    #[test]
+    fn glyph_atlas_cache_allocates_and_reuses_placements() {
+        let frame = EngineRenderBackendFrame {
+            pane_id: 8,
+            submitted: true,
+            revision: 15,
+            requires_full_repaint: false,
+            skipped_revisions: 0,
+            commands: vec![EngineRenderBackendCommand::Text {
+                row: 0,
+                col: 0,
+                cells: 3,
+                rect: RenderRect {
+                    x: 0,
+                    y: 0,
+                    width: 24,
+                    height: 16,
+                },
+                text: "aba".to_string(),
+                style: CellStyle::default(),
+            }],
+        };
+        let buffer = EngineRenderBufferPlan::from_frame(&frame);
+        let glyphs = EngineWgpuRenderBackend::prepare_glyph_atlas(&buffer);
+        let mut cache = EngineRenderGlyphAtlasCache::new(64, 32);
+
+        let update = cache.ensure_glyphs(&glyphs, 8, 16);
+
+        assert_eq!(update.inserted_key_indices, vec![0, 1]);
+        assert!(update.overflow_key_indices.is_empty());
+        assert_eq!(update.placements.len(), 2);
+        assert_eq!(
+            update.placements[0],
+            EngineRenderGlyphAtlasPlacement {
+                key_index: 0,
+                rect: RenderRect {
+                    x: 1,
+                    y: 1,
+                    width: 8,
+                    height: 16,
+                },
+            }
+        );
+        assert_eq!(
+            update.placements[1],
+            EngineRenderGlyphAtlasPlacement {
+                key_index: 1,
+                rect: RenderRect {
+                    x: 11,
+                    y: 1,
+                    width: 8,
+                    height: 16,
+                },
+            }
+        );
+
+        let repeat = cache.ensure_glyphs(&glyphs, 8, 16);
+        assert!(repeat.inserted_key_indices.is_empty());
+        assert!(repeat.overflow_key_indices.is_empty());
+        assert_eq!(repeat.placements, update.placements);
+    }
+
+    #[test]
+    fn glyph_atlas_cache_wraps_rows_and_reports_overflow() {
+        let mut cache = EngineRenderGlyphAtlasCache::new(20, 36);
+        let plan = EngineRenderGlyphAtlasPlan {
+            pane_id: 9,
+            submitted: true,
+            revision: 16,
+            requires_full_repaint: false,
+            keys: vec![
+                glyph_key("a", 1),
+                glyph_key("b", 1),
+                glyph_key("c", 1),
+                glyph_key("wide", 3),
+            ],
+            instances: Vec::new(),
+        };
+
+        let update = cache.ensure_glyphs(&plan, 8, 16);
+
+        assert_eq!(update.inserted_key_indices, vec![0, 1, 2]);
+        assert_eq!(update.overflow_key_indices, vec![3]);
+        assert_eq!(update.placements[0].rect.x, 1);
+        assert_eq!(update.placements[0].rect.y, 1);
+        assert_eq!(update.placements[1].rect.x, 11);
+        assert_eq!(update.placements[1].rect.y, 1);
+        assert_eq!(update.placements[2].rect.x, 1);
+        assert_eq!(update.placements[2].rect.y, 19);
+    }
+
+    #[test]
+    fn cached_textured_glyph_upload_uses_cache_placements() {
+        let style = CellStyle {
+            fg: Some(StyledColor::Rgb(0x10, 0x20, 0x30)),
+            ..Default::default()
+        };
+        let frame = EngineRenderBackendFrame {
+            pane_id: 10,
+            submitted: true,
+            revision: 17,
+            requires_full_repaint: true,
+            skipped_revisions: 0,
+            commands: vec![EngineRenderBackendCommand::Text {
+                row: 0,
+                col: 0,
+                cells: 1,
+                rect: RenderRect {
+                    x: 0,
+                    y: 0,
+                    width: 8,
+                    height: 16,
+                },
+                text: "q".to_string(),
+                style,
+            }],
+        };
+        let buffer = EngineRenderBufferPlan::from_frame(&frame);
+        let glyphs = EngineWgpuRenderBackend::prepare_glyph_atlas(&buffer);
+        let mut cache = EngineRenderGlyphAtlasCache::new(32, 32);
+
+        let (update, upload) =
+            EngineWgpuRenderBackend::prepare_cached_textured_glyph_upload_for_viewport(
+                &glyphs, &mut cache, 8, 16, 80.0, 40.0,
+            );
+
+        assert_eq!(update.inserted_key_indices, vec![0]);
+        assert!(update.overflow_key_indices.is_empty());
+        assert_eq!(upload.vertices.len(), 4);
+        assert_eq!(upload.indices.len(), 6);
+        assert!(upload.missing_key_indices.is_empty());
+        assert_eq!(upload.vertices[0].uv, [1.0 / 32.0, 1.0 / 32.0]);
+        assert_eq!(upload.vertices[3].uv, [9.0 / 32.0, 17.0 / 32.0]);
+        assert!(upload.requires_full_repaint);
+    }
+
     fn assert_f32_pair_close(actual: [f32; 2], expected: [f32; 2]) {
         assert!(
             (actual[0] - expected[0]).abs() < 0.0001,
@@ -1415,6 +1686,17 @@ mod tests {
             actual,
             expected
         );
+    }
+
+    fn glyph_key(text: &str, cells: usize) -> EngineRenderGlyphAtlasKey {
+        EngineRenderGlyphAtlasKey {
+            text: text.to_string(),
+            cells,
+            bold: false,
+            faint: false,
+            italic: false,
+            vertical_align: None,
+        }
     }
 }
 

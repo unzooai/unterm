@@ -15,12 +15,13 @@ use window::WindowOps;
 #[allow(unused_imports)]
 pub use render_backend::{
     CommandListRenderBackend, EngineRenderBackend, EngineRenderBackendCommand,
-    EngineRenderBackendFrame, EngineRenderBufferPlan, EngineRenderGlyphAtlasInstance,
-    EngineRenderGlyphAtlasKey, EngineRenderGlyphAtlasPlacement, EngineRenderGlyphAtlasPlan,
-    EngineRenderGpuUploadPlan, EngineRenderGpuVertex, EngineRenderTextAtlasPlan,
-    EngineRenderTextAtlasRun, EngineRenderTexturedGlyphUploadPlan, EngineRenderTexturedGlyphVertex,
-    EngineRenderVertexLayer, EngineWgpuPipelineConfig, EngineWgpuPreparedFramePlan,
-    EngineWgpuRenderBackend, EngineWgpuRenderPassPlan,
+    EngineRenderBackendFrame, EngineRenderBufferPlan, EngineRenderGlyphAtlasCache,
+    EngineRenderGlyphAtlasCacheUpdate, EngineRenderGlyphAtlasInstance, EngineRenderGlyphAtlasKey,
+    EngineRenderGlyphAtlasPlacement, EngineRenderGlyphAtlasPlan, EngineRenderGpuUploadPlan,
+    EngineRenderGpuVertex, EngineRenderTextAtlasPlan, EngineRenderTextAtlasRun,
+    EngineRenderTexturedGlyphUploadPlan, EngineRenderTexturedGlyphVertex, EngineRenderVertexLayer,
+    EngineWgpuPipelineConfig, EngineWgpuPreparedFramePlan, EngineWgpuRenderBackend,
+    EngineWgpuRenderPassPlan,
 };
 #[allow(unused_imports)]
 pub use render_consumer::{
