@@ -241,7 +241,7 @@ fn shaper_glyphs_from_glyph_infos(glyph_infos: Vec<GlyphInfo>) -> Vec<EngineRend
     glyph_infos
         .into_iter()
         .map(|info| EngineRenderShaperGlyph {
-            text: info.text,
+            text: info.only_char.map(|ch| ch.to_string()).unwrap_or_default(),
             only_char: info.only_char,
             num_cells: info.num_cells,
             font_idx: info.font_idx,

@@ -1809,8 +1809,25 @@ mod engine_neutral_handler_tests {
             let pane_id = created["id"].as_u64().expect("session id") as usize;
             crate::ghost_text::observe(
                 pane_id as u64,
+                crate::ghost_text::InputEvent::Cancel,
+                &[],
+            );
+            for ch in "git status".chars() {
+                crate::ghost_text::observe(
+                    pane_id as u64,
+                    crate::ghost_text::InputEvent::Char(ch),
+                    &[],
+                );
+            }
+            crate::ghost_text::observe(
+                pane_id as u64,
+                crate::ghost_text::InputEvent::Enter,
+                &[],
+            );
+            crate::ghost_text::observe(
+                pane_id as u64,
                 crate::ghost_text::InputEvent::Char('g'),
-                &["git status".to_string()],
+                &[],
             );
             let debug = handler.handle(&ctx, "ghost.debug", &json!({ "pane_id": pane_id }))?;
             let _ = handler.handle(&ctx, "session.destroy", &json!({ "pane_id": pane_id }));
