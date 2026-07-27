@@ -895,11 +895,16 @@ mod engine_neutral_handler_tests {
 
         let result: Result<(serde_json::Value, serde_json::Value, usize)> = (|| {
             let engine = next_core();
+            let command = if cfg!(windows) {
+                "echo next-core-activity-metrics && ping -n 30 127.0.0.1 >nul"
+            } else {
+                "echo next-core-activity-metrics; sleep 30"
+            };
             let session = engine.create_session(CreateSessionRequest {
                 cols: 80,
                 rows: 4,
                 command_dir: None,
-                command: Some(shell_command_builder("echo next-core-activity-metrics")),
+                command: Some(shell_command_builder(command)),
                 env: Vec::new(),
                 launch_policy: Default::default(),
             })?;
@@ -2077,11 +2082,16 @@ mod engine_neutral_handler_tests {
 
         let result: Result<(serde_json::Value, usize)> = (|| {
             let engine = next_core();
+            let command = if cfg!(windows) {
+                "echo next-core-health-io && ping -n 30 127.0.0.1 >nul"
+            } else {
+                "echo next-core-health-io; sleep 30"
+            };
             let session = engine.create_session(CreateSessionRequest {
                 cols: 80,
                 rows: 4,
                 command_dir: None,
-                command: Some(shell_command_builder("echo next-core-health-io")),
+                command: Some(shell_command_builder(command)),
                 env: Vec::new(),
                 launch_policy: Default::default(),
             })?;
@@ -8444,9 +8454,9 @@ fn resolve_exec_wait_shell(
 }
 
 fn detect_wait_shell_from_process_name(process_name: &str) -> Option<String> {
-    let bare = std::path::Path::new(process_name)
-        .file_name()
-        .and_then(|name| name.to_str())
+    let bare = process_name
+        .rsplit(['/', '\\'])
+        .next()
         .unwrap_or(process_name)
         .to_ascii_lowercase();
     let bare = bare.trim_end_matches(".exe");

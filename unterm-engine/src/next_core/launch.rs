@@ -49,10 +49,7 @@ pub(super) fn launch_context(
     launch_policy: &LaunchPolicySnapshot,
 ) -> LaunchContextSnapshot {
     let proxy_env_keys = proxy_env_keys(env);
-    let mut policy = if launch_policy.env.is_empty()
-        && launch_policy.profile.is_none()
-        && launch_policy.proxy_env_keys.is_empty()
-    {
+    let mut policy = if launch_policy == &LaunchPolicySnapshot::default() {
         infer_launch_policy(env)
     } else {
         launch_policy.clone()
@@ -273,6 +270,47 @@ mod tests {
                 ("HTTPS_PROXY", LaunchEnvSource::Proxy),
                 ("NO_PROXY", LaunchEnvSource::Proxy)
             ]
+        );
+    }
+
+    #[test]
+    fn launch_context_preserves_explicit_policy_without_env() {
+        let requested_policy = LaunchPolicySnapshot {
+            domain: LaunchPolicyDecisionSnapshot::new(
+                LaunchPolicyDecision::Unsupported,
+                false,
+                "ssh domain requested",
+            ),
+            privilege: LaunchPolicyDecisionSnapshot::new(
+                LaunchPolicyDecision::Unsupported,
+                false,
+                "privilege requested",
+            ),
+            restart: LaunchPolicyDecisionSnapshot::new(
+                LaunchPolicyDecision::Unsupported,
+                false,
+                "restart requested",
+            ),
+            ..Default::default()
+        };
+
+        let context = launch_context(&[], &requested_policy);
+
+        assert_eq!(
+            context.policy.domain.decision,
+            LaunchPolicyDecision::Unsupported
+        );
+        assert_eq!(
+            context.policy.privilege.decision,
+            LaunchPolicyDecision::Unsupported
+        );
+        assert_eq!(
+            context.policy.restart.decision,
+            LaunchPolicyDecision::Unsupported
+        );
+        assert_eq!(
+            context.policy.proxy_rotation.decision,
+            LaunchPolicyDecision::NotRequested
         );
     }
 }
