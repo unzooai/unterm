@@ -6,8 +6,6 @@ use super::{
     SessionActivitySnapshot, SessionEngine, SessionSnapshot, ShellSnapshot, SplitSessionRequest,
     StyledBlink, StyledScreenLine, StyledScreenSnapshot, StyledScrollbackSnapshot, StyledUnderline,
 };
-#[cfg(test)]
-use anyhow::bail;
 use anyhow::Result;
 use parking_lot::{Mutex, RwLock};
 use portable_pty::{Child, MasterPty};
@@ -15,8 +13,6 @@ use std::collections::BTreeSet;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
-#[cfg(test)]
-use std::sync::atomic::Ordering;
 use std::sync::{Arc, OnceLock};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
@@ -58,6 +54,8 @@ mod sgr;
 mod styled_snapshot;
 mod terminal_parser;
 mod terminal_queries;
+#[cfg(test)]
+mod test_support;
 
 #[cfg(test)]
 use super::{LaunchEnvSource, LaunchPolicyDecision};
@@ -71,6 +69,11 @@ use history::HistoryBuffer;
 use render_state::RenderState;
 use screen_state::{MouseTrackingMode, ScreenState};
 use terminal_parser::TerminalParser;
+#[cfg(test)]
+use test_support::{
+    mark_dead_for_test, reset_activity_for_test, reset_state_for_test, set_output_for_test,
+    viewport_attrs_for_test,
+};
 
 const MAX_OUTPUT_BYTES: usize = 1024 * 1024;
 const MAX_RECORDING_BLOCKS: usize = 256;
@@ -1593,114 +1596,6 @@ impl NextCoreScreen {
 fn state() -> &'static RwLock<NextCoreState> {
     static STATE: OnceLock<RwLock<NextCoreState>> = OnceLock::new();
     STATE.get_or_init(|| RwLock::new(NextCoreState::default()))
-}
-
-#[cfg(test)]
-fn reset_state_for_test() {
-    *state().write() = NextCoreState::default();
-}
-
-#[cfg(test)]
-fn set_output_for_test(pane_id: usize, text: &str) -> Result<()> {
-    let (output, screen, recording, activity, cols, rows) = {
-        let state = state().read();
-        let Some(session) = state
-            .sessions
-            .iter()
-            .find(|session| session.snapshot.id == pane_id)
-        else {
-            bail!("next-core session {pane_id} not found");
-        };
-        (
-            Arc::clone(&session.output),
-            Arc::clone(&session.screen),
-            Arc::clone(&session.recording),
-            Arc::clone(&session.activity),
-            session.snapshot.cols,
-            session.snapshot.rows,
-        )
-    };
-    let started_at = Instant::now();
-    *output.lock() = text.to_string();
-    let mut screen = screen.lock();
-    let revision = screen.revision();
-    *screen = NextCoreScreen::new(cols, rows);
-    screen.render_state.set_revision(revision);
-    screen.feed(text);
-    let recorded = if let Some(recording) = recording.lock().as_mut() {
-        recording_output::append_now(recording, text);
-        true
-    } else {
-        false
-    };
-    activity
-        .lock()
-        .mark_output(text.len(), 0, recorded, started_at.elapsed());
-    Ok(())
-}
-
-#[cfg(test)]
-fn mark_dead_for_test(pane_id: usize) -> Result<()> {
-    let state = state().read();
-    let Some(session) = state
-        .sessions
-        .iter()
-        .find(|session| session.snapshot.id == pane_id)
-    else {
-        bail!("next-core session {pane_id} not found");
-    };
-
-    *session.dead_reason.lock() = Some("test_dead_marker".to_string());
-    session.dead.store(true, Ordering::Release);
-    Ok(())
-}
-
-#[cfg(test)]
-fn make_activity_stale_for_test(pane_id: usize) -> Result<()> {
-    let state = state().read();
-    let Some(session) = state
-        .sessions
-        .iter()
-        .find(|session| session.snapshot.id == pane_id)
-    else {
-        bail!("next-core session {pane_id} not found");
-    };
-
-    session.activity.lock().mark_stale_for_test();
-    Ok(())
-}
-
-#[cfg(test)]
-fn reset_activity_for_test(pane_id: usize) -> Result<()> {
-    let state = state().read();
-    let Some(session) = state
-        .sessions
-        .iter()
-        .find(|session| session.snapshot.id == pane_id)
-    else {
-        bail!("next-core session {pane_id} not found");
-    };
-
-    *session.activity.lock() = SessionIoActivity::new();
-    make_activity_stale_for_test(pane_id)
-}
-
-#[cfg(test)]
-fn viewport_attrs_for_test(pane_id: usize) -> Result<Vec<Vec<CellAttributes>>> {
-    let screen = {
-        let state = state().read();
-        let Some(session) = state
-            .sessions
-            .iter()
-            .find(|session| session.snapshot.id == pane_id)
-        else {
-            bail!("next-core session {pane_id} not found");
-        };
-        Arc::clone(&session.screen)
-    };
-
-    let attrs = screen.lock().attrs_for_viewport();
-    Ok(attrs)
 }
 
 impl NextCoreEngine {
