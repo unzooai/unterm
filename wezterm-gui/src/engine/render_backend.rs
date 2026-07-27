@@ -94,6 +94,28 @@ pub struct EngineRenderBufferPlan {
     pub indices: Vec<u32>,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+#[allow(dead_code)]
+pub struct EngineRenderTextAtlasRun {
+    pub row: usize,
+    pub col: usize,
+    pub cells: usize,
+    pub text: String,
+    pub rect: RenderRect,
+    pub foreground: [f32; 4],
+    pub style: CellStyle,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+#[allow(dead_code)]
+pub struct EngineRenderTextAtlasPlan {
+    pub pane_id: usize,
+    pub submitted: bool,
+    pub revision: u64,
+    pub requires_full_repaint: bool,
+    pub runs: Vec<EngineRenderTextAtlasRun>,
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 #[allow(dead_code)]
@@ -265,6 +287,10 @@ pub struct EngineWgpuRenderBackend;
 
 #[allow(dead_code)]
 impl EngineWgpuRenderBackend {
+    pub fn prepare_text_atlas(plan: &EngineRenderBufferPlan) -> EngineRenderTextAtlasPlan {
+        EngineRenderTextAtlasPlan::from_buffer_plan(plan)
+    }
+
     pub fn prepare_upload(plan: &EngineRenderBufferPlan) -> EngineRenderGpuUploadPlan {
         EngineRenderGpuUploadPlan::from_buffer_plan(plan)
     }
@@ -481,6 +507,40 @@ impl EngineRenderBufferPlan {
 }
 
 #[allow(dead_code)]
+impl EngineRenderTextAtlasPlan {
+    pub fn from_buffer_plan(plan: &EngineRenderBufferPlan) -> Self {
+        let runs = if plan.submitted {
+            plan.text_runs
+                .iter()
+                .map(|run| EngineRenderTextAtlasRun {
+                    row: run.row,
+                    col: run.col,
+                    cells: run.cells,
+                    text: run.text.clone(),
+                    rect: run.rect,
+                    foreground: styled_color_rgba(run.style.fg).unwrap_or([1.0, 1.0, 1.0, 1.0]),
+                    style: run.style.clone(),
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+
+        Self {
+            pane_id: plan.pane_id,
+            submitted: plan.submitted,
+            revision: plan.revision,
+            requires_full_repaint: plan.requires_full_repaint,
+            runs,
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.runs.is_empty()
+    }
+}
+
+#[allow(dead_code)]
 pub trait EngineRenderBackend {
     fn submit(
         &mut self,
@@ -644,6 +704,59 @@ mod tests {
         assert_eq!(plan.text_runs[0].style, style);
         assert_eq!(plan.vertices.len(), 4);
         assert_eq!(plan.indices, vec![0, 1, 2, 1, 2, 3]);
+
+        let atlas = EngineWgpuRenderBackend::prepare_text_atlas(&plan);
+        assert_eq!(atlas.pane_id, 7);
+        assert_eq!(atlas.revision, 42);
+        assert_eq!(atlas.runs.len(), 1);
+        assert_eq!(atlas.runs[0].row, 1);
+        assert_eq!(atlas.runs[0].col, 2);
+        assert_eq!(atlas.runs[0].cells, 3);
+        assert_eq!(atlas.runs[0].text, "abc");
+        assert_eq!(atlas.runs[0].rect, rect);
+        assert_eq!(
+            atlas.runs[0].foreground,
+            [
+                0xaa as f32 / 255.0,
+                0xbb as f32 / 255.0,
+                0xcc as f32 / 255.0,
+                1.0
+            ]
+        );
+        assert_eq!(atlas.runs[0].style, style);
+    }
+
+    #[test]
+    fn text_atlas_plan_skips_unsubmitted_buffer_plan() {
+        let plan = EngineRenderBufferPlan {
+            pane_id: 9,
+            submitted: false,
+            revision: 17,
+            requires_full_repaint: false,
+            damage_rects: Vec::new(),
+            text_runs: vec![RenderTextRun {
+                row: 0,
+                col: 0,
+                cells: 1,
+                text: "x".to_string(),
+                rect: RenderRect {
+                    x: 0,
+                    y: 0,
+                    width: 8,
+                    height: 16,
+                },
+                style: CellStyle::default(),
+            }],
+            vertices: Vec::new(),
+            indices: Vec::new(),
+        };
+
+        let atlas = EngineRenderTextAtlasPlan::from_buffer_plan(&plan);
+
+        assert_eq!(atlas.pane_id, 9);
+        assert_eq!(atlas.revision, 17);
+        assert!(!atlas.submitted);
+        assert!(atlas.is_empty());
     }
 }
 

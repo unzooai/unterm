@@ -16,8 +16,9 @@ use window::WindowOps;
 pub use render_backend::{
     CommandListRenderBackend, EngineRenderBackend, EngineRenderBackendCommand,
     EngineRenderBackendFrame, EngineRenderBufferPlan, EngineRenderGpuUploadPlan,
-    EngineRenderGpuVertex, EngineRenderVertexLayer, EngineWgpuPipelineConfig,
-    EngineWgpuRenderBackend, EngineWgpuRenderPassPlan,
+    EngineRenderGpuVertex, EngineRenderTextAtlasPlan, EngineRenderTextAtlasRun,
+    EngineRenderVertexLayer, EngineWgpuPipelineConfig, EngineWgpuRenderBackend,
+    EngineWgpuRenderPassPlan,
 };
 #[allow(unused_imports)]
 pub use render_consumer::{
