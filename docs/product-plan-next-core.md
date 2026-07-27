@@ -403,6 +403,7 @@ Supported:
 - paste
 - visible screen text read
 - styled render-frame snapshots with full-frame fallback plus dirty-row and cursor-move deltas
+- render draw plans that merge styled cells into glyph runs, cell style runs, and cursor draw state
 - `session.list`
 - `session.input`
 - `screen.text`

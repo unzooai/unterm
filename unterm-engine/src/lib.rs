@@ -229,6 +229,154 @@ pub struct RenderFrameSnapshot {
 }
 
 #[allow(dead_code)]
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+pub struct RenderGlyphRun {
+    pub row: usize,
+    pub col: usize,
+    pub cells: usize,
+    pub text: String,
+    pub style: CellStyle,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+pub struct RenderCellRun {
+    pub row: usize,
+    pub col: usize,
+    pub cells: usize,
+    pub style: CellStyle,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+pub struct RenderCursorDraw {
+    pub row: usize,
+    pub col: usize,
+    pub visible: bool,
+    pub shape: String,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+pub struct RenderDrawPlan {
+    pub revision: u64,
+    pub cols: usize,
+    pub rows: usize,
+    pub scrollback_rows: usize,
+    pub dirty_rows: Option<DirtyRows>,
+    pub full: bool,
+    pub glyph_runs: Vec<RenderGlyphRun>,
+    pub cell_runs: Vec<RenderCellRun>,
+    pub cursor: Option<RenderCursorDraw>,
+}
+
+impl RenderFrameSnapshot {
+    #[allow(dead_code)]
+    pub fn to_draw_plan(&self) -> RenderDrawPlan {
+        let mut glyph_runs = Vec::new();
+        let mut cell_runs = Vec::new();
+
+        for (row_idx, line) in self.lines.iter().enumerate().take(self.rows) {
+            let mut active_glyph: Option<RenderGlyphRun> = None;
+            let mut active_cell: Option<RenderCellRun> = None;
+            for (col_idx, cell) in line.cells.iter().enumerate().take(self.cols) {
+                push_cell_run(
+                    &mut cell_runs,
+                    &mut active_cell,
+                    row_idx,
+                    col_idx,
+                    &cell.style,
+                );
+
+                if cell.width == 0 || cell.style.hidden || cell.ch == ' ' {
+                    flush_glyph_run(&mut glyph_runs, &mut active_glyph);
+                    continue;
+                }
+
+                match active_glyph.as_mut() {
+                    Some(run) if run.style == cell.style && run.col + run.cells == col_idx => {
+                        run.text.push(cell.ch);
+                        run.cells += cell.width.max(1);
+                    }
+                    _ => {
+                        flush_glyph_run(&mut glyph_runs, &mut active_glyph);
+                        active_glyph = Some(RenderGlyphRun {
+                            row: row_idx,
+                            col: col_idx,
+                            cells: cell.width.max(1),
+                            text: cell.ch.to_string(),
+                            style: cell.style.clone(),
+                        });
+                    }
+                }
+            }
+            flush_glyph_run(&mut glyph_runs, &mut active_glyph);
+            flush_cell_run(&mut cell_runs, &mut active_cell);
+        }
+
+        RenderDrawPlan {
+            revision: self.revision,
+            cols: self.cols,
+            rows: self.rows,
+            scrollback_rows: self.scrollback_rows,
+            dirty_rows: self.dirty_rows,
+            full: self.full,
+            glyph_runs,
+            cell_runs,
+            cursor: self.cursor_draw(),
+        }
+    }
+
+    fn cursor_draw(&self) -> Option<RenderCursorDraw> {
+        if self.cursor.y < 0 {
+            return None;
+        }
+        let row = self.cursor.y as usize;
+        (row < self.rows && self.cursor.x < self.cols).then(|| RenderCursorDraw {
+            row,
+            col: self.cursor.x,
+            visible: self.cursor.visible,
+            shape: self.cursor.shape.clone(),
+        })
+    }
+}
+
+fn flush_glyph_run(runs: &mut Vec<RenderGlyphRun>, active: &mut Option<RenderGlyphRun>) {
+    if let Some(run) = active.take() {
+        runs.push(run);
+    }
+}
+
+fn flush_cell_run(runs: &mut Vec<RenderCellRun>, active: &mut Option<RenderCellRun>) {
+    if let Some(run) = active.take() {
+        runs.push(run);
+    }
+}
+
+fn push_cell_run(
+    runs: &mut Vec<RenderCellRun>,
+    active: &mut Option<RenderCellRun>,
+    row: usize,
+    col: usize,
+    style: &CellStyle,
+) {
+    match active.as_mut() {
+        Some(run) if run.style == *style && run.col + run.cells == col => {
+            run.cells += 1;
+        }
+        _ => {
+            flush_cell_run(runs, active);
+            *active = Some(RenderCellRun {
+                row,
+                col,
+                cells: 1,
+                style: style.clone(),
+            });
+        }
+    }
+}
+
+#[allow(dead_code)]
 #[derive(Clone, Debug, Serialize)]
 pub struct StyledScrollbackSnapshot {
     pub lines: Vec<StyledScreenLine>,
@@ -577,4 +725,107 @@ pub trait TerminalEngine:
 impl<T> TerminalEngine for T where
     T: SessionEngine + ScreenEngine + InputEngine + RecordingEngine + HealthEngine
 {
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cell(ch: char, style: CellStyle, width: usize) -> StyledCell {
+        StyledCell { ch, style, width }
+    }
+
+    fn frame(cells: Vec<StyledCell>) -> RenderFrameSnapshot {
+        RenderFrameSnapshot {
+            lines: vec![StyledScreenLine { row: 0, cells }],
+            cursor: CursorSnapshot {
+                x: 2,
+                y: 0,
+                visible: true,
+                shape: "block".to_string(),
+            },
+            cols: 6,
+            rows: 1,
+            scrollback_rows: 0,
+            revision: 7,
+            dirty_rows: Some(DirtyRows { start: 0, end: 0 }),
+            full: false,
+        }
+    }
+
+    #[test]
+    fn render_draw_plan_merges_glyph_and_cell_runs() {
+        let red = CellStyle {
+            fg: Some(StyledColor::Palette(1)),
+            ..CellStyle::default()
+        };
+        let blue = CellStyle {
+            fg: Some(StyledColor::Palette(4)),
+            ..CellStyle::default()
+        };
+        let plan = frame(vec![
+            cell('a', red.clone(), 1),
+            cell('b', red.clone(), 1),
+            cell(' ', red.clone(), 1),
+            cell('c', blue.clone(), 1),
+            cell('d', blue.clone(), 1),
+            cell(' ', CellStyle::default(), 1),
+        ])
+        .to_draw_plan();
+
+        assert_eq!(plan.revision, 7);
+        assert_eq!(plan.dirty_rows, Some(DirtyRows { start: 0, end: 0 }));
+        assert_eq!(plan.glyph_runs.len(), 2);
+        assert_eq!(plan.glyph_runs[0].text, "ab");
+        assert_eq!(plan.glyph_runs[0].col, 0);
+        assert_eq!(plan.glyph_runs[0].cells, 2);
+        assert_eq!(plan.glyph_runs[1].text, "cd");
+        assert_eq!(plan.glyph_runs[1].col, 3);
+        assert_eq!(plan.glyph_runs[1].style, blue);
+        assert_eq!(plan.cell_runs.len(), 3);
+        assert_eq!(plan.cell_runs[0].cells, 3);
+        assert_eq!(plan.cell_runs[1].col, 3);
+        assert_eq!(plan.cell_runs[1].cells, 2);
+        assert_eq!(
+            plan.cursor,
+            Some(RenderCursorDraw {
+                row: 0,
+                col: 2,
+                visible: true,
+                shape: "block".to_string()
+            })
+        );
+    }
+
+    #[test]
+    fn render_draw_plan_skips_hidden_and_wide_continuation_glyphs() {
+        let hidden = CellStyle {
+            hidden: true,
+            ..CellStyle::default()
+        };
+        let plan = frame(vec![
+            cell('你', CellStyle::default(), 2),
+            cell(' ', CellStyle::default(), 0),
+            cell('x', hidden, 1),
+            cell('y', CellStyle::default(), 1),
+        ])
+        .to_draw_plan();
+
+        assert_eq!(plan.glyph_runs.len(), 2);
+        assert_eq!(plan.glyph_runs[0].text, "你");
+        assert_eq!(plan.glyph_runs[0].cells, 2);
+        assert_eq!(plan.glyph_runs[1].text, "y");
+        assert_eq!(plan.glyph_runs[1].col, 3);
+    }
+
+    #[test]
+    fn render_draw_plan_drops_out_of_bounds_cursor() {
+        let mut frame = frame(vec![cell('x', CellStyle::default(), 1)]);
+        frame.cursor.y = -1;
+        assert_eq!(frame.to_draw_plan().cursor, None);
+
+        frame.cursor.y = 0;
+        frame.cursor.x = 99;
+        assert_eq!(frame.to_draw_plan().cursor, None);
+    }
 }

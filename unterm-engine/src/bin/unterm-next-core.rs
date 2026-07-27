@@ -29,6 +29,7 @@ struct Args {
     bench_agent_startup_lines: Option<usize>,
     bench_screen_read_lines: Option<usize>,
     bench_render_frames: Option<usize>,
+    bench_render_plans: Option<usize>,
     bench_render_cursor_moves: Option<usize>,
     bench_focus_switches: Option<usize>,
     bench_session_create: Option<usize>,
@@ -62,6 +63,7 @@ fn parse_args() -> Result<Args> {
         bench_agent_startup_lines: None,
         bench_screen_read_lines: None,
         bench_render_frames: None,
+        bench_render_plans: None,
         bench_render_cursor_moves: None,
         bench_focus_switches: None,
         bench_session_create: None,
@@ -214,6 +216,13 @@ fn parse_args() -> Result<Args> {
                         .parse()?,
                 );
             }
+            "--bench-render-plans" => {
+                parsed.bench_render_plans = Some(
+                    args.next()
+                        .ok_or_else(|| anyhow::anyhow!("--bench-render-plans requires a value"))?
+                        .parse()?,
+                );
+            }
             "--bench-render-cursor-moves" => {
                 parsed.bench_render_cursor_moves = Some(
                     args.next()
@@ -279,7 +288,7 @@ fn parse_args() -> Result<Args> {
             }
             "--help" | "-h" => {
                 println!(
-                    "Usage: unterm-next-core [--cols N] [--rows N] [--wait-ms N] [--poll-ms N] [--timeout-ms N] [--bench-input-writes N] [--bench-key-to-screen N] [--bench-input-burst N] [--bench-echo N] [--bench-flood-lines N] [--bench-scrollback-lines N] [--bench-viewport-scrolls N] [--bench-viewport-scroll-flood N] [--bench-paste-kb N] [--bench-dual-agent-lines N] [--bench-agent-startup-lines N] [--bench-screen-read-lines N] [--bench-render-frames N] [--bench-render-cursor-moves N] [--bench-focus-switches N] [--bench-session-create N] [--bench-session-ready N] [--cwd PATH] [--env KEY=VALUE] [--write TEXT] [--paste TEXT] [--json] [-- COMMAND [ARG...]]"
+                    "Usage: unterm-next-core [--cols N] [--rows N] [--wait-ms N] [--poll-ms N] [--timeout-ms N] [--bench-input-writes N] [--bench-key-to-screen N] [--bench-input-burst N] [--bench-echo N] [--bench-flood-lines N] [--bench-scrollback-lines N] [--bench-viewport-scrolls N] [--bench-viewport-scroll-flood N] [--bench-paste-kb N] [--bench-dual-agent-lines N] [--bench-agent-startup-lines N] [--bench-screen-read-lines N] [--bench-render-frames N] [--bench-render-plans N] [--bench-render-cursor-moves N] [--bench-focus-switches N] [--bench-session-create N] [--bench-session-ready N] [--cwd PATH] [--env KEY=VALUE] [--write TEXT] [--paste TEXT] [--json] [-- COMMAND [ARG...]]"
                 );
                 std::process::exit(0);
             }
@@ -703,6 +712,69 @@ fn run_render_frame_benchmark(
         percentile(&dirty_latencies_us, 0.50),
         percentile(&dirty_latencies_us, 0.95),
         *dirty_latencies_us.last().unwrap_or(&0)
+    );
+    Ok(())
+}
+
+fn run_render_plan_benchmark(
+    engine: &unterm_engine::next_core::NextCoreEngine,
+    pane_id: usize,
+    rounds: usize,
+    poll_interval: Duration,
+    timeout: Duration,
+) -> Result<()> {
+    if rounds == 0 {
+        bail!("--bench-render-plans must be greater than 0");
+    }
+
+    let ready_marker = "RENDER_PLAN_BENCH_READY";
+    let ready_run = FloodRun {
+        marker: ready_marker.to_string(),
+        before_raw_len: engine.debug_output(pane_id)?.len(),
+        started_at: Instant::now(),
+    };
+    engine.write_input(
+        pane_id,
+        "for /L %i in (1,1,30) do @echo RENDER_PLAN_BENCH_%i abcdefghijklmnopqrstuvwxyz\r",
+    )?;
+    engine.write_input(pane_id, format!("echo {ready_marker}\r").as_str())?;
+    wait_for_marker(engine, pane_id, &ready_run, poll_interval, timeout)?;
+
+    let frame = engine.read_render_frame(pane_id, None)?;
+    if !frame.full || frame.lines.is_empty() {
+        bail!("render plan benchmark frame was empty");
+    }
+
+    let mut latencies_us = Vec::with_capacity(rounds);
+    let mut glyph_runs = 0usize;
+    let mut cell_runs = 0usize;
+    for _ in 0..rounds {
+        let before = Instant::now();
+        let plan = frame.to_draw_plan();
+        latencies_us.push(before.elapsed().as_micros());
+        glyph_runs = plan.glyph_runs.len();
+        cell_runs = plan.cell_runs.len();
+        if plan.cols != frame.cols || plan.rows != frame.rows {
+            bail!(
+                "render plan dimensions changed: frame={}x{} plan={}x{}",
+                frame.cols,
+                frame.rows,
+                plan.cols,
+                plan.rows
+            );
+        }
+    }
+
+    latencies_us.sort_unstable();
+    println!(
+        "bench_render_plan rounds={} glyph_runs={} cell_runs={} min_us={} p50_us={} p95_us={} max_us={}",
+        rounds,
+        glyph_runs,
+        cell_runs,
+        latencies_us[0],
+        percentile(&latencies_us, 0.50),
+        percentile(&latencies_us, 0.95),
+        *latencies_us.last().unwrap_or(&0)
     );
     Ok(())
 }
@@ -1548,6 +1620,17 @@ fn main() -> Result<()> {
             Duration::from_millis(args.timeout_ms),
         )
         .with_context(|| format!("bench_render_frame failed for session {}", session.id))?;
+    }
+
+    if let Some(rounds) = args.bench_render_plans {
+        run_render_plan_benchmark(
+            &engine,
+            session.id,
+            rounds,
+            Duration::from_millis(args.poll_ms),
+            Duration::from_millis(args.timeout_ms),
+        )
+        .with_context(|| format!("bench_render_plan failed for session {}", session.id))?;
     }
 
     if let Some(rounds) = args.bench_render_cursor_moves {
