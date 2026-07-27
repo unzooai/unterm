@@ -58,10 +58,34 @@ impl crate::TermWindow {
             } else {
                 None
             };
+        let next_core_default_font =
+            if next_core_mode.is_enabled() && next_core_buffer_batch.is_some() {
+                match self.fonts.default_font() {
+                    Ok(font) => Some(font),
+                    Err(err) => {
+                        log::debug!("next-core WebGPU font raster source skipped: {err:#}");
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+        let next_core_cached_glyph_upload_diagnostics =
+            if next_core_mode == NextCoreWebGpuPaneMode::Replace {
+                next_core_buffer_batch.as_ref().and_then(|batch| {
+                    webgpu.next_core_cached_glyph_upload_diagnostics(
+                        &batch.buffer_plan,
+                        next_core_default_font.clone(),
+                    )
+                })
+            } else {
+                None
+            };
         let replace_legacy_pane = should_replace_legacy_pane(
             next_core_mode,
             &next_core_buffer_batch,
             next_core_prepared_frame_diagnostics.as_ref(),
+            next_core_cached_glyph_upload_diagnostics.as_ref(),
         );
         {
             let render_state = self.render_state.as_ref().unwrap();
@@ -193,19 +217,12 @@ impl crate::TermWindow {
 
         if next_core_mode.is_enabled() {
             if let Some(batch) = next_core_buffer_batch {
-                let default_font = match self.fonts.default_font() {
-                    Ok(font) => Some(font),
-                    Err(err) => {
-                        log::debug!("next-core WebGPU font raster source skipped: {err:#}");
-                        None
-                    }
-                };
                 let encoded = webgpu.encode_next_core_buffer_plan_with_font(
                     &mut encoder,
                     &view,
                     &batch.buffer_plan,
                     None,
-                    default_font,
+                    next_core_default_font,
                 );
                 if !encoded {
                     log::debug!("next-core WebGPU pane render skipped: empty buffer plan");
@@ -374,18 +391,23 @@ fn should_replace_legacy_pane(
     mode: NextCoreWebGpuPaneMode,
     batch: &Option<crate::engine::EngineRenderBufferBatch>,
     prepared_frame: Option<&crate::engine::render_backend::EngineWgpuPreparedFrameDiagnostics>,
+    cached_glyph_upload: Option<&crate::engine::EngineRenderCachedGlyphUploadDiagnostics>,
 ) -> bool {
-    let diagnostics = next_core_webgpu_replace_diagnostics(mode, batch, prepared_frame);
+    let diagnostics =
+        next_core_webgpu_replace_diagnostics(mode, batch, prepared_frame, cached_glyph_upload);
     if !diagnostics.replace_ready && mode == NextCoreWebGpuPaneMode::Replace {
         log::trace!(
-            "next-core WebGPU replace fallback pane={:?} revision={:?} issues={} batch_ready={} batch_readiness_issues={} prepared_frame_ready={} prepared_frame_readiness_issues={}",
+            "next-core WebGPU replace fallback pane={:?} revision={:?} issues={} batch_ready={} batch_readiness_issues={} prepared_frame_ready={} prepared_frame_readiness_issues={} cached_glyph_required={} cached_glyph_ready={} cached_glyph_readiness_issues={}",
             diagnostics.pane_id,
             diagnostics.revision,
             diagnostics.readiness_issues().len(),
             diagnostics.batch_ready,
             diagnostics.batch_readiness_issue_count,
             diagnostics.prepared_frame_ready,
-            diagnostics.prepared_frame_readiness_issue_count
+            diagnostics.prepared_frame_readiness_issue_count,
+            diagnostics.cached_glyph_upload_required,
+            diagnostics.cached_glyph_upload_ready,
+            diagnostics.cached_glyph_upload_readiness_issue_count
         );
     }
     diagnostics.replace_ready
@@ -395,11 +417,13 @@ fn next_core_webgpu_replace_diagnostics(
     mode: NextCoreWebGpuPaneMode,
     batch: &Option<crate::engine::EngineRenderBufferBatch>,
     prepared_frame: Option<&crate::engine::render_backend::EngineWgpuPreparedFrameDiagnostics>,
+    cached_glyph_upload: Option<&crate::engine::EngineRenderCachedGlyphUploadDiagnostics>,
 ) -> crate::engine::EngineRenderPaneReplaceDiagnostics {
     crate::engine::EngineRenderPaneReplaceDiagnostics::from_parts(
         mode == NextCoreWebGpuPaneMode::Replace,
         batch.as_ref(),
         prepared_frame,
+        cached_glyph_upload,
     )
 }
 
@@ -454,8 +478,8 @@ mod tests {
     use crate::engine::render_backend::{EngineRenderVertex, EngineWgpuPreparedFrameDiagnostics};
     use crate::engine::EngineRenderVertexLayer;
     use crate::engine::{
-        EngineRenderBufferBatch, EngineRenderBufferPlan, EngineRenderCommitStats,
-        EngineRenderPaneReplaceReadinessIssue,
+        EngineRenderBufferBatch, EngineRenderBufferPlan, EngineRenderCachedGlyphUploadDiagnostics,
+        EngineRenderCommitStats, EngineRenderPaneReplaceReadinessIssue,
     };
 
     #[test]
@@ -478,12 +502,14 @@ mod tests {
         assert!(should_replace_legacy_pane(
             NextCoreWebGpuPaneMode::Replace,
             &Some(buffer_batch(true)),
-            Some(&prepared_frame_diagnostics(true))
+            Some(&prepared_frame_diagnostics(true)),
+            None
         ));
         let diagnostics = next_core_webgpu_replace_diagnostics(
             NextCoreWebGpuPaneMode::Replace,
             &Some(buffer_batch(true)),
             Some(&prepared_frame_diagnostics(true)),
+            None,
         );
         assert!(diagnostics.replace_ready);
         assert!(diagnostics.readiness_issues().is_empty());
@@ -494,29 +520,37 @@ mod tests {
         assert!(!should_replace_legacy_pane(
             NextCoreWebGpuPaneMode::Replace,
             &Some(buffer_batch(false)),
-            Some(&prepared_frame_diagnostics(true))
+            Some(&prepared_frame_diagnostics(true)),
+            None
         ));
         assert!(!should_replace_legacy_pane(
             NextCoreWebGpuPaneMode::Append,
             &Some(buffer_batch(true)),
-            Some(&prepared_frame_diagnostics(true))
+            Some(&prepared_frame_diagnostics(true)),
+            None
         ));
         assert!(!should_replace_legacy_pane(
             NextCoreWebGpuPaneMode::Replace,
             &None,
+            None,
             None
         ));
         let append_diagnostics = next_core_webgpu_replace_diagnostics(
             NextCoreWebGpuPaneMode::Append,
             &Some(buffer_batch(true)),
             Some(&prepared_frame_diagnostics(true)),
+            None,
         );
         assert_eq!(
             append_diagnostics.readiness_issues(),
             vec![EngineRenderPaneReplaceReadinessIssue::NotRequested]
         );
-        let missing_diagnostics =
-            next_core_webgpu_replace_diagnostics(NextCoreWebGpuPaneMode::Replace, &None, None);
+        let missing_diagnostics = next_core_webgpu_replace_diagnostics(
+            NextCoreWebGpuPaneMode::Replace,
+            &None,
+            None,
+            None,
+        );
         assert_eq!(
             missing_diagnostics.readiness_issues(),
             vec![
@@ -531,17 +565,20 @@ mod tests {
         assert!(!should_replace_legacy_pane(
             NextCoreWebGpuPaneMode::Replace,
             &Some(buffer_batch(true)),
-            Some(&prepared_frame_diagnostics(false))
+            Some(&prepared_frame_diagnostics(false)),
+            None
         ));
         assert!(!should_replace_legacy_pane(
             NextCoreWebGpuPaneMode::Replace,
             &Some(buffer_batch(true)),
+            None,
             None
         ));
         let diagnostics = next_core_webgpu_replace_diagnostics(
             NextCoreWebGpuPaneMode::Replace,
             &Some(buffer_batch(true)),
             Some(&prepared_frame_diagnostics(false)),
+            None,
         );
         assert_eq!(
             diagnostics.readiness_issues(),
@@ -551,11 +588,56 @@ mod tests {
             NextCoreWebGpuPaneMode::Replace,
             &Some(buffer_batch(true)),
             None,
+            None,
         );
         assert_eq!(
             missing_frame.readiness_issues(),
             vec![EngineRenderPaneReplaceReadinessIssue::MissingPreparedFrame]
         );
+    }
+
+    #[test]
+    fn next_core_replace_requires_cached_glyph_upload_for_text_frames() {
+        assert!(!should_replace_legacy_pane(
+            NextCoreWebGpuPaneMode::Replace,
+            &Some(buffer_batch(true)),
+            Some(&prepared_text_frame_diagnostics(true)),
+            None
+        ));
+        let missing_upload = next_core_webgpu_replace_diagnostics(
+            NextCoreWebGpuPaneMode::Replace,
+            &Some(buffer_batch(true)),
+            Some(&prepared_text_frame_diagnostics(true)),
+            None,
+        );
+        assert_eq!(
+            missing_upload.readiness_issues(),
+            vec![EngineRenderPaneReplaceReadinessIssue::MissingCachedGlyphUpload]
+        );
+
+        assert!(!should_replace_legacy_pane(
+            NextCoreWebGpuPaneMode::Replace,
+            &Some(buffer_batch(true)),
+            Some(&prepared_text_frame_diagnostics(true)),
+            Some(&cached_glyph_upload_diagnostics(false))
+        ));
+        let incomplete_upload = next_core_webgpu_replace_diagnostics(
+            NextCoreWebGpuPaneMode::Replace,
+            &Some(buffer_batch(true)),
+            Some(&prepared_text_frame_diagnostics(true)),
+            Some(&cached_glyph_upload_diagnostics(false)),
+        );
+        assert_eq!(
+            incomplete_upload.readiness_issues(),
+            vec![EngineRenderPaneReplaceReadinessIssue::CachedGlyphUploadNotReady]
+        );
+
+        assert!(should_replace_legacy_pane(
+            NextCoreWebGpuPaneMode::Replace,
+            &Some(buffer_batch(true)),
+            Some(&prepared_text_frame_diagnostics(true)),
+            Some(&cached_glyph_upload_diagnostics(true))
+        ));
     }
 
     fn buffer_batch(draw_ready: bool) -> EngineRenderBufferBatch {
@@ -607,6 +689,34 @@ mod tests {
             glyph_key_count: 0,
             glyph_instance_count: 0,
             replace_ready,
+        }
+    }
+
+    fn prepared_text_frame_diagnostics(replace_ready: bool) -> EngineWgpuPreparedFrameDiagnostics {
+        EngineWgpuPreparedFrameDiagnostics {
+            text_run_count: 1,
+            glyph_key_count: 1,
+            glyph_instance_count: 1,
+            ..prepared_frame_diagnostics(replace_ready)
+        }
+    }
+
+    fn cached_glyph_upload_diagnostics(ready: bool) -> EngineRenderCachedGlyphUploadDiagnostics {
+        EngineRenderCachedGlyphUploadDiagnostics {
+            pane_id: 7,
+            submitted: ready,
+            revision: 3,
+            cell_width_px: 8,
+            cell_height_px: 16,
+            inserted_key_count: usize::from(ready),
+            overflow_key_count: 0,
+            texture_region_count: usize::from(ready),
+            texture_missing_key_count: 0,
+            layout_entry_count: usize::from(ready),
+            layout_missing_key_count: 0,
+            vertex_count: if ready { 4 } else { 0 },
+            index_count: if ready { 6 } else { 0 },
+            draw_ready: ready,
         }
     }
 }

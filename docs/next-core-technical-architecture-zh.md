@@ -225,6 +225,7 @@ next-core 已经在 screen/parser 方向具备基础能力，包括：
 - WebGPU `replace` 模式现在会同时检查 next-core buffer batch 是否 draw-ready、prepared frame 是否 replace-ready；重复 revision、空 buffer 或 preparation 不完整都会保留 legacy pane 兜底，并暴露结构化 readiness issues，避免 pane-only 替换实验出现空白帧
 - WebGPU `replace` readiness 已收敛成结构化 diagnostics，包含 mode、pane/revision、batch presence/readiness、prepared-frame presence/readiness 和明确 fallback issues；未来 pane replacement 自动化门禁可以直接消费诊断对象，而不是复刻 draw-loop 条件
 - `EngineRenderPaneReplaceDiagnostics` 已移动到 engine facade 后的共享边界；WebGPU draw 和未来 CI replacement checks 可以共用同一份 pane replacement readiness contract
+- WebGPU `replace` readiness 对 text frame 现在还会要求 cached glyph texture/upload diagnostics ready；preflight 在克隆的 glyph atlas state 上运行，避免在真正 draw 前污染 WebGPU cache
 - `wezterm-gui/src/engine/render_backend.rs` 已提供 GPU-free `CommandListRenderBackend`，将 damage/background/text/cursor submission 展开为稳定顺序的 backend command list，为后续 wgpu command encoder 接入固定输入契约
 - `EngineRenderBufferPlan` 已将 backend command 转为 damage rects、quad vertices 和 indices，并保留原始 `RenderTextRun` 的 row/col/cell-span/text/style/rect 元数据；下一步 glyph atlas 可以消费真实文本与单元格跨度信息，而不是只能看到匿名纯色 text quad
 - `EngineWgpuPreparedFramePlan` 已暴露 replace-readiness diagnostics，覆盖 solid upload、text atlas 和 glyph atlas preparation；pane 替换测试可以先走 CPU 侧 gate，再进入真实 WebGPU encode

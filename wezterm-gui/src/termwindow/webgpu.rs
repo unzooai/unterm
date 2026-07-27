@@ -62,13 +62,13 @@ pub struct WebGpuState {
 const NEXT_CORE_GLYPH_ATLAS_WIDTH_PX: usize = 2048;
 const NEXT_CORE_GLYPH_ATLAS_HEIGHT_PX: usize = 2048;
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct NextCoreGlyphAtlasState {
     panes: HashMap<usize, NextCorePaneGlyphAtlasState>,
     shaped_glyph_atlases: HashMap<usize, NextCoreShapedGlyphAtlasCacheEntry>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct NextCorePaneGlyphAtlasState {
     cell_width_px: usize,
     cell_height_px: usize,
@@ -1222,6 +1222,63 @@ impl WebGpuState {
             viewport_height_px,
         )
         .diagnostics()
+    }
+
+    #[allow(dead_code)]
+    pub fn next_core_cached_glyph_upload_diagnostics(
+        &self,
+        plan: &EngineRenderBufferPlan,
+        font: Option<Rc<LoadedFont>>,
+    ) -> Option<EngineRenderCachedGlyphUploadDiagnostics> {
+        let dimensions = self.dimensions.borrow();
+        let viewport_width_px = dimensions.pixel_width.max(1) as f32;
+        let viewport_height_px = dimensions.pixel_height.max(1) as f32;
+        let prepared = EngineWgpuRenderBackend::prepare_frame_for_viewport(
+            plan,
+            viewport_width_px,
+            viewport_height_px,
+        );
+        drop(dimensions);
+
+        let mut glyph_state = self.next_core_glyph_atlases.borrow().clone();
+        let shaped_glyph_atlas = font.as_ref().and_then(|font| {
+            glyph_state.prepare_shaped_glyph_atlas_with_shaper(
+                &prepared.text_atlas,
+                font.id(),
+                |text| {
+                    font.shape(
+                        text,
+                        || {},
+                        |_| {},
+                        None,
+                        Direction::LeftToRight,
+                        None,
+                        None,
+                    )
+                    .ok()
+                },
+            )
+        });
+        let font_raster_source = font.map(EngineRenderFontGlyphRasterSource::new);
+        let glyph_upload = if let (Some(shaped_glyph_atlas), Some(font_raster_source)) =
+            (shaped_glyph_atlas.as_ref(), font_raster_source.as_ref())
+        {
+            glyph_state.prepare_cached_upload_with_raster_source(
+                plan,
+                shaped_glyph_atlas,
+                viewport_width_px,
+                viewport_height_px,
+                font_raster_source,
+            )
+        } else {
+            glyph_state.prepare_cached_upload(
+                plan,
+                &prepared.glyph_atlas,
+                viewport_width_px,
+                viewport_height_px,
+            )
+        };
+        glyph_upload.map(|upload| upload.diagnostics())
     }
 
     #[allow(dead_code)]

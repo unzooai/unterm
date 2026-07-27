@@ -495,7 +495,7 @@ mod tests {
         assert!(!repeat.is_draw_ready());
         assert_eq!(repeat.readiness_issues().len(), 3);
         let missing_frame =
-            EngineRenderPaneReplaceDiagnostics::from_parts(true, Some(&first), None);
+            EngineRenderPaneReplaceDiagnostics::from_parts(true, Some(&first), None, None);
         assert!(!missing_frame.replace_ready);
         assert_eq!(
             missing_frame.readiness_issues(),
@@ -515,6 +515,7 @@ mod tests {
                 glyph_instance_count: 0,
                 replace_ready: true,
             }),
+            None,
         );
         assert_eq!(
             not_requested.readiness_issues(),

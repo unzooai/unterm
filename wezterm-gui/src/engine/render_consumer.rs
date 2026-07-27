@@ -8,7 +8,9 @@ use super::{
     CommandListRenderBackend, EngineRenderBackend, EngineRenderBufferPlan, RenderCellMetrics,
     RenderCommitPlan, RenderConsumerState, RenderRect, ScreenEngine,
 };
-use crate::engine::render_backend::EngineWgpuPreparedFrameDiagnostics;
+use crate::engine::render_backend::{
+    EngineRenderCachedGlyphUploadDiagnostics, EngineWgpuPreparedFrameDiagnostics,
+};
 use std::collections::HashMap;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -60,6 +62,10 @@ pub struct EngineRenderPaneReplaceDiagnostics {
     pub prepared_frame_present: bool,
     pub prepared_frame_ready: bool,
     pub prepared_frame_readiness_issue_count: usize,
+    pub cached_glyph_upload_required: bool,
+    pub cached_glyph_upload_present: bool,
+    pub cached_glyph_upload_ready: bool,
+    pub cached_glyph_upload_readiness_issue_count: usize,
     pub replace_ready: bool,
 }
 
@@ -71,6 +77,8 @@ pub enum EngineRenderPaneReplaceReadinessIssue {
     BufferBatchNotReady,
     MissingPreparedFrame,
     PreparedFrameNotReady,
+    MissingCachedGlyphUpload,
+    CachedGlyphUploadNotReady,
 }
 
 #[derive(Clone, Debug)]
@@ -166,6 +174,7 @@ impl EngineRenderPaneReplaceDiagnostics {
         requested: bool,
         batch: Option<&EngineRenderBufferBatch>,
         prepared_frame: Option<&EngineWgpuPreparedFrameDiagnostics>,
+        cached_glyph_upload: Option<&EngineRenderCachedGlyphUploadDiagnostics>,
     ) -> Self {
         let batch_ready = batch.is_some_and(|batch| batch.is_draw_ready());
         let batch_readiness_issue_count = batch.map_or(0, |batch| batch.readiness_issues().len());
@@ -173,6 +182,16 @@ impl EngineRenderPaneReplaceDiagnostics {
             prepared_frame.is_some_and(|diagnostics| diagnostics.replace_ready);
         let prepared_frame_readiness_issue_count =
             prepared_frame.map_or(0, |diagnostics| usize::from(!diagnostics.replace_ready));
+        let cached_glyph_upload_required = prepared_frame.is_some_and(|diagnostics| {
+            diagnostics.text_run_count > 0
+                || diagnostics.glyph_key_count > 0
+                || diagnostics.glyph_instance_count > 0
+        });
+        let cached_glyph_upload_ready =
+            cached_glyph_upload.is_some_and(|diagnostics| diagnostics.is_ready());
+        let cached_glyph_upload_readiness_issue_count =
+            cached_glyph_upload.map_or(0, |diagnostics| diagnostics.readiness_issues().len());
+        let glyph_ready = !cached_glyph_upload_required || cached_glyph_upload_ready;
 
         Self {
             requested,
@@ -184,7 +203,11 @@ impl EngineRenderPaneReplaceDiagnostics {
             prepared_frame_present: prepared_frame.is_some(),
             prepared_frame_ready,
             prepared_frame_readiness_issue_count,
-            replace_ready: requested && batch_ready && prepared_frame_ready,
+            cached_glyph_upload_required,
+            cached_glyph_upload_present: cached_glyph_upload.is_some(),
+            cached_glyph_upload_ready,
+            cached_glyph_upload_readiness_issue_count,
+            replace_ready: requested && batch_ready && prepared_frame_ready && glyph_ready,
         }
     }
 
@@ -202,6 +225,11 @@ impl EngineRenderPaneReplaceDiagnostics {
             issues.push(EngineRenderPaneReplaceReadinessIssue::MissingPreparedFrame);
         } else if !self.prepared_frame_ready {
             issues.push(EngineRenderPaneReplaceReadinessIssue::PreparedFrameNotReady);
+        }
+        if self.cached_glyph_upload_required && !self.cached_glyph_upload_present {
+            issues.push(EngineRenderPaneReplaceReadinessIssue::MissingCachedGlyphUpload);
+        } else if self.cached_glyph_upload_required && !self.cached_glyph_upload_ready {
+            issues.push(EngineRenderPaneReplaceReadinessIssue::CachedGlyphUploadNotReady);
         }
         issues
     }
