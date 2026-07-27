@@ -1,6 +1,6 @@
 use super::{
-    activity::SessionIoActivity, launch, pty_io, recording_output, NextCoreEngine,
-    NextCoreRecording, NextCoreScreen, NextCoreSession, NextCoreState, MAX_OUTPUT_BYTES,
+    activity::SessionIoActivity, launch, pty_io, session_output, NextCoreEngine, NextCoreRecording,
+    NextCoreScreen, NextCoreSession, NextCoreState,
 };
 use crate::{SessionSnapshot, ShellSnapshot};
 use anyhow::{bail, Result};
@@ -10,7 +10,6 @@ use std::io::{Read, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
-use std::time::Instant;
 
 pub(super) fn pty_size(cols: usize, rows: usize) -> PtySize {
     PtySize {
@@ -137,31 +136,21 @@ fn spawn_reader_thread(
                         break;
                     }
                     Ok(n) => {
-                        let output_started_at = Instant::now();
                         let Some(chunk) = pty_io::decode_pty_chunk(&mut pending_utf8, &buf[..n])
                         else {
                             continue;
                         };
-                        let mut output = output.lock();
-                        pty_io::append_bounded_output(
-                            &mut output,
+                        session_output::apply_chunk(
+                            session_output::OutputHandles {
+                                output: &output,
+                                screen: &screen,
+                                recording: &recording,
+                                activity: &activity,
+                                writer: &writer,
+                            },
                             chunk.as_str(),
-                            MAX_OUTPUT_BYTES,
-                        );
-                        let mut screen = screen.lock();
-                        screen.feed(chunk.as_str());
-                        NextCoreEngine::answer_terminal_queries_with_pending(
-                            chunk.as_str(),
-                            &screen,
-                            &writer,
                             &mut pending_terminal_query,
                         );
-                        activity
-                            .lock()
-                            .mark_output(chunk.len(), output_started_at.elapsed());
-                        if let Some(recording) = recording.lock().as_mut() {
-                            recording_output::append_now(recording, chunk.as_str());
-                        }
                     }
                     Err(err) => {
                         *dead_reason.lock() = Some(format!("pty_reader_error:{err}"));

@@ -49,6 +49,7 @@ mod screen_text;
 mod session_activity;
 mod session_creation;
 mod session_handles;
+mod session_output;
 mod session_queries;
 mod session_registry;
 mod session_runtime;
@@ -1767,6 +1768,7 @@ impl NextCoreEngine {
         Self::answer_terminal_queries_with_pending(chunk, screen, writer, &mut pending);
     }
 
+    #[cfg(test)]
     fn answer_terminal_queries_with_pending(
         chunk: &str,
         screen: &NextCoreScreen,
