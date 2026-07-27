@@ -4,9 +4,9 @@ use crate::engine::{
     EngineRenderGlyphAtlasCache, EngineRenderGlyphAtlasCacheUpdate, EngineRenderGlyphAtlasPlan,
     EngineRenderGlyphAtlasTextureRegion, EngineRenderGlyphAtlasTextureUpdatePlan,
     EngineRenderGlyphRaster, EngineRenderGlyphRasterSource, EngineRenderGpuUploadPlan,
-    EngineRenderPreparedPaneFrame, EngineRenderTextAtlasPlan, EngineRenderTexturedGlyphLayoutDiff,
-    EngineRenderTexturedGlyphUploadPlan, EngineWgpuPipelineConfig, EngineWgpuPreparedFramePlan,
-    EngineWgpuRenderBackend,
+    EngineRenderPreparedPaneFrame, EngineRenderShaperGlyph, EngineRenderTextAtlasPlan,
+    EngineRenderTexturedGlyphLayoutDiff, EngineRenderTexturedGlyphUploadPlan,
+    EngineWgpuPipelineConfig, EngineWgpuPreparedFramePlan, EngineWgpuRenderBackend,
 };
 use crate::quad::Vertex;
 use anyhow::anyhow;
@@ -155,6 +155,22 @@ impl EngineRenderGlyphRasterSource for NextCoreFontGlyphRasterSource {
             uses_raster_metrics: true,
         })
     }
+}
+
+fn shaper_glyphs_from_glyph_infos(glyph_infos: Vec<GlyphInfo>) -> Vec<EngineRenderShaperGlyph> {
+    glyph_infos
+        .into_iter()
+        .map(|info| EngineRenderShaperGlyph {
+            text: info.text,
+            only_char: info.only_char,
+            num_cells: info.num_cells,
+            font_idx: info.font_idx,
+            glyph_pos: info.glyph_pos,
+            x_advance_px: info.x_advance.get(),
+            x_offset_px: info.x_offset.get(),
+            y_offset_px: info.y_offset.get(),
+        })
+        .collect()
 }
 
 #[allow(dead_code)]
@@ -528,7 +544,7 @@ impl NextCoreGlyphAtlasState {
         mut shape_run: F,
     ) -> Option<EngineRenderGlyphAtlasPlan>
     where
-        F: FnMut(&str) -> Option<Vec<GlyphInfo>>,
+        F: FnMut(&str) -> Option<Vec<EngineRenderShaperGlyph>>,
     {
         if !text_atlas.submitted || text_atlas.runs.is_empty() {
             return None;
@@ -548,10 +564,7 @@ impl NextCoreGlyphAtlasState {
         for run in &text_atlas.runs {
             shaped_runs.push(shape_run(&run.text)?);
         }
-        let shaped = EngineWgpuRenderBackend::prepare_shaped_glyph_plan_from_glyph_infos(
-            text_atlas,
-            &shaped_runs,
-        );
+        let shaped = EngineWgpuRenderBackend::prepare_shaped_glyph_plan(text_atlas, &shaped_runs);
         if shaped.is_empty() {
             return None;
         }
@@ -1325,6 +1338,7 @@ impl WebGpuState {
                         None,
                     )
                     .ok()
+                    .map(shaper_glyphs_from_glyph_infos)
                 },
             )
         });
@@ -1420,7 +1434,7 @@ impl WebGpuState {
                         None,
                         None,
                     ) {
-                        Ok(glyph_infos) => Some(glyph_infos),
+                        Ok(glyph_infos) => Some(shaper_glyphs_from_glyph_infos(glyph_infos)),
                         Err(err) => {
                             log::debug!("next-core font shaping skipped for {text:?}: {err:#}");
                             None
@@ -1884,19 +1898,16 @@ mod tests {
         glyph_pos: u32,
         x_advance: f64,
         num_cells: u8,
-    ) -> GlyphInfo {
-        GlyphInfo {
+    ) -> EngineRenderShaperGlyph {
+        EngineRenderShaperGlyph {
             text: text.to_string(),
             only_char: text.chars().next(),
-            is_space: false,
             num_cells,
-            cluster: 0,
             font_idx,
             glyph_pos,
-            x_advance: wezterm_font::units::PixelLength::new(x_advance),
-            y_advance: wezterm_font::units::PixelLength::new(0.0),
-            x_offset: wezterm_font::units::PixelLength::new(0.0),
-            y_offset: wezterm_font::units::PixelLength::new(0.0),
+            x_advance_px: x_advance,
+            x_offset_px: 0.0,
+            y_offset_px: 0.0,
         }
     }
 }

@@ -22,13 +22,14 @@ pub use render_backend::{
     EngineRenderGlyphAtlasTextureRegion, EngineRenderGlyphAtlasTextureUpdatePlan,
     EngineRenderGlyphRaster, EngineRenderGlyphRasterSource, EngineRenderGpuUploadPlan,
     EngineRenderGpuVertex, EngineRenderShapedGlyph, EngineRenderShapedGlyphPlan,
-    EngineRenderTextAtlasPlan, EngineRenderTextAtlasRun, EngineRenderTexturedGlyphLayoutDiff,
-    EngineRenderTexturedGlyphLayoutEntry, EngineRenderTexturedGlyphLayoutIdentity,
-    EngineRenderTexturedGlyphLayoutMismatch, EngineRenderTexturedGlyphLayoutReport,
-    EngineRenderTexturedGlyphUploadPlan, EngineRenderTexturedGlyphVertex, EngineRenderVertex,
-    EngineRenderVertexLayer, EngineWgpuPipelineConfig, EngineWgpuPreparedFrameDiagnostics,
-    EngineWgpuPreparedFramePlan, EngineWgpuPreparedFrameReadinessIssue, EngineWgpuRenderBackend,
-    EngineWgpuRenderPassPlan, EngineWgpuTexturedGlyphBuffers, EngineWgpuTexturedGlyphPassPlan,
+    EngineRenderShaperGlyph, EngineRenderTextAtlasPlan, EngineRenderTextAtlasRun,
+    EngineRenderTexturedGlyphLayoutDiff, EngineRenderTexturedGlyphLayoutEntry,
+    EngineRenderTexturedGlyphLayoutIdentity, EngineRenderTexturedGlyphLayoutMismatch,
+    EngineRenderTexturedGlyphLayoutReport, EngineRenderTexturedGlyphUploadPlan,
+    EngineRenderTexturedGlyphVertex, EngineRenderVertex, EngineRenderVertexLayer,
+    EngineWgpuPipelineConfig, EngineWgpuPreparedFrameDiagnostics, EngineWgpuPreparedFramePlan,
+    EngineWgpuPreparedFrameReadinessIssue, EngineWgpuRenderBackend, EngineWgpuRenderPassPlan,
+    EngineWgpuTexturedGlyphBuffers, EngineWgpuTexturedGlyphPassPlan,
 };
 #[allow(unused_imports)]
 pub use render_consumer::{

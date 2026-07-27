@@ -234,7 +234,7 @@ next-core 已经在 screen/parser 方向具备基础能力，包括：
 - `EngineRenderBufferPlan` 已将 backend command 转为 damage rects、quad vertices 和 indices，并保留原始 `RenderTextRun` 的 row/col/cell-span/text/style/rect 元数据；下一步 glyph atlas 可以消费真实文本与单元格跨度信息，而不是只能看到匿名纯色 text quad
 - `EngineWgpuPreparedFramePlan` 已暴露 replace-readiness diagnostics，覆盖 solid upload、text atlas 和 glyph atlas preparation；pane 替换测试可以先走 CPU 侧 gate，再进入真实 WebGPU encode
 - `EngineRenderTextAtlasPlan` 已把 submitted text runs 准备成 GPU-free atlas/shaping 输入，保留 foreground color、cell span、text、style 和 pixel rects；真实字体 atlas 后续只需要替换该 preparation 层的消费端
-- `EngineRenderShapedGlyphPlan` 已固定真实 GUI shaper 的下一层输入 ABI，并可从 `wezterm_font::GlyphInfo` runs 构建；shaped glyph 可以携带 text、rect、style、foreground、cells、`font_idx` 和 `glyph_pos`，再进入共享 atlas/cache/upload 路径
+- `EngineRenderShapedGlyphPlan` 已固定真实 GUI shaper 的下一层输入 ABI，并改为从 engine-neutral `EngineRenderShaperGlyph` runs 构建；shaped glyph 可以携带 text、rect、style、foreground、cells、`font_idx` 和 `glyph_pos`，再进入共享 atlas/cache/upload 路径；`wezterm_font::GlyphInfo` 转换留在 WebGPU renderer 侧
 - `EngineRenderGlyphAtlasPlan` 已把 text-atlas runs 转成稳定 glyph cache key 和 cell-aligned glyph instance；glyph key 已能携带可选 shaped `(font_idx, glyph_pos)` raster identity；engine 只暴露 `EngineRenderGlyphRasterSource` trait，迁移期 `LoadedFont::rasterize_glyph` adapter 已下沉到 WebGPU renderer，避免 engine render backend 直接依赖 GUI 字体对象
 - GUI WebGPU 的 next-core pane render path 已能用默认 `LoadedFont` 对 text-atlas runs 做 shaping，并通过 renderer-owned `NextCoreFontGlyphRasterSource` 上传真实 raster bytes；字体查找或 shaping 失败时仍回退到 deterministic placeholder raster path
 - GUI WebGPU 的 next-core shaped glyph atlas preparation 已按 pane / revision / font id / text-atlas fingerprint 缓存，pane 内容未变化的 repaint 不再重复执行 `LoadedFont::shape`
