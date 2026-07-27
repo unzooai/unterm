@@ -108,6 +108,18 @@ if ($summary.json_smoke.RenderGeometryCellRuns -lt $jsonSmokeRows) {
 if ($summary.json_smoke.RenderGeometryCursor -ne $true) {
     throw "json smoke did not include render geometry cursor"
 }
+if ($summary.json_smoke.RenderSubmissionDamageRects -lt 1) {
+    throw "json smoke did not include render submission damage rects"
+}
+if ($summary.json_smoke.RenderSubmissionTextRuns -lt 1) {
+    throw "json smoke did not include render submission text runs"
+}
+if ($summary.json_smoke.RenderSubmissionBackgroundQuads -lt $jsonSmokeRows) {
+    throw "json smoke render submission background quads $($summary.json_smoke.RenderSubmissionBackgroundQuads) were fewer than screen rows $jsonSmokeRows"
+}
+if ($summary.json_smoke.RenderSubmissionCursor -ne $true) {
+    throw "json smoke did not include render submission cursor"
+}
 if (-not ($summary.json_smoke.PSObject.Properties.Name -contains "DeadReason")) {
     throw "json smoke did not include session dead_reason field"
 }

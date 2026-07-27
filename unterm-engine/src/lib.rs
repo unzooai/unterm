@@ -330,6 +330,44 @@ pub struct RenderGeometryPlan {
     pub cursor: Option<RenderCursorGeometry>,
 }
 
+#[allow(dead_code)]
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+pub struct RenderBackgroundQuad {
+    pub rect: RenderRect,
+    pub style: CellStyle,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+pub struct RenderTextRun {
+    pub text: String,
+    pub rect: RenderRect,
+    pub style: CellStyle,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+pub struct RenderCursorQuad {
+    pub rect: RenderRect,
+    pub visible: bool,
+    pub shape: String,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+pub struct RenderSubmissionPlan {
+    pub revision: u64,
+    pub cols: usize,
+    pub rows: usize,
+    pub scrollback_rows: usize,
+    pub viewport: RenderRect,
+    pub full: bool,
+    pub damage_rects: Vec<RenderRect>,
+    pub background_quads: Vec<RenderBackgroundQuad>,
+    pub text_runs: Vec<RenderTextRun>,
+    pub cursor: Option<RenderCursorQuad>,
+}
+
 impl RenderDrawPlan {
     #[allow(dead_code)]
     pub fn to_geometry_plan(&self, metrics: RenderCellMetrics) -> RenderGeometryPlan {
@@ -374,6 +412,70 @@ impl RenderDrawPlan {
             cell_runs,
             cursor,
         }
+    }
+}
+
+impl RenderGeometryPlan {
+    #[allow(dead_code)]
+    pub fn to_submission_plan(&self) -> RenderSubmissionPlan {
+        let damage_rects = self.damage_rects();
+        let background_quads = self
+            .cell_runs
+            .iter()
+            .map(|run| RenderBackgroundQuad {
+                rect: run.rect,
+                style: run.style.clone(),
+            })
+            .collect();
+        let text_runs = self
+            .glyph_runs
+            .iter()
+            .map(|run| RenderTextRun {
+                text: run.text.clone(),
+                rect: run.rect,
+                style: run.style.clone(),
+            })
+            .collect();
+        let cursor = self.cursor.as_ref().map(|cursor| RenderCursorQuad {
+            rect: cursor.rect,
+            visible: cursor.visible,
+            shape: cursor.shape.clone(),
+        });
+
+        RenderSubmissionPlan {
+            revision: self.revision,
+            cols: self.cols,
+            rows: self.rows,
+            scrollback_rows: self.scrollback_rows,
+            viewport: self.viewport,
+            full: self.full,
+            damage_rects,
+            background_quads,
+            text_runs,
+            cursor,
+        }
+    }
+
+    fn damage_rects(&self) -> Vec<RenderRect> {
+        if self.full {
+            return vec![self.viewport];
+        }
+
+        let Some(dirty_rows) = self.dirty_rows else {
+            return Vec::new();
+        };
+        if self.rows == 0 || dirty_rows.start > dirty_rows.end {
+            return Vec::new();
+        }
+
+        let cell_height = self.viewport.height / self.rows;
+        let row_count = dirty_rows.end.saturating_sub(dirty_rows.start) + 1;
+        vec![RenderRect {
+            x: 0,
+            y: dirty_rows.start.saturating_mul(cell_height),
+            width: self.viewport.width,
+            height: row_count.saturating_mul(cell_height),
+        }]
     }
 }
 
@@ -1129,6 +1231,117 @@ mod tests {
                 width: 8,
                 height: 16,
             }
+        );
+    }
+
+    #[test]
+    fn render_submission_plan_maps_geometry_to_renderer_commands() {
+        let fg = CellStyle {
+            fg: Some(StyledColor::Palette(2)),
+            ..CellStyle::default()
+        };
+        let bg = CellStyle {
+            bg: Some(StyledColor::Palette(4)),
+            ..CellStyle::default()
+        };
+        let geometry = frame(vec![
+            cell('o', fg.clone(), 1),
+            cell('k', fg.clone(), 1),
+            cell(' ', bg.clone(), 1),
+        ])
+        .to_draw_plan()
+        .to_geometry_plan(RenderCellMetrics {
+            cell_width_px: 10,
+            cell_height_px: 20,
+        });
+
+        let submission = geometry.to_submission_plan();
+        assert_eq!(submission.revision, 7);
+        assert!(!submission.full);
+        assert_eq!(
+            submission.damage_rects,
+            vec![RenderRect {
+                x: 0,
+                y: 0,
+                width: 60,
+                height: 20,
+            }]
+        );
+        assert_eq!(submission.text_runs.len(), 1);
+        assert_eq!(submission.text_runs[0].text, "ok");
+        assert_eq!(submission.text_runs[0].style, fg);
+        assert_eq!(submission.background_quads.len(), 2);
+        assert_eq!(submission.background_quads[1].style, bg);
+        assert_eq!(
+            submission.cursor,
+            Some(RenderCursorQuad {
+                rect: RenderRect {
+                    x: 20,
+                    y: 0,
+                    width: 10,
+                    height: 20,
+                },
+                visible: true,
+                shape: "block".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn render_submission_plan_uses_full_viewport_damage_for_full_frames() {
+        let mut full = frame(vec![cell('x', CellStyle::default(), 1)]);
+        full.full = true;
+        full.dirty_rows = None;
+        full.rows = 2;
+
+        let submission = full
+            .to_draw_plan()
+            .to_geometry_plan(RenderCellMetrics {
+                cell_width_px: 8,
+                cell_height_px: 16,
+            })
+            .to_submission_plan();
+
+        assert!(submission.full);
+        assert_eq!(
+            submission.damage_rects,
+            vec![RenderRect {
+                x: 0,
+                y: 0,
+                width: 48,
+                height: 32,
+            }]
+        );
+    }
+
+    #[test]
+    fn render_submission_plan_uses_dirty_row_damage_for_partial_frames() {
+        let dirty = RenderGeometryPlan {
+            revision: 10,
+            cols: 5,
+            rows: 4,
+            scrollback_rows: 0,
+            dirty_rows: Some(DirtyRows { start: 1, end: 2 }),
+            full: false,
+            viewport: RenderRect {
+                x: 0,
+                y: 0,
+                width: 50,
+                height: 80,
+            },
+            glyph_runs: Vec::new(),
+            cell_runs: Vec::new(),
+            cursor: None,
+        };
+
+        assert_eq!(
+            dirty.to_submission_plan().damage_rects,
+            vec![RenderRect {
+                x: 0,
+                y: 20,
+                width: 50,
+                height: 40,
+            }]
         );
     }
 
