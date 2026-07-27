@@ -97,6 +97,7 @@ pub struct NextCoreCachedGlyphUpload {
 #[allow(dead_code)]
 pub struct NextCoreCachedGlyphUploadDiagnostics {
     pub pane_id: usize,
+    pub submitted: bool,
     pub revision: u64,
     pub cell_width_px: usize,
     pub cell_height_px: usize,
@@ -111,11 +112,53 @@ pub struct NextCoreCachedGlyphUploadDiagnostics {
     pub draw_ready: bool,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
+pub enum NextCoreCachedGlyphUploadReadinessIssue {
+    NotSubmitted,
+    EmptyUpload,
+    OverflowKeys,
+    TextureMissingKeys,
+    LayoutMissingKeys,
+    NotDrawReady,
+}
+
+#[allow(dead_code)]
+impl NextCoreCachedGlyphUploadDiagnostics {
+    pub fn readiness_issues(&self) -> Vec<NextCoreCachedGlyphUploadReadinessIssue> {
+        let mut issues = Vec::new();
+        if !self.submitted {
+            issues.push(NextCoreCachedGlyphUploadReadinessIssue::NotSubmitted);
+        }
+        if self.vertex_count == 0 || self.index_count == 0 || self.layout_entry_count == 0 {
+            issues.push(NextCoreCachedGlyphUploadReadinessIssue::EmptyUpload);
+        }
+        if self.overflow_key_count > 0 {
+            issues.push(NextCoreCachedGlyphUploadReadinessIssue::OverflowKeys);
+        }
+        if self.texture_missing_key_count > 0 {
+            issues.push(NextCoreCachedGlyphUploadReadinessIssue::TextureMissingKeys);
+        }
+        if self.layout_missing_key_count > 0 {
+            issues.push(NextCoreCachedGlyphUploadReadinessIssue::LayoutMissingKeys);
+        }
+        if !self.draw_ready {
+            issues.push(NextCoreCachedGlyphUploadReadinessIssue::NotDrawReady);
+        }
+        issues
+    }
+
+    pub fn is_ready(&self) -> bool {
+        self.readiness_issues().is_empty()
+    }
+}
+
 #[allow(dead_code)]
 impl NextCoreCachedGlyphUpload {
     pub fn diagnostics(&self) -> NextCoreCachedGlyphUploadDiagnostics {
         NextCoreCachedGlyphUploadDiagnostics {
             pane_id: self.pane_id,
+            submitted: self.upload.submitted,
             revision: self.revision,
             cell_width_px: self.cell_width_px,
             cell_height_px: self.cell_height_px,
@@ -129,6 +172,8 @@ impl NextCoreCachedGlyphUpload {
             index_count: self.upload.indices.len(),
             draw_ready: self.upload.submitted
                 && !self.upload.is_empty()
+                && self.update.overflow_key_indices.is_empty()
+                && self.texture_update.missing_key_indices.is_empty()
                 && self.upload.missing_key_indices.is_empty(),
         }
     }
@@ -1333,8 +1378,9 @@ impl WebGpuState {
                 }
             };
             let diagnostics = glyph_upload.diagnostics();
+            let readiness_issue_count = diagnostics.readiness_issues().len();
             log::trace!(
-                "next-core cached glyph atlas pane={} revision={} inserted={} overflow={} texture_regions={} texture_bytes={} layout_entries={} layout_missing={} vertices={} indices={} draw_ready={}",
+                "next-core cached glyph atlas pane={} revision={} inserted={} overflow={} texture_regions={} texture_bytes={} layout_entries={} layout_missing={} vertices={} indices={} draw_ready={} readiness_issues={}",
                 diagnostics.pane_id,
                 diagnostics.revision,
                 diagnostics.inserted_key_count,
@@ -1345,7 +1391,8 @@ impl WebGpuState {
                 diagnostics.layout_missing_key_count,
                 diagnostics.vertex_count,
                 diagnostics.index_count,
-                diagnostics.draw_ready
+                diagnostics.draw_ready,
+                readiness_issue_count
             );
             textured_glyph_upload = Some(glyph_upload.upload);
         }
@@ -1451,6 +1498,7 @@ mod tests {
             diagnostics,
             NextCoreCachedGlyphUploadDiagnostics {
                 pane_id: 14,
+                submitted: true,
                 revision: 1,
                 cell_width_px: 8,
                 cell_height_px: 16,
@@ -1464,6 +1512,40 @@ mod tests {
                 index_count: 12,
                 draw_ready: true,
             }
+        );
+        assert!(diagnostics.is_ready());
+        assert!(diagnostics.readiness_issues().is_empty());
+    }
+
+    #[test]
+    fn next_core_cached_upload_diagnostics_report_readiness_issues() {
+        let mut state = NextCoreGlyphAtlasState::new();
+        let plan = buffer_plan_with_text(15, 1, "ab", 2, 16, 16);
+        let glyphs = EngineWgpuRenderBackend::prepare_glyph_atlas(&plan);
+
+        let mut upload = state
+            .prepare_cached_upload(&plan, &glyphs, 80.0, 40.0)
+            .expect("upload");
+        upload.update.overflow_key_indices.push(99);
+        upload.texture_update.missing_key_indices.push(4);
+        upload.upload.missing_key_indices.push(4);
+        upload.upload.layout.missing_key_indices.push(4);
+        upload.upload.submitted = false;
+        upload.upload.vertices.clear();
+
+        let diagnostics = upload.diagnostics();
+
+        assert!(!diagnostics.is_ready());
+        assert_eq!(
+            diagnostics.readiness_issues(),
+            vec![
+                NextCoreCachedGlyphUploadReadinessIssue::NotSubmitted,
+                NextCoreCachedGlyphUploadReadinessIssue::EmptyUpload,
+                NextCoreCachedGlyphUploadReadinessIssue::OverflowKeys,
+                NextCoreCachedGlyphUploadReadinessIssue::TextureMissingKeys,
+                NextCoreCachedGlyphUploadReadinessIssue::LayoutMissingKeys,
+                NextCoreCachedGlyphUploadReadinessIssue::NotDrawReady,
+            ]
         );
     }
 
