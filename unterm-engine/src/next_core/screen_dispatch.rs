@@ -83,7 +83,7 @@ pub(super) fn read_render_frame(
                 clear_dirty,
             } => {
                 let lines = match dirty_rows {
-                    Some(rows) if full => screen.styled_viewport_lines(first_row),
+                    Some(_) if full => screen.styled_viewport_lines(first_row),
                     Some(rows) => screen.styled_viewport_dirty_lines(rows, first_row),
                     None => Vec::new(),
                 };
