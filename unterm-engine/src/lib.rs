@@ -276,7 +276,8 @@ impl RenderFrameSnapshot {
         let mut glyph_runs = Vec::new();
         let mut cell_runs = Vec::new();
 
-        for (row_idx, line) in self.lines.iter().enumerate().take(self.rows) {
+        for (line_idx, line) in self.lines.iter().enumerate().take(self.rows) {
+            let row_idx = self.draw_plan_row_for_line(line_idx);
             let mut active_glyph: Option<RenderGlyphRun> = None;
             let mut active_cell: Option<RenderCellRun> = None;
             for (col_idx, cell) in line.cells.iter().enumerate().take(self.cols) {
@@ -338,6 +339,15 @@ impl RenderFrameSnapshot {
             visible: self.cursor.visible,
             shape: self.cursor.shape.clone(),
         })
+    }
+
+    fn draw_plan_row_for_line(&self, line_idx: usize) -> usize {
+        if self.full {
+            return line_idx;
+        }
+        self.dirty_rows
+            .map(|rows| rows.start.saturating_add(line_idx))
+            .unwrap_or(line_idx)
     }
 }
 
@@ -816,6 +826,51 @@ mod tests {
         assert_eq!(plan.glyph_runs[0].cells, 2);
         assert_eq!(plan.glyph_runs[1].text, "y");
         assert_eq!(plan.glyph_runs[1].col, 3);
+    }
+
+    #[test]
+    fn render_draw_plan_preserves_dirty_frame_viewport_rows() {
+        let dirty = RenderFrameSnapshot {
+            lines: vec![
+                StyledScreenLine {
+                    row: 10,
+                    cells: vec![cell('a', CellStyle::default(), 1)],
+                },
+                StyledScreenLine {
+                    row: 11,
+                    cells: vec![cell('b', CellStyle::default(), 1)],
+                },
+            ],
+            cursor: CursorSnapshot {
+                x: 0,
+                y: 4,
+                visible: true,
+                shape: "block".to_string(),
+            },
+            cols: 4,
+            rows: 8,
+            scrollback_rows: 20,
+            revision: 8,
+            dirty_rows: Some(DirtyRows { start: 3, end: 4 }),
+            full: false,
+        };
+
+        let plan = dirty.to_draw_plan();
+        assert_eq!(plan.glyph_runs.len(), 2);
+        assert_eq!(plan.glyph_runs[0].row, 3);
+        assert_eq!(plan.glyph_runs[1].row, 4);
+        assert_eq!(plan.cell_runs.len(), 2);
+        assert_eq!(plan.cell_runs[0].row, 3);
+        assert_eq!(plan.cell_runs[1].row, 4);
+        assert_eq!(
+            plan.cursor,
+            Some(RenderCursorDraw {
+                row: 4,
+                col: 0,
+                visible: true,
+                shape: "block".to_string()
+            })
+        );
     }
 
     #[test]
