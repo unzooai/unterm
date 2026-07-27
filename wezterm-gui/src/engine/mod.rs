@@ -17,6 +17,7 @@ pub use render_backend::{
     CommandListRenderBackend, EngineRenderBackend, EngineRenderBackendCommand,
     EngineRenderBackendFrame, EngineRenderBufferPlan, EngineRenderGpuUploadPlan,
     EngineRenderGpuVertex, EngineRenderVertexLayer, EngineWgpuRenderBackend,
+    EngineWgpuRenderPassPlan,
 };
 #[allow(unused_imports)]
 pub use render_consumer::{EngineRenderCommitBatch, EngineRenderCommitStats, EngineRenderConsumer};
@@ -192,7 +193,8 @@ mod tests {
         CurrentTerminalEngine, EngineRenderBackend, EngineRenderBackendCommand,
         EngineRenderBufferPlan, EngineRenderConsumer, EngineRenderGpuUploadPlan,
         EngineRenderGpuVertex, EngineRenderVertexLayer, EngineWgpuRenderBackend,
-        LaunchPolicySnapshot, RenderCellMetrics, RenderConsumerState, ScreenEngine, SessionEngine,
+        EngineWgpuRenderPassPlan, LaunchPolicySnapshot, RenderCellMetrics, RenderConsumerState,
+        ScreenEngine, SessionEngine,
     };
 
     #[test]
@@ -359,6 +361,13 @@ mod tests {
             upload_plan.indices.len() * std::mem::size_of::<u32>()
         );
         assert!(upload_plan.vertices.iter().any(|vertex| vertex.layer == 0));
+        let pass_plan =
+            EngineWgpuRenderPassPlan::from_upload_plan(&upload_plan, Some([0.0, 0.0, 0.0, 1.0]));
+        assert!(pass_plan.draw);
+        assert_eq!(pass_plan.pane_id, session.id);
+        assert_eq!(pass_plan.revision, frame.revision);
+        assert_eq!(pass_plan.vertex_count, upload_plan.vertices.len());
+        assert_eq!(pass_plan.index_count, upload_plan.indices.len());
 
         let repeat = consumer
             .read_commit(&engine)
@@ -373,6 +382,10 @@ mod tests {
         assert!(skipped_buffer.indices.is_empty());
         let skipped_upload = EngineRenderGpuUploadPlan::from_buffer_plan(&skipped_buffer);
         assert!(skipped_upload.is_empty());
+        let skipped_pass = EngineWgpuRenderBackend::default().prepare_pass(&skipped_upload, None);
+        assert!(!skipped_pass.draw);
+        assert_eq!(skipped_pass.vertex_count, 0);
+        assert_eq!(skipped_pass.index_count, 0);
         engine
             .destroy_session(session.id)
             .expect("destroy next-core test session");

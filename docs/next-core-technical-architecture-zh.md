@@ -220,6 +220,7 @@ next-core 已经在 screen/parser 方向具备基础能力，包括：
 - `wezterm-gui/src/engine/render_backend.rs` 已提供 GPU-free `CommandListRenderBackend`，将 damage/background/text/cursor submission 展开为稳定顺序的 backend command list，为后续 wgpu command encoder 接入固定输入契约
 - `EngineRenderBufferPlan` 已将 backend command 转为 damage rects、quad vertices 和 indices，先固定 GPU buffer preparation contract，再接真实 wgpu device/swapchain/font atlas
 - `EngineWgpuRenderBackend` 已提供最小 wgpu upload skeleton：把 buffer plan 转成 POD GPU vertex ABI，并创建 vertex/index buffers；该层复用 GUI 现有 `wgpu`，不把 GPU 依赖塞进 `unterm-engine`
+- `EngineWgpuRenderPassPlan` 已固定最小 indexed draw-pass 契约，`EngineWgpuRenderBackend::encode_pass` 可以把已上传 buffer 写入真实 `wgpu::CommandEncoder`，重复 revision/空帧不会产生 draw
 - JSON probe smoke 已输出并校验 render draw/geometry/submission/commit plan 的 revision、run/quad counts、viewport、damage rects、cursor state 和首帧 full-repaint state，让 renderer 输入契约进入 CI 可见面
 - benchmark 已覆盖 input write、key-to-screen、input burst under output、echo、paste、output flood、scrollback paging、viewport scroll、screen-read under flood、render-frame empty/dirty/cursor-move delta、render draw plan、render geometry plan、render submission plan、render commit plan API、focus/session lifecycle
 - zero-width combining marks attach to preceding visible cells without advancing cursor position

@@ -136,6 +136,41 @@ pub struct EngineWgpuRenderBuffers {
     pub index_buffer: wgpu::Buffer,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[allow(dead_code)]
+pub struct EngineWgpuRenderPassPlan {
+    pub pane_id: usize,
+    pub revision: u64,
+    pub draw: bool,
+    pub vertex_count: usize,
+    pub index_count: usize,
+    pub clear_color: Option<[f64; 4]>,
+}
+
+#[allow(dead_code)]
+impl EngineWgpuRenderPassPlan {
+    pub fn from_upload_plan(
+        plan: &EngineRenderGpuUploadPlan,
+        clear_color: Option<[f64; 4]>,
+    ) -> Self {
+        Self {
+            pane_id: plan.pane_id,
+            revision: plan.revision,
+            draw: plan.submitted && !plan.is_empty(),
+            vertex_count: plan.vertices.len(),
+            index_count: plan.indices.len(),
+            clear_color,
+        }
+    }
+
+    fn load_op(&self) -> wgpu::LoadOp<wgpu::Color> {
+        match self.clear_color {
+            Some([r, g, b, a]) => wgpu::LoadOp::Clear(wgpu::Color { r, g, b, a }),
+            None => wgpu::LoadOp::Load,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 #[allow(dead_code)]
 pub struct EngineWgpuRenderBackend;
@@ -174,6 +209,47 @@ impl EngineWgpuRenderBackend {
             vertex_buffer,
             index_buffer,
         })
+    }
+
+    pub fn prepare_pass(
+        &self,
+        plan: &EngineRenderGpuUploadPlan,
+        clear_color: Option<[f64; 4]>,
+    ) -> EngineWgpuRenderPassPlan {
+        EngineWgpuRenderPassPlan::from_upload_plan(plan, clear_color)
+    }
+
+    pub fn encode_pass(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::TextureView,
+        pipeline: &wgpu::RenderPipeline,
+        buffers: &EngineWgpuRenderBuffers,
+        plan: &EngineWgpuRenderPassPlan,
+    ) -> bool {
+        if !plan.draw || plan.index_count == 0 || plan.vertex_count == 0 {
+            return false;
+        }
+
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("next-core render pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: target,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: plan.load_op(),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            occlusion_query_set: None,
+            timestamp_writes: None,
+        });
+        render_pass.set_pipeline(pipeline);
+        render_pass.set_vertex_buffer(0, buffers.vertex_buffer.slice(..));
+        render_pass.set_index_buffer(buffers.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+        render_pass.draw_indexed(0..plan.index_count as u32, 0, 0..1);
+        true
     }
 }
 
