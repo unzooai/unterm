@@ -4,6 +4,7 @@ use std::sync::OnceLock;
 
 pub(in crate::next_core) mod command;
 mod consumer;
+mod dispatch;
 mod input_executor;
 mod io_facade;
 pub(in crate::next_core) mod queue;

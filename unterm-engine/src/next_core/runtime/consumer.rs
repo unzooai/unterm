@@ -1,6 +1,8 @@
 use super::{
     command::{RuntimeCommand, RuntimeCommandLane},
+    dispatch::{self, RuntimeDispatchResult},
     queue::{RuntimeQueueRejection, RuntimeQueuedCommand},
+    scheduling::RuntimeSchedulePolicy,
     with_current_mut,
 };
 use anyhow::{anyhow, Result};
@@ -13,12 +15,27 @@ pub(in crate::next_core) fn consume_sync(command: RuntimeCommand) -> Result<Runt
     Ok(queued.command)
 }
 
+#[allow(dead_code)]
+pub(in crate::next_core) fn dispatch_next_scheduled() -> Result<Option<RuntimeDispatchResult>> {
+    let Some(queued) = dequeue_next_scheduled() else {
+        return Ok(None);
+    };
+    dispatch::execute(queued.command).map(Some)
+}
+
 fn enqueue(command: RuntimeCommand) -> Result<(), RuntimeQueueRejection> {
     with_current_mut(|state| state.command_queue.enqueue(command))
 }
 
 fn dequeue_lane(lane: RuntimeCommandLane) -> Option<RuntimeQueuedCommand> {
     with_current_mut(|state| state.command_queue.dequeue_lane(lane))
+}
+
+#[allow(dead_code)]
+fn dequeue_next_scheduled() -> Option<RuntimeQueuedCommand> {
+    with_current_mut(|state| {
+        RuntimeSchedulePolicy::default().dequeue_next(&mut state.command_queue)
+    })
 }
 
 fn rejected_error(lane: RuntimeCommandLane, err: RuntimeQueueRejection) -> anyhow::Error {
@@ -89,6 +106,32 @@ mod tests {
         .expect("input should not wait behind screen backlog");
 
         assert_eq!(command.lane(), RuntimeCommandLane::Input);
+        let stats = with_current(|state| state.command_queue.stats());
+        assert_eq!(stats.pending_lanes.input, 0);
+        assert_eq!(stats.pending_lanes.screen, 1);
+    }
+
+    #[test]
+    fn dispatch_next_scheduled_uses_input_first_policy() {
+        test_facade::reset();
+        with_current_mut(|state| {
+            state
+                .command_queue
+                .enqueue(RuntimeCommand::ReadScreen { pane_id: 404 })
+                .unwrap();
+            state
+                .command_queue
+                .enqueue(RuntimeCommand::WriteInput {
+                    pane_id: 404,
+                    text: "x".to_string(),
+                })
+                .unwrap();
+        });
+
+        let err = dispatch_next_scheduled()
+            .expect_err("scheduled input should be dispatched before older screen read");
+
+        assert!(err.to_string().contains("next-core session 404 not found"));
         let stats = with_current(|state| state.command_queue.stats());
         assert_eq!(stats.pending_lanes.input, 0);
         assert_eq!(stats.pending_lanes.screen, 1);
