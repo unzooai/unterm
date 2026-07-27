@@ -210,6 +210,7 @@ next-core 已经在 screen/parser 方向具备基础能力，包括：
 - zero-width combining marks attach to preceding visible cells without advancing cursor position
 - DECFRA、DECERA、DECCARA、DECRARA 矩形操作
 - DECSCA protected/erasable cell 属性
+- DECSED/DECSEL selective display/line erase
 - DECSERA selective rectangular erase
 - UTF-8 安全 paste chunk 和 bracketed paste marker 保留
 - `next_core/cell.rs` 已拆出 cell/attribute/style 转换边界，避免 screen、parser、renderer 继续堆在单个巨型文件里

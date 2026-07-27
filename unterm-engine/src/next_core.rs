@@ -1233,27 +1233,74 @@ impl NextCoreScreen {
         self.mark_all_dirty();
     }
 
+    fn erase_line_range(&mut self, row: usize, start: usize, end: usize, selective: bool) {
+        if start >= end || row >= self.rows {
+            return;
+        }
+        self.ensure_rows_through(row);
+        let line = &mut self.lines[row];
+        let end = end.min(self.cols);
+        if line.len() < end {
+            line.resize(end, ScreenCell::blank(self.current_attr));
+        }
+        let blank = ScreenCell::blank(self.current_attr);
+        for cell in line.iter_mut().take(end).skip(start) {
+            if !selective || !cell.attr.protected {
+                *cell = blank.clone();
+            }
+        }
+        self.mark_dirty_row(row);
+    }
+
     fn erase_in_display(&mut self, mode: usize) {
+        self.erase_in_display_with_protection(mode, false);
+    }
+
+    fn selective_erase_in_display(&mut self, mode: usize) {
+        self.erase_in_display_with_protection(mode, true);
+    }
+
+    fn erase_in_display_with_protection(&mut self, mode: usize, selective: bool) {
         match mode {
             0 => {
-                self.erase_in_line(0);
+                self.erase_in_line_with_protection(0, selective);
                 let start = self.cursor_y + 1;
-                if start < self.lines.len() {
-                    for line in self.lines.iter_mut().skip(start) {
-                        line.clear();
+                if start < self.rows {
+                    if selective {
+                        for row in start..self.rows.min(self.lines.len()) {
+                            self.erase_line_range(row, 0, self.cols, true);
+                        }
+                    } else if start < self.lines.len() {
+                        for line in self.lines.iter_mut().skip(start) {
+                            line.clear();
+                        }
+                        self.mark_dirty_range(start, self.rows.saturating_sub(1));
                     }
-                    self.mark_dirty_range(start, self.rows.saturating_sub(1));
                 }
             }
             1 => {
                 let end = self.cursor_y.min(self.lines.len().saturating_sub(1));
-                for line in self.lines.iter_mut().take(end) {
-                    line.clear();
+                if selective {
+                    for row in 0..self.cursor_y.min(self.lines.len()) {
+                        self.erase_line_range(row, 0, self.cols, true);
+                    }
+                } else {
+                    for line in self.lines.iter_mut().take(end) {
+                        line.clear();
+                    }
+                    self.mark_dirty_range(0, self.cursor_y);
                 }
-                self.erase_in_line(1);
-                self.mark_dirty_range(0, self.cursor_y);
+                self.erase_in_line_with_protection(1, selective);
             }
-            2 => self.clear_display(),
+            2 => {
+                if selective {
+                    for row in 0..self.rows.min(self.lines.len()) {
+                        self.erase_line_range(row, 0, self.cols, true);
+                    }
+                } else {
+                    self.clear_display();
+                }
+            }
             3 => {
                 self.scrollback.clear();
                 self.viewport_top = None;
@@ -1264,36 +1311,29 @@ impl NextCoreScreen {
     }
 
     fn erase_in_line(&mut self, mode: usize) {
+        self.erase_in_line_with_protection(mode, false);
+    }
+
+    fn selective_erase_in_line(&mut self, mode: usize) {
+        self.erase_in_line_with_protection(mode, true);
+    }
+
+    fn erase_in_line_with_protection(&mut self, mode: usize, selective: bool) {
         self.ensure_cursor_line();
-        let line = &mut self.lines[self.cursor_y];
         match mode {
             0 => {
                 let start = self.cursor_x.min(self.cols);
-                if start < self.cols {
-                    line.resize(self.cols, ScreenCell::blank(self.current_attr));
-                    for cell in line.iter_mut().skip(start) {
-                        *cell = ScreenCell::blank(self.current_attr);
-                    }
-                }
+                self.erase_line_range(self.cursor_y, start, self.cols, selective);
             }
             1 => {
                 let end = self.cursor_x.saturating_add(1).min(self.cols);
-                if line.len() < end {
-                    line.resize(end, ScreenCell::blank(self.current_attr));
-                }
-                for cell in line.iter_mut().take(end) {
-                    *cell = ScreenCell::blank(self.current_attr);
-                }
+                self.erase_line_range(self.cursor_y, 0, end, selective);
             }
             2 => {
-                line.resize(self.cols, ScreenCell::blank(self.current_attr));
-                for cell in line.iter_mut() {
-                    *cell = ScreenCell::blank(self.current_attr);
-                }
+                self.erase_line_range(self.cursor_y, 0, self.cols, selective);
             }
             _ => {}
         }
-        self.mark_dirty_row(self.cursor_y);
     }
 
     fn insert_chars(&mut self, count: usize) {
@@ -2236,12 +2276,22 @@ impl<'a> ScreenParser<'a> {
                 self.screen
                     .set_cursor_position(row.saturating_sub(1), col.saturating_sub(1));
             }
-            'J' => self
-                .screen
-                .erase_in_display(numbers.first().copied().unwrap_or(0)),
-            'K' => self
-                .screen
-                .erase_in_line(numbers.first().copied().unwrap_or(0)),
+            'J' => {
+                let mode = numbers.first().copied().unwrap_or(0);
+                if private {
+                    self.screen.selective_erase_in_display(mode);
+                } else {
+                    self.screen.erase_in_display(mode);
+                }
+            }
+            'K' => {
+                let mode = numbers.first().copied().unwrap_or(0);
+                if private {
+                    self.screen.selective_erase_in_line(mode);
+                } else {
+                    self.screen.erase_in_line(mode);
+                }
+            }
             'm' => self
                 .screen
                 .apply_sgr(&NextCoreScreen::parse_sgr_params(raw_params)),
@@ -7898,6 +7948,108 @@ mod tests {
         assert_eq!(
             engine.read_screen(session.id)?.lines,
             vec!["0123456789", ""]
+        );
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_applies_decsel_selective_line_erase() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 10,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(
+            session.id,
+            concat!(
+                "ab",
+                "\x1b[1\"q",
+                "PROT",
+                "\x1b[0\"q",
+                "ghij",
+                "\x1b[1;1H",
+                "\x1b[?0K"
+            ),
+        )?;
+        assert_eq!(engine.read_screen(session.id)?.lines, vec!["  PROT"]);
+
+        set_output_for_test(
+            session.id,
+            concat!(
+                "ab",
+                "\x1b[1\"q",
+                "PROT",
+                "\x1b[0\"q",
+                "ghij",
+                "\x1b[1;1H",
+                "\x1b[0K"
+            ),
+        )?;
+        assert_eq!(engine.read_screen(session.id)?.lines, vec![""]);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_applies_decsed_selective_display_erase() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 10,
+            rows: 4,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(
+            session.id,
+            concat!(
+                "0123456789\r\n",
+                "ab",
+                "\x1b[1\"q",
+                "PROT",
+                "\x1b[0\"q",
+                "ghij\r\n",
+                "ABCDEFGHIJ",
+                "\x1b[2;1H",
+                "\x1b[?0J"
+            ),
+        )?;
+        assert_eq!(
+            engine.read_screen(session.id)?.lines,
+            vec!["0123456789", "  PROT", ""]
+        );
+
+        set_output_for_test(
+            session.id,
+            concat!(
+                "0123456789\r\n",
+                "ab",
+                "\x1b[1\"q",
+                "PROT",
+                "\x1b[0\"q",
+                "ghij\r\n",
+                "ABCDEFGHIJ",
+                "\x1b[2;1H",
+                "\x1b[0J"
+            ),
+        )?;
+        assert_eq!(
+            engine.read_screen(session.id)?.lines,
+            vec!["0123456789", "", ""]
         );
 
         engine.destroy_session(session.id)?;
