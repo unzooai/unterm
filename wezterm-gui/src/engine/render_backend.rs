@@ -7,8 +7,7 @@
 use super::{
     CellStyle, EngineRenderCommitBatch, RenderRect, RenderTextRun, StyledColor, StyledVerticalAlign,
 };
-use std::rc::Rc;
-use wezterm_font::{GlyphInfo, LoadedFont};
+use wezterm_font::GlyphInfo;
 use wgpu::util::DeviceExt;
 
 const NEXT_CORE_RENDER_SHADER: &str = r#"
@@ -689,65 +688,6 @@ impl EngineRenderGlyphRasterSource for EngineRenderDeterministicGlyphRasterSourc
         height_px: usize,
     ) -> Option<Vec<u8>> {
         Some(placeholder_glyph_texture_bytes(key, width_px, height_px))
-    }
-}
-
-#[derive(Clone, Debug)]
-#[allow(dead_code)]
-pub struct EngineRenderFontGlyphRasterSource {
-    font: Rc<LoadedFont>,
-}
-
-#[allow(dead_code)]
-impl EngineRenderFontGlyphRasterSource {
-    pub fn new(font: Rc<LoadedFont>) -> Self {
-        Self { font }
-    }
-}
-
-#[allow(dead_code)]
-impl EngineRenderGlyphRasterSource for EngineRenderFontGlyphRasterSource {
-    fn rasterize_glyph_rgba(
-        &self,
-        key: &EngineRenderGlyphAtlasKey,
-        width_px: usize,
-        height_px: usize,
-    ) -> Option<Vec<u8>> {
-        let (font_idx, glyph_pos) = key.raster_identity()?;
-        let glyph = self.font.rasterize_glyph(glyph_pos, font_idx).ok()?;
-        Some(fit_glyph_rgba_to_atlas_region(
-            &glyph.data,
-            glyph.width,
-            glyph.height,
-            width_px,
-            height_px,
-            key.faint,
-        ))
-    }
-
-    fn rasterize_glyph_texture(
-        &self,
-        key: &EngineRenderGlyphAtlasKey,
-        width_px: usize,
-        height_px: usize,
-    ) -> Option<EngineRenderGlyphRaster> {
-        let (font_idx, glyph_pos) = key.raster_identity()?;
-        let glyph = self.font.rasterize_glyph(glyph_pos, font_idx).ok()?;
-        Some(EngineRenderGlyphRaster {
-            bytes_rgba: fit_glyph_rgba_to_atlas_region(
-                &glyph.data,
-                glyph.width,
-                glyph.height,
-                width_px,
-                height_px,
-                key.faint,
-            ),
-            source_width_px: glyph.width,
-            source_height_px: glyph.height,
-            bearing_x_px: glyph.bearing_x.get().round() as i32,
-            bearing_y_px: glyph.bearing_y.get().round() as i32,
-            uses_raster_metrics: true,
-        })
     }
 }
 
@@ -2271,7 +2211,7 @@ fn placeholder_glyph_texture_bytes(
     bytes
 }
 
-fn fit_glyph_rgba_to_atlas_region(
+pub(crate) fn fit_glyph_rgba_to_atlas_region(
     source_rgba: &[u8],
     source_width_px: usize,
     source_height_px: usize,

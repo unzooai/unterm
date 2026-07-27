@@ -1,10 +1,10 @@
+use crate::engine::render_backend::fit_glyph_rgba_to_atlas_region;
 use crate::engine::{
     EngineRenderBufferBatch, EngineRenderBufferPlan, EngineRenderCachedGlyphUploadDiagnostics,
-    EngineRenderFontGlyphRasterSource, EngineRenderGlyphAtlasCache,
-    EngineRenderGlyphAtlasCacheUpdate, EngineRenderGlyphAtlasPlan,
+    EngineRenderGlyphAtlasCache, EngineRenderGlyphAtlasCacheUpdate, EngineRenderGlyphAtlasPlan,
     EngineRenderGlyphAtlasTextureRegion, EngineRenderGlyphAtlasTextureUpdatePlan,
-    EngineRenderGlyphRasterSource, EngineRenderGpuUploadPlan, EngineRenderPreparedPaneFrame,
-    EngineRenderTextAtlasPlan, EngineRenderTexturedGlyphLayoutDiff,
+    EngineRenderGlyphRaster, EngineRenderGlyphRasterSource, EngineRenderGpuUploadPlan,
+    EngineRenderPreparedPaneFrame, EngineRenderTextAtlasPlan, EngineRenderTexturedGlyphLayoutDiff,
     EngineRenderTexturedGlyphUploadPlan, EngineWgpuPipelineConfig, EngineWgpuPreparedFramePlan,
     EngineWgpuRenderBackend,
 };
@@ -99,6 +99,62 @@ pub struct NextCoreCachedGlyphUpload {
 pub struct NextCoreWebGpuPaneDrawFrame {
     pub engine_frame: EngineRenderPreparedPaneFrame,
     font: Option<Rc<LoadedFont>>,
+}
+
+#[derive(Clone, Debug)]
+struct NextCoreFontGlyphRasterSource {
+    font: Rc<LoadedFont>,
+}
+
+impl NextCoreFontGlyphRasterSource {
+    fn new(font: Rc<LoadedFont>) -> Self {
+        Self { font }
+    }
+}
+
+impl EngineRenderGlyphRasterSource for NextCoreFontGlyphRasterSource {
+    fn rasterize_glyph_rgba(
+        &self,
+        key: &crate::engine::EngineRenderGlyphAtlasKey,
+        width_px: usize,
+        height_px: usize,
+    ) -> Option<Vec<u8>> {
+        let (font_idx, glyph_pos) = key.raster_identity()?;
+        let glyph = self.font.rasterize_glyph(glyph_pos, font_idx).ok()?;
+        Some(fit_glyph_rgba_to_atlas_region(
+            &glyph.data,
+            glyph.width,
+            glyph.height,
+            width_px,
+            height_px,
+            key.faint,
+        ))
+    }
+
+    fn rasterize_glyph_texture(
+        &self,
+        key: &crate::engine::EngineRenderGlyphAtlasKey,
+        width_px: usize,
+        height_px: usize,
+    ) -> Option<EngineRenderGlyphRaster> {
+        let (font_idx, glyph_pos) = key.raster_identity()?;
+        let glyph = self.font.rasterize_glyph(glyph_pos, font_idx).ok()?;
+        Some(EngineRenderGlyphRaster {
+            bytes_rgba: fit_glyph_rgba_to_atlas_region(
+                &glyph.data,
+                glyph.width,
+                glyph.height,
+                width_px,
+                height_px,
+                key.faint,
+            ),
+            source_width_px: glyph.width,
+            source_height_px: glyph.height,
+            bearing_x_px: glyph.bearing_x.get().round() as i32,
+            bearing_y_px: glyph.bearing_y.get().round() as i32,
+            uses_raster_metrics: true,
+        })
+    }
 }
 
 #[allow(dead_code)]
@@ -1272,7 +1328,7 @@ impl WebGpuState {
                 },
             )
         });
-        let font_raster_source = font.map(EngineRenderFontGlyphRasterSource::new);
+        let font_raster_source = font.map(NextCoreFontGlyphRasterSource::new);
         let glyph_upload = if let (Some(shaped_glyph_atlas), Some(font_raster_source)) =
             (shaped_glyph_atlas.as_ref(), font_raster_source.as_ref())
         {
@@ -1372,7 +1428,7 @@ impl WebGpuState {
                     }
                 })
         });
-        let font_raster_source = font.map(EngineRenderFontGlyphRasterSource::new);
+        let font_raster_source = font.map(NextCoreFontGlyphRasterSource::new);
         let glyph_upload = if let (Some(shaped_glyph_atlas), Some(font_raster_source)) =
             (shaped_glyph_atlas.as_ref(), font_raster_source.as_ref())
         {

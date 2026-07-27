@@ -235,8 +235,8 @@ next-core 已经在 screen/parser 方向具备基础能力，包括：
 - `EngineWgpuPreparedFramePlan` 已暴露 replace-readiness diagnostics，覆盖 solid upload、text atlas 和 glyph atlas preparation；pane 替换测试可以先走 CPU 侧 gate，再进入真实 WebGPU encode
 - `EngineRenderTextAtlasPlan` 已把 submitted text runs 准备成 GPU-free atlas/shaping 输入，保留 foreground color、cell span、text、style 和 pixel rects；真实字体 atlas 后续只需要替换该 preparation 层的消费端
 - `EngineRenderShapedGlyphPlan` 已固定真实 GUI shaper 的下一层输入 ABI，并可从 `wezterm_font::GlyphInfo` runs 构建；shaped glyph 可以携带 text、rect、style、foreground、cells、`font_idx` 和 `glyph_pos`，再进入共享 atlas/cache/upload 路径
-- `EngineRenderGlyphAtlasPlan` 已把 text-atlas runs 转成稳定 glyph cache key 和 cell-aligned glyph instance；glyph key 已能携带可选 shaped `(font_idx, glyph_pos)` raster identity；`EngineRenderFontGlyphRasterSource` 已把迁移期 `LoadedFont::rasterize_glyph` 桥接隔离在 next-core raster-source trait 后面，避免新渲染管线直接依赖旧 `GlyphCache`
-- GUI WebGPU 的 next-core pane render path 已能用默认 `LoadedFont` 对 text-atlas runs 做 shaping，并通过 `EngineRenderFontGlyphRasterSource` 上传真实 raster bytes；字体查找或 shaping 失败时仍回退到 deterministic placeholder raster path
+- `EngineRenderGlyphAtlasPlan` 已把 text-atlas runs 转成稳定 glyph cache key 和 cell-aligned glyph instance；glyph key 已能携带可选 shaped `(font_idx, glyph_pos)` raster identity；engine 只暴露 `EngineRenderGlyphRasterSource` trait，迁移期 `LoadedFont::rasterize_glyph` adapter 已下沉到 WebGPU renderer，避免 engine render backend 直接依赖 GUI 字体对象
+- GUI WebGPU 的 next-core pane render path 已能用默认 `LoadedFont` 对 text-atlas runs 做 shaping，并通过 renderer-owned `NextCoreFontGlyphRasterSource` 上传真实 raster bytes；字体查找或 shaping 失败时仍回退到 deterministic placeholder raster path
 - GUI WebGPU 的 next-core shaped glyph atlas preparation 已按 pane / revision / font id / text-atlas fingerprint 缓存，pane 内容未变化的 repaint 不再重复执行 `LoadedFont::shape`
 - GUI glyph texture update 已携带 raster source 的原始 bitmap 尺寸和 bearing metrics；下一步可以从 cell-aligned quad 逐步迁移到真实 glyph bearing/advance placement
 - GUI textured glyph upload 已把 raster metrics 持久化进 pane glyph atlas cache，并使用 source bitmap 尺寸与 bearing metrics 生成真实 glyph quad 和 UV；没有真实 raster metrics 的路径继续保持 deterministic cell-aligned fallback
