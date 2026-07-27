@@ -375,23 +375,95 @@ fn should_replace_legacy_pane(
     batch: &Option<crate::engine::EngineRenderBufferBatch>,
     prepared_frame: Option<&crate::engine::render_backend::EngineWgpuPreparedFrameDiagnostics>,
 ) -> bool {
-    mode == NextCoreWebGpuPaneMode::Replace
-        && batch.as_ref().is_some_and(|batch| {
-            let batch_ready = batch.is_draw_ready();
-            let frame_ready = prepared_frame.is_some_and(|diagnostics| diagnostics.replace_ready);
-            let ready = batch_ready && frame_ready;
-            if !ready {
-                log::trace!(
-                    "next-core WebGPU replace fallback pane={} revision={} batch_ready={} batch_readiness_issues={} prepared_frame_ready={}",
-                    batch.pane_id,
-                    batch.stats.revision,
-                    batch_ready,
-                    batch.readiness_issues().len(),
-                    frame_ready
-                );
-            }
-            ready
-        })
+    let diagnostics = next_core_webgpu_replace_diagnostics(mode, batch, prepared_frame);
+    if !diagnostics.replace_ready && mode == NextCoreWebGpuPaneMode::Replace {
+        log::trace!(
+            "next-core WebGPU replace fallback pane={:?} revision={:?} issues={} batch_ready={} batch_readiness_issues={} prepared_frame_ready={} prepared_frame_readiness_issues={}",
+            diagnostics.pane_id,
+            diagnostics.revision,
+            diagnostics.readiness_issues().len(),
+            diagnostics.batch_ready,
+            diagnostics.batch_readiness_issue_count,
+            diagnostics.prepared_frame_ready,
+            diagnostics.prepared_frame_readiness_issue_count
+        );
+    }
+    diagnostics.replace_ready
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
+struct NextCoreWebGpuReplaceDiagnostics {
+    mode: NextCoreWebGpuPaneMode,
+    pane_id: Option<usize>,
+    revision: Option<u64>,
+    batch_present: bool,
+    batch_ready: bool,
+    batch_readiness_issue_count: usize,
+    prepared_frame_present: bool,
+    prepared_frame_ready: bool,
+    prepared_frame_readiness_issue_count: usize,
+    replace_ready: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
+enum NextCoreWebGpuReplaceReadinessIssue {
+    NotReplaceMode,
+    MissingBufferBatch,
+    BufferBatchNotReady,
+    MissingPreparedFrame,
+    PreparedFrameNotReady,
+}
+
+#[allow(dead_code)]
+impl NextCoreWebGpuReplaceDiagnostics {
+    fn readiness_issues(&self) -> Vec<NextCoreWebGpuReplaceReadinessIssue> {
+        let mut issues = Vec::new();
+        if self.mode != NextCoreWebGpuPaneMode::Replace {
+            issues.push(NextCoreWebGpuReplaceReadinessIssue::NotReplaceMode);
+        }
+        if !self.batch_present {
+            issues.push(NextCoreWebGpuReplaceReadinessIssue::MissingBufferBatch);
+        } else if !self.batch_ready {
+            issues.push(NextCoreWebGpuReplaceReadinessIssue::BufferBatchNotReady);
+        }
+        if !self.prepared_frame_present {
+            issues.push(NextCoreWebGpuReplaceReadinessIssue::MissingPreparedFrame);
+        } else if !self.prepared_frame_ready {
+            issues.push(NextCoreWebGpuReplaceReadinessIssue::PreparedFrameNotReady);
+        }
+        issues
+    }
+}
+
+fn next_core_webgpu_replace_diagnostics(
+    mode: NextCoreWebGpuPaneMode,
+    batch: &Option<crate::engine::EngineRenderBufferBatch>,
+    prepared_frame: Option<&crate::engine::render_backend::EngineWgpuPreparedFrameDiagnostics>,
+) -> NextCoreWebGpuReplaceDiagnostics {
+    let batch_ready = batch.as_ref().is_some_and(|batch| batch.is_draw_ready());
+    let batch_readiness_issue_count = batch
+        .as_ref()
+        .map_or(0, |batch| batch.readiness_issues().len());
+    let prepared_frame_ready = prepared_frame.is_some_and(|diagnostics| diagnostics.replace_ready);
+    let prepared_frame_readiness_issue_count =
+        prepared_frame.map_or(0, |diagnostics| usize::from(!diagnostics.replace_ready));
+
+    NextCoreWebGpuReplaceDiagnostics {
+        mode,
+        pane_id: batch.as_ref().map(|batch| batch.pane_id),
+        revision: batch.as_ref().map(|batch| batch.stats.revision),
+        batch_present: batch.is_some(),
+        batch_ready,
+        batch_readiness_issue_count,
+        prepared_frame_present: prepared_frame.is_some(),
+        prepared_frame_ready,
+        prepared_frame_readiness_issue_count,
+        replace_ready: mode == NextCoreWebGpuPaneMode::Replace
+            && batch_ready
+            && prepared_frame_ready,
+    }
 }
 
 fn draw_non_pane_webgpu_ranges(
@@ -438,7 +510,10 @@ fn draw_quad_range(render_pass: &mut wgpu::RenderPass<'_>, start_quad: usize, en
 
 #[cfg(test)]
 mod tests {
-    use super::{non_pane_quad_ranges, should_replace_legacy_pane, NextCoreWebGpuPaneMode};
+    use super::{
+        next_core_webgpu_replace_diagnostics, non_pane_quad_ranges, should_replace_legacy_pane,
+        NextCoreWebGpuPaneMode, NextCoreWebGpuReplaceReadinessIssue,
+    };
     use crate::engine::render_backend::{EngineRenderVertex, EngineWgpuPreparedFrameDiagnostics};
     use crate::engine::EngineRenderVertexLayer;
     use crate::engine::{EngineRenderBufferBatch, EngineRenderBufferPlan, EngineRenderCommitStats};
@@ -465,6 +540,13 @@ mod tests {
             &Some(buffer_batch(true)),
             Some(&prepared_frame_diagnostics(true))
         ));
+        let diagnostics = next_core_webgpu_replace_diagnostics(
+            NextCoreWebGpuPaneMode::Replace,
+            &Some(buffer_batch(true)),
+            Some(&prepared_frame_diagnostics(true)),
+        );
+        assert!(diagnostics.replace_ready);
+        assert!(diagnostics.readiness_issues().is_empty());
     }
 
     #[test]
@@ -484,6 +566,24 @@ mod tests {
             &None,
             None
         ));
+        let append_diagnostics = next_core_webgpu_replace_diagnostics(
+            NextCoreWebGpuPaneMode::Append,
+            &Some(buffer_batch(true)),
+            Some(&prepared_frame_diagnostics(true)),
+        );
+        assert_eq!(
+            append_diagnostics.readiness_issues(),
+            vec![NextCoreWebGpuReplaceReadinessIssue::NotReplaceMode]
+        );
+        let missing_diagnostics =
+            next_core_webgpu_replace_diagnostics(NextCoreWebGpuPaneMode::Replace, &None, None);
+        assert_eq!(
+            missing_diagnostics.readiness_issues(),
+            vec![
+                NextCoreWebGpuReplaceReadinessIssue::MissingBufferBatch,
+                NextCoreWebGpuReplaceReadinessIssue::MissingPreparedFrame,
+            ]
+        );
     }
 
     #[test]
@@ -498,6 +598,24 @@ mod tests {
             &Some(buffer_batch(true)),
             None
         ));
+        let diagnostics = next_core_webgpu_replace_diagnostics(
+            NextCoreWebGpuPaneMode::Replace,
+            &Some(buffer_batch(true)),
+            Some(&prepared_frame_diagnostics(false)),
+        );
+        assert_eq!(
+            diagnostics.readiness_issues(),
+            vec![NextCoreWebGpuReplaceReadinessIssue::PreparedFrameNotReady]
+        );
+        let missing_frame = next_core_webgpu_replace_diagnostics(
+            NextCoreWebGpuPaneMode::Replace,
+            &Some(buffer_batch(true)),
+            None,
+        );
+        assert_eq!(
+            missing_frame.readiness_issues(),
+            vec![NextCoreWebGpuReplaceReadinessIssue::MissingPreparedFrame]
+        );
     }
 
     fn buffer_batch(draw_ready: bool) -> EngineRenderBufferBatch {
