@@ -124,11 +124,40 @@ impl RuntimeCommandQueue {
 
     pub(in crate::next_core) fn dequeue(&mut self) -> Option<RuntimeQueuedCommand> {
         let queued = self.pending.pop_front()?;
+        self.release(&queued);
+        Some(queued)
+    }
+
+    pub(in crate::next_core) fn dequeue_lane(
+        &mut self,
+        lane: RuntimeCommandLane,
+    ) -> Option<RuntimeQueuedCommand> {
+        let index = self.pending.iter().position(|queued| queued.lane == lane)?;
+        let queued = self.pending.remove(index)?;
+        self.release(&queued);
+        Some(queued)
+    }
+
+    pub(in crate::next_core) fn dequeue_scheduled(&mut self) -> Option<RuntimeQueuedCommand> {
+        for lane in [
+            RuntimeCommandLane::Input,
+            RuntimeCommandLane::Lifecycle,
+            RuntimeCommandLane::Render,
+            RuntimeCommandLane::Screen,
+            RuntimeCommandLane::Background,
+        ] {
+            if let Some(queued) = self.dequeue_lane(lane) {
+                return Some(queued);
+            }
+        }
+        None
+    }
+
+    fn release(&mut self, queued: &RuntimeQueuedCommand) {
         self.pending_input_bytes = self
             .pending_input_bytes
             .saturating_sub(queued.command.input_bytes());
         self.pending_lanes.decrement(queued.lane);
-        Some(queued)
     }
 
     pub(in crate::next_core) fn stats(&self) -> RuntimeQueueStats {
@@ -282,5 +311,64 @@ mod tests {
         assert_eq!(stats.pending_lanes.render, 1);
         assert_eq!(stats.pending_lanes.screen, 1);
         assert_eq!(stats.pending_lanes.input, 0);
+    }
+
+    #[test]
+    fn dequeue_lane_preserves_other_lane_backlog() {
+        let mut queue = RuntimeCommandQueue::new(RuntimeQueuePolicy {
+            max_pending_commands: 4,
+            max_pending_input_bytes: 8,
+            max_render_wakeups_per_second: 120,
+        });
+
+        queue
+            .enqueue(RuntimeCommand::ReadScreen { pane_id: 1 })
+            .unwrap();
+        queue
+            .enqueue(RuntimeCommand::WriteInput {
+                pane_id: 1,
+                text: "x".to_string(),
+            })
+            .unwrap();
+
+        let input = queue
+            .dequeue_lane(RuntimeCommandLane::Input)
+            .expect("input lane should be selectable");
+        assert_eq!(input.lane, RuntimeCommandLane::Input);
+        assert_eq!(queue.stats().pending_lanes.input, 0);
+        assert_eq!(queue.stats().pending_lanes.screen, 1);
+        assert_eq!(queue.stats().pending_commands, 1);
+
+        let screen = queue.dequeue().expect("screen command remains queued");
+        assert_eq!(screen.lane, RuntimeCommandLane::Screen);
+    }
+
+    #[test]
+    fn dequeue_scheduled_prefers_input_over_older_screen_reads() {
+        let mut queue = RuntimeCommandQueue::new(RuntimeQueuePolicy {
+            max_pending_commands: 4,
+            max_pending_input_bytes: 8,
+            max_render_wakeups_per_second: 120,
+        });
+
+        queue
+            .enqueue(RuntimeCommand::ReadScreen { pane_id: 1 })
+            .unwrap();
+        queue
+            .enqueue(RuntimeCommand::WriteInput {
+                pane_id: 1,
+                text: "x".to_string(),
+            })
+            .unwrap();
+
+        let first = queue
+            .dequeue_scheduled()
+            .expect("scheduler should choose queued command");
+        assert_eq!(first.lane, RuntimeCommandLane::Input);
+
+        let second = queue
+            .dequeue_scheduled()
+            .expect("scheduler should keep older screen command");
+        assert_eq!(second.lane, RuntimeCommandLane::Screen);
     }
 }
