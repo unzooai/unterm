@@ -152,6 +152,11 @@ impl InputMap {
             .or_insert(KeyTableEntry {
                 action: KeyAssignment::AcceptGhostText,
             });
+        keys.default
+            .entry((KeyCode::KeyPadEnd, Modifiers::NONE))
+            .or_insert(KeyTableEntry {
+                action: KeyAssignment::AcceptGhostText,
+            });
 
         if !config.disable_default_mouse_bindings {
             m!(
@@ -886,5 +891,28 @@ fn show_key_table_as_lua(table: &config::keyassignment::KeyTable, indent: usize)
     for ((key, mods), entry) in ordered {
         let action = &entry.action;
         println!("{pad}{},", lua_key(key, *mods, action));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_input_map_accepts_ghost_text_with_navigation_keys() {
+        let input_map = InputMap::default_input_map();
+        for key in [
+            KeyCode::RightArrow,
+            KeyCode::ApplicationRightArrow,
+            KeyCode::End,
+            KeyCode::KeyPadEnd,
+        ] {
+            let entry = input_map
+                .keys
+                .default
+                .get(&(key, Modifiers::NONE))
+                .expect("ghost accept key should be bound");
+            assert!(matches!(entry.action, KeyAssignment::AcceptGhostText));
+        }
     }
 }

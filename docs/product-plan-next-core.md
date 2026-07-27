@@ -199,7 +199,7 @@ Current-core work is limited to critical user experience and correctness defects
    - Keep ghost completion fully memory-only on key events.
    - Avoid manifest/disk reads on key events.
    - Avoid global history clone per key.
-   - Ensure right arrow and application right arrow both accept completion.
+   - Ensure right arrow, application right arrow, End, and keypad End all accept completion.
 
 3. Paint path
    - Keep agent/sidebar metadata cached during scroll paints.

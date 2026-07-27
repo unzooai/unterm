@@ -973,7 +973,9 @@ fn observe_ghost_text_key(pane_id: u64, key: &termwiz::input::KeyCode, mods: Mod
         KeyCode::LeftArrow
         | KeyCode::RightArrow
         | KeyCode::ApplicationRightArrow
-        | KeyCode::Home => {
+        | KeyCode::Home
+        | KeyCode::End
+        | KeyCode::KeyPadEnd => {
             crate::ghost_text::cancel_input(pane_id);
             return;
         }

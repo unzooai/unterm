@@ -220,7 +220,7 @@ P1：
    - per-key 不读磁盘。
    - per-key 不 clone 大历史。
    - per-key 不扫描 agent manifest。
-   - right arrow / application right arrow / End 统一走 completion accept。
+   - right arrow / application right arrow / End / KeyPadEnd 统一走 completion accept。
 
 2. 粘贴路径
    - Windows clipboard retry 放到非 UI 阻塞路径。

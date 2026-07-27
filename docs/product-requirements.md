@@ -114,7 +114,7 @@ FR-TERM-005: Clipboard operations must not block the UI thread on Windows/macOS 
 
 FR-TERM-006: Input handling must remain responsive while multiple agent panes are active, including typing, paste, tab switching, completion, PageUp/PageDown, and wheel scrolling.
 
-FR-TERM-007: The terminal must support command completion ghost text, accepted through right arrow / application right arrow / end as configured.
+FR-TERM-007: The terminal must support command completion ghost text, accepted through right arrow / application right arrow / end / keypad end as configured.
 
 FR-TERM-008: Ghost completion must not perform disk reads, manifest reads, or large global history clones on the per-key input path.
 

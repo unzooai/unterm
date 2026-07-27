@@ -322,7 +322,7 @@ Unterm 的产品目标不是“再做一个终端”，而是做一个本地优�
 - per-key 不扫描 agent manifest。
 - per-key 不 clone 大历史。
 - paste 使用状态机，失败有 retry，但 retry 不阻塞 UI。
-- right arrow、application right arrow、End 走同一个 completion accept path。
+- right arrow、application right arrow、End、KeyPadEnd 走同一个 completion accept path。
 - 大文本 paste 分块或 bracketed paste。
 
 ### 8.2 Tab、项目栏、翻页、任务栏卡死
