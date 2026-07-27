@@ -1,13 +1,10 @@
-use super::{input_pipeline, session_handles, state};
+use super::{input_pipeline, session_handles};
 use anyhow::Result;
 use std::io::Write;
 use std::time::Instant;
 
 pub(super) fn write(pane_id: usize, input: &str) -> Result<()> {
-    let handles = {
-        let state = state().read();
-        session_handles::input(&state, pane_id)?
-    };
+    let handles = session_handles::input_current(pane_id)?;
 
     let started_at = Instant::now();
     let input = translated_input(input, handles.application_cursor_keys);
@@ -25,10 +22,7 @@ pub(super) fn write(pane_id: usize, input: &str) -> Result<()> {
 }
 
 pub(super) fn paste(pane_id: usize, text: &str) -> Result<()> {
-    let handles = {
-        let state = state().read();
-        session_handles::input(&state, pane_id)?
-    };
+    let handles = session_handles::input_current(pane_id)?;
     let bracketed = handles.bracketed_paste;
     let PasteWire {
         chunks,

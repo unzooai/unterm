@@ -1,12 +1,9 @@
-use super::{process_tree, session_handles, state};
+use super::{process_tree, session_handles};
 use crate::ShellSnapshot;
 use anyhow::Result;
 
 pub(super) fn shell_snapshot(pane_id: usize) -> Result<ShellSnapshot> {
-    let handles = {
-        let state = state().read();
-        session_handles::shell(&state, pane_id)?
-    };
+    let handles = session_handles::shell_current(pane_id)?;
     let mut shell = handles.shell;
 
     if let Some(cwd) = handles.screen.lock().current_dir() {
@@ -23,10 +20,7 @@ pub(super) fn shell_snapshot(pane_id: usize) -> Result<ShellSnapshot> {
 }
 
 pub(super) fn output(pane_id: usize) -> Result<String> {
-    let output = {
-        let state = state().read();
-        session_handles::output(&state, pane_id)?
-    };
+    let output = session_handles::output_current(pane_id)?;
 
     let text = output.lock().clone();
     Ok(text)
@@ -34,10 +28,7 @@ pub(super) fn output(pane_id: usize) -> Result<String> {
 
 #[cfg(test)]
 pub(super) fn bracketed_paste_enabled(pane_id: usize) -> Result<bool> {
-    let screen = {
-        let state = state().read();
-        session_handles::screen(&state, pane_id)?
-    };
+    let screen = session_handles::screen_current(pane_id)?;
 
     let enabled = screen.lock().bracketed_paste;
     Ok(enabled)

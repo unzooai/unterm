@@ -1,5 +1,6 @@
 use super::{
-    activity::SessionIoActivity, NextCoreRecording, NextCoreScreen, NextCoreSession, NextCoreState,
+    activity::SessionIoActivity, state, NextCoreRecording, NextCoreScreen, NextCoreSession,
+    NextCoreState,
 };
 use crate::ShellSnapshot;
 use anyhow::Result;
@@ -45,8 +46,19 @@ pub(super) fn output(state: &NextCoreState, pane_id: usize) -> Result<Arc<Mutex<
     Ok(Arc::clone(&session(state, pane_id)?.output))
 }
 
+pub(super) fn output_current(pane_id: usize) -> Result<Arc<Mutex<String>>> {
+    let state = state().read();
+    output(&state, pane_id)
+}
+
 pub(super) fn screen(state: &NextCoreState, pane_id: usize) -> Result<Arc<Mutex<NextCoreScreen>>> {
     Ok(Arc::clone(&session(state, pane_id)?.screen))
+}
+
+#[cfg(test)]
+pub(super) fn screen_current(pane_id: usize) -> Result<Arc<Mutex<NextCoreScreen>>> {
+    let state = state().read();
+    screen(&state, pane_id)
 }
 
 pub(super) fn activity(
@@ -75,6 +87,11 @@ pub(super) fn input(state: &NextCoreState, pane_id: usize) -> Result<InputHandle
     })
 }
 
+pub(super) fn input_current(pane_id: usize) -> Result<InputHandles> {
+    let state = state().read();
+    input(&state, pane_id)
+}
+
 pub(super) fn shell(state: &NextCoreState, pane_id: usize) -> Result<ShellHandles> {
     let session = session(state, pane_id)?;
     Ok(ShellHandles {
@@ -82,6 +99,11 @@ pub(super) fn shell(state: &NextCoreState, pane_id: usize) -> Result<ShellHandle
         screen: Arc::clone(&session.screen),
         root_pid: session.root_pid,
     })
+}
+
+pub(super) fn shell_current(pane_id: usize) -> Result<ShellHandles> {
+    let state = state().read();
+    shell(&state, pane_id)
 }
 
 pub(super) fn scrollback(state: &NextCoreState, pane_id: usize) -> Result<ScrollbackHandles> {
