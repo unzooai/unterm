@@ -3,9 +3,9 @@ use super::{
     screen_snapshot::{self, ScreenSnapshotMeta},
     session_handles, state,
 };
-use crate::{RenderFrameSnapshot, ScreenSnapshot, StyledScreenSnapshot};
+use crate::{CursorSnapshot, RenderFrameSnapshot, ScreenSnapshot, StyledScreenSnapshot};
 use anyhow::Result;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 pub(super) fn read_plain_viewport(pane_id: usize) -> Result<ScreenSnapshot> {
     let started_at = Instant::now();
@@ -111,6 +111,83 @@ pub(super) fn read_render_frame(
     Ok(snapshot)
 }
 
+pub(super) fn snapshot_lines(pane_id: usize) -> Result<Vec<String>> {
+    let screen = {
+        let state = state().read();
+        session_handles::screen(&state, pane_id)?
+    };
+
+    let lines = screen.lock().snapshot_lines();
+    Ok(lines)
+}
+
+pub(super) fn line_count(pane_id: usize) -> Result<usize> {
+    let screen = {
+        let state = state().read();
+        session_handles::screen(&state, pane_id)?
+    };
+
+    let count = screen.lock().history_len();
+    Ok(count)
+}
+
+pub(super) fn line_text_range(pane_id: usize, start: usize, count: usize) -> Result<Vec<String>> {
+    let screen = {
+        let state = state().read();
+        session_handles::screen(&state, pane_id)?
+    };
+
+    let lines = screen.lock().history_text_range(start, count);
+    Ok(lines)
+}
+
+pub(super) fn scrollback_lines(pane_id: usize) -> Result<Vec<String>> {
+    let screen = {
+        let state = state().read();
+        session_handles::screen(&state, pane_id)?
+    };
+
+    let lines = screen
+        .lock()
+        .history
+        .scrollback()
+        .iter()
+        .map(super::NextCoreScreen::line_text)
+        .collect();
+    Ok(lines)
+}
+
+pub(super) fn mark_screen_read(pane_id: usize, duration: Duration) -> Result<()> {
+    let activity = {
+        let state = state().read();
+        session_handles::activity(&state, pane_id)?
+    };
+    activity.lock().mark_screen_read(duration);
+    Ok(())
+}
+
+pub(super) fn scroll_viewport_to(pane_id: usize, target: isize) -> Result<()> {
+    let started_at = Instant::now();
+    let (screen, activity) = {
+        let state = state().read();
+        session_handles::screen_activity(&state, pane_id)?
+    };
+
+    screen.lock().set_viewport_top_near(target);
+    activity.lock().mark_viewport_scroll(started_at.elapsed());
+    Ok(())
+}
+
+pub(super) fn cursor(pane_id: usize) -> Result<CursorSnapshot> {
+    let screen = {
+        let state = state().read();
+        session_handles::screen(&state, pane_id)?
+    };
+
+    let cursor = screen.lock().cursor_snapshot();
+    Ok(cursor)
+}
+
 fn meta(screen: &super::NextCoreScreen) -> ScreenSnapshotMeta {
     ScreenSnapshotMeta {
         cursor: screen.cursor_snapshot(),
@@ -136,5 +213,12 @@ mod tests {
         assert_eq!(meta.rows, 24);
         assert_eq!(meta.scrollback_rows, 0);
         assert_eq!(meta.revision, screen.revision());
+    }
+
+    #[test]
+    fn line_helpers_report_missing_session() {
+        let err = line_count(404).expect_err("missing session should fail");
+
+        assert!(err.to_string().contains("next-core session 404 not found"));
     }
 }

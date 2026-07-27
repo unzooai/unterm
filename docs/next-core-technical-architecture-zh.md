@@ -290,7 +290,7 @@ next-core 已经在 screen/parser 方向具备基础能力，包括：
 - `next_core/launch.rs` 已拆出 command preparation、launch env/policy inference、profile/proxy metadata summary 和 shell type labeling，让 PTY/session registry 主体不再持有产品启动策略细节
 - `next_core/lifecycle.rs` 已拆出 reader/process death refresh、dead reason 记账和 destroy 标记规则，让 session registry 后续重写时不需要复制死亡状态机
 - `next_core/pty_io.rs` 已拆出 PTY byte stream 到 UTF-8 text chunk 的 split-safe 解码，以及 output/recording preview bounded buffer 的 UTF-8 边界裁剪；reader thread 后续外移时可以复用同一套 pending-byte 和 bounded-output 规则
-- `next_core/screen_dispatch.rs` 已拆出 plain/styled viewport 和 render-frame snapshot 读取、dirty frame selection/clear 和 screen-read activity 记账，让 ScreenEngine 的高频可见区读取路径不再直接持有 screen lock/snapshot/telemetry 细节
+- `next_core/screen_dispatch.rs` 已拆出 plain/styled viewport、render-frame snapshot、cursor、line/history/scrollback helper、viewport scroll 和 screen-read activity 记账，让 ScreenEngine 的高频读取/翻页路径不再直接持有 screen lock/snapshot/telemetry 细节
 - `next_core/screen_search.rs` 已拆出 screen text search 和 UTF-8 character-column 计算，让 MCP/screen search API 只负责取快照和记 screen-read activity
 - `next_core/screen_snapshot.rs` 已拆出 plain/styled screen snapshot 和 escaped styled scrollback 组装，让 ScreenEngine API 后续只负责锁定 session、读取屏幕和记录 activity
 - `next_core/screen_text.rs` 已拆出 raw output 行归一化、tail-line 选择和 scrollback bounded range 计算，让 MCP/screen read 文本切片逻辑可以独立测试，不再散在 engine API 实现里

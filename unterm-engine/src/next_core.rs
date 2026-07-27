@@ -19,7 +19,7 @@ use std::sync::atomic::AtomicBool;
 #[cfg(test)]
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, OnceLock};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 mod activity;
 mod cell;
@@ -1842,86 +1842,8 @@ impl NextCoreEngine {
         }
     }
 
-    fn screen_lines(&self, pane_id: usize) -> Result<Vec<String>> {
-        let screen = {
-            let state = state().read();
-            session_handles::screen(&state, pane_id)?
-        };
-
-        let lines = screen.lock().snapshot_lines();
-        Ok(lines)
-    }
-
-    fn screen_line_count(&self, pane_id: usize) -> Result<usize> {
-        let screen = {
-            let state = state().read();
-            session_handles::screen(&state, pane_id)?
-        };
-
-        let count = screen.lock().history_len();
-        Ok(count)
-    }
-
-    fn screen_line_text_range(
-        &self,
-        pane_id: usize,
-        start: usize,
-        count: usize,
-    ) -> Result<Vec<String>> {
-        let screen = {
-            let state = state().read();
-            session_handles::screen(&state, pane_id)?
-        };
-
-        let lines = screen.lock().history_text_range(start, count);
-        Ok(lines)
-    }
-
-    fn scrollback_lines(&self, pane_id: usize) -> Result<Vec<String>> {
-        let screen = {
-            let state = state().read();
-            session_handles::screen(&state, pane_id)?
-        };
-
-        let lines = screen
-            .lock()
-            .history
-            .scrollback()
-            .iter()
-            .map(NextCoreScreen::line_text)
-            .collect();
-        Ok(lines)
-    }
-
-    fn mark_screen_read_for_pane(&self, pane_id: usize, duration: Duration) -> Result<()> {
-        let activity = {
-            let state = state().read();
-            session_handles::activity(&state, pane_id)?
-        };
-        activity.lock().mark_screen_read(duration);
-        Ok(())
-    }
-
     pub fn scroll_viewport_to(&self, pane_id: usize, target: isize) -> Result<()> {
-        let started_at = Instant::now();
-        let (screen, activity) = {
-            let state = state().read();
-            session_handles::screen_activity(&state, pane_id)?
-        };
-
-        screen.lock().set_viewport_top_near(target);
-        activity.lock().mark_viewport_scroll(started_at.elapsed());
-        Ok(())
-    }
-
-    fn screen_cursor(&self, pane_id: usize) -> Result<CursorSnapshot> {
-        let screen = {
-            let state = state().read();
-            session_handles::screen(&state, pane_id)?
-        };
-
-        let cursor = screen.lock().cursor_snapshot();
-        Ok(cursor)
+        screen_dispatch::scroll_viewport_to(pane_id, target)
     }
 
     #[allow(dead_code)]
@@ -2062,22 +1984,21 @@ impl ScreenEngine for NextCoreEngine {
         let started_at = Instant::now();
         let start = start.max(0) as usize;
         let lines = screen_snapshot::plain_lines(
-            self.screen_line_text_range(pane_id, start, count)?,
+            screen_dispatch::line_text_range(pane_id, start, count)?,
             start,
         );
-        self.mark_screen_read_for_pane(pane_id, started_at.elapsed())?;
+        screen_dispatch::mark_screen_read(pane_id, started_at.elapsed())?;
         Ok(lines)
     }
 
     fn read_scrollback(&self, pane_id: usize, limit: usize) -> Result<Vec<String>> {
         let started_at = Instant::now();
-        let lines = self
-            .scrollback_lines(pane_id)?
+        let lines = screen_dispatch::scrollback_lines(pane_id)?
             .into_iter()
             .filter(|line| !line.is_empty())
             .collect::<Vec<_>>();
         let lines = screen_text::tail_lines(&lines, limit);
-        self.mark_screen_read_for_pane(pane_id, started_at.elapsed())?;
+        screen_dispatch::mark_screen_read(pane_id, started_at.elapsed())?;
         Ok(lines)
     }
 
@@ -2095,7 +2016,7 @@ impl ScreenEngine for NextCoreEngine {
             line_count = raw_lines.as_ref().map_or(0, Vec::len);
         } else {
             raw_lines = None;
-            line_count = self.screen_line_count(pane_id)?;
+            line_count = screen_dispatch::line_count(pane_id)?;
         }
         let (start, end) = screen_text::bounded_range(
             line_count,
@@ -2107,7 +2028,7 @@ impl ScreenEngine for NextCoreEngine {
         let selected = if let Some(lines) = raw_lines {
             lines[start..end].to_vec()
         } else {
-            self.screen_line_text_range(pane_id, start, end.saturating_sub(start))?
+            screen_dispatch::line_text_range(pane_id, start, end.saturating_sub(start))?
         };
         let snapshot = ScrollbackTextSnapshot {
             text: selected.join("\n"),
@@ -2120,7 +2041,7 @@ impl ScreenEngine for NextCoreEngine {
             physical_top: line_count.saturating_sub(session.rows) as i64,
             viewport_rows: session.rows,
         };
-        self.mark_screen_read_for_pane(pane_id, started_at.elapsed())?;
+        screen_dispatch::mark_screen_read(pane_id, started_at.elapsed())?;
         Ok(snapshot)
     }
 
@@ -2168,7 +2089,7 @@ impl ScreenEngine for NextCoreEngine {
             viewport_rows: session.rows,
         };
         drop(screen);
-        self.mark_screen_read_for_pane(pane_id, started_at.elapsed())?;
+        screen_dispatch::mark_screen_read(pane_id, started_at.elapsed())?;
         Ok(snapshot)
     }
 
@@ -2179,14 +2100,14 @@ impl ScreenEngine for NextCoreEngine {
         max_results: usize,
     ) -> Result<Vec<ScreenSearchMatch>> {
         let started_at = Instant::now();
-        let lines = self.screen_lines(pane_id)?;
+        let lines = screen_dispatch::snapshot_lines(pane_id)?;
         let matches = screen_search::find_matches(&lines, pattern, max_results);
-        self.mark_screen_read_for_pane(pane_id, started_at.elapsed())?;
+        screen_dispatch::mark_screen_read(pane_id, started_at.elapsed())?;
         Ok(matches)
     }
 
     fn cursor(&self, pane_id: usize) -> Result<CursorSnapshot> {
-        self.screen_cursor(pane_id)
+        screen_dispatch::cursor(pane_id)
     }
 }
 
