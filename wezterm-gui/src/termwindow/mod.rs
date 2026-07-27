@@ -2,6 +2,7 @@
 use super::renderstate::*;
 use super::utilsprites::RenderMetrics;
 use crate::colorease::ColorEase;
+use crate::engine::EngineRenderConsumerSet;
 use crate::frontend::{front_end, try_front_end};
 use crate::inputmap::InputMap;
 use crate::overlay::{
@@ -562,6 +563,7 @@ pub struct TermWindow {
 
     tab_state: RefCell<HashMap<TabId, TabState>>,
     pane_state: RefCell<HashMap<PaneId, PaneState>>,
+    next_core_render_consumers: RefCell<EngineRenderConsumerSet>,
     semantic_zones: HashMap<PaneId, SemanticZoneCache>,
 
     /// True after a Ctrl+Left press was consumed as a macOS secondary click;
@@ -1014,6 +1016,7 @@ impl TermWindow {
             last_scroll_info: RenderableDimensions::default(),
             tab_state: RefCell::new(HashMap::new()),
             pane_state: RefCell::new(HashMap::new()),
+            next_core_render_consumers: RefCell::new(EngineRenderConsumerSet::new()),
             swallow_left_gesture_after_secondary_click: false,
             current_mouse_buttons: vec![],
             current_mouse_capture: None,
@@ -1855,6 +1858,7 @@ impl TermWindow {
         }
 
         self.pane_state.borrow_mut().clear();
+        self.next_core_render_consumers.borrow_mut().clear();
         self.tab_state.borrow_mut().clear();
     }
 
@@ -5057,6 +5061,7 @@ impl TermWindow {
             self.assign_overlay_for_pane(pane_id, overlay);
             promise::spawn::spawn(future).detach();
         } else {
+            self.remove_next_core_render_consumer(pane_id);
             mux.remove_pane(pane_id);
         }
     }
@@ -5066,6 +5071,7 @@ impl TermWindow {
     /// user explicitly clicked the kill button, so we trust them. This matches
     /// `WindowCloseConfirmation::NeverPrompt` from the global default.
     pub fn close_pane_by_id(&mut self, pane_id: mux::pane::PaneId) {
+        self.remove_next_core_render_consumer(pane_id);
         Mux::get().remove_pane(pane_id);
     }
 
@@ -5124,6 +5130,12 @@ impl TermWindow {
         RefMut::map(self.pane_state.borrow_mut(), |state| {
             state.entry(pane_id).or_insert_with(PaneState::default)
         })
+    }
+
+    fn remove_next_core_render_consumer(&self, pane_id: PaneId) {
+        self.next_core_render_consumers
+            .borrow_mut()
+            .remove_pane(pane_id as usize);
     }
 
     pub fn tab_state(&self, tab_id: TabId) -> RefMut<'_, TabState> {
