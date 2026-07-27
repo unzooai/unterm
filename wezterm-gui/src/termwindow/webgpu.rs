@@ -1296,6 +1296,21 @@ impl WebGpuState {
             viewport_width_px,
             viewport_height_px,
         );
+        let frame_diagnostics = prepared.diagnostics();
+        let frame_readiness_issue_count = prepared.readiness_issues().len();
+        log::trace!(
+            "next-core prepared frame pane={} revision={} submitted={} solid_vertices={} solid_indices={} text_runs={} glyph_keys={} glyph_instances={} replace_ready={} readiness_issues={}",
+            frame_diagnostics.pane_id,
+            frame_diagnostics.revision,
+            frame_diagnostics.submitted,
+            frame_diagnostics.solid_vertex_count,
+            frame_diagnostics.solid_index_count,
+            frame_diagnostics.text_run_count,
+            frame_diagnostics.glyph_key_count,
+            frame_diagnostics.glyph_instance_count,
+            frame_diagnostics.replace_ready,
+            frame_readiness_issue_count
+        );
         drop(dimensions);
         if !prepared.text_atlas.is_empty() {
             log::trace!(

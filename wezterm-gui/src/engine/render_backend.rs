@@ -729,8 +729,63 @@ pub struct EngineWgpuPreparedFramePlan {
     pub glyph_atlas: EngineRenderGlyphAtlasPlan,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[allow(dead_code)]
+pub struct EngineWgpuPreparedFrameDiagnostics {
+    pub pane_id: usize,
+    pub submitted: bool,
+    pub revision: u64,
+    pub solid_vertex_count: usize,
+    pub solid_index_count: usize,
+    pub text_run_count: usize,
+    pub glyph_key_count: usize,
+    pub glyph_instance_count: usize,
+    pub replace_ready: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
+pub enum EngineWgpuPreparedFrameReadinessIssue {
+    SolidNotSubmitted,
+    EmptySolidUpload,
+    TextAtlasMissingGlyphs,
+}
+
 #[allow(dead_code)]
 impl EngineWgpuPreparedFramePlan {
+    pub fn diagnostics(&self) -> EngineWgpuPreparedFrameDiagnostics {
+        let issues = self.readiness_issues();
+        EngineWgpuPreparedFrameDiagnostics {
+            pane_id: self.upload.pane_id,
+            submitted: self.upload.submitted,
+            revision: self.upload.revision,
+            solid_vertex_count: self.upload.vertices.len(),
+            solid_index_count: self.upload.indices.len(),
+            text_run_count: self.text_atlas.runs.len(),
+            glyph_key_count: self.glyph_atlas.keys.len(),
+            glyph_instance_count: self.glyph_atlas.instances.len(),
+            replace_ready: issues.is_empty(),
+        }
+    }
+
+    pub fn readiness_issues(&self) -> Vec<EngineWgpuPreparedFrameReadinessIssue> {
+        let mut issues = Vec::new();
+        if !self.upload.submitted {
+            issues.push(EngineWgpuPreparedFrameReadinessIssue::SolidNotSubmitted);
+        }
+        if self.upload.is_empty() {
+            issues.push(EngineWgpuPreparedFrameReadinessIssue::EmptySolidUpload);
+        }
+        if !self.text_atlas.runs.is_empty() && self.glyph_atlas.instances.is_empty() {
+            issues.push(EngineWgpuPreparedFrameReadinessIssue::TextAtlasMissingGlyphs);
+        }
+        issues
+    }
+
+    pub fn is_replace_ready(&self) -> bool {
+        self.readiness_issues().is_empty()
+    }
+
     pub fn textured_glyph_layout_report(
         &self,
         placements: &[EngineRenderGlyphAtlasPlacement],
@@ -2319,6 +2374,22 @@ mod tests {
         assert_eq!(prepared.glyph_atlas.revision, 42);
         assert_eq!(prepared.glyph_atlas.keys.len(), 3);
         assert_eq!(prepared.glyph_atlas.instances.len(), 3);
+        assert!(prepared.is_replace_ready());
+        assert!(prepared.readiness_issues().is_empty());
+        assert_eq!(
+            prepared.diagnostics(),
+            EngineWgpuPreparedFrameDiagnostics {
+                pane_id: 7,
+                submitted: true,
+                revision: 42,
+                solid_vertex_count: 4,
+                solid_index_count: 6,
+                text_run_count: 1,
+                glyph_key_count: 3,
+                glyph_instance_count: 3,
+                replace_ready: true,
+            }
+        );
     }
 
     #[test]
@@ -2352,6 +2423,73 @@ mod tests {
         assert_eq!(atlas.revision, 17);
         assert!(!atlas.submitted);
         assert!(atlas.is_empty());
+    }
+
+    #[test]
+    fn prepared_frame_diagnostics_report_replace_readiness_issues() {
+        let buffer = EngineRenderBufferPlan {
+            pane_id: 11,
+            submitted: false,
+            revision: 31,
+            requires_full_repaint: false,
+            damage_rects: Vec::new(),
+            text_runs: vec![RenderTextRun {
+                row: 0,
+                col: 0,
+                cells: 1,
+                text: "x".to_string(),
+                rect: RenderRect {
+                    x: 0,
+                    y: 0,
+                    width: 8,
+                    height: 16,
+                },
+                style: CellStyle::default(),
+            }],
+            vertices: Vec::new(),
+            indices: Vec::new(),
+        };
+        let mut prepared = EngineWgpuRenderBackend::prepare_frame_for_viewport(&buffer, 80.0, 40.0);
+        prepared.text_atlas.submitted = true;
+        prepared.text_atlas.runs = vec![EngineRenderTextAtlasRun {
+            row: 0,
+            col: 0,
+            cells: 1,
+            text: "x".to_string(),
+            rect: RenderRect {
+                x: 0,
+                y: 0,
+                width: 8,
+                height: 16,
+            },
+            foreground: [1.0, 1.0, 1.0, 1.0],
+            style: CellStyle::default(),
+        }];
+        prepared.glyph_atlas.submitted = true;
+
+        assert!(!prepared.is_replace_ready());
+        assert_eq!(
+            prepared.readiness_issues(),
+            vec![
+                EngineWgpuPreparedFrameReadinessIssue::SolidNotSubmitted,
+                EngineWgpuPreparedFrameReadinessIssue::EmptySolidUpload,
+                EngineWgpuPreparedFrameReadinessIssue::TextAtlasMissingGlyphs,
+            ]
+        );
+        assert_eq!(
+            prepared.diagnostics(),
+            EngineWgpuPreparedFrameDiagnostics {
+                pane_id: 11,
+                submitted: false,
+                revision: 31,
+                solid_vertex_count: 0,
+                solid_index_count: 0,
+                text_run_count: 1,
+                glyph_key_count: 0,
+                glyph_instance_count: 0,
+                replace_ready: false,
+            }
+        );
     }
 
     #[test]
