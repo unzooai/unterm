@@ -39,6 +39,9 @@ pub enum EngineRenderBackendCommand {
         style: CellStyle,
     },
     Text {
+        row: usize,
+        col: usize,
+        cells: usize,
         rect: RenderRect,
         text: String,
         style: CellStyle,
@@ -425,8 +428,18 @@ impl EngineRenderBufferPlan {
                         command_index,
                     );
                 }
-                EngineRenderBackendCommand::Text { rect, text, style } => {
+                EngineRenderBackendCommand::Text {
+                    row,
+                    col,
+                    cells,
+                    rect,
+                    text,
+                    style,
+                } => {
                     text_runs.push(RenderTextRun {
+                        row: *row,
+                        col: *col,
+                        cells: *cells,
                         text: text.clone(),
                         rect: *rect,
                         style: style.clone(),
@@ -611,6 +624,9 @@ mod tests {
             requires_full_repaint: false,
             skipped_revisions: 0,
             commands: vec![EngineRenderBackendCommand::Text {
+                row: 1,
+                col: 2,
+                cells: 3,
                 rect,
                 text: "abc".to_string(),
                 style: style.clone(),
@@ -621,6 +637,9 @@ mod tests {
 
         assert_eq!(plan.text_runs.len(), 1);
         assert_eq!(plan.text_runs[0].text, "abc");
+        assert_eq!(plan.text_runs[0].row, 1);
+        assert_eq!(plan.text_runs[0].col, 2);
+        assert_eq!(plan.text_runs[0].cells, 3);
         assert_eq!(plan.text_runs[0].rect, rect);
         assert_eq!(plan.text_runs[0].style, style);
         assert_eq!(plan.vertices.len(), 4);
@@ -662,6 +681,9 @@ impl EngineRenderBackend for CommandListRenderBackend {
             }));
             commands.extend(submission.text_runs.iter().map(|run| {
                 EngineRenderBackendCommand::Text {
+                    row: run.row,
+                    col: run.col,
+                    cells: run.cells,
                     rect: run.rect,
                     text: run.text.clone(),
                     style: run.style.clone(),

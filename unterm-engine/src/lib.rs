@@ -291,6 +291,7 @@ pub struct RenderRect {
 pub struct RenderGlyphRunGeometry {
     pub row: usize,
     pub col: usize,
+    pub cells: usize,
     pub text: String,
     pub rect: RenderRect,
     pub style: CellStyle,
@@ -340,6 +341,9 @@ pub struct RenderBackgroundQuad {
 #[allow(dead_code)]
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 pub struct RenderTextRun {
+    pub row: usize,
+    pub col: usize,
+    pub cells: usize,
     pub text: String,
     pub rect: RenderRect,
     pub style: CellStyle,
@@ -395,6 +399,7 @@ impl RenderDrawPlan {
             .map(|run| RenderGlyphRunGeometry {
                 row: run.row,
                 col: run.col,
+                cells: run.cells,
                 text: run.text.clone(),
                 rect: grid_rect(run.row, run.col, run.cells, 1, metrics),
                 style: run.style.clone(),
@@ -509,6 +514,9 @@ impl RenderGeometryPlan {
             .glyph_runs
             .iter()
             .map(|run| RenderTextRun {
+                row: run.row,
+                col: run.col,
+                cells: run.cells,
                 text: run.text.clone(),
                 rect: run.rect,
                 style: run.style.clone(),
@@ -1271,6 +1279,7 @@ mod tests {
             }
         );
         assert_eq!(plan.glyph_runs.len(), 1);
+        assert_eq!(plan.glyph_runs[0].cells, 2);
         assert_eq!(
             plan.glyph_runs[0].rect,
             RenderRect {
@@ -1382,6 +1391,9 @@ mod tests {
         );
         assert_eq!(submission.text_runs.len(), 1);
         assert_eq!(submission.text_runs[0].text, "ok");
+        assert_eq!(submission.text_runs[0].row, 0);
+        assert_eq!(submission.text_runs[0].col, 0);
+        assert_eq!(submission.text_runs[0].cells, 2);
         assert_eq!(submission.text_runs[0].style, fg);
         assert_eq!(submission.background_quads.len(), 2);
         assert_eq!(submission.background_quads[1].style, bg);
