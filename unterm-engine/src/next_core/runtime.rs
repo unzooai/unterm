@@ -1,4 +1,5 @@
-use super::{session_registry, NextCoreSession};
+use super::{session_registry, session_snapshots, NextCoreSession};
+use crate::SessionSnapshot;
 use anyhow::Result;
 use parking_lot::RwLock;
 use std::sync::OnceLock;
@@ -58,4 +59,16 @@ pub(super) fn with_session_optional<T>(
     visit: impl FnOnce(&NextCoreSession) -> T,
 ) -> Option<T> {
     with_current(|state| session_registry::session(state, pane_id).ok().map(visit))
+}
+
+pub(super) fn list_sessions() -> Vec<SessionSnapshot> {
+    with_current_mut(session_snapshots::list)
+}
+
+pub(super) fn get_session(pane_id: usize) -> Result<SessionSnapshot> {
+    with_current_mut(|state| session_snapshots::get(state, pane_id))
+}
+
+pub(super) fn clone_session_base(pane_id: usize) -> Result<SessionSnapshot> {
+    with_session(pane_id, |session| Ok(session.snapshot.clone()))
 }

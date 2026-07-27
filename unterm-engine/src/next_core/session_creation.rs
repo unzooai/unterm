@@ -1,4 +1,4 @@
-use super::{launch, runtime, session_runtime, session_snapshots};
+use super::{launch, runtime, session_runtime};
 use crate::{CreateSessionRequest, SessionSnapshot, SplitSessionRequest};
 use anyhow::Result;
 
@@ -25,7 +25,7 @@ pub(super) fn create(request: CreateSessionRequest) -> Result<SessionSnapshot> {
 }
 
 pub(super) fn split(request: SplitSessionRequest) -> Result<SessionSnapshot> {
-    let source = session_snapshots::clone_base_current(request.source_pane_id)?;
+    let source = runtime::clone_session_base(request.source_pane_id)?;
 
     let mut command = portable_pty::CommandBuilder::new_default_prog();
     if let Some(cwd) = request.command_dir.or(source.shell.cwd) {

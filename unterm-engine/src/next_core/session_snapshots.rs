@@ -1,18 +1,6 @@
-use super::{
-    lifecycle, process_tree,
-    runtime::{self, NextCoreRuntime},
-    session_registry, NextCoreSession,
-};
+use super::{lifecycle, process_tree, runtime::NextCoreRuntime, session_registry, NextCoreSession};
 use crate::SessionSnapshot;
 use anyhow::Result;
-
-pub(super) fn list_current() -> Vec<SessionSnapshot> {
-    runtime::with_current_mut(list)
-}
-
-pub(super) fn get_current(pane_id: usize) -> Result<SessionSnapshot> {
-    runtime::with_current_mut(|state| get(state, pane_id))
-}
 
 pub(super) fn list(state: &mut NextCoreRuntime) -> Vec<SessionSnapshot> {
     let mut snapshots = Vec::with_capacity(session_registry::pane_count(state));
@@ -40,10 +28,6 @@ pub(super) fn get(state: &mut NextCoreRuntime, pane_id: usize) -> Result<Session
 #[cfg(test)]
 pub(super) fn clone_base(state: &NextCoreRuntime, pane_id: usize) -> Result<SessionSnapshot> {
     Ok(session_registry::session(state, pane_id)?.snapshot.clone())
-}
-
-pub(super) fn clone_base_current(pane_id: usize) -> Result<SessionSnapshot> {
-    runtime::with_session(pane_id, |session| Ok(session.snapshot.clone()))
 }
 
 fn snapshot(session: &mut NextCoreSession) -> (SessionSnapshot, Option<String>) {

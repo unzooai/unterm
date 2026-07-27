@@ -1601,11 +1601,11 @@ impl NextCoreEngine {
 
 impl SessionEngine for NextCoreEngine {
     fn list_sessions(&self) -> Result<Vec<SessionSnapshot>> {
-        Ok(session_snapshots::list_current())
+        Ok(runtime::list_sessions())
     }
 
     fn get_session(&self, pane_id: usize) -> Result<SessionSnapshot> {
-        session_snapshots::get_current(pane_id)
+        runtime::get_session(pane_id)
     }
 
     fn create_session(&self, request: CreateSessionRequest) -> Result<SessionSnapshot> {
