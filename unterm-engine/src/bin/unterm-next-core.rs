@@ -2114,6 +2114,24 @@ fn main() -> Result<()> {
                 last_dead_reason
             );
         }
+        if let Some(pump) = health.runtime_pump.as_ref() {
+            println!(
+                "health_runtime_pump drain_calls={} dispatched_commands={} dispatched_lifecycle={} dispatched_input={} dispatched_render={} dispatched_screen={} dispatched_background={} waited_for_response={} completed_without_wait={} total_dispatch_us={} max_dispatch_us={} total_drain_us={} max_drain_us={}",
+                pump.drain_calls,
+                pump.dispatched_commands,
+                pump.dispatched_lifecycle_commands,
+                pump.dispatched_input_commands,
+                pump.dispatched_render_commands,
+                pump.dispatched_screen_commands,
+                pump.dispatched_background_commands,
+                pump.waited_for_response,
+                pump.completed_without_wait,
+                pump.total_dispatch_elapsed_micros,
+                pump.max_dispatch_elapsed_micros,
+                pump.total_drain_elapsed_micros,
+                pump.max_drain_elapsed_micros
+            );
+        }
         println!("{visible_text}");
     }
     engine.destroy_session(session.id)?;

@@ -282,8 +282,8 @@ next-core 已经在 screen/parser 方向具备基础能力，包括：
 - `WebGpuState` 已在设备初始化时缓存 next-core solid-quad backend/pipeline，与现有 legacy pipeline 并存；后续 pane 绘制只需提交 commit buffers，不需要每帧创建 shader/pipeline
 - `WebGpuState::encode_next_core_upload` 已把 next-core GPU upload plan、renderer-owned buffer upload、缓存 pipeline 和 `wgpu::CommandEncoder` 串成一个 GUI 侧调用点；当前 legacy draw loop 仍保持不变
 - `WebGpuState::encode_next_core_pane_frame` 已消费 renderer-owned pane draw frame 并统一进入 pane-frame encoder helper，复用其中的 engine-prepared frame、当前 viewport 尺寸、viewport-to-clip 转换和缓存 pipeline；pane draw loop 不再暴露 raw buffer-plan 编码入口，engine prepared frame 也不再携带 GUI 字体对象
-- JSON probe smoke 已输出并校验 render draw/geometry/submission/commit plan 的 revision、run/quad counts、viewport、damage rects、cursor state 和首帧 full-repaint state，让 renderer 输入契约进入 CI 可见面
-- benchmark 已覆盖 input write、key-to-screen、input burst under output、echo、paste、output flood、scrollback paging、viewport scroll、screen-read under flood、render-frame empty/dirty/cursor-move delta、render draw plan、render geometry plan、render submission plan、render commit plan API、focus/session lifecycle
+- JSON probe smoke 已输出并校验 render draw/geometry/submission/commit plan 的 revision、run/quad counts、viewport、damage rects、cursor state、首帧 full-repaint state 和 runtime pump lane/latency health，让 renderer 与调度输入契约进入 CI 可见面
+- benchmark 已覆盖 input write、key-to-screen、input burst under output、echo、paste、output flood、scrollback paging、viewport scroll、screen-read under flood、render-frame empty/dirty/cursor-move delta、render draw plan、render geometry plan、render submission plan、render commit plan API、focus/session lifecycle，并在 JSON smoke/report 中记录 runtime pump 按 lane dispatch 与最大 dispatch/drain 耗时
 - zero-width combining marks attach to preceding visible cells without advancing cursor position
 - DECFRA、DECERA、DECCARA、DECRARA 矩形操作
 - DECSCA protected/erasable cell 属性

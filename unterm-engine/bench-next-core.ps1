@@ -308,6 +308,24 @@ function Invoke-JsonSmoke {
     if ($null -eq $json.health.lifecycle -or $json.health.lifecycle.total_created -lt 1) {
         throw "JSON probe did not include lifecycle health counters"
     }
+    if ($null -eq $json.health.runtime_pump) {
+        throw "JSON probe did not include runtime pump health counters"
+    }
+    if ($json.health.runtime_pump.drain_calls -lt 1) {
+        throw "JSON probe runtime pump did not record drain calls"
+    }
+    if ($json.health.runtime_pump.dispatched_commands -lt 1) {
+        throw "JSON probe runtime pump did not record dispatches"
+    }
+    if ($json.health.runtime_pump.dispatched_render_commands -lt 1 -or $json.health.runtime_pump.dispatched_screen_commands -lt 1) {
+        throw "JSON probe runtime pump did not record render/screen lane dispatches"
+    }
+    if ($json.health.runtime_pump.max_dispatch_elapsed_micros -gt $json.health.runtime_pump.total_dispatch_elapsed_micros) {
+        throw "JSON probe runtime pump dispatch max exceeded total"
+    }
+    if ($json.health.runtime_pump.max_drain_elapsed_micros -gt $json.health.runtime_pump.total_drain_elapsed_micros) {
+        throw "JSON probe runtime pump drain max exceeded total"
+    }
 
     [pscustomobject]@{
         Marker = $marker
@@ -346,6 +364,15 @@ function Invoke-JsonSmoke {
         ProxyEnvKeys = @($json.session.shell.launch_context.proxy_env_keys)
         DeadReason = $json.session.dead_reason
         LifecycleCreated = $json.health.lifecycle.total_created
+        RuntimePumpDrainCalls = $json.health.runtime_pump.drain_calls
+        RuntimePumpDispatched = $json.health.runtime_pump.dispatched_commands
+        RuntimePumpLifecycle = $json.health.runtime_pump.dispatched_lifecycle_commands
+        RuntimePumpInput = $json.health.runtime_pump.dispatched_input_commands
+        RuntimePumpRender = $json.health.runtime_pump.dispatched_render_commands
+        RuntimePumpScreen = $json.health.runtime_pump.dispatched_screen_commands
+        RuntimePumpBackground = $json.health.runtime_pump.dispatched_background_commands
+        RuntimePumpMaxDispatchUs = $json.health.runtime_pump.max_dispatch_elapsed_micros
+        RuntimePumpMaxDrainUs = $json.health.runtime_pump.max_drain_elapsed_micros
     }
 }
 
@@ -447,7 +474,7 @@ try {
     $report.Add("- Machine: ``$machine``")
     $report.Add("- OS: ``$os``")
     $report.Add("- Binary: ``target\debug\unterm-next-core.exe``")
-    $report.Add("- JSON smoke: ``$($jsonSmoke.Engine) $($jsonSmoke.Screen) raw_bytes=$($jsonSmoke.RawBytes) foreground=$($jsonSmoke.ForegroundProcess) cwd=$($jsonSmoke.Cwd) profile=$($jsonSmoke.Profile) proxy_keys=$($jsonSmoke.ProxyEnvKeys -join ',') screen_reads=$($jsonSmoke.ScreenReads) render_frame_revision=$($jsonSmoke.RenderFrameRevision) render_frame_lines=$($jsonSmoke.RenderFrameLines) render_frame_cols=$($jsonSmoke.RenderFrameCols) render_frame_grid_cells=$($jsonSmoke.RenderFrameGridCells) render_delta_lines=$($jsonSmoke.RenderDeltaLines) render_draw_plan_revision=$($jsonSmoke.RenderDrawPlanRevision) render_draw_plan_glyph_runs=$($jsonSmoke.RenderDrawPlanGlyphRuns) render_draw_plan_cell_runs=$($jsonSmoke.RenderDrawPlanCellRuns) render_draw_plan_cursor=$($jsonSmoke.RenderDrawPlanCursor) render_draw_delta_glyph_runs=$($jsonSmoke.RenderDrawDeltaGlyphRuns) render_draw_delta_cell_runs=$($jsonSmoke.RenderDrawDeltaCellRuns) render_draw_delta_cursor=$($jsonSmoke.RenderDrawDeltaCursor) render_geometry_viewport=$($jsonSmoke.RenderGeometryViewportWidth)x$($jsonSmoke.RenderGeometryViewportHeight) render_geometry_glyph_runs=$($jsonSmoke.RenderGeometryGlyphRuns) render_geometry_cell_runs=$($jsonSmoke.RenderGeometryCellRuns) render_geometry_cursor=$($jsonSmoke.RenderGeometryCursor) render_submission_damage_rects=$($jsonSmoke.RenderSubmissionDamageRects) render_submission_text_runs=$($jsonSmoke.RenderSubmissionTextRuns) render_submission_background_quads=$($jsonSmoke.RenderSubmissionBackgroundQuads) render_submission_cursor=$($jsonSmoke.RenderSubmissionCursor) render_commit_submit=$($jsonSmoke.RenderCommitSubmit) render_commit_full_repaint=$($jsonSmoke.RenderCommitFullRepaint) render_commit_damage_rects=$($jsonSmoke.RenderCommitDamageRects) lifecycle_created=$($jsonSmoke.LifecycleCreated) dead_reason=$($jsonSmoke.DeadReason)``")
+    $report.Add("- JSON smoke: ``$($jsonSmoke.Engine) $($jsonSmoke.Screen) raw_bytes=$($jsonSmoke.RawBytes) foreground=$($jsonSmoke.ForegroundProcess) cwd=$($jsonSmoke.Cwd) profile=$($jsonSmoke.Profile) proxy_keys=$($jsonSmoke.ProxyEnvKeys -join ',') screen_reads=$($jsonSmoke.ScreenReads) render_frame_revision=$($jsonSmoke.RenderFrameRevision) render_frame_lines=$($jsonSmoke.RenderFrameLines) render_frame_cols=$($jsonSmoke.RenderFrameCols) render_frame_grid_cells=$($jsonSmoke.RenderFrameGridCells) render_delta_lines=$($jsonSmoke.RenderDeltaLines) render_draw_plan_revision=$($jsonSmoke.RenderDrawPlanRevision) render_draw_plan_glyph_runs=$($jsonSmoke.RenderDrawPlanGlyphRuns) render_draw_plan_cell_runs=$($jsonSmoke.RenderDrawPlanCellRuns) render_draw_plan_cursor=$($jsonSmoke.RenderDrawPlanCursor) render_draw_delta_glyph_runs=$($jsonSmoke.RenderDrawDeltaGlyphRuns) render_draw_delta_cell_runs=$($jsonSmoke.RenderDrawDeltaCellRuns) render_draw_delta_cursor=$($jsonSmoke.RenderDrawDeltaCursor) render_geometry_viewport=$($jsonSmoke.RenderGeometryViewportWidth)x$($jsonSmoke.RenderGeometryViewportHeight) render_geometry_glyph_runs=$($jsonSmoke.RenderGeometryGlyphRuns) render_geometry_cell_runs=$($jsonSmoke.RenderGeometryCellRuns) render_geometry_cursor=$($jsonSmoke.RenderGeometryCursor) render_submission_damage_rects=$($jsonSmoke.RenderSubmissionDamageRects) render_submission_text_runs=$($jsonSmoke.RenderSubmissionTextRuns) render_submission_background_quads=$($jsonSmoke.RenderSubmissionBackgroundQuads) render_submission_cursor=$($jsonSmoke.RenderSubmissionCursor) render_commit_submit=$($jsonSmoke.RenderCommitSubmit) render_commit_full_repaint=$($jsonSmoke.RenderCommitFullRepaint) render_commit_damage_rects=$($jsonSmoke.RenderCommitDamageRects) runtime_pump_dispatches=$($jsonSmoke.RuntimePumpDispatched) runtime_pump_lanes=lifecycle:$($jsonSmoke.RuntimePumpLifecycle),input:$($jsonSmoke.RuntimePumpInput),render:$($jsonSmoke.RuntimePumpRender),screen:$($jsonSmoke.RuntimePumpScreen),background:$($jsonSmoke.RuntimePumpBackground) runtime_pump_max_dispatch_us=$($jsonSmoke.RuntimePumpMaxDispatchUs) runtime_pump_max_drain_us=$($jsonSmoke.RuntimePumpMaxDrainUs) lifecycle_created=$($jsonSmoke.LifecycleCreated) dead_reason=$($jsonSmoke.DeadReason)``")
     $report.Add("")
     $report.Add("## Gates")
     $report.Add("")
