@@ -2243,6 +2243,136 @@ mod engine_neutral_handler_tests {
     }
 
     #[test]
+    fn orchestrate_methods_use_next_core_sessions_and_screen() {
+        let _guard = env_lock().lock();
+        let previous_engine = std::env::var("UNTERM_ENGINE").ok();
+        std::env::set_var("UNTERM_ENGINE", "next-core");
+        let test_agent = "handler-test-orchestrate";
+        let test_conn_id = 42_000_001;
+        let was_trusted = {
+            let mut state = mcp_state().lock();
+            !state.confirmed_agents.insert(test_agent.to_string())
+        };
+
+        let result: Result<(
+            serde_json::Value,
+            serde_json::Value,
+            serde_json::Value,
+            usize,
+            usize,
+        )> = (|| {
+            let handler = McpHandler::new();
+            let ctx = ConnectionContext {
+                conn_id: test_conn_id,
+                peer_addr: "internal:handler-test".to_string(),
+            };
+            handler.handle(
+                &ctx,
+                "agent.identify",
+                &json!({
+                    "name": test_agent,
+                    "version": "test",
+                }),
+            )?;
+            let launched = handler.handle(
+                &ctx,
+                "orchestrate.launch",
+                &json!({
+                    "cols": 80,
+                    "rows": 4,
+                    "command": "echo next-core-orchestrate-launch"
+                }),
+            )?;
+            let first_id = launched["id"].as_u64().expect("launched id") as usize;
+            let launch_wait = handler.handle(
+                &ctx,
+                "orchestrate.wait",
+                &json!({
+                    "pane_id": first_id,
+                    "pattern": "next-core-orchestrate-launch",
+                    "timeout_ms": 3000,
+                }),
+            )?;
+
+            let created = handler.handle(
+                &ctx,
+                "session.create",
+                &json!({
+                    "cols": 80,
+                    "rows": 4,
+                }),
+            )?;
+            let second_id = created["id"].as_u64().expect("second id") as usize;
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            let broadcast = handler.handle(
+                &ctx,
+                "orchestrate.broadcast",
+                &json!({
+                    "sessions": [first_id.to_string(), second_id.to_string()],
+                    "command": "echo next-core-orchestrate-broadcast",
+                }),
+            )?;
+            let first_broadcast_wait = handler.handle(
+                &ctx,
+                "orchestrate.wait",
+                &json!({
+                    "pane_id": first_id,
+                    "pattern": "next-core-orchestrate-broadcast",
+                    "timeout_ms": 3000,
+                }),
+            )?;
+            let second_broadcast_wait = handler.handle(
+                &ctx,
+                "orchestrate.wait",
+                &json!({
+                    "pane_id": second_id,
+                    "pattern": "next-core-orchestrate-broadcast",
+                    "timeout_ms": 3000,
+                }),
+            )?;
+            let _ = handler.handle(&ctx, "session.destroy", &json!({ "pane_id": first_id }));
+            let _ = handler.handle(&ctx, "session.destroy", &json!({ "pane_id": second_id }));
+            Ok((
+                launch_wait,
+                broadcast,
+                json!([first_broadcast_wait, second_broadcast_wait]),
+                first_id,
+                second_id,
+            ))
+        })();
+
+        match previous_engine {
+            Some(value) => std::env::set_var("UNTERM_ENGINE", value),
+            None => std::env::remove_var("UNTERM_ENGINE"),
+        }
+        {
+            let mut state = mcp_state().lock();
+            if !was_trusted {
+                state.confirmed_agents.remove(test_agent);
+            }
+            state.agents_by_connection.remove(&test_conn_id);
+        }
+
+        let (launch_wait, broadcast, broadcast_waits, first_id, second_id) =
+            result.expect("orchestrate methods use next-core sessions");
+        assert!(next_core().get_session(first_id).is_err());
+        assert!(next_core().get_session(second_id).is_err());
+        assert_eq!(launch_wait["matched"], true);
+        assert_eq!(launch_wait["pattern"], "next-core-orchestrate-launch");
+
+        let results = broadcast["results"].as_array().expect("broadcast results");
+        assert_eq!(results.len(), 2);
+        assert!(results
+            .iter()
+            .any(|item| item["session_id"] == first_id.to_string() && item["sent"] == true));
+        assert!(results
+            .iter()
+            .any(|item| item["session_id"] == second_id.to_string() && item["sent"] == true));
+        let waits = broadcast_waits.as_array().expect("broadcast waits");
+        assert!(waits.iter().all(|item| item["matched"] == true));
+    }
+
+    #[test]
     fn capture_scrollback_routes_through_capture_engine() {
         let _guard = env_lock().lock();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();

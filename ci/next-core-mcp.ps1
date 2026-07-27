@@ -24,6 +24,7 @@ $RequiredTests = @(
     "mcp::handler::engine_neutral_handler_tests::capture_screen_text_snapshot_uses_terminal_engine",
     "mcp::handler::engine_neutral_handler_tests::capture_window_text_snapshot_uses_terminal_engine",
     "mcp::handler::engine_neutral_handler_tests::capture_scrollback_renders_next_core_styled_png",
+    "mcp::handler::engine_neutral_handler_tests::orchestrate_methods_use_next_core_sessions_and_screen",
     "mcp::handler::engine_neutral_handler_tests::active_recording_export_uses_next_core_engine",
     "mcp::handler::engine_neutral_handler_tests::cockpit_inbox_uses_engine_session_snapshot",
     "mcp::handler::engine_neutral_handler_tests::review_diff_does_not_require_wezterm_mux_in_next_core_mode",
@@ -53,11 +54,11 @@ try {
     if ($LASTEXITCODE -ne 0) {
         throw "next-core MCP contract tests failed:`n$($run -join "`n")"
     }
-    if (-not @($run | Where-Object { $_ -match "test result: ok\..*38 passed" })) {
-        throw "next-core MCP contract test run did not report 38 passed tests"
+    if (-not @($run | Where-Object { $_ -match "test result: ok\..*39 passed" })) {
+        throw "next-core MCP contract test run did not report 39 passed tests"
     }
 
-    Write-Host "next-core MCP contract tests ok: required=$($RequiredTests.Count) module_tests=38"
+    Write-Host "next-core MCP contract tests ok: required=$($RequiredTests.Count) module_tests=39"
 } finally {
     Pop-Location
 }

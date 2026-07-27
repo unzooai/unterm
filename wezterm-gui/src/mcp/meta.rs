@@ -277,6 +277,9 @@ mod tests {
         assert!(supported.contains(&"screen.text"));
         assert!(supported.contains(&"capture.scrollback"));
         assert!(supported.contains(&"cockpit.inbox"));
+        assert!(supported.contains(&"orchestrate.launch"));
+        assert!(supported.contains(&"orchestrate.broadcast"));
+        assert!(supported.contains(&"orchestrate.wait"));
         assert!(supported.contains(&"review.diff"));
         assert!(supported.contains(&"review.verify"));
         assert!(supported.contains(&"review.merge"));
