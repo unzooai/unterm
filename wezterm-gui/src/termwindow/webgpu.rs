@@ -1,15 +1,19 @@
 use crate::engine::{
-    EngineRenderBufferPlan, EngineRenderGlyphAtlasCache, EngineRenderGlyphAtlasCacheUpdate,
-    EngineRenderGlyphAtlasPlan, EngineRenderGlyphAtlasTextureRegion,
-    EngineRenderGlyphAtlasTextureUpdatePlan, EngineRenderGpuUploadPlan,
-    EngineRenderTexturedGlyphUploadPlan, EngineWgpuPipelineConfig, EngineWgpuRenderBackend,
+    EngineRenderBufferPlan, EngineRenderFontGlyphRasterSource, EngineRenderGlyphAtlasCache,
+    EngineRenderGlyphAtlasCacheUpdate, EngineRenderGlyphAtlasPlan,
+    EngineRenderGlyphAtlasTextureRegion, EngineRenderGlyphAtlasTextureUpdatePlan,
+    EngineRenderGlyphRasterSource, EngineRenderGpuUploadPlan, EngineRenderTexturedGlyphUploadPlan,
+    EngineWgpuPipelineConfig, EngineWgpuRenderBackend,
 };
 use crate::quad::Vertex;
 use anyhow::anyhow;
 use config::{ConfigHandle, GpuInfo, WebGpuPowerPreference};
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::sync::Arc;
+use wezterm_font::shaper::Direction;
+use wezterm_font::LoadedFont;
 use wgpu::util::DeviceExt;
 use window::bitmaps::Texture2d;
 use window::raw_window_handle::{
@@ -451,6 +455,56 @@ impl NextCoreGlyphAtlasState {
             NEXT_CORE_GLYPH_ATLAS_WIDTH_PX,
             NEXT_CORE_GLYPH_ATLAS_HEIGHT_PX,
         );
+        Some(NextCoreCachedGlyphUpload {
+            pane_id: plan.pane_id,
+            revision: plan.revision,
+            cell_width_px,
+            cell_height_px,
+            update,
+            texture_update,
+            upload,
+        })
+    }
+
+    pub fn prepare_cached_upload_with_raster_source(
+        &mut self,
+        plan: &EngineRenderBufferPlan,
+        glyphs: &EngineRenderGlyphAtlasPlan,
+        viewport_width_px: f32,
+        viewport_height_px: f32,
+        raster_source: &dyn EngineRenderGlyphRasterSource,
+    ) -> Option<NextCoreCachedGlyphUpload> {
+        if !plan.submitted || plan.text_runs.is_empty() {
+            return None;
+        }
+        let (cell_width_px, cell_height_px) = infer_cell_metrics_from_buffer_plan(plan)?;
+        if glyphs.is_empty() {
+            return None;
+        }
+        let pane = self
+            .panes
+            .entry(plan.pane_id)
+            .or_insert_with(|| NextCorePaneGlyphAtlasState::new(cell_width_px, cell_height_px));
+        if pane.cell_width_px != cell_width_px || pane.cell_height_px != cell_height_px {
+            *pane = NextCorePaneGlyphAtlasState::new(cell_width_px, cell_height_px);
+        }
+        let (update, upload) =
+            EngineWgpuRenderBackend::prepare_cached_textured_glyph_upload_for_viewport(
+                glyphs,
+                &mut pane.cache,
+                cell_width_px,
+                cell_height_px,
+                viewport_width_px,
+                viewport_height_px,
+            );
+        let texture_update =
+            EngineWgpuRenderBackend::prepare_glyph_atlas_texture_update_with_raster_source(
+                glyphs,
+                &update,
+                NEXT_CORE_GLYPH_ATLAS_WIDTH_PX,
+                NEXT_CORE_GLYPH_ATLAS_HEIGHT_PX,
+                raster_source,
+            );
         Some(NextCoreCachedGlyphUpload {
             pane_id: plan.pane_id,
             revision: plan.revision,
@@ -977,6 +1031,18 @@ impl WebGpuState {
         plan: &EngineRenderBufferPlan,
         clear_color: Option<[f64; 4]>,
     ) -> bool {
+        self.encode_next_core_buffer_plan_with_font(encoder, target, plan, clear_color, None)
+    }
+
+    #[allow(dead_code)]
+    pub fn encode_next_core_buffer_plan_with_font(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::TextureView,
+        plan: &EngineRenderBufferPlan,
+        clear_color: Option<[f64; 4]>,
+        font: Option<Rc<LoadedFont>>,
+    ) -> bool {
         let dimensions = self.dimensions.borrow();
         let viewport_width_px = dimensions.pixel_width.max(1) as f32;
         let viewport_height_px = dimensions.pixel_height.max(1) as f32;
@@ -996,16 +1062,75 @@ impl WebGpuState {
             );
         }
         let mut textured_glyph_upload = None;
-        if let Some(glyph_upload) = self
-            .next_core_glyph_atlases
-            .borrow_mut()
-            .prepare_cached_upload(
-                plan,
-                &prepared.glyph_atlas,
-                viewport_width_px,
-                viewport_height_px,
-            )
+        let shaped_glyph_atlas = font.as_ref().and_then(|font| {
+            let mut shaped_runs = Vec::with_capacity(prepared.text_atlas.runs.len());
+            for run in &prepared.text_atlas.runs {
+                let glyph_infos = match font.shape(
+                    &run.text,
+                    || {},
+                    |_| {},
+                    None,
+                    Direction::LeftToRight,
+                    None,
+                    None,
+                ) {
+                    Ok(glyph_infos) => glyph_infos,
+                    Err(err) => {
+                        log::debug!("next-core font shaping skipped for {:?}: {err:#}", run.text);
+                        return None;
+                    }
+                };
+                shaped_runs.push(glyph_infos);
+            }
+            let shaped = EngineWgpuRenderBackend::prepare_shaped_glyph_plan_from_glyph_infos(
+                &prepared.text_atlas,
+                &shaped_runs,
+            );
+            if shaped.is_empty() {
+                None
+            } else {
+                Some(EngineWgpuRenderBackend::prepare_glyph_atlas_from_shaped_glyphs(&shaped))
+            }
+        });
+        let font_raster_source = font.map(EngineRenderFontGlyphRasterSource::new);
+        let glyph_upload = if let (Some(shaped_glyph_atlas), Some(font_raster_source)) =
+            (shaped_glyph_atlas.as_ref(), font_raster_source.as_ref())
         {
+            self.next_core_glyph_atlases
+                .borrow_mut()
+                .prepare_cached_upload_with_raster_source(
+                    plan,
+                    shaped_glyph_atlas,
+                    viewport_width_px,
+                    viewport_height_px,
+                    font_raster_source,
+                )
+        } else {
+            self.next_core_glyph_atlases
+                .borrow_mut()
+                .prepare_cached_upload(
+                    plan,
+                    &prepared.glyph_atlas,
+                    viewport_width_px,
+                    viewport_height_px,
+                )
+        };
+        if let Some(glyph_upload) = glyph_upload {
+            if !glyph_upload.texture_update.missing_key_indices.is_empty() {
+                log::debug!(
+                    "next-core glyph texture update missing {} keys for pane {} revision {}",
+                    glyph_upload.texture_update.missing_key_indices.len(),
+                    glyph_upload.pane_id,
+                    glyph_upload.revision
+                );
+            }
+            if font_raster_source.is_some() {
+                log::trace!(
+                    "next-core font raster source active for pane {} revision {}",
+                    glyph_upload.pane_id,
+                    glyph_upload.revision
+                );
+            }
             let texture_stats = match self
                 .next_core_glyph_texture
                 .upload_update(&glyph_upload.texture_update)
@@ -1134,6 +1259,46 @@ mod tests {
         assert_eq!(state.len(), 1);
         state.remove_pane(9);
         assert!(state.is_empty());
+    }
+
+    #[test]
+    fn next_core_glyph_atlas_state_uses_external_raster_source() {
+        struct SolidRasterSource;
+
+        impl EngineRenderGlyphRasterSource for SolidRasterSource {
+            fn rasterize_glyph_rgba(
+                &self,
+                _key: &crate::engine::EngineRenderGlyphAtlasKey,
+                width_px: usize,
+                height_px: usize,
+            ) -> Option<Vec<u8>> {
+                let mut bytes = Vec::with_capacity(width_px * height_px * 4);
+                for _ in 0..width_px * height_px {
+                    bytes.extend_from_slice(&[0x7a, 0x7b, 0x7c, 0x7d]);
+                }
+                Some(bytes)
+            }
+        }
+
+        let mut state = NextCoreGlyphAtlasState::new();
+        let plan = buffer_plan_with_text(10, 1, "q", 1, 8, 16);
+        let glyphs = EngineWgpuRenderBackend::prepare_glyph_atlas(&plan);
+
+        let upload = state
+            .prepare_cached_upload_with_raster_source(
+                &plan,
+                &glyphs,
+                80.0,
+                40.0,
+                &SolidRasterSource,
+            )
+            .expect("upload");
+
+        assert_eq!(upload.texture_update.regions.len(), 1);
+        assert_eq!(
+            &upload.texture_update.regions[0].bytes_rgba[0..4],
+            &[0x7a, 0x7b, 0x7c, 0x7d]
+        );
     }
 
     #[test]

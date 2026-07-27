@@ -16,8 +16,9 @@ use window::WindowOps;
 pub use render_backend::{
     CommandListRenderBackend, EngineRenderBackend, EngineRenderBackendCommand,
     EngineRenderBackendFrame, EngineRenderBufferPlan, EngineRenderDeterministicGlyphRasterSource,
-    EngineRenderGlyphAtlasCache, EngineRenderGlyphAtlasCacheUpdate, EngineRenderGlyphAtlasInstance,
-    EngineRenderGlyphAtlasKey, EngineRenderGlyphAtlasPlacement, EngineRenderGlyphAtlasPlan,
+    EngineRenderFontGlyphRasterSource, EngineRenderGlyphAtlasCache,
+    EngineRenderGlyphAtlasCacheUpdate, EngineRenderGlyphAtlasInstance, EngineRenderGlyphAtlasKey,
+    EngineRenderGlyphAtlasPlacement, EngineRenderGlyphAtlasPlan,
     EngineRenderGlyphAtlasTextureRegion, EngineRenderGlyphAtlasTextureUpdatePlan,
     EngineRenderGlyphRasterSource, EngineRenderGpuUploadPlan, EngineRenderGpuVertex,
     EngineRenderShapedGlyph, EngineRenderShapedGlyphPlan, EngineRenderTextAtlasPlan,

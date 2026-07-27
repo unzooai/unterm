@@ -167,11 +167,19 @@ impl crate::TermWindow {
             if let Some(pane) = self.get_active_pane_no_overlay() {
                 match self.prepare_next_core_render_buffer_plan(pane.pane_id()) {
                     Ok(batch) => {
-                        let encoded = webgpu.encode_next_core_buffer_plan(
+                        let default_font = match self.fonts.default_font() {
+                            Ok(font) => Some(font),
+                            Err(err) => {
+                                log::debug!("next-core WebGPU font raster source skipped: {err:#}");
+                                None
+                            }
+                        };
+                        let encoded = webgpu.encode_next_core_buffer_plan_with_font(
                             &mut encoder,
                             &view,
                             &batch.buffer_plan,
                             None,
+                            default_font,
                         );
                         if !encoded {
                             log::debug!("next-core WebGPU pane render skipped: empty buffer plan");
