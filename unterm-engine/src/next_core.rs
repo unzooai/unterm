@@ -27,9 +27,11 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 mod cell;
+mod parser_state;
 mod screen_state;
 
 use cell::{CellAttributes, ScreenCell, TerminalColor};
+use parser_state::ParserState;
 use screen_state::{MouseTrackingMode, ScreenState};
 
 const MAX_OUTPUT_BYTES: usize = 1024 * 1024;
@@ -2037,20 +2039,6 @@ impl NextCoreScreen {
 struct ScreenParser<'a> {
     screen: &'a mut NextCoreScreen,
     state: ParserState,
-}
-
-#[derive(Default)]
-enum ParserState {
-    #[default]
-    Ground,
-    Escape,
-    EscapeIgnoreOne,
-    EscapeHash,
-    Csi(String),
-    Osc(String),
-    OscEscape(String),
-    IgnoredString,
-    IgnoredStringEscape,
 }
 
 impl<'a> ScreenParser<'a> {

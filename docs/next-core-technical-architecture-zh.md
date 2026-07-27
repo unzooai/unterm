@@ -212,6 +212,7 @@ next-core 已经在 screen/parser 方向具备基础能力，包括：
 - UTF-8 安全 paste chunk 和 bracketed paste marker 保留
 - `next_core/cell.rs` 已拆出 cell/attribute/style 转换边界，避免 screen、parser、renderer 继续堆在单个巨型文件里
 - `next_core/screen_state.rs` 已拆出 alternate-screen snapshot 和 mouse/mode tracking 状态，为后续 screen model 独立模块化铺路
+- `next_core/parser_state.rs` 已拆出 parser 状态枚举，为后续替换成 `vte` parser/perform 边界降低耦合
 
 ## 9. 开源参考
 
