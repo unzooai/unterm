@@ -10,14 +10,15 @@ use super::{
 use anyhow::{bail, Result};
 use base64::Engine as _;
 use parking_lot::{Mutex, RwLock};
-use portable_pty::{native_pty_system, Child, MasterPty, PtySize};
+use portable_pty::{Child, MasterPty};
 use std::collections::BTreeSet;
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
+#[cfg(test)]
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, OnceLock};
-use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 mod activity;
@@ -1942,7 +1943,8 @@ impl NextCoreEngine {
         }
     }
 
-    fn pty_size(cols: usize, rows: usize) -> PtySize {
+    #[cfg(test)]
+    fn pty_size(cols: usize, rows: usize) -> portable_pty::PtySize {
         session_runtime::pty_size(cols, rows)
     }
 
@@ -1955,124 +1957,7 @@ impl NextCoreEngine {
         cwd: Option<String>,
         launch_env_keys: Vec<String>,
     ) -> Result<NextCoreSession> {
-        let label = launch::command_label(&command);
-        let pair = native_pty_system().openpty(Self::pty_size(cols, rows))?;
-        let child = pair.slave.spawn_command(command)?;
-        let root_pid = child.process_id();
-        let reader = pair.master.try_clone_reader()?;
-        let writer = Arc::new(Mutex::new(pair.master.take_writer()?));
-        let output = Arc::new(Mutex::new(String::new()));
-        let screen = Arc::new(Mutex::new(NextCoreScreen::new(cols, rows)));
-        let recording = Arc::new(Mutex::new(None));
-        let activity = Arc::new(Mutex::new(SessionIoActivity::new()));
-        let dead = Arc::new(AtomicBool::new(false));
-        let dead_reason = Arc::new(Mutex::new(None));
-        Self::spawn_reader_thread(
-            id,
-            Arc::clone(&output),
-            Arc::clone(&screen),
-            Arc::clone(&recording),
-            Arc::clone(&activity),
-            Arc::clone(&writer),
-            Arc::clone(&dead),
-            Arc::clone(&dead_reason),
-            reader,
-        );
-        let shell = ShellSnapshot {
-            shell_type: launch::shell_type(&label),
-            process_name: label,
-            cwd,
-            launch_env_keys,
-            launch_context: Default::default(),
-        };
-
-        Ok(NextCoreSession {
-            snapshot: SessionSnapshot {
-                id,
-                title,
-                cols,
-                rows,
-                scrollback_rows: 0,
-                cursor: Self::default_cursor(),
-                is_dead: false,
-                dead_reason: None,
-                is_active: true,
-                domain_id: 0,
-                shell,
-            },
-            root_pid,
-            master: Mutex::new(pair.master),
-            child: Mutex::new(child),
-            writer,
-            output,
-            screen,
-            recording,
-            activity,
-            dead,
-            dead_reason,
-        })
-    }
-
-    fn spawn_reader_thread(
-        pane_id: usize,
-        output: Arc<Mutex<String>>,
-        screen: Arc<Mutex<NextCoreScreen>>,
-        recording: Arc<Mutex<Option<NextCoreRecording>>>,
-        activity: Arc<Mutex<SessionIoActivity>>,
-        writer: Arc<Mutex<Box<dyn Write + Send>>>,
-        dead: Arc<AtomicBool>,
-        dead_reason: Arc<Mutex<Option<String>>>,
-        mut reader: Box<dyn Read + Send>,
-    ) {
-        thread::Builder::new()
-            .name(format!("next-core-pty-reader-{pane_id}"))
-            .spawn(move || {
-                let mut buf = [0u8; 8192];
-                let mut pending_utf8 = Vec::new();
-                let mut pending_terminal_query = String::new();
-                loop {
-                    match reader.read(&mut buf) {
-                        Ok(0) => {
-                            *dead_reason.lock() = Some("pty_reader_eof".to_string());
-                            break;
-                        }
-                        Ok(n) => {
-                            let output_started_at = Instant::now();
-                            let Some(chunk) =
-                                pty_io::decode_pty_chunk(&mut pending_utf8, &buf[..n])
-                            else {
-                                continue;
-                            };
-                            let mut output = output.lock();
-                            pty_io::append_bounded_output(
-                                &mut output,
-                                chunk.as_str(),
-                                MAX_OUTPUT_BYTES,
-                            );
-                            let mut screen = screen.lock();
-                            screen.feed(chunk.as_str());
-                            Self::answer_terminal_queries_with_pending(
-                                chunk.as_str(),
-                                &screen,
-                                &writer,
-                                &mut pending_terminal_query,
-                            );
-                            activity
-                                .lock()
-                                .mark_output(chunk.len(), output_started_at.elapsed());
-                            if let Some(recording) = recording.lock().as_mut() {
-                                Self::append_recording_output(recording, chunk.as_str());
-                            }
-                        }
-                        Err(err) => {
-                            *dead_reason.lock() = Some(format!("pty_reader_error:{err}"));
-                            break;
-                        }
-                    }
-                }
-                dead.store(true, Ordering::Release);
-            })
-            .ok();
+        session_runtime::spawn(id, title, cols, rows, command, cwd, launch_env_keys)
     }
 
     #[cfg(test)]
