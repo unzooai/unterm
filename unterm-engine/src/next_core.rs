@@ -299,6 +299,7 @@ struct NextCoreScreen {
     focus_event_reporting: bool,
     mouse_tracking: MouseTrackingMode,
     sgr_mouse: bool,
+    synchronized_output: bool,
     origin_mode: bool,
     insert_mode: bool,
     tab_stops: BTreeSet<usize>,
@@ -334,6 +335,7 @@ struct ScreenState {
     focus_event_reporting: bool,
     mouse_tracking: MouseTrackingMode,
     sgr_mouse: bool,
+    synchronized_output: bool,
     origin_mode: bool,
     insert_mode: bool,
     tab_stops: BTreeSet<usize>,
@@ -1031,6 +1033,7 @@ impl NextCoreScreen {
         self.focus_event_reporting = false;
         self.mouse_tracking = MouseTrackingMode::None;
         self.sgr_mouse = false;
+        self.synchronized_output = false;
         self.cursor_visible = true;
         self.cursor_shape = "Default".to_string();
         self.tab_stops = Self::default_tab_stops(self.cols);
@@ -1604,6 +1607,7 @@ impl NextCoreScreen {
             focus_event_reporting: self.focus_event_reporting,
             mouse_tracking: self.mouse_tracking,
             sgr_mouse: self.sgr_mouse,
+            synchronized_output: self.synchronized_output,
             origin_mode: self.origin_mode,
             insert_mode: self.insert_mode,
             tab_stops: std::mem::take(&mut self.tab_stops),
@@ -1626,6 +1630,7 @@ impl NextCoreScreen {
         self.focus_event_reporting = false;
         self.mouse_tracking = MouseTrackingMode::None;
         self.sgr_mouse = false;
+        self.synchronized_output = false;
         self.origin_mode = false;
         self.insert_mode = false;
         self.tab_stops = Self::default_tab_stops(self.cols);
@@ -1653,6 +1658,7 @@ impl NextCoreScreen {
             self.focus_event_reporting = main.focus_event_reporting;
             self.mouse_tracking = main.mouse_tracking;
             self.sgr_mouse = main.sgr_mouse;
+            self.synchronized_output = main.synchronized_output;
             self.origin_mode = main.origin_mode;
             self.insert_mode = main.insert_mode;
             self.tab_stops = main.tab_stops;
@@ -1931,6 +1937,7 @@ impl<'a> ScreenParser<'a> {
                             1004 => self.screen.focus_event_reporting = true,
                             1006 => self.screen.sgr_mouse = true,
                             2004 => self.screen.set_bracketed_paste(true),
+                            2026 => self.screen.synchronized_output = true,
                             _ => {}
                         }
                     } else if *mode == 4 {
@@ -1974,6 +1981,7 @@ impl<'a> ScreenParser<'a> {
                             1004 => self.screen.focus_event_reporting = false,
                             1006 => self.screen.sgr_mouse = false,
                             2004 => self.screen.set_bracketed_paste(false),
+                            2026 => self.screen.synchronized_output = false,
                             _ => {}
                         }
                     } else if *mode == 4 {
@@ -3564,6 +3572,15 @@ impl NextCoreEngine {
                     .as_bytes(),
                 );
                 idx += "\x1b[?2004$p".len();
+            } else if rest.starts_with("\x1b[?2026$p") {
+                response.extend_from_slice(
+                    format!(
+                        "\x1b[?2026;{}$y",
+                        Self::mode_report_state(screen.synchronized_output)
+                    )
+                    .as_bytes(),
+                );
+                idx += "\x1b[?2026$p".len();
             } else if rest.starts_with("\x1b[4$p") {
                 response.extend_from_slice(
                     format!("\x1b[4;{}$y", Self::mode_report_state(screen.insert_mode)).as_bytes(),
@@ -4640,7 +4657,7 @@ mod tests {
         let _guard = test_guard();
         let mut screen = NextCoreScreen::new(80, 10);
         screen.feed(
-            "\x1b[?1h\x1b[?5h\x1b[?6h\x1b[?25l\x1b[?66h\x1b[?1002h\x1b[?1004h\x1b[?1006h\x1b[?2004h\x1b[4h",
+            "\x1b[?1h\x1b[?5h\x1b[?6h\x1b[?25l\x1b[?66h\x1b[?1002h\x1b[?1004h\x1b[?1006h\x1b[?2004h\x1b[?2026h\x1b[4h",
         );
         let bytes = Arc::new(Mutex::new(Vec::new()));
         let writer: Arc<Mutex<Box<dyn Write + Send>>> =
@@ -4649,14 +4666,14 @@ mod tests {
             })));
 
         NextCoreEngine::answer_terminal_queries(
-            "\x1b[?1$p\x1b[?5$p\x1b[?6$p\x1b[?7$p\x1b[?25$p\x1b[?66$p\x1b[?1000$p\x1b[?1002$p\x1b[?1003$p\x1b[?1004$p\x1b[?1006$p\x1b[?2004$p\x1b[4$p",
+            "\x1b[?1$p\x1b[?5$p\x1b[?6$p\x1b[?7$p\x1b[?25$p\x1b[?66$p\x1b[?1000$p\x1b[?1002$p\x1b[?1003$p\x1b[?1004$p\x1b[?1006$p\x1b[?2004$p\x1b[?2026$p\x1b[4$p",
             &screen,
             &writer,
         );
 
         assert_eq!(
             bytes.lock().as_slice(),
-            b"\x1b[?1;1$y\x1b[?5;1$y\x1b[?6;1$y\x1b[?7;1$y\x1b[?25;2$y\x1b[?66;1$y\x1b[?1000;2$y\x1b[?1002;1$y\x1b[?1003;2$y\x1b[?1004;1$y\x1b[?1006;1$y\x1b[?2004;1$y\x1b[4;1$y"
+            b"\x1b[?1;1$y\x1b[?5;1$y\x1b[?6;1$y\x1b[?7;1$y\x1b[?25;2$y\x1b[?66;1$y\x1b[?1000;2$y\x1b[?1002;1$y\x1b[?1003;2$y\x1b[?1004;1$y\x1b[?1006;1$y\x1b[?2004;1$y\x1b[?2026;1$y\x1b[4;1$y"
         );
     }
 
@@ -4671,14 +4688,14 @@ mod tests {
             })));
 
         NextCoreEngine::answer_terminal_queries(
-            "\x1b[?1$p\x1b[?5$p\x1b[?6$p\x1b[?66$p\x1b[?1000$p\x1b[?1002$p\x1b[?1003$p\x1b[?1004$p\x1b[?1006$p\x1b[?1049$p\x1b[?2004$p\x1b[4$p",
+            "\x1b[?1$p\x1b[?5$p\x1b[?6$p\x1b[?66$p\x1b[?1000$p\x1b[?1002$p\x1b[?1003$p\x1b[?1004$p\x1b[?1006$p\x1b[?1049$p\x1b[?2004$p\x1b[?2026$p\x1b[4$p",
             &screen,
             &writer,
         );
 
         assert_eq!(
             bytes.lock().as_slice(),
-            b"\x1b[?1;2$y\x1b[?5;2$y\x1b[?6;2$y\x1b[?66;2$y\x1b[?1000;2$y\x1b[?1002;2$y\x1b[?1003;2$y\x1b[?1004;2$y\x1b[?1006;2$y\x1b[?1049;2$y\x1b[?2004;2$y\x1b[4;2$y"
+            b"\x1b[?1;2$y\x1b[?5;2$y\x1b[?6;2$y\x1b[?66;2$y\x1b[?1000;2$y\x1b[?1002;2$y\x1b[?1003;2$y\x1b[?1004;2$y\x1b[?1006;2$y\x1b[?1049;2$y\x1b[?2004;2$y\x1b[?2026;2$y\x1b[4;2$y"
         );
     }
 
@@ -7108,6 +7125,23 @@ mod tests {
         assert!(!screen.focus_event_reporting);
         screen.feed("\x1b[?1004h\x1b[!p");
         assert!(!screen.focus_event_reporting);
+
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_tracks_synchronized_output_mode() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let mut screen = NextCoreScreen::new(80, 3);
+
+        assert!(!screen.synchronized_output);
+        screen.feed("\x1b[?2026h");
+        assert!(screen.synchronized_output);
+        screen.feed("\x1b[?2026l");
+        assert!(!screen.synchronized_output);
+        screen.feed("\x1b[?2026h\x1b[!p");
+        assert!(!screen.synchronized_output);
 
         Ok(())
     }
