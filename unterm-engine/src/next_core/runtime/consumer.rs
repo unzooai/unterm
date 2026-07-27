@@ -1,9 +1,9 @@
 use super::{
     command::{RuntimeCommand, RuntimeCommandLane},
-    dispatch::{self, RuntimeDispatchResult},
+    dispatch::RuntimeDispatchResult,
+    pump,
     queue::{RuntimeQueueRejection, RuntimeQueuedCommand},
     response::{self, RuntimeResponseReceiver},
-    scheduling::RuntimeSchedulePolicy,
     with_current_mut,
 };
 use anyhow::{anyhow, Result};
@@ -36,31 +36,12 @@ pub(in crate::next_core) fn submit_and_dispatch_response(
     command: RuntimeCommand,
 ) -> Result<RuntimeDispatchResult> {
     let rx = submit_with_response(command);
-    loop {
-        if let Some(result) = rx.try_recv()? {
-            return Ok(result);
-        }
-        if dispatch_next_scheduled()?.is_none() {
-            return rx.recv();
-        }
-    }
+    pump::drain_until_response(rx)
 }
 
 #[allow(dead_code)]
 pub(in crate::next_core) fn dispatch_next_scheduled() -> Result<Option<RuntimeDispatchResult>> {
-    let Some(queued) = dequeue_next_scheduled() else {
-        return Ok(None);
-    };
-    dispatch_queued(queued)
-}
-
-fn dispatch_queued(queued: RuntimeQueuedCommand) -> Result<Option<RuntimeDispatchResult>> {
-    let result = dispatch::execute(queued.command);
-    if let Some(response) = queued.response {
-        response.complete(result);
-        return Ok(None);
-    }
-    result.map(Some)
+    pump::dispatch_next_scheduled()
 }
 
 #[allow(dead_code)]
@@ -78,13 +59,6 @@ fn enqueue_with_response(
 #[allow(dead_code)]
 fn dequeue_lane(lane: RuntimeCommandLane) -> Option<RuntimeQueuedCommand> {
     with_current_mut(|state| state.command_queue.dequeue_lane(lane))
-}
-
-#[allow(dead_code)]
-fn dequeue_next_scheduled() -> Option<RuntimeQueuedCommand> {
-    with_current_mut(|state| {
-        RuntimeSchedulePolicy::default().dequeue_next(&mut state.command_queue)
-    })
 }
 
 fn rejected_error(lane: RuntimeCommandLane, err: RuntimeQueueRejection) -> anyhow::Error {
