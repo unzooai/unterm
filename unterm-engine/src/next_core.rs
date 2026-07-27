@@ -2960,6 +2960,22 @@ impl NextCoreEngine {
         Ok(lines)
     }
 
+    fn mark_screen_read_for_pane(&self, pane_id: usize, duration: Duration) -> Result<()> {
+        let activity = {
+            let state = state().read();
+            let Some(session) = state
+                .sessions
+                .iter()
+                .find(|session| session.snapshot.id == pane_id)
+            else {
+                bail!("next-core session {pane_id} not found");
+            };
+            Arc::clone(&session.activity)
+        };
+        activity.lock().mark_screen_read(duration);
+        Ok(())
+    }
+
     pub fn scroll_viewport_to(&self, pane_id: usize, target: isize) -> Result<()> {
         let started_at = Instant::now();
         let (screen, activity) = {
@@ -3938,8 +3954,9 @@ impl ScreenEngine for NextCoreEngine {
     }
 
     fn read_lines(&self, pane_id: usize, start: i64, count: usize) -> Result<Vec<ScreenLine>> {
+        let started_at = Instant::now();
         let start = start.max(0) as usize;
-        Ok(self
+        let lines = self
             .screen_line_text_range(pane_id, start, count)?
             .into_iter()
             .enumerate()
@@ -3947,16 +3964,21 @@ impl ScreenEngine for NextCoreEngine {
                 row: (start + idx) as i64,
                 text,
             })
-            .collect())
+            .collect();
+        self.mark_screen_read_for_pane(pane_id, started_at.elapsed())?;
+        Ok(lines)
     }
 
     fn read_scrollback(&self, pane_id: usize, limit: usize) -> Result<Vec<String>> {
+        let started_at = Instant::now();
         let lines = self
             .scrollback_lines(pane_id)?
             .into_iter()
             .filter(|line| !line.is_empty())
             .collect::<Vec<_>>();
-        Ok(Self::tail_lines(&lines, limit))
+        let lines = Self::tail_lines(&lines, limit);
+        self.mark_screen_read_for_pane(pane_id, started_at.elapsed())?;
+        Ok(lines)
     }
 
     fn read_scrollback_text(
@@ -3964,6 +3986,7 @@ impl ScreenEngine for NextCoreEngine {
         pane_id: usize,
         request: ScrollbackTextRequest,
     ) -> Result<ScrollbackTextSnapshot> {
+        let started_at = Instant::now();
         let session = self.session(pane_id)?;
         let raw_lines;
         let line_count;
@@ -3995,7 +4018,7 @@ impl ScreenEngine for NextCoreEngine {
         } else {
             self.screen_line_text_range(pane_id, start, end.saturating_sub(start))?
         };
-        Ok(ScrollbackTextSnapshot {
+        let snapshot = ScrollbackTextSnapshot {
             text: selected.join("\n"),
             lines: selected,
             first_row: start as i64,
@@ -4005,7 +4028,9 @@ impl ScreenEngine for NextCoreEngine {
             scrollback_top: 0,
             physical_top: line_count.saturating_sub(session.rows) as i64,
             viewport_rows: session.rows,
-        })
+        };
+        self.mark_screen_read_for_pane(pane_id, started_at.elapsed())?;
+        Ok(snapshot)
     }
 
     fn read_styled_scrollback(
@@ -4048,6 +4073,7 @@ impl ScreenEngine for NextCoreEngine {
             });
         }
 
+        let started_at = Instant::now();
         let session = self.session(pane_id)?;
         let screen = {
             let state = state().read();
@@ -4079,7 +4105,7 @@ impl ScreenEngine for NextCoreEngine {
             }
         }
         let count = end.saturating_sub(start);
-        Ok(StyledScrollbackSnapshot {
+        let snapshot = StyledScrollbackSnapshot {
             lines: screen.styled_history_range(start, count),
             first_row: start as i64,
             row_count: count as i64,
@@ -4087,7 +4113,10 @@ impl ScreenEngine for NextCoreEngine {
             scrollback_top: 0,
             physical_top: line_count.saturating_sub(session.rows) as i64,
             viewport_rows: session.rows,
-        })
+        };
+        drop(screen);
+        self.mark_screen_read_for_pane(pane_id, started_at.elapsed())?;
+        Ok(snapshot)
     }
 
     fn search(
@@ -4096,6 +4125,7 @@ impl ScreenEngine for NextCoreEngine {
         pattern: &str,
         max_results: usize,
     ) -> Result<Vec<ScreenSearchMatch>> {
+        let started_at = Instant::now();
         if pattern.is_empty() || max_results == 0 {
             return Ok(Vec::new());
         }
@@ -4109,10 +4139,12 @@ impl ScreenEngine for NextCoreEngine {
                     text: line.clone(),
                 });
                 if matches.len() >= max_results {
+                    self.mark_screen_read_for_pane(pane_id, started_at.elapsed())?;
                     return Ok(matches);
                 }
             }
         }
+        self.mark_screen_read_for_pane(pane_id, started_at.elapsed())?;
         Ok(matches)
     }
 
@@ -5329,6 +5361,56 @@ mod tests {
         let screen = activity.screen.expect("screen activity");
         assert_eq!(screen.total_reads, 1);
         assert_eq!(screen.total_viewport_scrolls, 1);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_range_reads_update_activity_metrics() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(session.id, "one\ntwo\nthree\nfour")?;
+        reset_activity_for_test(session.id)?;
+
+        let _ = engine.read_lines(session.id, 0, 2)?;
+        let _ = engine.read_scrollback(session.id, 2)?;
+        let _ = engine.read_scrollback_text(
+            session.id,
+            ScrollbackTextRequest {
+                start_line: Some(0),
+                end_line: Some(2),
+                tail_lines: None,
+                escapes: false,
+            },
+        )?;
+        let _ = engine.read_styled_scrollback(
+            session.id,
+            ScrollbackTextRequest {
+                start_line: Some(0),
+                end_line: Some(2),
+                tail_lines: None,
+                escapes: false,
+            },
+        )?;
+        let _ = engine.search(session.id, "two", 10)?;
+
+        let activity = engine.activity(session.id)?;
+        let screen = activity.screen.expect("screen activity");
+        assert_eq!(screen.total_reads, 5);
+
+        let health = engine.health()?;
+        assert_eq!(health.io.expect("next-core io health").screen_reads, 5);
 
         engine.destroy_session(session.id)?;
         Ok(())
