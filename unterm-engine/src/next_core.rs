@@ -326,6 +326,7 @@ struct NextCoreScreen {
     right_margin: usize,
     saved_cursor_x: usize,
     saved_cursor_y: usize,
+    saved_cursor_attr: CellAttributes,
     alternate: Option<ScreenState>,
     parser_state: ParserState,
 }
@@ -366,6 +367,7 @@ struct ScreenState {
     right_margin: usize,
     saved_cursor_x: usize,
     saved_cursor_y: usize,
+    saved_cursor_attr: CellAttributes,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -910,12 +912,14 @@ impl NextCoreScreen {
     fn save_cursor(&mut self) {
         self.saved_cursor_x = self.cursor_x;
         self.saved_cursor_y = self.cursor_y;
+        self.saved_cursor_attr = self.current_attr;
     }
 
     fn restore_cursor(&mut self) {
         self.mark_dirty_row(self.cursor_y);
         self.cursor_x = self.saved_cursor_x;
         self.cursor_y = self.saved_cursor_y;
+        self.current_attr = self.saved_cursor_attr;
         self.ensure_cursor_line();
         self.mark_dirty_row(self.cursor_y);
     }
@@ -1140,9 +1144,11 @@ impl NextCoreScreen {
         self.right_margin = self.cols.saturating_sub(1);
         self.saved_cursor_x = 0;
         self.saved_cursor_y = 0;
+        self.saved_cursor_attr = CellAttributes::default();
         if let Some(alternate) = self.alternate.as_mut() {
             alternate.saved_cursor_x = 0;
             alternate.saved_cursor_y = 0;
+            alternate.saved_cursor_attr = CellAttributes::default();
         }
         self.ensure_cursor_line();
         self.mark_all_dirty();
@@ -1824,12 +1830,14 @@ impl NextCoreScreen {
             right_margin: self.right_margin,
             saved_cursor_x: self.saved_cursor_x,
             saved_cursor_y: self.saved_cursor_y,
+            saved_cursor_attr: self.saved_cursor_attr,
         };
         self.alternate = Some(main);
         self.cursor_x = 0;
         self.cursor_y = 0;
         self.saved_cursor_x = 0;
         self.saved_cursor_y = 0;
+        self.saved_cursor_attr = CellAttributes::default();
         self.cursor_shape = "Default".to_string();
         self.cursor_blinking = true;
         self.auto_wrap = true;
@@ -1894,6 +1902,7 @@ impl NextCoreScreen {
             self.right_margin = main.right_margin;
             self.saved_cursor_x = main.saved_cursor_x;
             self.saved_cursor_y = main.saved_cursor_y;
+            self.saved_cursor_attr = main.saved_cursor_attr;
             if self.lines.len() > self.rows {
                 let trim = self.lines.len() - self.rows;
                 self.lines.drain(..trim);
@@ -7266,6 +7275,72 @@ mod tests {
         assert_eq!(screen.lines, vec!["oneYX"]);
         assert_eq!(screen.cursor.x, 4);
         assert_eq!(screen.cursor.y, 0);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_save_and_restore_cursor_preserves_sgr_attributes() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 12,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(session.id, "\x1b[31mA\x1b7\x1b[0mB\x1b8C")?;
+        let screen = engine.read_screen(session.id)?;
+        let styled = engine.read_styled_screen(session.id)?;
+
+        assert_eq!(screen.lines, vec!["AC"]);
+        assert_eq!(
+            styled.lines[0].cells[0].style.fg,
+            Some(StyledColor::Palette(1))
+        );
+        assert_eq!(
+            styled.lines[0].cells[1].style.fg,
+            Some(StyledColor::Palette(1))
+        );
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_save_and_restore_cursor_preserves_hyperlinks() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 12,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(
+            session.id,
+            "\x1b]8;;https://example.test\x07A\x1b7\x1b]8;;\x07B\x1b8C",
+        )?;
+        let styled = engine.read_styled_screen(session.id)?;
+
+        assert_eq!(engine.read_screen(session.id)?.lines, vec!["AC"]);
+        assert_eq!(
+            styled.lines[0].cells[0].style.hyperlink.as_deref(),
+            Some("https://example.test")
+        );
+        assert_eq!(
+            styled.lines[0].cells[1].style.hyperlink.as_deref(),
+            Some("https://example.test")
+        );
 
         engine.destroy_session(session.id)?;
         Ok(())
