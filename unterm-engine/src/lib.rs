@@ -270,6 +270,128 @@ pub struct RenderDrawPlan {
     pub cursor: Option<RenderCursorDraw>,
 }
 
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+pub struct RenderCellMetrics {
+    pub cell_width_px: usize,
+    pub cell_height_px: usize,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+pub struct RenderRect {
+    pub x: usize,
+    pub y: usize,
+    pub width: usize,
+    pub height: usize,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+pub struct RenderGlyphRunGeometry {
+    pub row: usize,
+    pub col: usize,
+    pub text: String,
+    pub rect: RenderRect,
+    pub style: CellStyle,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+pub struct RenderCellRunGeometry {
+    pub row: usize,
+    pub col: usize,
+    pub rect: RenderRect,
+    pub style: CellStyle,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+pub struct RenderCursorGeometry {
+    pub row: usize,
+    pub col: usize,
+    pub rect: RenderRect,
+    pub visible: bool,
+    pub shape: String,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+pub struct RenderGeometryPlan {
+    pub revision: u64,
+    pub cols: usize,
+    pub rows: usize,
+    pub scrollback_rows: usize,
+    pub dirty_rows: Option<DirtyRows>,
+    pub full: bool,
+    pub viewport: RenderRect,
+    pub glyph_runs: Vec<RenderGlyphRunGeometry>,
+    pub cell_runs: Vec<RenderCellRunGeometry>,
+    pub cursor: Option<RenderCursorGeometry>,
+}
+
+impl RenderDrawPlan {
+    #[allow(dead_code)]
+    pub fn to_geometry_plan(&self, metrics: RenderCellMetrics) -> RenderGeometryPlan {
+        let glyph_runs = self
+            .glyph_runs
+            .iter()
+            .map(|run| RenderGlyphRunGeometry {
+                row: run.row,
+                col: run.col,
+                text: run.text.clone(),
+                rect: grid_rect(run.row, run.col, run.cells, 1, metrics),
+                style: run.style.clone(),
+            })
+            .collect();
+        let cell_runs = self
+            .cell_runs
+            .iter()
+            .map(|run| RenderCellRunGeometry {
+                row: run.row,
+                col: run.col,
+                rect: grid_rect(run.row, run.col, run.cells, 1, metrics),
+                style: run.style.clone(),
+            })
+            .collect();
+        let cursor = self.cursor.as_ref().map(|cursor| RenderCursorGeometry {
+            row: cursor.row,
+            col: cursor.col,
+            rect: grid_rect(cursor.row, cursor.col, 1, 1, metrics),
+            visible: cursor.visible,
+            shape: cursor.shape.clone(),
+        });
+
+        RenderGeometryPlan {
+            revision: self.revision,
+            cols: self.cols,
+            rows: self.rows,
+            scrollback_rows: self.scrollback_rows,
+            dirty_rows: self.dirty_rows,
+            full: self.full,
+            viewport: grid_rect(0, 0, self.cols, self.rows, metrics),
+            glyph_runs,
+            cell_runs,
+            cursor,
+        }
+    }
+}
+
+fn grid_rect(
+    row: usize,
+    col: usize,
+    cells: usize,
+    rows: usize,
+    metrics: RenderCellMetrics,
+) -> RenderRect {
+    RenderRect {
+        x: col.saturating_mul(metrics.cell_width_px),
+        y: row.saturating_mul(metrics.cell_height_px),
+        width: cells.saturating_mul(metrics.cell_width_px),
+        height: rows.saturating_mul(metrics.cell_height_px),
+    }
+}
+
 impl RenderFrameSnapshot {
     #[allow(dead_code)]
     pub fn to_draw_plan(&self) -> RenderDrawPlan {
@@ -908,6 +1030,105 @@ mod tests {
                 visible: true,
                 shape: "block".to_string()
             })
+        );
+    }
+
+    #[test]
+    fn render_geometry_plan_maps_runs_to_pixel_rects() {
+        let plan = frame(vec![
+            cell('a', CellStyle::default(), 1),
+            cell('b', CellStyle::default(), 1),
+            cell(' ', CellStyle::default(), 1),
+        ])
+        .to_draw_plan()
+        .to_geometry_plan(RenderCellMetrics {
+            cell_width_px: 9,
+            cell_height_px: 17,
+        });
+
+        assert_eq!(
+            plan.viewport,
+            RenderRect {
+                x: 0,
+                y: 0,
+                width: 54,
+                height: 17,
+            }
+        );
+        assert_eq!(plan.glyph_runs.len(), 1);
+        assert_eq!(
+            plan.glyph_runs[0].rect,
+            RenderRect {
+                x: 0,
+                y: 0,
+                width: 18,
+                height: 17,
+            }
+        );
+        assert_eq!(plan.cell_runs.len(), 1);
+        assert_eq!(
+            plan.cell_runs[0].rect,
+            RenderRect {
+                x: 0,
+                y: 0,
+                width: 27,
+                height: 17,
+            }
+        );
+        assert_eq!(
+            plan.cursor.unwrap().rect,
+            RenderRect {
+                x: 18,
+                y: 0,
+                width: 9,
+                height: 17,
+            }
+        );
+    }
+
+    #[test]
+    fn render_geometry_plan_preserves_dirty_row_pixels() {
+        let dirty = RenderFrameSnapshot {
+            lines: vec![StyledScreenLine {
+                row: 42,
+                cells: vec![cell('z', CellStyle::default(), 1)],
+            }],
+            cursor: CursorSnapshot {
+                x: 1,
+                y: 5,
+                visible: true,
+                shape: "bar".to_string(),
+            },
+            cols: 4,
+            rows: 8,
+            scrollback_rows: 12,
+            revision: 9,
+            dirty_rows: Some(DirtyRows { start: 5, end: 5 }),
+            full: false,
+        };
+
+        let plan = dirty.to_draw_plan().to_geometry_plan(RenderCellMetrics {
+            cell_width_px: 8,
+            cell_height_px: 16,
+        });
+        assert_eq!(plan.glyph_runs[0].row, 5);
+        assert_eq!(
+            plan.glyph_runs[0].rect,
+            RenderRect {
+                x: 0,
+                y: 80,
+                width: 8,
+                height: 16,
+            }
+        );
+        assert_eq!(
+            plan.cursor.unwrap().rect,
+            RenderRect {
+                x: 8,
+                y: 80,
+                width: 8,
+                height: 16,
+            }
         );
     }
 

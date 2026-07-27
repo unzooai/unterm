@@ -93,6 +93,21 @@ if ($summary.json_smoke.RenderDrawDeltaCellRuns -ne 0) {
 if ($summary.json_smoke.RenderDrawDeltaCursor -ne $true) {
     throw "json smoke unchanged render draw delta did not include cursor state"
 }
+if ($summary.json_smoke.RenderGeometryViewportWidth -ne ($jsonSmokeCols * 8)) {
+    throw "json smoke render geometry viewport width $($summary.json_smoke.RenderGeometryViewportWidth) did not match cols*8 $($jsonSmokeCols * 8)"
+}
+if ($summary.json_smoke.RenderGeometryViewportHeight -ne ($jsonSmokeRows * 16)) {
+    throw "json smoke render geometry viewport height $($summary.json_smoke.RenderGeometryViewportHeight) did not match rows*16 $($jsonSmokeRows * 16)"
+}
+if ($summary.json_smoke.RenderGeometryGlyphRuns -lt 1) {
+    throw "json smoke did not include render geometry glyph runs"
+}
+if ($summary.json_smoke.RenderGeometryCellRuns -lt $jsonSmokeRows) {
+    throw "json smoke render geometry cell runs $($summary.json_smoke.RenderGeometryCellRuns) were fewer than screen rows $jsonSmokeRows"
+}
+if ($summary.json_smoke.RenderGeometryCursor -ne $true) {
+    throw "json smoke did not include render geometry cursor"
+}
 if (-not ($summary.json_smoke.PSObject.Properties.Name -contains "DeadReason")) {
     throw "json smoke did not include session dead_reason field"
 }
