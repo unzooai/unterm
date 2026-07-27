@@ -54,7 +54,7 @@ pub(super) fn mark_destroyed(session: &mut NextCoreSession) -> (bool, String) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::next_core::{launch, NextCoreEngine};
+    use crate::next_core::{launch, session_defaults, session_runtime};
     use std::sync::{atomic::AtomicBool, Arc};
 
     #[test]
@@ -95,7 +95,7 @@ mod tests {
         }
         let label = launch::command_label(&command);
         let pair = portable_pty::native_pty_system()
-            .openpty(NextCoreEngine::pty_size(80, 24))
+            .openpty(session_runtime::pty_size(80, 24))
             .expect("open pty");
         let child = pair.slave.spawn_command(command).expect("spawn command");
         let writer = Arc::new(parking_lot::Mutex::new(
@@ -109,7 +109,7 @@ mod tests {
                 cols: 80,
                 rows: 24,
                 scrollback_rows: 0,
-                cursor: NextCoreEngine::default_cursor(),
+                cursor: session_defaults::default_cursor(),
                 is_dead: false,
                 dead_reason: None,
                 is_active: true,

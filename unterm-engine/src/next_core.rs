@@ -44,6 +44,7 @@ mod screen_state;
 mod screen_text;
 mod session_activity;
 mod session_creation;
+mod session_defaults;
 mod session_handles;
 mod session_output;
 mod session_queries;
@@ -1639,35 +1640,6 @@ impl NextCoreEngine {
     fn bracketed_paste_enabled(&self, pane_id: usize) -> Result<bool> {
         session_queries::bracketed_paste_enabled(pane_id)
     }
-
-    fn default_cursor() -> CursorSnapshot {
-        CursorSnapshot {
-            x: 0,
-            y: 0,
-            visible: true,
-            shape: "Default".to_string(),
-        }
-    }
-
-    #[cfg(test)]
-    fn pty_size(cols: usize, rows: usize) -> portable_pty::PtySize {
-        session_runtime::pty_size(cols, rows)
-    }
-
-    #[allow(dead_code)]
-    fn paste_payload(text: &str, bracketed: bool) -> String {
-        input_pipeline::paste_payload(text, bracketed)
-    }
-
-    #[cfg(test)]
-    fn application_cursor_input(input: &str, enabled: bool) -> String {
-        input_pipeline::application_cursor_input(input, enabled)
-    }
-
-    #[cfg(test)]
-    fn paste_chunks(text: &str, bracketed: bool) -> Vec<String> {
-        input_pipeline::paste_chunks(text, bracketed)
-    }
 }
 
 impl SessionEngine for NextCoreEngine {
@@ -2189,9 +2161,9 @@ mod tests {
 
     #[test]
     fn wraps_paste_payload_when_bracketed_paste_is_enabled() {
-        assert_eq!(NextCoreEngine::paste_payload("plain", false), "plain");
+        assert_eq!(input_pipeline::paste_payload("plain", false), "plain");
         assert_eq!(
-            NextCoreEngine::paste_payload("line1\nline2", true),
+            input_pipeline::paste_payload("line1\nline2", true),
             "\x1b[200~line1\nline2\x1b[201~"
         );
     }
@@ -2203,7 +2175,7 @@ mod tests {
             "a".repeat(input_pipeline::PASTE_CHUNK_BYTES),
             "你".repeat(3)
         );
-        let chunks = NextCoreEngine::paste_chunks(&text, false);
+        let chunks = input_pipeline::paste_chunks(&text, false);
 
         assert!(chunks.len() > 1);
         assert_eq!(chunks.concat(), text);
@@ -2215,7 +2187,7 @@ mod tests {
     #[test]
     fn chunks_bracketed_paste_with_intact_markers() {
         let text = "x".repeat(input_pipeline::PASTE_CHUNK_BYTES + 10);
-        let chunks = NextCoreEngine::paste_chunks(&text, true);
+        let chunks = input_pipeline::paste_chunks(&text, true);
 
         assert_eq!(chunks.first().map(String::as_str), Some("\x1b[200~"));
         assert_eq!(chunks.last().map(String::as_str), Some("\x1b[201~"));
@@ -2227,15 +2199,15 @@ mod tests {
         let _guard = test_guard();
 
         assert_eq!(
-            NextCoreEngine::application_cursor_input("\x1b[A\x1b[B\x1b[C\x1b[D", true),
+            input_pipeline::application_cursor_input("\x1b[A\x1b[B\x1b[C\x1b[D", true),
             "\x1bOA\x1bOB\x1bOC\x1bOD"
         );
         assert_eq!(
-            NextCoreEngine::application_cursor_input("x\x1b[C你", true),
+            input_pipeline::application_cursor_input("x\x1b[C你", true),
             "x\x1bOC你"
         );
         assert_eq!(
-            NextCoreEngine::application_cursor_input("\x1b[C", false),
+            input_pipeline::application_cursor_input("\x1b[C", false),
             "\x1b[C"
         );
     }
@@ -2245,15 +2217,15 @@ mod tests {
         let _guard = test_guard();
 
         assert_eq!(
-            NextCoreEngine::application_cursor_input("\x1b[H\x1b[F\x1b[1~\x1b[4~", true),
+            input_pipeline::application_cursor_input("\x1b[H\x1b[F\x1b[1~\x1b[4~", true),
             "\x1bOH\x1bOF\x1bOH\x1bOF"
         );
         assert_eq!(
-            NextCoreEngine::application_cursor_input("x\x1b[H你\x1b[F", true),
+            input_pipeline::application_cursor_input("x\x1b[H你\x1b[F", true),
             "x\x1bOH你\x1bOF"
         );
         assert_eq!(
-            NextCoreEngine::application_cursor_input("\x1b[H\x1b[F", false),
+            input_pipeline::application_cursor_input("\x1b[H\x1b[F", false),
             "\x1b[H\x1b[F"
         );
     }

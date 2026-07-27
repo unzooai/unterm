@@ -1,5 +1,5 @@
 use super::{
-    activity::SessionIoActivity, launch, pty_io, session_output, state, NextCoreEngine,
+    activity::SessionIoActivity, launch, pty_io, session_defaults, session_output, state,
     NextCoreRecording, NextCoreScreen, NextCoreSession, NextCoreState,
 };
 use crate::{SessionSnapshot, ShellSnapshot};
@@ -97,7 +97,7 @@ pub(super) fn spawn(
             cols,
             rows,
             scrollback_rows: 0,
-            cursor: NextCoreEngine::default_cursor(),
+            cursor: session_defaults::default_cursor(),
             is_dead: false,
             dead_reason: None,
             is_active: true,
