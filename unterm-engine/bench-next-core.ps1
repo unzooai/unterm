@@ -19,6 +19,7 @@ param(
     [int]$RenderSubmissionPlanRounds = 1000,
     [int]$RenderCommitPlanRounds = 1000,
     [int]$RenderCursorMoveRounds = 200,
+    [int]$RenderApplicationCursorMoveRounds = 200,
     [int]$FocusSwitches = 1000,
     [int]$SessionCreates = 20,
     [int]$SessionReadyRounds = 20,
@@ -43,6 +44,9 @@ param(
     [int]$MaxRenderCursorMoveP95Us = 1000,
     [int]$MaxRenderCursorMoveFullFrames = 0,
     [int]$MaxRenderCursorMoveMissedMoves = 0,
+    [int]$MaxRenderApplicationCursorMoveP95Us = 1000,
+    [int]$MaxRenderApplicationCursorMoveFullFrames = 0,
+    [int]$MaxRenderApplicationCursorMoveMissedMoves = 0,
     [int]$MaxFocusSwitchP95Us = 100000,
     [int]$MaxSessionCreateP95Us = 100000,
     [int]$MaxSessionReadyP95Us = 100000,
@@ -416,6 +420,7 @@ try {
     $results += Invoke-Benchmark -Name "render submission plan latency" -BenchArgs ([string[]](@("--bench-render-submission-plans", "$RenderSubmissionPlanRounds") + $commonTail))
     $results += Invoke-Benchmark -Name "render commit plan latency" -BenchArgs ([string[]](@("--bench-render-commit-plans", "$RenderCommitPlanRounds") + $commonTail))
     $results += Invoke-Benchmark -Name "render cursor move latency" -BenchArgs ([string[]](@("--bench-render-cursor-moves", "$RenderCursorMoveRounds") + $commonTail))
+    $results += Invoke-Benchmark -Name "render application cursor move latency" -BenchArgs ([string[]](@("--bench-render-application-cursor-moves", "$RenderApplicationCursorMoveRounds") + $commonTail))
     $results += Invoke-Benchmark -Name "focus switch latency" -BenchArgs ([string[]](@("--bench-focus-switches", "$FocusSwitches") + $commonTail))
     $results += Invoke-Benchmark -Name "session create latency" -BenchArgs ([string[]](@("--bench-session-create", "$SessionCreates") + $commonTail))
     $results += Invoke-Benchmark -Name "session ready latency" -BenchArgs ([string[]](@("--bench-session-ready", "$SessionReadyRounds") + $commonTail))
@@ -437,6 +442,7 @@ try {
     $renderSubmissionPlan = Find-BenchmarkResult -Results $results -Name "render submission plan latency"
     $renderCommitPlan = Find-BenchmarkResult -Results $results -Name "render commit plan latency"
     $renderCursorMove = Find-BenchmarkResult -Results $results -Name "render cursor move latency"
+    $renderApplicationCursorMove = Find-BenchmarkResult -Results $results -Name "render application cursor move latency"
     $focusSwitch = Find-BenchmarkResult -Results $results -Name "focus switch latency"
     $sessionCreate = Find-BenchmarkResult -Results $results -Name "session create latency"
     $sessionReady = Find-BenchmarkResult -Results $results -Name "session ready latency"
@@ -461,6 +467,9 @@ try {
     $gates += New-Gate -GateName "render cursor move p95" -Actual (Get-BenchMetric -Result $renderCursorMove -LinePrefix "bench_render_cursor_move" -Metric "p95_us") -Max $MaxRenderCursorMoveP95Us -Unit "us"
     $gates += New-Gate -GateName "render cursor move full frames" -Actual (Get-BenchMetric -Result $renderCursorMove -LinePrefix "bench_render_cursor_move" -Metric "full_frames") -Max $MaxRenderCursorMoveFullFrames -Unit "frames"
     $gates += New-Gate -GateName "render cursor move missed moves" -Actual (Get-BenchMetric -Result $renderCursorMove -LinePrefix "bench_render_cursor_move" -Metric "missed_moves") -Max $MaxRenderCursorMoveMissedMoves -Unit "moves"
+    $gates += New-Gate -GateName "render application cursor move p95" -Actual (Get-BenchMetric -Result $renderApplicationCursorMove -LinePrefix "bench_render_application_cursor_move" -Metric "p95_us") -Max $MaxRenderApplicationCursorMoveP95Us -Unit "us"
+    $gates += New-Gate -GateName "render application cursor move full frames" -Actual (Get-BenchMetric -Result $renderApplicationCursorMove -LinePrefix "bench_render_application_cursor_move" -Metric "full_frames") -Max $MaxRenderApplicationCursorMoveFullFrames -Unit "frames"
+    $gates += New-Gate -GateName "render application cursor move missed moves" -Actual (Get-BenchMetric -Result $renderApplicationCursorMove -LinePrefix "bench_render_application_cursor_move" -Metric "missed_moves") -Max $MaxRenderApplicationCursorMoveMissedMoves -Unit "moves"
     $gates += New-Gate -GateName "focus switch p95" -Actual (Get-BenchMetric -Result $focusSwitch -LinePrefix "bench_focus_switch" -Metric "p95_us") -Max $MaxFocusSwitchP95Us -Unit "us"
     $gates += New-Gate -GateName "session create p95" -Actual (Get-BenchMetric -Result $sessionCreate -LinePrefix "bench_session_create" -Metric "p95_us") -Max $MaxSessionCreateP95Us -Unit "us"
     $gates += New-Gate -GateName "session ready p95" -Actual (Get-BenchMetric -Result $sessionReady -LinePrefix "bench_session_ready" -Metric "p95_us") -Max $MaxSessionReadyP95Us -Unit "us"

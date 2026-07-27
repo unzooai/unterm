@@ -34,6 +34,7 @@ struct Args {
     bench_render_submission_plans: Option<usize>,
     bench_render_commit_plans: Option<usize>,
     bench_render_cursor_moves: Option<usize>,
+    bench_render_application_cursor_moves: Option<usize>,
     bench_focus_switches: Option<usize>,
     bench_session_create: Option<usize>,
     bench_session_ready: Option<usize>,
@@ -71,6 +72,7 @@ fn parse_args() -> Result<Args> {
         bench_render_submission_plans: None,
         bench_render_commit_plans: None,
         bench_render_cursor_moves: None,
+        bench_render_application_cursor_moves: None,
         bench_focus_switches: None,
         bench_session_create: None,
         bench_session_ready: None,
@@ -265,6 +267,17 @@ fn parse_args() -> Result<Args> {
                         .parse()?,
                 );
             }
+            "--bench-render-application-cursor-moves" => {
+                parsed.bench_render_application_cursor_moves = Some(
+                    args.next()
+                        .ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "--bench-render-application-cursor-moves requires a value"
+                            )
+                        })?
+                        .parse()?,
+                );
+            }
             "--bench-focus-switches" => {
                 parsed.bench_focus_switches = Some(
                     args.next()
@@ -321,7 +334,7 @@ fn parse_args() -> Result<Args> {
             }
             "--help" | "-h" => {
                 println!(
-                    "Usage: unterm-next-core [--cols N] [--rows N] [--wait-ms N] [--poll-ms N] [--timeout-ms N] [--bench-input-writes N] [--bench-key-to-screen N] [--bench-input-burst N] [--bench-echo N] [--bench-flood-lines N] [--bench-scrollback-lines N] [--bench-viewport-scrolls N] [--bench-viewport-scroll-flood N] [--bench-paste-kb N] [--bench-dual-agent-lines N] [--bench-agent-startup-lines N] [--bench-screen-read-lines N] [--bench-render-frames N] [--bench-render-plans N] [--bench-render-cursor-moves N] [--bench-focus-switches N] [--bench-session-create N] [--bench-session-ready N] [--cwd PATH] [--env KEY=VALUE] [--write TEXT] [--paste TEXT] [--json] [-- COMMAND [ARG...]]"
+                    "Usage: unterm-next-core [--cols N] [--rows N] [--wait-ms N] [--poll-ms N] [--timeout-ms N] [--bench-input-writes N] [--bench-key-to-screen N] [--bench-input-burst N] [--bench-echo N] [--bench-flood-lines N] [--bench-scrollback-lines N] [--bench-viewport-scrolls N] [--bench-viewport-scroll-flood N] [--bench-paste-kb N] [--bench-dual-agent-lines N] [--bench-agent-startup-lines N] [--bench-screen-read-lines N] [--bench-render-frames N] [--bench-render-plans N] [--bench-render-cursor-moves N] [--bench-render-application-cursor-moves N] [--bench-focus-switches N] [--bench-session-create N] [--bench-session-ready N] [--cwd PATH] [--env KEY=VALUE] [--write TEXT] [--paste TEXT] [--json] [-- COMMAND [ARG...]]"
                 );
                 std::process::exit(0);
             }
@@ -1060,6 +1073,7 @@ fn run_render_cursor_move_benchmark(
     rounds: usize,
     poll_interval: Duration,
     timeout: Duration,
+    application_cursor_sequences: bool,
 ) -> Result<()> {
     if rounds == 0 {
         bail!("--bench-render-cursor-moves must be greater than 0");
@@ -1098,7 +1112,12 @@ fn run_render_cursor_move_benchmark(
         } else {
             (before_cursor.x + 1).min(screen.cols.saturating_sub(1))
         };
-        let input = if moving_left { "\x1b[D" } else { "\x1b[C" };
+        let input = match (application_cursor_sequences, moving_left) {
+            (true, true) => "\x1bOD",
+            (true, false) => "\x1bOC",
+            (false, true) => "\x1b[D",
+            (false, false) => "\x1b[C",
+        };
 
         engine.write_input(pane_id, input)?;
         let wait_started = Instant::now();
@@ -1170,8 +1189,13 @@ fn run_render_cursor_move_benchmark(
 
     latencies_us.sort_unstable();
     let missed_moves = rounds.saturating_sub(left_moves + right_moves);
+    let prefix = if application_cursor_sequences {
+        "bench_render_application_cursor_move"
+    } else {
+        "bench_render_cursor_move"
+    };
     println!(
-        "bench_render_cursor_move rounds={} snapshots={} dirty_lines={} full_frames={} left_moves={} right_moves={} missed_moves={} min_us={} p50_us={} p95_us={} max_us={}",
+        "{prefix} rounds={} snapshots={} dirty_lines={} full_frames={} left_moves={} right_moves={} missed_moves={} min_us={} p50_us={} p95_us={} max_us={}",
         rounds,
         snapshots,
         dirty_lines,
@@ -1969,8 +1993,26 @@ fn main() -> Result<()> {
             rounds,
             Duration::from_millis(args.poll_ms),
             Duration::from_millis(args.timeout_ms),
+            false,
         )
         .with_context(|| format!("bench_render_cursor_move failed for session {}", session.id))?;
+    }
+
+    if let Some(rounds) = args.bench_render_application_cursor_moves {
+        run_render_cursor_move_benchmark(
+            &engine,
+            session.id,
+            rounds,
+            Duration::from_millis(args.poll_ms),
+            Duration::from_millis(args.timeout_ms),
+            true,
+        )
+        .with_context(|| {
+            format!(
+                "bench_render_application_cursor_move failed for session {}",
+                session.id
+            )
+        })?;
     }
 
     if let Some(rounds) = args.bench_focus_switches {

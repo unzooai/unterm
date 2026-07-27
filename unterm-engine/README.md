@@ -40,7 +40,7 @@ Run the Phase 2 next-core benchmark suite and generate `docs/next-core-benchmark
 .\unterm-engine\bench-next-core.ps1
 ```
 
-The runner builds `unterm-next-core`, verifies the machine-readable `--json` probe output, executes the current input-write/input-burst/echo/output/scrollback/viewport-scroll/viewport-scroll-under-flood/paste/dual-agent/agent-startup-stall/screen-read/render-frame empty, dirty, cursor-move delta, render draw-plan/render geometry-plan/render submission-plan/render commit-plan/focus-switch/session-create/session-ready benchmarks, writes human-readable summary and raw output into the Markdown report, and writes machine-readable gate results into the JSON summary. Any failed benchmark or gate exits non-zero.
+The runner builds `unterm-next-core`, verifies the machine-readable `--json` probe output, executes the current input-write/input-burst/echo/output/scrollback/viewport-scroll/viewport-scroll-under-flood/paste/dual-agent/agent-startup-stall/screen-read/render-frame empty, dirty, cursor-move delta, application-cursor-move delta, render draw-plan/render geometry-plan/render submission-plan/render commit-plan/focus-switch/session-create/session-ready benchmarks, writes human-readable summary and raw output into the Markdown report, and writes machine-readable gate results into the JSON summary. Any failed benchmark or gate exits non-zero.
 
 Verify an existing JSON summary without rerunning the benchmark suite:
 
@@ -103,9 +103,10 @@ Render cursor-move benchmark:
 
 ```powershell
 cargo run -p unterm-engine --bin unterm-next-core -- --bench-render-cursor-moves 200 --timeout-ms 30000 --wait-ms 100 --write "exit`r" -- cmd.exe
+cargo run -p unterm-engine --bin unterm-next-core -- --bench-render-application-cursor-moves 200 --timeout-ms 30000 --wait-ms 100 --write "exit`r" -- cmd.exe
 ```
 
-The cursor-move benchmark types a live command-line marker, sends alternating left/right arrow inputs through ConPTY, waits for the screen cursor to move, reports completed left/right move counts plus missed moves, then requires each render-frame delta to include the cursor row without falling back to a full frame. It covers the core contract behind completion navigation, command-line cursor movement, and tab-switch repaint correctness before a GUI renderer is involved.
+The cursor-move benchmarks type a live command-line marker, send alternating left/right arrow inputs through ConPTY using both normal CSI and application-cursor SS3 forms, wait for the screen cursor to move, report completed left/right move counts plus missed moves, then require each render-frame delta to include the cursor row without falling back to a full frame. They cover the core contract behind completion navigation, command-line cursor movement, and tab-switch repaint correctness before a GUI renderer is involved.
 
 Render draw-plan and geometry-plan benchmarks:
 

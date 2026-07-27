@@ -1,7 +1,7 @@
 param(
     [string]$SummaryJsonPath = "",
-    [int]$ExpectedGateCount = 23,
-    [int]$ExpectedBenchmarkCount = 21,
+    [int]$ExpectedGateCount = 26,
+    [int]$ExpectedBenchmarkCount = 22,
     [switch]$SkipCommitReachabilityCheck
 )
 
@@ -198,6 +198,9 @@ $requiredGates = @(
     "render cursor move p95",
     "render cursor move full frames",
     "render cursor move missed moves",
+    "render application cursor move p95",
+    "render application cursor move full frames",
+    "render application cursor move missed moves",
     "focus switch p95",
     "session create p95",
     "session ready p95"
@@ -239,6 +242,7 @@ $requiredBenchmarks = @(
     "render submission plan latency",
     "render commit plan latency",
     "render cursor move latency",
+    "render application cursor move latency",
     "focus switch latency",
     "session create latency",
     "session ready latency"
