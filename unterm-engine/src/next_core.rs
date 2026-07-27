@@ -25,6 +25,7 @@ mod activity;
 mod cell;
 mod csi_params;
 mod history;
+mod input_dispatch;
 mod input_pipeline;
 mod launch;
 mod lifecycle;
@@ -1973,10 +1974,12 @@ impl NextCoreEngine {
         input_pipeline::paste_payload(text, bracketed)
     }
 
+    #[cfg(test)]
     fn application_cursor_input(input: &str, enabled: bool) -> String {
         input_pipeline::application_cursor_input(input, enabled)
     }
 
+    #[cfg(test)]
     fn paste_chunks(text: &str, bracketed: bool) -> Vec<String> {
         input_pipeline::paste_chunks(text, bracketed)
     }
@@ -2300,57 +2303,11 @@ impl ScreenEngine for NextCoreEngine {
 
 impl InputEngine for NextCoreEngine {
     fn write_input(&self, pane_id: usize, input: &str) -> Result<()> {
-        let handles = {
-            let state = state().read();
-            session_handles::input(&state, pane_id)?
-        };
-
-        let started_at = Instant::now();
-        let input = Self::application_cursor_input(input, handles.application_cursor_keys);
-        let bytes = input.len();
-        let mut writer = handles.writer.lock();
-        writer.write_all(input.as_bytes())?;
-        writer.flush()?;
-        if !input.is_empty() {
-            handles
-                .activity
-                .lock()
-                .mark_input(bytes, started_at.elapsed());
-        }
-        Ok(())
+        input_dispatch::write(pane_id, input)
     }
 
     fn paste_input(&self, pane_id: usize, text: &str) -> Result<()> {
-        let handles = {
-            let state = state().read();
-            session_handles::input(&state, pane_id)?
-        };
-        let bracketed = handles.bracketed_paste;
-        let chunks = Self::paste_chunks(text, bracketed);
-        let wire_bytes = chunks.iter().map(|chunk| chunk.len()).sum::<usize>();
-        let chunk_count = chunks.len();
-        let started_at = Instant::now();
-
-        {
-            let mut writer = handles.writer.lock();
-            for chunk in &chunks {
-                writer.write_all(chunk.as_bytes())?;
-            }
-            writer.flush()?;
-        }
-
-        if !text.is_empty() || bracketed {
-            let mut activity = handles.activity.lock();
-            activity.mark_input(wire_bytes, started_at.elapsed());
-            activity.mark_paste(
-                text.len(),
-                wire_bytes,
-                chunk_count,
-                bracketed,
-                started_at.elapsed(),
-            );
-        }
-        Ok(())
+        input_dispatch::paste(pane_id, text)
     }
 }
 
