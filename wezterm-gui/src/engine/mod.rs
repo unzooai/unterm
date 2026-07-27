@@ -4,6 +4,7 @@
 //! This module keeps the current WezTerm adapter available to GUI callers while
 //! letting product services migrate away from WezTerm internals.
 
+pub mod render_backend;
 pub mod render_consumer;
 pub mod wezterm;
 
@@ -11,6 +12,11 @@ use std::collections::HashMap;
 use std::path::Path;
 use window::WindowOps;
 
+#[allow(unused_imports)]
+pub use render_backend::{
+    CommandListRenderBackend, EngineRenderBackend, EngineRenderBackendCommand,
+    EngineRenderBackendFrame,
+};
 #[allow(unused_imports)]
 pub use render_consumer::{EngineRenderCommitBatch, EngineRenderCommitStats, EngineRenderConsumer};
 
@@ -181,7 +187,8 @@ impl CurrentTerminalEngine {
 #[cfg(test)]
 mod tests {
     use super::{
-        next_core, selected_engine_name_from_env, CreateSessionRequest, CurrentTerminalEngine,
+        next_core, selected_engine_name_from_env, CommandListRenderBackend, CreateSessionRequest,
+        CurrentTerminalEngine, EngineRenderBackend, EngineRenderBackendCommand,
         EngineRenderConsumer, LaunchPolicySnapshot, RenderCellMetrics, RenderConsumerState,
         ScreenEngine, SessionEngine,
     };
@@ -278,6 +285,60 @@ mod tests {
         assert!(!repeat.stats.submit);
         assert_eq!(repeat.stats.previous_revision, Some(first.stats.revision));
         assert!(repeat.commit.submission.is_none());
+        engine
+            .destroy_session(session.id)
+            .expect("destroy next-core test session");
+    }
+
+    #[test]
+    fn command_list_backend_prepares_next_core_commit_commands() {
+        let engine = CurrentTerminalEngine::NextCore(next_core());
+        let session = engine
+            .create_session(CreateSessionRequest {
+                cols: 20,
+                rows: 4,
+                command_dir: None,
+                command: Some(quiet_wait_command_for_test()),
+                env: Vec::new(),
+                launch_policy: LaunchPolicySnapshot::default(),
+            })
+            .expect("create next-core session");
+        let mut consumer = EngineRenderConsumer::new(
+            session.id,
+            RenderCellMetrics {
+                cell_width_px: 8,
+                cell_height_px: 16,
+            },
+        );
+        let mut backend = CommandListRenderBackend::default();
+
+        let first = consumer
+            .read_commit(&engine)
+            .expect("read first render commit batch");
+        let frame = backend
+            .submit(&first)
+            .expect("prepare backend command list");
+
+        assert!(frame.submitted);
+        assert_eq!(frame.pane_id, session.id);
+        assert_eq!(frame.revision, first.stats.revision);
+        assert!(matches!(
+            frame.commands.first(),
+            Some(EngineRenderBackendCommand::Damage(_))
+        ));
+        assert!(frame
+            .commands
+            .iter()
+            .any(|command| matches!(command, EngineRenderBackendCommand::Background { .. })));
+
+        let repeat = consumer
+            .read_commit(&engine)
+            .expect("read repeated render commit batch");
+        let skipped = backend
+            .submit(&repeat)
+            .expect("prepare repeated backend frame");
+        assert!(!skipped.submitted);
+        assert!(skipped.commands.is_empty());
         engine
             .destroy_session(session.id)
             .expect("destroy next-core test session");
