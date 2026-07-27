@@ -1685,6 +1685,7 @@ fn main() -> Result<()> {
     let screen = engine.read_screen(session.id)?;
     let render_frame = engine.read_render_frame(session.id, None)?;
     let render_delta = engine.read_render_frame(session.id, Some(render_frame.revision))?;
+    let render_draw_plan = engine.read_render_draw_plan(session.id, None)?;
     let activity = engine.activity(session.id)?;
     let health = engine.health()?;
     let raw_bytes = engine.debug_output(session.id)?.len();
@@ -1697,6 +1698,7 @@ fn main() -> Result<()> {
                 "screen": screen,
                 "render_frame": render_frame,
                 "render_delta": render_delta,
+                "render_draw_plan": render_draw_plan,
                 "activity": activity,
                 "health": health,
                 "raw_bytes": raw_bytes,

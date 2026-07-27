@@ -72,6 +72,18 @@ if ($summary.json_smoke.RenderFrameGridCells -ne ($jsonSmokeRows * $jsonSmokeCol
 if ($summary.json_smoke.RenderDeltaLines -ne 0) {
     throw "json smoke unchanged render delta was not empty"
 }
+if ($summary.json_smoke.RenderDrawPlanRevision -ne $summary.json_smoke.RenderFrameRevision) {
+    throw "json smoke render draw plan revision $($summary.json_smoke.RenderDrawPlanRevision) did not match render frame revision $($summary.json_smoke.RenderFrameRevision)"
+}
+if ($summary.json_smoke.RenderDrawPlanGlyphRuns -lt 1) {
+    throw "json smoke did not include render draw plan glyph runs"
+}
+if ($summary.json_smoke.RenderDrawPlanCellRuns -lt $jsonSmokeRows) {
+    throw "json smoke render draw plan cell runs $($summary.json_smoke.RenderDrawPlanCellRuns) were fewer than screen rows $jsonSmokeRows"
+}
+if ($summary.json_smoke.RenderDrawPlanCursor -ne $true) {
+    throw "json smoke did not include render draw plan cursor state"
+}
 if (-not ($summary.json_smoke.PSObject.Properties.Name -contains "DeadReason")) {
     throw "json smoke did not include session dead_reason field"
 }

@@ -188,6 +188,27 @@ function Invoke-JsonSmoke {
     if ($json.render_delta.full -eq $true -or $json.render_delta.lines.Count -ne 0) {
         throw "JSON probe render_delta for unchanged revision was not empty"
     }
+    if ($null -eq $json.render_draw_plan) {
+        throw "JSON probe did not include render_draw_plan"
+    }
+    if ($json.render_draw_plan.revision -ne $json.render_frame.revision) {
+        throw "JSON probe render_draw_plan revision did not match render_frame revision"
+    }
+    if ($json.render_draw_plan.cols -ne $json.screen.cols -or $json.render_draw_plan.rows -ne $json.screen.rows) {
+        throw "JSON probe render_draw_plan dimensions did not match screen dimensions"
+    }
+    if ($json.render_draw_plan.full -ne $true) {
+        throw "JSON probe render_draw_plan did not report a full plan"
+    }
+    if (@($json.render_draw_plan.glyph_runs).Count -lt 1) {
+        throw "JSON probe render_draw_plan did not include glyph runs"
+    }
+    if (@($json.render_draw_plan.cell_runs).Count -lt $json.screen.rows) {
+        throw "JSON probe render_draw_plan did not include enough cell runs"
+    }
+    if ($null -eq $json.render_draw_plan.cursor) {
+        throw "JSON probe render_draw_plan did not include cursor draw state"
+    }
     if ($null -eq $json.activity) {
         throw "JSON probe did not include an activity snapshot"
     }
@@ -231,6 +252,10 @@ function Invoke-JsonSmoke {
         RenderFrameCellCounts = @($renderFrameCellCounts)
         RenderFrameGridCells = ($renderFrameCellCounts | Measure-Object -Sum).Sum
         RenderDeltaLines = $json.render_delta.lines.Count
+        RenderDrawPlanRevision = $json.render_draw_plan.revision
+        RenderDrawPlanGlyphRuns = @($json.render_draw_plan.glyph_runs).Count
+        RenderDrawPlanCellRuns = @($json.render_draw_plan.cell_runs).Count
+        RenderDrawPlanCursor = $null -ne $json.render_draw_plan.cursor
         ForegroundProcess = $json.activity.process.foreground_process
         Cwd = $json.session.shell.cwd
         Profile = $json.session.shell.launch_context.profile
@@ -329,7 +354,7 @@ try {
     $report.Add("- Machine: ``$machine``")
     $report.Add("- OS: ``$os``")
     $report.Add("- Binary: ``target\debug\unterm-next-core.exe``")
-    $report.Add("- JSON smoke: ``$($jsonSmoke.Engine) $($jsonSmoke.Screen) raw_bytes=$($jsonSmoke.RawBytes) foreground=$($jsonSmoke.ForegroundProcess) cwd=$($jsonSmoke.Cwd) profile=$($jsonSmoke.Profile) proxy_keys=$($jsonSmoke.ProxyEnvKeys -join ',') screen_reads=$($jsonSmoke.ScreenReads) render_frame_revision=$($jsonSmoke.RenderFrameRevision) render_frame_lines=$($jsonSmoke.RenderFrameLines) render_frame_cols=$($jsonSmoke.RenderFrameCols) render_frame_grid_cells=$($jsonSmoke.RenderFrameGridCells) render_delta_lines=$($jsonSmoke.RenderDeltaLines) lifecycle_created=$($jsonSmoke.LifecycleCreated) dead_reason=$($jsonSmoke.DeadReason)``")
+    $report.Add("- JSON smoke: ``$($jsonSmoke.Engine) $($jsonSmoke.Screen) raw_bytes=$($jsonSmoke.RawBytes) foreground=$($jsonSmoke.ForegroundProcess) cwd=$($jsonSmoke.Cwd) profile=$($jsonSmoke.Profile) proxy_keys=$($jsonSmoke.ProxyEnvKeys -join ',') screen_reads=$($jsonSmoke.ScreenReads) render_frame_revision=$($jsonSmoke.RenderFrameRevision) render_frame_lines=$($jsonSmoke.RenderFrameLines) render_frame_cols=$($jsonSmoke.RenderFrameCols) render_frame_grid_cells=$($jsonSmoke.RenderFrameGridCells) render_delta_lines=$($jsonSmoke.RenderDeltaLines) render_draw_plan_revision=$($jsonSmoke.RenderDrawPlanRevision) render_draw_plan_glyph_runs=$($jsonSmoke.RenderDrawPlanGlyphRuns) render_draw_plan_cell_runs=$($jsonSmoke.RenderDrawPlanCellRuns) render_draw_plan_cursor=$($jsonSmoke.RenderDrawPlanCursor) lifecycle_created=$($jsonSmoke.LifecycleCreated) dead_reason=$($jsonSmoke.DeadReason)``")
     $report.Add("")
     $report.Add("## Gates")
     $report.Add("")
