@@ -16,11 +16,15 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::OnceLock;
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    OnceLock,
+};
 
 const MAX_CHECKPOINTS_PER_REPO: usize = 20;
 /// Don't re-snapshot the same repo more often than this.
 const DEBOUNCE_SECS: i64 = 60;
+static NEXT_TMP_INDEX: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Checkpoint {
@@ -98,8 +102,9 @@ pub fn repo_root(cwd: &Path) -> Result<PathBuf> {
 /// commit without touching HEAD / index / files. Returns the sha.
 pub fn snapshot_worktree(repo: &Path) -> Result<String> {
     let tmp = std::env::temp_dir().join(format!(
-        "unterm-ckpt-index-{}-{}",
+        "unterm-ckpt-index-{}-{}-{}",
         std::process::id(),
+        NEXT_TMP_INDEX.fetch_add(1, Ordering::Relaxed),
         chrono::Utc::now().timestamp_millis()
     ));
     let tmp_str = tmp.to_string_lossy().to_string();

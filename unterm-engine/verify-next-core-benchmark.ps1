@@ -30,9 +30,19 @@ if (-not $SkipCommitReachabilityCheck) {
         throw "cannot verify benchmark summary commit without a git worktree; pass -SkipCommitReachabilityCheck to skip"
     }
 
-    & git -C $RepoRoot merge-base --is-ancestor $summary.commit HEAD 2>$null
+    & git -C $RepoRoot cat-file -e "$($summary.commit)^{commit}" 2>$null
     if ($LASTEXITCODE -ne 0) {
-        throw "benchmark summary commit is not reachable from HEAD: $($summary.commit)"
+        $isShallow = & git -C $RepoRoot rev-parse --is-shallow-repository 2>$null
+        if ($LASTEXITCODE -eq 0 -and $isShallow -eq "true") {
+            Write-Host "benchmark summary commit reachability skipped in shallow checkout: $($summary.commit)"
+        } else {
+            throw "benchmark summary commit is not available in this checkout: $($summary.commit)"
+        }
+    } else {
+        & git -C $RepoRoot merge-base --is-ancestor $summary.commit HEAD 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            throw "benchmark summary commit is not reachable from HEAD: $($summary.commit)"
+        }
     }
 }
 if ($summary.json_smoke.Engine -ne "next-core") {
