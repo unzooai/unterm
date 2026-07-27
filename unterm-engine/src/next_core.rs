@@ -49,6 +49,7 @@ mod screen_text;
 mod session_activity;
 mod session_creation;
 mod session_handles;
+mod session_queries;
 mod session_registry;
 mod session_runtime;
 mod session_snapshots;
@@ -1710,33 +1711,11 @@ impl NextCoreEngine {
     }
 
     fn shell_snapshot(&self, pane_id: usize) -> Result<ShellSnapshot> {
-        let handles = {
-            let state = state().read();
-            session_handles::shell(&state, pane_id)?
-        };
-        let mut shell = handles.shell;
-
-        if let Some(cwd) = handles.screen.lock().current_dir() {
-            shell.cwd = Some(cwd);
-            return Ok(shell);
-        }
-
-        if shell.cwd.is_none() {
-            if let Some(process) = process_tree::snapshot(handles.root_pid, &shell.process_name) {
-                shell.cwd = process.foreground_cwd.or(process.root_cwd);
-            }
-        }
-        Ok(shell)
+        session_queries::shell_snapshot(pane_id)
     }
 
     fn output(&self, pane_id: usize) -> Result<String> {
-        let output = {
-            let state = state().read();
-            session_handles::output(&state, pane_id)?
-        };
-
-        let text = output.lock().clone();
-        Ok(text)
+        session_queries::output(pane_id)
     }
 
     #[doc(hidden)]
@@ -1765,13 +1744,7 @@ impl NextCoreEngine {
 
     #[allow(dead_code)]
     fn bracketed_paste_enabled(&self, pane_id: usize) -> Result<bool> {
-        let screen = {
-            let state = state().read();
-            session_handles::screen(&state, pane_id)?
-        };
-
-        let enabled = screen.lock().bracketed_paste;
-        Ok(enabled)
+        session_queries::bracketed_paste_enabled(pane_id)
     }
 
     fn default_cursor() -> CursorSnapshot {
