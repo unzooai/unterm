@@ -13,12 +13,11 @@ use anyhow::{bail, Result};
 use base64::Engine as _;
 use parking_lot::{Mutex, RwLock};
 use portable_pty::{native_pty_system, Child, MasterPty, PtySize};
-use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::fmt::Write as FmtWrite;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::thread;
@@ -31,6 +30,7 @@ mod input_pipeline;
 mod osc133;
 mod parser_state;
 mod process_tree;
+mod recording_archive;
 mod recording_text;
 mod render_state;
 mod screen_state;
@@ -120,33 +120,6 @@ struct NextCoreActiveCommand {
     index: u64,
     started_micros: u128,
     text: String,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct RecordingIndexEntry {
-    unterm_session_id: String,
-    tab_id: u64,
-    project_path: Option<String>,
-    project_slug: String,
-    started_at: String,
-    ended_at: Option<String>,
-    block_count: u64,
-    total_lines: u64,
-    bytes_raw: u64,
-    log_path: String,
-    md_path: String,
-    exit_reason: Option<String>,
-    parent_session_id: Option<String>,
-    osc133_active: bool,
-    redaction_active: bool,
-    redaction_count: u64,
-    trace_ids: Vec<String>,
-    #[serde(default)]
-    agent_id: Option<String>,
-    #[serde(default)]
-    agent_manifest_version: Option<String>,
-    #[serde(default)]
-    agent_profile: Option<String>,
 }
 
 #[derive(Default)]
@@ -2293,11 +2266,6 @@ fn state() -> &'static RwLock<NextCoreState> {
     STATE.get_or_init(|| RwLock::new(NextCoreState::default()))
 }
 
-fn recording_index_lock() -> &'static Mutex<()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
-}
-
 #[cfg(test)]
 fn reset_state_for_test() {
     *state().write() = NextCoreState::default();
@@ -2541,123 +2509,6 @@ impl NextCoreEngine {
 
     fn timestamp_string() -> String {
         Self::unix_micros().to_string()
-    }
-
-    fn sanitize_slug(value: &str) -> String {
-        value
-            .chars()
-            .map(|ch| {
-                if ch.is_alphanumeric() || ch == '-' || ch == '_' || ch == '.' {
-                    ch
-                } else {
-                    '-'
-                }
-            })
-            .collect()
-    }
-
-    fn sessions_root() -> PathBuf {
-        if let Ok(root) = std::env::var("UNTERM_SESSIONS_ROOT") {
-            if !root.trim().is_empty() {
-                return PathBuf::from(root);
-            }
-        }
-        let home = std::env::var_os("USERPROFILE")
-            .or_else(|| std::env::var_os("HOME"))
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("."));
-        home.join(".unterm").join("sessions")
-    }
-
-    fn project_slug(project_path: Option<&str>) -> String {
-        project_path
-            .and_then(|path| {
-                Path::new(path)
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .filter(|name| !name.is_empty())
-                    .map(Self::sanitize_slug)
-            })
-            .unwrap_or_else(|| "_orphan".to_string())
-    }
-
-    fn recording_paths(
-        pane_id: usize,
-        project_path: Option<&str>,
-        project_slug: &str,
-    ) -> (PathBuf, PathBuf) {
-        let date = Self::timestamp_string();
-        let dir = project_path
-            .map(PathBuf::from)
-            .map(|path| path.join(".unterm").join("sessions").join(&date))
-            .unwrap_or_else(|| Self::sessions_root().join(project_slug).join(&date));
-        let _ = std::fs::create_dir_all(&dir);
-        let stem = format!("tab-{pane_id}-{date}");
-        (
-            dir.join(format!("{stem}.log")),
-            dir.join(format!("{stem}.md")),
-        )
-    }
-
-    fn index_path() -> PathBuf {
-        Self::sessions_root().join("index.json")
-    }
-
-    fn index_entry(recording: &NextCoreRecording, ended_at: Option<String>) -> RecordingIndexEntry {
-        RecordingIndexEntry {
-            unterm_session_id: recording.session_id.clone(),
-            tab_id: recording.pane_id as u64,
-            project_path: recording.project_path.clone(),
-            project_slug: recording.project_slug.clone(),
-            started_at: recording.started_at.clone(),
-            ended_at,
-            block_count: recording.block_count,
-            total_lines: recording.text_preview.lines().count() as u64,
-            bytes_raw: recording.bytes_raw,
-            log_path: recording.log_path.display().to_string(),
-            md_path: recording.md_path.display().to_string(),
-            exit_reason: None,
-            parent_session_id: None,
-            osc133_active: recording.osc133_seen,
-            redaction_active: true,
-            redaction_count: 0,
-            trace_ids: recording.trace_ids.clone(),
-            agent_id: std::env::var("UNTERM_AGENT_ID").ok(),
-            agent_manifest_version: std::env::var("UNTERM_AGENT_MANIFEST_VERSION").ok(),
-            agent_profile: std::env::var("UNTERM_PROFILE").ok(),
-        }
-    }
-
-    fn upsert_recording_index(
-        recording: &NextCoreRecording,
-        ended_at: Option<String>,
-    ) -> Result<()> {
-        let _guard = recording_index_lock().lock();
-        let path = Self::index_path();
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        let mut entries: Vec<RecordingIndexEntry> = if path.exists() {
-            let raw = std::fs::read_to_string(&path).unwrap_or_default();
-            if raw.trim().is_empty() {
-                Vec::new()
-            } else {
-                serde_json::from_str(&raw).unwrap_or_default()
-            }
-        } else {
-            Vec::new()
-        };
-        let entry = Self::index_entry(recording, ended_at);
-        if let Some(existing) = entries
-            .iter_mut()
-            .find(|existing| existing.unterm_session_id == entry.unterm_session_id)
-        {
-            *existing = entry;
-        } else {
-            entries.push(entry);
-        }
-        std::fs::write(path, serde_json::to_string_pretty(&entries)?)?;
-        Ok(())
     }
 
     fn append_recording_output(recording: &mut NextCoreRecording, text: &str) {
@@ -4146,15 +3997,15 @@ impl RecordingEngine for NextCoreEngine {
             bail!("Recording already active for pane {pane_id}");
         }
 
-        let project_slug = Self::project_slug(project_path.as_deref());
+        let project_slug = recording_archive::project_slug(project_path.as_deref());
+        let started_at = Self::timestamp_string();
         let (log_path, md_path) =
-            Self::recording_paths(pane_id, project_path.as_deref(), &project_slug);
+            recording_archive::paths(pane_id, project_path.as_deref(), &project_slug, &started_at);
         if let Some(parent) = log_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
         File::create(&log_path)?;
 
-        let started_at = Self::timestamp_string();
         let session_id = format!("next-core-{pane_id}-{started_at}");
         let recording = NextCoreRecording {
             session_id: session_id.clone(),
@@ -4173,7 +4024,7 @@ impl RecordingEngine for NextCoreEngine {
             command_blocks: Vec::new(),
             active_command: None,
         };
-        Self::upsert_recording_index(&recording, None)?;
+        recording_archive::upsert_index(&recording, None)?;
         *slot = Some(recording);
 
         Ok(RecordingStartResult {
@@ -4203,7 +4054,7 @@ impl RecordingEngine for NextCoreEngine {
 
         let ended_at = Self::timestamp_string();
         Self::write_recording_markdown(&recording, Some(&ended_at), "recording_stopped")?;
-        Self::upsert_recording_index(&recording, Some(ended_at.clone()))?;
+        recording_archive::upsert_index(&recording, Some(ended_at.clone()))?;
 
         Ok(RecordingStopResult {
             session_id: recording.session_id,
@@ -4275,7 +4126,7 @@ impl RecordingEngine for NextCoreEngine {
         {
             recording.trace_ids.push(trace_id);
         }
-        Self::upsert_recording_index(recording, None)?;
+        recording_archive::upsert_index(recording, None)?;
         Ok(recording.trace_ids.clone())
     }
 
