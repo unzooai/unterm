@@ -11,15 +11,15 @@ pub(super) fn get_current(pane_id: usize) -> Result<SessionSnapshot> {
 }
 
 pub(super) fn list(state: &mut NextCoreState) -> Vec<SessionSnapshot> {
-    let mut snapshots = Vec::with_capacity(state.sessions.len());
+    let mut snapshots = Vec::with_capacity(session_registry::pane_count(state));
     let mut dead_reasons = Vec::new();
-    for session in &mut state.sessions {
+    session_registry::for_each_session_mut(state, |session| {
         let (snapshot, dead_reason) = snapshot(session);
         if let Some(reason) = dead_reason {
             dead_reasons.push(reason);
         }
         snapshots.push(snapshot);
-    }
+    });
     for reason in dead_reasons {
         lifecycle::record_dead_reason(state, reason);
     }

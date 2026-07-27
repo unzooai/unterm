@@ -1,33 +1,28 @@
 use super::{
-    activity::SessionIoActivity, recording_output, state, CellAttributes, NextCoreScreen,
-    NextCoreState,
+    activity::SessionIoActivity, recording_output, session_registry, CellAttributes,
+    NextCoreScreen, NextCoreState,
 };
-use anyhow::{bail, Result};
+use anyhow::Result;
 use std::{sync::atomic::Ordering, sync::Arc, time::Instant};
 
 pub(super) fn reset_state_for_test() {
-    *state().write() = NextCoreState::default();
+    session_registry::with_current_state_mut(|state| *state = NextCoreState::default());
 }
 
 pub(super) fn set_output_for_test(pane_id: usize, text: &str) -> Result<()> {
-    let (output, screen, recording, activity, cols, rows) = {
-        let state = state().read();
-        let Some(session) = state
-            .sessions
-            .iter()
-            .find(|session| session.snapshot.id == pane_id)
-        else {
-            bail!("next-core session {pane_id} not found");
-        };
-        (
-            Arc::clone(&session.output),
-            Arc::clone(&session.screen),
-            Arc::clone(&session.recording),
-            Arc::clone(&session.activity),
-            session.snapshot.cols,
-            session.snapshot.rows,
-        )
-    };
+    let (output, screen, recording, activity, cols, rows) =
+        session_registry::with_current_state(|state| {
+            session_registry::session(state, pane_id).map(|session| {
+                (
+                    Arc::clone(&session.output),
+                    Arc::clone(&session.screen),
+                    Arc::clone(&session.recording),
+                    Arc::clone(&session.activity),
+                    session.snapshot.cols,
+                    session.snapshot.rows,
+                )
+            })
+        })?;
     let started_at = Instant::now();
     *output.lock() = text.to_string();
     let mut screen = screen.lock();
@@ -48,60 +43,38 @@ pub(super) fn set_output_for_test(pane_id: usize, text: &str) -> Result<()> {
 }
 
 pub(super) fn mark_dead_for_test(pane_id: usize) -> Result<()> {
-    let state = state().read();
-    let Some(session) = state
-        .sessions
-        .iter()
-        .find(|session| session.snapshot.id == pane_id)
-    else {
-        bail!("next-core session {pane_id} not found");
-    };
+    let (dead, dead_reason) = session_registry::with_current_state(|state| {
+        session_registry::session(state, pane_id)
+            .map(|session| (Arc::clone(&session.dead), Arc::clone(&session.dead_reason)))
+    })?;
 
-    *session.dead_reason.lock() = Some("test_dead_marker".to_string());
-    session.dead.store(true, Ordering::Release);
+    *dead_reason.lock() = Some("test_dead_marker".to_string());
+    dead.store(true, Ordering::Release);
     Ok(())
 }
 
 fn make_activity_stale_for_test(pane_id: usize) -> Result<()> {
-    let state = state().read();
-    let Some(session) = state
-        .sessions
-        .iter()
-        .find(|session| session.snapshot.id == pane_id)
-    else {
-        bail!("next-core session {pane_id} not found");
-    };
+    let activity = session_registry::with_current_state(|state| {
+        session_registry::session(state, pane_id).map(|session| Arc::clone(&session.activity))
+    })?;
 
-    session.activity.lock().mark_stale_for_test();
+    activity.lock().mark_stale_for_test();
     Ok(())
 }
 
 pub(super) fn reset_activity_for_test(pane_id: usize) -> Result<()> {
-    let state = state().read();
-    let Some(session) = state
-        .sessions
-        .iter()
-        .find(|session| session.snapshot.id == pane_id)
-    else {
-        bail!("next-core session {pane_id} not found");
-    };
+    let activity = session_registry::with_current_state(|state| {
+        session_registry::session(state, pane_id).map(|session| Arc::clone(&session.activity))
+    })?;
 
-    *session.activity.lock() = SessionIoActivity::new();
+    *activity.lock() = SessionIoActivity::new();
     make_activity_stale_for_test(pane_id)
 }
 
 pub(super) fn viewport_attrs_for_test(pane_id: usize) -> Result<Vec<Vec<CellAttributes>>> {
-    let screen = {
-        let state = state().read();
-        let Some(session) = state
-            .sessions
-            .iter()
-            .find(|session| session.snapshot.id == pane_id)
-        else {
-            bail!("next-core session {pane_id} not found");
-        };
-        Arc::clone(&session.screen)
-    };
+    let screen = session_registry::with_current_state(|state| {
+        session_registry::session(state, pane_id).map(|session| Arc::clone(&session.screen))
+    })?;
 
     let attrs = screen.lock().attrs_for_viewport();
     Ok(attrs)
