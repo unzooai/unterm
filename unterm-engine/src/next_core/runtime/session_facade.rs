@@ -1,5 +1,5 @@
-use super::super::{session_creation, session_runtime, session_snapshots, NextCoreSession};
-use super::{session_registry, with_current, with_current_mut};
+use super::super::{session_creation, session_snapshots, NextCoreSession};
+use super::{scheduler, session_registry, with_current, with_current_mut};
 use crate::{CreateSessionRequest, SessionSnapshot, SplitSessionRequest};
 use anyhow::Result;
 
@@ -8,7 +8,7 @@ pub(in crate::next_core) fn next_session_id() -> usize {
 }
 
 pub(in crate::next_core) fn focus(pane_id: usize) -> Result<()> {
-    with_current_mut(|state| session_registry::focus(state, pane_id))
+    scheduler::focus_session(pane_id)
 }
 
 pub(in crate::next_core) fn insert_created(session: NextCoreSession) {
@@ -16,20 +16,11 @@ pub(in crate::next_core) fn insert_created(session: NextCoreSession) {
 }
 
 pub(in crate::next_core) fn destroy(pane_id: usize) -> Result<()> {
-    with_current_mut(|state| session_registry::destroy(state, pane_id))
+    scheduler::destroy_session(pane_id)
 }
 
 pub(in crate::next_core) fn resize(pane_id: usize, cols: usize, rows: usize) -> Result<()> {
-    with_session_mut(pane_id, |session| {
-        session_runtime::resize_session(session, cols, rows)
-    })
-}
-
-pub(super) fn with_session_mut<T>(
-    pane_id: usize,
-    visit: impl FnOnce(&mut NextCoreSession) -> Result<T>,
-) -> Result<T> {
-    with_current_mut(|state| visit(session_registry::session_mut(state, pane_id)?))
+    scheduler::resize_session(pane_id, cols, rows)
 }
 
 pub(in crate::next_core) fn with_session<T>(

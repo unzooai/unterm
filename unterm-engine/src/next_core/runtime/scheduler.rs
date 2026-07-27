@@ -27,6 +27,43 @@ pub(in crate::next_core) fn submit_input(command: RuntimeCommand) -> Result<()> 
     }
 }
 
+pub(in crate::next_core) fn focus_session(pane_id: usize) -> Result<()> {
+    let command = RuntimeCommand::FocusSession { pane_id };
+    match consumer::submit_and_dispatch_response(command)? {
+        RuntimeDispatchResult::Unit => Ok(()),
+        other => bail!(
+            "runtime scheduler expected focus-session dispatch result, got {:?}",
+            other
+        ),
+    }
+}
+
+pub(in crate::next_core) fn resize_session(pane_id: usize, cols: usize, rows: usize) -> Result<()> {
+    let command = RuntimeCommand::ResizeSession {
+        pane_id,
+        cols,
+        rows,
+    };
+    match consumer::submit_and_dispatch_response(command)? {
+        RuntimeDispatchResult::Unit => Ok(()),
+        other => bail!(
+            "runtime scheduler expected resize-session dispatch result, got {:?}",
+            other
+        ),
+    }
+}
+
+pub(in crate::next_core) fn destroy_session(pane_id: usize) -> Result<()> {
+    let command = RuntimeCommand::DestroySession { pane_id };
+    match consumer::submit_and_dispatch_response(command)? {
+        RuntimeDispatchResult::Unit => Ok(()),
+        other => bail!(
+            "runtime scheduler expected destroy-session dispatch result, got {:?}",
+            other
+        ),
+    }
+}
+
 pub(in crate::next_core) fn read_render_frame(
     pane_id: usize,
     since_revision: Option<u64>,
@@ -323,6 +360,56 @@ mod tests {
         assert!(err.to_string().contains("next-core session 404 not found"));
         let stats = queue_stats();
         assert_eq!(stats.pending_lanes.input, 0);
+        assert_eq!(stats.pending_lanes.screen, 1);
+    }
+
+    #[test]
+    fn lifecycle_mutations_enter_runtime_queue_before_dispatch() {
+        test_facade::reset();
+
+        let err = focus_session(404).expect_err("missing pane should fail");
+
+        assert!(err.to_string().contains("next-core session 404 not found"));
+        assert_eq!(queue_stats().pending_commands, 0);
+        assert_eq!(queue_stats().rejected_commands, 0);
+    }
+
+    #[test]
+    fn lifecycle_mutations_use_lifecycle_backpressure() {
+        test_facade::reset();
+        install_zero_command_budget();
+
+        let err = destroy_session(1).expect_err("zero command budget should reject destroy");
+
+        assert!(err
+            .to_string()
+            .contains("runtime lifecycle queue rejected command"));
+        assert_eq!(queue_stats().rejected_commands, 1);
+    }
+
+    #[test]
+    fn lifecycle_dispatches_before_older_render_and_screen_backlog() {
+        test_facade::reset();
+        with_current_mut(|state| {
+            state
+                .command_queue
+                .enqueue(RuntimeCommand::ReadRenderFrame {
+                    pane_id: 404,
+                    since_revision: None,
+                })
+                .unwrap();
+            state
+                .command_queue
+                .enqueue(RuntimeCommand::ReadScreen { pane_id: 404 })
+                .unwrap();
+        });
+
+        let err = resize_session(404, 80, 24).expect_err("missing pane should fail after resize");
+
+        assert!(err.to_string().contains("next-core session 404 not found"));
+        let stats = queue_stats();
+        assert_eq!(stats.pending_lanes.lifecycle, 0);
+        assert_eq!(stats.pending_lanes.render, 1);
         assert_eq!(stats.pending_lanes.screen, 1);
     }
 

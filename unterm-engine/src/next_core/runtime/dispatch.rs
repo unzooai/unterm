@@ -2,7 +2,7 @@
 
 use super::{
     command::{RuntimeCommand, RuntimeCommandClass},
-    input_executor, screen_executor, status_executor,
+    input_executor, screen_executor, session_executor, status_executor,
 };
 use crate::{
     CursorSnapshot, EngineHealthSnapshot, RenderFrameSnapshot, ScreenLine, ScreenSearchMatch,
@@ -40,9 +40,13 @@ pub(in crate::next_core) fn execute(command: RuntimeCommand) -> Result<RuntimeDi
             screen_executor::execute_screen_mutation(command)?;
             Ok(RuntimeDispatchResult::Unit)
         }
+        RuntimeCommandClass::SessionLifecycle => {
+            session_executor::execute(command)?;
+            Ok(RuntimeDispatchResult::Unit)
+        }
         RuntimeCommandClass::ScreenRead => execute_screen_read(command),
         RuntimeCommandClass::Status => execute_status(command),
-        RuntimeCommandClass::SessionLifecycle | RuntimeCommandClass::Recording => bail!(
+        RuntimeCommandClass::Recording => bail!(
             "runtime dispatch does not yet execute {:?} commands",
             command.class()
         ),
@@ -109,13 +113,21 @@ mod tests {
     use crate::next_core::runtime::test_facade;
 
     #[test]
-    fn dispatch_rejects_unimplemented_lifecycle_commands() {
-        let err = execute(RuntimeCommand::FocusSession { pane_id: 1 })
-            .expect_err("lifecycle command should wait for response-channel plumbing");
+    fn dispatch_rejects_unimplemented_recording_commands() {
+        let err = execute(RuntimeCommand::RecordingStatus { pane_id: 1 })
+            .expect_err("recording command should wait for response-channel plumbing");
 
-        assert!(err
-            .to_string()
-            .contains("does not yet execute SessionLifecycle"));
+        assert!(err.to_string().contains("does not yet execute Recording"));
+    }
+
+    #[test]
+    fn dispatch_routes_lifecycle_commands_to_session_executor() {
+        test_facade::reset();
+
+        let err = execute(RuntimeCommand::FocusSession { pane_id: 404 })
+            .expect_err("missing pane should come from session executor");
+
+        assert!(err.to_string().contains("next-core session 404 not found"));
     }
 
     #[test]
