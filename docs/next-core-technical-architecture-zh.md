@@ -222,7 +222,7 @@ next-core 已经在 screen/parser 方向具备基础能力，包括：
 - `TermWindow` 已持有持久化 next-core render consumer cache，并在直接 pane/window 清理路径同步移除对应状态；后续真实 WebGPU pane 分支可以从窗口长期状态读取增量 renderer consumer，而不是在 draw loop 局部重建
 - `TermWindow::prepare_next_core_render_buffer_plan` 已把当前 engine、pane id、当前 cell metrics 和持久 renderer consumer cache 收敛为单个 frame preparation 入口；下一步 WebGPU pane draw branch 只需要拿该 buffer plan 交给 `WebGpuState::encode_next_core_buffer_plan`
 - WebGPU draw loop 已提供 `UNTERM_NEXT_CORE_WEBGPU_PANE` 实验分支：默认不启用；`1/true/on/append` 在 legacy pass 后追加 next-core buffer plan pass；`replace` 会跳过 legacy pane quad ranges，由 next-core 绘制 pane，同时保留 legacy chrome/UI，用于验证 pane-only 替代路径
-- WebGPU `replace` 模式现在会先检查 next-core buffer batch 是否 draw-ready；重复 revision 或空 buffer 会保留 legacy pane 兜底，并暴露结构化 readiness issues，避免 pane-only 替换实验出现空白帧
+- WebGPU `replace` 模式现在会同时检查 next-core buffer batch 是否 draw-ready、prepared frame 是否 replace-ready；重复 revision、空 buffer 或 preparation 不完整都会保留 legacy pane 兜底，并暴露结构化 readiness issues，避免 pane-only 替换实验出现空白帧
 - `wezterm-gui/src/engine/render_backend.rs` 已提供 GPU-free `CommandListRenderBackend`，将 damage/background/text/cursor submission 展开为稳定顺序的 backend command list，为后续 wgpu command encoder 接入固定输入契约
 - `EngineRenderBufferPlan` 已将 backend command 转为 damage rects、quad vertices 和 indices，并保留原始 `RenderTextRun` 的 row/col/cell-span/text/style/rect 元数据；下一步 glyph atlas 可以消费真实文本与单元格跨度信息，而不是只能看到匿名纯色 text quad
 - `EngineWgpuPreparedFramePlan` 已暴露 replace-readiness diagnostics，覆盖 solid upload、text atlas 和 glyph atlas preparation；pane 替换测试可以先走 CPU 侧 gate，再进入真实 WebGPU encode

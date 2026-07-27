@@ -50,8 +50,19 @@ impl crate::TermWindow {
         } else {
             None
         };
-        let replace_legacy_pane =
-            should_replace_legacy_pane(next_core_mode, &next_core_buffer_batch);
+        let next_core_prepared_frame_diagnostics =
+            if next_core_mode == NextCoreWebGpuPaneMode::Replace {
+                next_core_buffer_batch
+                    .as_ref()
+                    .map(|batch| webgpu.next_core_prepared_frame_diagnostics(&batch.buffer_plan))
+            } else {
+                None
+            };
+        let replace_legacy_pane = should_replace_legacy_pane(
+            next_core_mode,
+            &next_core_buffer_batch,
+            next_core_prepared_frame_diagnostics.as_ref(),
+        );
         {
             let render_state = self.render_state.as_ref().unwrap();
             let tex = render_state.glyph_cache.borrow().atlas.texture();
@@ -362,16 +373,21 @@ fn next_core_webgpu_pane_mode() -> NextCoreWebGpuPaneMode {
 fn should_replace_legacy_pane(
     mode: NextCoreWebGpuPaneMode,
     batch: &Option<crate::engine::EngineRenderBufferBatch>,
+    prepared_frame: Option<&crate::engine::render_backend::EngineWgpuPreparedFrameDiagnostics>,
 ) -> bool {
     mode == NextCoreWebGpuPaneMode::Replace
         && batch.as_ref().is_some_and(|batch| {
-            let ready = batch.is_draw_ready();
+            let batch_ready = batch.is_draw_ready();
+            let frame_ready = prepared_frame.is_some_and(|diagnostics| diagnostics.replace_ready);
+            let ready = batch_ready && frame_ready;
             if !ready {
                 log::trace!(
-                    "next-core WebGPU replace fallback pane={} revision={} readiness_issues={}",
+                    "next-core WebGPU replace fallback pane={} revision={} batch_ready={} batch_readiness_issues={} prepared_frame_ready={}",
                     batch.pane_id,
                     batch.stats.revision,
-                    batch.readiness_issues().len()
+                    batch_ready,
+                    batch.readiness_issues().len(),
+                    frame_ready
                 );
             }
             ready
@@ -423,7 +439,7 @@ fn draw_quad_range(render_pass: &mut wgpu::RenderPass<'_>, start_quad: usize, en
 #[cfg(test)]
 mod tests {
     use super::{non_pane_quad_ranges, should_replace_legacy_pane, NextCoreWebGpuPaneMode};
-    use crate::engine::render_backend::EngineRenderVertex;
+    use crate::engine::render_backend::{EngineRenderVertex, EngineWgpuPreparedFrameDiagnostics};
     use crate::engine::EngineRenderVertexLayer;
     use crate::engine::{EngineRenderBufferBatch, EngineRenderBufferPlan, EngineRenderCommitStats};
 
@@ -446,7 +462,8 @@ mod tests {
     fn next_core_replace_requires_draw_ready_batch() {
         assert!(should_replace_legacy_pane(
             NextCoreWebGpuPaneMode::Replace,
-            &Some(buffer_batch(true))
+            &Some(buffer_batch(true)),
+            Some(&prepared_frame_diagnostics(true))
         ));
     }
 
@@ -454,15 +471,32 @@ mod tests {
     fn next_core_replace_keeps_legacy_pane_for_empty_repeat_batch() {
         assert!(!should_replace_legacy_pane(
             NextCoreWebGpuPaneMode::Replace,
-            &Some(buffer_batch(false))
+            &Some(buffer_batch(false)),
+            Some(&prepared_frame_diagnostics(true))
         ));
         assert!(!should_replace_legacy_pane(
             NextCoreWebGpuPaneMode::Append,
-            &Some(buffer_batch(true))
+            &Some(buffer_batch(true)),
+            Some(&prepared_frame_diagnostics(true))
         ));
         assert!(!should_replace_legacy_pane(
             NextCoreWebGpuPaneMode::Replace,
-            &None
+            &None,
+            None
+        ));
+    }
+
+    #[test]
+    fn next_core_replace_keeps_legacy_pane_when_prepared_frame_is_not_ready() {
+        assert!(!should_replace_legacy_pane(
+            NextCoreWebGpuPaneMode::Replace,
+            &Some(buffer_batch(true)),
+            Some(&prepared_frame_diagnostics(false))
+        ));
+        assert!(!should_replace_legacy_pane(
+            NextCoreWebGpuPaneMode::Replace,
+            &Some(buffer_batch(true)),
+            None
         ));
     }
 
@@ -501,6 +535,20 @@ mod tests {
                 },
                 indices: if draw_ready { vec![0] } else { Vec::new() },
             },
+        }
+    }
+
+    fn prepared_frame_diagnostics(replace_ready: bool) -> EngineWgpuPreparedFrameDiagnostics {
+        EngineWgpuPreparedFrameDiagnostics {
+            pane_id: 7,
+            submitted: replace_ready,
+            revision: 3,
+            solid_vertex_count: usize::from(replace_ready),
+            solid_index_count: usize::from(replace_ready),
+            text_run_count: 0,
+            glyph_key_count: 0,
+            glyph_instance_count: 0,
+            replace_ready,
         }
     }
 }

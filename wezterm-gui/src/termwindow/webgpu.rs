@@ -1,3 +1,4 @@
+use crate::engine::render_backend::EngineWgpuPreparedFrameDiagnostics;
 use crate::engine::{
     EngineRenderBufferPlan, EngineRenderFontGlyphRasterSource, EngineRenderGlyphAtlasCache,
     EngineRenderGlyphAtlasCacheUpdate, EngineRenderGlyphAtlasPlan,
@@ -1277,6 +1278,22 @@ impl WebGpuState {
         clear_color: Option<[f64; 4]>,
     ) -> bool {
         self.encode_next_core_buffer_plan_with_font(encoder, target, plan, clear_color, None)
+    }
+
+    #[allow(dead_code)]
+    pub fn next_core_prepared_frame_diagnostics(
+        &self,
+        plan: &EngineRenderBufferPlan,
+    ) -> EngineWgpuPreparedFrameDiagnostics {
+        let dimensions = self.dimensions.borrow();
+        let viewport_width_px = dimensions.pixel_width.max(1) as f32;
+        let viewport_height_px = dimensions.pixel_height.max(1) as f32;
+        EngineWgpuRenderBackend::prepare_frame_for_viewport(
+            plan,
+            viewport_width_px,
+            viewport_height_px,
+        )
+        .diagnostics()
     }
 
     #[allow(dead_code)]
