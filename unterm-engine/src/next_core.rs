@@ -303,6 +303,7 @@ struct NextCoreScreen {
     sgr_mouse: bool,
     alternate_scroll: bool,
     sgr_pixel_mouse: bool,
+    meta_sends_escape: bool,
     synchronized_output: bool,
     origin_mode: bool,
     insert_mode: bool,
@@ -344,6 +345,7 @@ struct ScreenState {
     sgr_mouse: bool,
     alternate_scroll: bool,
     sgr_pixel_mouse: bool,
+    meta_sends_escape: bool,
     synchronized_output: bool,
     origin_mode: bool,
     insert_mode: bool,
@@ -1056,6 +1058,7 @@ impl NextCoreScreen {
         self.sgr_mouse = false;
         self.alternate_scroll = false;
         self.sgr_pixel_mouse = false;
+        self.meta_sends_escape = false;
         self.synchronized_output = false;
         self.cursor_visible = true;
         self.cursor_shape = "Default".to_string();
@@ -1634,6 +1637,7 @@ impl NextCoreScreen {
             sgr_mouse: self.sgr_mouse,
             alternate_scroll: self.alternate_scroll,
             sgr_pixel_mouse: self.sgr_pixel_mouse,
+            meta_sends_escape: self.meta_sends_escape,
             synchronized_output: self.synchronized_output,
             origin_mode: self.origin_mode,
             insert_mode: self.insert_mode,
@@ -1661,6 +1665,7 @@ impl NextCoreScreen {
         self.sgr_mouse = false;
         self.alternate_scroll = false;
         self.sgr_pixel_mouse = false;
+        self.meta_sends_escape = false;
         self.synchronized_output = false;
         self.origin_mode = false;
         self.insert_mode = false;
@@ -1693,6 +1698,7 @@ impl NextCoreScreen {
             self.sgr_mouse = main.sgr_mouse;
             self.alternate_scroll = main.alternate_scroll;
             self.sgr_pixel_mouse = main.sgr_pixel_mouse;
+            self.meta_sends_escape = main.meta_sends_escape;
             self.synchronized_output = main.synchronized_output;
             self.origin_mode = main.origin_mode;
             self.insert_mode = main.insert_mode;
@@ -1976,6 +1982,7 @@ impl<'a> ScreenParser<'a> {
                             1007 => self.screen.alternate_scroll = true,
                             1015 => self.screen.urxvt_mouse = true,
                             1016 => self.screen.sgr_pixel_mouse = true,
+                            1034 => self.screen.meta_sends_escape = true,
                             2004 => self.screen.set_bracketed_paste(true),
                             2026 => self.screen.synchronized_output = true,
                             _ => {}
@@ -2024,6 +2031,7 @@ impl<'a> ScreenParser<'a> {
                             1007 => self.screen.alternate_scroll = false,
                             1015 => self.screen.urxvt_mouse = false,
                             1016 => self.screen.sgr_pixel_mouse = false,
+                            1034 => self.screen.meta_sends_escape = false,
                             2004 => self.screen.set_bracketed_paste(false),
                             2026 => self.screen.synchronized_output = false,
                             _ => {}
@@ -3671,6 +3679,15 @@ impl NextCoreEngine {
                     .as_bytes(),
                 );
                 idx += "\x1b[?1016$p".len();
+            } else if rest.starts_with("\x1b[?1034$p") {
+                response.extend_from_slice(
+                    format!(
+                        "\x1b[?1034;{}$y",
+                        Self::mode_report_state(screen.meta_sends_escape)
+                    )
+                    .as_bytes(),
+                );
+                idx += "\x1b[?1034$p".len();
             } else if rest.starts_with("\x1b[?2004$p") {
                 response.extend_from_slice(
                     format!(
@@ -4765,7 +4782,7 @@ mod tests {
         let _guard = test_guard();
         let mut screen = NextCoreScreen::new(80, 10);
         screen.feed(
-            "\x1b[?1047h\x1b[?1h\x1b[?5h\x1b[?6h\x1b[?25l\x1b[?66h\x1b[?1002h\x1b[?1004h\x1b[?1005h\x1b[?1006h\x1b[?1007h\x1b[?1015h\x1b[?1016h\x1b[?2004h\x1b[?2026h\x1b[4h",
+            "\x1b[?1047h\x1b[?1h\x1b[?5h\x1b[?6h\x1b[?25l\x1b[?66h\x1b[?1002h\x1b[?1004h\x1b[?1005h\x1b[?1006h\x1b[?1007h\x1b[?1015h\x1b[?1016h\x1b[?1034h\x1b[?2004h\x1b[?2026h\x1b[4h",
         );
         let bytes = Arc::new(Mutex::new(Vec::new()));
         let writer: Arc<Mutex<Box<dyn Write + Send>>> =
@@ -4774,14 +4791,14 @@ mod tests {
             })));
 
         NextCoreEngine::answer_terminal_queries(
-            "\x1b[?1$p\x1b[?5$p\x1b[?6$p\x1b[?7$p\x1b[?25$p\x1b[?66$p\x1b[?1000$p\x1b[?1002$p\x1b[?1003$p\x1b[?1004$p\x1b[?1005$p\x1b[?1006$p\x1b[?1007$p\x1b[?1015$p\x1b[?1016$p\x1b[?47$p\x1b[?1047$p\x1b[?1049$p\x1b[?2004$p\x1b[?2026$p\x1b[4$p",
+            "\x1b[?1$p\x1b[?5$p\x1b[?6$p\x1b[?7$p\x1b[?25$p\x1b[?66$p\x1b[?1000$p\x1b[?1002$p\x1b[?1003$p\x1b[?1004$p\x1b[?1005$p\x1b[?1006$p\x1b[?1007$p\x1b[?1015$p\x1b[?1016$p\x1b[?1034$p\x1b[?47$p\x1b[?1047$p\x1b[?1049$p\x1b[?2004$p\x1b[?2026$p\x1b[4$p",
             &screen,
             &writer,
         );
 
         assert_eq!(
             bytes.lock().as_slice(),
-            b"\x1b[?1;1$y\x1b[?5;1$y\x1b[?6;1$y\x1b[?7;1$y\x1b[?25;2$y\x1b[?66;1$y\x1b[?1000;2$y\x1b[?1002;1$y\x1b[?1003;2$y\x1b[?1004;1$y\x1b[?1005;1$y\x1b[?1006;1$y\x1b[?1007;1$y\x1b[?1015;1$y\x1b[?1016;1$y\x1b[?47;1$y\x1b[?1047;1$y\x1b[?1049;1$y\x1b[?2004;1$y\x1b[?2026;1$y\x1b[4;1$y"
+            b"\x1b[?1;1$y\x1b[?5;1$y\x1b[?6;1$y\x1b[?7;1$y\x1b[?25;2$y\x1b[?66;1$y\x1b[?1000;2$y\x1b[?1002;1$y\x1b[?1003;2$y\x1b[?1004;1$y\x1b[?1005;1$y\x1b[?1006;1$y\x1b[?1007;1$y\x1b[?1015;1$y\x1b[?1016;1$y\x1b[?1034;1$y\x1b[?47;1$y\x1b[?1047;1$y\x1b[?1049;1$y\x1b[?2004;1$y\x1b[?2026;1$y\x1b[4;1$y"
         );
     }
 
@@ -4796,14 +4813,14 @@ mod tests {
             })));
 
         NextCoreEngine::answer_terminal_queries(
-            "\x1b[?1$p\x1b[?5$p\x1b[?6$p\x1b[?66$p\x1b[?1000$p\x1b[?1002$p\x1b[?1003$p\x1b[?1004$p\x1b[?1005$p\x1b[?1006$p\x1b[?1007$p\x1b[?1015$p\x1b[?1016$p\x1b[?47$p\x1b[?1047$p\x1b[?1049$p\x1b[?2004$p\x1b[?2026$p\x1b[4$p",
+            "\x1b[?1$p\x1b[?5$p\x1b[?6$p\x1b[?66$p\x1b[?1000$p\x1b[?1002$p\x1b[?1003$p\x1b[?1004$p\x1b[?1005$p\x1b[?1006$p\x1b[?1007$p\x1b[?1015$p\x1b[?1016$p\x1b[?1034$p\x1b[?47$p\x1b[?1047$p\x1b[?1049$p\x1b[?2004$p\x1b[?2026$p\x1b[4$p",
             &screen,
             &writer,
         );
 
         assert_eq!(
             bytes.lock().as_slice(),
-            b"\x1b[?1;2$y\x1b[?5;2$y\x1b[?6;2$y\x1b[?66;2$y\x1b[?1000;2$y\x1b[?1002;2$y\x1b[?1003;2$y\x1b[?1004;2$y\x1b[?1005;2$y\x1b[?1006;2$y\x1b[?1007;2$y\x1b[?1015;2$y\x1b[?1016;2$y\x1b[?47;2$y\x1b[?1047;2$y\x1b[?1049;2$y\x1b[?2004;2$y\x1b[?2026;2$y\x1b[4;2$y"
+            b"\x1b[?1;2$y\x1b[?5;2$y\x1b[?6;2$y\x1b[?66;2$y\x1b[?1000;2$y\x1b[?1002;2$y\x1b[?1003;2$y\x1b[?1004;2$y\x1b[?1005;2$y\x1b[?1006;2$y\x1b[?1007;2$y\x1b[?1015;2$y\x1b[?1016;2$y\x1b[?1034;2$y\x1b[?47;2$y\x1b[?1047;2$y\x1b[?1049;2$y\x1b[?2004;2$y\x1b[?2026;2$y\x1b[4;2$y"
         );
     }
 
@@ -7276,6 +7293,23 @@ mod tests {
         assert!(!screen.synchronized_output);
         screen.feed("\x1b[?2026h\x1b[!p");
         assert!(!screen.synchronized_output);
+
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_tracks_meta_sends_escape_mode() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let mut screen = NextCoreScreen::new(80, 3);
+
+        assert!(!screen.meta_sends_escape);
+        screen.feed("\x1b[?1034h");
+        assert!(screen.meta_sends_escape);
+        screen.feed("\x1b[?1034l");
+        assert!(!screen.meta_sends_escape);
+        screen.feed("\x1b[?1034h\x1b[!p");
+        assert!(!screen.meta_sends_escape);
 
         Ok(())
     }
