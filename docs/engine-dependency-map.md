@@ -52,6 +52,7 @@ Current covered operations:
 - PTY write confirmation diagnostics without WezTerm pane-object ownership
 - recording lifecycle/export with next-core chunked-output fallback and OSC133 command-block markdown
 - next-core recording text module for ANSI stripping, secret redaction, and trace-id YAML formatting, keeping safe markdown export independently testable from PTY/session lifecycle
+- next-core OSC133 parser module for shell command marker stream splitting, keeping recording command-block detection independently testable from PTY/session lifecycle
 - validated explicit `capture.scrollback` pane ids through the shared session resolver
 - redacted `session.create` launch decision summary for profile/proxy/overlay/command provenance
 - redacted `workspace.restore` template launch plan for cwd/profile/command provenance

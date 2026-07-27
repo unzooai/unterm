@@ -28,6 +28,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 mod cell;
 mod history;
 mod input_pipeline;
+mod osc133;
 mod parser_state;
 mod process_tree;
 mod recording_text;
@@ -119,18 +120,6 @@ struct NextCoreActiveCommand {
     index: u64,
     started_micros: u128,
     text: String,
-}
-
-#[derive(Clone, Debug)]
-struct Osc133Marker {
-    kind: char,
-    exit_code: Option<String>,
-}
-
-#[derive(Clone, Debug)]
-enum Osc133StreamItem<'a> {
-    Text(&'a str),
-    Marker(Osc133Marker),
 }
 
 #[derive(Clone, Debug)]
@@ -2848,14 +2837,14 @@ impl NextCoreEngine {
         text: &str,
         timestamp_micros: u128,
     ) {
-        for item in Self::split_osc133_stream(text) {
+        for item in osc133::split_stream(text) {
             match item {
-                Osc133StreamItem::Text(text) => {
+                osc133::StreamItem::Text(text) => {
                     if let Some(active) = recording.active_command.as_mut() {
                         active.text.push_str(text);
                     }
                 }
-                Osc133StreamItem::Marker(marker) => {
+                osc133::StreamItem::Marker(marker) => {
                     recording.osc133_seen = true;
                     match marker.kind {
                         'C' => {
@@ -2895,72 +2884,6 @@ impl NextCoreEngine {
                 }
             }
         }
-    }
-
-    fn split_osc133_stream(text: &str) -> Vec<Osc133StreamItem<'_>> {
-        let bytes = text.as_bytes();
-        let mut items = Vec::new();
-        let mut last_text = 0usize;
-        let mut i = 0usize;
-        while i + 1 < bytes.len() {
-            if bytes[i] != 0x1b || bytes[i + 1] != b']' {
-                i += 1;
-                continue;
-            }
-
-            let content_start = i + 2;
-            let Some((content_end, next)) = Self::osc_terminator(bytes, content_start) else {
-                break;
-            };
-            let content = &text[content_start..content_end];
-            let Some(marker) = Self::parse_osc133_marker(content) else {
-                i = next;
-                continue;
-            };
-
-            if last_text < i {
-                items.push(Osc133StreamItem::Text(&text[last_text..i]));
-            }
-            items.push(Osc133StreamItem::Marker(marker));
-            last_text = next;
-            i = next;
-        }
-        if last_text < text.len() {
-            items.push(Osc133StreamItem::Text(&text[last_text..]));
-        }
-        items
-    }
-
-    fn osc_terminator(bytes: &[u8], start: usize) -> Option<(usize, usize)> {
-        let mut i = start;
-        while i < bytes.len() {
-            if bytes[i] == 0x07 {
-                return Some((i, i + 1));
-            }
-            if bytes[i] == 0x1b && i + 1 < bytes.len() && bytes[i + 1] == b'\\' {
-                return Some((i, i + 2));
-            }
-            i += 1;
-        }
-        None
-    }
-
-    fn parse_osc133_marker(content: &str) -> Option<Osc133Marker> {
-        let rest = content.strip_prefix("133;")?;
-        let mut parts = rest.split(';');
-        let kind = parts.next()?.chars().next()?;
-        if !matches!(kind, 'A' | 'B' | 'C' | 'D') {
-            return None;
-        }
-        let exit_code = if kind == 'D' {
-            parts
-                .next()
-                .filter(|value| !value.is_empty())
-                .map(str::to_string)
-        } else {
-            None
-        };
-        Some(Osc133Marker { kind, exit_code })
     }
 
     fn write_recording_markdown(
