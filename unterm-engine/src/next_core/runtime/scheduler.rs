@@ -4,8 +4,9 @@ use super::{
     dispatch::RuntimeDispatchResult,
 };
 use crate::{
-    CursorSnapshot, RenderFrameSnapshot, ScreenLine, ScreenSearchMatch, ScreenSnapshot,
-    ScrollbackTextRequest, ScrollbackTextSnapshot, StyledScreenSnapshot, StyledScrollbackSnapshot,
+    CursorSnapshot, EngineHealthSnapshot, RenderFrameSnapshot, ScreenLine, ScreenSearchMatch,
+    ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot, SessionActivitySnapshot,
+    ShellSnapshot, StyledScreenSnapshot, StyledScrollbackSnapshot,
 };
 use anyhow::{bail, Result};
 
@@ -170,6 +171,49 @@ pub(in crate::next_core) fn cursor(pane_id: usize) -> Result<CursorSnapshot> {
         RuntimeDispatchResult::Cursor(cursor) => Ok(cursor),
         other => bail!(
             "runtime scheduler expected cursor dispatch result, got {:?}",
+            other
+        ),
+    }
+}
+
+pub(in crate::next_core) fn output(pane_id: usize) -> Result<String> {
+    let command = RuntimeCommand::RawOutput { pane_id };
+    match consumer::submit_and_dispatch_response(command)? {
+        RuntimeDispatchResult::Output(output) => Ok(output),
+        other => bail!(
+            "runtime scheduler expected raw-output dispatch result, got {:?}",
+            other
+        ),
+    }
+}
+
+pub(in crate::next_core) fn shell_snapshot(pane_id: usize) -> Result<ShellSnapshot> {
+    let command = RuntimeCommand::ShellSnapshot { pane_id };
+    match consumer::submit_and_dispatch_response(command)? {
+        RuntimeDispatchResult::ShellSnapshot(shell) => Ok(shell),
+        other => bail!(
+            "runtime scheduler expected shell-snapshot dispatch result, got {:?}",
+            other
+        ),
+    }
+}
+
+pub(in crate::next_core) fn session_activity(pane_id: usize) -> Result<SessionActivitySnapshot> {
+    let command = RuntimeCommand::SessionActivity { pane_id };
+    match consumer::submit_and_dispatch_response(command)? {
+        RuntimeDispatchResult::SessionActivity(activity) => Ok(activity),
+        other => bail!(
+            "runtime scheduler expected session-activity dispatch result, got {:?}",
+            other
+        ),
+    }
+}
+
+pub(in crate::next_core) fn health_snapshot() -> Result<EngineHealthSnapshot> {
+    match consumer::submit_and_dispatch_response(RuntimeCommand::HealthSnapshot)? {
+        RuntimeDispatchResult::HealthSnapshot(health) => Ok(health),
+        other => bail!(
+            "runtime scheduler expected health-snapshot dispatch result, got {:?}",
             other
         ),
     }
@@ -503,6 +547,30 @@ mod tests {
         let stats = queue_stats();
         assert_eq!(stats.pending_lanes.screen, 0);
         assert_eq!(stats.pending_lanes.background, 1);
+    }
+
+    #[test]
+    fn status_reads_enter_runtime_queue_before_dispatch() {
+        test_facade::reset();
+
+        let health = health_snapshot().expect("health should dispatch through runtime queue");
+
+        assert_eq!(health.engine, "next-core");
+        assert_eq!(queue_stats().pending_commands, 0);
+        assert_eq!(queue_stats().rejected_commands, 0);
+    }
+
+    #[test]
+    fn status_reads_use_background_backpressure() {
+        test_facade::reset();
+        install_zero_command_budget();
+
+        let err = shell_snapshot(1).expect_err("zero command budget should reject shell status");
+
+        assert!(err
+            .to_string()
+            .contains("runtime background queue rejected command"));
+        assert_eq!(queue_stats().rejected_commands, 1);
     }
 
     #[test]

@@ -1734,7 +1734,7 @@ impl RecordingEngine for NextCoreEngine {
 
 impl HealthEngine for NextCoreEngine {
     fn health(&self) -> Result<EngineHealthSnapshot> {
-        Ok(runtime::health_snapshot())
+        runtime::health_snapshot()
     }
 }
 

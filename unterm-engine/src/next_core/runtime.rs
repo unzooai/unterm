@@ -15,6 +15,7 @@ mod scheduler;
 mod scheduling;
 mod screen_executor;
 mod session_facade;
+mod status_executor;
 mod status_facade;
 #[cfg(test)]
 pub(super) mod test_facade;

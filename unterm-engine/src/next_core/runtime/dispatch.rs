@@ -2,11 +2,12 @@
 
 use super::{
     command::{RuntimeCommand, RuntimeCommandClass},
-    input_executor, screen_executor,
+    input_executor, screen_executor, status_executor,
 };
 use crate::{
-    CursorSnapshot, RenderFrameSnapshot, ScreenLine, ScreenSearchMatch, ScreenSnapshot,
-    ScrollbackTextSnapshot, StyledScreenSnapshot, StyledScrollbackSnapshot,
+    CursorSnapshot, EngineHealthSnapshot, RenderFrameSnapshot, ScreenLine, ScreenSearchMatch,
+    ScreenSnapshot, ScrollbackTextSnapshot, SessionActivitySnapshot, ShellSnapshot,
+    StyledScreenSnapshot, StyledScrollbackSnapshot,
 };
 use anyhow::{bail, Result};
 
@@ -23,6 +24,10 @@ pub(in crate::next_core) enum RuntimeDispatchResult {
     StyledScrollback(StyledScrollbackSnapshot),
     Search(Vec<ScreenSearchMatch>),
     Cursor(CursorSnapshot),
+    Output(String),
+    ShellSnapshot(ShellSnapshot),
+    SessionActivity(SessionActivitySnapshot),
+    HealthSnapshot(EngineHealthSnapshot),
 }
 
 pub(in crate::next_core) fn execute(command: RuntimeCommand) -> Result<RuntimeDispatchResult> {
@@ -36,12 +41,29 @@ pub(in crate::next_core) fn execute(command: RuntimeCommand) -> Result<RuntimeDi
             Ok(RuntimeDispatchResult::Unit)
         }
         RuntimeCommandClass::ScreenRead => execute_screen_read(command),
-        RuntimeCommandClass::SessionLifecycle
-        | RuntimeCommandClass::Recording
-        | RuntimeCommandClass::Status => bail!(
+        RuntimeCommandClass::Status => execute_status(command),
+        RuntimeCommandClass::SessionLifecycle | RuntimeCommandClass::Recording => bail!(
             "runtime dispatch does not yet execute {:?} commands",
             command.class()
         ),
+    }
+}
+
+fn execute_status(command: RuntimeCommand) -> Result<RuntimeDispatchResult> {
+    match command {
+        RuntimeCommand::RawOutput { .. } => Ok(RuntimeDispatchResult::Output(
+            status_executor::execute_output(command)?,
+        )),
+        RuntimeCommand::ShellSnapshot { .. } => Ok(RuntimeDispatchResult::ShellSnapshot(
+            status_executor::execute_shell_snapshot(command)?,
+        )),
+        RuntimeCommand::SessionActivity { .. } => Ok(RuntimeDispatchResult::SessionActivity(
+            status_executor::execute_session_activity(command)?,
+        )),
+        RuntimeCommand::HealthSnapshot => Ok(RuntimeDispatchResult::HealthSnapshot(
+            status_executor::execute_health_snapshot(command)?,
+        )),
+        _ => bail!("runtime dispatch expected status command"),
     }
 }
 
@@ -87,11 +109,22 @@ mod tests {
     use crate::next_core::runtime::test_facade;
 
     #[test]
-    fn dispatch_rejects_unimplemented_background_commands() {
-        let err = execute(RuntimeCommand::HealthSnapshot)
-            .expect_err("status command should wait for response-channel plumbing");
+    fn dispatch_rejects_unimplemented_lifecycle_commands() {
+        let err = execute(RuntimeCommand::FocusSession { pane_id: 1 })
+            .expect_err("lifecycle command should wait for response-channel plumbing");
 
-        assert!(err.to_string().contains("does not yet execute Status"));
+        assert!(err
+            .to_string()
+            .contains("does not yet execute SessionLifecycle"));
+    }
+
+    #[test]
+    fn dispatch_routes_status_commands_to_status_executor() {
+        test_facade::reset();
+
+        let result = execute(RuntimeCommand::HealthSnapshot).expect("health should dispatch");
+
+        assert!(matches!(result, RuntimeDispatchResult::HealthSnapshot(_)));
     }
 
     #[test]
