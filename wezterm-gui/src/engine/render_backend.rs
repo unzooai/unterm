@@ -7,6 +7,7 @@
 use super::{
     CellStyle, EngineRenderCommitBatch, RenderRect, RenderTextRun, StyledColor, StyledVerticalAlign,
 };
+use wezterm_font::GlyphInfo;
 use wgpu::util::DeviceExt;
 
 const NEXT_CORE_RENDER_SHADER: &str = r#"
@@ -578,6 +579,13 @@ impl EngineWgpuRenderBackend {
         EngineRenderTextAtlasPlan::from_buffer_plan(plan)
     }
 
+    pub fn prepare_shaped_glyph_plan_from_glyph_infos(
+        plan: &EngineRenderTextAtlasPlan,
+        shaped_runs: &[Vec<GlyphInfo>],
+    ) -> EngineRenderShapedGlyphPlan {
+        EngineRenderShapedGlyphPlan::from_text_atlas_plan_and_glyph_infos(plan, shaped_runs)
+    }
+
     pub fn prepare_glyph_atlas(plan: &EngineRenderBufferPlan) -> EngineRenderGlyphAtlasPlan {
         EngineRenderGlyphAtlasPlan::from_text_atlas_plan(&Self::prepare_text_atlas(plan))
     }
@@ -1049,6 +1057,34 @@ impl EngineRenderTextAtlasPlan {
 }
 
 #[allow(dead_code)]
+impl EngineRenderShapedGlyphPlan {
+    pub fn from_text_atlas_plan_and_glyph_infos(
+        plan: &EngineRenderTextAtlasPlan,
+        shaped_runs: &[Vec<GlyphInfo>],
+    ) -> Self {
+        let mut glyphs = Vec::new();
+
+        if plan.submitted {
+            for (run, glyph_infos) in plan.runs.iter().zip(shaped_runs.iter()) {
+                push_shaped_glyphs_from_infos(&mut glyphs, run, glyph_infos);
+            }
+        }
+
+        Self {
+            pane_id: plan.pane_id,
+            submitted: plan.submitted,
+            revision: plan.revision,
+            requires_full_repaint: plan.requires_full_repaint,
+            glyphs,
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.glyphs.is_empty()
+    }
+}
+
+#[allow(dead_code)]
 impl EngineRenderGlyphAtlasPlan {
     pub fn from_text_atlas_plan(plan: &EngineRenderTextAtlasPlan) -> Self {
         let mut keys = Vec::new();
@@ -1452,6 +1488,46 @@ fn push_glyph_atlas_instances(
             },
         );
     }
+}
+
+fn push_shaped_glyphs_from_infos(
+    glyphs: &mut Vec<EngineRenderShapedGlyph>,
+    run: &EngineRenderTextAtlasRun,
+    glyph_infos: &[GlyphInfo],
+) {
+    let mut pen_x = 0.0f64;
+    let mut consumed_cells = 0usize;
+    for info in glyph_infos {
+        let cells = usize::from(info.num_cells.max(1));
+        let x = (run.rect.x as f64 + pen_x + info.x_offset.get()).round();
+        let y = (run.rect.y as f64 + info.y_offset.get()).round();
+        let width = info.x_advance.get().abs().round().max(1.0) as usize;
+        let height = run.rect.height.max(1);
+        glyphs.push(EngineRenderShapedGlyph {
+            row: run.row,
+            col: run.col.saturating_add(consumed_cells),
+            cells,
+            text: shaped_glyph_text(run, info),
+            rect: RenderRect {
+                x: x.max(0.0) as usize,
+                y: y.max(0.0) as usize,
+                width,
+                height,
+            },
+            foreground: run.foreground,
+            style: run.style.clone(),
+            font_idx: info.font_idx,
+            glyph_pos: info.glyph_pos,
+        });
+        pen_x += info.x_advance.get();
+        consumed_cells = consumed_cells.saturating_add(cells);
+    }
+}
+
+fn shaped_glyph_text(run: &EngineRenderTextAtlasRun, info: &GlyphInfo) -> String {
+    info.only_char
+        .map(|ch| ch.to_string())
+        .unwrap_or_else(|| run.text.clone())
 }
 
 fn push_shaped_glyph_atlas_instance(
@@ -1913,6 +1989,56 @@ mod tests {
         assert_eq!(atlas.instances[1].key_index, 0);
         assert_eq!(atlas.instances[2].key_index, 1);
         assert_eq!(atlas.instances[2].col, 2);
+    }
+
+    #[test]
+    fn glyph_infos_build_shaped_glyph_plan_for_atlas_input() {
+        let style = CellStyle {
+            fg: Some(StyledColor::Rgb(0x33, 0x44, 0x55)),
+            bold: true,
+            ..Default::default()
+        };
+        let text_atlas = EngineRenderTextAtlasPlan {
+            pane_id: 15,
+            submitted: true,
+            revision: 22,
+            requires_full_repaint: false,
+            runs: vec![EngineRenderTextAtlasRun {
+                row: 1,
+                col: 2,
+                cells: 2,
+                text: "ab".to_string(),
+                rect: RenderRect {
+                    x: 20,
+                    y: 40,
+                    width: 18,
+                    height: 16,
+                },
+                foreground: [0.2, 0.3, 0.4, 1.0],
+                style,
+            }],
+        };
+        let glyph_infos = vec![vec![
+            glyph_info("a", 'a', 0, 101, 9.0, 0.0, 0.0, 1),
+            glyph_info("b", 'b', 1, 202, 9.0, 1.0, 0.0, 1),
+        ]];
+
+        let shaped = EngineWgpuRenderBackend::prepare_shaped_glyph_plan_from_glyph_infos(
+            &text_atlas,
+            &glyph_infos,
+        );
+        let atlas = EngineWgpuRenderBackend::prepare_glyph_atlas_from_shaped_glyphs(&shaped);
+
+        assert_eq!(shaped.pane_id, 15);
+        assert_eq!(shaped.glyphs.len(), 2);
+        assert_eq!(shaped.glyphs[0].rect.x, 20);
+        assert_eq!(shaped.glyphs[0].rect.width, 9);
+        assert_eq!(shaped.glyphs[1].rect.x, 30);
+        assert_eq!(shaped.glyphs[1].col, 3);
+        assert_eq!(shaped.glyphs[1].font_idx, 1);
+        assert_eq!(shaped.glyphs[1].glyph_pos, 202);
+        assert_eq!(atlas.keys[0].raster_identity(), Some((0, 101)));
+        assert_eq!(atlas.keys[1].raster_identity(), Some((1, 202)));
     }
 
     #[test]
@@ -2464,6 +2590,31 @@ mod tests {
             style,
             font_idx,
             glyph_pos,
+        }
+    }
+
+    fn glyph_info(
+        text: &str,
+        only_char: char,
+        font_idx: usize,
+        glyph_pos: u32,
+        x_advance: f64,
+        x_offset: f64,
+        y_offset: f64,
+        num_cells: u8,
+    ) -> GlyphInfo {
+        GlyphInfo {
+            text: text.to_string(),
+            only_char: Some(only_char),
+            is_space: false,
+            num_cells,
+            cluster: 0,
+            font_idx,
+            glyph_pos,
+            x_advance: wezterm_font::units::PixelLength::new(x_advance),
+            y_advance: wezterm_font::units::PixelLength::new(0.0),
+            x_offset: wezterm_font::units::PixelLength::new(x_offset),
+            y_offset: wezterm_font::units::PixelLength::new(y_offset),
         }
     }
 }
