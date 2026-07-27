@@ -65,6 +65,7 @@ CI can use the lightweight wrapper to verify the committed summary:
 ```
 
 Use `-RunBenchmark` when the job should refresh the Markdown/JSON artifacts before verifying them. The wrapper also runs the size budget verifier unless `-SkipSizeBudget` is passed.
+It also runs the GUI-side next-core render replacement contract tests through `ci\next-core-gui-render.ps1` unless `-SkipGuiRender` is passed.
 
 ## Experimental MCP Engine Selector
 

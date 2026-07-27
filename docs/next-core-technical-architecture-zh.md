@@ -244,6 +244,7 @@ next-core 已经在 screen/parser 方向具备基础能力，包括：
 - WebGPU draw loop 已提供 `UNTERM_NEXT_CORE_WEBGPU_PANE` 实验分支：默认不启用；`1/true/on/append` 在 legacy pass 后追加 prepared pane-frame pass；`replace` 会跳过 legacy pane quad ranges，由 next-core 绘制 pane，同时保留 legacy chrome/UI，用于验证 pane-only 替代路径
 - WebGPU `replace` 模式现在会同时检查 next-core buffer batch 是否 draw-ready、prepared frame 是否 replace-ready；重复 revision、空 buffer 或 preparation 不完整都会保留 legacy pane 兜底，并暴露结构化 readiness issues，避免 pane-only 替换实验出现空白帧
 - WebGPU `replace` readiness 已收敛成结构化 diagnostics，包含 mode、pane/revision、batch presence/readiness、prepared-frame presence/readiness 和明确 fallback issues；未来 pane replacement 自动化门禁可以直接消费诊断对象，而不是复刻 draw-loop 条件
+- `ci/next-core-gui-render.ps1` 已把 GUI 侧 next-core render replacement contract 收成独立门禁：先校验关键 engine/render consumer/buffer plan/replace diagnostics 测试存在，再运行 `engine::tests::`，避免 pane 替换链路只靠零散单测或日志观察
 - `EngineRenderPaneReplaceDiagnostics` 已移动到 engine facade 后的共享边界；WebGPU draw 和未来 CI replacement checks 可以共用同一份 pane replacement readiness contract
 - WebGPU `replace` readiness 对 text frame 现在还会要求 cached glyph texture/upload diagnostics ready；preflight 在克隆的 glyph atlas state 上运行，避免在真正 draw 前污染 WebGPU cache
 - WebGPU `replace` readiness 现在会校验 prepared-frame 与 cached-glyph diagnostics 的 pane/revision 必须匹配当前 buffer batch；过期 frame 或跨 pane 诊断会保留 legacy pane 兜底
