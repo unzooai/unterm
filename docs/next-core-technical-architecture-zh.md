@@ -253,12 +253,12 @@ next-core 已经在 screen/parser 方向具备基础能力，包括：
 - `WebGpuState` 已持有按 pane 划分的 next-core glyph atlas state，并在 pane render consumer 清理时同步释放；glyph placement 复用现在具备跨 paint 生命周期，不再停留在单帧局部计划
 - `EngineRenderGlyphAtlasTextureUpdatePlan` 已通过 `EngineRenderGlyphRasterSource` 边界把新插入的 glyph key 转成 texture update region；默认 deterministic source 保持测试稳定，后续 GUI font raster/cache 可以提供真实 RGBA bytes，而不改变 `queue.write_texture` 上传契约
 - `NextCoreGlyphTexture` 已持有独立 WebGPU glyph texture atlas，并对 next-core glyph texture region 做尺寸/bytes 校验后用 `queue.write_texture` 上传
-- `EngineWgpuRenderBackend` 已持有 textured glyph pipeline/pass ABI，`WebGpuState` 会把 next-core glyph atlas texture 绑定到 sampler 后，在 solid next-core pass 之后追加 textured glyph pass
+- `WebGpuState` 已持有 next-core solid/textured glyph shader、vertex layout、pipeline 创建和 glyph atlas texture 绑定，在 solid next-core pass 之后追加 textured glyph pass
 - `EngineRenderTexturedGlyphUploadPlan` 已把 glyph atlas placement 转成带 clip-space position 和 atlas UV 的 textured glyph vertices；真实 font raster/cache 接入前，texture draw ABI 已先固定
 - `EngineWgpuRenderBackend::prepare_frame_for_viewport` 已把 clip-space upload buffers、text-atlas input 与 glyph-atlas instances 合并为同一帧 preparation；WebGPU pane encoder 现在会先生成 combined frame plan 再绘制
 - `EngineWgpuRenderBackend` 已把 buffer plan 转成 POD GPU vertex ABI，但具体 `wgpu` vertex/index buffer 创建下沉到 WebGPU renderer；engine facade 继续停留在 CPU-side render plan 边界
 - `EngineWgpuRenderPassPlan` 已固定最小 indexed draw-pass 契约，WebGPU renderer 根据该 pass plan 把已上传 buffer 写入真实 `wgpu::CommandEncoder`，重复 revision/空帧不会产生 draw
-- `EngineWgpuPipelineConfig`、next-core GPU vertex layout 和最小 WGSL shader 已固定 solid-color quad pipeline ABI；背景/文本/光标顶点携带 RGBA，窗口接入时通过 viewport 尺寸转换为 clip-space，字体 atlas 仍留给后续独立步骤
+- next-core GPU vertex POD 数据仍由 engine facade 输出，但 `wgpu` vertex layout、最小 WGSL shader 和 pipeline ABI 已下沉到 `WebGpuState`；背景/文本/光标顶点携带 RGBA，窗口接入时通过 viewport 尺寸转换为 clip-space，字体 atlas 仍留给后续独立步骤
 - `WebGpuState` 已在设备初始化时缓存 next-core solid-quad backend/pipeline，与现有 legacy pipeline 并存；后续 pane 绘制只需提交 commit buffers，不需要每帧创建 shader/pipeline
 - `WebGpuState::encode_next_core_upload` 已把 next-core GPU upload plan、renderer-owned buffer upload、缓存 pipeline 和 `wgpu::CommandEncoder` 串成一个 GUI 侧调用点；当前 legacy draw loop 仍保持不变
 - `WebGpuState::encode_next_core_pane_frame` 已消费 renderer-owned pane draw frame 并统一进入 pane-frame encoder helper，复用其中的 engine-prepared frame、当前 viewport 尺寸、viewport-to-clip 转换和缓存 pipeline；pane draw loop 不再暴露 raw buffer-plan 编码入口，engine prepared frame 也不再携带 GUI 字体对象

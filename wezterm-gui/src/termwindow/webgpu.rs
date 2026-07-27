@@ -4,10 +4,11 @@ use crate::engine::{
     EngineRenderGlyphAtlasCache, EngineRenderGlyphAtlasCacheUpdate, EngineRenderGlyphAtlasPlan,
     EngineRenderGlyphAtlasTextureRegion, EngineRenderGlyphAtlasTextureUpdatePlan,
     EngineRenderGlyphRaster, EngineRenderGlyphRasterSource, EngineRenderGpuUploadPlan,
-    EngineRenderPreparedPaneFrame, EngineRenderShaperGlyph, EngineRenderTextAtlasPlan,
-    EngineRenderTexturedGlyphLayoutDiff, EngineRenderTexturedGlyphUploadPlan,
-    EngineWgpuPipelineConfig, EngineWgpuPreparedFramePlan, EngineWgpuRenderBackend,
-    EngineWgpuRenderPassPlan, EngineWgpuTexturedGlyphPassPlan,
+    EngineRenderGpuVertex, EngineRenderPreparedPaneFrame, EngineRenderShaperGlyph,
+    EngineRenderTextAtlasPlan, EngineRenderTexturedGlyphLayoutDiff,
+    EngineRenderTexturedGlyphUploadPlan, EngineRenderTexturedGlyphVertex,
+    EngineWgpuPreparedFramePlan, EngineWgpuRenderBackend, EngineWgpuRenderPassPlan,
+    EngineWgpuTexturedGlyphPassPlan,
 };
 use crate::quad::Vertex;
 use anyhow::anyhow;
@@ -27,6 +28,74 @@ use window::raw_window_handle::{
     RawWindowHandle, WindowHandle,
 };
 use window::{BitmapImage, Dimensions, Rect, Window};
+
+const NEXT_CORE_RENDER_SHADER: &str = r#"
+struct VertexOut {
+    @builtin(position) position: vec4<f32>,
+    @location(0) color: vec4<f32>,
+};
+
+@vertex
+fn vs_main(
+    @location(0) position: vec2<f32>,
+    @location(1) color: vec4<f32>,
+) -> VertexOut {
+    var out: VertexOut;
+    out.position = vec4<f32>(position, 0.0, 1.0);
+    out.color = color;
+    return out;
+}
+
+@fragment
+fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
+    return in.color;
+}
+"#;
+
+const NEXT_CORE_TEXTURED_GLYPH_SHADER: &str = r#"
+struct VertexOut {
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+    @location(1) color: vec4<f32>,
+};
+
+@group(0) @binding(0) var glyph_atlas_tex: texture_2d<f32>;
+@group(0) @binding(1) var glyph_atlas_sampler: sampler;
+
+@vertex
+fn vs_main(
+    @location(0) position: vec2<f32>,
+    @location(1) uv: vec2<f32>,
+    @location(2) color: vec4<f32>,
+    @location(3) _key_index: u32,
+) -> VertexOut {
+    var out: VertexOut;
+    out.position = vec4<f32>(position, 0.0, 1.0);
+    out.uv = uv;
+    out.color = color;
+    return out;
+}
+
+@fragment
+fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
+    let glyph = textureSample(glyph_atlas_tex, glyph_atlas_sampler, in.uv);
+    return vec4<f32>(in.color.rgb, in.color.a * glyph.a);
+}
+"#;
+
+const NEXT_CORE_RENDER_VERTEX_ATTRIBS: [wgpu::VertexAttribute; 4] = wgpu::vertex_attr_array![
+    0 => Float32x2,
+    1 => Float32x4,
+    2 => Uint32,
+    3 => Uint32,
+];
+
+const NEXT_CORE_TEXTURED_GLYPH_VERTEX_ATTRIBS: [wgpu::VertexAttribute; 4] = wgpu::vertex_attr_array![
+    0 => Float32x2,
+    1 => Float32x2,
+    2 => Float32x4,
+    3 => Uint32,
+];
 
 #[repr(C)]
 #[derive(Copy, Clone, Default, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -840,6 +909,128 @@ fn compute_compatibility_list(
 }
 
 impl WebGpuState {
+    fn next_core_render_vertex_layout() -> wgpu::VertexBufferLayout<'static> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<EngineRenderGpuVertex>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &NEXT_CORE_RENDER_VERTEX_ATTRIBS,
+        }
+    }
+
+    fn next_core_textured_glyph_vertex_layout() -> wgpu::VertexBufferLayout<'static> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<EngineRenderTexturedGlyphVertex>()
+                as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &NEXT_CORE_TEXTURED_GLYPH_VERTEX_ATTRIBS,
+        }
+    }
+
+    fn create_next_core_render_pipeline(
+        device: &wgpu::Device,
+        target_format: wgpu::TextureFormat,
+    ) -> wgpu::RenderPipeline {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("next-core render shader"),
+            source: wgpu::ShaderSource::Wgsl(NEXT_CORE_RENDER_SHADER.into()),
+        });
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("next-core render pipeline layout"),
+            bind_group_layouts: &[],
+            push_constant_ranges: &[],
+        });
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("next-core render pipeline"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                buffers: &[Self::next_core_render_vertex_layout()],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: target_format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview: None,
+            cache: None,
+        })
+    }
+
+    fn create_next_core_textured_glyph_pipeline(
+        device: &wgpu::Device,
+        target_format: wgpu::TextureFormat,
+        glyph_texture_bind_group_layout: &wgpu::BindGroupLayout,
+    ) -> wgpu::RenderPipeline {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("next-core textured glyph shader"),
+            source: wgpu::ShaderSource::Wgsl(NEXT_CORE_TEXTURED_GLYPH_SHADER.into()),
+        });
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("next-core textured glyph pipeline layout"),
+            bind_group_layouts: &[glyph_texture_bind_group_layout],
+            push_constant_ranges: &[],
+        });
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("next-core textured glyph pipeline"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                buffers: &[Self::next_core_textured_glyph_vertex_layout()],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: target_format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview: None,
+            cache: None,
+        })
+    }
+
     pub async fn new(
         window: &Window,
         dimensions: Dimensions,
@@ -1131,12 +1322,8 @@ impl WebGpuState {
             cache: None,
         });
         let next_core_render_backend = EngineWgpuRenderBackend::default();
-        let next_core_render_pipeline = next_core_render_backend.create_pipeline(
-            &device,
-            EngineWgpuPipelineConfig {
-                target_format: config.format,
-            },
-        );
+        let next_core_render_pipeline =
+            Self::create_next_core_render_pipeline(&device, config.format);
         let next_core_glyph_texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
@@ -1159,14 +1346,11 @@ impl WebGpuState {
                 ],
                 label: Some("next-core glyph texture bind group layout"),
             });
-        let next_core_textured_glyph_pipeline = next_core_render_backend
-            .create_textured_glyph_pipeline(
-                &device,
-                EngineWgpuPipelineConfig {
-                    target_format: config.format,
-                },
-                &next_core_glyph_texture_bind_group_layout,
-            );
+        let next_core_textured_glyph_pipeline = Self::create_next_core_textured_glyph_pipeline(
+            &device,
+            config.format,
+            &next_core_glyph_texture_bind_group_layout,
+        );
         let next_core_glyph_texture = NextCoreGlyphTexture::new_with_device(
             NEXT_CORE_GLYPH_ATLAS_WIDTH_PX as u32,
             NEXT_CORE_GLYPH_ATLAS_HEIGHT_PX as u32,

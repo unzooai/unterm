@@ -27,7 +27,7 @@ pub use render_backend::{
     EngineRenderTexturedGlyphLayoutIdentity, EngineRenderTexturedGlyphLayoutMismatch,
     EngineRenderTexturedGlyphLayoutReport, EngineRenderTexturedGlyphUploadPlan,
     EngineRenderTexturedGlyphVertex, EngineRenderVertex, EngineRenderVertexLayer,
-    EngineWgpuPipelineConfig, EngineWgpuPreparedFrameDiagnostics, EngineWgpuPreparedFramePlan,
+    EngineWgpuPreparedFrameDiagnostics, EngineWgpuPreparedFramePlan,
     EngineWgpuPreparedFrameReadinessIssue, EngineWgpuRenderBackend, EngineWgpuRenderPassPlan,
     EngineWgpuTexturedGlyphPassPlan,
 };
@@ -211,9 +211,9 @@ mod tests {
         EngineRenderConsumer, EngineRenderConsumerSet, EngineRenderGpuUploadPlan,
         EngineRenderGpuVertex, EngineRenderPaneReplaceDiagnostics,
         EngineRenderPaneReplaceReadinessIssue, EngineRenderPreparedPaneFrame, EngineRenderVertex,
-        EngineRenderVertexLayer, EngineWgpuPipelineConfig, EngineWgpuPreparedFrameDiagnostics,
-        EngineWgpuRenderBackend, EngineWgpuRenderPassPlan, LaunchPolicySnapshot, RenderCellMetrics,
-        RenderConsumerState, ScreenEngine, SessionEngine,
+        EngineRenderVertexLayer, EngineWgpuPreparedFrameDiagnostics, EngineWgpuRenderBackend,
+        EngineWgpuRenderPassPlan, LaunchPolicySnapshot, RenderCellMetrics, RenderConsumerState,
+        ScreenEngine, SessionEngine,
     };
 
     #[test]
@@ -401,15 +401,8 @@ mod tests {
                 && vertex.position[1] <= 1.0
         }));
         assert_eq!(
-            EngineRenderGpuVertex::desc().array_stride,
-            std::mem::size_of::<EngineRenderGpuVertex>() as wgpu::BufferAddress
-        );
-        let pipeline_config = EngineWgpuPipelineConfig {
-            target_format: wgpu::TextureFormat::Rgba8UnormSrgb,
-        };
-        assert_eq!(
-            pipeline_config.target_format,
-            wgpu::TextureFormat::Rgba8UnormSrgb
+            upload_plan.vertex_bytes_len(),
+            upload_plan.vertices.len() * std::mem::size_of::<EngineRenderGpuVertex>()
         );
         let pass_plan =
             EngineWgpuRenderPassPlan::from_upload_plan(&upload_plan, Some([0.0, 0.0, 0.0, 1.0]));
