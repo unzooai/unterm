@@ -648,8 +648,11 @@ impl NextCoreScreen {
     fn set_viewport_top_near(&mut self, target: isize) {
         let max_top = self.history_len().saturating_sub(self.rows);
         let target = target.max(0) as usize;
-        let top = target.saturating_sub(self.rows / 4).min(max_top);
-        self.viewport_top = Some(top);
+        self.viewport_top = if target >= max_top {
+            None
+        } else {
+            Some(target.saturating_sub(self.rows / 4).min(max_top))
+        };
         self.revision = self.revision.saturating_add(1);
         self.mark_all_dirty();
     }
@@ -7231,6 +7234,35 @@ mod tests {
 
         assert_eq!(screen.scrollback_rows(), MAX_SCROLLBACK_LINES);
         assert_eq!(screen.snapshot_viewport_lines(), before);
+
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_scroll_to_bottom_follows_new_output() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let mut screen = NextCoreScreen::new(80, 3);
+
+        screen.feed("one\ntwo\nthree\nfour\nfive");
+        screen.set_viewport_top_near(1);
+        assert_eq!(
+            screen.snapshot_viewport_lines(),
+            vec!["two".to_string(), "three".to_string(), "four".to_string()]
+        );
+
+        screen.set_viewport_top_near(2);
+        assert_eq!(screen.viewport_top, None);
+        assert_eq!(
+            screen.snapshot_viewport_lines(),
+            vec!["three".to_string(), "four".to_string(), "five".to_string()]
+        );
+
+        screen.feed("\nsix");
+        assert_eq!(
+            screen.snapshot_viewport_lines(),
+            vec!["four".to_string(), "five".to_string(), "six".to_string()]
+        );
 
         Ok(())
     }
