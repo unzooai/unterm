@@ -4,6 +4,7 @@ use super::DirtyRows;
 pub(super) struct RenderState {
     revision: u64,
     dirty_rows: Option<DirtyRows>,
+    dirty_since_revision: Option<u64>,
 }
 
 impl RenderState {
@@ -19,12 +20,22 @@ impl RenderState {
         self.dirty_rows
     }
 
+    pub(super) fn can_render_delta_since(&self, since_revision: u64) -> bool {
+        self.dirty_since_revision
+            .is_some_and(|dirty_since| dirty_since <= since_revision)
+    }
+
     pub(super) fn bump_revision(&mut self) {
+        let previous = self.revision;
+        if self.dirty_since_revision.is_none() {
+            self.dirty_since_revision = Some(previous);
+        }
         self.revision = self.revision.wrapping_add(1).max(1);
     }
 
     pub(super) fn clear_dirty_rows(&mut self) {
         self.dirty_rows = None;
+        self.dirty_since_revision = None;
     }
 
     pub(super) fn mark_dirty_row(&mut self, row: usize, rows: usize) {

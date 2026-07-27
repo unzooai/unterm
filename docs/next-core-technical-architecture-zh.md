@@ -207,6 +207,7 @@ next-core 已经在 screen/parser 方向具备基础能力，包括：
 - 基础 VT 光标、滚动区、模式报告、DA/DSR/DECRQM query response
 - SGR 样式、扩展色、OSC 8 hyperlink
 - scrollback ring、logical viewport、styled render-frame full/delta snapshot
+- render-frame dirty rows 跨 PTY chunk 累计；如果请求 revision 早于当前 dirty baseline，则回退 full frame，避免未来 GUI renderer 漏 repaint
 - benchmark 已覆盖 input write、key-to-screen、input burst under output、echo、paste、output flood、scrollback paging、viewport scroll、screen-read under flood、render-frame delta、focus/session lifecycle
 - zero-width combining marks attach to preceding visible cells without advancing cursor position
 - DECFRA、DECERA、DECCARA、DECRARA 矩形操作

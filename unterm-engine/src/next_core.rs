@@ -366,7 +366,6 @@ impl NextCoreScreen {
     fn feed(&mut self, chunk: &str) {
         if !chunk.is_empty() {
             self.bump_revision();
-            self.clear_dirty_rows();
         }
         let mut parser = std::mem::take(&mut self.parser);
         parser.feed(self, chunk);
@@ -468,6 +467,10 @@ impl NextCoreScreen {
 
     fn dirty_rows(&self) -> Option<DirtyRows> {
         self.render_state.dirty_rows()
+    }
+
+    fn can_render_delta_since(&self, since_revision: u64) -> bool {
+        self.render_state.can_render_delta_since(since_revision)
     }
 
     fn cursor_snapshot(&self) -> CursorSnapshot {
@@ -4405,7 +4408,7 @@ impl ScreenEngine for NextCoreEngine {
         };
 
         let snapshot = {
-            let screen = screen_handle.lock();
+            let mut screen = screen_handle.lock();
             let first_row = screen.viewport_first_row();
             let revision = screen.revision();
             let all_rows = if screen.rows == 0 {
@@ -4429,9 +4432,11 @@ impl ScreenEngine for NextCoreEngine {
                     full: false,
                 }
             } else {
-                let force_full = since_revision.is_none()
-                    || since_revision.is_some_and(|since| since > revision)
-                    || screen.dirty_rows().is_none();
+                let can_delta = since_revision
+                    .filter(|since| *since <= revision)
+                    .is_some_and(|since| screen.can_render_delta_since(since));
+                let force_full =
+                    since_revision.is_none() || !can_delta || screen.dirty_rows().is_none();
                 let dirty_rows = if force_full {
                     all_rows
                 } else if screen.history.viewport_is_pinned() && screen.dirty_rows() != all_rows {
@@ -4446,7 +4451,7 @@ impl ScreenEngine for NextCoreEngine {
                     None => Vec::new(),
                 };
 
-                RenderFrameSnapshot {
+                let snapshot = RenderFrameSnapshot {
                     lines,
                     cursor: screen.cursor_snapshot(),
                     cols: screen.cols,
@@ -4455,7 +4460,11 @@ impl ScreenEngine for NextCoreEngine {
                     revision,
                     dirty_rows,
                     full,
+                };
+                if snapshot.full || snapshot.dirty_rows.is_some() {
+                    screen.clear_dirty_rows();
                 }
+                snapshot
             }
         };
         activity_handle
@@ -6159,6 +6168,55 @@ mod tests {
                 .collect::<String>(),
             "alpha!"
         );
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn render_frames_accumulate_dirty_rows_across_chunks() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 12,
+            rows: 4,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+        let screen_handle = {
+            let state = state().read();
+            Arc::clone(
+                &state
+                    .sessions
+                    .iter()
+                    .find(|candidate| candidate.snapshot.id == session.id)
+                    .expect("session exists")
+                    .screen,
+            )
+        };
+
+        screen_handle.lock().feed("seed");
+        let baseline = engine.read_render_frame(session.id, None)?;
+        assert!(baseline.full);
+
+        screen_handle.lock().feed("\x1b[1;1HA");
+        screen_handle.lock().feed("\x1b[2;1HB");
+        let delta = engine.read_render_frame(session.id, Some(baseline.revision))?;
+        assert!(!delta.full);
+        assert_eq!(delta.dirty_rows, Some(DirtyRows { start: 0, end: 1 }));
+        assert_eq!(delta.lines.len(), 2);
+        assert_eq!(delta.lines[0].row, 0);
+        assert_eq!(delta.lines[0].cells[0].ch, 'A');
+        assert_eq!(delta.lines[1].row, 1);
+        assert_eq!(delta.lines[1].cells[0].ch, 'B');
+
+        let stale = engine.read_render_frame(session.id, Some(baseline.revision))?;
+        assert!(stale.full);
+        assert_eq!(stale.dirty_rows, Some(DirtyRows { start: 0, end: 3 }));
+        assert_eq!(stale.lines.len(), 2);
 
         engine.destroy_session(session.id)?;
         Ok(())
