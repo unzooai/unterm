@@ -1734,29 +1734,19 @@ impl NextCoreEngine {
     }
 
     fn shell_snapshot(&self, pane_id: usize) -> Result<ShellSnapshot> {
-        let (mut shell, screen, root_pid) = {
+        let handles = {
             let state = state().read();
-            let Some(session) = state
-                .sessions
-                .iter()
-                .find(|session| session.snapshot.id == pane_id)
-            else {
-                bail!("next-core session {pane_id} not found");
-            };
-            (
-                session.snapshot.shell.clone(),
-                Arc::clone(&session.screen),
-                session.root_pid,
-            )
+            session_handles::shell(&state, pane_id)?
         };
+        let mut shell = handles.shell;
 
-        if let Some(cwd) = screen.lock().current_dir() {
+        if let Some(cwd) = handles.screen.lock().current_dir() {
             shell.cwd = Some(cwd);
             return Ok(shell);
         }
 
         if shell.cwd.is_none() {
-            if let Some(process) = process_tree::snapshot(root_pid, &shell.process_name) {
+            if let Some(process) = process_tree::snapshot(handles.root_pid, &shell.process_name) {
                 shell.cwd = process.foreground_cwd.or(process.root_cwd);
             }
         }

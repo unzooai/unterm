@@ -1,6 +1,7 @@
 use super::{
     activity::SessionIoActivity, NextCoreRecording, NextCoreScreen, NextCoreSession, NextCoreState,
 };
+use crate::ShellSnapshot;
 use anyhow::Result;
 use parking_lot::Mutex;
 use std::io::Write;
@@ -16,6 +17,12 @@ pub(super) struct InputHandles {
 pub(super) struct RecordingHandles {
     pub(super) recording: Arc<Mutex<Option<NextCoreRecording>>>,
     pub(super) project_path: Option<String>,
+}
+
+pub(super) struct ShellHandles {
+    pub(super) shell: ShellSnapshot,
+    pub(super) screen: Arc<Mutex<NextCoreScreen>>,
+    pub(super) root_pid: Option<u32>,
 }
 
 fn session(state: &NextCoreState, pane_id: usize) -> Result<&NextCoreSession> {
@@ -57,6 +64,15 @@ pub(super) fn input(state: &NextCoreState, pane_id: usize) -> Result<InputHandle
         activity: Arc::clone(&session.activity),
         application_cursor_keys: screen.application_cursor_keys,
         bracketed_paste: screen.bracketed_paste,
+    })
+}
+
+pub(super) fn shell(state: &NextCoreState, pane_id: usize) -> Result<ShellHandles> {
+    let session = session(state, pane_id)?;
+    Ok(ShellHandles {
+        shell: session.snapshot.shell.clone(),
+        screen: Arc::clone(&session.screen),
+        root_pid: session.root_pid,
     })
 }
 
