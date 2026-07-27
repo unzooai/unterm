@@ -420,7 +420,7 @@ Supported:
 - shared `EngineRenderPaneReplaceDiagnostics` behind the engine facade, giving WebGPU draw and future CI replacement checks the same pane replacement readiness contract
 - WebGPU `replace` readiness now requires cached glyph texture/upload diagnostics for text frames, using a cloned glyph atlas state for preflight so the gate can inspect upload readiness without mutating the real WebGPU cache before drawing
 - WebGPU `replace` readiness now verifies prepared-frame and cached-glyph diagnostics match the current buffer batch pane/revision before skipping the legacy pane, preventing stale or cross-pane diagnostics from replacing visible content
-- `NextCoreWebGpuPaneFrame` carries the prepared WebGPU frame plus replace diagnostics through the pane draw path, letting `replace` mode share CPU frame preparation between fallback gating and final encode instead of preparing the same pane frame twice
+- `EngineRenderPreparedPaneFrame` carries the prepared WebGPU frame plus replace diagnostics through the engine facade and pane draw path, letting `replace` mode share CPU frame preparation between fallback gating and final encode instead of preparing the same pane frame twice
 - `TermWindow::prepare_next_core_webgpu_pane_frame` combines pane-id render consumption, default-font lookup, and WebGPU pane-frame preparation before the draw loop, keeping the WebGPU draw loop focused on legacy/next-core pass ordering instead of next-core frame assembly
 - `EngineRenderPaneReplaceDiagnostics::requested_missing_frame` represents a requested replace with no prepared frame through the shared engine contract, so draw-loop fallback logging no longer calls a WebGPU preflight helper just to synthesize missing-frame diagnostics
 - GPU-free `CommandListRenderBackend` that expands commit submissions into ordered damage/background/text/cursor backend commands before the real wgpu backend lands
@@ -454,7 +454,7 @@ Supported:
 - `EngineWgpuPipelineConfig`, next-core GPU vertex layout, viewport-to-clip upload path, and minimal WGSL shader ABI for solid-color quads before glyph atlas/text rendering lands
 - cached next-core solid-quad backend/pipeline in `WebGpuState`, sharing the existing WebGPU device lifetime and avoiding per-frame pipeline creation
 - `WebGpuState::encode_next_core_upload`, a GUI-side bridge from prepared next-core upload plans to encoded wgpu render passes while the legacy draw loop remains the default path
-- `WebGpuState::encode_next_core_pane_frame`, a pane-level GUI bridge that consumes prepared `NextCoreWebGpuPaneFrame` values, applies current viewport dimensions, and keeps raw buffer-plan encoding out of the pane draw branch
+- `WebGpuState::encode_next_core_pane_frame`, a pane-level GUI bridge that consumes prepared `EngineRenderPreparedPaneFrame` values, applies current viewport dimensions, and keeps raw buffer-plan encoding out of the pane draw branch
 - `session.list`
 - `session.input`
 - `screen.text`

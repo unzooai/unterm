@@ -2,6 +2,7 @@
 use super::renderstate::*;
 use super::utilsprites::RenderMetrics;
 use crate::colorease::ColorEase;
+use crate::engine::EngineRenderPreparedPaneFrame;
 use crate::engine::{EngineRenderBufferBatch, EngineRenderConsumerSet, RenderCellMetrics};
 use crate::frontend::{front_end, try_front_end};
 use crate::inputmap::InputMap;
@@ -26,7 +27,7 @@ use crate::termwindow::render::{
     CachedLineState, LineQuadCacheKey, LineQuadCacheValue, LineToEleShapeCacheKey,
     LineToElementShapeItem,
 };
-use crate::termwindow::webgpu::{NextCoreWebGpuPaneFrame, WebGpuState};
+use crate::termwindow::webgpu::WebGpuState;
 use ::wezterm_term::input::{ClickPosition, MouseButton as TMB};
 use ::window::*;
 use anyhow::{anyhow, ensure, Context};
@@ -5161,7 +5162,7 @@ impl TermWindow {
         &self,
         pane_id: PaneId,
         replace_requested: bool,
-    ) -> anyhow::Result<NextCoreWebGpuPaneFrame> {
+    ) -> anyhow::Result<EngineRenderPreparedPaneFrame> {
         let webgpu = self
             .webgpu
             .as_ref()

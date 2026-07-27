@@ -1,12 +1,12 @@
-use crate::engine::render_backend::EngineWgpuPreparedFramePlan;
 use crate::engine::{
     EngineRenderBufferBatch, EngineRenderBufferPlan, EngineRenderCachedGlyphUploadDiagnostics,
     EngineRenderFontGlyphRasterSource, EngineRenderGlyphAtlasCache,
     EngineRenderGlyphAtlasCacheUpdate, EngineRenderGlyphAtlasPlan,
     EngineRenderGlyphAtlasTextureRegion, EngineRenderGlyphAtlasTextureUpdatePlan,
     EngineRenderGlyphRasterSource, EngineRenderGpuUploadPlan, EngineRenderPaneReplaceDiagnostics,
-    EngineRenderTextAtlasPlan, EngineRenderTexturedGlyphLayoutDiff,
-    EngineRenderTexturedGlyphUploadPlan, EngineWgpuPipelineConfig, EngineWgpuRenderBackend,
+    EngineRenderPreparedPaneFrame, EngineRenderTextAtlasPlan, EngineRenderTexturedGlyphLayoutDiff,
+    EngineRenderTexturedGlyphUploadPlan, EngineWgpuPipelineConfig, EngineWgpuPreparedFramePlan,
+    EngineWgpuRenderBackend,
 };
 use crate::quad::Vertex;
 use anyhow::anyhow;
@@ -124,14 +124,6 @@ impl NextCoreCachedGlyphUpload {
 pub struct NextCoreGlyphTextureUploadStats {
     pub region_count: usize,
     pub byte_count: usize,
-}
-
-#[allow(dead_code)]
-pub struct NextCoreWebGpuPaneFrame {
-    pub batch: EngineRenderBufferBatch,
-    pub prepared: EngineWgpuPreparedFramePlan,
-    pub replace_diagnostics: EngineRenderPaneReplaceDiagnostics,
-    font: Option<Rc<LoadedFont>>,
 }
 
 pub struct NextCoreGlyphTexture {
@@ -1218,7 +1210,7 @@ impl WebGpuState {
         batch: EngineRenderBufferBatch,
         font: Option<Rc<LoadedFont>>,
         replace_requested: bool,
-    ) -> NextCoreWebGpuPaneFrame {
+    ) -> EngineRenderPreparedPaneFrame {
         let (viewport_width_px, viewport_height_px) = self.next_core_viewport_pixels();
         let prepared = EngineWgpuRenderBackend::prepare_frame_for_viewport(
             &batch.buffer_plan,
@@ -1244,7 +1236,7 @@ impl WebGpuState {
             cached_glyph_upload.as_ref(),
         );
 
-        NextCoreWebGpuPaneFrame {
+        EngineRenderPreparedPaneFrame {
             batch,
             prepared,
             replace_diagnostics,
@@ -1306,7 +1298,7 @@ impl WebGpuState {
         &self,
         encoder: &mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
-        frame: NextCoreWebGpuPaneFrame,
+        frame: EngineRenderPreparedPaneFrame,
         clear_color: Option<[f64; 4]>,
     ) -> bool {
         let (viewport_width_px, viewport_height_px) = self.next_core_viewport_pixels();

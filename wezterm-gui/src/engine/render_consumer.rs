@@ -10,8 +10,11 @@ use super::{
 };
 use crate::engine::render_backend::{
     EngineRenderCachedGlyphUploadDiagnostics, EngineWgpuPreparedFrameDiagnostics,
+    EngineWgpuPreparedFramePlan,
 };
 use std::collections::HashMap;
+use std::rc::Rc;
+use wezterm_font::LoadedFont;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EngineRenderCommitStats {
@@ -40,6 +43,14 @@ pub struct EngineRenderBufferBatch {
     pub pane_id: usize,
     pub stats: EngineRenderCommitStats,
     pub buffer_plan: EngineRenderBufferPlan,
+}
+
+#[allow(dead_code)]
+pub struct EngineRenderPreparedPaneFrame {
+    pub batch: EngineRenderBufferBatch,
+    pub prepared: EngineWgpuPreparedFramePlan,
+    pub replace_diagnostics: EngineRenderPaneReplaceDiagnostics,
+    pub font: Option<Rc<LoadedFont>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

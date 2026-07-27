@@ -35,7 +35,7 @@ pub use render_backend::{
 pub use render_consumer::{
     EngineRenderBufferBatch, EngineRenderCommitBatch, EngineRenderCommitStats,
     EngineRenderConsumer, EngineRenderConsumerSet, EngineRenderPaneReplaceDiagnostics,
-    EngineRenderPaneReplaceReadinessIssue,
+    EngineRenderPaneReplaceReadinessIssue, EngineRenderPreparedPaneFrame,
 };
 
 #[allow(unused_imports)]
