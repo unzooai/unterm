@@ -30,6 +30,7 @@ mod cell;
 mod history;
 mod input_pipeline;
 mod parser_state;
+mod recording_text;
 mod render_state;
 mod screen_state;
 mod terminal_queries;
@@ -3116,8 +3117,8 @@ impl NextCoreEngine {
         ended_at: Option<&str>,
         exit_reason: &str,
     ) -> String {
-        let stripped = Self::strip_ansi(&recording.text_preview);
-        let (redacted, redaction_count) = Self::redact_recording_text(&stripped);
+        let stripped = recording_text::strip_ansi(&recording.text_preview);
+        let (redacted, redaction_count) = recording_text::redact_text(&stripped);
         let total_lines = redacted.lines().count() as u64;
         let mut md = String::new();
 
@@ -3157,7 +3158,7 @@ impl NextCoreEngine {
         writeln!(
             &mut md,
             "trace_ids: {}",
-            Self::yaml_string_array(&recording.trace_ids)
+            recording_text::yaml_string_array(&recording.trace_ids)
         )
         .ok();
         writeln!(&mut md, "redaction_active: true").ok();
@@ -3188,8 +3189,8 @@ impl NextCoreEngine {
         if !command_blocks.is_empty() {
             writeln!(&mut md, "## Command Blocks\n").ok();
             for block in &command_blocks {
-                let stripped = Self::strip_ansi(&block.text);
-                let (redacted_block, _) = Self::redact_recording_text(&stripped);
+                let stripped = recording_text::strip_ansi(&block.text);
+                let (redacted_block, _) = recording_text::redact_text(&stripped);
                 writeln!(
                     &mut md,
                     "### Command {} `{}`\n\n- started: `{}`\n- ended: `{}`\n- exit_code: `{}`\n\n```\n{}\n```\n",
@@ -3213,8 +3214,8 @@ impl NextCoreEngine {
             )
             .ok();
             for block in &recording.blocks {
-                let stripped = Self::strip_ansi(&block.text);
-                let (redacted_block, _) = Self::redact_recording_text(&stripped);
+                let stripped = recording_text::strip_ansi(&block.text);
+                let (redacted_block, _) = recording_text::redact_text(&stripped);
                 writeln!(
                     &mut md,
                     "### Block {} `{}`\n\n```\n{}\n```\n",
@@ -3253,114 +3254,6 @@ impl NextCoreEngine {
         std::env::var("COMPUTERNAME")
             .or_else(|_| std::env::var("HOSTNAME"))
             .unwrap_or_default()
-    }
-
-    fn yaml_string_array(values: &[String]) -> String {
-        if values.is_empty() {
-            return "[]".to_string();
-        }
-        let inner = values
-            .iter()
-            .map(|value| format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\"")))
-            .collect::<Vec<_>>()
-            .join(", ");
-        format!("[{inner}]")
-    }
-
-    fn redact_recording_text(text: &str) -> (String, u64) {
-        let mut redaction_count = 0;
-        let mut lines = Vec::new();
-        for line in text.lines() {
-            let mut words = Vec::new();
-            for word in line.split_whitespace() {
-                if Self::looks_sensitive_token(word) {
-                    redaction_count += 1;
-                    words.push("[REDACTED]");
-                } else {
-                    words.push(word);
-                }
-            }
-            if words.is_empty() {
-                lines.push(String::new());
-            } else {
-                lines.push(words.join(" "));
-            }
-        }
-        let mut rendered = lines.join("\n");
-        if text.ends_with('\n') {
-            rendered.push('\n');
-        }
-        (rendered, redaction_count)
-    }
-
-    fn looks_sensitive_token(word: &str) -> bool {
-        let trimmed = word.trim_matches(|ch: char| {
-            matches!(
-                ch,
-                '"' | '\'' | '`' | ',' | ';' | ':' | ')' | ']' | '}' | '(' | '[' | '{'
-            )
-        });
-        let lower = trimmed.to_ascii_lowercase();
-        let has_secret_key = lower.contains("token")
-            || lower.contains("secret")
-            || lower.contains("password")
-            || lower.contains("api_key")
-            || lower.contains("apikey")
-            || lower.contains("auth");
-        if has_secret_key && trimmed.contains('=') {
-            return true;
-        }
-        trimmed.len() >= 24
-            && trimmed.chars().all(|ch| {
-                ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.' | '/' | '+' | '=')
-            })
-    }
-
-    fn strip_ansi(text: &str) -> String {
-        let bytes = text.as_bytes();
-        let mut out = Vec::with_capacity(bytes.len());
-        let mut i = 0;
-        while i < bytes.len() {
-            if bytes[i] == 0x1b {
-                i += 1;
-                if i >= bytes.len() {
-                    break;
-                }
-                match bytes[i] {
-                    b'[' => {
-                        i += 1;
-                        while i < bytes.len() {
-                            let byte = bytes[i];
-                            i += 1;
-                            if (0x40..=0x7e).contains(&byte) {
-                                break;
-                            }
-                        }
-                    }
-                    b']' => {
-                        i += 1;
-                        while i < bytes.len() {
-                            if bytes[i] == 0x07 {
-                                i += 1;
-                                break;
-                            }
-                            if bytes[i] == 0x1b && i + 1 < bytes.len() && bytes[i + 1] == b'\\' {
-                                i += 2;
-                                break;
-                            }
-                            i += 1;
-                        }
-                    }
-                    _ => {
-                        i += 1;
-                    }
-                }
-            } else {
-                out.push(bytes[i]);
-                i += 1;
-            }
-        }
-        String::from_utf8_lossy(&out).into_owned()
     }
 
     fn screen_lines(&self, pane_id: usize) -> Result<Vec<String>> {
