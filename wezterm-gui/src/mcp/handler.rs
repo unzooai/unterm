@@ -1048,6 +1048,78 @@ mod engine_neutral_handler_tests {
     }
 
     #[test]
+    fn core_status_history_cursor_methods_use_next_core_engine() {
+        let _guard = env_lock().lock();
+        let previous_engine = std::env::var("UNTERM_ENGINE").ok();
+        std::env::set_var("UNTERM_ENGINE", "next-core");
+
+        #[cfg(windows)]
+        let command = "for /L %i in (1,1,8) do @echo next-core-core-parity-%i";
+        #[cfg(not(windows))]
+        let command = "for i in 1 2 3 4 5 6 7 8; do echo next-core-core-parity-$i; done";
+
+        let result: Result<(serde_json::Value, serde_json::Value, serde_json::Value, usize)> =
+            (|| {
+                let handler = McpHandler::new();
+                let ctx = ConnectionContext::internal("handler-test");
+                let created = handler.handle(
+                    &ctx,
+                    "session.create",
+                    &json!({
+                        "cols": 80,
+                        "rows": 3,
+                        "command": command,
+                    }),
+                )?;
+                let pane_id = created["id"].as_u64().expect("session id") as usize;
+                wait_for_screen_pattern(&handler, &ctx, pane_id, "next-core-core-parity-8")?;
+
+                let history = handler.handle(
+                    &ctx,
+                    "session.history",
+                    &json!({
+                        "pane_id": pane_id,
+                        "limit": 20,
+                    }),
+                )?;
+                let cursor =
+                    handler.handle(&ctx, "screen.cursor", &json!({ "pane_id": pane_id }))?;
+                let status =
+                    handler.handle(&ctx, "exec.status", &json!({ "pane_id": pane_id }))?;
+                let _ = handler.handle(&ctx, "session.destroy", &json!({ "pane_id": pane_id }));
+
+                Ok((history, cursor, status, pane_id))
+            })();
+
+        match previous_engine {
+            Some(value) => std::env::set_var("UNTERM_ENGINE", value),
+            None => std::env::remove_var("UNTERM_ENGINE"),
+        }
+
+        let (history, cursor, status, pane_id) =
+            result.expect("core status/history/cursor methods use next-core");
+        assert!(next_core().get_session(pane_id).is_err());
+        let entries = history["entries"].as_array().expect("history entries");
+        assert!(entries
+            .iter()
+            .any(|entry| entry["text"].as_str() == Some("next-core-core-parity-1")));
+        assert_eq!(
+            history["count"].as_u64().unwrap_or_default(),
+            entries.len() as u64
+        );
+        assert!(cursor["x"].as_u64().unwrap_or(usize::MAX as u64) < 80);
+        assert!(cursor["y"].as_u64().unwrap_or(usize::MAX as u64) < 3);
+        assert!(cursor["shape"].as_str().unwrap_or_default().contains("Default"));
+        assert!(matches!(
+            status["status"].as_str(),
+            Some("idle") | Some("running")
+        ));
+        assert!(status["output"]["total_chunks"].as_u64().unwrap_or_default() > 0);
+        assert!(status["output"]["total_bytes"].as_u64().unwrap_or_default() > 0);
+        assert!(status["process"]["root_pid"].as_u64().is_some());
+    }
+
+    #[test]
     fn screen_search_goto_scrolls_next_core_logical_viewport() {
         let _guard = env_lock().lock();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
