@@ -4,7 +4,9 @@
 //! wgpu backend will execute, without making tests depend on a window, adapter,
 //! font atlas, or swapchain.
 
-use super::{CellStyle, EngineRenderCommitBatch, RenderRect, RenderTextRun, StyledColor};
+use super::{
+    CellStyle, EngineRenderCommitBatch, RenderRect, RenderTextRun, StyledColor, StyledVerticalAlign,
+};
 use wgpu::util::DeviceExt;
 
 const NEXT_CORE_RENDER_SHADER: &str = r#"
@@ -116,6 +118,39 @@ pub struct EngineRenderTextAtlasPlan {
     pub runs: Vec<EngineRenderTextAtlasRun>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
+pub struct EngineRenderGlyphAtlasKey {
+    pub text: String,
+    pub cells: usize,
+    pub bold: bool,
+    pub faint: bool,
+    pub italic: bool,
+    pub vertical_align: Option<StyledVerticalAlign>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+#[allow(dead_code)]
+pub struct EngineRenderGlyphAtlasInstance {
+    pub key_index: usize,
+    pub row: usize,
+    pub col: usize,
+    pub cells: usize,
+    pub rect: RenderRect,
+    pub foreground: [f32; 4],
+}
+
+#[derive(Clone, Debug, PartialEq)]
+#[allow(dead_code)]
+pub struct EngineRenderGlyphAtlasPlan {
+    pub pane_id: usize,
+    pub submitted: bool,
+    pub revision: u64,
+    pub requires_full_repaint: bool,
+    pub keys: Vec<EngineRenderGlyphAtlasKey>,
+    pub instances: Vec<EngineRenderGlyphAtlasInstance>,
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 #[allow(dead_code)]
@@ -175,6 +210,7 @@ pub struct EngineRenderGpuUploadPlan {
 pub struct EngineWgpuPreparedFramePlan {
     pub upload: EngineRenderGpuUploadPlan,
     pub text_atlas: EngineRenderTextAtlasPlan,
+    pub glyph_atlas: EngineRenderGlyphAtlasPlan,
 }
 
 #[allow(dead_code)]
@@ -298,14 +334,21 @@ impl EngineWgpuRenderBackend {
         EngineRenderTextAtlasPlan::from_buffer_plan(plan)
     }
 
+    pub fn prepare_glyph_atlas(plan: &EngineRenderBufferPlan) -> EngineRenderGlyphAtlasPlan {
+        EngineRenderGlyphAtlasPlan::from_text_atlas_plan(&Self::prepare_text_atlas(plan))
+    }
+
     pub fn prepare_frame_for_viewport(
         plan: &EngineRenderBufferPlan,
         viewport_width_px: f32,
         viewport_height_px: f32,
     ) -> EngineWgpuPreparedFramePlan {
+        let text_atlas = Self::prepare_text_atlas(plan);
+        let glyph_atlas = EngineRenderGlyphAtlasPlan::from_text_atlas_plan(&text_atlas);
         EngineWgpuPreparedFramePlan {
             upload: Self::prepare_upload_for_viewport(plan, viewport_width_px, viewport_height_px),
-            text_atlas: Self::prepare_text_atlas(plan),
+            text_atlas,
+            glyph_atlas,
         }
     }
 
@@ -559,6 +602,33 @@ impl EngineRenderTextAtlasPlan {
 }
 
 #[allow(dead_code)]
+impl EngineRenderGlyphAtlasPlan {
+    pub fn from_text_atlas_plan(plan: &EngineRenderTextAtlasPlan) -> Self {
+        let mut keys = Vec::new();
+        let mut instances = Vec::new();
+
+        if plan.submitted {
+            for run in &plan.runs {
+                push_glyph_atlas_instances(&mut keys, &mut instances, run);
+            }
+        }
+
+        Self {
+            pane_id: plan.pane_id,
+            submitted: plan.submitted,
+            revision: plan.revision,
+            requires_full_repaint: plan.requires_full_repaint,
+            keys,
+            instances,
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.instances.is_empty()
+    }
+}
+
+#[allow(dead_code)]
 pub trait EngineRenderBackend {
     fn submit(
         &mut self,
@@ -639,6 +709,86 @@ fn styled_color_rgba(color: Option<StyledColor>) -> Option<[f32; 4]> {
             Some([r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 1.0])
         }
     }
+}
+
+fn push_glyph_atlas_instances(
+    keys: &mut Vec<EngineRenderGlyphAtlasKey>,
+    instances: &mut Vec<EngineRenderGlyphAtlasInstance>,
+    run: &EngineRenderTextAtlasRun,
+) {
+    let chars: Vec<char> = run.text.chars().collect();
+    if run.cells > 0 && chars.len() == run.cells {
+        let base_width = run.rect.width / run.cells;
+        let remainder = run.rect.width % run.cells;
+        let mut x = run.rect.x;
+        for (offset, ch) in chars.into_iter().enumerate() {
+            let width = base_width + usize::from(offset < remainder);
+            push_glyph_atlas_instance(
+                keys,
+                instances,
+                EngineRenderGlyphAtlasKey {
+                    text: ch.to_string(),
+                    cells: 1,
+                    bold: run.style.bold,
+                    faint: run.style.faint,
+                    italic: run.style.italic,
+                    vertical_align: run.style.vertical_align,
+                },
+                EngineRenderGlyphAtlasInstance {
+                    key_index: 0,
+                    row: run.row,
+                    col: run.col + offset,
+                    cells: 1,
+                    rect: RenderRect {
+                        x,
+                        y: run.rect.y,
+                        width,
+                        height: run.rect.height,
+                    },
+                    foreground: run.foreground,
+                },
+            );
+            x = x.saturating_add(width);
+        }
+    } else {
+        push_glyph_atlas_instance(
+            keys,
+            instances,
+            EngineRenderGlyphAtlasKey {
+                text: run.text.clone(),
+                cells: run.cells,
+                bold: run.style.bold,
+                faint: run.style.faint,
+                italic: run.style.italic,
+                vertical_align: run.style.vertical_align,
+            },
+            EngineRenderGlyphAtlasInstance {
+                key_index: 0,
+                row: run.row,
+                col: run.col,
+                cells: run.cells,
+                rect: run.rect,
+                foreground: run.foreground,
+            },
+        );
+    }
+}
+
+fn push_glyph_atlas_instance(
+    keys: &mut Vec<EngineRenderGlyphAtlasKey>,
+    instances: &mut Vec<EngineRenderGlyphAtlasInstance>,
+    key: EngineRenderGlyphAtlasKey,
+    mut instance: EngineRenderGlyphAtlasInstance,
+) {
+    let key_index = keys.iter().position(|existing| existing == &key);
+    instance.key_index = match key_index {
+        Some(index) => index,
+        None => {
+            keys.push(key);
+            keys.len() - 1
+        }
+    };
+    instances.push(instance);
 }
 
 fn ansi_palette_rgb(index: u8) -> [u8; 3] {
@@ -748,6 +898,10 @@ mod tests {
         assert_eq!(prepared.upload.revision, 42);
         assert_eq!(prepared.upload.vertices.len(), 4);
         assert_eq!(prepared.text_atlas, atlas);
+        assert_eq!(prepared.glyph_atlas.pane_id, 7);
+        assert_eq!(prepared.glyph_atlas.revision, 42);
+        assert_eq!(prepared.glyph_atlas.keys.len(), 3);
+        assert_eq!(prepared.glyph_atlas.instances.len(), 3);
     }
 
     #[test]
@@ -781,6 +935,196 @@ mod tests {
         assert_eq!(atlas.revision, 17);
         assert!(!atlas.submitted);
         assert!(atlas.is_empty());
+    }
+
+    #[test]
+    fn glyph_atlas_plan_splits_ascii_runs_and_reuses_keys() {
+        let style = CellStyle {
+            fg: Some(StyledColor::Palette(2)),
+            bold: true,
+            ..Default::default()
+        };
+        let frame = EngineRenderBackendFrame {
+            pane_id: 3,
+            submitted: true,
+            revision: 10,
+            requires_full_repaint: true,
+            skipped_revisions: 0,
+            commands: vec![EngineRenderBackendCommand::Text {
+                row: 4,
+                col: 5,
+                cells: 3,
+                rect: RenderRect {
+                    x: 50,
+                    y: 80,
+                    width: 31,
+                    height: 16,
+                },
+                text: "aba".to_string(),
+                style: style.clone(),
+            }],
+        };
+        let buffer = EngineRenderBufferPlan::from_frame(&frame);
+
+        let atlas = EngineWgpuRenderBackend::prepare_glyph_atlas(&buffer);
+
+        assert_eq!(atlas.pane_id, 3);
+        assert!(atlas.submitted);
+        assert!(atlas.requires_full_repaint);
+        assert_eq!(
+            atlas.keys,
+            vec![
+                EngineRenderGlyphAtlasKey {
+                    text: "a".to_string(),
+                    cells: 1,
+                    bold: true,
+                    faint: false,
+                    italic: false,
+                    vertical_align: None,
+                },
+                EngineRenderGlyphAtlasKey {
+                    text: "b".to_string(),
+                    cells: 1,
+                    bold: true,
+                    faint: false,
+                    italic: false,
+                    vertical_align: None,
+                },
+            ]
+        );
+        assert_eq!(atlas.instances.len(), 3);
+        assert_eq!(atlas.instances[0].key_index, 0);
+        assert_eq!(atlas.instances[0].row, 4);
+        assert_eq!(atlas.instances[0].col, 5);
+        assert_eq!(
+            atlas.instances[0].rect,
+            RenderRect {
+                x: 50,
+                y: 80,
+                width: 11,
+                height: 16,
+            }
+        );
+        assert_eq!(atlas.instances[1].key_index, 1);
+        assert_eq!(atlas.instances[1].col, 6);
+        assert_eq!(atlas.instances[1].rect.x, 61);
+        assert_eq!(atlas.instances[1].rect.width, 10);
+        assert_eq!(atlas.instances[2].key_index, 0);
+        assert_eq!(atlas.instances[2].col, 7);
+        assert_eq!(atlas.instances[2].rect.x, 71);
+        assert_eq!(atlas.instances[2].rect.width, 10);
+        assert_eq!(
+            atlas.instances[0].foreground,
+            [
+                0x0d as f32 / 255.0,
+                0xa1 as f32 / 255.0,
+                0x0d as f32 / 255.0,
+                1.0
+            ]
+        );
+    }
+
+    #[test]
+    fn glyph_atlas_plan_keeps_non_cell_aligned_runs_intact() {
+        let frame = EngineRenderBackendFrame {
+            pane_id: 4,
+            submitted: true,
+            revision: 11,
+            requires_full_repaint: false,
+            skipped_revisions: 0,
+            commands: vec![EngineRenderBackendCommand::Text {
+                row: 0,
+                col: 1,
+                cells: 2,
+                rect: RenderRect {
+                    x: 8,
+                    y: 0,
+                    width: 16,
+                    height: 16,
+                },
+                text: "你".to_string(),
+                style: CellStyle::default(),
+            }],
+        };
+        let buffer = EngineRenderBufferPlan::from_frame(&frame);
+
+        let atlas = EngineWgpuRenderBackend::prepare_glyph_atlas(&buffer);
+
+        assert_eq!(atlas.keys.len(), 1);
+        assert_eq!(atlas.keys[0].text, "你");
+        assert_eq!(atlas.keys[0].cells, 2);
+        assert_eq!(atlas.instances.len(), 1);
+        assert_eq!(atlas.instances[0].col, 1);
+        assert_eq!(atlas.instances[0].cells, 2);
+        assert_eq!(
+            atlas.instances[0].rect,
+            RenderRect {
+                x: 8,
+                y: 0,
+                width: 16,
+                height: 16,
+            }
+        );
+    }
+
+    #[test]
+    fn glyph_atlas_key_ignores_foreground_color() {
+        let mut red = CellStyle {
+            fg: Some(StyledColor::Rgb(0xff, 0x00, 0x00)),
+            italic: true,
+            ..Default::default()
+        };
+        let mut blue = red.clone();
+        blue.fg = Some(StyledColor::Rgb(0x00, 0x00, 0xff));
+        red.hyperlink = Some("https://example.test/a".to_string());
+        blue.hyperlink = Some("https://example.test/b".to_string());
+
+        let frame = EngineRenderBackendFrame {
+            pane_id: 5,
+            submitted: true,
+            revision: 12,
+            requires_full_repaint: false,
+            skipped_revisions: 0,
+            commands: vec![
+                EngineRenderBackendCommand::Text {
+                    row: 0,
+                    col: 0,
+                    cells: 1,
+                    rect: RenderRect {
+                        x: 0,
+                        y: 0,
+                        width: 8,
+                        height: 16,
+                    },
+                    text: "x".to_string(),
+                    style: red,
+                },
+                EngineRenderBackendCommand::Text {
+                    row: 0,
+                    col: 1,
+                    cells: 1,
+                    rect: RenderRect {
+                        x: 8,
+                        y: 0,
+                        width: 8,
+                        height: 16,
+                    },
+                    text: "x".to_string(),
+                    style: blue,
+                },
+            ],
+        };
+        let buffer = EngineRenderBufferPlan::from_frame(&frame);
+
+        let atlas = EngineWgpuRenderBackend::prepare_glyph_atlas(&buffer);
+
+        assert_eq!(atlas.keys.len(), 1);
+        assert_eq!(atlas.keys[0].text, "x");
+        assert!(atlas.keys[0].italic);
+        assert_eq!(atlas.instances.len(), 2);
+        assert_eq!(atlas.instances[0].key_index, 0);
+        assert_eq!(atlas.instances[1].key_index, 0);
+        assert_ne!(atlas.instances[0].foreground, atlas.instances[1].foreground);
     }
 }
 

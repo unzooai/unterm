@@ -597,8 +597,9 @@ impl WebGpuState {
         drop(dimensions);
         if !prepared.text_atlas.is_empty() {
             log::trace!(
-                "next-core prepared {} text atlas runs for pane {} revision {}",
+                "next-core prepared {} text atlas runs and {} glyph atlas instances for pane {} revision {}",
                 prepared.text_atlas.runs.len(),
+                prepared.glyph_atlas.instances.len(),
                 prepared.text_atlas.pane_id,
                 prepared.text_atlas.revision
             );

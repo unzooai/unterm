@@ -15,7 +15,8 @@ use window::WindowOps;
 #[allow(unused_imports)]
 pub use render_backend::{
     CommandListRenderBackend, EngineRenderBackend, EngineRenderBackendCommand,
-    EngineRenderBackendFrame, EngineRenderBufferPlan, EngineRenderGpuUploadPlan,
+    EngineRenderBackendFrame, EngineRenderBufferPlan, EngineRenderGlyphAtlasInstance,
+    EngineRenderGlyphAtlasKey, EngineRenderGlyphAtlasPlan, EngineRenderGpuUploadPlan,
     EngineRenderGpuVertex, EngineRenderTextAtlasPlan, EngineRenderTextAtlasRun,
     EngineRenderVertexLayer, EngineWgpuPipelineConfig, EngineWgpuPreparedFramePlan,
     EngineWgpuRenderBackend, EngineWgpuRenderPassPlan,
@@ -39,7 +40,7 @@ pub use unterm_engine::{
     ScreenLine, ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot,
     SessionActivitySnapshot, SessionEngine, SessionSnapshot, ShellSnapshot, SplitDirection,
     SplitSessionRequest, StyledCell, StyledColor, StyledScreenLine, StyledScreenSnapshot,
-    StyledScrollbackSnapshot, TerminalEngine,
+    StyledScrollbackSnapshot, StyledVerticalAlign, TerminalEngine,
 };
 
 #[derive(Clone, Debug)]
