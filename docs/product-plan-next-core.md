@@ -421,6 +421,7 @@ Supported:
 - WebGPU `replace` readiness now requires cached glyph texture/upload diagnostics for text frames, using a cloned glyph atlas state for preflight so the gate can inspect upload readiness without mutating the real WebGPU cache before drawing
 - WebGPU `replace` readiness now verifies prepared-frame and cached-glyph diagnostics match the current buffer batch pane/revision before skipping the legacy pane, preventing stale or cross-pane diagnostics from replacing visible content
 - `WebGpuState::next_core_pane_replace_diagnostics` composes the replace preflight in one WebGPU-side entry point, so the draw loop no longer manually stitches prepared-frame and glyph-upload diagnostics
+- `NextCoreWebGpuPaneFrame` carries the prepared WebGPU frame plus replace diagnostics through the pane draw path, letting `replace` mode share CPU frame preparation between fallback gating and final encode instead of preparing the same pane frame twice
 - GPU-free `CommandListRenderBackend` that expands commit submissions into ordered damage/background/text/cursor backend commands before the real wgpu backend lands
 - `EngineRenderBufferPlan` that turns backend commands into damage rects plus quad vertex/index buffers and preserves `RenderTextRun` row/col/cell-span/text/style/rect metadata so the GUI glyph-atlas path can render real text instead of anonymous text quads
 - `EngineWgpuPreparedFramePlan` replace-readiness diagnostics for solid upload, text atlas, and glyph atlas preparation, giving pane replacement tests a CPU-side gate before real WebGPU encoding

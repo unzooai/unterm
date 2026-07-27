@@ -62,13 +62,20 @@ impl crate::TermWindow {
             } else {
                 None
             };
-        let next_core_replace_diagnostics = if next_core_mode == NextCoreWebGpuPaneMode::Replace {
-            Some(webgpu.next_core_pane_replace_diagnostics(
-                &next_core_buffer_batch,
-                next_core_default_font.clone(),
-            ))
-        } else {
-            None
+        let next_core_pane_frame = next_core_buffer_batch.map(|batch| {
+            webgpu.prepare_next_core_pane_frame(
+                batch,
+                next_core_default_font,
+                next_core_mode == NextCoreWebGpuPaneMode::Replace,
+            )
+        });
+        let next_core_replace_diagnostics = match (
+            next_core_mode == NextCoreWebGpuPaneMode::Replace,
+            next_core_pane_frame.as_ref(),
+        ) {
+            (true, Some(frame)) => Some(frame.replace_diagnostics),
+            (true, None) => Some(webgpu.next_core_pane_replace_diagnostics(&None, None)),
+            (false, _) => None,
         };
         let replace_legacy_pane =
             should_replace_legacy_pane(next_core_mode, next_core_replace_diagnostics.as_ref());
@@ -201,14 +208,8 @@ impl crate::TermWindow {
         }
 
         if next_core_mode.is_enabled() {
-            if let Some(batch) = next_core_buffer_batch {
-                let encoded = webgpu.encode_next_core_buffer_plan_with_font(
-                    &mut encoder,
-                    &view,
-                    &batch.buffer_plan,
-                    None,
-                    next_core_default_font,
-                );
+            if let Some(frame) = next_core_pane_frame {
+                let encoded = webgpu.encode_next_core_pane_frame(&mut encoder, &view, frame, None);
                 if !encoded {
                     log::debug!("next-core WebGPU pane render skipped: empty buffer plan");
                 }

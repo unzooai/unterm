@@ -1,4 +1,6 @@
-use crate::engine::render_backend::EngineWgpuPreparedFrameDiagnostics;
+use crate::engine::render_backend::{
+    EngineWgpuPreparedFrameDiagnostics, EngineWgpuPreparedFramePlan,
+};
 use crate::engine::{
     EngineRenderBufferBatch, EngineRenderBufferPlan, EngineRenderCachedGlyphUploadDiagnostics,
     EngineRenderFontGlyphRasterSource, EngineRenderGlyphAtlasCache,
@@ -124,6 +126,14 @@ impl NextCoreCachedGlyphUpload {
 pub struct NextCoreGlyphTextureUploadStats {
     pub region_count: usize,
     pub byte_count: usize,
+}
+
+#[allow(dead_code)]
+pub struct NextCoreWebGpuPaneFrame {
+    pub batch: EngineRenderBufferBatch,
+    pub prepared: EngineWgpuPreparedFramePlan,
+    pub replace_diagnostics: EngineRenderPaneReplaceDiagnostics,
+    font: Option<Rc<LoadedFont>>,
 }
 
 pub struct NextCoreGlyphTexture {
@@ -1208,14 +1218,59 @@ impl WebGpuState {
         self.encode_next_core_buffer_plan_with_font(encoder, target, plan, clear_color, None)
     }
 
+    fn next_core_viewport_pixels(&self) -> (f32, f32) {
+        let dimensions = self.dimensions.borrow();
+        (
+            dimensions.pixel_width.max(1) as f32,
+            dimensions.pixel_height.max(1) as f32,
+        )
+    }
+
+    pub fn prepare_next_core_pane_frame(
+        &self,
+        batch: EngineRenderBufferBatch,
+        font: Option<Rc<LoadedFont>>,
+        replace_requested: bool,
+    ) -> NextCoreWebGpuPaneFrame {
+        let (viewport_width_px, viewport_height_px) = self.next_core_viewport_pixels();
+        let prepared = EngineWgpuRenderBackend::prepare_frame_for_viewport(
+            &batch.buffer_plan,
+            viewport_width_px,
+            viewport_height_px,
+        );
+        let prepared_diagnostics = prepared.diagnostics();
+        let cached_glyph_upload = replace_requested
+            .then(|| {
+                self.next_core_cached_glyph_upload_diagnostics_for_prepared(
+                    &batch.buffer_plan,
+                    &prepared,
+                    viewport_width_px,
+                    viewport_height_px,
+                    font.clone(),
+                )
+            })
+            .flatten();
+        let replace_diagnostics = EngineRenderPaneReplaceDiagnostics::from_parts(
+            replace_requested,
+            Some(&batch),
+            Some(&prepared_diagnostics),
+            cached_glyph_upload.as_ref(),
+        );
+
+        NextCoreWebGpuPaneFrame {
+            batch,
+            prepared,
+            replace_diagnostics,
+            font,
+        }
+    }
+
     #[allow(dead_code)]
     pub fn next_core_prepared_frame_diagnostics(
         &self,
         plan: &EngineRenderBufferPlan,
     ) -> EngineWgpuPreparedFrameDiagnostics {
-        let dimensions = self.dimensions.borrow();
-        let viewport_width_px = dimensions.pixel_width.max(1) as f32;
-        let viewport_height_px = dimensions.pixel_height.max(1) as f32;
+        let (viewport_width_px, viewport_height_px) = self.next_core_viewport_pixels();
         EngineWgpuRenderBackend::prepare_frame_for_viewport(
             plan,
             viewport_width_px,
@@ -1230,16 +1285,30 @@ impl WebGpuState {
         plan: &EngineRenderBufferPlan,
         font: Option<Rc<LoadedFont>>,
     ) -> Option<EngineRenderCachedGlyphUploadDiagnostics> {
-        let dimensions = self.dimensions.borrow();
-        let viewport_width_px = dimensions.pixel_width.max(1) as f32;
-        let viewport_height_px = dimensions.pixel_height.max(1) as f32;
+        let (viewport_width_px, viewport_height_px) = self.next_core_viewport_pixels();
         let prepared = EngineWgpuRenderBackend::prepare_frame_for_viewport(
             plan,
             viewport_width_px,
             viewport_height_px,
         );
-        drop(dimensions);
 
+        self.next_core_cached_glyph_upload_diagnostics_for_prepared(
+            plan,
+            &prepared,
+            viewport_width_px,
+            viewport_height_px,
+            font,
+        )
+    }
+
+    fn next_core_cached_glyph_upload_diagnostics_for_prepared(
+        &self,
+        plan: &EngineRenderBufferPlan,
+        prepared: &EngineWgpuPreparedFramePlan,
+        viewport_width_px: f32,
+        viewport_height_px: f32,
+        font: Option<Rc<LoadedFont>>,
+    ) -> Option<EngineRenderCachedGlyphUploadDiagnostics> {
         let mut glyph_state = self.next_core_glyph_atlases.borrow().clone();
         let shaped_glyph_atlas = font.as_ref().and_then(|font| {
             glyph_state.prepare_shaped_glyph_atlas_with_shaper(
@@ -1311,14 +1380,56 @@ impl WebGpuState {
         clear_color: Option<[f64; 4]>,
         font: Option<Rc<LoadedFont>>,
     ) -> bool {
-        let dimensions = self.dimensions.borrow();
-        let viewport_width_px = dimensions.pixel_width.max(1) as f32;
-        let viewport_height_px = dimensions.pixel_height.max(1) as f32;
+        let (viewport_width_px, viewport_height_px) = self.next_core_viewport_pixels();
         let prepared = EngineWgpuRenderBackend::prepare_frame_for_viewport(
             plan,
             viewport_width_px,
             viewport_height_px,
         );
+        self.encode_prepared_next_core_buffer_plan_with_font(
+            encoder,
+            target,
+            plan,
+            &prepared,
+            viewport_width_px,
+            viewport_height_px,
+            clear_color,
+            font,
+        )
+    }
+
+    #[allow(dead_code)]
+    pub fn encode_next_core_pane_frame(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::TextureView,
+        frame: NextCoreWebGpuPaneFrame,
+        clear_color: Option<[f64; 4]>,
+    ) -> bool {
+        let (viewport_width_px, viewport_height_px) = self.next_core_viewport_pixels();
+        self.encode_prepared_next_core_buffer_plan_with_font(
+            encoder,
+            target,
+            &frame.batch.buffer_plan,
+            &frame.prepared,
+            viewport_width_px,
+            viewport_height_px,
+            clear_color,
+            frame.font,
+        )
+    }
+
+    fn encode_prepared_next_core_buffer_plan_with_font(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::TextureView,
+        plan: &EngineRenderBufferPlan,
+        prepared: &EngineWgpuPreparedFramePlan,
+        viewport_width_px: f32,
+        viewport_height_px: f32,
+        clear_color: Option<[f64; 4]>,
+        font: Option<Rc<LoadedFont>>,
+    ) -> bool {
         let frame_diagnostics = prepared.diagnostics();
         let frame_readiness_issue_count = prepared.readiness_issues().len();
         log::trace!(
@@ -1334,7 +1445,6 @@ impl WebGpuState {
             frame_diagnostics.replace_ready,
             frame_readiness_issue_count
         );
-        drop(dimensions);
         if !prepared.text_atlas.is_empty() {
             log::trace!(
                 "next-core prepared {} text atlas runs and {} glyph atlas instances for pane {} revision {}",
