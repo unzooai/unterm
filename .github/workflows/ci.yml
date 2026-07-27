@@ -60,7 +60,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo check -p unterm -p unterm-cli -p unterm-mux -p strip-ansi-escapes
       - name: Run product tests
-        run: cargo test --release -p config -p unterm
+        run: cargo test --release -p config -p unterm -- --test-threads=1
       - name: Verify next-core gates
         shell: pwsh
         run: .\ci\next-core-benchmark.ps1
