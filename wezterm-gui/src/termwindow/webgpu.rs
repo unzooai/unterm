@@ -1,6 +1,4 @@
-use crate::engine::render_backend::{
-    EngineWgpuPreparedFrameDiagnostics, EngineWgpuPreparedFramePlan,
-};
+use crate::engine::render_backend::EngineWgpuPreparedFramePlan;
 use crate::engine::{
     EngineRenderBufferBatch, EngineRenderBufferPlan, EngineRenderCachedGlyphUploadDiagnostics,
     EngineRenderFontGlyphRasterSource, EngineRenderGlyphAtlasCache,
@@ -1265,42 +1263,6 @@ impl WebGpuState {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn next_core_prepared_frame_diagnostics(
-        &self,
-        plan: &EngineRenderBufferPlan,
-    ) -> EngineWgpuPreparedFrameDiagnostics {
-        let (viewport_width_px, viewport_height_px) = self.next_core_viewport_pixels();
-        EngineWgpuRenderBackend::prepare_frame_for_viewport(
-            plan,
-            viewport_width_px,
-            viewport_height_px,
-        )
-        .diagnostics()
-    }
-
-    #[allow(dead_code)]
-    pub fn next_core_cached_glyph_upload_diagnostics(
-        &self,
-        plan: &EngineRenderBufferPlan,
-        font: Option<Rc<LoadedFont>>,
-    ) -> Option<EngineRenderCachedGlyphUploadDiagnostics> {
-        let (viewport_width_px, viewport_height_px) = self.next_core_viewport_pixels();
-        let prepared = EngineWgpuRenderBackend::prepare_frame_for_viewport(
-            plan,
-            viewport_width_px,
-            viewport_height_px,
-        );
-
-        self.next_core_cached_glyph_upload_diagnostics_for_prepared(
-            plan,
-            &prepared,
-            viewport_width_px,
-            viewport_height_px,
-            font,
-        )
-    }
-
     fn next_core_cached_glyph_upload_diagnostics_for_prepared(
         &self,
         plan: &EngineRenderBufferPlan,
@@ -1348,27 +1310,6 @@ impl WebGpuState {
             )
         };
         glyph_upload.map(|upload| upload.diagnostics())
-    }
-
-    #[allow(dead_code)]
-    pub fn next_core_pane_replace_diagnostics(
-        &self,
-        batch: &Option<EngineRenderBufferBatch>,
-        font: Option<Rc<LoadedFont>>,
-    ) -> EngineRenderPaneReplaceDiagnostics {
-        let prepared_frame = batch
-            .as_ref()
-            .map(|batch| self.next_core_prepared_frame_diagnostics(&batch.buffer_plan));
-        let cached_glyph_upload = batch.as_ref().and_then(|batch| {
-            self.next_core_cached_glyph_upload_diagnostics(&batch.buffer_plan, font)
-        });
-
-        EngineRenderPaneReplaceDiagnostics::from_parts(
-            true,
-            batch.as_ref(),
-            prepared_frame.as_ref(),
-            cached_glyph_upload.as_ref(),
-        )
     }
 
     #[allow(dead_code)]
