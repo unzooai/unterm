@@ -170,6 +170,13 @@ pub struct EngineRenderGpuUploadPlan {
     pub indices: Vec<u32>,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+#[allow(dead_code)]
+pub struct EngineWgpuPreparedFramePlan {
+    pub upload: EngineRenderGpuUploadPlan,
+    pub text_atlas: EngineRenderTextAtlasPlan,
+}
+
 #[allow(dead_code)]
 impl EngineRenderGpuUploadPlan {
     pub fn from_buffer_plan(plan: &EngineRenderBufferPlan) -> Self {
@@ -289,6 +296,17 @@ pub struct EngineWgpuRenderBackend;
 impl EngineWgpuRenderBackend {
     pub fn prepare_text_atlas(plan: &EngineRenderBufferPlan) -> EngineRenderTextAtlasPlan {
         EngineRenderTextAtlasPlan::from_buffer_plan(plan)
+    }
+
+    pub fn prepare_frame_for_viewport(
+        plan: &EngineRenderBufferPlan,
+        viewport_width_px: f32,
+        viewport_height_px: f32,
+    ) -> EngineWgpuPreparedFramePlan {
+        EngineWgpuPreparedFramePlan {
+            upload: Self::prepare_upload_for_viewport(plan, viewport_width_px, viewport_height_px),
+            text_atlas: Self::prepare_text_atlas(plan),
+        }
     }
 
     pub fn prepare_upload(plan: &EngineRenderBufferPlan) -> EngineRenderGpuUploadPlan {
@@ -724,6 +742,12 @@ mod tests {
             ]
         );
         assert_eq!(atlas.runs[0].style, style);
+
+        let prepared = EngineWgpuRenderBackend::prepare_frame_for_viewport(&plan, 80.0, 40.0);
+        assert_eq!(prepared.upload.pane_id, 7);
+        assert_eq!(prepared.upload.revision, 42);
+        assert_eq!(prepared.upload.vertices.len(), 4);
+        assert_eq!(prepared.text_atlas, atlas);
     }
 
     #[test]

@@ -589,13 +589,21 @@ impl WebGpuState {
         clear_color: Option<[f64; 4]>,
     ) -> bool {
         let dimensions = self.dimensions.borrow();
-        let upload = EngineWgpuRenderBackend::prepare_upload_for_viewport(
+        let prepared = EngineWgpuRenderBackend::prepare_frame_for_viewport(
             plan,
             dimensions.pixel_width.max(1) as f32,
             dimensions.pixel_height.max(1) as f32,
         );
         drop(dimensions);
-        self.encode_next_core_upload(encoder, target, &upload, clear_color)
+        if !prepared.text_atlas.is_empty() {
+            log::trace!(
+                "next-core prepared {} text atlas runs for pane {} revision {}",
+                prepared.text_atlas.runs.len(),
+                prepared.text_atlas.pane_id,
+                prepared.text_atlas.revision
+            );
+        }
+        self.encode_next_core_upload(encoder, target, &prepared.upload, clear_color)
     }
 
     #[allow(unused_mut)]

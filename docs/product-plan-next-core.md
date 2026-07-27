@@ -418,6 +418,7 @@ Supported:
 - GPU-free `CommandListRenderBackend` that expands commit submissions into ordered damage/background/text/cursor backend commands before the real wgpu backend lands
 - `EngineRenderBufferPlan` that turns backend commands into damage rects plus quad vertex/index buffers and preserves `RenderTextRun` row/col/cell-span/text/style/rect metadata so the GUI glyph-atlas path can render real text instead of anonymous text quads
 - `EngineRenderTextAtlasPlan` that turns submitted text runs into GPU-free atlas/shaping preparation runs with foreground color, cell span, text, style, and pixel rects before the real font atlas is attached
+- `EngineWgpuRenderBackend::prepare_frame_for_viewport`, which prepares both clip-space upload buffers and text-atlas input in one frame plan now consumed by the WebGPU pane encoder
 - `EngineWgpuRenderBackend` upload skeleton that turns buffer plans into a POD GPU vertex ABI and creates wgpu vertex/index buffers while keeping `unterm-engine` free of GPU dependencies
 - `EngineWgpuRenderPassPlan` and `EngineWgpuRenderBackend::encode_pass` that define the first indexed draw-pass contract for submitted next-core buffers without moving renderer semantics into the terminal core
 - `EngineWgpuPipelineConfig`, next-core GPU vertex layout, viewport-to-clip upload path, and minimal WGSL shader ABI for solid-color quads before glyph atlas/text rendering lands

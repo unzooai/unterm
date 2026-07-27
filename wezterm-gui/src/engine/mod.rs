@@ -17,8 +17,8 @@ pub use render_backend::{
     CommandListRenderBackend, EngineRenderBackend, EngineRenderBackendCommand,
     EngineRenderBackendFrame, EngineRenderBufferPlan, EngineRenderGpuUploadPlan,
     EngineRenderGpuVertex, EngineRenderTextAtlasPlan, EngineRenderTextAtlasRun,
-    EngineRenderVertexLayer, EngineWgpuPipelineConfig, EngineWgpuRenderBackend,
-    EngineWgpuRenderPassPlan,
+    EngineRenderVertexLayer, EngineWgpuPipelineConfig, EngineWgpuPreparedFramePlan,
+    EngineWgpuRenderBackend, EngineWgpuRenderPassPlan,
 };
 #[allow(unused_imports)]
 pub use render_consumer::{
