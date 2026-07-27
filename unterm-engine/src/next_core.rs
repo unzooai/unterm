@@ -9,11 +9,9 @@ use super::{
 #[cfg(test)]
 use anyhow::bail;
 use anyhow::Result;
-use base64::Engine as _;
 use parking_lot::{Mutex, RwLock};
 use portable_pty::{Child, MasterPty};
 use std::collections::BTreeSet;
-use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
@@ -39,6 +37,7 @@ mod pty_io;
 mod recording_archive;
 mod recording_lifecycle;
 mod recording_markdown;
+mod recording_output;
 mod recording_text;
 mod render_frame;
 mod render_state;
@@ -1757,92 +1756,7 @@ impl NextCoreEngine {
     }
 
     fn append_recording_output(recording: &mut NextCoreRecording, text: &str) {
-        if text.is_empty() {
-            return;
-        }
-        let encoded = base64::engine::general_purpose::STANDARD.encode(text.as_bytes());
-        let timestamp_micros = Self::unix_micros();
-        let line = format!("{}\tout\t{}\n", timestamp_micros, encoded);
-        if let Ok(mut file) = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&recording.log_path)
-        {
-            let _ = file.write_all(line.as_bytes());
-        }
-        recording.bytes_raw = recording.bytes_raw.saturating_add(text.len() as u64);
-        recording.block_count = recording.block_count.saturating_add(1);
-        recording.blocks.push(NextCoreRecordingBlock {
-            index: recording.block_count,
-            timestamp_micros,
-            text: text.to_string(),
-        });
-        Self::record_osc133_command_blocks(recording, text, timestamp_micros);
-        if recording.blocks.len() > MAX_RECORDING_BLOCKS {
-            recording
-                .blocks
-                .drain(..recording.blocks.len() - MAX_RECORDING_BLOCKS);
-        }
-        if recording.command_blocks.len() > MAX_RECORDING_BLOCKS {
-            recording
-                .command_blocks
-                .drain(..recording.command_blocks.len() - MAX_RECORDING_BLOCKS);
-        }
-        pty_io::append_bounded_output(&mut recording.text_preview, text, MAX_OUTPUT_BYTES);
-    }
-
-    fn record_osc133_command_blocks(
-        recording: &mut NextCoreRecording,
-        text: &str,
-        timestamp_micros: u128,
-    ) {
-        for item in osc133::split_stream(text) {
-            match item {
-                osc133::StreamItem::Text(text) => {
-                    if let Some(active) = recording.active_command.as_mut() {
-                        active.text.push_str(text);
-                    }
-                }
-                osc133::StreamItem::Marker(marker) => {
-                    recording.osc133_seen = true;
-                    match marker.kind {
-                        'C' => {
-                            if let Some(active) = recording.active_command.take() {
-                                recording.command_blocks.push(NextCoreCommandBlock {
-                                    index: active.index,
-                                    started_micros: active.started_micros,
-                                    ended_micros: None,
-                                    exit_code: None,
-                                    text: active.text,
-                                });
-                            }
-                            let index = recording
-                                .command_blocks
-                                .last()
-                                .map(|block| block.index.saturating_add(1))
-                                .unwrap_or(1);
-                            recording.active_command = Some(NextCoreActiveCommand {
-                                index,
-                                started_micros: timestamp_micros,
-                                text: String::new(),
-                            });
-                        }
-                        'D' => {
-                            if let Some(active) = recording.active_command.take() {
-                                recording.command_blocks.push(NextCoreCommandBlock {
-                                    index: active.index,
-                                    started_micros: active.started_micros,
-                                    ended_micros: Some(timestamp_micros),
-                                    exit_code: marker.exit_code,
-                                    text: active.text,
-                                });
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
-        }
+        recording_output::append(recording, text, Self::unix_micros());
     }
 
     pub fn scroll_viewport_to(&self, pane_id: usize, target: isize) -> Result<()> {
