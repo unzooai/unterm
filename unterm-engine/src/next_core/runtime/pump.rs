@@ -9,6 +9,28 @@ use super::{
 };
 use anyhow::Result;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(in crate::next_core) struct RuntimePumpStats {
+    pub(in crate::next_core) drain_calls: u64,
+    pub(in crate::next_core) dispatched_commands: u64,
+    pub(in crate::next_core) waited_for_response: u64,
+    pub(in crate::next_core) completed_without_wait: u64,
+}
+
+impl RuntimePumpStats {
+    fn record_drain(&mut self, dispatched_commands: usize, waited_for_response: bool) {
+        self.drain_calls = self.drain_calls.saturating_add(1);
+        self.dispatched_commands = self
+            .dispatched_commands
+            .saturating_add(dispatched_commands as u64);
+        if waited_for_response {
+            self.waited_for_response = self.waited_for_response.saturating_add(1);
+        } else {
+            self.completed_without_wait = self.completed_without_wait.saturating_add(1);
+        }
+    }
+}
+
 #[derive(Debug)]
 pub(in crate::next_core) struct RuntimePumpDrain {
     pub(in crate::next_core) result: Result<RuntimeDispatchResult>,
@@ -36,28 +58,16 @@ pub(in crate::next_core) fn drain_until_response_report(
     loop {
         match rx.try_recv() {
             Ok(Some(result)) => {
-                return RuntimePumpDrain {
-                    result: Ok(result),
-                    dispatched_commands,
-                    waited_for_response: false,
-                };
+                return complete_drain(Ok(result), dispatched_commands, false);
             }
             Ok(None) => {}
             Err(err) => {
-                return RuntimePumpDrain {
-                    result: Err(err),
-                    dispatched_commands,
-                    waited_for_response: false,
-                };
+                return complete_drain(Err(err), dispatched_commands, false);
             }
         }
         match dispatch_next_scheduled_step() {
             Ok(RuntimePumpStep::Empty) => {
-                return RuntimePumpDrain {
-                    result: rx.recv(),
-                    dispatched_commands,
-                    waited_for_response: true,
-                };
+                return complete_drain(rx.recv(), dispatched_commands, true);
             }
             Ok(RuntimePumpStep::CompletedAttachedResponse) => {
                 dispatched_commands += 1;
@@ -66,13 +76,26 @@ pub(in crate::next_core) fn drain_until_response_report(
                 dispatched_commands += 1;
             }
             Err(err) => {
-                return RuntimePumpDrain {
-                    result: Err(err),
-                    dispatched_commands,
-                    waited_for_response: false,
-                };
+                return complete_drain(Err(err), dispatched_commands, false);
             }
         }
+    }
+}
+
+fn complete_drain(
+    result: Result<RuntimeDispatchResult>,
+    dispatched_commands: usize,
+    waited_for_response: bool,
+) -> RuntimePumpDrain {
+    with_current_mut(|state| {
+        state
+            .pump_stats
+            .record_drain(dispatched_commands, waited_for_response);
+    });
+    RuntimePumpDrain {
+        result,
+        dispatched_commands,
+        waited_for_response,
     }
 }
 
@@ -215,6 +238,11 @@ mod tests {
             .to_string()
             .contains("next-core session 111 not found"));
         assert_eq!(queue_stats().pending_commands, 0);
+        let stats = pump_stats();
+        assert_eq!(stats.drain_calls, 1);
+        assert_eq!(stats.dispatched_commands, 2);
+        assert_eq!(stats.waited_for_response, 0);
+        assert_eq!(stats.completed_without_wait, 1);
     }
 
     #[test]
@@ -265,9 +293,18 @@ mod tests {
             .contains("runtime render queue rejected command"));
         assert_eq!(report.dispatched_commands, 0);
         assert!(!report.waited_for_response);
+        let stats = pump_stats();
+        assert_eq!(stats.drain_calls, 1);
+        assert_eq!(stats.dispatched_commands, 0);
+        assert_eq!(stats.waited_for_response, 0);
+        assert_eq!(stats.completed_without_wait, 1);
     }
 
     fn queue_stats() -> super::super::queue::RuntimeQueueStats {
         with_current(|state| state.command_queue.stats())
+    }
+
+    fn pump_stats() -> RuntimePumpStats {
+        with_current(|state| state.pump_stats)
     }
 }

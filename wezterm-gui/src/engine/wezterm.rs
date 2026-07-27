@@ -619,6 +619,7 @@ impl HealthEngine for WezTermEngine {
             io: None,
             lifecycle: None,
             runtime_queue: None,
+            runtime_pump: None,
         })
     }
 }

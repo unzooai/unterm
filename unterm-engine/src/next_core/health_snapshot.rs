@@ -1,7 +1,7 @@
 use super::{activity::SessionIoActivity, lifecycle, runtime::NextCoreRuntime, session_registry};
 use crate::{
     EngineHealthSnapshot, EngineIoHealthSnapshot, EngineLifecycleHealthSnapshot,
-    EngineRuntimeQueueHealthSnapshot,
+    EngineRuntimePumpHealthSnapshot, EngineRuntimeQueueHealthSnapshot,
 };
 
 pub(super) fn snapshot(state: &mut NextCoreRuntime) -> EngineHealthSnapshot {
@@ -32,6 +32,7 @@ pub(super) fn snapshot(state: &mut NextCoreRuntime) -> EngineHealthSnapshot {
     }
     let stats = session_registry::stats(state);
     let queue_stats = state.command_queue.stats();
+    let pump_stats = state.pump_stats;
     let lifecycle = EngineLifecycleHealthSnapshot {
         live_sessions: pane_count.saturating_sub(dead_sessions as usize) as u64,
         dead_sessions,
@@ -58,6 +59,12 @@ pub(super) fn snapshot(state: &mut NextCoreRuntime) -> EngineHealthSnapshot {
             pending_background_commands: queue_stats.pending_lanes.background,
             rejected_commands: queue_stats.rejected_commands,
             rejected_input_bytes: queue_stats.rejected_input_bytes,
+        }),
+        runtime_pump: Some(EngineRuntimePumpHealthSnapshot {
+            drain_calls: pump_stats.drain_calls,
+            dispatched_commands: pump_stats.dispatched_commands,
+            waited_for_response: pump_stats.waited_for_response,
+            completed_without_wait: pump_stats.completed_without_wait,
         }),
     }
 }
@@ -104,6 +111,28 @@ mod tests {
         assert_eq!(queue.pending_render_commands, 0);
         assert_eq!(queue.pending_screen_commands, 0);
         assert_eq!(queue.rejected_input_bytes, 0);
+        let pump = health.runtime_pump.expect("runtime pump");
+        assert_eq!(pump.drain_calls, 0);
+        assert_eq!(pump.dispatched_commands, 0);
+        assert_eq!(pump.waited_for_response, 0);
+        assert_eq!(pump.completed_without_wait, 0);
+    }
+
+    #[test]
+    fn runtime_pump_health_reports_accumulated_stats() {
+        let mut state = NextCoreRuntime::default();
+        state.pump_stats.drain_calls = 3;
+        state.pump_stats.dispatched_commands = 7;
+        state.pump_stats.waited_for_response = 1;
+        state.pump_stats.completed_without_wait = 2;
+
+        let health = snapshot(&mut state);
+
+        let pump = health.runtime_pump.expect("runtime pump");
+        assert_eq!(pump.drain_calls, 3);
+        assert_eq!(pump.dispatched_commands, 7);
+        assert_eq!(pump.waited_for_response, 1);
+        assert_eq!(pump.completed_without_wait, 2);
     }
 
     #[test]

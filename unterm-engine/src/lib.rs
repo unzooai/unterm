@@ -881,6 +881,14 @@ pub struct EngineRuntimeQueueHealthSnapshot {
 }
 
 #[derive(Clone, Debug, Serialize)]
+pub struct EngineRuntimePumpHealthSnapshot {
+    pub drain_calls: u64,
+    pub dispatched_commands: u64,
+    pub waited_for_response: u64,
+    pub completed_without_wait: u64,
+}
+
+#[derive(Clone, Debug, Serialize)]
 pub struct EngineHealthSnapshot {
     pub engine: String,
     pub ready: bool,
@@ -890,6 +898,7 @@ pub struct EngineHealthSnapshot {
     pub io: Option<EngineIoHealthSnapshot>,
     pub lifecycle: Option<EngineLifecycleHealthSnapshot>,
     pub runtime_queue: Option<EngineRuntimeQueueHealthSnapshot>,
+    pub runtime_pump: Option<EngineRuntimePumpHealthSnapshot>,
 }
 
 #[derive(Clone, Copy, Debug)]

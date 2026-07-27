@@ -37,6 +37,7 @@ pub(super) use status_facade::{health_snapshot, output, session_activity, shell_
 #[derive(Default)]
 pub(super) struct NextCoreRuntime {
     pub(super) command_queue: queue::RuntimeCommandQueue,
+    pub(super) pump_stats: pump::RuntimePumpStats,
     pub(super) registry: session_registry::SessionRegistry,
 }
 
