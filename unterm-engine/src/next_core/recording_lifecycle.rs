@@ -1,4 +1,4 @@
-use super::{recording_archive, recording_markdown, session_handles, state, NextCoreRecording};
+use super::{recording_archive, recording_markdown, session_handles, NextCoreRecording};
 use crate::{
     RecordingExportResult, RecordingStartResult, RecordingStatusSnapshot, RecordingStopResult,
 };
@@ -29,10 +29,7 @@ fn unix_micros() -> u128 {
 }
 
 pub(super) fn start(pane_id: usize, started_at: String) -> Result<RecordingStartResult> {
-    let handles = {
-        let state = state().read();
-        session_handles::recording(&state, pane_id)?
-    };
+    let handles = session_handles::recording_current(pane_id)?;
 
     let mut slot = handles.recording.lock();
     if slot.is_some() {
@@ -80,10 +77,7 @@ pub(super) fn start(pane_id: usize, started_at: String) -> Result<RecordingStart
 }
 
 pub(super) fn stop(pane_id: usize, ended_at: String) -> Result<RecordingStopResult> {
-    let recording_handle = {
-        let state = state().read();
-        session_handles::recording(&state, pane_id)?.recording
-    };
+    let recording_handle = session_handles::recording_current(pane_id)?.recording;
     let mut slot = recording_handle.lock();
     let Some(recording) = slot.take() else {
         bail!("No active recording for pane {pane_id}");
@@ -103,10 +97,7 @@ pub(super) fn stop(pane_id: usize, ended_at: String) -> Result<RecordingStopResu
 }
 
 pub(super) fn status(pane_id: usize) -> Result<RecordingStatusSnapshot> {
-    let Some(recording_handle) = ({
-        let state = state().read();
-        session_handles::recording_optional(&state, pane_id)
-    }) else {
+    let Some(recording_handle) = session_handles::recording_optional_current(pane_id) else {
         return Ok(inactive_status());
     };
     let slot = recording_handle.lock();
@@ -114,10 +105,7 @@ pub(super) fn status(pane_id: usize) -> Result<RecordingStatusSnapshot> {
 }
 
 pub(super) fn attach_trace(pane_id: usize, trace_id: String) -> Result<Vec<String>> {
-    let recording_handle = {
-        let state = state().read();
-        session_handles::recording(&state, pane_id)?.recording
-    };
+    let recording_handle = session_handles::recording_current(pane_id)?.recording;
     let mut slot = recording_handle.lock();
     let Some(recording) = slot.as_mut() else {
         bail!("No active recording for pane {pane_id}");
@@ -137,10 +125,7 @@ pub(super) fn export_markdown(
     pane_id: usize,
     target_path: Option<String>,
 ) -> Result<RecordingExportResult> {
-    let recording_handle = {
-        let state = state().read();
-        session_handles::recording(&state, pane_id)?.recording
-    };
+    let recording_handle = session_handles::recording_current(pane_id)?.recording;
     let slot = recording_handle.lock();
     let Some(recording) = slot.as_ref() else {
         bail!("No active recording for pane {pane_id}");

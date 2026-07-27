@@ -125,6 +125,11 @@ pub(super) fn recording(state: &NextCoreState, pane_id: usize) -> Result<Recordi
     })
 }
 
+pub(super) fn recording_current(pane_id: usize) -> Result<RecordingHandles> {
+    let state = state().read();
+    recording(&state, pane_id)
+}
+
 pub(super) fn recording_optional(
     state: &NextCoreState,
     pane_id: usize,
@@ -132,6 +137,13 @@ pub(super) fn recording_optional(
     session(state, pane_id)
         .ok()
         .map(|session| Arc::clone(&session.recording))
+}
+
+pub(super) fn recording_optional_current(
+    pane_id: usize,
+) -> Option<Arc<Mutex<Option<NextCoreRecording>>>> {
+    let state = state().read();
+    recording_optional(&state, pane_id)
 }
 
 #[cfg(test)]
