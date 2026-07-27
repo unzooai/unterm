@@ -1175,6 +1175,63 @@ impl NextCoreScreen {
         self.mark_dirty_range(top, bottom);
     }
 
+    fn change_rect_attributes(
+        &mut self,
+        top: usize,
+        left: usize,
+        bottom: usize,
+        right: usize,
+        params: &[usize],
+    ) {
+        if self.rows == 0 || self.cols == 0 {
+            return;
+        }
+        let Some((top, left, bottom, right)) = self.clip_rect(top, left, bottom, right) else {
+            return;
+        };
+
+        self.ensure_rows_through(bottom);
+        let params = if params.is_empty() { &[0][..] } else { params };
+        for row in top..=bottom {
+            let line = &mut self.lines[row];
+            if line.len() <= right {
+                line.resize(right + 1, ScreenCell::blank(self.current_attr));
+            }
+            for col in left..=right {
+                Self::apply_deccara_attributes(&mut line[col].attr, params);
+            }
+        }
+        self.mark_dirty_range(top, bottom);
+    }
+
+    fn apply_deccara_attributes(attr: &mut CellAttributes, params: &[usize]) {
+        for param in params {
+            match *param {
+                0 => {
+                    attr.bold = false;
+                    attr.faint = false;
+                    attr.clear_underline();
+                    attr.blink = None;
+                    attr.inverse = false;
+                }
+                1 => attr.bold = true,
+                4 => attr.set_underline(StyledUnderline::Single),
+                5 => attr.blink = Some(StyledBlink::Slow),
+                7 => attr.inverse = true,
+                8 => attr.hidden = true,
+                22 => {
+                    attr.bold = false;
+                    attr.faint = false;
+                }
+                24 => attr.clear_underline(),
+                25 => attr.blink = None,
+                27 => attr.inverse = false,
+                28 => attr.hidden = false,
+                _ => {}
+            }
+        }
+    }
+
     fn clip_rect(
         &self,
         top: usize,
@@ -2319,6 +2376,14 @@ impl<'a> ScreenParser<'a> {
                 }
             }
             'r' => {
+                if raw_params.ends_with('$') {
+                    let numbers = NextCoreScreen::parse_csi_numbers(raw_params);
+                    let (top, left, bottom, right) = self.screen.rect_from_numbers(&numbers);
+                    let params = numbers.get(4..).unwrap_or(&[]);
+                    self.screen
+                        .change_rect_attributes(top, left, bottom, right, params);
+                    return;
+                }
                 let top = numbers.first().copied().filter(|n| *n > 0).unwrap_or(1);
                 let bottom = numbers
                     .get(1)
@@ -7779,6 +7844,85 @@ mod tests {
             .lines
             .iter()
             .all(|line| line.cells.iter().all(|cell| cell.ch == ' ')));
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_applies_deccara_rectangular_attributes() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 10,
+            rows: 4,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(
+            session.id,
+            "0123456789\r\nabcdefghij\r\nABCDEFGHIJ\x1b[1;6H\x1b[2;3;3;8;1;4;7;8$r",
+        )?;
+        let screen = engine.read_screen(session.id)?;
+        let styled = engine.read_styled_screen(session.id)?;
+
+        assert_eq!(screen.lines, vec!["0123456789", "abcdefghij", "ABCDEFGHIJ"]);
+        assert_eq!(screen.cursor.x, 5);
+        assert_eq!(screen.cursor.y, 0);
+        assert!(styled.lines[1].cells[2].style.bold);
+        assert!(styled.lines[1].cells[2].style.underline);
+        assert!(styled.lines[1].cells[2].style.inverse);
+        assert!(styled.lines[1].cells[2].style.hidden);
+        assert!(styled.lines[2].cells[7].style.bold);
+        assert!(styled.lines[2].cells[7].style.hidden);
+        assert!(!styled.lines[1].cells[1].style.bold);
+        assert!(!styled.lines[2].cells[8].style.inverse);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_deccara_resets_rectangular_attributes() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 8,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(
+            session.id,
+            "\x1b[1;4;5;7;8mabcdefgh\r\nABCDEFGH\x1b[2;3;2;6;0;28$r",
+        )?;
+        let styled = engine.read_styled_screen(session.id)?;
+
+        let preserved = &styled.lines[0].cells[2].style;
+        assert!(preserved.bold);
+        assert!(preserved.underline);
+        assert!(preserved.inverse);
+        assert!(preserved.hidden);
+
+        let reset = &styled.lines[1].cells[2].style;
+        assert!(!reset.bold);
+        assert!(!reset.underline);
+        assert!(!reset.inverse);
+        assert!(!reset.hidden);
+
+        let outside = &styled.lines[1].cells[6].style;
+        assert!(outside.bold);
+        assert!(outside.underline);
+        assert!(outside.inverse);
+        assert!(outside.hidden);
 
         engine.destroy_session(session.id)?;
         Ok(())
