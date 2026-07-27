@@ -1627,7 +1627,7 @@ fn set_output_for_test(pane_id: usize, text: &str) -> Result<()> {
     screen.render_state.set_revision(revision);
     screen.feed(text);
     if let Some(recording) = recording.lock().as_mut() {
-        NextCoreEngine::append_recording_output(recording, text);
+        recording_output::append_now(recording, text);
     }
     activity
         .lock()
@@ -1732,10 +1732,6 @@ impl NextCoreEngine {
 
     fn timestamp_string() -> String {
         Self::unix_micros().to_string()
-    }
-
-    fn append_recording_output(recording: &mut NextCoreRecording, text: &str) {
-        recording_output::append(recording, text, Self::unix_micros());
     }
 
     pub fn scroll_viewport_to(&self, pane_id: usize, target: isize) -> Result<()> {

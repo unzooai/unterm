@@ -1,6 +1,6 @@
 use super::{
-    activity::SessionIoActivity, launch, pty_io, NextCoreEngine, NextCoreRecording, NextCoreScreen,
-    NextCoreSession, NextCoreState, MAX_OUTPUT_BYTES,
+    activity::SessionIoActivity, launch, pty_io, recording_output, NextCoreEngine,
+    NextCoreRecording, NextCoreScreen, NextCoreSession, NextCoreState, MAX_OUTPUT_BYTES,
 };
 use crate::{SessionSnapshot, ShellSnapshot};
 use anyhow::{bail, Result};
@@ -160,7 +160,7 @@ fn spawn_reader_thread(
                             .lock()
                             .mark_output(chunk.len(), output_started_at.elapsed());
                         if let Some(recording) = recording.lock().as_mut() {
-                            NextCoreEngine::append_recording_output(recording, chunk.as_str());
+                            recording_output::append_now(recording, chunk.as_str());
                         }
                     }
                     Err(err) => {

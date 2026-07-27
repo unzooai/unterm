@@ -3,7 +3,15 @@ use super::{
     NextCoreRecordingBlock, MAX_OUTPUT_BYTES, MAX_RECORDING_BLOCKS,
 };
 use base64::Engine as _;
-use std::{fs::OpenOptions, io::Write};
+use std::{
+    fs::OpenOptions,
+    io::Write,
+    time::{SystemTime, UNIX_EPOCH},
+};
+
+pub(super) fn append_now(recording: &mut NextCoreRecording, text: &str) {
+    append(recording, text, unix_micros());
+}
 
 pub(super) fn append(recording: &mut NextCoreRecording, text: &str, timestamp_micros: u128) {
     if text.is_empty() {
@@ -95,6 +103,13 @@ fn trim_recent_blocks(recording: &mut NextCoreRecording) {
             .command_blocks
             .drain(..recording.command_blocks.len() - MAX_RECORDING_BLOCKS);
     }
+}
+
+fn unix_micros() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_micros())
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
