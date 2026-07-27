@@ -93,7 +93,7 @@ unterm-product
 - 渲染器只消费 commit plan，常规帧走 dirty rows/cells，首帧、resize 或 revision gap 才强制 full repaint。
 - MCP screen read 读取稳定快照，不阻塞 UI frame，也不反向持有 renderer 状态。
 - runtime pump 暴露按 lane 的 dispatch 计数、response wait/immediate-completion 计数、dispatch/drain 总耗时和最大耗时，并通过 `meta.surface`、`server.capabilities`、`server.health` 和 `selftest.run` 进入 MCP 可见面，用 health snapshot 直接观察 input、lifecycle、render、screen、background 哪条路径在卡，以及同步 pump 是否在等待响应。
-- benchmark 必须覆盖 key-to-screen、input burst under output、paste chunk、output flood、scrollback paging、viewport scroll、screen-read under flood、render commit plan，并要求 JSON smoke 与每个 benchmark summary 都携带 runtime pump lane、response wait 和 latency 遥测。
+- benchmark 必须覆盖 key-to-screen、input burst under output、paste chunk、output flood、scrollback paging、viewport scroll、viewport page-cycle、screen-read under flood、render commit plan，并要求 JSON smoke 与每个 benchmark summary 都携带 runtime pump lane、response wait 和 latency 遥测。
 - size gate 和 dependency review 必须持续运行；新增依赖必须证明它替代了更高风险的自研复杂度，不能把产品 UI、agent cockpit、Web Settings 或 legacy 兼容塞进 core。
 
 ## 5. 关键实现路径
@@ -284,7 +284,7 @@ next-core 已经在 screen/parser 方向具备基础能力，包括：
 - `WebGpuState::encode_next_core_pane_frame` 已消费 renderer-owned pane draw frame 并统一进入 pane-frame encoder helper，复用其中的 engine-prepared frame、当前 viewport 尺寸、viewport-to-clip 转换和缓存 pipeline；pane draw loop 不再暴露 raw buffer-plan 编码入口，engine prepared frame 也不再携带 GUI 字体对象
 - JSON probe smoke 已输出并校验 render draw/geometry/submission/commit plan 的 revision、run/quad counts、viewport、damage rects、cursor state、首帧 full-repaint state 和 runtime pump lane/latency health，让 renderer 与调度输入契约进入 CI 可见面
 - MCP `meta.surface` / `server.capabilities` 已显式标记 next-core 支持 `runtime_pump_summary`，并列出 `drain_calls`、按 lane dispatch 计数、dispatch/drain 总耗时和最大耗时；`selftest.run` 会同时验证 capability 广告和 `server.health.engine_health.runtime_pump` 字段，避免性能诊断只停留在 standalone benchmark
-- benchmark 已覆盖 input write、key-to-screen、input burst under output、echo、paste、output flood、scrollback paging、viewport scroll、screen-read under flood、render-frame empty/dirty/cursor-move delta、application-cursor-move delta、render draw plan、render geometry plan、render submission plan、render commit plan API、focus/session lifecycle；cursor-move gate 会拒绝普通 CSI 与 application-cursor SS3 路径漏掉左右箭头移动或退化成全量重绘，并在 JSON smoke/report 中记录 runtime pump 按 lane dispatch、response wait/immediate-completion 与最大 dispatch/drain 耗时；`verify-next-core-benchmark.ps1` 会拒绝缺少 runtime pump JSON 字段或 `health_runtime_pump` summary 的报告
+- benchmark 已覆盖 input write、key-to-screen、input burst under output、echo、paste、output flood、scrollback paging、viewport scroll、viewport page-cycle、screen-read under flood、render-frame empty/dirty/cursor-move delta、application-cursor-move delta、render draw plan、render geometry plan、render submission plan、render commit plan API、focus/session lifecycle；cursor-move gate 会拒绝普通 CSI 与 application-cursor SS3 路径漏掉左右箭头移动或退化成全量重绘，viewport page-cycle gate 会拒绝 PageUp/PageDown 语义漏页、未到边界或未回到 live-tail，并在 JSON smoke/report 中记录 runtime pump 按 lane dispatch、response wait/immediate-completion 与最大 dispatch/drain 耗时；`verify-next-core-benchmark.ps1` 会拒绝缺少 runtime pump JSON 字段或 `health_runtime_pump` summary 的报告
 - zero-width combining marks attach to preceding visible cells without advancing cursor position
 - DECFRA、DECERA、DECCARA、DECRARA 矩形操作
 - DECSCA protected/erasable cell 属性

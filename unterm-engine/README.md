@@ -40,7 +40,7 @@ Run the Phase 2 next-core benchmark suite and generate `docs/next-core-benchmark
 .\unterm-engine\bench-next-core.ps1
 ```
 
-The runner builds `unterm-next-core`, verifies the machine-readable `--json` probe output, executes the current input-write/input-burst/echo/output/scrollback/viewport-scroll/viewport-scroll-under-flood/paste/dual-agent/agent-startup-stall/screen-read/render-frame empty, dirty, cursor-move delta, application-cursor-move delta, render draw-plan/render geometry-plan/render submission-plan/render commit-plan/focus-switch/session-create/session-ready benchmarks, writes human-readable summary and raw output into the Markdown report, and writes machine-readable gate results into the JSON summary. Any failed benchmark or gate exits non-zero.
+The runner builds `unterm-next-core`, verifies the machine-readable `--json` probe output, executes the current input-write/input-burst/echo/output/scrollback/viewport-scroll/viewport-page-cycle/viewport-scroll-under-flood/paste/dual-agent/agent-startup-stall/screen-read/render-frame empty, dirty, cursor-move delta, application-cursor-move delta, render draw-plan/render geometry-plan/render submission-plan/render commit-plan/focus-switch/session-create/session-ready benchmarks, writes human-readable summary and raw output into the Markdown report, and writes machine-readable gate results into the JSON summary. Any failed benchmark or gate exits non-zero.
 
 Verify an existing JSON summary without rerunning the benchmark suite:
 
@@ -150,6 +150,14 @@ cargo run -p unterm-engine --bin unterm-next-core -- --bench-scrollback-lines 10
 ```
 
 The scrollback benchmark first fills the terminal through the PTY, then reads the captured history in viewport-sized pages and reports per-page read latency.
+
+Viewport page-cycle benchmark:
+
+```powershell
+cargo run -p unterm-engine --bin unterm-next-core -- --bench-viewport-page-cycle-lines 10000 --timeout-ms 30000 --wait-ms 100 --write "exit`r" -- cmd.exe
+```
+
+The page-cycle benchmark fills scrollback, simulates PageUp to the top and PageDown back to live-tail through logical viewport jumps, then requires no missed pages or boundary misses. It covers the core contract behind PageUp/PageDown before GUI viewport ownership fully moves into next-core.
 
 Viewport scroll under output flood benchmark:
 

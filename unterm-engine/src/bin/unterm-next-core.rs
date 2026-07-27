@@ -23,6 +23,7 @@ struct Args {
     bench_flood_lines: Option<usize>,
     bench_scrollback_lines: Option<usize>,
     bench_viewport_scrolls: Option<usize>,
+    bench_viewport_page_cycle_lines: Option<usize>,
     bench_viewport_scroll_flood: Option<usize>,
     bench_paste_kb: Option<usize>,
     bench_dual_agent_lines: Option<usize>,
@@ -61,6 +62,7 @@ fn parse_args() -> Result<Args> {
         bench_flood_lines: None,
         bench_scrollback_lines: None,
         bench_viewport_scrolls: None,
+        bench_viewport_page_cycle_lines: None,
         bench_viewport_scroll_flood: None,
         bench_paste_kb: None,
         bench_dual_agent_lines: None,
@@ -170,6 +172,15 @@ fn parse_args() -> Result<Args> {
                     args.next()
                         .ok_or_else(|| {
                             anyhow::anyhow!("--bench-viewport-scrolls requires a value")
+                        })?
+                        .parse()?,
+                );
+            }
+            "--bench-viewport-page-cycle-lines" => {
+                parsed.bench_viewport_page_cycle_lines = Some(
+                    args.next()
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("--bench-viewport-page-cycle-lines requires a value")
                         })?
                         .parse()?,
                 );
@@ -334,7 +345,7 @@ fn parse_args() -> Result<Args> {
             }
             "--help" | "-h" => {
                 println!(
-                    "Usage: unterm-next-core [--cols N] [--rows N] [--wait-ms N] [--poll-ms N] [--timeout-ms N] [--bench-input-writes N] [--bench-key-to-screen N] [--bench-input-burst N] [--bench-echo N] [--bench-flood-lines N] [--bench-scrollback-lines N] [--bench-viewport-scrolls N] [--bench-viewport-scroll-flood N] [--bench-paste-kb N] [--bench-dual-agent-lines N] [--bench-agent-startup-lines N] [--bench-screen-read-lines N] [--bench-render-frames N] [--bench-render-plans N] [--bench-render-cursor-moves N] [--bench-render-application-cursor-moves N] [--bench-focus-switches N] [--bench-session-create N] [--bench-session-ready N] [--cwd PATH] [--env KEY=VALUE] [--write TEXT] [--paste TEXT] [--json] [-- COMMAND [ARG...]]"
+                    "Usage: unterm-next-core [--cols N] [--rows N] [--wait-ms N] [--poll-ms N] [--timeout-ms N] [--bench-input-writes N] [--bench-key-to-screen N] [--bench-input-burst N] [--bench-echo N] [--bench-flood-lines N] [--bench-scrollback-lines N] [--bench-viewport-scrolls N] [--bench-viewport-page-cycle-lines N] [--bench-viewport-scroll-flood N] [--bench-paste-kb N] [--bench-dual-agent-lines N] [--bench-agent-startup-lines N] [--bench-screen-read-lines N] [--bench-render-frames N] [--bench-render-plans N] [--bench-render-cursor-moves N] [--bench-render-application-cursor-moves N] [--bench-focus-switches N] [--bench-session-create N] [--bench-session-ready N] [--cwd PATH] [--env KEY=VALUE] [--write TEXT] [--paste TEXT] [--json] [-- COMMAND [ARG...]]"
                 );
                 std::process::exit(0);
             }
@@ -414,6 +425,28 @@ fn wait_for_marker(
             bail!("timed out waiting for marker {}", run.marker);
         }
         std::thread::sleep(poll_interval);
+    }
+}
+
+fn wait_for_stable_screen_revision(
+    engine: &unterm_engine::next_core::NextCoreEngine,
+    pane_id: usize,
+    poll_interval: Duration,
+    timeout: Duration,
+) -> Result<u64> {
+    let started = Instant::now();
+    let poll_interval = poll_interval.max(Duration::from_millis(5));
+    let mut previous = engine.read_screen(pane_id)?.revision;
+    loop {
+        std::thread::sleep(poll_interval);
+        let current = engine.read_screen(pane_id)?.revision;
+        if current == previous {
+            return Ok(current);
+        }
+        if started.elapsed() >= timeout {
+            bail!("timed out waiting for stable screen revision");
+        }
+        previous = current;
     }
 }
 
@@ -538,6 +571,107 @@ fn run_viewport_scroll_benchmark(
         lines,
         targets.len(),
         rows_read,
+        before.elapsed().as_millis(),
+        latencies_us[0],
+        percentile(&latencies_us, 0.50),
+        percentile(&latencies_us, 0.95),
+        *latencies_us.last().unwrap_or(&0)
+    );
+    Ok(())
+}
+
+fn screen_first_row(screen: &unterm_engine::ScreenSnapshot) -> i64 {
+    screen.cells.first().map(|line| line.row).unwrap_or(0)
+}
+
+fn run_viewport_page_cycle_benchmark(
+    engine: &unterm_engine::next_core::NextCoreEngine,
+    pane_id: usize,
+    lines: usize,
+    poll_interval: Duration,
+    timeout: Duration,
+) -> Result<()> {
+    if lines == 0 {
+        bail!("--bench-viewport-page-cycle-lines must be greater than 0");
+    }
+
+    run_flood_benchmark(engine, pane_id, lines, poll_interval, timeout)?;
+
+    let initial = engine.read_screen(pane_id)?;
+    let page_rows = initial.rows.max(1) as isize;
+    let total_rows = initial.scrollback_rows + initial.rows;
+    let max_top = total_rows.saturating_sub(initial.rows) as isize;
+    if max_top <= 0 {
+        bail!("viewport page-cycle benchmark did not produce scrollback");
+    }
+
+    let mut latencies_us = Vec::new();
+    let mut pages = 0usize;
+    let mut rows_read = 0usize;
+    let mut missed_pages = 0usize;
+    let mut direction_up = true;
+    let mut reached_top = false;
+    let before = Instant::now();
+
+    loop {
+        let before_screen = engine.read_screen(pane_id)?;
+        let before_row = screen_first_row(&before_screen);
+        if direction_up && before_row <= 0 {
+            reached_top = true;
+            direction_up = false;
+            continue;
+        }
+        if !direction_up && before_row >= max_top as i64 {
+            break;
+        }
+
+        let target = if direction_up {
+            before_row as isize - page_rows
+        } else {
+            before_row as isize + page_rows
+        };
+        let page_before = Instant::now();
+        engine.scroll_viewport_to(pane_id, target)?;
+        let after_screen = engine.read_screen(pane_id)?;
+        latencies_us.push(page_before.elapsed().as_micros());
+        rows_read += after_screen.lines.len();
+        pages += 1;
+
+        let after_row = screen_first_row(&after_screen);
+        if (direction_up && after_row >= before_row) || (!direction_up && after_row <= before_row) {
+            missed_pages += 1;
+        }
+
+        if direction_up && after_row <= 0 {
+            reached_top = true;
+            direction_up = false;
+        } else if !direction_up && after_row >= max_top as i64 {
+            break;
+        }
+
+        if before.elapsed() >= timeout {
+            bail!("timed out during viewport page-cycle benchmark");
+        }
+    }
+
+    if latencies_us.is_empty() {
+        bail!("viewport page-cycle benchmark did not perform any page moves");
+    }
+    latencies_us.sort_unstable();
+    let reached_bottom = true;
+    let live_tail = reached_bottom && engine.read_screen(pane_id)?.lines.len() == initial.rows;
+    let boundary_misses =
+        usize::from(!reached_top) + usize::from(!reached_bottom) + usize::from(!live_tail);
+    println!(
+        "bench_viewport_page_cycle lines={} pages={} rows_read={} reached_top={} reached_bottom={} live_tail={} boundary_misses={} missed_pages={} total_ms={} min_us={} p50_us={} p95_us={} max_us={}",
+        lines,
+        pages,
+        rows_read,
+        reached_top,
+        reached_bottom,
+        live_tail,
+        boundary_misses,
+        missed_pages,
         before.elapsed().as_millis(),
         latencies_us[0],
         percentile(&latencies_us, 0.50),
@@ -1010,6 +1144,7 @@ fn run_render_commit_plan_benchmark(
     )?;
     engine.write_input(pane_id, format!("echo {ready_marker}\r").as_str())?;
     wait_for_marker(engine, pane_id, &ready_run, poll_interval, timeout)?;
+    let _ = wait_for_stable_screen_revision(engine, pane_id, poll_interval, timeout)?;
 
     let metrics = unterm_engine::RenderCellMetrics {
         cell_width_px: 8,
@@ -1850,6 +1985,17 @@ fn main() -> Result<()> {
             Duration::from_millis(args.timeout_ms),
         )
         .with_context(|| format!("bench_viewport_scroll failed for session {}", session.id))?;
+    }
+
+    if let Some(lines) = args.bench_viewport_page_cycle_lines {
+        run_viewport_page_cycle_benchmark(
+            &engine,
+            session.id,
+            lines,
+            Duration::from_millis(args.poll_ms),
+            Duration::from_millis(args.timeout_ms),
+        )
+        .with_context(|| format!("bench_viewport_page_cycle failed for session {}", session.id))?;
     }
 
     if let Some(lines) = args.bench_viewport_scroll_flood {

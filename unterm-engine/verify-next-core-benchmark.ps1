@@ -1,7 +1,7 @@
 param(
     [string]$SummaryJsonPath = "",
-    [int]$ExpectedGateCount = 26,
-    [int]$ExpectedBenchmarkCount = 22,
+    [int]$ExpectedGateCount = 29,
+    [int]$ExpectedBenchmarkCount = 23,
     [switch]$SkipCommitReachabilityCheck
 )
 
@@ -187,6 +187,9 @@ $requiredGates = @(
     "paste 10kb elapsed",
     "scrollback page p95",
     "viewport scroll p95",
+    "viewport page cycle p95",
+    "viewport page cycle boundary misses",
+    "viewport page cycle missed pages",
     "viewport scroll under flood p95",
     "screen read under flood p95",
     "render frame p95",
@@ -232,6 +235,7 @@ $requiredBenchmarks = @(
     "paste 10kb",
     "scrollback paging",
     "viewport scroll paging",
+    "viewport page cycle",
     "viewport scroll during flood",
     "dual pseudo-agent output",
     "agent startup stall",

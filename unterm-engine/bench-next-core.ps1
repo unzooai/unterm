@@ -8,6 +8,7 @@ param(
     [int]$FloodLines = 100000,
     [int]$ScrollbackLines = 10000,
     [int]$ViewportScrollLines = 10000,
+    [int]$ViewportPageCycleLines = 10000,
     [int]$ViewportScrollFloodLines = 5000,
     [int]$PasteKb = 10,
     [int]$DualAgentLines = 5000,
@@ -33,6 +34,9 @@ param(
     [int]$MaxPaste10KbMs = 50,
     [int]$MaxScrollbackPageP95Us = 1000,
     [int]$MaxViewportScrollP95Us = 1000,
+    [int]$MaxViewportPageCycleP95Us = 1000,
+    [int]$MaxViewportPageCycleBoundaryMisses = 0,
+    [int]$MaxViewportPageCycleMissedPages = 0,
     [int]$MaxViewportScrollFloodP95Us = 50000,
     [int]$MaxScreenReadFloodP95Us = 50000,
     [int]$MaxRenderFrameP95Us = 1000,
@@ -410,6 +414,7 @@ try {
     $results += Invoke-Benchmark -Name "paste 10kb" -BenchArgs ([string[]](@("--bench-paste-kb", "$PasteKb") + $commonTail))
     $results += Invoke-Benchmark -Name "scrollback paging" -BenchArgs ([string[]](@("--bench-scrollback-lines", "$ScrollbackLines") + $commonTail))
     $results += Invoke-Benchmark -Name "viewport scroll paging" -BenchArgs ([string[]](@("--bench-viewport-scrolls", "$ViewportScrollLines") + $commonTail))
+    $results += Invoke-Benchmark -Name "viewport page cycle" -BenchArgs ([string[]](@("--bench-viewport-page-cycle-lines", "$ViewportPageCycleLines") + $commonTail))
     $results += Invoke-Benchmark -Name "viewport scroll during flood" -BenchArgs ([string[]](@("--bench-viewport-scroll-flood", "$ViewportScrollFloodLines") + $commonTail))
     $results += Invoke-Benchmark -Name "dual pseudo-agent output" -BenchArgs ([string[]](@("--bench-dual-agent-lines", "$DualAgentLines") + $commonTail))
     $results += Invoke-Benchmark -Name "agent startup stall" -BenchArgs ([string[]](@("--bench-agent-startup-lines", "$AgentStartupLines") + $commonTail))
@@ -432,6 +437,7 @@ try {
     $paste = Find-BenchmarkResult -Results $results -Name "paste 10kb"
     $scrollback = Find-BenchmarkResult -Results $results -Name "scrollback paging"
     $viewportScroll = Find-BenchmarkResult -Results $results -Name "viewport scroll paging"
+    $viewportPageCycle = Find-BenchmarkResult -Results $results -Name "viewport page cycle"
     $viewportScrollFlood = Find-BenchmarkResult -Results $results -Name "viewport scroll during flood"
     $dualAgent = Find-BenchmarkResult -Results $results -Name "dual pseudo-agent output"
     $agentStartup = Find-BenchmarkResult -Results $results -Name "agent startup stall"
@@ -456,6 +462,9 @@ try {
     $gates += New-Gate -GateName "paste 10kb elapsed" -Actual (Get-BenchMetric -Result $paste -LinePrefix "bench_paste" -Metric "elapsed_ms") -Max $MaxPaste10KbMs -Unit "ms"
     $gates += New-Gate -GateName "scrollback page p95" -Actual (Get-BenchMetric -Result $scrollback -LinePrefix "bench_scrollback" -Metric "p95_us") -Max $MaxScrollbackPageP95Us -Unit "us"
     $gates += New-Gate -GateName "viewport scroll p95" -Actual (Get-BenchMetric -Result $viewportScroll -LinePrefix "bench_viewport_scroll" -Metric "p95_us") -Max $MaxViewportScrollP95Us -Unit "us"
+    $gates += New-Gate -GateName "viewport page cycle p95" -Actual (Get-BenchMetric -Result $viewportPageCycle -LinePrefix "bench_viewport_page_cycle" -Metric "p95_us") -Max $MaxViewportPageCycleP95Us -Unit "us"
+    $gates += New-Gate -GateName "viewport page cycle boundary misses" -Actual (Get-BenchMetric -Result $viewportPageCycle -LinePrefix "bench_viewport_page_cycle" -Metric "boundary_misses") -Max $MaxViewportPageCycleBoundaryMisses -Unit "misses"
+    $gates += New-Gate -GateName "viewport page cycle missed pages" -Actual (Get-BenchMetric -Result $viewportPageCycle -LinePrefix "bench_viewport_page_cycle" -Metric "missed_pages") -Max $MaxViewportPageCycleMissedPages -Unit "pages"
     $gates += New-Gate -GateName "viewport scroll under flood p95" -Actual (Get-BenchMetric -Result $viewportScrollFlood -LinePrefix "bench_viewport_scroll_flood" -Metric "p95_us") -Max $MaxViewportScrollFloodP95Us -Unit "us"
     $gates += New-Gate -GateName "screen read under flood p95" -Actual (Get-BenchMetric -Result $screenRead -LinePrefix "bench_screen_read_flood" -Metric "p95_us") -Max $MaxScreenReadFloodP95Us -Unit "us"
     $gates += New-Gate -GateName "render frame p95" -Actual (Get-BenchMetric -Result $renderFrame -LinePrefix "bench_render_frame" -Metric "p95_us") -Max $MaxRenderFrameP95Us -Unit "us"
