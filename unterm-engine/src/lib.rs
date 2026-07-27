@@ -162,7 +162,7 @@ pub enum StyledVerticalAlign {
 }
 
 #[allow(dead_code)]
-#[derive(Clone, Copy, Debug, Default, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, Serialize, PartialEq, Eq)]
 pub struct CellStyle {
     pub bold: bool,
     pub faint: bool,
@@ -178,6 +178,7 @@ pub struct CellStyle {
     pub inverse: bool,
     pub fg: Option<StyledColor>,
     pub bg: Option<StyledColor>,
+    pub hyperlink: Option<String>,
 }
 
 #[allow(dead_code)]

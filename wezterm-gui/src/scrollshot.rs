@@ -232,7 +232,7 @@ pub fn render_styled_scrollback_png(
 
                 if !cell.ch.is_whitespace() && !cell.style.hidden {
                     let text = cell.ch.to_string();
-                    let attrs = styled_cell_attributes(cell.style);
+                    let attrs = styled_cell_attributes(&cell.style);
                     let style = fonts.match_style(&config, &attrs);
                     let font: Rc<LoadedFont> = fonts.resolve_font(style)?;
                     let font_key = Rc::as_ptr(&font) as usize;
@@ -274,7 +274,7 @@ pub fn render_styled_scrollback_png(
                         let x0 = cell_x as f64 * cell_w
                             + info.x_offset.get()
                             + glyph.bearing_x.get() * scale;
-                        let valign_adjust = styled_vertical_align_adjust(cell.style, cell_h);
+                        let valign_adjust = styled_vertical_align_adjust(&cell.style, cell_h);
                         let y0 = baseline - info.y_offset.get() - glyph.bearing_y.get() * scale
                             + valign_adjust;
                         band.blit_glyph(&glyph, x0, y0, fg, scale);
@@ -335,7 +335,7 @@ fn resolve_styled_color(
     }
 }
 
-fn styled_cell_attributes(style: CellStyle) -> TwCellAttributes {
+fn styled_cell_attributes(style: &CellStyle) -> TwCellAttributes {
     let mut attrs = TwCellAttributes::default();
     if style.bold {
         attrs.set_intensity(Intensity::Bold);
@@ -381,7 +381,7 @@ fn styled_cell_attributes(style: CellStyle) -> TwCellAttributes {
     attrs
 }
 
-fn styled_vertical_align_adjust(style: CellStyle, cell_h: f64) -> f64 {
+fn styled_vertical_align_adjust(style: &CellStyle, cell_h: f64) -> f64 {
     match style.vertical_align {
         Some(StyledVerticalAlign::SuperScript) => cell_h * -0.25,
         Some(StyledVerticalAlign::SubScript) => cell_h * 0.25,

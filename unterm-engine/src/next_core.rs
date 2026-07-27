@@ -304,6 +304,7 @@ struct NextCoreScreen {
     tab_stops: BTreeSet<usize>,
     bracketed_paste: bool,
     current_attr: CellAttributes,
+    hyperlinks: Vec<String>,
     title: Option<String>,
     current_dir: Option<String>,
     revision: u64,
@@ -392,11 +393,11 @@ impl ScreenCell {
 
     #[allow(dead_code)]
     fn styled(&self) -> StyledCell {
-        self.styled_with_reverse_video(false)
+        self.styled_with_reverse_video(false, &[])
     }
 
-    fn styled_with_reverse_video(&self, reverse_video: bool) -> StyledCell {
-        let mut style: CellStyle = self.attr.into();
+    fn styled_with_reverse_video(&self, reverse_video: bool, hyperlinks: &[String]) -> StyledCell {
+        let mut style = self.attr.style(hyperlinks);
         if reverse_video {
             style.inverse = !style.inverse;
         }
@@ -424,6 +425,7 @@ struct CellAttributes {
     inverse: bool,
     fg: Option<TerminalColor>,
     bg: Option<TerminalColor>,
+    hyperlink: Option<usize>,
 }
 
 impl CellAttributes {
@@ -444,23 +446,26 @@ enum TerminalColor {
     Rgb(u8, u8, u8),
 }
 
-impl From<CellAttributes> for CellStyle {
-    fn from(attr: CellAttributes) -> Self {
-        Self {
-            bold: attr.bold,
-            faint: attr.faint,
-            italic: attr.italic,
-            underline: attr.underline,
-            underline_style: attr.underline_style,
-            underline_color: attr.underline_color.map(Into::into),
-            strikethrough: attr.strikethrough,
-            hidden: attr.hidden,
-            overline: attr.overline,
-            blink: attr.blink,
-            vertical_align: attr.vertical_align,
-            inverse: attr.inverse,
-            fg: attr.fg.map(Into::into),
-            bg: attr.bg.map(Into::into),
+impl CellAttributes {
+    fn style(&self, hyperlinks: &[String]) -> CellStyle {
+        CellStyle {
+            bold: self.bold,
+            faint: self.faint,
+            italic: self.italic,
+            underline: self.underline,
+            underline_style: self.underline_style,
+            underline_color: self.underline_color.map(Into::into),
+            strikethrough: self.strikethrough,
+            hidden: self.hidden,
+            overline: self.overline,
+            blink: self.blink,
+            vertical_align: self.vertical_align,
+            inverse: self.inverse,
+            fg: self.fg.map(Into::into),
+            bg: self.bg.map(Into::into),
+            hyperlink: self
+                .hyperlink
+                .and_then(|idx| hyperlinks.get(idx).filter(|uri| !uri.is_empty()).cloned()),
         }
     }
 }
@@ -571,7 +576,9 @@ impl NextCoreScreen {
                 row: first_row + idx as i64,
                 cells: line
                     .iter()
-                    .map(|cell| cell.styled_with_reverse_video(self.reverse_video))
+                    .map(|cell| {
+                        cell.styled_with_reverse_video(self.reverse_video, &self.hyperlinks)
+                    })
                     .collect(),
             })
             .collect()
@@ -585,7 +592,9 @@ impl NextCoreScreen {
                 row: start as i64 + idx as i64,
                 cells: line
                     .iter()
-                    .map(|cell| cell.styled_with_reverse_video(self.reverse_video))
+                    .map(|cell| {
+                        cell.styled_with_reverse_video(self.reverse_video, &self.hyperlinks)
+                    })
                     .collect(),
             })
             .collect()
@@ -1251,7 +1260,28 @@ impl NextCoreScreen {
             if let Some(cwd) = Self::parse_osc7_cwd(value) {
                 self.current_dir = Some(cwd);
             }
+        } else if kind == "8" {
+            self.apply_osc8_hyperlink(value);
         }
+    }
+
+    fn apply_osc8_hyperlink(&mut self, value: &str) {
+        let Some((_params, uri)) = value.split_once(';') else {
+            return;
+        };
+        if uri.is_empty() {
+            self.current_attr.hyperlink = None;
+            return;
+        }
+        let idx = self
+            .hyperlinks
+            .iter()
+            .position(|known| known == uri)
+            .unwrap_or_else(|| {
+                self.hyperlinks.push(uri.to_string());
+                self.hyperlinks.len() - 1
+            });
+        self.current_attr.hyperlink = Some(idx);
     }
 
     fn parse_osc7_cwd(value: &str) -> Option<String> {
@@ -5864,6 +5894,57 @@ mod tests {
         assert_eq!(engine.read_visible_text(session.id)?, "beforeafter");
         assert_eq!(engine.get_session(session.id)?.title, "Codex Pane");
         assert_eq!(engine.list_sessions()?[0].title, "Codex Pane");
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_tracks_osc8_hyperlinks() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 2,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(
+            session.id,
+            "pre \x1b]8;id=one;https://example.test/item\x07link\x1b]8;;\x07 post\nnext",
+        )?;
+
+        assert_eq!(engine.read_visible_text(session.id)?, "pre link post\nnext");
+        let styled = engine.read_styled_screen(session.id)?;
+        let first = &styled.lines[0].cells;
+        assert_eq!(first[4].ch, 'l');
+        assert_eq!(
+            first[4].style.hyperlink.as_deref(),
+            Some("https://example.test/item")
+        );
+        assert_eq!(
+            first[7].style.hyperlink.as_deref(),
+            Some("https://example.test/item")
+        );
+        assert_eq!(first[8].style.hyperlink, None);
+
+        let scrollback = engine.read_styled_scrollback(
+            session.id,
+            ScrollbackTextRequest {
+                start_line: Some(0),
+                end_line: Some(1),
+                tail_lines: None,
+                escapes: false,
+            },
+        )?;
+        assert_eq!(
+            scrollback.lines[0].cells[4].style.hyperlink.as_deref(),
+            Some("https://example.test/item")
+        );
 
         engine.destroy_session(session.id)?;
         Ok(())
