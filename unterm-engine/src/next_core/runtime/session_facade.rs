@@ -1,4 +1,4 @@
-use super::super::{session_creation, NextCoreSession};
+use super::super::NextCoreSession;
 use super::{scheduler, session_registry, with_current, with_current_mut};
 use crate::{CreateSessionRequest, SessionSnapshot, SplitSessionRequest};
 use anyhow::Result;
@@ -48,11 +48,11 @@ pub(in crate::next_core) fn get_session(pane_id: usize) -> Result<SessionSnapsho
 pub(in crate::next_core) fn create_session(
     request: CreateSessionRequest,
 ) -> Result<SessionSnapshot> {
-    session_creation::create(request)
+    scheduler::create_session(request)
 }
 
 pub(in crate::next_core) fn split_session(request: SplitSessionRequest) -> Result<SessionSnapshot> {
-    session_creation::split(request)
+    scheduler::split_session(request)
 }
 
 pub(in crate::next_core) fn clone_session_base(pane_id: usize) -> Result<SessionSnapshot> {

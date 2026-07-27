@@ -4,11 +4,11 @@ use super::{
     dispatch::RuntimeDispatchResult,
 };
 use crate::{
-    CursorSnapshot, EngineHealthSnapshot, RecordingExportResult, RecordingStartResult,
-    RecordingStatusSnapshot, RecordingStopResult, RenderFrameSnapshot, ScreenLine,
-    ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot,
-    SessionActivitySnapshot, SessionSnapshot, ShellSnapshot, StyledScreenSnapshot,
-    StyledScrollbackSnapshot,
+    CreateSessionRequest, CursorSnapshot, EngineHealthSnapshot, RecordingExportResult,
+    RecordingStartResult, RecordingStatusSnapshot, RecordingStopResult, RenderFrameSnapshot,
+    ScreenLine, ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot,
+    SessionActivitySnapshot, SessionSnapshot, ShellSnapshot, SplitSessionRequest,
+    StyledScreenSnapshot, StyledScrollbackSnapshot,
 };
 use anyhow::{bail, Result};
 
@@ -61,6 +61,30 @@ pub(in crate::next_core) fn destroy_session(pane_id: usize) -> Result<()> {
         RuntimeDispatchResult::Unit => Ok(()),
         other => bail!(
             "runtime scheduler expected destroy-session dispatch result, got {:?}",
+            other
+        ),
+    }
+}
+
+pub(in crate::next_core) fn create_session(
+    request: CreateSessionRequest,
+) -> Result<SessionSnapshot> {
+    let command = RuntimeCommand::CreateSession(Box::new(request));
+    match consumer::submit_and_dispatch_response(command)? {
+        RuntimeDispatchResult::Session(session) => Ok(session),
+        other => bail!(
+            "runtime scheduler expected create-session dispatch result, got {:?}",
+            other
+        ),
+    }
+}
+
+pub(in crate::next_core) fn split_session(request: SplitSessionRequest) -> Result<SessionSnapshot> {
+    let command = RuntimeCommand::SplitSession(request);
+    match consumer::submit_and_dispatch_response(command)? {
+        RuntimeDispatchResult::Session(session) => Ok(session),
+        other => bail!(
+            "runtime scheduler expected split-session dispatch result, got {:?}",
             other
         ),
     }
@@ -472,6 +496,44 @@ mod tests {
             .to_string()
             .contains("runtime lifecycle queue rejected command"));
         assert_eq!(queue_stats().rejected_commands, 1);
+    }
+
+    #[test]
+    fn session_creation_uses_lifecycle_backpressure() {
+        test_facade::reset();
+        install_zero_command_budget();
+
+        let err = create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 24,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })
+        .expect_err("zero command budget should reject create");
+
+        assert!(err
+            .to_string()
+            .contains("runtime lifecycle queue rejected command"));
+        assert_eq!(queue_stats().rejected_commands, 1);
+    }
+
+    #[test]
+    fn split_session_enters_runtime_queue_before_dispatch() {
+        test_facade::reset();
+
+        let err = split_session(SplitSessionRequest {
+            source_pane_id: 404,
+            direction: crate::SplitDirection::Right,
+            size_percent: 50,
+            command_dir: None,
+        })
+        .expect_err("missing split source should fail after dispatch");
+
+        assert!(err.to_string().contains("next-core session 404 not found"));
+        assert_eq!(queue_stats().pending_commands, 0);
+        assert_eq!(queue_stats().rejected_commands, 0);
     }
 
     #[test]

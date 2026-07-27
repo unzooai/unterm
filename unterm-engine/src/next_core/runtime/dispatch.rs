@@ -49,14 +49,29 @@ pub(in crate::next_core) fn execute(command: RuntimeCommand) -> Result<RuntimeDi
             screen_executor::execute_screen_mutation(command)?;
             Ok(RuntimeDispatchResult::Unit)
         }
-        RuntimeCommandClass::SessionLifecycle => {
-            session_executor::execute(command)?;
-            Ok(RuntimeDispatchResult::Unit)
-        }
+        RuntimeCommandClass::SessionLifecycle => execute_session_lifecycle(command),
         RuntimeCommandClass::SessionQuery => execute_session_query(command),
         RuntimeCommandClass::ScreenRead => execute_screen_read(command),
         RuntimeCommandClass::Status => execute_status(command),
         RuntimeCommandClass::Recording => execute_recording(command),
+    }
+}
+
+fn execute_session_lifecycle(command: RuntimeCommand) -> Result<RuntimeDispatchResult> {
+    match command {
+        RuntimeCommand::CreateSession(_) => Ok(RuntimeDispatchResult::Session(
+            session_executor::execute_create(command)?,
+        )),
+        RuntimeCommand::SplitSession(_) => Ok(RuntimeDispatchResult::Session(
+            session_executor::execute_split(command)?,
+        )),
+        RuntimeCommand::FocusSession { .. }
+        | RuntimeCommand::ResizeSession { .. }
+        | RuntimeCommand::DestroySession { .. } => {
+            session_executor::execute_mutation(command)?;
+            Ok(RuntimeDispatchResult::Unit)
+        }
+        _ => bail!("runtime dispatch expected session lifecycle command"),
     }
 }
 
@@ -165,6 +180,16 @@ mod tests {
     }
 
     #[test]
+    fn dispatch_rejects_wrong_lifecycle_shape() {
+        let err = super::execute_session_lifecycle(RuntimeCommand::HealthSnapshot)
+            .expect_err("wrong command should fail");
+
+        assert!(err
+            .to_string()
+            .contains("expected session lifecycle command"));
+    }
+
+    #[test]
     fn dispatch_routes_recording_commands_to_recording_executor() {
         test_facade::reset();
 
@@ -180,6 +205,21 @@ mod tests {
 
         let err = execute(RuntimeCommand::FocusSession { pane_id: 404 })
             .expect_err("missing pane should come from session executor");
+
+        assert!(err.to_string().contains("next-core session 404 not found"));
+    }
+
+    #[test]
+    fn dispatch_routes_split_session_to_lifecycle_response() {
+        test_facade::reset();
+
+        let err = execute(RuntimeCommand::SplitSession(crate::SplitSessionRequest {
+            source_pane_id: 404,
+            direction: crate::SplitDirection::Right,
+            size_percent: 50,
+            command_dir: None,
+        }))
+        .expect_err("missing split source should come from lifecycle executor");
 
         assert!(err.to_string().contains("next-core session 404 not found"));
     }
