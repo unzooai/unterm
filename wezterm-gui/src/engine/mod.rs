@@ -15,7 +15,8 @@ use window::WindowOps;
 #[allow(unused_imports)]
 pub use render_backend::{
     CommandListRenderBackend, EngineRenderBackend, EngineRenderBackendCommand,
-    EngineRenderBackendFrame, EngineRenderBufferPlan, EngineRenderVertexLayer,
+    EngineRenderBackendFrame, EngineRenderBufferPlan, EngineRenderGpuUploadPlan,
+    EngineRenderGpuVertex, EngineRenderVertexLayer, EngineWgpuRenderBackend,
 };
 #[allow(unused_imports)]
 pub use render_consumer::{EngineRenderCommitBatch, EngineRenderCommitStats, EngineRenderConsumer};
@@ -189,7 +190,8 @@ mod tests {
     use super::{
         next_core, selected_engine_name_from_env, CommandListRenderBackend, CreateSessionRequest,
         CurrentTerminalEngine, EngineRenderBackend, EngineRenderBackendCommand,
-        EngineRenderBufferPlan, EngineRenderConsumer, EngineRenderVertexLayer,
+        EngineRenderBufferPlan, EngineRenderConsumer, EngineRenderGpuUploadPlan,
+        EngineRenderGpuVertex, EngineRenderVertexLayer, EngineWgpuRenderBackend,
         LaunchPolicySnapshot, RenderCellMetrics, RenderConsumerState, ScreenEngine, SessionEngine,
     };
 
@@ -343,6 +345,20 @@ mod tests {
             .vertices
             .iter()
             .any(|vertex| vertex.layer == EngineRenderVertexLayer::Background));
+        let upload_plan = EngineWgpuRenderBackend::prepare_upload(&buffer_plan);
+        assert_eq!(upload_plan.pane_id, session.id);
+        assert_eq!(upload_plan.revision, frame.revision);
+        assert_eq!(upload_plan.vertices.len(), buffer_plan.vertices.len());
+        assert_eq!(upload_plan.indices, buffer_plan.indices);
+        assert_eq!(
+            upload_plan.vertex_bytes_len(),
+            upload_plan.vertices.len() * std::mem::size_of::<EngineRenderGpuVertex>()
+        );
+        assert_eq!(
+            upload_plan.index_bytes_len(),
+            upload_plan.indices.len() * std::mem::size_of::<u32>()
+        );
+        assert!(upload_plan.vertices.iter().any(|vertex| vertex.layer == 0));
 
         let repeat = consumer
             .read_commit(&engine)
@@ -355,6 +371,8 @@ mod tests {
         assert!(skipped.commands.is_empty());
         assert!(skipped_buffer.vertices.is_empty());
         assert!(skipped_buffer.indices.is_empty());
+        let skipped_upload = EngineRenderGpuUploadPlan::from_buffer_plan(&skipped_buffer);
+        assert!(skipped_upload.is_empty());
         engine
             .destroy_session(session.id)
             .expect("destroy next-core test session");

@@ -5,6 +5,7 @@
 //! font atlas, or swapchain.
 
 use super::{CellStyle, EngineRenderCommitBatch, RenderRect};
+use wgpu::util::DeviceExt;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[allow(dead_code)]
@@ -63,6 +64,117 @@ pub struct EngineRenderBufferPlan {
     pub damage_rects: Vec<RenderRect>,
     pub vertices: Vec<EngineRenderVertex>,
     pub indices: Vec<u32>,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
+#[allow(dead_code)]
+pub struct EngineRenderGpuVertex {
+    pub position: [f32; 2],
+    pub layer: u32,
+    pub command_index: u32,
+}
+
+impl From<EngineRenderVertex> for EngineRenderGpuVertex {
+    fn from(vertex: EngineRenderVertex) -> Self {
+        Self {
+            position: vertex.position,
+            layer: match vertex.layer {
+                EngineRenderVertexLayer::Background => 0,
+                EngineRenderVertexLayer::Text => 1,
+                EngineRenderVertexLayer::Cursor => 2,
+            },
+            command_index: vertex.command_index,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+#[allow(dead_code)]
+pub struct EngineRenderGpuUploadPlan {
+    pub pane_id: usize,
+    pub submitted: bool,
+    pub revision: u64,
+    pub requires_full_repaint: bool,
+    pub vertices: Vec<EngineRenderGpuVertex>,
+    pub indices: Vec<u32>,
+}
+
+#[allow(dead_code)]
+impl EngineRenderGpuUploadPlan {
+    pub fn from_buffer_plan(plan: &EngineRenderBufferPlan) -> Self {
+        Self {
+            pane_id: plan.pane_id,
+            submitted: plan.submitted,
+            revision: plan.revision,
+            requires_full_repaint: plan.requires_full_repaint,
+            vertices: plan.vertices.iter().copied().map(Into::into).collect(),
+            indices: plan.indices.clone(),
+        }
+    }
+
+    pub fn vertex_bytes_len(&self) -> usize {
+        self.vertices.len() * std::mem::size_of::<EngineRenderGpuVertex>()
+    }
+
+    pub fn index_bytes_len(&self) -> usize {
+        self.indices.len() * std::mem::size_of::<u32>()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.vertices.is_empty() || self.indices.is_empty()
+    }
+}
+
+#[allow(dead_code)]
+pub struct EngineWgpuRenderBuffers {
+    pub pane_id: usize,
+    pub revision: u64,
+    pub vertex_count: usize,
+    pub index_count: usize,
+    pub vertex_buffer: wgpu::Buffer,
+    pub index_buffer: wgpu::Buffer,
+}
+
+#[derive(Clone, Debug, Default)]
+#[allow(dead_code)]
+pub struct EngineWgpuRenderBackend;
+
+#[allow(dead_code)]
+impl EngineWgpuRenderBackend {
+    pub fn prepare_upload(plan: &EngineRenderBufferPlan) -> EngineRenderGpuUploadPlan {
+        EngineRenderGpuUploadPlan::from_buffer_plan(plan)
+    }
+
+    pub fn upload(
+        &self,
+        device: &wgpu::Device,
+        plan: &EngineRenderGpuUploadPlan,
+    ) -> Option<EngineWgpuRenderBuffers> {
+        if !plan.submitted || plan.is_empty() {
+            return None;
+        }
+
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("next-core render vertex buffer"),
+            contents: bytemuck::cast_slice(&plan.vertices),
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        });
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("next-core render index buffer"),
+            contents: bytemuck::cast_slice(&plan.indices),
+            usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
+        });
+
+        Some(EngineWgpuRenderBuffers {
+            pane_id: plan.pane_id,
+            revision: plan.revision,
+            vertex_count: plan.vertices.len(),
+            index_count: plan.indices.len(),
+            vertex_buffer,
+            index_buffer,
+        })
+    }
 }
 
 #[allow(dead_code)]

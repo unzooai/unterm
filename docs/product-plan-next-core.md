@@ -412,6 +412,7 @@ Supported:
 - renderer-side `EngineRenderConsumer` that stores pane metrics and submitted revision state, reads commit batches through `ScreenEngine`, and skips repeated revisions before the real wgpu backend lands
 - GPU-free `CommandListRenderBackend` that expands commit submissions into ordered damage/background/text/cursor backend commands before the real wgpu backend lands
 - `EngineRenderBufferPlan` that turns backend commands into damage rects plus quad vertex/index buffers, keeping the next wgpu step focused on device upload and command encoding
+- `EngineWgpuRenderBackend` upload skeleton that turns buffer plans into a POD GPU vertex ABI and creates wgpu vertex/index buffers while keeping `unterm-engine` free of GPU dependencies
 - `session.list`
 - `session.input`
 - `screen.text`
