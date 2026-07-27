@@ -213,7 +213,8 @@ next-core 已经在 screen/parser 方向具备基础能力，包括：
 - `ScreenEngine::read_render_draw_plan` 将 styled cell grid 合并成 glyph runs、cell style runs 和 cursor draw state，作为未来 wgpu renderer 的轻量 CPU 输入层；dirty frame 生成的 draw run row 必须保留 viewport row，避免局部重绘写错屏幕行
 - `RenderDrawPlan::to_geometry_plan` 用显式 cell metrics 将 glyph/cell/cursor runs 映射为像素矩形，作为真正接入 wgpu 前的轻量布局契约，暂不引入 GPU/font shaping 依赖
 - `RenderGeometryPlan::to_submission_plan` 将像素几何转换成 damage rects、background quads、text runs 和 cursor quad，让未来 wgpu renderer 只消费提交计划，不反向拥有终端语义
-- JSON probe smoke 已输出并校验 render draw/geometry/submission plan 的 revision、run/quad counts、viewport、damage rects 和 cursor state，让 renderer 输入契约进入 CI 可见面
+- `RenderConsumerState::prepare_commit` 记录 renderer 已提交 revision，首帧/resize 强制 full repaint，重复 revision 跳过，revision gap 可观测，避免真实 renderer 自己推断增量协议
+- JSON probe smoke 已输出并校验 render draw/geometry/submission/commit plan 的 revision、run/quad counts、viewport、damage rects、cursor state 和首帧 full-repaint state，让 renderer 输入契约进入 CI 可见面
 - benchmark 已覆盖 input write、key-to-screen、input burst under output、echo、paste、output flood、scrollback paging、viewport scroll、screen-read under flood、render-frame empty/dirty/cursor-move delta、render draw plan、render geometry plan、render submission plan、focus/session lifecycle
 - zero-width combining marks attach to preceding visible cells without advancing cursor position
 - DECFRA、DECERA、DECCARA、DECRARA 矩形操作

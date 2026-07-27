@@ -368,6 +368,24 @@ pub struct RenderSubmissionPlan {
     pub cursor: Option<RenderCursorQuad>,
 }
 
+#[allow(dead_code)]
+#[derive(Clone, Debug, Default, Serialize, PartialEq, Eq)]
+pub struct RenderConsumerState {
+    submitted_revision: Option<u64>,
+    viewport: Option<RenderRect>,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+pub struct RenderCommitPlan {
+    pub submit: bool,
+    pub previous_revision: Option<u64>,
+    pub revision: u64,
+    pub skipped_revisions: u64,
+    pub requires_full_repaint: bool,
+    pub submission: Option<RenderSubmissionPlan>,
+}
+
 impl RenderDrawPlan {
     #[allow(dead_code)]
     pub fn to_geometry_plan(&self, metrics: RenderCellMetrics) -> RenderGeometryPlan {
@@ -411,6 +429,66 @@ impl RenderDrawPlan {
             glyph_runs,
             cell_runs,
             cursor,
+        }
+    }
+}
+
+impl RenderConsumerState {
+    #[allow(dead_code)]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    #[allow(dead_code)]
+    pub fn submitted_revision(&self) -> Option<u64> {
+        self.submitted_revision
+    }
+
+    #[allow(dead_code)]
+    pub fn prepare_commit(&mut self, mut submission: RenderSubmissionPlan) -> RenderCommitPlan {
+        let previous_revision = self.submitted_revision;
+        if previous_revision == Some(submission.revision)
+            && self.viewport == Some(submission.viewport)
+        {
+            return RenderCommitPlan {
+                submit: false,
+                previous_revision,
+                revision: submission.revision,
+                skipped_revisions: 0,
+                requires_full_repaint: false,
+                submission: None,
+            };
+        }
+
+        let viewport_changed = self
+            .viewport
+            .is_some_and(|viewport| viewport != submission.viewport);
+        let requires_full_repaint =
+            previous_revision.is_none() || viewport_changed || submission.full;
+        let skipped_revisions = previous_revision
+            .map(|revision| {
+                submission
+                    .revision
+                    .saturating_sub(revision)
+                    .saturating_sub(1)
+            })
+            .unwrap_or(0);
+
+        if requires_full_repaint {
+            submission.full = true;
+            submission.damage_rects = vec![submission.viewport];
+        }
+
+        self.submitted_revision = Some(submission.revision);
+        self.viewport = Some(submission.viewport);
+
+        RenderCommitPlan {
+            submit: true,
+            previous_revision,
+            revision: submission.revision,
+            skipped_revisions,
+            requires_full_repaint,
+            submission: Some(submission),
         }
     }
 }
@@ -1341,6 +1419,152 @@ mod tests {
                 y: 20,
                 width: 50,
                 height: 40,
+            }]
+        );
+    }
+
+    #[test]
+    fn render_consumer_state_forces_first_commit_to_full_damage() {
+        let submission = frame(vec![cell('x', CellStyle::default(), 1)])
+            .to_draw_plan()
+            .to_geometry_plan(RenderCellMetrics {
+                cell_width_px: 8,
+                cell_height_px: 16,
+            })
+            .to_submission_plan();
+        let mut state = RenderConsumerState::new();
+
+        let commit = state.prepare_commit(submission);
+
+        assert!(commit.submit);
+        assert_eq!(commit.previous_revision, None);
+        assert!(commit.requires_full_repaint);
+        assert_eq!(commit.skipped_revisions, 0);
+        assert_eq!(
+            commit.submission.unwrap().damage_rects,
+            vec![RenderRect {
+                x: 0,
+                y: 0,
+                width: 48,
+                height: 16,
+            }]
+        );
+        assert_eq!(state.submitted_revision(), Some(7));
+    }
+
+    #[test]
+    fn render_consumer_state_skips_repeated_revision() {
+        let submission = frame(vec![cell('x', CellStyle::default(), 1)])
+            .to_draw_plan()
+            .to_geometry_plan(RenderCellMetrics {
+                cell_width_px: 8,
+                cell_height_px: 16,
+            })
+            .to_submission_plan();
+        let mut state = RenderConsumerState::new();
+        assert!(state.prepare_commit(submission.clone()).submit);
+
+        let repeat = state.prepare_commit(submission);
+
+        assert!(!repeat.submit);
+        assert_eq!(repeat.previous_revision, Some(7));
+        assert_eq!(repeat.revision, 7);
+        assert!(repeat.submission.is_none());
+    }
+
+    #[test]
+    fn render_consumer_state_preserves_dirty_damage_for_incremental_commit() {
+        let mut state = RenderConsumerState::new();
+        let mut first = frame(vec![cell('x', CellStyle::default(), 1)]);
+        first.full = true;
+        first.rows = 3;
+        state.prepare_commit(
+            first
+                .to_draw_plan()
+                .to_geometry_plan(RenderCellMetrics {
+                    cell_width_px: 8,
+                    cell_height_px: 16,
+                })
+                .to_submission_plan(),
+        );
+
+        let dirty = RenderGeometryPlan {
+            revision: 9,
+            cols: 6,
+            rows: 3,
+            scrollback_rows: 0,
+            dirty_rows: Some(DirtyRows { start: 2, end: 2 }),
+            full: false,
+            viewport: RenderRect {
+                x: 0,
+                y: 0,
+                width: 48,
+                height: 48,
+            },
+            glyph_runs: Vec::new(),
+            cell_runs: Vec::new(),
+            cursor: None,
+        }
+        .to_submission_plan();
+
+        let commit = state.prepare_commit(dirty);
+
+        assert!(commit.submit);
+        assert!(!commit.requires_full_repaint);
+        assert_eq!(commit.previous_revision, Some(7));
+        assert_eq!(commit.skipped_revisions, 1);
+        assert_eq!(
+            commit.submission.unwrap().damage_rects,
+            vec![RenderRect {
+                x: 0,
+                y: 32,
+                width: 48,
+                height: 16,
+            }]
+        );
+    }
+
+    #[test]
+    fn render_consumer_state_forces_full_damage_when_viewport_changes() {
+        let mut state = RenderConsumerState::new();
+        state.prepare_commit(
+            frame(vec![cell('x', CellStyle::default(), 1)])
+                .to_draw_plan()
+                .to_geometry_plan(RenderCellMetrics {
+                    cell_width_px: 8,
+                    cell_height_px: 16,
+                })
+                .to_submission_plan(),
+        );
+        let resized = RenderGeometryPlan {
+            revision: 8,
+            cols: 8,
+            rows: 2,
+            scrollback_rows: 0,
+            dirty_rows: Some(DirtyRows { start: 1, end: 1 }),
+            full: false,
+            viewport: RenderRect {
+                x: 0,
+                y: 0,
+                width: 64,
+                height: 32,
+            },
+            glyph_runs: Vec::new(),
+            cell_runs: Vec::new(),
+            cursor: None,
+        }
+        .to_submission_plan();
+
+        let commit = state.prepare_commit(resized);
+
+        assert!(commit.requires_full_repaint);
+        assert_eq!(
+            commit.submission.unwrap().damage_rects,
+            vec![RenderRect {
+                x: 0,
+                y: 0,
+                width: 64,
+                height: 32,
             }]
         );
     }

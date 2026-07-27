@@ -1905,6 +1905,8 @@ fn main() -> Result<()> {
             cell_height_px: 16,
         });
     let render_submission_plan = render_geometry_plan.to_submission_plan();
+    let mut render_consumer_state = unterm_engine::RenderConsumerState::new();
+    let render_commit_plan = render_consumer_state.prepare_commit(render_submission_plan.clone());
     let activity = engine.activity(session.id)?;
     let health = engine.health()?;
     let raw_bytes = engine.debug_output(session.id)?.len();
@@ -1921,6 +1923,7 @@ fn main() -> Result<()> {
                 "render_draw_delta": render_draw_delta,
                 "render_geometry_plan": render_geometry_plan,
                 "render_submission_plan": render_submission_plan,
+                "render_commit_plan": render_commit_plan,
                 "activity": activity,
                 "health": health,
                 "raw_bytes": raw_bytes,

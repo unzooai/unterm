@@ -406,6 +406,7 @@ Supported:
 - render draw plans that merge styled cells into glyph runs, cell style runs, and cursor draw state
 - render geometry plans that map draw runs to pixel rectangles without adding GPU dependencies, covered by a dedicated benchmark gate
 - renderer submission plans with damage rects, background quads, text runs, and cursor quads for a future wgpu consumer, covered by a dedicated benchmark gate
+- renderer commit state that tracks submitted revisions, skips duplicate frames, and forces full repaint on first frame or viewport changes
 - `session.list`
 - `session.input`
 - `screen.text`

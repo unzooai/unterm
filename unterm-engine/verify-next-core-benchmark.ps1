@@ -120,6 +120,15 @@ if ($summary.json_smoke.RenderSubmissionBackgroundQuads -lt $jsonSmokeRows) {
 if ($summary.json_smoke.RenderSubmissionCursor -ne $true) {
     throw "json smoke did not include render submission cursor"
 }
+if ($summary.json_smoke.RenderCommitSubmit -ne $true) {
+    throw "json smoke did not include first-frame render commit submission"
+}
+if ($summary.json_smoke.RenderCommitFullRepaint -ne $true) {
+    throw "json smoke did not include first-frame render commit full repaint"
+}
+if ($summary.json_smoke.RenderCommitDamageRects -lt 1) {
+    throw "json smoke did not include render commit damage rects"
+}
 if (-not ($summary.json_smoke.PSObject.Properties.Name -contains "DeadReason")) {
     throw "json smoke did not include session dead_reason field"
 }

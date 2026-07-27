@@ -261,6 +261,21 @@ function Invoke-JsonSmoke {
     if ($null -eq $json.render_submission_plan.cursor) {
         throw "JSON probe render_submission_plan did not include cursor quad"
     }
+    if ($null -eq $json.render_commit_plan) {
+        throw "JSON probe did not include render_commit_plan"
+    }
+    if ($json.render_commit_plan.revision -ne $json.render_frame.revision) {
+        throw "JSON probe render_commit_plan revision did not match render_frame revision"
+    }
+    if ($json.render_commit_plan.submit -ne $true) {
+        throw "JSON probe render_commit_plan did not request first-frame submission"
+    }
+    if ($json.render_commit_plan.requires_full_repaint -ne $true) {
+        throw "JSON probe render_commit_plan did not force first-frame full repaint"
+    }
+    if ($null -eq $json.render_commit_plan.submission -or @($json.render_commit_plan.submission.damage_rects).Count -lt 1) {
+        throw "JSON probe render_commit_plan did not include submission damage"
+    }
     if ($null -eq $json.activity) {
         throw "JSON probe did not include an activity snapshot"
     }
@@ -320,6 +335,9 @@ function Invoke-JsonSmoke {
         RenderSubmissionTextRuns = @($json.render_submission_plan.text_runs).Count
         RenderSubmissionBackgroundQuads = @($json.render_submission_plan.background_quads).Count
         RenderSubmissionCursor = $null -ne $json.render_submission_plan.cursor
+        RenderCommitSubmit = $json.render_commit_plan.submit
+        RenderCommitFullRepaint = $json.render_commit_plan.requires_full_repaint
+        RenderCommitDamageRects = @($json.render_commit_plan.submission.damage_rects).Count
         ForegroundProcess = $json.activity.process.foreground_process
         Cwd = $json.session.shell.cwd
         Profile = $json.session.shell.launch_context.profile
@@ -424,7 +442,7 @@ try {
     $report.Add("- Machine: ``$machine``")
     $report.Add("- OS: ``$os``")
     $report.Add("- Binary: ``target\debug\unterm-next-core.exe``")
-    $report.Add("- JSON smoke: ``$($jsonSmoke.Engine) $($jsonSmoke.Screen) raw_bytes=$($jsonSmoke.RawBytes) foreground=$($jsonSmoke.ForegroundProcess) cwd=$($jsonSmoke.Cwd) profile=$($jsonSmoke.Profile) proxy_keys=$($jsonSmoke.ProxyEnvKeys -join ',') screen_reads=$($jsonSmoke.ScreenReads) render_frame_revision=$($jsonSmoke.RenderFrameRevision) render_frame_lines=$($jsonSmoke.RenderFrameLines) render_frame_cols=$($jsonSmoke.RenderFrameCols) render_frame_grid_cells=$($jsonSmoke.RenderFrameGridCells) render_delta_lines=$($jsonSmoke.RenderDeltaLines) render_draw_plan_revision=$($jsonSmoke.RenderDrawPlanRevision) render_draw_plan_glyph_runs=$($jsonSmoke.RenderDrawPlanGlyphRuns) render_draw_plan_cell_runs=$($jsonSmoke.RenderDrawPlanCellRuns) render_draw_plan_cursor=$($jsonSmoke.RenderDrawPlanCursor) render_draw_delta_glyph_runs=$($jsonSmoke.RenderDrawDeltaGlyphRuns) render_draw_delta_cell_runs=$($jsonSmoke.RenderDrawDeltaCellRuns) render_draw_delta_cursor=$($jsonSmoke.RenderDrawDeltaCursor) render_geometry_viewport=$($jsonSmoke.RenderGeometryViewportWidth)x$($jsonSmoke.RenderGeometryViewportHeight) render_geometry_glyph_runs=$($jsonSmoke.RenderGeometryGlyphRuns) render_geometry_cell_runs=$($jsonSmoke.RenderGeometryCellRuns) render_geometry_cursor=$($jsonSmoke.RenderGeometryCursor) render_submission_damage_rects=$($jsonSmoke.RenderSubmissionDamageRects) render_submission_text_runs=$($jsonSmoke.RenderSubmissionTextRuns) render_submission_background_quads=$($jsonSmoke.RenderSubmissionBackgroundQuads) render_submission_cursor=$($jsonSmoke.RenderSubmissionCursor) lifecycle_created=$($jsonSmoke.LifecycleCreated) dead_reason=$($jsonSmoke.DeadReason)``")
+    $report.Add("- JSON smoke: ``$($jsonSmoke.Engine) $($jsonSmoke.Screen) raw_bytes=$($jsonSmoke.RawBytes) foreground=$($jsonSmoke.ForegroundProcess) cwd=$($jsonSmoke.Cwd) profile=$($jsonSmoke.Profile) proxy_keys=$($jsonSmoke.ProxyEnvKeys -join ',') screen_reads=$($jsonSmoke.ScreenReads) render_frame_revision=$($jsonSmoke.RenderFrameRevision) render_frame_lines=$($jsonSmoke.RenderFrameLines) render_frame_cols=$($jsonSmoke.RenderFrameCols) render_frame_grid_cells=$($jsonSmoke.RenderFrameGridCells) render_delta_lines=$($jsonSmoke.RenderDeltaLines) render_draw_plan_revision=$($jsonSmoke.RenderDrawPlanRevision) render_draw_plan_glyph_runs=$($jsonSmoke.RenderDrawPlanGlyphRuns) render_draw_plan_cell_runs=$($jsonSmoke.RenderDrawPlanCellRuns) render_draw_plan_cursor=$($jsonSmoke.RenderDrawPlanCursor) render_draw_delta_glyph_runs=$($jsonSmoke.RenderDrawDeltaGlyphRuns) render_draw_delta_cell_runs=$($jsonSmoke.RenderDrawDeltaCellRuns) render_draw_delta_cursor=$($jsonSmoke.RenderDrawDeltaCursor) render_geometry_viewport=$($jsonSmoke.RenderGeometryViewportWidth)x$($jsonSmoke.RenderGeometryViewportHeight) render_geometry_glyph_runs=$($jsonSmoke.RenderGeometryGlyphRuns) render_geometry_cell_runs=$($jsonSmoke.RenderGeometryCellRuns) render_geometry_cursor=$($jsonSmoke.RenderGeometryCursor) render_submission_damage_rects=$($jsonSmoke.RenderSubmissionDamageRects) render_submission_text_runs=$($jsonSmoke.RenderSubmissionTextRuns) render_submission_background_quads=$($jsonSmoke.RenderSubmissionBackgroundQuads) render_submission_cursor=$($jsonSmoke.RenderSubmissionCursor) render_commit_submit=$($jsonSmoke.RenderCommitSubmit) render_commit_full_repaint=$($jsonSmoke.RenderCommitFullRepaint) render_commit_damage_rects=$($jsonSmoke.RenderCommitDamageRects) lifecycle_created=$($jsonSmoke.LifecycleCreated) dead_reason=$($jsonSmoke.DeadReason)``")
     $report.Add("")
     $report.Add("## Gates")
     $report.Add("")
