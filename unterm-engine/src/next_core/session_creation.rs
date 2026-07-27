@@ -1,4 +1,4 @@
-use super::{launch, session_registry, session_runtime, session_snapshots};
+use super::{launch, runtime, session_runtime, session_snapshots};
 use crate::{CreateSessionRequest, SessionSnapshot, SplitSessionRequest};
 use anyhow::Result;
 
@@ -6,7 +6,7 @@ pub(super) fn create(request: CreateSessionRequest) -> Result<SessionSnapshot> {
     let launch_env_keys = request.env.iter().map(|(key, _)| key.clone()).collect();
     let launch_context = launch::launch_context(&request.env, &request.launch_policy);
     let (command, cwd) = launch::prepare_command(request.command, request.command_dir, request.env);
-    let id = session_registry::next_session_id_current();
+    let id = runtime::next_session_id();
 
     let mut session = session_runtime::spawn(
         id,
@@ -20,7 +20,7 @@ pub(super) fn create(request: CreateSessionRequest) -> Result<SessionSnapshot> {
 
     session.snapshot.shell.launch_context = launch_context;
     let snapshot = session.snapshot.clone();
-    session_registry::insert_created_current(session);
+    runtime::insert_created(session);
     Ok(snapshot)
 }
 
@@ -34,7 +34,7 @@ pub(super) fn split(request: SplitSessionRequest) -> Result<SessionSnapshot> {
     let cwd = launch::command_cwd(&command, None);
     let launch_env_keys = Vec::new();
 
-    let id = session_registry::next_session_id_current();
+    let id = runtime::next_session_id();
 
     let session = session_runtime::spawn(
         id,
@@ -47,6 +47,6 @@ pub(super) fn split(request: SplitSessionRequest) -> Result<SessionSnapshot> {
     )?;
 
     let snapshot = session.snapshot.clone();
-    session_registry::insert_created_current(session);
+    runtime::insert_created(session);
     Ok(snapshot)
 }

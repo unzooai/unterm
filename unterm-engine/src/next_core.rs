@@ -1617,7 +1617,7 @@ impl SessionEngine for NextCoreEngine {
     }
 
     fn focus_session(&self, pane_id: usize) -> Result<()> {
-        session_registry::focus_current(pane_id)
+        runtime::focus(pane_id)
     }
 
     fn shell(&self, pane_id: usize) -> Result<ShellSnapshot> {
@@ -1633,7 +1633,7 @@ impl SessionEngine for NextCoreEngine {
     }
 
     fn destroy_session(&self, pane_id: usize) -> Result<()> {
-        session_registry::destroy_current(pane_id)
+        runtime::destroy(pane_id)
     }
 }
 

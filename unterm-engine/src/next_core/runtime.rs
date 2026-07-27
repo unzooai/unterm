@@ -1,4 +1,5 @@
-use super::session_registry;
+use super::{session_registry, NextCoreSession};
+use anyhow::Result;
 use parking_lot::RwLock;
 use std::sync::OnceLock;
 
@@ -20,4 +21,27 @@ pub(super) fn with_current<T>(visit: impl FnOnce(&NextCoreRuntime) -> T) -> T {
 pub(super) fn with_current_mut<T>(visit: impl FnOnce(&mut NextCoreRuntime) -> T) -> T {
     let mut state = current().write();
     visit(&mut state)
+}
+
+pub(super) fn next_session_id() -> usize {
+    with_current_mut(session_registry::next_session_id)
+}
+
+pub(super) fn focus(pane_id: usize) -> Result<()> {
+    with_current_mut(|state| session_registry::focus(state, pane_id))
+}
+
+pub(super) fn insert_created(session: NextCoreSession) {
+    with_current_mut(|state| session_registry::insert_created(state, session));
+}
+
+pub(super) fn destroy(pane_id: usize) -> Result<()> {
+    with_current_mut(|state| session_registry::destroy(state, pane_id))
+}
+
+pub(super) fn with_session_mut<T>(
+    pane_id: usize,
+    visit: impl FnOnce(&mut NextCoreSession) -> Result<T>,
+) -> Result<T> {
+    with_current_mut(|state| visit(session_registry::session_mut(state, pane_id)?))
 }

@@ -1,8 +1,4 @@
-use super::{
-    lifecycle,
-    runtime::{self, NextCoreRuntime},
-    NextCoreSession,
-};
+use super::{lifecycle, runtime::NextCoreRuntime, NextCoreSession};
 use anyhow::{bail, Result};
 
 #[derive(Default)]
@@ -100,11 +96,6 @@ pub(super) fn next_session_id(state: &mut NextCoreRuntime) -> usize {
     state.registry.next_session_id()
 }
 
-pub(super) fn next_session_id_current() -> usize {
-    let mut state = runtime::current().write();
-    next_session_id(&mut state)
-}
-
 pub(super) fn pane_count(state: &NextCoreRuntime) -> usize {
     state.registry.len()
 }
@@ -116,13 +107,6 @@ pub(super) fn for_each_session_mut(
     for session in state.registry.iter_mut() {
         visit(session);
     }
-}
-
-pub(super) fn with_session_mut_current<T>(
-    pane_id: usize,
-    visit: impl FnOnce(&mut NextCoreSession) -> Result<T>,
-) -> Result<T> {
-    runtime::with_current_mut(|state| visit(session_mut(state, pane_id)?))
 }
 
 pub(super) fn set_active(state: &mut NextCoreRuntime, pane_id: usize) {
@@ -156,20 +140,10 @@ pub(super) fn focus(state: &mut NextCoreRuntime, pane_id: usize) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn focus_current(pane_id: usize) -> Result<()> {
-    let mut state = runtime::current().write();
-    focus(&mut state, pane_id)
-}
-
 pub(super) fn insert_created(state: &mut NextCoreRuntime, session: NextCoreSession) {
     let id = session.snapshot.id;
     set_active(state, id);
     state.registry.push(session);
-}
-
-pub(super) fn insert_created_current(session: NextCoreSession) {
-    let mut state = runtime::current().write();
-    insert_created(&mut state, session);
 }
 
 pub(super) fn destroy(state: &mut NextCoreRuntime, pane_id: usize) -> Result<()> {
@@ -193,11 +167,6 @@ pub(super) fn destroy(state: &mut NextCoreRuntime, pane_id: usize) -> Result<()>
     }
 
     Ok(())
-}
-
-pub(super) fn destroy_current(pane_id: usize) -> Result<()> {
-    let mut state = runtime::current().write();
-    destroy(&mut state, pane_id)
 }
 
 pub(super) fn record_dead_reason(state: &mut NextCoreRuntime, reason: String) {
@@ -260,7 +229,7 @@ mod tests {
     fn runtime_with_current_visits_registry_state() {
         crate::next_core::test_support::reset_state_for_test();
 
-        let pane_count = runtime::with_current(pane_count);
+        let pane_count = crate::next_core::runtime::with_current(pane_count);
 
         assert_eq!(pane_count, 0);
     }
@@ -269,7 +238,7 @@ mod tests {
     fn runtime_with_current_mut_visits_registry_state() {
         crate::next_core::test_support::reset_state_for_test();
 
-        let id = runtime::with_current_mut(next_session_id);
+        let id = crate::next_core::runtime::with_current_mut(next_session_id);
 
         assert_eq!(id, 1);
     }
