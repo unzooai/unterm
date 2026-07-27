@@ -7,9 +7,8 @@ use super::{
     RecordingStartResult, RecordingStatusSnapshot, RecordingStopResult, RenderFrameSnapshot,
     ScreenActivitySnapshot, ScreenEngine, ScreenLine, ScreenSearchMatch, ScreenSnapshot,
     ScrollbackTextRequest, ScrollbackTextSnapshot, SessionActivitySnapshot, SessionEngine,
-    SessionSnapshot, ShellSnapshot, SplitSessionRequest, StyledBlink, StyledCell, StyledColor,
-    StyledScreenLine, StyledScreenSnapshot, StyledScrollbackSnapshot, StyledUnderline,
-    StyledVerticalAlign,
+    SessionSnapshot, ShellSnapshot, SplitSessionRequest, StyledBlink, StyledCell, StyledScreenLine,
+    StyledScreenSnapshot, StyledScrollbackSnapshot, StyledUnderline, StyledVerticalAlign,
 };
 use anyhow::{bail, Result};
 use base64::Engine as _;
@@ -26,6 +25,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+mod cell;
+
+use cell::{CellAttributes, ScreenCell, TerminalColor};
 
 const MAX_OUTPUT_BYTES: usize = 1024 * 1024;
 const MAX_RECORDING_BLOCKS: usize = 256;
@@ -382,136 +385,6 @@ enum MouseTrackingMode {
     X10,
     ButtonEvent,
     AnyEvent,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-struct ScreenCell {
-    ch: char,
-    attr: CellAttributes,
-    width: usize,
-}
-
-impl ScreenCell {
-    fn new(ch: char, attr: CellAttributes) -> Self {
-        Self {
-            ch,
-            attr,
-            width: Self::char_width(ch),
-        }
-    }
-
-    fn blank(attr: CellAttributes) -> Self {
-        Self {
-            ch: ' ',
-            attr,
-            width: 1,
-        }
-    }
-
-    fn continuation(attr: CellAttributes) -> Self {
-        Self {
-            ch: ' ',
-            attr,
-            width: 0,
-        }
-    }
-
-    fn char_width(ch: char) -> usize {
-        let mut buf = [0u8; 4];
-        termwiz::cell::unicode_column_width(ch.encode_utf8(&mut buf), None)
-    }
-
-    #[allow(dead_code)]
-    fn styled(&self) -> StyledCell {
-        self.styled_with_reverse_video(false, &[])
-    }
-
-    fn styled_with_reverse_video(&self, reverse_video: bool, hyperlinks: &[String]) -> StyledCell {
-        let mut style = self.attr.style(hyperlinks);
-        if reverse_video {
-            style.inverse = !style.inverse;
-        }
-        StyledCell {
-            ch: self.ch,
-            style,
-            width: self.width,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct CellAttributes {
-    bold: bool,
-    faint: bool,
-    italic: bool,
-    underline: bool,
-    underline_style: Option<StyledUnderline>,
-    underline_color: Option<TerminalColor>,
-    strikethrough: bool,
-    hidden: bool,
-    overline: bool,
-    blink: Option<StyledBlink>,
-    vertical_align: Option<StyledVerticalAlign>,
-    inverse: bool,
-    protected: bool,
-    fg: Option<TerminalColor>,
-    bg: Option<TerminalColor>,
-    hyperlink: Option<usize>,
-}
-
-impl CellAttributes {
-    fn set_underline(&mut self, style: StyledUnderline) {
-        self.underline = true;
-        self.underline_style = Some(style);
-    }
-
-    fn clear_underline(&mut self) {
-        self.underline = false;
-        self.underline_style = None;
-    }
-
-    fn set_protected(&mut self, protected: bool) {
-        self.protected = protected;
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum TerminalColor {
-    Palette(u8),
-    Rgb(u8, u8, u8),
-}
-
-impl CellAttributes {
-    fn style(&self, hyperlinks: &[String]) -> CellStyle {
-        CellStyle {
-            bold: self.bold,
-            faint: self.faint,
-            italic: self.italic,
-            underline: self.underline,
-            underline_style: self.underline_style,
-            underline_color: self.underline_color.map(Into::into),
-            strikethrough: self.strikethrough,
-            hidden: self.hidden,
-            overline: self.overline,
-            blink: self.blink,
-            vertical_align: self.vertical_align,
-            inverse: self.inverse,
-            fg: self.fg.map(Into::into),
-            bg: self.bg.map(Into::into),
-            hyperlink: self
-                .hyperlink
-                .and_then(|idx| hyperlinks.get(idx).filter(|uri| !uri.is_empty()).cloned()),
-        }
-    }
-}
-
-impl From<TerminalColor> for StyledColor {
-    fn from(color: TerminalColor) -> Self {
-        match color {
-            TerminalColor::Palette(idx) => StyledColor::Palette(idx),
-            TerminalColor::Rgb(r, g, b) => StyledColor::Rgb(r, g, b),
-        }
-    }
 }
 
 impl NextCoreScreen {
@@ -5213,6 +5086,7 @@ impl HealthEngine for NextCoreEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::StyledColor;
     use parking_lot::MutexGuard;
 
     struct SharedWriter {
