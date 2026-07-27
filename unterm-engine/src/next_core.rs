@@ -73,8 +73,8 @@ use screen_state::{MouseTrackingMode, ScreenState};
 use terminal_parser::TerminalParser;
 #[cfg(test)]
 use test_support::{
-    mark_dead_for_test, reset_activity_for_test, reset_state_for_test, set_output_for_test,
-    viewport_attrs_for_test,
+    mark_dead_for_test, reset_activity_for_test, reset_state_for_test, screen_for_test,
+    set_output_for_test, viewport_attrs_for_test,
 };
 
 const MAX_OUTPUT_BYTES: usize = 1024 * 1024;
@@ -2785,17 +2785,7 @@ mod tests {
             env: Vec::new(),
             launch_policy: Default::default(),
         })?;
-        let screen_handle = {
-            let state = state().read();
-            Arc::clone(
-                &state
-                    .sessions
-                    .iter()
-                    .find(|candidate| candidate.snapshot.id == session.id)
-                    .expect("session exists")
-                    .screen,
-            )
-        };
+        let screen_handle = screen_for_test(session.id)?;
 
         screen_handle.lock().feed("alpha");
         let full = engine.read_render_frame(session.id, None)?;
@@ -2859,17 +2849,7 @@ mod tests {
             env: Vec::new(),
             launch_policy: Default::default(),
         })?;
-        let screen_handle = {
-            let state = state().read();
-            Arc::clone(
-                &state
-                    .sessions
-                    .iter()
-                    .find(|candidate| candidate.snapshot.id == session.id)
-                    .expect("session exists")
-                    .screen,
-            )
-        };
+        let screen_handle = screen_for_test(session.id)?;
 
         screen_handle.lock().feed("seed");
         let baseline = engine.read_render_frame(session.id, None)?;
@@ -2910,17 +2890,7 @@ mod tests {
             env: Vec::new(),
             launch_policy: Default::default(),
         })?;
-        let screen_handle = {
-            let state = state().read();
-            Arc::clone(
-                &state
-                    .sessions
-                    .iter()
-                    .find(|candidate| candidate.snapshot.id == session.id)
-                    .expect("session exists")
-                    .screen,
-            )
-        };
+        let screen_handle = screen_for_test(session.id)?;
 
         screen_handle.lock().feed("cursor");
         let baseline = engine.read_render_frame(session.id, None)?;

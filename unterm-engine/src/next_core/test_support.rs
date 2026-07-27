@@ -79,3 +79,9 @@ pub(super) fn viewport_attrs_for_test(pane_id: usize) -> Result<Vec<Vec<CellAttr
     let attrs = screen.lock().attrs_for_viewport();
     Ok(attrs)
 }
+
+pub(super) fn screen_for_test(pane_id: usize) -> Result<Arc<parking_lot::Mutex<NextCoreScreen>>> {
+    session_registry::with_current_state(|state| {
+        session_registry::session(state, pane_id).map(|session| Arc::clone(&session.screen))
+    })
+}
