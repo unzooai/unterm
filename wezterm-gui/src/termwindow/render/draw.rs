@@ -56,7 +56,9 @@ impl crate::TermWindow {
         let next_core_replace_diagnostics =
             crate::engine::EngineRenderPreparedPaneFrame::replace_diagnostics_for_request(
                 next_core_mode == NextCoreWebGpuPaneMode::Replace,
-                next_core_pane_frame.as_ref(),
+                next_core_pane_frame
+                    .as_ref()
+                    .map(|frame| &frame.engine_frame),
             );
         let replace_legacy_pane =
             should_replace_legacy_pane(next_core_replace_diagnostics.as_ref());

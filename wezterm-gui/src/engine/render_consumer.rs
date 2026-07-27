@@ -13,8 +13,6 @@ use crate::engine::render_backend::{
     EngineWgpuPreparedFramePlan,
 };
 use std::collections::HashMap;
-use std::rc::Rc;
-use wezterm_font::LoadedFont;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EngineRenderCommitStats {
@@ -50,7 +48,6 @@ pub struct EngineRenderPreparedPaneFrame {
     pub batch: EngineRenderBufferBatch,
     pub prepared: EngineWgpuPreparedFramePlan,
     pub replace_diagnostics: EngineRenderPaneReplaceDiagnostics,
-    pub font: Option<Rc<LoadedFont>>,
 }
 
 #[allow(dead_code)]
@@ -60,7 +57,6 @@ impl EngineRenderPreparedPaneFrame {
         prepared: EngineWgpuPreparedFramePlan,
         replace_requested: bool,
         cached_glyph_upload: Option<&EngineRenderCachedGlyphUploadDiagnostics>,
-        font: Option<Rc<LoadedFont>>,
     ) -> Self {
         let prepared_diagnostics = prepared.diagnostics();
         let replace_diagnostics = EngineRenderPaneReplaceDiagnostics::from_parts(
@@ -74,7 +70,6 @@ impl EngineRenderPreparedPaneFrame {
             batch,
             prepared,
             replace_diagnostics,
-            font,
         }
     }
 

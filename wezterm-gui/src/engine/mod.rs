@@ -573,7 +573,7 @@ mod tests {
         let prepared =
             EngineWgpuRenderBackend::prepare_frame_for_viewport(&batch.buffer_plan, 80.0, 40.0);
 
-        let frame = EngineRenderPreparedPaneFrame::from_parts(batch, prepared, true, None, None);
+        let frame = EngineRenderPreparedPaneFrame::from_parts(batch, prepared, true, None);
 
         assert!(frame.replace_diagnostics.replace_ready);
         assert!(frame.replace_diagnostics.should_replace_legacy_pane());

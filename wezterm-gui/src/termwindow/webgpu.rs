@@ -96,6 +96,12 @@ pub struct NextCoreCachedGlyphUpload {
 }
 
 #[allow(dead_code)]
+pub struct NextCoreWebGpuPaneDrawFrame {
+    pub engine_frame: EngineRenderPreparedPaneFrame,
+    font: Option<Rc<LoadedFont>>,
+}
+
+#[allow(dead_code)]
 impl NextCoreCachedGlyphUpload {
     pub fn diagnostics(&self) -> EngineRenderCachedGlyphUploadDiagnostics {
         EngineRenderCachedGlyphUploadDiagnostics::from_parts(
@@ -1210,7 +1216,7 @@ impl WebGpuState {
         batch: EngineRenderBufferBatch,
         font: Option<Rc<LoadedFont>>,
         replace_requested: bool,
-    ) -> EngineRenderPreparedPaneFrame {
+    ) -> NextCoreWebGpuPaneDrawFrame {
         let (viewport_width_px, viewport_height_px) = self.next_core_viewport_pixels();
         let prepared = EngineWgpuRenderBackend::prepare_frame_for_viewport(
             &batch.buffer_plan,
@@ -1229,13 +1235,14 @@ impl WebGpuState {
             })
             .flatten();
 
-        EngineRenderPreparedPaneFrame::from_parts(
+        let engine_frame = EngineRenderPreparedPaneFrame::from_parts(
             batch,
             prepared,
             replace_requested,
             cached_glyph_upload.as_ref(),
-            font,
-        )
+        );
+
+        NextCoreWebGpuPaneDrawFrame { engine_frame, font }
     }
 
     fn next_core_cached_glyph_upload_diagnostics_for_prepared(
@@ -1292,15 +1299,15 @@ impl WebGpuState {
         &self,
         encoder: &mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
-        frame: EngineRenderPreparedPaneFrame,
+        frame: NextCoreWebGpuPaneDrawFrame,
         clear_color: Option<[f64; 4]>,
     ) -> bool {
         let (viewport_width_px, viewport_height_px) = self.next_core_viewport_pixels();
         self.encode_prepared_next_core_pane_frame_with_font(
             encoder,
             target,
-            &frame.batch.buffer_plan,
-            &frame.prepared,
+            &frame.engine_frame.batch.buffer_plan,
+            &frame.engine_frame.prepared,
             viewport_width_px,
             viewport_height_px,
             clear_color,
