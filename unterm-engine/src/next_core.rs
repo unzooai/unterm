@@ -1117,9 +1117,6 @@ impl NextCoreScreen {
     }
 
     fn soft_reset_terminal(&mut self) {
-        if self.alternate.is_some() {
-            self.leave_all_alternate_screen_modes();
-        }
         self.current_attr = CellAttributes::default();
         self.insert_mode = false;
         self.left_right_margin_mode = false;
@@ -1137,7 +1134,6 @@ impl NextCoreScreen {
         self.sgr_pixel_mouse = false;
         self.meta_sends_escape = false;
         self.synchronized_output = false;
-        self.alternate_screen_modes.clear();
         self.cursor_visible = true;
         self.cursor_blinking = true;
         self.cursor_shape = "Default".to_string();
@@ -1880,13 +1876,6 @@ impl NextCoreScreen {
         if !self.alternate_screen_modes.is_empty() {
             return;
         }
-        if let Some(main) = self.alternate.take() {
-            self.restore_main_screen(main);
-        }
-    }
-
-    fn leave_all_alternate_screen_modes(&mut self) {
-        self.alternate_screen_modes.clear();
         if let Some(main) = self.alternate.take() {
             self.restore_main_screen(main);
         }
@@ -8020,6 +8009,23 @@ mod tests {
         assert_eq!(styled.lines[0].cells[8].style, CellStyle::default());
 
         engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_decstr_keeps_current_alternate_screen_active() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let mut screen = NextCoreScreen::new(20, 3);
+
+        screen.feed(concat!("main", "\x1b[?1049h", "alt", "\x1b[!p", "stay"));
+        assert_eq!(screen.snapshot_viewport_lines(), vec!["altstay"]);
+        assert!(screen.alternate_screen_modes.contains(&1049));
+
+        screen.feed("\x1b[?1049lback");
+        assert_eq!(screen.snapshot_viewport_lines(), vec!["mainback"]);
+        assert!(screen.alternate_screen_modes.is_empty());
+
         Ok(())
     }
 
