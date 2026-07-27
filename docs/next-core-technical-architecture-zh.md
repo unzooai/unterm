@@ -275,6 +275,7 @@ next-core 已经在 screen/parser 方向具备基础能力，包括：
 - `next_core/input_pipeline.rs` 已拆出 application cursor 输入翻译、UTF-8 安全 paste chunk 和 bracketed paste marker 组装，让认证码粘贴、命令补全箭头和普通打字路径可以独立测试与优化
 - `next_core/render_state.rs` 已拆出 revision 和 dirty range 状态，为后续 GPU renderer 的增量帧消费提供稳定边界
 - `next_core/screen_state.rs` 已拆出 alternate-screen snapshot 和 mouse/mode tracking 状态，为后续 screen model 独立模块化铺路
+- `next_core/terminal_queries.rs` 已拆出 DA/DSR/DECRQM/XTWINOPS 响应和 split-chunk pending buffer，终端协议查询兼容性不再埋在 session engine 主体里
 - `TerminalParser` 已成为 screen 的显式 parser 边界，`next_core/parser_state.rs` 存放 parser 状态枚举，为后续替换成 `vte` parser/perform 边界降低耦合
 
 ## 9. 开源参考
