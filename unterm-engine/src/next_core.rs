@@ -41,6 +41,7 @@ mod screen_search;
 mod screen_snapshot;
 mod screen_state;
 mod screen_text;
+mod session_handles;
 mod sgr;
 mod styled_snapshot;
 mod terminal_parser;
@@ -1765,14 +1766,7 @@ impl NextCoreEngine {
     fn output(&self, pane_id: usize) -> Result<String> {
         let output = {
             let state = state().read();
-            let Some(session) = state
-                .sessions
-                .iter()
-                .find(|session| session.snapshot.id == pane_id)
-            else {
-                bail!("next-core session {pane_id} not found");
-            };
-            Arc::clone(&session.output)
+            session_handles::output(&state, pane_id)?
         };
 
         let text = output.lock().clone();
@@ -1887,14 +1881,7 @@ impl NextCoreEngine {
     fn screen_lines(&self, pane_id: usize) -> Result<Vec<String>> {
         let screen = {
             let state = state().read();
-            let Some(session) = state
-                .sessions
-                .iter()
-                .find(|session| session.snapshot.id == pane_id)
-            else {
-                bail!("next-core session {pane_id} not found");
-            };
-            Arc::clone(&session.screen)
+            session_handles::screen(&state, pane_id)?
         };
 
         let lines = screen.lock().snapshot_lines();
@@ -1904,14 +1891,7 @@ impl NextCoreEngine {
     fn screen_line_count(&self, pane_id: usize) -> Result<usize> {
         let screen = {
             let state = state().read();
-            let Some(session) = state
-                .sessions
-                .iter()
-                .find(|session| session.snapshot.id == pane_id)
-            else {
-                bail!("next-core session {pane_id} not found");
-            };
-            Arc::clone(&session.screen)
+            session_handles::screen(&state, pane_id)?
         };
 
         let count = screen.lock().history_len();
@@ -1926,14 +1906,7 @@ impl NextCoreEngine {
     ) -> Result<Vec<String>> {
         let screen = {
             let state = state().read();
-            let Some(session) = state
-                .sessions
-                .iter()
-                .find(|session| session.snapshot.id == pane_id)
-            else {
-                bail!("next-core session {pane_id} not found");
-            };
-            Arc::clone(&session.screen)
+            session_handles::screen(&state, pane_id)?
         };
 
         let lines = screen.lock().history_text_range(start, count);
@@ -1943,14 +1916,7 @@ impl NextCoreEngine {
     fn scrollback_lines(&self, pane_id: usize) -> Result<Vec<String>> {
         let screen = {
             let state = state().read();
-            let Some(session) = state
-                .sessions
-                .iter()
-                .find(|session| session.snapshot.id == pane_id)
-            else {
-                bail!("next-core session {pane_id} not found");
-            };
-            Arc::clone(&session.screen)
+            session_handles::screen(&state, pane_id)?
         };
 
         let lines = screen
@@ -1966,14 +1932,7 @@ impl NextCoreEngine {
     fn mark_screen_read_for_pane(&self, pane_id: usize, duration: Duration) -> Result<()> {
         let activity = {
             let state = state().read();
-            let Some(session) = state
-                .sessions
-                .iter()
-                .find(|session| session.snapshot.id == pane_id)
-            else {
-                bail!("next-core session {pane_id} not found");
-            };
-            Arc::clone(&session.activity)
+            session_handles::activity(&state, pane_id)?
         };
         activity.lock().mark_screen_read(duration);
         Ok(())
@@ -1983,14 +1942,7 @@ impl NextCoreEngine {
         let started_at = Instant::now();
         let (screen, activity) = {
             let state = state().read();
-            let Some(session) = state
-                .sessions
-                .iter()
-                .find(|session| session.snapshot.id == pane_id)
-            else {
-                bail!("next-core session {pane_id} not found");
-            };
-            (Arc::clone(&session.screen), Arc::clone(&session.activity))
+            session_handles::screen_activity(&state, pane_id)?
         };
 
         screen.lock().set_viewport_top_near(target);
@@ -2001,14 +1953,7 @@ impl NextCoreEngine {
     fn screen_cursor(&self, pane_id: usize) -> Result<CursorSnapshot> {
         let screen = {
             let state = state().read();
-            let Some(session) = state
-                .sessions
-                .iter()
-                .find(|session| session.snapshot.id == pane_id)
-            else {
-                bail!("next-core session {pane_id} not found");
-            };
-            Arc::clone(&session.screen)
+            session_handles::screen(&state, pane_id)?
         };
 
         let cursor = screen.lock().cursor_snapshot();
@@ -2019,14 +1964,7 @@ impl NextCoreEngine {
     fn bracketed_paste_enabled(&self, pane_id: usize) -> Result<bool> {
         let screen = {
             let state = state().read();
-            let Some(session) = state
-                .sessions
-                .iter()
-                .find(|session| session.snapshot.id == pane_id)
-            else {
-                bail!("next-core session {pane_id} not found");
-            };
-            Arc::clone(&session.screen)
+            session_handles::screen(&state, pane_id)?
         };
 
         let enabled = screen.lock().bracketed_paste;
@@ -2414,14 +2352,7 @@ impl ScreenEngine for NextCoreEngine {
         let started_at = Instant::now();
         let (screen_handle, activity_handle) = {
             let state = state().read();
-            let Some(session) = state
-                .sessions
-                .iter()
-                .find(|session| session.snapshot.id == pane_id)
-            else {
-                bail!("next-core session {pane_id} not found");
-            };
-            (Arc::clone(&session.screen), Arc::clone(&session.activity))
+            session_handles::screen_activity(&state, pane_id)?
         };
 
         let snapshot = {
@@ -2451,14 +2382,7 @@ impl ScreenEngine for NextCoreEngine {
         let started_at = Instant::now();
         let (screen_handle, activity_handle) = {
             let state = state().read();
-            let Some(session) = state
-                .sessions
-                .iter()
-                .find(|session| session.snapshot.id == pane_id)
-            else {
-                bail!("next-core session {pane_id} not found");
-            };
-            (Arc::clone(&session.screen), Arc::clone(&session.activity))
+            session_handles::screen_activity(&state, pane_id)?
         };
 
         let snapshot = {
@@ -2490,14 +2414,7 @@ impl ScreenEngine for NextCoreEngine {
         let started_at = Instant::now();
         let (screen_handle, activity_handle) = {
             let state = state().read();
-            let Some(session) = state
-                .sessions
-                .iter()
-                .find(|session| session.snapshot.id == pane_id)
-            else {
-                bail!("next-core session {pane_id} not found");
-            };
-            (Arc::clone(&session.screen), Arc::clone(&session.activity))
+            session_handles::screen_activity(&state, pane_id)?
         };
 
         let snapshot = {
@@ -2649,14 +2566,7 @@ impl ScreenEngine for NextCoreEngine {
         let session = self.session(pane_id)?;
         let screen = {
             let state = state().read();
-            let Some(session) = state
-                .sessions
-                .iter()
-                .find(|session| session.snapshot.id == pane_id)
-            else {
-                bail!("next-core session {pane_id} not found");
-            };
-            Arc::clone(&session.screen)
+            session_handles::screen(&state, pane_id)?
         };
 
         let screen = screen.lock();
@@ -2702,55 +2612,39 @@ impl ScreenEngine for NextCoreEngine {
 
 impl InputEngine for NextCoreEngine {
     fn write_input(&self, pane_id: usize, input: &str) -> Result<()> {
-        let (writer, activity, application_cursor_keys) = {
+        let handles = {
             let state = state().read();
-            let Some(session) = state
-                .sessions
-                .iter()
-                .find(|session| session.snapshot.id == pane_id)
-            else {
-                bail!("next-core session {pane_id} not found");
-            };
-            let application_cursor_keys = session.screen.lock().application_cursor_keys;
-            (
-                Arc::clone(&session.writer),
-                Arc::clone(&session.activity),
-                application_cursor_keys,
-            )
+            session_handles::input(&state, pane_id)?
         };
 
         let started_at = Instant::now();
-        let input = Self::application_cursor_input(input, application_cursor_keys);
+        let input = Self::application_cursor_input(input, handles.application_cursor_keys);
         let bytes = input.len();
-        let mut writer = writer.lock();
+        let mut writer = handles.writer.lock();
         writer.write_all(input.as_bytes())?;
         writer.flush()?;
         if !input.is_empty() {
-            activity.lock().mark_input(bytes, started_at.elapsed());
+            handles
+                .activity
+                .lock()
+                .mark_input(bytes, started_at.elapsed());
         }
         Ok(())
     }
 
     fn paste_input(&self, pane_id: usize, text: &str) -> Result<()> {
-        let bracketed = self.bracketed_paste_enabled(pane_id)?;
+        let handles = {
+            let state = state().read();
+            session_handles::input(&state, pane_id)?
+        };
+        let bracketed = handles.bracketed_paste;
         let chunks = Self::paste_chunks(text, bracketed);
         let wire_bytes = chunks.iter().map(|chunk| chunk.len()).sum::<usize>();
         let chunk_count = chunks.len();
         let started_at = Instant::now();
-        let (writer, activity) = {
-            let state = state().read();
-            let Some(session) = state
-                .sessions
-                .iter()
-                .find(|session| session.snapshot.id == pane_id)
-            else {
-                bail!("next-core session {pane_id} not found");
-            };
-            (Arc::clone(&session.writer), Arc::clone(&session.activity))
-        };
 
         {
-            let mut writer = writer.lock();
+            let mut writer = handles.writer.lock();
             for chunk in &chunks {
                 writer.write_all(chunk.as_bytes())?;
             }
@@ -2758,7 +2652,7 @@ impl InputEngine for NextCoreEngine {
         }
 
         if !text.is_empty() || bracketed {
-            let mut activity = activity.lock();
+            let mut activity = handles.activity.lock();
             activity.mark_input(wire_bytes, started_at.elapsed());
             activity.mark_paste(
                 text.len(),

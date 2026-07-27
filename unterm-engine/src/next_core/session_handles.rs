@@ -1,0 +1,69 @@
+use super::{activity::SessionIoActivity, NextCoreScreen, NextCoreSession, NextCoreState};
+use anyhow::Result;
+use parking_lot::Mutex;
+use std::io::Write;
+use std::sync::Arc;
+
+pub(super) struct InputHandles {
+    pub(super) writer: Arc<Mutex<Box<dyn Write + Send>>>,
+    pub(super) activity: Arc<Mutex<SessionIoActivity>>,
+    pub(super) application_cursor_keys: bool,
+    pub(super) bracketed_paste: bool,
+}
+
+fn session(state: &NextCoreState, pane_id: usize) -> Result<&NextCoreSession> {
+    state
+        .sessions
+        .iter()
+        .find(|session| session.snapshot.id == pane_id)
+        .ok_or_else(|| anyhow::anyhow!("next-core session {pane_id} not found"))
+}
+
+pub(super) fn output(state: &NextCoreState, pane_id: usize) -> Result<Arc<Mutex<String>>> {
+    Ok(Arc::clone(&session(state, pane_id)?.output))
+}
+
+pub(super) fn screen(state: &NextCoreState, pane_id: usize) -> Result<Arc<Mutex<NextCoreScreen>>> {
+    Ok(Arc::clone(&session(state, pane_id)?.screen))
+}
+
+pub(super) fn activity(
+    state: &NextCoreState,
+    pane_id: usize,
+) -> Result<Arc<Mutex<SessionIoActivity>>> {
+    Ok(Arc::clone(&session(state, pane_id)?.activity))
+}
+
+pub(super) fn screen_activity(
+    state: &NextCoreState,
+    pane_id: usize,
+) -> Result<(Arc<Mutex<NextCoreScreen>>, Arc<Mutex<SessionIoActivity>>)> {
+    let session = session(state, pane_id)?;
+    Ok((Arc::clone(&session.screen), Arc::clone(&session.activity)))
+}
+
+pub(super) fn input(state: &NextCoreState, pane_id: usize) -> Result<InputHandles> {
+    let session = session(state, pane_id)?;
+    let screen = session.screen.lock();
+    Ok(InputHandles {
+        writer: Arc::clone(&session.writer),
+        activity: Arc::clone(&session.activity),
+        application_cursor_keys: screen.application_cursor_keys,
+        bracketed_paste: screen.bracketed_paste,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn missing_session_reports_pane_id() {
+        let err = match screen(&NextCoreState::default(), 42) {
+            Ok(_) => panic!("expected missing session error"),
+            Err(err) => err,
+        };
+
+        assert!(err.to_string().contains("next-core session 42 not found"));
+    }
+}
