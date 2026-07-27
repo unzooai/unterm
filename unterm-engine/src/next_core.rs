@@ -291,6 +291,7 @@ struct NextCoreScreen {
     cursor_x: usize,
     cursor_y: usize,
     cursor_visible: bool,
+    cursor_blinking: bool,
     cursor_shape: String,
     auto_wrap: bool,
     reverse_video: bool,
@@ -334,6 +335,7 @@ struct ScreenState {
     cursor_x: usize,
     cursor_y: usize,
     cursor_visible: bool,
+    cursor_blinking: bool,
     cursor_shape: String,
     auto_wrap: bool,
     application_cursor_keys: bool,
@@ -500,6 +502,7 @@ impl NextCoreScreen {
             cols: cols.max(1),
             rows: rows.max(1),
             cursor_visible: true,
+            cursor_blinking: true,
             cursor_shape: "Default".to_string(),
             auto_wrap: true,
             ..Self::default()
@@ -1061,6 +1064,7 @@ impl NextCoreScreen {
         self.meta_sends_escape = false;
         self.synchronized_output = false;
         self.cursor_visible = true;
+        self.cursor_blinking = true;
         self.cursor_shape = "Default".to_string();
         self.tab_stops = Self::default_tab_stops(self.cols);
         self.scroll_top = 0;
@@ -1626,6 +1630,7 @@ impl NextCoreScreen {
             cursor_x: self.cursor_x,
             cursor_y: self.cursor_y,
             cursor_visible: self.cursor_visible,
+            cursor_blinking: self.cursor_blinking,
             cursor_shape: self.cursor_shape.clone(),
             auto_wrap: self.auto_wrap,
             application_cursor_keys: self.application_cursor_keys,
@@ -1655,6 +1660,7 @@ impl NextCoreScreen {
         self.saved_cursor_x = 0;
         self.saved_cursor_y = 0;
         self.cursor_shape = "Default".to_string();
+        self.cursor_blinking = true;
         self.auto_wrap = true;
         self.application_cursor_keys = false;
         self.application_keypad = false;
@@ -1687,6 +1693,7 @@ impl NextCoreScreen {
             self.cursor_x = main.cursor_x;
             self.cursor_y = main.cursor_y;
             self.cursor_visible = main.cursor_visible;
+            self.cursor_blinking = main.cursor_blinking;
             self.cursor_shape = main.cursor_shape;
             self.auto_wrap = main.auto_wrap;
             self.application_cursor_keys = main.application_cursor_keys;
@@ -1968,6 +1975,10 @@ impl<'a> ScreenParser<'a> {
                             1 => self.screen.application_cursor_keys = true,
                             6 => self.screen.set_origin_mode(true),
                             7 => self.screen.auto_wrap = true,
+                            12 => {
+                                self.screen.cursor_blinking = true;
+                                self.screen.mark_dirty_row(self.screen.cursor_y);
+                            }
                             25 => {
                                 self.screen.cursor_visible = true;
                                 self.screen.mark_dirty_row(self.screen.cursor_y);
@@ -2005,6 +2016,10 @@ impl<'a> ScreenParser<'a> {
                             1 => self.screen.application_cursor_keys = false,
                             6 => self.screen.set_origin_mode(false),
                             7 => self.screen.auto_wrap = false,
+                            12 => {
+                                self.screen.cursor_blinking = false;
+                                self.screen.mark_dirty_row(self.screen.cursor_y);
+                            }
                             25 => {
                                 self.screen.cursor_visible = false;
                                 self.screen.mark_dirty_row(self.screen.cursor_y);
@@ -3552,6 +3567,15 @@ impl NextCoreEngine {
                     format!("\x1b[?7;{}$y", Self::mode_report_state(screen.auto_wrap)).as_bytes(),
                 );
                 idx += "\x1b[?7$p".len();
+            } else if rest.starts_with("\x1b[?12$p") {
+                response.extend_from_slice(
+                    format!(
+                        "\x1b[?12;{}$y",
+                        Self::mode_report_state(screen.cursor_blinking)
+                    )
+                    .as_bytes(),
+                );
+                idx += "\x1b[?12$p".len();
             } else if rest.starts_with("\x1b[?25$p") {
                 response.extend_from_slice(
                     format!(
@@ -4782,7 +4806,7 @@ mod tests {
         let _guard = test_guard();
         let mut screen = NextCoreScreen::new(80, 10);
         screen.feed(
-            "\x1b[?1047h\x1b[?1h\x1b[?5h\x1b[?6h\x1b[?25l\x1b[?66h\x1b[?1002h\x1b[?1004h\x1b[?1005h\x1b[?1006h\x1b[?1007h\x1b[?1015h\x1b[?1016h\x1b[?1034h\x1b[?2004h\x1b[?2026h\x1b[4h",
+            "\x1b[?1047h\x1b[?1h\x1b[?5h\x1b[?6h\x1b[?12l\x1b[?25l\x1b[?66h\x1b[?1002h\x1b[?1004h\x1b[?1005h\x1b[?1006h\x1b[?1007h\x1b[?1015h\x1b[?1016h\x1b[?1034h\x1b[?2004h\x1b[?2026h\x1b[4h",
         );
         let bytes = Arc::new(Mutex::new(Vec::new()));
         let writer: Arc<Mutex<Box<dyn Write + Send>>> =
@@ -4791,14 +4815,14 @@ mod tests {
             })));
 
         NextCoreEngine::answer_terminal_queries(
-            "\x1b[?1$p\x1b[?5$p\x1b[?6$p\x1b[?7$p\x1b[?25$p\x1b[?66$p\x1b[?1000$p\x1b[?1002$p\x1b[?1003$p\x1b[?1004$p\x1b[?1005$p\x1b[?1006$p\x1b[?1007$p\x1b[?1015$p\x1b[?1016$p\x1b[?1034$p\x1b[?47$p\x1b[?1047$p\x1b[?1049$p\x1b[?2004$p\x1b[?2026$p\x1b[4$p",
+            "\x1b[?1$p\x1b[?5$p\x1b[?6$p\x1b[?7$p\x1b[?12$p\x1b[?25$p\x1b[?66$p\x1b[?1000$p\x1b[?1002$p\x1b[?1003$p\x1b[?1004$p\x1b[?1005$p\x1b[?1006$p\x1b[?1007$p\x1b[?1015$p\x1b[?1016$p\x1b[?1034$p\x1b[?47$p\x1b[?1047$p\x1b[?1049$p\x1b[?2004$p\x1b[?2026$p\x1b[4$p",
             &screen,
             &writer,
         );
 
         assert_eq!(
             bytes.lock().as_slice(),
-            b"\x1b[?1;1$y\x1b[?5;1$y\x1b[?6;1$y\x1b[?7;1$y\x1b[?25;2$y\x1b[?66;1$y\x1b[?1000;2$y\x1b[?1002;1$y\x1b[?1003;2$y\x1b[?1004;1$y\x1b[?1005;1$y\x1b[?1006;1$y\x1b[?1007;1$y\x1b[?1015;1$y\x1b[?1016;1$y\x1b[?1034;1$y\x1b[?47;1$y\x1b[?1047;1$y\x1b[?1049;1$y\x1b[?2004;1$y\x1b[?2026;1$y\x1b[4;1$y"
+            b"\x1b[?1;1$y\x1b[?5;1$y\x1b[?6;1$y\x1b[?7;1$y\x1b[?12;2$y\x1b[?25;2$y\x1b[?66;1$y\x1b[?1000;2$y\x1b[?1002;1$y\x1b[?1003;2$y\x1b[?1004;1$y\x1b[?1005;1$y\x1b[?1006;1$y\x1b[?1007;1$y\x1b[?1015;1$y\x1b[?1016;1$y\x1b[?1034;1$y\x1b[?47;1$y\x1b[?1047;1$y\x1b[?1049;1$y\x1b[?2004;1$y\x1b[?2026;1$y\x1b[4;1$y"
         );
     }
 
@@ -4813,14 +4837,14 @@ mod tests {
             })));
 
         NextCoreEngine::answer_terminal_queries(
-            "\x1b[?1$p\x1b[?5$p\x1b[?6$p\x1b[?66$p\x1b[?1000$p\x1b[?1002$p\x1b[?1003$p\x1b[?1004$p\x1b[?1005$p\x1b[?1006$p\x1b[?1007$p\x1b[?1015$p\x1b[?1016$p\x1b[?1034$p\x1b[?47$p\x1b[?1047$p\x1b[?1049$p\x1b[?2004$p\x1b[?2026$p\x1b[4$p",
+            "\x1b[?1$p\x1b[?5$p\x1b[?6$p\x1b[?12$p\x1b[?66$p\x1b[?1000$p\x1b[?1002$p\x1b[?1003$p\x1b[?1004$p\x1b[?1005$p\x1b[?1006$p\x1b[?1007$p\x1b[?1015$p\x1b[?1016$p\x1b[?1034$p\x1b[?47$p\x1b[?1047$p\x1b[?1049$p\x1b[?2004$p\x1b[?2026$p\x1b[4$p",
             &screen,
             &writer,
         );
 
         assert_eq!(
             bytes.lock().as_slice(),
-            b"\x1b[?1;2$y\x1b[?5;2$y\x1b[?6;2$y\x1b[?66;2$y\x1b[?1000;2$y\x1b[?1002;2$y\x1b[?1003;2$y\x1b[?1004;2$y\x1b[?1005;2$y\x1b[?1006;2$y\x1b[?1007;2$y\x1b[?1015;2$y\x1b[?1016;2$y\x1b[?1034;2$y\x1b[?47;2$y\x1b[?1047;2$y\x1b[?1049;2$y\x1b[?2004;2$y\x1b[?2026;2$y\x1b[4;2$y"
+            b"\x1b[?1;2$y\x1b[?5;2$y\x1b[?6;2$y\x1b[?12;1$y\x1b[?66;2$y\x1b[?1000;2$y\x1b[?1002;2$y\x1b[?1003;2$y\x1b[?1004;2$y\x1b[?1005;2$y\x1b[?1006;2$y\x1b[?1007;2$y\x1b[?1015;2$y\x1b[?1016;2$y\x1b[?1034;2$y\x1b[?47;2$y\x1b[?1047;2$y\x1b[?1049;2$y\x1b[?2004;2$y\x1b[?2026;2$y\x1b[4;2$y"
         );
     }
 
@@ -7219,6 +7243,23 @@ mod tests {
         assert!(!engine.bracketed_paste_enabled(session.id)?);
 
         engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_tracks_cursor_blink_mode() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let mut screen = NextCoreScreen::new(80, 3);
+
+        assert!(screen.cursor_blinking);
+        screen.feed("\x1b[?12l");
+        assert!(!screen.cursor_blinking);
+        screen.feed("\x1b[?12h");
+        assert!(screen.cursor_blinking);
+        screen.feed("\x1b[?12l\x1b[!p");
+        assert!(screen.cursor_blinking);
+
         Ok(())
     }
 
