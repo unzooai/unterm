@@ -463,11 +463,55 @@ mod engine_neutral_handler_tests {
     use anyhow::{anyhow, Context, Result};
     use parking_lot::Mutex;
     use serde_json::{json, Value};
-    use std::sync::OnceLock;
+    use std::path::{Path, PathBuf};
+    use std::process::Command;
+    use std::sync::{
+        atomic::{AtomicU64, Ordering},
+        OnceLock,
+    };
 
     fn env_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    static NEXT_TMP_REVIEW_REPO: AtomicU64 = AtomicU64::new(0);
+
+    fn git_test(repo: &Path, args: &[&str]) -> Result<String> {
+        let mut cmd = Command::new("git");
+        cmd.arg("-C").arg(repo).args(args);
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x0800_0000);
+        }
+        let out = cmd.output().with_context(|| format!("run git {args:?}"))?;
+        if !out.status.success() {
+            return Err(anyhow!(
+                "git {}: {}",
+                args.first().unwrap_or(&""),
+                String::from_utf8_lossy(&out.stderr).trim()
+            ));
+        }
+        Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    }
+
+    fn tmp_review_repo() -> Result<PathBuf> {
+        let dir = std::env::temp_dir().join(format!(
+            "unterm-next-core-review-{}-{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_millis(),
+            NEXT_TMP_REVIEW_REPO.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&dir)?;
+        git_test(&dir, &["init", "-q"])?;
+        git_test(&dir, &["config", "user.email", "t@t"])?;
+        git_test(&dir, &["config", "user.name", "t"])?;
+        git_test(&dir, &["config", "core.autocrlf", "false"])?;
+        std::fs::write(dir.join("a.txt"), "one\n")?;
+        git_test(&dir, &["add", "-A"])?;
+        git_test(&dir, &["commit", "-q", "-m", "init"])?;
+        Ok(dir)
     }
 
     #[test]
@@ -1442,6 +1486,48 @@ mod engine_neutral_handler_tests {
 
         crate::cockpit::fleet::reset_store_for_tests();
         std::fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn review_diff_does_not_require_wezterm_mux_in_next_core_mode() {
+        let _guard = env_lock().lock();
+        let previous_engine = std::env::var("UNTERM_ENGINE").ok();
+        std::env::set_var("UNTERM_ENGINE", "next-core");
+
+        let result: Result<(serde_json::Value, PathBuf)> = (|| {
+            let repo = tmp_review_repo()?;
+            let base = git_test(&repo, &["rev-parse", "HEAD"])?;
+            std::fs::write(repo.join("a.txt"), "one\ntwo\n")?;
+            std::fs::write(repo.join("new.txt"), "fresh\n")?;
+
+            let handler = McpHandler::new();
+            let ctx = ConnectionContext::internal("handler-test");
+            let diff = handler.handle(
+                &ctx,
+                "review.diff",
+                &json!({
+                    "repo": repo.display().to_string(),
+                    "from": base,
+                }),
+            )?;
+            Ok((diff, repo))
+        })();
+
+        match previous_engine {
+            Some(value) => std::env::set_var("UNTERM_ENGINE", value),
+            None => std::env::remove_var("UNTERM_ENGINE"),
+        }
+
+        let (diff, repo) = result.expect("review.diff through next-core mode");
+        let files = diff["files"].as_array().expect("diff files");
+        assert!(files.iter().any(|file| file["path"] == "a.txt"));
+        assert!(files
+            .iter()
+            .any(|file| file["path"] == "new.txt" && file["untracked"] == true));
+        let patch = diff["patch"].as_str().expect("diff patch");
+        assert!(patch.contains("+two"));
+        assert!(patch.contains("+fresh"));
+        std::fs::remove_dir_all(repo).ok();
     }
 
     #[test]
