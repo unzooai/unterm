@@ -106,12 +106,7 @@ impl Drop for NextCoreSession {
 
 #[derive(Default)]
 struct NextCoreState {
-    next_session_id: usize,
     registry: session_registry::SessionRegistry,
-    total_sessions_created: u64,
-    total_sessions_destroyed: u64,
-    total_sessions_marked_dead: u64,
-    last_dead_reason: Option<String>,
 }
 
 #[derive(Clone, Debug)]

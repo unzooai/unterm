@@ -31,13 +31,14 @@ pub(super) fn snapshot(state: &mut NextCoreState) -> EngineHealthSnapshot {
     for reason in dead_reasons {
         lifecycle::record_dead_reason(state, reason);
     }
+    let stats = session_registry::stats(state);
     let lifecycle = EngineLifecycleHealthSnapshot {
         live_sessions: pane_count.saturating_sub(dead_sessions as usize) as u64,
         dead_sessions,
-        total_created: state.total_sessions_created,
-        total_destroyed: state.total_sessions_destroyed,
-        total_marked_dead: state.total_sessions_marked_dead,
-        last_dead_reason: state.last_dead_reason.clone(),
+        total_created: stats.total_created,
+        total_destroyed: stats.total_destroyed,
+        total_marked_dead: stats.total_marked_dead,
+        last_dead_reason: stats.last_dead_reason,
     };
     EngineHealthSnapshot {
         engine: "next-core".to_string(),
