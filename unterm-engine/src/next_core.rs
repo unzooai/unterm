@@ -314,6 +314,7 @@ struct NextCoreScreen {
     saved_cursor_x: usize,
     saved_cursor_y: usize,
     alternate: Option<ScreenState>,
+    parser_state: ParserState,
 }
 
 #[derive(Default)]
@@ -496,8 +497,13 @@ impl NextCoreScreen {
             self.bump_revision();
             self.clear_dirty_rows();
         }
-        let mut parser = ScreenParser::new(self);
-        parser.feed(chunk);
+        let state = std::mem::take(&mut self.parser_state);
+        let state = {
+            let mut parser = ScreenParser::new(self, state);
+            parser.feed(chunk);
+            parser.state
+        };
+        self.parser_state = state;
     }
 
     fn bump_revision(&mut self) {
@@ -1643,7 +1649,9 @@ struct ScreenParser<'a> {
     state: ParserState,
 }
 
+#[derive(Default)]
 enum ParserState {
+    #[default]
     Ground,
     Escape,
     EscapeIgnoreOne,
@@ -1656,11 +1664,8 @@ enum ParserState {
 }
 
 impl<'a> ScreenParser<'a> {
-    fn new(screen: &'a mut NextCoreScreen) -> Self {
-        Self {
-            screen,
-            state: ParserState::Ground,
-        }
+    fn new(screen: &'a mut NextCoreScreen, state: ParserState) -> Self {
+        Self { screen, state }
     }
 
     fn feed(&mut self, chunk: &str) {
@@ -6616,6 +6621,32 @@ mod tests {
 
         engine.destroy_session(session.id)?;
         Ok(())
+    }
+
+    #[test]
+    fn screen_parser_preserves_state_across_split_chunks() {
+        let mut screen = NextCoreScreen::new(24, 3);
+
+        screen.feed("ab\x1b[31");
+        screen.feed("mR\x1b[0");
+        screen.feed("m\x1b]2;Split");
+        screen.feed(" title\x07Z");
+
+        assert_eq!(screen.snapshot_viewport_lines(), vec!["abRZ"]);
+        assert_eq!(screen.title.as_deref(), Some("Split title"));
+        assert_eq!(screen.lines[0][2].attr.fg, Some(TerminalColor::Palette(1)));
+        assert_eq!(screen.lines[0][3].attr, CellAttributes::default());
+    }
+
+    #[test]
+    fn screen_parser_ignores_split_string_controls() {
+        let mut screen = NextCoreScreen::new(24, 3);
+
+        screen.feed("A\x1bPpayload");
+        screen.feed("\x1b\\B\x1b_more");
+        screen.feed("\x07C");
+
+        assert_eq!(screen.snapshot_viewport_lines(), vec!["ABC"]);
     }
 
     #[test]
