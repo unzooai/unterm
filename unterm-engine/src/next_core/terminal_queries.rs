@@ -12,7 +12,7 @@ pub(super) fn answer_with_pending(
     screen: &NextCoreScreen,
     writer: &Arc<Mutex<Box<dyn Write + Send>>>,
     pending: &mut String,
-) {
+) -> usize {
     let mut response = Vec::new();
     let input = if pending.is_empty() {
         chunk.to_string()
@@ -59,10 +59,13 @@ pub(super) fn answer_with_pending(
         }
     }
     if !response.is_empty() {
+        let response_bytes = response.len();
         let mut writer = writer.lock();
         writer.write_all(&response).ok();
         writer.flush().ok();
+        return response_bytes;
     }
+    0
 }
 
 fn set_pending(pending: &mut String, value: &str) {

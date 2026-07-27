@@ -13,11 +13,18 @@ pub(super) struct OutputHandles<'a> {
     pub(super) writer: &'a Arc<Mutex<Box<dyn Write + Send>>>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct OutputApplyStats {
+    pub(super) input_bytes: usize,
+    pub(super) terminal_response_bytes: usize,
+    pub(super) recorded: bool,
+}
+
 pub(super) fn apply_chunk(
     handles: OutputHandles<'_>,
     chunk: &str,
     pending_terminal_query: &mut String,
-) {
+) -> OutputApplyStats {
     let started_at = Instant::now();
     {
         let mut output = handles.output.lock();
@@ -27,20 +34,30 @@ pub(super) fn apply_chunk(
     {
         let mut screen = handles.screen.lock();
         screen.feed(chunk);
-        terminal_queries::answer_with_pending(
+        let terminal_response_bytes = terminal_queries::answer_with_pending(
             chunk,
             &screen,
             handles.writer,
             pending_terminal_query,
         );
-    }
+        drop(screen);
 
-    handles
-        .activity
-        .lock()
-        .mark_output(chunk.len(), started_at.elapsed());
-    if let Some(recording) = handles.recording.lock().as_mut() {
-        recording_output::append_now(recording, chunk);
+        handles
+            .activity
+            .lock()
+            .mark_output(chunk.len(), started_at.elapsed());
+        let recorded = if let Some(recording) = handles.recording.lock().as_mut() {
+            recording_output::append_now(recording, chunk);
+            true
+        } else {
+            false
+        };
+
+        OutputApplyStats {
+            input_bytes: chunk.len(),
+            terminal_response_bytes,
+            recorded,
+        }
     }
 }
 
@@ -77,7 +94,7 @@ mod tests {
             })));
         let mut pending = String::new();
 
-        apply_chunk(
+        let stats = apply_chunk(
             OutputHandles {
                 output: &output,
                 screen: &screen,
@@ -95,6 +112,14 @@ mod tests {
         assert_eq!(
             activity.lock().output.as_ref().unwrap().total_bytes,
             "hello\x1b[6n".len() as u64
+        );
+        assert_eq!(
+            stats,
+            OutputApplyStats {
+                input_bytes: "hello\x1b[6n".len(),
+                terminal_response_bytes: 6,
+                recorded: false,
+            }
         );
     }
 }
