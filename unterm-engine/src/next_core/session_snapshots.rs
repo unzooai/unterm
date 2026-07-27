@@ -35,6 +35,15 @@ pub(super) fn get(state: &mut NextCoreState, pane_id: usize) -> Result<SessionSn
         .ok_or_else(|| anyhow::anyhow!("next-core session {pane_id} not found"))
 }
 
+pub(super) fn clone_base(state: &NextCoreState, pane_id: usize) -> Result<SessionSnapshot> {
+    state
+        .sessions
+        .iter()
+        .find(|session| session.snapshot.id == pane_id)
+        .map(|session| session.snapshot.clone())
+        .ok_or_else(|| anyhow::anyhow!("next-core session {pane_id} not found"))
+}
+
 fn snapshot(session: &mut NextCoreSession) -> (SessionSnapshot, Option<String>) {
     let dead_reason = lifecycle::refresh_liveness(session);
     let mut snapshot = session.snapshot.clone();
@@ -73,5 +82,13 @@ mod tests {
         let err = get(&mut state, 88).expect_err("missing session should fail");
 
         assert!(err.to_string().contains("next-core session 88 not found"));
+    }
+
+    #[test]
+    fn clone_base_reports_missing_session() {
+        let state = NextCoreState::default();
+        let err = clone_base(&state, 77).expect_err("missing source session should fail");
+
+        assert!(err.to_string().contains("next-core session 77 not found"));
     }
 }

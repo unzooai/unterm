@@ -1,4 +1,4 @@
-use super::{launch, session_registry, session_runtime, state, NextCoreState};
+use super::{launch, session_registry, session_runtime, session_snapshots, state};
 use crate::{CreateSessionRequest, SessionSnapshot, SplitSessionRequest};
 use anyhow::Result;
 
@@ -29,7 +29,7 @@ pub(super) fn create(request: CreateSessionRequest) -> Result<SessionSnapshot> {
 
 pub(super) fn split(request: SplitSessionRequest) -> Result<SessionSnapshot> {
     let state_guard = state().read();
-    let source = source_snapshot(&state_guard, request.source_pane_id);
+    let source = session_snapshots::clone_base(&state_guard, request.source_pane_id);
     drop(state_guard);
     let source = source?;
 
@@ -58,26 +58,4 @@ pub(super) fn split(request: SplitSessionRequest) -> Result<SessionSnapshot> {
     let mut state_guard = state().write();
     session_registry::insert_created(&mut state_guard, session);
     Ok(snapshot)
-}
-
-fn source_snapshot(state: &NextCoreState, pane_id: usize) -> Result<SessionSnapshot> {
-    state
-        .sessions
-        .iter()
-        .find(|session| session.snapshot.id == pane_id)
-        .map(|session| session.snapshot.clone())
-        .ok_or_else(|| anyhow::anyhow!("next-core session {pane_id} not found"))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn source_snapshot_reports_missing_source_session() {
-        let state = NextCoreState::default();
-        let err = source_snapshot(&state, 77).expect_err("missing source session should fail");
-
-        assert!(err.to_string().contains("next-core session 77 not found"));
-    }
 }
