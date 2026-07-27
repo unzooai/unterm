@@ -1,11 +1,10 @@
 use super::{
     CellStyle, CreateSessionRequest, CursorSnapshot, DirtyRows, EngineHealthSnapshot,
-    EngineIoHealthSnapshot, EngineLifecycleHealthSnapshot, HealthEngine, InputActivitySnapshot,
-    InputEngine, LaunchContextSnapshot, LaunchEnvBinding, LaunchEnvSource, LaunchPolicyDecision,
-    LaunchPolicyDecisionSnapshot, LaunchPolicySnapshot, OutputActivitySnapshot,
-    PasteActivitySnapshot, ProcessTreeSnapshot, RecordingEngine, RecordingExportResult,
-    RecordingStartResult, RecordingStatusSnapshot, RecordingStopResult, RenderFrameSnapshot,
-    ScreenActivitySnapshot, ScreenEngine, ScreenLine, ScreenSearchMatch, ScreenSnapshot,
+    EngineIoHealthSnapshot, EngineLifecycleHealthSnapshot, HealthEngine, InputEngine,
+    LaunchContextSnapshot, LaunchEnvBinding, LaunchEnvSource, LaunchPolicyDecision,
+    LaunchPolicyDecisionSnapshot, LaunchPolicySnapshot, ProcessTreeSnapshot, RecordingEngine,
+    RecordingExportResult, RecordingStartResult, RecordingStatusSnapshot, RecordingStopResult,
+    RenderFrameSnapshot, ScreenEngine, ScreenLine, ScreenSearchMatch, ScreenSnapshot,
     ScrollbackTextRequest, ScrollbackTextSnapshot, SessionActivitySnapshot, SessionEngine,
     SessionSnapshot, ShellSnapshot, SplitSessionRequest, StyledBlink, StyledCell, StyledScreenLine,
     StyledScreenSnapshot, StyledScrollbackSnapshot, StyledUnderline, StyledVerticalAlign,
@@ -25,6 +24,7 @@ use std::sync::{Arc, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+mod activity;
 mod cell;
 mod history;
 mod input_pipeline;
@@ -36,6 +36,7 @@ mod render_state;
 mod screen_state;
 mod terminal_queries;
 
+use activity::SessionIoActivity;
 use cell::{CellAttributes, ScreenCell, TerminalColor};
 use history::HistoryBuffer;
 use parser_state::ParserState;
@@ -45,7 +46,6 @@ use screen_state::{MouseTrackingMode, ScreenState};
 const MAX_OUTPUT_BYTES: usize = 1024 * 1024;
 const MAX_RECORDING_BLOCKS: usize = 256;
 const MAX_SCROLLBACK_LINES: usize = 10_000;
-const ACTIVITY_IDLE_AFTER: Duration = Duration::from_secs(2);
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct NextCoreEngine;
@@ -120,129 +120,6 @@ struct NextCoreActiveCommand {
     index: u64,
     started_micros: u128,
     text: String,
-}
-
-#[derive(Clone, Debug)]
-struct SessionIoActivity {
-    created_at: Instant,
-    last_input_at: Option<Instant>,
-    last_output_at: Option<Instant>,
-    input: Option<InputActivitySnapshot>,
-    output: Option<OutputActivitySnapshot>,
-    paste: Option<PasteActivitySnapshot>,
-    screen: Option<ScreenActivitySnapshot>,
-}
-
-impl SessionIoActivity {
-    fn new() -> Self {
-        Self {
-            created_at: Instant::now(),
-            last_input_at: None,
-            last_output_at: None,
-            input: None,
-            output: None,
-            paste: None,
-            screen: None,
-        }
-    }
-
-    fn mark_input(&mut self, bytes: usize, duration: Duration) {
-        self.last_input_at = Some(Instant::now());
-        let mut snapshot = self.input.clone().unwrap_or(InputActivitySnapshot {
-            total_writes: 0,
-            total_bytes: 0,
-            last_bytes: 0,
-            last_duration_ms: 0,
-        });
-        snapshot.total_writes = snapshot.total_writes.saturating_add(1);
-        snapshot.total_bytes = snapshot.total_bytes.saturating_add(bytes as u64);
-        snapshot.last_bytes = bytes;
-        snapshot.last_duration_ms = duration.as_millis().min(u64::MAX as u128) as u64;
-        self.input = Some(snapshot);
-    }
-
-    fn mark_output(&mut self, bytes: usize, duration: Duration) {
-        self.last_output_at = Some(Instant::now());
-        let mut snapshot = self.output.clone().unwrap_or(OutputActivitySnapshot {
-            total_chunks: 0,
-            total_bytes: 0,
-            last_bytes: 0,
-            last_duration_ms: 0,
-        });
-        snapshot.total_chunks = snapshot.total_chunks.saturating_add(1);
-        snapshot.total_bytes = snapshot.total_bytes.saturating_add(bytes as u64);
-        snapshot.last_bytes = bytes;
-        snapshot.last_duration_ms = duration.as_millis().min(u64::MAX as u128) as u64;
-        self.output = Some(snapshot);
-    }
-
-    fn mark_paste(
-        &mut self,
-        text_bytes: usize,
-        wire_bytes: usize,
-        chunk_count: usize,
-        bracketed: bool,
-        duration: Duration,
-    ) {
-        let mut snapshot = self.paste.clone().unwrap_or(PasteActivitySnapshot {
-            total_pastes: 0,
-            total_text_bytes: 0,
-            total_chunks: 0,
-            last_text_bytes: 0,
-            last_wire_bytes: 0,
-            last_chunk_count: 0,
-            last_bracketed: false,
-            last_duration_ms: 0,
-        });
-        snapshot.total_pastes = snapshot.total_pastes.saturating_add(1);
-        snapshot.total_text_bytes = snapshot.total_text_bytes.saturating_add(text_bytes as u64);
-        snapshot.total_chunks = snapshot.total_chunks.saturating_add(chunk_count as u64);
-        snapshot.last_text_bytes = text_bytes;
-        snapshot.last_wire_bytes = wire_bytes;
-        snapshot.last_chunk_count = chunk_count;
-        snapshot.last_bracketed = bracketed;
-        snapshot.last_duration_ms = duration.as_millis().min(u64::MAX as u128) as u64;
-        self.paste = Some(snapshot);
-    }
-
-    fn mark_screen_read(&mut self, duration: Duration) {
-        let mut snapshot = self.screen.clone().unwrap_or(ScreenActivitySnapshot {
-            total_reads: 0,
-            total_viewport_scrolls: 0,
-            last_read_duration_ms: 0,
-            last_scroll_duration_ms: 0,
-        });
-        snapshot.total_reads = snapshot.total_reads.saturating_add(1);
-        snapshot.last_read_duration_ms = duration.as_millis().min(u64::MAX as u128) as u64;
-        self.screen = Some(snapshot);
-    }
-
-    fn mark_viewport_scroll(&mut self, duration: Duration) {
-        let mut snapshot = self.screen.clone().unwrap_or(ScreenActivitySnapshot {
-            total_reads: 0,
-            total_viewport_scrolls: 0,
-            last_read_duration_ms: 0,
-            last_scroll_duration_ms: 0,
-        });
-        snapshot.total_viewport_scrolls = snapshot.total_viewport_scrolls.saturating_add(1);
-        snapshot.last_scroll_duration_ms = duration.as_millis().min(u64::MAX as u128) as u64;
-        self.screen = Some(snapshot);
-    }
-
-    fn last_io_at(&self) -> Option<Instant> {
-        match (self.last_input_at, self.last_output_at) {
-            (Some(input), Some(output)) => Some(input.max(output)),
-            (Some(input), None) => Some(input),
-            (None, Some(output)) => Some(output),
-            (None, None) => None,
-        }
-    }
-
-    fn is_idle(&self, now: Instant) -> bool {
-        self.last_io_at()
-            .map(|last_io| now.duration_since(last_io) >= ACTIVITY_IDLE_AFTER)
-            .unwrap_or_else(|| now.duration_since(self.created_at) >= ACTIVITY_IDLE_AFTER)
-    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -2489,11 +2366,7 @@ fn make_activity_stale_for_test(pane_id: usize) -> Result<()> {
         bail!("next-core session {pane_id} not found");
     };
 
-    let stale_at = Instant::now() - ACTIVITY_IDLE_AFTER - Duration::from_millis(1);
-    let mut activity = session.activity.lock();
-    activity.created_at = stale_at;
-    activity.last_input_at = None;
-    activity.last_output_at = None;
+    session.activity.lock().mark_stale_for_test();
     Ok(())
 }
 
