@@ -21,6 +21,8 @@ $RequiredTests = @(
     "mcp::handler::engine_neutral_handler_tests::session_env_reads_next_core_launch_env_keys_without_values",
     "mcp::handler::engine_neutral_handler_tests::session_set_env_applies_next_core_future_launch_overlay_without_values",
     "mcp::handler::engine_neutral_handler_tests::activity_methods_expose_next_core_io_metrics",
+    "mcp::handler::engine_neutral_handler_tests::capture_screen_text_snapshot_uses_terminal_engine",
+    "mcp::handler::engine_neutral_handler_tests::capture_window_text_snapshot_uses_terminal_engine",
     "mcp::handler::engine_neutral_handler_tests::capture_scrollback_renders_next_core_styled_png",
     "mcp::handler::engine_neutral_handler_tests::active_recording_export_uses_next_core_engine",
     "mcp::handler::engine_neutral_handler_tests::cockpit_inbox_uses_engine_session_snapshot",

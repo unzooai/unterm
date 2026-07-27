@@ -538,6 +538,32 @@ mod engine_neutral_handler_tests {
         }
     }
 
+    fn wait_for_screen_pattern(
+        handler: &McpHandler,
+        ctx: &ConnectionContext,
+        pane_id: usize,
+        pattern: &str,
+    ) -> Result<Value> {
+        let mut search = json!({});
+        for _ in 0..20 {
+            search = handler.handle(
+                ctx,
+                "screen.search",
+                &json!({
+                    "pane_id": pane_id,
+                    "pattern": pattern,
+                }),
+            )?;
+            if search["total"].as_u64().unwrap_or_default() > 0 {
+                return Ok(search);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        Err(anyhow!(
+            "screen pattern {pattern:?} was not visible before deadline: {search}"
+        ))
+    }
+
     #[test]
     fn session_destroy_uses_next_core_pane_id_path() {
         let _guard = env_lock().lock();
@@ -2107,21 +2133,43 @@ mod engine_neutral_handler_tests {
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
-        let result = {
+        let result: Result<(Result<Value>, usize)> = (|| {
             let handler = McpHandler::new();
             let ctx = ConnectionContext::internal("handler-test");
-            handler.handle(&ctx, "capture.screen", &json!({ "include_base64": false }))
-        };
+            let created = handler.handle(
+                &ctx,
+                "session.create",
+                &json!({
+                    "cols": 80,
+                    "rows": 4,
+                    "command": "echo next-core-capture-screen"
+                }),
+            )?;
+            let pane_id = created["id"].as_u64().expect("session id") as usize;
+            wait_for_screen_pattern(&handler, &ctx, pane_id, "next-core-capture-screen")?;
+            let capture = handler.handle(&ctx, "capture.screen", &json!({ "include_base64": false }));
+            let _ = handler.handle(&ctx, "session.destroy", &json!({ "pane_id": pane_id }));
+            Ok((capture, pane_id))
+        })();
 
         match previous_engine {
             Some(value) => std::env::set_var("UNTERM_ENGINE", value),
             None => std::env::remove_var("UNTERM_ENGINE"),
         }
 
-        match result {
+        let (capture_result, pane_id) =
+            result.expect("create next-core session for capture.screen");
+        assert!(next_core().get_session(pane_id).is_err());
+        match capture_result {
             Ok(capture) => {
                 assert!(capture["captures"].is_array());
                 assert_eq!(capture["text_snapshot"], true);
+                let captures = capture["captures"].as_array().expect("captures");
+                assert!(captures.iter().any(|item| item["session_id"] == pane_id.to_string()
+                    && item["screen"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .contains("next-core-capture-screen")));
             }
             Err(err) => {
                 let message = format!("{err:#}");
@@ -2140,20 +2188,48 @@ mod engine_neutral_handler_tests {
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
-        let result = {
+        let result: Result<(Result<Value>, usize)> = (|| {
             let handler = McpHandler::new();
             let ctx = ConnectionContext::internal("handler-test");
-            handler.handle(&ctx, "capture.window", &json!({ "include_base64": false }))
-        };
+            let created = handler.handle(
+                &ctx,
+                "session.create",
+                &json!({
+                    "cols": 80,
+                    "rows": 4,
+                    "command": "echo next-core-capture-window"
+                }),
+            )?;
+            let pane_id = created["id"].as_u64().expect("session id") as usize;
+            wait_for_screen_pattern(&handler, &ctx, pane_id, "next-core-capture-window")?;
+            let capture = handler.handle(
+                &ctx,
+                "capture.window",
+                &json!({
+                    "title": pane_id.to_string(),
+                    "include_base64": false
+                }),
+            );
+            let _ = handler.handle(&ctx, "session.destroy", &json!({ "pane_id": pane_id }));
+            Ok((capture, pane_id))
+        })();
 
         match previous_engine {
             Some(value) => std::env::set_var("UNTERM_ENGINE", value),
             None => std::env::remove_var("UNTERM_ENGINE"),
         }
 
-        match result {
+        let (capture_result, pane_id) =
+            result.expect("create next-core session for capture.window");
+        assert!(next_core().get_session(pane_id).is_err());
+        match capture_result {
             Ok(capture) => {
-                assert!(capture.get("text_snapshot").is_some());
+                assert_eq!(capture["session_id"], pane_id.to_string());
+                assert_eq!(capture["text_snapshot"], true);
+                assert!(capture["screen"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .contains("next-core-capture-window"));
             }
             Err(err) => {
                 let message = format!("{err:#}");
