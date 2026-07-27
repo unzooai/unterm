@@ -383,7 +383,7 @@ impl NextCoreScreen {
                 if let Some(previous) = line[..end]
                     .iter_mut()
                     .rev()
-                    .find(|cell| cell.width > 0 && cell.expects_joined_char())
+                    .find(|cell| cell.width > 0 && cell.joins_trailing_cluster_char(c))
                 {
                     previous.push_combining(c);
                     return;
@@ -3916,6 +3916,68 @@ mod tests {
         let styled = engine.read_styled_screen(session.id)?;
         let cells = &styled.lines[0].cells;
         assert_eq!(cells[0].ch, '👨');
+        assert_eq!(cells[0].width, 2);
+        assert_eq!(cells[1].width, 0);
+        assert_eq!(cells[2].ch, 'A');
+        assert_eq!(cells[2].width, 1);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_keeps_emoji_modifier_in_base_wide_cell() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 8,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+        set_output_for_test(session.id, "👍\u{1f3fd}A")?;
+
+        let screen = engine.read_screen(session.id)?;
+        assert_eq!(screen.lines, vec!["👍\u{1f3fd}A"]);
+        assert_eq!(screen.cursor.x, 3);
+
+        let styled = engine.read_styled_screen(session.id)?;
+        let cells = &styled.lines[0].cells;
+        assert_eq!(cells[0].ch, '👍');
+        assert_eq!(cells[0].width, 2);
+        assert_eq!(cells[1].width, 0);
+        assert_eq!(cells[2].ch, 'A');
+        assert_eq!(cells[2].width, 1);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_keeps_regional_indicator_flag_in_one_wide_cell() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 8,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+        set_output_for_test(session.id, "🇺🇸A")?;
+
+        let screen = engine.read_screen(session.id)?;
+        assert_eq!(screen.lines, vec!["🇺🇸A"]);
+        assert_eq!(screen.cursor.x, 3);
+
+        let styled = engine.read_styled_screen(session.id)?;
+        let cells = &styled.lines[0].cells;
+        assert_eq!(cells[0].ch, '🇺');
         assert_eq!(cells[0].width, 2);
         assert_eq!(cells[1].width, 0);
         assert_eq!(cells[2].ch, 'A');

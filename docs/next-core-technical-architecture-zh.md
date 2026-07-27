@@ -230,7 +230,7 @@ next-core 已经在 screen/parser 方向具备基础能力，包括：
 - render-frame dirty rows 跨 PTY chunk 累计；如果请求 revision 早于当前 dirty baseline，则回退 full frame，避免未来 GUI renderer 漏 repaint
 - render-frame full snapshot 稳定返回完整 `rows x cols` viewport grid，dirty snapshot 稳定返回 dirty range 内每一行的 `cols` 个 cell；缺失内容以 styled blank cell 表达，避免 renderer 自行推断
 - render-frame cursor-only movement 也会返回 dirty row 和新 cursor snapshot，保证 renderer 能重画旧/新光标位置
-- screen model 将 emoji variation selector 和 ZWJ 后续字符保留在同一 base cell 上，避免 `☕️`、`👨‍💻` 这类序列把光标和渲染列数错误推进；`ci/next-core-unicode.ps1` 已把 wide cell、combining mark、emoji variation selector、ZWJ emoji、wide wrap 和 REP wide char 纳入默认门禁
+- screen model 将 emoji variation selector、ZWJ 后续字符、emoji skin tone modifier 和 regional-indicator flag 保留在同一 base cell 上，避免 `☕️`、`👨‍💻`、`👍🏽`、`🇺🇸` 这类序列把光标和渲染列数错误推进；`ci/next-core-unicode.ps1` 已把 wide cell、combining mark、emoji variation selector、ZWJ emoji、emoji modifier、flag、wide wrap 和 REP wide char 纳入默认门禁
 - `ScreenEngine::read_render_draw_plan` 将 styled cell grid 合并成 glyph runs、cell style runs 和 cursor draw state，作为未来 wgpu renderer 的轻量 CPU 输入层；dirty frame 生成的 draw run row 必须保留 viewport row，避免局部重绘写错屏幕行
 - `RenderDrawPlan::to_geometry_plan` 用显式 cell metrics 将 glyph/cell/cursor runs 映射为像素矩形，作为真正接入 wgpu 前的轻量布局契约，暂不引入 GPU/font shaping 依赖
 - `RenderGeometryPlan::to_submission_plan` 将像素几何转换成 damage rects、background quads、text runs 和 cursor quad，让未来 wgpu renderer 只消费提交计划，不反向拥有终端语义

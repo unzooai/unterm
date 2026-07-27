@@ -47,8 +47,28 @@ impl ScreenCell {
         self.combining.push(ch);
     }
 
-    pub(super) fn expects_joined_char(&self) -> bool {
+    pub(super) fn joins_trailing_cluster_char(&self, ch: char) -> bool {
+        self.expects_joined_char()
+            || (self.width > 1 && Self::is_emoji_base(self.ch) && Self::is_emoji_modifier(ch))
+            || (Self::is_regional_indicator(self.ch)
+                && Self::is_regional_indicator(ch)
+                && !self.combining.chars().any(Self::is_regional_indicator))
+    }
+
+    fn expects_joined_char(&self) -> bool {
         self.combining.ends_with('\u{200d}')
+    }
+
+    fn is_emoji_modifier(ch: char) -> bool {
+        matches!(ch as u32, 0x1f3fb..=0x1f3ff)
+    }
+
+    fn is_emoji_base(ch: char) -> bool {
+        matches!(ch as u32, 0x1f000..=0x1faff)
+    }
+
+    fn is_regional_indicator(ch: char) -> bool {
+        matches!(ch as u32, 0x1f1e6..=0x1f1ff)
     }
 
     #[allow(dead_code)]
