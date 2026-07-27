@@ -730,6 +730,29 @@ pub struct EngineWgpuPreparedFramePlan {
 }
 
 #[allow(dead_code)]
+impl EngineWgpuPreparedFramePlan {
+    pub fn textured_glyph_layout_report(
+        &self,
+        placements: &[EngineRenderGlyphAtlasPlacement],
+    ) -> EngineRenderTexturedGlyphLayoutReport {
+        EngineRenderTexturedGlyphUploadPlan::layout_report_from_glyph_atlas_plan(
+            &self.glyph_atlas,
+            placements,
+        )
+    }
+
+    pub fn diff_textured_glyph_layout_against(
+        &self,
+        actual: &EngineWgpuPreparedFramePlan,
+        expected_placements: &[EngineRenderGlyphAtlasPlacement],
+        actual_placements: &[EngineRenderGlyphAtlasPlacement],
+    ) -> EngineRenderTexturedGlyphLayoutDiff {
+        self.textured_glyph_layout_report(expected_placements)
+            .diff_against(&actual.textured_glyph_layout_report(actual_placements))
+    }
+}
+
+#[allow(dead_code)]
 impl EngineRenderGpuUploadPlan {
     pub fn from_buffer_plan(plan: &EngineRenderBufferPlan) -> Self {
         Self {
@@ -2875,6 +2898,153 @@ mod tests {
         assert_eq!(diff.mismatches[0].actual_offsets_px, [8, 1, 0]);
         assert_eq!(diff.expected_missing_key_indices, Vec::<usize>::new());
         assert_eq!(diff.actual_missing_key_indices, vec![7]);
+    }
+
+    #[test]
+    fn prepared_frame_plan_exposes_textured_glyph_layout_parity() {
+        let frame = EngineRenderBackendFrame {
+            pane_id: 41,
+            submitted: true,
+            revision: 23,
+            requires_full_repaint: false,
+            skipped_revisions: 0,
+            commands: vec![EngineRenderBackendCommand::Text {
+                row: 0,
+                col: 0,
+                cells: 2,
+                rect: RenderRect {
+                    x: 0,
+                    y: 0,
+                    width: 16,
+                    height: 16,
+                },
+                text: "ab".to_string(),
+                style: CellStyle::default(),
+            }],
+        };
+        let buffer = EngineRenderBufferPlan::from_frame(&frame);
+        let prepared = EngineWgpuRenderBackend::prepare_frame_for_viewport(&buffer, 80.0, 40.0);
+        let placements = vec![
+            EngineRenderGlyphAtlasPlacement {
+                key_index: 0,
+                rect: RenderRect {
+                    x: 1,
+                    y: 1,
+                    width: 8,
+                    height: 16,
+                },
+                source_width_px: 8,
+                source_height_px: 16,
+                bearing_x_px: 0,
+                bearing_y_px: 0,
+                uses_raster_metrics: false,
+            },
+            EngineRenderGlyphAtlasPlacement {
+                key_index: 1,
+                rect: RenderRect {
+                    x: 11,
+                    y: 1,
+                    width: 8,
+                    height: 16,
+                },
+                source_width_px: 8,
+                source_height_px: 16,
+                bearing_x_px: 0,
+                bearing_y_px: 0,
+                uses_raster_metrics: false,
+            },
+        ];
+
+        let diff = prepared.diff_textured_glyph_layout_against(&prepared, &placements, &placements);
+
+        assert!(diff.is_clean());
+        assert_eq!(diff.expected_entry_count, 2);
+        assert_eq!(diff.actual_entry_count, 2);
+    }
+
+    #[test]
+    fn prepared_frame_plan_layout_parity_reports_frame_level_drift() {
+        let expected_frame = EngineRenderBackendFrame {
+            pane_id: 42,
+            submitted: true,
+            revision: 24,
+            requires_full_repaint: false,
+            skipped_revisions: 0,
+            commands: vec![EngineRenderBackendCommand::Text {
+                row: 0,
+                col: 0,
+                cells: 2,
+                rect: RenderRect {
+                    x: 0,
+                    y: 0,
+                    width: 16,
+                    height: 16,
+                },
+                text: "ab".to_string(),
+                style: CellStyle::default(),
+            }],
+        };
+        let actual_frame = EngineRenderBackendFrame {
+            revision: 25,
+            commands: vec![EngineRenderBackendCommand::Text {
+                row: 0,
+                col: 1,
+                cells: 2,
+                rect: RenderRect {
+                    x: 8,
+                    y: 0,
+                    width: 16,
+                    height: 16,
+                },
+                text: "ab".to_string(),
+                style: CellStyle::default(),
+            }],
+            ..expected_frame.clone()
+        };
+        let expected_buffer = EngineRenderBufferPlan::from_frame(&expected_frame);
+        let actual_buffer = EngineRenderBufferPlan::from_frame(&actual_frame);
+        let expected =
+            EngineWgpuRenderBackend::prepare_frame_for_viewport(&expected_buffer, 80.0, 40.0);
+        let actual =
+            EngineWgpuRenderBackend::prepare_frame_for_viewport(&actual_buffer, 80.0, 40.0);
+        let placements = vec![
+            EngineRenderGlyphAtlasPlacement {
+                key_index: 0,
+                rect: RenderRect {
+                    x: 1,
+                    y: 1,
+                    width: 8,
+                    height: 16,
+                },
+                source_width_px: 8,
+                source_height_px: 16,
+                bearing_x_px: 0,
+                bearing_y_px: 0,
+                uses_raster_metrics: false,
+            },
+            EngineRenderGlyphAtlasPlacement {
+                key_index: 1,
+                rect: RenderRect {
+                    x: 11,
+                    y: 1,
+                    width: 8,
+                    height: 16,
+                },
+                source_width_px: 8,
+                source_height_px: 16,
+                bearing_x_px: 0,
+                bearing_y_px: 0,
+                uses_raster_metrics: false,
+            },
+        ];
+
+        let diff = expected.diff_textured_glyph_layout_against(&actual, &placements, &placements);
+
+        assert!(!diff.is_clean());
+        assert_eq!(diff.expected_revision, 24);
+        assert_eq!(diff.actual_revision, 25);
+        assert_eq!(diff.missing_entries.len(), 2);
+        assert_eq!(diff.unexpected_entries.len(), 2);
     }
 
     #[test]
