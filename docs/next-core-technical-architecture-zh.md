@@ -283,6 +283,7 @@ next-core 已经在 screen/parser 方向具备基础能力，包括：
 - `next_core/osc133.rs` 已拆出 shell command marker stream splitting，让 recording command-block 检测可以独立测试，不再和 PTY/session 生命周期混在一起
 - `next_core/recording_archive.rs` 已拆出 session root resolution、project slug/path selection 和 recording index upsert，让录制文件归档元数据可以独立测试，不再和 recording lifecycle 混在一起
 - `next_core/recording_markdown.rs` 已拆出 YAML front matter、command/output block rendering 和 redaction-aware preview，让录制导出格式可以独立测试，不再和 recording lifecycle 混在一起
+- `next_core/render_frame.rs` 已拆出 full/delta/unchanged frame selection 策略，让渲染帧调度、dirty row 清理和 viewport pinned 行为可以独立测试
 - `next_core/process_tree.rs` 已拆出 root/foreground process snapshot 和已知 agent 检测，让 Codex/Claude activity 诊断从 session 生命周期中分离，后续可独立加缓存或后台扫描，避免进入输入、滚动、渲染热路径
 - `next_core/activity.rs` 已拆出 input/output/paste/screen-read counters 和 idle detection，让热路径遥测可以独立测试，不再和 session 生命周期、未来 renderer scheduling 混在一起
 - `next_core/launch.rs` 已拆出 command preparation、launch env/policy inference、profile/proxy metadata summary 和 shell type labeling，让 PTY/session registry 主体不再持有产品启动策略细节

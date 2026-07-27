@@ -36,6 +36,7 @@ mod pty_io;
 mod recording_archive;
 mod recording_markdown;
 mod recording_text;
+mod render_frame;
 mod render_state;
 mod screen_search;
 mod screen_state;
@@ -54,6 +55,7 @@ use activity::SessionIoActivity;
 use cell::TerminalColor;
 use cell::{CellAttributes, ScreenCell};
 use history::HistoryBuffer;
+use render_frame::FrameSelection;
 use render_state::RenderState;
 use screen_state::{MouseTrackingMode, ScreenState};
 use terminal_parser::TerminalParser;
@@ -2506,17 +2508,16 @@ impl ScreenEngine for NextCoreEngine {
             let mut screen = screen_handle.lock();
             let first_row = screen.viewport_first_row();
             let revision = screen.revision();
-            let all_rows = if screen.rows == 0 {
-                None
-            } else {
-                Some(DirtyRows {
-                    start: 0,
-                    end: screen.rows - 1,
-                })
-            };
 
-            if since_revision == Some(revision) {
-                RenderFrameSnapshot {
+            match render_frame::select_frame(
+                screen.rows,
+                revision,
+                screen.dirty_rows(),
+                screen.history.viewport_is_pinned(),
+                since_revision,
+                |since| screen.can_render_delta_since(since),
+            ) {
+                FrameSelection::Unchanged => RenderFrameSnapshot {
                     lines: Vec::new(),
                     cursor: screen.cursor_snapshot(),
                     cols: screen.cols,
@@ -2525,41 +2526,33 @@ impl ScreenEngine for NextCoreEngine {
                     revision,
                     dirty_rows: None,
                     full: false,
-                }
-            } else {
-                let can_delta = since_revision
-                    .filter(|since| *since <= revision)
-                    .is_some_and(|since| screen.can_render_delta_since(since));
-                let force_full =
-                    since_revision.is_none() || !can_delta || screen.dirty_rows().is_none();
-                let dirty_rows = if force_full {
-                    all_rows
-                } else if screen.history.viewport_is_pinned() && screen.dirty_rows() != all_rows {
-                    None
-                } else {
-                    screen.dirty_rows()
-                };
-                let full = dirty_rows.is_some() && dirty_rows == all_rows;
-                let lines = match dirty_rows {
-                    Some(rows) if full => screen.styled_viewport_lines(first_row),
-                    Some(rows) => screen.styled_viewport_dirty_lines(rows, first_row),
-                    None => Vec::new(),
-                };
-
-                let snapshot = RenderFrameSnapshot {
-                    lines,
-                    cursor: screen.cursor_snapshot(),
-                    cols: screen.cols,
-                    rows: screen.rows,
-                    scrollback_rows: screen.scrollback_rows(),
-                    revision,
+                },
+                FrameSelection::Changed {
                     dirty_rows,
                     full,
-                };
-                if snapshot.full || snapshot.dirty_rows.is_some() {
-                    screen.clear_dirty_rows();
+                    clear_dirty,
+                } => {
+                    let lines = match dirty_rows {
+                        Some(rows) if full => screen.styled_viewport_lines(first_row),
+                        Some(rows) => screen.styled_viewport_dirty_lines(rows, first_row),
+                        None => Vec::new(),
+                    };
+
+                    let snapshot = RenderFrameSnapshot {
+                        lines,
+                        cursor: screen.cursor_snapshot(),
+                        cols: screen.cols,
+                        rows: screen.rows,
+                        scrollback_rows: screen.scrollback_rows(),
+                        revision,
+                        dirty_rows,
+                        full,
+                    };
+                    if clear_dirty {
+                        screen.clear_dirty_rows();
+                    }
+                    snapshot
                 }
-                snapshot
             }
         };
         activity_handle
