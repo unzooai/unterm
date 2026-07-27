@@ -103,6 +103,8 @@ pub fn engine_capabilities(engine: &str) -> Value {
             "dispatched_render_commands",
             "dispatched_screen_commands",
             "dispatched_background_commands",
+            "waited_for_response",
+            "completed_without_wait",
             "total_dispatch_elapsed_micros",
             "max_dispatch_elapsed_micros",
             "total_drain_elapsed_micros",
@@ -366,6 +368,8 @@ mod tests {
         assert!(pump_metrics.contains(&"drain_calls"));
         assert!(pump_metrics.contains(&"dispatched_commands"));
         assert!(pump_metrics.contains(&"dispatched_screen_commands"));
+        assert!(pump_metrics.contains(&"waited_for_response"));
+        assert!(pump_metrics.contains(&"completed_without_wait"));
         assert!(pump_metrics.contains(&"max_dispatch_elapsed_micros"));
     }
 }

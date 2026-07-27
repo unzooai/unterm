@@ -2295,6 +2295,12 @@ mod engine_neutral_handler_tests {
             .any(|metric| metric == "dispatched_screen_commands"));
         assert!(pump_metrics
             .iter()
+            .any(|metric| metric == "waited_for_response"));
+        assert!(pump_metrics
+            .iter()
+            .any(|metric| metric == "completed_without_wait"));
+        assert!(pump_metrics
+            .iter()
             .any(|metric| metric == "max_dispatch_elapsed_micros"));
     }
 
@@ -2349,6 +2355,12 @@ mod engine_neutral_handler_tests {
         assert!(pump_metrics
             .iter()
             .any(|metric| metric == "dispatched_commands"));
+        assert!(pump_metrics
+            .iter()
+            .any(|metric| metric == "waited_for_response"));
+        assert!(pump_metrics
+            .iter()
+            .any(|metric| metric == "completed_without_wait"));
         assert!(pump_check["detail"]["runtime_pump"]["drain_calls"]
             .as_u64()
             .is_some());
@@ -7139,6 +7151,8 @@ impl McpHandler {
                 "dispatched_render_commands",
                 "dispatched_screen_commands",
                 "dispatched_background_commands",
+                "waited_for_response",
+                "completed_without_wait",
                 "total_dispatch_elapsed_micros",
                 "max_dispatch_elapsed_micros",
                 "total_drain_elapsed_micros",

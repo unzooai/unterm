@@ -159,6 +159,15 @@ if ($summary.json_smoke.RuntimePumpDispatched -lt 1) {
 if ($summary.json_smoke.RuntimePumpRender -lt 1 -or $summary.json_smoke.RuntimePumpScreen -lt 1) {
     throw "json smoke runtime pump did not record render/screen lane dispatches"
 }
+if (-not ($summary.json_smoke.PSObject.Properties.Name -contains "RuntimePumpWaitedForResponse")) {
+    throw "json smoke did not include runtime pump response-wait diagnostics"
+}
+if (-not ($summary.json_smoke.PSObject.Properties.Name -contains "RuntimePumpCompletedWithoutWait")) {
+    throw "json smoke did not include runtime pump immediate-completion diagnostics"
+}
+if (($summary.json_smoke.RuntimePumpWaitedForResponse + $summary.json_smoke.RuntimePumpCompletedWithoutWait) -ne $summary.json_smoke.RuntimePumpDrainCalls) {
+    throw "json smoke runtime pump wait/immediate counters did not add up to drain calls"
+}
 if ($summary.json_smoke.RuntimePumpMaxDispatchUs -lt 0 -or $summary.json_smoke.RuntimePumpMaxDrainUs -lt 0) {
     throw "json smoke runtime pump latency fields were invalid"
 }
