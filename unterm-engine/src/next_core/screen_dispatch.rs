@@ -1,12 +1,13 @@
 use super::{
     activity::SessionIoActivity,
     render_frame::{self, FrameSelection},
+    screen_search,
     screen_snapshot::{self, ScreenSnapshotMeta},
     screen_text, session_handles, state, NextCoreScreen,
 };
 use crate::{
-    CursorSnapshot, RenderFrameSnapshot, ScreenSnapshot, ScrollbackTextRequest,
-    ScrollbackTextSnapshot, StyledScreenSnapshot, StyledScrollbackSnapshot,
+    CursorSnapshot, RenderFrameSnapshot, ScreenLine, ScreenSearchMatch, ScreenSnapshot,
+    ScrollbackTextRequest, ScrollbackTextSnapshot, StyledScreenSnapshot, StyledScrollbackSnapshot,
 };
 use anyhow::{bail, Result};
 use parking_lot::Mutex;
@@ -125,6 +126,37 @@ pub(super) fn read_render_frame(
         .lock()
         .mark_screen_read(started_at.elapsed());
     Ok(snapshot)
+}
+
+pub(super) fn read_lines(pane_id: usize, start: i64, count: usize) -> Result<Vec<ScreenLine>> {
+    let started_at = Instant::now();
+    let start = start.max(0) as usize;
+    let lines = screen_snapshot::plain_lines(line_text_range(pane_id, start, count)?, start);
+    mark_screen_read(pane_id, started_at.elapsed())?;
+    Ok(lines)
+}
+
+pub(super) fn read_scrollback(pane_id: usize, limit: usize) -> Result<Vec<String>> {
+    let started_at = Instant::now();
+    let lines = scrollback_lines(pane_id)?
+        .into_iter()
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>();
+    let lines = screen_text::tail_lines(&lines, limit);
+    mark_screen_read(pane_id, started_at.elapsed())?;
+    Ok(lines)
+}
+
+pub(super) fn search(
+    pane_id: usize,
+    pattern: &str,
+    max_results: usize,
+) -> Result<Vec<ScreenSearchMatch>> {
+    let started_at = Instant::now();
+    let lines = snapshot_lines(pane_id)?;
+    let matches = screen_search::find_matches(&lines, pattern, max_results);
+    mark_screen_read(pane_id, started_at.elapsed())?;
+    Ok(matches)
 }
 
 pub(super) fn snapshot_lines(pane_id: usize) -> Result<Vec<String>> {

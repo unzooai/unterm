@@ -1736,25 +1736,11 @@ impl ScreenEngine for NextCoreEngine {
     }
 
     fn read_lines(&self, pane_id: usize, start: i64, count: usize) -> Result<Vec<ScreenLine>> {
-        let started_at = Instant::now();
-        let start = start.max(0) as usize;
-        let lines = screen_snapshot::plain_lines(
-            screen_dispatch::line_text_range(pane_id, start, count)?,
-            start,
-        );
-        screen_dispatch::mark_screen_read(pane_id, started_at.elapsed())?;
-        Ok(lines)
+        screen_dispatch::read_lines(pane_id, start, count)
     }
 
     fn read_scrollback(&self, pane_id: usize, limit: usize) -> Result<Vec<String>> {
-        let started_at = Instant::now();
-        let lines = screen_dispatch::scrollback_lines(pane_id)?
-            .into_iter()
-            .filter(|line| !line.is_empty())
-            .collect::<Vec<_>>();
-        let lines = screen_text::tail_lines(&lines, limit);
-        screen_dispatch::mark_screen_read(pane_id, started_at.elapsed())?;
-        Ok(lines)
+        screen_dispatch::read_scrollback(pane_id, limit)
     }
 
     fn read_scrollback_text(
@@ -1779,11 +1765,7 @@ impl ScreenEngine for NextCoreEngine {
         pattern: &str,
         max_results: usize,
     ) -> Result<Vec<ScreenSearchMatch>> {
-        let started_at = Instant::now();
-        let lines = screen_dispatch::snapshot_lines(pane_id)?;
-        let matches = screen_search::find_matches(&lines, pattern, max_results);
-        screen_dispatch::mark_screen_read(pane_id, started_at.elapsed())?;
-        Ok(matches)
+        screen_dispatch::search(pane_id, pattern, max_results)
     }
 
     fn cursor(&self, pane_id: usize) -> Result<CursorSnapshot> {
