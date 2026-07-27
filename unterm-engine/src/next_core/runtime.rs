@@ -1,21 +1,25 @@
 use super::{
     health_snapshot, input_dispatch, recording_lifecycle, screen_dispatch, session_activity,
-    session_creation, session_queries, session_registry, session_runtime, session_snapshots,
-    NextCoreSession,
+    session_queries, session_registry,
 };
 use crate::{
-    CreateSessionRequest, CursorSnapshot, EngineHealthSnapshot, RecordingExportResult,
-    RecordingStartResult, RecordingStatusSnapshot, RecordingStopResult, RenderFrameSnapshot,
-    ScreenLine, ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot,
-    SessionActivitySnapshot, SessionSnapshot, ShellSnapshot, SplitSessionRequest,
-    StyledScreenSnapshot, StyledScrollbackSnapshot,
+    CursorSnapshot, EngineHealthSnapshot, RecordingExportResult, RecordingStartResult,
+    RecordingStatusSnapshot, RecordingStopResult, RenderFrameSnapshot, ScreenLine,
+    ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot,
+    SessionActivitySnapshot, ShellSnapshot, StyledScreenSnapshot, StyledScrollbackSnapshot,
 };
 use anyhow::Result;
 use parking_lot::RwLock;
 use std::sync::OnceLock;
 
+mod session_facade;
 #[cfg(test)]
 pub(super) mod test_facade;
+
+pub(super) use session_facade::{
+    clone_session_base, create_session, destroy, focus, get_session, insert_created, list_sessions,
+    next_session_id, resize, split_session, with_session, with_session_optional,
+};
 
 #[derive(Default)]
 pub(super) struct NextCoreRuntime {
@@ -35,69 +39,6 @@ pub(super) fn with_current<T>(visit: impl FnOnce(&NextCoreRuntime) -> T) -> T {
 pub(super) fn with_current_mut<T>(visit: impl FnOnce(&mut NextCoreRuntime) -> T) -> T {
     let mut state = current().write();
     visit(&mut state)
-}
-
-pub(super) fn next_session_id() -> usize {
-    with_current_mut(session_registry::next_session_id)
-}
-
-pub(super) fn focus(pane_id: usize) -> Result<()> {
-    with_current_mut(|state| session_registry::focus(state, pane_id))
-}
-
-pub(super) fn insert_created(session: NextCoreSession) {
-    with_current_mut(|state| session_registry::insert_created(state, session));
-}
-
-pub(super) fn destroy(pane_id: usize) -> Result<()> {
-    with_current_mut(|state| session_registry::destroy(state, pane_id))
-}
-
-pub(super) fn resize(pane_id: usize, cols: usize, rows: usize) -> Result<()> {
-    with_session_mut(pane_id, |session| {
-        session_runtime::resize_session(session, cols, rows)
-    })
-}
-
-pub(super) fn with_session_mut<T>(
-    pane_id: usize,
-    visit: impl FnOnce(&mut NextCoreSession) -> Result<T>,
-) -> Result<T> {
-    with_current_mut(|state| visit(session_registry::session_mut(state, pane_id)?))
-}
-
-pub(super) fn with_session<T>(
-    pane_id: usize,
-    visit: impl FnOnce(&NextCoreSession) -> Result<T>,
-) -> Result<T> {
-    with_current(|state| visit(session_registry::session(state, pane_id)?))
-}
-
-pub(super) fn with_session_optional<T>(
-    pane_id: usize,
-    visit: impl FnOnce(&NextCoreSession) -> T,
-) -> Option<T> {
-    with_current(|state| session_registry::session(state, pane_id).ok().map(visit))
-}
-
-pub(super) fn list_sessions() -> Vec<SessionSnapshot> {
-    with_current_mut(session_snapshots::list)
-}
-
-pub(super) fn get_session(pane_id: usize) -> Result<SessionSnapshot> {
-    with_current_mut(|state| session_snapshots::get(state, pane_id))
-}
-
-pub(super) fn create_session(request: CreateSessionRequest) -> Result<SessionSnapshot> {
-    session_creation::create(request)
-}
-
-pub(super) fn split_session(request: SplitSessionRequest) -> Result<SessionSnapshot> {
-    session_creation::split(request)
-}
-
-pub(super) fn clone_session_base(pane_id: usize) -> Result<SessionSnapshot> {
-    with_session(pane_id, |session| Ok(session.snapshot.clone()))
 }
 
 pub(super) fn shell_snapshot(pane_id: usize) -> Result<ShellSnapshot> {
