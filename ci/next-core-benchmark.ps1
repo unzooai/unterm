@@ -2,6 +2,7 @@ param(
     [switch]$RunBenchmark,
     [switch]$SkipSizeBudget,
     [switch]$SkipGuiRender,
+    [switch]$SkipMcp,
     [string]$SummaryJsonPath = "",
     [string]$ReportPath = ""
 )
@@ -43,6 +44,13 @@ if (-not $SkipSizeBudget) {
 
 if (-not $SkipGuiRender) {
     & (Join-Path $CiDir "next-core-gui-render.ps1")
+    if ($LASTEXITCODE -ne 0) {
+        exit $LASTEXITCODE
+    }
+}
+
+if (-not $SkipMcp) {
+    & (Join-Path $CiDir "next-core-mcp.ps1")
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
     }
