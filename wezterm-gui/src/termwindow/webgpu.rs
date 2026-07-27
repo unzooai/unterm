@@ -1551,6 +1551,10 @@ mod tests {
             },
             width_px,
             height_px,
+            source_width_px: width_px,
+            source_height_px: height_px,
+            bearing_x_px: 0,
+            bearing_y_px: 0,
             bytes_rgba: vec![0xff; byte_count],
         }
     }

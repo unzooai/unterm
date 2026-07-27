@@ -377,7 +377,21 @@ pub struct EngineRenderGlyphAtlasTextureRegion {
     pub rect: RenderRect,
     pub width_px: usize,
     pub height_px: usize,
+    pub source_width_px: usize,
+    pub source_height_px: usize,
+    pub bearing_x_px: i32,
+    pub bearing_y_px: i32,
     pub bytes_rgba: Vec<u8>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
+pub struct EngineRenderGlyphRaster {
+    pub bytes_rgba: Vec<u8>,
+    pub source_width_px: usize,
+    pub source_height_px: usize,
+    pub bearing_x_px: i32,
+    pub bearing_y_px: i32,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -400,6 +414,21 @@ pub trait EngineRenderGlyphRasterSource {
         width_px: usize,
         height_px: usize,
     ) -> Option<Vec<u8>>;
+
+    fn rasterize_glyph_texture(
+        &self,
+        key: &EngineRenderGlyphAtlasKey,
+        width_px: usize,
+        height_px: usize,
+    ) -> Option<EngineRenderGlyphRaster> {
+        Some(EngineRenderGlyphRaster {
+            bytes_rgba: self.rasterize_glyph_rgba(key, width_px, height_px)?,
+            source_width_px: width_px,
+            source_height_px: height_px,
+            bearing_x_px: 0,
+            bearing_y_px: 0,
+        })
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -449,6 +478,30 @@ impl EngineRenderGlyphRasterSource for EngineRenderFontGlyphRasterSource {
             height_px,
             key.faint,
         ))
+    }
+
+    fn rasterize_glyph_texture(
+        &self,
+        key: &EngineRenderGlyphAtlasKey,
+        width_px: usize,
+        height_px: usize,
+    ) -> Option<EngineRenderGlyphRaster> {
+        let (font_idx, glyph_pos) = key.raster_identity()?;
+        let glyph = self.font.rasterize_glyph(glyph_pos, font_idx).ok()?;
+        Some(EngineRenderGlyphRaster {
+            bytes_rgba: fit_glyph_rgba_to_atlas_region(
+                &glyph.data,
+                glyph.width,
+                glyph.height,
+                width_px,
+                height_px,
+                key.faint,
+            ),
+            source_width_px: glyph.width,
+            source_height_px: glyph.height,
+            bearing_x_px: glyph.bearing_x.get().round() as i32,
+            bearing_y_px: glyph.bearing_y.get().round() as i32,
+        })
     }
 }
 
@@ -1302,12 +1355,12 @@ impl EngineRenderGlyphAtlasTextureUpdatePlan {
                 let width_px = placement.rect.width.max(1);
                 let height_px = placement.rect.height.max(1);
                 let expected_bytes = width_px.saturating_mul(height_px).saturating_mul(4);
-                let Some(bytes_rgba) = raster_source.rasterize_glyph_rgba(key, width_px, height_px)
+                let Some(raster) = raster_source.rasterize_glyph_texture(key, width_px, height_px)
                 else {
                     push_unique_usize(&mut missing_key_indices, *key_index);
                     continue;
                 };
-                if bytes_rgba.len() != expected_bytes {
+                if raster.bytes_rgba.len() != expected_bytes {
                     push_unique_usize(&mut missing_key_indices, *key_index);
                     continue;
                 }
@@ -1316,7 +1369,11 @@ impl EngineRenderGlyphAtlasTextureUpdatePlan {
                     rect: placement.rect,
                     width_px,
                     height_px,
-                    bytes_rgba,
+                    source_width_px: raster.source_width_px,
+                    source_height_px: raster.source_height_px,
+                    bearing_x_px: raster.bearing_x_px,
+                    bearing_y_px: raster.bearing_y_px,
+                    bytes_rgba: raster.bytes_rgba,
                 });
             }
         }
@@ -2559,10 +2616,72 @@ mod tests {
 
         assert_eq!(texture_update.regions.len(), 1);
         assert!(texture_update.missing_key_indices.is_empty());
+        assert_eq!(texture_update.regions[0].source_width_px, 8);
+        assert_eq!(texture_update.regions[0].source_height_px, 16);
+        assert_eq!(texture_update.regions[0].bearing_x_px, 0);
+        assert_eq!(texture_update.regions[0].bearing_y_px, 0);
         assert_eq!(
             &texture_update.regions[0].bytes_rgba[0..4],
             &[0x11, 0x22, 0x33, 0x44]
         );
+    }
+
+    #[test]
+    fn glyph_atlas_texture_update_preserves_raster_source_metrics() {
+        struct MetricsRasterSource;
+
+        impl EngineRenderGlyphRasterSource for MetricsRasterSource {
+            fn rasterize_glyph_rgba(
+                &self,
+                key: &EngineRenderGlyphAtlasKey,
+                width_px: usize,
+                height_px: usize,
+            ) -> Option<Vec<u8>> {
+                self.rasterize_glyph_texture(key, width_px, height_px)
+                    .map(|raster| raster.bytes_rgba)
+            }
+
+            fn rasterize_glyph_texture(
+                &self,
+                _key: &EngineRenderGlyphAtlasKey,
+                width_px: usize,
+                height_px: usize,
+            ) -> Option<EngineRenderGlyphRaster> {
+                Some(EngineRenderGlyphRaster {
+                    bytes_rgba: vec![0xaa; width_px * height_px * 4],
+                    source_width_px: 11,
+                    source_height_px: 13,
+                    bearing_x_px: -2,
+                    bearing_y_px: 9,
+                })
+            }
+        }
+
+        let glyphs = EngineRenderGlyphAtlasPlan {
+            pane_id: 31,
+            submitted: true,
+            revision: 32,
+            requires_full_repaint: false,
+            keys: vec![glyph_key("m", 1)],
+            instances: Vec::new(),
+        };
+        let mut cache = EngineRenderGlyphAtlasCache::new(32, 32);
+        let update = cache.ensure_glyphs(&glyphs, 8, 16);
+
+        let texture_update =
+            EngineWgpuRenderBackend::prepare_glyph_atlas_texture_update_with_raster_source(
+                &glyphs,
+                &update,
+                32,
+                32,
+                &MetricsRasterSource,
+            );
+
+        assert_eq!(texture_update.regions.len(), 1);
+        assert_eq!(texture_update.regions[0].source_width_px, 11);
+        assert_eq!(texture_update.regions[0].source_height_px, 13);
+        assert_eq!(texture_update.regions[0].bearing_x_px, -2);
+        assert_eq!(texture_update.regions[0].bearing_y_px, 9);
     }
 
     #[test]
