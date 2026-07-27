@@ -1225,51 +1225,45 @@ impl NextCoreScreen {
 
     fn insert_chars(&mut self, count: usize) {
         self.ensure_cursor_line();
-        let right_margin = if self.left_right_margin_mode {
-            self.right_margin.min(self.cols.saturating_sub(1))
-        } else {
-            self.cols.saturating_sub(1)
-        };
-        let line = &mut self.lines[self.cursor_y];
-        if self.cursor_x > line.len() {
-            line.resize(
-                self.cursor_x.min(self.cols),
-                ScreenCell::blank(self.current_attr),
-            );
+        let left = self.cursor_x.max(self.active_left_margin());
+        let right = self.active_right_margin();
+        if left > right {
+            return;
         }
-        for _ in 0..count.max(1) {
-            if self.cursor_x <= right_margin {
-                line.insert(self.cursor_x, ScreenCell::blank(self.current_attr));
-            }
-            if line.len() > right_margin + 1 {
-                line.remove(right_margin + 1);
-            }
+        let count = count.max(1).min(right + 1 - left);
+        let line = &mut self.lines[self.cursor_y];
+        if line.len() < right + 1 {
+            line.resize(right + 1, ScreenCell::blank(self.current_attr));
+        }
+        for idx in (left..=right).rev() {
+            line[idx] = if idx >= left + count {
+                line[idx - count].clone()
+            } else {
+                ScreenCell::blank(self.current_attr)
+            };
         }
         self.mark_dirty_row(self.cursor_y);
     }
 
     fn delete_chars(&mut self, count: usize) {
         self.ensure_cursor_line();
-        let count = count.max(1);
-        let right_margin = if self.left_right_margin_mode {
-            self.right_margin.min(self.cols.saturating_sub(1))
-        } else {
-            self.cols.saturating_sub(1)
-        };
-        let blanks = if self.cursor_x <= right_margin {
-            count.min(right_margin + 1 - self.cursor_x)
-        } else {
-            0
-        };
-        let line = &mut self.lines[self.cursor_y];
-        for _ in 0..count {
-            if self.cursor_x < line.len() && self.cursor_x <= right_margin {
-                line.remove(self.cursor_x);
-            }
+        let left = self.cursor_x.max(self.active_left_margin());
+        let right = self.active_right_margin();
+        if left > right {
+            return;
         }
-        if blanks > 0 {
-            let desired_len = (line.len() + blanks).min(right_margin + 1);
-            line.resize(desired_len, ScreenCell::blank(self.current_attr));
+        let count = count.max(1).min(right + 1 - left);
+        let line = &mut self.lines[self.cursor_y];
+        if line.len() < right + 1 {
+            line.resize(right + 1, ScreenCell::blank(self.current_attr));
+        }
+        for idx in left..=right {
+            let source = idx + count;
+            line[idx] = if source <= right {
+                line[source].clone()
+            } else {
+                ScreenCell::blank(self.current_attr)
+            };
         }
         self.mark_dirty_row(self.cursor_y);
     }
@@ -7048,6 +7042,50 @@ mod tests {
         );
         assert_eq!(cells[4].style.fg, Some(StyledColor::Palette(1)));
         assert_eq!(cells[5].style.fg, Some(StyledColor::Palette(1)));
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_insert_chars_preserves_cells_outside_right_margin() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 10,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(session.id, "0123456789\x1b[?69h\x1b[3;8s\x1b[1;4H\x1b[2@")?;
+
+        assert_eq!(engine.read_screen(session.id)?.lines, vec!["012  34589"]);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_delete_chars_preserves_cells_outside_right_margin() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 10,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(session.id, "0123456789\x1b[?69h\x1b[3;8s\x1b[1;4H\x1b[2P")?;
+
+        assert_eq!(engine.read_screen(session.id)?.lines, vec!["012567  89"]);
 
         engine.destroy_session(session.id)?;
         Ok(())
