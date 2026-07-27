@@ -829,9 +829,9 @@ impl NextCoreScreen {
 
     fn index(&mut self) {
         let old_y = self.cursor_y;
-        if self.cursor_y >= self.scroll_bottom {
+        if self.cursor_y == self.scroll_bottom {
             self.scroll_up_region(self.scroll_top, self.scroll_bottom, 1);
-        } else {
+        } else if self.cursor_y + 1 < self.rows {
             self.cursor_y += 1;
             self.mark_dirty_row(old_y);
             self.mark_dirty_row(self.cursor_y);
@@ -846,9 +846,9 @@ impl NextCoreScreen {
 
     fn reverse_index(&mut self) {
         let old_y = self.cursor_y;
-        if self.cursor_y <= self.scroll_top {
+        if self.cursor_y == self.scroll_top {
             self.scroll_down_region(self.scroll_top, self.scroll_bottom, 1);
-        } else {
+        } else if self.cursor_y > 0 {
             self.cursor_y = self.cursor_y.saturating_sub(1);
             self.mark_dirty_row(old_y);
             self.mark_dirty_row(self.cursor_y);
@@ -7232,6 +7232,42 @@ mod tests {
         assert_eq!(screen.lines, vec!["r0", "", "r1", "r2"]);
         assert_eq!(screen.cursor.x, 0);
         assert_eq!(screen.cursor.y, 1);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_index_sequences_do_not_scroll_when_cursor_outside_region() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 8,
+            rows: 5,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(
+            session.id,
+            "top\r\none\r\ntwo\r\nthree\r\nbottom\x1b[2;4r\x1b[5;1H\x1bD!",
+        )?;
+        let screen = engine.read_screen(session.id)?;
+        assert_eq!(screen.lines, vec!["top", "one", "two", "three", "!ottom"]);
+        assert_eq!(screen.cursor.x, 1);
+        assert_eq!(screen.cursor.y, 4);
+
+        set_output_for_test(
+            session.id,
+            "\x1b[2J\x1b[Htop\r\none\r\ntwo\r\nthree\r\nbottom\x1b[2;4r\x1b[1;1H\x1bM!",
+        )?;
+        let screen = engine.read_screen(session.id)?;
+        assert_eq!(screen.lines, vec!["!op", "one", "two", "three", "bottom"]);
+        assert_eq!(screen.cursor.x, 1);
+        assert_eq!(screen.cursor.y, 0);
 
         engine.destroy_session(session.id)?;
         Ok(())

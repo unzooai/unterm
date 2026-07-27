@@ -100,6 +100,46 @@ Prefer mature libraries for:
 
 Own the architecture, scheduler, pane model, render pipeline, input pipeline, and product integration.
 
+### 3.5 Keep the New Core Smaller Than the Current Core
+
+The goal is to replace the WezTerm dependency, not recreate WezTerm inside Unterm.
+
+Open-source reference posture:
+
+- Follow Ghostty's library boundary model: terminal core as a reusable engine, GUI as a consumer.
+- Follow Alacritty's parser posture: proven VTE state machine first, terminal semantics implemented behind a narrow trait.
+- Borrow Rio/Alacritty's renderer lesson: GPU acceleration matters, but the renderer must stay a consumer of dirty cell snapshots.
+- Treat xterm/VTE behavior as compatibility evidence, not as permission to import every legacy feature.
+
+Hard boundaries:
+
+- `unterm-core` owns PTY, VT parser integration, screen model, scrollback, input translation, dirty tracking, and render snapshots.
+- `unterm-render` owns glyph atlas, shaping integration, GPU commands, frame pacing, and headless capture.
+- `unterm-app` owns windows, tabs, panes, selection UI, IME, menus, settings, and platform lifecycle.
+- MCP, Agent Cockpit, Fleet, Review, Profile, Proxy, Recording, and Web Settings remain product services outside the terminal core.
+
+Size controls:
+
+- Core terminal code should stay explainable as independent modules, not a single renderer/mux monolith.
+- Every new dependency must have a named job and a documented reason it is better than local code.
+- No Lua compatibility layer, mux server clone, SSH client, image protocol, or plugin runtime enters the alpha core.
+- A feature graduates into core only when it affects terminal correctness, latency, or renderer contract.
+- A benchmark regression blocks expansion even when a feature appears visually correct.
+
+Target shape for the first usable next-core:
+
+```text
+unterm-core
+  pty -> parser -> screen/scrollback -> dirty snapshot
+  input translator -> pty writer
+
+unterm-render
+  dirty snapshot -> shaped glyph runs -> GPU frame
+
+unterm-app
+  windows/tabs/panes/IME/selection -> product services -> engine traits
+```
+
 ## 4. Product Pillars
 
 ### Pillar 1: Modern Terminal Feel
@@ -380,28 +420,33 @@ Not supported yet:
 
 PTY:
 
-- Windows ConPTY
-- Unix PTY via existing crates or narrow custom wrapper
+- Windows ConPTY through the current `portable-pty` path until a measured reason exists to replace it.
+- Unix PTY via an existing crate or a narrow platform wrapper after Windows spike validation.
+- PTY reader and writer stay off the UI/render path.
 
 VT parser:
 
-- `vte` crate or extracted termwiz parser
-- avoid writing parser from scratch initially
+- Prefer the `vte` crate style of parser/perform separation for the long-term parser boundary.
+- Keep the current next-core parser only as the spike implementation while compatibility tests grow.
+- Do not hand-write a full parser state machine unless the selected library fails a measured Unterm requirement.
 
 Rendering:
 
-- `wgpu` preferred for cross-platform GPU path
-- fallback investigation only if wgpu blocks Windows latency
+- `wgpu` is the preferred cross-platform GPU path.
+- The renderer consumes dirty row/cell snapshots and cannot own terminal semantics.
+- A software/headless renderer remains required for tests, MCP capture, and CI diagnostics.
+- A fallback renderer is investigated only if `wgpu` blocks Windows latency or packaging.
 
 Window/app:
 
-- `winit` or native platform shell
-- choose the minimum that allows tight event-loop control
+- Start with the minimum shell that gives tight event-loop control, reliable IME, clipboard, drag/drop, and native window lifecycle.
+- Window ownership stays outside `unterm-core`.
 
 Text:
 
-- `cosmic-text`, `swash`, or shaped glyph stack evaluation
-- first spike can begin with simpler shaping, then validate CJK/emoji later
+- Evaluate `cosmic-text`, `swash`, or a similarly focused shaping stack before building shaping locally.
+- First spike can begin with simpler shaping, but alpha must validate CJK width, emoji fallback, and mixed font fallback.
+- Ligatures are post-alpha unless they can be added without input/render latency risk.
 
 ### Performance Tests
 
