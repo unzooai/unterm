@@ -6,6 +6,50 @@ pub(super) struct SessionRegistry {
     sessions: Vec<NextCoreSession>,
 }
 
+impl SessionRegistry {
+    fn len(&self) -> usize {
+        self.sessions.len()
+    }
+
+    fn iter_mut(&mut self) -> impl Iterator<Item = &mut NextCoreSession> {
+        self.sessions.iter_mut()
+    }
+
+    fn contains(&self, pane_id: usize) -> bool {
+        self.sessions
+            .iter()
+            .any(|session| session.snapshot.id == pane_id)
+    }
+
+    fn session(&self, pane_id: usize) -> Option<&NextCoreSession> {
+        self.sessions
+            .iter()
+            .find(|session| session.snapshot.id == pane_id)
+    }
+
+    fn session_mut(&mut self, pane_id: usize) -> Option<&mut NextCoreSession> {
+        self.sessions
+            .iter_mut()
+            .find(|session| session.snapshot.id == pane_id)
+    }
+
+    fn push(&mut self, session: NextCoreSession) {
+        self.sessions.push(session);
+    }
+
+    fn remove(&mut self, pane_id: usize) -> Option<NextCoreSession> {
+        let idx = self
+            .sessions
+            .iter()
+            .position(|session| session.snapshot.id == pane_id)?;
+        Some(self.sessions.remove(idx))
+    }
+
+    fn last_id(&self) -> Option<usize> {
+        self.sessions.last().map(|session| session.snapshot.id)
+    }
+}
+
 pub(super) fn next_session_id(state: &mut NextCoreState) -> usize {
     state.next_session_id = state.next_session_id.max(1);
     let id = state.next_session_id;
@@ -19,14 +63,14 @@ pub(super) fn next_session_id_current() -> usize {
 }
 
 pub(super) fn pane_count(state: &NextCoreState) -> usize {
-    state.registry.sessions.len()
+    state.registry.len()
 }
 
 pub(super) fn for_each_session_mut(
     state: &mut NextCoreState,
     mut visit: impl FnMut(&mut NextCoreSession),
 ) {
-    for session in &mut state.registry.sessions {
+    for session in state.registry.iter_mut() {
         visit(session);
     }
 }
@@ -49,7 +93,7 @@ pub(super) fn with_session_mut_current<T>(
 }
 
 pub(super) fn set_active(state: &mut NextCoreState, pane_id: usize) {
-    for session in &mut state.registry.sessions {
+    for session in state.registry.iter_mut() {
         session.snapshot.is_active = session.snapshot.id == pane_id;
     }
 }
@@ -60,28 +104,19 @@ pub(super) fn session_mut(
 ) -> Result<&mut NextCoreSession> {
     state
         .registry
-        .sessions
-        .iter_mut()
-        .find(|session| session.snapshot.id == pane_id)
+        .session_mut(pane_id)
         .ok_or_else(|| anyhow::anyhow!("next-core session {pane_id} not found"))
 }
 
 pub(super) fn session(state: &NextCoreState, pane_id: usize) -> Result<&NextCoreSession> {
     state
         .registry
-        .sessions
-        .iter()
-        .find(|session| session.snapshot.id == pane_id)
+        .session(pane_id)
         .ok_or_else(|| anyhow::anyhow!("next-core session {pane_id} not found"))
 }
 
 pub(super) fn focus(state: &mut NextCoreState, pane_id: usize) -> Result<()> {
-    if !state
-        .registry
-        .sessions
-        .iter()
-        .any(|session| session.snapshot.id == pane_id)
-    {
+    if !state.registry.contains(pane_id) {
         bail!("next-core session {pane_id} not found");
     }
     set_active(state, pane_id);
@@ -96,7 +131,7 @@ pub(super) fn focus_current(pane_id: usize) -> Result<()> {
 pub(super) fn insert_created(state: &mut NextCoreState, session: NextCoreSession) {
     let id = session.snapshot.id;
     set_active(state, id);
-    state.registry.sessions.push(session);
+    state.registry.push(session);
     state.total_sessions_created = state.total_sessions_created.saturating_add(1);
 }
 
@@ -106,17 +141,11 @@ pub(super) fn insert_created_current(session: NextCoreSession) {
 }
 
 pub(super) fn destroy(state: &mut NextCoreState, pane_id: usize) -> Result<()> {
-    let Some(idx) = state
-        .registry
-        .sessions
-        .iter()
-        .position(|session| session.snapshot.id == pane_id)
-    else {
+    let Some(mut session) = state.registry.remove(pane_id) else {
         bail!("next-core session {pane_id} not found");
     };
 
-    let was_active = state.registry.sessions[idx].snapshot.is_active;
-    let mut session = state.registry.sessions.remove(idx);
+    let was_active = session.snapshot.is_active;
     let (previous_dead, reason) = lifecycle::mark_destroyed(&mut session);
     state.total_sessions_destroyed = state.total_sessions_destroyed.saturating_add(1);
     if !previous_dead {
@@ -126,12 +155,7 @@ pub(super) fn destroy(state: &mut NextCoreState, pane_id: usize) -> Result<()> {
     }
 
     if was_active {
-        if let Some(next_active_id) = state
-            .registry
-            .sessions
-            .last()
-            .map(|session| session.snapshot.id)
-        {
+        if let Some(next_active_id) = state.registry.last_id() {
             set_active(state, next_active_id);
         }
     }
@@ -161,6 +185,35 @@ mod tests {
         let state = NextCoreState::default();
 
         assert_eq!(pane_count(&state), 0);
+    }
+
+    #[test]
+    fn registry_store_push_remove_and_last_id_round_trip() {
+        let mut registry = SessionRegistry::default();
+        let command = portable_pty::CommandBuilder::new_default_prog();
+        let session = crate::next_core::session_runtime::spawn(
+            999,
+            "sample".to_string(),
+            80,
+            24,
+            command,
+            None,
+            Vec::new(),
+        )
+        .expect("spawn session");
+        registry.push(session);
+
+        assert_eq!(registry.len(), 1);
+        assert_eq!(registry.last_id(), Some(999));
+        assert!(registry.contains(999));
+        assert!(registry.session(999).is_some());
+        assert!(registry.session_mut(999).is_some());
+
+        let removed = registry.remove(999).expect("session should exist");
+
+        assert_eq!(removed.snapshot.id, 999);
+        assert_eq!(registry.len(), 0);
+        assert_eq!(registry.last_id(), None);
     }
 
     #[test]
