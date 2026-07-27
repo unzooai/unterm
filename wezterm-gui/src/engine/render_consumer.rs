@@ -8,6 +8,7 @@ use super::{
     CommandListRenderBackend, EngineRenderBackend, EngineRenderBufferPlan, RenderCellMetrics,
     RenderCommitPlan, RenderConsumerState, RenderRect, ScreenEngine,
 };
+use std::collections::HashMap;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EngineRenderCommitStats {
@@ -43,6 +44,11 @@ pub struct EngineRenderConsumer {
     pane_id: usize,
     metrics: RenderCellMetrics,
     state: RenderConsumerState,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct EngineRenderConsumerSet {
+    consumers: HashMap<usize, EngineRenderConsumer>,
 }
 
 #[allow(dead_code)]
@@ -96,6 +102,61 @@ impl EngineRenderConsumer {
             stats: batch.stats,
             buffer_plan,
         })
+    }
+}
+
+#[allow(dead_code)]
+impl EngineRenderConsumerSet {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn len(&self) -> usize {
+        self.consumers.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.consumers.is_empty()
+    }
+
+    pub fn contains_pane(&self, pane_id: usize) -> bool {
+        self.consumers.contains_key(&pane_id)
+    }
+
+    pub fn remove_pane(&mut self, pane_id: usize) -> Option<EngineRenderConsumer> {
+        self.consumers.remove(&pane_id)
+    }
+
+    pub fn clear(&mut self) {
+        self.consumers.clear();
+    }
+
+    pub fn consumer(&self, pane_id: usize) -> Option<&EngineRenderConsumer> {
+        self.consumers.get(&pane_id)
+    }
+
+    pub fn consumer_mut(
+        &mut self,
+        pane_id: usize,
+        metrics: RenderCellMetrics,
+    ) -> &mut EngineRenderConsumer {
+        let consumer = self
+            .consumers
+            .entry(pane_id)
+            .or_insert_with(|| EngineRenderConsumer::new(pane_id, metrics));
+        if consumer.metrics() != metrics {
+            consumer.resize_cells(metrics);
+        }
+        consumer
+    }
+
+    pub fn read_buffer_plan<E: ScreenEngine + ?Sized>(
+        &mut self,
+        engine: &E,
+        pane_id: usize,
+        metrics: RenderCellMetrics,
+    ) -> anyhow::Result<EngineRenderBufferBatch> {
+        self.consumer_mut(pane_id, metrics).read_buffer_plan(engine)
     }
 }
 

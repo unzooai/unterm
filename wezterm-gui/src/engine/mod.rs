@@ -21,7 +21,8 @@ pub use render_backend::{
 };
 #[allow(unused_imports)]
 pub use render_consumer::{
-    EngineRenderBufferBatch, EngineRenderCommitBatch, EngineRenderCommitStats, EngineRenderConsumer,
+    EngineRenderBufferBatch, EngineRenderCommitBatch, EngineRenderCommitStats,
+    EngineRenderConsumer, EngineRenderConsumerSet,
 };
 
 #[allow(unused_imports)]
@@ -194,9 +195,10 @@ mod tests {
         next_core, selected_engine_name_from_env, CommandListRenderBackend, CreateSessionRequest,
         CurrentTerminalEngine, EngineRenderBackend, EngineRenderBackendCommand,
         EngineRenderBufferBatch, EngineRenderBufferPlan, EngineRenderConsumer,
-        EngineRenderGpuUploadPlan, EngineRenderGpuVertex, EngineRenderVertexLayer,
-        EngineWgpuPipelineConfig, EngineWgpuRenderBackend, EngineWgpuRenderPassPlan,
-        LaunchPolicySnapshot, RenderCellMetrics, RenderConsumerState, ScreenEngine, SessionEngine,
+        EngineRenderConsumerSet, EngineRenderGpuUploadPlan, EngineRenderGpuVertex,
+        EngineRenderVertexLayer, EngineWgpuPipelineConfig, EngineWgpuRenderBackend,
+        EngineWgpuRenderPassPlan, LaunchPolicySnapshot, RenderCellMetrics, RenderConsumerState,
+        ScreenEngine, SessionEngine,
     };
 
     #[test]
@@ -467,6 +469,68 @@ mod tests {
         assert_eq!(repeat.stats.previous_revision, Some(first.stats.revision));
         assert!(repeat.buffer_plan.vertices.is_empty());
         assert!(repeat.buffer_plan.indices.is_empty());
+        engine
+            .destroy_session(session.id)
+            .expect("destroy next-core test session");
+    }
+
+    #[test]
+    fn engine_render_consumer_set_reuses_state_and_resizes_metrics() {
+        let engine = CurrentTerminalEngine::NextCore(next_core());
+        let session = engine
+            .create_session(CreateSessionRequest {
+                cols: 20,
+                rows: 4,
+                command_dir: None,
+                command: Some(quiet_wait_command_for_test()),
+                env: Vec::new(),
+                launch_policy: LaunchPolicySnapshot::default(),
+            })
+            .expect("create next-core session");
+        let mut consumers = EngineRenderConsumerSet::new();
+        let metrics = RenderCellMetrics {
+            cell_width_px: 8,
+            cell_height_px: 16,
+        };
+
+        let first = consumers
+            .read_buffer_plan(&engine, session.id, metrics)
+            .expect("read first render buffer plan");
+        assert!(first.stats.submit);
+        assert_eq!(consumers.len(), 1);
+        assert!(consumers.contains_pane(session.id));
+        assert_eq!(
+            consumers
+                .consumer(session.id)
+                .and_then(|consumer| consumer.submitted_revision()),
+            Some(first.stats.revision)
+        );
+
+        let repeat = consumers
+            .read_buffer_plan(&engine, session.id, metrics)
+            .expect("read repeated render buffer plan");
+        assert!(!repeat.stats.submit);
+        assert!(repeat.buffer_plan.vertices.is_empty());
+        assert_eq!(consumers.len(), 1);
+
+        let resized_metrics = RenderCellMetrics {
+            cell_width_px: 9,
+            cell_height_px: 18,
+        };
+        let resized = consumers
+            .read_buffer_plan(&engine, session.id, resized_metrics)
+            .expect("read resized render buffer plan");
+        assert!(resized.stats.submit);
+        assert!(resized.stats.requires_full_repaint);
+        assert_eq!(
+            consumers
+                .consumer(session.id)
+                .map(|consumer| consumer.metrics()),
+            Some(resized_metrics)
+        );
+
+        assert!(consumers.remove_pane(session.id).is_some());
+        assert!(consumers.is_empty());
         engine
             .destroy_session(session.id)
             .expect("destroy next-core test session");

@@ -218,6 +218,7 @@ next-core 已经在 screen/parser 方向具备基础能力，包括：
 - `wezterm-gui/src/engine/mod.rs` 的 `CurrentTerminalEngine` 已 re-export render contract 类型，并显式转发 `read_render_frame`、`read_render_draw_plan`、`read_render_commit_plan`，未来真实 GUI renderer 可以经 engine-neutral facade 消费 next-core commit plan
 - `wezterm-gui/src/engine/render_consumer.rs` 已提供 `EngineRenderConsumer`，把 pane id、cell metrics、submitted revision state 和 commit batch 读取封装为 renderer-side 对象；真实 wgpu backend 后续只替换提交到 GPU 的部分
 - `EngineRenderConsumer::read_buffer_plan` 已把 engine-neutral commit batch、command-list backend 和 `EngineRenderBufferPlan` 串成单个 renderer-side frame preparation 调用；未来 pane draw branch 不需要自己组装 commit/backend/buffer 三段流程
+- `EngineRenderConsumerSet` 已按 pane id 缓存 renderer consumer，并在 cell metrics 变化时更新 consumer 而不丢 submitted revision；真实 WebGPU pane draw 分支后续可以跨 paint 复用增量状态，只在 viewport metrics 变化时强制 full repaint
 - `wezterm-gui/src/engine/render_backend.rs` 已提供 GPU-free `CommandListRenderBackend`，将 damage/background/text/cursor submission 展开为稳定顺序的 backend command list，为后续 wgpu command encoder 接入固定输入契约
 - `EngineRenderBufferPlan` 已将 backend command 转为 damage rects、quad vertices 和 indices，先固定 GPU buffer preparation contract，再接真实 wgpu device/swapchain/font atlas
 - `EngineWgpuRenderBackend` 已提供最小 wgpu upload skeleton：把 buffer plan 转成 POD GPU vertex ABI，并创建 vertex/index buffers；该层复用 GUI 现有 `wgpu`，不把 GPU 依赖塞进 `unterm-engine`
