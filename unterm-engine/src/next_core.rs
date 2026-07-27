@@ -966,6 +966,24 @@ impl NextCoreScreen {
         }
     }
 
+    fn active_top_margin(&self) -> usize {
+        if self.origin_mode {
+            self.scroll_top.min(self.rows.saturating_sub(1))
+        } else {
+            0
+        }
+    }
+
+    fn active_bottom_margin(&self) -> usize {
+        if self.origin_mode {
+            self.scroll_bottom
+                .min(self.rows.saturating_sub(1))
+                .max(self.active_top_margin())
+        } else {
+            self.rows.saturating_sub(1)
+        }
+    }
+
     fn set_origin_mode(&mut self, enabled: bool) {
         self.origin_mode = enabled;
         self.set_cursor_position(0, 0);
@@ -1012,13 +1030,16 @@ impl NextCoreScreen {
 
     fn move_cursor_up(&mut self, count: usize) {
         self.mark_dirty_row(self.cursor_y);
-        self.cursor_y = self.cursor_y.saturating_sub(count);
+        self.cursor_y = self
+            .cursor_y
+            .saturating_sub(count)
+            .max(self.active_top_margin());
         self.mark_dirty_row(self.cursor_y);
     }
 
     fn move_cursor_down(&mut self, count: usize) {
         self.mark_dirty_row(self.cursor_y);
-        self.cursor_y = (self.cursor_y + count).min(self.rows.saturating_sub(1));
+        self.cursor_y = (self.cursor_y + count).min(self.active_bottom_margin());
         self.ensure_cursor_line();
         self.mark_dirty_row(self.cursor_y);
     }
@@ -1038,12 +1059,12 @@ impl NextCoreScreen {
 
     fn cursor_next_line(&mut self, count: usize) {
         self.move_cursor_down(count.max(1));
-        self.cursor_x = 0;
+        self.cursor_x = self.active_left_margin();
     }
 
     fn cursor_previous_line(&mut self, count: usize) {
         self.move_cursor_up(count.max(1));
-        self.cursor_x = 0;
+        self.cursor_x = self.active_left_margin();
     }
 
     fn set_horizontal_position(&mut self, col: usize) {
@@ -8222,6 +8243,59 @@ mod tests {
         assert_eq!(screen.cursor.x, 1);
         assert_eq!(screen.cursor.y, 0);
         assert_eq!(screen.scrollback_rows, 0);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_origin_mode_limits_vertical_cursor_motion_to_scroll_region() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 12,
+            rows: 5,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(session.id, "\x1b[2;4r\x1b[?6h\x1b[9Bbottom\r\x1b[9Atop")?;
+        let screen = engine.read_screen(session.id)?;
+
+        assert_eq!(screen.lines, vec!["", "top", "", "bottom"]);
+        assert_eq!(screen.cursor.x, 3);
+        assert_eq!(screen.cursor.y, 1);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_line_cursor_motions_return_to_active_left_margin() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 10,
+            rows: 5,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(
+            session.id,
+            "\x1b[?69h\x1b[3;8s\x1b[2;4r\x1b[?6h\x1b[1;4H\x1b[2EX\x1b[1FY",
+        )?;
+        let screen = engine.read_screen(session.id)?;
+
+        assert_eq!(screen.lines, vec!["", "", "  Y", "  X"]);
+        assert_eq!(screen.cursor.x, 3);
+        assert_eq!(screen.cursor.y, 2);
 
         engine.destroy_session(session.id)?;
         Ok(())
