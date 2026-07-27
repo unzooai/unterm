@@ -7,7 +7,7 @@ use super::{
     RenderFrameSnapshot, ScreenEngine, ScreenLine, ScreenSearchMatch, ScreenSnapshot,
     ScrollbackTextRequest, ScrollbackTextSnapshot, SessionActivitySnapshot, SessionEngine,
     SessionSnapshot, ShellSnapshot, SplitSessionRequest, StyledBlink, StyledCell, StyledScreenLine,
-    StyledScreenSnapshot, StyledScrollbackSnapshot, StyledUnderline, StyledVerticalAlign,
+    StyledScreenSnapshot, StyledScrollbackSnapshot, StyledUnderline,
 };
 use anyhow::{bail, Result};
 use base64::Engine as _;
@@ -36,10 +36,15 @@ mod recording_markdown;
 mod recording_text;
 mod render_state;
 mod screen_state;
+mod sgr;
 mod terminal_queries;
 
+#[cfg(test)]
+use crate::StyledVerticalAlign;
 use activity::SessionIoActivity;
-use cell::{CellAttributes, ScreenCell, TerminalColor};
+#[cfg(test)]
+use cell::TerminalColor;
+use cell::{CellAttributes, ScreenCell};
 use history::HistoryBuffer;
 use parser_state::ParserState;
 use render_state::RenderState;
@@ -1233,83 +1238,7 @@ impl NextCoreScreen {
     }
 
     fn apply_sgr(&mut self, params: &[usize]) {
-        let params = if params.is_empty() { &[0][..] } else { params };
-        let mut idx = 0;
-        while idx < params.len() {
-            match params[idx] {
-                0 => self.current_attr = CellAttributes::default(),
-                1 => self.current_attr.bold = true,
-                2 => self.current_attr.faint = true,
-                3 => self.current_attr.italic = true,
-                4 => self.current_attr.set_underline(StyledUnderline::Single),
-                5 => self.current_attr.blink = Some(StyledBlink::Slow),
-                6 => self.current_attr.blink = Some(StyledBlink::Rapid),
-                7 => self.current_attr.inverse = true,
-                8 => self.current_attr.hidden = true,
-                9 => self.current_attr.strikethrough = true,
-                22 => {
-                    self.current_attr.bold = false;
-                    self.current_attr.faint = false;
-                }
-                23 => self.current_attr.italic = false,
-                21 => self.current_attr.set_underline(StyledUnderline::Double),
-                24 => self.current_attr.clear_underline(),
-                25 => self.current_attr.blink = None,
-                27 => self.current_attr.inverse = false,
-                28 => self.current_attr.hidden = false,
-                29 => self.current_attr.strikethrough = false,
-                53 => self.current_attr.overline = true,
-                55 => self.current_attr.overline = false,
-                73 => self.current_attr.vertical_align = Some(StyledVerticalAlign::SuperScript),
-                74 => self.current_attr.vertical_align = Some(StyledVerticalAlign::SubScript),
-                75 => self.current_attr.vertical_align = None,
-                underline_style
-                    if (csi_params::SGR_UNDERLINE_STYLE_BASE
-                        ..=csi_params::SGR_UNDERLINE_STYLE_BASE + 5)
-                        .contains(&underline_style) =>
-                {
-                    match underline_style - csi_params::SGR_UNDERLINE_STYLE_BASE {
-                        0 => self.current_attr.clear_underline(),
-                        1 => self.current_attr.set_underline(StyledUnderline::Single),
-                        2 => self.current_attr.set_underline(StyledUnderline::Double),
-                        3 => self.current_attr.set_underline(StyledUnderline::Curly),
-                        4 => self.current_attr.set_underline(StyledUnderline::Dotted),
-                        5 => self.current_attr.set_underline(StyledUnderline::Dashed),
-                        _ => {}
-                    }
-                }
-                30..=37 => {
-                    self.current_attr.fg = Some(TerminalColor::Palette(params[idx] as u8 - 30))
-                }
-                39 => self.current_attr.fg = None,
-                40..=47 => {
-                    self.current_attr.bg = Some(TerminalColor::Palette(params[idx] as u8 - 40))
-                }
-                49 => self.current_attr.bg = None,
-                90..=97 => {
-                    self.current_attr.fg = Some(TerminalColor::Palette(params[idx] as u8 - 90 + 8))
-                }
-                100..=107 => {
-                    self.current_attr.bg = Some(TerminalColor::Palette(params[idx] as u8 - 100 + 8))
-                }
-                38 | 48 | 58 => {
-                    let color_target = params[idx];
-                    if let Some((color, consumed)) = Self::parse_extended_color(&params[idx + 1..])
-                    {
-                        match color_target {
-                            38 => self.current_attr.fg = Some(color),
-                            48 => self.current_attr.bg = Some(color),
-                            58 => self.current_attr.underline_color = Some(color),
-                            _ => {}
-                        }
-                        idx += consumed;
-                    }
-                }
-                59 => self.current_attr.underline_color = None,
-                _ => {}
-            }
-            idx += 1;
-        }
+        sgr::apply(params, &mut self.current_attr);
     }
 
     fn apply_osc(&mut self, sequence: &str) {
@@ -1335,21 +1264,6 @@ impl NextCoreScreen {
                 self.hyperlinks.len() - 1
             });
         self.current_attr.hyperlink = Some(idx);
-    }
-
-    fn parse_extended_color(params: &[usize]) -> Option<(TerminalColor, usize)> {
-        match params {
-            [5, color, ..] => Some((TerminalColor::Palette((*color).min(255) as u8), 2)),
-            [2, r, g, b, ..] => Some((
-                TerminalColor::Rgb(
-                    (*r).min(255) as u8,
-                    (*g).min(255) as u8,
-                    (*b).min(255) as u8,
-                ),
-                4,
-            )),
-            _ => None,
-        }
     }
 
     fn insert_lines(&mut self, count: usize) {

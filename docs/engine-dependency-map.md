@@ -42,6 +42,7 @@ Current covered operations:
 - next-core input pipeline module for application-cursor navigation translation plus UTF-8 safe paste chunking with intact bracketed-paste markers, keeping auth-code paste and completion-arrow behavior independently testable from the session engine
 - next-core terminal query module for split-safe DA/DSR/DECRQM/XTWINOPS responses, keeping shell/TUI compatibility probes independently testable from session lifecycle and PTY ownership
 - next-core CSI params module for SGR, colon-color, underline-style, numeric parameter, and rectangle parsing, keeping parser protocol decoding independently testable from screen mutation semantics
+- next-core SGR module for applying parsed style/color/underline/blink/vertical-align parameters to cell attributes, keeping style state transitions independently testable from parser and screen mutation flow
 - next-core OSC params module for title, OSC 7 cwd, and OSC 8 hyperlink payload decoding, keeping OSC protocol parsing independently testable from screen state mutation
 - next-core process-tree module for root/foreground process snapshots and known agent detection, keeping Codex/Claude activity diagnostics separate from session lifecycle and future-safe for caching or background scanning
 - next-core activity module for input/output/paste/screen-read counters and idle detection, keeping hot-path telemetry independently testable from session lifecycle and future renderer scheduling

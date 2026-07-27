@@ -277,6 +277,7 @@ next-core 已经在 screen/parser 方向具备基础能力，包括：
 - `next_core/screen_state.rs` 已拆出 alternate-screen snapshot 和 mouse/mode tracking 状态，为后续 screen model 独立模块化铺路
 - `next_core/terminal_queries.rs` 已拆出 DA/DSR/DECRQM/XTWINOPS 响应和 split-chunk pending buffer，终端协议查询兼容性不再埋在 session engine 主体里
 - `next_core/csi_params.rs` 已拆出 SGR、colon-color、underline-style、numeric parameter 和 rectangle parsing，让 CSI 协议解码可以独立测试，不再和 screen mutation semantics 混在一起
+- `next_core/sgr.rs` 已拆出 parsed style/color/underline/blink/vertical-align 参数到 cell attributes 的状态转换，让样式状态机可以独立测试，不再和 parser/screen mutation flow 混在一起
 - `next_core/osc_params.rs` 已拆出 title、OSC 7 cwd 和 OSC 8 hyperlink payload decoding，让 OSC 协议解析可以独立测试，不再和 screen state mutation 混在一起
 - `next_core/recording_text.rs` 已拆出 recording markdown 的 ANSI 清洗、secret token redaction 和 YAML 数组格式化，让录制安全导出逻辑可以独立测试，不再和 PTY/session 生命周期混在一起
 - `next_core/osc133.rs` 已拆出 shell command marker stream splitting，让 recording command-block 检测可以独立测试，不再和 PTY/session 生命周期混在一起
