@@ -60,3 +60,6 @@ jobs:
       - run: cargo check -p unterm -p unterm-cli -p unterm-mux -p strip-ansi-escapes
       - name: Run product tests
         run: cargo test --release -p config -p unterm
+      - name: Verify next-core gates
+        shell: pwsh
+        run: .\ci\next-core-benchmark.ps1

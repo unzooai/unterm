@@ -14,7 +14,7 @@ Use the full mode for scheduled/manual benchmark jobs that are allowed to refres
 pwsh -File ci\next-core-benchmark.ps1 -RunBenchmark
 ```
 
-The default mode verifies `docs\next-core-benchmark-summary.json` with `unterm-engine\verify-next-core-benchmark.ps1`. The verifier checks that every required benchmark/gate is present and passing, and that the summary commit is reachable from the current Git history. Use `-SkipCommitReachabilityCheck` only for source snapshots that do not include `.git`.
+The default mode verifies `docs\next-core-benchmark-summary.json` with `unterm-engine\verify-next-core-benchmark.ps1`, runs the next-core size budget verifier, and runs `ci\next-core-gui-render.ps1` to cover the GUI render replacement contract. The benchmark verifier checks that every required benchmark/gate is present and passing, and that the summary commit is reachable from the current Git history. Use `-SkipGuiRender` only for jobs that cannot build the GUI test binary.
 
 The full mode runs `unterm-engine\bench-next-core.ps1`, writes the Markdown/JSON benchmark artifacts, then verifies the JSON summary.
 
