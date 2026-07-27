@@ -39,6 +39,7 @@ mod recording_markdown;
 mod recording_text;
 mod render_frame;
 mod render_state;
+mod screen_dispatch;
 mod screen_search;
 mod screen_snapshot;
 mod screen_state;
@@ -63,9 +64,7 @@ use activity::SessionIoActivity;
 use cell::TerminalColor;
 use cell::{CellAttributes, ScreenCell};
 use history::HistoryBuffer;
-use render_frame::FrameSelection;
 use render_state::RenderState;
-use screen_snapshot::ScreenSnapshotMeta;
 use screen_state::{MouseTrackingMode, ScreenState};
 use terminal_parser::TerminalParser;
 
@@ -2040,61 +2039,11 @@ impl SessionEngine for NextCoreEngine {
 
 impl ScreenEngine for NextCoreEngine {
     fn read_screen(&self, pane_id: usize) -> Result<ScreenSnapshot> {
-        let started_at = Instant::now();
-        let (screen_handle, activity_handle) = {
-            let state = state().read();
-            session_handles::screen_activity(&state, pane_id)?
-        };
-
-        let snapshot = {
-            let screen = screen_handle.lock();
-            let visible = screen.snapshot_viewport_lines();
-            let first_row = screen.viewport_first_row();
-            screen_snapshot::plain_viewport(
-                visible,
-                first_row,
-                ScreenSnapshotMeta {
-                    cursor: screen.cursor_snapshot(),
-                    cols: screen.cols,
-                    rows: screen.rows,
-                    scrollback_rows: screen.scrollback_rows(),
-                    revision: screen.revision(),
-                    dirty_rows: screen.dirty_rows(),
-                },
-            )
-        };
-        activity_handle
-            .lock()
-            .mark_screen_read(started_at.elapsed());
-        Ok(snapshot)
+        screen_dispatch::read_plain_viewport(pane_id)
     }
 
     fn read_styled_screen(&self, pane_id: usize) -> Result<StyledScreenSnapshot> {
-        let started_at = Instant::now();
-        let (screen_handle, activity_handle) = {
-            let state = state().read();
-            session_handles::screen_activity(&state, pane_id)?
-        };
-
-        let snapshot = {
-            let screen = screen_handle.lock();
-            let first_row = screen.viewport_first_row();
-            screen_snapshot::styled_viewport(
-                screen.styled_viewport_lines(first_row),
-                ScreenSnapshotMeta {
-                    cursor: screen.cursor_snapshot(),
-                    cols: screen.cols,
-                    rows: screen.rows,
-                    scrollback_rows: screen.scrollback_rows(),
-                    revision: screen.revision(),
-                    dirty_rows: screen.dirty_rows(),
-                },
-            )
-        };
-        activity_handle
-            .lock()
-            .mark_screen_read(started_at.elapsed());
-        Ok(snapshot)
+        screen_dispatch::read_styled_viewport(pane_id)
     }
 
     fn read_render_frame(
@@ -2102,67 +2051,7 @@ impl ScreenEngine for NextCoreEngine {
         pane_id: usize,
         since_revision: Option<u64>,
     ) -> Result<RenderFrameSnapshot> {
-        let started_at = Instant::now();
-        let (screen_handle, activity_handle) = {
-            let state = state().read();
-            session_handles::screen_activity(&state, pane_id)?
-        };
-
-        let snapshot = {
-            let mut screen = screen_handle.lock();
-            let first_row = screen.viewport_first_row();
-            let revision = screen.revision();
-
-            match render_frame::select_frame(
-                screen.rows,
-                revision,
-                screen.dirty_rows(),
-                screen.history.viewport_is_pinned(),
-                since_revision,
-                |since| screen.can_render_delta_since(since),
-            ) {
-                FrameSelection::Unchanged => RenderFrameSnapshot {
-                    lines: Vec::new(),
-                    cursor: screen.cursor_snapshot(),
-                    cols: screen.cols,
-                    rows: screen.rows,
-                    scrollback_rows: screen.scrollback_rows(),
-                    revision,
-                    dirty_rows: None,
-                    full: false,
-                },
-                FrameSelection::Changed {
-                    dirty_rows,
-                    full,
-                    clear_dirty,
-                } => {
-                    let lines = match dirty_rows {
-                        Some(rows) if full => screen.styled_viewport_lines(first_row),
-                        Some(rows) => screen.styled_viewport_dirty_lines(rows, first_row),
-                        None => Vec::new(),
-                    };
-
-                    let snapshot = RenderFrameSnapshot {
-                        lines,
-                        cursor: screen.cursor_snapshot(),
-                        cols: screen.cols,
-                        rows: screen.rows,
-                        scrollback_rows: screen.scrollback_rows(),
-                        revision,
-                        dirty_rows,
-                        full,
-                    };
-                    if clear_dirty {
-                        screen.clear_dirty_rows();
-                    }
-                    snapshot
-                }
-            }
-        };
-        activity_handle
-            .lock()
-            .mark_screen_read(started_at.elapsed());
-        Ok(snapshot)
+        screen_dispatch::read_render_frame(pane_id, since_revision)
     }
 
     fn read_visible_text(&self, pane_id: usize) -> Result<String> {
