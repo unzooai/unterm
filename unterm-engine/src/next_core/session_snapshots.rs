@@ -44,6 +44,11 @@ pub(super) fn clone_base(state: &NextCoreState, pane_id: usize) -> Result<Sessio
         .ok_or_else(|| anyhow::anyhow!("next-core session {pane_id} not found"))
 }
 
+pub(super) fn clone_base_current(pane_id: usize) -> Result<SessionSnapshot> {
+    let state = state().read();
+    clone_base(&state, pane_id)
+}
+
 fn snapshot(session: &mut NextCoreSession) -> (SessionSnapshot, Option<String>) {
     let dead_reason = lifecycle::refresh_liveness(session);
     let mut snapshot = session.snapshot.clone();

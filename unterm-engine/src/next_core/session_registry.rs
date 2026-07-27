@@ -8,6 +8,11 @@ pub(super) fn next_session_id(state: &mut NextCoreState) -> usize {
     id
 }
 
+pub(super) fn next_session_id_current() -> usize {
+    let mut state = state().write();
+    next_session_id(&mut state)
+}
+
 pub(super) fn pane_count(state: &NextCoreState) -> usize {
     state.sessions.len()
 }
@@ -60,6 +65,11 @@ pub(super) fn insert_created(state: &mut NextCoreState, session: NextCoreSession
     set_active(state, id);
     state.sessions.push(session);
     state.total_sessions_created = state.total_sessions_created.saturating_add(1);
+}
+
+pub(super) fn insert_created_current(session: NextCoreSession) {
+    let mut state = state().write();
+    insert_created(&mut state, session);
 }
 
 pub(super) fn destroy(state: &mut NextCoreState, pane_id: usize) -> Result<()> {
