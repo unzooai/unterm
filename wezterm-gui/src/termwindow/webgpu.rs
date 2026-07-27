@@ -1296,7 +1296,7 @@ impl WebGpuState {
         clear_color: Option<[f64; 4]>,
     ) -> bool {
         let (viewport_width_px, viewport_height_px) = self.next_core_viewport_pixels();
-        self.encode_prepared_next_core_buffer_plan_with_font(
+        self.encode_prepared_next_core_pane_frame_with_font(
             encoder,
             target,
             &frame.batch.buffer_plan,
@@ -1308,7 +1308,7 @@ impl WebGpuState {
         )
     }
 
-    fn encode_prepared_next_core_buffer_plan_with_font(
+    fn encode_prepared_next_core_pane_frame_with_font(
         &self,
         encoder: &mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
