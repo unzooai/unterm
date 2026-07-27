@@ -147,6 +147,21 @@ if (-not @($summary.json_smoke.ProxyEnvKeys | Where-Object { $_ -eq "HTTPS_PROXY
 if ($summary.json_smoke.LifecycleCreated -lt 1) {
     throw "json smoke did not include lifecycle diagnostics"
 }
+if (-not ($summary.json_smoke.PSObject.Properties.Name -contains "RuntimePumpDrainCalls")) {
+    throw "json smoke did not include runtime pump drain-call diagnostics"
+}
+if ($summary.json_smoke.RuntimePumpDrainCalls -lt 1) {
+    throw "json smoke runtime pump did not record drain calls"
+}
+if ($summary.json_smoke.RuntimePumpDispatched -lt 1) {
+    throw "json smoke runtime pump did not record dispatches"
+}
+if ($summary.json_smoke.RuntimePumpRender -lt 1 -or $summary.json_smoke.RuntimePumpScreen -lt 1) {
+    throw "json smoke runtime pump did not record render/screen lane dispatches"
+}
+if ($summary.json_smoke.RuntimePumpMaxDispatchUs -lt 0 -or $summary.json_smoke.RuntimePumpMaxDrainUs -lt 0) {
+    throw "json smoke runtime pump latency fields were invalid"
+}
 
 $gates = @($summary.gates)
 if ($gates.Count -ne $ExpectedGateCount) {
@@ -233,6 +248,9 @@ foreach ($name in $requiredBenchmarks) {
     }
     if (-not @($benchmark[0].summary | Where-Object { $_ -like "health_lifecycle*" })) {
         throw "benchmark is missing health_lifecycle summary: $name"
+    }
+    if (-not @($benchmark[0].summary | Where-Object { $_ -like "health_runtime_pump*" })) {
+        throw "benchmark is missing health_runtime_pump summary: $name"
     }
     if (-not @($benchmark[0].summary | Where-Object { $_ -like "activity_process*" })) {
         throw "benchmark is missing activity_process summary: $name"

@@ -29,11 +29,62 @@ function Count-Lines {
     return $total
 }
 
+function Count-ProductionRustLines {
+    param([string[]]$Paths)
+
+    $total = 0
+    foreach ($path in $Paths) {
+        if (-not (Test-Path $path)) {
+            throw "missing source file: $path"
+        }
+
+        $fileName = [System.IO.Path]::GetFileName($path)
+        if ($fileName -eq "test_support.rs" -or $fileName -eq "test_facade.rs") {
+            continue
+        }
+
+        $skipNextTestModule = $false
+        $inTestModule = $false
+        $braceDepth = 0
+        foreach ($line in Get-Content -Path $path) {
+            if (-not $inTestModule -and $line -match '^\s*#\[cfg\(test\)\]\s*$') {
+                $skipNextTestModule = $true
+                continue
+            }
+
+            if ($skipNextTestModule) {
+                if ($line -match '^\s*mod\s+tests\s*\{') {
+                    $inTestModule = $true
+                    $braceDepth = ([regex]::Matches($line, '\{').Count - [regex]::Matches($line, '\}').Count)
+                    if ($braceDepth -le 0) {
+                        $inTestModule = $false
+                    }
+                    $skipNextTestModule = $false
+                    continue
+                }
+
+                $skipNextTestModule = $false
+            }
+
+            if ($inTestModule) {
+                $braceDepth += ([regex]::Matches($line, '\{').Count - [regex]::Matches($line, '\}').Count)
+                if ($braceDepth -le 0) {
+                    $inTestModule = $false
+                }
+                continue
+            }
+
+            $total += 1
+        }
+    }
+    return $total
+}
+
 $coreFiles = @($MainCoreFile)
 if (Test-Path $CoreRoot) {
     $coreFiles += @(Get-ChildItem -Path $CoreRoot -Recurse -File -Filter "*.rs" | ForEach-Object { $_.FullName })
 }
-$coreSourceLines = Count-Lines $coreFiles
+$coreSourceLines = Count-ProductionRustLines $coreFiles
 $probeSourceLines = Count-Lines @($ProbeFile)
 
 $treeLines = @(& cmd /c "cargo tree -p unterm-engine --depth 1 --prefix depth 2>&1" | ForEach-Object { $_.ToString() })
