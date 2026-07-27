@@ -27,6 +27,7 @@ struct Args {
     bench_dual_agent_lines: Option<usize>,
     bench_agent_startup_lines: Option<usize>,
     bench_screen_read_lines: Option<usize>,
+    bench_render_frames: Option<usize>,
     bench_focus_switches: Option<usize>,
     bench_session_create: Option<usize>,
     bench_session_ready: Option<usize>,
@@ -57,6 +58,7 @@ fn parse_args() -> Result<Args> {
         bench_dual_agent_lines: None,
         bench_agent_startup_lines: None,
         bench_screen_read_lines: None,
+        bench_render_frames: None,
         bench_focus_switches: None,
         bench_session_create: None,
         bench_session_ready: None,
@@ -194,6 +196,13 @@ fn parse_args() -> Result<Args> {
                         .parse()?,
                 );
             }
+            "--bench-render-frames" => {
+                parsed.bench_render_frames = Some(
+                    args.next()
+                        .ok_or_else(|| anyhow::anyhow!("--bench-render-frames requires a value"))?
+                        .parse()?,
+                );
+            }
             "--bench-focus-switches" => {
                 parsed.bench_focus_switches = Some(
                     args.next()
@@ -250,7 +259,7 @@ fn parse_args() -> Result<Args> {
             }
             "--help" | "-h" => {
                 println!(
-                    "Usage: unterm-next-core [--cols N] [--rows N] [--wait-ms N] [--poll-ms N] [--timeout-ms N] [--bench-input-writes N] [--bench-input-burst N] [--bench-echo N] [--bench-flood-lines N] [--bench-scrollback-lines N] [--bench-viewport-scrolls N] [--bench-viewport-scroll-flood N] [--bench-paste-kb N] [--bench-dual-agent-lines N] [--bench-agent-startup-lines N] [--bench-screen-read-lines N] [--bench-focus-switches N] [--bench-session-create N] [--bench-session-ready N] [--cwd PATH] [--env KEY=VALUE] [--write TEXT] [--paste TEXT] [--json] [-- COMMAND [ARG...]]"
+                    "Usage: unterm-next-core [--cols N] [--rows N] [--wait-ms N] [--poll-ms N] [--timeout-ms N] [--bench-input-writes N] [--bench-input-burst N] [--bench-echo N] [--bench-flood-lines N] [--bench-scrollback-lines N] [--bench-viewport-scrolls N] [--bench-viewport-scroll-flood N] [--bench-paste-kb N] [--bench-dual-agent-lines N] [--bench-agent-startup-lines N] [--bench-screen-read-lines N] [--bench-render-frames N] [--bench-focus-switches N] [--bench-session-create N] [--bench-session-ready N] [--cwd PATH] [--env KEY=VALUE] [--write TEXT] [--paste TEXT] [--json] [-- COMMAND [ARG...]]"
                 );
                 std::process::exit(0);
             }
@@ -566,6 +575,54 @@ fn run_screen_read_during_flood_benchmark(
         }
         std::thread::sleep(poll_interval);
     }
+}
+
+fn run_render_frame_benchmark(
+    engine: &unterm_engine::next_core::NextCoreEngine,
+    pane_id: usize,
+    rounds: usize,
+) -> Result<()> {
+    if rounds == 0 {
+        bail!("--bench-render-frames must be greater than 0");
+    }
+
+    engine.write_input(
+        pane_id,
+        "for /L %i in (1,1,30) do @echo RENDER_FRAME_BENCH_%i\r",
+    )?;
+    std::thread::sleep(Duration::from_millis(250));
+
+    let full_before = Instant::now();
+    let full = engine.read_render_frame(pane_id, None)?;
+    let full_us = full_before.elapsed().as_micros();
+    if !full.full || full.lines.is_empty() {
+        bail!("render frame full snapshot was empty");
+    }
+
+    let mut latencies_us = Vec::with_capacity(rounds);
+    let mut empty_delta_count = 0usize;
+    for _ in 0..rounds {
+        let before = Instant::now();
+        let frame = engine.read_render_frame(pane_id, Some(full.revision))?;
+        latencies_us.push(before.elapsed().as_micros());
+        if !frame.full && frame.lines.is_empty() {
+            empty_delta_count += 1;
+        }
+    }
+
+    latencies_us.sort_unstable();
+    println!(
+        "bench_render_frame rounds={} full_us={} full_lines={} empty_deltas={} min_us={} p50_us={} p95_us={} max_us={}",
+        rounds,
+        full_us,
+        full.lines.len(),
+        empty_delta_count,
+        latencies_us[0],
+        percentile(&latencies_us, 0.50),
+        percentile(&latencies_us, 0.95),
+        *latencies_us.last().unwrap_or(&0)
+    );
+    Ok(())
 }
 
 fn make_paste_payload(bytes: usize) -> String {
@@ -1217,6 +1274,11 @@ fn main() -> Result<()> {
             Duration::from_millis(args.timeout_ms),
         )
         .with_context(|| format!("bench_screen_read failed for session {}", session.id))?;
+    }
+
+    if let Some(rounds) = args.bench_render_frames {
+        run_render_frame_benchmark(&engine, session.id, rounds)
+            .with_context(|| format!("bench_render_frame failed for session {}", session.id))?;
     }
 
     if let Some(rounds) = args.bench_focus_switches {

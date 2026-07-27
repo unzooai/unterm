@@ -40,7 +40,7 @@ Run the Phase 2 next-core benchmark suite and generate `docs/next-core-benchmark
 .\unterm-engine\bench-next-core.ps1
 ```
 
-The runner builds `unterm-next-core`, verifies the machine-readable `--json` probe output, executes the current input-write/input-burst/echo/output/scrollback/viewport-scroll/viewport-scroll-under-flood/paste/dual-agent/agent-startup-stall/screen-read/focus-switch/session-create/session-ready benchmarks, writes human-readable summary and raw output into the Markdown report, and writes machine-readable gate results into the JSON summary. Any failed benchmark or gate exits non-zero.
+The runner builds `unterm-next-core`, verifies the machine-readable `--json` probe output, executes the current input-write/input-burst/echo/output/scrollback/viewport-scroll/viewport-scroll-under-flood/paste/dual-agent/agent-startup-stall/screen-read/render-frame/focus-switch/session-create/session-ready benchmarks, writes human-readable summary and raw output into the Markdown report, and writes machine-readable gate results into the JSON summary. Any failed benchmark or gate exits non-zero.
 
 Verify an existing JSON summary without rerunning the benchmark suite:
 

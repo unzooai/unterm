@@ -461,6 +461,7 @@ The spike must run a local benchmark harness:
 6. Two pseudo-agent output streams
 7. Agent startup burst while interactive input remains responsive
 8. MCP `screen.text` during output flood
+9. Render-frame full/delta read latency for the future GPU renderer
 
 ### Graduation Criteria
 
