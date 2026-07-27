@@ -375,6 +375,51 @@ pub struct EngineRenderTexturedGlyphLayoutReport {
     pub missing_key_indices: Vec<usize>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
+pub struct EngineRenderTexturedGlyphLayoutIdentity {
+    pub row: usize,
+    pub col: usize,
+    pub cells: usize,
+    pub text: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+#[allow(dead_code)]
+pub struct EngineRenderTexturedGlyphLayoutMismatch {
+    pub identity: EngineRenderTexturedGlyphLayoutIdentity,
+    pub expected_index: usize,
+    pub actual_index: usize,
+    pub expected_source_rect: RenderRect,
+    pub actual_source_rect: RenderRect,
+    pub expected_atlas_rect: RenderRect,
+    pub actual_atlas_rect: RenderRect,
+    pub expected_quad: EngineRenderTexturedGlyphQuad,
+    pub actual_quad: EngineRenderTexturedGlyphQuad,
+    pub expected_offsets_px: [i32; 3],
+    pub actual_offsets_px: [i32; 3],
+    pub expected_bearing_px: [i32; 2],
+    pub actual_bearing_px: [i32; 2],
+    pub expected_foreground: [f32; 4],
+    pub actual_foreground: [f32; 4],
+}
+
+#[derive(Clone, Debug, PartialEq)]
+#[allow(dead_code)]
+pub struct EngineRenderTexturedGlyphLayoutDiff {
+    pub expected_pane_id: usize,
+    pub actual_pane_id: usize,
+    pub expected_revision: u64,
+    pub actual_revision: u64,
+    pub expected_entry_count: usize,
+    pub actual_entry_count: usize,
+    pub missing_entries: Vec<EngineRenderTexturedGlyphLayoutIdentity>,
+    pub unexpected_entries: Vec<EngineRenderTexturedGlyphLayoutIdentity>,
+    pub mismatches: Vec<EngineRenderTexturedGlyphLayoutMismatch>,
+    pub expected_missing_key_indices: Vec<usize>,
+    pub actual_missing_key_indices: Vec<usize>,
+}
+
 #[allow(dead_code)]
 impl EngineRenderTexturedGlyphVertex {
     const ATTRIBS: [wgpu::VertexAttribute; 4] = wgpu::vertex_attr_array![
@@ -390,6 +435,117 @@ impl EngineRenderTexturedGlyphVertex {
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &Self::ATTRIBS,
         }
+    }
+}
+
+#[allow(dead_code)]
+impl EngineRenderTexturedGlyphLayoutEntry {
+    pub fn identity(&self) -> EngineRenderTexturedGlyphLayoutIdentity {
+        EngineRenderTexturedGlyphLayoutIdentity {
+            row: self.row,
+            col: self.col,
+            cells: self.cells,
+            text: self.text.clone(),
+        }
+    }
+}
+
+#[allow(dead_code)]
+impl EngineRenderTexturedGlyphLayoutReport {
+    pub fn diff_against(
+        &self,
+        actual: &EngineRenderTexturedGlyphLayoutReport,
+    ) -> EngineRenderTexturedGlyphLayoutDiff {
+        let mut matched_actual_indices = Vec::new();
+        let mut missing_entries = Vec::new();
+        let mut mismatches = Vec::new();
+
+        for (expected_index, expected) in self.entries.iter().enumerate() {
+            let identity = expected.identity();
+            let Some((actual_index, actual_entry)) =
+                actual
+                    .entries
+                    .iter()
+                    .enumerate()
+                    .find(|(actual_index, actual_entry)| {
+                        !matched_actual_indices.contains(actual_index)
+                            && actual_entry.identity() == identity
+                    })
+            else {
+                missing_entries.push(identity);
+                continue;
+            };
+
+            matched_actual_indices.push(actual_index);
+            if expected.source_rect != actual_entry.source_rect
+                || expected.atlas_rect != actual_entry.atlas_rect
+                || expected.quad != actual_entry.quad
+                || expected.x_advance_px != actual_entry.x_advance_px
+                || expected.x_offset_px != actual_entry.x_offset_px
+                || expected.y_offset_px != actual_entry.y_offset_px
+                || expected.bearing_x_px != actual_entry.bearing_x_px
+                || expected.bearing_y_px != actual_entry.bearing_y_px
+                || expected.foreground != actual_entry.foreground
+            {
+                mismatches.push(EngineRenderTexturedGlyphLayoutMismatch {
+                    identity,
+                    expected_index,
+                    actual_index,
+                    expected_source_rect: expected.source_rect,
+                    actual_source_rect: actual_entry.source_rect,
+                    expected_atlas_rect: expected.atlas_rect,
+                    actual_atlas_rect: actual_entry.atlas_rect,
+                    expected_quad: expected.quad,
+                    actual_quad: actual_entry.quad,
+                    expected_offsets_px: [
+                        expected.x_advance_px,
+                        expected.x_offset_px,
+                        expected.y_offset_px,
+                    ],
+                    actual_offsets_px: [
+                        actual_entry.x_advance_px,
+                        actual_entry.x_offset_px,
+                        actual_entry.y_offset_px,
+                    ],
+                    expected_bearing_px: [expected.bearing_x_px, expected.bearing_y_px],
+                    actual_bearing_px: [actual_entry.bearing_x_px, actual_entry.bearing_y_px],
+                    expected_foreground: expected.foreground,
+                    actual_foreground: actual_entry.foreground,
+                });
+            }
+        }
+
+        let unexpected_entries = actual
+            .entries
+            .iter()
+            .enumerate()
+            .filter(|(actual_index, _)| !matched_actual_indices.contains(actual_index))
+            .map(|(_, entry)| entry.identity())
+            .collect();
+
+        EngineRenderTexturedGlyphLayoutDiff {
+            expected_pane_id: self.pane_id,
+            actual_pane_id: actual.pane_id,
+            expected_revision: self.revision,
+            actual_revision: actual.revision,
+            expected_entry_count: self.entries.len(),
+            actual_entry_count: actual.entries.len(),
+            missing_entries,
+            unexpected_entries,
+            mismatches,
+            expected_missing_key_indices: self.missing_key_indices.clone(),
+            actual_missing_key_indices: actual.missing_key_indices.clone(),
+        }
+    }
+}
+
+#[allow(dead_code)]
+impl EngineRenderTexturedGlyphLayoutDiff {
+    pub fn is_clean(&self) -> bool {
+        self.missing_entries.is_empty()
+            && self.unexpected_entries.is_empty()
+            && self.mismatches.is_empty()
+            && self.expected_missing_key_indices == self.actual_missing_key_indices
     }
 }
 
@@ -2665,6 +2821,63 @@ mod tests {
     }
 
     #[test]
+    fn textured_glyph_layout_diff_is_clean_for_identical_reports() {
+        let report = sample_textured_layout_report();
+
+        let diff = report.diff_against(&report);
+
+        assert!(diff.is_clean());
+        assert_eq!(diff.expected_entry_count, 2);
+        assert_eq!(diff.actual_entry_count, 2);
+    }
+
+    #[test]
+    fn textured_glyph_layout_diff_reports_missing_unexpected_and_mismatch() {
+        let expected = sample_textured_layout_report();
+        let mut actual = expected.clone();
+        actual.revision = 22;
+        actual.entries[0].quad.left_px += 1.0;
+        actual.entries[0].x_offset_px += 1;
+        actual.entries.remove(1);
+        actual
+            .entries
+            .push(sample_textured_layout_entry(3, 9, 1, "x"));
+        actual.missing_key_indices = vec![7];
+
+        let diff = expected.diff_against(&actual);
+
+        assert!(!diff.is_clean());
+        assert_eq!(diff.expected_pane_id, 40);
+        assert_eq!(diff.actual_revision, 22);
+        assert_eq!(
+            diff.missing_entries,
+            vec![EngineRenderTexturedGlyphLayoutIdentity {
+                row: 2,
+                col: 4,
+                cells: 1,
+                text: "b".to_string(),
+            }]
+        );
+        assert_eq!(
+            diff.unexpected_entries,
+            vec![EngineRenderTexturedGlyphLayoutIdentity {
+                row: 3,
+                col: 9,
+                cells: 1,
+                text: "x".to_string(),
+            }]
+        );
+        assert_eq!(diff.mismatches.len(), 1);
+        assert_eq!(diff.mismatches[0].identity.text, "a");
+        assert_eq!(diff.mismatches[0].expected_quad.left_px, 16.0);
+        assert_eq!(diff.mismatches[0].actual_quad.left_px, 17.0);
+        assert_eq!(diff.mismatches[0].expected_offsets_px, [8, 0, 0]);
+        assert_eq!(diff.mismatches[0].actual_offsets_px, [8, 1, 0]);
+        assert_eq!(diff.expected_missing_key_indices, Vec::<usize>::new());
+        assert_eq!(diff.actual_missing_key_indices, vec![7]);
+    }
+
+    #[test]
     fn textured_glyph_pass_skips_missing_key_uploads() {
         let upload = EngineRenderTexturedGlyphUploadPlan {
             pane_id: 12,
@@ -3127,6 +3340,65 @@ mod tests {
             requires_full_repaint: false,
             entries: Vec::new(),
             missing_key_indices,
+        }
+    }
+
+    fn sample_textured_layout_report() -> EngineRenderTexturedGlyphLayoutReport {
+        EngineRenderTexturedGlyphLayoutReport {
+            pane_id: 40,
+            submitted: true,
+            revision: 21,
+            requires_full_repaint: false,
+            entries: vec![
+                sample_textured_layout_entry(1, 2, 1, "a"),
+                sample_textured_layout_entry(2, 4, 1, "b"),
+            ],
+            missing_key_indices: Vec::new(),
+        }
+    }
+
+    fn sample_textured_layout_entry(
+        row: usize,
+        col: usize,
+        cells: usize,
+        text: &str,
+    ) -> EngineRenderTexturedGlyphLayoutEntry {
+        let key_index = col;
+        EngineRenderTexturedGlyphLayoutEntry {
+            key_index,
+            row,
+            col,
+            cells,
+            text: text.to_string(),
+            source_rect: RenderRect {
+                x: col * 8,
+                y: row * 16,
+                width: cells * 8,
+                height: 16,
+            },
+            atlas_rect: RenderRect {
+                x: key_index * 10,
+                y: 4,
+                width: 8,
+                height: 16,
+            },
+            quad: EngineRenderTexturedGlyphQuad {
+                left_px: (col * 8) as f32,
+                top_px: (row * 16) as f32,
+                right_px: (col * 8 + cells * 8) as f32,
+                bottom_px: (row * 16 + 16) as f32,
+                uv_left_px: key_index * 10,
+                uv_top_px: 4,
+                uv_right_px: key_index * 10 + 8,
+                uv_bottom_px: 20,
+            },
+            x_advance_px: (cells * 8) as i32,
+            x_offset_px: 0,
+            y_offset_px: 0,
+            bearing_x_px: 0,
+            bearing_y_px: 0,
+            foreground: [1.0, 1.0, 1.0, 1.0],
+            uses_raster_metrics: true,
         }
     }
 
