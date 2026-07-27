@@ -2,8 +2,9 @@ use super::{
     command::{RuntimeCommand, RuntimeCommandClass},
     input_executor,
     queue::RuntimeQueueRejection,
-    with_current_mut,
+    screen_executor, with_current_mut,
 };
+use crate::RenderFrameSnapshot;
 use anyhow::{anyhow, bail, Result};
 
 fn enqueue(command: RuntimeCommand) -> Result<(), RuntimeQueueRejection> {
@@ -25,6 +26,19 @@ pub(in crate::next_core) fn submit_input(command: RuntimeCommand) -> Result<()> 
     enqueue(command).map_err(|err| anyhow!("runtime input queue rejected command: {err:?}"))?;
     let command = dequeue().ok_or_else(|| anyhow!("runtime input queue lost enqueued command"))?;
     input_executor::execute(command)
+}
+
+pub(in crate::next_core) fn read_render_frame(
+    pane_id: usize,
+    since_revision: Option<u64>,
+) -> Result<RenderFrameSnapshot> {
+    let command = RuntimeCommand::ReadRenderFrame {
+        pane_id,
+        since_revision,
+    };
+    enqueue(command).map_err(|err| anyhow!("runtime render queue rejected command: {err:?}"))?;
+    let command = dequeue().ok_or_else(|| anyhow!("runtime render queue lost enqueued command"))?;
+    screen_executor::execute_render_frame(command)
 }
 
 #[cfg(test)]
@@ -54,6 +68,38 @@ mod tests {
 
         assert!(err.to_string().contains("expected input command"));
         assert_eq!(queue_stats(), RuntimeQueueStats::default());
+    }
+
+    #[test]
+    fn render_frame_reads_enter_runtime_queue_before_dispatch() {
+        test_facade::reset();
+
+        let err = read_render_frame(404, Some(7)).expect_err("missing pane should fail");
+
+        assert!(err.to_string().contains("next-core session 404 not found"));
+        assert_eq!(queue_stats().pending_commands, 0);
+        assert_eq!(queue_stats().rejected_commands, 0);
+    }
+
+    #[test]
+    fn render_frame_reads_use_command_backpressure() {
+        test_facade::reset();
+
+        with_current_mut(|state| {
+            state.command_queue =
+                super::super::queue::RuntimeCommandQueue::new(RuntimeQueuePolicy {
+                    max_pending_commands: 0,
+                    max_pending_input_bytes: 1024,
+                    max_render_wakeups_per_second: 120,
+                });
+        });
+
+        let err = read_render_frame(1, None).expect_err("zero command budget should reject read");
+
+        assert!(err
+            .to_string()
+            .contains("runtime render queue rejected command"));
+        assert_eq!(queue_stats().rejected_commands, 1);
     }
 
     #[test]

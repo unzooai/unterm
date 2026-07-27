@@ -22,7 +22,7 @@ pub(in crate::next_core) fn read_render_frame(
     pane_id: usize,
     since_revision: Option<u64>,
 ) -> Result<RenderFrameSnapshot> {
-    screen_dispatch::read_render_frame(pane_id, since_revision)
+    scheduler::read_render_frame(pane_id, since_revision)
 }
 
 pub(in crate::next_core) fn read_visible_text(pane_id: usize) -> Result<String> {

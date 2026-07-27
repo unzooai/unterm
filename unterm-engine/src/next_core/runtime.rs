@@ -8,6 +8,7 @@ mod io_facade;
 pub(in crate::next_core) mod queue;
 mod recording_facade;
 mod scheduler;
+mod screen_executor;
 mod session_facade;
 mod status_facade;
 #[cfg(test)]
