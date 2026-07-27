@@ -278,6 +278,8 @@ mod tests {
         assert!(supported.contains(&"capture.scrollback"));
         assert!(supported.contains(&"cockpit.inbox"));
         assert!(supported.contains(&"review.diff"));
+        assert!(supported.contains(&"review.verify"));
+        assert!(supported.contains(&"review.merge"));
 
         let limited = caps["engine_limited_methods"]
             .as_array()

@@ -514,6 +514,30 @@ mod engine_neutral_handler_tests {
         Ok(dir)
     }
 
+    fn wait_for_verification_passed(
+        id: &str,
+    ) -> Result<crate::cockpit::verification::VerificationRecord> {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            if let Some(record) = crate::cockpit::verification::get(id) {
+                if record.status == crate::cockpit::verification::VerificationStatus::Passed {
+                    return Ok(record);
+                }
+                if matches!(
+                    record.status,
+                    crate::cockpit::verification::VerificationStatus::Failed
+                        | crate::cockpit::verification::VerificationStatus::TimedOut
+                ) {
+                    return Err(anyhow!("verification {id} ended as {:?}", record.status));
+                }
+            }
+            if std::time::Instant::now() >= deadline {
+                return Err(anyhow!("verification {id} did not pass before deadline"));
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    }
+
     #[test]
     fn session_destroy_uses_next_core_pane_id_path() {
         let _guard = env_lock().lock();
@@ -1528,6 +1552,115 @@ mod engine_neutral_handler_tests {
         assert!(patch.contains("+two"));
         assert!(patch.contains("+fresh"));
         std::fs::remove_dir_all(repo).ok();
+    }
+
+    #[test]
+    fn review_verify_and_merge_work_for_next_core_fleet_member() {
+        let _guard = env_lock().lock();
+        let previous_engine = std::env::var("UNTERM_ENGINE").ok();
+        let previous_fleets_path = std::env::var("UNTERM_FLEETS_PATH").ok();
+        std::env::set_var("UNTERM_ENGINE", "next-core");
+
+        let temp_root = std::env::temp_dir().join(format!(
+            "unterm-next-core-review-fleet-{}-{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_millis(),
+            NEXT_TMP_REVIEW_REPO.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&temp_root).expect("create temp root");
+        std::env::set_var(
+            "UNTERM_FLEETS_PATH",
+            temp_root.join("fleets.json").display().to_string(),
+        );
+        crate::cockpit::fleet::reset_store_for_tests();
+
+        let result: Result<(
+            serde_json::Value,
+            serde_json::Value,
+            serde_json::Value,
+            PathBuf,
+        )> = (|| {
+            let repo = tmp_review_repo()?;
+            let handler = McpHandler::new();
+            let ctx = ConnectionContext::internal("handler-test");
+            let launched = handler.handle(
+                &ctx,
+                "fleet.launch",
+                &json!({
+                    "cwd": repo.display().to_string(),
+                    "task": "next-core-review-merge",
+                    "agents": ["echo"],
+                }),
+            )?;
+            let fleet_id = launched["id"].as_str().expect("fleet id").to_owned();
+            let worktree = PathBuf::from(
+                launched["members"][0]["worktree"]
+                    .as_str()
+                    .expect("member worktree"),
+            );
+            std::fs::write(worktree.join("review.txt"), "merged by next-core review\n")?;
+            git_test(&worktree, &["add", "-A"])?;
+            git_test(&worktree, &["commit", "-q", "-m", "member change"])?;
+
+            let verify = handler.handle(
+                &ctx,
+                "review.verify",
+                &json!({
+                    "fleet_id": fleet_id,
+                    "member": "1",
+                    "command": "git status --short",
+                    "timeout_secs": 5,
+                }),
+            )?;
+            let verification_id = verify["id"].as_str().expect("verification id");
+            let passed = wait_for_verification_passed(verification_id)?;
+            let merged = handler.handle(
+                &ctx,
+                "review.merge",
+                &json!({
+                    "fleet_id": fleet_id,
+                    "member": "1",
+                }),
+            )?;
+            let cleaned = handler.handle(
+                &ctx,
+                "fleet.clean",
+                &json!({
+                    "id": launched["id"],
+                    "force": true,
+                }),
+            )?;
+            Ok((serde_json::to_value(passed)?, merged, cleaned, repo))
+        })();
+
+        match previous_engine {
+            Some(value) => std::env::set_var("UNTERM_ENGINE", value),
+            None => std::env::remove_var("UNTERM_ENGINE"),
+        }
+        match previous_fleets_path {
+            Some(value) => std::env::set_var("UNTERM_FLEETS_PATH", value),
+            None => std::env::remove_var("UNTERM_FLEETS_PATH"),
+        }
+
+        let (verification, merged, cleaned, repo) =
+            result.expect("verify and merge next-core fleet member");
+        assert_eq!(verification["status"], "passed");
+        assert_eq!(verification["inferred"], false);
+        assert_eq!(merged["ok"], true);
+        assert_eq!(merged["verification_forced"], false);
+        assert_eq!(merged["verification"]["status"], "passed");
+        let staged_files = merged["staged_files"].as_array().expect("staged files");
+        assert!(staged_files.iter().any(|file| file == "review.txt"));
+        assert_eq!(cleaned["ok"], true);
+        assert_eq!(
+            git_test(&repo, &["diff", "--cached", "--name-only"])
+                .expect("read staged files after merge"),
+            "review.txt"
+        );
+
+        crate::cockpit::fleet::reset_store_for_tests();
+        std::fs::remove_dir_all(&repo).ok();
+        std::fs::remove_dir_all(&temp_root).ok();
     }
 
     #[test]
