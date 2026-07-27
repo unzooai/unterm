@@ -1595,7 +1595,7 @@ impl NextCoreEngine {
     }
 
     pub fn scroll_viewport_to(&self, pane_id: usize, target: isize) -> Result<()> {
-        screen_dispatch::scroll_viewport_to(pane_id, target)
+        runtime::scroll_viewport_to(pane_id, target)
     }
 }
 
@@ -1639,11 +1639,11 @@ impl SessionEngine for NextCoreEngine {
 
 impl ScreenEngine for NextCoreEngine {
     fn read_screen(&self, pane_id: usize) -> Result<ScreenSnapshot> {
-        screen_dispatch::read_plain_viewport(pane_id)
+        runtime::read_screen(pane_id)
     }
 
     fn read_styled_screen(&self, pane_id: usize) -> Result<StyledScreenSnapshot> {
-        screen_dispatch::read_styled_viewport(pane_id)
+        runtime::read_styled_screen(pane_id)
     }
 
     fn read_render_frame(
@@ -1651,19 +1651,19 @@ impl ScreenEngine for NextCoreEngine {
         pane_id: usize,
         since_revision: Option<u64>,
     ) -> Result<RenderFrameSnapshot> {
-        screen_dispatch::read_render_frame(pane_id, since_revision)
+        runtime::read_render_frame(pane_id, since_revision)
     }
 
     fn read_visible_text(&self, pane_id: usize) -> Result<String> {
-        screen_dispatch::read_visible_text(pane_id)
+        runtime::read_visible_text(pane_id)
     }
 
     fn read_lines(&self, pane_id: usize, start: i64, count: usize) -> Result<Vec<ScreenLine>> {
-        screen_dispatch::read_lines(pane_id, start, count)
+        runtime::read_lines(pane_id, start, count)
     }
 
     fn read_scrollback(&self, pane_id: usize, limit: usize) -> Result<Vec<String>> {
-        screen_dispatch::read_scrollback(pane_id, limit)
+        runtime::read_scrollback(pane_id, limit)
     }
 
     fn read_scrollback_text(
@@ -1671,7 +1671,7 @@ impl ScreenEngine for NextCoreEngine {
         pane_id: usize,
         request: ScrollbackTextRequest,
     ) -> Result<ScrollbackTextSnapshot> {
-        screen_dispatch::read_scrollback_text(pane_id, request)
+        runtime::read_scrollback_text(pane_id, request)
     }
 
     fn read_styled_scrollback(
@@ -1679,7 +1679,7 @@ impl ScreenEngine for NextCoreEngine {
         pane_id: usize,
         request: ScrollbackTextRequest,
     ) -> Result<StyledScrollbackSnapshot> {
-        screen_dispatch::read_styled_scrollback(pane_id, request)
+        runtime::read_styled_scrollback(pane_id, request)
     }
 
     fn search(
@@ -1688,11 +1688,11 @@ impl ScreenEngine for NextCoreEngine {
         pattern: &str,
         max_results: usize,
     ) -> Result<Vec<ScreenSearchMatch>> {
-        screen_dispatch::search(pane_id, pattern, max_results)
+        runtime::search_screen(pane_id, pattern, max_results)
     }
 
     fn cursor(&self, pane_id: usize) -> Result<CursorSnapshot> {
-        screen_dispatch::cursor(pane_id)
+        runtime::cursor(pane_id)
     }
 }
 
