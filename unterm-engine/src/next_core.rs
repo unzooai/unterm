@@ -41,6 +41,7 @@ mod screen_search;
 mod screen_snapshot;
 mod screen_state;
 mod screen_text;
+mod session_activity;
 mod session_handles;
 mod session_registry;
 mod sgr;
@@ -2236,33 +2237,11 @@ impl SessionEngine for NextCoreEngine {
         else {
             bail!("next-core session {pane_id} not found");
         };
-        let dead_reason = lifecycle::refresh_liveness(session);
-        let is_dead = session.snapshot.is_dead;
-        let process =
-            process_tree::snapshot(session.root_pid, &session.snapshot.shell.process_name);
-        let foreground_process = process
-            .as_ref()
-            .map(|process| process.foreground_process.clone())
-            .unwrap_or_else(|| session.snapshot.shell.process_name.clone());
-        let activity = session.activity.lock();
-        let idle = is_dead || activity.is_idle(Instant::now());
-        let input = activity.input.clone();
-        let output = activity.output.clone();
-        let paste = activity.paste.clone();
-        let screen = activity.screen.clone();
-        drop(activity);
+        let (snapshot, dead_reason) = session_activity::snapshot(session, Instant::now());
         if let Some(reason) = dead_reason {
             lifecycle::record_dead_reason(&mut state, reason);
         }
-        Ok(SessionActivitySnapshot {
-            idle,
-            foreground_process,
-            process,
-            input,
-            output,
-            paste,
-            screen,
-        })
+        Ok(snapshot)
     }
 
     fn resize_session(&self, pane_id: usize, cols: usize, rows: usize) -> Result<()> {

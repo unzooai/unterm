@@ -292,6 +292,7 @@ next-core 已经在 screen/parser 方向具备基础能力，包括：
 - `next_core/screen_search.rs` 已拆出 screen text search 和 UTF-8 character-column 计算，让 MCP/screen search API 只负责取快照和记 screen-read activity
 - `next_core/screen_snapshot.rs` 已拆出 plain/styled screen snapshot 和 escaped styled scrollback 组装，让 ScreenEngine API 后续只负责锁定 session、读取屏幕和记录 activity
 - `next_core/screen_text.rs` 已拆出 raw output 行归一化、tail-line 选择和 scrollback bounded range 计算，让 MCP/screen read 文本切片逻辑可以独立测试，不再散在 engine API 实现里
+- `next_core/session_activity.rs` 已拆出 session activity snapshot 组装、liveness refresh 和 foreground process fallback，让 SessionEngine::activity 后续可跟 registry/runtime 分离
 - `next_core/session_handles.rs` 已开始集中 session registry 的 handle lookup，让 screen/input/recording/shell 路径不再反复手写全局状态查找，后续可逐步替换为独立 session registry/runtime
 - `next_core/session_registry.rs` 已开始集中 session id 分配、active session 切换、session 插入和 destroy 记账，让 SessionEngine 后续可替换为独立 registry/runtime 边界
 - `next_core/styled_snapshot.rs` 已拆出 styled viewport/history snapshot 构造，为后续 dirty-line 缓存、增量渲染提交和 GPU frame plan 优化留出独立边界
