@@ -1,0 +1,124 @@
+use super::cell::ScreenCell;
+
+#[derive(Default)]
+pub(super) struct HistoryBuffer {
+    scrollback: Vec<Vec<ScreenCell>>,
+    viewport_top: Option<usize>,
+}
+
+impl HistoryBuffer {
+    pub(super) fn scrollback_rows(&self) -> usize {
+        self.scrollback.len()
+    }
+
+    pub(super) fn viewport_is_pinned(&self) -> bool {
+        self.viewport_top.is_some()
+    }
+
+    pub(super) fn clear(&mut self) {
+        self.scrollback.clear();
+        self.viewport_top = None;
+    }
+
+    pub(super) fn push_scrollback(&mut self, line: Vec<ScreenCell>, max_lines: usize) {
+        self.scrollback.push(line);
+        self.trim_overflow(max_lines);
+    }
+
+    pub(super) fn extend_scrollback(
+        &mut self,
+        lines: impl IntoIterator<Item = Vec<ScreenCell>>,
+        max_lines: usize,
+    ) {
+        self.scrollback.extend(lines);
+        self.trim_overflow(max_lines);
+    }
+
+    pub(super) fn take_scrollback(&mut self) -> Vec<Vec<ScreenCell>> {
+        std::mem::take(&mut self.scrollback)
+    }
+
+    pub(super) fn replace_scrollback(&mut self, scrollback: Vec<Vec<ScreenCell>>) {
+        self.scrollback = scrollback;
+    }
+
+    pub(super) fn take_viewport_top(&mut self) -> Option<usize> {
+        self.viewport_top.take()
+    }
+
+    pub(super) fn replace_viewport_top(&mut self, viewport_top: Option<usize>) {
+        self.viewport_top = viewport_top;
+    }
+
+    pub(super) fn truncate_scrollback_to_cols(&mut self, cols: usize) {
+        for line in &mut self.scrollback {
+            if line.len() > cols {
+                line.truncate(cols);
+            }
+        }
+    }
+
+    pub(super) fn history_len(&self, live_lines: usize) -> usize {
+        self.scrollback.len() + live_lines
+    }
+
+    pub(super) fn viewport_start(&self, rows: usize, live_lines: usize) -> usize {
+        let bottom = self.history_len(live_lines).saturating_sub(rows);
+        self.viewport_top
+            .map(|top| top.min(bottom))
+            .unwrap_or(bottom)
+    }
+
+    pub(super) fn set_viewport_top_near(&mut self, target: isize, rows: usize, live_lines: usize) {
+        let max_top = self.history_len(live_lines).saturating_sub(rows);
+        let target = target.max(0) as usize;
+        self.viewport_top = if target >= max_top {
+            None
+        } else {
+            Some(target.saturating_sub(rows / 4).min(max_top))
+        };
+    }
+
+    pub(super) fn history_lines<'a>(
+        &'a self,
+        live_lines: &'a [Vec<ScreenCell>],
+    ) -> Vec<&'a Vec<ScreenCell>> {
+        self.scrollback.iter().chain(live_lines.iter()).collect()
+    }
+
+    pub(super) fn history_range<'a>(
+        &'a self,
+        live_lines: &'a [Vec<ScreenCell>],
+        start: usize,
+        count: usize,
+    ) -> Vec<&'a Vec<ScreenCell>> {
+        let end = start
+            .saturating_add(count)
+            .min(self.history_len(live_lines.len()));
+        (start..end)
+            .filter_map(|idx| {
+                if idx < self.scrollback.len() {
+                    self.scrollback.get(idx)
+                } else {
+                    live_lines.get(idx - self.scrollback.len())
+                }
+            })
+            .collect()
+    }
+
+    pub(super) fn scrollback(&self) -> &[Vec<ScreenCell>] {
+        &self.scrollback
+    }
+
+    fn trim_overflow(&mut self, max_lines: usize) {
+        if self.scrollback.len() <= max_lines {
+            return;
+        }
+
+        let overflow = self.scrollback.len() - max_lines;
+        self.scrollback.drain(..overflow);
+        if let Some(top) = self.viewport_top.as_mut() {
+            *top = top.saturating_sub(overflow);
+        }
+    }
+}

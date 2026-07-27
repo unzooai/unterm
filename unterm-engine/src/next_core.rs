@@ -27,10 +27,12 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 mod cell;
+mod history;
 mod parser_state;
 mod screen_state;
 
 use cell::{CellAttributes, ScreenCell, TerminalColor};
+use history::HistoryBuffer;
 use parser_state::ParserState;
 use screen_state::{MouseTrackingMode, ScreenState};
 
@@ -294,9 +296,8 @@ struct RecordingIndexEntry {
 #[derive(Default)]
 struct NextCoreScreen {
     cols: usize,
-    scrollback: Vec<Vec<ScreenCell>>,
+    history: HistoryBuffer,
     lines: Vec<Vec<ScreenCell>>,
-    viewport_top: Option<usize>,
     cursor_x: usize,
     cursor_y: usize,
     cursor_visible: bool,
@@ -482,19 +483,7 @@ impl NextCoreScreen {
     }
 
     fn scrollback_rows(&self) -> usize {
-        self.scrollback.len()
-    }
-
-    fn trim_scrollback_overflow(&mut self) {
-        if self.scrollback.len() <= MAX_SCROLLBACK_LINES {
-            return;
-        }
-
-        let overflow = self.scrollback.len() - MAX_SCROLLBACK_LINES;
-        self.scrollback.drain(..overflow);
-        if let Some(top) = self.viewport_top.as_mut() {
-            *top = top.saturating_sub(overflow);
-        }
+        self.history.scrollback_rows()
     }
 
     fn revision(&self) -> u64 {
@@ -523,18 +512,15 @@ impl NextCoreScreen {
     }
 
     fn history_lines(&self) -> Vec<&Vec<ScreenCell>> {
-        self.scrollback.iter().chain(self.lines.iter()).collect()
+        self.history.history_lines(&self.lines)
     }
 
     fn history_len(&self) -> usize {
-        self.scrollback.len() + self.lines.len()
+        self.history.history_len(self.lines.len())
     }
 
     fn viewport_start(&self) -> usize {
-        let bottom = self.history_len().saturating_sub(self.rows);
-        self.viewport_top
-            .map(|top| top.min(bottom))
-            .unwrap_or(bottom)
+        self.history.viewport_start(self.rows, self.lines.len())
     }
 
     fn viewport_first_row(&self) -> i64 {
@@ -542,28 +528,14 @@ impl NextCoreScreen {
     }
 
     fn set_viewport_top_near(&mut self, target: isize) {
-        let max_top = self.history_len().saturating_sub(self.rows);
-        let target = target.max(0) as usize;
-        self.viewport_top = if target >= max_top {
-            None
-        } else {
-            Some(target.saturating_sub(self.rows / 4).min(max_top))
-        };
+        self.history
+            .set_viewport_top_near(target, self.rows, self.lines.len());
         self.revision = self.revision.saturating_add(1);
         self.mark_all_dirty();
     }
 
     fn history_range(&self, start: usize, count: usize) -> Vec<&Vec<ScreenCell>> {
-        let end = start.saturating_add(count).min(self.history_len());
-        (start..end)
-            .filter_map(|idx| {
-                if idx < self.scrollback.len() {
-                    self.scrollback.get(idx)
-                } else {
-                    self.lines.get(idx - self.scrollback.len())
-                }
-            })
-            .collect()
+        self.history.history_range(&self.lines, start, count)
     }
 
     fn history_text_range(&self, start: usize, count: usize) -> Vec<String> {
@@ -1298,8 +1270,7 @@ impl NextCoreScreen {
                 }
             }
             3 => {
-                self.scrollback.clear();
-                self.viewport_top = None;
+                self.history.clear();
                 self.mark_all_dirty();
             }
             _ => {}
@@ -1799,8 +1770,7 @@ impl NextCoreScreen {
         for _ in 0..count.max(1) {
             let removed = self.lines.remove(top);
             if top == 0 && bottom + 1 >= self.rows && self.alternate.is_none() {
-                self.scrollback.push(removed);
-                self.trim_scrollback_overflow();
+                self.history.push_scrollback(removed, MAX_SCROLLBACK_LINES);
             }
             self.lines.insert(bottom, Vec::new());
         }
@@ -1859,7 +1829,7 @@ impl NextCoreScreen {
         self.clear_dirty_rows();
         self.mark_all_dirty();
         Self::truncate_lines_to_cols(&mut self.lines, self.cols);
-        Self::truncate_lines_to_cols(&mut self.scrollback, self.cols);
+        self.history.truncate_scrollback_to_cols(self.cols);
         let cols = self.cols;
         if let Some(alternate) = self.alternate.as_mut() {
             alternate.cols = cols;
@@ -1874,8 +1844,8 @@ impl NextCoreScreen {
             let trim = self.lines.len() - self.rows;
             let drained = self.lines.drain(..trim).collect::<Vec<_>>();
             if self.alternate.is_none() {
-                self.scrollback.extend(drained);
-                self.trim_scrollback_overflow();
+                self.history
+                    .extend_scrollback(drained, MAX_SCROLLBACK_LINES);
             }
             self.cursor_y = self.cursor_y.saturating_sub(trim);
             self.saved_cursor_y = self.saved_cursor_y.saturating_sub(trim);
@@ -1902,8 +1872,7 @@ impl NextCoreScreen {
         self.column_132_mode = wide;
         self.cols = if wide { 132 } else { 80 };
         self.lines.clear();
-        self.scrollback.clear();
-        self.viewport_top = None;
+        self.history.clear();
         self.cursor_x = 0;
         self.cursor_y = 0;
         self.saved_cursor_x = 0;
@@ -1941,9 +1910,9 @@ impl NextCoreScreen {
 
         let main = ScreenState {
             cols: self.cols,
-            scrollback: std::mem::take(&mut self.scrollback),
+            scrollback: self.history.take_scrollback(),
             lines: std::mem::take(&mut self.lines),
-            viewport_top: self.viewport_top.take(),
+            viewport_top: self.history.take_viewport_top(),
             cursor_x: self.cursor_x,
             cursor_y: self.cursor_y,
             cursor_visible: self.cursor_visible,
@@ -2026,9 +1995,9 @@ impl NextCoreScreen {
 
     fn restore_main_screen(&mut self, main: ScreenState) {
         self.cols = main.cols;
-        self.scrollback = main.scrollback;
+        self.history.replace_scrollback(main.scrollback);
         self.lines = main.lines;
-        self.viewport_top = main.viewport_top;
+        self.history.replace_viewport_top(main.viewport_top);
         self.cursor_x = main.cursor_x;
         self.cursor_y = main.cursor_y;
         self.cursor_visible = main.cursor_visible;
@@ -3479,7 +3448,8 @@ impl NextCoreEngine {
 
         let lines = screen
             .lock()
-            .scrollback
+            .history
+            .scrollback()
             .iter()
             .map(NextCoreScreen::line_text)
             .collect();
@@ -4488,7 +4458,7 @@ impl ScreenEngine for NextCoreEngine {
                     || screen.dirty_rows().is_none();
                 let dirty_rows = if force_full {
                     all_rows
-                } else if screen.viewport_top.is_some() && screen.dirty_rows() != all_rows {
+                } else if screen.history.viewport_is_pinned() && screen.dirty_rows() != all_rows {
                     None
                 } else {
                     screen.dirty_rows()
@@ -9115,7 +9085,7 @@ mod tests {
         );
 
         screen.set_viewport_top_near(2);
-        assert_eq!(screen.viewport_top, None);
+        assert!(!screen.history.viewport_is_pinned());
         assert_eq!(
             screen.snapshot_viewport_lines(),
             vec!["three".to_string(), "four".to_string(), "five".to_string()]
