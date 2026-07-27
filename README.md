@@ -110,6 +110,7 @@ The full Unterm docs live at **https://unterm.app/docs/**:
 - [Product requirements](docs/product-requirements.md) — complete product scope, functional requirements, MCP/CLI coverage, and acceptance criteria
 - [Detailed product planning](docs/product-planning-detailed-zh.md) — Chinese execution plan covering user scenarios, version roadmap, priorities, validation, and next-core migration
 - [Next-core product plan](docs/product-plan-next-core.md) — staged plan to stabilize the current engine while building Unterm's own terminal core
+- [Next-core technical architecture](docs/next-core-technical-architecture-zh.md) — Chinese architecture plan for replacing the WezTerm core without growing into a larger terminal monolith
 - [MCP reference](https://unterm.app/docs/mcp-reference) — every JSON-RPC method, parameters, return shape
 - [Multi-instance](https://unterm.app/docs/multi-instance) — NATO names, instances directory, picking the right window
 - [Identity profiles](https://unterm.app/docs/profiles) — one window per identity. Bind GitHub / AWS / npm / OpenAI tokens, git identity, SSH key routing all at once. CLI + MCP.

@@ -453,6 +453,7 @@ struct CellAttributes {
     blink: Option<StyledBlink>,
     vertical_align: Option<StyledVerticalAlign>,
     inverse: bool,
+    protected: bool,
     fg: Option<TerminalColor>,
     bg: Option<TerminalColor>,
     hyperlink: Option<usize>,
@@ -467,6 +468,10 @@ impl CellAttributes {
     fn clear_underline(&mut self) {
         self.underline = false;
         self.underline_style = None;
+    }
+
+    fn set_protected(&mut self, protected: bool) {
+        self.protected = protected;
     }
 }
 
@@ -1175,6 +1180,30 @@ impl NextCoreScreen {
         self.mark_dirty_range(top, bottom);
     }
 
+    fn selective_erase_rect(&mut self, top: usize, left: usize, bottom: usize, right: usize) {
+        if self.rows == 0 || self.cols == 0 {
+            return;
+        }
+        let Some((top, left, bottom, right)) = self.clip_rect(top, left, bottom, right) else {
+            return;
+        };
+
+        self.ensure_rows_through(bottom);
+        let blank = ScreenCell::blank(self.current_attr);
+        for row in top..=bottom {
+            let line = &mut self.lines[row];
+            if line.len() <= right {
+                line.resize(right + 1, ScreenCell::blank(self.current_attr));
+            }
+            for col in left..=right {
+                if !line[col].attr.protected {
+                    line[col] = blank.clone();
+                }
+            }
+        }
+        self.mark_dirty_range(top, bottom);
+    }
+
     fn change_rect_attributes(
         &mut self,
         top: usize,
@@ -1300,6 +1329,10 @@ impl NextCoreScreen {
                 _ => {}
             }
         }
+    }
+
+    fn set_character_protection(&mut self, mode: usize) {
+        self.current_attr.set_protected(mode == 1);
     }
 
     fn clip_rect(
@@ -2407,6 +2440,10 @@ impl<'a> ScreenParser<'a> {
                 if raw_params.ends_with(' ') {
                     self.screen
                         .set_cursor_shape(numbers.first().copied().unwrap_or(0));
+                } else if raw_params.ends_with('"') {
+                    let numbers = NextCoreScreen::parse_csi_numbers(raw_params);
+                    self.screen
+                        .set_character_protection(numbers.first().copied().unwrap_or(0));
                 }
             }
             's' => {
@@ -2453,6 +2490,13 @@ impl<'a> ScreenParser<'a> {
                     let numbers = NextCoreScreen::parse_csi_numbers(raw_params);
                     let (top, left, bottom, right) = self.screen.rect_from_numbers(&numbers);
                     self.screen.erase_rect(top, left, bottom, right);
+                }
+            }
+            '{' => {
+                if raw_params.ends_with('$') {
+                    let numbers = NextCoreScreen::parse_csi_numbers(raw_params);
+                    let (top, left, bottom, right) = self.screen.rect_from_numbers(&numbers);
+                    self.screen.selective_erase_rect(top, left, bottom, right);
                 }
             }
             'r' => {
@@ -7924,6 +7968,83 @@ mod tests {
             .lines
             .iter()
             .all(|line| line.cells.iter().all(|cell| cell.ch == ' ')));
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_applies_decsera_selective_rectangular_erase() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 10,
+            rows: 4,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(
+            session.id,
+            concat!(
+                "0123456789\r\n",
+                "ab",
+                "\x1b[1\"q",
+                "PROT",
+                "\x1b[0\"q",
+                "ghij\r\n",
+                "ABCDEFGHIJ",
+                "\x1b[1;6H",
+                "\x1b[2;1;3;10${"
+            ),
+        )?;
+        let screen = engine.read_screen(session.id)?;
+
+        assert_eq!(screen.lines, vec!["0123456789", "  PROT", ""]);
+        assert_eq!(screen.cursor.x, 5);
+        assert_eq!(screen.cursor.y, 0);
+
+        set_output_for_test(
+            session.id,
+            concat!(
+                "0123456789\r\n",
+                "ab",
+                "\x1b[1\"q",
+                "PROT",
+                "\x1b[0\"q",
+                "ghij",
+                "\x1b[2;1;2;10$z"
+            ),
+        )?;
+        assert_eq!(
+            engine.read_screen(session.id)?.lines,
+            vec!["0123456789", ""]
+        );
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_decsca_mode_two_returns_to_erasable_cells() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 8,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(session.id, "\x1b[1\"qAB\x1b[2\"qCD\x1b[1;1;1;4${")?;
+
+        assert_eq!(engine.read_screen(session.id)?.lines, vec!["AB"]);
 
         engine.destroy_session(session.id)?;
         Ok(())

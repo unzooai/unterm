@@ -372,6 +372,8 @@ Terminal Engine Interface
 
 Tracking document: [`docs/engine-dependency-map.md`](engine-dependency-map.md).
 
+Technical architecture document: [`docs/next-core-technical-architecture-zh.md`](next-core-technical-architecture-zh.md).
+
 ### Acceptance Criteria
 
 - MCP handler can call engine traits for session/input/screen operations.

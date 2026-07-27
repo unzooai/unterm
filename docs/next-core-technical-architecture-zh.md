@@ -1,0 +1,219 @@
+# next-core 技术架构方案
+
+Status: working architecture draft  
+Last updated: 2026-07-27  
+Scope: 用自研 next-core 逐步取代 WezTerm 内核
+
+## 1. 结论
+
+next-core 可行，但不能做成“重写一个更大的 WezTerm”。
+
+正确方案是：
+
+- 自研：调度模型、pane/session 模型、屏幕/scrollback 数据结构、dirty snapshot、输入/粘贴管线、MCP/产品边界、性能基准。
+- 复用：PTY、VT parser、Unicode width、字体 shaping/raster、GPU 抽象、平台窗口基础能力。
+- 暂缓：Lua 兼容、SSH/mux、图片协议、插件运行时、完整 copy mode、复杂字体特性。
+
+目标不是“纯自研”，而是把 Unterm 最影响体验的路径握在自己手里：输入、输出、滚动、粘贴、agent 大量输出、MCP 读取、窗口/实例稳定性。
+
+## 2. 借鉴的开源技术方向
+
+| 项目/技术 | 吸收点 | 不照搬的点 |
+|---|---|---|
+| Ghostty | 核心库和 UI 分层、多线程读写渲染分离、终端核心可被不同 UI 消费 | 不引入完整 Ghostty 栈，不把渲染/字体/平台能力重新耦合进产品层 |
+| Alacritty / vte | parser/perform 分离，VT parser 只负责状态机，语义由 terminal core 实现 | 不直接继承 Alacritty 的产品形态和配置模型 |
+| Rio | WebGPU/wgpu 路线、渲染器只消费终端快照、面向高帧率输出 | 不把视觉特效和插件体系放进 alpha core |
+| COSMIC Text / swash / fontdb | 字体发现、fallback、shaping、emoji/CJK 的成熟处理 | alpha 不追求所有高级排版特性，先保证宽度、fallback、性能 |
+| Windows Terminal / ConPTY 生态 | Windows shell 兼容、PTY 边界、IME/剪贴板/窗口生命周期经验 | 不采用大型 XAML/平台 UI 架构 |
+
+## 3. 模块边界
+
+```text
+unterm-core
+  pty
+  vt parser adapter
+  terminal semantics
+  screen grid
+  scrollback ring
+  dirty tracking
+  input/paste translator
+  render snapshot API
+
+unterm-render
+  font discovery/cache
+  shaping/glyph atlas
+  GPU command generation
+  frame pacing
+  headless capture renderer
+
+unterm-app
+  native windows
+  tabs/splits
+  selection/copy/paste UI
+  IME
+  keybinding dispatch
+  profile/settings/window lifecycle
+
+unterm-product
+  MCP
+  CLI
+  Agent Cockpit
+  Fleet/Review/Recording/Profile/Proxy/Workspace
+```
+
+硬约束：`unterm-core` 不知道窗口、菜单、Agent Cockpit、Fleet、Review、Web Settings；产品层不能直接改屏幕网格，只能通过 engine traits。
+
+## 4. 推荐技术栈
+
+| 层 | 首选方案 | 原因 |
+|---|---|---|
+| 语言 | Rust | 当前代码基础一致，性能和内存安全适合终端内核 |
+| Windows PTY | 先沿用 `portable-pty` / ConPTY 路径 | 已在项目中存在，先用 benchmark 证明瓶颈再替换 |
+| Unix PTY | 窄平台 wrapper 或成熟 crate | alpha 后补齐，避免 Windows spike 被跨平台拖慢 |
+| VT parser | `vte` crate 风格的 parser/perform 边界 | 避免手写完整状态机，保持 chunk split-safe |
+| 屏幕模型 | 自研 sparse/row-major grid + scrollback ring | 这是性能、MCP、capture、dirty diff 的核心控制点 |
+| 渲染 | `wgpu` 优先 | 跨平台 GPU 抽象，适合独立 renderer 消费 dirty snapshots |
+| 字体 | `cosmic-text` / `swash` / `fontdb` 评估后选择 | 避免自研 shaping/fallback，控制 CJK/emoji 风险 |
+| UI 窗口 | 先选最小可控 event loop | IME、剪贴板、输入延迟、窗口生命周期比 UI 框架华丽度更重要 |
+
+## 5. 关键实现路径
+
+### 5.1 输入路径
+
+目标：按键进入 PTY writer 不经过 UI 重计算、agent 扫描、磁盘读取。
+
+```text
+OS key event
+  -> app keybinding dispatch
+  -> input translator
+  -> bounded writer queue
+  -> PTY writer thread
+```
+
+要求：
+
+- key event 只做内存操作。
+- 补全接受、右箭头、End、Tab 等都走同一套输入状态机。
+- 粘贴按 UTF-8 边界分块，bracketed paste marker 保留。
+- writer queue 有背压和遥测，不能卡住 UI thread。
+
+### 5.2 输出路径
+
+目标：Codex/Claude 启动或大量输出时，解析和渲染不抢 UI 响应。
+
+```text
+PTY read thread
+  -> byte chunks
+  -> parser state
+  -> screen mutations
+  -> dirty rows/cells
+  -> render snapshot channel
+  -> renderer frame
+```
+
+要求：
+
+- parser state 必须 split-safe，不能假设一个 read 包含完整 escape sequence。
+- DSR/DA/DECRQM 等 query response 保持输入顺序写回 PTY。
+- output flood 合并 dirty rows，限制 render wakeup 频率。
+- MCP screen read 读取稳定快照，不等待下一帧渲染。
+
+### 5.3 滚动路径
+
+目标：PageUp/PageDown 和滚轮只改 logical viewport，不扫描全量 scrollback，不触发 agent 状态刷新。
+
+```text
+scroll input
+  -> viewport offset
+  -> visible range snapshot
+  -> renderer dirty viewport
+```
+
+要求：
+
+- scrollback ring 裁剪时保持 viewport 稳定。
+- live-tail 只在用户回到底部后恢复。
+- 搜索命中跳转和 MCP `screen.scroll(goto)` 使用同一 viewport 模型。
+
+### 5.4 渲染路径
+
+目标：renderer 是消费者，不拥有终端语义。
+
+```text
+render frame snapshot
+  -> visible styled cells
+  -> shape/cache glyph runs
+  -> atlas update
+  -> GPU draw
+```
+
+要求：
+
+- full-frame fallback 用于首帧/resize。
+- 常规帧只传 dirty rows/cells。
+- 主题、粗体/斜体、反色、下划线、超链接样式在 snapshot 层表达。
+- headless renderer 复用同一 styled snapshot，用于 scrollback PNG 和 CI。
+
+## 6. 为什么不会比 WezTerm 更大
+
+Size budget 用功能边界控制，不靠口头保证。
+
+Alpha 禁止进入 core 的内容：
+
+- Lua 配置兼容层
+- SSH/mux server clone
+- 图片协议
+- 复杂插件运行时
+- Web Settings
+- Agent Cockpit UI
+- Fleet/Review UI
+- 外部窗口长截图
+- 全量 legacy keybinding 兼容
+
+Alpha 必须进入 core 的内容：
+
+- PTY lifecycle
+- VT parser adapter
+- screen/scrollback
+- input/paste
+- dirty snapshot
+- 基础样式/颜色
+- 查询响应
+- renderer contract
+
+衡量方式：
+
+- `cargo bloat` / binary size 每个 milestone 记录。
+- `cargo tree -e features` 每个 milestone 记录。
+- 每个新增依赖必须写清楚“替代了哪段自研复杂度”。
+- 任何功能只要不影响终端正确性、延迟或 renderer contract，就不能放进 core。
+
+## 7. 近期落地顺序
+
+1. 继续扩 next-core VT 兼容测试，覆盖常见 shell/TUI 真实序列。
+2. 把现有 spike parser 封装成 `TerminalParser` 边界，后续可替换为 `vte`。
+3. 把 `ScreenCell`/`CellAttributes`/scrollback ring 从单文件拆成小模块。
+4. 增加 benchmark：key-to-screen、paste、output flood、PageUp/PageDown、MCP screen read。
+5. 做 wgpu renderer spike，只消费已有 render-frame snapshot。
+6. 做字体方案 spike：ASCII/CJK/emoji 宽度、fallback、缓存开销。
+7. 对比 current-core 与 next-core，达不到指标就不扩大范围。
+
+## 8. 当前代码进展
+
+next-core 已经在 screen/parser 方向具备基础能力，包括：
+
+- split-safe CSI/OSC/DCS/APC/PM/SOS control string 消费
+- 基础 VT 光标、滚动区、模式报告、DA/DSR/DECRQM query response
+- SGR 样式、扩展色、OSC 8 hyperlink
+- scrollback ring、logical viewport、styled render-frame full/delta snapshot
+- DECFRA、DECERA、DECCARA、DECRARA 矩形操作
+- DECSCA protected/erasable cell 属性
+- DECSERA selective rectangular erase
+- UTF-8 安全 paste chunk 和 bracketed paste marker 保留
+
+## 9. 开源参考
+
+- Ghostty: core library / UI boundary, multi-threaded terminal architecture
+- Alacritty `vte`: parser/perform separation
+- Rio: WebGPU renderer direction
+- COSMIC Text: shaping, font fallback, raster abstraction
