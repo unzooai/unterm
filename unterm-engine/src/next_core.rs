@@ -28,6 +28,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 mod cell;
 mod history;
+mod input_pipeline;
 mod parser_state;
 mod render_state;
 mod screen_state;
@@ -42,7 +43,6 @@ const MAX_OUTPUT_BYTES: usize = 1024 * 1024;
 const MAX_RECORDING_BLOCKS: usize = 256;
 const MAX_SCROLLBACK_LINES: usize = 10_000;
 const ACTIVITY_IDLE_AFTER: Duration = Duration::from_secs(2);
-const PASTE_CHUNK_BYTES: usize = 4096;
 const HEADLESS_CELL_WIDTH_PX: usize = 8;
 const HEADLESS_CELL_HEIGHT_PX: usize = 16;
 const MAX_PENDING_TERMINAL_QUERY_BYTES: usize = 128;
@@ -4066,63 +4066,15 @@ impl NextCoreEngine {
 
     #[allow(dead_code)]
     fn paste_payload(text: &str, bracketed: bool) -> String {
-        if bracketed {
-            format!("\x1b[200~{text}\x1b[201~")
-        } else {
-            text.to_string()
-        }
+        input_pipeline::paste_payload(text, bracketed)
     }
 
     fn application_cursor_input(input: &str, enabled: bool) -> String {
-        if !enabled {
-            return input.to_string();
-        }
-
-        input
-            .replace("\x1b[A", "\x1bOA")
-            .replace("\x1b[B", "\x1bOB")
-            .replace("\x1b[C", "\x1bOC")
-            .replace("\x1b[D", "\x1bOD")
-            .replace("\x1b[H", "\x1bOH")
-            .replace("\x1b[F", "\x1bOF")
-            .replace("\x1b[1~", "\x1bOH")
-            .replace("\x1b[4~", "\x1bOF")
-    }
-
-    fn split_utf8_chunks(text: &str, max_bytes: usize) -> Vec<&str> {
-        if text.is_empty() {
-            return vec![""];
-        }
-        let max_bytes = max_bytes.max(1);
-        let mut chunks = Vec::new();
-        let mut start = 0;
-        let mut last_boundary = 0;
-        for (idx, _) in text.char_indices().skip(1) {
-            if idx - start > max_bytes {
-                let end = last_boundary.max(start);
-                if end == start {
-                    continue;
-                }
-                chunks.push(&text[start..end]);
-                start = end;
-            }
-            last_boundary = idx;
-        }
-        chunks.push(&text[start..]);
-        chunks
+        input_pipeline::application_cursor_input(input, enabled)
     }
 
     fn paste_chunks(text: &str, bracketed: bool) -> Vec<String> {
-        let text_chunks = Self::split_utf8_chunks(text, PASTE_CHUNK_BYTES);
-        if !bracketed {
-            return text_chunks.into_iter().map(str::to_string).collect();
-        }
-
-        let mut chunks = Vec::with_capacity(text_chunks.len() + 2);
-        chunks.push("\x1b[200~".to_string());
-        chunks.extend(text_chunks.into_iter().map(str::to_string));
-        chunks.push("\x1b[201~".to_string());
-        chunks
+        input_pipeline::paste_chunks(text, bracketed)
     }
 }
 
@@ -5411,7 +5363,11 @@ mod tests {
 
     #[test]
     fn chunks_paste_payload_without_splitting_utf8() {
-        let text = format!("{}{}", "a".repeat(PASTE_CHUNK_BYTES), "你".repeat(3));
+        let text = format!(
+            "{}{}",
+            "a".repeat(input_pipeline::PASTE_CHUNK_BYTES),
+            "你".repeat(3)
+        );
         let chunks = NextCoreEngine::paste_chunks(&text, false);
 
         assert!(chunks.len() > 1);
@@ -5423,7 +5379,7 @@ mod tests {
 
     #[test]
     fn chunks_bracketed_paste_with_intact_markers() {
-        let text = "x".repeat(PASTE_CHUNK_BYTES + 10);
+        let text = "x".repeat(input_pipeline::PASTE_CHUNK_BYTES + 10);
         let chunks = NextCoreEngine::paste_chunks(&text, true);
 
         assert_eq!(chunks.first().map(String::as_str), Some("\x1b[200~"));
@@ -5481,7 +5437,11 @@ mod tests {
             launch_policy: Default::default(),
         })?;
 
-        let text = format!("{}{}", "a".repeat(PASTE_CHUNK_BYTES + 1), "你");
+        let text = format!(
+            "{}{}",
+            "a".repeat(input_pipeline::PASTE_CHUNK_BYTES + 1),
+            "你"
+        );
         engine.paste_input(session.id, &text)?;
         let paste = engine
             .activity(session.id)?
