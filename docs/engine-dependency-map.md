@@ -55,6 +55,7 @@ Current covered operations:
 - next-core recording text module for ANSI stripping, secret redaction, and trace-id YAML formatting, keeping safe markdown export independently testable from PTY/session lifecycle
 - next-core OSC133 parser module for shell command marker stream splitting, keeping recording command-block detection independently testable from PTY/session lifecycle
 - next-core recording archive module for session root resolution, project slug/path selection, and index upsert, keeping recording file metadata independently testable from recording lifecycle
+- next-core recording markdown module for YAML front matter, command-block rendering, output-block rendering, and redaction-aware previews, keeping export formatting independently testable from recording lifecycle
 - validated explicit `capture.scrollback` pane ids through the shared session resolver
 - redacted `session.create` launch decision summary for profile/proxy/overlay/command provenance
 - redacted `workspace.restore` template launch plan for cwd/profile/command provenance

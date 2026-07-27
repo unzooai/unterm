@@ -14,7 +14,6 @@ use base64::Engine as _;
 use parking_lot::{Mutex, RwLock};
 use portable_pty::{native_pty_system, Child, MasterPty, PtySize};
 use std::collections::BTreeSet;
-use std::fmt::Write as FmtWrite;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::PathBuf;
@@ -31,6 +30,7 @@ mod osc133;
 mod parser_state;
 mod process_tree;
 mod recording_archive;
+mod recording_markdown;
 mod recording_text;
 mod render_state;
 mod screen_state;
@@ -2610,163 +2610,6 @@ impl NextCoreEngine {
         }
     }
 
-    fn write_recording_markdown(
-        recording: &NextCoreRecording,
-        ended_at: Option<&str>,
-        exit_reason: &str,
-    ) -> Result<usize> {
-        if let Some(parent) = recording.md_path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        let markdown = Self::render_recording_markdown(recording, ended_at, exit_reason);
-        std::fs::write(&recording.md_path, markdown.as_bytes())?;
-        Ok(markdown.len())
-    }
-
-    fn render_recording_markdown(
-        recording: &NextCoreRecording,
-        ended_at: Option<&str>,
-        exit_reason: &str,
-    ) -> String {
-        let stripped = recording_text::strip_ansi(&recording.text_preview);
-        let (redacted, redaction_count) = recording_text::redact_text(&stripped);
-        let total_lines = redacted.lines().count() as u64;
-        let mut md = String::new();
-
-        writeln!(&mut md, "---").ok();
-        writeln!(&mut md, "unterm_session_id: {}", recording.session_id).ok();
-        writeln!(&mut md, "tab_id: {}", recording.pane_id).ok();
-        match &recording.project_path {
-            Some(path) => writeln!(&mut md, "project_path: {}", path).ok(),
-            None => writeln!(&mut md, "project_path: null").ok(),
-        };
-        writeln!(&mut md, "project_slug: {}", recording.project_slug).ok();
-        writeln!(&mut md, "shell: {}", Self::env_var_or("SHELL", "next-core")).ok();
-        writeln!(&mut md, "hostname: {}", Self::hostname()).ok();
-        writeln!(&mut md, "unterm_version: next-core").ok();
-        writeln!(&mut md, "started_at: {}", recording.started_at).ok();
-        match ended_at {
-            Some(value) => writeln!(&mut md, "ended_at: {}", value).ok(),
-            None => writeln!(&mut md, "ended_at: null").ok(),
-        };
-        writeln!(&mut md, "exit_reason: {}", exit_reason).ok();
-        let command_blocks = Self::recording_command_blocks(recording);
-        writeln!(&mut md, "osc133_active: {}", recording.osc133_seen).ok();
-        writeln!(
-            &mut md,
-            "block_render: {}",
-            if recording.osc133_seen {
-                "osc133_command_blocks"
-            } else {
-                "chunked_output"
-            }
-        )
-        .ok();
-        writeln!(&mut md, "block_count: {}", recording.block_count).ok();
-        writeln!(&mut md, "command_block_count: {}", command_blocks.len()).ok();
-        writeln!(&mut md, "total_lines: {}", total_lines).ok();
-        writeln!(&mut md, "bytes_raw: {}", recording.bytes_raw).ok();
-        writeln!(
-            &mut md,
-            "trace_ids: {}",
-            recording_text::yaml_string_array(&recording.trace_ids)
-        )
-        .ok();
-        writeln!(&mut md, "redaction_active: true").ok();
-        writeln!(&mut md, "redaction_count: {}", redaction_count).ok();
-        writeln!(&mut md, "parent_session_id: null").ok();
-        writeln!(&mut md, "---\n").ok();
-
-        let title_ts = recording
-            .started_at
-            .split('+')
-            .next()
-            .unwrap_or(&recording.started_at)
-            .replace('T', " ");
-        writeln!(&mut md, "# Unterm session - {}\n", title_ts).ok();
-        if recording.osc133_seen {
-            writeln!(
-                &mut md,
-                "> next-core recording with OSC133 shell command markers.\n"
-            )
-            .ok();
-        } else {
-            writeln!(
-                &mut md,
-                "> next-core fallback recording; shell command markers were not captured.\n"
-            )
-            .ok();
-        }
-        if !command_blocks.is_empty() {
-            writeln!(&mut md, "## Command Blocks\n").ok();
-            for block in &command_blocks {
-                let stripped = recording_text::strip_ansi(&block.text);
-                let (redacted_block, _) = recording_text::redact_text(&stripped);
-                writeln!(
-                    &mut md,
-                    "### Command {} `{}`\n\n- started: `{}`\n- ended: `{}`\n- exit_code: `{}`\n\n```\n{}\n```\n",
-                    block.index,
-                    block.started_micros,
-                    block.started_micros,
-                    block
-                        .ended_micros
-                        .map(|value| value.to_string())
-                        .unwrap_or_else(|| "null".to_string()),
-                    block.exit_code.as_deref().unwrap_or("null"),
-                    redacted_block.trim_end()
-                )
-                .ok();
-            }
-        }
-        if !recording.blocks.is_empty() {
-            writeln!(
-                &mut md,
-                "## Output Blocks\n\nThese blocks are raw output chunks captured by next-core.\n"
-            )
-            .ok();
-            for block in &recording.blocks {
-                let stripped = recording_text::strip_ansi(&block.text);
-                let (redacted_block, _) = recording_text::redact_text(&stripped);
-                writeln!(
-                    &mut md,
-                    "### Block {} `{}`\n\n```\n{}\n```\n",
-                    block.index,
-                    block.timestamp_micros,
-                    redacted_block.trim_end()
-                )
-                .ok();
-            }
-            writeln!(&mut md, "## Aggregated Preview\n").ok();
-        }
-        writeln!(&mut md, "```\n{}\n```", redacted.trim_end()).ok();
-
-        md
-    }
-
-    fn recording_command_blocks(recording: &NextCoreRecording) -> Vec<NextCoreCommandBlock> {
-        let mut blocks = recording.command_blocks.clone();
-        if let Some(active) = recording.active_command.as_ref() {
-            blocks.push(NextCoreCommandBlock {
-                index: active.index,
-                started_micros: active.started_micros,
-                ended_micros: None,
-                exit_code: None,
-                text: active.text.clone(),
-            });
-        }
-        blocks
-    }
-
-    fn env_var_or(name: &str, default: &str) -> String {
-        std::env::var(name).unwrap_or_else(|_| default.to_string())
-    }
-
-    fn hostname() -> String {
-        std::env::var("COMPUTERNAME")
-            .or_else(|_| std::env::var("HOSTNAME"))
-            .unwrap_or_default()
-    }
-
     fn screen_lines(&self, pane_id: usize) -> Result<Vec<String>> {
         let screen = {
             let state = state().read();
@@ -4053,7 +3896,7 @@ impl RecordingEngine for NextCoreEngine {
         drop(slot);
 
         let ended_at = Self::timestamp_string();
-        Self::write_recording_markdown(&recording, Some(&ended_at), "recording_stopped")?;
+        recording_markdown::write(&recording, Some(&ended_at), "recording_stopped")?;
         recording_archive::upsert_index(&recording, Some(ended_at.clone()))?;
 
         Ok(RecordingStopResult {
@@ -4156,7 +3999,7 @@ impl RecordingEngine for NextCoreEngine {
         if let Some(target_path) = target_path {
             export.md_path = PathBuf::from(target_path);
         }
-        let bytes = Self::write_recording_markdown(&export, None, "recording_exported")?;
+        let bytes = recording_markdown::write(&export, None, "recording_exported")?;
 
         Ok(RecordingExportResult {
             session_id: export.session_id,
