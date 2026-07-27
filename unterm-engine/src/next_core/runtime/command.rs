@@ -143,6 +143,13 @@ impl RuntimeCommand {
                 | Self::ReadRenderFrame { .. }
         )
     }
+
+    pub(in crate::next_core) fn input_bytes(&self) -> usize {
+        match self {
+            Self::WriteInput { text, .. } | Self::PasteInput { text, .. } => text.len(),
+            _ => 0,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -214,5 +221,17 @@ mod tests {
         assert_eq!(policy.max_pending_commands, 2048);
         assert_eq!(policy.max_pending_input_bytes, 1024 * 1024);
         assert_eq!(policy.max_render_wakeups_per_second, 120);
+    }
+
+    #[test]
+    fn reports_input_byte_cost_only_for_input_payloads() {
+        let paste = RuntimeCommand::PasteInput {
+            pane_id: 1,
+            text: "abc".to_string(),
+        };
+        let read = RuntimeCommand::ReadScreen { pane_id: 1 };
+
+        assert_eq!(paste.input_bytes(), 3);
+        assert_eq!(read.input_bytes(), 0);
     }
 }

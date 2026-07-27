@@ -4,6 +4,7 @@ use std::sync::OnceLock;
 
 pub(in crate::next_core) mod command;
 mod io_facade;
+pub(in crate::next_core) mod queue;
 mod recording_facade;
 mod session_facade;
 mod status_facade;
