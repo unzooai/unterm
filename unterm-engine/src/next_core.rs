@@ -37,6 +37,7 @@ mod recording_archive;
 mod recording_markdown;
 mod recording_text;
 mod render_state;
+mod screen_search;
 mod screen_state;
 mod screen_text;
 mod sgr;
@@ -2746,24 +2747,8 @@ impl ScreenEngine for NextCoreEngine {
         max_results: usize,
     ) -> Result<Vec<ScreenSearchMatch>> {
         let started_at = Instant::now();
-        if pattern.is_empty() || max_results == 0 {
-            return Ok(Vec::new());
-        }
         let lines = self.screen_lines(pane_id)?;
-        let mut matches = Vec::new();
-        for (row, line) in lines.iter().enumerate() {
-            for (byte_col, _) in line.match_indices(pattern) {
-                matches.push(ScreenSearchMatch {
-                    row: row as i64,
-                    col: line[..byte_col].chars().count(),
-                    text: line.clone(),
-                });
-                if matches.len() >= max_results {
-                    self.mark_screen_read_for_pane(pane_id, started_at.elapsed())?;
-                    return Ok(matches);
-                }
-            }
-        }
+        let matches = screen_search::find_matches(&lines, pattern, max_results);
         self.mark_screen_read_for_pane(pane_id, started_at.elapsed())?;
         Ok(matches)
     }
