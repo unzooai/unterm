@@ -300,13 +300,13 @@ next-core 已经在 screen/parser 方向具备基础能力，包括：
 - `next_core/session_activity.rs` 已拆出 session activity snapshot 组装、liveness refresh、dead reason 记账、foreground process fallback 和全局 state lock 入口，并通过 session registry 可变 lookup 读取 pane，让 SessionEngine::activity 后续可跟 registry/runtime 分离
 - `next_core/session_creation.rs` 已拆出 create/split session 的 launch context、source pane 继承、session id 分配和 registry 插入流程，并通过 current session registry/snapshot 边界分配 id、插入 session、读取 split 来源，让 SessionEngine::create_session/split_session 不再直接持有全局 state 锁或编排 launch/runtime/registry 三层
 - `next_core/session_defaults.rs` 已拆出 session snapshot 默认 cursor 等初始化默认值，让 runtime/lifecycle 测试和 session spawn 不再反向依赖 NextCoreEngine facade
-- `next_core/session_handles.rs` 已开始集中 session registry 的 handle lookup 和常用 current-handle state 读锁入口，并让 screen/activity/scrollback/input/query/必需录制/可选录制 current handles 复用同一 lookup 入口，让 screen/input/recording/shell/scrollback/query 路径不再反复手写全局状态查找，后续可逐步替换为独立 session registry/runtime
+- `next_core/session_handles.rs` 已开始集中 handle projection 和常用 current-handle state 读锁入口，并通过 session registry 的只读 lookup 复用 screen/activity/scrollback/input/query/必需录制/可选录制 current handles，让 screen/input/recording/shell/scrollback/query 路径不再反复手写全局状态查找，后续可逐步替换为独立 session registry/runtime
 - `next_core/session_output.rs` 已拆出单个 PTY 文本 chunk 的 output buffer append、screen feed、terminal query response、activity 记账和 recording append，并把 input/terminal-response/recording stats 写入 output activity snapshot，让 session runtime 的 reader loop 不再直接编排输出热路径
 - `next_core/session_queries.rs` 已拆出 shell snapshot、raw output 和 bracketed paste 状态读取，集中 screen cwd/process cwd fallback 与只读 current-handle lookup，让 NextCoreEngine facade 不再经由私有 wrapper 读取 session 内部结构
-- `next_core/session_registry.rs` 已开始集中 session id 分配、session 计数/遍历、active session 切换、session 插入、可变 session lookup、destroy 记账和 current 全局 state lock 入口，让 SessionEngine 后续可替换为独立 registry/runtime 边界
+- `next_core/session_registry.rs` 已开始集中 session id 分配、session 计数/遍历、active session 切换、session 插入、只读/可变 session lookup、destroy 记账和 current 全局 state lock 入口，让 SessionEngine 后续可替换为独立 registry/runtime 边界
 - `next_core/session_runtime.rs` 已开始集中 PTY sizing、session spawn、reader thread wiring、resize runtime mutation 和全局 state lock 入口，并通过 session registry 可变 lookup 执行 resize，让 SessionEngine 不再直接同时操作 PTY master、reader/output/screen/activity/recording wiring、session snapshot 和 screen grid
 - `next_core/test_support.rs` 已拆出测试专用的全局 state reset、output 注入、dead marker、activity reset 和 viewport attribute probe，让 next_core 主体不再承载测试夹具逻辑
-- `next_core/session_snapshots.rs` 已拆出 list/get/base-clone session snapshot 组装、liveness refresh 记账、screen-derived title/cursor/cwd 更新和 current 全局 state lock 入口，让 SessionEngine::list_sessions/get_session 和 split 来源读取不再持有运行时查询细节
+- `next_core/session_snapshots.rs` 已拆出 list/get/base-clone session snapshot 组装、liveness refresh 记账、screen-derived title/cursor/cwd 更新和 current 全局 state lock 入口，并通过 session registry 的只读 lookup 获取 split 来源，让 SessionEngine::list_sessions/get_session 和 split 来源读取不再持有运行时查询细节
 - `next_core/styled_snapshot.rs` 已拆出 styled viewport/history snapshot 构造，为后续 dirty-line 缓存、增量渲染提交和 GPU frame plan 优化留出独立边界
 - `next_core/terminal_parser.rs` 已承接 `TerminalParser` 的 split-safe 输入状态机、CSI/OSC 分流和窗口操作 dispatch，`next_core.rs` 主体只保留 screen/session 语义；后续替换成 `vte` parser/perform adapter 时可以在该模块内完成
 

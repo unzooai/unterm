@@ -1,5 +1,5 @@
 use super::{
-    activity::SessionIoActivity, state, NextCoreRecording, NextCoreScreen, NextCoreSession,
+    activity::SessionIoActivity, session_registry, state, NextCoreRecording, NextCoreScreen,
     NextCoreState,
 };
 use crate::ShellSnapshot;
@@ -34,16 +34,10 @@ pub(super) struct ScrollbackHandles {
     pub(super) rows: usize,
 }
 
-fn session(state: &NextCoreState, pane_id: usize) -> Result<&NextCoreSession> {
-    state
-        .sessions
-        .iter()
-        .find(|session| session.snapshot.id == pane_id)
-        .ok_or_else(|| anyhow::anyhow!("next-core session {pane_id} not found"))
-}
-
 pub(super) fn output(state: &NextCoreState, pane_id: usize) -> Result<Arc<Mutex<String>>> {
-    Ok(Arc::clone(&session(state, pane_id)?.output))
+    Ok(Arc::clone(
+        &session_registry::session(state, pane_id)?.output,
+    ))
 }
 
 pub(super) fn output_current(pane_id: usize) -> Result<Arc<Mutex<String>>> {
@@ -52,7 +46,9 @@ pub(super) fn output_current(pane_id: usize) -> Result<Arc<Mutex<String>>> {
 }
 
 pub(super) fn screen(state: &NextCoreState, pane_id: usize) -> Result<Arc<Mutex<NextCoreScreen>>> {
-    Ok(Arc::clone(&session(state, pane_id)?.screen))
+    Ok(Arc::clone(
+        &session_registry::session(state, pane_id)?.screen,
+    ))
 }
 
 pub(super) fn screen_current(pane_id: usize) -> Result<Arc<Mutex<NextCoreScreen>>> {
@@ -64,7 +60,9 @@ pub(super) fn activity(
     state: &NextCoreState,
     pane_id: usize,
 ) -> Result<Arc<Mutex<SessionIoActivity>>> {
-    Ok(Arc::clone(&session(state, pane_id)?.activity))
+    Ok(Arc::clone(
+        &session_registry::session(state, pane_id)?.activity,
+    ))
 }
 
 pub(super) fn activity_current(pane_id: usize) -> Result<Arc<Mutex<SessionIoActivity>>> {
@@ -76,7 +74,7 @@ pub(super) fn screen_activity(
     state: &NextCoreState,
     pane_id: usize,
 ) -> Result<(Arc<Mutex<NextCoreScreen>>, Arc<Mutex<SessionIoActivity>>)> {
-    let session = session(state, pane_id)?;
+    let session = session_registry::session(state, pane_id)?;
     Ok((Arc::clone(&session.screen), Arc::clone(&session.activity)))
 }
 
@@ -88,7 +86,7 @@ pub(super) fn screen_activity_current(
 }
 
 pub(super) fn input(state: &NextCoreState, pane_id: usize) -> Result<InputHandles> {
-    let session = session(state, pane_id)?;
+    let session = session_registry::session(state, pane_id)?;
     let screen = session.screen.lock();
     Ok(InputHandles {
         writer: Arc::clone(&session.writer),
@@ -104,7 +102,7 @@ pub(super) fn input_current(pane_id: usize) -> Result<InputHandles> {
 }
 
 pub(super) fn shell(state: &NextCoreState, pane_id: usize) -> Result<ShellHandles> {
-    let session = session(state, pane_id)?;
+    let session = session_registry::session(state, pane_id)?;
     Ok(ShellHandles {
         shell: session.snapshot.shell.clone(),
         screen: Arc::clone(&session.screen),
@@ -118,7 +116,7 @@ pub(super) fn shell_current(pane_id: usize) -> Result<ShellHandles> {
 }
 
 pub(super) fn scrollback(state: &NextCoreState, pane_id: usize) -> Result<ScrollbackHandles> {
-    let session = session(state, pane_id)?;
+    let session = session_registry::session(state, pane_id)?;
     Ok(ScrollbackHandles {
         screen: Arc::clone(&session.screen),
         output: Arc::clone(&session.output),
@@ -134,7 +132,7 @@ pub(super) fn scrollback_current(pane_id: usize) -> Result<ScrollbackHandles> {
 }
 
 pub(super) fn recording(state: &NextCoreState, pane_id: usize) -> Result<RecordingHandles> {
-    let session = session(state, pane_id)?;
+    let session = session_registry::session(state, pane_id)?;
     Ok(RecordingHandles {
         recording: Arc::clone(&session.recording),
         project_path: session.snapshot.shell.cwd.clone(),
@@ -150,7 +148,7 @@ pub(super) fn recording_optional(
     state: &NextCoreState,
     pane_id: usize,
 ) -> Option<Arc<Mutex<Option<NextCoreRecording>>>> {
-    session(state, pane_id)
+    session_registry::session(state, pane_id)
         .ok()
         .map(|session| Arc::clone(&session.recording))
 }

@@ -1,4 +1,4 @@
-use super::{lifecycle, process_tree, state, NextCoreSession, NextCoreState};
+use super::{lifecycle, process_tree, session_registry, state, NextCoreSession, NextCoreState};
 use crate::SessionSnapshot;
 use anyhow::Result;
 
@@ -36,12 +36,7 @@ pub(super) fn get(state: &mut NextCoreState, pane_id: usize) -> Result<SessionSn
 }
 
 pub(super) fn clone_base(state: &NextCoreState, pane_id: usize) -> Result<SessionSnapshot> {
-    state
-        .sessions
-        .iter()
-        .find(|session| session.snapshot.id == pane_id)
-        .map(|session| session.snapshot.clone())
-        .ok_or_else(|| anyhow::anyhow!("next-core session {pane_id} not found"))
+    Ok(session_registry::session(state, pane_id)?.snapshot.clone())
 }
 
 pub(super) fn clone_base_current(pane_id: usize) -> Result<SessionSnapshot> {
