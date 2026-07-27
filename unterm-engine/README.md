@@ -105,7 +105,7 @@ Render cursor-move benchmark:
 cargo run -p unterm-engine --bin unterm-next-core -- --bench-render-cursor-moves 200 --timeout-ms 30000 --wait-ms 100 --write "exit`r" -- cmd.exe
 ```
 
-The cursor-move benchmark types a live command-line marker, sends alternating left/right arrow inputs through ConPTY, waits for the screen cursor to move, then requires each render-frame delta to include the cursor row without falling back to a full frame. It covers the core contract behind completion navigation, command-line cursor movement, and tab-switch repaint correctness before a GUI renderer is involved.
+The cursor-move benchmark types a live command-line marker, sends alternating left/right arrow inputs through ConPTY, waits for the screen cursor to move, reports completed left/right move counts plus missed moves, then requires each render-frame delta to include the cursor row without falling back to a full frame. It covers the core contract behind completion navigation, command-line cursor movement, and tab-switch repaint correctness before a GUI renderer is involved.
 
 Render draw-plan and geometry-plan benchmarks:
 

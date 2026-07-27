@@ -1088,6 +1088,8 @@ fn run_render_cursor_move_benchmark(
     let mut dirty_lines = 0usize;
     let mut full_frames = 0usize;
     let mut snapshots = 0usize;
+    let mut left_moves = 0usize;
+    let mut right_moves = 0usize;
     for idx in 0..rounds {
         let moving_left = idx % 2 == 0;
         let before_cursor = screen.cursor;
@@ -1117,6 +1119,11 @@ fn run_render_cursor_move_benchmark(
                 );
             }
             std::thread::sleep(poll_interval);
+        }
+        if moving_left {
+            left_moves += 1;
+        } else {
+            right_moves += 1;
         }
 
         let before = Instant::now();
@@ -1162,12 +1169,16 @@ fn run_render_cursor_move_benchmark(
     engine.write_input(pane_id, "\x03")?;
 
     latencies_us.sort_unstable();
+    let missed_moves = rounds.saturating_sub(left_moves + right_moves);
     println!(
-        "bench_render_cursor_move rounds={} snapshots={} dirty_lines={} full_frames={} min_us={} p50_us={} p95_us={} max_us={}",
+        "bench_render_cursor_move rounds={} snapshots={} dirty_lines={} full_frames={} left_moves={} right_moves={} missed_moves={} min_us={} p50_us={} p95_us={} max_us={}",
         rounds,
         snapshots,
         dirty_lines,
         full_frames,
+        left_moves,
+        right_moves,
+        missed_moves,
         latencies_us[0],
         percentile(&latencies_us, 0.50),
         percentile(&latencies_us, 0.95),

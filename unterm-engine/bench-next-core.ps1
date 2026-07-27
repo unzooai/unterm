@@ -41,6 +41,8 @@ param(
     [int]$MaxRenderCommitPlanP95Us = 1000,
     [int]$MaxRenderDirtyFrameP95Us = 1000,
     [int]$MaxRenderCursorMoveP95Us = 1000,
+    [int]$MaxRenderCursorMoveFullFrames = 0,
+    [int]$MaxRenderCursorMoveMissedMoves = 0,
     [int]$MaxFocusSwitchP95Us = 100000,
     [int]$MaxSessionCreateP95Us = 100000,
     [int]$MaxSessionReadyP95Us = 100000,
@@ -457,6 +459,8 @@ try {
     $gates += New-Gate -GateName "render commit plan p95" -Actual (Get-BenchMetric -Result $renderCommitPlan -LinePrefix "bench_render_commit_plan" -Metric "full_p95_us") -Max $MaxRenderCommitPlanP95Us -Unit "us"
     $gates += New-Gate -GateName "render dirty frame p95" -Actual (Get-BenchMetric -Result $renderFrame -LinePrefix "bench_render_frame" -Metric "dirty_p95_us") -Max $MaxRenderDirtyFrameP95Us -Unit "us"
     $gates += New-Gate -GateName "render cursor move p95" -Actual (Get-BenchMetric -Result $renderCursorMove -LinePrefix "bench_render_cursor_move" -Metric "p95_us") -Max $MaxRenderCursorMoveP95Us -Unit "us"
+    $gates += New-Gate -GateName "render cursor move full frames" -Actual (Get-BenchMetric -Result $renderCursorMove -LinePrefix "bench_render_cursor_move" -Metric "full_frames") -Max $MaxRenderCursorMoveFullFrames -Unit "frames"
+    $gates += New-Gate -GateName "render cursor move missed moves" -Actual (Get-BenchMetric -Result $renderCursorMove -LinePrefix "bench_render_cursor_move" -Metric "missed_moves") -Max $MaxRenderCursorMoveMissedMoves -Unit "moves"
     $gates += New-Gate -GateName "focus switch p95" -Actual (Get-BenchMetric -Result $focusSwitch -LinePrefix "bench_focus_switch" -Metric "p95_us") -Max $MaxFocusSwitchP95Us -Unit "us"
     $gates += New-Gate -GateName "session create p95" -Actual (Get-BenchMetric -Result $sessionCreate -LinePrefix "bench_session_create" -Metric "p95_us") -Max $MaxSessionCreateP95Us -Unit "us"
     $gates += New-Gate -GateName "session ready p95" -Actual (Get-BenchMetric -Result $sessionReady -LinePrefix "bench_session_ready" -Metric "p95_us") -Max $MaxSessionReadyP95Us -Unit "us"

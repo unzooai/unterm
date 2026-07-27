@@ -1,6 +1,6 @@
 param(
     [string]$SummaryJsonPath = "",
-    [int]$ExpectedGateCount = 21,
+    [int]$ExpectedGateCount = 23,
     [int]$ExpectedBenchmarkCount = 21,
     [switch]$SkipCommitReachabilityCheck
 )
@@ -196,6 +196,8 @@ $requiredGates = @(
     "render commit plan p95",
     "render dirty frame p95",
     "render cursor move p95",
+    "render cursor move full frames",
+    "render cursor move missed moves",
     "focus switch p95",
     "session create p95",
     "session ready p95"
