@@ -325,6 +325,12 @@ impl<'a> QuadAllocator for MappedQuads<'a> {
     }
 }
 
+impl MappedQuads<'_> {
+    pub fn allocated_quads(&self) -> usize {
+        *self.next
+    }
+}
+
 pub struct TripleVertexBuffer {
     pub index: RefCell<usize>,
     pub bufs: RefCell<[VertexBuffer; 3]>,
@@ -453,6 +459,7 @@ impl TripleVertexBuffer {
 
 pub struct RenderLayer {
     pub vb: RefCell<[TripleVertexBuffer; 3]>,
+    pane_quad_ranges: RefCell<[Vec<std::ops::Range<usize>>; 3]>,
     context: RenderContext,
     zindex: i8,
 }
@@ -469,6 +476,7 @@ impl RenderLayer {
         Ok(Self {
             context: context.clone(),
             vb: RefCell::new(vb),
+            pane_quad_ranges: RefCell::new([Vec::new(), Vec::new(), Vec::new()]),
             zindex,
         })
     }
@@ -476,6 +484,9 @@ impl RenderLayer {
     pub fn clear_quad_allocation(&self) {
         for vb in self.vb.borrow().iter() {
             vb.clear_quad_allocation();
+        }
+        for ranges in self.pane_quad_ranges.borrow_mut().iter_mut() {
+            ranges.clear();
         }
     }
 
@@ -504,6 +515,19 @@ impl RenderLayer {
         let vb = Self::compute_vertices(&self.context, num_quads)?;
         self.vb.borrow_mut()[idx] = vb;
         Ok(())
+    }
+
+    pub fn record_pane_quad_ranges(&self, before: [usize; 3], after: [usize; 3]) {
+        let mut ranges = self.pane_quad_ranges.borrow_mut();
+        for idx in 0..3 {
+            if after[idx] > before[idx] {
+                ranges[idx].push(before[idx]..after[idx]);
+            }
+        }
+    }
+
+    pub fn pane_quad_ranges(&self, idx: usize) -> Vec<std::ops::Range<usize>> {
+        self.pane_quad_ranges.borrow()[idx].clone()
     }
 
     /// Compute a vertex buffer to hold the quads that comprise the visible
@@ -568,6 +592,16 @@ impl TripleLayerQuadAllocatorTrait for BorrowedLayers {
 
     fn extend_with(&mut self, layer_num: usize, vertices: &[Vertex]) {
         self.layers[layer_num].extend_with(vertices)
+    }
+}
+
+impl BorrowedLayers {
+    pub fn allocated_quads(&self) -> [usize; 3] {
+        [
+            self.layers[0].allocated_quads(),
+            self.layers[1].allocated_quads(),
+            self.layers[2].allocated_quads(),
+        ]
     }
 }
 

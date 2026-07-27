@@ -1010,7 +1010,10 @@ impl crate::TermWindow {
                     mux::Mux::get().record_focus_for_current_identity(pos.pane.pane_id());
                 }
             }
+            let before = layers.allocated_quads();
             self.paint_pane(pos, &mut layers).context("paint_pane")?;
+            let after = layers.allocated_quads();
+            layer.record_pane_quad_ranges(before, after);
         }
         trace.mark("paint_panes");
         if multi_pane {

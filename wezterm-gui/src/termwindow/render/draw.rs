@@ -9,6 +9,8 @@ use ::window::glium::uniforms::{
 use ::window::glium::{BlendingFunction, LinearBlendingFactor, Surface};
 use config::FreeTypeLoadTarget;
 
+const INDICES_PER_QUAD: usize = 6;
+
 impl crate::TermWindow {
     pub fn call_draw(&mut self, frame: &mut RenderFrame) -> anyhow::Result<()> {
         match frame {
@@ -33,7 +35,7 @@ impl crate::TermWindow {
             });
 
         let next_core_mode = next_core_webgpu_pane_mode();
-        if next_core_mode != NextCoreWebGpuPaneMode::Replace {
+        {
             let render_state = self.render_state.as_ref().unwrap();
             let tex = render_state.glyph_cache.borrow().atlas.texture();
             let tex = tex.downcast_ref::<WebGpuTexture>().unwrap();
@@ -145,7 +147,15 @@ impl crate::TermWindow {
                             vb.indices.webgpu().slice(..),
                             wgpu::IndexFormat::Uint32,
                         );
-                        render_pass.draw_indexed(0..index_count as _, 0, 0..1);
+                        if next_core_mode == NextCoreWebGpuPaneMode::Replace {
+                            draw_non_pane_webgpu_ranges(
+                                &mut render_pass,
+                                index_count,
+                                &layer.pane_quad_ranges(idx),
+                            );
+                        } else {
+                            render_pass.draw_indexed(0..index_count as _, 0, 0..1);
+                        }
                     }
 
                     vb.next_index();
@@ -161,21 +171,16 @@ impl crate::TermWindow {
                             &mut encoder,
                             &view,
                             &batch.buffer_plan,
-                            next_core_mode.clear_color(),
+                            None,
                         );
-                        if !encoded && next_core_mode == NextCoreWebGpuPaneMode::Replace {
-                            clear_webgpu_target(&mut encoder, &view);
+                        if !encoded {
+                            log::debug!("next-core WebGPU pane render skipped: empty buffer plan");
                         }
                     }
                     Err(err) => {
                         log::debug!("next-core WebGPU pane render skipped: {err:#}");
-                        if next_core_mode == NextCoreWebGpuPaneMode::Replace {
-                            clear_webgpu_target(&mut encoder, &view);
-                        }
                     }
                 }
-            } else if next_core_mode == NextCoreWebGpuPaneMode::Replace {
-                clear_webgpu_target(&mut encoder, &view);
             }
         }
 
@@ -323,13 +328,6 @@ impl NextCoreWebGpuPaneMode {
     fn is_enabled(self) -> bool {
         self != Self::Disabled
     }
-
-    fn clear_color(self) -> Option<[f64; 4]> {
-        match self {
-            Self::Replace => Some([0.0, 0.0, 0.0, 1.0]),
-            Self::Append | Self::Disabled => None,
-        }
-    }
 }
 
 fn next_core_webgpu_pane_mode() -> NextCoreWebGpuPaneMode {
@@ -343,24 +341,64 @@ fn next_core_webgpu_pane_mode() -> NextCoreWebGpuPaneMode {
     }
 }
 
-fn clear_webgpu_target(encoder: &mut wgpu::CommandEncoder, target: &wgpu::TextureView) {
-    let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-        label: Some("next-core empty replace clear"),
-        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-            view: target,
-            resolve_target: None,
-            ops: wgpu::Operations {
-                load: wgpu::LoadOp::Clear(wgpu::Color {
-                    r: 0.0,
-                    g: 0.0,
-                    b: 0.0,
-                    a: 1.0,
-                }),
-                store: wgpu::StoreOp::Store,
-            },
-        })],
-        depth_stencil_attachment: None,
-        occlusion_query_set: None,
-        timestamp_writes: None,
-    });
+fn draw_non_pane_webgpu_ranges(
+    render_pass: &mut wgpu::RenderPass<'_>,
+    index_count: usize,
+    pane_quad_ranges: &[std::ops::Range<usize>],
+) {
+    let total_quads = index_count / INDICES_PER_QUAD;
+    for range in non_pane_quad_ranges(total_quads, pane_quad_ranges) {
+        draw_quad_range(render_pass, range.start, range.end);
+    }
+}
+
+fn non_pane_quad_ranges(
+    total_quads: usize,
+    pane_quad_ranges: &[std::ops::Range<usize>],
+) -> Vec<std::ops::Range<usize>> {
+    let mut ranges = vec![];
+    let mut next_quad = 0;
+
+    for range in pane_quad_ranges {
+        let skip_start = range.start.min(total_quads);
+        let skip_end = range.end.min(total_quads);
+        if next_quad < skip_start {
+            ranges.push(next_quad..skip_start);
+        }
+        next_quad = next_quad.max(skip_end);
+    }
+
+    if next_quad < total_quads {
+        ranges.push(next_quad..total_quads);
+    }
+
+    ranges
+}
+
+fn draw_quad_range(render_pass: &mut wgpu::RenderPass<'_>, start_quad: usize, end_quad: usize) {
+    let start_index = (start_quad * INDICES_PER_QUAD) as u32;
+    let end_index = (end_quad * INDICES_PER_QUAD) as u32;
+    if start_index < end_index {
+        render_pass.draw_indexed(start_index..end_index, 0, 0..1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::non_pane_quad_ranges;
+
+    #[test]
+    fn non_pane_quad_ranges_skip_middle() {
+        assert_eq!(non_pane_quad_ranges(10, &[3..7]), vec![0..3, 7..10]);
+    }
+
+    #[test]
+    fn non_pane_quad_ranges_clips_and_merges_overlaps() {
+        assert_eq!(non_pane_quad_ranges(10, &[0..3, 2..6, 8..20]), vec![6..8]);
+    }
+
+    #[test]
+    fn non_pane_quad_ranges_empty_when_all_pane() {
+        assert!(non_pane_quad_ranges(5, &[0..5]).is_empty());
+    }
 }

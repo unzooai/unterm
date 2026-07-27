@@ -332,6 +332,10 @@ impl HeapQuadAllocator {
         metrics::histogram!("quad_buffer_apply").record(start.elapsed());
         Ok(())
     }
+
+    pub fn allocated_quads(&self) -> [usize; 3] {
+        [self.layer0.len(), self.layer1.len(), self.layer2.len()]
+    }
 }
 
 impl TripleLayerQuadAllocatorTrait for HeapQuadAllocator {
@@ -377,6 +381,15 @@ impl TripleLayerQuadAllocatorTrait for HeapQuadAllocator {
 pub enum TripleLayerQuadAllocator<'a> {
     Gpu(BorrowedLayers),
     Heap(&'a mut HeapQuadAllocator),
+}
+
+impl TripleLayerQuadAllocator<'_> {
+    pub fn allocated_quads(&self) -> [usize; 3] {
+        match self {
+            Self::Gpu(b) => b.allocated_quads(),
+            Self::Heap(h) => h.allocated_quads(),
+        }
+    }
 }
 
 impl<'a> TripleLayerQuadAllocatorTrait for TripleLayerQuadAllocator<'a> {
