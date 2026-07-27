@@ -430,6 +430,7 @@ Supported:
 - GUI textured glyph layout reports now have a CPU-side diff summary for missing, unexpected, and mismatched glyph layout entries, giving the pane-replacement path an automated parity gate before visual comparison moves to screenshots
 - GUI prepared frame plans now expose textured glyph layout report/diff helpers, so parity checks can run from the same frame-preparation object that the pane replacement renderer will consume
 - GUI cached next-core glyph uploads now expose layout parity helpers on the pane-scoped atlas-cache output, so append/replace draw modes can gate the actual cached texture-upload path instead of only comparing pre-cache frame plans
+- GUI cached next-core glyph upload diagnostics now include layout entry/missing counts and draw readiness, and the real WebGPU draw path logs those fields with texture/cache upload stats
 - `EngineRenderGlyphAtlasCache` with deterministic shelf placement and inserted/overflow key reporting, so the future WebGPU glyph texture can update atlas regions without rebuilding placement state per frame
 - `WebGpuState` pane-scoped next-core glyph atlas state, reusing glyph placements across paints and clearing them when pane renderer state is removed
 - `EngineRenderGlyphAtlasTextureUpdatePlan` that converts newly inserted atlas keys into texture update regions through an `EngineRenderGlyphRasterSource` boundary, keeping the deterministic source for tests while letting the future GUI font raster/cache provide real RGBA bytes without changing the texture upload ABI

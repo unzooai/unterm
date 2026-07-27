@@ -93,8 +93,46 @@ pub struct NextCoreCachedGlyphUpload {
     pub upload: EngineRenderTexturedGlyphUploadPlan,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[allow(dead_code)]
+pub struct NextCoreCachedGlyphUploadDiagnostics {
+    pub pane_id: usize,
+    pub revision: u64,
+    pub cell_width_px: usize,
+    pub cell_height_px: usize,
+    pub inserted_key_count: usize,
+    pub overflow_key_count: usize,
+    pub texture_region_count: usize,
+    pub texture_missing_key_count: usize,
+    pub layout_entry_count: usize,
+    pub layout_missing_key_count: usize,
+    pub vertex_count: usize,
+    pub index_count: usize,
+    pub draw_ready: bool,
+}
+
 #[allow(dead_code)]
 impl NextCoreCachedGlyphUpload {
+    pub fn diagnostics(&self) -> NextCoreCachedGlyphUploadDiagnostics {
+        NextCoreCachedGlyphUploadDiagnostics {
+            pane_id: self.pane_id,
+            revision: self.revision,
+            cell_width_px: self.cell_width_px,
+            cell_height_px: self.cell_height_px,
+            inserted_key_count: self.update.inserted_key_indices.len(),
+            overflow_key_count: self.update.overflow_key_indices.len(),
+            texture_region_count: self.texture_update.regions.len(),
+            texture_missing_key_count: self.texture_update.missing_key_indices.len(),
+            layout_entry_count: self.upload.layout.entries.len(),
+            layout_missing_key_count: self.upload.layout.missing_key_indices.len(),
+            vertex_count: self.upload.vertices.len(),
+            index_count: self.upload.indices.len(),
+            draw_ready: self.upload.submitted
+                && !self.upload.is_empty()
+                && self.upload.missing_key_indices.is_empty(),
+        }
+    }
+
     pub fn diff_layout_against(
         &self,
         actual: &NextCoreCachedGlyphUpload,
@@ -1294,16 +1332,20 @@ impl WebGpuState {
                     NextCoreGlyphTextureUploadStats::default()
                 }
             };
+            let diagnostics = glyph_upload.diagnostics();
             log::trace!(
-                "next-core cached glyph atlas pane={} revision={} inserted={} overflow={} texture_regions={} texture_bytes={} vertices={} indices={}",
-                glyph_upload.pane_id,
-                glyph_upload.revision,
-                glyph_upload.update.inserted_key_indices.len(),
-                glyph_upload.update.overflow_key_indices.len(),
+                "next-core cached glyph atlas pane={} revision={} inserted={} overflow={} texture_regions={} texture_bytes={} layout_entries={} layout_missing={} vertices={} indices={} draw_ready={}",
+                diagnostics.pane_id,
+                diagnostics.revision,
+                diagnostics.inserted_key_count,
+                diagnostics.overflow_key_count,
                 texture_stats.region_count,
                 texture_stats.byte_count,
-                glyph_upload.upload.vertices.len(),
-                glyph_upload.upload.indices.len()
+                diagnostics.layout_entry_count,
+                diagnostics.layout_missing_key_count,
+                diagnostics.vertex_count,
+                diagnostics.index_count,
+                diagnostics.draw_ready
             );
             textured_glyph_upload = Some(glyph_upload.upload);
         }
@@ -1392,6 +1434,37 @@ mod tests {
 
         assert!(first.has_clean_layout_parity_with(&repeat));
         assert!(repeat.update.inserted_key_indices.is_empty());
+    }
+
+    #[test]
+    fn next_core_cached_upload_diagnostics_include_layout_readiness() {
+        let mut state = NextCoreGlyphAtlasState::new();
+        let plan = buffer_plan_with_text(14, 1, "ab", 2, 16, 16);
+        let glyphs = EngineWgpuRenderBackend::prepare_glyph_atlas(&plan);
+
+        let upload = state
+            .prepare_cached_upload(&plan, &glyphs, 80.0, 40.0)
+            .expect("upload");
+        let diagnostics = upload.diagnostics();
+
+        assert_eq!(
+            diagnostics,
+            NextCoreCachedGlyphUploadDiagnostics {
+                pane_id: 14,
+                revision: 1,
+                cell_width_px: 8,
+                cell_height_px: 16,
+                inserted_key_count: 2,
+                overflow_key_count: 0,
+                texture_region_count: 2,
+                texture_missing_key_count: 0,
+                layout_entry_count: 2,
+                layout_missing_key_count: 0,
+                vertex_count: 8,
+                index_count: 12,
+                draw_ready: true,
+            }
+        );
     }
 
     #[test]
