@@ -50,13 +50,21 @@ Verify an existing JSON summary without rerunning the benchmark suite:
 
 The verifier checks the required gate and benchmark names, requires every gate to pass, and exits non-zero if the summary is missing or stale in shape.
 
+Verify that next-core stays within its lightweight source/dependency/binary budget:
+
+```powershell
+.\unterm-engine\verify-next-core-size-budget.ps1
+```
+
+The size verifier checks the next-core source line budget, standalone probe line budget, direct dependency count, and debug binary size. Use `-SkipBinarySizeCheck` only when CI verifies a source snapshot without a built `target\debug\unterm-next-core.exe`.
+
 CI can use the lightweight wrapper to verify the committed summary:
 
 ```powershell
 .\ci\next-core-benchmark.ps1
 ```
 
-Use `-RunBenchmark` when the job should refresh the Markdown/JSON artifacts before verifying them.
+Use `-RunBenchmark` when the job should refresh the Markdown/JSON artifacts before verifying them. The wrapper also runs the size budget verifier unless `-SkipSizeBudget` is passed.
 
 ## Experimental MCP Engine Selector
 

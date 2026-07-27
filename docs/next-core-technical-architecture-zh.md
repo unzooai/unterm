@@ -183,6 +183,7 @@ Alpha 必须进入 core 的内容：
 
 衡量方式：
 
+- `unterm-engine/verify-next-core-size-budget.ps1` 作为可执行 size gate，默认检查 next-core 源码行数、probe/benchmark 二进制源码行数、直接依赖数量和 debug 二进制大小。
 - `cargo bloat` / binary size 每个 milestone 记录。
 - `cargo tree -e features` 每个 milestone 记录。
 - 每个新增依赖必须写清楚“替代了哪段自研复杂度”。

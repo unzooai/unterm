@@ -1,5 +1,6 @@
 param(
     [switch]$RunBenchmark,
+    [switch]$SkipSizeBudget,
     [string]$SummaryJsonPath = "",
     [string]$ReportPath = ""
 )
@@ -30,4 +31,11 @@ if ($RunBenchmark) {
     -SummaryJsonPath $SummaryJsonPath
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
+}
+
+if (-not $SkipSizeBudget) {
+    & (Join-Path $EngineDir "verify-next-core-size-budget.ps1")
+    if ($LASTEXITCODE -ne 0) {
+        exit $LASTEXITCODE
+    }
 }
