@@ -1257,6 +1257,51 @@ impl NextCoreScreen {
         self.mark_dirty_row(self.cursor_y);
     }
 
+    fn scroll_left(&mut self, count: usize) {
+        self.ensure_cursor_line();
+        let left = self.cursor_x.max(self.active_left_margin());
+        let right = self.active_right_margin();
+        if left > right {
+            return;
+        }
+        let count = count.max(1).min(right + 1 - left);
+        let line = &mut self.lines[self.cursor_y];
+        if line.len() < right + 1 {
+            line.resize(right + 1, ScreenCell::blank(self.current_attr));
+        }
+        for idx in left..=right {
+            let source = idx + count;
+            line[idx] = if source <= right {
+                line[source].clone()
+            } else {
+                ScreenCell::blank(self.current_attr)
+            };
+        }
+        self.mark_dirty_row(self.cursor_y);
+    }
+
+    fn scroll_right(&mut self, count: usize) {
+        self.ensure_cursor_line();
+        let left = self.cursor_x.max(self.active_left_margin());
+        let right = self.active_right_margin();
+        if left > right {
+            return;
+        }
+        let count = count.max(1).min(right + 1 - left);
+        let line = &mut self.lines[self.cursor_y];
+        if line.len() < right + 1 {
+            line.resize(right + 1, ScreenCell::blank(self.current_attr));
+        }
+        for idx in (left..=right).rev() {
+            line[idx] = if idx >= left + count {
+                line[idx - count].clone()
+            } else {
+                ScreenCell::blank(self.current_attr)
+            };
+        }
+        self.mark_dirty_row(self.cursor_y);
+    }
+
     #[cfg(test)]
     fn attrs_for_viewport(&self) -> Vec<Vec<CellAttributes>> {
         self.lines
@@ -2006,8 +2051,20 @@ impl<'a> ScreenParser<'a> {
         let first = || numbers.first().copied().filter(|n| *n > 0).unwrap_or(1);
 
         match final_byte {
-            '@' => self.screen.insert_chars(first()),
-            'A' => self.screen.move_cursor_up(first()),
+            '@' => {
+                if raw_params.ends_with(' ') {
+                    self.screen.scroll_left(first());
+                } else {
+                    self.screen.insert_chars(first());
+                }
+            }
+            'A' => {
+                if raw_params.ends_with(' ') {
+                    self.screen.scroll_right(first());
+                } else {
+                    self.screen.move_cursor_up(first());
+                }
+            }
             'B' => self.screen.move_cursor_down(first()),
             'C' => self.screen.move_cursor_right(first()),
             'D' => self.screen.move_cursor_left(first()),
@@ -6896,6 +6953,59 @@ mod tests {
         );
         assert_eq!(cells[4].style.fg, Some(StyledColor::Palette(1)));
         assert_eq!(cells[5].style.fg, Some(StyledColor::Palette(1)));
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_applies_horizontal_scroll() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 10,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(session.id, "abcdefghij\x1b[1;3H\x1b[2 @\x1b[1;5H\x1b[3 A")?;
+        let screen = engine.read_screen(session.id)?;
+
+        assert_eq!(screen.lines, vec!["abef   ghi"]);
+        assert_eq!(screen.cursor.x, 4);
+        assert_eq!(screen.cursor.y, 0);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_limits_horizontal_scroll_to_margins() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 10,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(
+            session.id,
+            "0123456789\x1b[?69h\x1b[3;8s\x1b[1;4H\x1b[2 @\x1b[1;5H\x1b[1 A",
+        )?;
+        let screen = engine.read_screen(session.id)?;
+
+        assert_eq!(screen.lines, vec!["0125 67 89"]);
+        assert_eq!(screen.cursor.x, 4);
+        assert_eq!(screen.cursor.y, 0);
 
         engine.destroy_session(session.id)?;
         Ok(())
