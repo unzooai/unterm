@@ -1375,6 +1375,68 @@ mod engine_neutral_handler_tests {
     }
 
     #[test]
+    fn inactive_scrollback_export_markdown_uses_next_core_screen_engine() {
+        let _guard = env_lock().lock();
+        let previous_engine = std::env::var("UNTERM_ENGINE").ok();
+        std::env::set_var("UNTERM_ENGINE", "next-core");
+
+        let temp_root = std::env::temp_dir().join(format!(
+            "unterm-next-core-inactive-export-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time")
+                .as_nanos()
+        ));
+        let project_dir = temp_root.join("project");
+        let export_path = temp_root.join("inactive-export.md");
+        std::fs::create_dir_all(&project_dir).expect("create temp project dir");
+
+        let result: Result<(serde_json::Value, usize)> = (|| {
+            let handler = McpHandler::new();
+            let ctx = ConnectionContext::internal("handler-test");
+            let created = handler.handle(
+                &ctx,
+                "session.create",
+                &json!({
+                    "cols": 80,
+                    "rows": 6,
+                    "cwd": project_dir.display().to_string(),
+                    "command": "echo next-core-inactive-export",
+                }),
+            )?;
+            let pane_id = created["id"].as_u64().expect("session id") as usize;
+            wait_for_screen_pattern(&handler, &ctx, pane_id, "next-core-inactive-export")?;
+
+            let exported = handler.handle(
+                &ctx,
+                "session.export_markdown",
+                &json!({
+                    "pane_id": pane_id,
+                    "path": export_path.display().to_string(),
+                }),
+            )?;
+            let _ = handler.handle(&ctx, "session.destroy", &json!({ "pane_id": pane_id }));
+
+            Ok((exported, pane_id))
+        })();
+
+        match previous_engine {
+            Some(value) => std::env::set_var("UNTERM_ENGINE", value),
+            None => std::env::remove_var("UNTERM_ENGINE"),
+        }
+
+        let (exported, pane_id) = result.expect("export inactive next-core scrollback");
+        assert!(next_core().get_session(pane_id).is_err());
+        assert_eq!(exported["path"], export_path.display().to_string());
+        assert!(exported["bytes"].as_u64().unwrap_or_default() > 0);
+        assert!(exported["block_count"].as_u64().unwrap_or_default() >= 1);
+        let markdown = std::fs::read_to_string(&export_path).expect("read exported markdown");
+        assert!(markdown.contains("next-core-inactive-export"));
+        std::fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
     fn session_resize_uses_next_core_pane_id_path() {
         let _guard = env_lock().lock();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
