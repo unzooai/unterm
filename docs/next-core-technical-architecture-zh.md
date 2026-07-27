@@ -223,7 +223,8 @@ next-core 已经在 screen/parser 方向具备基础能力，包括：
 - `EngineWgpuRenderPassPlan` 已固定最小 indexed draw-pass 契约，`EngineWgpuRenderBackend::encode_pass` 可以把已上传 buffer 写入真实 `wgpu::CommandEncoder`，重复 revision/空帧不会产生 draw
 - `EngineWgpuPipelineConfig`、next-core GPU vertex layout 和最小 WGSL shader 已固定 solid-color quad pipeline ABI；背景/文本/光标顶点携带 RGBA，窗口接入时通过 viewport 尺寸转换为 clip-space，字体 atlas 仍留给后续独立步骤
 - `WebGpuState` 已在设备初始化时缓存 next-core solid-quad backend/pipeline，与现有 legacy pipeline 并存；后续 pane 绘制只需提交 commit buffers，不需要每帧创建 shader/pipeline
-- `WebGpuState::encode_next_core_upload` 已把 next-core GPU upload plan、缓存 pipeline 和 `wgpu::CommandEncoder` 串成一个 GUI 侧调用点；当前 legacy draw loop 仍保持不变，下一步再接具体 pane 分支
+- `WebGpuState::encode_next_core_upload` 已把 next-core GPU upload plan、缓存 pipeline 和 `wgpu::CommandEncoder` 串成一个 GUI 侧调用点；当前 legacy draw loop 仍保持不变
+- `WebGpuState::encode_next_core_buffer_plan` 已把 render buffer plan、当前 viewport 尺寸、viewport-to-clip 转换和缓存 pipeline 串成更高层 GUI 入口；下一步接具体 pane 分支时不需要在 draw loop 里散落 upload/pass 细节
 - JSON probe smoke 已输出并校验 render draw/geometry/submission/commit plan 的 revision、run/quad counts、viewport、damage rects、cursor state 和首帧 full-repaint state，让 renderer 输入契约进入 CI 可见面
 - benchmark 已覆盖 input write、key-to-screen、input burst under output、echo、paste、output flood、scrollback paging、viewport scroll、screen-read under flood、render-frame empty/dirty/cursor-move delta、render draw plan、render geometry plan、render submission plan、render commit plan API、focus/session lifecycle
 - zero-width combining marks attach to preceding visible cells without advancing cursor position

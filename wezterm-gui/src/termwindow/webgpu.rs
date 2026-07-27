@@ -1,4 +1,7 @@
-use crate::engine::{EngineRenderGpuUploadPlan, EngineWgpuPipelineConfig, EngineWgpuRenderBackend};
+use crate::engine::{
+    EngineRenderBufferPlan, EngineRenderGpuUploadPlan, EngineWgpuPipelineConfig,
+    EngineWgpuRenderBackend,
+};
 use crate::quad::Vertex;
 use anyhow::anyhow;
 use config::{ConfigHandle, GpuInfo, WebGpuPowerPreference};
@@ -575,6 +578,24 @@ impl WebGpuState {
             &buffers,
             &pass,
         )
+    }
+
+    #[allow(dead_code)]
+    pub fn encode_next_core_buffer_plan(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::TextureView,
+        plan: &EngineRenderBufferPlan,
+        clear_color: Option<[f64; 4]>,
+    ) -> bool {
+        let dimensions = self.dimensions.borrow();
+        let upload = EngineWgpuRenderBackend::prepare_upload_for_viewport(
+            plan,
+            dimensions.pixel_width.max(1) as f32,
+            dimensions.pixel_height.max(1) as f32,
+        );
+        drop(dimensions);
+        self.encode_next_core_upload(encoder, target, &upload, clear_color)
     }
 
     #[allow(unused_mut)]

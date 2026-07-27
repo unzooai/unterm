@@ -417,6 +417,7 @@ Supported:
 - `EngineWgpuPipelineConfig`, next-core GPU vertex layout, viewport-to-clip upload path, and minimal WGSL shader ABI for solid-color quads before glyph atlas/text rendering lands
 - cached next-core solid-quad backend/pipeline in `WebGpuState`, sharing the existing WebGPU device lifetime and avoiding per-frame pipeline creation
 - `WebGpuState::encode_next_core_upload`, a GUI-side bridge from prepared next-core upload plans to encoded wgpu render passes while the legacy draw loop remains the default path
+- `WebGpuState::encode_next_core_buffer_plan`, a higher-level GUI bridge that consumes render buffer plans directly, applies current viewport dimensions, and keeps next-core upload/pass setup out of the future pane draw branch
 - `session.list`
 - `session.input`
 - `screen.text`
