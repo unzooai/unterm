@@ -8,6 +8,7 @@ use super::{
     CommandListRenderBackend, EngineRenderBackend, EngineRenderBufferPlan, RenderCellMetrics,
     RenderCommitPlan, RenderConsumerState, RenderRect, ScreenEngine,
 };
+use crate::engine::render_backend::EngineWgpuPreparedFrameDiagnostics;
 use std::collections::HashMap;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -45,6 +46,31 @@ pub enum EngineRenderBufferReadinessIssue {
     CommitNotSubmitted,
     BufferNotSubmitted,
     EmptyBuffer,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
+pub struct EngineRenderPaneReplaceDiagnostics {
+    pub requested: bool,
+    pub pane_id: Option<usize>,
+    pub revision: Option<u64>,
+    pub batch_present: bool,
+    pub batch_ready: bool,
+    pub batch_readiness_issue_count: usize,
+    pub prepared_frame_present: bool,
+    pub prepared_frame_ready: bool,
+    pub prepared_frame_readiness_issue_count: usize,
+    pub replace_ready: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
+pub enum EngineRenderPaneReplaceReadinessIssue {
+    NotRequested,
+    MissingBufferBatch,
+    BufferBatchNotReady,
+    MissingPreparedFrame,
+    PreparedFrameNotReady,
 }
 
 #[derive(Clone, Debug)]
@@ -131,6 +157,53 @@ impl EngineRenderBufferBatch {
 
     pub fn is_draw_ready(&self) -> bool {
         self.readiness_issues().is_empty()
+    }
+}
+
+#[allow(dead_code)]
+impl EngineRenderPaneReplaceDiagnostics {
+    pub fn from_parts(
+        requested: bool,
+        batch: Option<&EngineRenderBufferBatch>,
+        prepared_frame: Option<&EngineWgpuPreparedFrameDiagnostics>,
+    ) -> Self {
+        let batch_ready = batch.is_some_and(|batch| batch.is_draw_ready());
+        let batch_readiness_issue_count = batch.map_or(0, |batch| batch.readiness_issues().len());
+        let prepared_frame_ready =
+            prepared_frame.is_some_and(|diagnostics| diagnostics.replace_ready);
+        let prepared_frame_readiness_issue_count =
+            prepared_frame.map_or(0, |diagnostics| usize::from(!diagnostics.replace_ready));
+
+        Self {
+            requested,
+            pane_id: batch.map(|batch| batch.pane_id),
+            revision: batch.map(|batch| batch.stats.revision),
+            batch_present: batch.is_some(),
+            batch_ready,
+            batch_readiness_issue_count,
+            prepared_frame_present: prepared_frame.is_some(),
+            prepared_frame_ready,
+            prepared_frame_readiness_issue_count,
+            replace_ready: requested && batch_ready && prepared_frame_ready,
+        }
+    }
+
+    pub fn readiness_issues(&self) -> Vec<EngineRenderPaneReplaceReadinessIssue> {
+        let mut issues = Vec::new();
+        if !self.requested {
+            issues.push(EngineRenderPaneReplaceReadinessIssue::NotRequested);
+        }
+        if !self.batch_present {
+            issues.push(EngineRenderPaneReplaceReadinessIssue::MissingBufferBatch);
+        } else if !self.batch_ready {
+            issues.push(EngineRenderPaneReplaceReadinessIssue::BufferBatchNotReady);
+        }
+        if !self.prepared_frame_present {
+            issues.push(EngineRenderPaneReplaceReadinessIssue::MissingPreparedFrame);
+        } else if !self.prepared_frame_ready {
+            issues.push(EngineRenderPaneReplaceReadinessIssue::PreparedFrameNotReady);
+        }
+        issues
     }
 }
 

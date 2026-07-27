@@ -26,13 +26,15 @@ pub use render_backend::{
     EngineRenderTexturedGlyphLayoutEntry, EngineRenderTexturedGlyphLayoutIdentity,
     EngineRenderTexturedGlyphLayoutMismatch, EngineRenderTexturedGlyphLayoutReport,
     EngineRenderTexturedGlyphUploadPlan, EngineRenderTexturedGlyphVertex, EngineRenderVertexLayer,
-    EngineWgpuPipelineConfig, EngineWgpuPreparedFramePlan, EngineWgpuRenderBackend,
-    EngineWgpuRenderPassPlan, EngineWgpuTexturedGlyphBuffers, EngineWgpuTexturedGlyphPassPlan,
+    EngineWgpuPipelineConfig, EngineWgpuPreparedFrameDiagnostics, EngineWgpuPreparedFramePlan,
+    EngineWgpuPreparedFrameReadinessIssue, EngineWgpuRenderBackend, EngineWgpuRenderPassPlan,
+    EngineWgpuTexturedGlyphBuffers, EngineWgpuTexturedGlyphPassPlan,
 };
 #[allow(unused_imports)]
 pub use render_consumer::{
     EngineRenderBufferBatch, EngineRenderCommitBatch, EngineRenderCommitStats,
-    EngineRenderConsumer, EngineRenderConsumerSet,
+    EngineRenderConsumer, EngineRenderConsumerSet, EngineRenderPaneReplaceDiagnostics,
+    EngineRenderPaneReplaceReadinessIssue,
 };
 
 #[allow(unused_imports)]
@@ -206,9 +208,10 @@ mod tests {
         CurrentTerminalEngine, EngineRenderBackend, EngineRenderBackendCommand,
         EngineRenderBufferBatch, EngineRenderBufferPlan, EngineRenderConsumer,
         EngineRenderConsumerSet, EngineRenderGpuUploadPlan, EngineRenderGpuVertex,
-        EngineRenderVertexLayer, EngineWgpuPipelineConfig, EngineWgpuRenderBackend,
-        EngineWgpuRenderPassPlan, LaunchPolicySnapshot, RenderCellMetrics, RenderConsumerState,
-        ScreenEngine, SessionEngine,
+        EngineRenderPaneReplaceDiagnostics, EngineRenderPaneReplaceReadinessIssue,
+        EngineRenderVertexLayer, EngineWgpuPipelineConfig, EngineWgpuPreparedFrameDiagnostics,
+        EngineWgpuRenderBackend, EngineWgpuRenderPassPlan, LaunchPolicySnapshot, RenderCellMetrics,
+        RenderConsumerState, ScreenEngine, SessionEngine,
     };
 
     #[test]
@@ -490,6 +493,32 @@ mod tests {
         assert!(repeat.buffer_plan.indices.is_empty());
         assert!(!repeat.is_draw_ready());
         assert_eq!(repeat.readiness_issues().len(), 3);
+        let missing_frame =
+            EngineRenderPaneReplaceDiagnostics::from_parts(true, Some(&first), None);
+        assert!(!missing_frame.replace_ready);
+        assert_eq!(
+            missing_frame.readiness_issues(),
+            vec![EngineRenderPaneReplaceReadinessIssue::MissingPreparedFrame]
+        );
+        let not_requested = EngineRenderPaneReplaceDiagnostics::from_parts(
+            false,
+            Some(&first),
+            Some(&EngineWgpuPreparedFrameDiagnostics {
+                pane_id: first.pane_id,
+                submitted: true,
+                revision: first.stats.revision,
+                solid_vertex_count: first.buffer_plan.vertices.len(),
+                solid_index_count: first.buffer_plan.indices.len(),
+                text_run_count: first.buffer_plan.text_runs.len(),
+                glyph_key_count: 0,
+                glyph_instance_count: 0,
+                replace_ready: true,
+            }),
+        );
+        assert_eq!(
+            not_requested.readiness_issues(),
+            vec![EngineRenderPaneReplaceReadinessIssue::NotRequested]
+        );
         engine
             .destroy_session(session.id)
             .expect("destroy next-core test session");
