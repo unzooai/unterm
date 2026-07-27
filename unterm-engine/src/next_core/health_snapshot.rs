@@ -1,11 +1,11 @@
-use super::{activity::SessionIoActivity, lifecycle, session_registry, NextCoreState};
+use super::{activity::SessionIoActivity, lifecycle, session_registry, NextCoreRuntime};
 use crate::{EngineHealthSnapshot, EngineIoHealthSnapshot, EngineLifecycleHealthSnapshot};
 
 pub(super) fn current() -> EngineHealthSnapshot {
     session_registry::with_current_state_mut(snapshot)
 }
 
-pub(super) fn snapshot(state: &mut NextCoreState) -> EngineHealthSnapshot {
+pub(super) fn snapshot(state: &mut NextCoreRuntime) -> EngineHealthSnapshot {
     let pane_count = session_registry::pane_count(state);
     let mut io = EngineIoHealthSnapshot {
         input_writes: 0,
@@ -79,7 +79,7 @@ mod tests {
 
     #[test]
     fn empty_state_reports_ready_health() {
-        let mut state = NextCoreState::default();
+        let mut state = NextCoreRuntime::default();
 
         let health = snapshot(&mut state);
 

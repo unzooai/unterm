@@ -76,6 +76,18 @@ unterm-product
 | 字体 | `cosmic-text` / `swash` / `fontdb` 评估后选择 | 避免自研 shaping/fallback，控制 CJK/emoji 风险 |
 | UI 窗口 | 先选最小可控 event loop | IME、剪贴板、输入延迟、窗口生命周期比 UI 框架华丽度更重要 |
 
+实现原则：新内核不是基于 WezTerm 内核继续裁剪，而是基于 Rust 的独立 runtime 边界实现；只在 PTY、VT parser、Unicode/font/GPU 这类成熟底层能力上复用小而稳定的开源组件。Unterm 自己掌控会直接影响体验的部分：session/pane runtime、输入粘贴、screen grid、scrollback ring、dirty snapshot、MCP 读取和 renderer contract。
+
+性能保证不是等实现完再优化，而是从接口设计开始约束：
+
+- 输入热路径只允许内存计算和 bounded writer queue，不能做目录扫描、agent 状态刷新、磁盘读写或 UI chrome 重算。
+- 输出热路径把 PTY read、VT parse、screen mutation、render wakeup 分层，output flood 只合并 dirty range，不按 chunk 触发完整重绘。
+- 滚动只移动 logical viewport，不能扫描全量 scrollback；PageUp/PageDown、滚轮、搜索跳转和 MCP goto 共用同一模型。
+- 渲染器只消费 commit plan，常规帧走 dirty rows/cells，首帧、resize 或 revision gap 才强制 full repaint。
+- MCP screen read 读取稳定快照，不阻塞 UI frame，也不反向持有 renderer 状态。
+- benchmark 必须覆盖 key-to-screen、input burst under output、paste chunk、output flood、scrollback paging、viewport scroll、screen-read under flood、render commit plan。
+- size gate 和 dependency review 必须持续运行；新增依赖必须证明它替代了更高风险的自研复杂度，不能把产品 UI、agent cockpit、Web Settings 或 legacy 兼容塞进 core。
+
 ## 5. 关键实现路径
 
 ### 5.1 输入路径
@@ -303,7 +315,7 @@ next-core 已经在 screen/parser 方向具备基础能力，包括：
 - `next_core/session_handles.rs` 已开始集中 handle projection 和常用 current-handle state 读锁入口，并通过 session registry 的只读 lookup 复用 screen/activity/scrollback/input/query/必需录制/可选录制 current handles，让 screen/input/recording/shell/scrollback/query 路径不再反复手写全局状态查找，后续可逐步替换为独立 session registry/runtime
 - `next_core/session_output.rs` 已拆出单个 PTY 文本 chunk 的 output buffer append、screen feed、terminal query response、activity 记账和 recording append，并把 input/terminal-response/recording stats 写入 output activity snapshot，让 session runtime 的 reader loop 不再直接编排输出热路径
 - `next_core/session_queries.rs` 已拆出 shell snapshot、raw output 和 bracketed paste 状态读取，集中 screen cwd/process cwd fallback 与只读 current-handle lookup，让 NextCoreEngine facade 不再经由私有 wrapper 读取 session 内部结构
-- `next_core/session_registry.rs` 已开始集中 session store newtype 及其 len/iter/lookup/push/remove 方法、session id 分配、created/destroyed/marked-dead lifecycle stats、active session 切换、destroy 记账、current 读/写 state 边界和 current session mutation 边界，让 SessionEngine 后续可替换为独立 registry/runtime 边界
+- `next_core/session_registry.rs` 已开始集中 session store newtype 及其 len/iter/lookup/push/remove 方法、session id 分配、created/destroyed/marked-dead lifecycle stats、active session 切换、destroy 记账、`NextCoreRuntime` registry 容器、current runtime 读/写边界和 current session mutation 边界，让 SessionEngine 后续可替换为独立 registry/runtime 边界
 - `next_core/session_runtime.rs` 已开始集中 PTY sizing、session spawn、reader thread wiring 和 resize runtime mutation，并通过 session registry current session mutation 边界执行 resize，让 SessionEngine 不再直接同时操作 PTY master、reader/output/screen/activity/recording wiring、session snapshot 和 screen grid
 - `next_core/test_support.rs` 已拆出测试专用的 state reset、output 注入、dead marker、activity reset、screen handle 和 viewport attribute probe，并通过 session registry current state/lookup 边界访问测试 session，让 next_core 主体不再承载测试夹具逻辑
 - `next_core/session_snapshots.rs` 已拆出 list/get/base-clone session snapshot 组装、liveness refresh 记账、screen-derived title/cursor/cwd 更新和 current 全局 state lock 入口，并通过 session registry 的计数/遍历/只读 lookup 获取列表与 split 来源，让 SessionEngine::list_sessions/get_session 和 split 来源读取不再持有运行时查询细节

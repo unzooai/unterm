@@ -1,5 +1,6 @@
 use super::{
-    activity::SessionIoActivity, session_registry, NextCoreRecording, NextCoreScreen, NextCoreState,
+    activity::SessionIoActivity, session_registry, NextCoreRecording, NextCoreRuntime,
+    NextCoreScreen,
 };
 use crate::ShellSnapshot;
 use anyhow::Result;
@@ -33,7 +34,7 @@ pub(super) struct ScrollbackHandles {
     pub(super) rows: usize,
 }
 
-pub(super) fn output(state: &NextCoreState, pane_id: usize) -> Result<Arc<Mutex<String>>> {
+pub(super) fn output(state: &NextCoreRuntime, pane_id: usize) -> Result<Arc<Mutex<String>>> {
     Ok(Arc::clone(
         &session_registry::session(state, pane_id)?.output,
     ))
@@ -43,7 +44,10 @@ pub(super) fn output_current(pane_id: usize) -> Result<Arc<Mutex<String>>> {
     session_registry::with_current_state(|state| output(state, pane_id))
 }
 
-pub(super) fn screen(state: &NextCoreState, pane_id: usize) -> Result<Arc<Mutex<NextCoreScreen>>> {
+pub(super) fn screen(
+    state: &NextCoreRuntime,
+    pane_id: usize,
+) -> Result<Arc<Mutex<NextCoreScreen>>> {
     Ok(Arc::clone(
         &session_registry::session(state, pane_id)?.screen,
     ))
@@ -54,7 +58,7 @@ pub(super) fn screen_current(pane_id: usize) -> Result<Arc<Mutex<NextCoreScreen>
 }
 
 pub(super) fn activity(
-    state: &NextCoreState,
+    state: &NextCoreRuntime,
     pane_id: usize,
 ) -> Result<Arc<Mutex<SessionIoActivity>>> {
     Ok(Arc::clone(
@@ -67,7 +71,7 @@ pub(super) fn activity_current(pane_id: usize) -> Result<Arc<Mutex<SessionIoActi
 }
 
 pub(super) fn screen_activity(
-    state: &NextCoreState,
+    state: &NextCoreRuntime,
     pane_id: usize,
 ) -> Result<(Arc<Mutex<NextCoreScreen>>, Arc<Mutex<SessionIoActivity>>)> {
     let session = session_registry::session(state, pane_id)?;
@@ -80,7 +84,7 @@ pub(super) fn screen_activity_current(
     session_registry::with_current_state(|state| screen_activity(state, pane_id))
 }
 
-pub(super) fn input(state: &NextCoreState, pane_id: usize) -> Result<InputHandles> {
+pub(super) fn input(state: &NextCoreRuntime, pane_id: usize) -> Result<InputHandles> {
     let session = session_registry::session(state, pane_id)?;
     let screen = session.screen.lock();
     Ok(InputHandles {
@@ -95,7 +99,7 @@ pub(super) fn input_current(pane_id: usize) -> Result<InputHandles> {
     session_registry::with_current_state(|state| input(state, pane_id))
 }
 
-pub(super) fn shell(state: &NextCoreState, pane_id: usize) -> Result<ShellHandles> {
+pub(super) fn shell(state: &NextCoreRuntime, pane_id: usize) -> Result<ShellHandles> {
     let session = session_registry::session(state, pane_id)?;
     Ok(ShellHandles {
         shell: session.snapshot.shell.clone(),
@@ -108,7 +112,7 @@ pub(super) fn shell_current(pane_id: usize) -> Result<ShellHandles> {
     session_registry::with_current_state(|state| shell(state, pane_id))
 }
 
-pub(super) fn scrollback(state: &NextCoreState, pane_id: usize) -> Result<ScrollbackHandles> {
+pub(super) fn scrollback(state: &NextCoreRuntime, pane_id: usize) -> Result<ScrollbackHandles> {
     let session = session_registry::session(state, pane_id)?;
     Ok(ScrollbackHandles {
         screen: Arc::clone(&session.screen),
@@ -123,7 +127,7 @@ pub(super) fn scrollback_current(pane_id: usize) -> Result<ScrollbackHandles> {
     session_registry::with_current_state(|state| scrollback(state, pane_id))
 }
 
-pub(super) fn recording(state: &NextCoreState, pane_id: usize) -> Result<RecordingHandles> {
+pub(super) fn recording(state: &NextCoreRuntime, pane_id: usize) -> Result<RecordingHandles> {
     let session = session_registry::session(state, pane_id)?;
     Ok(RecordingHandles {
         recording: Arc::clone(&session.recording),
@@ -136,7 +140,7 @@ pub(super) fn recording_current(pane_id: usize) -> Result<RecordingHandles> {
 }
 
 pub(super) fn recording_optional(
-    state: &NextCoreState,
+    state: &NextCoreRuntime,
     pane_id: usize,
 ) -> Option<Arc<Mutex<Option<NextCoreRecording>>>> {
     session_registry::session(state, pane_id)
@@ -156,7 +160,7 @@ mod tests {
 
     #[test]
     fn missing_session_reports_pane_id() {
-        let err = match screen(&NextCoreState::default(), 42) {
+        let err = match screen(&NextCoreRuntime::default(), 42) {
             Ok(_) => panic!("expected missing session error"),
             Err(err) => err,
         };
@@ -166,6 +170,6 @@ mod tests {
 
     #[test]
     fn optional_recording_reports_none_for_missing_session() {
-        assert!(recording_optional(&NextCoreState::default(), 42).is_none());
+        assert!(recording_optional(&NextCoreRuntime::default(), 42).is_none());
     }
 }

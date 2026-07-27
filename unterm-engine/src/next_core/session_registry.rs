@@ -1,4 +1,4 @@
-use super::{lifecycle, state, NextCoreSession, NextCoreState};
+use super::{lifecycle, state, NextCoreRuntime, NextCoreSession};
 use anyhow::{bail, Result};
 
 #[derive(Default)]
@@ -92,7 +92,7 @@ impl SessionRegistry {
     }
 }
 
-pub(super) fn next_session_id(state: &mut NextCoreState) -> usize {
+pub(super) fn next_session_id(state: &mut NextCoreRuntime) -> usize {
     state.registry.next_session_id()
 }
 
@@ -101,12 +101,12 @@ pub(super) fn next_session_id_current() -> usize {
     next_session_id(&mut state)
 }
 
-pub(super) fn pane_count(state: &NextCoreState) -> usize {
+pub(super) fn pane_count(state: &NextCoreRuntime) -> usize {
     state.registry.len()
 }
 
 pub(super) fn for_each_session_mut(
-    state: &mut NextCoreState,
+    state: &mut NextCoreRuntime,
     mut visit: impl FnMut(&mut NextCoreSession),
 ) {
     for session in state.registry.iter_mut() {
@@ -114,12 +114,12 @@ pub(super) fn for_each_session_mut(
     }
 }
 
-pub(super) fn with_current_state<T>(visit: impl FnOnce(&NextCoreState) -> T) -> T {
+pub(super) fn with_current_state<T>(visit: impl FnOnce(&NextCoreRuntime) -> T) -> T {
     let state = state().read();
     visit(&state)
 }
 
-pub(super) fn with_current_state_mut<T>(visit: impl FnOnce(&mut NextCoreState) -> T) -> T {
+pub(super) fn with_current_state_mut<T>(visit: impl FnOnce(&mut NextCoreRuntime) -> T) -> T {
     let mut state = state().write();
     visit(&mut state)
 }
@@ -131,14 +131,14 @@ pub(super) fn with_session_mut_current<T>(
     with_current_state_mut(|state| visit(session_mut(state, pane_id)?))
 }
 
-pub(super) fn set_active(state: &mut NextCoreState, pane_id: usize) {
+pub(super) fn set_active(state: &mut NextCoreRuntime, pane_id: usize) {
     for session in state.registry.iter_mut() {
         session.snapshot.is_active = session.snapshot.id == pane_id;
     }
 }
 
 pub(super) fn session_mut(
-    state: &mut NextCoreState,
+    state: &mut NextCoreRuntime,
     pane_id: usize,
 ) -> Result<&mut NextCoreSession> {
     state
@@ -147,14 +147,14 @@ pub(super) fn session_mut(
         .ok_or_else(|| anyhow::anyhow!("next-core session {pane_id} not found"))
 }
 
-pub(super) fn session(state: &NextCoreState, pane_id: usize) -> Result<&NextCoreSession> {
+pub(super) fn session(state: &NextCoreRuntime, pane_id: usize) -> Result<&NextCoreSession> {
     state
         .registry
         .session(pane_id)
         .ok_or_else(|| anyhow::anyhow!("next-core session {pane_id} not found"))
 }
 
-pub(super) fn focus(state: &mut NextCoreState, pane_id: usize) -> Result<()> {
+pub(super) fn focus(state: &mut NextCoreRuntime, pane_id: usize) -> Result<()> {
     if !state.registry.contains(pane_id) {
         bail!("next-core session {pane_id} not found");
     }
@@ -167,7 +167,7 @@ pub(super) fn focus_current(pane_id: usize) -> Result<()> {
     focus(&mut state, pane_id)
 }
 
-pub(super) fn insert_created(state: &mut NextCoreState, session: NextCoreSession) {
+pub(super) fn insert_created(state: &mut NextCoreRuntime, session: NextCoreSession) {
     let id = session.snapshot.id;
     set_active(state, id);
     state.registry.push(session);
@@ -178,7 +178,7 @@ pub(super) fn insert_created_current(session: NextCoreSession) {
     insert_created(&mut state, session);
 }
 
-pub(super) fn destroy(state: &mut NextCoreState, pane_id: usize) -> Result<()> {
+pub(super) fn destroy(state: &mut NextCoreRuntime, pane_id: usize) -> Result<()> {
     let Some(mut session) = state.registry.remove(pane_id) else {
         bail!("next-core session {pane_id} not found");
     };
@@ -206,11 +206,11 @@ pub(super) fn destroy_current(pane_id: usize) -> Result<()> {
     destroy(&mut state, pane_id)
 }
 
-pub(super) fn record_dead_reason(state: &mut NextCoreState, reason: String) {
+pub(super) fn record_dead_reason(state: &mut NextCoreRuntime, reason: String) {
     state.registry.record_marked_dead(reason);
 }
 
-pub(super) fn stats(state: &NextCoreState) -> SessionRegistryStats {
+pub(super) fn stats(state: &NextCoreRuntime) -> SessionRegistryStats {
     state.registry.stats()
 }
 
@@ -220,7 +220,7 @@ mod tests {
 
     #[test]
     fn allocates_session_ids_from_one() {
-        let mut state = NextCoreState::default();
+        let mut state = NextCoreRuntime::default();
 
         assert_eq!(next_session_id(&mut state), 1);
         assert_eq!(next_session_id(&mut state), 2);
@@ -228,7 +228,7 @@ mod tests {
 
     #[test]
     fn pane_count_reports_empty_registry() {
-        let state = NextCoreState::default();
+        let state = NextCoreRuntime::default();
 
         assert_eq!(pane_count(&state), 0);
     }
@@ -282,7 +282,7 @@ mod tests {
 
     #[test]
     fn focus_reports_missing_session() {
-        let mut state = NextCoreState::default();
+        let mut state = NextCoreRuntime::default();
 
         let err = focus(&mut state, 7).unwrap_err();
 
@@ -291,7 +291,7 @@ mod tests {
 
     #[test]
     fn session_mut_reports_missing_session() {
-        let mut state = NextCoreState::default();
+        let mut state = NextCoreRuntime::default();
 
         let err = match session_mut(&mut state, 9) {
             Ok(_) => panic!("expected missing session error"),
@@ -303,7 +303,7 @@ mod tests {
 
     #[test]
     fn session_reports_missing_session() {
-        let state = NextCoreState::default();
+        let state = NextCoreRuntime::default();
 
         let err = match session(&state, 10) {
             Ok(_) => panic!("expected missing session error"),

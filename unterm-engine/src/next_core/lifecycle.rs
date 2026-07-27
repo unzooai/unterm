@@ -1,4 +1,4 @@
-use super::{session_registry, NextCoreSession, NextCoreState};
+use super::{session_registry, NextCoreRuntime, NextCoreSession};
 use std::sync::atomic::Ordering;
 
 pub(super) fn refresh_liveness(session: &mut NextCoreSession) -> Option<String> {
@@ -30,7 +30,7 @@ pub(super) fn refresh_liveness(session: &mut NextCoreSession) -> Option<String> 
     None
 }
 
-pub(super) fn record_dead_reason(state: &mut NextCoreState, reason: String) {
+pub(super) fn record_dead_reason(state: &mut NextCoreRuntime, reason: String) {
     session_registry::record_dead_reason(state, reason);
 }
 
@@ -58,7 +58,7 @@ mod tests {
 
     #[test]
     fn records_dead_reason_counters() {
-        let mut state = NextCoreState::default();
+        let mut state = NextCoreRuntime::default();
 
         record_dead_reason(&mut state, "reader_eof".to_string());
 

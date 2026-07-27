@@ -1,12 +1,12 @@
 use super::{
     activity::SessionIoActivity, recording_output, session_registry, CellAttributes,
-    NextCoreScreen, NextCoreState,
+    NextCoreRuntime, NextCoreScreen,
 };
 use anyhow::Result;
 use std::{sync::atomic::Ordering, sync::Arc, time::Instant};
 
 pub(super) fn reset_state_for_test() {
-    session_registry::with_current_state_mut(|state| *state = NextCoreState::default());
+    session_registry::with_current_state_mut(|state| *state = NextCoreRuntime::default());
 }
 
 pub(super) fn set_output_for_test(pane_id: usize, text: &str) -> Result<()> {

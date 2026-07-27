@@ -1,5 +1,5 @@
 #[cfg(test)]
-use super::NextCoreState;
+use super::NextCoreRuntime;
 use super::{
     activity::SessionIoActivity, launch, pty_io, session_defaults, session_output,
     session_registry, NextCoreRecording, NextCoreScreen, NextCoreSession,
@@ -24,7 +24,7 @@ pub(super) fn pty_size(cols: usize, rows: usize) -> PtySize {
 
 #[cfg(test)]
 pub(super) fn resize(
-    state: &mut NextCoreState,
+    state: &mut NextCoreRuntime,
     pane_id: usize,
     cols: usize,
     rows: usize,
@@ -181,7 +181,7 @@ mod tests {
 
     #[test]
     fn resize_reports_missing_session() {
-        let mut state = NextCoreState::default();
+        let mut state = NextCoreRuntime::default();
         let err = resize(&mut state, 42, 80, 24).expect_err("missing session should fail");
 
         assert!(err.to_string().contains("next-core session 42 not found"));

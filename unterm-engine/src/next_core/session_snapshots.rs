@@ -1,4 +1,4 @@
-use super::{lifecycle, process_tree, session_registry, NextCoreSession, NextCoreState};
+use super::{lifecycle, process_tree, session_registry, NextCoreRuntime, NextCoreSession};
 use crate::SessionSnapshot;
 use anyhow::Result;
 
@@ -10,7 +10,7 @@ pub(super) fn get_current(pane_id: usize) -> Result<SessionSnapshot> {
     session_registry::with_current_state_mut(|state| get(state, pane_id))
 }
 
-pub(super) fn list(state: &mut NextCoreState) -> Vec<SessionSnapshot> {
+pub(super) fn list(state: &mut NextCoreRuntime) -> Vec<SessionSnapshot> {
     let mut snapshots = Vec::with_capacity(session_registry::pane_count(state));
     let mut dead_reasons = Vec::new();
     session_registry::for_each_session_mut(state, |session| {
@@ -26,14 +26,14 @@ pub(super) fn list(state: &mut NextCoreState) -> Vec<SessionSnapshot> {
     snapshots
 }
 
-pub(super) fn get(state: &mut NextCoreState, pane_id: usize) -> Result<SessionSnapshot> {
+pub(super) fn get(state: &mut NextCoreRuntime, pane_id: usize) -> Result<SessionSnapshot> {
     list(state)
         .into_iter()
         .find(|session| session.id == pane_id)
         .ok_or_else(|| anyhow::anyhow!("next-core session {pane_id} not found"))
 }
 
-pub(super) fn clone_base(state: &NextCoreState, pane_id: usize) -> Result<SessionSnapshot> {
+pub(super) fn clone_base(state: &NextCoreRuntime, pane_id: usize) -> Result<SessionSnapshot> {
     Ok(session_registry::session(state, pane_id)?.snapshot.clone())
 }
 
@@ -68,14 +68,14 @@ mod tests {
 
     #[test]
     fn list_empty_state_has_no_snapshots() {
-        let mut state = NextCoreState::default();
+        let mut state = NextCoreRuntime::default();
 
         assert!(list(&mut state).is_empty());
     }
 
     #[test]
     fn get_reports_missing_session() {
-        let mut state = NextCoreState::default();
+        let mut state = NextCoreRuntime::default();
         let err = get(&mut state, 88).expect_err("missing session should fail");
 
         assert!(err.to_string().contains("next-core session 88 not found"));
@@ -83,7 +83,7 @@ mod tests {
 
     #[test]
     fn clone_base_reports_missing_session() {
-        let state = NextCoreState::default();
+        let state = NextCoreRuntime::default();
         let err = clone_base(&state, 77).expect_err("missing source session should fail");
 
         assert!(err.to_string().contains("next-core session 77 not found"));
