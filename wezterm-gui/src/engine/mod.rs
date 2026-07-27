@@ -22,10 +22,12 @@ pub use render_backend::{
     EngineRenderGlyphAtlasTextureRegion, EngineRenderGlyphAtlasTextureUpdatePlan,
     EngineRenderGlyphRasterSource, EngineRenderGpuUploadPlan, EngineRenderGpuVertex,
     EngineRenderShapedGlyph, EngineRenderShapedGlyphPlan, EngineRenderTextAtlasPlan,
-    EngineRenderTextAtlasRun, EngineRenderTexturedGlyphUploadPlan, EngineRenderTexturedGlyphVertex,
-    EngineRenderVertexLayer, EngineWgpuPipelineConfig, EngineWgpuPreparedFramePlan,
-    EngineWgpuRenderBackend, EngineWgpuRenderPassPlan, EngineWgpuTexturedGlyphBuffers,
-    EngineWgpuTexturedGlyphPassPlan,
+    EngineRenderTextAtlasRun, EngineRenderTexturedGlyphLayoutDiff,
+    EngineRenderTexturedGlyphLayoutEntry, EngineRenderTexturedGlyphLayoutIdentity,
+    EngineRenderTexturedGlyphLayoutMismatch, EngineRenderTexturedGlyphLayoutReport,
+    EngineRenderTexturedGlyphUploadPlan, EngineRenderTexturedGlyphVertex, EngineRenderVertexLayer,
+    EngineWgpuPipelineConfig, EngineWgpuPreparedFramePlan, EngineWgpuRenderBackend,
+    EngineWgpuRenderPassPlan, EngineWgpuTexturedGlyphBuffers, EngineWgpuTexturedGlyphPassPlan,
 };
 #[allow(unused_imports)]
 pub use render_consumer::{

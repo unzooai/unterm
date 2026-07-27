@@ -236,6 +236,7 @@ next-core 已经在 screen/parser 方向具备基础能力，包括：
 - GUI textured glyph upload 已携带 layout report，逐 glyph 暴露 source rect、atlas rect、pixel/UV quad、shaping offset、bearing、前景色和缺失 placement key；后续 next-core/legacy 视觉差异工具可以直接比较 glyph layout，不需要反解 GPU vertices
 - GUI textured glyph layout report 已提供 CPU 侧 diff summary，能报告缺失、多余和布局不一致的 glyph entries；pane 替换路径在进入截图级视觉对比前，先具备自动化 glyph layout parity gate
 - GUI prepared frame plan 已暴露 textured glyph layout report/diff helpers；后续 parity check 可以直接从 pane replacement renderer 将要消费的同一个 frame-preparation object 运行
+- GUI cached next-core glyph upload 已在 pane 级 atlas-cache 输出上暴露 layout parity helpers；后续 append/replace draw modes 可以 gate 实际 cached texture-upload path，而不是只比较 pre-cache frame plan
 - `EngineRenderGlyphAtlasCache` 已提供确定性的 shelf placement，记录已插入和 overflow 的 glyph key；未来 WebGPU glyph texture 可以按 cache update 更新 atlas 区域，而不是每帧重建 placement state
 - `WebGpuState` 已持有按 pane 划分的 next-core glyph atlas state，并在 pane render consumer 清理时同步释放；glyph placement 复用现在具备跨 paint 生命周期，不再停留在单帧局部计划
 - `EngineRenderGlyphAtlasTextureUpdatePlan` 已通过 `EngineRenderGlyphRasterSource` 边界把新插入的 glyph key 转成 texture update region；默认 deterministic source 保持测试稳定，后续 GUI font raster/cache 可以提供真实 RGBA bytes，而不改变 `queue.write_texture` 上传契约

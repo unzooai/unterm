@@ -3,7 +3,8 @@ use crate::engine::{
     EngineRenderGlyphAtlasCacheUpdate, EngineRenderGlyphAtlasPlan,
     EngineRenderGlyphAtlasTextureRegion, EngineRenderGlyphAtlasTextureUpdatePlan,
     EngineRenderGlyphRasterSource, EngineRenderGpuUploadPlan, EngineRenderTextAtlasPlan,
-    EngineRenderTexturedGlyphUploadPlan, EngineWgpuPipelineConfig, EngineWgpuRenderBackend,
+    EngineRenderTexturedGlyphLayoutDiff, EngineRenderTexturedGlyphUploadPlan,
+    EngineWgpuPipelineConfig, EngineWgpuRenderBackend,
 };
 use crate::quad::Vertex;
 use anyhow::anyhow;
@@ -90,6 +91,20 @@ pub struct NextCoreCachedGlyphUpload {
     pub update: EngineRenderGlyphAtlasCacheUpdate,
     pub texture_update: EngineRenderGlyphAtlasTextureUpdatePlan,
     pub upload: EngineRenderTexturedGlyphUploadPlan,
+}
+
+#[allow(dead_code)]
+impl NextCoreCachedGlyphUpload {
+    pub fn diff_layout_against(
+        &self,
+        actual: &NextCoreCachedGlyphUpload,
+    ) -> EngineRenderTexturedGlyphLayoutDiff {
+        self.upload.layout.diff_against(&actual.upload.layout)
+    }
+
+    pub fn has_clean_layout_parity_with(&self, actual: &NextCoreCachedGlyphUpload) -> bool {
+        self.diff_layout_against(actual).is_clean()
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -1360,6 +1375,48 @@ mod tests {
         assert!(repeat.update.overflow_key_indices.is_empty());
         assert!(repeat.texture_update.is_empty());
         assert_eq!(repeat.update.placements, first.update.placements);
+    }
+
+    #[test]
+    fn next_core_cached_upload_reports_clean_layout_parity_for_repeat_upload() {
+        let mut state = NextCoreGlyphAtlasState::new();
+        let plan = buffer_plan_with_text(12, 1, "ab", 2, 16, 16);
+        let glyphs = EngineWgpuRenderBackend::prepare_glyph_atlas(&plan);
+
+        let first = state
+            .prepare_cached_upload(&plan, &glyphs, 80.0, 40.0)
+            .expect("first upload");
+        let repeat = state
+            .prepare_cached_upload(&plan, &glyphs, 80.0, 40.0)
+            .expect("repeat upload");
+
+        assert!(first.has_clean_layout_parity_with(&repeat));
+        assert!(repeat.update.inserted_key_indices.is_empty());
+    }
+
+    #[test]
+    fn next_core_cached_upload_layout_parity_reports_drift() {
+        let mut state = NextCoreGlyphAtlasState::new();
+        let expected_plan = buffer_plan_with_text(13, 1, "ab", 2, 16, 16);
+        let mut actual_plan = buffer_plan_with_text(13, 2, "ab", 2, 16, 16);
+        actual_plan.text_runs[0].col = 1;
+        actual_plan.text_runs[0].rect.x = 8;
+        let expected_glyphs = EngineWgpuRenderBackend::prepare_glyph_atlas(&expected_plan);
+        let actual_glyphs = EngineWgpuRenderBackend::prepare_glyph_atlas(&actual_plan);
+
+        let expected = state
+            .prepare_cached_upload(&expected_plan, &expected_glyphs, 80.0, 40.0)
+            .expect("expected upload");
+        let actual = state
+            .prepare_cached_upload(&actual_plan, &actual_glyphs, 80.0, 40.0)
+            .expect("actual upload");
+        let diff = expected.diff_layout_against(&actual);
+
+        assert!(!diff.is_clean());
+        assert_eq!(diff.expected_revision, 1);
+        assert_eq!(diff.actual_revision, 2);
+        assert_eq!(diff.missing_entries.len(), 2);
+        assert_eq!(diff.unexpected_entries.len(), 2);
     }
 
     #[test]
