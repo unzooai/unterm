@@ -901,6 +901,7 @@ Build benchmark harness for:
 - paste under output flood
 - output flood
 - agent startup stall
+- focus switch with session-list invariants under output flood
 - scrollback paging
 - MCP response under load
 - paint section timings

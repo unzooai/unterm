@@ -1,6 +1,6 @@
 param(
     [string]$SummaryJsonPath = "",
-    [int]$ExpectedGateCount = 31,
+    [int]$ExpectedGateCount = 34,
     [int]$ExpectedBenchmarkCount = 24,
     [switch]$SkipCommitReachabilityCheck
 )
@@ -207,6 +207,9 @@ $requiredGates = @(
     "render application cursor move full frames",
     "render application cursor move missed moves",
     "focus switch p95",
+    "focus switch active misses",
+    "focus switch missing sessions",
+    "focus switch duplicate sessions",
     "session create p95",
     "session ready p95"
 )

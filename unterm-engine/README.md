@@ -210,6 +210,14 @@ cargo run -p unterm-engine --bin unterm-next-core -- --bench-screen-read-lines 5
 
 The screen-read benchmark emits output while repeatedly reading the visible screen snapshot, mirroring the core cost behind MCP `screen.text`.
 
+Focus switch lifecycle benchmark:
+
+```powershell
+cargo run -p unterm-engine --bin unterm-next-core -- --bench-focus-switches 1000 --timeout-ms 30000 --wait-ms 100 --write "exit`r" -- cmd.exe
+```
+
+The focus-switch benchmark keeps one session streaming output while repeatedly focusing across four sessions. Each round verifies exactly one active session, no missing session ids, and no duplicate session ids, covering the lifecycle contract behind tab/taskbar switching and lost-instance regressions.
+
 ## Shell Metadata
 
 `next-core` records the launch cwd and updates `SessionEngine::shell().cwd` when the shell emits OSC 7 current-directory sequences such as:

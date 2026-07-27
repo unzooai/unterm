@@ -55,6 +55,9 @@ param(
     [int]$MaxRenderApplicationCursorMoveFullFrames = 0,
     [int]$MaxRenderApplicationCursorMoveMissedMoves = 0,
     [int]$MaxFocusSwitchP95Us = 100000,
+    [int]$MaxFocusSwitchActiveMisses = 0,
+    [int]$MaxFocusSwitchMissingSessions = 0,
+    [int]$MaxFocusSwitchDuplicateSessions = 0,
     [int]$MaxSessionCreateP95Us = 100000,
     [int]$MaxSessionReadyP95Us = 100000,
     [switch]$SkipBuild
@@ -487,6 +490,9 @@ try {
     $gates += New-Gate -GateName "render application cursor move full frames" -Actual (Get-BenchMetric -Result $renderApplicationCursorMove -LinePrefix "bench_render_application_cursor_move" -Metric "full_frames") -Max $MaxRenderApplicationCursorMoveFullFrames -Unit "frames"
     $gates += New-Gate -GateName "render application cursor move missed moves" -Actual (Get-BenchMetric -Result $renderApplicationCursorMove -LinePrefix "bench_render_application_cursor_move" -Metric "missed_moves") -Max $MaxRenderApplicationCursorMoveMissedMoves -Unit "moves"
     $gates += New-Gate -GateName "focus switch p95" -Actual (Get-BenchMetric -Result $focusSwitch -LinePrefix "bench_focus_switch" -Metric "p95_us") -Max $MaxFocusSwitchP95Us -Unit "us"
+    $gates += New-Gate -GateName "focus switch active misses" -Actual (Get-BenchMetric -Result $focusSwitch -LinePrefix "bench_focus_switch" -Metric "active_misses") -Max $MaxFocusSwitchActiveMisses -Unit "misses"
+    $gates += New-Gate -GateName "focus switch missing sessions" -Actual (Get-BenchMetric -Result $focusSwitch -LinePrefix "bench_focus_switch" -Metric "missing_sessions") -Max $MaxFocusSwitchMissingSessions -Unit "misses"
+    $gates += New-Gate -GateName "focus switch duplicate sessions" -Actual (Get-BenchMetric -Result $focusSwitch -LinePrefix "bench_focus_switch" -Metric "duplicate_sessions") -Max $MaxFocusSwitchDuplicateSessions -Unit "misses"
     $gates += New-Gate -GateName "session create p95" -Actual (Get-BenchMetric -Result $sessionCreate -LinePrefix "bench_session_create" -Metric "p95_us") -Max $MaxSessionCreateP95Us -Unit "us"
     $gates += New-Gate -GateName "session ready p95" -Actual (Get-BenchMetric -Result $sessionReady -LinePrefix "bench_session_ready" -Metric "p95_us") -Max $MaxSessionReadyP95Us -Unit "us"
 

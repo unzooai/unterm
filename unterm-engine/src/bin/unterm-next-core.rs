@@ -1812,6 +1812,8 @@ fn run_focus_switch_benchmark(
     cols: usize,
     rows: usize,
     rounds: usize,
+    poll_interval: Duration,
+    timeout: Duration,
 ) -> Result<()> {
     if rounds == 0 {
         bail!("--bench-focus-switches must be greater than 0");
@@ -1822,8 +1824,13 @@ fn run_focus_switch_benchmark(
         let session = engine.create_session(cmd_session(cols, rows))?;
         pane_ids.push(session.id);
     }
+    let flood = start_flood_stream(engine, pane_ids[1], rounds.saturating_mul(20).max(1000))?;
 
-    let result = (|| -> Result<Vec<u128>> {
+    let result = (|| -> Result<(Vec<u128>, usize, usize, usize)> {
+        let expected = pane_ids.len();
+        let mut active_misses = 0;
+        let mut missing_sessions = 0;
+        let mut duplicate_sessions = 0;
         let mut latencies_us = Vec::with_capacity(rounds);
         for idx in 0..rounds {
             let target = pane_ids[idx % pane_ids.len()];
@@ -1831,24 +1838,52 @@ fn run_focus_switch_benchmark(
             engine.focus_session(target)?;
             let focused = engine.get_session(target)?;
             if !focused.is_active {
-                bail!("focused session {target} was not marked active");
+                active_misses += 1;
+            }
+            let sessions = engine.list_sessions()?;
+            let active_count = sessions.iter().filter(|session| session.is_active).count();
+            if active_count != 1 {
+                active_misses += 1;
+            }
+            let mut listed: Vec<usize> = sessions.iter().map(|session| session.id).collect();
+            listed.sort_unstable();
+            listed.dedup();
+            if listed.len() != sessions.len() {
+                duplicate_sessions += 1;
+            }
+            if listed.len() != expected
+                || !pane_ids.iter().all(|id| listed.binary_search(id).is_ok())
+            {
+                missing_sessions += 1;
             }
             latencies_us.push(before.elapsed().as_micros());
         }
 
         latencies_us.sort_unstable();
-        Ok(latencies_us)
+        Ok((
+            latencies_us,
+            active_misses,
+            missing_sessions,
+            duplicate_sessions,
+        ))
     })();
 
+    let flood_wait = wait_for_marker(engine, pane_ids[1], &flood, poll_interval, timeout);
     for pane_id in pane_ids.iter().copied().skip(1) {
         engine.destroy_session(pane_id)?;
     }
 
-    let latencies_us = result?;
+    let (latencies_us, active_misses, missing_sessions, duplicate_sessions) = result?;
+    let (background_elapsed, background_bytes) = flood_wait?;
     println!(
-        "bench_focus_switch rounds={} sessions={} min_us={} p50_us={} p95_us={} max_us={}",
+        "bench_focus_switch rounds={} sessions={} background_bytes={} background_elapsed_ms={} active_misses={} missing_sessions={} duplicate_sessions={} min_us={} p50_us={} p95_us={} max_us={}",
         rounds,
         pane_ids.len(),
+        background_bytes,
+        background_elapsed.as_millis(),
+        active_misses,
+        missing_sessions,
+        duplicate_sessions,
         latencies_us[0],
         percentile(&latencies_us, 0.50),
         percentile(&latencies_us, 0.95),
@@ -2254,8 +2289,16 @@ fn main() -> Result<()> {
     }
 
     if let Some(rounds) = args.bench_focus_switches {
-        run_focus_switch_benchmark(&engine, session.id, args.cols, args.rows, rounds)
-            .with_context(|| format!("bench_focus_switch failed for session {}", session.id))?;
+        run_focus_switch_benchmark(
+            &engine,
+            session.id,
+            args.cols,
+            args.rows,
+            rounds,
+            Duration::from_millis(args.poll_ms),
+            Duration::from_millis(args.timeout_ms),
+        )
+        .with_context(|| format!("bench_focus_switch failed for session {}", session.id))?;
     }
 
     if let Some(rounds) = args.bench_session_create {
