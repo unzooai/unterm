@@ -590,16 +590,25 @@ fn run_render_frame_benchmark(
     engine: &unterm_engine::next_core::NextCoreEngine,
     pane_id: usize,
     rounds: usize,
+    poll_interval: Duration,
+    timeout: Duration,
 ) -> Result<()> {
     if rounds == 0 {
         bail!("--bench-render-frames must be greater than 0");
     }
 
+    let ready_marker = "RENDER_FRAME_BENCH_READY";
+    let ready_run = FloodRun {
+        marker: ready_marker.to_string(),
+        before_raw_len: engine.debug_output(pane_id)?.len(),
+        started_at: Instant::now(),
+    };
     engine.write_input(
         pane_id,
         "for /L %i in (1,1,30) do @echo RENDER_FRAME_BENCH_%i\r",
     )?;
-    std::thread::sleep(Duration::from_millis(250));
+    engine.write_input(pane_id, format!("echo {ready_marker}\r").as_str())?;
+    wait_for_marker(engine, pane_id, &ready_run, poll_interval, timeout)?;
 
     let full_before = Instant::now();
     let full = engine.read_render_frame(pane_id, None)?;
@@ -619,9 +628,56 @@ fn run_render_frame_benchmark(
         }
     }
 
+    let dirty_rounds = rounds.min(50);
+    let mut dirty_latencies_us = Vec::with_capacity(dirty_rounds);
+    let mut dirty_lines = 0usize;
+    for idx in 0..dirty_rounds {
+        let dirty_baseline = engine.read_render_frame(pane_id, None)?;
+        if !dirty_baseline.full || dirty_baseline.lines.is_empty() {
+            bail!("render frame dirty baseline was empty");
+        }
+
+        let marker = format!("RENDER_FRAME_DIRTY_{idx:04}");
+        let wait_started = Instant::now();
+        engine.write_input(pane_id, format!("echo {marker}\r").as_str())?;
+        loop {
+            let screen = engine.read_screen(pane_id)?;
+            if screen
+                .lines
+                .iter()
+                .any(|line| line.contains(marker.as_str()))
+            {
+                break;
+            }
+            if wait_started.elapsed() >= timeout {
+                bail!("timed out waiting for render-frame dirty marker {marker}");
+            }
+            std::thread::sleep(poll_interval);
+        }
+
+        let before = Instant::now();
+        let frame = engine.read_render_frame(pane_id, Some(dirty_baseline.revision))?;
+        dirty_latencies_us.push(before.elapsed().as_micros());
+        if frame.revision <= dirty_baseline.revision
+            || frame.dirty_rows.is_none()
+            || frame.lines.is_empty()
+        {
+            bail!(
+                "render frame dirty snapshot did not include changed dirty lines: previous_revision={} revision={} full={} dirty_rows={:?} lines={}",
+                dirty_baseline.revision,
+                frame.revision,
+                frame.full,
+                frame.dirty_rows,
+                frame.lines.len()
+            );
+        }
+        dirty_lines += frame.lines.len();
+    }
+
     latencies_us.sort_unstable();
+    dirty_latencies_us.sort_unstable();
     println!(
-        "bench_render_frame rounds={} full_us={} full_lines={} empty_deltas={} min_us={} p50_us={} p95_us={} max_us={}",
+        "bench_render_frame rounds={} full_us={} full_lines={} empty_deltas={} min_us={} p50_us={} p95_us={} max_us={} dirty_rounds={} dirty_lines={} dirty_min_us={} dirty_p50_us={} dirty_p95_us={} dirty_max_us={}",
         rounds,
         full_us,
         full.lines.len(),
@@ -629,7 +685,13 @@ fn run_render_frame_benchmark(
         latencies_us[0],
         percentile(&latencies_us, 0.50),
         percentile(&latencies_us, 0.95),
-        *latencies_us.last().unwrap_or(&0)
+        *latencies_us.last().unwrap_or(&0),
+        dirty_rounds,
+        dirty_lines,
+        dirty_latencies_us[0],
+        percentile(&dirty_latencies_us, 0.50),
+        percentile(&dirty_latencies_us, 0.95),
+        *dirty_latencies_us.last().unwrap_or(&0)
     );
     Ok(())
 }
@@ -1345,8 +1407,14 @@ fn main() -> Result<()> {
     }
 
     if let Some(rounds) = args.bench_render_frames {
-        run_render_frame_benchmark(&engine, session.id, rounds)
-            .with_context(|| format!("bench_render_frame failed for session {}", session.id))?;
+        run_render_frame_benchmark(
+            &engine,
+            session.id,
+            rounds,
+            Duration::from_millis(args.poll_ms),
+            Duration::from_millis(args.timeout_ms),
+        )
+        .with_context(|| format!("bench_render_frame failed for session {}", session.id))?;
     }
 
     if let Some(rounds) = args.bench_focus_switches {

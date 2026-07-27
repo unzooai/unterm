@@ -1,6 +1,6 @@
 param(
     [string]$SummaryJsonPath = "",
-    [int]$ExpectedGateCount = 15,
+    [int]$ExpectedGateCount = 16,
     [int]$ExpectedBenchmarkCount = 16,
     [switch]$SkipCommitReachabilityCheck
 )
@@ -87,6 +87,7 @@ $requiredGates = @(
     "viewport scroll under flood p95",
     "screen read under flood p95",
     "render frame p95",
+    "render dirty frame p95",
     "focus switch p95",
     "session create p95",
     "session ready p95"

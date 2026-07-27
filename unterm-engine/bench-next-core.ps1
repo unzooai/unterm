@@ -30,6 +30,7 @@ param(
     [int]$MaxViewportScrollFloodP95Us = 50000,
     [int]$MaxScreenReadFloodP95Us = 50000,
     [int]$MaxRenderFrameP95Us = 1000,
+    [int]$MaxRenderDirtyFrameP95Us = 1000,
     [int]$MaxFocusSwitchP95Us = 100000,
     [int]$MaxSessionCreateP95Us = 100000,
     [int]$MaxSessionReadyP95Us = 100000,
@@ -290,6 +291,7 @@ try {
     $gates += New-Gate -GateName "viewport scroll under flood p95" -Actual (Get-BenchMetric -Result $viewportScrollFlood -LinePrefix "bench_viewport_scroll_flood" -Metric "p95_us") -Max $MaxViewportScrollFloodP95Us -Unit "us"
     $gates += New-Gate -GateName "screen read under flood p95" -Actual (Get-BenchMetric -Result $screenRead -LinePrefix "bench_screen_read_flood" -Metric "p95_us") -Max $MaxScreenReadFloodP95Us -Unit "us"
     $gates += New-Gate -GateName "render frame p95" -Actual (Get-BenchMetric -Result $renderFrame -LinePrefix "bench_render_frame" -Metric "p95_us") -Max $MaxRenderFrameP95Us -Unit "us"
+    $gates += New-Gate -GateName "render dirty frame p95" -Actual (Get-BenchMetric -Result $renderFrame -LinePrefix "bench_render_frame" -Metric "dirty_p95_us") -Max $MaxRenderDirtyFrameP95Us -Unit "us"
     $gates += New-Gate -GateName "focus switch p95" -Actual (Get-BenchMetric -Result $focusSwitch -LinePrefix "bench_focus_switch" -Metric "p95_us") -Max $MaxFocusSwitchP95Us -Unit "us"
     $gates += New-Gate -GateName "session create p95" -Actual (Get-BenchMetric -Result $sessionCreate -LinePrefix "bench_session_create" -Metric "p95_us") -Max $MaxSessionCreateP95Us -Unit "us"
     $gates += New-Gate -GateName "session ready p95" -Actual (Get-BenchMetric -Result $sessionReady -LinePrefix "bench_session_ready" -Metric "p95_us") -Max $MaxSessionReadyP95Us -Unit "us"
