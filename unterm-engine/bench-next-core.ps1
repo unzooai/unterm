@@ -17,6 +17,7 @@ param(
     [int]$RenderPlanRounds = 1000,
     [int]$RenderGeometryPlanRounds = 1000,
     [int]$RenderSubmissionPlanRounds = 1000,
+    [int]$RenderCommitPlanRounds = 1000,
     [int]$RenderCursorMoveRounds = 200,
     [int]$FocusSwitches = 1000,
     [int]$SessionCreates = 20,
@@ -37,6 +38,7 @@ param(
     [int]$MaxRenderPlanP95Us = 1000,
     [int]$MaxRenderGeometryPlanP95Us = 1000,
     [int]$MaxRenderSubmissionPlanP95Us = 1000,
+    [int]$MaxRenderCommitPlanP95Us = 1000,
     [int]$MaxRenderDirtyFrameP95Us = 1000,
     [int]$MaxRenderCursorMoveP95Us = 1000,
     [int]$MaxFocusSwitchP95Us = 100000,
@@ -381,6 +383,7 @@ try {
     $results += Invoke-Benchmark -Name "render draw plan latency" -BenchArgs ([string[]](@("--bench-render-plans", "$RenderPlanRounds") + $commonTail))
     $results += Invoke-Benchmark -Name "render geometry plan latency" -BenchArgs ([string[]](@("--bench-render-geometry-plans", "$RenderGeometryPlanRounds") + $commonTail))
     $results += Invoke-Benchmark -Name "render submission plan latency" -BenchArgs ([string[]](@("--bench-render-submission-plans", "$RenderSubmissionPlanRounds") + $commonTail))
+    $results += Invoke-Benchmark -Name "render commit plan latency" -BenchArgs ([string[]](@("--bench-render-commit-plans", "$RenderCommitPlanRounds") + $commonTail))
     $results += Invoke-Benchmark -Name "render cursor move latency" -BenchArgs ([string[]](@("--bench-render-cursor-moves", "$RenderCursorMoveRounds") + $commonTail))
     $results += Invoke-Benchmark -Name "focus switch latency" -BenchArgs ([string[]](@("--bench-focus-switches", "$FocusSwitches") + $commonTail))
     $results += Invoke-Benchmark -Name "session create latency" -BenchArgs ([string[]](@("--bench-session-create", "$SessionCreates") + $commonTail))
@@ -401,6 +404,7 @@ try {
     $renderPlan = Find-BenchmarkResult -Results $results -Name "render draw plan latency"
     $renderGeometryPlan = Find-BenchmarkResult -Results $results -Name "render geometry plan latency"
     $renderSubmissionPlan = Find-BenchmarkResult -Results $results -Name "render submission plan latency"
+    $renderCommitPlan = Find-BenchmarkResult -Results $results -Name "render commit plan latency"
     $renderCursorMove = Find-BenchmarkResult -Results $results -Name "render cursor move latency"
     $focusSwitch = Find-BenchmarkResult -Results $results -Name "focus switch latency"
     $sessionCreate = Find-BenchmarkResult -Results $results -Name "session create latency"
@@ -421,6 +425,7 @@ try {
     $gates += New-Gate -GateName "render draw plan p95" -Actual (Get-BenchMetric -Result $renderPlan -LinePrefix "bench_render_plan" -Metric "p95_us") -Max $MaxRenderPlanP95Us -Unit "us"
     $gates += New-Gate -GateName "render geometry plan p95" -Actual (Get-BenchMetric -Result $renderGeometryPlan -LinePrefix "bench_render_geometry_plan" -Metric "p95_us") -Max $MaxRenderGeometryPlanP95Us -Unit "us"
     $gates += New-Gate -GateName "render submission plan p95" -Actual (Get-BenchMetric -Result $renderSubmissionPlan -LinePrefix "bench_render_submission_plan" -Metric "p95_us") -Max $MaxRenderSubmissionPlanP95Us -Unit "us"
+    $gates += New-Gate -GateName "render commit plan p95" -Actual (Get-BenchMetric -Result $renderCommitPlan -LinePrefix "bench_render_commit_plan" -Metric "full_p95_us") -Max $MaxRenderCommitPlanP95Us -Unit "us"
     $gates += New-Gate -GateName "render dirty frame p95" -Actual (Get-BenchMetric -Result $renderFrame -LinePrefix "bench_render_frame" -Metric "dirty_p95_us") -Max $MaxRenderDirtyFrameP95Us -Unit "us"
     $gates += New-Gate -GateName "render cursor move p95" -Actual (Get-BenchMetric -Result $renderCursorMove -LinePrefix "bench_render_cursor_move" -Metric "p95_us") -Max $MaxRenderCursorMoveP95Us -Unit "us"
     $gates += New-Gate -GateName "focus switch p95" -Actual (Get-BenchMetric -Result $focusSwitch -LinePrefix "bench_focus_switch" -Metric "p95_us") -Max $MaxFocusSwitchP95Us -Unit "us"

@@ -40,7 +40,7 @@ Run the Phase 2 next-core benchmark suite and generate `docs/next-core-benchmark
 .\unterm-engine\bench-next-core.ps1
 ```
 
-The runner builds `unterm-next-core`, verifies the machine-readable `--json` probe output, executes the current input-write/input-burst/echo/output/scrollback/viewport-scroll/viewport-scroll-under-flood/paste/dual-agent/agent-startup-stall/screen-read/render-frame empty, dirty, cursor-move delta, render draw-plan/render geometry-plan/render submission-plan/focus-switch/session-create/session-ready benchmarks, writes human-readable summary and raw output into the Markdown report, and writes machine-readable gate results into the JSON summary. Any failed benchmark or gate exits non-zero.
+The runner builds `unterm-next-core`, verifies the machine-readable `--json` probe output, executes the current input-write/input-burst/echo/output/scrollback/viewport-scroll/viewport-scroll-under-flood/paste/dual-agent/agent-startup-stall/screen-read/render-frame empty, dirty, cursor-move delta, render draw-plan/render geometry-plan/render submission-plan/render commit-plan/focus-switch/session-create/session-ready benchmarks, writes human-readable summary and raw output into the Markdown report, and writes machine-readable gate results into the JSON summary. Any failed benchmark or gate exits non-zero.
 
 Verify an existing JSON summary without rerunning the benchmark suite:
 
@@ -113,9 +113,10 @@ Render draw-plan and geometry-plan benchmarks:
 cargo run -p unterm-engine --bin unterm-next-core -- --bench-render-plans 1000 --timeout-ms 30000 --wait-ms 100 --write "exit`r" -- cmd.exe
 cargo run -p unterm-engine --bin unterm-next-core -- --bench-render-geometry-plans 1000 --timeout-ms 30000 --wait-ms 100 --write "exit`r" -- cmd.exe
 cargo run -p unterm-engine --bin unterm-next-core -- --bench-render-submission-plans 1000 --timeout-ms 30000 --wait-ms 100 --write "exit`r" -- cmd.exe
+cargo run -p unterm-engine --bin unterm-next-core -- --bench-render-commit-plans 1000 --timeout-ms 30000 --wait-ms 100 --write "exit`r" -- cmd.exe
 ```
 
-The draw-plan benchmark validates `ScreenEngine::read_render_draw_plan`, which converts a styled render-frame into merged glyph runs, cell style runs, and cursor draw state. The geometry-plan benchmark then measures `RenderDrawPlan::to_geometry_plan`, which maps those terminal-grid runs to pixel rectangles using explicit cell metrics. The submission-plan benchmark measures `RenderGeometryPlan::to_submission_plan`, which turns that geometry into damage rects, background quads, text runs, and a cursor quad. `ScreenEngine::read_render_commit_plan` ties that chain to `RenderConsumerState`, giving the future GPU renderer a small CPU-side submit contract before font shaping and actual `wgpu` submission.
+The draw-plan benchmark validates `ScreenEngine::read_render_draw_plan`, which converts a styled render-frame into merged glyph runs, cell style runs, and cursor draw state. The geometry-plan benchmark then measures `RenderDrawPlan::to_geometry_plan`, which maps those terminal-grid runs to pixel rectangles using explicit cell metrics. The submission-plan benchmark measures `RenderGeometryPlan::to_submission_plan`, which turns that geometry into damage rects, background quads, text runs, and a cursor quad. The commit-plan benchmark measures `ScreenEngine::read_render_commit_plan`, which ties that chain to `RenderConsumerState`, giving the future GPU renderer a small CPU-side submit contract before font shaping and actual `wgpu` submission.
 
 Input burst benchmark under output pressure:
 

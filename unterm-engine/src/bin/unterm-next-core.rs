@@ -32,6 +32,7 @@ struct Args {
     bench_render_plans: Option<usize>,
     bench_render_geometry_plans: Option<usize>,
     bench_render_submission_plans: Option<usize>,
+    bench_render_commit_plans: Option<usize>,
     bench_render_cursor_moves: Option<usize>,
     bench_focus_switches: Option<usize>,
     bench_session_create: Option<usize>,
@@ -68,6 +69,7 @@ fn parse_args() -> Result<Args> {
         bench_render_plans: None,
         bench_render_geometry_plans: None,
         bench_render_submission_plans: None,
+        bench_render_commit_plans: None,
         bench_render_cursor_moves: None,
         bench_focus_switches: None,
         bench_session_create: None,
@@ -241,6 +243,15 @@ fn parse_args() -> Result<Args> {
                     args.next()
                         .ok_or_else(|| {
                             anyhow::anyhow!("--bench-render-submission-plans requires a value")
+                        })?
+                        .parse()?,
+                );
+            }
+            "--bench-render-commit-plans" => {
+                parsed.bench_render_commit_plans = Some(
+                    args.next()
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("--bench-render-commit-plans requires a value")
                         })?
                         .parse()?,
                 );
@@ -959,6 +970,86 @@ fn run_render_submission_plan_benchmark(
         percentile(&latencies_us, 0.50),
         percentile(&latencies_us, 0.95),
         *latencies_us.last().unwrap_or(&0)
+    );
+    Ok(())
+}
+
+fn run_render_commit_plan_benchmark(
+    engine: &unterm_engine::next_core::NextCoreEngine,
+    pane_id: usize,
+    rounds: usize,
+    poll_interval: Duration,
+    timeout: Duration,
+) -> Result<()> {
+    if rounds == 0 {
+        bail!("--bench-render-commit-plans must be greater than 0");
+    }
+
+    let ready_marker = "RENDER_COMMIT_PLAN_BENCH_READY";
+    let ready_run = FloodRun {
+        marker: ready_marker.to_string(),
+        before_raw_len: engine.debug_output(pane_id)?.len(),
+        started_at: Instant::now(),
+    };
+    engine.write_input(
+        pane_id,
+        "for /L %i in (1,1,30) do @echo RENDER_COMMIT_PLAN_BENCH_%i abcdefghijklmnopqrstuvwxyz\r",
+    )?;
+    engine.write_input(pane_id, format!("echo {ready_marker}\r").as_str())?;
+    wait_for_marker(engine, pane_id, &ready_run, poll_interval, timeout)?;
+
+    let metrics = unterm_engine::RenderCellMetrics {
+        cell_width_px: 8,
+        cell_height_px: 16,
+    };
+    let mut full_latencies_us = Vec::with_capacity(rounds);
+    let mut skip_latencies_us = Vec::with_capacity(rounds);
+    let mut damage_rects = 0usize;
+    let mut text_runs = 0usize;
+    for _ in 0..rounds {
+        let mut consumer = unterm_engine::RenderConsumerState::new();
+        let full_before = Instant::now();
+        let full = engine.read_render_commit_plan(pane_id, metrics, &mut consumer)?;
+        full_latencies_us.push(full_before.elapsed().as_micros());
+        if !full.submit || !full.requires_full_repaint {
+            bail!("render commit plan first read did not submit full repaint");
+        }
+        let Some(submission) = full.submission else {
+            bail!("render commit plan first read did not include submission");
+        };
+        damage_rects = submission.damage_rects.len();
+        text_runs = submission.text_runs.len();
+        if damage_rects == 0 || text_runs == 0 {
+            bail!(
+                "render commit plan first read missing commands: damage={} text={}",
+                damage_rects,
+                text_runs
+            );
+        }
+
+        let skip_before = Instant::now();
+        let skipped = engine.read_render_commit_plan(pane_id, metrics, &mut consumer)?;
+        skip_latencies_us.push(skip_before.elapsed().as_micros());
+        if skipped.submit || skipped.submission.is_some() {
+            bail!("render commit plan repeated revision did not skip submission");
+        }
+    }
+
+    full_latencies_us.sort_unstable();
+    skip_latencies_us.sort_unstable();
+    println!(
+        "bench_render_commit_plan rounds={} damage_rects={} text_runs={} full_min_us={} full_p50_us={} full_p95_us={} full_max_us={} skip_min_us={} skip_p50_us={} skip_p95_us={} skip_max_us={}",
+        rounds,
+        damage_rects,
+        text_runs,
+        full_latencies_us[0],
+        percentile(&full_latencies_us, 0.50),
+        percentile(&full_latencies_us, 0.95),
+        *full_latencies_us.last().unwrap_or(&0),
+        skip_latencies_us[0],
+        percentile(&skip_latencies_us, 0.50),
+        percentile(&skip_latencies_us, 0.95),
+        *skip_latencies_us.last().unwrap_or(&0)
     );
     Ok(())
 }
@@ -1847,6 +1938,17 @@ fn main() -> Result<()> {
                 session.id
             )
         })?;
+    }
+
+    if let Some(rounds) = args.bench_render_commit_plans {
+        run_render_commit_plan_benchmark(
+            &engine,
+            session.id,
+            rounds,
+            Duration::from_millis(args.poll_ms),
+            Duration::from_millis(args.timeout_ms),
+        )
+        .with_context(|| format!("bench_render_commit_plan failed for session {}", session.id))?;
     }
 
     if let Some(rounds) = args.bench_render_cursor_moves {
