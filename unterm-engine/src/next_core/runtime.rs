@@ -11,14 +11,11 @@ use crate::{
     StyledScreenSnapshot, StyledScrollbackSnapshot,
 };
 use anyhow::Result;
-#[cfg(test)]
-use parking_lot::Mutex;
 use parking_lot::RwLock;
-#[cfg(test)]
-use std::sync::atomic::AtomicBool;
-#[cfg(test)]
-use std::sync::Arc;
 use std::sync::OnceLock;
+
+#[cfg(test)]
+pub(super) mod test_facade;
 
 #[derive(Default)]
 pub(super) struct NextCoreRuntime {
@@ -207,47 +204,4 @@ pub(super) fn export_recording_markdown(
     target_path: Option<String>,
 ) -> Result<RecordingExportResult> {
     recording_lifecycle::export_markdown(pane_id, target_path)
-}
-
-#[cfg(test)]
-pub(super) fn reset_for_test() {
-    with_current_mut(|state| *state = NextCoreRuntime::default());
-}
-
-#[cfg(test)]
-pub(super) struct TestSessionHandles {
-    pub(super) output: Arc<Mutex<String>>,
-    pub(super) screen: Arc<Mutex<super::NextCoreScreen>>,
-    pub(super) recording: Arc<Mutex<Option<super::NextCoreRecording>>>,
-    pub(super) activity: Arc<Mutex<super::activity::SessionIoActivity>>,
-    pub(super) dead: Arc<AtomicBool>,
-    pub(super) dead_reason: Arc<Mutex<Option<String>>>,
-    pub(super) cols: usize,
-    pub(super) rows: usize,
-}
-
-#[cfg(test)]
-pub(super) fn test_session_handles(pane_id: usize) -> Result<TestSessionHandles> {
-    with_session(pane_id, |session| {
-        Ok(TestSessionHandles {
-            output: Arc::clone(&session.output),
-            screen: Arc::clone(&session.screen),
-            recording: Arc::clone(&session.recording),
-            activity: Arc::clone(&session.activity),
-            dead: Arc::clone(&session.dead),
-            dead_reason: Arc::clone(&session.dead_reason),
-            cols: session.snapshot.cols,
-            rows: session.snapshot.rows,
-        })
-    })
-}
-
-#[cfg(test)]
-pub(super) fn pane_count_for_test() -> usize {
-    with_current(session_registry::pane_count)
-}
-
-#[cfg(test)]
-pub(super) fn next_session_id_for_test() -> usize {
-    with_current_mut(session_registry::next_session_id)
 }

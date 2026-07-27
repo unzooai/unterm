@@ -229,7 +229,7 @@ mod tests {
     fn runtime_with_current_visits_registry_state() {
         crate::next_core::test_support::reset_state_for_test();
 
-        let pane_count = crate::next_core::runtime::pane_count_for_test();
+        let pane_count = crate::next_core::runtime::test_facade::pane_count();
 
         assert_eq!(pane_count, 0);
     }
@@ -238,7 +238,7 @@ mod tests {
     fn runtime_with_current_mut_visits_registry_state() {
         crate::next_core::test_support::reset_state_for_test();
 
-        let id = crate::next_core::runtime::next_session_id_for_test();
+        let id = crate::next_core::runtime::test_facade::next_session_id();
 
         assert_eq!(id, 1);
     }
