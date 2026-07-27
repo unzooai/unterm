@@ -1627,12 +1627,15 @@ fn set_output_for_test(pane_id: usize, text: &str) -> Result<()> {
     *screen = NextCoreScreen::new(cols, rows);
     screen.render_state.set_revision(revision);
     screen.feed(text);
-    if let Some(recording) = recording.lock().as_mut() {
+    let recorded = if let Some(recording) = recording.lock().as_mut() {
         recording_output::append_now(recording, text);
-    }
+        true
+    } else {
+        false
+    };
     activity
         .lock()
-        .mark_output(text.len(), started_at.elapsed());
+        .mark_output(text.len(), 0, recorded, started_at.elapsed());
     Ok(())
 }
 

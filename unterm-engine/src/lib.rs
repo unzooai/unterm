@@ -760,7 +760,11 @@ pub struct InputActivitySnapshot {
 pub struct OutputActivitySnapshot {
     pub total_chunks: u64,
     pub total_bytes: u64,
+    pub total_terminal_response_bytes: u64,
+    pub recorded_chunks: u64,
     pub last_bytes: usize,
+    pub last_terminal_response_bytes: usize,
+    pub last_recorded: bool,
     pub last_duration_ms: u64,
 }
 

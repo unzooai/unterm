@@ -42,16 +42,18 @@ pub(super) fn apply_chunk(
         );
         drop(screen);
 
-        handles
-            .activity
-            .lock()
-            .mark_output(chunk.len(), started_at.elapsed());
         let recorded = if let Some(recording) = handles.recording.lock().as_mut() {
             recording_output::append_now(recording, chunk);
             true
         } else {
             false
         };
+        handles.activity.lock().mark_output(
+            chunk.len(),
+            terminal_response_bytes,
+            recorded,
+            started_at.elapsed(),
+        );
 
         OutputApplyStats {
             input_bytes: chunk.len(),

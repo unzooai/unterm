@@ -98,7 +98,7 @@ mod tests {
         };
         let mut activity = SessionIoActivity::new();
         activity.mark_input(3, Duration::from_millis(1));
-        activity.mark_output(5, Duration::from_millis(2));
+        activity.mark_output(5, 0, false, Duration::from_millis(2));
         activity.mark_paste(7, 11, 2, true, Duration::from_millis(3));
         activity.mark_screen_read(Duration::from_millis(4));
         activity.mark_viewport_scroll(Duration::from_millis(5));

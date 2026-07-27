@@ -44,17 +44,35 @@ impl SessionIoActivity {
         self.input = Some(snapshot);
     }
 
-    pub(super) fn mark_output(&mut self, bytes: usize, duration: Duration) {
+    pub(super) fn mark_output(
+        &mut self,
+        bytes: usize,
+        terminal_response_bytes: usize,
+        recorded: bool,
+        duration: Duration,
+    ) {
         self.last_output_at = Some(Instant::now());
         let mut snapshot = self.output.clone().unwrap_or(OutputActivitySnapshot {
             total_chunks: 0,
             total_bytes: 0,
+            total_terminal_response_bytes: 0,
+            recorded_chunks: 0,
             last_bytes: 0,
+            last_terminal_response_bytes: 0,
+            last_recorded: false,
             last_duration_ms: 0,
         });
         snapshot.total_chunks = snapshot.total_chunks.saturating_add(1);
         snapshot.total_bytes = snapshot.total_bytes.saturating_add(bytes as u64);
+        snapshot.total_terminal_response_bytes = snapshot
+            .total_terminal_response_bytes
+            .saturating_add(terminal_response_bytes as u64);
+        if recorded {
+            snapshot.recorded_chunks = snapshot.recorded_chunks.saturating_add(1);
+        }
         snapshot.last_bytes = bytes;
+        snapshot.last_terminal_response_bytes = terminal_response_bytes;
+        snapshot.last_recorded = recorded;
         snapshot.last_duration_ms = duration.as_millis().min(u64::MAX as u128) as u64;
         self.output = Some(snapshot);
     }
@@ -159,10 +177,15 @@ mod tests {
         assert_eq!(input.total_bytes, 5);
         assert_eq!(input.last_duration_ms, 7);
 
-        activity.mark_output(9, Duration::from_millis(11));
+        activity.mark_output(9, 4, true, Duration::from_millis(11));
         let output = activity.output.as_ref().expect("output snapshot");
         assert_eq!(output.total_chunks, 1);
         assert_eq!(output.total_bytes, 9);
+        assert_eq!(output.total_terminal_response_bytes, 4);
+        assert_eq!(output.recorded_chunks, 1);
+        assert_eq!(output.last_bytes, 9);
+        assert_eq!(output.last_terminal_response_bytes, 4);
+        assert!(output.last_recorded);
         assert_eq!(output.last_duration_ms, 11);
     }
 
