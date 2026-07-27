@@ -47,14 +47,24 @@ pub(in crate::next_core) fn scroll_viewport_to(pane_id: usize, target: isize) ->
 
 pub(in crate::next_core) fn read_screen(pane_id: usize) -> Result<ScreenSnapshot> {
     let command = RuntimeCommand::ReadScreen { pane_id };
-    let command = consumer::consume_sync(command)?;
-    screen_executor::execute_screen(command)
+    match consumer::submit_and_dispatch_response(command)? {
+        RuntimeDispatchResult::Screen(screen) => Ok(screen),
+        other => bail!(
+            "runtime scheduler expected plain screen dispatch result, got {:?}",
+            other
+        ),
+    }
 }
 
 pub(in crate::next_core) fn read_styled_screen(pane_id: usize) -> Result<StyledScreenSnapshot> {
     let command = RuntimeCommand::ReadStyledScreen { pane_id };
-    let command = consumer::consume_sync(command)?;
-    screen_executor::execute_styled_screen(command)
+    match consumer::submit_and_dispatch_response(command)? {
+        RuntimeDispatchResult::StyledScreen(screen) => Ok(screen),
+        other => bail!(
+            "runtime scheduler expected styled screen dispatch result, got {:?}",
+            other
+        ),
+    }
 }
 
 pub(in crate::next_core) fn read_visible_text(pane_id: usize) -> Result<String> {
@@ -195,6 +205,27 @@ mod tests {
     }
 
     #[test]
+    fn plain_screen_reads_use_command_backpressure() {
+        test_facade::reset();
+
+        with_current_mut(|state| {
+            state.command_queue =
+                super::super::queue::RuntimeCommandQueue::new(RuntimeQueuePolicy {
+                    max_pending_commands: 0,
+                    max_pending_input_bytes: 1024,
+                    max_render_wakeups_per_second: 120,
+                });
+        });
+
+        let err = read_screen(1).expect_err("zero command budget should reject read");
+
+        assert!(err
+            .to_string()
+            .contains("runtime screen queue rejected command"));
+        assert_eq!(queue_stats().rejected_commands, 1);
+    }
+
+    #[test]
     fn styled_screen_reads_enter_runtime_queue_before_dispatch() {
         test_facade::reset();
 
@@ -203,6 +234,27 @@ mod tests {
         assert!(err.to_string().contains("next-core session 404 not found"));
         assert_eq!(queue_stats().pending_commands, 0);
         assert_eq!(queue_stats().rejected_commands, 0);
+    }
+
+    #[test]
+    fn styled_screen_reads_use_command_backpressure() {
+        test_facade::reset();
+
+        with_current_mut(|state| {
+            state.command_queue =
+                super::super::queue::RuntimeCommandQueue::new(RuntimeQueuePolicy {
+                    max_pending_commands: 0,
+                    max_pending_input_bytes: 1024,
+                    max_render_wakeups_per_second: 120,
+                });
+        });
+
+        let err = read_styled_screen(1).expect_err("zero command budget should reject read");
+
+        assert!(err
+            .to_string()
+            .contains("runtime screen queue rejected command"));
+        assert_eq!(queue_stats().rejected_commands, 1);
     }
 
     #[test]
