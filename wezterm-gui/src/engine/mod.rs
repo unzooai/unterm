@@ -15,15 +15,15 @@ use window::WindowOps;
 #[allow(unused_imports)]
 pub use render_backend::{
     CommandListRenderBackend, EngineRenderBackend, EngineRenderBackendCommand,
-    EngineRenderBackendFrame, EngineRenderBufferPlan, EngineRenderGlyphAtlasCache,
-    EngineRenderGlyphAtlasCacheUpdate, EngineRenderGlyphAtlasInstance, EngineRenderGlyphAtlasKey,
-    EngineRenderGlyphAtlasPlacement, EngineRenderGlyphAtlasPlan,
+    EngineRenderBackendFrame, EngineRenderBufferPlan, EngineRenderDeterministicGlyphRasterSource,
+    EngineRenderGlyphAtlasCache, EngineRenderGlyphAtlasCacheUpdate, EngineRenderGlyphAtlasInstance,
+    EngineRenderGlyphAtlasKey, EngineRenderGlyphAtlasPlacement, EngineRenderGlyphAtlasPlan,
     EngineRenderGlyphAtlasTextureRegion, EngineRenderGlyphAtlasTextureUpdatePlan,
-    EngineRenderGpuUploadPlan, EngineRenderGpuVertex, EngineRenderTextAtlasPlan,
-    EngineRenderTextAtlasRun, EngineRenderTexturedGlyphUploadPlan, EngineRenderTexturedGlyphVertex,
-    EngineRenderVertexLayer, EngineWgpuPipelineConfig, EngineWgpuPreparedFramePlan,
-    EngineWgpuRenderBackend, EngineWgpuRenderPassPlan, EngineWgpuTexturedGlyphBuffers,
-    EngineWgpuTexturedGlyphPassPlan,
+    EngineRenderGlyphRasterSource, EngineRenderGpuUploadPlan, EngineRenderGpuVertex,
+    EngineRenderTextAtlasPlan, EngineRenderTextAtlasRun, EngineRenderTexturedGlyphUploadPlan,
+    EngineRenderTexturedGlyphVertex, EngineRenderVertexLayer, EngineWgpuPipelineConfig,
+    EngineWgpuPreparedFramePlan, EngineWgpuRenderBackend, EngineWgpuRenderPassPlan,
+    EngineWgpuTexturedGlyphBuffers, EngineWgpuTexturedGlyphPassPlan,
 };
 #[allow(unused_imports)]
 pub use render_consumer::{

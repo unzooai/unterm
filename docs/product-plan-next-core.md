@@ -421,7 +421,7 @@ Supported:
 - `EngineRenderGlyphAtlasPlan` that turns text-atlas runs into stable glyph cache keys and cell-aligned glyph instances, establishing the future texture atlas draw input before font rasterization lands
 - `EngineRenderGlyphAtlasCache` with deterministic shelf placement and inserted/overflow key reporting, so the future WebGPU glyph texture can update atlas regions without rebuilding placement state per frame
 - `WebGpuState` pane-scoped next-core glyph atlas state, reusing glyph placements across paints and clearing them when pane renderer state is removed
-- `EngineRenderGlyphAtlasTextureUpdatePlan` that converts newly inserted atlas keys into texture update regions with deterministic placeholder RGBA bytes, fixing the future texture upload ABI before real font rasterization is attached
+- `EngineRenderGlyphAtlasTextureUpdatePlan` that converts newly inserted atlas keys into texture update regions through an `EngineRenderGlyphRasterSource` boundary, keeping the deterministic source for tests while letting the future GUI font raster/cache provide real RGBA bytes without changing the texture upload ABI
 - `NextCoreGlyphTexture`, a dedicated WebGPU glyph texture atlas that validates next-core glyph texture regions and uploads them with `queue.write_texture`
 - `EngineWgpuRenderBackend` textured glyph pipeline/pass ABI, with `WebGpuState` binding the next-core glyph atlas texture and appending the textured glyph pass after the solid next-core pass
 - `EngineRenderTexturedGlyphUploadPlan` that maps glyph atlas placements into textured glyph vertices with clip-space positions and atlas UVs, fixing the texture draw ABI before the real font raster/cache is attached

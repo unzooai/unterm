@@ -325,6 +325,32 @@ pub struct EngineRenderGlyphAtlasTextureUpdatePlan {
     pub missing_key_indices: Vec<usize>,
 }
 
+#[allow(dead_code)]
+pub trait EngineRenderGlyphRasterSource {
+    fn rasterize_glyph_rgba(
+        &self,
+        key: &EngineRenderGlyphAtlasKey,
+        width_px: usize,
+        height_px: usize,
+    ) -> Option<Vec<u8>>;
+}
+
+#[derive(Clone, Debug, Default)]
+#[allow(dead_code)]
+pub struct EngineRenderDeterministicGlyphRasterSource;
+
+#[allow(dead_code)]
+impl EngineRenderGlyphRasterSource for EngineRenderDeterministicGlyphRasterSource {
+    fn rasterize_glyph_rgba(
+        &self,
+        key: &EngineRenderGlyphAtlasKey,
+        width_px: usize,
+        height_px: usize,
+    ) -> Option<Vec<u8>> {
+        Some(placeholder_glyph_texture_bytes(key, width_px, height_px))
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 #[allow(dead_code)]
 pub struct EngineWgpuPreparedFramePlan {
@@ -543,6 +569,22 @@ impl EngineWgpuRenderBackend {
             update,
             atlas_width_px,
             atlas_height_px,
+        )
+    }
+
+    pub fn prepare_glyph_atlas_texture_update_with_raster_source(
+        glyphs: &EngineRenderGlyphAtlasPlan,
+        update: &EngineRenderGlyphAtlasCacheUpdate,
+        atlas_width_px: usize,
+        atlas_height_px: usize,
+        raster_source: &dyn EngineRenderGlyphRasterSource,
+    ) -> EngineRenderGlyphAtlasTextureUpdatePlan {
+        EngineRenderGlyphAtlasTextureUpdatePlan::from_cache_update_with_raster_source(
+            glyphs,
+            update,
+            atlas_width_px,
+            atlas_height_px,
+            raster_source,
         )
     }
 
@@ -1062,6 +1104,22 @@ impl EngineRenderGlyphAtlasTextureUpdatePlan {
         atlas_width_px: usize,
         atlas_height_px: usize,
     ) -> Self {
+        Self::from_cache_update_with_raster_source(
+            glyphs,
+            update,
+            atlas_width_px,
+            atlas_height_px,
+            &EngineRenderDeterministicGlyphRasterSource,
+        )
+    }
+
+    pub fn from_cache_update_with_raster_source(
+        glyphs: &EngineRenderGlyphAtlasPlan,
+        update: &EngineRenderGlyphAtlasCacheUpdate,
+        atlas_width_px: usize,
+        atlas_height_px: usize,
+        raster_source: &dyn EngineRenderGlyphRasterSource,
+    ) -> Self {
         let mut regions = Vec::new();
         let mut missing_key_indices = Vec::new();
 
@@ -1081,12 +1139,22 @@ impl EngineRenderGlyphAtlasTextureUpdatePlan {
                 };
                 let width_px = placement.rect.width.max(1);
                 let height_px = placement.rect.height.max(1);
+                let expected_bytes = width_px.saturating_mul(height_px).saturating_mul(4);
+                let Some(bytes_rgba) = raster_source.rasterize_glyph_rgba(key, width_px, height_px)
+                else {
+                    push_unique_usize(&mut missing_key_indices, *key_index);
+                    continue;
+                };
+                if bytes_rgba.len() != expected_bytes {
+                    push_unique_usize(&mut missing_key_indices, *key_index);
+                    continue;
+                }
                 regions.push(EngineRenderGlyphAtlasTextureRegion {
                     key_index: *key_index,
                     rect: placement.rect,
                     width_px,
                     height_px,
-                    bytes_rgba: placeholder_glyph_texture_bytes(key, width_px, height_px),
+                    bytes_rgba,
                 });
             }
         }
@@ -2119,6 +2187,92 @@ mod tests {
         let repeat_texture =
             EngineWgpuRenderBackend::prepare_glyph_atlas_texture_update(&glyphs, &repeat, 64, 32);
         assert!(repeat_texture.is_empty());
+    }
+
+    #[test]
+    fn glyph_atlas_texture_update_uses_raster_source_bytes() {
+        struct SolidRasterSource;
+
+        impl EngineRenderGlyphRasterSource for SolidRasterSource {
+            fn rasterize_glyph_rgba(
+                &self,
+                _key: &EngineRenderGlyphAtlasKey,
+                width_px: usize,
+                height_px: usize,
+            ) -> Option<Vec<u8>> {
+                let mut bytes = Vec::with_capacity(width_px * height_px * 4);
+                for _ in 0..width_px * height_px {
+                    bytes.extend_from_slice(&[0x11, 0x22, 0x33, 0x44]);
+                }
+                Some(bytes)
+            }
+        }
+
+        let glyphs = EngineRenderGlyphAtlasPlan {
+            pane_id: 12,
+            submitted: true,
+            revision: 19,
+            requires_full_repaint: false,
+            keys: vec![glyph_key("r", 1)],
+            instances: Vec::new(),
+        };
+        let mut cache = EngineRenderGlyphAtlasCache::new(32, 32);
+        let update = cache.ensure_glyphs(&glyphs, 8, 16);
+
+        let texture_update =
+            EngineWgpuRenderBackend::prepare_glyph_atlas_texture_update_with_raster_source(
+                &glyphs,
+                &update,
+                32,
+                32,
+                &SolidRasterSource,
+            );
+
+        assert_eq!(texture_update.regions.len(), 1);
+        assert!(texture_update.missing_key_indices.is_empty());
+        assert_eq!(
+            &texture_update.regions[0].bytes_rgba[0..4],
+            &[0x11, 0x22, 0x33, 0x44]
+        );
+    }
+
+    #[test]
+    fn glyph_atlas_texture_update_rejects_bad_raster_source_bytes() {
+        struct BadRasterSource;
+
+        impl EngineRenderGlyphRasterSource for BadRasterSource {
+            fn rasterize_glyph_rgba(
+                &self,
+                _key: &EngineRenderGlyphAtlasKey,
+                _width_px: usize,
+                _height_px: usize,
+            ) -> Option<Vec<u8>> {
+                Some(vec![0xff, 0xff, 0xff])
+            }
+        }
+
+        let glyphs = EngineRenderGlyphAtlasPlan {
+            pane_id: 13,
+            submitted: true,
+            revision: 20,
+            requires_full_repaint: false,
+            keys: vec![glyph_key("bad", 1)],
+            instances: Vec::new(),
+        };
+        let mut cache = EngineRenderGlyphAtlasCache::new(32, 32);
+        let update = cache.ensure_glyphs(&glyphs, 8, 16);
+
+        let texture_update =
+            EngineWgpuRenderBackend::prepare_glyph_atlas_texture_update_with_raster_source(
+                &glyphs,
+                &update,
+                32,
+                32,
+                &BadRasterSource,
+            );
+
+        assert!(texture_update.regions.is_empty());
+        assert_eq!(texture_update.missing_key_indices, vec![0]);
     }
 
     fn assert_f32_pair_close(actual: [f32; 2], expected: [f32; 2]) {
