@@ -2,7 +2,7 @@
 use super::renderstate::*;
 use super::utilsprites::RenderMetrics;
 use crate::colorease::ColorEase;
-use crate::engine::EngineRenderConsumerSet;
+use crate::engine::{EngineRenderBufferBatch, EngineRenderConsumerSet, RenderCellMetrics};
 use crate::frontend::{front_end, try_front_end};
 use crate::inputmap::InputMap;
 use crate::overlay::{
@@ -5136,6 +5136,23 @@ impl TermWindow {
         self.next_core_render_consumers
             .borrow_mut()
             .remove_pane(pane_id as usize);
+    }
+
+    #[allow(dead_code)]
+    fn prepare_next_core_render_buffer_plan(
+        &self,
+        pane_id: PaneId,
+    ) -> anyhow::Result<EngineRenderBufferBatch> {
+        let engine = crate::engine::current();
+        let metrics = RenderCellMetrics {
+            cell_width_px: self.render_metrics.cell_size.width as usize,
+            cell_height_px: self.render_metrics.cell_size.height as usize,
+        };
+        self.next_core_render_consumers.borrow_mut().read_buffer_plan(
+            &engine,
+            pane_id as usize,
+            metrics,
+        )
     }
 
     pub fn tab_state(&self, tab_id: TabId) -> RefMut<'_, TabState> {
