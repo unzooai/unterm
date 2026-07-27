@@ -1,9 +1,8 @@
-use super::{activity::SessionIoActivity, lifecycle, session_registry, state, NextCoreState};
+use super::{activity::SessionIoActivity, lifecycle, session_registry, NextCoreState};
 use crate::{EngineHealthSnapshot, EngineIoHealthSnapshot, EngineLifecycleHealthSnapshot};
 
 pub(super) fn current() -> EngineHealthSnapshot {
-    let mut state = state().write();
-    snapshot(&mut state)
+    session_registry::with_current_state_mut(snapshot)
 }
 
 pub(super) fn snapshot(state: &mut NextCoreState) -> EngineHealthSnapshot {

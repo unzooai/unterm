@@ -1,15 +1,13 @@
-use super::{lifecycle, process_tree, session_registry, state, NextCoreSession, NextCoreState};
+use super::{lifecycle, process_tree, session_registry, NextCoreSession, NextCoreState};
 use crate::SessionSnapshot;
 use anyhow::Result;
 
 pub(super) fn list_current() -> Vec<SessionSnapshot> {
-    let mut state = state().write();
-    list(&mut state)
+    session_registry::with_current_state_mut(list)
 }
 
 pub(super) fn get_current(pane_id: usize) -> Result<SessionSnapshot> {
-    let mut state = state().write();
-    get(&mut state, pane_id)
+    session_registry::with_current_state_mut(|state| get(state, pane_id))
 }
 
 pub(super) fn list(state: &mut NextCoreState) -> Vec<SessionSnapshot> {
@@ -40,8 +38,7 @@ pub(super) fn clone_base(state: &NextCoreState, pane_id: usize) -> Result<Sessio
 }
 
 pub(super) fn clone_base_current(pane_id: usize) -> Result<SessionSnapshot> {
-    let state = state().read();
-    clone_base(&state, pane_id)
+    session_registry::with_current_state(|state| clone_base(state, pane_id))
 }
 
 fn snapshot(session: &mut NextCoreSession) -> (SessionSnapshot, Option<String>) {

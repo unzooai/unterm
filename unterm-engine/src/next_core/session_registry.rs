@@ -26,6 +26,23 @@ pub(super) fn for_each_session_mut(
     }
 }
 
+pub(super) fn with_current_state<T>(visit: impl FnOnce(&NextCoreState) -> T) -> T {
+    let state = state().read();
+    visit(&state)
+}
+
+pub(super) fn with_current_state_mut<T>(visit: impl FnOnce(&mut NextCoreState) -> T) -> T {
+    let mut state = state().write();
+    visit(&mut state)
+}
+
+pub(super) fn with_session_mut_current<T>(
+    pane_id: usize,
+    visit: impl FnOnce(&mut NextCoreSession) -> Result<T>,
+) -> Result<T> {
+    with_current_state_mut(|state| visit(session_mut(state, pane_id)?))
+}
+
 pub(super) fn set_active(state: &mut NextCoreState, pane_id: usize) {
     for session in &mut state.sessions {
         session.snapshot.is_active = session.snapshot.id == pane_id;
@@ -130,6 +147,24 @@ mod tests {
         let state = NextCoreState::default();
 
         assert_eq!(pane_count(&state), 0);
+    }
+
+    #[test]
+    fn with_current_state_visits_registry_state() {
+        crate::next_core::test_support::reset_state_for_test();
+
+        let pane_count = with_current_state(pane_count);
+
+        assert_eq!(pane_count, 0);
+    }
+
+    #[test]
+    fn with_current_state_mut_visits_registry_state() {
+        crate::next_core::test_support::reset_state_for_test();
+
+        let id = with_current_state_mut(next_session_id);
+
+        assert_eq!(id, 1);
     }
 
     #[test]

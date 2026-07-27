@@ -1,6 +1,8 @@
+#[cfg(test)]
+use super::NextCoreState;
 use super::{
     activity::SessionIoActivity, launch, pty_io, session_defaults, session_output,
-    session_registry, state, NextCoreRecording, NextCoreScreen, NextCoreSession, NextCoreState,
+    session_registry, NextCoreRecording, NextCoreScreen, NextCoreSession,
 };
 use crate::{SessionSnapshot, ShellSnapshot};
 use anyhow::Result;
@@ -20,6 +22,7 @@ pub(super) fn pty_size(cols: usize, rows: usize) -> PtySize {
     }
 }
 
+#[cfg(test)]
 pub(super) fn resize(
     state: &mut NextCoreState,
     pane_id: usize,
@@ -31,8 +34,9 @@ pub(super) fn resize(
 }
 
 pub(super) fn resize_current(pane_id: usize, cols: usize, rows: usize) -> Result<()> {
-    let mut state = state().write();
-    resize(&mut state, pane_id, cols, rows)
+    session_registry::with_session_mut_current(pane_id, |session| {
+        resize_session(session, cols, rows)
+    })
 }
 
 fn resize_session(session: &mut NextCoreSession, cols: usize, rows: usize) -> Result<()> {

@@ -1,6 +1,5 @@
 use super::{
-    activity::SessionIoActivity, session_registry, state, NextCoreRecording, NextCoreScreen,
-    NextCoreState,
+    activity::SessionIoActivity, session_registry, NextCoreRecording, NextCoreScreen, NextCoreState,
 };
 use crate::ShellSnapshot;
 use anyhow::Result;
@@ -41,8 +40,7 @@ pub(super) fn output(state: &NextCoreState, pane_id: usize) -> Result<Arc<Mutex<
 }
 
 pub(super) fn output_current(pane_id: usize) -> Result<Arc<Mutex<String>>> {
-    let state = state().read();
-    output(&state, pane_id)
+    session_registry::with_current_state(|state| output(state, pane_id))
 }
 
 pub(super) fn screen(state: &NextCoreState, pane_id: usize) -> Result<Arc<Mutex<NextCoreScreen>>> {
@@ -52,8 +50,7 @@ pub(super) fn screen(state: &NextCoreState, pane_id: usize) -> Result<Arc<Mutex<
 }
 
 pub(super) fn screen_current(pane_id: usize) -> Result<Arc<Mutex<NextCoreScreen>>> {
-    let state = state().read();
-    screen(&state, pane_id)
+    session_registry::with_current_state(|state| screen(state, pane_id))
 }
 
 pub(super) fn activity(
@@ -66,8 +63,7 @@ pub(super) fn activity(
 }
 
 pub(super) fn activity_current(pane_id: usize) -> Result<Arc<Mutex<SessionIoActivity>>> {
-    let state = state().read();
-    activity(&state, pane_id)
+    session_registry::with_current_state(|state| activity(state, pane_id))
 }
 
 pub(super) fn screen_activity(
@@ -81,8 +77,7 @@ pub(super) fn screen_activity(
 pub(super) fn screen_activity_current(
     pane_id: usize,
 ) -> Result<(Arc<Mutex<NextCoreScreen>>, Arc<Mutex<SessionIoActivity>>)> {
-    let state = state().read();
-    screen_activity(&state, pane_id)
+    session_registry::with_current_state(|state| screen_activity(state, pane_id))
 }
 
 pub(super) fn input(state: &NextCoreState, pane_id: usize) -> Result<InputHandles> {
@@ -97,8 +92,7 @@ pub(super) fn input(state: &NextCoreState, pane_id: usize) -> Result<InputHandle
 }
 
 pub(super) fn input_current(pane_id: usize) -> Result<InputHandles> {
-    let state = state().read();
-    input(&state, pane_id)
+    session_registry::with_current_state(|state| input(state, pane_id))
 }
 
 pub(super) fn shell(state: &NextCoreState, pane_id: usize) -> Result<ShellHandles> {
@@ -111,8 +105,7 @@ pub(super) fn shell(state: &NextCoreState, pane_id: usize) -> Result<ShellHandle
 }
 
 pub(super) fn shell_current(pane_id: usize) -> Result<ShellHandles> {
-    let state = state().read();
-    shell(&state, pane_id)
+    session_registry::with_current_state(|state| shell(state, pane_id))
 }
 
 pub(super) fn scrollback(state: &NextCoreState, pane_id: usize) -> Result<ScrollbackHandles> {
@@ -127,8 +120,7 @@ pub(super) fn scrollback(state: &NextCoreState, pane_id: usize) -> Result<Scroll
 }
 
 pub(super) fn scrollback_current(pane_id: usize) -> Result<ScrollbackHandles> {
-    let state = state().read();
-    scrollback(&state, pane_id)
+    session_registry::with_current_state(|state| scrollback(state, pane_id))
 }
 
 pub(super) fn recording(state: &NextCoreState, pane_id: usize) -> Result<RecordingHandles> {
@@ -140,8 +132,7 @@ pub(super) fn recording(state: &NextCoreState, pane_id: usize) -> Result<Recordi
 }
 
 pub(super) fn recording_current(pane_id: usize) -> Result<RecordingHandles> {
-    let state = state().read();
-    recording(&state, pane_id)
+    session_registry::with_current_state(|state| recording(state, pane_id))
 }
 
 pub(super) fn recording_optional(
@@ -156,8 +147,7 @@ pub(super) fn recording_optional(
 pub(super) fn recording_optional_current(
     pane_id: usize,
 ) -> Option<Arc<Mutex<Option<NextCoreRecording>>>> {
-    let state = state().read();
-    recording_optional(&state, pane_id)
+    session_registry::with_current_state(|state| recording_optional(state, pane_id))
 }
 
 #[cfg(test)]
