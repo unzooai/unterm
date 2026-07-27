@@ -7,7 +7,8 @@
 use super::{
     CellStyle, EngineRenderCommitBatch, RenderRect, RenderTextRun, StyledColor, StyledVerticalAlign,
 };
-use wezterm_font::GlyphInfo;
+use std::rc::Rc;
+use wezterm_font::{GlyphInfo, LoadedFont};
 use wgpu::util::DeviceExt;
 
 const NEXT_CORE_RENDER_SHADER: &str = r#"
@@ -414,6 +415,40 @@ impl EngineRenderGlyphRasterSource for EngineRenderDeterministicGlyphRasterSourc
         height_px: usize,
     ) -> Option<Vec<u8>> {
         Some(placeholder_glyph_texture_bytes(key, width_px, height_px))
+    }
+}
+
+#[derive(Clone, Debug)]
+#[allow(dead_code)]
+pub struct EngineRenderFontGlyphRasterSource {
+    font: Rc<LoadedFont>,
+}
+
+#[allow(dead_code)]
+impl EngineRenderFontGlyphRasterSource {
+    pub fn new(font: Rc<LoadedFont>) -> Self {
+        Self { font }
+    }
+}
+
+#[allow(dead_code)]
+impl EngineRenderGlyphRasterSource for EngineRenderFontGlyphRasterSource {
+    fn rasterize_glyph_rgba(
+        &self,
+        key: &EngineRenderGlyphAtlasKey,
+        width_px: usize,
+        height_px: usize,
+    ) -> Option<Vec<u8>> {
+        let (font_idx, glyph_pos) = key.raster_identity()?;
+        let glyph = self.font.rasterize_glyph(glyph_pos, font_idx).ok()?;
+        Some(fit_glyph_rgba_to_atlas_region(
+            &glyph.data,
+            glyph.width,
+            glyph.height,
+            width_px,
+            height_px,
+            key.faint,
+        ))
     }
 }
 
@@ -1655,6 +1690,46 @@ fn placeholder_glyph_texture_bytes(
     bytes
 }
 
+fn fit_glyph_rgba_to_atlas_region(
+    source_rgba: &[u8],
+    source_width_px: usize,
+    source_height_px: usize,
+    width_px: usize,
+    height_px: usize,
+    faint: bool,
+) -> Vec<u8> {
+    let width_px = width_px.max(1);
+    let height_px = height_px.max(1);
+    let mut bytes = vec![0; width_px.saturating_mul(height_px).saturating_mul(4)];
+    if source_width_px == 0 || source_height_px == 0 {
+        return bytes;
+    }
+
+    let source_stride = source_width_px.saturating_mul(4);
+    let expected_source_len = source_stride.saturating_mul(source_height_px);
+    if source_rgba.len() < expected_source_len {
+        return bytes;
+    }
+
+    let copy_width = source_width_px.min(width_px);
+    let copy_height = source_height_px.min(height_px);
+    let copy_bytes = copy_width.saturating_mul(4);
+    for y in 0..copy_height {
+        let src_offset = y.saturating_mul(source_stride);
+        let dst_offset = y.saturating_mul(width_px).saturating_mul(4);
+        bytes[dst_offset..dst_offset + copy_bytes]
+            .copy_from_slice(&source_rgba[src_offset..src_offset + copy_bytes]);
+    }
+
+    if faint {
+        for pixel in bytes.chunks_exact_mut(4) {
+            pixel[3] /= 2;
+        }
+    }
+
+    bytes
+}
+
 fn glyph_key_seed(key: &EngineRenderGlyphAtlasKey) -> u32 {
     let mut seed = 0x811c9dc5u32;
     for byte in key.text.as_bytes() {
@@ -2527,6 +2602,29 @@ mod tests {
 
         assert!(texture_update.regions.is_empty());
         assert_eq!(texture_update.missing_key_indices, vec![0]);
+    }
+
+    #[test]
+    fn font_glyph_raster_region_fit_crops_pads_and_applies_faint_alpha() {
+        let source = vec![
+            0x10, 0x11, 0x12, 0x80, 0x20, 0x21, 0x22, 0xff, 0x30, 0x31, 0x32, 0x40, 0x40, 0x41,
+            0x42, 0x20,
+        ];
+
+        let bytes = fit_glyph_rgba_to_atlas_region(&source, 2, 2, 3, 1, true);
+
+        assert_eq!(bytes.len(), 3 * 4);
+        assert_eq!(&bytes[0..4], &[0x10, 0x11, 0x12, 0x40]);
+        assert_eq!(&bytes[4..8], &[0x20, 0x21, 0x22, 0x7f]);
+        assert_eq!(&bytes[8..12], &[0x00, 0x00, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn font_glyph_raster_region_fit_returns_transparent_for_bad_source() {
+        let bytes = fit_glyph_rgba_to_atlas_region(&[0xff, 0xff], 2, 2, 2, 2, false);
+
+        assert_eq!(bytes.len(), 2 * 2 * 4);
+        assert!(bytes.iter().all(|byte| *byte == 0));
     }
 
     #[test]
