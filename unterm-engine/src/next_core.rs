@@ -1131,6 +1131,32 @@ impl NextCoreScreen {
         self.mark_all_dirty();
     }
 
+    fn fill_rect(&mut self, ch: char, top: usize, left: usize, bottom: usize, right: usize) {
+        if self.rows == 0 || self.cols == 0 {
+            return;
+        }
+        let top = top.min(self.rows.saturating_sub(1));
+        let bottom = bottom.min(self.rows.saturating_sub(1));
+        let left = left.min(self.cols.saturating_sub(1));
+        let right = right.min(self.cols.saturating_sub(1));
+        if top > bottom || left > right {
+            return;
+        }
+
+        self.ensure_rows_through(bottom);
+        let cell = ScreenCell::new(ch, self.current_attr);
+        for row in top..=bottom {
+            let line = &mut self.lines[row];
+            if line.len() <= right {
+                line.resize(right + 1, ScreenCell::blank(self.current_attr));
+            }
+            for col in left..=right {
+                line[col] = cell.clone();
+            }
+        }
+        self.mark_dirty_range(top, bottom);
+    }
+
     fn reset_terminal(&mut self) {
         let cols = self.cols;
         let rows = self.rows;
@@ -1574,6 +1600,19 @@ impl NextCoreScreen {
         } else {
             params
         }
+    }
+
+    fn parse_csi_numbers(raw_params: &str) -> Vec<usize> {
+        let raw_params = raw_params
+            .trim_start_matches('?')
+            .trim_end_matches(|c: char| !c.is_ascii_digit() && c != ';' && c != ':');
+        if raw_params.is_empty() {
+            return Vec::new();
+        }
+        raw_params
+            .split(';')
+            .map(|part| part.trim().parse::<usize>().unwrap_or(0))
+            .collect()
     }
 
     fn parse_colon_color_sgr_params(part: &str) -> Vec<usize> {
@@ -2202,6 +2241,36 @@ impl<'a> ScreenParser<'a> {
             }
             'u' => self.screen.restore_cursor(),
             't' => self.handle_window_operation(&numbers),
+            'x' => {
+                if raw_params.ends_with('$') {
+                    let numbers = NextCoreScreen::parse_csi_numbers(raw_params);
+                    let ch = numbers
+                        .first()
+                        .copied()
+                        .and_then(|code| char::from_u32(code as u32))
+                        .filter(|ch| ScreenCell::char_width(*ch) == 1)
+                        .unwrap_or(' ');
+                    let top = numbers.get(1).copied().filter(|n| *n > 0).unwrap_or(1);
+                    let left = numbers.get(2).copied().filter(|n| *n > 0).unwrap_or(1);
+                    let bottom = numbers
+                        .get(3)
+                        .copied()
+                        .filter(|n| *n > 0)
+                        .unwrap_or(self.screen.rows);
+                    let right = numbers
+                        .get(4)
+                        .copied()
+                        .filter(|n| *n > 0)
+                        .unwrap_or(self.screen.cols);
+                    self.screen.fill_rect(
+                        ch,
+                        top.saturating_sub(1),
+                        left.saturating_sub(1),
+                        bottom.saturating_sub(1),
+                        right.saturating_sub(1),
+                    );
+                }
+            }
             'r' => {
                 let top = numbers.first().copied().filter(|n| *n > 0).unwrap_or(1);
                 let bottom = numbers
@@ -7499,6 +7568,84 @@ mod tests {
         assert_eq!(
             engine.read_screen(session.id)?.lines,
             vec!["EEEEE", "EEEEE", "EEEEE"]
+        );
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_applies_decfra_rectangular_fill() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 10,
+            rows: 4,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(
+            session.id,
+            "0123456789\r\nabcdefghij\r\nABCDEFGHIJ\x1b[1;6H\x1b[31m\x1b[88;2;3;3;8$x",
+        )?;
+        let screen = engine.read_screen(session.id)?;
+        let styled = engine.read_styled_screen(session.id)?;
+
+        assert_eq!(screen.lines, vec!["0123456789", "abXXXXXXij", "ABXXXXXXIJ"]);
+        assert_eq!(screen.cursor.x, 5);
+        assert_eq!(screen.cursor.y, 0);
+        assert_eq!(
+            styled.lines[1].cells[2].style.fg,
+            Some(StyledColor::Palette(1))
+        );
+        assert_eq!(
+            styled.lines[2].cells[7].style.fg,
+            Some(StyledColor::Palette(1))
+        );
+        assert_eq!(styled.lines[1].cells[1].style.fg, None);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_decfra_clips_to_viewport_and_defaults_to_space() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 6,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(session.id, "abcdef\r\nABCDEF\x1b[20320;2;5;9;9$x")?;
+        let screen = engine.read_screen(session.id)?;
+        let styled = engine.read_styled_screen(session.id)?;
+
+        assert_eq!(screen.lines, vec!["abcdef", "ABCD", ""]);
+        assert_eq!(
+            styled.lines[1]
+                .cells
+                .iter()
+                .map(|cell| cell.ch)
+                .collect::<String>(),
+            "ABCD  "
+        );
+        assert_eq!(
+            styled.lines[2]
+                .cells
+                .iter()
+                .map(|cell| cell.ch)
+                .collect::<String>(),
+            "      "
         );
 
         engine.destroy_session(session.id)?;
