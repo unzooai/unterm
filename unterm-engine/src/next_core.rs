@@ -338,7 +338,7 @@ struct NextCoreScreen {
     saved_cursor_y: usize,
     saved_cursor_attr: CellAttributes,
     alternate: Option<ScreenState>,
-    parser_state: ParserState,
+    parser: TerminalParser,
 }
 
 impl NextCoreScreen {
@@ -366,13 +366,9 @@ impl NextCoreScreen {
             self.bump_revision();
             self.clear_dirty_rows();
         }
-        let state = std::mem::take(&mut self.parser_state);
-        let state = {
-            let mut parser = ScreenParser::new(self, state);
-            parser.feed(chunk);
-            parser.state
-        };
-        self.parser_state = state;
+        let mut parser = std::mem::take(&mut self.parser);
+        parser.feed(self, chunk);
+        self.parser = parser;
     }
 
     fn bump_revision(&mut self) {
@@ -2077,50 +2073,46 @@ impl NextCoreScreen {
     }
 }
 
-struct ScreenParser<'a> {
-    screen: &'a mut NextCoreScreen,
+#[derive(Default)]
+struct TerminalParser {
     state: ParserState,
 }
 
-impl<'a> ScreenParser<'a> {
-    fn new(screen: &'a mut NextCoreScreen, state: ParserState) -> Self {
-        Self { screen, state }
-    }
-
-    fn feed(&mut self, chunk: &str) {
+impl TerminalParser {
+    fn feed(&mut self, screen: &mut NextCoreScreen, chunk: &str) {
         for c in chunk.chars() {
-            self.feed_char(c);
+            self.feed_char(screen, c);
         }
     }
 
-    fn feed_char(&mut self, c: char) {
+    fn feed_char(&mut self, screen: &mut NextCoreScreen, c: char) {
         match self.state {
             ParserState::Ground => match c {
                 '\x1b' => self.state = ParserState::Escape,
-                '\u{0084}' => self.screen.index(),
-                '\u{0085}' => self.screen.next_line(),
-                '\u{008d}' => self.screen.reverse_index(),
+                '\u{0084}' => screen.index(),
+                '\u{0085}' => screen.next_line(),
+                '\u{008d}' => screen.reverse_index(),
                 '\u{0090}' | '\u{0098}' | '\u{009e}' | '\u{009f}' => {
                     self.state = ParserState::IgnoredString;
                 }
                 '\u{009b}' => self.state = ParserState::Csi(String::new()),
                 '\u{009d}' => self.state = ParserState::Osc(String::new()),
-                '\r' => self.screen.carriage_return(),
-                '\n' | '\x0b' | '\x0c' => self.screen.newline(),
-                '\x08' => self.screen.backspace(),
-                '\t' => self.screen.horizontal_tab(),
-                c if !c.is_control() => self.screen.put_char(c),
+                '\r' => screen.carriage_return(),
+                '\n' | '\x0b' | '\x0c' => screen.newline(),
+                '\x08' => screen.backspace(),
+                '\t' => screen.horizontal_tab(),
+                c if !c.is_control() => screen.put_char(c),
                 _ => {}
             },
             ParserState::Escape => match c {
                 '[' => self.state = ParserState::Csi(String::new()),
                 ']' => self.state = ParserState::Osc(String::new()),
                 '=' => {
-                    self.screen.application_keypad = true;
+                    screen.application_keypad = true;
                     self.state = ParserState::Ground;
                 }
                 '>' => {
-                    self.screen.application_keypad = false;
+                    screen.application_keypad = false;
                     self.state = ParserState::Ground;
                 }
                 '(' | ')' | '*' | '+' | '-' | '.' | '/' | '%' => {
@@ -2133,31 +2125,31 @@ impl<'a> ScreenParser<'a> {
                     self.state = ParserState::IgnoredString;
                 }
                 '7' => {
-                    self.screen.save_cursor();
+                    screen.save_cursor();
                     self.state = ParserState::Ground;
                 }
                 '8' => {
-                    self.screen.restore_cursor();
+                    screen.restore_cursor();
                     self.state = ParserState::Ground;
                 }
                 'D' => {
-                    self.screen.index();
+                    screen.index();
                     self.state = ParserState::Ground;
                 }
                 'E' => {
-                    self.screen.next_line();
+                    screen.next_line();
                     self.state = ParserState::Ground;
                 }
                 'H' => {
-                    self.screen.set_tab_stop();
+                    screen.set_tab_stop();
                     self.state = ParserState::Ground;
                 }
                 'M' => {
-                    self.screen.reverse_index();
+                    screen.reverse_index();
                     self.state = ParserState::Ground;
                 }
                 'c' => {
-                    self.screen.reset_terminal();
+                    screen.reset_terminal();
                     self.state = ParserState::Ground;
                 }
                 _ => self.state = ParserState::Ground,
@@ -2167,7 +2159,7 @@ impl<'a> ScreenParser<'a> {
             }
             ParserState::EscapeHash => {
                 if c == '8' {
-                    self.screen.fill_alignment_test();
+                    screen.fill_alignment_test();
                 }
                 self.state = ParserState::Ground;
             }
@@ -2187,7 +2179,7 @@ impl<'a> ScreenParser<'a> {
                 if ('@'..='~').contains(&c) {
                     sequence.push(c);
                     let sequence = std::mem::take(sequence);
-                    self.handle_csi(&sequence);
+                    Self::handle_csi(screen, &sequence);
                     self.state = ParserState::Ground;
                 } else {
                     sequence.push(c);
@@ -2196,7 +2188,7 @@ impl<'a> ScreenParser<'a> {
             ParserState::Osc(ref mut sequence) => match c {
                 '\x07' | '\u{009c}' => {
                     let sequence = std::mem::take(sequence);
-                    self.screen.apply_osc(&sequence);
+                    screen.apply_osc(&sequence);
                     self.state = ParserState::Ground;
                 }
                 '\x1b' => {
@@ -2208,14 +2200,14 @@ impl<'a> ScreenParser<'a> {
             ParserState::OscEscape(ref mut sequence) => {
                 if c == '\\' {
                     let sequence = std::mem::take(sequence);
-                    self.screen.apply_osc(&sequence);
+                    screen.apply_osc(&sequence);
                 }
                 self.state = ParserState::Ground;
             }
         }
     }
 
-    fn handle_csi(&mut self, sequence: &str) {
+    fn handle_csi(screen: &mut NextCoreScreen, sequence: &str) {
         let Some(final_byte) = sequence.chars().last() else {
             return;
         };
@@ -2231,109 +2223,98 @@ impl<'a> ScreenParser<'a> {
         match final_byte {
             '@' => {
                 if raw_params.ends_with(' ') {
-                    self.screen.scroll_left(first());
+                    screen.scroll_left(first());
                 } else {
-                    self.screen.insert_chars(first());
+                    screen.insert_chars(first());
                 }
             }
             'A' => {
                 if raw_params.ends_with(' ') {
-                    self.screen.scroll_right(first());
+                    screen.scroll_right(first());
                 } else {
-                    self.screen.move_cursor_up(first());
+                    screen.move_cursor_up(first());
                 }
             }
-            'B' => self.screen.move_cursor_down(first()),
-            'C' => self.screen.move_cursor_right(first()),
-            'D' => self.screen.move_cursor_left(first()),
-            'E' => self.screen.cursor_next_line(first()),
-            'F' => self.screen.cursor_previous_line(first()),
-            'X' => self.screen.erase_chars(first()),
-            'L' => self.screen.insert_lines(first()),
-            'M' => self.screen.delete_lines(first()),
-            'P' => self.screen.delete_chars(first()),
-            'S' => self.screen.scroll_up(first()),
-            'T' => self.screen.scroll_down(first()),
-            'Z' => self.screen.reverse_horizontal_tab(first()),
-            '`' => self
-                .screen
-                .set_horizontal_position(first().saturating_sub(1)),
-            'a' => self.screen.move_cursor_right(first()),
-            'b' => self.screen.repeat_previous_char(first()),
-            'd' => self.screen.set_vertical_position(first().saturating_sub(1)),
-            'e' => self.screen.move_cursor_down(first()),
+            'B' => screen.move_cursor_down(first()),
+            'C' => screen.move_cursor_right(first()),
+            'D' => screen.move_cursor_left(first()),
+            'E' => screen.cursor_next_line(first()),
+            'F' => screen.cursor_previous_line(first()),
+            'X' => screen.erase_chars(first()),
+            'L' => screen.insert_lines(first()),
+            'M' => screen.delete_lines(first()),
+            'P' => screen.delete_chars(first()),
+            'S' => screen.scroll_up(first()),
+            'T' => screen.scroll_down(first()),
+            'Z' => screen.reverse_horizontal_tab(first()),
+            '`' => screen.set_horizontal_position(first().saturating_sub(1)),
+            'a' => screen.move_cursor_right(first()),
+            'b' => screen.repeat_previous_char(first()),
+            'd' => screen.set_vertical_position(first().saturating_sub(1)),
+            'e' => screen.move_cursor_down(first()),
             'G' => {
-                let row = self.screen.cursor_y;
-                self.screen.set_cursor(row, first().saturating_sub(1));
+                let row = screen.cursor_y;
+                screen.set_cursor(row, first().saturating_sub(1));
             }
-            'I' => self.screen.cursor_forward_tab(first()),
-            'g' => self
-                .screen
-                .clear_tab_stop(numbers.first().copied().unwrap_or(0)),
+            'I' => screen.cursor_forward_tab(first()),
+            'g' => screen.clear_tab_stop(numbers.first().copied().unwrap_or(0)),
             'H' | 'f' => {
                 let row = numbers.first().copied().filter(|n| *n > 0).unwrap_or(1);
                 let col = numbers.get(1).copied().filter(|n| *n > 0).unwrap_or(1);
-                self.screen
-                    .set_cursor_position(row.saturating_sub(1), col.saturating_sub(1));
+                screen.set_cursor_position(row.saturating_sub(1), col.saturating_sub(1));
             }
             'J' => {
                 let mode = numbers.first().copied().unwrap_or(0);
                 if private {
-                    self.screen.selective_erase_in_display(mode);
+                    screen.selective_erase_in_display(mode);
                 } else {
-                    self.screen.erase_in_display(mode);
+                    screen.erase_in_display(mode);
                 }
             }
             'K' => {
                 let mode = numbers.first().copied().unwrap_or(0);
                 if private {
-                    self.screen.selective_erase_in_line(mode);
+                    screen.selective_erase_in_line(mode);
                 } else {
-                    self.screen.erase_in_line(mode);
+                    screen.erase_in_line(mode);
                 }
             }
-            'm' => self
-                .screen
-                .apply_sgr(&NextCoreScreen::parse_sgr_params(raw_params)),
+            'm' => screen.apply_sgr(&NextCoreScreen::parse_sgr_params(raw_params)),
             'p' => {
                 if raw_params == "!" {
-                    self.screen.soft_reset_terminal();
+                    screen.soft_reset_terminal();
                 }
             }
             'q' => {
                 if raw_params.ends_with(' ') {
-                    self.screen
-                        .set_cursor_shape(numbers.first().copied().unwrap_or(0));
+                    screen.set_cursor_shape(numbers.first().copied().unwrap_or(0));
                 } else if raw_params.ends_with('"') {
                     let numbers = NextCoreScreen::parse_csi_numbers(raw_params);
-                    self.screen
-                        .set_character_protection(numbers.first().copied().unwrap_or(0));
+                    screen.set_character_protection(numbers.first().copied().unwrap_or(0));
                 }
             }
             's' => {
-                if !private && self.screen.left_right_margin_mode && numbers.len() >= 2 {
+                if !private && screen.left_right_margin_mode && numbers.len() >= 2 {
                     let left = numbers.first().copied().filter(|n| *n > 0).unwrap_or(1);
                     let right = numbers
                         .get(1)
                         .copied()
                         .filter(|n| *n > 0)
-                        .unwrap_or(self.screen.cols);
-                    self.screen
-                        .set_horizontal_margins(left.saturating_sub(1), right.saturating_sub(1));
+                        .unwrap_or(screen.cols);
+                    screen.set_horizontal_margins(left.saturating_sub(1), right.saturating_sub(1));
                 } else {
-                    self.screen.save_cursor();
+                    screen.save_cursor();
                 }
             }
-            'u' => self.screen.restore_cursor(),
+            'u' => screen.restore_cursor(),
             't' => {
                 if raw_params.ends_with('$') {
                     let numbers = NextCoreScreen::parse_csi_numbers(raw_params);
-                    let (top, left, bottom, right) = self.screen.rect_from_numbers(&numbers);
+                    let (top, left, bottom, right) = screen.rect_from_numbers(&numbers);
                     let params = numbers.get(4..).unwrap_or(&[]);
-                    self.screen
-                        .reverse_rect_attributes(top, left, bottom, right, params);
+                    screen.reverse_rect_attributes(top, left, bottom, right, params);
                 } else {
-                    self.handle_window_operation(&numbers);
+                    Self::handle_window_operation(screen, &numbers);
                 }
             }
             'x' => {
@@ -2345,31 +2326,30 @@ impl<'a> ScreenParser<'a> {
                         .and_then(|code| char::from_u32(code as u32))
                         .filter(|ch| ScreenCell::char_width(*ch) == 1)
                         .unwrap_or(' ');
-                    let (top, left, bottom, right) = self.screen.rect_from_numbers(&numbers[1..]);
-                    self.screen.fill_rect(ch, top, left, bottom, right);
+                    let (top, left, bottom, right) = screen.rect_from_numbers(&numbers[1..]);
+                    screen.fill_rect(ch, top, left, bottom, right);
                 }
             }
             'z' => {
                 if raw_params.ends_with('$') {
                     let numbers = NextCoreScreen::parse_csi_numbers(raw_params);
-                    let (top, left, bottom, right) = self.screen.rect_from_numbers(&numbers);
-                    self.screen.erase_rect(top, left, bottom, right);
+                    let (top, left, bottom, right) = screen.rect_from_numbers(&numbers);
+                    screen.erase_rect(top, left, bottom, right);
                 }
             }
             '{' => {
                 if raw_params.ends_with('$') {
                     let numbers = NextCoreScreen::parse_csi_numbers(raw_params);
-                    let (top, left, bottom, right) = self.screen.rect_from_numbers(&numbers);
-                    self.screen.selective_erase_rect(top, left, bottom, right);
+                    let (top, left, bottom, right) = screen.rect_from_numbers(&numbers);
+                    screen.selective_erase_rect(top, left, bottom, right);
                 }
             }
             'r' => {
                 if raw_params.ends_with('$') {
                     let numbers = NextCoreScreen::parse_csi_numbers(raw_params);
-                    let (top, left, bottom, right) = self.screen.rect_from_numbers(&numbers);
+                    let (top, left, bottom, right) = screen.rect_from_numbers(&numbers);
                     let params = numbers.get(4..).unwrap_or(&[]);
-                    self.screen
-                        .change_rect_attributes(top, left, bottom, right, params);
+                    screen.change_rect_attributes(top, left, bottom, right, params);
                     return;
                 }
                 let top = numbers.first().copied().filter(|n| *n > 0).unwrap_or(1);
@@ -2377,51 +2357,50 @@ impl<'a> ScreenParser<'a> {
                     .get(1)
                     .copied()
                     .filter(|n| *n > 0)
-                    .unwrap_or(self.screen.rows);
-                self.screen
-                    .set_scroll_region(top.saturating_sub(1), bottom.saturating_sub(1));
+                    .unwrap_or(screen.rows);
+                screen.set_scroll_region(top.saturating_sub(1), bottom.saturating_sub(1));
             }
             'h' => {
                 for mode in &numbers {
                     if private {
                         match *mode {
-                            1049 => self.screen.enter_alternate_screen(1049, true),
-                            1047 | 47 => self.screen.enter_alternate_screen(*mode, false),
-                            1048 => self.screen.save_cursor(),
+                            1049 => screen.enter_alternate_screen(1049, true),
+                            1047 | 47 => screen.enter_alternate_screen(*mode, false),
+                            1048 => screen.save_cursor(),
                             5 => {
-                                self.screen.reverse_video = true;
-                                self.screen.mark_all_dirty();
+                                screen.reverse_video = true;
+                                screen.mark_all_dirty();
                             }
-                            1 => self.screen.application_cursor_keys = true,
-                            3 => self.screen.set_column_mode(true),
-                            6 => self.screen.set_origin_mode(true),
-                            7 => self.screen.auto_wrap = true,
+                            1 => screen.application_cursor_keys = true,
+                            3 => screen.set_column_mode(true),
+                            6 => screen.set_origin_mode(true),
+                            7 => screen.auto_wrap = true,
                             12 => {
-                                self.screen.cursor_blinking = true;
-                                self.screen.mark_dirty_row(self.screen.cursor_y);
+                                screen.cursor_blinking = true;
+                                screen.mark_dirty_row(screen.cursor_y);
                             }
                             25 => {
-                                self.screen.cursor_visible = true;
-                                self.screen.mark_dirty_row(self.screen.cursor_y);
+                                screen.cursor_visible = true;
+                                screen.mark_dirty_row(screen.cursor_y);
                             }
-                            66 => self.screen.application_keypad = true,
-                            69 => self.screen.left_right_margin_mode = true,
-                            1000 => self.screen.mouse_tracking = MouseTrackingMode::X10,
-                            1002 => self.screen.mouse_tracking = MouseTrackingMode::ButtonEvent,
-                            1003 => self.screen.mouse_tracking = MouseTrackingMode::AnyEvent,
-                            1004 => self.screen.focus_event_reporting = true,
-                            1005 => self.screen.utf8_mouse = true,
-                            1006 => self.screen.sgr_mouse = true,
-                            1007 => self.screen.alternate_scroll = true,
-                            1015 => self.screen.urxvt_mouse = true,
-                            1016 => self.screen.sgr_pixel_mouse = true,
-                            1034 => self.screen.meta_sends_escape = true,
-                            2004 => self.screen.set_bracketed_paste(true),
-                            2026 => self.screen.synchronized_output = true,
+                            66 => screen.application_keypad = true,
+                            69 => screen.left_right_margin_mode = true,
+                            1000 => screen.mouse_tracking = MouseTrackingMode::X10,
+                            1002 => screen.mouse_tracking = MouseTrackingMode::ButtonEvent,
+                            1003 => screen.mouse_tracking = MouseTrackingMode::AnyEvent,
+                            1004 => screen.focus_event_reporting = true,
+                            1005 => screen.utf8_mouse = true,
+                            1006 => screen.sgr_mouse = true,
+                            1007 => screen.alternate_scroll = true,
+                            1015 => screen.urxvt_mouse = true,
+                            1016 => screen.sgr_pixel_mouse = true,
+                            1034 => screen.meta_sends_escape = true,
+                            2004 => screen.set_bracketed_paste(true),
+                            2026 => screen.synchronized_output = true,
                             _ => {}
                         }
                     } else if *mode == 4 {
-                        self.screen.insert_mode = true;
+                        screen.insert_mode = true;
                     }
                 }
             }
@@ -2429,58 +2408,57 @@ impl<'a> ScreenParser<'a> {
                 for mode in &numbers {
                     if private {
                         match *mode {
-                            1049 | 1047 | 47 => self.screen.leave_alternate_screen(*mode),
-                            1048 => self.screen.restore_cursor(),
+                            1049 | 1047 | 47 => screen.leave_alternate_screen(*mode),
+                            1048 => screen.restore_cursor(),
                             5 => {
-                                self.screen.reverse_video = false;
-                                self.screen.mark_all_dirty();
+                                screen.reverse_video = false;
+                                screen.mark_all_dirty();
                             }
-                            1 => self.screen.application_cursor_keys = false,
-                            3 => self.screen.set_column_mode(false),
-                            6 => self.screen.set_origin_mode(false),
-                            7 => self.screen.auto_wrap = false,
+                            1 => screen.application_cursor_keys = false,
+                            3 => screen.set_column_mode(false),
+                            6 => screen.set_origin_mode(false),
+                            7 => screen.auto_wrap = false,
                             12 => {
-                                self.screen.cursor_blinking = false;
-                                self.screen.mark_dirty_row(self.screen.cursor_y);
+                                screen.cursor_blinking = false;
+                                screen.mark_dirty_row(screen.cursor_y);
                             }
                             25 => {
-                                self.screen.cursor_visible = false;
-                                self.screen.mark_dirty_row(self.screen.cursor_y);
+                                screen.cursor_visible = false;
+                                screen.mark_dirty_row(screen.cursor_y);
                             }
-                            66 => self.screen.application_keypad = false,
+                            66 => screen.application_keypad = false,
                             69 => {
-                                self.screen.left_right_margin_mode = false;
-                                self.screen
-                                    .set_horizontal_margins(0, self.screen.cols.saturating_sub(1));
+                                screen.left_right_margin_mode = false;
+                                screen.set_horizontal_margins(0, screen.cols.saturating_sub(1));
                             }
                             1000 => {
-                                if self.screen.mouse_tracking == MouseTrackingMode::X10 {
-                                    self.screen.mouse_tracking = MouseTrackingMode::None;
+                                if screen.mouse_tracking == MouseTrackingMode::X10 {
+                                    screen.mouse_tracking = MouseTrackingMode::None;
                                 }
                             }
                             1002 => {
-                                if self.screen.mouse_tracking == MouseTrackingMode::ButtonEvent {
-                                    self.screen.mouse_tracking = MouseTrackingMode::None;
+                                if screen.mouse_tracking == MouseTrackingMode::ButtonEvent {
+                                    screen.mouse_tracking = MouseTrackingMode::None;
                                 }
                             }
                             1003 => {
-                                if self.screen.mouse_tracking == MouseTrackingMode::AnyEvent {
-                                    self.screen.mouse_tracking = MouseTrackingMode::None;
+                                if screen.mouse_tracking == MouseTrackingMode::AnyEvent {
+                                    screen.mouse_tracking = MouseTrackingMode::None;
                                 }
                             }
-                            1004 => self.screen.focus_event_reporting = false,
-                            1005 => self.screen.utf8_mouse = false,
-                            1006 => self.screen.sgr_mouse = false,
-                            1007 => self.screen.alternate_scroll = false,
-                            1015 => self.screen.urxvt_mouse = false,
-                            1016 => self.screen.sgr_pixel_mouse = false,
-                            1034 => self.screen.meta_sends_escape = false,
-                            2004 => self.screen.set_bracketed_paste(false),
-                            2026 => self.screen.synchronized_output = false,
+                            1004 => screen.focus_event_reporting = false,
+                            1005 => screen.utf8_mouse = false,
+                            1006 => screen.sgr_mouse = false,
+                            1007 => screen.alternate_scroll = false,
+                            1015 => screen.urxvt_mouse = false,
+                            1016 => screen.sgr_pixel_mouse = false,
+                            1034 => screen.meta_sends_escape = false,
+                            2004 => screen.set_bracketed_paste(false),
+                            2026 => screen.synchronized_output = false,
                             _ => {}
                         }
                     } else if *mode == 4 {
-                        self.screen.insert_mode = false;
+                        screen.insert_mode = false;
                     }
                 }
             }
@@ -2488,12 +2466,12 @@ impl<'a> ScreenParser<'a> {
         }
     }
 
-    fn handle_window_operation(&mut self, numbers: &[usize]) {
+    fn handle_window_operation(screen: &mut NextCoreScreen, numbers: &[usize]) {
         let op = numbers.first().copied().unwrap_or(0);
         let target = numbers.get(1).copied().unwrap_or(0);
         match (op, target) {
-            (22, 0 | 2) => self.screen.push_title(),
-            (23, 0 | 2) => self.screen.pop_title(),
+            (22, 0 | 2) => screen.push_title(),
+            (23, 0 | 2) => screen.pop_title(),
             _ => {}
         }
     }
@@ -7660,7 +7638,7 @@ mod tests {
     }
 
     #[test]
-    fn screen_parser_preserves_state_across_split_chunks() {
+    fn terminal_parser_preserves_state_across_split_chunks() {
         let mut screen = NextCoreScreen::new(24, 3);
 
         screen.feed("ab\x1b[31");
@@ -7675,7 +7653,7 @@ mod tests {
     }
 
     #[test]
-    fn screen_parser_ignores_split_string_controls() {
+    fn terminal_parser_ignores_split_string_controls() {
         let mut screen = NextCoreScreen::new(24, 3);
 
         screen.feed("A\x1bPpayload");

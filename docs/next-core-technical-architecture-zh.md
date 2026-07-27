@@ -192,7 +192,7 @@ Alpha 必须进入 core 的内容：
 ## 7. 近期落地顺序
 
 1. 继续扩 next-core VT 兼容测试，覆盖常见 shell/TUI 真实序列。
-2. 把现有 spike parser 封装成 `TerminalParser` 边界，后续可替换为 `vte`。
+2. 继续收紧 `TerminalParser` 边界，后续可替换为 `vte`。
 3. 把 `ScreenCell`/`CellAttributes`/scrollback ring 从单文件拆成小模块。
 4. 增加 benchmark：key-to-screen、paste、output flood、PageUp/PageDown、MCP screen read。
 5. 做 wgpu renderer spike，只消费已有 render-frame snapshot。
@@ -215,7 +215,7 @@ next-core 已经在 screen/parser 方向具备基础能力，包括：
 - UTF-8 安全 paste chunk 和 bracketed paste marker 保留
 - `next_core/cell.rs` 已拆出 cell/attribute/style 转换边界，避免 screen、parser、renderer 继续堆在单个巨型文件里
 - `next_core/screen_state.rs` 已拆出 alternate-screen snapshot 和 mouse/mode tracking 状态，为后续 screen model 独立模块化铺路
-- `next_core/parser_state.rs` 已拆出 parser 状态枚举，为后续替换成 `vte` parser/perform 边界降低耦合
+- `TerminalParser` 已成为 screen 的显式 parser 边界，`next_core/parser_state.rs` 存放 parser 状态枚举，为后续替换成 `vte` parser/perform 边界降低耦合
 
 ## 9. 开源参考
 

@@ -431,7 +431,7 @@ PTY:
 VT parser:
 
 - Prefer the `vte` crate style of parser/perform separation for the long-term parser boundary.
-- Keep the current next-core parser only as the spike implementation while compatibility tests grow.
+- Keep the current `TerminalParser` boundary only as the spike implementation while compatibility tests grow.
 - Do not hand-write a full parser state machine unless the selected library fails a measured Unterm requirement.
 
 Rendering:
