@@ -35,6 +35,23 @@ impl crate::TermWindow {
             });
 
         let next_core_mode = next_core_webgpu_pane_mode();
+        let next_core_buffer_batch = if next_core_mode.is_enabled() {
+            if let Some(pane) = self.get_active_pane_no_overlay() {
+                match self.prepare_next_core_render_buffer_plan(pane.pane_id()) {
+                    Ok(batch) => Some(batch),
+                    Err(err) => {
+                        log::debug!("next-core WebGPU pane render skipped: {err:#}");
+                        None
+                    }
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        let replace_legacy_pane =
+            should_replace_legacy_pane(next_core_mode, &next_core_buffer_batch);
         {
             let render_state = self.render_state.as_ref().unwrap();
             let tex = render_state.glyph_cache.borrow().atlas.texture();
@@ -147,7 +164,7 @@ impl crate::TermWindow {
                             vb.indices.webgpu().slice(..),
                             wgpu::IndexFormat::Uint32,
                         );
-                        if next_core_mode == NextCoreWebGpuPaneMode::Replace {
+                        if replace_legacy_pane {
                             draw_non_pane_webgpu_ranges(
                                 &mut render_pass,
                                 index_count,
@@ -164,30 +181,23 @@ impl crate::TermWindow {
         }
 
         if next_core_mode.is_enabled() {
-            if let Some(pane) = self.get_active_pane_no_overlay() {
-                match self.prepare_next_core_render_buffer_plan(pane.pane_id()) {
-                    Ok(batch) => {
-                        let default_font = match self.fonts.default_font() {
-                            Ok(font) => Some(font),
-                            Err(err) => {
-                                log::debug!("next-core WebGPU font raster source skipped: {err:#}");
-                                None
-                            }
-                        };
-                        let encoded = webgpu.encode_next_core_buffer_plan_with_font(
-                            &mut encoder,
-                            &view,
-                            &batch.buffer_plan,
-                            None,
-                            default_font,
-                        );
-                        if !encoded {
-                            log::debug!("next-core WebGPU pane render skipped: empty buffer plan");
-                        }
-                    }
+            if let Some(batch) = next_core_buffer_batch {
+                let default_font = match self.fonts.default_font() {
+                    Ok(font) => Some(font),
                     Err(err) => {
-                        log::debug!("next-core WebGPU pane render skipped: {err:#}");
+                        log::debug!("next-core WebGPU font raster source skipped: {err:#}");
+                        None
                     }
+                };
+                let encoded = webgpu.encode_next_core_buffer_plan_with_font(
+                    &mut encoder,
+                    &view,
+                    &batch.buffer_plan,
+                    None,
+                    default_font,
+                );
+                if !encoded {
+                    log::debug!("next-core WebGPU pane render skipped: empty buffer plan");
                 }
             }
         }
@@ -349,6 +359,25 @@ fn next_core_webgpu_pane_mode() -> NextCoreWebGpuPaneMode {
     }
 }
 
+fn should_replace_legacy_pane(
+    mode: NextCoreWebGpuPaneMode,
+    batch: &Option<crate::engine::EngineRenderBufferBatch>,
+) -> bool {
+    mode == NextCoreWebGpuPaneMode::Replace
+        && batch.as_ref().is_some_and(|batch| {
+            let ready = batch.is_draw_ready();
+            if !ready {
+                log::trace!(
+                    "next-core WebGPU replace fallback pane={} revision={} readiness_issues={}",
+                    batch.pane_id,
+                    batch.stats.revision,
+                    batch.readiness_issues().len()
+                );
+            }
+            ready
+        })
+}
+
 fn draw_non_pane_webgpu_ranges(
     render_pass: &mut wgpu::RenderPass<'_>,
     index_count: usize,
@@ -393,7 +422,10 @@ fn draw_quad_range(render_pass: &mut wgpu::RenderPass<'_>, start_quad: usize, en
 
 #[cfg(test)]
 mod tests {
-    use super::non_pane_quad_ranges;
+    use super::{non_pane_quad_ranges, should_replace_legacy_pane, NextCoreWebGpuPaneMode};
+    use crate::engine::render_backend::EngineRenderVertex;
+    use crate::engine::EngineRenderVertexLayer;
+    use crate::engine::{EngineRenderBufferBatch, EngineRenderBufferPlan, EngineRenderCommitStats};
 
     #[test]
     fn non_pane_quad_ranges_skip_middle() {
@@ -408,5 +440,67 @@ mod tests {
     #[test]
     fn non_pane_quad_ranges_empty_when_all_pane() {
         assert!(non_pane_quad_ranges(5, &[0..5]).is_empty());
+    }
+
+    #[test]
+    fn next_core_replace_requires_draw_ready_batch() {
+        assert!(should_replace_legacy_pane(
+            NextCoreWebGpuPaneMode::Replace,
+            &Some(buffer_batch(true))
+        ));
+    }
+
+    #[test]
+    fn next_core_replace_keeps_legacy_pane_for_empty_repeat_batch() {
+        assert!(!should_replace_legacy_pane(
+            NextCoreWebGpuPaneMode::Replace,
+            &Some(buffer_batch(false))
+        ));
+        assert!(!should_replace_legacy_pane(
+            NextCoreWebGpuPaneMode::Append,
+            &Some(buffer_batch(true))
+        ));
+        assert!(!should_replace_legacy_pane(
+            NextCoreWebGpuPaneMode::Replace,
+            &None
+        ));
+    }
+
+    fn buffer_batch(draw_ready: bool) -> EngineRenderBufferBatch {
+        EngineRenderBufferBatch {
+            pane_id: 7,
+            stats: EngineRenderCommitStats {
+                submit: draw_ready,
+                previous_revision: None,
+                revision: 3,
+                skipped_revisions: 0,
+                requires_full_repaint: draw_ready,
+                full: draw_ready,
+                viewport: None,
+                damage_rect_count: usize::from(draw_ready),
+                background_quad_count: usize::from(draw_ready),
+                text_run_count: 0,
+                cursor_visible: false,
+            },
+            buffer_plan: EngineRenderBufferPlan {
+                pane_id: 7,
+                submitted: draw_ready,
+                revision: 3,
+                requires_full_repaint: draw_ready,
+                damage_rects: Vec::new(),
+                text_runs: Vec::new(),
+                vertices: if draw_ready {
+                    vec![EngineRenderVertex {
+                        position: [0.0, 0.0],
+                        color: [1.0, 1.0, 1.0, 1.0],
+                        layer: EngineRenderVertexLayer::Background,
+                        command_index: 0,
+                    }]
+                } else {
+                    Vec::new()
+                },
+                indices: if draw_ready { vec![0] } else { Vec::new() },
+            },
+        }
     }
 }

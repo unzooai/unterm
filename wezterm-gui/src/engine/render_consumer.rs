@@ -39,6 +39,14 @@ pub struct EngineRenderBufferBatch {
     pub buffer_plan: EngineRenderBufferPlan,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
+pub enum EngineRenderBufferReadinessIssue {
+    CommitNotSubmitted,
+    BufferNotSubmitted,
+    EmptyBuffer,
+}
+
 #[derive(Clone, Debug)]
 pub struct EngineRenderConsumer {
     pane_id: usize,
@@ -102,6 +110,27 @@ impl EngineRenderConsumer {
             stats: batch.stats,
             buffer_plan,
         })
+    }
+}
+
+#[allow(dead_code)]
+impl EngineRenderBufferBatch {
+    pub fn readiness_issues(&self) -> Vec<EngineRenderBufferReadinessIssue> {
+        let mut issues = Vec::new();
+        if !self.stats.submit {
+            issues.push(EngineRenderBufferReadinessIssue::CommitNotSubmitted);
+        }
+        if !self.buffer_plan.submitted {
+            issues.push(EngineRenderBufferReadinessIssue::BufferNotSubmitted);
+        }
+        if self.buffer_plan.vertices.is_empty() || self.buffer_plan.indices.is_empty() {
+            issues.push(EngineRenderBufferReadinessIssue::EmptyBuffer);
+        }
+        issues
+    }
+
+    pub fn is_draw_ready(&self) -> bool {
+        self.readiness_issues().is_empty()
     }
 }
 

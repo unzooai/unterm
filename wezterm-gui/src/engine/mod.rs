@@ -476,6 +476,8 @@ mod tests {
         );
         assert!(!first.buffer_plan.vertices.is_empty());
         assert!(!first.buffer_plan.indices.is_empty());
+        assert!(first.is_draw_ready());
+        assert!(first.readiness_issues().is_empty());
 
         let repeat = consumer
             .read_buffer_plan(&engine)
@@ -486,6 +488,8 @@ mod tests {
         assert!(repeat.buffer_plan.text_runs.is_empty());
         assert!(repeat.buffer_plan.vertices.is_empty());
         assert!(repeat.buffer_plan.indices.is_empty());
+        assert!(!repeat.is_draw_ready());
+        assert_eq!(repeat.readiness_issues().len(), 3);
         engine
             .destroy_session(session.id)
             .expect("destroy next-core test session");
