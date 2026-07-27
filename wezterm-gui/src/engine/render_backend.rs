@@ -254,6 +254,11 @@ pub struct EngineRenderGlyphAtlasPlan {
 pub struct EngineRenderGlyphAtlasPlacement {
     pub key_index: usize,
     pub rect: RenderRect,
+    pub source_width_px: usize,
+    pub source_height_px: usize,
+    pub bearing_x_px: i32,
+    pub bearing_y_px: i32,
+    pub uses_raster_metrics: bool,
 }
 
 #[repr(C)]
@@ -381,6 +386,7 @@ pub struct EngineRenderGlyphAtlasTextureRegion {
     pub source_height_px: usize,
     pub bearing_x_px: i32,
     pub bearing_y_px: i32,
+    pub uses_raster_metrics: bool,
     pub bytes_rgba: Vec<u8>,
 }
 
@@ -392,6 +398,7 @@ pub struct EngineRenderGlyphRaster {
     pub source_height_px: usize,
     pub bearing_x_px: i32,
     pub bearing_y_px: i32,
+    pub uses_raster_metrics: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -427,6 +434,7 @@ pub trait EngineRenderGlyphRasterSource {
             source_height_px: height_px,
             bearing_x_px: 0,
             bearing_y_px: 0,
+            uses_raster_metrics: false,
         })
     }
 }
@@ -501,6 +509,7 @@ impl EngineRenderGlyphRasterSource for EngineRenderFontGlyphRasterSource {
             source_height_px: glyph.height,
             bearing_x_px: glyph.bearing_x.get().round() as i32,
             bearing_y_px: glyph.bearing_y.get().round() as i32,
+            uses_raster_metrics: true,
         })
     }
 }
@@ -1304,10 +1313,34 @@ impl EngineRenderGlyphAtlasCache {
                 width: width_px.saturating_sub(self.padding_px.saturating_mul(2)),
                 height: height_px.saturating_sub(self.padding_px.saturating_mul(2)),
             },
+            source_width_px: width_px.saturating_sub(self.padding_px.saturating_mul(2)),
+            source_height_px: height_px.saturating_sub(self.padding_px.saturating_mul(2)),
+            bearing_x_px: 0,
+            bearing_y_px: 0,
+            uses_raster_metrics: false,
         };
         self.next_x_px = self.next_x_px.saturating_add(width_px);
         self.row_height_px = self.row_height_px.max(height_px);
         Some(placement)
+    }
+
+    pub fn apply_texture_update_metrics(
+        &mut self,
+        update: &EngineRenderGlyphAtlasTextureUpdatePlan,
+    ) {
+        for region in &update.regions {
+            if let Some(placement) = self
+                .placements
+                .iter_mut()
+                .find(|placement| placement.key_index == region.key_index)
+            {
+                placement.source_width_px = region.source_width_px;
+                placement.source_height_px = region.source_height_px;
+                placement.bearing_x_px = region.bearing_x_px;
+                placement.bearing_y_px = region.bearing_y_px;
+                placement.uses_raster_metrics = region.uses_raster_metrics;
+            }
+        }
     }
 }
 
@@ -1373,6 +1406,7 @@ impl EngineRenderGlyphAtlasTextureUpdatePlan {
                     source_height_px: raster.source_height_px,
                     bearing_x_px: raster.bearing_x_px,
                     bearing_y_px: raster.bearing_y_px,
+                    uses_raster_metrics: raster.uses_raster_metrics,
                     bytes_rgba: raster.bytes_rgba,
                 });
             }
@@ -1425,7 +1459,7 @@ impl EngineRenderTexturedGlyphUploadPlan {
                     &mut vertices,
                     &mut indices,
                     instance,
-                    placement.rect,
+                    placement,
                     viewport_width_px,
                     viewport_height_px,
                     atlas_width_px,
@@ -1669,21 +1703,48 @@ fn push_textured_glyph_quad(
     vertices: &mut Vec<EngineRenderTexturedGlyphVertex>,
     indices: &mut Vec<u32>,
     instance: &EngineRenderGlyphAtlasInstance,
-    atlas_rect: RenderRect,
+    placement: &EngineRenderGlyphAtlasPlacement,
     viewport_width_px: f32,
     viewport_height_px: f32,
     atlas_width_px: f32,
     atlas_height_px: f32,
 ) {
     let base = vertices.len() as u32;
-    let left = instance.rect.x as f32;
-    let top = instance.rect.y as f32;
-    let right = instance.rect.x.saturating_add(instance.rect.width) as f32;
-    let bottom = instance.rect.y.saturating_add(instance.rect.height) as f32;
+    let atlas_rect = placement.rect;
+    let (left, top, right, bottom, uv_width_px, uv_height_px) = if placement.uses_raster_metrics {
+        let glyph_width = placement
+            .source_width_px
+            .max(1)
+            .min(atlas_rect.width.max(1));
+        let glyph_height = placement
+            .source_height_px
+            .max(1)
+            .min(atlas_rect.height.max(1));
+        let left = instance.rect.x as f32 + placement.bearing_x_px as f32;
+        let top =
+            instance.rect.y as f32 + instance.rect.height as f32 - placement.bearing_y_px as f32;
+        (
+            left,
+            top,
+            left + glyph_width as f32,
+            top + glyph_height as f32,
+            glyph_width,
+            glyph_height,
+        )
+    } else {
+        (
+            instance.rect.x as f32,
+            instance.rect.y as f32,
+            instance.rect.x.saturating_add(instance.rect.width) as f32,
+            instance.rect.y.saturating_add(instance.rect.height) as f32,
+            atlas_rect.width,
+            atlas_rect.height,
+        )
+    };
     let uv_left = atlas_rect.x as f32 / atlas_width_px;
     let uv_top = atlas_rect.y as f32 / atlas_height_px;
-    let uv_right = atlas_rect.x.saturating_add(atlas_rect.width) as f32 / atlas_width_px;
-    let uv_bottom = atlas_rect.y.saturating_add(atlas_rect.height) as f32 / atlas_height_px;
+    let uv_right = atlas_rect.x.saturating_add(uv_width_px) as f32 / atlas_width_px;
+    let uv_bottom = atlas_rect.y.saturating_add(uv_height_px) as f32 / atlas_height_px;
     let key_index = instance.key_index as u32;
 
     vertices.extend([
@@ -2272,6 +2333,11 @@ mod tests {
                     width: 8,
                     height: 16,
                 },
+                source_width_px: 8,
+                source_height_px: 16,
+                bearing_x_px: 0,
+                bearing_y_px: 0,
+                uses_raster_metrics: false,
             }],
             100.0,
             50.0,
@@ -2302,6 +2368,64 @@ mod tests {
             ]
         );
         assert_eq!(upload.vertices[0].key_index, 0);
+    }
+
+    #[test]
+    fn textured_glyph_upload_uses_raster_metrics_for_bitmap_quad() {
+        let frame = EngineRenderBackendFrame {
+            pane_id: 32,
+            submitted: true,
+            revision: 33,
+            requires_full_repaint: false,
+            skipped_revisions: 0,
+            commands: vec![EngineRenderBackendCommand::Text {
+                row: 0,
+                col: 0,
+                cells: 1,
+                rect: RenderRect {
+                    x: 10,
+                    y: 5,
+                    width: 20,
+                    height: 10,
+                },
+                text: "g".to_string(),
+                style: CellStyle::default(),
+            }],
+        };
+        let buffer = EngineRenderBufferPlan::from_frame(&frame);
+        let glyphs = EngineWgpuRenderBackend::prepare_glyph_atlas(&buffer);
+
+        let upload = EngineWgpuRenderBackend::prepare_textured_glyph_upload_for_viewport(
+            &glyphs,
+            &[EngineRenderGlyphAtlasPlacement {
+                key_index: 0,
+                rect: RenderRect {
+                    x: 16,
+                    y: 8,
+                    width: 20,
+                    height: 16,
+                },
+                source_width_px: 7,
+                source_height_px: 9,
+                bearing_x_px: -2,
+                bearing_y_px: 8,
+                uses_raster_metrics: true,
+            }],
+            100.0,
+            50.0,
+            64.0,
+            32.0,
+        );
+
+        assert_eq!(upload.vertices.len(), 4);
+        assert_f32_pair_close(upload.vertices[0].position, [-0.84, 0.72]);
+        assert_f32_pair_close(upload.vertices[1].position, [-0.7, 0.72]);
+        assert_f32_pair_close(upload.vertices[2].position, [-0.84, 0.36]);
+        assert_f32_pair_close(upload.vertices[3].position, [-0.7, 0.36]);
+        assert_eq!(upload.vertices[0].uv, [0.25, 0.25]);
+        assert_eq!(upload.vertices[1].uv, [23.0 / 64.0, 0.25]);
+        assert_eq!(upload.vertices[2].uv, [0.25, 17.0 / 32.0]);
+        assert_eq!(upload.vertices[3].uv, [23.0 / 64.0, 17.0 / 32.0]);
     }
 
     #[test]
@@ -2423,6 +2547,11 @@ mod tests {
                     width: 8,
                     height: 16,
                 },
+                source_width_px: 8,
+                source_height_px: 16,
+                bearing_x_px: 0,
+                bearing_y_px: 0,
+                uses_raster_metrics: false,
             }
         );
         assert_eq!(
@@ -2435,6 +2564,11 @@ mod tests {
                     width: 8,
                     height: 16,
                 },
+                source_width_px: 8,
+                source_height_px: 16,
+                bearing_x_px: 0,
+                bearing_y_px: 0,
+                uses_raster_metrics: false,
             }
         );
 
@@ -2653,6 +2787,7 @@ mod tests {
                     source_height_px: 13,
                     bearing_x_px: -2,
                     bearing_y_px: 9,
+                    uses_raster_metrics: true,
                 })
             }
         }

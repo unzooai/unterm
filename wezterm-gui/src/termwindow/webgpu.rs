@@ -500,20 +500,23 @@ impl NextCoreGlyphAtlasState {
         if pane.cell_width_px != cell_width_px || pane.cell_height_px != cell_height_px {
             *pane = NextCorePaneGlyphAtlasState::new(cell_width_px, cell_height_px);
         }
-        let (update, upload) =
-            EngineWgpuRenderBackend::prepare_cached_textured_glyph_upload_for_viewport(
-                &glyphs,
-                &mut pane.cache,
-                cell_width_px,
-                cell_height_px,
-                viewport_width_px,
-                viewport_height_px,
-            );
+        let update = pane
+            .cache
+            .ensure_glyphs(glyphs, cell_width_px, cell_height_px);
         let texture_update = EngineWgpuRenderBackend::prepare_glyph_atlas_texture_update(
             glyphs,
             &update,
             NEXT_CORE_GLYPH_ATLAS_WIDTH_PX,
             NEXT_CORE_GLYPH_ATLAS_HEIGHT_PX,
+        );
+        pane.cache.apply_texture_update_metrics(&texture_update);
+        let upload = EngineWgpuRenderBackend::prepare_textured_glyph_upload_for_viewport(
+            glyphs,
+            &pane.cache.placements,
+            viewport_width_px,
+            viewport_height_px,
+            NEXT_CORE_GLYPH_ATLAS_WIDTH_PX as f32,
+            NEXT_CORE_GLYPH_ATLAS_HEIGHT_PX as f32,
         );
         Some(NextCoreCachedGlyphUpload {
             pane_id: plan.pane_id,
@@ -548,15 +551,9 @@ impl NextCoreGlyphAtlasState {
         if pane.cell_width_px != cell_width_px || pane.cell_height_px != cell_height_px {
             *pane = NextCorePaneGlyphAtlasState::new(cell_width_px, cell_height_px);
         }
-        let (update, upload) =
-            EngineWgpuRenderBackend::prepare_cached_textured_glyph_upload_for_viewport(
-                glyphs,
-                &mut pane.cache,
-                cell_width_px,
-                cell_height_px,
-                viewport_width_px,
-                viewport_height_px,
-            );
+        let update = pane
+            .cache
+            .ensure_glyphs(glyphs, cell_width_px, cell_height_px);
         let texture_update =
             EngineWgpuRenderBackend::prepare_glyph_atlas_texture_update_with_raster_source(
                 glyphs,
@@ -565,6 +562,15 @@ impl NextCoreGlyphAtlasState {
                 NEXT_CORE_GLYPH_ATLAS_HEIGHT_PX,
                 raster_source,
             );
+        pane.cache.apply_texture_update_metrics(&texture_update);
+        let upload = EngineWgpuRenderBackend::prepare_textured_glyph_upload_for_viewport(
+            glyphs,
+            &pane.cache.placements,
+            viewport_width_px,
+            viewport_height_px,
+            NEXT_CORE_GLYPH_ATLAS_WIDTH_PX as f32,
+            NEXT_CORE_GLYPH_ATLAS_HEIGHT_PX as f32,
+        );
         Some(NextCoreCachedGlyphUpload {
             pane_id: plan.pane_id,
             revision: plan.revision,
@@ -1555,6 +1561,7 @@ mod tests {
             source_height_px: height_px,
             bearing_x_px: 0,
             bearing_y_px: 0,
+            uses_raster_metrics: false,
             bytes_rgba: vec![0xff; byte_count],
         }
     }
