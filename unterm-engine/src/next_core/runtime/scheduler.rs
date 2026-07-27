@@ -4,7 +4,7 @@ use super::{
     queue::RuntimeQueueRejection,
     screen_executor, with_current_mut,
 };
-use crate::RenderFrameSnapshot;
+use crate::{RenderFrameSnapshot, ScreenSnapshot};
 use anyhow::{anyhow, bail, Result};
 
 fn enqueue(command: RuntimeCommand) -> Result<(), RuntimeQueueRejection> {
@@ -39,6 +39,20 @@ pub(in crate::next_core) fn read_render_frame(
     enqueue(command).map_err(|err| anyhow!("runtime render queue rejected command: {err:?}"))?;
     let command = dequeue().ok_or_else(|| anyhow!("runtime render queue lost enqueued command"))?;
     screen_executor::execute_render_frame(command)
+}
+
+pub(in crate::next_core) fn scroll_viewport_to(pane_id: usize, target: isize) -> Result<()> {
+    let command = RuntimeCommand::ScrollViewport { pane_id, target };
+    enqueue(command).map_err(|err| anyhow!("runtime screen queue rejected command: {err:?}"))?;
+    let command = dequeue().ok_or_else(|| anyhow!("runtime screen queue lost enqueued command"))?;
+    screen_executor::execute_screen_mutation(command)
+}
+
+pub(in crate::next_core) fn read_screen(pane_id: usize) -> Result<ScreenSnapshot> {
+    let command = RuntimeCommand::ReadScreen { pane_id };
+    enqueue(command).map_err(|err| anyhow!("runtime screen queue rejected command: {err:?}"))?;
+    let command = dequeue().ok_or_else(|| anyhow!("runtime screen queue lost enqueued command"))?;
+    screen_executor::execute_screen(command)
 }
 
 #[cfg(test)]
@@ -100,6 +114,28 @@ mod tests {
             .to_string()
             .contains("runtime render queue rejected command"));
         assert_eq!(queue_stats().rejected_commands, 1);
+    }
+
+    #[test]
+    fn plain_screen_reads_enter_runtime_queue_before_dispatch() {
+        test_facade::reset();
+
+        let err = read_screen(404).expect_err("missing pane should fail");
+
+        assert!(err.to_string().contains("next-core session 404 not found"));
+        assert_eq!(queue_stats().pending_commands, 0);
+        assert_eq!(queue_stats().rejected_commands, 0);
+    }
+
+    #[test]
+    fn viewport_scrolls_enter_runtime_queue_before_dispatch() {
+        test_facade::reset();
+
+        let err = scroll_viewport_to(404, 5).expect_err("missing pane should fail");
+
+        assert!(err.to_string().contains("next-core session 404 not found"));
+        assert_eq!(queue_stats().pending_commands, 0);
+        assert_eq!(queue_stats().rejected_commands, 0);
     }
 
     #[test]

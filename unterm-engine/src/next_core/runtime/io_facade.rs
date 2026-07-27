@@ -7,11 +7,11 @@ use crate::{
 use anyhow::Result;
 
 pub(in crate::next_core) fn scroll_viewport_to(pane_id: usize, target: isize) -> Result<()> {
-    screen_dispatch::scroll_viewport_to(pane_id, target)
+    scheduler::scroll_viewport_to(pane_id, target)
 }
 
 pub(in crate::next_core) fn read_screen(pane_id: usize) -> Result<ScreenSnapshot> {
-    screen_dispatch::read_plain_viewport(pane_id)
+    scheduler::read_screen(pane_id)
 }
 
 pub(in crate::next_core) fn read_styled_screen(pane_id: usize) -> Result<StyledScreenSnapshot> {
