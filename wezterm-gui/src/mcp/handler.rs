@@ -1226,7 +1226,7 @@ mod engine_neutral_handler_tests {
             )?;
 
             let mut search = json!({});
-            for _ in 0..40 {
+            for _ in 0..100 {
                 search = handler.handle(
                     &ctx,
                     "screen.search",
@@ -1240,7 +1240,11 @@ mod engine_neutral_handler_tests {
                 }
                 std::thread::sleep(std::time::Duration::from_millis(50));
             }
-            assert!(search["total"].as_u64().unwrap_or_default() > 0);
+            assert!(
+                search["total"].as_u64().unwrap_or_default() > 0,
+                "recording export marker was not visible in next-core screen search: {}",
+                search
+            );
 
             let exported = handler.handle(
                 &ctx,

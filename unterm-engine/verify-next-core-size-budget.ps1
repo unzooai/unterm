@@ -14,7 +14,8 @@ $SourceRoot = Join-Path $EngineDir "src"
 $CoreRoot = Join-Path $SourceRoot "next_core"
 $MainCoreFile = Join-Path $SourceRoot "next_core.rs"
 $ProbeFile = Join-Path $SourceRoot "bin\unterm-next-core.rs"
-$DebugBinary = Join-Path $RepoRoot "target\debug\unterm-next-core.exe"
+$DebugBinaryName = if ($IsWindows) { "unterm-next-core.exe" } else { "unterm-next-core" }
+$DebugBinary = Join-Path $RepoRoot "target\debug\$DebugBinaryName"
 
 function Count-Lines {
     param([string[]]$Paths)
@@ -96,7 +97,13 @@ $directDependencies = @($treeLines | Where-Object { $_ -match "^1\S" }).Count
 $debugBinaryBytes = $null
 if (-not $SkipBinarySizeCheck) {
     if (-not (Test-Path $DebugBinary)) {
-        throw "missing debug binary: $DebugBinary; run cargo build -p unterm-engine --bin unterm-next-core or pass -SkipBinarySizeCheck"
+        & cargo build -p unterm-engine --bin unterm-next-core
+        if ($LASTEXITCODE -ne 0) {
+            throw "cargo build failed for unterm-engine --bin unterm-next-core"
+        }
+    }
+    if (-not (Test-Path $DebugBinary)) {
+        throw "missing debug binary after build: $DebugBinary"
     }
     $debugBinaryBytes = (Get-Item $DebugBinary).Length
 }
