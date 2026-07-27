@@ -307,6 +307,7 @@ struct NextCoreScreen {
     sgr_pixel_mouse: bool,
     meta_sends_escape: bool,
     synchronized_output: bool,
+    alternate_screen_modes: BTreeSet<usize>,
     origin_mode: bool,
     insert_mode: bool,
     left_right_margin_mode: bool,
@@ -355,6 +356,7 @@ struct ScreenState {
     sgr_pixel_mouse: bool,
     meta_sends_escape: bool,
     synchronized_output: bool,
+    alternate_screen_modes: BTreeSet<usize>,
     origin_mode: bool,
     insert_mode: bool,
     left_right_margin_mode: bool,
@@ -1115,7 +1117,7 @@ impl NextCoreScreen {
 
     fn soft_reset_terminal(&mut self) {
         if self.alternate.is_some() {
-            self.leave_alternate_screen();
+            self.leave_all_alternate_screen_modes();
         }
         self.current_attr = CellAttributes::default();
         self.insert_mode = false;
@@ -1134,6 +1136,7 @@ impl NextCoreScreen {
         self.sgr_pixel_mouse = false;
         self.meta_sends_escape = false;
         self.synchronized_output = false;
+        self.alternate_screen_modes.clear();
         self.cursor_visible = true;
         self.cursor_blinking = true;
         self.cursor_shape = "Default".to_string();
@@ -1787,8 +1790,9 @@ impl NextCoreScreen {
         (8..cols).step_by(8).collect()
     }
 
-    fn enter_alternate_screen(&mut self, clear: bool) {
+    fn enter_alternate_screen(&mut self, mode: usize, clear: bool) {
         if self.alternate.is_some() {
+            self.alternate_screen_modes.insert(mode);
             if clear {
                 self.clear_screen();
             }
@@ -1818,6 +1822,7 @@ impl NextCoreScreen {
             sgr_pixel_mouse: self.sgr_pixel_mouse,
             meta_sends_escape: self.meta_sends_escape,
             synchronized_output: self.synchronized_output,
+            alternate_screen_modes: std::mem::take(&mut self.alternate_screen_modes),
             origin_mode: self.origin_mode,
             insert_mode: self.insert_mode,
             left_right_margin_mode: self.left_right_margin_mode,
@@ -1833,6 +1838,7 @@ impl NextCoreScreen {
             saved_cursor_attr: self.saved_cursor_attr,
         };
         self.alternate = Some(main);
+        self.alternate_screen_modes.insert(mode);
         self.cursor_x = 0;
         self.cursor_y = 0;
         self.saved_cursor_x = 0;
@@ -1866,52 +1872,68 @@ impl NextCoreScreen {
         self.mark_all_dirty();
     }
 
-    fn leave_alternate_screen(&mut self) {
-        if let Some(main) = self.alternate.take() {
-            self.cols = main.cols;
-            self.scrollback = main.scrollback;
-            self.lines = main.lines;
-            self.viewport_top = main.viewport_top;
-            self.cursor_x = main.cursor_x;
-            self.cursor_y = main.cursor_y;
-            self.cursor_visible = main.cursor_visible;
-            self.cursor_blinking = main.cursor_blinking;
-            self.cursor_shape = main.cursor_shape;
-            self.column_132_mode = main.column_132_mode;
-            self.auto_wrap = main.auto_wrap;
-            self.application_cursor_keys = main.application_cursor_keys;
-            self.application_keypad = main.application_keypad;
-            self.focus_event_reporting = main.focus_event_reporting;
-            self.mouse_tracking = main.mouse_tracking;
-            self.utf8_mouse = main.utf8_mouse;
-            self.urxvt_mouse = main.urxvt_mouse;
-            self.sgr_mouse = main.sgr_mouse;
-            self.alternate_scroll = main.alternate_scroll;
-            self.sgr_pixel_mouse = main.sgr_pixel_mouse;
-            self.meta_sends_escape = main.meta_sends_escape;
-            self.synchronized_output = main.synchronized_output;
-            self.origin_mode = main.origin_mode;
-            self.insert_mode = main.insert_mode;
-            self.left_right_margin_mode = main.left_right_margin_mode;
-            self.tab_stops = main.tab_stops;
-            self.bracketed_paste = main.bracketed_paste;
-            self.current_attr = main.current_attr;
-            self.scroll_top = main.scroll_top;
-            self.scroll_bottom = main.scroll_bottom;
-            self.left_margin = main.left_margin;
-            self.right_margin = main.right_margin;
-            self.saved_cursor_x = main.saved_cursor_x;
-            self.saved_cursor_y = main.saved_cursor_y;
-            self.saved_cursor_attr = main.saved_cursor_attr;
-            if self.lines.len() > self.rows {
-                let trim = self.lines.len() - self.rows;
-                self.lines.drain(..trim);
-                self.cursor_y = self.cursor_y.saturating_sub(trim);
-                self.saved_cursor_y = self.saved_cursor_y.saturating_sub(trim);
-            }
-            self.ensure_cursor_line();
-            self.mark_all_dirty();
+    fn leave_alternate_screen(&mut self, mode: usize) {
+        self.alternate_screen_modes.remove(&mode);
+        if !self.alternate_screen_modes.is_empty() {
+            return;
         }
+        if let Some(main) = self.alternate.take() {
+            self.restore_main_screen(main);
+        }
+    }
+
+    fn leave_all_alternate_screen_modes(&mut self) {
+        self.alternate_screen_modes.clear();
+        if let Some(main) = self.alternate.take() {
+            self.restore_main_screen(main);
+        }
+    }
+
+    fn restore_main_screen(&mut self, main: ScreenState) {
+        self.cols = main.cols;
+        self.scrollback = main.scrollback;
+        self.lines = main.lines;
+        self.viewport_top = main.viewport_top;
+        self.cursor_x = main.cursor_x;
+        self.cursor_y = main.cursor_y;
+        self.cursor_visible = main.cursor_visible;
+        self.cursor_blinking = main.cursor_blinking;
+        self.cursor_shape = main.cursor_shape;
+        self.column_132_mode = main.column_132_mode;
+        self.auto_wrap = main.auto_wrap;
+        self.application_cursor_keys = main.application_cursor_keys;
+        self.application_keypad = main.application_keypad;
+        self.focus_event_reporting = main.focus_event_reporting;
+        self.mouse_tracking = main.mouse_tracking;
+        self.utf8_mouse = main.utf8_mouse;
+        self.urxvt_mouse = main.urxvt_mouse;
+        self.sgr_mouse = main.sgr_mouse;
+        self.alternate_scroll = main.alternate_scroll;
+        self.sgr_pixel_mouse = main.sgr_pixel_mouse;
+        self.meta_sends_escape = main.meta_sends_escape;
+        self.synchronized_output = main.synchronized_output;
+        self.alternate_screen_modes = main.alternate_screen_modes;
+        self.origin_mode = main.origin_mode;
+        self.insert_mode = main.insert_mode;
+        self.left_right_margin_mode = main.left_right_margin_mode;
+        self.tab_stops = main.tab_stops;
+        self.bracketed_paste = main.bracketed_paste;
+        self.current_attr = main.current_attr;
+        self.scroll_top = main.scroll_top;
+        self.scroll_bottom = main.scroll_bottom;
+        self.left_margin = main.left_margin;
+        self.right_margin = main.right_margin;
+        self.saved_cursor_x = main.saved_cursor_x;
+        self.saved_cursor_y = main.saved_cursor_y;
+        self.saved_cursor_attr = main.saved_cursor_attr;
+        if self.lines.len() > self.rows {
+            let trim = self.lines.len() - self.rows;
+            self.lines.drain(..trim);
+            self.cursor_y = self.cursor_y.saturating_sub(trim);
+            self.saved_cursor_y = self.saved_cursor_y.saturating_sub(trim);
+        }
+        self.ensure_cursor_line();
+        self.mark_all_dirty();
     }
 }
 
@@ -2178,7 +2200,8 @@ impl<'a> ScreenParser<'a> {
                 for mode in &numbers {
                     if private {
                         match *mode {
-                            1049 | 1047 | 47 => self.screen.enter_alternate_screen(true),
+                            1049 => self.screen.enter_alternate_screen(1049, true),
+                            1047 | 47 => self.screen.enter_alternate_screen(*mode, false),
                             1048 => self.screen.save_cursor(),
                             5 => {
                                 self.screen.reverse_video = true;
@@ -2221,7 +2244,7 @@ impl<'a> ScreenParser<'a> {
                 for mode in &numbers {
                     if private {
                         match *mode {
-                            1049 | 1047 | 47 => self.screen.leave_alternate_screen(),
+                            1049 | 1047 | 47 => self.screen.leave_alternate_screen(*mode),
                             1048 => self.screen.restore_cursor(),
                             5 => {
                                 self.screen.reverse_video = false;
@@ -3867,7 +3890,7 @@ impl NextCoreEngine {
                 response.extend_from_slice(
                     format!(
                         "\x1b[?47;{}$y",
-                        Self::mode_report_state(screen.alternate.is_some())
+                        Self::mode_report_state(screen.alternate_screen_modes.contains(&47))
                     )
                     .as_bytes(),
                 );
@@ -3876,7 +3899,7 @@ impl NextCoreEngine {
                 response.extend_from_slice(
                     format!(
                         "\x1b[?1047;{}$y",
-                        Self::mode_report_state(screen.alternate.is_some())
+                        Self::mode_report_state(screen.alternate_screen_modes.contains(&1047))
                     )
                     .as_bytes(),
                 );
@@ -3885,7 +3908,7 @@ impl NextCoreEngine {
                 response.extend_from_slice(
                     format!(
                         "\x1b[?1049;{}$y",
-                        Self::mode_report_state(screen.alternate.is_some())
+                        Self::mode_report_state(screen.alternate_screen_modes.contains(&1049))
                     )
                     .as_bytes(),
                 );
@@ -5052,7 +5075,7 @@ mod tests {
 
         assert_eq!(
             bytes.lock().as_slice(),
-            b"\x1b[?1;1$y\x1b[?3;1$y\x1b[?5;1$y\x1b[?6;1$y\x1b[?7;1$y\x1b[?12;2$y\x1b[?25;2$y\x1b[?66;1$y\x1b[?69;1$y\x1b[?1000;2$y\x1b[?1002;1$y\x1b[?1003;2$y\x1b[?1004;1$y\x1b[?1005;1$y\x1b[?1006;1$y\x1b[?1007;1$y\x1b[?1015;1$y\x1b[?1016;1$y\x1b[?1034;1$y\x1b[?47;1$y\x1b[?1047;1$y\x1b[?1049;1$y\x1b[?2004;1$y\x1b[?2026;1$y\x1b[4;1$y"
+            b"\x1b[?1;1$y\x1b[?3;1$y\x1b[?5;1$y\x1b[?6;1$y\x1b[?7;1$y\x1b[?12;2$y\x1b[?25;2$y\x1b[?66;1$y\x1b[?69;1$y\x1b[?1000;2$y\x1b[?1002;1$y\x1b[?1003;2$y\x1b[?1004;1$y\x1b[?1005;1$y\x1b[?1006;1$y\x1b[?1007;1$y\x1b[?1015;1$y\x1b[?1016;1$y\x1b[?1034;1$y\x1b[?47;2$y\x1b[?1047;1$y\x1b[?1049;2$y\x1b[?2004;1$y\x1b[?2026;1$y\x1b[4;1$y"
         );
     }
 
@@ -5075,6 +5098,29 @@ mod tests {
         assert_eq!(
             bytes.lock().as_slice(),
             b"\x1b[?1;2$y\x1b[?3;2$y\x1b[?5;2$y\x1b[?6;2$y\x1b[?12;1$y\x1b[?66;2$y\x1b[?69;2$y\x1b[?1000;2$y\x1b[?1002;2$y\x1b[?1003;2$y\x1b[?1004;2$y\x1b[?1005;2$y\x1b[?1006;2$y\x1b[?1007;2$y\x1b[?1015;2$y\x1b[?1016;2$y\x1b[?1034;2$y\x1b[?47;2$y\x1b[?1047;2$y\x1b[?1049;2$y\x1b[?2004;2$y\x1b[?2026;2$y\x1b[4;2$y"
+        );
+    }
+
+    #[test]
+    fn answers_alternate_screen_mode_reports_independently() {
+        let _guard = test_guard();
+        let mut screen = NextCoreScreen::new(80, 10);
+        screen.feed("\x1b[?47h\x1b[?1049h");
+        let bytes = Arc::new(Mutex::new(Vec::new()));
+        let writer: Arc<Mutex<Box<dyn Write + Send>>> =
+            Arc::new(Mutex::new(Box::new(SharedWriter {
+                bytes: Arc::clone(&bytes),
+            })));
+
+        NextCoreEngine::answer_terminal_queries(
+            "\x1b[?47$p\x1b[?1047$p\x1b[?1049$p",
+            &screen,
+            &writer,
+        );
+
+        assert_eq!(
+            bytes.lock().as_slice(),
+            b"\x1b[?47;1$y\x1b[?1047;2$y\x1b[?1049;1$y"
         );
     }
 
@@ -8403,6 +8449,43 @@ mod tests {
         assert_eq!(screen.lines, vec!["main-one", "main-two"]);
         assert!(engine.search(session.id, "alt-three", 1)?.is_empty());
         assert!(engine.read_scrollback(session.id, 10)?.is_empty());
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_keeps_alternate_screen_until_all_active_modes_leave() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 20,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(
+            session.id,
+            concat!(
+                "main",
+                "\x1b[?1047h",
+                "alt",
+                "\x1b[?1049h",
+                "clear",
+                "\x1b[?1047l",
+                "still-alt",
+                "\x1b[?1049l",
+                "back"
+            ),
+        )?;
+
+        let screen = engine.read_screen(session.id)?;
+        assert_eq!(screen.lines, vec!["mainback"]);
+        assert!(engine.search(session.id, "still-alt", 1)?.is_empty());
 
         engine.destroy_session(session.id)?;
         Ok(())
