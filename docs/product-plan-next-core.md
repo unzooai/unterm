@@ -424,6 +424,7 @@ Supported:
 - GUI WebGPU next-core shaped glyph atlas preparation is cached per pane by revision, font id, and text-atlas fingerprint, cutting repeated `LoadedFont::shape` work from unchanged repaints
 - GUI glyph texture updates now preserve source bitmap dimensions and bearing metrics from the raster source, preparing the next step from cell-aligned quads to real glyph bearing/advance placement
 - GUI textured glyph upload now persists raster metrics in the pane glyph atlas cache and uses source bitmap dimensions plus bearing metrics for real glyph quad placement and UV bounds, while retaining deterministic cell-aligned fallback placement when raster metrics are unavailable
+- GUI shaped glyph layout now carries rounded x/y offsets and x advance through shaped glyph and atlas instance records, with y offset applied in the legacy baseline direction before textured glyph placement
 - `EngineRenderGlyphAtlasCache` with deterministic shelf placement and inserted/overflow key reporting, so the future WebGPU glyph texture can update atlas regions without rebuilding placement state per frame
 - `WebGpuState` pane-scoped next-core glyph atlas state, reusing glyph placements across paints and clearing them when pane renderer state is removed
 - `EngineRenderGlyphAtlasTextureUpdatePlan` that converts newly inserted atlas keys into texture update regions through an `EngineRenderGlyphRasterSource` boundary, keeping the deterministic source for tests while letting the future GUI font raster/cache provide real RGBA bytes without changing the texture upload ABI

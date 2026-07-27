@@ -159,6 +159,9 @@ pub struct EngineRenderShapedGlyph {
     pub cells: usize,
     pub text: String,
     pub rect: RenderRect,
+    pub x_advance_px: i32,
+    pub x_offset_px: i32,
+    pub y_offset_px: i32,
     pub foreground: [f32; 4],
     pub style: CellStyle,
     pub font_idx: usize,
@@ -235,6 +238,9 @@ pub struct EngineRenderGlyphAtlasInstance {
     pub col: usize,
     pub cells: usize,
     pub rect: RenderRect,
+    pub x_advance_px: i32,
+    pub x_offset_px: i32,
+    pub y_offset_px: i32,
     pub foreground: [f32; 4],
 }
 
@@ -1594,6 +1600,9 @@ fn push_glyph_atlas_instances(
                         width,
                         height: run.rect.height,
                     },
+                    x_advance_px: width as i32,
+                    x_offset_px: 0,
+                    y_offset_px: 0,
                     foreground: run.foreground,
                 },
             );
@@ -1610,6 +1619,9 @@ fn push_glyph_atlas_instances(
                 col: run.col,
                 cells: run.cells,
                 rect: run.rect,
+                x_advance_px: run.rect.width as i32,
+                x_offset_px: 0,
+                y_offset_px: 0,
                 foreground: run.foreground,
             },
         );
@@ -1625,9 +1637,12 @@ fn push_shaped_glyphs_from_infos(
     let mut consumed_cells = 0usize;
     for info in glyph_infos {
         let cells = usize::from(info.num_cells.max(1));
-        let x = (run.rect.x as f64 + pen_x + info.x_offset.get()).round();
-        let y = (run.rect.y as f64 + info.y_offset.get()).round();
-        let width = info.x_advance.get().abs().round().max(1.0) as usize;
+        let x_offset_px = info.x_offset.get().round() as i32;
+        let y_offset_px = info.y_offset.get().round() as i32;
+        let x_advance_px = info.x_advance.get().round() as i32;
+        let x = run.rect.x as i64 + pen_x.round() as i64 + x_offset_px as i64;
+        let y = run.rect.y as i64 - y_offset_px as i64;
+        let width = x_advance_px.unsigned_abs().max(1) as usize;
         let height = run.rect.height.max(1);
         glyphs.push(EngineRenderShapedGlyph {
             row: run.row,
@@ -1635,11 +1650,14 @@ fn push_shaped_glyphs_from_infos(
             cells,
             text: shaped_glyph_text(run, info),
             rect: RenderRect {
-                x: x.max(0.0) as usize,
-                y: y.max(0.0) as usize,
+                x: x.max(0) as usize,
+                y: y.max(0) as usize,
                 width,
                 height,
             },
+            x_advance_px,
+            x_offset_px,
+            y_offset_px,
             foreground: run.foreground,
             style: run.style.clone(),
             font_idx: info.font_idx,
@@ -1677,6 +1695,9 @@ fn push_shaped_glyph_atlas_instance(
             col: glyph.col,
             cells: glyph.cells,
             rect: glyph.rect,
+            x_advance_px: glyph.x_advance_px,
+            x_offset_px: glyph.x_offset_px,
+            y_offset_px: glyph.y_offset_px,
             foreground: glyph.foreground,
         },
     );
@@ -2213,7 +2234,7 @@ mod tests {
         };
         let glyph_infos = vec![vec![
             glyph_info("a", 'a', 0, 101, 9.0, 0.0, 0.0, 1),
-            glyph_info("b", 'b', 1, 202, 9.0, 1.0, 0.0, 1),
+            glyph_info("b", 'b', 1, 202, 9.0, 1.0, 2.0, 1),
         ]];
 
         let shaped = EngineWgpuRenderBackend::prepare_shaped_glyph_plan_from_glyph_infos(
@@ -2227,11 +2248,19 @@ mod tests {
         assert_eq!(shaped.glyphs[0].rect.x, 20);
         assert_eq!(shaped.glyphs[0].rect.width, 9);
         assert_eq!(shaped.glyphs[1].rect.x, 30);
+        assert_eq!(shaped.glyphs[1].rect.y, 38);
+        assert_eq!(shaped.glyphs[1].x_advance_px, 9);
+        assert_eq!(shaped.glyphs[1].x_offset_px, 1);
+        assert_eq!(shaped.glyphs[1].y_offset_px, 2);
         assert_eq!(shaped.glyphs[1].col, 3);
         assert_eq!(shaped.glyphs[1].font_idx, 1);
         assert_eq!(shaped.glyphs[1].glyph_pos, 202);
         assert_eq!(atlas.keys[0].raster_identity(), Some((0, 101)));
         assert_eq!(atlas.keys[1].raster_identity(), Some((1, 202)));
+        assert_eq!(atlas.instances[1].rect.y, 38);
+        assert_eq!(atlas.instances[1].x_advance_px, 9);
+        assert_eq!(atlas.instances[1].x_offset_px, 1);
+        assert_eq!(atlas.instances[1].y_offset_px, 2);
     }
 
     #[test]
@@ -2938,6 +2967,9 @@ mod tests {
                 width: 8,
                 height: 16,
             },
+            x_advance_px: 8,
+            x_offset_px: 0,
+            y_offset_px: 0,
             foreground: [1.0, 1.0, 1.0, 1.0],
             style,
             font_idx,

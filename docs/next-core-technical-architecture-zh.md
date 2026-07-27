@@ -231,6 +231,7 @@ next-core 已经在 screen/parser 方向具备基础能力，包括：
 - GUI WebGPU 的 next-core shaped glyph atlas preparation 已按 pane / revision / font id / text-atlas fingerprint 缓存，pane 内容未变化的 repaint 不再重复执行 `LoadedFont::shape`
 - GUI glyph texture update 已携带 raster source 的原始 bitmap 尺寸和 bearing metrics；下一步可以从 cell-aligned quad 逐步迁移到真实 glyph bearing/advance placement
 - GUI textured glyph upload 已把 raster metrics 持久化进 pane glyph atlas cache，并使用 source bitmap 尺寸与 bearing metrics 生成真实 glyph quad 和 UV；没有真实 raster metrics 的路径继续保持 deterministic cell-aligned fallback
+- GUI shaped glyph layout 已把 rounded x/y offset 和 x advance 贯穿 shaped glyph 与 atlas instance，并让 y offset 按 legacy baseline 公式方向参与 textured glyph placement
 - `EngineRenderGlyphAtlasCache` 已提供确定性的 shelf placement，记录已插入和 overflow 的 glyph key；未来 WebGPU glyph texture 可以按 cache update 更新 atlas 区域，而不是每帧重建 placement state
 - `WebGpuState` 已持有按 pane 划分的 next-core glyph atlas state，并在 pane render consumer 清理时同步释放；glyph placement 复用现在具备跨 paint 生命周期，不再停留在单帧局部计划
 - `EngineRenderGlyphAtlasTextureUpdatePlan` 已通过 `EngineRenderGlyphRasterSource` 边界把新插入的 glyph key 转成 texture update region；默认 deterministic source 保持测试稳定，后续 GUI font raster/cache 可以提供真实 RGBA bytes，而不改变 `queue.write_texture` 上传契约
