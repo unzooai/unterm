@@ -1,5 +1,7 @@
-use super::{session_registry, session_snapshots, NextCoreSession};
-use crate::SessionSnapshot;
+use super::{
+    health_snapshot, session_activity, session_registry, session_snapshots, NextCoreSession,
+};
+use crate::{EngineHealthSnapshot, SessionActivitySnapshot, SessionSnapshot};
 use anyhow::Result;
 use parking_lot::RwLock;
 use std::sync::OnceLock;
@@ -71,4 +73,14 @@ pub(super) fn get_session(pane_id: usize) -> Result<SessionSnapshot> {
 
 pub(super) fn clone_session_base(pane_id: usize) -> Result<SessionSnapshot> {
     with_session(pane_id, |session| Ok(session.snapshot.clone()))
+}
+
+pub(super) fn session_activity(pane_id: usize) -> Result<SessionActivitySnapshot> {
+    with_current_mut(|state| {
+        session_activity::read_snapshot(state, pane_id, std::time::Instant::now())
+    })
+}
+
+pub(super) fn health_snapshot() -> EngineHealthSnapshot {
+    with_current_mut(health_snapshot::snapshot)
 }

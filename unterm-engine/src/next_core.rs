@@ -1625,7 +1625,7 @@ impl SessionEngine for NextCoreEngine {
     }
 
     fn activity(&self, pane_id: usize) -> Result<SessionActivitySnapshot> {
-        session_activity::read_current(pane_id)
+        runtime::session_activity(pane_id)
     }
 
     fn resize_session(&self, pane_id: usize, cols: usize, rows: usize) -> Result<()> {
@@ -1734,7 +1734,7 @@ impl RecordingEngine for NextCoreEngine {
 
 impl HealthEngine for NextCoreEngine {
     fn health(&self) -> Result<EngineHealthSnapshot> {
-        Ok(health_snapshot::current())
+        Ok(runtime::health_snapshot())
     }
 }
 
