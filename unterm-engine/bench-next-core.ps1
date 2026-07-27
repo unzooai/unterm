@@ -11,6 +11,7 @@ param(
     [int]$ViewportPageCycleLines = 10000,
     [int]$ViewportScrollFloodLines = 5000,
     [int]$PasteKb = 10,
+    [int]$PasteUnderFloodKb = 10,
     [int]$DualAgentLines = 5000,
     [int]$AgentStartupLines = 5000,
     [int]$ScreenReadLines = 5000,
@@ -32,6 +33,8 @@ param(
     [int]$MaxDualAgentEchoP95Us = 33000,
     [int]$MaxAgentStartupInputP95Us = 33000,
     [int]$MaxPaste10KbMs = 50,
+    [int]$MaxPasteUnderFloodMs = 50,
+    [int]$MaxPasteUnderFloodMarkerMisses = 0,
     [int]$MaxScrollbackPageP95Us = 1000,
     [int]$MaxViewportScrollP95Us = 1000,
     [int]$MaxViewportPageCycleP95Us = 1000,
@@ -412,6 +415,7 @@ try {
     $results += Invoke-Benchmark -Name "echo latency" -BenchArgs ([string[]](@("--bench-echo", "$EchoRounds") + $commonTail))
     $results += Invoke-Benchmark -Name "output flood" -BenchArgs ([string[]](@("--bench-flood-lines", "$FloodLines") + $commonTail))
     $results += Invoke-Benchmark -Name "paste 10kb" -BenchArgs ([string[]](@("--bench-paste-kb", "$PasteKb") + $commonTail))
+    $results += Invoke-Benchmark -Name "paste under output flood" -BenchArgs ([string[]](@("--bench-paste-under-flood-kb", "$PasteUnderFloodKb") + $commonTail))
     $results += Invoke-Benchmark -Name "scrollback paging" -BenchArgs ([string[]](@("--bench-scrollback-lines", "$ScrollbackLines") + $commonTail))
     $results += Invoke-Benchmark -Name "viewport scroll paging" -BenchArgs ([string[]](@("--bench-viewport-scrolls", "$ViewportScrollLines") + $commonTail))
     $results += Invoke-Benchmark -Name "viewport page cycle" -BenchArgs ([string[]](@("--bench-viewport-page-cycle-lines", "$ViewportPageCycleLines") + $commonTail))
@@ -435,6 +439,7 @@ try {
     $inputBurst = Find-BenchmarkResult -Results $results -Name "input burst under output"
     $echo = Find-BenchmarkResult -Results $results -Name "echo latency"
     $paste = Find-BenchmarkResult -Results $results -Name "paste 10kb"
+    $pasteUnderFlood = Find-BenchmarkResult -Results $results -Name "paste under output flood"
     $scrollback = Find-BenchmarkResult -Results $results -Name "scrollback paging"
     $viewportScroll = Find-BenchmarkResult -Results $results -Name "viewport scroll paging"
     $viewportPageCycle = Find-BenchmarkResult -Results $results -Name "viewport page cycle"
@@ -460,6 +465,8 @@ try {
     $gates += New-Gate -GateName "dual-agent echo p95" -Actual (Get-BenchMetric -Result $dualAgent -LinePrefix "bench_dual_agents_echo" -Metric "p95_us") -Max $MaxDualAgentEchoP95Us -Unit "us"
     $gates += New-Gate -GateName "agent startup input p95" -Actual (Get-BenchMetric -Result $agentStartup -LinePrefix "bench_agent_startup_stall" -Metric "input_p95_us") -Max $MaxAgentStartupInputP95Us -Unit "us"
     $gates += New-Gate -GateName "paste 10kb elapsed" -Actual (Get-BenchMetric -Result $paste -LinePrefix "bench_paste" -Metric "elapsed_ms") -Max $MaxPaste10KbMs -Unit "ms"
+    $gates += New-Gate -GateName "paste under flood elapsed" -Actual (Get-BenchMetric -Result $pasteUnderFlood -LinePrefix "bench_paste_under_flood" -Metric "elapsed_ms") -Max $MaxPasteUnderFloodMs -Unit "ms"
+    $gates += New-Gate -GateName "paste under flood marker misses" -Actual (Get-BenchMetric -Result $pasteUnderFlood -LinePrefix "bench_paste_under_flood" -Metric "marker_misses") -Max $MaxPasteUnderFloodMarkerMisses -Unit "misses"
     $gates += New-Gate -GateName "scrollback page p95" -Actual (Get-BenchMetric -Result $scrollback -LinePrefix "bench_scrollback" -Metric "p95_us") -Max $MaxScrollbackPageP95Us -Unit "us"
     $gates += New-Gate -GateName "viewport scroll p95" -Actual (Get-BenchMetric -Result $viewportScroll -LinePrefix "bench_viewport_scroll" -Metric "p95_us") -Max $MaxViewportScrollP95Us -Unit "us"
     $gates += New-Gate -GateName "viewport page cycle p95" -Actual (Get-BenchMetric -Result $viewportPageCycle -LinePrefix "bench_viewport_page_cycle" -Metric "p95_us") -Max $MaxViewportPageCycleP95Us -Unit "us"

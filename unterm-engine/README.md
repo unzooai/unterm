@@ -40,7 +40,7 @@ Run the Phase 2 next-core benchmark suite and generate `docs/next-core-benchmark
 .\unterm-engine\bench-next-core.ps1
 ```
 
-The runner builds `unterm-next-core`, verifies the machine-readable `--json` probe output, executes the current input-write/input-burst/echo/output/scrollback/viewport-scroll/viewport-page-cycle/viewport-scroll-under-flood/paste/dual-agent/agent-startup-stall/screen-read/render-frame empty, dirty, cursor-move delta, application-cursor-move delta, render draw-plan/render geometry-plan/render submission-plan/render commit-plan/focus-switch/session-create/session-ready benchmarks, writes human-readable summary and raw output into the Markdown report, and writes machine-readable gate results into the JSON summary. Any failed benchmark or gate exits non-zero.
+The runner builds `unterm-next-core`, verifies the machine-readable `--json` probe output, executes the current input-write/input-burst/echo/output/scrollback/viewport-scroll/viewport-page-cycle/viewport-scroll-under-flood/paste/paste-under-output-flood/dual-agent/agent-startup-stall/screen-read/render-frame empty, dirty, cursor-move delta, application-cursor-move delta, render draw-plan/render geometry-plan/render submission-plan/render commit-plan/focus-switch/session-create/session-ready benchmarks, writes human-readable summary and raw output into the Markdown report, and writes machine-readable gate results into the JSON summary. Any failed benchmark or gate exits non-zero.
 
 Verify an existing JSON summary without rerunning the benchmark suite:
 
@@ -171,9 +171,10 @@ Paste benchmark:
 
 ```powershell
 cargo run -p unterm-engine --bin unterm-next-core -- --bench-paste-kb 10 --timeout-ms 10000 --wait-ms 100 --write "exit`r" -- cmd.exe
+cargo run -p unterm-engine --bin unterm-next-core -- --bench-paste-under-flood-kb 10 --timeout-ms 30000 --wait-ms 100 --write "exit`r" -- cmd.exe
 ```
 
-The paste benchmark feeds a large single-line payload through the engine paste path and reports time until the shell consumes it.
+The paste benchmarks feed a large single-line payload through the engine paste path and report time until the shell consumes it. The under-flood variant keeps a background pseudo-agent session emitting output while the foreground session waits for the pasted payload, then requires the completion marker to appear without misses. It covers right-click auth-code paste reliability while Codex/Claude panes are streaming.
 
 `next-core` writes paste payloads in UTF-8 safe chunks. When bracketed paste mode is enabled, the start/end markers are kept intact around the chunked body.
 

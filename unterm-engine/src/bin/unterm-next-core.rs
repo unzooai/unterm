@@ -26,6 +26,7 @@ struct Args {
     bench_viewport_page_cycle_lines: Option<usize>,
     bench_viewport_scroll_flood: Option<usize>,
     bench_paste_kb: Option<usize>,
+    bench_paste_under_flood_kb: Option<usize>,
     bench_dual_agent_lines: Option<usize>,
     bench_agent_startup_lines: Option<usize>,
     bench_screen_read_lines: Option<usize>,
@@ -65,6 +66,7 @@ fn parse_args() -> Result<Args> {
         bench_viewport_page_cycle_lines: None,
         bench_viewport_scroll_flood: None,
         bench_paste_kb: None,
+        bench_paste_under_flood_kb: None,
         bench_dual_agent_lines: None,
         bench_agent_startup_lines: None,
         bench_screen_read_lines: None,
@@ -198,6 +200,15 @@ fn parse_args() -> Result<Args> {
                 parsed.bench_paste_kb = Some(
                     args.next()
                         .ok_or_else(|| anyhow::anyhow!("--bench-paste-kb requires a value"))?
+                        .parse()?,
+                );
+            }
+            "--bench-paste-under-flood-kb" => {
+                parsed.bench_paste_under_flood_kb = Some(
+                    args.next()
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("--bench-paste-under-flood-kb requires a value")
+                        })?
                         .parse()?,
                 );
             }
@@ -1402,6 +1413,69 @@ fn run_paste_benchmark(
     }
 }
 
+fn run_paste_under_flood_benchmark(
+    engine: &unterm_engine::next_core::NextCoreEngine,
+    pane_id: usize,
+    cols: usize,
+    rows: usize,
+    kb: usize,
+    poll_interval: Duration,
+    timeout: Duration,
+) -> Result<()> {
+    if kb == 0 {
+        bail!("--bench-paste-under-flood-kb must be greater than 0");
+    }
+    let bytes = kb
+        .checked_mul(1024)
+        .ok_or_else(|| anyhow::anyhow!("--bench-paste-under-flood-kb is too large"))?;
+    let flood_lines = kb.saturating_mul(500).max(5000);
+    let agent = engine.create_session(cmd_session(cols, rows))?;
+    let flood = start_flood_stream(engine, agent.id, flood_lines)?;
+
+    let result = (|| -> Result<(u128, u128, u8)> {
+        let marker = format!("UNTERM_NEXT_CORE_PASTE_FLOOD_DONE_{bytes}");
+        engine.write_input(
+            pane_id,
+            format!(
+                "set /p UNTERM_NEXT_CORE_PASTE_FLOOD_INPUT=&echo {}\r",
+                shell_quote_cmd_arg(marker.as_str())
+            )
+            .as_str(),
+        )?;
+        std::thread::sleep(poll_interval);
+        let before_raw_len = engine.debug_output(pane_id)?.len();
+        let before = Instant::now();
+        engine.paste_input(pane_id, format!("{}\r", make_paste_payload(bytes)).as_str())?;
+        let write_ms = before.elapsed().as_millis();
+        loop {
+            let raw = engine.debug_output(pane_id)?;
+            if raw[before_raw_len.min(raw.len())..].contains(marker.as_str()) {
+                return Ok((before.elapsed().as_millis(), write_ms, 0));
+            }
+            if before.elapsed() >= timeout {
+                return Ok((before.elapsed().as_millis(), write_ms, 1));
+            }
+            std::thread::sleep(poll_interval);
+        }
+    })();
+
+    let flood_wait = wait_for_marker(engine, agent.id, &flood, poll_interval, timeout);
+    engine.destroy_session(agent.id)?;
+    let (elapsed_ms, write_ms, marker_misses) = result?;
+    let (flood_elapsed, flood_bytes) = flood_wait?;
+    println!(
+        "bench_paste_under_flood bytes={} flood_lines={} flood_bytes={} elapsed_ms={} write_ms={} marker_misses={} background_elapsed_ms={}",
+        bytes,
+        flood_lines,
+        flood_bytes,
+        elapsed_ms,
+        write_ms,
+        marker_misses,
+        flood_elapsed.as_millis()
+    );
+    Ok(())
+}
+
 fn run_echo_benchmark(
     engine: &unterm_engine::next_core::NextCoreEngine,
     pane_id: usize,
@@ -1995,7 +2069,12 @@ fn main() -> Result<()> {
             Duration::from_millis(args.poll_ms),
             Duration::from_millis(args.timeout_ms),
         )
-        .with_context(|| format!("bench_viewport_page_cycle failed for session {}", session.id))?;
+        .with_context(|| {
+            format!(
+                "bench_viewport_page_cycle failed for session {}",
+                session.id
+            )
+        })?;
     }
 
     if let Some(lines) = args.bench_viewport_scroll_flood {
@@ -2023,6 +2102,19 @@ fn main() -> Result<()> {
             Duration::from_millis(args.timeout_ms),
         )
         .with_context(|| format!("bench_paste failed for session {}", session.id))?;
+    }
+
+    if let Some(kb) = args.bench_paste_under_flood_kb {
+        run_paste_under_flood_benchmark(
+            &engine,
+            session.id,
+            args.cols,
+            args.rows,
+            kb,
+            Duration::from_millis(args.poll_ms),
+            Duration::from_millis(args.timeout_ms),
+        )
+        .with_context(|| format!("bench_paste_under_flood failed for session {}", session.id))?;
     }
 
     if let Some(lines) = args.bench_dual_agent_lines {

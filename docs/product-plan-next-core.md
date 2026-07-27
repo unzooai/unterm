@@ -511,12 +511,13 @@ The spike must run a local benchmark harness:
 1. Engine input-write call latency
 2. Key press to visible glyph
 3. Paste 10 KB
-4. Print 100k lines
-5. PageUp/PageDown through 10k scrollback
-6. Two pseudo-agent output streams
-7. Agent startup burst while interactive input remains responsive
-8. MCP `screen.text` during output flood
-9. Render-frame full/delta read latency for the future GPU renderer
+4. Paste 10 KB while a pseudo-agent output stream is active
+5. Print 100k lines
+6. PageUp/PageDown through 10k scrollback
+7. Two pseudo-agent output streams
+8. Agent startup burst while interactive input remains responsive
+9. MCP `screen.text` during output flood
+10. Render-frame full/delta read latency for the future GPU renderer
 
 ### Graduation Criteria
 
@@ -897,6 +898,7 @@ Build benchmark harness for:
 
 - input latency
 - key-to-screen latency
+- paste under output flood
 - output flood
 - agent startup stall
 - scrollback paging

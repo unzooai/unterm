@@ -1,7 +1,7 @@
 param(
     [string]$SummaryJsonPath = "",
-    [int]$ExpectedGateCount = 29,
-    [int]$ExpectedBenchmarkCount = 23,
+    [int]$ExpectedGateCount = 31,
+    [int]$ExpectedBenchmarkCount = 24,
     [switch]$SkipCommitReachabilityCheck
 )
 
@@ -185,6 +185,8 @@ $requiredGates = @(
     "dual-agent echo p95",
     "agent startup input p95",
     "paste 10kb elapsed",
+    "paste under flood elapsed",
+    "paste under flood marker misses",
     "scrollback page p95",
     "viewport scroll p95",
     "viewport page cycle p95",
@@ -233,6 +235,7 @@ $requiredBenchmarks = @(
     "echo latency",
     "output flood",
     "paste 10kb",
+    "paste under output flood",
     "scrollback paging",
     "viewport scroll paging",
     "viewport page cycle",
