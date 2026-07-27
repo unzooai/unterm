@@ -41,6 +41,7 @@ mod screen_search;
 mod screen_state;
 mod screen_text;
 mod sgr;
+mod styled_snapshot;
 mod terminal_parser;
 mod terminal_queries;
 
@@ -245,12 +246,14 @@ impl NextCoreScreen {
     #[allow(dead_code)]
     fn styled_viewport_lines(&self, first_row: i64) -> Vec<StyledScreenLine> {
         let viewport_start = self.viewport_start();
-        (0..self.rows)
-            .map(|idx| StyledScreenLine {
-                row: first_row + idx as i64,
-                cells: self.styled_viewport_cells(self.history_line(viewport_start + idx)),
-            })
-            .collect()
+        styled_snapshot::viewport_lines(
+            self.rows,
+            first_row,
+            (0..self.rows).map(|idx| self.history_line(viewport_start + idx)),
+            self.cols,
+            self.reverse_video,
+            &self.hyperlinks,
+        )
     }
 
     fn styled_viewport_dirty_lines(
@@ -259,46 +262,23 @@ impl NextCoreScreen {
         first_row: i64,
     ) -> Vec<StyledScreenLine> {
         let viewport_start = self.viewport_start();
-        (dirty_rows.start..=dirty_rows.end)
-            .map(|row| StyledScreenLine {
-                row: first_row + row as i64,
-                cells: self.styled_viewport_cells(self.history_line(viewport_start + row)),
-            })
-            .collect()
-    }
-
-    fn styled_viewport_cells(&self, line: Option<&Vec<ScreenCell>>) -> Vec<StyledCell> {
-        let mut cells: Vec<StyledCell> = line
-            .into_iter()
-            .flat_map(|line| {
-                line.iter().take(self.cols).map(|cell| {
-                    cell.styled_with_reverse_video(self.reverse_video, &self.hyperlinks)
-                })
-            })
-            .collect();
-        while cells.len() < self.cols {
-            cells.push(
-                ScreenCell::blank(CellAttributes::default())
-                    .styled_with_reverse_video(self.reverse_video, &self.hyperlinks),
-            );
-        }
-        cells
+        styled_snapshot::viewport_dirty_lines(
+            first_row,
+            (dirty_rows.start..=dirty_rows.end)
+                .map(|row| (row, self.history_line(viewport_start + row))),
+            self.cols,
+            self.reverse_video,
+            &self.hyperlinks,
+        )
     }
 
     fn styled_history_range(&self, start: usize, count: usize) -> Vec<StyledScreenLine> {
-        self.history_range(start, count)
-            .into_iter()
-            .enumerate()
-            .map(|(idx, line)| StyledScreenLine {
-                row: start as i64 + idx as i64,
-                cells: line
-                    .iter()
-                    .map(|cell| {
-                        cell.styled_with_reverse_video(self.reverse_video, &self.hyperlinks)
-                    })
-                    .collect(),
-            })
-            .collect()
+        styled_snapshot::history_range(
+            start,
+            self.history_range(start, count),
+            self.reverse_video,
+            &self.hyperlinks,
+        )
     }
 
     fn scrollback_rows(&self) -> usize {

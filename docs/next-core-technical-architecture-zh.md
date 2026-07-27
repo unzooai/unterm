@@ -290,6 +290,7 @@ next-core 已经在 screen/parser 方向具备基础能力，包括：
 - `next_core/pty_io.rs` 已拆出 PTY byte stream 到 UTF-8 text chunk 的 split-safe 解码，以及 output/recording preview bounded buffer 的 UTF-8 边界裁剪；reader thread 后续外移时可以复用同一套 pending-byte 和 bounded-output 规则
 - `next_core/screen_search.rs` 已拆出 screen text search 和 UTF-8 character-column 计算，让 MCP/screen search API 只负责取快照和记 screen-read activity
 - `next_core/screen_text.rs` 已拆出 raw output 行归一化、tail-line 选择和 scrollback bounded range 计算，让 MCP/screen read 文本切片逻辑可以独立测试，不再散在 engine API 实现里
+- `next_core/styled_snapshot.rs` 已拆出 styled viewport/history snapshot 构造，为后续 dirty-line 缓存、增量渲染提交和 GPU frame plan 优化留出独立边界
 - `next_core/terminal_parser.rs` 已承接 `TerminalParser` 的 split-safe 输入状态机、CSI/OSC 分流和窗口操作 dispatch，`next_core.rs` 主体只保留 screen/session 语义；后续替换成 `vte` parser/perform adapter 时可以在该模块内完成
 
 ## 9. 开源参考
