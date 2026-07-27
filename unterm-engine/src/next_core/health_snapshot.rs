@@ -1,5 +1,10 @@
-use super::{activity::SessionIoActivity, lifecycle, NextCoreState};
+use super::{activity::SessionIoActivity, lifecycle, state, NextCoreState};
 use crate::{EngineHealthSnapshot, EngineIoHealthSnapshot, EngineLifecycleHealthSnapshot};
+
+pub(super) fn current() -> EngineHealthSnapshot {
+    let mut state = state().write();
+    snapshot(&mut state)
+}
 
 pub(super) fn snapshot(state: &mut NextCoreState) -> EngineHealthSnapshot {
     let pane_count = state.sessions.len();

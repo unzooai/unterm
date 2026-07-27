@@ -1,6 +1,6 @@
 use super::{
-    activity::SessionIoActivity, launch, pty_io, session_output, NextCoreEngine, NextCoreRecording,
-    NextCoreScreen, NextCoreSession, NextCoreState,
+    activity::SessionIoActivity, launch, pty_io, session_output, state, NextCoreEngine,
+    NextCoreRecording, NextCoreScreen, NextCoreSession, NextCoreState,
 };
 use crate::{SessionSnapshot, ShellSnapshot};
 use anyhow::{bail, Result};
@@ -35,6 +35,11 @@ pub(super) fn resize(
     };
 
     resize_session(session, cols, rows)
+}
+
+pub(super) fn resize_current(pane_id: usize, cols: usize, rows: usize) -> Result<()> {
+    let mut state = state().write();
+    resize(&mut state, pane_id, cols, rows)
 }
 
 fn resize_session(session: &mut NextCoreSession, cols: usize, rows: usize) -> Result<()> {

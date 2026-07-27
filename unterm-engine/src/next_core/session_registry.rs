@@ -1,4 +1,4 @@
-use super::{lifecycle, NextCoreSession, NextCoreState};
+use super::{lifecycle, state, NextCoreSession, NextCoreState};
 use anyhow::{bail, Result};
 
 pub(super) fn next_session_id(state: &mut NextCoreState) -> usize {
@@ -24,6 +24,11 @@ pub(super) fn focus(state: &mut NextCoreState, pane_id: usize) -> Result<()> {
     }
     set_active(state, pane_id);
     Ok(())
+}
+
+pub(super) fn focus_current(pane_id: usize) -> Result<()> {
+    let mut state = state().write();
+    focus(&mut state, pane_id)
 }
 
 pub(super) fn insert_created(state: &mut NextCoreState, session: NextCoreSession) {
@@ -59,6 +64,11 @@ pub(super) fn destroy(state: &mut NextCoreState, pane_id: usize) -> Result<()> {
     }
 
     Ok(())
+}
+
+pub(super) fn destroy_current(pane_id: usize) -> Result<()> {
+    let mut state = state().write();
+    destroy(&mut state, pane_id)
 }
 
 #[cfg(test)]

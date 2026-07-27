@@ -1,6 +1,16 @@
-use super::{lifecycle, process_tree, NextCoreSession, NextCoreState};
+use super::{lifecycle, process_tree, state, NextCoreSession, NextCoreState};
 use crate::SessionSnapshot;
 use anyhow::Result;
+
+pub(super) fn list_current() -> Vec<SessionSnapshot> {
+    let mut state = state().write();
+    list(&mut state)
+}
+
+pub(super) fn get_current(pane_id: usize) -> Result<SessionSnapshot> {
+    let mut state = state().write();
+    get(&mut state, pane_id)
+}
 
 pub(super) fn list(state: &mut NextCoreState) -> Vec<SessionSnapshot> {
     let mut snapshots = Vec::with_capacity(state.sessions.len());

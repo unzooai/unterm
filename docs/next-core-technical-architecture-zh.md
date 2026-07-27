@@ -286,7 +286,7 @@ next-core 已经在 screen/parser 方向具备基础能力，包括：
 - `next_core/render_frame.rs` 已拆出 full/delta/unchanged frame selection 策略，让渲染帧调度、dirty row 清理和 viewport pinned 行为可以独立测试
 - `next_core/process_tree.rs` 已拆出 root/foreground process snapshot 和已知 agent 检测，让 Codex/Claude activity 诊断从 session 生命周期中分离，后续可独立加缓存或后台扫描，避免进入输入、滚动、渲染热路径
 - `next_core/activity.rs` 已拆出 input/output/paste/screen-read counters 和 idle detection，让热路径遥测可以独立测试，不再和 session 生命周期、未来 renderer scheduling 混在一起
-- `next_core/health_snapshot.rs` 已拆出 health snapshot 聚合、session liveness refresh、IO counter 汇总和 lifecycle 统计，让 HealthEngine 不再直接扫描 session runtime 内部结构
+- `next_core/health_snapshot.rs` 已拆出 health snapshot 聚合、session liveness refresh、IO counter 汇总、lifecycle 统计和全局 state lock 入口，让 HealthEngine 不再直接扫描 session runtime 内部结构
 - `next_core/input_dispatch.rs` 已拆出 write/paste 的 session input handle lookup、application cursor translation、UTF-8 safe paste wire chunking、writer flush 和 input/paste activity 记账，让 InputEngine 不再直接持有热路径写入细节
 - `next_core/launch.rs` 已拆出 command preparation、launch env/policy inference、profile/proxy metadata summary 和 shell type labeling，让 PTY/session registry 主体不再持有产品启动策略细节
 - `next_core/lifecycle.rs` 已拆出 reader/process death refresh、dead reason 记账和 destroy 标记规则，让 session registry 后续重写时不需要复制死亡状态机
@@ -297,15 +297,15 @@ next-core 已经在 screen/parser 方向具备基础能力，包括：
 - `next_core/screen_search.rs` 已拆出 screen text search 和 UTF-8 character-column 计算，让 MCP/screen search API 只负责取快照和记 screen-read activity
 - `next_core/screen_snapshot.rs` 已拆出 plain/styled screen snapshot 和 escaped styled scrollback 组装，让 ScreenEngine API 后续只负责锁定 session、读取屏幕和记录 activity
 - `next_core/screen_text.rs` 已拆出 raw output 行归一化、tail-line 选择和 scrollback bounded range 计算，让 MCP/screen read 文本切片逻辑可以独立测试，不再散在 engine API 实现里
-- `next_core/session_activity.rs` 已拆出 session activity pane lookup、snapshot 组装、liveness refresh、dead reason 记账和 foreground process fallback，让 SessionEngine::activity 后续可跟 registry/runtime 分离
+- `next_core/session_activity.rs` 已拆出 session activity pane lookup、snapshot 组装、liveness refresh、dead reason 记账、foreground process fallback 和全局 state lock 入口，让 SessionEngine::activity 后续可跟 registry/runtime 分离
 - `next_core/session_creation.rs` 已拆出 create/split session 的 launch context、source pane 继承、session id 分配和 registry 插入流程，让 SessionEngine::create_session/split_session 不再直接编排 launch/runtime/registry 三层
 - `next_core/session_handles.rs` 已开始集中 session registry 的 handle lookup，让 screen/input/recording/shell 路径不再反复手写全局状态查找，后续可逐步替换为独立 session registry/runtime
 - `next_core/session_output.rs` 已拆出单个 PTY 文本 chunk 的 output buffer append、screen feed、terminal query response、activity 记账和 recording append，并把 input/terminal-response/recording stats 写入 output activity snapshot，让 session runtime 的 reader loop 不再直接编排输出热路径
 - `next_core/session_queries.rs` 已拆出 shell snapshot、raw output 和 bracketed paste 状态读取，集中 screen cwd/process cwd fallback 与只读 handle lookup，让 NextCoreEngine facade 不再直接读取 session 内部结构
-- `next_core/session_registry.rs` 已开始集中 session id 分配、active session 切换、session 插入和 destroy 记账，让 SessionEngine 后续可替换为独立 registry/runtime 边界
-- `next_core/session_runtime.rs` 已开始集中 PTY sizing、session spawn、reader thread wiring 和 resize runtime mutation，让 SessionEngine 不再直接同时操作 PTY master、reader/output/screen/activity/recording wiring、session snapshot 和 screen grid
+- `next_core/session_registry.rs` 已开始集中 session id 分配、active session 切换、session 插入、destroy 记账和全局 state lock 入口，让 SessionEngine 后续可替换为独立 registry/runtime 边界
+- `next_core/session_runtime.rs` 已开始集中 PTY sizing、session spawn、reader thread wiring、resize runtime mutation 和全局 state lock 入口，让 SessionEngine 不再直接同时操作 PTY master、reader/output/screen/activity/recording wiring、session snapshot 和 screen grid
 - `next_core/test_support.rs` 已拆出测试专用的全局 state reset、output 注入、dead marker、activity reset 和 viewport attribute probe，让 next_core 主体不再承载测试夹具逻辑
-- `next_core/session_snapshots.rs` 已拆出 list/get session snapshot 组装、liveness refresh 记账和 screen-derived title/cursor/cwd 更新，让 SessionEngine::list_sessions/get_session 不再持有运行时查询细节
+- `next_core/session_snapshots.rs` 已拆出 list/get session snapshot 组装、liveness refresh 记账、screen-derived title/cursor/cwd 更新和全局 state lock 入口，让 SessionEngine::list_sessions/get_session 不再持有运行时查询细节
 - `next_core/styled_snapshot.rs` 已拆出 styled viewport/history snapshot 构造，为后续 dirty-line 缓存、增量渲染提交和 GPU frame plan 优化留出独立边界
 - `next_core/terminal_parser.rs` 已承接 `TerminalParser` 的 split-safe 输入状态机、CSI/OSC 分流和窗口操作 dispatch，`next_core.rs` 主体只保留 screen/session 语义；后续替换成 `vte` parser/perform adapter 时可以在该模块内完成
 

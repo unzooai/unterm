@@ -14,7 +14,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, OnceLock};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 mod activity;
 mod cell;
@@ -1600,13 +1600,11 @@ fn state() -> &'static RwLock<NextCoreState> {
 
 impl NextCoreEngine {
     fn sessions(&self) -> Vec<SessionSnapshot> {
-        let mut state = state().write();
-        session_snapshots::list(&mut state)
+        session_snapshots::list_current()
     }
 
     fn session(&self, pane_id: usize) -> Result<SessionSnapshot> {
-        let mut state = state().write();
-        session_snapshots::get(&mut state, pane_id)
+        session_snapshots::get_current(pane_id)
     }
 
     fn shell_snapshot(&self, pane_id: usize) -> Result<ShellSnapshot> {
@@ -1690,8 +1688,7 @@ impl SessionEngine for NextCoreEngine {
     }
 
     fn focus_session(&self, pane_id: usize) -> Result<()> {
-        let mut state = state().write();
-        session_registry::focus(&mut state, pane_id)
+        session_registry::focus_current(pane_id)
     }
 
     fn shell(&self, pane_id: usize) -> Result<ShellSnapshot> {
@@ -1699,18 +1696,15 @@ impl SessionEngine for NextCoreEngine {
     }
 
     fn activity(&self, pane_id: usize) -> Result<SessionActivitySnapshot> {
-        let mut state = state().write();
-        session_activity::read_snapshot(&mut state, pane_id, Instant::now())
+        session_activity::read_current(pane_id)
     }
 
     fn resize_session(&self, pane_id: usize, cols: usize, rows: usize) -> Result<()> {
-        let mut state = state().write();
-        session_runtime::resize(&mut state, pane_id, cols, rows)
+        session_runtime::resize_current(pane_id, cols, rows)
     }
 
     fn destroy_session(&self, pane_id: usize) -> Result<()> {
-        let mut state = state().write();
-        session_registry::destroy(&mut state, pane_id)
+        session_registry::destroy_current(pane_id)
     }
 }
 
@@ -1811,8 +1805,7 @@ impl RecordingEngine for NextCoreEngine {
 
 impl HealthEngine for NextCoreEngine {
     fn health(&self) -> Result<EngineHealthSnapshot> {
-        let mut state = state().write();
-        Ok(health_snapshot::snapshot(&mut state))
+        Ok(health_snapshot::current())
     }
 }
 
