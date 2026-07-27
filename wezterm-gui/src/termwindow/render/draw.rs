@@ -50,14 +50,6 @@ impl crate::TermWindow {
         } else {
             None
         };
-        let next_core_prepared_frame_diagnostics =
-            if next_core_mode == NextCoreWebGpuPaneMode::Replace {
-                next_core_buffer_batch
-                    .as_ref()
-                    .map(|batch| webgpu.next_core_prepared_frame_diagnostics(&batch.buffer_plan))
-            } else {
-                None
-            };
         let next_core_default_font =
             if next_core_mode.is_enabled() && next_core_buffer_batch.is_some() {
                 match self.fonts.default_font() {
@@ -70,23 +62,16 @@ impl crate::TermWindow {
             } else {
                 None
             };
-        let next_core_cached_glyph_upload_diagnostics =
-            if next_core_mode == NextCoreWebGpuPaneMode::Replace {
-                next_core_buffer_batch.as_ref().and_then(|batch| {
-                    webgpu.next_core_cached_glyph_upload_diagnostics(
-                        &batch.buffer_plan,
-                        next_core_default_font.clone(),
-                    )
-                })
-            } else {
-                None
-            };
-        let replace_legacy_pane = should_replace_legacy_pane(
-            next_core_mode,
-            &next_core_buffer_batch,
-            next_core_prepared_frame_diagnostics.as_ref(),
-            next_core_cached_glyph_upload_diagnostics.as_ref(),
-        );
+        let next_core_replace_diagnostics = if next_core_mode == NextCoreWebGpuPaneMode::Replace {
+            Some(webgpu.next_core_pane_replace_diagnostics(
+                &next_core_buffer_batch,
+                next_core_default_font.clone(),
+            ))
+        } else {
+            None
+        };
+        let replace_legacy_pane =
+            should_replace_legacy_pane(next_core_mode, next_core_replace_diagnostics.as_ref());
         {
             let render_state = self.render_state.as_ref().unwrap();
             let tex = render_state.glyph_cache.borrow().atlas.texture();
@@ -389,12 +374,11 @@ fn next_core_webgpu_pane_mode() -> NextCoreWebGpuPaneMode {
 
 fn should_replace_legacy_pane(
     mode: NextCoreWebGpuPaneMode,
-    batch: &Option<crate::engine::EngineRenderBufferBatch>,
-    prepared_frame: Option<&crate::engine::render_backend::EngineWgpuPreparedFrameDiagnostics>,
-    cached_glyph_upload: Option<&crate::engine::EngineRenderCachedGlyphUploadDiagnostics>,
+    diagnostics: Option<&crate::engine::EngineRenderPaneReplaceDiagnostics>,
 ) -> bool {
-    let diagnostics =
-        next_core_webgpu_replace_diagnostics(mode, batch, prepared_frame, cached_glyph_upload);
+    let Some(diagnostics) = diagnostics else {
+        return false;
+    };
     if !diagnostics.replace_ready && mode == NextCoreWebGpuPaneMode::Replace {
         log::trace!(
             "next-core WebGPU replace fallback pane={:?} revision={:?} issues={} batch_ready={} batch_readiness_issues={} prepared_frame_ready={} prepared_frame_matches_batch={} prepared_frame_readiness_issues={} cached_glyph_required={} cached_glyph_ready={} cached_glyph_matches_batch={} cached_glyph_readiness_issues={}",
@@ -415,6 +399,19 @@ fn should_replace_legacy_pane(
     diagnostics.replace_ready
 }
 
+#[cfg(test)]
+fn should_replace_legacy_pane_from_parts(
+    mode: NextCoreWebGpuPaneMode,
+    batch: &Option<crate::engine::EngineRenderBufferBatch>,
+    prepared_frame: Option<&crate::engine::render_backend::EngineWgpuPreparedFrameDiagnostics>,
+    cached_glyph_upload: Option<&crate::engine::EngineRenderCachedGlyphUploadDiagnostics>,
+) -> bool {
+    let diagnostics =
+        next_core_webgpu_replace_diagnostics(mode, batch, prepared_frame, cached_glyph_upload);
+    should_replace_legacy_pane(mode, Some(&diagnostics))
+}
+
+#[cfg(test)]
 fn next_core_webgpu_replace_diagnostics(
     mode: NextCoreWebGpuPaneMode,
     batch: &Option<crate::engine::EngineRenderBufferBatch>,
@@ -474,8 +471,8 @@ fn draw_quad_range(render_pass: &mut wgpu::RenderPass<'_>, start_quad: usize, en
 #[cfg(test)]
 mod tests {
     use super::{
-        next_core_webgpu_replace_diagnostics, non_pane_quad_ranges, should_replace_legacy_pane,
-        NextCoreWebGpuPaneMode,
+        next_core_webgpu_replace_diagnostics, non_pane_quad_ranges,
+        should_replace_legacy_pane_from_parts, NextCoreWebGpuPaneMode,
     };
     use crate::engine::render_backend::{EngineRenderVertex, EngineWgpuPreparedFrameDiagnostics};
     use crate::engine::EngineRenderVertexLayer;
@@ -501,7 +498,7 @@ mod tests {
 
     #[test]
     fn next_core_replace_requires_draw_ready_batch() {
-        assert!(should_replace_legacy_pane(
+        assert!(should_replace_legacy_pane_from_parts(
             NextCoreWebGpuPaneMode::Replace,
             &Some(buffer_batch(true)),
             Some(&prepared_frame_diagnostics(true)),
@@ -519,19 +516,19 @@ mod tests {
 
     #[test]
     fn next_core_replace_keeps_legacy_pane_for_empty_repeat_batch() {
-        assert!(!should_replace_legacy_pane(
+        assert!(!should_replace_legacy_pane_from_parts(
             NextCoreWebGpuPaneMode::Replace,
             &Some(buffer_batch(false)),
             Some(&prepared_frame_diagnostics(true)),
             None
         ));
-        assert!(!should_replace_legacy_pane(
+        assert!(!should_replace_legacy_pane_from_parts(
             NextCoreWebGpuPaneMode::Append,
             &Some(buffer_batch(true)),
             Some(&prepared_frame_diagnostics(true)),
             None
         ));
-        assert!(!should_replace_legacy_pane(
+        assert!(!should_replace_legacy_pane_from_parts(
             NextCoreWebGpuPaneMode::Replace,
             &None,
             None,
@@ -564,13 +561,13 @@ mod tests {
 
     #[test]
     fn next_core_replace_keeps_legacy_pane_when_prepared_frame_is_not_ready() {
-        assert!(!should_replace_legacy_pane(
+        assert!(!should_replace_legacy_pane_from_parts(
             NextCoreWebGpuPaneMode::Replace,
             &Some(buffer_batch(true)),
             Some(&prepared_frame_diagnostics(false)),
             None
         ));
-        assert!(!should_replace_legacy_pane(
+        assert!(!should_replace_legacy_pane_from_parts(
             NextCoreWebGpuPaneMode::Replace,
             &Some(buffer_batch(true)),
             None,
@@ -600,7 +597,7 @@ mod tests {
 
     #[test]
     fn next_core_replace_requires_matching_batch_diagnostics() {
-        assert!(!should_replace_legacy_pane(
+        assert!(!should_replace_legacy_pane_from_parts(
             NextCoreWebGpuPaneMode::Replace,
             &Some(buffer_batch(true)),
             Some(&prepared_frame_diagnostics_for_revision(true, 4)),
@@ -617,7 +614,7 @@ mod tests {
             vec![EngineRenderPaneReplaceReadinessIssue::PreparedFrameBatchMismatch]
         );
 
-        assert!(!should_replace_legacy_pane(
+        assert!(!should_replace_legacy_pane_from_parts(
             NextCoreWebGpuPaneMode::Replace,
             &Some(buffer_batch(true)),
             Some(&prepared_text_frame_diagnostics(true)),
@@ -637,7 +634,7 @@ mod tests {
 
     #[test]
     fn next_core_replace_requires_cached_glyph_upload_for_text_frames() {
-        assert!(!should_replace_legacy_pane(
+        assert!(!should_replace_legacy_pane_from_parts(
             NextCoreWebGpuPaneMode::Replace,
             &Some(buffer_batch(true)),
             Some(&prepared_text_frame_diagnostics(true)),
@@ -654,7 +651,7 @@ mod tests {
             vec![EngineRenderPaneReplaceReadinessIssue::MissingCachedGlyphUpload]
         );
 
-        assert!(!should_replace_legacy_pane(
+        assert!(!should_replace_legacy_pane_from_parts(
             NextCoreWebGpuPaneMode::Replace,
             &Some(buffer_batch(true)),
             Some(&prepared_text_frame_diagnostics(true)),
@@ -671,7 +668,7 @@ mod tests {
             vec![EngineRenderPaneReplaceReadinessIssue::CachedGlyphUploadNotReady]
         );
 
-        assert!(should_replace_legacy_pane(
+        assert!(should_replace_legacy_pane_from_parts(
             NextCoreWebGpuPaneMode::Replace,
             &Some(buffer_batch(true)),
             Some(&prepared_text_frame_diagnostics(true)),

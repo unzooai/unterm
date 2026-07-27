@@ -1,12 +1,12 @@
 use crate::engine::render_backend::EngineWgpuPreparedFrameDiagnostics;
 use crate::engine::{
-    EngineRenderBufferPlan, EngineRenderCachedGlyphUploadDiagnostics,
+    EngineRenderBufferBatch, EngineRenderBufferPlan, EngineRenderCachedGlyphUploadDiagnostics,
     EngineRenderFontGlyphRasterSource, EngineRenderGlyphAtlasCache,
     EngineRenderGlyphAtlasCacheUpdate, EngineRenderGlyphAtlasPlan,
     EngineRenderGlyphAtlasTextureRegion, EngineRenderGlyphAtlasTextureUpdatePlan,
-    EngineRenderGlyphRasterSource, EngineRenderGpuUploadPlan, EngineRenderTextAtlasPlan,
-    EngineRenderTexturedGlyphLayoutDiff, EngineRenderTexturedGlyphUploadPlan,
-    EngineWgpuPipelineConfig, EngineWgpuRenderBackend,
+    EngineRenderGlyphRasterSource, EngineRenderGpuUploadPlan, EngineRenderPaneReplaceDiagnostics,
+    EngineRenderTextAtlasPlan, EngineRenderTexturedGlyphLayoutDiff,
+    EngineRenderTexturedGlyphUploadPlan, EngineWgpuPipelineConfig, EngineWgpuRenderBackend,
 };
 use crate::quad::Vertex;
 use anyhow::anyhow;
@@ -1279,6 +1279,27 @@ impl WebGpuState {
             )
         };
         glyph_upload.map(|upload| upload.diagnostics())
+    }
+
+    #[allow(dead_code)]
+    pub fn next_core_pane_replace_diagnostics(
+        &self,
+        batch: &Option<EngineRenderBufferBatch>,
+        font: Option<Rc<LoadedFont>>,
+    ) -> EngineRenderPaneReplaceDiagnostics {
+        let prepared_frame = batch
+            .as_ref()
+            .map(|batch| self.next_core_prepared_frame_diagnostics(&batch.buffer_plan));
+        let cached_glyph_upload = batch.as_ref().and_then(|batch| {
+            self.next_core_cached_glyph_upload_diagnostics(&batch.buffer_plan, font)
+        });
+
+        EngineRenderPaneReplaceDiagnostics::from_parts(
+            true,
+            batch.as_ref(),
+            prepared_frame.as_ref(),
+            cached_glyph_upload.as_ref(),
+        )
     }
 
     #[allow(dead_code)]
