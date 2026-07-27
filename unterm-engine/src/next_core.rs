@@ -1698,11 +1698,11 @@ impl ScreenEngine for NextCoreEngine {
 
 impl InputEngine for NextCoreEngine {
     fn write_input(&self, pane_id: usize, input: &str) -> Result<()> {
-        input_dispatch::write(pane_id, input)
+        runtime::write_input(pane_id, input)
     }
 
     fn paste_input(&self, pane_id: usize, text: &str) -> Result<()> {
-        input_dispatch::paste(pane_id, text)
+        runtime::paste_input(pane_id, text)
     }
 }
 

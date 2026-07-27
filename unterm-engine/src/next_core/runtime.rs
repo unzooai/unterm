@@ -1,6 +1,6 @@
 use super::{
-    health_snapshot, recording_lifecycle, session_activity, session_queries, session_registry,
-    session_runtime, session_snapshots, NextCoreSession,
+    health_snapshot, input_dispatch, recording_lifecycle, session_activity, session_queries,
+    session_registry, session_runtime, session_snapshots, NextCoreSession,
 };
 use crate::{
     EngineHealthSnapshot, RecordingExportResult, RecordingStartResult, RecordingStatusSnapshot,
@@ -91,6 +91,14 @@ pub(super) fn shell_snapshot(pane_id: usize) -> Result<ShellSnapshot> {
 
 pub(super) fn output(pane_id: usize) -> Result<String> {
     session_queries::output(pane_id)
+}
+
+pub(super) fn write_input(pane_id: usize, input: &str) -> Result<()> {
+    input_dispatch::write(pane_id, input)
+}
+
+pub(super) fn paste_input(pane_id: usize, text: &str) -> Result<()> {
+    input_dispatch::paste(pane_id, text)
 }
 
 pub(super) fn session_activity(pane_id: usize) -> Result<SessionActivitySnapshot> {
