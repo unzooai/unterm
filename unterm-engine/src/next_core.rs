@@ -28,6 +28,7 @@ mod csi_params;
 mod history;
 mod input_pipeline;
 mod osc133;
+mod osc_params;
 mod parser_state;
 mod process_tree;
 mod recording_archive;
@@ -1312,95 +1313,28 @@ impl NextCoreScreen {
     }
 
     fn apply_osc(&mut self, sequence: &str) {
-        let Some((kind, value)) = sequence.split_once(';') else {
-            return;
-        };
-        if matches!(kind, "0" | "2") && !value.is_empty() {
-            self.title = Some(value.to_string());
-        } else if kind == "7" {
-            if let Some(cwd) = Self::parse_osc7_cwd(value) {
-                self.current_dir = Some(cwd);
-            }
-        } else if kind == "8" {
-            self.apply_osc8_hyperlink(value);
+        match osc_params::parse(sequence) {
+            Some(osc_params::OscCommand::Title(title)) => self.title = Some(title),
+            Some(osc_params::OscCommand::CurrentDir(cwd)) => self.current_dir = Some(cwd),
+            Some(osc_params::OscCommand::Hyperlink(uri)) => self.apply_osc8_hyperlink(uri),
+            None => {}
         }
     }
 
-    fn apply_osc8_hyperlink(&mut self, value: &str) {
-        let Some((_params, uri)) = value.split_once(';') else {
-            return;
-        };
-        if uri.is_empty() {
+    fn apply_osc8_hyperlink(&mut self, uri: Option<String>) {
+        let Some(uri) = uri else {
             self.current_attr.hyperlink = None;
             return;
-        }
+        };
         let idx = self
             .hyperlinks
             .iter()
-            .position(|known| known == uri)
+            .position(|known| known == &uri)
             .unwrap_or_else(|| {
-                self.hyperlinks.push(uri.to_string());
+                self.hyperlinks.push(uri);
                 self.hyperlinks.len() - 1
             });
         self.current_attr.hyperlink = Some(idx);
-    }
-
-    fn parse_osc7_cwd(value: &str) -> Option<String> {
-        let uri = value.strip_prefix("file://")?;
-        let path = if uri.starts_with('/') {
-            uri
-        } else {
-            let slash = uri.find('/')?;
-            &uri[slash..]
-        };
-        let decoded = Self::percent_decode(path)?;
-        if decoded.is_empty() {
-            return None;
-        }
-        #[cfg(windows)]
-        {
-            let mut path = decoded;
-            let bytes = path.as_bytes();
-            if path.starts_with('/')
-                && bytes.len() >= 4
-                && bytes[2] == b':'
-                && bytes[1].is_ascii_alphabetic()
-            {
-                path.remove(0);
-            }
-            Some(path.replace('/', "\\"))
-        }
-        #[cfg(not(windows))]
-        {
-            Some(decoded)
-        }
-    }
-
-    fn percent_decode(input: &str) -> Option<String> {
-        let bytes = input.as_bytes();
-        let mut out = Vec::with_capacity(bytes.len());
-        let mut idx = 0;
-        while idx < bytes.len() {
-            if bytes[idx] == b'%' {
-                let hi = *bytes.get(idx + 1)?;
-                let lo = *bytes.get(idx + 2)?;
-                out.push(Self::hex_value(hi)? << 4 | Self::hex_value(lo)?);
-                idx += 3;
-            } else {
-                out.push(bytes[idx]);
-                idx += 1;
-            }
-        }
-        String::from_utf8(out).ok()
-    }
-
-    fn hex_value(byte: u8) -> Option<u8> {
-        match byte {
-            b'0'..=b'9' => Some(byte - b'0'),
-            b'a'..=b'f' => Some(byte - b'a' + 10),
-            b'A'..=b'F' => Some(byte - b'A' + 10),
-            _ => None,
-        }
     }
 
     fn parse_extended_color(params: &[usize]) -> Option<(TerminalColor, usize)> {
