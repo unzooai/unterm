@@ -24,6 +24,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 mod activity;
 mod cell;
+mod csi_params;
 mod history;
 mod input_pipeline;
 mod osc133;
@@ -171,8 +172,6 @@ struct NextCoreScreen {
 }
 
 impl NextCoreScreen {
-    const SGR_UNDERLINE_STYLE_BASE: usize = 10_000;
-
     fn new(cols: usize, rows: usize) -> Self {
         let mut screen = Self {
             cols: cols.max(1),
@@ -1264,10 +1263,11 @@ impl NextCoreScreen {
                 74 => self.current_attr.vertical_align = Some(StyledVerticalAlign::SubScript),
                 75 => self.current_attr.vertical_align = None,
                 underline_style
-                    if (Self::SGR_UNDERLINE_STYLE_BASE..=Self::SGR_UNDERLINE_STYLE_BASE + 5)
+                    if (csi_params::SGR_UNDERLINE_STYLE_BASE
+                        ..=csi_params::SGR_UNDERLINE_STYLE_BASE + 5)
                         .contains(&underline_style) =>
                 {
-                    match underline_style - Self::SGR_UNDERLINE_STYLE_BASE {
+                    match underline_style - csi_params::SGR_UNDERLINE_STYLE_BASE {
                         0 => self.current_attr.clear_underline(),
                         1 => self.current_attr.set_underline(StyledUnderline::Single),
                         2 => self.current_attr.set_underline(StyledUnderline::Double),
@@ -1416,122 +1416,6 @@ impl NextCoreScreen {
             )),
             _ => None,
         }
-    }
-
-    fn parse_sgr_params(raw_params: &str) -> Vec<usize> {
-        let raw_params = raw_params.trim_start_matches('?');
-        if raw_params.is_empty() {
-            return vec![0];
-        }
-
-        let mut params = Vec::new();
-        for part in raw_params.split(';') {
-            let part = part.trim();
-            if part.is_empty() {
-                params.push(0);
-            } else if part.starts_with("38:") || part.starts_with("48:") || part.starts_with("58:")
-            {
-                params.extend(Self::parse_colon_color_sgr_params(part));
-            } else if let Some(underline) = Self::parse_colon_underline_sgr_param(part) {
-                params.push(underline);
-            } else if let Some((first, _)) = part.split_once(':') {
-                params.push(first.trim().parse::<usize>().unwrap_or(0));
-            } else {
-                params.push(part.parse::<usize>().unwrap_or(0));
-            }
-        }
-
-        if params.is_empty() {
-            vec![0]
-        } else {
-            params
-        }
-    }
-
-    fn parse_csi_numbers(raw_params: &str) -> Vec<usize> {
-        let raw_params = raw_params
-            .trim_start_matches('?')
-            .trim_end_matches(|c: char| !c.is_ascii_digit() && c != ';' && c != ':');
-        if raw_params.is_empty() {
-            return Vec::new();
-        }
-        raw_params
-            .split(';')
-            .map(|part| part.trim().parse::<usize>().unwrap_or(0))
-            .collect()
-    }
-
-    fn rect_from_numbers(&self, numbers: &[usize]) -> (usize, usize, usize, usize) {
-        let top = numbers.first().copied().filter(|n| *n > 0).unwrap_or(1);
-        let left = numbers.get(1).copied().filter(|n| *n > 0).unwrap_or(1);
-        let bottom = numbers
-            .get(2)
-            .copied()
-            .filter(|n| *n > 0)
-            .unwrap_or(self.rows);
-        let right = numbers
-            .get(3)
-            .copied()
-            .filter(|n| *n > 0)
-            .unwrap_or(self.cols);
-        (
-            top.saturating_sub(1),
-            left.saturating_sub(1),
-            bottom.saturating_sub(1),
-            right.saturating_sub(1),
-        )
-    }
-
-    fn parse_colon_color_sgr_params(part: &str) -> Vec<usize> {
-        let mut pieces = part.split(':');
-        let target = pieces
-            .next()
-            .and_then(|part| part.parse::<usize>().ok())
-            .unwrap_or(0);
-        let mode = pieces
-            .next()
-            .and_then(|part| part.parse::<usize>().ok())
-            .unwrap_or(0);
-
-        match mode {
-            5 => pieces
-                .find_map(|part| part.parse::<usize>().ok())
-                .map(|color| vec![target, 5, color])
-                .unwrap_or_else(|| vec![target]),
-            2 => {
-                let values = pieces
-                    .filter_map(|part| part.parse::<usize>().ok())
-                    .collect::<Vec<_>>();
-                if values.len() >= 3 {
-                    let start = values.len().saturating_sub(3);
-                    vec![
-                        target,
-                        2,
-                        values[start],
-                        values[start + 1],
-                        values[start + 2],
-                    ]
-                } else {
-                    vec![target]
-                }
-            }
-            _ => vec![target],
-        }
-    }
-
-    fn parse_colon_underline_sgr_param(part: &str) -> Option<usize> {
-        let (prefix, value) = part.split_once(':')?;
-        if prefix.trim() != "4" {
-            return None;
-        }
-        let value = value
-            .split(':')
-            .next()
-            .unwrap_or_default()
-            .trim()
-            .parse::<usize>()
-            .ok()?;
-        Some(Self::SGR_UNDERLINE_STYLE_BASE + value.min(5))
     }
 
     fn insert_lines(&mut self, count: usize) {
@@ -2063,7 +1947,7 @@ impl TerminalParser {
                     screen.erase_in_line(mode);
                 }
             }
-            'm' => screen.apply_sgr(&NextCoreScreen::parse_sgr_params(raw_params)),
+            'm' => screen.apply_sgr(&csi_params::parse_sgr(raw_params)),
             'p' => {
                 if raw_params == "!" {
                     screen.soft_reset_terminal();
@@ -2073,7 +1957,7 @@ impl TerminalParser {
                 if raw_params.ends_with(' ') {
                     screen.set_cursor_shape(numbers.first().copied().unwrap_or(0));
                 } else if raw_params.ends_with('"') {
-                    let numbers = NextCoreScreen::parse_csi_numbers(raw_params);
+                    let numbers = csi_params::parse_numbers(raw_params);
                     screen.set_character_protection(numbers.first().copied().unwrap_or(0));
                 }
             }
@@ -2093,8 +1977,9 @@ impl TerminalParser {
             'u' => screen.restore_cursor(),
             't' => {
                 if raw_params.ends_with('$') {
-                    let numbers = NextCoreScreen::parse_csi_numbers(raw_params);
-                    let (top, left, bottom, right) = screen.rect_from_numbers(&numbers);
+                    let numbers = csi_params::parse_numbers(raw_params);
+                    let (top, left, bottom, right) =
+                        csi_params::rect_from_numbers(&numbers, screen.rows, screen.cols);
                     let params = numbers.get(4..).unwrap_or(&[]);
                     screen.reverse_rect_attributes(top, left, bottom, right, params);
                 } else {
@@ -2103,35 +1988,39 @@ impl TerminalParser {
             }
             'x' => {
                 if raw_params.ends_with('$') {
-                    let numbers = NextCoreScreen::parse_csi_numbers(raw_params);
+                    let numbers = csi_params::parse_numbers(raw_params);
                     let ch = numbers
                         .first()
                         .copied()
                         .and_then(|code| char::from_u32(code as u32))
                         .filter(|ch| ScreenCell::char_width(*ch) == 1)
                         .unwrap_or(' ');
-                    let (top, left, bottom, right) = screen.rect_from_numbers(&numbers[1..]);
+                    let (top, left, bottom, right) =
+                        csi_params::rect_from_numbers(&numbers[1..], screen.rows, screen.cols);
                     screen.fill_rect(ch, top, left, bottom, right);
                 }
             }
             'z' => {
                 if raw_params.ends_with('$') {
-                    let numbers = NextCoreScreen::parse_csi_numbers(raw_params);
-                    let (top, left, bottom, right) = screen.rect_from_numbers(&numbers);
+                    let numbers = csi_params::parse_numbers(raw_params);
+                    let (top, left, bottom, right) =
+                        csi_params::rect_from_numbers(&numbers, screen.rows, screen.cols);
                     screen.erase_rect(top, left, bottom, right);
                 }
             }
             '{' => {
                 if raw_params.ends_with('$') {
-                    let numbers = NextCoreScreen::parse_csi_numbers(raw_params);
-                    let (top, left, bottom, right) = screen.rect_from_numbers(&numbers);
+                    let numbers = csi_params::parse_numbers(raw_params);
+                    let (top, left, bottom, right) =
+                        csi_params::rect_from_numbers(&numbers, screen.rows, screen.cols);
                     screen.selective_erase_rect(top, left, bottom, right);
                 }
             }
             'r' => {
                 if raw_params.ends_with('$') {
-                    let numbers = NextCoreScreen::parse_csi_numbers(raw_params);
-                    let (top, left, bottom, right) = screen.rect_from_numbers(&numbers);
+                    let numbers = csi_params::parse_numbers(raw_params);
+                    let (top, left, bottom, right) =
+                        csi_params::rect_from_numbers(&numbers, screen.rows, screen.cols);
                     let params = numbers.get(4..).unwrap_or(&[]);
                     screen.change_rect_attributes(top, left, bottom, right, params);
                     return;
