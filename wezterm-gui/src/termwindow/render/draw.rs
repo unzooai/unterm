@@ -20,7 +20,7 @@ impl crate::TermWindow {
     fn call_draw_webgpu(&mut self) -> anyhow::Result<()> {
         use crate::termwindow::webgpu::WebGpuTexture;
 
-        let webgpu = self.webgpu.as_mut().unwrap();
+        let webgpu = self.webgpu.as_ref().unwrap().clone();
         let render_state = self.render_state.as_ref().unwrap();
 
         let output = webgpu.surface.get_current_texture()?;
@@ -139,6 +139,24 @@ impl crate::TermWindow {
                 }
 
                 vb.next_index();
+            }
+        }
+
+        if next_core_webgpu_pane_enabled() {
+            if let Some(pane) = self.get_active_pane_no_overlay() {
+                match self.prepare_next_core_render_buffer_plan(pane.pane_id()) {
+                    Ok(batch) => {
+                        webgpu.encode_next_core_buffer_plan(
+                            &mut encoder,
+                            &view,
+                            &batch.buffer_plan,
+                            None,
+                        );
+                    }
+                    Err(err) => {
+                        log::debug!("next-core WebGPU pane render skipped: {err:#}");
+                    }
+                }
             }
         }
 
@@ -273,4 +291,14 @@ impl crate::TermWindow {
 
         Ok(())
     }
+}
+
+fn next_core_webgpu_pane_enabled() -> bool {
+    matches!(
+        std::env::var("UNTERM_NEXT_CORE_WEBGPU_PANE")
+            .ok()
+            .as_deref()
+            .map(str::trim),
+        Some("1" | "true" | "TRUE" | "yes" | "YES" | "on" | "ON")
+    )
 }
