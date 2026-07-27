@@ -296,6 +296,8 @@ struct NextCoreScreen {
     reverse_video: bool,
     application_cursor_keys: bool,
     focus_event_reporting: bool,
+    mouse_tracking: MouseTrackingMode,
+    sgr_mouse: bool,
     origin_mode: bool,
     insert_mode: bool,
     tab_stops: BTreeSet<usize>,
@@ -326,6 +328,8 @@ struct ScreenState {
     auto_wrap: bool,
     application_cursor_keys: bool,
     focus_event_reporting: bool,
+    mouse_tracking: MouseTrackingMode,
+    sgr_mouse: bool,
     origin_mode: bool,
     insert_mode: bool,
     tab_stops: BTreeSet<usize>,
@@ -335,6 +339,15 @@ struct ScreenState {
     scroll_bottom: usize,
     saved_cursor_x: usize,
     saved_cursor_y: usize,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum MouseTrackingMode {
+    #[default]
+    None,
+    X10,
+    ButtonEvent,
+    AnyEvent,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -983,6 +996,8 @@ impl NextCoreScreen {
         self.reverse_video = false;
         self.application_cursor_keys = false;
         self.focus_event_reporting = false;
+        self.mouse_tracking = MouseTrackingMode::None;
+        self.sgr_mouse = false;
         self.cursor_visible = true;
         self.cursor_shape = "Default".to_string();
         self.tab_stops = Self::default_tab_stops(self.cols);
@@ -1538,6 +1553,8 @@ impl NextCoreScreen {
             auto_wrap: self.auto_wrap,
             application_cursor_keys: self.application_cursor_keys,
             focus_event_reporting: self.focus_event_reporting,
+            mouse_tracking: self.mouse_tracking,
+            sgr_mouse: self.sgr_mouse,
             origin_mode: self.origin_mode,
             insert_mode: self.insert_mode,
             tab_stops: std::mem::take(&mut self.tab_stops),
@@ -1557,6 +1574,8 @@ impl NextCoreScreen {
         self.auto_wrap = true;
         self.application_cursor_keys = false;
         self.focus_event_reporting = false;
+        self.mouse_tracking = MouseTrackingMode::None;
+        self.sgr_mouse = false;
         self.origin_mode = false;
         self.insert_mode = false;
         self.tab_stops = Self::default_tab_stops(self.cols);
@@ -1581,6 +1600,8 @@ impl NextCoreScreen {
             self.auto_wrap = main.auto_wrap;
             self.application_cursor_keys = main.application_cursor_keys;
             self.focus_event_reporting = main.focus_event_reporting;
+            self.mouse_tracking = main.mouse_tracking;
+            self.sgr_mouse = main.sgr_mouse;
             self.origin_mode = main.origin_mode;
             self.insert_mode = main.insert_mode;
             self.tab_stops = main.tab_stops;
@@ -1845,7 +1866,11 @@ impl<'a> ScreenParser<'a> {
                                 self.screen.cursor_visible = true;
                                 self.screen.mark_dirty_row(self.screen.cursor_y);
                             }
+                            1000 => self.screen.mouse_tracking = MouseTrackingMode::X10,
+                            1002 => self.screen.mouse_tracking = MouseTrackingMode::ButtonEvent,
+                            1003 => self.screen.mouse_tracking = MouseTrackingMode::AnyEvent,
                             1004 => self.screen.focus_event_reporting = true,
+                            1006 => self.screen.sgr_mouse = true,
                             2004 => self.screen.set_bracketed_paste(true),
                             _ => {}
                         }
@@ -1871,7 +1896,23 @@ impl<'a> ScreenParser<'a> {
                                 self.screen.cursor_visible = false;
                                 self.screen.mark_dirty_row(self.screen.cursor_y);
                             }
+                            1000 => {
+                                if self.screen.mouse_tracking == MouseTrackingMode::X10 {
+                                    self.screen.mouse_tracking = MouseTrackingMode::None;
+                                }
+                            }
+                            1002 => {
+                                if self.screen.mouse_tracking == MouseTrackingMode::ButtonEvent {
+                                    self.screen.mouse_tracking = MouseTrackingMode::None;
+                                }
+                            }
+                            1003 => {
+                                if self.screen.mouse_tracking == MouseTrackingMode::AnyEvent {
+                                    self.screen.mouse_tracking = MouseTrackingMode::None;
+                                }
+                            }
                             1004 => self.screen.focus_event_reporting = false,
+                            1006 => self.screen.sgr_mouse = false,
                             2004 => self.screen.set_bracketed_paste(false),
                             _ => {}
                         }
@@ -3374,6 +3415,37 @@ impl NextCoreEngine {
                     .as_bytes(),
                 );
                 idx += "\x1b[?25$p".len();
+            } else if rest.starts_with("\x1b[?1000$p") {
+                response.extend_from_slice(
+                    format!(
+                        "\x1b[?1000;{}$y",
+                        Self::mode_report_state(screen.mouse_tracking == MouseTrackingMode::X10)
+                    )
+                    .as_bytes(),
+                );
+                idx += "\x1b[?1000$p".len();
+            } else if rest.starts_with("\x1b[?1002$p") {
+                response.extend_from_slice(
+                    format!(
+                        "\x1b[?1002;{}$y",
+                        Self::mode_report_state(
+                            screen.mouse_tracking == MouseTrackingMode::ButtonEvent
+                        )
+                    )
+                    .as_bytes(),
+                );
+                idx += "\x1b[?1002$p".len();
+            } else if rest.starts_with("\x1b[?1003$p") {
+                response.extend_from_slice(
+                    format!(
+                        "\x1b[?1003;{}$y",
+                        Self::mode_report_state(
+                            screen.mouse_tracking == MouseTrackingMode::AnyEvent
+                        )
+                    )
+                    .as_bytes(),
+                );
+                idx += "\x1b[?1003$p".len();
             } else if rest.starts_with("\x1b[?1049$p") {
                 response.extend_from_slice(
                     format!(
@@ -3392,6 +3464,12 @@ impl NextCoreEngine {
                     .as_bytes(),
                 );
                 idx += "\x1b[?1004$p".len();
+            } else if rest.starts_with("\x1b[?1006$p") {
+                response.extend_from_slice(
+                    format!("\x1b[?1006;{}$y", Self::mode_report_state(screen.sgr_mouse))
+                        .as_bytes(),
+                );
+                idx += "\x1b[?1006$p".len();
             } else if rest.starts_with("\x1b[?2004$p") {
                 response.extend_from_slice(
                     format!(
@@ -4456,7 +4534,9 @@ mod tests {
     fn answers_mode_report_queries_from_screen_state() {
         let _guard = test_guard();
         let mut screen = NextCoreScreen::new(80, 10);
-        screen.feed("\x1b[?1h\x1b[?5h\x1b[?6h\x1b[?25l\x1b[?1004h\x1b[?2004h\x1b[4h");
+        screen.feed(
+            "\x1b[?1h\x1b[?5h\x1b[?6h\x1b[?25l\x1b[?1002h\x1b[?1004h\x1b[?1006h\x1b[?2004h\x1b[4h",
+        );
         let bytes = Arc::new(Mutex::new(Vec::new()));
         let writer: Arc<Mutex<Box<dyn Write + Send>>> =
             Arc::new(Mutex::new(Box::new(SharedWriter {
@@ -4464,14 +4544,14 @@ mod tests {
             })));
 
         NextCoreEngine::answer_terminal_queries(
-            "\x1b[?1$p\x1b[?5$p\x1b[?6$p\x1b[?7$p\x1b[?25$p\x1b[?1004$p\x1b[?2004$p\x1b[4$p",
+            "\x1b[?1$p\x1b[?5$p\x1b[?6$p\x1b[?7$p\x1b[?25$p\x1b[?1000$p\x1b[?1002$p\x1b[?1003$p\x1b[?1004$p\x1b[?1006$p\x1b[?2004$p\x1b[4$p",
             &screen,
             &writer,
         );
 
         assert_eq!(
             bytes.lock().as_slice(),
-            b"\x1b[?1;1$y\x1b[?5;1$y\x1b[?6;1$y\x1b[?7;1$y\x1b[?25;2$y\x1b[?1004;1$y\x1b[?2004;1$y\x1b[4;1$y"
+            b"\x1b[?1;1$y\x1b[?5;1$y\x1b[?6;1$y\x1b[?7;1$y\x1b[?25;2$y\x1b[?1000;2$y\x1b[?1002;1$y\x1b[?1003;2$y\x1b[?1004;1$y\x1b[?1006;1$y\x1b[?2004;1$y\x1b[4;1$y"
         );
     }
 
@@ -4486,14 +4566,14 @@ mod tests {
             })));
 
         NextCoreEngine::answer_terminal_queries(
-            "\x1b[?1$p\x1b[?5$p\x1b[?6$p\x1b[?1004$p\x1b[?1049$p\x1b[?2004$p\x1b[4$p",
+            "\x1b[?1$p\x1b[?5$p\x1b[?6$p\x1b[?1000$p\x1b[?1002$p\x1b[?1003$p\x1b[?1004$p\x1b[?1006$p\x1b[?1049$p\x1b[?2004$p\x1b[4$p",
             &screen,
             &writer,
         );
 
         assert_eq!(
             bytes.lock().as_slice(),
-            b"\x1b[?1;2$y\x1b[?5;2$y\x1b[?6;2$y\x1b[?1004;2$y\x1b[?1049;2$y\x1b[?2004;2$y\x1b[4;2$y"
+            b"\x1b[?1;2$y\x1b[?5;2$y\x1b[?6;2$y\x1b[?1000;2$y\x1b[?1002;2$y\x1b[?1003;2$y\x1b[?1004;2$y\x1b[?1006;2$y\x1b[?1049;2$y\x1b[?2004;2$y\x1b[4;2$y"
         );
     }
 
@@ -6754,6 +6834,36 @@ mod tests {
         assert!(!screen.focus_event_reporting);
         screen.feed("\x1b[?1004h\x1b[!p");
         assert!(!screen.focus_event_reporting);
+
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_tracks_mouse_reporting_modes() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let mut screen = NextCoreScreen::new(80, 3);
+
+        assert_eq!(screen.mouse_tracking, MouseTrackingMode::None);
+        assert!(!screen.sgr_mouse);
+
+        screen.feed("\x1b[?1000h");
+        assert_eq!(screen.mouse_tracking, MouseTrackingMode::X10);
+        screen.feed("\x1b[?1002h");
+        assert_eq!(screen.mouse_tracking, MouseTrackingMode::ButtonEvent);
+        screen.feed("\x1b[?1003h\x1b[?1006h");
+        assert_eq!(screen.mouse_tracking, MouseTrackingMode::AnyEvent);
+        assert!(screen.sgr_mouse);
+
+        screen.feed("\x1b[?1002l");
+        assert_eq!(screen.mouse_tracking, MouseTrackingMode::AnyEvent);
+        screen.feed("\x1b[?1003l\x1b[?1006l");
+        assert_eq!(screen.mouse_tracking, MouseTrackingMode::None);
+        assert!(!screen.sgr_mouse);
+
+        screen.feed("\x1b[?1000h\x1b[?1006h\x1b[!p");
+        assert_eq!(screen.mouse_tracking, MouseTrackingMode::None);
+        assert!(!screen.sgr_mouse);
 
         Ok(())
     }
