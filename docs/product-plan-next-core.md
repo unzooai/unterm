@@ -405,7 +405,7 @@ Supported:
 - styled render-frame snapshots with full-frame fallback plus dirty-row and cursor-move deltas
 - render draw plans that merge styled cells into glyph runs, cell style runs, and cursor draw state
 - render geometry plans that map draw runs to pixel rectangles without adding GPU dependencies, covered by a dedicated benchmark gate
-- renderer submission plans with damage rects, background quads, text runs, and cursor quads for a future wgpu consumer
+- renderer submission plans with damage rects, background quads, text runs, and cursor quads for a future wgpu consumer, covered by a dedicated benchmark gate
 - `session.list`
 - `session.input`
 - `screen.text`

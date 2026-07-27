@@ -214,7 +214,7 @@ next-core 已经在 screen/parser 方向具备基础能力，包括：
 - `RenderDrawPlan::to_geometry_plan` 用显式 cell metrics 将 glyph/cell/cursor runs 映射为像素矩形，作为真正接入 wgpu 前的轻量布局契约，暂不引入 GPU/font shaping 依赖
 - `RenderGeometryPlan::to_submission_plan` 将像素几何转换成 damage rects、background quads、text runs 和 cursor quad，让未来 wgpu renderer 只消费提交计划，不反向拥有终端语义
 - JSON probe smoke 已输出并校验 render draw/geometry/submission plan 的 revision、run/quad counts、viewport、damage rects 和 cursor state，让 renderer 输入契约进入 CI 可见面
-- benchmark 已覆盖 input write、key-to-screen、input burst under output、echo、paste、output flood、scrollback paging、viewport scroll、screen-read under flood、render-frame empty/dirty/cursor-move delta、render draw plan、render geometry plan、focus/session lifecycle
+- benchmark 已覆盖 input write、key-to-screen、input burst under output、echo、paste、output flood、scrollback paging、viewport scroll、screen-read under flood、render-frame empty/dirty/cursor-move delta、render draw plan、render geometry plan、render submission plan、focus/session lifecycle
 - zero-width combining marks attach to preceding visible cells without advancing cursor position
 - DECFRA、DECERA、DECCARA、DECRARA 矩形操作
 - DECSCA protected/erasable cell 属性

@@ -31,6 +31,7 @@ struct Args {
     bench_render_frames: Option<usize>,
     bench_render_plans: Option<usize>,
     bench_render_geometry_plans: Option<usize>,
+    bench_render_submission_plans: Option<usize>,
     bench_render_cursor_moves: Option<usize>,
     bench_focus_switches: Option<usize>,
     bench_session_create: Option<usize>,
@@ -66,6 +67,7 @@ fn parse_args() -> Result<Args> {
         bench_render_frames: None,
         bench_render_plans: None,
         bench_render_geometry_plans: None,
+        bench_render_submission_plans: None,
         bench_render_cursor_moves: None,
         bench_focus_switches: None,
         bench_session_create: None,
@@ -230,6 +232,15 @@ fn parse_args() -> Result<Args> {
                     args.next()
                         .ok_or_else(|| {
                             anyhow::anyhow!("--bench-render-geometry-plans requires a value")
+                        })?
+                        .parse()?,
+                );
+            }
+            "--bench-render-submission-plans" => {
+                parsed.bench_render_submission_plans = Some(
+                    args.next()
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("--bench-render-submission-plans requires a value")
                         })?
                         .parse()?,
                 );
@@ -866,6 +877,84 @@ fn run_render_geometry_plan_benchmark(
         cell_runs,
         viewport_width,
         viewport_height,
+        latencies_us[0],
+        percentile(&latencies_us, 0.50),
+        percentile(&latencies_us, 0.95),
+        *latencies_us.last().unwrap_or(&0)
+    );
+    Ok(())
+}
+
+fn run_render_submission_plan_benchmark(
+    engine: &unterm_engine::next_core::NextCoreEngine,
+    pane_id: usize,
+    rounds: usize,
+    poll_interval: Duration,
+    timeout: Duration,
+) -> Result<()> {
+    if rounds == 0 {
+        bail!("--bench-render-submission-plans must be greater than 0");
+    }
+
+    let ready_marker = "RENDER_SUBMISSION_PLAN_BENCH_READY";
+    let ready_run = FloodRun {
+        marker: ready_marker.to_string(),
+        before_raw_len: engine.debug_output(pane_id)?.len(),
+        started_at: Instant::now(),
+    };
+    engine.write_input(
+        pane_id,
+        "for /L %i in (1,1,30) do @echo RENDER_SUBMISSION_PLAN_BENCH_%i abcdefghijklmnopqrstuvwxyz\r",
+    )?;
+    engine.write_input(pane_id, format!("echo {ready_marker}\r").as_str())?;
+    wait_for_marker(engine, pane_id, &ready_run, poll_interval, timeout)?;
+
+    let geometry = engine
+        .read_render_frame(pane_id, None)?
+        .to_draw_plan()
+        .to_geometry_plan(unterm_engine::RenderCellMetrics {
+            cell_width_px: 8,
+            cell_height_px: 16,
+        });
+    if geometry.glyph_runs.is_empty() || geometry.cell_runs.is_empty() {
+        bail!("render submission plan benchmark geometry had no runs");
+    }
+
+    let mut latencies_us = Vec::with_capacity(rounds);
+    let mut damage_rects = 0usize;
+    let mut background_quads = 0usize;
+    let mut text_runs = 0usize;
+    let mut has_cursor = false;
+    for _ in 0..rounds {
+        let before = Instant::now();
+        let submission = geometry.to_submission_plan();
+        latencies_us.push(before.elapsed().as_micros());
+        damage_rects = submission.damage_rects.len();
+        background_quads = submission.background_quads.len();
+        text_runs = submission.text_runs.len();
+        has_cursor = submission.cursor.is_some();
+        if submission.viewport != geometry.viewport || submission.revision != geometry.revision {
+            bail!("render submission plan did not preserve geometry metadata");
+        }
+    }
+    if damage_rects == 0 || background_quads == 0 || text_runs == 0 || !has_cursor {
+        bail!(
+            "render submission plan missing commands: damage={} background={} text={} cursor={}",
+            damage_rects,
+            background_quads,
+            text_runs,
+            has_cursor
+        );
+    }
+
+    latencies_us.sort_unstable();
+    println!(
+        "bench_render_submission_plan rounds={} damage_rects={} background_quads={} text_runs={} cursor={} min_us={} p50_us={} p95_us={} max_us={}",
+        rounds,
+        damage_rects,
+        background_quads,
+        text_runs,
+        has_cursor,
         latencies_us[0],
         percentile(&latencies_us, 0.50),
         percentile(&latencies_us, 0.95),
@@ -1739,6 +1828,22 @@ fn main() -> Result<()> {
         .with_context(|| {
             format!(
                 "bench_render_geometry_plan failed for session {}",
+                session.id
+            )
+        })?;
+    }
+
+    if let Some(rounds) = args.bench_render_submission_plans {
+        run_render_submission_plan_benchmark(
+            &engine,
+            session.id,
+            rounds,
+            Duration::from_millis(args.poll_ms),
+            Duration::from_millis(args.timeout_ms),
+        )
+        .with_context(|| {
+            format!(
+                "bench_render_submission_plan failed for session {}",
                 session.id
             )
         })?;
