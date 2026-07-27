@@ -154,10 +154,51 @@ pub struct EngineRenderTextAtlasPlan {
 pub struct EngineRenderGlyphAtlasKey {
     pub text: String,
     pub cells: usize,
+    pub font_idx: Option<usize>,
+    pub glyph_pos: Option<u32>,
     pub bold: bool,
     pub faint: bool,
     pub italic: bool,
     pub vertical_align: Option<StyledVerticalAlign>,
+}
+
+#[allow(dead_code)]
+impl EngineRenderGlyphAtlasKey {
+    pub fn from_text(text: String, cells: usize, style: &CellStyle) -> Self {
+        Self {
+            text,
+            cells,
+            font_idx: None,
+            glyph_pos: None,
+            bold: style.bold,
+            faint: style.faint,
+            italic: style.italic,
+            vertical_align: style.vertical_align,
+        }
+    }
+
+    pub fn from_shaped_glyph(
+        text: String,
+        cells: usize,
+        style: &CellStyle,
+        font_idx: usize,
+        glyph_pos: u32,
+    ) -> Self {
+        Self {
+            text,
+            cells,
+            font_idx: Some(font_idx),
+            glyph_pos: Some(glyph_pos),
+            bold: style.bold,
+            faint: style.faint,
+            italic: style.italic,
+            vertical_align: style.vertical_align,
+        }
+    }
+
+    pub fn raster_identity(&self) -> Option<(usize, u32)> {
+        Some((self.font_idx?, self.glyph_pos?))
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1329,14 +1370,7 @@ fn push_glyph_atlas_instances(
             push_glyph_atlas_instance(
                 keys,
                 instances,
-                EngineRenderGlyphAtlasKey {
-                    text: ch.to_string(),
-                    cells: 1,
-                    bold: run.style.bold,
-                    faint: run.style.faint,
-                    italic: run.style.italic,
-                    vertical_align: run.style.vertical_align,
-                },
+                EngineRenderGlyphAtlasKey::from_text(ch.to_string(), 1, &run.style),
                 EngineRenderGlyphAtlasInstance {
                     key_index: 0,
                     row: run.row,
@@ -1357,14 +1391,7 @@ fn push_glyph_atlas_instances(
         push_glyph_atlas_instance(
             keys,
             instances,
-            EngineRenderGlyphAtlasKey {
-                text: run.text.clone(),
-                cells: run.cells,
-                bold: run.style.bold,
-                faint: run.style.faint,
-                italic: run.style.italic,
-                vertical_align: run.style.vertical_align,
-            },
+            EngineRenderGlyphAtlasKey::from_text(run.text.clone(), run.cells, &run.style),
             EngineRenderGlyphAtlasInstance {
                 key_index: 0,
                 row: run.row,
@@ -1483,6 +1510,12 @@ fn glyph_key_seed(key: &EngineRenderGlyphAtlasKey) -> u32 {
         seed = seed.wrapping_mul(0x01000193);
     }
     seed ^= key.cells as u32;
+    if let Some(font_idx) = key.font_idx {
+        seed ^= (font_idx as u32).wrapping_mul(0x45d9f3b);
+    }
+    if let Some(glyph_pos) = key.glyph_pos {
+        seed ^= glyph_pos.wrapping_mul(0x119de1f3);
+    }
     if key.bold {
         seed ^= 0x1000;
     }
@@ -1694,22 +1727,8 @@ mod tests {
         assert_eq!(
             atlas.keys,
             vec![
-                EngineRenderGlyphAtlasKey {
-                    text: "a".to_string(),
-                    cells: 1,
-                    bold: true,
-                    faint: false,
-                    italic: false,
-                    vertical_align: None,
-                },
-                EngineRenderGlyphAtlasKey {
-                    text: "b".to_string(),
-                    cells: 1,
-                    bold: true,
-                    faint: false,
-                    italic: false,
-                    vertical_align: None,
-                },
+                EngineRenderGlyphAtlasKey::from_text("a".to_string(), 1, &style),
+                EngineRenderGlyphAtlasKey::from_text("b".to_string(), 1, &style),
             ]
         );
         assert_eq!(atlas.instances.len(), 3);
@@ -2275,6 +2294,25 @@ mod tests {
         assert_eq!(texture_update.missing_key_indices, vec![0]);
     }
 
+    #[test]
+    fn glyph_atlas_key_tracks_optional_shaped_raster_identity() {
+        let style = CellStyle {
+            bold: true,
+            ..Default::default()
+        };
+
+        let text_key = EngineRenderGlyphAtlasKey::from_text("a".to_string(), 1, &style);
+        let shaped_key =
+            EngineRenderGlyphAtlasKey::from_shaped_glyph("a".to_string(), 1, &style, 2, 42);
+        let other_glyph =
+            EngineRenderGlyphAtlasKey::from_shaped_glyph("a".to_string(), 1, &style, 2, 43);
+
+        assert_eq!(text_key.raster_identity(), None);
+        assert_eq!(shaped_key.raster_identity(), Some((2, 42)));
+        assert_ne!(text_key, shaped_key);
+        assert_ne!(shaped_key, other_glyph);
+    }
+
     fn assert_f32_pair_close(actual: [f32; 2], expected: [f32; 2]) {
         assert!(
             (actual[0] - expected[0]).abs() < 0.0001,
@@ -2291,14 +2329,7 @@ mod tests {
     }
 
     fn glyph_key(text: &str, cells: usize) -> EngineRenderGlyphAtlasKey {
-        EngineRenderGlyphAtlasKey {
-            text: text.to_string(),
-            cells,
-            bold: false,
-            faint: false,
-            italic: false,
-            vertical_align: None,
-        }
+        EngineRenderGlyphAtlasKey::from_text(text.to_string(), cells, &CellStyle::default())
     }
 }
 
