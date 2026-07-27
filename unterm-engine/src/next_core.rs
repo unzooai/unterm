@@ -1,12 +1,11 @@
 use super::{
-    CellStyle, CreateSessionRequest, CursorSnapshot, DirtyRows, EngineHealthSnapshot,
-    EngineIoHealthSnapshot, EngineLifecycleHealthSnapshot, HealthEngine, InputEngine,
-    ProcessTreeSnapshot, RecordingEngine, RecordingExportResult, RecordingStartResult,
-    RecordingStatusSnapshot, RecordingStopResult, RenderFrameSnapshot, ScreenEngine, ScreenLine,
-    ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot,
-    SessionActivitySnapshot, SessionEngine, SessionSnapshot, ShellSnapshot, SplitSessionRequest,
-    StyledBlink, StyledCell, StyledScreenLine, StyledScreenSnapshot, StyledScrollbackSnapshot,
-    StyledUnderline,
+    CreateSessionRequest, CursorSnapshot, DirtyRows, EngineHealthSnapshot, EngineIoHealthSnapshot,
+    EngineLifecycleHealthSnapshot, HealthEngine, InputEngine, ProcessTreeSnapshot, RecordingEngine,
+    RecordingExportResult, RecordingStartResult, RecordingStatusSnapshot, RecordingStopResult,
+    RenderFrameSnapshot, ScreenEngine, ScreenLine, ScreenSearchMatch, ScreenSnapshot,
+    ScrollbackTextRequest, ScrollbackTextSnapshot, SessionActivitySnapshot, SessionEngine,
+    SessionSnapshot, ShellSnapshot, SplitSessionRequest, StyledBlink, StyledScreenLine,
+    StyledScreenSnapshot, StyledScrollbackSnapshot, StyledUnderline,
 };
 use anyhow::{bail, Result};
 use base64::Engine as _;
@@ -39,6 +38,7 @@ mod recording_text;
 mod render_frame;
 mod render_state;
 mod screen_search;
+mod screen_snapshot;
 mod screen_state;
 mod screen_text;
 mod sgr;
@@ -49,7 +49,7 @@ mod terminal_queries;
 #[cfg(test)]
 use super::{LaunchEnvSource, LaunchPolicyDecision};
 #[cfg(test)]
-use crate::StyledVerticalAlign;
+use crate::{CellStyle, StyledVerticalAlign};
 use activity::SessionIoActivity;
 #[cfg(test)]
 use cell::TerminalColor;
@@ -57,6 +57,7 @@ use cell::{CellAttributes, ScreenCell};
 use history::HistoryBuffer;
 use render_frame::FrameSelection;
 use render_state::RenderState;
+use screen_snapshot::ScreenSnapshotMeta;
 use screen_state::{MouseTrackingMode, ScreenState};
 use terminal_parser::TerminalParser;
 
@@ -2427,25 +2428,18 @@ impl ScreenEngine for NextCoreEngine {
             let screen = screen_handle.lock();
             let visible = screen.snapshot_viewport_lines();
             let first_row = screen.viewport_first_row();
-            let cells = visible
-                .iter()
-                .enumerate()
-                .map(|(idx, text)| ScreenLine {
-                    row: first_row + idx as i64,
-                    text: text.clone(),
-                })
-                .collect();
-
-            ScreenSnapshot {
-                lines: visible,
-                cells,
-                cursor: screen.cursor_snapshot(),
-                cols: screen.cols,
-                rows: screen.rows,
-                scrollback_rows: screen.scrollback_rows(),
-                revision: screen.revision(),
-                dirty_rows: screen.dirty_rows(),
-            }
+            screen_snapshot::plain_viewport(
+                visible,
+                first_row,
+                ScreenSnapshotMeta {
+                    cursor: screen.cursor_snapshot(),
+                    cols: screen.cols,
+                    rows: screen.rows,
+                    scrollback_rows: screen.scrollback_rows(),
+                    revision: screen.revision(),
+                    dirty_rows: screen.dirty_rows(),
+                },
+            )
         };
         activity_handle
             .lock()
@@ -2470,15 +2464,17 @@ impl ScreenEngine for NextCoreEngine {
         let snapshot = {
             let screen = screen_handle.lock();
             let first_row = screen.viewport_first_row();
-            StyledScreenSnapshot {
-                lines: screen.styled_viewport_lines(first_row),
-                cursor: screen.cursor_snapshot(),
-                cols: screen.cols,
-                rows: screen.rows,
-                scrollback_rows: screen.scrollback_rows(),
-                revision: screen.revision(),
-                dirty_rows: screen.dirty_rows(),
-            }
+            screen_snapshot::styled_viewport(
+                screen.styled_viewport_lines(first_row),
+                ScreenSnapshotMeta {
+                    cursor: screen.cursor_snapshot(),
+                    cols: screen.cols,
+                    rows: screen.rows,
+                    scrollback_rows: screen.scrollback_rows(),
+                    revision: screen.revision(),
+                    dirty_rows: screen.dirty_rows(),
+                },
+            )
         };
         activity_handle
             .lock()
@@ -2568,15 +2564,10 @@ impl ScreenEngine for NextCoreEngine {
     fn read_lines(&self, pane_id: usize, start: i64, count: usize) -> Result<Vec<ScreenLine>> {
         let started_at = Instant::now();
         let start = start.max(0) as usize;
-        let lines = self
-            .screen_line_text_range(pane_id, start, count)?
-            .into_iter()
-            .enumerate()
-            .map(|(idx, text)| ScreenLine {
-                row: (start + idx) as i64,
-                text,
-            })
-            .collect();
+        let lines = screen_snapshot::plain_lines(
+            self.screen_line_text_range(pane_id, start, count)?,
+            start,
+        );
         self.mark_screen_read_for_pane(pane_id, started_at.elapsed())?;
         Ok(lines)
     }
@@ -2643,37 +2634,15 @@ impl ScreenEngine for NextCoreEngine {
     ) -> Result<StyledScrollbackSnapshot> {
         if request.escapes {
             let text = self.read_scrollback_text(pane_id, request)?;
-            let lines = text
-                .lines
-                .iter()
-                .enumerate()
-                .map(|(idx, line)| StyledScreenLine {
-                    row: text.first_row + idx as i64,
-                    cells: line
-                        .chars()
-                        .map(|ch| {
-                            let mut buf = [0u8; 4];
-                            StyledCell {
-                                ch,
-                                style: CellStyle::default(),
-                                width: termwiz::cell::unicode_column_width(
-                                    ch.encode_utf8(&mut buf),
-                                    None,
-                                ),
-                            }
-                        })
-                        .collect(),
-                })
-                .collect();
-            return Ok(StyledScrollbackSnapshot {
-                lines,
-                first_row: text.first_row,
-                row_count: text.row_count,
-                cols: text.cols,
-                scrollback_top: text.scrollback_top,
-                physical_top: text.physical_top,
-                viewport_rows: text.viewport_rows,
-            });
+            return Ok(screen_snapshot::escaped_styled_scrollback(
+                &text.lines,
+                text.first_row,
+                text.row_count,
+                text.cols,
+                text.scrollback_top,
+                text.physical_top,
+                text.viewport_rows,
+            ));
         }
 
         let started_at = Instant::now();
