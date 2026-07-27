@@ -1,0 +1,84 @@
+use super::{lifecycle, NextCoreSession, NextCoreState};
+use anyhow::{bail, Result};
+
+pub(super) fn next_session_id(state: &mut NextCoreState) -> usize {
+    state.next_session_id = state.next_session_id.max(1);
+    let id = state.next_session_id;
+    state.next_session_id += 1;
+    id
+}
+
+pub(super) fn set_active(state: &mut NextCoreState, pane_id: usize) {
+    for session in &mut state.sessions {
+        session.snapshot.is_active = session.snapshot.id == pane_id;
+    }
+}
+
+pub(super) fn focus(state: &mut NextCoreState, pane_id: usize) -> Result<()> {
+    if !state
+        .sessions
+        .iter()
+        .any(|session| session.snapshot.id == pane_id)
+    {
+        bail!("next-core session {pane_id} not found");
+    }
+    set_active(state, pane_id);
+    Ok(())
+}
+
+pub(super) fn insert_created(state: &mut NextCoreState, session: NextCoreSession) {
+    let id = session.snapshot.id;
+    set_active(state, id);
+    state.sessions.push(session);
+    state.total_sessions_created = state.total_sessions_created.saturating_add(1);
+}
+
+pub(super) fn destroy(state: &mut NextCoreState, pane_id: usize) -> Result<()> {
+    let Some(idx) = state
+        .sessions
+        .iter()
+        .position(|session| session.snapshot.id == pane_id)
+    else {
+        bail!("next-core session {pane_id} not found");
+    };
+
+    let was_active = state.sessions[idx].snapshot.is_active;
+    let mut session = state.sessions.remove(idx);
+    let (previous_dead, reason) = lifecycle::mark_destroyed(&mut session);
+    state.total_sessions_destroyed = state.total_sessions_destroyed.saturating_add(1);
+    if !previous_dead {
+        lifecycle::record_dead_reason(state, reason);
+    } else {
+        state.last_dead_reason = Some(reason);
+    }
+
+    if was_active {
+        if let Some(next_active_id) = state.sessions.last().map(|session| session.snapshot.id) {
+            set_active(state, next_active_id);
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn allocates_session_ids_from_one() {
+        let mut state = NextCoreState::default();
+
+        assert_eq!(next_session_id(&mut state), 1);
+        assert_eq!(next_session_id(&mut state), 2);
+    }
+
+    #[test]
+    fn focus_reports_missing_session() {
+        let mut state = NextCoreState::default();
+
+        let err = focus(&mut state, 7).unwrap_err();
+
+        assert!(err.to_string().contains("next-core session 7 not found"));
+    }
+}

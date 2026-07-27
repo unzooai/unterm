@@ -42,6 +42,7 @@ mod screen_snapshot;
 mod screen_state;
 mod screen_text;
 mod session_handles;
+mod session_registry;
 mod sgr;
 mod styled_snapshot;
 mod terminal_parser;
@@ -1961,19 +1962,6 @@ impl NextCoreEngine {
         Ok(enabled)
     }
 
-    fn next_session_id(state: &mut NextCoreState) -> usize {
-        state.next_session_id = state.next_session_id.max(1);
-        let id = state.next_session_id;
-        state.next_session_id += 1;
-        id
-    }
-
-    fn set_active(state: &mut NextCoreState, pane_id: usize) {
-        for session in &mut state.sessions {
-            session.snapshot.is_active = session.snapshot.id == pane_id;
-        }
-    }
-
     fn default_cursor() -> CursorSnapshot {
         CursorSnapshot {
             x: 0,
@@ -2169,7 +2157,7 @@ impl SessionEngine for NextCoreEngine {
         let (command, cwd) =
             launch::prepare_command(request.command, request.command_dir, request.env);
         let mut state_guard = state().write();
-        let id = Self::next_session_id(&mut state_guard);
+        let id = session_registry::next_session_id(&mut state_guard);
         drop(state_guard);
 
         let session = Self::spawn_session(
@@ -2187,9 +2175,7 @@ impl SessionEngine for NextCoreEngine {
         let mut session = session;
         session.snapshot.shell.launch_context = launch_context;
         let mut state_guard = state().write();
-        Self::set_active(&mut state_guard, id);
-        state_guard.sessions.push(session);
-        state_guard.total_sessions_created = state_guard.total_sessions_created.saturating_add(1);
+        session_registry::insert_created(&mut state_guard, session);
         Ok(snapshot)
     }
 
@@ -2213,7 +2199,7 @@ impl SessionEngine for NextCoreEngine {
         let launch_env_keys = Vec::new();
 
         let mut state_guard = state().write();
-        let id = Self::next_session_id(&mut state_guard);
+        let id = session_registry::next_session_id(&mut state_guard);
         drop(state_guard);
 
         let session = Self::spawn_session(
@@ -2228,23 +2214,13 @@ impl SessionEngine for NextCoreEngine {
 
         let snapshot = session.snapshot.clone();
         let mut state_guard = state().write();
-        Self::set_active(&mut state_guard, id);
-        state_guard.sessions.push(session);
-        state_guard.total_sessions_created = state_guard.total_sessions_created.saturating_add(1);
+        session_registry::insert_created(&mut state_guard, session);
         Ok(snapshot)
     }
 
     fn focus_session(&self, pane_id: usize) -> Result<()> {
         let mut state = state().write();
-        if !state
-            .sessions
-            .iter()
-            .any(|session| session.snapshot.id == pane_id)
-        {
-            bail!("next-core session {pane_id} not found");
-        }
-        Self::set_active(&mut state, pane_id);
-        Ok(())
+        session_registry::focus(&mut state, pane_id)
     }
 
     fn shell(&self, pane_id: usize) -> Result<ShellSnapshot> {
@@ -2308,32 +2284,7 @@ impl SessionEngine for NextCoreEngine {
 
     fn destroy_session(&self, pane_id: usize) -> Result<()> {
         let mut state = state().write();
-        let Some(idx) = state
-            .sessions
-            .iter()
-            .position(|session| session.snapshot.id == pane_id)
-        else {
-            bail!("next-core session {pane_id} not found");
-        };
-
-        let was_active = state.sessions[idx].snapshot.is_active;
-        let mut session = state.sessions.remove(idx);
-        let (previous_dead, reason) = lifecycle::mark_destroyed(&mut session);
-        state.total_sessions_destroyed = state.total_sessions_destroyed.saturating_add(1);
-        if !previous_dead {
-            lifecycle::record_dead_reason(&mut state, reason);
-        } else {
-            state.last_dead_reason = Some(reason);
-        }
-
-        if was_active {
-            let next_active_id = state.sessions.last().map(|session| session.snapshot.id);
-            if let Some(next_active_id) = next_active_id {
-                Self::set_active(&mut state, next_active_id);
-            }
-        }
-
-        Ok(())
+        session_registry::destroy(&mut state, pane_id)
     }
 }
 
