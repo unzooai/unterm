@@ -58,7 +58,9 @@ impl crate::TermWindow {
             next_core_pane_frame.as_ref(),
         ) {
             (true, Some(frame)) => Some(frame.replace_diagnostics),
-            (true, None) => Some(webgpu.next_core_pane_replace_diagnostics(&None, None)),
+            (true, None) => {
+                Some(crate::engine::EngineRenderPaneReplaceDiagnostics::requested_missing_frame())
+            }
             (false, _) => None,
         };
         let replace_legacy_pane =

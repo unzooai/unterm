@@ -501,6 +501,15 @@ mod tests {
             missing_frame.readiness_issues(),
             vec![EngineRenderPaneReplaceReadinessIssue::MissingPreparedFrame]
         );
+        let requested_missing_frame = EngineRenderPaneReplaceDiagnostics::requested_missing_frame();
+        assert!(!requested_missing_frame.replace_ready);
+        assert_eq!(
+            requested_missing_frame.readiness_issues(),
+            vec![
+                EngineRenderPaneReplaceReadinessIssue::MissingBufferBatch,
+                EngineRenderPaneReplaceReadinessIssue::MissingPreparedFrame
+            ]
+        );
         let not_requested = EngineRenderPaneReplaceDiagnostics::from_parts(
             false,
             Some(&first),

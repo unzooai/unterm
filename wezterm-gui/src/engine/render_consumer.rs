@@ -174,6 +174,10 @@ impl EngineRenderBufferBatch {
 
 #[allow(dead_code)]
 impl EngineRenderPaneReplaceDiagnostics {
+    pub fn requested_missing_frame() -> Self {
+        Self::from_parts(true, None, None, None)
+    }
+
     pub fn from_parts(
         requested: bool,
         batch: Option<&EngineRenderBufferBatch>,
