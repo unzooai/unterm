@@ -884,8 +884,17 @@ pub struct EngineRuntimeQueueHealthSnapshot {
 pub struct EngineRuntimePumpHealthSnapshot {
     pub drain_calls: u64,
     pub dispatched_commands: u64,
+    pub dispatched_lifecycle_commands: u64,
+    pub dispatched_input_commands: u64,
+    pub dispatched_render_commands: u64,
+    pub dispatched_screen_commands: u64,
+    pub dispatched_background_commands: u64,
     pub waited_for_response: u64,
     pub completed_without_wait: u64,
+    pub total_dispatch_elapsed_micros: u64,
+    pub max_dispatch_elapsed_micros: u64,
+    pub total_drain_elapsed_micros: u64,
+    pub max_drain_elapsed_micros: u64,
 }
 
 #[derive(Clone, Debug, Serialize)]

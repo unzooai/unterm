@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use super::{
+    command::RuntimeCommandLane,
     dispatch::{self, RuntimeDispatchResult},
     queue::RuntimeQueuedCommand,
     response::RuntimeResponseReceiver,
@@ -8,26 +9,66 @@ use super::{
     with_current_mut,
 };
 use anyhow::Result;
+use std::time::{Duration, Instant};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(in crate::next_core) struct RuntimePumpStats {
     pub(in crate::next_core) drain_calls: u64,
     pub(in crate::next_core) dispatched_commands: u64,
+    pub(in crate::next_core) dispatched_lifecycle_commands: u64,
+    pub(in crate::next_core) dispatched_input_commands: u64,
+    pub(in crate::next_core) dispatched_render_commands: u64,
+    pub(in crate::next_core) dispatched_screen_commands: u64,
+    pub(in crate::next_core) dispatched_background_commands: u64,
     pub(in crate::next_core) waited_for_response: u64,
     pub(in crate::next_core) completed_without_wait: u64,
+    pub(in crate::next_core) total_dispatch_elapsed_micros: u64,
+    pub(in crate::next_core) max_dispatch_elapsed_micros: u64,
+    pub(in crate::next_core) total_drain_elapsed_micros: u64,
+    pub(in crate::next_core) max_drain_elapsed_micros: u64,
 }
 
 impl RuntimePumpStats {
-    fn record_drain(&mut self, dispatched_commands: usize, waited_for_response: bool) {
+    fn record_dispatch(&mut self, lane: RuntimeCommandLane, elapsed: Duration) {
+        self.dispatched_commands = self.dispatched_commands.saturating_add(1);
+        match lane {
+            RuntimeCommandLane::Lifecycle => {
+                self.dispatched_lifecycle_commands =
+                    self.dispatched_lifecycle_commands.saturating_add(1);
+            }
+            RuntimeCommandLane::Input => {
+                self.dispatched_input_commands = self.dispatched_input_commands.saturating_add(1);
+            }
+            RuntimeCommandLane::Render => {
+                self.dispatched_render_commands = self.dispatched_render_commands.saturating_add(1);
+            }
+            RuntimeCommandLane::Screen => {
+                self.dispatched_screen_commands = self.dispatched_screen_commands.saturating_add(1);
+            }
+            RuntimeCommandLane::Background => {
+                self.dispatched_background_commands =
+                    self.dispatched_background_commands.saturating_add(1);
+            }
+        }
+        let elapsed_micros = elapsed.as_micros().min(u128::from(u64::MAX)) as u64;
+        self.total_dispatch_elapsed_micros = self
+            .total_dispatch_elapsed_micros
+            .saturating_add(elapsed_micros);
+        self.max_dispatch_elapsed_micros = self.max_dispatch_elapsed_micros.max(elapsed_micros);
+    }
+
+    fn record_drain(&mut self, waited_for_response: bool, elapsed: Duration) {
         self.drain_calls = self.drain_calls.saturating_add(1);
-        self.dispatched_commands = self
-            .dispatched_commands
-            .saturating_add(dispatched_commands as u64);
         if waited_for_response {
             self.waited_for_response = self.waited_for_response.saturating_add(1);
         } else {
             self.completed_without_wait = self.completed_without_wait.saturating_add(1);
         }
+        let elapsed_micros = elapsed.as_micros().min(u128::from(u64::MAX)) as u64;
+        self.total_drain_elapsed_micros = self
+            .total_drain_elapsed_micros
+            .saturating_add(elapsed_micros);
+        self.max_drain_elapsed_micros = self.max_drain_elapsed_micros.max(elapsed_micros);
     }
 }
 
@@ -54,20 +95,21 @@ pub(in crate::next_core) fn drain_until_response(
 pub(in crate::next_core) fn drain_until_response_report(
     rx: RuntimeResponseReceiver,
 ) -> RuntimePumpDrain {
+    let started = Instant::now();
     let mut dispatched_commands = 0;
     loop {
         match rx.try_recv() {
             Ok(Some(result)) => {
-                return complete_drain(Ok(result), dispatched_commands, false);
+                return complete_drain(Ok(result), dispatched_commands, false, started.elapsed());
             }
             Ok(None) => {}
             Err(err) => {
-                return complete_drain(Err(err), dispatched_commands, false);
+                return complete_drain(Err(err), dispatched_commands, false, started.elapsed());
             }
         }
         match dispatch_next_scheduled_step() {
             Ok(RuntimePumpStep::Empty) => {
-                return complete_drain(rx.recv(), dispatched_commands, true);
+                return complete_drain(rx.recv(), dispatched_commands, true, started.elapsed());
             }
             Ok(RuntimePumpStep::CompletedAttachedResponse) => {
                 dispatched_commands += 1;
@@ -76,7 +118,7 @@ pub(in crate::next_core) fn drain_until_response_report(
                 dispatched_commands += 1;
             }
             Err(err) => {
-                return complete_drain(Err(err), dispatched_commands, false);
+                return complete_drain(Err(err), dispatched_commands, false, started.elapsed());
             }
         }
     }
@@ -86,11 +128,10 @@ fn complete_drain(
     result: Result<RuntimeDispatchResult>,
     dispatched_commands: usize,
     waited_for_response: bool,
+    elapsed: Duration,
 ) -> RuntimePumpDrain {
     with_current_mut(|state| {
-        state
-            .pump_stats
-            .record_drain(dispatched_commands, waited_for_response);
+        state.pump_stats.record_drain(waited_for_response, elapsed);
     });
     RuntimePumpDrain {
         result,
@@ -114,7 +155,10 @@ fn dispatch_next_scheduled_step() -> Result<RuntimePumpStep> {
 }
 
 fn dispatch_queued(queued: RuntimeQueuedCommand) -> Result<RuntimePumpStep> {
+    let lane = queued.lane;
+    let started = Instant::now();
     let result = dispatch::execute(queued.command);
+    with_current_mut(|state| state.pump_stats.record_dispatch(lane, started.elapsed()));
     if let Some(response) = queued.response {
         response.complete(result);
         return Ok(RuntimePumpStep::CompletedAttachedResponse);
@@ -241,8 +285,11 @@ mod tests {
         let stats = pump_stats();
         assert_eq!(stats.drain_calls, 1);
         assert_eq!(stats.dispatched_commands, 2);
+        assert_eq!(stats.dispatched_screen_commands, 2);
         assert_eq!(stats.waited_for_response, 0);
         assert_eq!(stats.completed_without_wait, 1);
+        assert!(stats.max_dispatch_elapsed_micros <= stats.total_dispatch_elapsed_micros);
+        assert!(stats.max_drain_elapsed_micros <= stats.total_drain_elapsed_micros);
     }
 
     #[test]
@@ -298,6 +345,7 @@ mod tests {
         assert_eq!(stats.dispatched_commands, 0);
         assert_eq!(stats.waited_for_response, 0);
         assert_eq!(stats.completed_without_wait, 1);
+        assert_eq!(stats.total_dispatch_elapsed_micros, 0);
     }
 
     fn queue_stats() -> super::super::queue::RuntimeQueueStats {

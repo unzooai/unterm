@@ -92,6 +92,7 @@ unterm-product
 - 滚动只移动 logical viewport，不能扫描全量 scrollback；PageUp/PageDown、滚轮、搜索跳转和 MCP goto 共用同一模型。
 - 渲染器只消费 commit plan，常规帧走 dirty rows/cells，首帧、resize 或 revision gap 才强制 full repaint。
 - MCP screen read 读取稳定快照，不阻塞 UI frame，也不反向持有 renderer 状态。
+- runtime pump 暴露按 lane 的 dispatch 计数、dispatch/drain 总耗时和最大耗时，用 health snapshot 直接观察 input、lifecycle、render、screen、background 哪条路径在卡。
 - benchmark 必须覆盖 key-to-screen、input burst under output、paste chunk、output flood、scrollback paging、viewport scroll、screen-read under flood、render commit plan。
 - size gate 和 dependency review 必须持续运行；新增依赖必须证明它替代了更高风险的自研复杂度，不能把产品 UI、agent cockpit、Web Settings 或 legacy 兼容塞进 core。
 
@@ -305,7 +306,7 @@ next-core 已经在 screen/parser 方向具备基础能力，包括：
 - `next_core/render_frame.rs` 已拆出 full/delta/unchanged frame selection 策略，让渲染帧调度、dirty row 清理和 viewport pinned 行为可以独立测试
 - `next_core/process_tree.rs` 已拆出 root/foreground process snapshot 和已知 agent 检测，让 Codex/Claude activity 诊断从 session 生命周期中分离，后续可独立加缓存或后台扫描，避免进入输入、滚动、渲染热路径
 - `next_core/activity.rs` 已拆出 input/output/paste/screen-read counters 和 idle detection，让热路径遥测可以独立测试，不再和 session 生命周期、未来 renderer scheduling 混在一起
-- `next_core/health_snapshot.rs` 已拆出 health snapshot 聚合、session liveness refresh、IO counter 汇总、runtime queue pending/rejected 遥测和 lifecycle 统计，并通过 session registry current runtime 边界与计数/遍历入口读取 sessions，让 HealthEngine 不再直接持有全局 runtime 锁或扫描 session runtime 内部结构
+- `next_core/health_snapshot.rs` 已拆出 health snapshot 聚合、session liveness refresh、IO counter 汇总、runtime queue pending/rejected 遥测、runtime pump lane/latency 遥测和 lifecycle 统计，并通过 session registry current runtime 边界与计数/遍历入口读取 sessions，让 HealthEngine 不再直接持有全局 runtime 锁或扫描 session runtime 内部结构
 - `next_core/input_dispatch.rs` 已拆出 write/paste 的 session input handle 获取、application cursor translation、UTF-8 safe paste wire chunking、writer flush 和 input/paste activity 记账，并通过 runtime input dispatch facade 暴露给 InputEngine，让 InputEngine 不再直接持有全局 runtime 读锁和热路径写入细节
 - `next_core/launch.rs` 已拆出 command preparation、launch env/policy inference、profile/proxy metadata summary 和 shell type labeling，让 PTY/session registry 主体不再持有产品启动策略细节
 - `next_core/lifecycle.rs` 已拆出 reader/process death refresh、dead reason 记账和 destroy 标记规则，让 session registry 后续重写时不需要复制死亡状态机
@@ -326,7 +327,7 @@ next-core 已经在 screen/parser 方向具备基础能力，包括：
 - `next_core/runtime.rs` 已收敛为 `NextCoreRuntime` 容器、current runtime 全局锁入口、read/write visitor helpers 和 runtime 子模块出口，让 next_core 主体不再直接定义 runtime 存储、锁访问或 current-session 编排；后续可以在该模块继续下沉 scheduler、event channels、lifecycle ownership 和 registry wiring
 - `next_core/runtime/command.rs` 已定义 runtime command/classification/pane-id/write-path/latency-sensitive/queue-policy 基础契约，先把 session lifecycle、input、screen read/mutation、recording 和 status 查询这些未来必须进入 scheduler 的操作分类固定下来；当前 facade 仍同步执行，后续可以按模块逐步改成 command queue 投递
 - `next_core/runtime/consumer.rs` 已拆出 runtime command 的提交边界，集中负责按 command 自身的 lifecycle/input/render/screen/background lane 投递 bounded queue、处理 rejected/lost-command 错误和创建 response receiver；scheduler 不再直接操作 queue 或手写 lane，后续可以把兼容同步提交替换为独立后台 consumer 或 event loop
-- `next_core/runtime/pump.rs` 已拆出兼容同步 runtime pump 边界，负责按 `RuntimeSchedulePolicy` 取下一条命令、执行 dispatch、完成 attached response，并提供 `drain_until_response` 与带 `dispatched_commands` / `waited_for_response` 统计的 `drain_until_response_report`；pump drain 统计会累计进 runtime state 并通过 health snapshot 暴露，这把“提交命令”和“泵调度直到响应完成”分开，为后续后台线程/event loop 替换同步 pump 和观测调度行为提前固定了接口
+- `next_core/runtime/pump.rs` 已拆出兼容同步 runtime pump 边界，负责按 `RuntimeSchedulePolicy` 取下一条命令、执行 dispatch、完成 attached response，并提供 `drain_until_response` 与带 `dispatched_commands` / `waited_for_response` 统计的 `drain_until_response_report`；pump 会累计按 lane 的 dispatch 计数、dispatch 总/最大耗时和 drain 总/最大耗时并通过 health snapshot 暴露，这把“提交命令”和“泵调度直到响应完成”分开，为后续后台线程/event loop 替换同步 pump 和观测调度行为提前固定了接口
 - `next_core/runtime/dispatch.rs` 已拆出 runtime command dispatch 边界，用统一 `RuntimeDispatchResult` 表达 input、session lifecycle create/split/mutation、session list/get query、recording lifecycle/query/export、screen mutation、screen read、render frame、scrollback/search/cursor、raw output、shell/activity 和 health 等执行结果；create/split session 的 PTY spawn 仍由 `session_creation.rs`/`session_runtime.rs` 执行，但现在已经通过 lifecycle command response 路径进入 dispatch 层，后续后台 consumer 可以复用同一执行边界
 - `next_core/runtime/response.rs` 已定义 runtime response sender/receiver 基础边界，queued command 可以选择携带 response sender；consumer 执行 scheduled command 后会把 dispatch result/error 写回 receiver，入队被 backpressure 拒绝时也会立即完成错误，为 read screen/render frame/status 从同步调用迁到后台事件循环提供结果返回通道
 - `next_core/runtime/input_executor.rs` 已拆出 input command executor，负责验证 `RuntimeCommand::WriteInput/PasteInput` 并同步调用 input dispatch；后续 runtime queue 接入时可以让 queue consumer 调用同一个 executor，而不把执行细节留在 facade

@@ -63,8 +63,17 @@ pub(super) fn snapshot(state: &mut NextCoreRuntime) -> EngineHealthSnapshot {
         runtime_pump: Some(EngineRuntimePumpHealthSnapshot {
             drain_calls: pump_stats.drain_calls,
             dispatched_commands: pump_stats.dispatched_commands,
+            dispatched_lifecycle_commands: pump_stats.dispatched_lifecycle_commands,
+            dispatched_input_commands: pump_stats.dispatched_input_commands,
+            dispatched_render_commands: pump_stats.dispatched_render_commands,
+            dispatched_screen_commands: pump_stats.dispatched_screen_commands,
+            dispatched_background_commands: pump_stats.dispatched_background_commands,
             waited_for_response: pump_stats.waited_for_response,
             completed_without_wait: pump_stats.completed_without_wait,
+            total_dispatch_elapsed_micros: pump_stats.total_dispatch_elapsed_micros,
+            max_dispatch_elapsed_micros: pump_stats.max_dispatch_elapsed_micros,
+            total_drain_elapsed_micros: pump_stats.total_drain_elapsed_micros,
+            max_drain_elapsed_micros: pump_stats.max_drain_elapsed_micros,
         }),
     }
 }
@@ -114,8 +123,17 @@ mod tests {
         let pump = health.runtime_pump.expect("runtime pump");
         assert_eq!(pump.drain_calls, 0);
         assert_eq!(pump.dispatched_commands, 0);
+        assert_eq!(pump.dispatched_lifecycle_commands, 0);
+        assert_eq!(pump.dispatched_input_commands, 0);
+        assert_eq!(pump.dispatched_render_commands, 0);
+        assert_eq!(pump.dispatched_screen_commands, 0);
+        assert_eq!(pump.dispatched_background_commands, 0);
         assert_eq!(pump.waited_for_response, 0);
         assert_eq!(pump.completed_without_wait, 0);
+        assert_eq!(pump.total_dispatch_elapsed_micros, 0);
+        assert_eq!(pump.max_dispatch_elapsed_micros, 0);
+        assert_eq!(pump.total_drain_elapsed_micros, 0);
+        assert_eq!(pump.max_drain_elapsed_micros, 0);
     }
 
     #[test]
@@ -123,16 +141,34 @@ mod tests {
         let mut state = NextCoreRuntime::default();
         state.pump_stats.drain_calls = 3;
         state.pump_stats.dispatched_commands = 7;
+        state.pump_stats.dispatched_lifecycle_commands = 1;
+        state.pump_stats.dispatched_input_commands = 2;
+        state.pump_stats.dispatched_render_commands = 3;
+        state.pump_stats.dispatched_screen_commands = 4;
+        state.pump_stats.dispatched_background_commands = 5;
         state.pump_stats.waited_for_response = 1;
         state.pump_stats.completed_without_wait = 2;
+        state.pump_stats.total_dispatch_elapsed_micros = 11;
+        state.pump_stats.max_dispatch_elapsed_micros = 7;
+        state.pump_stats.total_drain_elapsed_micros = 13;
+        state.pump_stats.max_drain_elapsed_micros = 9;
 
         let health = snapshot(&mut state);
 
         let pump = health.runtime_pump.expect("runtime pump");
         assert_eq!(pump.drain_calls, 3);
         assert_eq!(pump.dispatched_commands, 7);
+        assert_eq!(pump.dispatched_lifecycle_commands, 1);
+        assert_eq!(pump.dispatched_input_commands, 2);
+        assert_eq!(pump.dispatched_render_commands, 3);
+        assert_eq!(pump.dispatched_screen_commands, 4);
+        assert_eq!(pump.dispatched_background_commands, 5);
         assert_eq!(pump.waited_for_response, 1);
         assert_eq!(pump.completed_without_wait, 2);
+        assert_eq!(pump.total_dispatch_elapsed_micros, 11);
+        assert_eq!(pump.max_dispatch_elapsed_micros, 7);
+        assert_eq!(pump.total_drain_elapsed_micros, 13);
+        assert_eq!(pump.max_drain_elapsed_micros, 9);
     }
 
     #[test]
