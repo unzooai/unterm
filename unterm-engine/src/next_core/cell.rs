@@ -5,6 +5,7 @@ use crate::{
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(super) struct ScreenCell {
     pub(super) ch: char,
+    pub(super) combining: String,
     pub(super) attr: CellAttributes,
     pub(super) width: usize,
 }
@@ -13,6 +14,7 @@ impl ScreenCell {
     pub(super) fn new(ch: char, attr: CellAttributes) -> Self {
         Self {
             ch,
+            combining: String::new(),
             attr,
             width: Self::char_width(ch),
         }
@@ -21,6 +23,7 @@ impl ScreenCell {
     pub(super) fn blank(attr: CellAttributes) -> Self {
         Self {
             ch: ' ',
+            combining: String::new(),
             attr,
             width: 1,
         }
@@ -29,6 +32,7 @@ impl ScreenCell {
     pub(super) fn continuation(attr: CellAttributes) -> Self {
         Self {
             ch: ' ',
+            combining: String::new(),
             attr,
             width: 0,
         }
@@ -37,6 +41,10 @@ impl ScreenCell {
     pub(super) fn char_width(ch: char) -> usize {
         let mut buf = [0u8; 4];
         termwiz::cell::unicode_column_width(ch.encode_utf8(&mut buf), None)
+    }
+
+    pub(super) fn push_combining(&mut self, ch: char) {
+        self.combining.push(ch);
     }
 
     #[allow(dead_code)]

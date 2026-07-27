@@ -207,6 +207,7 @@ next-core 已经在 screen/parser 方向具备基础能力，包括：
 - 基础 VT 光标、滚动区、模式报告、DA/DSR/DECRQM query response
 - SGR 样式、扩展色、OSC 8 hyperlink
 - scrollback ring、logical viewport、styled render-frame full/delta snapshot
+- zero-width combining marks attach to preceding visible cells without advancing cursor position
 - DECFRA、DECERA、DECCARA、DECRARA 矩形操作
 - DECSCA protected/erasable cell 属性
 - DECSERA selective rectangular erase

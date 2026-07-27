@@ -578,12 +578,12 @@ impl NextCoreScreen {
     }
 
     fn line_text(line: &Vec<ScreenCell>) -> String {
-        line.iter()
-            .filter(|cell| cell.width > 0)
-            .map(|cell| cell.ch)
-            .collect::<String>()
-            .trim_end()
-            .to_string()
+        let mut text = String::new();
+        for cell in line.iter().filter(|cell| cell.width > 0) {
+            text.push(cell.ch);
+            text.push_str(&cell.combining);
+        }
+        text.trim_end().to_string()
     }
 
     fn put_char(&mut self, c: char) {
@@ -591,10 +591,11 @@ impl NextCoreScreen {
         self.mark_dirty_row(self.cursor_y);
         let cell = ScreenCell::new(c, self.current_attr);
         if cell.width == 0 {
-            if self.cursor_x > 0 {
-                let line = &mut self.lines[self.cursor_y];
-                if let Some(previous) = line.get_mut(self.cursor_x - 1) {
-                    previous.ch = c;
+            let line = &mut self.lines[self.cursor_y];
+            let end = self.cursor_x.min(line.len());
+            if end > 0 {
+                if let Some(previous) = line[..end].iter_mut().rev().find(|cell| cell.width > 0) {
+                    previous.push_combining(c);
                 }
             }
             return;
@@ -7058,6 +7059,67 @@ mod tests {
 
         let screen = engine.read_screen(session.id)?;
         assert_eq!(screen.lines[0], "你A");
+        assert_eq!(screen.cursor.x, 3);
+
+        let styled = engine.read_styled_screen(session.id)?;
+        let cells = &styled.lines[0].cells;
+        assert_eq!(cells[0].ch, '你');
+        assert_eq!(cells[0].width, 2);
+        assert_eq!(cells[1].width, 0);
+        assert_eq!(cells[2].ch, 'A');
+        assert_eq!(cells[2].width, 1);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_preserves_combining_marks_on_base_cells() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 8,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+        set_output_for_test(session.id, "e\u{0301}X")?;
+
+        let screen = engine.read_screen(session.id)?;
+        assert_eq!(screen.lines, vec!["e\u{0301}X"]);
+        assert_eq!(screen.cursor.x, 2);
+
+        let styled = engine.read_styled_screen(session.id)?;
+        let cells = &styled.lines[0].cells;
+        assert_eq!(cells[0].ch, 'e');
+        assert_eq!(cells[0].width, 1);
+        assert_eq!(cells[1].ch, 'X');
+        assert_eq!(cells[1].width, 1);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    #[test]
+    fn screen_buffer_attaches_combining_marks_to_previous_wide_cell() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 8,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+        set_output_for_test(session.id, "你\u{0301}A")?;
+
+        let screen = engine.read_screen(session.id)?;
+        assert_eq!(screen.lines, vec!["你\u{0301}A"]);
         assert_eq!(screen.cursor.x, 3);
 
         let styled = engine.read_styled_screen(session.id)?;

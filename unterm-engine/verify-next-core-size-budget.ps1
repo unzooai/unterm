@@ -36,7 +36,7 @@ if (Test-Path $CoreRoot) {
 $coreSourceLines = Count-Lines $coreFiles
 $probeSourceLines = Count-Lines @($ProbeFile)
 
-$treeLines = @(& cargo tree -p unterm-engine --depth 1 --prefix depth 2>&1 | ForEach-Object { $_.ToString() })
+$treeLines = @(& cmd /c "cargo tree -p unterm-engine --depth 1 --prefix depth 2>&1" | ForEach-Object { $_.ToString() })
 if ($LASTEXITCODE -ne 0) {
     throw "cargo tree failed:`n$($treeLines -join "`n")"
 }
