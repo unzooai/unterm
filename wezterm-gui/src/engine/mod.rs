@@ -16,8 +16,9 @@ use window::WindowOps;
 pub use render_backend::{
     CommandListRenderBackend, EngineRenderBackend, EngineRenderBackendCommand,
     EngineRenderBackendFrame, EngineRenderBufferPlan, EngineRenderGlyphAtlasInstance,
-    EngineRenderGlyphAtlasKey, EngineRenderGlyphAtlasPlan, EngineRenderGpuUploadPlan,
-    EngineRenderGpuVertex, EngineRenderTextAtlasPlan, EngineRenderTextAtlasRun,
+    EngineRenderGlyphAtlasKey, EngineRenderGlyphAtlasPlacement, EngineRenderGlyphAtlasPlan,
+    EngineRenderGpuUploadPlan, EngineRenderGpuVertex, EngineRenderTextAtlasPlan,
+    EngineRenderTextAtlasRun, EngineRenderTexturedGlyphUploadPlan, EngineRenderTexturedGlyphVertex,
     EngineRenderVertexLayer, EngineWgpuPipelineConfig, EngineWgpuPreparedFramePlan,
     EngineWgpuRenderBackend, EngineWgpuRenderPassPlan,
 };

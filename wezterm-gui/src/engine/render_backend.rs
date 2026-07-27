@@ -151,6 +151,13 @@ pub struct EngineRenderGlyphAtlasPlan {
     pub instances: Vec<EngineRenderGlyphAtlasInstance>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
+pub struct EngineRenderGlyphAtlasPlacement {
+    pub key_index: usize,
+    pub rect: RenderRect,
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 #[allow(dead_code)]
@@ -203,6 +210,28 @@ pub struct EngineRenderGpuUploadPlan {
     pub requires_full_repaint: bool,
     pub vertices: Vec<EngineRenderGpuVertex>,
     pub indices: Vec<u32>,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
+#[allow(dead_code)]
+pub struct EngineRenderTexturedGlyphVertex {
+    pub position: [f32; 2],
+    pub uv: [f32; 2],
+    pub color: [f32; 4],
+    pub key_index: u32,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+#[allow(dead_code)]
+pub struct EngineRenderTexturedGlyphUploadPlan {
+    pub pane_id: usize,
+    pub submitted: bool,
+    pub revision: u64,
+    pub requires_full_repaint: bool,
+    pub vertices: Vec<EngineRenderTexturedGlyphVertex>,
+    pub indices: Vec<u32>,
+    pub missing_key_indices: Vec<usize>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -336,6 +365,24 @@ impl EngineWgpuRenderBackend {
 
     pub fn prepare_glyph_atlas(plan: &EngineRenderBufferPlan) -> EngineRenderGlyphAtlasPlan {
         EngineRenderGlyphAtlasPlan::from_text_atlas_plan(&Self::prepare_text_atlas(plan))
+    }
+
+    pub fn prepare_textured_glyph_upload_for_viewport(
+        glyphs: &EngineRenderGlyphAtlasPlan,
+        placements: &[EngineRenderGlyphAtlasPlacement],
+        viewport_width_px: f32,
+        viewport_height_px: f32,
+        atlas_width_px: f32,
+        atlas_height_px: f32,
+    ) -> EngineRenderTexturedGlyphUploadPlan {
+        EngineRenderTexturedGlyphUploadPlan::from_glyph_atlas_plan_for_viewport(
+            glyphs,
+            placements,
+            viewport_width_px,
+            viewport_height_px,
+            atlas_width_px,
+            atlas_height_px,
+        )
     }
 
     pub fn prepare_frame_for_viewport(
@@ -629,6 +676,62 @@ impl EngineRenderGlyphAtlasPlan {
 }
 
 #[allow(dead_code)]
+impl EngineRenderTexturedGlyphUploadPlan {
+    pub fn from_glyph_atlas_plan_for_viewport(
+        plan: &EngineRenderGlyphAtlasPlan,
+        placements: &[EngineRenderGlyphAtlasPlacement],
+        viewport_width_px: f32,
+        viewport_height_px: f32,
+        atlas_width_px: f32,
+        atlas_height_px: f32,
+    ) -> Self {
+        let viewport_width_px = viewport_width_px.max(1.0);
+        let viewport_height_px = viewport_height_px.max(1.0);
+        let atlas_width_px = atlas_width_px.max(1.0);
+        let atlas_height_px = atlas_height_px.max(1.0);
+        let mut vertices = Vec::new();
+        let mut indices = Vec::new();
+        let mut missing_key_indices = Vec::new();
+
+        if plan.submitted {
+            for instance in &plan.instances {
+                let Some(placement) = placements
+                    .iter()
+                    .find(|placement| placement.key_index == instance.key_index)
+                else {
+                    push_unique_usize(&mut missing_key_indices, instance.key_index);
+                    continue;
+                };
+                push_textured_glyph_quad(
+                    &mut vertices,
+                    &mut indices,
+                    instance,
+                    placement.rect,
+                    viewport_width_px,
+                    viewport_height_px,
+                    atlas_width_px,
+                    atlas_height_px,
+                );
+            }
+        }
+
+        Self {
+            pane_id: plan.pane_id,
+            submitted: plan.submitted,
+            revision: plan.revision,
+            requires_full_repaint: plan.requires_full_repaint,
+            vertices,
+            indices,
+            missing_key_indices,
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.vertices.is_empty() || self.indices.is_empty()
+    }
+}
+
+#[allow(dead_code)]
 pub trait EngineRenderBackend {
     fn submit(
         &mut self,
@@ -789,6 +892,69 @@ fn push_glyph_atlas_instance(
         }
     };
     instances.push(instance);
+}
+
+fn push_textured_glyph_quad(
+    vertices: &mut Vec<EngineRenderTexturedGlyphVertex>,
+    indices: &mut Vec<u32>,
+    instance: &EngineRenderGlyphAtlasInstance,
+    atlas_rect: RenderRect,
+    viewport_width_px: f32,
+    viewport_height_px: f32,
+    atlas_width_px: f32,
+    atlas_height_px: f32,
+) {
+    let base = vertices.len() as u32;
+    let left = instance.rect.x as f32;
+    let top = instance.rect.y as f32;
+    let right = instance.rect.x.saturating_add(instance.rect.width) as f32;
+    let bottom = instance.rect.y.saturating_add(instance.rect.height) as f32;
+    let uv_left = atlas_rect.x as f32 / atlas_width_px;
+    let uv_top = atlas_rect.y as f32 / atlas_height_px;
+    let uv_right = atlas_rect.x.saturating_add(atlas_rect.width) as f32 / atlas_width_px;
+    let uv_bottom = atlas_rect.y.saturating_add(atlas_rect.height) as f32 / atlas_height_px;
+    let key_index = instance.key_index as u32;
+
+    vertices.extend([
+        EngineRenderTexturedGlyphVertex {
+            position: viewport_to_clip(left, top, viewport_width_px, viewport_height_px),
+            uv: [uv_left, uv_top],
+            color: instance.foreground,
+            key_index,
+        },
+        EngineRenderTexturedGlyphVertex {
+            position: viewport_to_clip(right, top, viewport_width_px, viewport_height_px),
+            uv: [uv_right, uv_top],
+            color: instance.foreground,
+            key_index,
+        },
+        EngineRenderTexturedGlyphVertex {
+            position: viewport_to_clip(left, bottom, viewport_width_px, viewport_height_px),
+            uv: [uv_left, uv_bottom],
+            color: instance.foreground,
+            key_index,
+        },
+        EngineRenderTexturedGlyphVertex {
+            position: viewport_to_clip(right, bottom, viewport_width_px, viewport_height_px),
+            uv: [uv_right, uv_bottom],
+            color: instance.foreground,
+            key_index,
+        },
+    ]);
+    indices.extend([base, base + 1, base + 2, base + 1, base + 2, base + 3]);
+}
+
+fn viewport_to_clip(x: f32, y: f32, viewport_width_px: f32, viewport_height_px: f32) -> [f32; 2] {
+    [
+        (x / viewport_width_px) * 2.0 - 1.0,
+        1.0 - (y / viewport_height_px) * 2.0,
+    ]
+}
+
+fn push_unique_usize(values: &mut Vec<usize>, value: usize) {
+    if !values.contains(&value) {
+        values.push(value);
+    }
 }
 
 fn ansi_palette_rgb(index: u8) -> [u8; 3] {
@@ -1125,6 +1291,130 @@ mod tests {
         assert_eq!(atlas.instances[0].key_index, 0);
         assert_eq!(atlas.instances[1].key_index, 0);
         assert_ne!(atlas.instances[0].foreground, atlas.instances[1].foreground);
+    }
+
+    #[test]
+    fn textured_glyph_upload_maps_instances_to_clip_space_and_uvs() {
+        let style = CellStyle {
+            fg: Some(StyledColor::Rgb(0x80, 0x40, 0x20)),
+            ..Default::default()
+        };
+        let frame = EngineRenderBackendFrame {
+            pane_id: 6,
+            submitted: true,
+            revision: 13,
+            requires_full_repaint: false,
+            skipped_revisions: 0,
+            commands: vec![EngineRenderBackendCommand::Text {
+                row: 0,
+                col: 0,
+                cells: 1,
+                rect: RenderRect {
+                    x: 10,
+                    y: 5,
+                    width: 20,
+                    height: 10,
+                },
+                text: "z".to_string(),
+                style,
+            }],
+        };
+        let buffer = EngineRenderBufferPlan::from_frame(&frame);
+        let glyphs = EngineWgpuRenderBackend::prepare_glyph_atlas(&buffer);
+
+        let upload = EngineWgpuRenderBackend::prepare_textured_glyph_upload_for_viewport(
+            &glyphs,
+            &[EngineRenderGlyphAtlasPlacement {
+                key_index: 0,
+                rect: RenderRect {
+                    x: 16,
+                    y: 8,
+                    width: 8,
+                    height: 16,
+                },
+            }],
+            100.0,
+            50.0,
+            64.0,
+            32.0,
+        );
+
+        assert_eq!(upload.pane_id, 6);
+        assert!(upload.submitted);
+        assert!(upload.missing_key_indices.is_empty());
+        assert_eq!(upload.vertices.len(), 4);
+        assert_eq!(upload.indices, vec![0, 1, 2, 1, 2, 3]);
+        assert_f32_pair_close(upload.vertices[0].position, [-0.8, 0.8]);
+        assert_f32_pair_close(upload.vertices[1].position, [-0.4, 0.8]);
+        assert_f32_pair_close(upload.vertices[2].position, [-0.8, 0.4]);
+        assert_f32_pair_close(upload.vertices[3].position, [-0.4, 0.4]);
+        assert_eq!(upload.vertices[0].uv, [0.25, 0.25]);
+        assert_eq!(upload.vertices[1].uv, [0.375, 0.25]);
+        assert_eq!(upload.vertices[2].uv, [0.25, 0.75]);
+        assert_eq!(upload.vertices[3].uv, [0.375, 0.75]);
+        assert_eq!(
+            upload.vertices[0].color,
+            [
+                0x80 as f32 / 255.0,
+                0x40 as f32 / 255.0,
+                0x20 as f32 / 255.0,
+                1.0
+            ]
+        );
+        assert_eq!(upload.vertices[0].key_index, 0);
+    }
+
+    #[test]
+    fn textured_glyph_upload_reports_missing_atlas_placements() {
+        let frame = EngineRenderBackendFrame {
+            pane_id: 7,
+            submitted: true,
+            revision: 14,
+            requires_full_repaint: false,
+            skipped_revisions: 0,
+            commands: vec![EngineRenderBackendCommand::Text {
+                row: 0,
+                col: 0,
+                cells: 2,
+                rect: RenderRect {
+                    x: 0,
+                    y: 0,
+                    width: 16,
+                    height: 16,
+                },
+                text: "aa".to_string(),
+                style: CellStyle::default(),
+            }],
+        };
+        let buffer = EngineRenderBufferPlan::from_frame(&frame);
+        let glyphs = EngineWgpuRenderBackend::prepare_glyph_atlas(&buffer);
+
+        let upload = EngineWgpuRenderBackend::prepare_textured_glyph_upload_for_viewport(
+            &glyphs,
+            &[],
+            80.0,
+            40.0,
+            128.0,
+            128.0,
+        );
+
+        assert!(upload.is_empty());
+        assert_eq!(upload.missing_key_indices, vec![0]);
+    }
+
+    fn assert_f32_pair_close(actual: [f32; 2], expected: [f32; 2]) {
+        assert!(
+            (actual[0] - expected[0]).abs() < 0.0001,
+            "x mismatch: actual={:?} expected={:?}",
+            actual,
+            expected
+        );
+        assert!(
+            (actual[1] - expected[1]).abs() < 0.0001,
+            "y mismatch: actual={:?} expected={:?}",
+            actual,
+            expected
+        );
     }
 }
 
