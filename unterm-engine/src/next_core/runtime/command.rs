@@ -78,6 +78,11 @@ pub(in crate::next_core) enum RuntimeCommand {
         pane_id: usize,
         delta: isize,
     },
+    /// Drop the scrollback, and the visible screen with it when requested.
+    EraseScrollback {
+        pane_id: usize,
+        include_viewport: bool,
+    },
     ReadScreen {
         pane_id: usize,
     },
@@ -165,9 +170,9 @@ impl RuntimeCommand {
             Self::WriteInput { .. } | Self::PasteInput { .. } | Self::ReportMouse { .. } => {
                 RuntimeCommandClass::Input
             }
-            Self::ScrollViewport { .. } | Self::ScrollViewportBy { .. } => {
-                RuntimeCommandClass::ScreenMutation
-            }
+            Self::ScrollViewport { .. }
+            | Self::ScrollViewportBy { .. }
+            | Self::EraseScrollback { .. } => RuntimeCommandClass::ScreenMutation,
             Self::ReadScreen { .. }
             | Self::ReadStyledScreen { .. }
             | Self::ReadRenderFrame { .. }
@@ -205,6 +210,7 @@ impl RuntimeCommand {
             | Self::ReportMouse { pane_id, .. }
             | Self::ScrollViewport { pane_id, .. }
             | Self::ScrollViewportBy { pane_id, .. }
+            | Self::EraseScrollback { pane_id, .. }
             | Self::ReadScreen { pane_id }
             | Self::ReadStyledScreen { pane_id }
             | Self::ReadRenderFrame { pane_id, .. }
@@ -242,6 +248,7 @@ impl RuntimeCommand {
             Self::ReadRenderFrame { .. } => RuntimeCommandLane::Render,
             Self::ScrollViewport { .. }
             | Self::ScrollViewportBy { .. }
+            | Self::EraseScrollback { .. }
             | Self::ReadScreen { .. }
             | Self::ReadStyledScreen { .. }
             | Self::ReadVisibleText { .. }
@@ -278,6 +285,7 @@ impl RuntimeCommand {
                 | Self::ReportMouse { .. }
                 | Self::ScrollViewport { .. }
                 | Self::ScrollViewportBy { .. }
+                | Self::EraseScrollback { .. }
                 | Self::StartRecording { .. }
                 | Self::StopRecording { .. }
                 | Self::AttachRecordingTrace { .. }

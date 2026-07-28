@@ -107,6 +107,15 @@ $Suites = @(
         )
     },
     @{
+        Name = "scrollback erase end to end"
+        Package = "unterm-engine"
+        Filter = "next_core::tests::erase_scrollback_drops_history_and_optionally_the_viewport"
+        ExpectedCount = 1
+        RequiredTests = @(
+            "next_core::tests::erase_scrollback_drops_history_and_optionally_the_viewport"
+        )
+    },
+    @{
         Name = "viewport scroll end to end"
         Package = "unterm-engine"
         Filter = "next_core::tests::relative_viewport_scroll_steps_and_resumes_following"

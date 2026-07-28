@@ -835,6 +835,20 @@ impl NextCoreScreen {
         self.mark_all_dirty();
     }
 
+    /// Drop the scrollback, and optionally the visible screen with it.
+    ///
+    /// This is the terminal-side "clear scrollback" action, not the `CSI 3 J`
+    /// the application can send: the user asked, so the cursor row is kept
+    /// where it is rather than homed.
+    pub(super) fn erase_scrollback(&mut self, include_viewport: bool) {
+        self.history.clear();
+        if include_viewport {
+            self.clear_display();
+        }
+        self.bump_revision();
+        self.mark_all_dirty();
+    }
+
     fn clear_display(&mut self) {
         self.lines.clear();
         self.ensure_cursor_line();
@@ -1709,6 +1723,12 @@ impl NextCoreEngine {
     pub fn screen_revision(&self, pane_id: usize) -> Result<u64> {
         runtime::screen_revision(pane_id)
     }
+
+    /// Drop the pane's scrollback, and the visible screen with it when
+    /// `include_viewport` is set.
+    pub fn erase_scrollback(&self, pane_id: usize, include_viewport: bool) -> Result<()> {
+        runtime::erase_scrollback(pane_id, include_viewport)
+    }
 }
 
 impl SessionEngine for NextCoreEngine {
@@ -2390,6 +2410,54 @@ mod tests {
             std::time::Duration::from_secs(30),
         )?;
         assert_eq!(line.trim(), marker);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    /// Clearing the scrollback drops history but leaves the visible screen
+    /// alone, unless the caller asks for both.
+    #[test]
+    fn erase_scrollback_drops_history_and_optionally_the_viewport() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 20,
+            rows: 4,
+            command_dir: None,
+            command: Some(quiet_wait_command_for_test()),
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        // 12 rows through a 4-row viewport leaves 8 rows of scrollback.
+        let lines: String = (0..12).map(|i| format!("row{i}\r\n")).collect();
+        set_output_for_test(session.id, &lines)?;
+        let before = engine.read_screen(session.id)?;
+        // `scrollback_rows` counts history rows only; the viewport is separate.
+        assert!(
+            before.scrollback_rows > 0,
+            "expected rows to have scrolled into history"
+        );
+        let visible_before = before.lines.join("\n");
+
+        engine.erase_scrollback(session.id, false)?;
+        let after = engine.read_screen(session.id)?;
+        assert_eq!(after.scrollback_rows, 0, "history should be gone");
+        assert_eq!(
+            after.lines.join("\n"),
+            visible_before,
+            "clearing scrollback must not disturb what is on screen"
+        );
+
+        engine.erase_scrollback(session.id, true)?;
+        let cleared = engine.read_screen(session.id)?;
+        assert!(
+            cleared.lines.iter().all(|line| line.trim().is_empty()),
+            "clearing scrollback and viewport must empty the screen, got {:?}",
+            cleared.lines
+        );
 
         engine.destroy_session(session.id)?;
         Ok(())

@@ -419,6 +419,18 @@ impl Pane for NextCorePane {
         next_core().report_mouse(self.session_id, event)
     }
 
+    fn erase_scrollback(&self, erase_mode: config::keyassignment::ScrollbackEraseMode) {
+        use config::keyassignment::ScrollbackEraseMode;
+        let include_viewport = matches!(erase_mode, ScrollbackEraseMode::ScrollbackAndViewport);
+        if let Err(err) = next_core().erase_scrollback(self.session_id, include_viewport) {
+            log::warn!(
+                "next-core erase_scrollback for pane {} (session {}) failed: {err:#}",
+                self.pane_id,
+                self.session_id
+            );
+        }
+    }
+
     fn kill(&self) {
         // The trait's default is a no-op, which would leave the shell running
         // until the last Arc to this pane happened to drop. Destroying the

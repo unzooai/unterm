@@ -303,6 +303,13 @@ pub(super) fn screen_revision(pane_id: usize) -> Result<u64> {
     Ok(revision)
 }
 
+pub(super) fn erase_scrollback(pane_id: usize, include_viewport: bool) -> Result<()> {
+    let screen = session_handles::screen_current(pane_id)?;
+
+    screen.lock().erase_scrollback(include_viewport);
+    Ok(())
+}
+
 pub(super) fn pane_modes(pane_id: usize) -> Result<crate::PaneModesSnapshot> {
     let screen = session_handles::screen_current(pane_id)?;
 

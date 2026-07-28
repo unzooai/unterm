@@ -17,6 +17,10 @@ pub(in crate::next_core) fn pane_modes(pane_id: usize) -> Result<crate::PaneMode
     scheduler::pane_modes(pane_id)
 }
 
+pub(in crate::next_core) fn erase_scrollback(pane_id: usize, include_viewport: bool) -> Result<()> {
+    scheduler::erase_scrollback(pane_id, include_viewport)
+}
+
 pub(in crate::next_core) fn screen_revision(pane_id: usize) -> Result<u64> {
     scheduler::screen_revision(pane_id)
 }

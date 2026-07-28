@@ -31,6 +31,10 @@ pub(in crate::next_core) fn execute_screen_mutation(command: RuntimeCommand) -> 
         RuntimeCommand::ScrollViewportBy { pane_id, delta } => {
             screen_dispatch::scroll_viewport_by(pane_id, delta)
         }
+        RuntimeCommand::EraseScrollback {
+            pane_id,
+            include_viewport,
+        } => screen_dispatch::erase_scrollback(pane_id, include_viewport),
         _ => bail!("runtime screen executor expected screen mutation command"),
     }
 }

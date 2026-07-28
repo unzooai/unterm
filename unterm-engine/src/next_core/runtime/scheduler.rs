@@ -346,6 +346,20 @@ pub(in crate::next_core) fn pane_modes(pane_id: usize) -> Result<crate::PaneMode
     }
 }
 
+pub(in crate::next_core) fn erase_scrollback(pane_id: usize, include_viewport: bool) -> Result<()> {
+    let command = RuntimeCommand::EraseScrollback {
+        pane_id,
+        include_viewport,
+    };
+    match consumer::submit_and_dispatch_response(command)? {
+        RuntimeDispatchResult::Unit => Ok(()),
+        other => bail!(
+            "runtime scheduler expected screen-mutation dispatch result, got {:?}",
+            other
+        ),
+    }
+}
+
 pub(in crate::next_core) fn screen_revision(pane_id: usize) -> Result<u64> {
     let command = RuntimeCommand::ScreenRevision { pane_id };
     match consumer::submit_and_dispatch_response(command)? {
