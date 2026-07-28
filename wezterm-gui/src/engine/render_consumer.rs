@@ -204,7 +204,12 @@ impl EngineRenderBufferBatch {
         if !self.buffer_plan.submitted {
             issues.push(EngineRenderBufferReadinessIssue::BufferNotSubmitted);
         }
-        if self.buffer_plan.vertices.is_empty() || self.buffer_plan.indices.is_empty() {
+        // Text runs draw through the textured glyph pass and contribute no
+        // solid vertices, so a frame that is all text has an empty solid
+        // buffer and is still perfectly drawable.
+        if (self.buffer_plan.vertices.is_empty() || self.buffer_plan.indices.is_empty())
+            && self.buffer_plan.text_runs.is_empty()
+        {
             issues.push(EngineRenderBufferReadinessIssue::EmptyBuffer);
         }
         issues

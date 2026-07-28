@@ -664,7 +664,10 @@ impl EngineWgpuPreparedFramePlan {
         if !self.upload.submitted {
             issues.push(EngineWgpuPreparedFrameReadinessIssue::SolidNotSubmitted);
         }
-        if self.upload.is_empty() {
+        // A frame with no solid geometry is only empty if it has no glyphs
+        // either. Text contributes no solid quads -- its pixels come from the
+        // textured glyph pass -- so a text-only frame is perfectly drawable.
+        if self.upload.is_empty() && self.text_atlas.runs.is_empty() {
             issues.push(EngineWgpuPreparedFrameReadinessIssue::EmptySolidUpload);
         }
         if !self.text_atlas.runs.is_empty() && self.glyph_atlas.instances.is_empty() {
@@ -1068,15 +1071,18 @@ impl EngineRenderBufferPlan {
                         rect: *rect,
                         style: style.clone(),
                     });
-                    let color = foreground_color_for_command(command);
-                    push_quad_vertices(
-                        &mut vertices,
-                        &mut indices,
-                        *rect,
-                        color,
-                        EngineRenderVertexLayer::Text,
-                        command_index,
-                    );
+                    // No solid quad for text. The glyph pixels come from the
+                    // textured glyph pass, masked by each glyph's coverage;
+                    // filling the run's rect here would paint an opaque block
+                    // in the foreground colour over the glyphs. (It used to,
+                    // back when there was no textured pass to draw them.)
+                    //
+                    // Losing the glyph pass entirely is not a way to lose the
+                    // text: replace readiness requires a matching cached glyph
+                    // upload whenever there are text runs, so a frame without
+                    // glyphs is not drawn at all and the legacy renderer keeps
+                    // the pane.
+                    let _ = command_index;
                 }
                 EngineRenderBackendCommand::Cursor { rect, .. } => {
                     push_quad_vertices(
@@ -2182,8 +2188,11 @@ mod tests {
         assert_eq!(plan.text_runs[0].cells, 3);
         assert_eq!(plan.text_runs[0].rect, rect);
         assert_eq!(plan.text_runs[0].style, style);
-        assert_eq!(plan.vertices.len(), 4);
-        assert_eq!(plan.indices, vec![0, 1, 2, 1, 2, 3]);
+        // A text run contributes no solid geometry: its pixels come from the
+        // textured glyph pass, masked by glyph coverage. Emitting a quad here
+        // would paint an opaque foreground-coloured block over the glyphs.
+        assert!(plan.vertices.is_empty());
+        assert!(plan.indices.is_empty());
 
         let atlas = EngineWgpuRenderBackend::prepare_text_atlas(&plan);
         assert_eq!(atlas.pane_id, 7);
@@ -2208,7 +2217,8 @@ mod tests {
         let prepared = EngineWgpuRenderBackend::prepare_frame_for_viewport(&plan, 80.0, 40.0);
         assert_eq!(prepared.upload.pane_id, 7);
         assert_eq!(prepared.upload.revision, 42);
-        assert_eq!(prepared.upload.vertices.len(), 4);
+        // Same reason: no solid geometry for a text-only frame.
+        assert!(prepared.upload.vertices.is_empty());
         assert_eq!(prepared.text_atlas, atlas);
         assert_eq!(prepared.glyph_atlas.pane_id, 7);
         assert_eq!(prepared.glyph_atlas.revision, 42);
@@ -2222,8 +2232,10 @@ mod tests {
                 pane_id: 7,
                 submitted: true,
                 revision: 42,
-                solid_vertex_count: 4,
-                solid_index_count: 6,
+                // Text draws through the glyph pass, so a text-only frame
+                // carries no solid geometry.
+                solid_vertex_count: 0,
+                solid_index_count: 0,
                 text_run_count: 1,
                 glyph_key_count: 3,
                 glyph_instance_count: 3,
@@ -2310,9 +2322,11 @@ mod tests {
         assert!(!prepared.is_replace_ready());
         assert_eq!(
             prepared.readiness_issues(),
+            // No EmptySolidUpload: the frame has text runs, so an empty solid
+            // buffer is expected. The precise complaint is that those runs
+            // have no glyphs.
             vec![
                 EngineWgpuPreparedFrameReadinessIssue::SolidNotSubmitted,
-                EngineWgpuPreparedFrameReadinessIssue::EmptySolidUpload,
                 EngineWgpuPreparedFrameReadinessIssue::TextAtlasMissingGlyphs,
             ]
         );

@@ -126,9 +126,13 @@ This is independent of `UNTERM_NEXT_CORE_WEBGPU_PANE`, and the two compose:
 - `UNTERM_NEXT_CORE_PANE` alone — next-core owns the terminal (PTY, parsing, screen, scrollback, input); WezTerm's renderer draws it by reading `get_lines()`. One shell per pane.
 - plus `UNTERM_NEXT_CORE_WEBGPU_PANE=replace` — next-core also draws its own GPU frame, and the render path binds to the pane's existing session rather than spawning a second one. Requires `front_end = "WebGpu"`; the mode is a no-op on the Glium front end.
 
-**`replace` currently renders incorrectly — do not use it for real work.** It now reaches next-core's GPU renderer on every frame (`replace_ready=true`, no fallbacks), but the output is wrong: glyph quads fill solid with the foreground colour instead of being masked by the glyph's coverage, so text appears as opaque blocks. Confirmed by screenshot against a live shell. The geometry is right — line positions, run counts, and the atlas upload all check out (`inserted=43 texture_regions=43 layout_missing=0`) — so the fault is in how the rasterized glyph coverage reaches the sampler, not in the layout.
+With both flags on, next-core owns the terminal *and* the pixels: verified by screenshot against a live shell, with `replace_ready=true` and no fallbacks on any frame. Text, CJK, and the cursor render correctly through next-core's own GPU pipeline while the legacy pane quads stay suppressed.
 
-Getting there took two fixes worth knowing about. The buffer plan was read through `engine::current()`, which follows `UNTERM_ENGINE` and defaults to wezterm, so a next-core session id went to the WezTerm engine and every frame failed with "session not found" — the mode was inert unless `UNTERM_ENGINE` was also set. And `read_render_commit_plan` skips a revision it has already submitted, which is right for damage tracking but leaves a static screen with no geometry at all; the last drawable plan is now replayed so the pane keeps drawing.
+Three defects had to be fixed to get there, all of which only surfaced by running the GUI:
+
+- The buffer plan was read through `engine::current()`, which follows `UNTERM_ENGINE` and defaults to wezterm, so a next-core session id went to the WezTerm engine and every frame failed with "session not found". The mode was inert unless `UNTERM_ENGINE` happened to be set too.
+- `read_render_commit_plan` skips a revision it has already submitted, which is right for damage tracking but leaves a static screen with no geometry at all. The last drawable plan is now replayed so the pane keeps drawing.
+- Text runs pushed a solid quad filling the run's rect in the foreground colour — a leftover from before the textured glyph pass existed. Once the glyph pass worked, that quad painted opaque blocks over every glyph.
 
 The pane owns its session's lifetime and destroys it on drop. Because next-core runs its own PTY pump it hands the mux no reader, so the pane carries a change watcher that samples the screen revision and raises `PaneOutput`; without it the GUI would never be told to repaint.
 
