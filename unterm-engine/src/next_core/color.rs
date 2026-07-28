@@ -1,0 +1,174 @@
+//! Colours, and the two adjustments a theme actually needs.
+//!
+//! A config wants a tab bar slightly lifted off the background and inactive
+//! text slightly sunk into it, both derived from whatever theme is in effect.
+//! In Lua that meant parsing a colour and calling `lighten`/`darken`; here the
+//! two operations are built in, so a theme-following config needs no code.
+//!
+//! Lightening moves a colour toward white by a fraction of the distance
+//! remaining, rather than by a fixed amount. Adding a constant blows out
+//! colours that are already bright and does nothing visible to dark ones,
+//! which is exactly backwards for a tab bar that has to work in both themes.
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Rgb {
+    pub red: u8,
+    pub green: u8,
+    pub blue: u8,
+}
+
+impl Rgb {
+    pub fn new(red: u8, green: u8, blue: u8) -> Self {
+        Self { red, green, blue }
+    }
+
+    /// Move each channel a fraction of the way to white.
+    pub fn lighten(self, amount: f64) -> Self {
+        self.blend_toward(255, amount)
+    }
+
+    /// Move each channel a fraction of the way to black.
+    pub fn darken(self, amount: f64) -> Self {
+        self.blend_toward(0, amount)
+    }
+
+    fn blend_toward(self, target: u8, amount: f64) -> Self {
+        let amount = amount.clamp(0.0, 1.0);
+        Self {
+            red: blend_channel(self.red, target, amount),
+            green: blend_channel(self.green, target, amount),
+            blue: blend_channel(self.blue, target, amount),
+        }
+    }
+
+    /// Render as `#rrggbb`, the form a config is written in.
+    pub fn to_hex(self) -> String {
+        format!("#{:02x}{:02x}{:02x}", self.red, self.green, self.blue)
+    }
+}
+
+fn blend_channel(from: u8, target: u8, amount: f64) -> u8 {
+    let from = from as f64;
+    let delta = (target as f64 - from) * amount;
+    // Round rather than truncate: truncating makes small adjustments do
+    // nothing at all, so a config that asks for a slight lift gets no change.
+    (from + delta).round().clamp(0.0, 255.0) as u8
+}
+
+/// Parse `#rgb` or `#rrggbb`, with or without the leading `#`.
+///
+/// The short form is doubled per digit, so `#fff` is white rather than a very
+/// dark grey -- the reading every other tool gives it.
+pub fn parse_hex(text: &str) -> Option<Rgb> {
+    let digits = text.trim().strip_prefix('#').unwrap_or(text.trim());
+    if !digits.chars().all(|ch| ch.is_ascii_hexdigit()) {
+        return None;
+    }
+    match digits.len() {
+        3 => {
+            let mut chars = digits.chars().map(|ch| {
+                let value = ch.to_digit(16).unwrap() as u8;
+                value * 17
+            });
+            Some(Rgb::new(chars.next()?, chars.next()?, chars.next()?))
+        }
+        6 => Some(Rgb::new(
+            u8::from_str_radix(&digits[0..2], 16).ok()?,
+            u8::from_str_radix(&digits[2..4], 16).ok()?,
+            u8::from_str_radix(&digits[4..6], 16).ok()?,
+        )),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_the_long_form() {
+        assert_eq!(parse_hex("#1e1e2e"), Some(Rgb::new(0x1e, 0x1e, 0x2e)));
+        assert_eq!(parse_hex("1e1e2e"), Some(Rgb::new(0x1e, 0x1e, 0x2e)));
+    }
+
+    #[test]
+    fn the_short_form_doubles_each_digit() {
+        // `#fff` is white everywhere else; reading it as `#0f0f0f` would make a
+        // config mean something very different from what it says.
+        assert_eq!(parse_hex("#fff"), Some(Rgb::new(255, 255, 255)));
+        assert_eq!(parse_hex("#08f"), Some(Rgb::new(0x00, 0x88, 0xff)));
+    }
+
+    #[test]
+    fn rejects_what_is_not_a_colour() {
+        assert_eq!(parse_hex("#12345"), None);
+        assert_eq!(parse_hex("#gggggg"), None);
+        assert_eq!(parse_hex(""), None);
+    }
+
+    #[test]
+    fn lightening_a_dark_colour_makes_a_visible_difference() {
+        let lifted = Rgb::new(0x11, 0x13, 0x15).lighten(0.05);
+
+        // A tab bar lifted off the background has to actually move. Truncating
+        // instead of rounding would leave this identical to its input.
+        assert_ne!(lifted, Rgb::new(0x11, 0x13, 0x15));
+        assert!(lifted.red > 0x11);
+    }
+
+    #[test]
+    fn lightening_moves_toward_white_without_passing_it() {
+        assert_eq!(Rgb::new(255, 255, 255).lighten(0.5), Rgb::new(255, 255, 255));
+        assert_eq!(Rgb::new(0, 0, 0).lighten(1.0), Rgb::new(255, 255, 255));
+    }
+
+    #[test]
+    fn darkening_moves_toward_black_without_passing_it() {
+        assert_eq!(Rgb::new(0, 0, 0).darken(0.5), Rgb::new(0, 0, 0));
+        assert_eq!(Rgb::new(255, 255, 255).darken(1.0), Rgb::new(0, 0, 0));
+    }
+
+    #[test]
+    fn an_adjustment_of_nothing_changes_nothing() {
+        let colour = Rgb::new(0x33, 0x66, 0x99);
+
+        assert_eq!(colour.lighten(0.0), colour);
+        assert_eq!(colour.darken(0.0), colour);
+    }
+
+    #[test]
+    fn an_out_of_range_amount_is_clamped_rather_than_wrapping() {
+        assert_eq!(Rgb::new(0, 0, 0).lighten(5.0), Rgb::new(255, 255, 255));
+        assert_eq!(Rgb::new(200, 200, 200).darken(-1.0), Rgb::new(200, 200, 200));
+    }
+
+    #[test]
+    fn a_bright_colour_lightens_less_than_a_dark_one() {
+        let dark_shift = Rgb::new(0x10, 0x10, 0x10).lighten(0.2).red - 0x10;
+        let bright_shift = Rgb::new(0xf0, 0xf0, 0xf0).lighten(0.2).red - 0xf0;
+
+        // Proportional adjustment is what keeps one setting working in both a
+        // dark and a light theme.
+        assert!(dark_shift > bright_shift);
+    }
+
+    #[test]
+    fn round_trips_through_hex() {
+        let colour = Rgb::new(0x1e, 0x1e, 0x2e);
+
+        assert_eq!(colour.to_hex(), "#1e1e2e");
+        assert_eq!(parse_hex(&colour.to_hex()), Some(colour));
+    }
+
+    #[test]
+    fn the_shipped_themes_adjustments_stay_distinguishable() {
+        // The config this project ships lifts the bar by 0.05 and sinks
+        // inactive text by 0.35, both from the theme colour.
+        let background = parse_hex("#111315").expect("valid colour");
+        let foreground = parse_hex("#e8eaed").expect("valid colour");
+
+        assert_ne!(background.lighten(0.05), background);
+        assert_ne!(foreground.darken(0.35), foreground);
+        assert_ne!(background.lighten(0.05), foreground.darken(0.35));
+    }
+}

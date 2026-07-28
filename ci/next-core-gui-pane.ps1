@@ -169,7 +169,7 @@ $Suites = @(
         Name = "config runtime"
         Package = "unterm-engine"
         Filter = "next_core::config::tests::"
-        ExpectedCount = 24
+        ExpectedCount = 28
         RequiredTests = @(
             "next_core::config::tests::a_typo_is_rejected_with_the_nearest_real_setting",
             "next_core::config::tests::an_unrelated_key_is_rejected_without_a_wild_guess",
@@ -181,7 +181,10 @@ $Suites = @(
             "next_core::config::tests::unterminated_constructs_are_errors_not_silent_truncation",
             "next_core::config::tests::a_platform_section_overrides_the_base_value",
             "next_core::config::tests::the_named_platform_beats_the_catch_all",
-            "next_core::config::tests::a_typo_inside_a_platform_section_is_still_caught"
+            "next_core::config::tests::a_typo_inside_a_platform_section_is_still_caught",
+            "next_core::config::tests::the_catch_all_skips_a_platform_that_has_its_own_section",
+            "next_core::config::tests::a_list_may_run_across_several_lines",
+            "next_core::config::tests::an_unclosed_section_header_does_not_swallow_the_file"
         )
     },
     @{
@@ -202,6 +205,53 @@ $Suites = @(
             "next_core::config_migrate::tests::a_value_chosen_by_a_probe_is_never_converted_to_one_branch",
             "next_core::config_migrate::tests::a_function_call_that_closes_on_the_same_line_does_not_swallow_the_file",
             "next_core::config_migrate::tests::an_unrecognised_platform_branch_is_reported_not_filed_wrongly"
+        )
+    },
+    @{
+        # What settings exist, so a config can be judged before it is used.
+        Name = "config schema"
+        Package = "unterm-engine"
+        Filter = "next_core::config_schema::tests::"
+        ExpectedCount = 10
+        RequiredTests = @(
+            "next_core::config_schema::tests::an_unknown_setting_is_rejected",
+            "next_core::config_schema::tests::a_typo_outside_that_section_is_still_caught",
+            "next_core::config_schema::tests::environment_variables_are_the_one_place_names_are_invented",
+            "next_core::config_schema::tests::a_platform_section_is_checked_after_it_is_resolved",
+            "next_core::config_schema::tests::every_problem_is_reported_at_once_and_in_file_order",
+            "next_core::config_schema::tests::a_value_outside_its_range_is_rejected",
+            "next_core::config_schema::tests::the_config_this_project_ships_is_valid_on_every_platform"
+        )
+    },
+    @{
+        # Tab titles from a template, replacing the one callback every config
+        # reached for code to write.
+        Name = "tab titles"
+        Package = "unterm-engine"
+        Filter = "next_core::tab_title::tests::"
+        ExpectedCount = 13
+        RequiredTests = @(
+            "next_core::tab_title::tests::an_empty_title_falls_back_to_the_running_program",
+            "next_core::tab_title::tests::a_placeholder_title_is_treated_as_no_title",
+            "next_core::tab_title::tests::a_windows_program_loses_its_extension",
+            "next_core::tab_title::tests::both_path_separators_are_understood_on_every_platform",
+            "next_core::tab_title::tests::nothing_at_all_still_names_the_tab",
+            "next_core::tab_title::tests::capitalizing_leaves_scripts_without_case_alone",
+            "next_core::tab_title::tests::an_unknown_placeholder_is_reported_rather_than_rendered_literally"
+        )
+    },
+    @{
+        # The two colour adjustments a theme-following config needs.
+        Name = "colour derivation"
+        Package = "unterm-engine"
+        Filter = "next_core::color::tests::"
+        ExpectedCount = 11
+        RequiredTests = @(
+            "next_core::color::tests::the_short_form_doubles_each_digit",
+            "next_core::color::tests::lightening_a_dark_colour_makes_a_visible_difference",
+            "next_core::color::tests::a_bright_colour_lightens_less_than_a_dark_one",
+            "next_core::color::tests::an_out_of_range_amount_is_clamped_rather_than_wrapping",
+            "next_core::color::tests::rejects_what_is_not_a_colour"
         )
     },
     @{

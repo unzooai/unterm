@@ -140,7 +140,21 @@ impl Config {
                 resolved.entries.insert(key.clone(), (*line, value.clone()));
             }
         }
-        for prefix in ["platform.other.", specific.as_str()] {
+        // `other` means "platforms this file does not name", exactly as the
+        // `else` arm it converts from only ran when no branch above matched.
+        // Letting it also apply to a named platform would put a value on a
+        // machine the user had already written a different one for.
+        let named = self
+            .entries
+            .keys()
+            .any(|key| key.starts_with(specific.as_str()));
+        let prefixes: &[&str] = if named {
+            &[]
+        } else {
+            &["platform.other."]
+        };
+
+        for prefix in prefixes.iter().copied().chain([specific.as_str()]) {
             for (key, (line, value)) in &self.entries {
                 if let Some(name) = key.strip_prefix(prefix) {
                     resolved
@@ -241,9 +255,8 @@ pub fn parse(source: &str) -> Result<Config, Vec<ConfigError>> {
     let mut errors = Vec::new();
     let mut section = String::new();
 
-    for (index, raw_line) in source.lines().enumerate() {
-        let line = index + 1;
-        let text = strip_comment(raw_line).trim();
+    for (line, text) in logical_lines(source) {
+        let text = text.as_str();
         if text.is_empty() {
             continue;
         }
@@ -303,6 +316,73 @@ pub fn parse(source: &str) -> Result<Config, Vec<ConfigError>> {
     }
 }
 
+/// Split the file into logical lines, joining a list that runs across several.
+///
+/// A font fallback list has five entries; on one line it is unreadable, so the
+/// format has to allow it to breathe. Each logical line keeps the number of
+/// the physical line it started on, which is where a reader looks for it.
+fn logical_lines(source: &str) -> Vec<(usize, String)> {
+    let mut lines = Vec::new();
+    let mut pending: Option<(usize, String)> = None;
+
+    for (index, raw_line) in source.lines().enumerate() {
+        let text = strip_comment(raw_line).trim();
+        match &mut pending {
+            Some((_, buffer)) => {
+                buffer.push(' ');
+                buffer.push_str(text);
+            }
+            None => {
+                if text.is_empty() {
+                    continue;
+                }
+                pending = Some((index + 1, text.to_string()));
+            }
+        }
+
+        let (start, buffer) = pending.take().expect("just set");
+        // Only an assignment continues; an unclosed `[section` is still an
+        // error on its own line rather than swallowing the rest of the file.
+        let open = match buffer.split_once('=') {
+            Some((_, value)) => bracket_depth(value) > 0,
+            None => false,
+        };
+        if open {
+            pending = Some((start, buffer));
+        } else {
+            lines.push((start, buffer));
+        }
+    }
+
+    if let Some(unfinished) = pending {
+        // Hand the unterminated text to the value parser, which reports it
+        // properly instead of dropping it.
+        lines.push(unfinished);
+    }
+    lines
+}
+
+/// Net unclosed `[` outside of strings.
+fn bracket_depth(text: &str) -> isize {
+    let mut depth = 0isize;
+    let mut in_quotes = false;
+    let mut escaped = false;
+    for ch in text.chars() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match ch {
+            '\\' if in_quotes => escaped = true,
+            '"' => in_quotes = !in_quotes,
+            '[' if !in_quotes => depth += 1,
+            ']' if !in_quotes => depth -= 1,
+            _ => {}
+        }
+    }
+    depth
+}
+
 /// Drop a trailing `#` comment, honouring quotes so a `#` inside a string
 /// survives -- colours are written `"#1e1e2e"` and truncating one would turn a
 /// valid config into a confusing parse error.
@@ -344,7 +424,13 @@ fn parse_value(text: &str) -> Result<Value, String> {
         }
         let mut values = Vec::new();
         for item in split_list(inner) {
-            values.push(parse_value(item.trim())?);
+            let item = item.trim();
+            // A trailing comma is how a multi-line list is normally written,
+            // and rejecting it would be a papercut on every edit.
+            if item.is_empty() {
+                continue;
+            }
+            values.push(parse_value(item)?);
         }
         return Ok(Value::List(values));
     }
@@ -515,6 +601,45 @@ mod tests {
     }
 
     #[test]
+    fn a_list_may_run_across_several_lines() {
+        let config = parse_ok(
+            r#"
+            font_fallback = [
+              "PingFang SC",      # 中文
+              "Symbols Nerd Font Mono",
+            ]
+            font_size = 13
+            "#,
+        );
+
+        // Five fallback fonts on one line is unreadable, so the format has to
+        // let a list breathe -- comments and a trailing comma included.
+        let values = config.list_of("font_fallback").unwrap().unwrap();
+        assert_eq!(values.len(), 2);
+        assert_eq!(values[0], Value::Str("PingFang SC".to_string()));
+        // Whatever follows the list is still read.
+        assert_eq!(config.int_of("font_size").unwrap(), Some(13));
+    }
+
+    #[test]
+    fn a_multi_line_list_is_reported_at_the_line_it_started_on() {
+        let config = parse_ok("\nfont_fallback = [\n  \"a\",\n]\n");
+
+        // That is where a reader looks for it.
+        assert_eq!(config.line_of("font_fallback"), Some(2));
+    }
+
+    #[test]
+    fn an_unclosed_section_header_does_not_swallow_the_file() {
+        let errors = parse_err("[section\nfont_size = 13");
+
+        // Only an assignment continues onto the next line; a broken header is
+        // an error on its own line.
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].line, 1);
+    }
+
+    #[test]
     fn a_comma_inside_a_string_does_not_split_a_list() {
         let config = parse_ok(r#"labels = ["one, two", "three"]"#);
 
@@ -682,6 +807,26 @@ mod tests {
         assert_eq!(
             config.resolve_platform("macos").str_of("style").unwrap(),
             Some("Gnome")
+        );
+    }
+
+    #[test]
+    fn the_catch_all_skips_a_platform_that_has_its_own_section() {
+        let config = parse_ok(
+            r#"
+            [platform.other]
+            shell = "/bin/bash"
+            [platform.windows]
+            style = "Windows"
+            "#,
+        );
+
+        // The `else` arm this converts from only ran when no branch above
+        // matched. Applying it here too would put `/bin/bash` on Windows.
+        assert_eq!(config.resolve_platform("windows").str_of("shell").unwrap(), None);
+        assert_eq!(
+            config.resolve_platform("linux").str_of("shell").unwrap(),
+            Some("/bin/bash")
         );
     }
 
