@@ -22,6 +22,7 @@ pub struct TerminalFont {
 
 impl TerminalFont {
     /// Open the machine's default monospace face at `pixel_size`.
+    #[cfg(test)]
     pub fn open(pixel_size: u32) -> anyhow::Result<Self> {
         let index = font_discovery::FontIndex::scan();
         let entry = index
@@ -101,6 +102,7 @@ impl TerminalFont {
 }
 
 /// Turn a screen snapshot into the quads for one frame.
+#[cfg(test)]
 pub fn frame_quads(
     snapshot: &StyledScreenSnapshot,
     font: &mut TerminalFont,

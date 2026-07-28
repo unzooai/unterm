@@ -123,6 +123,13 @@ pub struct LaunchPolicySnapshot {
 #[derive(Clone, Debug, Serialize)]
 pub struct SessionSnapshot {
     pub id: usize,
+    /// The pane this one was split off from, if it was.
+    ///
+    /// A front end arranges panes; the kernel only runs them. But when
+    /// something *else* asks for a split -- an agent over MCP, say -- the
+    /// front end has no other way to tell a new pane beside an existing one
+    /// from a whole new tab, and would show the wrong thing.
+    pub split_from: Option<usize>,
     pub title: String,
     pub cols: usize,
     pub rows: usize,
@@ -951,6 +958,13 @@ pub struct SplitSessionRequest {
     pub direction: SplitDirection,
     pub size_percent: u8,
     pub command_dir: Option<String>,
+    /// What to run in the new pane.
+    ///
+    /// The caller's choice, not the kernel's: which shell a user gets, and
+    /// what encoding switches it needs, is a product decision. `None` means
+    /// the platform default, which is what the kernel would have picked
+    /// anyway.
+    pub command: Option<CommandBuilder>,
 }
 
 pub trait SessionEngine {

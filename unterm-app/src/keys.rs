@@ -18,6 +18,10 @@ pub enum Action {
     SplitDown,
     ScrollPageUp,
     ScrollPageDown,
+    NewTab,
+    NextTab,
+    PreviousTab,
+    CloseTab,
 }
 
 impl Action {
@@ -30,6 +34,10 @@ impl Action {
             Action::SplitDown => "SplitDown",
             Action::ScrollPageUp => "ScrollPageUp",
             Action::ScrollPageDown => "ScrollPageDown",
+            Action::NewTab => "NewTab",
+            Action::NextTab => "NextTab",
+            Action::PreviousTab => "PreviousTab",
+            Action::CloseTab => "CloseTab",
         }
     }
 }
@@ -60,6 +68,7 @@ pub enum Trigger {
     Char(char),
     PageUp,
     PageDown,
+    Tab,
 }
 
 impl Trigger {
@@ -68,6 +77,7 @@ impl Trigger {
             Trigger::Char(c) => c.to_ascii_uppercase().to_string(),
             Trigger::PageUp => "PageUp".to_string(),
             Trigger::PageDown => "PageDown".to_string(),
+            Trigger::Tab => "Tab".to_string(),
         }
     }
 
@@ -78,6 +88,7 @@ impl Trigger {
             }
             (Trigger::PageUp, Key::Named(NamedKey::PageUp)) => true,
             (Trigger::PageDown, Key::Named(NamedKey::PageDown)) => true,
+            (Trigger::Tab, Key::Named(NamedKey::Tab)) => true,
             _ => false,
         }
     }
@@ -92,6 +103,10 @@ pub struct Binding {
 const CTRL_SHIFT: Mods = Mods {
     ctrl: true,
     shift: true,
+};
+const CTRL: Mods = Mods {
+    ctrl: true,
+    shift: false,
 };
 const SHIFT: Mods = Mods {
     ctrl: false,
@@ -125,6 +140,28 @@ pub const BINDINGS: &[Binding] = &[
         mods: CTRL_SHIFT,
         trigger: Trigger::Char('e'),
         action: Action::SplitDown,
+    },
+    Binding {
+        mods: CTRL_SHIFT,
+        trigger: Trigger::Char('t'),
+        action: Action::NewTab,
+    },
+    Binding {
+        mods: CTRL_SHIFT,
+        trigger: Trigger::Char('w'),
+        action: Action::CloseTab,
+    },
+    // Ctrl+Tab cycles, Ctrl+Shift+Tab cycles back -- the pair every tabbed
+    // application uses. Plain Tab still belongs to the shell's completion.
+    Binding {
+        mods: CTRL,
+        trigger: Trigger::Tab,
+        action: Action::NextTab,
+    },
+    Binding {
+        mods: CTRL_SHIFT,
+        trigger: Trigger::Tab,
+        action: Action::PreviousTab,
     },
     Binding {
         mods: SHIFT,
@@ -166,6 +203,23 @@ mod tests {
             "shift capitalised the letter, which is not a different key"
         );
         assert_eq!(action_for(&character("c"), true, true), Some(Action::Copy));
+    }
+
+    #[test]
+    fn plain_tab_still_completes_in_the_shell() {
+        assert_eq!(
+            action_for(&Key::Named(NamedKey::Tab), false, false),
+            None,
+            "taking Tab would break every shell's completion"
+        );
+        assert_eq!(
+            action_for(&Key::Named(NamedKey::Tab), true, false),
+            Some(Action::NextTab)
+        );
+        assert_eq!(
+            action_for(&Key::Named(NamedKey::Tab), true, true),
+            Some(Action::PreviousTab)
+        );
     }
 
     #[test]

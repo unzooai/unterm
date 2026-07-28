@@ -364,9 +364,19 @@ impl NextCoreScreen {
     }
 
     fn cursor_snapshot(&self) -> CursorSnapshot {
+        // In the viewport's coordinates, which is what the lines are in.
+        //
+        // `cursor_y` indexes the live lines, but the viewport does not always
+        // begin there: a screen that has grown fills the rows above the live
+        // lines from scrollback, and a screen scrolled back starts higher
+        // still. Reporting the raw index leaves the cursor floating a row
+        // above the prompt it is on, and leaves it sitting in the middle of
+        // old output when the user scrolls back instead of moving off-screen
+        // with the text it belongs to.
+        let live_start = self.history_len().saturating_sub(self.lines.len()) as isize;
         CursorSnapshot {
             x: self.cursor_x,
-            y: self.cursor_y as isize,
+            y: live_start + self.cursor_y as isize - self.viewport_start() as isize,
             visible: self.cursor_visible,
             shape: self.cursor_shape.clone(),
         }
@@ -2960,6 +2970,7 @@ mod tests {
             direction: crate::SplitDirection::Right,
             size_percent: 50,
             command_dir: None,
+            command: None,
         })?;
         assert_eq!(second.id, 2);
         assert!(engine.get_session(second.id)?.is_active);

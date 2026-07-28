@@ -2,11 +2,10 @@
 //! Implements all methods required by unterm-cli compatibility.
 
 use unterm_engine::{
-    CaptureEngine, CreateSessionRequest, HealthEngine, InputEngine,
-    LaunchEnvBinding, LaunchEnvSource, LaunchPolicyDecision, LaunchPolicyDecisionSnapshot,
-    LaunchPolicySnapshot, RecordingEngine, ScreenEngine, ScrollbackTextRequest,
-    SessionActivitySnapshot, SessionEngine, ShellSnapshot, SplitDirection, SplitSessionRequest,
-    ViewportScrollResult, WindowEngine,
+    CreateSessionRequest, LaunchEnvBinding, LaunchEnvSource, LaunchPolicyDecision,
+    LaunchPolicyDecisionSnapshot, LaunchPolicySnapshot, ScrollbackTextRequest,
+    SessionActivitySnapshot, ShellSnapshot, SplitDirection, SplitSessionRequest,
+    ViewportScrollResult,
 };
 use anyhow::{anyhow, Context, Result};
 use base64::Engine as _;
@@ -269,6 +268,41 @@ fn workspace_template_launch_decision(
         "command_provided": command.is_some(),
         "values_redacted": true,
     })
+}
+
+/// The shell a pane created through this surface should start.
+///
+/// Named explicitly rather than left as "the default program", because the
+/// encoding rewrite deliberately does not touch a default-prog builder: in
+/// the GUI a mux resolves that later and rewrites it then. next-core has no
+/// later step, so a pane created here would start a shell that writes its
+/// console codepage and shows as boxes. Naming the same shell we would have
+/// got makes it a shell we can set the encoding on.
+fn launch_shell_for_new_pane() -> Option<CommandBuilder> {
+    let configured = config::configuration()
+        .default_prog
+        .clone()
+        .filter(|argv| !argv.is_empty());
+    let mut command = match configured {
+        Some(argv) => {
+            let mut command = CommandBuilder::new(&argv[0]);
+            for arg in &argv[1..] {
+                command.arg(arg);
+            }
+            command
+        }
+        None => {
+            let default = CommandBuilder::new_default_prog();
+            // `get_shell` gives the program the platform default resolves to.
+            CommandBuilder::new(default.get_shell())
+        }
+    };
+    command.env("TERM", "xterm-256color");
+    let mut command = Some(command);
+    unterm_services::launch_env::apply_unterm_windows_utf8(&mut command);
+    unterm_services::launch_env::apply_unterm_profile_env(&mut command);
+    unterm_services::launch_env::apply_unterm_proxy_env(&mut command);
+    command
 }
 
 fn default_shell_launch_decision(command_provided: bool) -> Value {
@@ -5073,11 +5107,16 @@ impl McpHandler {
             .map(|n| n.min(100) as u8)
             .unwrap_or(50);
 
+        // A split gets the same shell a fresh pane does, encoding switches
+        // included. Without it a split pane on a non-UTF-8 Windows shows
+        // boxes where the pane it was split from shows text.
+        let command = launch_shell_for_new_pane();
         let request = SplitSessionRequest {
             source_pane_id: src_pane_id,
             direction,
             size_percent,
             command_dir: params.get("cwd").and_then(|v| v.as_str()).map(String::from),
+            command,
         };
 
         let session = engine.split_session(request)?;
@@ -5131,7 +5170,13 @@ impl McpHandler {
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string());
 
-        let mut cmd_builder = command.as_deref().map(shell_command_builder);
+        // A caller naming a command gets exactly that; one that names none
+        // gets the shell this surface would start, encoding switches and all,
+        // rather than a bare default that writes its console codepage.
+        let mut cmd_builder = match command.as_deref() {
+            Some(command) => Some(shell_command_builder(command)),
+            None => launch_shell_for_new_pane(),
+        };
         let command_provided = command.is_some();
         let default_shell = default_shell_launch_decision(command_provided);
         if let Some(cwd) = command_dir.as_deref() {

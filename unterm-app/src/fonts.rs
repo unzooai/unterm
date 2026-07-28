@@ -79,12 +79,9 @@ impl FontStack {
         self.pixel_size
     }
 
+    #[cfg(test)]
     pub fn len(&self) -> usize {
         self.faces.len()
-    }
-
-    pub fn primary_mut(&mut self) -> &mut FontFace {
-        &mut self.faces[0]
     }
 
     /// Which face should draw `ch`, if any can.

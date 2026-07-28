@@ -55,6 +55,7 @@ pub(super) fn spawn(
     command: portable_pty::CommandBuilder,
     cwd: Option<String>,
     launch_env_keys: Vec<String>,
+    split_from: Option<usize>,
 ) -> Result<NextCoreSession> {
     let label = launch::command_label(&command);
     let pair = native_pty_system().openpty(pty_size(cols, rows))?;
@@ -89,6 +90,7 @@ pub(super) fn spawn(
 
     Ok(NextCoreSession {
         snapshot: SessionSnapshot {
+            split_from,
             id,
             title,
             cols,

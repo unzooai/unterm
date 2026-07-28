@@ -226,6 +226,7 @@ mod tests {
             direction: crate::SplitDirection::Right,
             size_percent: 50,
             command_dir: None,
+            command: None,
         }))
         .expect_err("missing split source should come from lifecycle executor");
 

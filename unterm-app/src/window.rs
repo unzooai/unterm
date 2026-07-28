@@ -5,7 +5,7 @@
 //! plumbing: winit gives events, next-core gives a screen, unterm-render turns
 //! one into the other.
 
-use crate::terminal::{colors_from, frame_quads, TerminalFont};
+use crate::terminal::{colors_from, TerminalFont};
 use anyhow::Context;
 use std::sync::Arc;
 use unterm_engine::next_core::{config, key_encoding, NextCoreEngine};
@@ -175,11 +175,16 @@ impl App {
     }
 
     fn draw(&mut self) {
-        let Some(live) = self.state.as_mut() else {
+        if self.state.is_none() {
             return;
-        };
+        }
         let placements = self.placements();
-        let Some(live) = self.state.as_mut() else {
+        let dividers = self.divider_quads();
+        let Some((window_width, session_id)) = self
+            .state
+            .as_ref()
+            .map(|live| (live.width as f32, live.session_id))
+        else {
             return;
         };
 
@@ -200,7 +205,7 @@ impl App {
             );
         }
         if placements.is_empty() {
-            let Ok(snapshot) = self.engine.read_styled_screen(live.session_id) else {
+            let Ok(snapshot) = self.engine.read_styled_screen(session_id) else {
                 return;
             };
             revision = snapshot.revision;
@@ -213,7 +218,29 @@ impl App {
                 &mut quads,
             );
         }
-        let window_width = live.width as f32;
+        quads.backgrounds.extend(dividers);
+        let tab_count = self.tabs.tab_count();
+        let active_tab = self
+            .tab_id
+            .and_then(|id| self.tabs.tab_ids().iter().position(|c| *c == id))
+            .unwrap_or(0);
+        quads.backgrounds.extend(crate::tabbar::quads(
+            tab_count,
+            active_tab,
+            window_width,
+            self.font.metrics(),
+            self.colors,
+        ));
+        append_tab_labels(
+            tab_count,
+            active_tab,
+            window_width,
+            &mut self.font,
+            &mut self.atlas,
+            self.colors,
+            &mut quads,
+        );
+
         append_confirmation_banner(
             window_width,
             &mut self.font,
@@ -222,6 +249,9 @@ impl App {
             &mut quads,
         );
 
+        let Some(live) = self.state.as_mut() else {
+            return;
+        };
         // The atlas may have grown while building this frame's glyphs, so the
         // texture is uploaded after them rather than before.
         live.atlas_texture = live.renderer.upload_atlas(&self.atlas);
@@ -310,6 +340,10 @@ impl App {
                 self.split(unterm_engine::next_core::layout::SplitAxis::Horizontal)
             }
             Action::SplitDown => self.split(unterm_engine::next_core::layout::SplitAxis::Vertical),
+            Action::NewTab => self.new_tab(),
+            Action::NextTab => self.cycle_tab(1),
+            Action::PreviousTab => self.cycle_tab(-1),
+            Action::CloseTab => self.close_tab(),
             Action::ScrollPageUp | Action::ScrollPageDown => {
                 let rows = self
                     .engine
@@ -410,16 +444,246 @@ impl App {
         self.drawn_revision = None;
     }
 
+    /// Open a tab, with a shell of its own.
+    fn new_tab(&mut self) {
+        let Some(live) = self.state.as_ref() else {
+            return;
+        };
+        let (cols, rows) = self.font.grid_for(live.width as f32, self.terminal_height());
+        let session = match self.engine.create_session(CreateSessionRequest {
+            cols,
+            rows,
+            command_dir: None,
+            command: self.shell.clone(),
+            env: Vec::new(),
+            launch_policy: LaunchPolicySnapshot::default(),
+        }) {
+            Ok(session) => session,
+            Err(err) => {
+                log::warn!("could not open a tab: {err:#}");
+                return;
+            }
+        };
+        match self.tabs.create_tab(session.id) {
+            Ok(tab_id) => {
+                self.tabs.set_active_tab(tab_id);
+                self.tab_id = Some(tab_id);
+                self.focus_session(session.id);
+            }
+            Err(err) => {
+                log::warn!("could not record the tab: {err:#}");
+                let _ = self.engine.destroy_session(session.id);
+            }
+        }
+    }
+
+    /// Move to the next tab along, wrapping at the ends.
+    ///
+    /// Wrapping rather than stopping: with three tabs, cycling forward twice
+    /// from the last should land somewhere, and a key that does nothing at the
+    /// edge reads as a key that is broken.
+    fn cycle_tab(&mut self, step: isize) {
+        let ids = self.tabs.tab_ids();
+        if ids.len() < 2 {
+            return;
+        }
+        let current = self.tab_id.or_else(|| self.tabs.active_tab());
+        let next = ids[next_tab_index(&ids, current, step)];
+        self.tabs.set_active_tab(next);
+        self.tab_id = Some(next);
+        if let Some(pane) = self.tabs.active_pane(next) {
+            self.focus_session(pane);
+        }
+    }
+
+    /// Close the active tab and everything in it.
+    ///
+    /// The last tab is not closable: a window with no tab has nothing to show
+    /// and no way back, so closing the window is the user's own decision.
+    fn close_tab(&mut self) {
+        let ids = self.tabs.tab_ids();
+        if ids.len() < 2 {
+            return;
+        }
+        let Some(tab_id) = self.tab_id.or_else(|| self.tabs.active_tab()) else {
+            return;
+        };
+        for pane in self.tabs.pane_ids(tab_id) {
+            let _ = self.engine.destroy_session(pane);
+        }
+        self.tabs.forget_tab(tab_id);
+        let remaining = self.tabs.tab_ids();
+        let Some(next) = remaining.first().copied() else {
+            return;
+        };
+        self.tabs.set_active_tab(next);
+        self.tab_id = Some(next);
+        if let Some(pane) = self.tabs.active_pane(next) {
+            self.focus_session(pane);
+        }
+    }
+
+    /// Point the window at a pane, and redraw.
+    fn focus_session(&mut self, session_id: usize) {
+        self.tabs.set_active_pane(session_id);
+        if let Some(live) = self.state.as_mut() {
+            live.session_id = session_id;
+        }
+        self.resize_panes();
+        if let Some(live) = self.state.as_ref() {
+            live.window.request_redraw();
+        }
+        self.drawn_revision = None;
+    }
+
+    /// How tall the terminal area is, once the tab bar has taken its share.
+    fn terminal_height(&self) -> f32 {
+        let height = self.state.as_ref().map(|live| live.height).unwrap_or(600) as f32;
+        crate::tabbar::terminal_height(height, self.font.metrics(), self.tabs.tab_count())
+    }
+
+    /// Make the window's tabs match the engine's sessions.
+    ///
+    /// The engine is where sessions actually live, and it is not only this
+    /// window that makes them: an agent calling `session.create` over MCP
+    /// creates one too, and without this the window would never show it. The
+    /// same pass drops tabs whose shells have exited, so a tab bar cannot
+    /// outlive what it names.
+    fn sync_tabs(&mut self) {
+        let Ok(sessions) = unterm_engine::SessionEngine::list_sessions(&self.engine) else {
+            return;
+        };
+        let live_ids: std::collections::HashSet<usize> =
+            sessions.iter().map(|session| session.id).collect();
+        let mut changed = false;
+
+        for tab_id in self.tabs.tab_ids() {
+            let panes = self.tabs.pane_ids(tab_id);
+            if panes.iter().any(|pane| live_ids.contains(pane)) {
+                continue;
+            }
+            // Every shell in this tab is gone; nothing left to show.
+            self.tabs.forget_tab(tab_id);
+            changed = true;
+        }
+
+        for session in &sessions {
+            if self.tabs.tab_of_pane(session.id).is_some() {
+                continue;
+            }
+            // A pane split off another belongs beside it, not in a tab of its
+            // own: an agent asking for a split and getting a new tab got
+            // something else than it asked for.
+            let split = session
+                .split_from
+                .filter(|source| self.tabs.tab_of_pane(*source).is_some());
+            let outcome = match split {
+                Some(source) => self
+                    .tabs
+                    .split(
+                        source,
+                        session.id,
+                        unterm_engine::next_core::layout::SplitAxis::Horizontal,
+                        0.5,
+                    )
+                    .map(|_| ()),
+                None => self.tabs.create_tab(session.id).map(|_| ()),
+            };
+            match outcome {
+                Ok(()) => changed = true,
+                Err(err) => log::warn!("could not adopt session {}: {err:#}", session.id),
+            }
+        }
+
+        if !changed {
+            return;
+        }
+        // The window may have been left pointing at a tab that no longer
+        // exists, or at none at all.
+        let ids = self.tabs.tab_ids();
+        let still_there = self
+            .tab_id
+            .map(|id| ids.contains(&id))
+            .unwrap_or(false);
+        if !still_there {
+            if let Some(first) = ids.first().copied() {
+                self.tabs.set_active_tab(first);
+                self.tab_id = Some(first);
+                if let Some(pane) = self.tabs.active_pane(first) {
+                    self.tabs.set_active_pane(pane);
+                    if let Some(live) = self.state.as_mut() {
+                        live.session_id = pane;
+                    }
+                }
+            } else {
+                self.tab_id = None;
+            }
+        }
+        self.resize_panes();
+        self.drawn_revision = None;
+    }
+
+    /// The lines between split panes.
+    ///
+    /// Without them two shells sharing a background read as one shell with
+    /// strange wrapping, which is exactly the confusion a split is supposed
+    /// to remove.
+    fn divider_quads(&self) -> Vec<unterm_render::quads::Quad> {
+        let (Some(tab_id), Some(live)) = (self.tab_id, self.state.as_ref()) else {
+            return Vec::new();
+        };
+        let metrics = self.font.metrics();
+        let (cols, rows) = self
+            .font
+            .grid_for(live.width as f32, self.terminal_height());
+        let top_offset = crate::tabbar::terminal_top(metrics, self.tabs.tab_count());
+        let positions = self.tabs.positions(tab_id, cols, rows);
+        if positions.len() < 2 {
+            return Vec::new();
+        }
+
+        positions
+            .iter()
+            .filter_map(|placed| {
+                let rect = &placed.rect;
+                // Only where the pane does not reach the edge: an edge is
+                // already a boundary, and a line drawn on it is a wasted row.
+                let vertical = rect.left + rect.width < cols;
+                if !vertical && rect.top + rect.height >= rows {
+                    return None;
+                }
+                crate::panes::divider_after(rect.clone(), metrics, vertical)
+            })
+            .map(|(left, top, width, height)| unterm_render::quads::Quad {
+                left,
+                top: top + top_offset,
+                width,
+                height,
+                // Between the two backgrounds: visible against both without
+                // drawing attention to itself.
+                color: mix(self.colors.background, self.colors.foreground, 0.25),
+            })
+            .collect()
+    }
+
     /// Where each pane goes, in pixels.
     fn placements(&self) -> Vec<crate::panes::PanePlacement> {
         let (Some(tab_id), Some(live)) = (self.tab_id, self.state.as_ref()) else {
             return Vec::new();
         };
-        let (cols, rows) = self.font.grid_for(live.width as f32, live.height as f32);
+        let (cols, rows) = self
+            .font
+            .grid_for(live.width as f32, self.terminal_height());
+        let top = crate::tabbar::terminal_top(self.font.metrics(), self.tabs.tab_count());
         self.tabs
             .positions(tab_id, cols, rows)
             .into_iter()
-            .map(|placed| crate::panes::place(placed.pane_id, placed.rect, self.font.metrics()))
+            .map(|placed| {
+                let mut placement =
+                    crate::panes::place(placed.pane_id, placed.rect, self.font.metrics());
+                placement.origin.1 += top;
+                placement
+            })
             .collect()
     }
 
@@ -642,6 +906,7 @@ impl ApplicationHandler for App {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        self.sync_tabs();
         if self.needs_redraw() {
             if let Some(live) = self.state.as_ref() {
                 live.window.request_redraw();
@@ -759,6 +1024,97 @@ mod tests {
 
         assert!(shell_from(&config).is_none());
     }
+
+    #[test]
+    fn cycling_forward_from_the_last_tab_wraps_to_the_first() {
+        let ids = [10, 20, 30];
+        assert_eq!(next_tab_index(&ids, Some(30), 1), 0);
+        assert_eq!(next_tab_index(&ids, Some(10), 1), 1);
+    }
+
+    #[test]
+    fn cycling_back_from_the_first_tab_wraps_to_the_last() {
+        let ids = [10, 20, 30];
+        assert_eq!(next_tab_index(&ids, Some(10), -1), 2);
+        assert_eq!(next_tab_index(&ids, Some(30), -1), 1);
+    }
+
+    #[test]
+    fn a_tab_that_is_no_longer_there_cycles_from_the_start() {
+        // Closing a tab can leave the remembered id dangling; landing on the
+        // first tab is a defined answer, and panicking is not.
+        let ids = [10, 20, 30];
+        assert_eq!(next_tab_index(&ids, Some(99), 1), 1);
+        assert_eq!(next_tab_index(&ids, None, 1), 1);
+    }
+
+    #[test]
+    fn cycling_with_no_tabs_answers_rather_than_dividing_by_zero() {
+        let ids: [usize; 0] = [];
+        assert_eq!(next_tab_index(&ids, None, 1), 0);
+    }
+}
+
+/// Which tab a cycle lands on.
+///
+/// Wrapping rather than stopping at the ends: with three tabs, cycling
+/// forward twice from the last has to land somewhere, and a key that does
+/// nothing at the edge reads as a key that is broken.
+fn next_tab_index<T: PartialEq>(ids: &[T], current: Option<T>, step: isize) -> usize {
+    if ids.is_empty() {
+        return 0;
+    }
+    let index = current
+        .and_then(|id| ids.iter().position(|candidate| *candidate == id))
+        .unwrap_or(0) as isize;
+    (index + step).rem_euclid(ids.len() as isize) as usize
+}
+
+/// Blend two colours.
+fn mix(from: [f32; 4], to: [f32; 4], amount: f32) -> [f32; 4] {
+    let blend = |a: f32, b: f32| a + (b - a) * amount;
+    [
+        blend(from[0], to[0]),
+        blend(from[1], to[1]),
+        blend(from[2], to[2]),
+        from[3],
+    ]
+}
+
+/// The number on each tab.
+///
+/// Drawn separately from the bar's blocks so the active tab's number reads
+/// against its highlight rather than disappearing into it.
+fn append_tab_labels(
+    tab_count: usize,
+    active_index: usize,
+    window_width: f32,
+    font: &mut crate::terminal::TerminalFont,
+    atlas: &mut unterm_render::atlas::GlyphAtlas,
+    colors: unterm_render::quads::FrameColors,
+    quads: &mut unterm_render::quads::FrameQuads,
+) {
+    if tab_count <= 1 {
+        return;
+    }
+    let metrics = font.metrics();
+    let width = (window_width / tab_count as f32).max(metrics.width);
+    for index in 0..tab_count {
+        let label = format!(" {} ", index + 1);
+        let color = if index == active_index {
+            colors.background
+        } else {
+            colors.foreground
+        };
+        crate::terminal::append_text(
+            &label,
+            font,
+            atlas,
+            color,
+            (index as f32 * width + metrics.width, 0.0),
+            quads,
+        );
+    }
 }
 
 /// Draw the pending agent-write banner, if one is waiting.
@@ -799,5 +1155,6 @@ fn append_confirmation_banner(
             quads,
         );
     }
+
 }
 

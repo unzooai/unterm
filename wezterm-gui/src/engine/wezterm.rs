@@ -105,6 +105,9 @@ impl WezTermEngine {
     fn session_snapshot(pane: &Arc<dyn Pane>, active_pane_id: Option<usize>) -> SessionSnapshot {
         let dims = Self::dimensions(pane);
         SessionSnapshot {
+            // The mux owns the arrangement here, and the GUI reads it from
+            // there rather than from a pane's history.
+            split_from: None,
             id: pane.pane_id(),
             title: pane.get_title(),
             cols: dims.cols,

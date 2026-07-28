@@ -57,7 +57,11 @@ function Count-ProductionRustLines {
             }
 
             if ($skipNextTestModule) {
-                if ($line -match '^\s*mod\s+tests\s*\{') {
+                # Any test module, not only one named `tests`. A rule that
+                # counted `mod palette_tests` as production would report the
+                # kernel growing when what grew was its test suite -- and
+                # would quietly discourage writing the tests.
+                if ($line -match '^\s*mod\s+\w+\s*\{') {
                     $inTestModule = $true
                     $braceDepth = ([regex]::Matches($line, '\{').Count - [regex]::Matches($line, '\}').Count)
                     if ($braceDepth -le 0) {

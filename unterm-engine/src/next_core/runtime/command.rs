@@ -379,6 +379,7 @@ mod tests {
             direction: SplitDirection::Right,
             size_percent: 50,
             command_dir: None,
+            command: None,
         });
 
         assert_eq!(command.class(), RuntimeCommandClass::SessionLifecycle);

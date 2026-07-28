@@ -208,6 +208,7 @@ mod tests {
             command,
             None,
             Vec::new(),
+            None,
         )
         .expect("spawn session");
         registry.push(session);

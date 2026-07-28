@@ -105,6 +105,7 @@ mod tests {
 
         NextCoreSession {
             snapshot: crate::SessionSnapshot {
+                split_from: None,
                 id: 999,
                 title: "sample".to_string(),
                 cols: 80,

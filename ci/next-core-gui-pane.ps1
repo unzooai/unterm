@@ -345,11 +345,42 @@ $Suites = @(
         Name = "app shell"
         Package = "unterm-app"
         Filter = "window::tests::"
-        ExpectedCount = 3
+        ExpectedCount = 7
         RequiredTests = @(
             "window::tests::the_configured_shell_is_used",
             "window::tests::a_config_naming_no_shell_leaves_the_choice_to_the_engine",
-            "window::tests::a_shell_can_carry_its_arguments"
+            "window::tests::a_shell_can_carry_its_arguments",
+            "window::tests::cycling_forward_from_the_last_tab_wraps_to_the_first",
+            "window::tests::cycling_back_from_the_first_tab_wraps_to_the_last",
+            "window::tests::a_tab_that_is_no_longer_there_cycles_from_the_start",
+            "window::tests::cycling_with_no_tabs_answers_rather_than_dividing_by_zero"
+        )
+    },
+    @{
+        # What an agent is told the keys do has to be what the window does.
+        Name = "app keys"
+        Package = "unterm-app"
+        Filter = "keys::tests::"
+        ExpectedCount = 5
+        RequiredTests = @(
+            "keys::tests::plain_ctrl_c_stays_the_programs_interrupt",
+            "keys::tests::plain_tab_still_completes_in_the_shell",
+            "keys::tests::unshifted_pages_belong_to_the_program",
+            "keys::tests::every_binding_has_a_distinct_key"
+        )
+    },
+    @{
+        # A parked agent write has to be visible and answerable, or it times
+        # out into a refusal the agent cannot explain.
+        Name = "app confirmation banner"
+        Package = "unterm-app"
+        Filter = "confirm::tests::"
+        ExpectedCount = 5
+        RequiredTests = @(
+            "confirm::tests::the_banner_says_who_is_asking_and_for_what",
+            "confirm::tests::every_option_is_offered",
+            "confirm::tests::a_long_command_is_cut_rather_than_allowed_to_cover_the_screen",
+            "confirm::tests::only_the_offered_keys_decide"
         )
     },
     @{
