@@ -7,7 +7,7 @@ use crate::fonts::FontStack;
 use unterm_engine::next_core::font_raster::FontFace;
 use unterm_engine::next_core::{config::Config, font_discovery};
 use unterm_render::atlas::{GlyphAtlas, GlyphKey};
-use unterm_render::quads::{build_row, CellMetrics, FrameColors, FrameQuads};
+use unterm_render::quads::{build_row, CellMetrics, FrameColors, FrameQuads, Quad};
 use unterm_engine::StyledScreenSnapshot;
 
 /// The font and the cell it dictates.
@@ -131,12 +131,19 @@ pub fn frame_quads(
         }
     }
 
+    // The cursor goes in before the glyphs so text lands on top of it, which is
+    // what makes an inverted cell readable.
+    let inverted = push_cursor(snapshot, metrics, colors, &mut quads);
+
     for (row, line) in snapshot.lines.iter().enumerate() {
+        // A cell under a block cursor takes the frame's background colour, so
+        // it reads against the block rather than vanishing into it.
+        let row_colors = colors;
         build_row(
             &line.cells,
             row as f32 * metrics.height,
             metrics,
-            colors,
+            row_colors,
             atlas,
             |ch| {
                 atlas.get(GlyphKey {
@@ -149,7 +156,81 @@ pub fn frame_quads(
         );
     }
 
+    if let Some((column, row)) = inverted {
+        let left = column as f32 * metrics.width;
+        let top = row as f32 * metrics.height;
+        for glyph in &mut quads.glyphs {
+            let on_cursor = glyph.quad.left >= left - metrics.width
+                && glyph.quad.left < left + metrics.width
+                && glyph.quad.top >= top - metrics.height
+                && glyph.quad.top < top + metrics.height;
+            if on_cursor {
+                glyph.quad.color = colors.background;
+            }
+        }
+    }
+
     quads
+}
+
+/// Draw the cursor.
+///
+/// A block cursor sits *under* the character rather than over it, and the cell
+/// beneath is drawn inverted: the block takes the foreground colour and the
+/// character the background. Painting an opaque block on top would hide the
+/// character the user is about to edit, which is the one they most need to see.
+fn push_cursor(
+    snapshot: &StyledScreenSnapshot,
+    metrics: CellMetrics,
+    colors: FrameColors,
+    quads: &mut FrameQuads,
+) -> Option<(usize, usize)> {
+    let cursor = &snapshot.cursor;
+    if !cursor.visible {
+        return None;
+    }
+    // A negative row means the viewport is scrolled away from the cursor; it
+    // has no place on screen and drawing it at row 0 would be a lie.
+    let row = usize::try_from(cursor.y).ok()?;
+    if row >= snapshot.rows || cursor.x >= snapshot.cols.max(1) {
+        return None;
+    }
+
+    let left = cursor.x as f32 * metrics.width;
+    let top = row as f32 * metrics.height;
+
+    // Shapes as the escape sequences name them. An unknown shape draws a block
+    // rather than nothing: a missing cursor is worse than an unexpected one.
+    let quad = match cursor.shape.as_str() {
+        shape if shape.contains("Bar") => Quad {
+            left,
+            top,
+            width: (metrics.width * 0.15).max(1.0),
+            height: metrics.height,
+            color: colors.foreground,
+        },
+        shape if shape.contains("Underline") => Quad {
+            left,
+            top: top + metrics.height - (metrics.height * 0.12).max(1.0),
+            width: metrics.width,
+            height: (metrics.height * 0.12).max(1.0),
+            color: colors.foreground,
+        },
+        _ => Quad {
+            left,
+            top,
+            width: metrics.width,
+            height: metrics.height,
+            color: colors.foreground,
+        },
+    };
+
+    quads.backgrounds.push(quad);
+
+    // Only a block covers the whole cell, so only a block needs the character
+    // inverted to stay readable.
+    let covers_cell = quad.width >= metrics.width && quad.height >= metrics.height;
+    covers_cell.then_some((cursor.x, row))
 }
 
 /// Put a character in the atlas if it is not already there.
@@ -390,6 +471,186 @@ mod tests {
         let any_ink = (0..atlas.height())
             .any(|y| (0..atlas.width()).any(|x| atlas.pixel(x, y) > 0));
         assert!(any_ink, "the fallback face should have left ink");
+    }
+
+    fn snapshot_with_cursor(text: &str, x: usize, y: isize, visible: bool, shape: &str)
+        -> StyledScreenSnapshot
+    {
+        let mut snap = snapshot(text);
+        snap.cursor = unterm_engine::CursorSnapshot {
+            x,
+            y,
+            visible,
+            shape: shape.to_string(),
+        };
+        snap
+    }
+
+    #[test]
+    fn the_cursor_is_drawn_where_the_screen_says() {
+        let Some(mut font) = font() else {
+            return;
+        };
+        let mut atlas = GlyphAtlas::new(256, 256);
+        let colors = FrameColors {
+            foreground: [1.0; 4],
+            background: [0.0, 0.0, 0.0, 1.0],
+        };
+        let metrics = font.metrics();
+
+        let quads = frame_quads(
+            &snapshot_with_cursor("abc", 2, 0, true, "Block"),
+            &mut font,
+            &mut atlas,
+            colors,
+        );
+
+        let cursor = quads
+            .backgrounds
+            .iter()
+            .find(|quad| quad.color == colors.foreground)
+            .expect("a visible cursor should be drawn");
+        assert!((cursor.left - metrics.width * 2.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn a_hidden_cursor_is_not_drawn() {
+        let Some(mut font) = font() else {
+            return;
+        };
+        let mut atlas = GlyphAtlas::new(256, 256);
+        let colors = FrameColors {
+            foreground: [1.0; 4],
+            background: [0.0, 0.0, 0.0, 1.0],
+        };
+
+        let quads = frame_quads(
+            &snapshot_with_cursor("abc", 1, 0, false, "Block"),
+            &mut font,
+            &mut atlas,
+            colors,
+        );
+
+        assert!(!quads
+            .backgrounds
+            .iter()
+            .any(|quad| quad.color == colors.foreground));
+    }
+
+    #[test]
+    fn a_block_cursor_leaves_its_character_readable() {
+        let Some(mut font) = font() else {
+            return;
+        };
+        let mut atlas = GlyphAtlas::new(256, 256);
+        let colors = FrameColors {
+            foreground: [1.0; 4],
+            background: [0.0, 0.0, 0.0, 1.0],
+        };
+
+        let quads = frame_quads(
+            &snapshot_with_cursor("abc", 1, 0, true, "Block"),
+            &mut font,
+            &mut atlas,
+            colors,
+        );
+
+        // The character under the block is the one the user is about to edit;
+        // an opaque block on top of it hides exactly what they need to see.
+        let under = quads
+            .glyphs
+            .iter()
+            .find(|glyph| {
+                (glyph.quad.left - font.metrics().width).abs() < font.metrics().width
+            })
+            .expect("the character under the cursor should still be drawn");
+        assert_eq!(under.quad.color, colors.background);
+    }
+
+    #[test]
+    fn a_bar_cursor_does_not_cover_its_cell() {
+        let Some(mut font) = font() else {
+            return;
+        };
+        let mut atlas = GlyphAtlas::new(256, 256);
+        let colors = FrameColors {
+            foreground: [1.0; 4],
+            background: [0.0, 0.0, 0.0, 1.0],
+        };
+        let metrics = font.metrics();
+
+        let quads = frame_quads(
+            &snapshot_with_cursor("abc", 0, 0, true, "SteadyBar"),
+            &mut font,
+            &mut atlas,
+            colors,
+        );
+
+        let cursor = quads
+            .backgrounds
+            .iter()
+            .find(|quad| quad.color == colors.foreground)
+            .expect("a bar cursor should be drawn");
+        assert!(cursor.width < metrics.width / 2.0);
+        // A bar leaves the character alone, so it keeps the foreground colour.
+        assert!(quads
+            .glyphs
+            .iter()
+            .all(|glyph| glyph.quad.color == colors.foreground));
+    }
+
+    #[test]
+    fn an_underline_cursor_sits_at_the_bottom_of_its_cell() {
+        let Some(mut font) = font() else {
+            return;
+        };
+        let mut atlas = GlyphAtlas::new(256, 256);
+        let colors = FrameColors {
+            foreground: [1.0; 4],
+            background: [0.0, 0.0, 0.0, 1.0],
+        };
+        let metrics = font.metrics();
+
+        let quads = frame_quads(
+            &snapshot_with_cursor("abc", 0, 0, true, "SteadyUnderline"),
+            &mut font,
+            &mut atlas,
+            colors,
+        );
+
+        let cursor = quads
+            .backgrounds
+            .iter()
+            .find(|quad| quad.color == colors.foreground)
+            .expect("an underline cursor should be drawn");
+        assert!(cursor.top > metrics.height / 2.0);
+        assert!(cursor.top + cursor.height <= metrics.height + 0.01);
+    }
+
+    #[test]
+    fn a_cursor_off_the_screen_is_not_drawn() {
+        let Some(mut font) = font() else {
+            return;
+        };
+        let mut atlas = GlyphAtlas::new(256, 256);
+        let colors = FrameColors {
+            foreground: [1.0; 4],
+            background: [0.0, 0.0, 0.0, 1.0],
+        };
+
+        // Scrolled back far enough that the cursor is above the viewport.
+        let quads = frame_quads(
+            &snapshot_with_cursor("abc", 0, -3, true, "Block"),
+            &mut font,
+            &mut atlas,
+            colors,
+        );
+
+        // Drawing it at row 0 instead would put the cursor somewhere it is not.
+        assert!(!quads
+            .backgrounds
+            .iter()
+            .any(|quad| quad.color == colors.foreground));
     }
 
     #[test]

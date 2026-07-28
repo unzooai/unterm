@@ -324,14 +324,19 @@ $Suites = @(
         Name = "app frame"
         Package = "unterm-app"
         Filter = "terminal::tests::"
-        ExpectedCount = 10
+        ExpectedCount = 16
         RequiredTests = @(
             "terminal::tests::a_window_sized_to_exactly_n_cells_gets_n",
             "terminal::tests::a_window_too_small_for_one_cell_still_asks_for_one",
             "terminal::tests::every_glyph_is_rasterized_before_any_quad_is_built",
             "terminal::tests::text_becomes_glyph_quads",
             "terminal::tests::a_config_without_colours_still_gives_readable_ones",
-            "terminal::tests::a_character_the_primary_face_lacks_still_gets_ink"
+            "terminal::tests::a_character_the_primary_face_lacks_still_gets_ink",
+            "terminal::tests::the_cursor_is_drawn_where_the_screen_says",
+            "terminal::tests::a_hidden_cursor_is_not_drawn",
+            "terminal::tests::a_block_cursor_leaves_its_character_readable",
+            "terminal::tests::a_bar_cursor_does_not_cover_its_cell",
+            "terminal::tests::a_cursor_off_the_screen_is_not_drawn"
         )
     },
     @{
