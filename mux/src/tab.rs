@@ -743,9 +743,35 @@ impl Tab {
         request: SplitRequest,
         pane: Arc<dyn Pane>,
     ) -> anyhow::Result<usize> {
-        self.inner
+        // Resolve the source before the split, while the index still refers
+        // to it: afterwards the tree has an extra leaf and the indices shift.
+        let source_pane_id = self
+            .iter_panes_ignoring_zoom()
+            .into_iter()
+            .find(|pos| pos.index == pane_index)
+            .map(|pos| pos.pane.pane_id());
+        let new_pane_id = pane.pane_id();
+
+        let result = self
+            .inner
             .lock()
-            .split_and_insert(pane_index, request, pane)
+            .split_and_insert(pane_index, request, pane);
+
+        // Only when a mux exists: notify_from_any_thread falls through to the
+        // main-thread scheduler, which panics off the GUI thread if no event
+        // loop is running -- during teardown, or in a test that builds a Tab
+        // directly.
+        if result.is_ok() && crate::Mux::try_get().is_some() {
+            if let Some(source_pane_id) = source_pane_id {
+                crate::Mux::notify_from_any_thread(crate::MuxNotification::PaneSplit {
+                    tab_id: self.tab_id(),
+                    source_pane_id,
+                    new_pane_id,
+                    direction: request.direction,
+                });
+            }
+        }
+        result
     }
 
     pub fn get_zoomed_pane(&self) -> Option<Arc<dyn Pane>> {

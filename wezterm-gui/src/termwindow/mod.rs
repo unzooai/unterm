@@ -1785,6 +1785,22 @@ impl TermWindow {
                 MuxNotification::TabTitleChanged { .. } => {
                     self.update_title_post_status();
                 }
+                MuxNotification::PaneSplit {
+                    tab_id,
+                    source_pane_id,
+                    new_pane_id,
+                    direction,
+                } => {
+                    // The structure a PaneAdded cannot carry. Recording it
+                    // keeps the registry in step without being rebuilt from
+                    // the mux's geometry afterwards.
+                    self.record_next_core_split(
+                        tab_id,
+                        source_pane_id,
+                        new_pane_id,
+                        direction,
+                    );
+                }
                 MuxNotification::PaneAdded(_)
                 | MuxNotification::WorkspaceRenamed { .. }
                 | MuxNotification::PaneRemoved(_)
@@ -2047,6 +2063,12 @@ impl TermWindow {
                 // gives us an opportunity to attach it to the clipboard.
                 let mux = Mux::get();
                 return mux.get_window(mux_window_id).is_some();
+            }
+            MuxNotification::PaneSplit { .. } => {
+                // Deliberately falls through to window.notify below: the
+                // registry lives on the window, and an early return here is
+                // what silently drops a notification -- the arms above that
+                // return never reach the window at all.
             }
             MuxNotification::TabAddedToWindow { window_id, .. }
             | MuxNotification::WindowTitleChanged { window_id, .. }
@@ -5242,6 +5264,48 @@ impl TermWindow {
         self.destroy_next_core_pane_binding(pane_id);
     }
 
+    /// Record a split in next-core's registry.
+    ///
+    /// Ignores tabs the registry has not bootstrapped yet -- its first sight
+    /// of a tab adopts the whole arrangement, which already includes this
+    /// split, so applying it too would be a duplicate.
+    fn record_next_core_split(
+        &self,
+        tab_id: mux::tab::TabId,
+        source_pane_id: PaneId,
+        new_pane_id: PaneId,
+        direction: mux::tab::SplitDirection,
+    ) {
+        use unterm_engine::next_core::layout::SplitAxis;
+
+        if !crate::engine::next_core_pane::next_core_panes_enabled() {
+            return;
+        }
+        let axis = match direction {
+            mux::tab::SplitDirection::Horizontal => SplitAxis::Horizontal,
+            mux::tab::SplitDirection::Vertical => SplitAxis::Vertical,
+        };
+        let mut registry = self.next_core_tabs.borrow_mut();
+        if registry.tab_of_pane(source_pane_id as usize) != Some(tab_id) {
+            return;
+        }
+        match registry.split(
+            source_pane_id as usize,
+            new_pane_id as usize,
+            axis,
+            // mux splits evenly by default; an explicit size still lands here
+            // as geometry, and repair corrects the ratio if it differs.
+            0.5,
+        ) {
+            Ok(_) => log::debug!(
+                "next-core tab registry recorded split of pane {source_pane_id}                  into {new_pane_id} on tab {tab_id}"
+            ),
+            Err(err) => log::debug!(
+                "next-core tab registry could not record the split of pane                  {source_pane_id}: {err:#}"
+            ),
+        }
+    }
+
     /// Tell the registry a pane closed, so it does not need repairing later.
     ///
     /// Close is the one structural event that arrives intact: the pane id is
@@ -5969,6 +6033,26 @@ impl TermWindow {
             let source = mux_panes
                 .iter()
                 .find(|candidate| candidate.pane.pane_id() as usize == pos.pane_id)?;
+            if (source.left, source.top, source.width, source.height)
+                != (pos.rect.left, pos.rect.top, pos.rect.width, pos.rect.height)
+            {
+                // The registry's own tree disagrees with the arrangement the
+                // mux produced. Event-recorded splits carry no ratio, so this
+                // is where an assumed one shows up -- and it is a real visual
+                // difference, not bookkeeping.
+                log::warn!(
+                    "next-core registry geometry differs for pane {}: registry                      {}x{}+{}+{} vs mux {}x{}+{}+{}",
+                    pos.pane_id,
+                    pos.rect.width,
+                    pos.rect.height,
+                    pos.rect.left,
+                    pos.rect.top,
+                    source.width,
+                    source.height,
+                    source.left,
+                    source.top
+                );
+            }
             out.push(mux::tab::PositionedPane {
                 index,
                 is_active: source.is_active,

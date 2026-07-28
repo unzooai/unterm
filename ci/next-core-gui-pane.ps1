@@ -122,7 +122,7 @@ $Suites = @(
         Name = "pane layout"
         Package = "unterm-engine"
         Filter = "next_core::layout::tests::"
-        ExpectedCount = 17
+        ExpectedCount = 18
         RequiredTests = @(
             "next_core::layout::tests::a_horizontal_split_leaves_a_cell_for_the_divider",
             "next_core::layout::tests::a_vertical_split_divides_height_instead",
@@ -137,7 +137,8 @@ $Suites = @(
             "next_core::layout::tests::every_pane_is_positioned_exactly_once",
             "next_core::layout::tests::a_tree_round_trips_through_its_own_rectangles",
             "next_core::layout::tests::rebuilding_recovers_the_pane_set",
-            "next_core::layout::tests::a_layout_no_terminal_could_produce_is_refused"
+            "next_core::layout::tests::a_layout_no_terminal_could_produce_is_refused",
+            "next_core::layout::tests::an_odd_dimension_splits_the_way_mux_does"
         )
     },
     @{

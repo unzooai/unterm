@@ -57,6 +57,15 @@ pub const DEFAULT_WORKSPACE: &str = "default";
 pub enum MuxNotification {
     PaneOutput(PaneId),
     PaneAdded(PaneId),
+    /// A pane was split, carrying the structure a plain PaneAdded cannot:
+    /// which pane was divided and along which axis. Without this a consumer
+    /// keeping its own split tree can only rebuild it by inspecting geometry.
+    PaneSplit {
+        tab_id: TabId,
+        source_pane_id: PaneId,
+        new_pane_id: PaneId,
+        direction: crate::tab::SplitDirection,
+    },
     PaneRemoved(PaneId),
     WindowCreated(WindowId),
     WindowRemoved(WindowId),

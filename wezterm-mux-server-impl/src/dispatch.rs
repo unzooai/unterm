@@ -112,6 +112,9 @@ where
                 handler.schedule_pane_push(pane_id);
             }
             Ok(Item::Notif(MuxNotification::PaneAdded(_pane_id))) => {}
+            // Structure for a local consumer's own split tree; a remote client
+            // rebuilds its layout from the pane list it already receives.
+            Ok(Item::Notif(MuxNotification::PaneSplit { .. })) => {}
             Ok(Item::Notif(MuxNotification::PaneRemoved(pane_id))) => {
                 Pdu::PaneRemoved(codec::PaneRemoved { pane_id })
                     .encode_async(&mut stream, 0)

@@ -427,10 +427,14 @@ fn try_cut(
         SplitAxis::Vertical => (first_bounds.height, bounds.height),
     };
     let second_size = total.saturating_sub(first_size).saturating_sub(DIVIDER_CELLS);
+    // Aim at the middle of the band that truncates back to `second_size`,
+    // not its edge. `divide` keeps `trunc(total * (1 - ratio))`, so a ratio
+    // derived from the boundary lands a few ULPs either side of it and the
+    // rebuilt tree shifts a cell; the midpoint cannot.
     let first_ratio = if total == 0 {
         0.5
     } else {
-        1.0 - (second_size as f64 / total as f64)
+        1.0 - ((second_size as f64 + 0.5) / total as f64)
     };
 
     Some(Node::Split {
@@ -503,7 +507,17 @@ fn divide(total: usize, first_ratio: f64) -> (usize, usize) {
     if total <= DIVIDER_CELLS + 1 {
         return (1, 1);
     }
-    let second = ((total as f64) * (1.0 - first_ratio)).round() as usize;
+    // Truncate, do not round. mux computes the target size with integer
+    // percentage arithmetic (`dim * pct / 100`), which discards the fraction;
+    // rounding agrees only when the dimension is even. A 33-row split is 16/16
+    // truncated but 15/17 rounded, and that one-row difference is visible.
+    //
+    // The epsilon absorbs representation error, not a real fraction: a ratio
+    // recovered from sizes round-trips as `1.0 - (n/total)`, which is a few
+    // ULPs below the exact value, and bare truncation would drop a whole cell.
+    // A genuine half still truncates down -- 16.5 + 1e-9 is not 17.
+    const FLOAT_SLACK: f64 = 1e-9;
+    let second = ((total as f64) * (1.0 - first_ratio) + FLOAT_SLACK) as usize;
     // Leave room for the divider and at least one cell on the other side.
     let second = second.clamp(1, total - DIVIDER_CELLS - 1);
     (total - second - DIVIDER_CELLS, second)
@@ -715,6 +729,27 @@ mod tests {
                 "ratio {ratio} produced a zero-width pane"
             );
         }
+    }
+
+    #[test]
+    fn an_odd_dimension_splits_the_way_mux_does() {
+        // 33 rows: mux's integer arithmetic gives 16 + divider + 16. Rounding
+        // instead of truncating would give 15/17, a visible one-row shift that
+        // an even-sized test cannot catch.
+        let mut layout = Layout::new(1);
+        layout.split(1, 2, SplitAxis::Vertical, 0.5).unwrap();
+
+        let panes = rects(&layout, 59, 33);
+        assert_eq!(panes[0].1.height, 16);
+        assert_eq!(panes[1].1.height, 16);
+        assert_eq!(panes[0].1.height + panes[1].1.height + DIVIDER_CELLS, 33);
+
+        // Same for an odd width.
+        let mut wide = Layout::new(1);
+        wide.split(1, 2, SplitAxis::Horizontal, 0.5).unwrap();
+        let panes = rects(&wide, 81, 24);
+        assert_eq!(panes[0].1.width, 40);
+        assert_eq!(panes[1].1.width, 40);
     }
 
     #[test]
