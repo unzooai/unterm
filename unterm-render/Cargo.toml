@@ -10,3 +10,8 @@ publish = false
 
 [dependencies]
 unterm-engine = { path = "../unterm-engine" }
+wgpu.workspace = true
+bytemuck.workspace = true
+
+[dev-dependencies]
+pollster = "0.4"

@@ -1,0 +1,447 @@
+//! Drawing the quads.
+//!
+//! The first code here that touches hardware, so it is also the first that
+//! cannot be checked by reasoning alone. It renders to an off-screen texture
+//! and the tests read the pixels back: a wrong colour, a glyph in the wrong
+//! place or a quad that never reached the buffer is an assertion failure, not
+//! something to notice later in a window.
+//!
+//! Backgrounds and glyphs share one pipeline. A background carries no texture
+//! and is filled with its colour; a glyph is tinted by its colour with the
+//! atlas supplying coverage. One buffer, one bind group, one pass.
+
+use crate::atlas::GlyphAtlas;
+use crate::quads::{FrameQuads, Quad};
+use bytemuck::{Pod, Zeroable};
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Pod, Zeroable)]
+struct Vertex {
+    position: [f32; 2],
+    tex_coord: [f32; 2],
+    color: [f32; 4],
+    has_texture: f32,
+    _padding: [f32; 3],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Pod, Zeroable)]
+struct Uniforms {
+    viewport: [f32; 2],
+    _padding: [f32; 2],
+}
+
+/// Six vertices per quad: two triangles, no index buffer.
+///
+/// A terminal frame is a few thousand quads at most, so the memory an index
+/// buffer would save is not worth the extra upload and bind.
+fn push_quad(
+    out: &mut Vec<Vertex>,
+    quad: Quad,
+    tex: [f32; 4],
+    has_texture: f32,
+) {
+    let left = quad.left;
+    let top = quad.top;
+    let right = quad.left + quad.width;
+    let bottom = quad.top + quad.height;
+    let (tex_left, tex_top, tex_right, tex_bottom) = (tex[0], tex[1], tex[2], tex[3]);
+
+    let corners = [
+        ([left, top], [tex_left, tex_top]),
+        ([right, top], [tex_right, tex_top]),
+        ([left, bottom], [tex_left, tex_bottom]),
+        ([right, top], [tex_right, tex_top]),
+        ([right, bottom], [tex_right, tex_bottom]),
+        ([left, bottom], [tex_left, tex_bottom]),
+    ];
+
+    for (position, tex_coord) in corners {
+        out.push(Vertex {
+            position,
+            tex_coord,
+            color: quad.color,
+            has_texture,
+            _padding: [0.0; 3],
+        });
+    }
+}
+
+/// Build the vertex buffer for a frame.
+///
+/// Backgrounds first, then glyphs, so text lands on top of its own cell
+/// without needing a depth buffer or a second pass.
+pub fn build_vertices(quads: &FrameQuads) -> Vec<u8> {
+    let mut vertices = Vec::with_capacity((quads.backgrounds.len() + quads.glyphs.len()) * 6);
+
+    for quad in &quads.backgrounds {
+        push_quad(&mut vertices, *quad, [0.0; 4], 0.0);
+    }
+    for glyph in &quads.glyphs {
+        push_quad(
+            &mut vertices,
+            glyph.quad,
+            [
+                glyph.tex_left,
+                glyph.tex_top,
+                glyph.tex_right,
+                glyph.tex_bottom,
+            ],
+            1.0,
+        );
+    }
+
+    bytemuck::cast_slice(&vertices).to_vec()
+}
+
+/// How many vertices `build_vertices` produced.
+pub fn vertex_count(quads: &FrameQuads) -> u32 {
+    ((quads.backgrounds.len() + quads.glyphs.len()) * 6) as u32
+}
+
+/// Everything needed to draw, once a device exists.
+pub struct Renderer {
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    pipeline: wgpu::RenderPipeline,
+    bind_group_layout: wgpu::BindGroupLayout,
+    format: wgpu::TextureFormat,
+}
+
+impl Renderer {
+    /// Build a renderer on an existing device.
+    pub fn new(device: wgpu::Device, queue: wgpu::Queue, format: wgpu::TextureFormat) -> Self {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("unterm-render"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
+        });
+
+        let bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("unterm-render bind group layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+            });
+
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("unterm-render pipeline layout"),
+            bind_group_layouts: &[&bind_group_layout],
+            push_constant_ranges: &[],
+        });
+
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("unterm-render pipeline"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<Vertex>() as u64,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &[
+                        wgpu::VertexAttribute {
+                            offset: 0,
+                            shader_location: 0,
+                            format: wgpu::VertexFormat::Float32x2,
+                        },
+                        wgpu::VertexAttribute {
+                            offset: 8,
+                            shader_location: 1,
+                            format: wgpu::VertexFormat::Float32x2,
+                        },
+                        wgpu::VertexAttribute {
+                            offset: 16,
+                            shader_location: 2,
+                            format: wgpu::VertexFormat::Float32x4,
+                        },
+                        wgpu::VertexAttribute {
+                            offset: 32,
+                            shader_location: 3,
+                            format: wgpu::VertexFormat::Float32,
+                        },
+                    ],
+                }],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    // Straight alpha: a glyph's coverage decides how much of
+                    // the foreground reaches the cell it sits on.
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
+        Self {
+            device,
+            queue,
+            pipeline,
+            bind_group_layout,
+            format,
+        }
+    }
+
+    pub fn device(&self) -> &wgpu::Device {
+        &self.device
+    }
+
+    pub fn queue(&self) -> &wgpu::Queue {
+        &self.queue
+    }
+
+    pub fn format(&self) -> wgpu::TextureFormat {
+        self.format
+    }
+
+    /// Upload the atlas as a single-channel coverage texture.
+    pub fn upload_atlas(&self, atlas: &GlyphAtlas) -> wgpu::Texture {
+        let size = wgpu::Extent3d {
+            width: atlas.width() as u32,
+            height: atlas.height() as u32,
+            depth_or_array_layers: 1,
+        };
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("unterm-render atlas"),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+
+        self.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            atlas.coverage(),
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(atlas.width() as u32),
+                rows_per_image: Some(atlas.height() as u32),
+            },
+            size,
+        );
+
+        texture
+    }
+
+    /// Draw a frame into `target`.
+    pub fn draw(
+        &self,
+        target: &wgpu::TextureView,
+        width: u32,
+        height: u32,
+        quads: &FrameQuads,
+        atlas_texture: &wgpu::Texture,
+        clear: [f32; 4],
+    ) {
+        let vertices = build_vertices(quads);
+        let count = vertex_count(quads);
+
+        let uniforms = Uniforms {
+            viewport: [width as f32, height as f32],
+            _padding: [0.0; 2],
+        };
+        let uniform_buffer = self.create_buffer(
+            bytemuck::bytes_of(&uniforms),
+            wgpu::BufferUsages::UNIFORM,
+            "uniforms",
+        );
+
+        // An empty frame still has to clear, or the previous one stays on
+        // screen.
+        let vertex_buffer = self.create_buffer(
+            if vertices.is_empty() {
+                &[0u8; std::mem::size_of::<Vertex>()]
+            } else {
+                &vertices
+            },
+            wgpu::BufferUsages::VERTEX,
+            "vertices",
+        );
+
+        let view = atlas_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let sampler = self.device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("unterm-render sampler"),
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("unterm-render bind group"),
+            layout: &self.bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: uniform_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
+        });
+
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("unterm-render encoder"),
+            });
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("unterm-render pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: target,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: clear[0] as f64,
+                            g: clear[1] as f64,
+                            b: clear[2] as f64,
+                            a: clear[3] as f64,
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+
+            if count > 0 {
+                pass.set_pipeline(&self.pipeline);
+                pass.set_bind_group(0, &bind_group, &[]);
+                pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+                pass.draw(0..count, 0..1);
+            }
+        }
+
+        self.queue.submit(Some(encoder.finish()));
+    }
+
+    fn create_buffer(
+        &self,
+        contents: &[u8],
+        usage: wgpu::BufferUsages,
+        label: &str,
+    ) -> wgpu::Buffer {
+        use wgpu::util::DeviceExt;
+        self.device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some(label),
+                contents,
+                usage,
+            })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::quads::{FrameQuads, Quad};
+
+    #[test]
+    fn a_quad_becomes_two_triangles() {
+        let mut quads = FrameQuads::default();
+        quads.backgrounds.push(Quad {
+            left: 0.0,
+            top: 0.0,
+            width: 10.0,
+            height: 10.0,
+            color: [1.0, 0.0, 0.0, 1.0],
+        });
+
+        assert_eq!(vertex_count(&quads), 6);
+        assert_eq!(
+            build_vertices(&quads).len(),
+            6 * std::mem::size_of::<Vertex>()
+        );
+    }
+
+    #[test]
+    fn backgrounds_come_before_glyphs() {
+        let mut quads = FrameQuads::default();
+        quads.backgrounds.push(Quad {
+            left: 0.0,
+            top: 0.0,
+            width: 1.0,
+            height: 1.0,
+            color: [1.0, 0.0, 0.0, 1.0],
+        });
+        quads.glyphs.push(crate::quads::GlyphQuad {
+            quad: Quad {
+                left: 0.0,
+                top: 0.0,
+                width: 1.0,
+                height: 1.0,
+                color: [0.0, 1.0, 0.0, 1.0],
+            },
+            tex_left: 0.0,
+            tex_top: 0.0,
+            tex_right: 1.0,
+            tex_bottom: 1.0,
+        });
+
+        let bytes = build_vertices(&quads);
+        let vertices: &[Vertex] = bytemuck::cast_slice(&bytes);
+
+        // Text has to land on top of its own cell, and ordering is how that
+        // happens without a depth buffer or a second pass.
+        assert_eq!(vertices[0].has_texture, 0.0);
+        assert_eq!(vertices[6].has_texture, 1.0);
+    }
+
+    #[test]
+    fn an_empty_frame_produces_no_vertices() {
+        let quads = FrameQuads::default();
+
+        assert_eq!(vertex_count(&quads), 0);
+        assert!(build_vertices(&quads).is_empty());
+    }
+}

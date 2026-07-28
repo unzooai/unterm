@@ -304,6 +304,21 @@ $Suites = @(
         )
     },
     @{
+        # Drawn on real hardware and read back as pixels. Every bug this layer
+        # produced before compiled, submitted, and showed something else.
+        Name = "offscreen render"
+        Package = "unterm-render"
+        Filter = "offscreen_"
+        ExpectedCount = 5
+        RequiredTests = @(
+            "offscreen_a_background_quad_lands_where_it_was_put",
+            "offscreen_the_top_left_of_a_quad_is_the_top_left_of_the_image",
+            "offscreen_a_glyph_is_tinted_by_its_colour_and_shaped_by_the_atlas",
+            "offscreen_a_glyph_draws_over_its_own_background",
+            "offscreen_an_empty_frame_is_the_clear_colour"
+        )
+    },
+    @{
         # The state behind copy mode, without its UI: two points, a shape, and
         # the text that comes out.
         Name = "selection model"

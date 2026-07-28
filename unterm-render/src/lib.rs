@@ -7,5 +7,6 @@
 //! without WezTerm.
 
 pub mod atlas;
+pub mod gpu;
 pub mod quads;
 pub mod text;
