@@ -5803,6 +5803,24 @@ impl TermWindow {
             return None;
         }
 
+        // Which pane is focused is the registry's to say once it holds the
+        // tab; falling back to the mux keeps a tab it has not adopted working.
+        let registry_active = registry.active_pane(tab.tab_id());
+        if let Some(active) = registry_active {
+            if let Some(mux_active) = mux_panes.iter().find(|candidate| candidate.is_active) {
+                if mux_active.pane.pane_id() as usize != active {
+                    // Focus is what the cursor and every key press follow, so a
+                    // disagreement here is visible immediately.
+                    log::warn!(
+                        "next-core registry focus differs for tab {}: registry {} vs mux {}",
+                        tab.tab_id(),
+                        active,
+                        mux_active.pane.pane_id()
+                    );
+                }
+            }
+        }
+
         let cell_width = self.render_metrics.cell_size.width as usize;
         let cell_height = self.render_metrics.cell_size.height as usize;
         let mut out = Vec::with_capacity(placed.len());
@@ -5820,7 +5838,7 @@ impl TermWindow {
                 // is where an assumed one shows up -- and it is a real visual
                 // difference, not bookkeeping.
                 log::warn!(
-                    "next-core registry geometry differs for pane {}: registry                      {}x{}+{}+{} vs mux {}x{}+{}+{}",
+                    "next-core registry geometry differs for pane {}: registry {}x{}+{}+{} vs mux {}x{}+{}+{}",
                     pos.pane_id,
                     pos.rect.width,
                     pos.rect.height,
@@ -5834,7 +5852,9 @@ impl TermWindow {
             }
             out.push(mux::tab::PositionedPane {
                 index,
-                is_active: source.is_active,
+                is_active: registry_active
+                    .map(|active| active == pos.pane_id)
+                    .unwrap_or(source.is_active),
                 is_zoomed: source.is_zoomed,
                 left: pos.rect.left,
                 top: pos.rect.top,
