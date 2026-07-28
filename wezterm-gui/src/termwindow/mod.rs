@@ -5914,8 +5914,61 @@ impl TermWindow {
             }
             self.apply_next_core_layout(&mut panes, &tab.get_size());
             self.track_next_core_tab(tab, &panes);
+            if let Some(from_registry) = self.next_core_positioned_panes(tab, &panes) {
+                return from_registry;
+            }
             panes
         }
+    }
+
+    /// Build the render list from next-core's registry rather than the mux.
+    ///
+    /// The registry decides which panes exist and where they sit; the mux is
+    /// left holding the pane handles, which it looks them up by id. That is
+    /// the structural authority moving across -- a pane the registry does not
+    /// list is not rendered, and one it lists is.
+    ///
+    /// Returns `None` to keep the mux's list whenever the registry cannot
+    /// account for exactly the same panes. Rendering a subset would make a
+    /// pane vanish, which is far worse than deferring the swap for a frame.
+    fn next_core_positioned_panes(
+        &self,
+        tab: &Arc<Tab>,
+        mux_panes: &[mux::tab::PositionedPane],
+    ) -> Option<Vec<mux::tab::PositionedPane>> {
+        if mux_panes.is_empty() || !crate::engine::next_core_pane::next_core_panes_enabled() {
+            return None;
+        }
+        let size = tab.get_size();
+        let registry = self.next_core_tabs.borrow();
+        let placed = registry.positions(tab.tab_id(), size.cols as usize, size.rows as usize);
+        if placed.len() != mux_panes.len() {
+            return None;
+        }
+
+        let cell_width = self.render_metrics.cell_size.width as usize;
+        let cell_height = self.render_metrics.cell_size.height as usize;
+        let mut out = Vec::with_capacity(placed.len());
+        for (index, pos) in placed.iter().enumerate() {
+            // The handle still comes from the mux; only the set and the
+            // geometry come from the registry.
+            let source = mux_panes
+                .iter()
+                .find(|candidate| candidate.pane.pane_id() as usize == pos.pane_id)?;
+            out.push(mux::tab::PositionedPane {
+                index,
+                is_active: source.is_active,
+                is_zoomed: source.is_zoomed,
+                left: pos.rect.left,
+                top: pos.rect.top,
+                width: pos.rect.width,
+                height: pos.rect.height,
+                pixel_width: pos.rect.width * cell_width,
+                pixel_height: pos.rect.height * cell_height,
+                pane: Arc::clone(&source.pane),
+            });
+        }
+        Some(out)
     }
 
     /// Keep next-core's tab registry mirroring the mux, and say so when they
