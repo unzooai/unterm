@@ -169,7 +169,7 @@ $Suites = @(
         Name = "config runtime"
         Package = "unterm-engine"
         Filter = "next_core::config::tests::"
-        ExpectedCount = 20
+        ExpectedCount = 24
         RequiredTests = @(
             "next_core::config::tests::a_typo_is_rejected_with_the_nearest_real_setting",
             "next_core::config::tests::an_unrelated_key_is_rejected_without_a_wild_guess",
@@ -178,7 +178,10 @@ $Suites = @(
             "next_core::config::tests::a_hash_inside_a_string_is_not_a_comment",
             "next_core::config::tests::a_windows_path_does_not_need_doubled_backslashes",
             "next_core::config::tests::a_wrong_type_names_the_key_and_both_types",
-            "next_core::config::tests::unterminated_constructs_are_errors_not_silent_truncation"
+            "next_core::config::tests::unterminated_constructs_are_errors_not_silent_truncation",
+            "next_core::config::tests::a_platform_section_overrides_the_base_value",
+            "next_core::config::tests::the_named_platform_beats_the_catch_all",
+            "next_core::config::tests::a_typo_inside_a_platform_section_is_still_caught"
         )
     },
     @{
@@ -187,14 +190,18 @@ $Suites = @(
         Name = "config migration"
         Package = "unterm-engine"
         Filter = "next_core::config_migrate::tests::"
-        ExpectedCount = 16
+        ExpectedCount = 21
         RequiredTests = @(
             "next_core::config_migrate::tests::converts_the_ordinary_assignments",
             "next_core::config_migrate::tests::a_nested_table_becomes_a_section",
             "next_core::config_migrate::tests::a_function_is_reported_rather_than_dropped",
             "next_core::config_migrate::tests::every_unconverted_line_carries_its_source",
             "next_core::config_migrate::tests::the_converted_output_is_checked_against_the_parser",
-            "next_core::config_migrate::tests::a_realistic_config_converts_to_something_that_parses"
+            "next_core::config_migrate::tests::a_realistic_config_converts_to_something_that_parses",
+            "next_core::config_migrate::tests::a_target_triple_branch_becomes_platform_sections",
+            "next_core::config_migrate::tests::a_value_chosen_by_a_probe_is_never_converted_to_one_branch",
+            "next_core::config_migrate::tests::a_function_call_that_closes_on_the_same_line_does_not_swallow_the_file",
+            "next_core::config_migrate::tests::an_unrecognised_platform_branch_is_reported_not_filed_wrongly"
         )
     },
     @{

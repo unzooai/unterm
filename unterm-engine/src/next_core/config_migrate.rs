@@ -60,6 +60,10 @@ pub fn migrate_lua(source: &str) -> Migration {
     // Tracking every brace -- not just the ones we understand -- is what keeps
     // the stack aligned with the file.
     let mut frames: Vec<Option<String>> = Vec::new();
+    // Inside a branch on the target triple: the platform it selects, or None
+    // when the branch names one we do not recognise.
+    let mut chain: Option<Option<&'static str>> = None;
+    let mut nested = 0usize;
 
     for (index, raw_line) in source.lines().enumerate() {
         let line = index + 1;
@@ -87,6 +91,61 @@ pub fn migrate_lua(source: &str) -> Migration {
             } else {
                 adjust_frames(&mut frames, opens, closes);
             }
+            continue;
+        }
+
+        // A branch on the target triple is the one piece of control flow that
+        // is really a declaration: it says "on this platform, use that value".
+        // It becomes a `[platform.*]` section rather than being reported.
+        if nested == 0 {
+            if let Some(branch) = platform_branch(text) {
+                chain = Some(branch);
+                continue;
+            }
+            if chain.is_some() {
+                if text == "else" {
+                    chain = Some(Some("other"));
+                    continue;
+                }
+                if text == "end" {
+                    chain = None;
+                    continue;
+                }
+            }
+        }
+
+        // Every other block is code. A setting inside one is conditional, and
+        // converting it unconditionally would apply it where the user's config
+        // never did -- so the whole block is reported instead.
+        let delta = block_delta(text);
+        let in_code = nested > 0;
+        // A line that only closes blocks is structure, not a lost setting.
+        let only_closes = delta < 0 && !text.contains('=');
+
+        nested = nested.saturating_add_signed(delta);
+
+        if in_code && only_closes {
+            continue;
+        }
+        if in_code || delta > 0 || (delta == 0 && opens_and_closes_a_block(text)) {
+            // `x = function(...)` deserves the specific complaint, whether it
+            // closes on this line or runs on for twenty.
+            let assigns_function = split_assignment(text)
+                .is_some_and(|(_, value)| value.trim_start().starts_with("function"));
+            let reason = if assigns_function {
+                "is a function; the new config holds values, not code"
+            } else {
+                "sits inside Lua control flow, so it does not apply unconditionally"
+            };
+            unconverted.push(Unconverted {
+                line,
+                snippet: text.to_string(),
+                reason: reason.to_string(),
+            });
+            continue;
+        }
+        if delta < 0 {
+            // A stray `end`; whatever it closed was already reported.
             continue;
         }
 
@@ -138,11 +197,29 @@ pub fn migrate_lua(source: &str) -> Migration {
             continue;
         }
 
-        let section: Vec<&str> = frames
-            .iter()
-            .filter_map(|frame| frame.as_deref())
-            .filter(|name| !name.is_empty())
-            .collect();
+        // A branch naming a platform we do not know cannot be turned into a
+        // section without guessing which machines it covers.
+        if chain == Some(None) {
+            unconverted.push(Unconverted {
+                line,
+                snippet: text.to_string(),
+                reason: "inside a platform branch the converter does not recognise".to_string(),
+            });
+            adjust_frames(&mut frames, opens, closes);
+            continue;
+        }
+
+        let mut section: Vec<&str> = Vec::new();
+        if let Some(Some(platform)) = chain {
+            section.push("platform");
+            section.push(platform);
+        }
+        section.extend(
+            frames
+                .iter()
+                .filter_map(|frame| frame.as_deref())
+                .filter(|name| !name.is_empty()),
+        );
         let full_key = if section.is_empty() {
             key
         } else {
@@ -183,6 +260,76 @@ pub fn migrate_lua(source: &str) -> Migration {
         text: render(&settings),
         unconverted,
     }
+}
+
+/// How many Lua blocks this line opens, less how many it closes.
+///
+/// Counting keywords rather than matching on how a line starts or ends is what
+/// makes `pcall(function() ... end)` balance: it ends with `end)`, so anything
+/// looking at the last characters would treat it as an unclosed block and
+/// swallow the whole rest of the file.
+fn block_delta(text: &str) -> isize {
+    let opens = count_word(text, "function") + count_word(text, "then") + count_word(text, "do");
+    let closes = count_word(text, "end");
+    // `elseif ... then` continues a block rather than opening one.
+    let continues = count_word(text, "elseif");
+    opens as isize - closes as isize - continues as isize
+}
+
+/// True when a line opens and closes a block by itself, like
+/// `if ok then x = 1 end`.
+fn opens_and_closes_a_block(text: &str) -> bool {
+    count_word(text, "end") > 0
+        && (count_word(text, "function") > 0
+            || count_word(text, "then") > 0
+            || count_word(text, "do") > 0)
+}
+
+/// Count whole-word occurrences, so `endpoint` is not an `end`.
+fn count_word(text: &str, word: &str) -> usize {
+    let bytes = text.as_bytes();
+    let mut count = 0;
+    let mut start = 0;
+    while let Some(offset) = text[start..].find(word) {
+        let at = start + offset;
+        let end = at + word.len();
+        let before_free = at == 0 || !is_word_byte(bytes[at - 1]);
+        let after_free = end >= bytes.len() || !is_word_byte(bytes[end]);
+        if before_free && after_free {
+            count += 1;
+        }
+        start = end;
+    }
+    count
+}
+
+fn is_word_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'_'
+}
+
+/// Recognise `if`/`elseif` on the target triple, and which platform it selects.
+///
+/// Returns the outer Option only for a target-triple branch; the inner one is
+/// None when the branch names a platform the converter cannot map, so its body
+/// is reported instead of being filed under the wrong machine.
+fn platform_branch(text: &str) -> Option<Option<&'static str>> {
+    let condition = text
+        .strip_prefix("if ")
+        .or_else(|| text.strip_prefix("elseif "))?
+        .strip_suffix(" then")?;
+    if !condition.contains("target_triple") {
+        return None;
+    }
+    let platform = if condition.contains("darwin") || condition.contains("apple") {
+        Some("macos")
+    } else if condition.contains("windows") {
+        Some("windows")
+    } else if condition.contains("linux") {
+        Some("linux")
+    } else {
+        None
+    };
+    Some(platform)
 }
 
 /// Keep the frame stack level with the braces actually on the line.
@@ -668,22 +815,21 @@ return config
         assert!(parsed.get("family").is_none());
         assert!(!parsed.keys().any(|key| key.contains("font_with_fallback")));
 
-        // The second branch is reported, not emitted alongside the first --
-        // two definitions of one key would not parse, and which wins is the
-        // user's call, not ours.
+        // The platform branch becomes two sections rather than one key set
+        // twice, so both machines keep the value the user wrote for them.
         assert_eq!(
-            parsed.str_of("integrated_title_button_style").unwrap(),
+            parsed
+                .resolve_platform("macos")
+                .str_of("integrated_title_button_style")
+                .unwrap(),
             Some("MacOsCustom")
         );
-        let duplicate = migration
-            .unconverted
-            .iter()
-            .find(|item| item.snippet.contains("'Windows'"))
-            .expect("the second branch must be reported");
-        assert!(
-            duplicate.reason.contains("already set"),
-            "{}",
-            duplicate.reason
+        assert_eq!(
+            parsed
+                .resolve_platform("windows")
+                .str_of("integrated_title_button_style")
+                .unwrap(),
+            Some("Windows")
         );
 
         // A value that came from a local cannot be resolved without running
@@ -692,6 +838,109 @@ return config
             .unconverted
             .iter()
             .any(|item| item.snippet.contains("active_titlebar_bg")));
+    }
+
+    #[test]
+    fn a_target_triple_branch_becomes_platform_sections() {
+        let migration = migrate_and_check(
+            r#"
+if wezterm.target_triple:find('darwin') then
+  config.shell = '/bin/zsh'
+elseif wezterm.target_triple:find('windows') then
+  config.shell = 'powershell.exe'
+else
+  config.shell = '/bin/bash'
+end
+"#,
+        )
+        .expect("converted config should parse");
+
+        // The one piece of control flow that is really a declaration.
+        assert!(migration.is_complete(), "{:?}", migration.unconverted);
+        let parsed = config::parse(&migration.text).unwrap();
+        assert_eq!(
+            parsed.resolve_platform("macos").str_of("shell").unwrap(),
+            Some("/bin/zsh")
+        );
+        assert_eq!(
+            parsed.resolve_platform("windows").str_of("shell").unwrap(),
+            Some("powershell.exe")
+        );
+        // The `else` arm covers every machine the named arms did not.
+        assert_eq!(
+            parsed.resolve_platform("linux").str_of("shell").unwrap(),
+            Some("/bin/bash")
+        );
+    }
+
+    #[test]
+    fn an_unrecognised_platform_branch_is_reported_not_filed_wrongly() {
+        let migration = migrate_lua(
+            "if wezterm.target_triple:find('freebsd') then\n  config.shell = '/bin/sh'\nend",
+        );
+
+        // Guessing which machines this covers would put a setting on the wrong
+        // ones, which is worse than saying so.
+        assert_eq!(migration.unconverted.len(), 1);
+        assert!(
+            migration.unconverted[0].reason.contains("platform branch"),
+            "{}",
+            migration.unconverted[0].reason
+        );
+    }
+
+    #[test]
+    fn a_value_chosen_by_a_probe_is_never_converted_to_one_branch() {
+        // Straight out of the config this project ships: prefer pwsh if it is
+        // installed, otherwise fall back.
+        let migration = migrate_lua(
+            r#"
+local f = io.open(pwsh, 'r')
+if f then
+  config.default_prog = { pwsh, '-NoLogo' }
+else
+  config.default_prog = { 'powershell.exe', '-NoLogo' }
+end
+"#,
+        );
+
+        // Picking either branch would hand the user a setting they never wrote
+        // -- the fallback silently becoming the only choice is exactly the kind
+        // of quiet wrong value this converter must not produce.
+        let parsed = config::parse(&migration.text).unwrap();
+        assert!(parsed.get("default_prog").is_none());
+        assert_eq!(
+            migration
+                .unconverted
+                .iter()
+                .filter(|item| item.snippet.contains("default_prog"))
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn a_function_call_that_closes_on_the_same_line_does_not_swallow_the_file() {
+        let migration = migrate_lua(
+            r#"
+local ok = pcall(function() return wezterm.color.parse('#fff') end)
+config.font_size = 13
+"#,
+        );
+
+        // This line ends with `end)`, so anything matching on the last
+        // characters would treat the block as open and lose everything after.
+        let parsed = config::parse(&migration.text).unwrap();
+        assert_eq!(parsed.int_of("font_size").unwrap(), Some(13));
+    }
+
+    #[test]
+    fn an_ordinary_branch_is_still_not_control_flow_we_understand() {
+        let migration = migrate_lua("if some_condition then\n  config.shell = '/bin/sh'\nend");
+
+        // Only a branch on the target triple is a declaration in disguise.
+        assert!(!migration.is_complete());
+        assert!(migration.text.trim().is_empty());
     }
 
     #[test]

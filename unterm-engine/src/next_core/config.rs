@@ -123,6 +123,35 @@ impl Config {
         }
     }
 
+    /// Fold the `[platform.*]` sections down for one platform.
+    ///
+    /// A config has to say different things on different machines -- a shell,
+    /// a title button style -- and in Lua that was a branch on the target
+    /// triple. Declaring it instead keeps the file readable on a machine it is
+    /// not for, which a branch never did.
+    ///
+    /// Later wins: base, then `[platform.other]`, then the named platform.
+    pub fn resolve_platform(&self, platform: &str) -> Config {
+        let specific = format!("platform.{platform}.");
+        let mut resolved = Config::default();
+
+        for (key, (line, value)) in &self.entries {
+            if !key.starts_with("platform.") {
+                resolved.entries.insert(key.clone(), (*line, value.clone()));
+            }
+        }
+        for prefix in ["platform.other.", specific.as_str()] {
+            for (key, (line, value)) in &self.entries {
+                if let Some(name) = key.strip_prefix(prefix) {
+                    resolved
+                        .entries
+                        .insert(name.to_string(), (*line, value.clone()));
+                }
+            }
+        }
+        resolved
+    }
+
     /// Reject keys the engine does not know, naming the closest one it does.
     ///
     /// This runs separately from parsing so a caller can parse a config whose
@@ -145,6 +174,17 @@ impl Config {
             });
         }
         errors
+    }
+}
+
+/// The platform name `[platform.*]` sections are matched against.
+pub fn current_platform() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "windows"
+    } else if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "linux"
     }
 }
 
@@ -603,6 +643,67 @@ mod tests {
 
         assert!(config.is_empty());
         assert!(config.validate_keys(&["font_size"]).is_empty());
+    }
+
+    #[test]
+    fn a_platform_section_overrides_the_base_value() {
+        let config = parse_ok(
+            r#"
+            shell = "/bin/sh"
+            [platform.windows]
+            shell = "powershell.exe"
+            "#,
+        );
+
+        let windows = config.resolve_platform("windows");
+        assert_eq!(windows.str_of("shell").unwrap(), Some("powershell.exe"));
+
+        // The section for another machine is inert, not an error -- a config
+        // has to stay readable on a machine it is not for.
+        let linux = config.resolve_platform("linux");
+        assert_eq!(linux.str_of("shell").unwrap(), Some("/bin/sh"));
+    }
+
+    #[test]
+    fn the_named_platform_beats_the_catch_all() {
+        let config = parse_ok(
+            r#"
+            [platform.other]
+            style = "Gnome"
+            [platform.windows]
+            style = "Windows"
+            "#,
+        );
+
+        assert_eq!(
+            config.resolve_platform("windows").str_of("style").unwrap(),
+            Some("Windows")
+        );
+        assert_eq!(
+            config.resolve_platform("macos").str_of("style").unwrap(),
+            Some("Gnome")
+        );
+    }
+
+    #[test]
+    fn resolving_leaves_no_platform_keys_behind() {
+        let config = parse_ok("[platform.windows]\nshell = \"powershell.exe\"");
+
+        let resolved = config.resolve_platform("windows");
+
+        // Anything still prefixed would fail validation as an unknown setting.
+        assert!(!resolved.keys().any(|key| key.starts_with("platform.")));
+        assert!(resolved.validate_keys(&["shell"]).is_empty());
+    }
+
+    #[test]
+    fn a_typo_inside_a_platform_section_is_still_caught() {
+        let config = parse_ok("[platform.windows]\nshel = \"powershell.exe\"");
+
+        let errors = config.resolve_platform("windows").validate_keys(&["shell"]);
+
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("did you mean `shell`"), "{}", errors[0].message);
     }
 
     #[test]
