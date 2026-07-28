@@ -136,8 +136,6 @@ Three defects had to be fixed to get there, all of which only surfaced by runnin
 
 The pane owns its session's lifetime and destroys it on drop. Because next-core runs its own PTY pump it hands the mux no reader, so the pane carries a change watcher that samples the screen revision and raises `PaneOutput`; without it the GUI would never be told to repaint.
 
-Known gaps for next-core panes specifically: `has_unseen_output` always reports false, so the tab bar's unseen-output marker stays dark.
-
 Known gaps at this stage:
 - Selection and copy still read the legacy pane's screen, so selecting inside a replaced pane copies from the hidden session.
 - Overlays (copy mode, launcher, debug output) keep their pane on the legacy renderer entirely.

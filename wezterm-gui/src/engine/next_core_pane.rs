@@ -74,6 +74,14 @@ pub struct NextCorePane {
     writer: Mutex<NextCorePaneWriter>,
     /// Cleared on drop to stop the change watcher.
     watching: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// Latest screen revision the change watcher saw. Sampled rather than
+    /// queried, so the per-frame `has_unseen_output` check costs an atomic
+    /// load instead of a trip through the engine's command queue.
+    last_revision: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    focused: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// Revision at the moment focus was lost. Output past this point is what
+    /// the user has not seen.
+    revision_at_focus_loss: std::sync::Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl NextCorePane {
@@ -84,6 +92,11 @@ impl NextCorePane {
             domain_id,
             writer: Mutex::new(NextCorePaneWriter { session_id }),
             watching: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            last_revision: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            // Starts unfocused, matching a wezterm terminal: a pane opened in
+            // the background should show its output as unseen until looked at.
+            focused: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            revision_at_focus_loss: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
         }
     }
 
@@ -100,17 +113,19 @@ impl NextCorePane {
             return;
         }
         let watching = std::sync::Arc::clone(&self.watching);
+        let last_revision = std::sync::Arc::clone(&self.last_revision);
         let session_id = self.session_id;
         let pane_id = self.pane_id;
         let spawned = std::thread::Builder::new()
             .name(format!("next-core-pane-{pane_id}"))
             .spawn(move || {
-                let mut last_revision = None;
+                let mut seen = None;
                 while watching.load(Ordering::Acquire) {
                     match next_core().screen_revision(session_id) {
                         Ok(revision) => {
-                            if last_revision != Some(revision) {
-                                last_revision = Some(revision);
+                            if seen != Some(revision) {
+                                seen = Some(revision);
+                                last_revision.store(revision, Ordering::Release);
                                 mux::Mux::notify_from_any_thread(
                                     mux::MuxNotification::PaneOutput(pane_id),
                                 );
@@ -419,6 +434,27 @@ impl Pane for NextCorePane {
         next_core().report_mouse(self.session_id, event)
     }
 
+    fn focus_changed(&self, focused: bool) {
+        use std::sync::atomic::Ordering;
+
+        self.focused.store(focused, Ordering::Release);
+        if !focused {
+            // Anything past this revision is output the user has not seen.
+            self.revision_at_focus_loss
+                .store(self.last_revision.load(Ordering::Acquire), Ordering::Release);
+        }
+    }
+
+    fn has_unseen_output(&self) -> bool {
+        use std::sync::atomic::Ordering;
+
+        // Same rule a wezterm terminal uses: unfocused, and the sequence has
+        // moved since focus was lost.
+        !self.focused.load(Ordering::Acquire)
+            && self.last_revision.load(Ordering::Acquire)
+                > self.revision_at_focus_loss.load(Ordering::Acquire)
+    }
+
     fn erase_scrollback(&self, erase_mode: config::keyassignment::ScrollbackEraseMode) {
         use config::keyassignment::ScrollbackEraseMode;
         let include_viewport = matches!(erase_mode, ScrollbackEraseMode::ScrollbackAndViewport);
@@ -700,6 +736,45 @@ mod tests {
             "kill must end the session, not wait for the pane to be dropped"
         );
         assert!(pane.is_dead(), "a killed pane must read as dead");
+        Ok(())
+    }
+
+    /// The tab bar's unseen-output marker: output that arrived while the pane
+    /// was not being looked at.
+    #[test]
+    fn unseen_output_tracks_revisions_since_focus_was_lost() -> anyhow::Result<()> {
+        use std::sync::atomic::Ordering;
+
+        let session = next_core().create_session(CreateSessionRequest {
+            cols: 40,
+            rows: 6,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: LaunchPolicySnapshot::default(),
+        })?;
+        let pane = NextCorePane::new(9, session.id, 0);
+
+        // Focused: whatever arrives, the user is looking at it.
+        pane.focus_changed(true);
+        pane.last_revision.store(5, Ordering::Release);
+        assert!(!pane.has_unseen_output());
+
+        // Losing focus takes a watermark; nothing new yet.
+        pane.focus_changed(false);
+        assert!(!pane.has_unseen_output());
+
+        // Output past the watermark is unseen.
+        pane.last_revision.store(6, Ordering::Release);
+        assert!(pane.has_unseen_output());
+
+        // Looking at the pane clears it, and it stays clear while focused.
+        pane.focus_changed(true);
+        assert!(!pane.has_unseen_output());
+        pane.last_revision.store(7, Ordering::Release);
+        assert!(!pane.has_unseen_output());
+
+        next_core().destroy_session(session.id)?;
         Ok(())
     }
 
