@@ -1021,7 +1021,7 @@ fn focus_current_instance_window() -> anyhow::Result<WindowFocusResult> {
 }
 
 fn set_current_instance_title(title: Option<String>) -> anyhow::Result<WindowTitleResult> {
-    crate::server_info::set_title(title.clone())?;
+    unterm_services::server_info::set_title(title.clone())?;
     Ok(WindowTitleResult {
         title,
         window_engine: "wezterm-host",

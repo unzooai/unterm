@@ -367,7 +367,7 @@ impl super::TermWindow {
                     // keys that also arrive via the main path.
                     if self.next_core_owns_pane_input(pane.pane_id()) {
                         if is_down {
-                            crate::cockpit::on_user_input(pane.pane_id() as u64);
+                            unterm_services::cockpit::on_user_input(pane.pane_id() as u64);
                             self.send_next_core_key(pane.pane_id(), term_key, tw_raw_modifiers);
                         }
                         if !keycode.is_modifier() {
@@ -408,7 +408,7 @@ impl super::TermWindow {
                         }
 
                         did_encode = if is_down {
-                            crate::cockpit::on_user_input(pane.pane_id() as u64);
+                            unterm_services::cockpit::on_user_input(pane.pane_id() as u64);
                             pane.key_down(term_key, tw_raw_modifiers)
                         } else {
                             pane.key_up(term_key, tw_raw_modifiers)
@@ -705,7 +705,7 @@ impl super::TermWindow {
                 // protocols, so only key-down is forwarded.
                 if self.next_core_owns_pane_input(pane.pane_id()) {
                     if window_key.key_is_down {
-                        crate::cockpit::on_user_input(pane.pane_id() as u64);
+                        unterm_services::cockpit::on_user_input(pane.pane_id() as u64);
                         let sent = self.send_next_core_key(pane.pane_id(), key, modifiers);
                         if sent && !key.is_modifier() {
                             observe_ghost_text_key(pane.pane_id() as u64, &key, modifiers);
@@ -740,7 +740,7 @@ impl super::TermWindow {
                     }
 
                     if window_key.key_is_down {
-                        crate::cockpit::on_user_input(pane.pane_id() as u64);
+                        unterm_services::cockpit::on_user_input(pane.pane_id() as u64);
                         pane.key_down(key, modifiers)
                     } else {
                         pane.key_up(key, modifiers)
@@ -960,9 +960,9 @@ impl super::TermWindow {
 /// Translate a termwiz `KeyCode` + modifier set into a ghost-text
 /// input event and feed it through. Lives outside `impl TermWindow`
 /// because it doesn't touch any window state — it just bridges to
-/// the global registry in `crate::ghost_text`.
+/// the global registry in `unterm_services::ghost_text`.
 fn observe_ghost_text_key(pane_id: u64, key: &termwiz::input::KeyCode, mods: Modifiers) {
-    use crate::ghost_text::InputEvent;
+    use unterm_services::ghost_text::InputEvent;
     use termwiz::input::KeyCode;
 
     let event = match key {
@@ -1003,7 +1003,7 @@ fn observe_ghost_text_key(pane_id: u64, key: &termwiz::input::KeyCode, mods: Mod
         // user types starts a fresh prediction instead of building
         // on stale state.
         KeyCode::UpArrow | KeyCode::DownArrow => {
-            crate::ghost_text::cancel_input(pane_id);
+            unterm_services::ghost_text::cancel_input(pane_id);
             return;
         }
         // ←/→ move the cursor within the line. If the user moves
@@ -1016,7 +1016,7 @@ fn observe_ghost_text_key(pane_id: u64, key: &termwiz::input::KeyCode, mods: Mod
         | KeyCode::Home
         | KeyCode::End
         | KeyCode::KeyPadEnd => {
-            crate::ghost_text::cancel_input(pane_id);
+            unterm_services::ghost_text::cancel_input(pane_id);
             return;
         }
         // Tab triggers shell completion in the shell-without-our-
@@ -1024,7 +1024,7 @@ fn observe_ghost_text_key(pane_id: u64, key: &termwiz::input::KeyCode, mods: Mod
         // intercepted Tab when a suggestion was pending). After
         // shell completion, the line is rewritten — buffer is stale.
         KeyCode::Tab => {
-            crate::ghost_text::cancel_input(pane_id);
+            unterm_services::ghost_text::cancel_input(pane_id);
             return;
         }
         // Other special keys (function keys, etc.) don't change
@@ -1035,5 +1035,5 @@ fn observe_ghost_text_key(pane_id: u64, key: &termwiz::input::KeyCode, mods: Mod
     // No external candidate pool for now — predictions come from
     // earlier commits captured on this pane. Scrollback scanning can
     // be wired in later as a richer source.
-    crate::ghost_text::observe(pane_id, event, &[]);
+    unterm_services::ghost_text::observe(pane_id, event, &[]);
 }

@@ -7,6 +7,7 @@
 mod fonts;
 mod panes;
 mod scroll;
+mod tabbar;
 mod select;
 mod terminal;
 mod window;

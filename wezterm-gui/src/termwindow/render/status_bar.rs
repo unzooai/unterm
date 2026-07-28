@@ -1094,7 +1094,7 @@ fn current_profile_display_name() -> String {
 }
 
 fn compute_current_profile_display_name() -> String {
-    let info = crate::server_info::read_current();
+    let info = unterm_services::server_info::read_current();
     let Some(id) = info.profile.as_deref() else {
         return "—".to_string();
     };

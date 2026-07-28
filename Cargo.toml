@@ -14,6 +14,7 @@ members = [
   "wezterm-open-url",
   "unterm-app",
   "unterm-render",
+  "unterm-services",
   "wezterm-render-escapes",
   "wezterm-surface",
   "wezterm-uds",
@@ -286,6 +287,7 @@ wezterm-input-types = { version="0.1", path = "wezterm-input-types", default-fea
 wezterm-mux-server-impl = { path = "wezterm-mux-server-impl" }
 wezterm-open-url = { path = "wezterm-open-url" }
 unterm-render = { path = "unterm-render" }
+unterm-services = { path = "unterm-services" }
 wezterm-render-escapes = { path = "wezterm-render-escapes" }
 wezterm-surface = { path = "wezterm-surface" }
 wezterm-term = { path = "term" }

@@ -92,6 +92,7 @@ terminfo.workspace = true
 termwiz.workspace = true
 wezterm-render-escapes.workspace = true
 unterm-engine.workspace = true
+unterm-services.workspace = true
 unterm-profile.workspace = true
 unterm-agents.workspace = true
 textwrap.workspace = true
@@ -145,6 +146,7 @@ windows = { workspace=true, features = [
 winreg.workspace = true
 
 [dev-dependencies]
+unterm-services = { workspace = true, features = ["test-support"] }
 benchmarking.workspace = true
 env_logger.workspace = true
 k9.workspace = true

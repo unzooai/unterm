@@ -11,7 +11,7 @@
 //! under it (the 2s cockpit tick repaints the window; recompute happens
 //! only when the snapshot actually changed).
 
-use crate::cockpit::{AgentState, PaneAgentStatus};
+use unterm_services::cockpit::{AgentState, PaneAgentStatus};
 use crate::termwindow::box_model::*;
 use crate::termwindow::modal::Modal;
 use crate::termwindow::render::corners::{TOP_LEFT_ROUNDED_CORNER, TOP_RIGHT_ROUNDED_CORNER};
@@ -81,7 +81,7 @@ fn snapshot_rows(filter: InboxFilter) -> (Vec<InboxRow>, AgentCounts, u64) {
     filter.hash(&mut hasher);
     let mut counts = AgentCounts::default();
     let mut rows = Vec::new();
-    for status in crate::cockpit::snapshot() {
+    for status in unterm_services::cockpit::snapshot() {
         counts.record(status.state);
         status.pane_id.hash(&mut hasher);
         status.agent.hash(&mut hasher);

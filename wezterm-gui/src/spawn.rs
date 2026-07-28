@@ -179,7 +179,7 @@ pub async fn spawn_command_internal(
 ///   - the platform has no compiled-in SecretStore backend (e.g.
 ///     Linux without secret-service)
 fn apply_unterm_profile_env(cmd_builder: &mut Option<CommandBuilder>) {
-    let info = crate::server_info::read_current();
+    let info = unterm_services::server_info::read_current();
     let Some(profile_id) = info.profile.as_deref() else {
         return;
     };
@@ -450,7 +450,7 @@ pub(crate) fn read_unterm_proxy_env() -> Option<Vec<(String, String)>> {
     // In auto mode: always run detect() and let it win over stale on-disk URLs.
     // In manual mode: only fall back to detect() when both URL fields are blank.
     let detected = if is_auto || (manual_http.is_none() && manual_socks.is_none()) {
-        crate::system_proxy::detect()
+        unterm_services::system_proxy::detect()
     } else {
         None
     };

@@ -284,11 +284,11 @@ fn default_shell_launch_decision(command_provided: bool) -> Value {
     }
 }
 
-fn instance_lifecycle_snapshot(info: &crate::server_info::InstanceInfo, is_current: bool) -> Value {
+fn instance_lifecycle_snapshot(info: &unterm_services::server_info::InstanceInfo, is_current: bool) -> Value {
     json!({
         "state": "live",
         "liveness_source": "pid",
-        "pid_alive": crate::server_info::pid_alive(info.pid),
+        "pid_alive": unterm_services::server_info::pid_alive(info.pid),
         "is_current": is_current,
         "registry_owner": "server_info",
         "metadata_owner": "product_registry",
@@ -516,17 +516,17 @@ mod engine_neutral_handler_tests {
 
     fn wait_for_verification_passed(
         id: &str,
-    ) -> Result<crate::cockpit::verification::VerificationRecord> {
+    ) -> Result<unterm_services::cockpit::verification::VerificationRecord> {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
         loop {
-            if let Some(record) = crate::cockpit::verification::get(id) {
-                if record.status == crate::cockpit::verification::VerificationStatus::Passed {
+            if let Some(record) = unterm_services::cockpit::verification::get(id) {
+                if record.status == unterm_services::cockpit::verification::VerificationStatus::Passed {
                     return Ok(record);
                 }
                 if matches!(
                     record.status,
-                    crate::cockpit::verification::VerificationStatus::Failed
-                        | crate::cockpit::verification::VerificationStatus::TimedOut
+                    unterm_services::cockpit::verification::VerificationStatus::Failed
+                        | unterm_services::cockpit::verification::VerificationStatus::TimedOut
                 ) {
                     return Err(anyhow!("verification {id} ended as {:?}", record.status));
                 }
@@ -1751,7 +1751,7 @@ mod engine_neutral_handler_tests {
             "UNTERM_FLEETS_PATH",
             temp_root.join("fleets.json").display().to_string(),
         );
-        crate::cockpit::fleet::reset_store_for_tests();
+        unterm_services::cockpit::fleet::reset_store_for_tests();
 
         let run_git = |args: &[&str]| -> Result<()> {
             let out = std::process::Command::new("git")
@@ -1842,9 +1842,9 @@ mod engine_neutral_handler_tests {
         assert_eq!(cleaned["ok"], true);
         assert_eq!(cleaned["id"], fleet["id"]);
         assert!(next_core().get_session(new_pane_id).is_err());
-        assert!(crate::cockpit::fleet::get(fleet["id"].as_str().expect("fleet id")).is_none());
+        assert!(unterm_services::cockpit::fleet::get(fleet["id"].as_str().expect("fleet id")).is_none());
 
-        crate::cockpit::fleet::reset_store_for_tests();
+        unterm_services::cockpit::fleet::reset_store_for_tests();
         std::fs::remove_dir_all(&temp_root).ok();
     }
 
@@ -1908,7 +1908,7 @@ mod engine_neutral_handler_tests {
             "UNTERM_FLEETS_PATH",
             temp_root.join("fleets.json").display().to_string(),
         );
-        crate::cockpit::fleet::reset_store_for_tests();
+        unterm_services::cockpit::fleet::reset_store_for_tests();
 
         let result: Result<(
             serde_json::Value,
@@ -1994,7 +1994,7 @@ mod engine_neutral_handler_tests {
             "review.txt"
         );
 
-        crate::cockpit::fleet::reset_store_for_tests();
+        unterm_services::cockpit::fleet::reset_store_for_tests();
         std::fs::remove_dir_all(&repo).ok();
         std::fs::remove_dir_all(&temp_root).ok();
     }
@@ -2004,7 +2004,7 @@ mod engine_neutral_handler_tests {
         let _guard = env_lock().lock();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
-        crate::cockpit::status::reset_for_tests();
+        unterm_services::cockpit::status::reset_for_tests();
 
         let result: Result<(serde_json::Value, serde_json::Value, usize)> = (|| {
             let handler = McpHandler::new();
@@ -2018,7 +2018,7 @@ mod engine_neutral_handler_tests {
                 }),
             )?;
             let pane_id = created["id"].as_u64().expect("session id") as usize;
-            assert!(crate::cockpit::on_hook_signal(
+            assert!(unterm_services::cockpit::on_hook_signal(
                 pane_id as u64,
                 "codex",
                 "waiting"
@@ -2053,7 +2053,7 @@ mod engine_neutral_handler_tests {
             .unwrap()
             .iter()
             .any(|entry| { entry["pane_id"] == pane_id as u64 && entry["state"] == "waiting" }));
-        crate::cockpit::status::reset_for_tests();
+        unterm_services::cockpit::status::reset_for_tests();
     }
 
     #[test]
@@ -2061,7 +2061,7 @@ mod engine_neutral_handler_tests {
         let _guard = env_lock().lock();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
-        crate::cockpit::status::reset_for_tests();
+        unterm_services::cockpit::status::reset_for_tests();
 
         let result: Result<(serde_json::Value, serde_json::Value, usize)> = (|| {
             let handler = McpHandler::new();
@@ -2109,7 +2109,7 @@ mod engine_neutral_handler_tests {
         assert_eq!(status["agent"]["pane_id"], pane_id as u64);
         assert_eq!(status["agent"]["agent"], "claude");
         assert_eq!(status["agent"]["state"], "waiting");
-        crate::cockpit::status::reset_for_tests();
+        unterm_services::cockpit::status::reset_for_tests();
     }
 
     #[test]
@@ -2117,7 +2117,7 @@ mod engine_neutral_handler_tests {
         let _guard = env_lock().lock();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
-        crate::cockpit::status::reset_for_tests();
+        unterm_services::cockpit::status::reset_for_tests();
 
         let result = {
             let handler = McpHandler::new();
@@ -2140,8 +2140,8 @@ mod engine_neutral_handler_tests {
 
         let err = result.expect_err("stale explicit pane id should be rejected");
         assert!(err.to_string().contains("resolve pane"), "{}", err);
-        assert!(crate::cockpit::snapshot().is_empty());
-        crate::cockpit::status::reset_for_tests();
+        assert!(unterm_services::cockpit::snapshot().is_empty());
+        unterm_services::cockpit::status::reset_for_tests();
     }
 
     #[test]
@@ -2149,7 +2149,7 @@ mod engine_neutral_handler_tests {
         let _guard = env_lock().lock();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
-        crate::cockpit::status::reset_for_tests();
+        unterm_services::cockpit::status::reset_for_tests();
 
         let result: Result<(serde_json::Value, usize)> = (|| {
             let handler = McpHandler::new();
@@ -2185,7 +2185,7 @@ mod engine_neutral_handler_tests {
         assert_eq!(signal["pane_id"], pane_id as u64);
         assert_eq!(signal["agent"], "codex");
         assert_eq!(signal["event"], "working");
-        crate::cockpit::status::reset_for_tests();
+        unterm_services::cockpit::status::reset_for_tests();
     }
 
     #[test]
@@ -2193,7 +2193,7 @@ mod engine_neutral_handler_tests {
         let _guard = env_lock().lock();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
-        crate::cockpit::status::reset_for_tests();
+        unterm_services::cockpit::status::reset_for_tests();
 
         let result: Result<(serde_json::Value, usize)> = (|| {
             let handler = McpHandler::new();
@@ -2243,7 +2243,7 @@ mod engine_neutral_handler_tests {
         assert_eq!(item["session"]["is_active"], true);
         assert_eq!(item["window_id"], 0);
         assert_eq!(item["tab_id"], pane_id as u64);
-        crate::cockpit::status::reset_for_tests();
+        unterm_services::cockpit::status::reset_for_tests();
     }
 
     #[test]
@@ -2371,26 +2371,26 @@ mod engine_neutral_handler_tests {
                 }),
             )?;
             let pane_id = created["id"].as_u64().expect("session id") as usize;
-            crate::ghost_text::observe(
+            unterm_services::ghost_text::observe(
                 pane_id as u64,
-                crate::ghost_text::InputEvent::Cancel,
+                unterm_services::ghost_text::InputEvent::Cancel,
                 &[],
             );
             for ch in "git status".chars() {
-                crate::ghost_text::observe(
+                unterm_services::ghost_text::observe(
                     pane_id as u64,
-                    crate::ghost_text::InputEvent::Char(ch),
+                    unterm_services::ghost_text::InputEvent::Char(ch),
                     &[],
                 );
             }
-            crate::ghost_text::observe(
+            unterm_services::ghost_text::observe(
                 pane_id as u64,
-                crate::ghost_text::InputEvent::Enter,
+                unterm_services::ghost_text::InputEvent::Enter,
                 &[],
             );
-            crate::ghost_text::observe(
+            unterm_services::ghost_text::observe(
                 pane_id as u64,
-                crate::ghost_text::InputEvent::Char('g'),
+                unterm_services::ghost_text::InputEvent::Char('g'),
                 &[],
             );
             let debug = handler.handle(&ctx, "ghost.debug", &json!({ "pane_id": pane_id }))?;
@@ -3455,7 +3455,7 @@ struct EngineFleetDriver {
     engine: CurrentTerminalEngine,
 }
 
-impl crate::cockpit::fleet::FleetPaneSpawner for EngineFleetDriver {
+impl unterm_services::cockpit::fleet::FleetPaneSpawner for EngineFleetDriver {
     fn spawn_member(&mut self, cwd: &std::path::Path, command: &str) -> Result<u64> {
         let env = crate::spawn::read_unterm_proxy_env().unwrap_or_default();
         let launch_policy = launch_policy_for_env(&env, &[], None);
@@ -3474,7 +3474,7 @@ impl crate::cockpit::fleet::FleetPaneSpawner for EngineFleetDriver {
     }
 }
 
-impl crate::cockpit::fleet::FleetPaneRemover for EngineFleetDriver {
+impl unterm_services::cockpit::fleet::FleetPaneRemover for EngineFleetDriver {
     fn remove_member(&mut self, pane_id: u64) -> Result<()> {
         self.engine.destroy_session(pane_id as usize)
     }
@@ -4401,11 +4401,11 @@ impl McpHandler {
             "cockpit.inbox" => self.cockpit_inbox(),
             // Cockpit — fleets and review.
             "fleet.launch" => self.fleet_launch(params),
-            "fleet.list" => Ok(json!({ "fleets": crate::cockpit::review::overview()["fleets"] })),
+            "fleet.list" => Ok(json!({ "fleets": unterm_services::cockpit::review::overview()["fleets"] })),
             "fleet.clean" => self.fleet_clean(params),
             "fleet.retry" => self.fleet_retry(params),
-            "review.list" => Ok(crate::cockpit::verification::enrich_overview(
-                crate::cockpit::observability::enrich_overview(crate::cockpit::review::overview()),
+            "review.list" => Ok(unterm_services::cockpit::verification::enrich_overview(
+                unterm_services::cockpit::observability::enrich_overview(unterm_services::cockpit::review::overview()),
             )),
             "review.diff" => self.review_diff(params),
             "review.verify" => self.review_verify(params),
@@ -4606,7 +4606,7 @@ impl McpHandler {
     }
 
     fn server_info(&self) -> Result<Value> {
-        let instance = crate::server_info::read_current();
+        let instance = unterm_services::server_info::read_current();
         Ok(json!({
             "name": "Unterm MCP Server",
             "version": "2.0.0",
@@ -4622,7 +4622,7 @@ impl McpHandler {
         let engine = self.engine();
         let engine_health = engine.health()?;
         let config = config::configuration();
-        let instance = crate::server_info::read_current();
+        let instance = unterm_services::server_info::read_current();
         let status = engine_health.status.clone();
         let engine_name = engine_health.engine.clone();
         let engine_ready = engine_health.ready;
@@ -4682,8 +4682,8 @@ impl McpHandler {
     /// instances, pick one by cwd / title / start order, then connect
     /// to that instance's `mcp_port` with its `auth_token` directly.
     fn instance_list(&self) -> Result<Value> {
-        let current_id = crate::server_info::current_instance_id();
-        let registry = crate::server_info::instance_registry_snapshot();
+        let current_id = unterm_services::server_info::current_instance_id();
+        let registry = unterm_services::server_info::instance_registry_snapshot();
         let registry_summary = json!({
             "owner": "server_info",
             "active_source": registry.active_source,
@@ -4726,7 +4726,7 @@ impl McpHandler {
     /// Helpful for an agent to confirm which instance it's actually
     /// connected to vs. what `instance.list` says.
     fn instance_info(&self) -> Result<Value> {
-        let i = crate::server_info::read_current();
+        let i = unterm_services::server_info::read_current();
         let lifecycle = instance_lifecycle_snapshot(&i, true);
         Ok(json!({
             "id": i.id,
@@ -4753,7 +4753,7 @@ impl McpHandler {
     /// This intentionally does not close windows; native close remains
     /// host-owned until next-core owns its own window lifecycle.
     fn instance_lifecycle(&self) -> Result<Value> {
-        let plan = crate::server_info::instance_lifecycle_plan();
+        let plan = unterm_services::server_info::instance_lifecycle_plan();
         Ok(json!({
             "owner": "server_info",
             "operation": "dry_run",
@@ -4780,7 +4780,7 @@ impl McpHandler {
                 "ok": true,
                 "operation": "dry_run",
                 "requires_confirm": "unregister-current-instance",
-                "plan": crate::server_info::instance_lifecycle_plan().shutdown,
+                "plan": unterm_services::server_info::instance_lifecycle_plan().shutdown,
                 "native_window": {
                     "owner": "host_gui",
                     "lifecycle": "host_owned",
@@ -4795,7 +4795,7 @@ impl McpHandler {
             ));
         }
 
-        let result = crate::server_info::unregister_current_instance();
+        let result = unterm_services::server_info::unregister_current_instance();
         Ok(json!({
             "ok": result.errors.is_empty(),
             "operation": "apply",
@@ -4914,7 +4914,7 @@ impl McpHandler {
     /// to). Agents use this to know "what identity will my next
     /// command run under?" before triggering destructive ops.
     fn profile_current(&self) -> Result<Value> {
-        let info = crate::server_info::read_current();
+        let info = unterm_services::server_info::read_current();
         Ok(json!({
             "instance": info.id,
             "profile": info.profile,
@@ -5652,7 +5652,7 @@ impl McpHandler {
 
     // --- Cockpit: agent state per pane ---
 
-    fn cockpit_status_json(s: &crate::cockpit::PaneAgentStatus) -> Value {
+    fn cockpit_status_json(s: &unterm_services::cockpit::PaneAgentStatus) -> Value {
         json!({
             "pane_id": s.pane_id,
             "agent": s.agent,
@@ -5675,10 +5675,10 @@ impl McpHandler {
         if explicit_pane.is_some() {
             let pane_id = Self::pane_id_from_params(params)? as u64;
             let status =
-                crate::cockpit::status_for_pane(pane_id).map(|s| Self::cockpit_status_json(&s));
+                unterm_services::cockpit::status_for_pane(pane_id).map(|s| Self::cockpit_status_json(&s));
             return Ok(json!({ "enabled": true, "agent": status }));
         }
-        let agents: Vec<Value> = crate::cockpit::snapshot()
+        let agents: Vec<Value> = unterm_services::cockpit::snapshot()
             .iter()
             .map(Self::cockpit_status_json)
             .collect();
@@ -5710,7 +5710,7 @@ impl McpHandler {
                     .map(|a| a.name.clone())
             })
             .unwrap_or_else(|| "agent".to_string());
-        if !crate::cockpit::on_hook_signal(pane_id, &agent, event) {
+        if !unterm_services::cockpit::on_hook_signal(pane_id, &agent, event) {
             anyhow::bail!("Invalid 'event' {event:?}: expected working|waiting|done|idle");
         }
         self.audit(
@@ -5735,7 +5735,7 @@ impl McpHandler {
             .map(|session| (session.id as u64, session))
             .collect();
         let pane_locations = engine.pane_locations().unwrap_or_default();
-        let items: Vec<Value> = crate::cockpit::snapshot()
+        let items: Vec<Value> = unterm_services::cockpit::snapshot()
             .iter()
             .map(|s| {
                 let mut v = Self::cockpit_status_json(s);
@@ -5801,7 +5801,7 @@ impl McpHandler {
             .filter(|v: &Vec<String>| !v.is_empty())
             .ok_or_else(|| anyhow!("Missing 'agents' (e.g. [\"claude\",\"claude\"])"))?;
         let mut spawner = EngineFleetDriver { engine };
-        let fleet = crate::cockpit::fleet::launch_with_spawner(&cwd, task, &agents, &mut spawner)?;
+        let fleet = unterm_services::cockpit::fleet::launch_with_spawner(&cwd, task, &agents, &mut spawner)?;
         self.audit(
             "fleet.launch",
             None,
@@ -5821,7 +5821,7 @@ impl McpHandler {
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
         let mut remover = self.engine_fleet_driver();
-        crate::cockpit::fleet::clean_with_remover(id, force, &mut remover)?;
+        unterm_services::cockpit::fleet::clean_with_remover(id, force, &mut remover)?;
         self.audit("fleet.clean", None, &format!("id={id} force={force}"));
         Ok(json!({ "ok": true, "id": id }))
     }
@@ -5837,7 +5837,7 @@ impl McpHandler {
             .ok_or_else(|| anyhow!("Missing 'member'"))?;
         let mut spawner = self.engine_fleet_driver();
         let mut remover = self.engine_fleet_driver();
-        let retried = crate::cockpit::fleet::retry_member_with_driver(
+        let retried = unterm_services::cockpit::fleet::retry_member_with_driver(
             fleet_id,
             member,
             &mut spawner,
@@ -5863,7 +5863,7 @@ impl McpHandler {
         let command = params.get("command").and_then(|v| v.as_str());
         let timeout = params.get("timeout_secs").and_then(|v| v.as_u64());
         let record =
-            crate::cockpit::verification::verify_member(fleet_id, member, command, timeout)?;
+            unterm_services::cockpit::verification::verify_member(fleet_id, member, command, timeout)?;
         self.audit(
             "review.verify",
             None,
@@ -5882,10 +5882,10 @@ impl McpHandler {
                 .get("member")
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| anyhow!("Missing 'member'"))?;
-            let fleet = crate::cockpit::fleet::get(fleet_id)
+            let fleet = unterm_services::cockpit::fleet::get(fleet_id)
                 .ok_or_else(|| anyhow!("no fleet {fleet_id:?}"))?;
-            let m = crate::cockpit::fleet::resolve_member(&fleet, member)?;
-            return crate::cockpit::review::diff(&m.worktree, &m.checkpoint);
+            let m = unterm_services::cockpit::fleet::resolve_member(&fleet, member)?;
+            return unterm_services::cockpit::review::diff(&m.worktree, &m.checkpoint);
         }
         let repo = params
             .get("repo")
@@ -5895,7 +5895,7 @@ impl McpHandler {
             .get("from")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing 'from' (checkpoint sha)"))?;
-        crate::cockpit::review::diff(std::path::Path::new(repo), from)
+        unterm_services::cockpit::review::diff(std::path::Path::new(repo), from)
     }
 
     fn review_rollback(&self, params: &Value) -> Result<Value> {
@@ -5907,7 +5907,7 @@ impl McpHandler {
             .get("sha")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing 'sha'"))?;
-        crate::cockpit::review::rollback(std::path::Path::new(repo), sha)?;
+        unterm_services::cockpit::review::rollback(std::path::Path::new(repo), sha)?;
         self.audit("review.rollback", None, &format!("repo={repo} sha={sha}"));
         Ok(json!({ "ok": true, "repo": repo, "sha": sha }))
     }
@@ -5925,7 +5925,7 @@ impl McpHandler {
             .get("force")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
-        let out = crate::cockpit::review::merge_member_with_policy(fleet_id, member, force)?;
+        let out = unterm_services::cockpit::review::merge_member_with_policy(fleet_id, member, force)?;
         self.audit(
             "review.merge",
             None,
@@ -5943,7 +5943,7 @@ impl McpHandler {
             .get("member")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing 'member'"))?;
-        let out = crate::cockpit::review::discard_member(fleet_id, member)?;
+        let out = unterm_services::cockpit::review::discard_member(fleet_id, member)?;
         self.audit(
             "review.discard",
             None,
@@ -5974,7 +5974,7 @@ impl McpHandler {
             .or_else(|| params.get("pane_id"))
             .and_then(|v| v.as_u64())
             .ok_or_else(|| anyhow!("Missing 'id' / 'pane_id' parameter"))?;
-        match crate::ghost_text::debug_snapshot(pane_id) {
+        match unterm_services::ghost_text::debug_snapshot(pane_id) {
             Some(snap) => Ok(serde_json::to_value(snap)?),
             None => Ok(json!({"empty": true, "pane_id": pane_id})),
         }
@@ -6850,8 +6850,8 @@ impl McpHandler {
                 "secret_set": !settings.clash_secret.is_empty(),
             }));
         };
-        let version = crate::clash_api::version(&ep).unwrap_or_default();
-        let proxies = match crate::clash_api::proxies(&ep) {
+        let version = unterm_services::clash_api::version(&ep).unwrap_or_default();
+        let proxies = match unterm_services::clash_api::proxies(&ep) {
             Ok(p) => p,
             Err(e) => return Ok(json!({ "connected": false, "error": e.to_string() })),
         };
@@ -6921,7 +6921,7 @@ impl McpHandler {
         let settings = mcp_state().lock().proxy.clone();
         let ep = resolve_clash_endpoint(&settings)
             .ok_or_else(|| anyhow::anyhow!("no Clash/mihomo controller found"))?;
-        crate::clash_api::select(&ep, group, name)?;
+        unterm_services::clash_api::select(&ep, group, name)?;
         Ok(json!({ "group": group, "now": name }))
     }
 
@@ -7057,7 +7057,7 @@ impl McpHandler {
             let manual_http = settings.http_proxy.clone().filter(|s| !s.is_empty());
             let manual_socks = settings.socks_proxy.clone().filter(|s| !s.is_empty());
             let detected = if manual_http.is_none() && manual_socks.is_none() {
-                crate::system_proxy::detect()
+                unterm_services::system_proxy::detect()
             } else {
                 None
             };
@@ -8574,7 +8574,7 @@ fn load_proxy_settings() -> ProxySettings {
     // reflects what's actually reachable right now.
     let is_auto = settings.mode != "manual";
     if is_auto {
-        if let Some(found) = crate::system_proxy::detect() {
+        if let Some(found) = unterm_services::system_proxy::detect() {
             settings.http_proxy = found.primary_http().map(|s| s.to_string());
             settings.socks_proxy = found.socks.clone();
             if !settings.no_proxy.is_empty() && found.no_proxy.as_deref().unwrap_or("").is_empty() {
@@ -8607,7 +8607,7 @@ fn probe_proxy_health(settings: &ProxySettings) -> Value {
         });
     }
     // 2. Otherwise rely on the auto-detect path.
-    match crate::system_proxy::detect() {
+    match unterm_services::system_proxy::detect() {
         Some(found) => json!({
             "source": found.source,
             "url": found.primary_http(),
@@ -8822,15 +8822,15 @@ fn node_health(obj: &Value) -> (bool, Option<u64>) {
 /// Resolve the Clash/mihomo controller to talk to: the user's manual override
 /// (if set and reachable) wins, otherwise fall back to auto-discovery. The
 /// manual override is the escape hatch for Windows / non-standard setups.
-fn resolve_clash_endpoint(settings: &ProxySettings) -> Option<crate::clash_api::ClashEndpoint> {
+fn resolve_clash_endpoint(settings: &ProxySettings) -> Option<unterm_services::clash_api::ClashEndpoint> {
     if !settings.clash_controller.trim().is_empty() {
         let ep =
-            crate::clash_api::manual_endpoint(&settings.clash_controller, &settings.clash_secret);
-        if crate::clash_api::version(&ep).is_ok() {
+            unterm_services::clash_api::manual_endpoint(&settings.clash_controller, &settings.clash_secret);
+        if unterm_services::clash_api::version(&ep).is_ok() {
             return Some(ep);
         }
     }
-    crate::clash_api::discover_cached()
+    unterm_services::clash_api::discover_cached()
 }
 
 /// Consecutive failed health-check ticks for the rotation's *current* node.
@@ -8876,12 +8876,12 @@ fn rotation_reset_failure() {
 /// node fails both attempts within the same tick; a merely slow one usually
 /// passes on the retry.
 fn clash_node_alive(
-    ep: &crate::clash_api::ClashEndpoint,
+    ep: &unterm_services::clash_api::ClashEndpoint,
     name: &str,
     url: &str,
     timeout_ms: u64,
 ) -> bool {
-    (0..2).any(|_| matches!(crate::clash_api::delay(ep, name, url, timeout_ms), Ok(d) if d > 0))
+    (0..2).any(|_| matches!(unterm_services::clash_api::delay(ep, name, url, timeout_ms), Ok(d) if d > 0))
 }
 
 /// One clash-mode failover cycle: if the group's current node is unreachable,
@@ -8894,10 +8894,10 @@ fn clash_rotation_tick(settings: &ProxySettings) -> Option<String> {
         return None;
     }
     let ep = resolve_clash_endpoint(settings)?;
-    let url = crate::clash_api::DELAY_TEST_URL;
+    let url = unterm_services::clash_api::DELAY_TEST_URL;
 
     // Current selection of the group.
-    let proxies = crate::clash_api::proxies(&ep).ok()?;
+    let proxies = unterm_services::clash_api::proxies(&ep).ok()?;
     let now = proxies
         .get(group)
         .and_then(|g| g.get("now"))
@@ -8932,7 +8932,7 @@ fn clash_rotation_tick(settings: &ProxySettings) -> Option<String> {
     // Pick the fastest live node in the pool.
     let mut best: Option<(String, u64)> = None;
     for name in pool {
-        if let Ok(d) = crate::clash_api::delay(&ep, name, url, PROBE_TIMEOUT_MS) {
+        if let Ok(d) = unterm_services::clash_api::delay(&ep, name, url, PROBE_TIMEOUT_MS) {
             if d > 0 && best.as_ref().map_or(true, |(_, b)| d < *b) {
                 best = Some((name.clone(), d));
             }
@@ -8943,7 +8943,7 @@ fn clash_rotation_tick(settings: &ProxySettings) -> Option<String> {
         rotation_reset_failure(); // current is still the fastest live node
         return None;
     }
-    crate::clash_api::select(&ep, group, &pick).ok()?;
+    unterm_services::clash_api::select(&ep, group, &pick).ok()?;
     rotation_reset_failure();
     log::info!("proxy auto-rotation (clash): group '{group}' → '{pick}' ({ms}ms)");
     Some(pick)

@@ -6,7 +6,7 @@
 //! the failure inline; the actual worktree + tab spawning runs on a
 //! worker thread because the mux spawn resolves on the main thread.
 
-use crate::cockpit::fleet;
+use unterm_services::cockpit::fleet;
 use crate::termwindow::box_model::*;
 use crate::termwindow::modal::Modal;
 use crate::termwindow::render::corners::{TOP_LEFT_ROUNDED_CORNER, TOP_RIGHT_ROUNDED_CORNER};
@@ -135,7 +135,7 @@ impl FleetPalette {
         // the mux spawn future resolves here, and launch() blocks on it.
         std::thread::Builder::new()
             .name("fleet-launch".into())
-            .spawn(move || match fleet::launch(&base, &task, &preset.agents) {
+            .spawn(move || match crate::fleet_spawner::launch(&base, &task, &preset.agents) {
                 Ok(f) => log::info!("fleet {} launched with {} members", f.id, f.members.len()),
                 Err(err) => log::error!("fleet launch failed: {err:#}"),
             })

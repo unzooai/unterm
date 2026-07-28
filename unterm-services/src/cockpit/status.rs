@@ -465,7 +465,8 @@ pub fn summary() -> (usize, usize) {
     (working, waiting)
 }
 
-#[cfg(test)]
+/// Clear the status table; see the note on `fleet::reset_store_for_tests`.
+#[cfg(any(test, feature = "test-support"))]
 pub fn reset_for_tests() {
     registry().lock().clear();
 }

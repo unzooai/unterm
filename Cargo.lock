@@ -6646,6 +6646,7 @@ dependencies = [
  "unterm-agents",
  "unterm-engine",
  "unterm-profile",
+ "unterm-services",
  "url",
  "uuid",
  "walkdir",
@@ -6820,6 +6821,24 @@ dependencies = [
  "pollster",
  "unterm-engine",
  "wgpu",
+]
+
+[[package]]
+name = "unterm-services"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "config",
+ "dirs-next",
+ "log",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "uuid",
+ "winapi",
+ "winreg",
 ]
 
 [[package]]

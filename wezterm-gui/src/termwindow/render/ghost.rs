@@ -35,7 +35,7 @@ impl crate::TermWindow {
         };
 
         let pane_id = pos.pane.pane_id() as u64;
-        let Some((prefix, ghost)) = crate::ghost_text::current_ghost(pane_id) else {
+        let Some((prefix, ghost)) = unterm_services::ghost_text::current_ghost(pane_id) else {
             return Ok(());
         };
         if ghost.is_empty() {

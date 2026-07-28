@@ -161,7 +161,7 @@ struct RowInfo {
     /// New output since the tab was last focused — drives the unread dot.
     has_unseen: bool,
     /// Cockpit agent state aggregated across the tab's panes.
-    agent_state: Option<crate::cockpit::AgentState>,
+    agent_state: Option<unterm_services::cockpit::AgentState>,
     /// OSC 9;4 progress state (running / error), when the program reports it.
     progress: Progress,
 }
@@ -955,7 +955,7 @@ impl crate::TermWindow {
                             .iter()
                             .map(|p| p.pane.pane_id() as u64)
                             .collect();
-                        crate::cockpit::tab_state(&pane_ids)
+                        unterm_services::cockpit::tab_state(&pane_ids)
                     };
                     RowInfo {
                         tab_idx: *idx,
@@ -1531,20 +1531,20 @@ impl crate::TermWindow {
                 // waiting for the user must be visible from any tab. Active
                 // row still shows waiting (the pane may be scrolled away).
                 let cockpit_indicator: Option<(&str, LinearRgba)> = match row.agent_state {
-                    Some(crate::cockpit::AgentState::WaitingForUser) => Some((
+                    Some(unterm_services::cockpit::AgentState::WaitingForUser) => Some((
                         "!",
                         palette
                             .resolve_fg(ColorAttribute::PaletteIndex(11))
                             .to_linear(),
                     )),
-                    Some(crate::cockpit::AgentState::Working) if !row.active => Some((
+                    Some(unterm_services::cockpit::AgentState::Working) if !row.active => Some((
                         "●",
                         palette
                             .resolve_fg(ColorAttribute::PaletteIndex(12))
                             .to_linear()
                             .mul_alpha(breath_alpha),
                     )),
-                    Some(crate::cockpit::AgentState::Done) if !row.active => Some((
+                    Some(unterm_services::cockpit::AgentState::Done) if !row.active => Some((
                         "✓",
                         palette
                             .resolve_fg(ColorAttribute::PaletteIndex(10))

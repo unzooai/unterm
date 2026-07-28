@@ -1552,7 +1552,7 @@ impl TermWindow {
                     alert: Alert::WindowTitleChanged(title),
                     pane_id,
                 } => {
-                    crate::cockpit::on_title_change(pane_id as u64, &title);
+                    unterm_services::cockpit::on_title_change(pane_id as u64, &title);
                     self.update_title();
                 }
                 MuxNotification::Alert {
@@ -1560,7 +1560,7 @@ impl TermWindow {
                     pane_id,
                 } => {
                     if let Some(title) = &title {
-                        crate::cockpit::on_title_change(pane_id as u64, title);
+                        unterm_services::cockpit::on_title_change(pane_id as u64, title);
                     }
                     self.update_title();
                 }
@@ -1568,7 +1568,7 @@ impl TermWindow {
                     alert: Alert::Progress(progress),
                     pane_id,
                 } => {
-                    crate::cockpit::on_progress(
+                    unterm_services::cockpit::on_progress(
                         pane_id as u64,
                         !matches!(progress, wezterm_term::Progress::None),
                     );
@@ -1611,7 +1611,7 @@ impl TermWindow {
 
                     log::trace!("Ding! (this is the bell) in pane {}", pane_id);
                     self.emit_window_event("bell", Some(pane_id));
-                    crate::cockpit::on_bell(pane_id as u64);
+                    unterm_services::cockpit::on_bell(pane_id as u64);
 
                     let mut per_pane = self.pane_state(pane_id);
                     per_pane.bell_start.replace(Instant::now());
@@ -1621,7 +1621,7 @@ impl TermWindow {
                     alert: Alert::ToastNotification { title, body, .. },
                     pane_id,
                 } => {
-                    crate::cockpit::on_notification(pane_id as u64, title.as_deref(), &body);
+                    unterm_services::cockpit::on_notification(pane_id as u64, title.as_deref(), &body);
                 }
                 MuxNotification::TabAddedToWindow {
                     window_id: _,
@@ -1716,14 +1716,14 @@ impl TermWindow {
                     let mux = Mux::get();
                     let panes = mux.iter_panes();
                     let ids: Vec<u64> = panes.iter().map(|p| p.pane_id() as u64).collect();
-                    crate::cockpit::poll(&ids, |id| {
+                    unterm_services::cockpit::poll(&ids, |id| {
                         crate::mcp::handler::agent_and_cwd_for_pane(id).0
                     });
-                    crate::cockpit::status::retain_panes(&ids.iter().copied().collect());
+                    unterm_services::cockpit::status::retain_panes(&ids.iter().copied().collect());
                     // Layer-4 screen-text heuristics for tracked panes
                     // that have no OSC/hook signal (e.g. Aider). Reads
                     // only the last 3 viewport lines of agent panes.
-                    for status in crate::cockpit::snapshot() {
+                    for status in unterm_services::cockpit::snapshot() {
                         if let Some(pane) = mux.get_pane(status.pane_id as mux::pane::PaneId) {
                             let dims = pane.get_dimensions();
                             let last = dims.physical_top + dims.viewport_rows as isize;
@@ -1731,13 +1731,13 @@ impl TermWindow {
                             let (_first, lines) = pane.get_lines(start..last);
                             let tail: Vec<String> =
                                 lines.iter().map(|l| l.as_str().to_string()).collect();
-                            crate::cockpit::status::on_screen_tail(status.pane_id, &tail);
+                            unterm_services::cockpit::status::on_screen_tail(status.pane_id, &tail);
                         }
                     }
                     // Auto-checkpoint: an agent just started working in
                     // these panes — snapshot their repos off-thread.
-                    for pane_id in crate::cockpit::status::take_checkpoint_requests() {
-                        let Some(status) = crate::cockpit::status_for_pane(pane_id) else {
+                    for pane_id in unterm_services::cockpit::status::take_checkpoint_requests() {
+                        let Some(status) = unterm_services::cockpit::status_for_pane(pane_id) else {
                             continue;
                         };
                         // Fleet worktrees already carry their start commit
@@ -1756,7 +1756,7 @@ impl TermWindow {
                         std::thread::Builder::new()
                             .name("cockpit-checkpoint".into())
                             .spawn(move || {
-                                match crate::cockpit::review::record_auto_checkpoint(
+                                match unterm_services::cockpit::review::record_auto_checkpoint(
                                     &cwd, &agent, pane_id,
                                 ) {
                                     Ok(Some(sha)) => log::info!(
@@ -2473,7 +2473,7 @@ impl TermWindow {
                     .map(|p| p.display().to_string())
                     .unwrap_or_else(|_| c.to_string())
             });
-        let _ = crate::server_info::set_cwd(cwd_for_storage.clone());
+        let _ = unterm_services::server_info::set_cwd(cwd_for_storage.clone());
 
         let border = self.get_os_border();
         let tab_bar_height = self.tab_bar_pixel_height().unwrap_or(0.);
@@ -2568,7 +2568,7 @@ impl TermWindow {
         //
         // Lua `format-window-title` callbacks still win and bypass
         // all of this — power users can format however they like.
-        let info = crate::server_info::read_current();
+        let info = unterm_services::server_info::read_current();
         let user_title_override = info.title.clone().filter(|t| !t.is_empty());
         let instance_id_segment = Some(info.id).filter(|s| !s.is_empty());
 
@@ -3814,7 +3814,7 @@ impl TermWindow {
     }
 
     pub(crate) fn open_web_settings_fragment(&mut self, fragment: Option<&str>) {
-        let info = crate::server_info::read_current();
+        let info = unterm_services::server_info::read_current();
         if info.http_port == 0 {
             log::warn!("web settings: http_port not yet bound; cannot open browser");
             return;
@@ -3885,8 +3885,8 @@ impl TermWindow {
                     .unwrap_or_else(|_| c.as_str().to_string())
             });
         let dims = pane.get_dimensions();
-        let recent_commits = crate::ghost_text::recent_global_commits(10);
-        let top_commits = crate::ghost_text::commit_frequency(5);
+        let recent_commits = unterm_services::ghost_text::recent_global_commits(10);
+        let top_commits = unterm_services::ghost_text::commit_frequency(5);
         let activity = crate::mcp::handler::recent_mcp_input_activity();
         let mcp = crate::mcp::handler::insights_mcp_snapshot(8);
 
@@ -4827,16 +4827,16 @@ impl TermWindow {
             }
             AcceptGhostText => {
                 let pane_id = pane.pane_id() as u64;
-                if !crate::ghost_text::has_pending_ghost(pane_id) {
+                if !unterm_services::ghost_text::has_pending_ghost(pane_id) {
                     return Ok(PerformAssignmentResult::Unhandled);
                 }
-                let Some(continuation) = crate::ghost_text::accept(pane_id) else {
+                let Some(continuation) = unterm_services::ghost_text::accept(pane_id) else {
                     return Ok(PerformAssignmentResult::Unhandled);
                 };
                 if let Err(e) = pane.writer().write_all(continuation.as_bytes()) {
                     log::error!("AcceptGhostText write_all failed: {e:#}");
                 } else {
-                    crate::cockpit::on_user_input(pane_id);
+                    unterm_services::cockpit::on_user_input(pane_id);
                     self.maybe_scroll_to_bottom_for_input(pane);
                 }
             }

@@ -193,8 +193,8 @@ fn compute_tab_title(tab: &TabInformation, config: &ConfigHandle) -> TitleText {
                             })
                             .unwrap_or_default()
                     };
-                    if let Some(state) = crate::cockpit::tab_state(&pane_ids) {
-                        use crate::cockpit::AgentState;
+                    if let Some(state) = unterm_services::cockpit::tab_state(&pane_ids) {
+                        use unterm_services::cockpit::AgentState;
                         let color = match state {
                             AgentState::WaitingForUser => AnsiColor::Yellow,
                             AgentState::Working => AnsiColor::Blue,

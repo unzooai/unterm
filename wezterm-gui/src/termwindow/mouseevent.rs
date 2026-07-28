@@ -1489,7 +1489,7 @@ impl super::TermWindow {
             self.toast_status_message(&crate::i18n::t("profile.toast.no_profiles"));
             return;
         }
-        let current = crate::server_info::read_current().profile;
+        let current = unterm_services::server_info::read_current().profile;
         let next = next_profile_in_cycle(&ordered, current.as_deref());
 
         // Find the `unterm` binary — alongside this binary (release

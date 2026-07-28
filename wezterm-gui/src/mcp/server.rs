@@ -1,12 +1,12 @@
 //! TCP server for the Unterm MCP JSON-RPC protocol.
 //!
 //! Binds 127.0.0.1 with a preferred-port-then-fallback strategy (see
-//! `crate::server_info`), authenticates clients with the UUID token written
+//! `unterm_services::server_info`), authenticates clients with the UUID token written
 //! to `~/.unterm/server.json`, and dispatches each request to the handler
 //! module.
 
 use super::handler::{ConnectionContext, McpHandler};
-use crate::server_info::{self, MCP_PREFERRED_PORT, SERVER_BIND};
+use unterm_services::server_info::{self, MCP_PREFERRED_PORT, SERVER_BIND};
 use anyhow::Result;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};

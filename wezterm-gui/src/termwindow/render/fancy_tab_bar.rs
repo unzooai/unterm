@@ -609,7 +609,7 @@ impl crate::TermWindow {
             // blocked agent is visible from any tab. Click opens the
             // Inbox palette.
             if self.config.cockpit_enabled {
-                let (working, waiting) = crate::cockpit::summary();
+                let (working, waiting) = unterm_services::cockpit::summary();
                 if working + waiting > 0 {
                     // Codicons (same family the quick-action buttons use, so
                     // the glyphs are guaranteed present): pulse = working,
