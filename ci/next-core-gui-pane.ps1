@@ -115,6 +115,27 @@ $Suites = @(
         )
     },
     @{
+        # The split tree and the geometry it produces -- the foundation for
+        # owning tab layout rather than borrowing mux's.
+        Name = "pane layout"
+        Package = "unterm-engine"
+        Filter = "next_core::layout::tests::"
+        ExpectedCount = 14
+        RequiredTests = @(
+            "next_core::layout::tests::a_horizontal_split_leaves_a_cell_for_the_divider",
+            "next_core::layout::tests::a_vertical_split_divides_height_instead",
+            "next_core::layout::tests::nested_splits_stay_inside_their_parent",
+            "next_core::layout::tests::closing_a_pane_gives_its_space_to_its_sibling",
+            "next_core::layout::tests::closing_an_inner_pane_promotes_the_right_subtree",
+            "next_core::layout::tests::closing_the_last_pane_empties_the_layout",
+            "next_core::layout::tests::closing_panes_one_by_one_ends_empty",
+            "next_core::layout::tests::ratios_are_clamped_so_neither_side_disappears",
+            "next_core::layout::tests::a_tab_too_small_to_split_still_gives_every_pane_a_cell",
+            "next_core::layout::tests::resizing_a_split_moves_the_divider_and_survives_a_tab_resize",
+            "next_core::layout::tests::every_pane_is_positioned_exactly_once"
+        )
+    },
+    @{
         Name = "mouse encoding"
         Package = "unterm-engine"
         Filter = "next_core::mouse_encoding::tests::"

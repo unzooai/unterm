@@ -30,6 +30,7 @@ pub mod font_discovery;
 pub mod font_raster;
 pub mod font_shaper;
 pub mod key_encoding;
+pub mod layout;
 pub mod mouse_encoding;
 mod launch;
 mod lifecycle;
