@@ -34,6 +34,15 @@ pub struct App {
     /// Whether shift is down, which is what separates a scroll from a key the
     /// program should receive.
     shift_held: bool,
+    /// Whether control is down.
+    ctrl_held: bool,
+    /// Where the pointer is, in pixels. Winit reports movement and buttons
+    /// separately, so a click has to be told where it happened.
+    pointer: (f32, f32),
+    /// The selection being dragged out, if one is.
+    drag: Option<crate::select::Drag>,
+    /// The text of the finished selection, kept so a copy key can find it.
+    selected: Option<String>,
     /// The last screen we drew, so a frame is skipped when nothing changed.
     /// A terminal is idle most of the time; redrawing an unchanged screen at
     /// display rate is a fan that never stops.
@@ -83,6 +92,10 @@ impl App {
             colors: colors_from(config),
             shell: shell_from(config),
             shift_held: false,
+            ctrl_held: false,
+            pointer: (0.0, 0.0),
+            drag: None,
+            selected: None,
             state: None,
             drawn_revision: None,
         })
@@ -178,6 +191,73 @@ impl App {
         self.drawn_revision = Some(snapshot.revision);
     }
 
+    /// Which cell the pointer is over, in scrollback coordinates.
+    fn cell_under_pointer(&self) -> unterm_engine::next_core::selection::SelectionPoint {
+        // The viewport's top row, so a selection made while scrolled back stays
+        // on the text it was made on rather than on whatever is there later.
+        let top = self
+            .state
+            .as_ref()
+            .and_then(|live| self.engine.read_styled_screen(live.session_id).ok())
+            .map(|snapshot| snapshot.lines.first().map(|line| line.row).unwrap_or(0))
+            .unwrap_or(0);
+
+        crate::select::cell_at(self.pointer.0, self.pointer.1, self.font.metrics(), top)
+    }
+
+    /// Extract what the current drag covers.
+    fn update_selection(&mut self) {
+        use unterm_engine::next_core::selection::{selected_text, SelectionRow};
+
+        let Some(drag) = self.drag else {
+            return;
+        };
+        let Some(selection) = drag.selection() else {
+            // Still a click, not a selection.
+            return;
+        };
+        let Some(live) = self.state.as_ref() else {
+            return;
+        };
+        let Ok(snapshot) = self.engine.read_styled_screen(live.session_id) else {
+            return;
+        };
+
+        let rows: Vec<SelectionRow> = snapshot
+            .lines
+            .iter()
+            .map(|line| SelectionRow {
+                row: line.row,
+                text: line.cells.iter().map(|cell| cell.ch).collect(),
+                wrapped: line.wrapped,
+            })
+            .collect();
+
+        let text = selected_text(&selection, &rows);
+        if !text.is_empty() {
+            // What was selected, so a copy that comes out wrong can be traced
+            // to the selection rather than to the clipboard.
+            log::debug!("selected {} char(s): {:?}", text.chars().count(), text);
+        }
+        self.selected = (!text.is_empty()).then_some(text);
+    }
+
+    /// Put the selection on the clipboard.
+    ///
+    /// A selection nobody can copy is decoration, and this is the one action
+    /// every terminal user reaches for within a minute of selecting anything.
+    fn copy_selection(&mut self) {
+        let Some(text) = self.selected.clone() else {
+            return;
+        };
+        match arboard::Clipboard::new().and_then(|mut board| board.set_text(text)) {
+            Ok(()) => {}
+            // Worth saying rather than swallowing: a copy that silently does
+            // nothing sends the user hunting through their clipboard manager.
+            Err(err) => log::warn!("could not copy to the clipboard: {err}"),
+        }
+    }
+
     /// Redraw only when the screen actually moved.
     fn needs_redraw(&self) -> bool {
         let Some(live) = self.state.as_ref() else {
@@ -258,6 +338,7 @@ impl ApplicationHandler for App {
 
             WindowEvent::ModifiersChanged(modifiers) => {
                 self.shift_held = modifiers.state().shift_key();
+                self.ctrl_held = modifiers.state().control_key();
             }
 
             WindowEvent::KeyboardInput { event, .. } => {
@@ -268,9 +349,20 @@ impl ApplicationHandler for App {
                     return;
                 };
 
+                use winit::keyboard::{Key, NamedKey};
+
+                // Ctrl+Shift+C copies. Plain Ctrl+C has to stay interrupt, or
+                // a running program can never be stopped.
+                if self.shift_held && self.ctrl_held {
+                    if matches!(&event.logical_key, Key::Character(text) if text.eq_ignore_ascii_case("c"))
+                    {
+                        self.copy_selection();
+                        return;
+                    }
+                }
+
                 // Shift+Page scrolls the viewport; unshifted pages belong to
                 // the program, which is how a pager gets its own keys.
-                use winit::keyboard::{Key, NamedKey};
                 if self.shift_held {
                     let rows = self
                         .engine
@@ -291,6 +383,40 @@ impl ApplicationHandler for App {
 
                 if let Some(text) = encode(&event) {
                     let _ = self.engine.write_input(live.session_id, &text);
+                }
+            }
+
+            WindowEvent::CursorMoved { position, .. } => {
+                self.pointer = (position.x as f32, position.y as f32);
+                if self.drag.is_some() {
+                    let point = self.cell_under_pointer();
+                    if let Some(drag) = self.drag.as_mut() {
+                        drag.extend(point);
+                    }
+                    self.update_selection();
+                }
+            }
+
+            WindowEvent::MouseInput { state, button, .. } => {
+                use winit::event::MouseButton;
+                if button != MouseButton::Left {
+                    return;
+                }
+                match state {
+                    ElementState::Pressed => {
+                        let shape = if self.shift_held {
+                            unterm_engine::next_core::selection::SelectionShape::Block
+                        } else {
+                            unterm_engine::next_core::selection::SelectionShape::Linear
+                        };
+                        self.drag =
+                            Some(crate::select::Drag::start(self.cell_under_pointer(), shape));
+                        self.selected = None;
+                    }
+                    ElementState::Released => {
+                        self.update_selection();
+                        self.drag = None;
+                    }
                 }
             }
 

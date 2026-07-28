@@ -353,6 +353,21 @@ $Suites = @(
         )
     },
     @{
+        # Pixels to cells, and when a drag has actually begun. Both are off by
+        # one cell until someone drags across a line and looks.
+        Name = "selection input"
+        Package = "unterm-app"
+        Filter = "select::tests::"
+        ExpectedCount = 8
+        RequiredTests = @(
+            "select::tests::a_pixel_lands_in_the_cell_that_contains_it",
+            "select::tests::the_row_is_measured_from_the_top_of_the_scrollback",
+            "select::tests::a_position_outside_the_window_does_not_go_negative",
+            "select::tests::a_click_that_never_moves_is_not_a_selection",
+            "select::tests::dragging_backwards_keeps_the_anchor_where_it_started"
+        )
+    },
+    @{
         # Wheel and page arithmetic: all of it wrong by a sign or a factor of
         # three until someone tries it.
         Name = "scroll amounts"

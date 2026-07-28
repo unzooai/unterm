@@ -21,4 +21,5 @@ unterm-engine = { path = "../unterm-engine" }
 unterm-render = { path = "../unterm-render" }
 wgpu.workspace = true
 winit = "0.30"
+arboard = "3"
 pollster = "0.4"

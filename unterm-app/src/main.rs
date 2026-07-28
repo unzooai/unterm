@@ -6,6 +6,7 @@
 
 mod fonts;
 mod scroll;
+mod select;
 mod terminal;
 mod window;
 
