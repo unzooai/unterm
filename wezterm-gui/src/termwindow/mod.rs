@@ -5905,7 +5905,84 @@ impl TermWindow {
                     p.pane = Arc::clone(&overlay.pane);
                 }
             }
+            self.apply_next_core_layout(&mut panes, &tab.get_size());
             panes
+        }
+    }
+
+    /// Re-derive pane geometry through next-core's layout tree.
+    ///
+    /// mux stays the structural authority -- it knows which panes exist -- but
+    /// the rectangles come from next-core, which puts that code on the live
+    /// path before it becomes the only path. The two are pinned to the same
+    /// arithmetic and the round trip is exact, so this is geometrically a
+    /// no-op today; the point is that a divergence shows up here rather than
+    /// after the structural swap, when it would be far harder to attribute.
+    ///
+    /// Leaves `panes` untouched when next-core panes are off, or when the
+    /// arrangement is not one a split tree can express.
+    fn apply_next_core_layout(
+        &self,
+        panes: &mut [mux::tab::PositionedPane],
+        size: &TerminalSize,
+    ) {
+        use unterm_engine::next_core::layout::{Layout, PaneRect, PositionedPane};
+
+        if panes.len() < 2 || !crate::engine::next_core_pane::next_core_panes_enabled() {
+            return;
+        }
+        let adopted: Vec<PositionedPane> = panes
+            .iter()
+            .map(|pos| PositionedPane {
+                pane_id: pos.pane.pane_id() as usize,
+                rect: PaneRect {
+                    left: pos.left,
+                    top: pos.top,
+                    width: pos.width,
+                    height: pos.height,
+                },
+            })
+            .collect();
+        let Some(layout) = Layout::from_positions(&adopted) else {
+            log::debug!("next-core layout could not adopt the tab arrangement; keeping mux's");
+            return;
+        };
+
+        let derived = layout.positions(size.cols as usize, size.rows as usize);
+        let cell_width = self.render_metrics.cell_size.width as usize;
+        let cell_height = self.render_metrics.cell_size.height as usize;
+        for pos in panes.iter_mut() {
+            let Some(rect) = derived
+                .iter()
+                .find(|d| d.pane_id == pos.pane.pane_id() as usize)
+                .map(|d| d.rect)
+            else {
+                // A pane the tree did not place would otherwise keep a stale
+                // rectangle; leaving mux's is the safe reading.
+                continue;
+            };
+            if (pos.left, pos.top, pos.width, pos.height)
+                != (rect.left, rect.top, rect.width, rect.height)
+            {
+                log::debug!(
+                    "next-core layout moved pane {} from {}x{}+{}+{} to {}x{}+{}+{}",
+                    pos.pane.pane_id(),
+                    pos.width,
+                    pos.height,
+                    pos.left,
+                    pos.top,
+                    rect.width,
+                    rect.height,
+                    rect.left,
+                    rect.top
+                );
+            }
+            pos.left = rect.left;
+            pos.top = rect.top;
+            pos.width = rect.width;
+            pos.height = rect.height;
+            pos.pixel_width = rect.width * cell_width;
+            pos.pixel_height = rect.height * cell_height;
         }
     }
 

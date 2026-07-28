@@ -137,6 +137,8 @@ Three defects had to be fixed to get there, all of which only surfaced by runnin
 - `read_render_commit_plan` skips a revision it has already submitted, which is right for damage tracking but leaves a static screen with no geometry at all. The last drawable plan is now replayed so the pane keeps drawing.
 - Text runs pushed a solid quad filling the run's rect in the foreground colour — a leftover from before the textured glyph pass existed. Once the glyph pass worked, that quad painted opaque blocks over every glyph.
 
+Pane geometry comes from next-core's own layout tree: the tab's rectangles are adopted into it and re-derived from it every frame. mux stays the structural authority -- it knows which panes exist -- so this is geometrically a no-op today. The point is that the layout code is load-bearing before it is the only path, and a divergence surfaces as a log line here rather than as a rendering bug after the structural swap. Verified in the GUI with two nested splits: zero adoption failures, zero disagreements.
+
 The pane owns its session's lifetime and destroys it on drop. Because next-core runs its own PTY pump it hands the mux no reader, so the pane carries a change watcher that samples the screen revision and raises `PaneOutput`; without it the GUI would never be told to repaint.
 
 Known gaps at this stage:
