@@ -258,6 +258,31 @@ impl App {
         }
     }
 
+    /// Send the clipboard to the shell.
+    ///
+    /// Through the engine's paste rather than as typed input, because the
+    /// engine knows whether the program asked for bracketed paste. Without the
+    /// brackets a multi-line paste is executed a line at a time -- paste a
+    /// script and you have run it.
+    fn paste_clipboard(&mut self) {
+        let Some(live) = self.state.as_ref() else {
+            return;
+        };
+        let text = match arboard::Clipboard::new().and_then(|mut board| board.get_text()) {
+            Ok(text) => text,
+            Err(err) => {
+                log::warn!("could not read the clipboard: {err}");
+                return;
+            }
+        };
+        if text.is_empty() {
+            return;
+        }
+        if let Err(err) = self.engine.paste_input(live.session_id, &text) {
+            log::warn!("could not paste: {err:#}");
+        }
+    }
+
     /// Redraw only when the screen actually moved.
     fn needs_redraw(&self) -> bool {
         let Some(live) = self.state.as_ref() else {
@@ -357,6 +382,11 @@ impl ApplicationHandler for App {
                     if matches!(&event.logical_key, Key::Character(text) if text.eq_ignore_ascii_case("c"))
                     {
                         self.copy_selection();
+                        return;
+                    }
+                    if matches!(&event.logical_key, Key::Character(text) if text.eq_ignore_ascii_case("v"))
+                    {
+                        self.paste_clipboard();
                         return;
                     }
                 }
