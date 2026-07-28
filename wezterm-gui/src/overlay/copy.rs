@@ -41,7 +41,7 @@ const SEARCH_CHUNK_SIZE: StableRowIndex = 1000;
 /// Localized "Search: " prefix. Rendering and cursor positioning both use
 /// this, and the two must agree on its column width.
 fn search_bar_prefix() -> String {
-    format!("{}: ", crate::i18n::t("search.label"))
+    format!("{}: ", unterm_services::i18n::t("search.label"))
 }
 
 /// Every localized string the search bar can render. TermWindow shapes
@@ -54,12 +54,12 @@ fn search_bar_prefix() -> String {
 pub fn search_bar_prewarm_strings() -> Vec<String> {
     vec![
         search_bar_prefix(),
-        crate::i18n::t("search.placeholder"),
-        crate::i18n::t("search.hint"),
-        crate::i18n::t("search.mode.ignore_case"),
-        crate::i18n::t("search.mode.case_sensitive"),
-        crate::i18n::t("search.mode.regex"),
-        crate::i18n::t("search.searching"),
+        unterm_services::i18n::t("search.placeholder"),
+        unterm_services::i18n::t("search.hint"),
+        unterm_services::i18n::t("search.mode.ignore_case"),
+        unterm_services::i18n::t("search.mode.case_sensitive"),
+        unterm_services::i18n::t("search.mode.regex"),
+        unterm_services::i18n::t("search.searching"),
         "0123456789/".to_string(),
         // Overlay/sidebar glyphs + a CJK sample: warms the fallback fonts for
         // the dir-jump picker (⌕ ▏ …), the directory-tree sidebar header and
@@ -85,7 +85,7 @@ fn render_search_bar(renderer: &CopyRenderable, line: &mut Line, cols: usize) {
     let prefix = search_bar_prefix();
     let pattern = renderer.get_pattern();
     let left = if pattern.is_empty() {
-        let placeholder = crate::i18n::t("search.placeholder");
+        let placeholder = unterm_services::i18n::t("search.placeholder");
         line.overlay_text_with_attribute(0, &prefix, rev.clone(), SEQ_ZERO);
         line.overlay_text_with_attribute(
             unicode_column_width(&prefix, None),
@@ -100,7 +100,7 @@ fn render_search_bar(renderer: &CopyRenderable, line: &mut Line, cols: usize) {
         text
     };
 
-    let mode = crate::i18n::t(match renderer.pattern_type {
+    let mode = unterm_services::i18n::t(match renderer.pattern_type {
         PatternType::CaseSensitiveString => "search.mode.case_sensitive",
         PatternType::CaseInSensitiveString => "search.mode.ignore_case",
         PatternType::Regex => "search.mode.regex",
@@ -108,7 +108,7 @@ fn render_search_bar(renderer: &CopyRenderable, line: &mut Line, cols: usize) {
     let searching = match &renderer.searching {
         Some(Searching { remain }) => format!(
             " · {}",
-            crate::i18n::t_args("search.searching", &[("n", &remain.to_string())])
+            unterm_services::i18n::t_args("search.searching", &[("n", &remain.to_string())])
         ),
         None => String::new(),
     };
@@ -119,7 +119,7 @@ fn render_search_bar(renderer: &CopyRenderable, line: &mut Line, cols: usize) {
         mode,
         searching,
     );
-    let hint = crate::i18n::t("search.hint");
+    let hint = unterm_services::i18n::t("search.hint");
 
     let left_w = unicode_column_width(&left, None);
     let status_w = unicode_column_width(&status, None);

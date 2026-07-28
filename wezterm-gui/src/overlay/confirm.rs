@@ -33,8 +33,8 @@ fn run_confirmation_impl(message: &str, term: &mut TermWizTerminal) -> anyhow::R
     let button_row = top_row + message_rows + 1;
     let mut active = ActiveButton::None;
 
-    let yes_label = crate::i18n::t("confirm.yes");
-    let no_label = crate::i18n::t("confirm.no");
+    let yes_label = unterm_services::i18n::t("confirm.yes");
+    let no_label = unterm_services::i18n::t("confirm.no");
     let yes_x = x_pos;
     let yes_w = unicode_column_width(&yes_label, None);
 

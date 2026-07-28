@@ -439,7 +439,7 @@ impl DirJump {
         let mut head: Vec<DirItem> = vec![];
         if frag.is_empty() && parent_path.is_dir() {
             head.push(DirItem {
-                name: crate::i18n::t("dirjump.here"),
+                name: unterm_services::i18n::t("dirjump.here"),
                 rel: Some(tilde_path(&parent_path)),
                 path: parent_path.clone(),
                 section: Section::PathComp,
@@ -843,7 +843,7 @@ impl DirJump {
         let field_bg = LinearRgba::with_srgba(0x1c, 0x1c, 0x1c, 0xff);
         let composing = self.composing.borrow().clone().unwrap_or_default();
         let shown_input = if input.is_empty() && composing.is_empty() {
-            crate::i18n::t("dirjump.placeholder")
+            unterm_services::i18n::t("dirjump.placeholder")
         } else {
             format!("{input}{composing}")
         };
@@ -992,11 +992,11 @@ impl DirJump {
             if input.is_empty() && last_section != Some(item.section) {
                 last_section = Some(item.section);
                 let caption = match item.section {
-                    Section::Recent => crate::i18n::t("dirjump.recent"),
-                    Section::Location => crate::i18n::t("dirjump.locations"),
+                    Section::Recent => unterm_services::i18n::t("dirjump.recent"),
+                    Section::Location => unterm_services::i18n::t("dirjump.locations"),
                     Section::SubDir => format!(
                         "{} — {}",
-                        crate::i18n::t("dirjump.subdirs"),
+                        unterm_services::i18n::t("dirjump.subdirs"),
                         ellipsize_path_left(&base, row_cols.saturating_sub(12))
                     ),
                     // Only present while filtering, where captions are off.
@@ -1155,7 +1155,7 @@ impl DirJump {
             list_kids.push(
                 Element::new(
                     &font,
-                    ElementContent::Text(crate::i18n::t_args(
+                    ElementContent::Text(unterm_services::i18n::t_args(
                         "dirjump.page",
                         &[
                             ("from", &from.to_string()),
@@ -1182,7 +1182,7 @@ impl DirJump {
 
         if visible.is_empty() {
             list_kids.push(
-                Element::new(&font, ElementContent::Text(crate::i18n::t("dirjump.empty")))
+                Element::new(&font, ElementContent::Text(unterm_services::i18n::t("dirjump.empty")))
                     .display(DisplayType::Block)
                     .padding(BoxDimension {
                         left: Dimension::Pixels(14. * pt),
@@ -1242,7 +1242,7 @@ impl DirJump {
             "dirjump.hints"
         };
         children.push(
-            Element::new(&font, ElementContent::Text(crate::i18n::t(hints_key)))
+            Element::new(&font, ElementContent::Text(unterm_services::i18n::t(hints_key)))
                 .display(DisplayType::Block)
                 .padding(BoxDimension {
                     left: Dimension::Pixels(14. * pt),

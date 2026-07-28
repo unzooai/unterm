@@ -205,9 +205,9 @@ impl CockpitInbox {
         };
         format!(
             "{}  {all_marker} [A] {}  {waiting_marker} [W] {}  |  \u{270b} {}   \u{26a1} {}   \u{2713} {}   \u{00b7} {}",
-            crate::i18n::t("cockpit.inbox_title"),
+            unterm_services::i18n::t("cockpit.inbox_title"),
             counts.total,
-            crate::i18n::t("cockpit.state_waiting"),
+            unterm_services::i18n::t("cockpit.state_waiting"),
             counts.waiting,
             counts.working,
             counts.done,
@@ -239,7 +239,7 @@ impl CockpitInbox {
                 format!(
                     "{fleet}{}  {} · {} · {}",
                     status.agent,
-                    crate::i18n::t(match status.state {
+                    unterm_services::i18n::t(match status.state {
                         AgentState::WaitingForUser => "cockpit.state_waiting",
                         AgentState::Working => "cockpit.state_working",
                         AgentState::Done => "cockpit.state_done",
@@ -249,8 +249,8 @@ impl CockpitInbox {
                     hint,
                 )
             }
-            InboxRow::LaunchFleet => format!("\u{eb44} {}", crate::i18n::t("cockpit.launch_fleet")),
-            InboxRow::OpenReview => format!("\u{21c4} {}", crate::i18n::t("cockpit.open_review")),
+            InboxRow::LaunchFleet => format!("\u{eb44} {}", unterm_services::i18n::t("cockpit.launch_fleet")),
+            InboxRow::OpenReview => format!("\u{21c4} {}", unterm_services::i18n::t("cockpit.open_review")),
         }
     }
 
@@ -379,7 +379,7 @@ impl CockpitInbox {
         children.push(
             Element::new(
                 &font,
-                ElementContent::Text(crate::i18n::t("cockpit.inbox_footer")),
+                ElementContent::Text(unterm_services::i18n::t("cockpit.inbox_footer")),
             )
             .colors(ElementColors {
                 border: BorderColor::default(),

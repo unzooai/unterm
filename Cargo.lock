@@ -6828,11 +6828,14 @@ name = "unterm-services"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "chrono",
  "config",
  "dirs-next",
+ "hostname",
  "log",
  "parking_lot",
+ "regex",
  "serde",
  "serde_json",
  "tempfile",

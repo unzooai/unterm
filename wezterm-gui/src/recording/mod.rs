@@ -1,23 +1,11 @@
-//! Session recording subsystem.
+//! Recording a live pane through the mux.
 //!
-//! Stores the raw byte stream of a pane (the source of truth) plus
-//! lightweight in-memory counters, and renders to redacted markdown
-//! on demand.
-//!
-//! Storage layout (under `~/.unterm/sessions/`):
-//!
-//! ```text
-//! ~/.unterm/sessions/
-//! ├── index.json
-//! ├── <project-slug>/<yyyy-mm-dd>/<tab-N>-<HHmmss>.md
-//! ├── <project-slug>/<yyyy-mm-dd>/<tab-N>-<HHmmss>.log
-//! └── _orphan/<yyyy-mm-dd>/...
-//! ```
+//! The session archive -- the index, redaction and markdown rendering -- moved
+//! to `unterm-services`, because none of it needs a pane. What is left is the
+//! recorder itself, which attaches to a mux pane and is therefore this front
+//! end's business.
 
-mod index;
 pub mod recorder;
-mod redact;
-mod render;
 
 pub use recorder::{
     attach_trace, export_active_recording_markdown, export_scrollback_markdown_for_session,
@@ -25,21 +13,8 @@ pub use recorder::{
     start_recording, stop_recording,
 };
 
-/// Apply the recording subsystem's built-in and user-configured secret
-/// patterns to short-lived product metadata such as MCP audit entries.
-/// Audit logs must never be a less-safe copy of the exported transcript.
+/// Apply the recording subsystem's secret patterns to product metadata.
 pub(crate) fn redact_sensitive_text(text: &str) -> String {
     let config = recorder::load_config();
-    redact::redact(text, &config.redaction.custom_patterns).0
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn audit_redaction_removes_key_value_secrets() {
-        let raw = "Write-Output 'api_key=sk-test-secret-should-redact'";
-        let redacted = super::redact_sensitive_text(raw);
-        assert!(!redacted.contains("sk-test-secret-should-redact"));
-        assert!(redacted.contains("<redacted>"));
-    }
+    unterm_services::recording::redact_sensitive_text(text, &config.redaction.custom_patterns)
 }

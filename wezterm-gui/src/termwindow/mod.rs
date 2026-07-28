@@ -2929,7 +2929,7 @@ impl TermWindow {
             RightClickAction::CopySelection => {
                 let assignment = KeyAssignment::CopyTo(ClipboardCopyDestination::Clipboard);
                 match self.perform_key_assignment(pane, &assignment) {
-                    Ok(_) => self.show_ui_notice(crate::i18n::t("interaction.copied")),
+                    Ok(_) => self.show_ui_notice(unterm_services::i18n::t("interaction.copied")),
                     Err(err) => log::warn!("right-click copy failed: {err:#}"),
                 }
             }
@@ -3618,7 +3618,7 @@ impl TermWindow {
         let start_at = pane_cwd_path(&pane);
         crate::termwindow::mouseevent::write_unterm_status_to_pane(
             &pane,
-            &crate::i18n::t("project.prompt_new_tab"),
+            &unterm_services::i18n::t("project.prompt_new_tab"),
         );
         std::thread::spawn(move || {
             crate::termwindow::mouseevent::open_project_directory_in_new_tab(
@@ -3647,7 +3647,7 @@ impl TermWindow {
         let start_at = pane_cwd_path(&pane);
         crate::termwindow::mouseevent::write_unterm_status_to_pane(
             &pane,
-            &crate::i18n::t("project.prompt_split"),
+            &unterm_services::i18n::t("project.prompt_split"),
         );
         std::thread::spawn(move || {
             #[cfg(target_os = "windows")]
@@ -3694,7 +3694,7 @@ impl TermWindow {
         let start_at = pane_cwd_path(&pane);
         crate::termwindow::mouseevent::write_unterm_status_to_pane(
             &pane,
-            &crate::i18n::t("cwd.prompt"),
+            &unterm_services::i18n::t("cwd.prompt"),
         );
         std::thread::spawn(move || {
             #[cfg(target_os = "windows")]
@@ -3732,7 +3732,7 @@ impl TermWindow {
                 Ok(stop) => {
                     crate::termwindow::mouseevent::write_unterm_status_to_pane(
                         &pane,
-                        &crate::i18n::t_args(
+                        &unterm_services::i18n::t_args(
                             "recording.stopped",
                             &[
                                 ("blocks", &stop.block_count.to_string()),
@@ -3745,7 +3745,7 @@ impl TermWindow {
                     log::error!("recording stop failed: {err:#}");
                     crate::termwindow::mouseevent::write_unterm_status_to_pane(
                         &pane,
-                        &crate::i18n::t_args(
+                        &unterm_services::i18n::t_args(
                             "recording.stop_failed",
                             &[("err", &format!("{err:#}"))],
                         ),
@@ -3757,14 +3757,14 @@ impl TermWindow {
                 Ok(start) => {
                     crate::termwindow::mouseevent::write_unterm_status_to_pane(
                         &pane,
-                        &crate::i18n::t_args("recording.started", &[("path", &start.log_path)]),
+                        &unterm_services::i18n::t_args("recording.started", &[("path", &start.log_path)]),
                     );
                 }
                 Err(err) => {
                     log::error!("recording start failed: {err:#}");
                     crate::termwindow::mouseevent::write_unterm_status_to_pane(
                         &pane,
-                        &crate::i18n::t_args(
+                        &unterm_services::i18n::t_args(
                             "recording.start_failed",
                             &[("err", &format!("{err:#}"))],
                         ),
@@ -3788,14 +3788,14 @@ impl TermWindow {
                 }
                 crate::termwindow::mouseevent::write_unterm_status_to_pane(
                     &pane,
-                    &crate::i18n::t_args("recording.exported", &[("path", &path_str)]),
+                    &unterm_services::i18n::t_args("recording.exported", &[("path", &path_str)]),
                 );
             }
             Err(err) => {
                 log::error!("session export failed: {err:#}");
                 crate::termwindow::mouseevent::write_unterm_status_to_pane(
                     &pane,
-                    &crate::i18n::t_args(
+                    &unterm_services::i18n::t_args(
                         "recording.export_failed",
                         &[("err", &format!("{err:#}"))],
                     ),

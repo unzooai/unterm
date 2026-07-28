@@ -129,23 +129,23 @@ fn notify_paste(
             if myself.next_core_owns_pane_input(pane_id) {
                 if myself.paste_next_core_pane_input(pane_id, &clip) {
                     if show_feedback {
-                        myself.show_ui_notice(crate::i18n::t("interaction.pasted"));
+                        myself.show_ui_notice(unterm_services::i18n::t("interaction.pasted"));
                     }
                 } else if show_feedback {
-                    myself.show_ui_notice(crate::i18n::t("interaction.paste_failed"));
+                    myself.show_ui_notice(unterm_services::i18n::t("interaction.paste_failed"));
                 }
                 return;
             }
             match pane.send_paste(&clip) {
                 Ok(()) if show_feedback => {
-                    myself.show_ui_notice(crate::i18n::t("interaction.pasted"));
+                    myself.show_ui_notice(unterm_services::i18n::t("interaction.pasted"));
                 }
                 Ok(()) => {}
                 Err(err) => {
                     let message = format!("clipboard paste failed: {err:#}");
                     log::warn!("{message} for pane {pane_id}");
                     if show_feedback {
-                        myself.show_ui_notice(crate::i18n::t("interaction.paste_failed"));
+                        myself.show_ui_notice(unterm_services::i18n::t("interaction.paste_failed"));
                     }
                 }
             }
@@ -153,7 +153,7 @@ fn notify_paste(
             let message = format!("clipboard paste target pane {pane_id} no longer exists");
             log::warn!("{message}");
             if show_feedback {
-                myself.show_ui_notice(crate::i18n::t("interaction.paste_failed"));
+                myself.show_ui_notice(unterm_services::i18n::t("interaction.paste_failed"));
             }
         }
     })));
@@ -168,7 +168,7 @@ fn notify_paste_error(
     log::warn!("{message} for pane {pane_id}");
     if show_feedback {
         window.notify(TermWindowNotif::Apply(Box::new(move |myself| {
-            myself.show_ui_notice(crate::i18n::t("interaction.paste_failed"));
+            myself.show_ui_notice(unterm_services::i18n::t("interaction.paste_failed"));
         })));
     }
 }

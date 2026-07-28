@@ -169,7 +169,7 @@ impl FleetPalette {
         children.push(
             Element::new(
                 &font,
-                ElementContent::Text(crate::i18n::t("cockpit.fleet_title")),
+                ElementContent::Text(unterm_services::i18n::t("cockpit.fleet_title")),
             )
             .colors(ElementColors {
                 border: BorderColor::default(),
@@ -190,7 +190,7 @@ impl FleetPalette {
         // display; the stored task (what the agent receives) keeps them.
         let composing = self.composing.borrow().clone().unwrap_or_default();
         let shown = if input.is_empty() && composing.is_empty() {
-            crate::i18n::t("cockpit.fleet_placeholder")
+            unterm_services::i18n::t("cockpit.fleet_placeholder")
         } else {
             input.replace('\n', "\u{2424}").replace('\r', "")
         };
@@ -281,7 +281,7 @@ impl FleetPalette {
         // Error line (repo not clean / not a repo / empty task).
         if let Some(err_key) = *self.error.borrow() {
             children.push(
-                Element::new(&font, ElementContent::Text(crate::i18n::t(err_key)))
+                Element::new(&font, ElementContent::Text(unterm_services::i18n::t(err_key)))
                     .colors(ElementColors {
                         border: BorderColor::default(),
                         bg: LinearRgba::TRANSPARENT.into(),
@@ -347,7 +347,7 @@ impl FleetPalette {
         children.push(
             Element::new(
                 &font,
-                ElementContent::Text(crate::i18n::t("cockpit.fleet_footer")),
+                ElementContent::Text(unterm_services::i18n::t("cockpit.fleet_footer")),
             )
             .colors(ElementColors {
                 border: BorderColor::default(),

@@ -673,7 +673,7 @@ impl crate::TermWindow {
             right_eles.push(quick_button(
                 quick_action_text(
                     "\u{eb6a}",
-                    &crate::i18n::t("menu.command_palette"),
+                    &unterm_services::i18n::t("menu.command_palette"),
                     density.show_labels,
                 ),
                 QA::CommandPalette,
@@ -681,7 +681,7 @@ impl crate::TermWindow {
             right_eles.push(quick_button(
                 quick_action_text(
                     "\u{ebf3}",
-                    &crate::i18n::t("web.nav.project"),
+                    &unterm_services::i18n::t("web.nav.project"),
                     density.show_labels,
                 ),
                 QA::TreeSidebar,

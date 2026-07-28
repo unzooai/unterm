@@ -40,7 +40,6 @@ mod download;
 mod engine;
 mod frontend;
 mod glyphcache;
-mod i18n;
 mod inputmap;
 mod mcp;
 mod overlay;
@@ -608,8 +607,8 @@ async fn async_run_terminal_gui(
     // terminal stream.
     if let Some(path) = first_run_path() {
         if !path.exists() {
-            let title = crate::i18n::t("onboarding.title");
-            let body = crate::i18n::t("onboarding.body");
+            let title = unterm_services::i18n::t("onboarding.title");
+            let body = unterm_services::i18n::t("onboarding.body");
             std::thread::spawn(move || {
                 // Let the window acquire its taskbar identity first so the
                 // notification is attributed to Unterm on Windows.

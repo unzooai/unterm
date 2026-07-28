@@ -7,5 +7,7 @@
 pub mod clash_api;
 pub mod cockpit;
 pub mod ghost_text;
+pub mod i18n;
+pub mod recording;
 pub mod server_info;
 pub mod system_proxy;

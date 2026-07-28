@@ -17,47 +17,47 @@ const LOCALE_BUNDLES: &[(&str, &str, &str)] = &[
     (
         "en-US",
         "English",
-        include_str!("../../../../wezterm-gui/src/i18n/locales/en.json"),
+        include_str!("../../../../unterm-services/src/i18n/locales/en.json"),
     ),
     (
         "zh-CN",
         "简体中文",
-        include_str!("../../../../wezterm-gui/src/i18n/locales/zh-CN.json"),
+        include_str!("../../../../unterm-services/src/i18n/locales/zh-CN.json"),
     ),
     (
         "zh-TW",
         "繁體中文",
-        include_str!("../../../../wezterm-gui/src/i18n/locales/zh-TW.json"),
+        include_str!("../../../../unterm-services/src/i18n/locales/zh-TW.json"),
     ),
     (
         "ja-JP",
         "日本語",
-        include_str!("../../../../wezterm-gui/src/i18n/locales/ja.json"),
+        include_str!("../../../../unterm-services/src/i18n/locales/ja.json"),
     ),
     (
         "ko-KR",
         "한국어",
-        include_str!("../../../../wezterm-gui/src/i18n/locales/ko.json"),
+        include_str!("../../../../unterm-services/src/i18n/locales/ko.json"),
     ),
     (
         "de-DE",
         "Deutsch",
-        include_str!("../../../../wezterm-gui/src/i18n/locales/de.json"),
+        include_str!("../../../../unterm-services/src/i18n/locales/de.json"),
     ),
     (
         "fr-FR",
         "Français",
-        include_str!("../../../../wezterm-gui/src/i18n/locales/fr.json"),
+        include_str!("../../../../unterm-services/src/i18n/locales/fr.json"),
     ),
     (
         "it-IT",
         "Italiano",
-        include_str!("../../../../wezterm-gui/src/i18n/locales/it.json"),
+        include_str!("../../../../unterm-services/src/i18n/locales/it.json"),
     ),
     (
         "hi-IN",
         "हिन्दी",
-        include_str!("../../../../wezterm-gui/src/i18n/locales/hi.json"),
+        include_str!("../../../../unterm-services/src/i18n/locales/hi.json"),
     ),
 ];
 

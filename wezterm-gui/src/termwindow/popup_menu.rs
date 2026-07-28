@@ -81,9 +81,9 @@ impl PopupMenu {
     pub fn build_default(pane_id: PaneId) -> Self {
         let recording_on = crate::recording::recorder::current_session(pane_id).is_some();
         let recording_label = if recording_on {
-            crate::i18n::t("settings.menu.recording_on")
+            unterm_services::i18n::t("settings.menu.recording_on")
         } else {
-            crate::i18n::t("settings.menu.recording_off")
+            unterm_services::i18n::t("settings.menu.recording_off")
         };
         let entry = |label: String,
                      accel: &'static str,
@@ -102,43 +102,43 @@ impl PopupMenu {
         };
         let entries = vec![
             entry(
-                crate::i18n::t("menu.new_tab"),
+                unterm_services::i18n::t("menu.new_tab"),
                 "Ctrl+Shift+T",
                 ui_icons::ICON_PLUS,
                 MenuAction::Assign(KeyAssignment::SpawnTab(SpawnTabDomain::CurrentPaneDomain)),
             ),
             entry(
-                crate::i18n::t("settings.menu.split_right"),
+                unterm_services::i18n::t("settings.menu.split_right"),
                 "Ctrl+Shift+E",
                 ui_icons::ICON_SPLIT,
                 MenuAction::Assign(KeyAssignment::SplitHorizontal(SpawnCommand::default())),
             ),
             entry(
-                crate::i18n::t("menu.dir_jump"),
+                unterm_services::i18n::t("menu.dir_jump"),
                 "Ctrl+Shift+O",
                 ui_icons::ICON_FOLDER,
                 MenuAction::DirJump,
             ),
             entry(
-                crate::i18n::t("menu.tree_sidebar"),
+                unterm_services::i18n::t("menu.tree_sidebar"),
                 "Ctrl+Shift+B",
                 ui_icons::ICON_TREE,
                 MenuAction::ToggleTreeSidebar,
             ),
             entry(
-                crate::i18n::t("menu.git_panel"),
+                unterm_services::i18n::t("menu.git_panel"),
                 "Ctrl+Shift+G",
                 ui_icons::ICON_FOLDER,
                 MenuAction::ToggleGitPanel,
             ),
             entry(
-                crate::i18n::t("menu.left_tabs"),
+                unterm_services::i18n::t("menu.left_tabs"),
                 "",
                 ui_icons::ICON_SPLIT,
                 MenuAction::ToggleLeftTabBar,
             ),
             entry(
-                crate::i18n::t("menu.find"),
+                unterm_services::i18n::t("menu.find"),
                 "Ctrl+Shift+F",
                 ui_icons::ICON_SEARCH,
                 MenuAction::Assign(KeyAssignment::Search(Pattern::CaseSensitiveString(
@@ -147,7 +147,7 @@ impl PopupMenu {
             ),
             sep(),
             entry(
-                crate::i18n::t("menu.command_palette"),
+                unterm_services::i18n::t("menu.command_palette"),
                 "Ctrl+Shift+P",
                 ui_icons::ICON_PROMPT,
                 MenuAction::Assign(KeyAssignment::ActivateCommandPalette),
@@ -160,26 +160,26 @@ impl PopupMenu {
                 MenuAction::ToggleRecording,
             ),
             entry(
-                crate::i18n::t("settings.menu.export_session"),
+                unterm_services::i18n::t("settings.menu.export_session"),
                 "",
                 ui_icons::ICON_EXPORT,
                 MenuAction::ExportSession,
             ),
             entry(
-                crate::i18n::t("menu.capture_scrollback"),
+                unterm_services::i18n::t("menu.capture_scrollback"),
                 "",
                 ui_icons::ICON_LONGSHOT,
                 MenuAction::CaptureScrollback,
             ),
             entry(
-                crate::i18n::t("menu.scrollshot_window"),
+                unterm_services::i18n::t("menu.scrollshot_window"),
                 "",
                 ui_icons::ICON_WINSCROLL,
                 MenuAction::ScrollShotExternal,
             ),
             sep(),
             entry(
-                crate::i18n::t("settings.menu.web_settings"),
+                unterm_services::i18n::t("settings.menu.web_settings"),
                 "",
                 ui_icons::ICON_SLIDERS,
                 MenuAction::OpenWebSettings,
@@ -196,13 +196,13 @@ impl PopupMenu {
                 MenuAction::CopyText(config::wezterm_version().to_string()),
             ),
             entry(
-                crate::i18n::t("menu.about_website"),
+                unterm_services::i18n::t("menu.about_website"),
                 "",
                 ui_icons::ICON_EXPORT,
                 MenuAction::OpenUrl("https://unterm.app".to_string()),
             ),
             entry(
-                crate::i18n::t("menu.about_producer"),
+                unterm_services::i18n::t("menu.about_producer"),
                 "",
                 ui_icons::ICON_EXPORT,
                 MenuAction::OpenUrl("https://doaipm.com".to_string()),

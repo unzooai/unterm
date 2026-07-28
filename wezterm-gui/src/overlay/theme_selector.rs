@@ -101,7 +101,7 @@ impl ThemeState {
             start_x,
             row,
             card_w,
-            &crate::i18n::t("theme.title"),
+            &unterm_services::i18n::t("theme.title"),
             BLUE,
             MANTLE,
         );
@@ -111,7 +111,7 @@ impl ThemeState {
             start_x,
             row,
             card_w,
-            &crate::i18n::t_args("theme.current", &[("name", &self.active)]),
+            &unterm_services::i18n::t_args("theme.current", &[("name", &self.active)]),
             GREEN,
             MANTLE,
         );
@@ -124,8 +124,8 @@ impl ThemeState {
             let bg = if selected { SURFACE0 } else { MANTLE };
             let indicator = if selected { ">" } else { " " };
             let current = if preset.id == self.active { "*" } else { " " };
-            let translated_name = crate::i18n::t(&format!("theme.preset.{}.name", preset.id));
-            let translated_desc = crate::i18n::t(&format!("theme.preset.{}.desc", preset.id));
+            let translated_name = unterm_services::i18n::t(&format!("theme.preset.{}.name", preset.id));
+            let translated_desc = unterm_services::i18n::t(&format!("theme.preset.{}.desc", preset.id));
             text_row(
                 &mut changes,
                 start_x,
@@ -156,7 +156,7 @@ impl ThemeState {
         let footer = self
             .message
             .clone()
-            .unwrap_or_else(|| crate::i18n::t("theme.footer.hint"));
+            .unwrap_or_else(|| unterm_services::i18n::t("theme.footer.hint"));
         text_row(
             &mut changes,
             start_x,
@@ -178,15 +178,15 @@ impl ThemeState {
     fn apply_selected(&mut self) {
         if let Some(preset) = self.presets.get(self.selected) {
             if let Err(err) = apply_theme_preset(preset) {
-                self.message = Some(crate::i18n::t_args(
+                self.message = Some(unterm_services::i18n::t_args(
                     "theme.apply_failed",
                     &[("err", &format!("{err}"))],
                 ));
                 return;
             }
             self.active = preset.id.to_string();
-            let translated_name = crate::i18n::t(&format!("theme.preset.{}.name", preset.id));
-            self.message = Some(crate::i18n::t_args(
+            let translated_name = unterm_services::i18n::t(&format!("theme.preset.{}.name", preset.id));
+            self.message = Some(unterm_services::i18n::t_args(
                 "theme.applied",
                 &[("name", &translated_name)],
             ));

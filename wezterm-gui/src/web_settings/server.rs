@@ -829,12 +829,12 @@ fn api_reference() -> Response {
 // --- i18n endpoints --------------------------------------------------------
 
 fn api_i18n_state() -> Response {
-    let current = crate::i18n::current_locale();
-    let available: Vec<Value> = crate::i18n::available_locales()
+    let current = unterm_services::i18n::current_locale();
+    let available: Vec<Value> = unterm_services::i18n::available_locales()
         .iter()
         .map(|(code, name)| json!({"code": code, "name": name}))
         .collect();
-    let dict = crate::i18n::dictionary(current)
+    let dict = unterm_services::i18n::dictionary(current)
         .map(|d| {
             let map: serde_json::Map<String, Value> = d
                 .iter()
@@ -851,7 +851,7 @@ fn api_i18n_state() -> Response {
 }
 
 fn api_i18n_dict(code: &str) -> Response {
-    match crate::i18n::dictionary(code) {
+    match unterm_services::i18n::dictionary(code) {
         Some(d) => {
             let map: serde_json::Map<String, Value> = d
                 .iter()
@@ -859,7 +859,7 @@ fn api_i18n_dict(code: &str) -> Response {
                 .collect();
             Response::ok_json(Value::Object(map))
         }
-        None => Response::err(404, "Not Found", &crate::i18n::t("web.api.unknown_locale")),
+        None => Response::err(404, "Not Found", &unterm_services::i18n::t("web.api.unknown_locale")),
     }
 }
 
@@ -867,17 +867,17 @@ fn api_i18n_set(body: &[u8]) -> Response {
     let body = parse_json_body(body);
     let lang = match body.get("lang").and_then(|v| v.as_str()) {
         Some(s) => s.to_string(),
-        None => return Response::err(400, "Bad Request", &crate::i18n::t("web.api.invalid_lang")),
+        None => return Response::err(400, "Bad Request", &unterm_services::i18n::t("web.api.invalid_lang")),
     };
-    if !crate::i18n::set_locale(&lang) {
+    if !unterm_services::i18n::set_locale(&lang) {
         return Response::err(
             400,
             "Bad Request",
-            &crate::i18n::t("web.api.unknown_locale"),
+            &unterm_services::i18n::t("web.api.unknown_locale"),
         );
     }
-    let current = crate::i18n::current_locale();
-    let available: Vec<Value> = crate::i18n::available_locales()
+    let current = unterm_services::i18n::current_locale();
+    let available: Vec<Value> = unterm_services::i18n::available_locales()
         .iter()
         .map(|(code, name)| json!({"code": code, "name": name}))
         .collect();

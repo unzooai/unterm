@@ -101,7 +101,7 @@ impl SelectorState {
         changes.push(fg_bg(top, SURFACE1, MANTLE));
 
         // ── Row 1: Title ──
-        let title = crate::i18n::t("shell.title");
+        let title = unterm_services::i18n::t("shell.title");
         let accent = "◆";
         let right_pad = card_w.saturating_sub(unicode_column_width(&title, None) + 5);
         changes.push(Change::CursorPosition {
@@ -118,7 +118,7 @@ impl SelectorState {
         ));
 
         // ── Row 2: Subtitle ──
-        let subtitle = crate::i18n::t("shell.subtitle");
+        let subtitle = unterm_services::i18n::t("shell.subtitle");
         let right_pad = card_w.saturating_sub(unicode_column_width(&subtitle, None) + 4);
         changes.push(Change::CursorPosition {
             x: Position::Absolute(start_x),
@@ -193,7 +193,7 @@ impl SelectorState {
         changes.push(fg_bg(sep, SURFACE1, MANTLE));
 
         // ── Footer: key hints ──
-        let hints = crate::i18n::t("shell.footer.hint");
+        let hints = unterm_services::i18n::t("shell.footer.hint");
         let hint_pad = card_w.saturating_sub(unicode_column_width(&hints, None) + 4);
         changes.push(Change::CursorPosition {
             x: Position::Absolute(start_x),

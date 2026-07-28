@@ -6,8 +6,8 @@
 //! demand via `read_session_markdown` / `export_pane_markdown` / when
 //! the recording stops.
 
-use super::index::{self, IndexEntry};
-use super::render::{self, RenderConfig, RenderOutput};
+use unterm_services::recording::index::{self, IndexEntry};
+use unterm_services::recording::render::{self, RenderConfig, RenderOutput};
 use anyhow::{anyhow, Context, Result};
 use base64::Engine as _;
 use chrono::Utc;

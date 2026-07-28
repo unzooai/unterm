@@ -944,7 +944,7 @@ impl super::TermWindow {
                             } else {
                                 "interaction.files_closed"
                             };
-                            self.show_ui_notice(crate::i18n::t(key));
+                            self.show_ui_notice(unterm_services::i18n::t(key));
                         }
                         QA::SplitRight => {
                             use config::keyassignment::{KeyAssignment, SpawnCommand};
@@ -956,7 +956,7 @@ impl super::TermWindow {
                                     )
                                     .is_ok()
                                 {
-                                    self.show_ui_notice(crate::i18n::t("interaction.split"));
+                                    self.show_ui_notice(unterm_services::i18n::t("interaction.split"));
                                 }
                             }
                         }
@@ -1477,7 +1477,7 @@ impl super::TermWindow {
             return;
         }
         let Ok(registry) = unterm_profile::ProfileRegistry::load() else {
-            self.toast_status_message(&crate::i18n::t("profile.toast.registry_load_failed"));
+            self.toast_status_message(&unterm_services::i18n::t("profile.toast.registry_load_failed"));
             return;
         };
         let ordered: Vec<String> = registry
@@ -1486,7 +1486,7 @@ impl super::TermWindow {
             .map(|(id, _)| id.to_string())
             .collect();
         if ordered.is_empty() {
-            self.toast_status_message(&crate::i18n::t("profile.toast.no_profiles"));
+            self.toast_status_message(&unterm_services::i18n::t("profile.toast.no_profiles"));
             return;
         }
         let current = unterm_services::server_info::read_current().profile;
@@ -1506,14 +1506,14 @@ impl super::TermWindow {
                     .get(&next)
                     .map(|p| p.display_name.as_str())
                     .unwrap_or(&next);
-                self.toast_status_message(&crate::i18n::t_args(
+                self.toast_status_message(&unterm_services::i18n::t_args(
                     "profile.toast.opening_window",
                     &[("name", display)],
                 ));
             }
             Err(e) => {
                 log::warn!("profile chip spawn failed: {e:#}");
-                self.toast_status_message(&crate::i18n::t_args(
+                self.toast_status_message(&unterm_services::i18n::t_args(
                     "profile.toast.spawn_failed",
                     &[("err", &format!("{e}"))],
                 ));
@@ -1564,17 +1564,17 @@ impl crate::TermWindow {
                     Ok((name, scheme)) => {
                         if let Err(err) = self.apply_theme_palette(&scheme) {
                             log::error!("theme palette apply failed: {err:#}");
-                            crate::i18n::t_args(
+                            unterm_services::i18n::t_args(
                                 "theme.saved_palette_failed",
                                 &[("name", &name), ("err", &format!("{err:#}"))],
                             )
                         } else {
-                            crate::i18n::t_args("theme.switched_to", &[("name", &name)])
+                            unterm_services::i18n::t_args("theme.switched_to", &[("name", &name)])
                         }
                     }
                     Err(err) => {
                         log::error!("theme cycle failed: {err:#}");
-                        crate::i18n::t_args("theme.switch_failed", &[("err", &format!("{err:#}"))])
+                        unterm_services::i18n::t_args("theme.switch_failed", &[("err", &format!("{err:#}"))])
                     }
                 };
                 if let Some(pane) = self.get_active_pane_no_overlay() {
@@ -1610,10 +1610,10 @@ impl crate::TermWindow {
         match event.kind {
             WMEK::Press(MousePress::Left) => {
                 let message = match launch_admin_window() {
-                    Ok(()) => crate::i18n::t("admin.requested"),
+                    Ok(()) => unterm_services::i18n::t("admin.requested"),
                     Err(err) => {
                         log::error!("status bar admin launch failed: {err:#}");
-                        crate::i18n::t_args("admin.failed", &[("err", &format!("{err:#}"))])
+                        unterm_services::i18n::t_args("admin.failed", &[("err", &format!("{err:#}"))])
                     }
                 };
                 if let Some(pane) = self.get_active_pane_no_overlay() {
@@ -1646,11 +1646,11 @@ impl crate::TermWindow {
         match event.kind {
             WMEK::Press(MousePress::Left) => {
                 let message = match toggle_unterm_proxy_enabled() {
-                    Ok(true) => crate::i18n::t("proxy.enabled_for_new_shells"),
-                    Ok(false) => crate::i18n::t("proxy.disabled_for_new_shells"),
+                    Ok(true) => unterm_services::i18n::t("proxy.enabled_for_new_shells"),
+                    Ok(false) => unterm_services::i18n::t("proxy.disabled_for_new_shells"),
                     Err(err) => {
                         log::error!("proxy toggle failed: {err:#}");
-                        crate::i18n::t_args("proxy.toggle_failed", &[("err", &format!("{err:#}"))])
+                        unterm_services::i18n::t_args("proxy.toggle_failed", &[("err", &format!("{err:#}"))])
                     }
                 };
                 if let Some(pane) = self.get_active_pane_no_overlay() {
@@ -1705,7 +1705,7 @@ impl crate::TermWindow {
                     {
                         write_unterm_status_to_pane(
                             &pane,
-                            &crate::i18n::t_args("project.current", &[("path", &cwd.to_string())]),
+                            &unterm_services::i18n::t_args("project.current", &[("path", &cwd.to_string())]),
                         );
                     }
                 }
@@ -1921,19 +1921,19 @@ impl crate::TermWindow {
                 };
                 let items = vec![
                     (
-                        crate::i18n::t("menu.copy_path"),
+                        unterm_services::i18n::t("menu.copy_path"),
                         MenuAction::CopyText(path.display().to_string()),
                     ),
                     (
-                        crate::i18n::t("menu.reveal"),
+                        unterm_services::i18n::t("menu.reveal"),
                         MenuAction::RevealPath(path.clone()),
                     ),
                     (
-                        crate::i18n::t("menu.new_tab_here"),
+                        unterm_services::i18n::t("menu.new_tab_here"),
                         MenuAction::NewTabAt(dir_for_tab.clone()),
                     ),
                     (
-                        crate::i18n::t("menu.cd_here"),
+                        unterm_services::i18n::t("menu.cd_here"),
                         MenuAction::CdTo(dir_for_tab),
                     ),
                 ];
@@ -2631,13 +2631,13 @@ fn mouse_press_to_tmb(press: &MousePress) -> TMB {
 /// satisfies that with no parser involvement.
 pub(crate) fn capture_and_announce(pane: &Arc<dyn Pane>, hide_window: bool) {
     let mode_label = if hide_window {
-        crate::i18n::t("screenshot.mode.hidden")
+        unterm_services::i18n::t("screenshot.mode.hidden")
     } else {
-        crate::i18n::t("screenshot.mode.visible")
+        unterm_services::i18n::t("screenshot.mode.visible")
     };
     write_unterm_status_to_pane(
         pane,
-        &crate::i18n::t_args("screenshot.started", &[("mode", &mode_label)]),
+        &unterm_services::i18n::t_args("screenshot.started", &[("mode", &mode_label)]),
     );
     let pane = pane.clone();
     let mode_label_thread = mode_label.clone();
@@ -2649,7 +2649,7 @@ pub(crate) fn capture_and_announce(pane: &Arc<dyn Pane>, hide_window: bool) {
             }
             write_unterm_status_to_pane(
                 &pane,
-                &crate::i18n::t_args(
+                &unterm_services::i18n::t_args(
                     "screenshot.saved",
                     &[("mode", &mode_label_thread), ("path", &path_str)],
                 ),
@@ -2659,7 +2659,7 @@ pub(crate) fn capture_and_announce(pane: &Arc<dyn Pane>, hide_window: bool) {
             log::error!("status bar region capture failed: {err:#}");
             write_unterm_status_to_pane(
                 &pane,
-                &crate::i18n::t_args(
+                &unterm_services::i18n::t_args(
                     "screenshot.failed",
                     &[("mode", &mode_label_thread), ("err", &format!("{err:#}"))],
                 ),
@@ -2672,7 +2672,7 @@ pub(crate) fn capture_and_announce(pane: &Arc<dyn Pane>, hide_window: bool) {
 /// scrollback to one tall PNG on a worker thread, then announce the path
 /// (clipboard + status line), mirroring the region-screenshot UX.
 pub(crate) fn capture_scrollback_and_announce(pane: &Arc<dyn Pane>) {
-    write_unterm_status_to_pane(pane, &crate::i18n::t("scrollshot.started"));
+    write_unterm_status_to_pane(pane, &unterm_services::i18n::t("scrollshot.started"));
     let pane = pane.clone();
     std::thread::spawn(move || {
         let result = crate::scrollshot::scrollshot_output_dir().and_then(|dir| {
@@ -2694,7 +2694,7 @@ pub(crate) fn capture_scrollback_and_announce(pane: &Arc<dyn Pane>) {
                 }
                 write_unterm_status_to_pane(
                     &pane,
-                    &crate::i18n::t_args(
+                    &unterm_services::i18n::t_args(
                         "scrollshot.saved",
                         &[("rows", &r.rows.to_string()), ("path", &path_str)],
                     ),
@@ -2704,7 +2704,7 @@ pub(crate) fn capture_scrollback_and_announce(pane: &Arc<dyn Pane>) {
                 log::error!("scrollback long screenshot failed: {err:#}");
                 write_unterm_status_to_pane(
                     &pane,
-                    &crate::i18n::t_args("scrollshot.failed", &[("err", &format!("{err:#}"))]),
+                    &unterm_services::i18n::t_args("scrollshot.failed", &[("err", &format!("{err:#}"))]),
                 );
             }
         }
@@ -2716,14 +2716,14 @@ pub(crate) fn capture_scrollback_and_announce(pane: &Arc<dyn Pane>) {
 pub(crate) fn scrollshot_external_and_announce(pane: &Arc<dyn Pane>) {
     #[cfg(target_os = "macos")]
     {
-        write_unterm_status_to_pane(pane, &crate::i18n::t("scrollshot.point_target"));
+        write_unterm_status_to_pane(pane, &unterm_services::i18n::t("scrollshot.point_target"));
         let pane = pane.clone();
         std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_secs(3));
             let result = crate::scrollshot::external::window_under_cursor().and_then(|target| {
                 write_unterm_status_to_pane(
                     &pane,
-                    &crate::i18n::t_args("scrollshot.capturing", &[("app", &target.app)]),
+                    &unterm_services::i18n::t_args("scrollshot.capturing", &[("app", &target.app)]),
                 );
                 let dir = crate::scrollshot::scrollshot_output_dir()?;
                 let path = dir.join(format!(
@@ -2742,7 +2742,7 @@ pub(crate) fn scrollshot_external_and_announce(pane: &Arc<dyn Pane>) {
                     if let Err(err) = copy_text_to_clipboard(&path_str) {
                         log::warn!("could not copy scrollshot path to clipboard: {err:#}");
                     }
-                    let mut msg = crate::i18n::t_args(
+                    let mut msg = unterm_services::i18n::t_args(
                         "scrollshot.saved_window",
                         &[("app", &r.window.app), ("path", &path_str)],
                     );
@@ -2755,7 +2755,7 @@ pub(crate) fn scrollshot_external_and_announce(pane: &Arc<dyn Pane>) {
                     log::error!("external scroll capture failed: {err:#}");
                     write_unterm_status_to_pane(
                         &pane,
-                        &crate::i18n::t_args("scrollshot.failed", &[("err", &format!("{err:#}"))]),
+                        &unterm_services::i18n::t_args("scrollshot.failed", &[("err", &format!("{err:#}"))]),
                     );
                 }
             }
@@ -2765,7 +2765,7 @@ pub(crate) fn scrollshot_external_and_announce(pane: &Arc<dyn Pane>) {
     {
         write_unterm_status_to_pane(
             pane,
-            &crate::i18n::t_args(
+            &unterm_services::i18n::t_args(
                 "scrollshot.failed",
                 &[(
                     "err",
