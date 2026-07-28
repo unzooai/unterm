@@ -6705,6 +6705,7 @@ dependencies = [
  "anyhow",
  "base64 0.22.1",
  "freetype",
+ "harfbuzz",
  "parking_lot",
  "portable-pty",
  "procinfo",

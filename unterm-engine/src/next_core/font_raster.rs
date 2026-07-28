@@ -123,6 +123,15 @@ impl FontFace {
         Ok(face)
     }
 
+    /// The underlying FreeType face.
+    ///
+    /// For the shaper, which builds a HarfBuzz font from it. Crate-internal:
+    /// the handle is not `Sync` and callers outside next-core have no way to
+    /// uphold that.
+    pub(crate) fn raw(&self) -> FT_Face {
+        self.face
+    }
+
     pub fn pixel_size(&self) -> u32 {
         self.pixel_size
     }
@@ -177,11 +186,38 @@ impl FontFace {
     pub fn rasterize(&mut self, ch: char) -> Result<RasterizedGlyph> {
         // SAFETY: `self.face` is live; FT_LOAD_RENDER asks FreeType to
         // rasterize into the face's glyph slot in the same call.
-        let err = unsafe { FT_Load_Char(self.face, ch as freetype::FT_ULong, FT_LOAD_RENDER as i32) };
+        let err =
+            unsafe { FT_Load_Char(self.face, ch as freetype::FT_ULong, FT_LOAD_RENDER as i32) };
         if err != 0 {
             return Err(anyhow!("FT_Load_Char({ch:?}) failed with error {err}"));
         }
+        self.read_rendered_slot()
+    }
 
+    /// Rasterize by glyph index rather than character.
+    ///
+    /// This is the entry point the shaper feeds: shaping maps text to glyph
+    /// ids, and a ligature or a positional form has no character to look up.
+    pub fn rasterize_glyph_index(&mut self, glyph_index: u32) -> Result<RasterizedGlyph> {
+        // SAFETY: `self.face` is live. An index past the face's glyph count is
+        // rejected by FreeType with an error rather than read out of bounds.
+        let err = unsafe {
+            freetype::FT_Load_Glyph(
+                self.face,
+                glyph_index as freetype::FT_UInt,
+                FT_LOAD_RENDER as i32,
+            )
+        };
+        if err != 0 {
+            return Err(anyhow!(
+                "FT_Load_Glyph({glyph_index}) failed with error {err}"
+            ));
+        }
+        self.read_rendered_slot()
+    }
+
+    /// Read whatever the last load rendered into the face's glyph slot.
+    fn read_rendered_slot(&mut self) -> Result<RasterizedGlyph> {
         // SAFETY: after a successful FT_Load_Char the slot and its bitmap are
         // populated and remain valid until the next load on this face.
         let (bitmap, bearing_x, bearing_y, advance_x, buffer) = unsafe {

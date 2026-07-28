@@ -28,6 +28,7 @@ mod input_dispatch;
 mod input_pipeline;
 pub mod font_discovery;
 pub mod font_raster;
+pub mod font_shaper;
 pub mod key_encoding;
 pub mod mouse_encoding;
 mod launch;

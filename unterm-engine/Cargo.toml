@@ -17,4 +17,5 @@ procinfo = { workspace = true, default-features = false }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 freetype.workspace = true
+harfbuzz.workspace = true
 termwiz.workspace = true

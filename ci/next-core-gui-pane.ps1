@@ -99,6 +99,22 @@ $Suites = @(
         )
     },
     @{
+        # Text -> positioned glyph ids, on HarfBuzz directly. The end-to-end
+        # case also proves discovery, shaping, and rasterization compose.
+        Name = "font shaping"
+        Package = "unterm-engine"
+        Filter = "next_core::font_shaper::tests::"
+        ExpectedCount = 6
+        RequiredTests = @(
+            "next_core::font_shaper::tests::shapes_ascii_into_one_glyph_per_character",
+            "next_core::font_shaper::tests::a_monospace_face_advances_every_glyph_equally",
+            "next_core::font_shaper::tests::clusters_map_glyphs_back_to_their_bytes",
+            "next_core::font_shaper::tests::shaping_follows_the_faces_pixel_size",
+            "next_core::font_shaper::tests::empty_text_shapes_to_nothing",
+            "next_core::font_shaper::tests::discovered_font_shapes_and_rasterizes_its_own_glyphs"
+        )
+    },
+    @{
         Name = "mouse encoding"
         Package = "unterm-engine"
         Filter = "next_core::mouse_encoding::tests::"
