@@ -567,6 +567,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn session_destroy_uses_next_core_pane_id_path() {
         let _guard = env_lock().lock();
+        crate::engine::install_engine_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -601,6 +602,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn session_env_reads_next_core_launch_env_keys_without_values() {
         let _guard = env_lock().lock();
+        crate::engine::install_engine_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -698,6 +700,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn session_set_env_applies_next_core_future_launch_overlay_without_values() {
         let _guard = env_lock().lock();
+        crate::engine::install_engine_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
         {
@@ -830,6 +833,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn session_create_reports_default_shell_launch_decision() {
         let _guard = env_lock().lock();
+        crate::engine::install_engine_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -874,6 +878,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn session_create_reports_explicit_launch_policy_requests() {
         let _guard = env_lock().lock();
+        crate::engine::install_engine_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -923,6 +928,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn workspace_restore_dry_run_reports_template_launch_decisions() {
         let _guard = env_lock().lock();
+        crate::engine::install_engine_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -984,6 +990,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn activity_methods_expose_next_core_io_metrics() {
         let _guard = env_lock().lock();
+        crate::engine::install_engine_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -1050,6 +1057,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn core_status_history_cursor_methods_use_next_core_engine() {
         let _guard = env_lock().lock();
+        crate::engine::install_engine_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -1122,6 +1130,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn screen_detect_errors_uses_next_core_screen_snapshot() {
         let _guard = env_lock().lock();
+        crate::engine::install_engine_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -1177,6 +1186,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn screen_search_goto_scrolls_next_core_logical_viewport() {
         let _guard = env_lock().lock();
+        crate::engine::install_engine_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -1241,6 +1251,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn screen_scroll_goto_updates_next_core_logical_viewport() {
         let _guard = env_lock().lock();
+        crate::engine::install_engine_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -1317,6 +1328,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn capture_scrollback_renders_next_core_styled_png() {
         let _guard = env_lock().lock();
+        crate::engine::install_engine_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -1404,6 +1416,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn recording_status_and_trace_attach_use_next_core_engine() {
         let _guard = env_lock().lock();
+        crate::engine::install_engine_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -1507,6 +1520,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn active_recording_export_uses_next_core_engine() {
         let _guard = env_lock().lock();
+        crate::engine::install_engine_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -1625,6 +1639,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn inactive_scrollback_export_markdown_uses_next_core_screen_engine() {
         let _guard = env_lock().lock();
+        crate::engine::install_engine_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -1687,6 +1702,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn session_resize_uses_next_core_pane_id_path() {
         let _guard = env_lock().lock();
+        crate::engine::install_engine_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -1733,6 +1749,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn fleet_lifecycle_uses_next_core_session_engine() {
         let _guard = env_lock().lock();
+        crate::engine::install_engine_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         let previous_fleets_path = std::env::var("UNTERM_FLEETS_PATH").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
@@ -1851,6 +1868,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn review_diff_does_not_require_wezterm_mux_in_next_core_mode() {
         let _guard = env_lock().lock();
+        crate::engine::install_engine_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -1893,6 +1911,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn review_verify_and_merge_work_for_next_core_fleet_member() {
         let _guard = env_lock().lock();
+        crate::engine::install_engine_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         let previous_fleets_path = std::env::var("UNTERM_FLEETS_PATH").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
@@ -2002,6 +2021,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn agent_status_uses_pane_id_registry_path() {
         let _guard = env_lock().lock();
+        crate::engine::install_engine_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
         unterm_services::cockpit::status::reset_for_tests();
@@ -2059,6 +2079,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn agent_signal_uses_explicit_pane_id_registry_path() {
         let _guard = env_lock().lock();
+        crate::engine::install_engine_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
         unterm_services::cockpit::status::reset_for_tests();
@@ -2115,6 +2136,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn agent_signal_rejects_stale_explicit_pane_id() {
         let _guard = env_lock().lock();
+        crate::engine::install_engine_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
         unterm_services::cockpit::status::reset_for_tests();
@@ -2147,6 +2169,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn agent_signal_fallback_uses_terminal_engine_active_session() {
         let _guard = env_lock().lock();
+        crate::engine::install_engine_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
         unterm_services::cockpit::status::reset_for_tests();
@@ -2191,6 +2214,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn cockpit_inbox_uses_engine_session_snapshot() {
         let _guard = env_lock().lock();
+        crate::engine::install_engine_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
         unterm_services::cockpit::status::reset_for_tests();
@@ -2249,6 +2273,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn instance_metadata_methods_do_not_require_terminal_engine() {
         let _guard = env_lock().lock();
+        crate::engine::install_engine_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -2356,6 +2381,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn ghost_debug_reads_product_registry_by_pane_id() {
         let _guard = env_lock().lock();
+        crate::engine::install_engine_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -2413,6 +2439,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn capture_clipboard_does_not_require_terminal_engine() {
         let _guard = env_lock().lock();
+        crate::engine::install_engine_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -2440,6 +2467,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn capture_screen_text_snapshot_uses_terminal_engine() {
         let _guard = env_lock().lock();
+        crate::engine::install_engine_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -2495,6 +2523,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn capture_window_text_snapshot_uses_terminal_engine() {
         let _guard = env_lock().lock();
+        crate::engine::install_engine_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -2555,6 +2584,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn orchestrate_methods_use_next_core_sessions_and_screen() {
         let _guard = env_lock().lock();
+        crate::engine::install_engine_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
         let test_agent = "handler-test-orchestrate";
@@ -2685,6 +2715,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn capture_scrollback_routes_through_capture_engine() {
         let _guard = env_lock().lock();
+        crate::engine::install_engine_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -2717,6 +2748,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn capture_scrollback_rejects_stale_explicit_pane_id() {
         let _guard = env_lock().lock();
+        crate::engine::install_engine_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -2758,6 +2790,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn product_capture_methods_do_not_require_terminal_engine() {
         let _guard = env_lock().lock();
+        crate::engine::install_engine_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -2791,6 +2824,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn server_health_uses_selected_next_core_engine() {
         let _guard = env_lock().lock();
+        crate::engine::install_engine_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -2816,6 +2850,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn server_health_exposes_next_core_io_summary() {
         let _guard = env_lock().lock();
+        crate::engine::install_engine_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -2885,6 +2920,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn capability_surfaces_expose_next_core_health_io_diagnostics() {
         let _guard = env_lock().lock();
+        crate::engine::install_engine_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -3073,6 +3109,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn selftest_run_uses_selected_terminal_engine() {
         let _guard = env_lock().lock();
+        crate::engine::install_engine_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -3179,6 +3216,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn product_system_methods_do_not_require_terminal_engine() {
         let _guard = env_lock().lock();
+        crate::engine::install_engine_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -3214,6 +3252,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn agent_cwd_metadata_uses_selected_terminal_engine() {
         let _guard = env_lock().lock();
+        crate::engine::install_engine_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -3250,6 +3289,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn session_suggest_uses_terminal_engine_session_lookup() {
         let _guard = env_lock().lock();
+        crate::engine::install_engine_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -3290,6 +3330,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn screen_scrollback_text_resolves_active_next_core_session_without_pane_param() {
         let _guard = env_lock().lock();
+        crate::engine::install_engine_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -3335,6 +3376,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn screen_scrollback_text_preserves_active_fallback_for_stale_pane_param() {
         let _guard = env_lock().lock();
+        crate::engine::install_engine_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -3383,6 +3425,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn screen_text_rejects_missing_pane_id_for_required_resolution() {
         let _guard = env_lock().lock();
+        crate::engine::install_engine_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -3452,7 +3495,7 @@ impl PaneResolutionOptions {
 }
 
 struct EngineFleetDriver {
-    engine: CurrentTerminalEngine,
+    engine: Box<dyn crate::engine::HostEngine>,
 }
 
 impl unterm_services::cockpit::fleet::FleetPaneSpawner for EngineFleetDriver {
@@ -4531,8 +4574,18 @@ impl McpHandler {
         }
     }
 
-    fn engine(&self) -> CurrentTerminalEngine {
-        crate::engine::current()
+    /// The engine this surface talks to.
+    ///
+    /// Asked of the installed provider rather than chosen here: which engines
+    /// exist is the front end's business, and the two that do choose
+    /// differently.
+    fn engine(&self) -> Box<dyn crate::engine::HostEngine> {
+        match unterm_engine::engine_provider() {
+            Some(provider) => provider(),
+            // Before a front end installs one, next-core is the only engine
+            // that can answer without a window.
+            None => Box::new(unterm_engine::next_core::NextCoreEngine),
+        }
     }
 
     fn engine_label(&self) -> String {
@@ -4564,7 +4617,7 @@ impl McpHandler {
 
     fn resolve_pane_id(
         &self,
-        engine: &CurrentTerminalEngine,
+        engine: &dyn crate::engine::HostEngine,
         params: &Value,
         options: PaneResolutionOptions,
     ) -> Result<usize> {
@@ -4591,7 +4644,7 @@ impl McpHandler {
     }
 
     fn resolve_active_pane_id(
-        engine: &CurrentTerminalEngine,
+        engine: &dyn crate::engine::HostEngine,
         options: PaneResolutionOptions,
     ) -> Result<usize> {
         let pane_id = engine
@@ -4985,7 +5038,7 @@ impl McpHandler {
     fn session_get(&self, params: &Value) -> Result<Value> {
         let engine = self.engine();
         let pane_id =
-            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
         let session = engine.get_session(pane_id)?;
 
         Ok(json!({
@@ -5022,7 +5075,7 @@ impl McpHandler {
         // Source pane: accept the same id/session_id duality as get_pane
         // so callers don't have to remember which method takes which.
         let src_pane_id = self
-            .resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)
+            .resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)
             .map_err(|_| {
                 anyhow!("Missing 'id' / 'session_id' / 'pane_id' (source pane to split)")
             })?;
@@ -5087,7 +5140,7 @@ impl McpHandler {
         // the documented parameter and response contract.
         let engine = self.engine();
         let pane_id =
-            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
         engine.focus_session(pane_id)?;
         Ok(json!({ "ok": true, "id": pane_id }))
     }
@@ -5197,7 +5250,7 @@ impl McpHandler {
             .ok_or_else(|| anyhow!("Missing 'input' (or compatibility alias 'text') parameter"))?;
         let engine = self.engine();
         let pane_id =
-            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
 
         // Gate the write on a user confirmation banner if policy
         // demands it. `Allow` continues to the audit + write below;
@@ -5227,7 +5280,7 @@ impl McpHandler {
             .ok_or_else(|| anyhow!("Missing 'text' (or compatibility alias 'input') parameter"))?;
         let engine = self.engine();
         let pane_id =
-            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
 
         match self.gate_pty_write("session.paste", pane_id, text)? {
             GateOutcome::Allow => {}
@@ -5366,7 +5419,7 @@ impl McpHandler {
 
         let engine = self.engine();
         let pane_id =
-            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
         engine.resize_session(pane_id, cols, rows)?;
         Ok(json!({"status": "ok"}))
     }
@@ -5374,7 +5427,7 @@ impl McpHandler {
     fn session_destroy(&self, params: &Value) -> Result<Value> {
         let engine = self.engine();
         let pane_id =
-            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
         self.audit("session.destroy", Some(&pane_id.to_string()), "destroy");
         engine.destroy_session(pane_id)?;
         Ok(json!({"status": "ok", "destroyed": true}))
@@ -5383,7 +5436,7 @@ impl McpHandler {
     fn session_idle(&self, params: &Value) -> Result<Value> {
         let engine = self.engine();
         let pane_id =
-            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
         let activity = engine.activity(pane_id)?;
         Ok(json!({
             "idle": activity.idle,
@@ -5398,7 +5451,7 @@ impl McpHandler {
     fn session_cwd(&self, params: &Value) -> Result<Value> {
         let engine = self.engine();
         let pane_id =
-            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
         let cwd = engine.shell(pane_id)?.cwd.unwrap_or_default();
         Ok(json!({"cwd": cwd}))
     }
@@ -5413,7 +5466,7 @@ impl McpHandler {
         }
 
         let pane_id =
-            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
         let shell = engine.shell(pane_id)?;
         let name_filter = params
             .get("name")
@@ -5505,7 +5558,7 @@ impl McpHandler {
         let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(100) as usize;
         let engine = self.engine();
         let pane_id =
-            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
         let entries: Vec<Value> = engine
             .read_scrollback(pane_id, limit)?
             .into_iter()
@@ -5697,7 +5750,7 @@ impl McpHandler {
         // pane the user is looking at.
         let engine = self.engine();
         let pane_id =
-            self.resolve_pane_id(&engine, params, PaneResolutionOptions::ACTIVE_REQUIRED)? as u64;
+            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::ACTIVE_REQUIRED)? as u64;
         let agent = params
             .get("agent")
             .and_then(|v| v.as_str())
@@ -5990,7 +6043,7 @@ impl McpHandler {
     fn session_suggest(&self, ctx: &ConnectionContext, params: &Value) -> Result<Value> {
         let engine = self.engine();
         let pane_id =
-            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
         let pane_id = pane_id as u64;
 
         let text = params
@@ -6214,7 +6267,7 @@ impl McpHandler {
 
         let engine = self.engine();
         let pane_id =
-            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
 
         match self.gate_pty_write("exec.run", pane_id, command)? {
             GateOutcome::Allow => {}
@@ -6239,7 +6292,7 @@ impl McpHandler {
             .ok_or_else(|| anyhow!("Missing 'bytes' (or compatibility alias 'input'/'text')"))?;
         let engine = self.engine();
         let pane_id =
-            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
 
         match self.gate_pty_write("exec.send", pane_id, bytes)? {
             GateOutcome::Allow => {}
@@ -6273,7 +6326,7 @@ impl McpHandler {
 
         let engine = self.engine();
         let pane_id =
-            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
         let shell = engine.shell(pane_id)?;
         let activity = engine.activity(pane_id).ok();
         let wait_shell = resolve_exec_wait_shell(&shell, activity.as_ref());
@@ -6338,7 +6391,7 @@ impl McpHandler {
     fn exec_status(&self, params: &Value) -> Result<Value> {
         let engine = self.engine();
         let pane_id =
-            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
         let activity = engine.activity(pane_id)?;
         let status = if activity.idle { "idle" } else { "running" };
         Ok(json!({
@@ -6354,7 +6407,7 @@ impl McpHandler {
     fn exec_cancel(&self, params: &Value) -> Result<Value> {
         let engine = self.engine();
         let pane_id =
-            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
 
         match self.gate_pty_write("exec.cancel", pane_id, "Ctrl+C")? {
             GateOutcome::Allow => {}
@@ -6385,7 +6438,7 @@ impl McpHandler {
 
         let engine = self.engine();
         let pane_id =
-            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
 
         match self.gate_pty_write("signal.send", pane_id, signal)? {
             GateOutcome::Allow => {}
@@ -6407,7 +6460,7 @@ impl McpHandler {
         let engine = self.engine();
         let engine_name = engine.name();
         let pane_id =
-            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
         let text_lines: Vec<String> = engine
             .read_lines(pane_id, offset as i64, count.max(0) as usize)?
             .into_iter()
@@ -6474,7 +6527,7 @@ impl McpHandler {
         let engine = self.engine();
         let engine_name = engine.name();
         let pane_id =
-            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
         let search_matches = engine.search(pane_id, pattern, max_results)?;
         let match_rows: Vec<isize> = search_matches.iter().map(|m| m.row as isize).collect();
         let matches: Vec<Value> = search_matches
@@ -6626,7 +6679,7 @@ impl McpHandler {
         let timeout = std::time::Duration::from_millis(timeout_ms);
         let engine = self.engine();
         let pane_id =
-            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
 
         loop {
             let text = engine.read_visible_text(pane_id).unwrap_or_default();
@@ -7434,7 +7487,7 @@ impl McpHandler {
     fn capture_scrollback(&self, params: &Value) -> Result<Value> {
         let engine = self.engine();
         let pane_id = if Self::pane_id_param(params)?.is_some() {
-            Some(self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?)
+            Some(self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?)
         } else {
             None
         };
@@ -7450,7 +7503,9 @@ impl McpHandler {
             "scrollback_{}.png",
             chrono::Local::now().format("%Y%m%d_%H%M%S_%3f")
         ));
-        let r = engine.render_scrollback_png(pane_id, &path, &opts)?;
+        // Rendering a pane's scrollback to a PNG is this front end's, not the
+        // engine trait's -- see ScrollbackImageEngine.
+        let r = crate::engine::current().render_scrollback_png(pane_id, &path, &opts)?;
         let session = r.session_id.to_string();
         self.audit("capture.scrollback", Some(&session), "");
         Ok(json!({
@@ -7644,7 +7699,7 @@ impl McpHandler {
     fn screen_read(&self, params: &Value) -> Result<Value> {
         let engine = self.engine();
         let pane_id =
-            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
         let screen = engine.read_screen(pane_id)?;
 
         Ok(json!({
@@ -7663,7 +7718,7 @@ impl McpHandler {
     fn screen_text(&self, params: &Value) -> Result<Value> {
         let engine = self.engine();
         let pane_id =
-            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
         let screen = engine.read_screen(pane_id)?;
 
         Ok(json!({
@@ -7694,7 +7749,7 @@ impl McpHandler {
     fn screen_scrollback_text(&self, params: &Value) -> Result<Value> {
         let engine = self.engine();
         let pane_id =
-            self.resolve_pane_id(&engine, params, PaneResolutionOptions::ACTIVE_EXISTING)?;
+            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::ACTIVE_EXISTING)?;
         let want_escapes = params
             .get("escapes")
             .and_then(|v| v.as_bool())
@@ -7762,7 +7817,7 @@ impl McpHandler {
     fn screen_cursor(&self, params: &Value) -> Result<Value> {
         let engine = self.engine();
         let pane_id =
-            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
         let cursor = engine.cursor(pane_id)?;
 
         Ok(json!({
@@ -7776,7 +7831,7 @@ impl McpHandler {
     fn screen_detect_errors(&self, params: &Value) -> Result<Value> {
         let engine = self.engine();
         let pane_id =
-            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
         let screen = engine.read_screen(pane_id)?;
 
         let error_patterns = [
@@ -8407,7 +8462,7 @@ impl McpHandler {
     fn session_recording_start(&self, params: &Value) -> Result<Value> {
         let engine = self.engine();
         let pane_id =
-            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
         self.audit(
             "session.recording_start",
             Some(&pane_id.to_string()),
@@ -8424,7 +8479,7 @@ impl McpHandler {
     fn session_recording_stop(&self, params: &Value) -> Result<Value> {
         let engine = self.engine();
         let pane_id =
-            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
         self.audit("session.recording_stop", Some(&pane_id.to_string()), "stop");
         let r = engine.stop_recording(pane_id)?;
         Ok(json!({
@@ -8439,7 +8494,7 @@ impl McpHandler {
     fn session_recording_status(&self, params: &Value) -> Result<Value> {
         let engine = self.engine();
         let pane_id =
-            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
         let status = engine.recording_status(pane_id)?;
         if status.enabled {
             Ok(json!({
@@ -8489,7 +8544,7 @@ impl McpHandler {
     fn session_recording_attach_trace(&self, params: &Value) -> Result<Value> {
         let engine = self.engine();
         let pane_id =
-            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
         let trace_id = params
             .get("trace_id")
             .and_then(|v| v.as_str())
@@ -8502,7 +8557,7 @@ impl McpHandler {
     fn session_export_markdown(&self, params: &Value) -> Result<Value> {
         let engine = self.engine();
         let pane_id =
-            self.resolve_pane_id(&engine, params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
         let path = params
             .get("path")
             .and_then(|v| v.as_str())

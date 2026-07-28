@@ -828,6 +828,9 @@ fn setup_mux(
     // Before any pane is spawned: the factory decides what a pane *is*, so
     // installing it after the first spawn would leave a mix of local and
     // next-core panes in the same window.
+    // Before anything asks for an engine -- the MCP surface can be serving
+    // before a window exists.
+    crate::engine::install_engine_provider();
     crate::engine::next_core_pane::install_pane_factory_if_enabled();
 
     let mux = Arc::new(mux::Mux::new(Some(local_domain.clone())));

@@ -1168,6 +1168,107 @@ pub trait HealthEngine {
 }
 
 #[allow(dead_code)]
+/// Screenshots, in terms nothing outside this crate has to know about.
+///
+/// Split from the scrollback renderer below because these two return plain
+/// JSON while that one needs this crate's PNG types. Keeping them apart is
+/// what lets the MCP handler -- which uses these seven times and that once --
+/// live somewhere that does not know about a GUI.
+pub trait CaptureEngine {
+    fn capture_screen_image(&self, include_base64: bool) -> anyhow::Result<serde_json::Value>;
+    fn capture_window_image(
+        &self,
+        title_filter: Option<&str>,
+        pid_filter: Option<u32>,
+        include_base64: bool,
+    ) -> anyhow::Result<serde_json::Value>;
+}
+
+/// Everything a front end has to answer for a full MCP surface.
+///
+/// Aggregated so the handler can hold one thing rather than a tuple of
+/// traits, and so a front end that grows a new capability implements it in
+/// one place.
+/// `Send + Sync` because an MCP request is answered off the main thread, and
+/// the engine goes with it.
+pub trait HostEngine: TerminalEngine + WindowEngine + CaptureEngine + Send + Sync {
+    /// What to call this engine in anything a user or an agent reads.
+    fn name(&self) -> &'static str;
+}
+
+impl HostEngine for next_core::NextCoreEngine {
+    fn name(&self) -> &'static str {
+        "next-core"
+    }
+}
+
+/// next-core answers window questions by saying it has no window.
+///
+/// The engine genuinely does not have one -- a front end does. Implementing
+/// these here rather than leaving them unimplemented means an MCP surface can
+/// serve terminal work before, or without, any window existing, and a front
+/// end that does have one installs a provider that answers properly.
+impl WindowEngine for next_core::NextCoreEngine {
+    fn focus_current_instance_window(&self) -> Result<WindowFocusResult> {
+        anyhow::bail!("next-core has no window of its own to focus")
+    }
+    fn set_current_instance_title(&self, _title: Option<String>) -> Result<WindowTitleResult> {
+        anyhow::bail!("next-core has no window of its own to title")
+    }
+    fn active_pane_id(&self) -> Result<Option<u64>> {
+        Ok(self
+            .list_sessions()?
+            .into_iter()
+            .find(|session| session.is_active)
+            .map(|session| session.id as u64))
+    }
+    fn pane_locations(&self) -> Result<std::collections::HashMap<u64, PaneLocation>> {
+        // No windows and no tabs to report, and inventing them would be worse
+        // than reporting none.
+        Ok(std::collections::HashMap::new())
+    }
+    fn scroll_viewport_to(&self, pane_id: usize, target: isize) -> Result<ViewportScrollResult> {
+        next_core::NextCoreEngine::scroll_viewport_to(self, pane_id, target)?;
+        Ok(ViewportScrollResult::Scrolled)
+    }
+}
+
+impl CaptureEngine for next_core::NextCoreEngine {
+    fn capture_screen_image(&self, _include_base64: bool) -> Result<serde_json::Value> {
+        anyhow::bail!("next-core has no window of its own to capture")
+    }
+    fn capture_window_image(
+        &self,
+        _title_filter: Option<&str>,
+        _pid_filter: Option<u32>,
+        _include_base64: bool,
+    ) -> Result<serde_json::Value> {
+        anyhow::bail!("next-core has no window of its own to capture")
+    }
+}
+
+/// How the MCP surface finds the engine to talk to.
+///
+/// A slot rather than a call into the front end: the handler has no business
+/// knowing which front ends exist, and the two that do exist choose
+/// differently -- one has an environment switch between engines, the other
+/// has only next-core.
+static ENGINE_PROVIDER: std::sync::OnceLock<fn() -> Box<dyn HostEngine>> =
+    std::sync::OnceLock::new();
+
+/// Name the engine so the provider can be installed once at startup.
+///
+/// Returns false if one is already installed, which is not an error: two
+/// front ends in one process would be a stranger problem than this.
+pub fn set_engine_provider(provider: fn() -> Box<dyn HostEngine>) -> bool {
+    ENGINE_PROVIDER.set(provider).is_ok()
+}
+
+/// The engine the front end installed, if it has.
+pub fn engine_provider() -> Option<fn() -> Box<dyn HostEngine>> {
+    ENGINE_PROVIDER.get().copied()
+}
+
 pub trait TerminalEngine:
     SessionEngine + ScreenEngine + InputEngine + RecordingEngine + HealthEngine
 {

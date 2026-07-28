@@ -57,7 +57,7 @@ pub use unterm_engine::{
     ScreenLine, ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot,
     SessionActivitySnapshot, SessionEngine, SessionSnapshot, ShellSnapshot, SplitDirection,
     SplitSessionRequest, StyledCell, StyledColor, StyledScreenLine, StyledScreenSnapshot,
-    StyledScrollbackSnapshot, StyledVerticalAlign, TerminalEngine, PaneLocation, ViewportScrollResult, WindowEngine, WindowFocusResult, WindowTitleResult};
+    StyledScrollbackSnapshot, StyledVerticalAlign, TerminalEngine, PaneLocation, ViewportScrollResult, WindowEngine, WindowFocusResult, WindowTitleResult, CaptureEngine, HostEngine};
 
 pub struct RenderedScrollbackPng {
     pub image: crate::scrollshot::ScrollbackPng,
@@ -111,22 +111,6 @@ pub fn next_core_scrollback_renderer_metadata() -> serde_json::Value {
     })
 }
 
-/// Screenshots, in terms nothing outside this crate has to know about.
-///
-/// Split from the scrollback renderer below because these two return plain
-/// JSON while that one needs this crate's PNG types. Keeping them apart is
-/// what lets the MCP handler -- which uses these seven times and that once --
-/// live somewhere that does not know about a GUI.
-pub trait CaptureEngine {
-    fn capture_screen_image(&self, include_base64: bool) -> anyhow::Result<serde_json::Value>;
-    fn capture_window_image(
-        &self,
-        title_filter: Option<&str>,
-        pid_filter: Option<u32>,
-        include_base64: bool,
-    ) -> anyhow::Result<serde_json::Value>;
-}
-
 /// Rendering the scrollback to a PNG, which needs this crate's renderer.
 pub trait ScrollbackImageEngine {
     fn render_scrollback_png(
@@ -154,10 +138,25 @@ pub fn selected_engine_name() -> &'static str {
     selected_engine_name_from_env(std::env::var("UNTERM_ENGINE").ok().as_deref())
 }
 
+/// Tell the engine crate how to reach this front end's engine.
+///
+/// Installed once, early: until it is, anything asking for an engine gets
+/// next-core on its own, which cannot answer window questions. Idempotent so
+/// tests and startup can both call it.
+pub fn install_engine_provider() {
+    unterm_engine::set_engine_provider(|| Box::new(current()));
+}
+
 pub fn current() -> CurrentTerminalEngine {
     match selected_engine_name() {
         "next-core" => CurrentTerminalEngine::NextCore(next_core()),
         _ => CurrentTerminalEngine::WezTerm(wezterm::WezTermEngine),
+    }
+}
+
+impl unterm_engine::HostEngine for CurrentTerminalEngine {
+    fn name(&self) -> &'static str {
+        CurrentTerminalEngine::name(self)
     }
 }
 
