@@ -107,8 +107,25 @@ pub fn frame_quads(
     atlas: &mut GlyphAtlas,
     colors: FrameColors,
 ) -> FrameQuads {
-    let metrics = font.metrics();
     let mut quads = FrameQuads::default();
+    append_pane(snapshot, font, atlas, colors, (0.0, 0.0), &mut quads);
+    quads
+}
+
+/// Add one pane's quads at `origin`, in pixels from the window's top-left.
+///
+/// Panes are drawn into the same buffer rather than one each, so a window of
+/// four splits is still one draw call. The origin is what a split needs and
+/// the single-pane case gets for free at (0, 0).
+pub fn append_pane(
+    snapshot: &StyledScreenSnapshot,
+    font: &mut TerminalFont,
+    atlas: &mut GlyphAtlas,
+    colors: FrameColors,
+    origin: (f32, f32),
+    quads: &mut FrameQuads,
+) {
+    let metrics = font.metrics();
 
     // Rasterize every character this frame needs before building quads, so the
     // atlas cannot grow midway and leave earlier texture coordinates pointing
@@ -133,7 +150,7 @@ pub fn frame_quads(
 
     // The cursor goes in before the glyphs so text lands on top of it, which is
     // what makes an inverted cell readable.
-    let inverted = push_cursor(snapshot, metrics, colors, &mut quads);
+    let inverted = push_cursor(snapshot, metrics, colors, origin, quads);
 
     for (row, line) in snapshot.lines.iter().enumerate() {
         // A cell under a block cursor takes the frame's background colour, so
@@ -141,7 +158,8 @@ pub fn frame_quads(
         let row_colors = colors;
         build_row(
             &line.cells,
-            row as f32 * metrics.height,
+            origin.0,
+            origin.1 + row as f32 * metrics.height,
             metrics,
             row_colors,
             atlas,
@@ -152,13 +170,13 @@ pub fn frame_quads(
                     pixel_size,
                 })
             },
-            &mut quads,
+            quads,
         );
     }
 
     if let Some((column, row)) = inverted {
-        let left = column as f32 * metrics.width;
-        let top = row as f32 * metrics.height;
+        let left = origin.0 + column as f32 * metrics.width;
+        let top = origin.1 + row as f32 * metrics.height;
         for glyph in &mut quads.glyphs {
             let on_cursor = glyph.quad.left >= left - metrics.width
                 && glyph.quad.left < left + metrics.width
@@ -169,8 +187,6 @@ pub fn frame_quads(
             }
         }
     }
-
-    quads
 }
 
 /// Draw the cursor.
@@ -183,6 +199,7 @@ fn push_cursor(
     snapshot: &StyledScreenSnapshot,
     metrics: CellMetrics,
     colors: FrameColors,
+    origin: (f32, f32),
     quads: &mut FrameQuads,
 ) -> Option<(usize, usize)> {
     let cursor = &snapshot.cursor;
@@ -196,8 +213,8 @@ fn push_cursor(
         return None;
     }
 
-    let left = cursor.x as f32 * metrics.width;
-    let top = row as f32 * metrics.height;
+    let left = origin.0 + cursor.x as f32 * metrics.width;
+    let top = origin.1 + row as f32 * metrics.height;
 
     // Shapes as the escape sequences name them. An unknown shape draws a block
     // rather than nothing: a missing cursor is worse than an unexpected one.

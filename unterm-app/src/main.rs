@@ -5,6 +5,7 @@
 //! replacing it, so the working terminal keeps working while this one grows.
 
 mod fonts;
+mod panes;
 mod scroll;
 mod select;
 mod terminal;

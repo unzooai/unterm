@@ -100,6 +100,7 @@ fn to_rgba(color: StyledColor, fallback: [f32; 4]) -> [f32; 4] {
 /// diagnose than a blank line.
 pub fn build_row(
     cells: &[StyledCell],
+    left_origin: f32,
     top: f32,
     metrics: CellMetrics,
     colors: FrameColors,
@@ -113,7 +114,7 @@ pub fn build_row(
         // A wide character occupies two columns, and its background has to
         // cover both or the second shows through.
         let span = cell.width.max(1) as f32;
-        let left = column as f32 * metrics.width;
+        let left = left_origin + column as f32 * metrics.width;
         let (foreground, background) = resolve(&cell.style, colors);
 
         if background != colors.background {
@@ -274,6 +275,7 @@ mod tests {
         build_row(
             &[cell('a', CellStyle::default())],
             0.0,
+            0.0,
             metrics(),
             colors(),
             &atlas,
@@ -298,6 +300,7 @@ mod tests {
 
         build_row(
             &[cell('a', style)],
+            0.0,
             40.0,
             metrics(),
             colors(),
@@ -326,7 +329,7 @@ mod tests {
             width: 2,
         };
 
-        build_row(&[wide], 0.0, metrics(), colors(), &atlas, |_| Some(slot), &mut out);
+        build_row(&[wide], 0.0, 0.0, metrics(), colors(), &atlas, |_| Some(slot), &mut out);
 
         // Covering only one column lets the frame background show through the
         // right half of the character.
@@ -350,6 +353,7 @@ mod tests {
         build_row(
             &[wide, cell('a', style)],
             0.0,
+            0.0,
             metrics(),
             colors(),
             &atlas,
@@ -370,7 +374,7 @@ mod tests {
             ..CellStyle::default()
         };
 
-        build_row(&[cell('a', style)], 0.0, metrics(), colors(), &atlas, |_| Some(slot), &mut out);
+        build_row(&[cell('a', style)], 0.0, 0.0, metrics(), colors(), &atlas, |_| Some(slot), &mut out);
 
         // What a selection highlight relies on: the background becomes the
         // frame's foreground, not some third colour.
@@ -383,7 +387,7 @@ mod tests {
         let (atlas, slot) = atlas_with_glyph();
         let mut out = FrameQuads::default();
 
-        build_row(&[cell(' ', CellStyle::default())], 0.0, metrics(), colors(), &atlas, |_| Some(slot), &mut out);
+        build_row(&[cell(' ', CellStyle::default())], 0.0, 0.0, metrics(), colors(), &atlas, |_| Some(slot), &mut out);
 
         assert!(out.glyphs.is_empty());
     }
@@ -398,7 +402,7 @@ mod tests {
             ..CellStyle::default()
         };
 
-        build_row(&[cell('a', style)], 0.0, metrics(), colors(), &atlas, |_| Some(slot), &mut out);
+        build_row(&[cell('a', style)], 0.0, 0.0, metrics(), colors(), &atlas, |_| Some(slot), &mut out);
 
         // `hidden` conceals the character, not the cell -- a password prompt
         // still occupies its space.
@@ -413,6 +417,7 @@ mod tests {
 
         build_row(
             &[cell('a', CellStyle::default()), cell('b', CellStyle::default())],
+            0.0,
             0.0,
             metrics(),
             colors(),

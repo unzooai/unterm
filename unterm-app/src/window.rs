@@ -39,6 +39,10 @@ pub struct App {
     /// Where the pointer is, in pixels. Winit reports movement and buttons
     /// separately, so a click has to be told where it happened.
     pointer: (f32, f32),
+    /// The split tree. next-core owns what an arrangement *is*; the window
+    /// only says when to split and reads back where the panes go.
+    tabs: unterm_engine::next_core::tabs::TabRegistry,
+    tab_id: Option<usize>,
     /// The selection being dragged out, if one is.
     drag: Option<crate::select::Drag>,
     /// The text of the finished selection, kept so a copy key can find it.
@@ -94,6 +98,8 @@ impl App {
             shift_held: false,
             ctrl_held: false,
             pointer: (0.0, 0.0),
+            tabs: unterm_engine::next_core::tabs::TabRegistry::new(),
+            tab_id: None,
             drag: None,
             selected: None,
             state: None,
@@ -147,6 +153,10 @@ impl App {
             launch_policy: LaunchPolicySnapshot::default(),
         })?;
 
+        // The first pane is a tab of one. Recording it here means a later split
+            // has an arrangement to grow rather than one to infer.
+        self.tab_id = self.tabs.create_tab(session.id).ok();
+
         let live = Live {
             window,
             surface,
@@ -164,11 +174,41 @@ impl App {
         let Some(live) = self.state.as_mut() else {
             return;
         };
-        let Ok(snapshot) = self.engine.read_styled_screen(live.session_id) else {
+        let placements = self.placements();
+        let Some(live) = self.state.as_mut() else {
             return;
         };
 
-        let quads = frame_quads(&snapshot, &mut self.font, &mut self.atlas, self.colors);
+        let mut quads = unterm_render::quads::FrameQuads::default();
+        let mut revision = 0u64;
+        for placement in &placements {
+            let Ok(snapshot) = self.engine.read_styled_screen(placement.session_id) else {
+                continue;
+            };
+            revision = revision.wrapping_add(snapshot.revision);
+            crate::terminal::append_pane(
+                &snapshot,
+                &mut self.font,
+                &mut self.atlas,
+                self.colors,
+                placement.origin,
+                &mut quads,
+            );
+        }
+        if placements.is_empty() {
+            let Ok(snapshot) = self.engine.read_styled_screen(live.session_id) else {
+                return;
+            };
+            revision = snapshot.revision;
+            crate::terminal::append_pane(
+                &snapshot,
+                &mut self.font,
+                &mut self.atlas,
+                self.colors,
+                (0.0, 0.0),
+                &mut quads,
+            );
+        }
         // The atlas may have grown while building this frame's glyphs, so the
         // texture is uploaded after them rather than before.
         live.atlas_texture = live.renderer.upload_atlas(&self.atlas);
@@ -188,7 +228,7 @@ impl App {
             self.colors.background,
         );
         frame.present();
-        self.drawn_revision = Some(snapshot.revision);
+        self.drawn_revision = Some(revision);
     }
 
     /// Which cell the pointer is over, in scrollback coordinates.
@@ -283,15 +323,94 @@ impl App {
         }
     }
 
+    /// The pane keys and pastes go to.
+    fn focused_session(&self) -> usize {
+        self.tab_id
+            .and_then(|tab_id| self.tabs.active_pane(tab_id))
+            .or_else(|| self.state.as_ref().map(|live| live.session_id))
+            .unwrap_or(0)
+    }
+
+    /// Split the focused pane.
+    fn split(&mut self, axis: unterm_engine::next_core::layout::SplitAxis) {
+        let (Some(tab_id), Some(live)) = (self.tab_id, self.state.as_ref()) else {
+            return;
+        };
+        let focused = self.tabs.active_pane(tab_id).unwrap_or(live.session_id);
+
+        // Size the new session to the rectangle it will actually get, so its
+        // shell never sees a width it is not being drawn at.
+        let (cols, rows) = self.font.grid_for(live.width as f32, live.height as f32);
+        let session = match self.engine.create_session(CreateSessionRequest {
+            cols: cols / 2,
+            rows,
+            command_dir: None,
+            command: self.shell.clone(),
+            env: Vec::new(),
+            launch_policy: LaunchPolicySnapshot::default(),
+        }) {
+            Ok(session) => session,
+            Err(err) => {
+                log::warn!("could not open a pane: {err:#}");
+                return;
+            }
+        };
+
+        if let Err(err) = self.tabs.split(focused, session.id, axis, 0.5) {
+            log::warn!("could not split: {err:#}");
+            let _ = self.engine.destroy_session(session.id);
+            return;
+        }
+        self.tabs.set_active_pane(session.id);
+        self.resize_panes();
+        if let Some(live) = self.state.as_ref() {
+            live.window.request_redraw();
+        }
+        self.drawn_revision = None;
+    }
+
+    /// Where each pane goes, in pixels.
+    fn placements(&self) -> Vec<crate::panes::PanePlacement> {
+        let (Some(tab_id), Some(live)) = (self.tab_id, self.state.as_ref()) else {
+            return Vec::new();
+        };
+        let (cols, rows) = self.font.grid_for(live.width as f32, live.height as f32);
+        self.tabs
+            .positions(tab_id, cols, rows)
+            .into_iter()
+            .map(|placed| crate::panes::place(placed.pane_id, placed.rect, self.font.metrics()))
+            .collect()
+    }
+
+    /// Tell every pane the size it is being drawn at.
+    ///
+    /// A shell wrapping at a width it is not shown at is the most confusing
+    /// possible symptom, so this runs on every split and every resize.
+    fn resize_panes(&mut self) {
+        for placement in self.placements() {
+            let _ = self
+                .engine
+                .resize_session(placement.session_id, placement.cols, placement.rows);
+        }
+    }
+
     /// Redraw only when the screen actually moved.
     fn needs_redraw(&self) -> bool {
         let Some(live) = self.state.as_ref() else {
             return false;
         };
-        match self.engine.screen_revision(live.session_id) {
-            Ok(revision) => Some(revision) != self.drawn_revision,
-            Err(_) => false,
-        }
+        // Summed across panes: any one of them moving is a reason to redraw,
+        // and a sum changes whenever a term does.
+        let placements = self.placements();
+        let revision = if placements.is_empty() {
+            self.engine.screen_revision(live.session_id).unwrap_or(0)
+        } else {
+            placements
+                .iter()
+                .filter_map(|placement| self.engine.screen_revision(placement.session_id).ok())
+                .fold(0u64, |sum, value| sum.wrapping_add(value))
+        };
+        Some(revision) != self.drawn_revision
     }
 }
 
@@ -353,11 +472,12 @@ impl ApplicationHandler for App {
                     live.width = width;
                     live.height = height;
                     live.configure(live.renderer.format());
-                    // The shell has to learn the new grid, or it keeps wrapping
-                    // at the old width.
-                    let _ = self.engine.resize_session(live.session_id, cols, rows);
                     live.window.request_redraw();
                 }
+                // Every pane has to learn its new grid, or a shell keeps
+                // wrapping at a width it is no longer drawn at.
+                let _ = (cols, rows);
+                self.resize_panes();
                 self.drawn_revision = None;
             }
 
@@ -389,6 +509,17 @@ impl ApplicationHandler for App {
                         self.paste_clipboard();
                         return;
                     }
+                    // Right and down, as every terminal spells them.
+                    if matches!(&event.logical_key, Key::Character(text) if text.eq_ignore_ascii_case("d"))
+                    {
+                        self.split(unterm_engine::next_core::layout::SplitAxis::Horizontal);
+                        return;
+                    }
+                    if matches!(&event.logical_key, Key::Character(text) if text.eq_ignore_ascii_case("e"))
+                    {
+                        self.split(unterm_engine::next_core::layout::SplitAxis::Vertical);
+                        return;
+                    }
                 }
 
                 // Shift+Page scrolls the viewport; unshifted pages belong to
@@ -412,7 +543,7 @@ impl ApplicationHandler for App {
                 }
 
                 if let Some(text) = encode(&event) {
-                    let _ = self.engine.write_input(live.session_id, &text);
+                    let _ = self.engine.write_input(self.focused_session(), &text);
                 }
             }
 

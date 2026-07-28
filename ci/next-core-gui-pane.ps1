@@ -368,6 +368,20 @@ $Suites = @(
         )
     },
     @{
+        # A pane rectangle one cell out is a line of text sliding under the
+        # divider -- easier to assert than to notice.
+        Name = "pane placement"
+        Package = "unterm-app"
+        Filter = "panes::tests::"
+        ExpectedCount = 7
+        RequiredTests = @(
+            "panes::tests::a_pane_to_the_right_starts_after_the_cells_before_it",
+            "panes::tests::a_pane_below_starts_after_the_rows_above_it",
+            "panes::tests::a_pane_the_engine_sized_to_nothing_still_asks_for_a_cell",
+            "panes::tests::placements_do_not_overlap"
+        )
+    },
+    @{
         # Wheel and page arithmetic: all of it wrong by a sign or a factor of
         # three until someone tries it.
         Name = "scroll amounts"
