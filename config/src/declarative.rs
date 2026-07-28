@@ -42,6 +42,11 @@ const FIELD_MAP: &[(&str, &str)] = &[
     ("title_button.style", "integrated_title_button_style"),
     ("title_button.alignment", "integrated_title_button_alignment"),
     ("title_button.buttons", "integrated_title_buttons"),
+    ("tab_bar.position", "tab_bar_position"),
+    ("tab_bar.title_format", "tab_title_format"),
+    ("tab_bar.fallback_title", "tab_title_fallback"),
+    ("tab_bar.strip_extension", "tab_title_strip_extension"),
+    ("tab_bar.capitalize", "tab_title_capitalize"),
 ];
 
 /// Read and validate a declarative config, returning it as a `Config`.
@@ -265,11 +270,6 @@ mod tests {
             "path_append",
             "colors.background",
             "colors.foreground",
-            "tab_bar.position",
-            "tab_bar.title_format",
-            "tab_bar.fallback_title",
-            "tab_bar.strip_extension",
-            "tab_bar.capitalize",
         ];
         for setting in config_schema::SETTINGS {
             let mapped = FIELD_MAP.iter().any(|(declared, _)| declared == setting);

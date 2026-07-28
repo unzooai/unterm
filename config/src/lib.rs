@@ -889,6 +889,6 @@ fn default_one_point_oh() -> f32 {
     1.0
 }
 
-fn default_true() -> bool {
+pub(crate) fn default_true() -> bool {
     true
 }

@@ -528,6 +528,28 @@ pub struct Config {
     #[dynamic(default = "default_tab_max_width")]
     pub tab_max_width: usize,
 
+    /// Template for a tab's title, with `{title}` and `{index}` substituted.
+    /// Unset means the built-in tab label, which shows an icon, the program
+    /// or agent name, and the working directory.
+    ///
+    /// This replaces the `format-tab-title` callback: the same handful of
+    /// rules, declared rather than executed.
+    #[dynamic(default)]
+    pub tab_title_format: Option<String>,
+
+    /// Used when neither the pane nor the program yields a name. An unnamed
+    /// tab is worse than a generically named one.
+    #[dynamic(default = "default_tab_title_fallback")]
+    pub tab_title_fallback: String,
+
+    /// Drop a trailing `.exe`, which is noise in a tab.
+    #[dynamic(default = "crate::default_true")]
+    pub tab_title_strip_extension: bool,
+
+    /// Upper-case the first character, so `pwsh` reads as `Pwsh`.
+    #[dynamic(default = "crate::default_true")]
+    pub tab_title_capitalize: bool,
+
     /// If true, hide the tab bar if the window only has a single tab.
     #[dynamic(default)]
     pub hide_tab_bar_if_only_one_tab: bool,
@@ -2283,6 +2305,10 @@ fn default_word_boundary() -> String {
 
 fn default_enq_answerback() -> String {
     "".to_string()
+}
+
+fn default_tab_title_fallback() -> String {
+    "Terminal".to_string()
 }
 
 fn default_tab_max_width() -> usize {

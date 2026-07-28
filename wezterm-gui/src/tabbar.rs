@@ -1,7 +1,6 @@
 use crate::termwindow::{PaneInformation, TabInformation, UIItem, UIItemType};
 use config::{ConfigHandle, TabBarColors};
 use finl_unicode::grapheme_clusters::Graphemes;
-use mlua::FromLua;
 use termwiz::cell::{unicode_column_width, Cell, CellAttributes};
 use termwiz::color::{AnsiColor, ColorSpec};
 use termwiz::escape::csi::Sgr;
@@ -43,65 +42,51 @@ struct TitleText {
     len: usize,
 }
 
-fn call_format_tab_title(
+/// Build a tab title from the declarative template, if one is configured.
+///
+/// This replaces the `format-tab-title` callback. The rules a title needs are
+/// always the same handful, so they are settings now and nothing the user
+/// wrote is executed to paint a tab.
+fn format_tab_title(
     tab: &TabInformation,
-    tab_info: &[TabInformation],
-    pane_info: &[PaneInformation],
     config: &ConfigHandle,
-    hover: bool,
-    tab_max_width: usize,
 ) -> Option<TitleText> {
-    match config::run_immediate_with_lua_config(|lua| {
-        if let Some(lua) = lua {
-            let tabs = lua.create_sequence_from(tab_info.iter().cloned())?;
-            let panes = lua.create_sequence_from(pane_info.iter().cloned())?;
+    let format = config.tab_title_format.as_deref()?;
 
-            let v = config::lua::emit_sync_callback(
-                &*lua,
-                (
-                    "format-tab-title".to_string(),
-                    (
-                        tab.clone(),
-                        tabs,
-                        panes,
-                        (**config).clone(),
-                        hover,
-                        tab_max_width,
-                    ),
-                ),
-            )?;
-            match &v {
-                mlua::Value::Nil => Ok(None),
-                mlua::Value::Table(_) => {
-                    let items = <Vec<FormatItem>>::from_lua(v, &*lua)?;
+    let pane = tab.active_pane.as_ref();
+    // The program is resolved from the mux, and only from a cache that is
+    // already warm: a title is painted on every frame, and a process snapshot
+    // per tab per frame was measurably expensive once a window held several.
+    let process_path = pane
+        .and_then(|pane| mux::Mux::try_get().map(|mux| (mux, pane.pane_id)))
+        .and_then(|(mux, pane_id)| mux.get_pane(pane_id))
+        .and_then(|pane| {
+            pane.get_foreground_process_name(mux::pane::CachePolicy::AllowStale)
+        })
+        .unwrap_or_default();
 
-                    let esc = format_as_escapes(items.clone())?;
-                    let line = parse_status_text(&esc, CellAttributes::default());
+    let rules = unterm_engine::next_core::tab_title::TabTitleRules {
+        format: format.to_string(),
+        fallback: config.tab_title_fallback.clone(),
+        strip_extension: config.tab_title_strip_extension,
+        capitalize: config.tab_title_capitalize,
+        ..Default::default()
+    };
+    let rendered = unterm_engine::next_core::tab_title::render(
+        &rules,
+        unterm_engine::next_core::tab_title::TabContext {
+            pane_title: pane.map(|pane| pane.title.as_str()).unwrap_or(""),
+            process_path: &process_path,
+            // Shown 1-based, as the tab bar numbers them.
+            index: tab.tab_index + 1,
+        },
+    );
 
-                    Ok(Some(TitleText {
-                        items,
-                        len: line.len(),
-                    }))
-                }
-                _ => {
-                    let s = String::from_lua(v, &*lua)?;
-                    let line = parse_status_text(&s, CellAttributes::default());
-                    Ok(Some(TitleText {
-                        len: line.len(),
-                        items: vec![FormatItem::Text(s)],
-                    }))
-                }
-            }
-        } else {
-            Ok(None)
-        }
-    }) {
-        Ok(s) => s,
-        Err(err) => {
-            log::warn!("format-tab-title: {}", err);
-            None
-        }
-    }
+    let line = parse_status_text(&rendered, CellAttributes::default());
+    Some(TitleText {
+        len: line.len(),
+        items: vec![FormatItem::Text(rendered)],
+    })
 }
 
 /// pct is a percentage in the range 0-100.
@@ -131,15 +116,8 @@ fn pct_to_glyph(pct: u8) -> char {
     }
 }
 
-fn compute_tab_title(
-    tab: &TabInformation,
-    tab_info: &[TabInformation],
-    pane_info: &[PaneInformation],
-    config: &ConfigHandle,
-    hover: bool,
-    tab_max_width: usize,
-) -> TitleText {
-    let title = call_format_tab_title(tab, tab_info, pane_info, config, hover, tab_max_width);
+fn compute_tab_title(tab: &TabInformation, config: &ConfigHandle) -> TitleText {
+    let title = format_tab_title(tab, config);
 
     match title {
         Some(title) => title,
@@ -462,14 +440,7 @@ impl TabBarState {
                     if tab.is_active {
                         active_tab_no = tab.tab_index;
                     }
-                    compute_tab_title(
-                        tab,
-                        tab_info,
-                        pane_info,
-                        config,
-                        false,
-                        config.tab_max_width,
-                    )
+                    compute_tab_title(tab, config)
                 })
                 .collect()
         } else {
@@ -537,14 +508,7 @@ impl TabBarState {
 
             // Recompute the title so that it factors in both the hover state
             // and the adjusted maximum tab width based on available space.
-            let tab_title = compute_tab_title(
-                &tab_info[tab_idx],
-                tab_info,
-                pane_info,
-                config,
-                hover,
-                tab_title_len,
-            );
+            let tab_title = compute_tab_title(&tab_info[tab_idx], config);
 
             let cell_attrs = if active {
                 &active_cell_attrs
