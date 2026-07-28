@@ -548,6 +548,39 @@ mod tests {
         );
     }
 
+    /// The pane owns its session's lifetime. If dropping it did not destroy
+    /// the session, every closed pane would leave a PTY and a shell running.
+    #[test]
+    fn spawning_a_pane_creates_a_session_and_dropping_it_destroys_one() -> anyhow::Result<()> {
+        let pane = NextCorePane::spawn(
+            7,
+            TerminalSize {
+                cols: 40,
+                rows: 6,
+                ..Default::default()
+            },
+            None,
+            None,
+            0,
+            Vec::new(),
+        )?;
+        let session_id = pane.session_id();
+
+        assert!(
+            next_core().get_session(session_id).is_ok(),
+            "spawn must leave a live session behind the pane"
+        );
+        assert!(!pane.is_dead());
+
+        drop(pane);
+
+        assert!(
+            next_core().get_session(session_id).is_err(),
+            "dropping the pane must destroy its session, or the PTY leaks"
+        );
+        Ok(())
+    }
+
     #[test]
     fn pane_factory_flag_needs_an_explicit_opt_in() {
         for value in ["1", "true", "yes", "on", "next-core", " TRUE "] {
