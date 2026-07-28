@@ -110,11 +110,15 @@ Gate the GUI pane contracts with:
 
 This covers the pane/session binding invariants, the GUI key encoder, and an end-to-end check that encoded keystrokes reach a real shell and its output comes back on the next-core screen.
 
+In `replace` mode next-core drives every visible pane's pixels, keyboard, clipboard paste, IME text, mouse reporting, wheel scrolling, resize, and teardown. Replacing is all-or-nothing across a tab: if any pane is not ready to draw, the whole tab keeps the legacy renderer rather than leaving a blank rectangle.
+
 Known gaps at this stage:
 
-- Only the active pane is driven by next-core; splits and inactive tabs still render legacy.
-- Scrollback, selection, and mouse reporting still belong to the legacy pane.
+- **A legacy WezTerm pane still runs underneath each next-core pane.** The mux owns pane/tab/split geometry and lifecycle, so a replaced pane means two shells are alive: the one you see and drive (next-core) and the hidden one the mux still holds. Making the GUI pane *be* a next-core session — a `NextCorePane` implementing `mux::pane::Pane` — is the next structural step.
+- Selection and copy still read the legacy pane's screen, so selecting inside a replaced pane copies from the hidden session.
+- Overlays (copy mode, launcher, debug output) keep their pane on the legacy renderer entirely.
 - next-core implements neither the kitty keyboard protocol nor win32-input-mode, so keys are sent in their plain xterm forms. Applications that negotiate those protocols will not see the extended encodings in a replaced pane.
+- Real X10 mouse tracking (`CSI ? 9 h`) is not parsed; `CSI ? 1000/1002/1003 h` are.
 
 Interactive input smoke test:
 
