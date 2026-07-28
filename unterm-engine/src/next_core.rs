@@ -63,6 +63,7 @@ mod session_runtime;
 mod session_snapshots;
 mod sgr;
 mod styled_snapshot;
+pub mod tabs;
 mod terminal_parser;
 mod terminal_queries;
 #[cfg(test)]
