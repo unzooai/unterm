@@ -1319,6 +1319,10 @@ impl TermWindow {
             myself.load_os_parameters();
 
             crate::startup_timing::mark("render state created");
+            // Before the window is shown, and so before its first paint: the
+            // paint is what would otherwise teach the registry about this tab
+            // by adopting its arrangement.
+            myself.create_next_core_registry_tabs_for_window();
             window.show();
             crate::startup_timing::mark("window.show() called");
             myself.subscribe_to_pane_updates();
@@ -1731,6 +1735,7 @@ impl TermWindow {
                     window_id: _,
                     tab_id,
                 } => {
+                    self.create_next_core_registry_tab(tab_id);
                     let mux = Mux::get();
                     let mut size = self.terminal_size;
                     if let Some(tab) = mux.get_tab(tab_id) {
@@ -5262,6 +5267,73 @@ impl TermWindow {
             }
         }
         self.destroy_next_core_pane_binding(pane_id);
+    }
+
+    /// Register the tabs this window already had when it opened.
+    ///
+    /// Startup creates the tab before the window subscribes, so there is no
+    /// notification to catch for it.
+    fn create_next_core_registry_tabs_for_window(&self) {
+        if !crate::engine::next_core_pane::next_core_panes_enabled() {
+            return;
+        }
+        let mux = Mux::get();
+        let Some(window) = mux.get_window(self.mux_window_id) else {
+            return;
+        };
+        let tab_ids: Vec<mux::tab::TabId> = window.iter().map(|tab| tab.tab_id()).collect();
+        drop(window);
+        for tab_id in tab_ids {
+            self.create_next_core_registry_tab(tab_id);
+        }
+    }
+
+    /// Create the registry's entry for a tab as it appears.
+    ///
+    /// Without this the registry first learns of a tab when it renders one,
+    /// and adopts the whole arrangement -- correct, but it means the mux
+    /// originated that structure. Creating it here leaves adoption for the
+    /// case it is actually needed: a tab that arrives already split, which a
+    /// remote domain can do.
+    fn create_next_core_registry_tab(&self, tab_id: mux::tab::TabId) {
+        if !crate::engine::next_core_pane::next_core_panes_enabled() {
+            return;
+        }
+        let Some(tab) = Mux::get().get_tab(tab_id) else {
+            return;
+        };
+        let panes = tab.iter_panes_ignoring_zoom();
+        // More than one pane means it arrived pre-arranged; adoption knows how
+        // to read that, and guessing a split order here would invent one.
+        if panes.len() != 1 {
+            return;
+        }
+        let pane_id = panes[0].pane.pane_id() as usize;
+
+        let mut registry = self.next_core_tabs.borrow_mut();
+        if registry.tab_of_pane(pane_id).is_some() {
+            return;
+        }
+        match registry.adopt_tab(
+            tab_id,
+            &[unterm_engine::next_core::layout::PositionedPane {
+                pane_id,
+                rect: unterm_engine::next_core::layout::PaneRect {
+                    left: 0,
+                    top: 0,
+                    width: panes[0].width.max(1),
+                    height: panes[0].height.max(1),
+                },
+            }],
+            pane_id,
+        ) {
+            Ok(()) => log::debug!(
+                "next-core tab registry created tab {tab_id} with pane {pane_id}"
+            ),
+            Err(err) => log::debug!(
+                "next-core tab registry could not create tab {tab_id}: {err:#}"
+            ),
+        }
     }
 
     /// Record a split in next-core's registry.
