@@ -1402,6 +1402,109 @@ mod engine_neutral_handler_tests {
     }
 
     #[test]
+    fn recording_status_and_trace_attach_use_next_core_engine() {
+        let _guard = env_lock().lock();
+        let previous_engine = std::env::var("UNTERM_ENGINE").ok();
+        std::env::set_var("UNTERM_ENGINE", "next-core");
+
+        let temp_root = std::env::temp_dir().join(format!(
+            "unterm-next-core-trace-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time")
+                .as_nanos()
+        ));
+        let project_dir = temp_root.join("project");
+        let export_path = temp_root.join("trace-export.md");
+        std::fs::create_dir_all(&project_dir).expect("create temp project dir");
+
+        let result: Result<(serde_json::Value, serde_json::Value, serde_json::Value, usize)> =
+            (|| {
+                let handler = McpHandler::new();
+                let ctx = ConnectionContext::internal("handler-test");
+                let created = handler.handle(
+                    &ctx,
+                    "session.create",
+                    &json!({
+                        "cols": 80,
+                        "rows": 6,
+                        "cwd": project_dir.display().to_string(),
+                    }),
+                )?;
+                let pane_id = created["id"].as_u64().expect("session id") as usize;
+
+                handler.handle(
+                    &ctx,
+                    "session.recording_start",
+                    &json!({ "pane_id": pane_id }),
+                )?;
+                next_core().write_input(pane_id, "echo next-core-trace-attach\r")?;
+                wait_for_screen_pattern(&handler, &ctx, pane_id, "next-core-trace-attach")?;
+
+                let first_trace = handler.handle(
+                    &ctx,
+                    "session.recording_attach_trace",
+                    &json!({
+                        "pane_id": pane_id,
+                        "trace_id": "trace-next-core-1",
+                    }),
+                )?;
+                let second_trace = handler.handle(
+                    &ctx,
+                    "session.recording_attach_trace",
+                    &json!({
+                        "pane_id": pane_id,
+                        "trace_id": "trace-next-core-1",
+                    }),
+                )?;
+                let status = handler.handle(
+                    &ctx,
+                    "session.recording_status",
+                    &json!({ "pane_id": pane_id }),
+                )?;
+                let exported = handler.handle(
+                    &ctx,
+                    "session.export_markdown",
+                    &json!({
+                        "pane_id": pane_id,
+                        "path": export_path.display().to_string(),
+                    }),
+                )?;
+                let _ = handler.handle(&ctx, "session.destroy", &json!({ "pane_id": pane_id }));
+
+                Ok((
+                    first_trace,
+                    second_trace,
+                    json!({ "status": status, "exported": exported }),
+                    pane_id,
+                ))
+            })();
+
+        match previous_engine {
+            Some(value) => std::env::set_var("UNTERM_ENGINE", value),
+            None => std::env::remove_var("UNTERM_ENGINE"),
+        }
+
+        let (first_trace, second_trace, status_and_export, pane_id) =
+            result.expect("attach recording trace through next-core engine");
+        assert!(next_core().get_session(pane_id).is_err());
+        assert_eq!(first_trace["trace_ids"], json!(["trace-next-core-1"]));
+        assert_eq!(second_trace["trace_ids"], json!(["trace-next-core-1"]));
+        let status = &status_and_export["status"];
+        assert_eq!(status["enabled"], true);
+        assert!(status["session_id"].as_str().is_some());
+        assert!(status["started_at"].as_str().is_some());
+        assert!(status["bytes"].as_u64().unwrap_or_default() > 0);
+        let exported = &status_and_export["exported"];
+        assert_eq!(exported["path"], export_path.display().to_string());
+        let markdown = std::fs::read_to_string(&export_path).expect("read exported markdown");
+        assert!(markdown.contains("trace_ids: [\"trace-next-core-1\"]"));
+        assert!(markdown.contains("next-core-trace-attach"));
+        let _ = std::fs::remove_dir_all(&temp_root);
+    }
+
+    #[test]
     fn active_recording_export_uses_next_core_engine() {
         let _guard = env_lock().lock();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
