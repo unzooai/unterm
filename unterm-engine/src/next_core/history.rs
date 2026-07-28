@@ -79,6 +79,20 @@ impl HistoryBuffer {
         };
     }
 
+    /// Move the viewport by `delta` rows, clamped to the scrollback.
+    ///
+    /// Distinct from `set_viewport_top_near`, which snaps *near* an absolute
+    /// target: wheel scrolling needs exact stepping, or every notch drifts.
+    /// Reaching the bottom returns to `None` — following the live tail — so a
+    /// scrolled-back viewport resumes tracking output instead of freezing one
+    /// row short.
+    pub(super) fn scroll_viewport_by(&mut self, delta: isize, rows: usize, live_lines: usize) {
+        let max_top = self.history_len(live_lines).saturating_sub(rows);
+        let current = self.viewport_top.unwrap_or(max_top) as isize;
+        let next = (current + delta).clamp(0, max_top as isize) as usize;
+        self.viewport_top = if next >= max_top { None } else { Some(next) };
+    }
+
     pub(super) fn history_lines<'a>(
         &'a self,
         live_lines: &'a [Vec<ScreenCell>],

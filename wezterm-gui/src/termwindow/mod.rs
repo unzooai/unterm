@@ -683,6 +683,44 @@ fn next_core_pane_session_request(
     }
 }
 
+/// Translate a GUI mouse event into next-core's input form.
+///
+/// Returns `None` for events next-core has no encoding for, which the caller
+/// treats as "nothing to report" rather than as a reason to fall back to the
+/// legacy pane.
+fn next_core_mouse_event(
+    event: &wezterm_term::MouseEvent,
+) -> Option<unterm_engine::next_core::mouse_encoding::MouseEvent> {
+    use unterm_engine::next_core::mouse_encoding::{MouseButton, MouseEventKind};
+    use wezterm_term::{MouseButton as TMB, MouseEventKind as TMEK};
+
+    let kind = match event.kind {
+        TMEK::Press => MouseEventKind::Press,
+        TMEK::Release => MouseEventKind::Release,
+        TMEK::Move => MouseEventKind::Motion,
+    };
+    let button = match event.button {
+        TMB::Left => Some(MouseButton::Left),
+        TMB::Middle => Some(MouseButton::Middle),
+        TMB::Right => Some(MouseButton::Right),
+        TMB::WheelUp(_) => Some(MouseButton::WheelUp),
+        TMB::WheelDown(_) => Some(MouseButton::WheelDown),
+        TMB::WheelLeft(_) => Some(MouseButton::WheelLeft),
+        TMB::WheelRight(_) => Some(MouseButton::WheelRight),
+        // Motion with nothing held; the encoder reports it as "no button".
+        TMB::None => None,
+    };
+
+    Some(unterm_engine::next_core::mouse_encoding::MouseEvent {
+        kind,
+        button,
+        // Both sides are zero-based, pane-relative cell coordinates.
+        column: event.x,
+        row: event.y.max(0) as usize,
+        modifiers: event.modifiers,
+    })
+}
+
 fn posix_single_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
 }
@@ -4301,6 +4339,14 @@ impl TermWindow {
     }
 
     fn scroll_by_line(&mut self, amount: isize, pane: &Arc<dyn Pane>) -> anyhow::Result<()> {
+        // A next-core-replaced pane shows next-core's viewport, so scrolling
+        // the legacy pane's would move a buffer nobody is looking at.
+        if self.scroll_next_core_pane_by_line(pane.pane_id(), amount) {
+            if let Some(win) = self.window.as_ref() {
+                win.invalidate();
+            }
+            return Ok(());
+        }
         let dims = pane.get_dimensions();
         let position = self
             .get_viewport(pane.pane_id())
@@ -5300,6 +5346,49 @@ impl TermWindow {
             unterm_engine::next_core::key_encoding::encode_key(key, modifiers)
         {
             self.write_next_core_pane_input(pane_id, &encoded);
+        }
+        true
+    }
+
+    /// Scroll the next-core session backing `pane_id` by `amount` rows.
+    ///
+    /// Returns `false` when next-core does not own the pane, so the caller
+    /// scrolls the legacy pane instead.
+    fn scroll_next_core_pane_by_line(&self, pane_id: PaneId, amount: isize) -> bool {
+        if !self.next_core_owns_pane_input(pane_id) {
+            return false;
+        }
+        let Ok(session_id) = self.next_core_pane_session(pane_id) else {
+            return false;
+        };
+        if let Err(err) = crate::engine::next_core().scroll_viewport_by(session_id, amount) {
+            log::debug!(
+                "next-core scroll for pane {pane_id} (session {session_id}) failed: {err:#}"
+            );
+        }
+        true
+    }
+
+    /// Offer a mouse event to the pane's next-core session.
+    ///
+    /// Returns `true` when next-core owns the pane, whether or not the event
+    /// was reported: an application with mouse tracking off legitimately wants
+    /// nothing, and falling through would send the event to the hidden legacy
+    /// pane instead.
+    pub fn send_next_core_mouse(&self, pane_id: PaneId, event: &wezterm_term::MouseEvent) -> bool {
+        if !self.next_core_owns_pane_input(pane_id) {
+            return false;
+        }
+        let Ok(session_id) = self.next_core_pane_session(pane_id) else {
+            return false;
+        };
+        let Some(event) = next_core_mouse_event(event) else {
+            return true;
+        };
+        if let Err(err) = crate::engine::next_core().report_mouse(session_id, event) {
+            log::warn!(
+                "next-core mouse report for pane {pane_id} (session {session_id}) failed: {err:#}"
+            );
         }
         true
     }

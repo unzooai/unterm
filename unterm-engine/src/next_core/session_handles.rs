@@ -12,6 +12,7 @@ pub(super) struct InputHandles {
     pub(super) activity: Arc<Mutex<SessionIoActivity>>,
     pub(super) application_cursor_keys: bool,
     pub(super) bracketed_paste: bool,
+    pub(super) mouse_modes: super::mouse_encoding::MouseModes,
 }
 
 pub(super) struct RecordingHandles {
@@ -71,6 +72,7 @@ pub(super) fn input_current(pane_id: usize) -> Result<InputHandles> {
             activity: Arc::clone(&session.activity),
             application_cursor_keys: screen.application_cursor_keys,
             bracketed_paste: screen.bracketed_paste,
+            mouse_modes: screen.mouse_modes(),
         })
     })
 }

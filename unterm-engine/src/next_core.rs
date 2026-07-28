@@ -27,6 +27,7 @@ mod history;
 mod input_dispatch;
 mod input_pipeline;
 pub mod key_encoding;
+pub mod mouse_encoding;
 mod launch;
 mod lifecycle;
 mod osc133;
@@ -199,6 +200,33 @@ struct NextCoreScreen {
 }
 
 impl NextCoreScreen {
+    /// The session's mouse reporting state, as the encoder needs it.
+    ///
+    /// `MouseTrackingMode`'s variant names do not line up with the DECSET
+    /// numbers that set them, so the mapping is spelled out by mode number
+    /// rather than by name:
+    ///
+    /// - `X10`          <- `CSI ? 1000 h`, press and release
+    /// - `ButtonEvent`  <- `CSI ? 1002 h`, plus motion while a button is held
+    /// - `AnyEvent`     <- `CSI ? 1003 h`, plus free motion
+    ///
+    /// Real X10 tracking (`CSI ? 9 h`) is not parsed, so nothing maps to
+    /// `MouseTracking::X10`.
+    pub(super) fn mouse_modes(&self) -> mouse_encoding::MouseModes {
+        use mouse_encoding::MouseTracking;
+        mouse_encoding::MouseModes {
+            tracking: match self.mouse_tracking {
+                screen_state::MouseTrackingMode::None => MouseTracking::None,
+                screen_state::MouseTrackingMode::X10 => MouseTracking::ButtonEvent,
+                screen_state::MouseTrackingMode::ButtonEvent => MouseTracking::ButtonMotion,
+                screen_state::MouseTrackingMode::AnyEvent => MouseTracking::AnyEvent,
+            },
+            sgr: self.sgr_mouse,
+            urxvt: self.urxvt_mouse,
+            utf8: self.utf8_mouse,
+        }
+    }
+
     fn new(cols: usize, rows: usize) -> Self {
         let mut screen = Self {
             cols: cols.max(1),
@@ -346,6 +374,13 @@ impl NextCoreScreen {
     fn set_viewport_top_near(&mut self, target: isize) {
         self.history
             .set_viewport_top_near(target, self.rows, self.lines.len());
+        self.bump_revision();
+        self.mark_all_dirty();
+    }
+
+    fn scroll_viewport_by(&mut self, delta: isize) {
+        self.history
+            .scroll_viewport_by(delta, self.rows, self.lines.len());
         self.bump_revision();
         self.mark_all_dirty();
     }
@@ -1612,6 +1647,11 @@ impl NextCoreEngine {
     pub fn scroll_viewport_to(&self, pane_id: usize, target: isize) -> Result<()> {
         runtime::scroll_viewport_to(pane_id, target)
     }
+
+    /// Move the viewport by `delta` rows. Negative scrolls back into history.
+    pub fn scroll_viewport_by(&self, pane_id: usize, delta: isize) -> Result<()> {
+        runtime::scroll_viewport_by(pane_id, delta)
+    }
 }
 
 impl SessionEngine for NextCoreEngine {
@@ -1718,6 +1758,21 @@ impl InputEngine for NextCoreEngine {
 
     fn paste_input(&self, pane_id: usize, text: &str) -> Result<()> {
         runtime::paste_input(pane_id, text)
+    }
+}
+
+impl NextCoreEngine {
+    /// Offer a mouse event to the session.
+    ///
+    /// Whether anything reaches the PTY depends on the modes the application
+    /// negotiated; with reporting off this is a no-op and the terminal keeps
+    /// the mouse for selection and scrollback.
+    pub fn report_mouse(
+        &self,
+        pane_id: usize,
+        event: mouse_encoding::MouseEvent,
+    ) -> Result<()> {
+        runtime::report_mouse(pane_id, event)
     }
 }
 
@@ -2283,6 +2338,100 @@ mod tests {
         Ok(())
     }
 
+    /// Wheel scrolling steps the viewport exactly and returns to following
+    /// the live tail at the bottom.
+    #[test]
+    fn relative_viewport_scroll_steps_and_resumes_following() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 20,
+            rows: 4,
+            command_dir: None,
+            command: Some(quiet_wait_command_for_test()),
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        // 12 lines of history behind a 4-row viewport.
+        let lines: String = (0..12).map(|i| format!("line{i}\r\n")).collect();
+        set_output_for_test(session.id, &lines)?;
+
+        let top_line = |engine: &NextCoreEngine| -> Result<String> {
+            Ok(engine.read_screen(session.id)?.lines[0].trim().to_string())
+        };
+        let following = top_line(&engine)?;
+
+        // Each step moves by exactly the requested number of rows.
+        engine.scroll_viewport_by(session.id, -3)?;
+        let up_three = top_line(&engine)?;
+        engine.scroll_viewport_by(session.id, -1)?;
+        let up_four = top_line(&engine)?;
+        assert_ne!(up_three, following, "scrolling back must move the viewport");
+        assert_ne!(up_four, up_three, "each notch must step again");
+
+        // Scrolling forward past the bottom resumes following the live tail
+        // rather than stopping one row short.
+        engine.scroll_viewport_by(session.id, 100)?;
+        assert_eq!(top_line(&engine)?, following);
+
+        // ...and clamping back is symmetric: no amount of scrolling back runs
+        // off the top of the scrollback.
+        engine.scroll_viewport_by(session.id, -1000)?;
+        let pinned = top_line(&engine)?;
+        engine.scroll_viewport_by(session.id, -1000)?;
+        assert_eq!(top_line(&engine)?, pinned);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    /// A mouse click only reaches the PTY once the application turns
+    /// reporting on, and it goes through the same input lane as typing.
+    #[test]
+    fn mouse_reports_follow_the_session_modes() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 6,
+            command_dir: None,
+            command: Some(quiet_wait_command_for_test()),
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        let click = mouse_encoding::MouseEvent {
+            kind: mouse_encoding::MouseEventKind::Press,
+            button: Some(mouse_encoding::MouseButton::Left),
+            column: 4,
+            row: 2,
+            modifiers: termwiz::input::Modifiers::NONE,
+        };
+
+        // Reporting is off by default, so the click is a no-op on the wire.
+        reset_activity_for_test(session.id)?;
+        engine.report_mouse(session.id, click)?;
+        assert!(
+            engine.activity(session.id)?.input.is_none(),
+            "a click must not reach the PTY while mouse reporting is off"
+        );
+
+        // The application enables SGR button tracking.
+        set_output_for_test(session.id, "\x1b[?1000h\x1b[?1006h")?;
+        engine.report_mouse(session.id, click)?;
+        let input = engine
+            .activity(session.id)?
+            .input
+            .expect("input metrics after a reported click");
+        assert_eq!(input.total_bytes as usize, "\x1b[<0;5;3M".len());
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
     #[test]
     fn paste_activity_reports_last_write_metrics() -> Result<()> {
         let _guard = test_guard();
@@ -2414,11 +2563,15 @@ mod tests {
         let _guard = test_guard();
         reset_state_for_test();
         let engine = NextCoreEngine;
+        // The default shell, not a timed command: `idle` is
+        // `is_dead || is_idle`, so a command that exits early makes the
+        // session report idle no matter how recent its output was, and the
+        // assertion below races the process lifetime.
         let session = engine.create_session(CreateSessionRequest {
             cols: 80,
             rows: 3,
             command_dir: None,
-            command: Some(quiet_wait_command_for_test()),
+            command: None,
             env: Vec::new(),
             launch_policy: Default::default(),
         })?;

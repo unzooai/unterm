@@ -2620,7 +2620,12 @@ impl crate::TermWindow {
         if allow_action
             && !(self.config.swallow_mouse_click_on_pane_focus && is_click_to_focus_pane)
         {
-            pane.mouse_event(mouse_event).ok();
+            // A next-core-replaced pane owns its input, mouse included: the
+            // legacy pane is not on screen, so reporting to it would send the
+            // event to a session the user cannot see.
+            if !self.send_next_core_mouse(pane.pane_id(), &mouse_event) {
+                pane.mouse_event(mouse_event).ok();
+            }
         }
 
         match event.kind {

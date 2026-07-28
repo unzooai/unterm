@@ -61,9 +61,22 @@ pub(in crate::next_core) enum RuntimeCommand {
         pane_id: usize,
         text: String,
     },
+    /// A mouse event offered to the session. Whether it reaches the PTY at
+    /// all depends on the modes the application negotiated, so this carries
+    /// the event rather than pre-encoded bytes.
+    ReportMouse {
+        pane_id: usize,
+        event: crate::next_core::mouse_encoding::MouseEvent,
+    },
     ScrollViewport {
         pane_id: usize,
         target: isize,
+    },
+    /// Move the viewport by a relative number of rows, resolved under the
+    /// screen lock so a concurrent scrollback trim cannot skew the step.
+    ScrollViewportBy {
+        pane_id: usize,
+        delta: isize,
     },
     ReadScreen {
         pane_id: usize,
@@ -141,8 +154,12 @@ impl RuntimeCommand {
             | Self::ResizeSession { .. }
             | Self::DestroySession { .. } => RuntimeCommandClass::SessionLifecycle,
             Self::ListSessions | Self::GetSession { .. } => RuntimeCommandClass::SessionQuery,
-            Self::WriteInput { .. } | Self::PasteInput { .. } => RuntimeCommandClass::Input,
-            Self::ScrollViewport { .. } => RuntimeCommandClass::ScreenMutation,
+            Self::WriteInput { .. } | Self::PasteInput { .. } | Self::ReportMouse { .. } => {
+                RuntimeCommandClass::Input
+            }
+            Self::ScrollViewport { .. } | Self::ScrollViewportBy { .. } => {
+                RuntimeCommandClass::ScreenMutation
+            }
             Self::ReadScreen { .. }
             | Self::ReadStyledScreen { .. }
             | Self::ReadRenderFrame { .. }
@@ -175,7 +192,9 @@ impl RuntimeCommand {
             | Self::DestroySession { pane_id }
             | Self::WriteInput { pane_id, .. }
             | Self::PasteInput { pane_id, .. }
+            | Self::ReportMouse { pane_id, .. }
             | Self::ScrollViewport { pane_id, .. }
+            | Self::ScrollViewportBy { pane_id, .. }
             | Self::ReadScreen { pane_id }
             | Self::ReadStyledScreen { pane_id }
             | Self::ReadRenderFrame { pane_id, .. }
@@ -205,9 +224,12 @@ impl RuntimeCommand {
             | Self::ResizeSession { .. }
             | Self::DestroySession { .. } => RuntimeCommandLane::Lifecycle,
             Self::ListSessions | Self::GetSession { .. } => RuntimeCommandLane::Background,
-            Self::WriteInput { .. } | Self::PasteInput { .. } => RuntimeCommandLane::Input,
+            Self::WriteInput { .. } | Self::PasteInput { .. } | Self::ReportMouse { .. } => {
+                RuntimeCommandLane::Input
+            }
             Self::ReadRenderFrame { .. } => RuntimeCommandLane::Render,
             Self::ScrollViewport { .. }
+            | Self::ScrollViewportBy { .. }
             | Self::ReadScreen { .. }
             | Self::ReadStyledScreen { .. }
             | Self::ReadVisibleText { .. }
@@ -239,7 +261,9 @@ impl RuntimeCommand {
                 | Self::DestroySession { .. }
                 | Self::WriteInput { .. }
                 | Self::PasteInput { .. }
+                | Self::ReportMouse { .. }
                 | Self::ScrollViewport { .. }
+                | Self::ScrollViewportBy { .. }
                 | Self::StartRecording { .. }
                 | Self::StopRecording { .. }
                 | Self::AttachRecordingTrace { .. }
@@ -252,6 +276,7 @@ impl RuntimeCommand {
             self,
             Self::WriteInput { .. }
                 | Self::PasteInput { .. }
+                | Self::ReportMouse { .. }
                 | Self::FocusSession { .. }
                 | Self::ReadRenderFrame { .. }
         )
@@ -260,10 +285,20 @@ impl RuntimeCommand {
     pub(in crate::next_core) fn input_bytes(&self) -> usize {
         match self {
             Self::WriteInput { text, .. } | Self::PasteInput { text, .. } => text.len(),
+            // A mouse report's real length is not known until the session's
+            // modes are consulted at dispatch, so charge a conservative
+            // upper bound up front. Counting zero would exempt mouse motion
+            // from input backpressure entirely, and with `CSI ? 1003 h` every
+            // pointer move is a report.
+            Self::ReportMouse { .. } => MAX_MOUSE_REPORT_BYTES,
             _ => 0,
         }
     }
 }
+
+/// Upper bound on an encoded mouse report: `CSI < 255 ; 9999 ; 9999 M` and
+/// the shorter legacy forms all fit well inside this.
+pub(in crate::next_core) const MAX_MOUSE_REPORT_BYTES: usize = 24;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::next_core) struct RuntimeQueuePolicy {

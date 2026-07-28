@@ -28,6 +28,9 @@ pub(in crate::next_core) fn execute_screen_mutation(command: RuntimeCommand) -> 
         RuntimeCommand::ScrollViewport { pane_id, target } => {
             screen_dispatch::scroll_viewport_to(pane_id, target)
         }
+        RuntimeCommand::ScrollViewportBy { pane_id, delta } => {
+            screen_dispatch::scroll_viewport_by(pane_id, delta)
+        }
         _ => bail!("runtime screen executor expected screen mutation command"),
     }
 }

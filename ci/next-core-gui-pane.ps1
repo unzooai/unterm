@@ -46,15 +46,51 @@ $Suites = @(
         )
     },
     @{
-        # The end-to-end proof: encoded keys reach a real PTY and the shell's
-        # own output comes back. Unit tests alone would pass with the encoder
+        Name = "mouse encoding"
+        Package = "unterm-engine"
+        Filter = "next_core::mouse_encoding::tests::"
+        ExpectedCount = 12
+        RequiredTests = @(
+            "next_core::mouse_encoding::tests::tracking_off_reports_nothing",
+            "next_core::mouse_encoding::tests::each_tracking_mode_reports_only_what_it_asked_for",
+            "next_core::mouse_encoding::tests::legacy_press_biases_every_field_by_32",
+            "next_core::mouse_encoding::tests::legacy_releases_lose_the_button_but_sgr_keeps_it",
+            "next_core::mouse_encoding::tests::sgr_press_uses_decimal_one_based_coordinates",
+            "next_core::mouse_encoding::tests::legacy_format_gives_up_past_its_coordinate_limit",
+            "next_core::mouse_encoding::tests::modifiers_add_their_xterm_bits",
+            "next_core::mouse_encoding::tests::motion_sets_the_motion_bit_and_free_motion_uses_button_three",
+            "next_core::mouse_encoding::tests::sgr_takes_precedence_over_the_other_extensions"
+        )
+    },
+    @{
+        # The end-to-end proofs: encoded input reaches a real PTY, mouse
+        # reports follow the session's negotiated modes, and wheel scrolling
+        # steps the viewport. Unit tests alone would pass with an encoder
         # wired to the wrong writer.
-        Name = "key path end to end"
+        Name = "input path end to end"
         Package = "unterm-engine"
         Filter = "next_core::tests::encoded_keys_reach_a_real_shell_and_echo_back"
         ExpectedCount = 1
         RequiredTests = @(
             "next_core::tests::encoded_keys_reach_a_real_shell_and_echo_back"
+        )
+    },
+    @{
+        Name = "mouse report end to end"
+        Package = "unterm-engine"
+        Filter = "next_core::tests::mouse_reports_follow_the_session_modes"
+        ExpectedCount = 1
+        RequiredTests = @(
+            "next_core::tests::mouse_reports_follow_the_session_modes"
+        )
+    },
+    @{
+        Name = "viewport scroll end to end"
+        Package = "unterm-engine"
+        Filter = "next_core::tests::relative_viewport_scroll_steps_and_resumes_following"
+        ExpectedCount = 1
+        RequiredTests = @(
+            "next_core::tests::relative_viewport_scroll_steps_and_resumes_following"
         )
     }
 )

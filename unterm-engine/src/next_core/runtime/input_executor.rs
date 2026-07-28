@@ -13,7 +13,12 @@ pub(in crate::next_core) fn execute(command: RuntimeCommand) -> Result<()> {
     match command {
         RuntimeCommand::WriteInput { pane_id, text } => input_dispatch::write(pane_id, &text),
         RuntimeCommand::PasteInput { pane_id, text } => input_dispatch::paste(pane_id, &text),
-        _ => unreachable!("input command class must be write or paste"),
+        // The bool says whether the session wanted the event; the caller
+        // learns that through `report_mouse`, not through this executor.
+        RuntimeCommand::ReportMouse { pane_id, event } => {
+            input_dispatch::mouse(pane_id, event).map(|_| ())
+        }
+        _ => unreachable!("input command class must be write, paste, or mouse"),
     }
 }
 

@@ -282,6 +282,15 @@ pub(super) fn scroll_viewport_to(pane_id: usize, target: isize) -> Result<()> {
     Ok(())
 }
 
+pub(super) fn scroll_viewport_by(pane_id: usize, delta: isize) -> Result<()> {
+    let started_at = Instant::now();
+    let (screen, activity) = session_handles::screen_activity_current(pane_id)?;
+
+    screen.lock().scroll_viewport_by(delta);
+    activity.lock().mark_viewport_scroll(started_at.elapsed());
+    Ok(())
+}
+
 pub(super) fn cursor(pane_id: usize) -> Result<CursorSnapshot> {
     let screen = session_handles::screen_current(pane_id)?;
 

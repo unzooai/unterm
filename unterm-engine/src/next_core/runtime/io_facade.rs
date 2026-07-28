@@ -9,6 +9,10 @@ pub(in crate::next_core) fn scroll_viewport_to(pane_id: usize, target: isize) ->
     scheduler::scroll_viewport_to(pane_id, target)
 }
 
+pub(in crate::next_core) fn scroll_viewport_by(pane_id: usize, delta: isize) -> Result<()> {
+    scheduler::scroll_viewport_by(pane_id, delta)
+}
+
 pub(in crate::next_core) fn read_screen(pane_id: usize) -> Result<ScreenSnapshot> {
     scheduler::read_screen(pane_id)
 }
@@ -78,4 +82,11 @@ pub(in crate::next_core) fn paste_input(pane_id: usize, text: &str) -> Result<()
         pane_id,
         text: text.to_string(),
     })
+}
+
+pub(in crate::next_core) fn report_mouse(
+    pane_id: usize,
+    event: crate::next_core::mouse_encoding::MouseEvent,
+) -> Result<()> {
+    scheduler::submit_input(RuntimeCommand::ReportMouse { pane_id, event })
 }

@@ -21,6 +21,29 @@ pub(super) fn write(pane_id: usize, input: &str) -> Result<()> {
     Ok(())
 }
 
+/// Report a mouse event to the session, if it asked to hear about it.
+///
+/// `Ok(false)` means the application has mouse reporting off (or does not want
+/// this event kind), so the caller keeps the mouse for terminal-side
+/// behaviour like selection and scrollback.
+pub(super) fn mouse(pane_id: usize, event: super::mouse_encoding::MouseEvent) -> Result<bool> {
+    let handles = session_handles::input_current(pane_id)?;
+    let Some(encoded) = super::mouse_encoding::encode_mouse(event, handles.mouse_modes) else {
+        return Ok(false);
+    };
+
+    let started_at = Instant::now();
+    let bytes = encoded.len();
+    let mut writer = handles.writer.lock();
+    writer.write_all(encoded.as_bytes())?;
+    writer.flush()?;
+    handles
+        .activity
+        .lock()
+        .mark_input(bytes, started_at.elapsed());
+    Ok(true)
+}
+
 pub(super) fn paste(pane_id: usize, text: &str) -> Result<()> {
     let handles = session_handles::input_current(pane_id)?;
     let bracketed = handles.bracketed_paste;
