@@ -3,6 +3,7 @@
 //! Deliberately holds no window and no event loop, so the part that decides
 //! what a frame looks like can be tested without opening anything.
 
+use crate::fonts::FontStack;
 use unterm_engine::next_core::font_raster::FontFace;
 use unterm_engine::next_core::{config::Config, font_discovery};
 use unterm_render::atlas::{GlyphAtlas, GlyphKey};
@@ -15,7 +16,7 @@ use unterm_engine::StyledScreenSnapshot;
 /// grid that does not match its glyphs either clips them or leaves gaps, and
 /// both are visible on every character.
 pub struct TerminalFont {
-    face: FontFace,
+    stack: FontStack,
     metrics: CellMetrics,
 }
 
@@ -27,10 +28,20 @@ impl TerminalFont {
             .default_monospace()
             .ok_or_else(|| anyhow::anyhow!("no monospace font found on this machine"))?;
         let face = FontFace::open(&entry.path, pixel_size)?;
-        Ok(Self::from_face(face))
+        Ok(Self::from_face(face, &[], pixel_size))
     }
 
-    pub fn from_face(mut face: FontFace) -> Self {
+    /// Open the primary face and whichever fallbacks the config names.
+    pub fn open_with_fallback(pixel_size: u32, families: &[String]) -> anyhow::Result<Self> {
+        let index = font_discovery::FontIndex::scan();
+        let entry = index
+            .default_monospace()
+            .ok_or_else(|| anyhow::anyhow!("no monospace font found on this machine"))?;
+        let face = FontFace::open(&entry.path, pixel_size)?;
+        Ok(Self::from_face(face, families, pixel_size))
+    }
+
+    pub fn from_face(mut face: FontFace, fallbacks: &[String], pixel_size: u32) -> Self {
         // Measure from a character every monospace face has, rather than
         // trusting a nominal size: hinting and rounding mean the advance for
         // `M` is what the grid actually has to be.
@@ -51,7 +62,7 @@ impl TerminalFont {
         };
 
         Self {
-            face,
+            stack: FontStack::new(face, fallbacks, pixel_size),
             metrics: CellMetrics {
                 width: advance,
                 height,
@@ -64,8 +75,12 @@ impl TerminalFont {
         self.metrics
     }
 
-    pub fn face_mut(&mut self) -> &mut FontFace {
-        &mut self.face
+    pub fn stack_mut(&mut self) -> &mut FontStack {
+        &mut self.stack
+    }
+
+    pub fn pixel_size(&self) -> u32 {
+        self.stack.pixel_size()
     }
 
     /// How many cells fit in a window of this size.
@@ -104,7 +119,18 @@ pub fn frame_quads(
         }
     }
 
-    let pixel_size = font.face_mut().pixel_size();
+    // Which face drew each character, resolved once, so the lookup below
+    // matches the key each glyph was filed under.
+    let pixel_size = font.pixel_size();
+    let mut face_of: std::collections::HashMap<char, usize> = std::collections::HashMap::new();
+    for line in &snapshot.lines {
+        for cell in &line.cells {
+            face_of
+                .entry(cell.ch)
+                .or_insert_with(|| font.stack.face_for(cell.ch));
+        }
+    }
+
     for (row, line) in snapshot.lines.iter().enumerate() {
         build_row(
             &line.cells,
@@ -114,7 +140,7 @@ pub fn frame_quads(
             atlas,
             |ch| {
                 atlas.get(GlyphKey {
-                    face: 0,
+                    face: face_of.get(&ch).copied().unwrap_or(0),
                     glyph_index: ch as u32,
                     pixel_size,
                 })
@@ -134,17 +160,26 @@ fn ensure_glyph(font: &mut TerminalFont, atlas: &mut GlyphAtlas, ch: char) {
     if ch == ' ' || ch == '\0' {
         return;
     }
-    let pixel_size = font.face_mut().pixel_size();
-    let key = GlyphKey {
-        face: 0,
-        glyph_index: ch as u32,
-        pixel_size,
-    };
+    let key = glyph_key(font, ch);
     if atlas.get(key).is_some() {
         return;
     }
-    if let Ok(glyph) = font.face_mut().rasterize(ch) {
+    if let Some((_, glyph)) = font.stack_mut().rasterize(ch) {
         atlas.insert(key, &glyph);
+    }
+}
+
+/// Where a character lives in the atlas.
+///
+/// The face is part of the key because two faces' glyphs for the same
+/// character are different pictures; filing a fallback glyph under the primary
+/// would show one where the other belongs.
+fn glyph_key(font: &mut TerminalFont, ch: char) -> GlyphKey {
+    let pixel_size = font.pixel_size();
+    GlyphKey {
+        face: font.stack_mut().face_for(ch),
+        glyph_index: ch as u32,
+        pixel_size,
     }
 }
 
@@ -321,6 +356,40 @@ mod tests {
                 "texture coordinate outside the atlas: {glyph:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_character_the_primary_face_lacks_still_gets_ink() {
+        let Some(mut font) = font() else {
+            return;
+        };
+        let mut atlas = GlyphAtlas::new(256, 256);
+        let colors = FrameColors {
+            foreground: [1.0; 4],
+            background: [0.0, 0.0, 0.0, 1.0],
+        };
+
+        // Two Han characters a programming font almost never carries.
+        let quads = frame_quads(&snapshot("\u{6f22}\u{5b57}"), &mut font, &mut atlas, colors);
+
+        if quads.glyphs.is_empty() {
+            // No CJK-capable face installed; nothing to assert on this machine.
+            return;
+        }
+
+        // Without fallback these rasterize to glyph 0 -- the empty box -- which
+        // is exactly what CJK looked like in the window before.
+        for glyph in &quads.glyphs {
+            assert!(
+                glyph.quad.width > 0.0 && glyph.quad.height > 0.0,
+                "a fallback glyph should have pixels: {glyph:?}"
+            );
+        }
+
+        // And the ink has to be in the atlas, not just a slot with a size.
+        let any_ink = (0..atlas.height())
+            .any(|y| (0..atlas.width()).any(|x| atlas.pixel(x, y) > 0));
+        assert!(any_ink, "the fallback face should have left ink");
     }
 
     #[test]

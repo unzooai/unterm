@@ -4,6 +4,7 @@
 //! provides the window. This binary exists alongside `unterm` rather than
 //! replacing it, so the working terminal keeps working while this one grows.
 
+mod fonts;
 mod terminal;
 mod window;
 

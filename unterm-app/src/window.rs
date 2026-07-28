@@ -44,6 +44,23 @@ struct Live {
 
 impl App {
     pub fn new(config: &config::Config) -> anyhow::Result<Self> {
+        // The config's own fallback list comes first: someone who named a font
+        // meant it, and the built-in list is only what to try after.
+        let fallbacks: Vec<String> = config
+            .list_of("font_fallback")
+            .ok()
+            .flatten()
+            .map(|values| {
+                values
+                    .iter()
+                    .filter_map(|value| match value {
+                        unterm_engine::next_core::config::Value::Str(name) => Some(name.clone()),
+                        _ => None,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
         let pixel_size = config
             .float_of("font_size")
             .ok()
@@ -53,7 +70,7 @@ impl App {
 
         Ok(Self {
             engine: NextCoreEngine,
-            font: TerminalFont::open(pixel_size.round() as u32)?,
+            font: TerminalFont::open_with_fallback(pixel_size.round() as u32, &fallbacks)?,
             atlas: GlyphAtlas::new(1024, 1024),
             colors: colors_from(config),
             state: None,

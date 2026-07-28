@@ -324,13 +324,28 @@ $Suites = @(
         Name = "app frame"
         Package = "unterm-app"
         Filter = "terminal::tests::"
-        ExpectedCount = 9
+        ExpectedCount = 10
         RequiredTests = @(
             "terminal::tests::a_window_sized_to_exactly_n_cells_gets_n",
             "terminal::tests::a_window_too_small_for_one_cell_still_asks_for_one",
             "terminal::tests::every_glyph_is_rasterized_before_any_quad_is_built",
             "terminal::tests::text_becomes_glyph_quads",
-            "terminal::tests::a_config_without_colours_still_gives_readable_ones"
+            "terminal::tests::a_config_without_colours_still_gives_readable_ones",
+            "terminal::tests::a_character_the_primary_face_lacks_still_gets_ink"
+        )
+    },
+    @{
+        # One face cannot draw everything. Without this, whole writing systems
+        # come out as the empty box.
+        Name = "font fallback"
+        Package = "unterm-app"
+        Filter = "fonts::tests::"
+        ExpectedCount = 5
+        RequiredTests = @(
+            "fonts::tests::latin_comes_from_the_primary_face",
+            "fonts::tests::a_character_the_primary_lacks_finds_another_face",
+            "fonts::tests::a_character_nobody_has_still_draws_something",
+            "fonts::tests::rasterizing_reports_which_face_drew_it"
         )
     },
     @{

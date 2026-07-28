@@ -19,8 +19,7 @@ use std::sync::Arc;
 
 use freetype::{
     FT_Done_Face, FT_Done_FreeType, FT_Face, FT_Init_FreeType, FT_Library, FT_Load_Char,
-    FT_Set_Pixel_Sizes, FT_LOAD_RENDER,
-};
+    FT_Set_Pixel_Sizes, FT_LOAD_RENDER, FT_Get_Char_Index};
 
 /// A rasterized glyph: 8-bit coverage plus where to put it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -183,6 +182,24 @@ impl FontFace {
     /// A glyph with no outline — a space, or a character this face does not
     /// cover — rasterizes to an empty bitmap with a real advance, which is
     /// what the layout wants: the pen still moves.
+    /// The face's glyph for `ch`, or None when it has none.
+    ///
+    /// This is the question fallback turns on, and it has to be asked *before*
+    /// rasterizing: `FT_Load_Char` does not fail on a missing character, it
+    /// quietly loads glyph 0 and renders the empty box. A renderer that skips
+    /// this check draws boxes instead of falling through to a face that has
+    /// the character -- which is exactly what CJK looked like here.
+    pub fn glyph_index_for(&self, ch: char) -> Option<u32> {
+        // SAFETY: `self.face` is live for the lifetime of self.
+        let index = unsafe { FT_Get_Char_Index(self.face, ch as freetype::FT_ULong) };
+        (index != 0).then_some(index as u32)
+    }
+
+    /// Whether this face can draw `ch` itself.
+    pub fn has_glyph(&self, ch: char) -> bool {
+        self.glyph_index_for(ch).is_some()
+    }
+
     pub fn rasterize(&mut self, ch: char) -> Result<RasterizedGlyph> {
         // SAFETY: `self.face` is live; FT_LOAD_RENDER asks FreeType to
         // rasterize into the face's glyph slot in the same call.
