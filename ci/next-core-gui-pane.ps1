@@ -165,6 +165,25 @@ $Suites = @(
         )
     },
     @{
+        # The state behind copy mode, without its UI: two points, a shape, and
+        # the text that comes out.
+        Name = "selection model"
+        Package = "unterm-engine"
+        Filter = "next_core::selection::tests::"
+        ExpectedCount = 13
+        RequiredTests = @(
+            "next_core::selection::tests::dragging_backwards_keeps_the_anchor",
+            "next_core::selection::tests::a_linear_selection_takes_partial_ends_and_full_middles",
+            "next_core::selection::tests::a_block_selection_takes_the_same_columns_from_every_row",
+            "next_core::selection::tests::columns_never_run_past_the_row",
+            "next_core::selection::tests::extraction_trims_the_padding_a_terminal_adds",
+            "next_core::selection::tests::extraction_keeps_leading_indentation",
+            "next_core::selection::tests::a_soft_wrapped_row_joins_the_next_without_a_newline",
+            "next_core::selection::tests::a_hard_break_between_rows_becomes_a_newline",
+            "next_core::selection::tests::extraction_does_not_add_a_trailing_newline"
+        )
+    },
+    @{
         Name = "mouse encoding"
         Package = "unterm-engine"
         Filter = "next_core::mouse_encoding::tests::"

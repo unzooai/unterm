@@ -52,6 +52,7 @@ mod screen_search;
 mod screen_snapshot;
 mod screen_state;
 mod screen_text;
+pub mod selection;
 mod session_activity;
 mod session_creation;
 mod session_defaults;
