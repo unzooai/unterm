@@ -26,6 +26,7 @@ mod health_snapshot;
 mod history;
 mod input_dispatch;
 mod input_pipeline;
+pub mod key_encoding;
 mod launch;
 mod lifecycle;
 mod osc133;
@@ -2199,6 +2200,87 @@ mod tests {
             input_pipeline::application_cursor_input("\x1b[H\x1b[F", false),
             "\x1b[H\x1b[F"
         );
+    }
+
+    /// Poll the visible screen until `needle` shows up, or give up.
+    ///
+    /// A real PTY answers on its own schedule, so a fixed sleep either flakes
+    /// on a loaded machine or wastes seconds on a fast one.
+    fn wait_for_screen_line(
+        engine: &NextCoreEngine,
+        pane_id: usize,
+        mut accept: impl FnMut(&str) -> bool,
+        description: &str,
+        timeout: std::time::Duration,
+    ) -> Result<String> {
+        let deadline = std::time::Instant::now() + timeout;
+        loop {
+            let screen = engine.read_screen(pane_id)?;
+            if let Some(line) = screen.lines.iter().find(|line| accept(line)) {
+                return Ok(line.clone());
+            }
+            if std::time::Instant::now() >= deadline {
+                let rendered = screen.lines.join("\n");
+                anyhow::bail!("timed out waiting for {description}; screen was:\n{rendered}");
+            }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+    }
+
+    /// The GUI key path end to end: a termwiz key event becomes bytes, the
+    /// bytes reach a real shell, and the shell's echo comes back on screen.
+    ///
+    /// The unit tests above cover encoding in isolation; this is the one that
+    /// would catch an encoder that is individually correct but wired to the
+    /// PTY wrong.
+    #[test]
+    fn encoded_keys_reach_a_real_shell_and_echo_back() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 12,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        // Type "echo nc-key-path" one key at a time, exactly as the GUI would
+        // hand each keystroke over, then press Enter.
+        let marker = "nc-key-path";
+        let typed = format!("echo {marker}");
+        for c in typed.chars() {
+            let encoded = key_encoding::encode_key(
+                termwiz::input::KeyCode::Char(c),
+                termwiz::input::Modifiers::NONE,
+            )
+            .unwrap_or_else(|| panic!("no encoding for {:?}", c));
+            engine.write_input(session.id, &encoded)?;
+        }
+        let enter = key_encoding::encode_key(
+            termwiz::input::KeyCode::Enter,
+            termwiz::input::Modifiers::NONE,
+        )
+        .expect("Enter encodes");
+        engine.write_input(session.id, &enter)?;
+
+        // Wait for the shell to *run* the command, not merely echo it back.
+        // The echoed line contains "echo <marker>"; the result line contains
+        // the marker alone. Accepting the echo would let a broken Enter
+        // encoding pass, since the characters would still be on screen.
+        let line = wait_for_screen_line(
+            &engine,
+            session.id,
+            |line| line.contains(marker) && !line.contains("echo "),
+            "the shell's output line for the typed command",
+            std::time::Duration::from_secs(30),
+        )?;
+        assert_eq!(line.trim(), marker);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
     }
 
     #[test]
