@@ -856,6 +856,86 @@ mod tests {
         Ok(())
     }
 
+    /// Adopt a real mux Tab's layout into next-core's tree.
+    ///
+    /// This is the move the wiring makes: mux has the tab, next-core needs the
+    /// same arrangement. Rectangles are the only thing both sides agree on, so
+    /// the tree is recovered from them and must reproduce them exactly --
+    /// anything else shifts panes on screen at the moment of the swap.
+    #[test]
+    fn a_mux_tab_layout_can_be_adopted_by_next_core() -> anyhow::Result<()> {
+        use unterm_engine::next_core::layout::{Layout, PositionedPane};
+        use wezterm_term::TerminalSize;
+
+        let size = TerminalSize {
+            rows: 24,
+            cols: 80,
+            pixel_width: 800,
+            pixel_height: 600,
+            dpi: 96,
+        };
+        let tab = mux::tab::Tab::new(&size);
+        let first: std::sync::Arc<dyn Pane> = std::sync::Arc::new(NextCorePane::spawn(
+            mux::pane::alloc_pane_id(),
+            size,
+            None,
+            None,
+            0,
+            Vec::new(),
+        )?);
+        tab.assign_pane(&first);
+
+        // Two splits on different axes, so the recovered tree has to be
+        // nested rather than a single cut.
+        for (index, direction) in [
+            (0, mux::tab::SplitDirection::Horizontal),
+            (1, mux::tab::SplitDirection::Vertical),
+        ] {
+            let request = mux::tab::SplitRequest {
+                direction,
+                ..Default::default()
+            };
+            let split = tab
+                .compute_split_size(index, request)
+                .ok_or_else(|| anyhow::anyhow!("mux declined to split pane {index}"))?;
+            let pane: std::sync::Arc<dyn Pane> = std::sync::Arc::new(NextCorePane::spawn(
+                mux::pane::alloc_pane_id(),
+                split.second,
+                None,
+                None,
+                0,
+                Vec::new(),
+            )?);
+            tab.split_and_insert(index, request, pane)?;
+        }
+
+        let mux_panes = tab.iter_panes();
+        assert_eq!(mux_panes.len(), 3);
+
+        let adopted: Vec<PositionedPane> = mux_panes
+            .iter()
+            .map(|pos| PositionedPane {
+                pane_id: pos.pane.pane_id(),
+                rect: unterm_engine::next_core::layout::PaneRect {
+                    left: pos.left,
+                    top: pos.top,
+                    width: pos.width,
+                    height: pos.height,
+                },
+            })
+            .collect();
+
+        let layout = Layout::from_positions(&adopted)
+            .ok_or_else(|| anyhow::anyhow!("could not adopt the mux layout: {adopted:?}"))?;
+
+        assert_eq!(
+            layout.positions(size.cols as usize, size.rows as usize),
+            adopted,
+            "adopted tree lays out differently than the mux tab it came from"
+        );
+        Ok(())
+    }
+
     #[test]
     fn layout_tree_matches_mux_tab_geometry() -> anyhow::Result<()> {
         use unterm_engine::next_core::layout::SplitAxis;

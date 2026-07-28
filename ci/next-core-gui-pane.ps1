@@ -51,7 +51,7 @@ $Suites = @(
         Name = "next-core mux pane"
         Package = "unterm"
         Filter = "engine::next_core_pane::tests::"
-        ExpectedCount = 14
+        ExpectedCount = 15
         RequiredTests = @(
             "engine::next_core_pane::tests::styled_line_becomes_a_line_of_the_requested_width",
             "engine::next_core_pane::tests::wide_cells_consume_their_trailing_column",
@@ -66,7 +66,8 @@ $Suites = @(
             "engine::next_core_pane::tests::cursor_shapes_round_trip_through_their_names",
             "engine::next_core_pane::tests::killing_a_pane_ends_its_session",
             "engine::next_core_pane::tests::unseen_output_tracks_revisions_since_focus_was_lost",
-            "engine::next_core_pane::tests::layout_tree_matches_mux_tab_geometry"
+            "engine::next_core_pane::tests::layout_tree_matches_mux_tab_geometry",
+            "engine::next_core_pane::tests::a_mux_tab_layout_can_be_adopted_by_next_core"
         )
     },
     @{
@@ -121,7 +122,7 @@ $Suites = @(
         Name = "pane layout"
         Package = "unterm-engine"
         Filter = "next_core::layout::tests::"
-        ExpectedCount = 14
+        ExpectedCount = 17
         RequiredTests = @(
             "next_core::layout::tests::a_horizontal_split_leaves_a_cell_for_the_divider",
             "next_core::layout::tests::a_vertical_split_divides_height_instead",
@@ -133,7 +134,10 @@ $Suites = @(
             "next_core::layout::tests::ratios_are_clamped_so_neither_side_disappears",
             "next_core::layout::tests::a_tab_too_small_to_split_still_gives_every_pane_a_cell",
             "next_core::layout::tests::resizing_a_split_moves_the_divider_and_survives_a_tab_resize",
-            "next_core::layout::tests::every_pane_is_positioned_exactly_once"
+            "next_core::layout::tests::every_pane_is_positioned_exactly_once",
+            "next_core::layout::tests::a_tree_round_trips_through_its_own_rectangles",
+            "next_core::layout::tests::rebuilding_recovers_the_pane_set",
+            "next_core::layout::tests::a_layout_no_terminal_could_produce_is_refused"
         )
     },
     @{

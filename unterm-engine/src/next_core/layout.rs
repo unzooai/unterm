@@ -297,6 +297,150 @@ impl Layout {
     }
 }
 
+impl Layout {
+    /// Rebuild a split tree from laid-out rectangles.
+    ///
+    /// The bridge for adopting a layout that some other tree produced: the
+    /// rectangles are the only thing both sides agree on, so the structure is
+    /// recovered from them rather than translated.
+    ///
+    /// Works by guillotine decomposition — repeatedly find a straight cut that
+    /// separates the panes into two groups, and recurse. Terminal splits are
+    /// always guillotine cuts, so any layout a terminal can produce can be
+    /// recovered; anything else (overlapping or L-shaped regions) returns
+    /// `None` rather than inventing a tree that would render wrong.
+    pub fn from_positions(panes: &[PositionedPane]) -> Option<Self> {
+        if panes.is_empty() {
+            return None;
+        }
+        let bounds = bounding_rect(panes)?;
+        Some(Self {
+            root: Some(rebuild_node(panes, bounds)?),
+        })
+    }
+}
+
+fn bounding_rect(panes: &[PositionedPane]) -> Option<PaneRect> {
+    let first = panes.first()?.rect;
+    let mut left = first.left;
+    let mut top = first.top;
+    let mut right = first.left + first.width;
+    let mut bottom = first.top + first.height;
+    for pane in panes.iter().skip(1) {
+        left = left.min(pane.rect.left);
+        top = top.min(pane.rect.top);
+        right = right.max(pane.rect.left + pane.rect.width);
+        bottom = bottom.max(pane.rect.top + pane.rect.height);
+    }
+    Some(PaneRect {
+        left,
+        top,
+        width: right - left,
+        height: bottom - top,
+    })
+}
+
+fn rebuild_node(panes: &[PositionedPane], bounds: PaneRect) -> Option<Node> {
+    if panes.len() == 1 {
+        return Some(Node::Leaf(panes[0].pane_id));
+    }
+
+    // A vertical cut at column `x` splits the panes if every one lies wholly
+    // to one side of it, and both sides are non-empty.
+    for pane in panes {
+        let cut = pane.rect.left + pane.rect.width;
+        if cut <= bounds.left || cut >= bounds.left + bounds.width {
+            continue;
+        }
+        if let Some(node) = try_cut(panes, bounds, SplitAxis::Horizontal, cut) {
+            return Some(node);
+        }
+    }
+    for pane in panes {
+        let cut = pane.rect.top + pane.rect.height;
+        if cut <= bounds.top || cut >= bounds.top + bounds.height {
+            continue;
+        }
+        if let Some(node) = try_cut(panes, bounds, SplitAxis::Vertical, cut) {
+            return Some(node);
+        }
+    }
+    // No straight cut separates these panes, so this is not a layout a
+    // terminal could have produced.
+    None
+}
+
+fn try_cut(
+    panes: &[PositionedPane],
+    bounds: PaneRect,
+    axis: SplitAxis,
+    cut: usize,
+) -> Option<Node> {
+    let (mut first, mut second) = (Vec::new(), Vec::new());
+    for pane in panes {
+        let (start, end) = match axis {
+            SplitAxis::Horizontal => (pane.rect.left, pane.rect.left + pane.rect.width),
+            SplitAxis::Vertical => (pane.rect.top, pane.rect.top + pane.rect.height),
+        };
+        if end <= cut {
+            first.push(*pane);
+        } else if start >= cut {
+            second.push(*pane);
+        } else {
+            // Straddles the cut, so this is not a clean split here.
+            return None;
+        }
+    }
+    if first.is_empty() || second.is_empty() {
+        return None;
+    }
+
+    let (first_bounds, second_bounds) = match axis {
+        SplitAxis::Horizontal => (
+            PaneRect {
+                width: cut - bounds.left,
+                ..bounds
+            },
+            PaneRect {
+                left: cut,
+                width: (bounds.left + bounds.width) - cut,
+                ..bounds
+            },
+        ),
+        SplitAxis::Vertical => (
+            PaneRect {
+                height: cut - bounds.top,
+                ..bounds
+            },
+            PaneRect {
+                top: cut,
+                height: (bounds.top + bounds.height) - cut,
+                ..bounds
+            },
+        ),
+    };
+
+    // Recover the ratio from the sizes, so re-laying the tree out at the same
+    // size reproduces the rectangles it came from.
+    let (first_size, total) = match axis {
+        SplitAxis::Horizontal => (first_bounds.width, bounds.width),
+        SplitAxis::Vertical => (first_bounds.height, bounds.height),
+    };
+    let second_size = total.saturating_sub(first_size).saturating_sub(DIVIDER_CELLS);
+    let first_ratio = if total == 0 {
+        0.5
+    } else {
+        1.0 - (second_size as f64 / total as f64)
+    };
+
+    Some(Node::Split {
+        axis,
+        first_ratio: clamp_ratio(first_ratio),
+        first: Box::new(rebuild_node(&first, first_bounds)?),
+        second: Box::new(rebuild_node(&second, second_bounds)?),
+    })
+}
+
 enum CloseOutcome {
     NotFound,
     Removed,
@@ -611,6 +755,76 @@ mod tests {
         // A lone pane has nothing to resize against.
         let mut single = Layout::new(7);
         assert!(!single.set_split_ratio(7, 0.25));
+    }
+
+    /// Rebuilding from rectangles must reproduce them exactly, or adopting
+    /// another tree's layout would shift panes on screen.
+    fn assert_round_trips(layout: &Layout, cols: usize, rows: usize) {
+        let original = layout.positions(cols, rows);
+        let rebuilt = Layout::from_positions(&original)
+            .unwrap_or_else(|| panic!("could not rebuild a tree from {:?}", original));
+        assert_eq!(
+            rebuilt.positions(cols, rows),
+            original,
+            "rebuilt tree lays out differently"
+        );
+    }
+
+    #[test]
+    fn a_tree_round_trips_through_its_own_rectangles() {
+        let mut layout = Layout::new(1);
+        assert_round_trips(&layout, 80, 24);
+
+        layout.split(1, 2, SplitAxis::Horizontal, 0.5).unwrap();
+        assert_round_trips(&layout, 80, 24);
+
+        layout.split(2, 3, SplitAxis::Vertical, 0.5).unwrap();
+        assert_round_trips(&layout, 80, 24);
+
+        layout.split(1, 4, SplitAxis::Vertical, 0.3).unwrap();
+        assert_round_trips(&layout, 120, 40);
+
+        layout.split(3, 5, SplitAxis::Horizontal, 0.7).unwrap();
+        assert_round_trips(&layout, 200, 60);
+    }
+
+    #[test]
+    fn rebuilding_recovers_the_pane_set() {
+        let mut layout = Layout::new(1);
+        layout.split(1, 2, SplitAxis::Horizontal, 0.5).unwrap();
+        layout.split(2, 3, SplitAxis::Vertical, 0.5).unwrap();
+
+        let rebuilt = Layout::from_positions(&layout.positions(80, 24)).unwrap();
+
+        let mut ids = rebuilt.pane_ids();
+        ids.sort_unstable();
+        assert_eq!(ids, vec![1, 2, 3]);
+        assert!(rebuilt.contains(2));
+        assert!(!rebuilt.contains(99));
+    }
+
+    #[test]
+    fn a_layout_no_terminal_could_produce_is_refused() {
+        // Nothing to rebuild from.
+        assert!(Layout::from_positions(&[]).is_none());
+
+        // An L-shape: no straight cut separates these three, so there is no
+        // split tree that produces them. Inventing one would render wrong.
+        let l_shape = vec![
+            PositionedPane {
+                pane_id: 1,
+                rect: PaneRect { left: 0, top: 0, width: 40, height: 10 },
+            },
+            PositionedPane {
+                pane_id: 2,
+                rect: PaneRect { left: 41, top: 0, width: 39, height: 24 },
+            },
+            PositionedPane {
+                pane_id: 3,
+                rect: PaneRect { left: 0, top: 11, width: 60, height: 13 },
+            },
+        ];
+        assert!(Layout::from_positions(&l_shape).is_none());
     }
 
     #[test]
