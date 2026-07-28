@@ -39,7 +39,6 @@ wezterm-bidi.workspace = true
 wezterm-config-derive.workspace = true
 wezterm-dynamic.workspace = true
 wezterm-input-types.workspace = true
-wezterm-ssh.workspace = true
 wezterm-term = { workspace = true, features=["use_serde"] }
 
 [target."cfg(unix)".dependencies]

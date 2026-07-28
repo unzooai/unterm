@@ -14,8 +14,6 @@ use crate::keyassignment::{
     KeyAssignment, KeyTable, KeyTableEntry, KeyTables, MouseEventTrigger, SpawnCommand,
 };
 use crate::keys::{Key, LeaderKey, Mouse};
-use crate::ssh::{SshBackend, SshDomain};
-use crate::tls::{TlsDomainClient, TlsDomainServer};
 use crate::units::Dimension;
 use crate::unix::UnixDomain;
 use crate::wsl::WslDomain;
@@ -377,20 +375,12 @@ pub struct Config {
     #[dynamic(default = "UnixDomain::default_unix_domains")]
     pub unix_domains: Vec<UnixDomain>,
 
-    #[dynamic(default)]
-    pub ssh_domains: Option<Vec<SshDomain>>,
 
-    #[dynamic(default)]
-    pub ssh_backend: SshBackend,
 
     /// When running in server mode, defines configuration for
     /// each of the endpoints that we'll listen for connections
-    #[dynamic(default)]
-    pub tls_servers: Vec<TlsDomainServer>,
 
     /// The set of tls domains that we can connect to as a client
-    #[dynamic(default)]
-    pub tls_clients: Vec<TlsDomainClient>,
 
     /// Constrains the rate at which the multiplexer client will
     /// speculatively fetch line data.
@@ -1085,17 +1075,6 @@ impl Config {
         Self::load_with_overrides(&wezterm_dynamic::Value::default())
     }
 
-    /// It is relatively expensive to parse all the ssh config files,
-    /// so we defer producing the default list until someone explicitly
-    /// asks for it
-    pub fn ssh_domains(&self) -> Vec<SshDomain> {
-        if let Some(domains) = &self.ssh_domains {
-            domains.clone()
-        } else {
-            SshDomain::default_domains()
-        }
-    }
-
     pub fn wsl_domains(&self) -> Vec<WslDomain> {
         if let Some(domains) = &self.wsl_domains {
             domains.clone()
@@ -1360,11 +1339,6 @@ impl Config {
         for d in &self.unix_domains {
             check_domain(&d.name, "unix domain")?;
         }
-        if let Some(domains) = &self.ssh_domains {
-            for d in domains {
-                check_domain(&d.name, "ssh domain")?;
-            }
-        }
         for d in &self.exec_domains {
             check_domain(&d.name, "exec domain")?;
         }
@@ -1372,9 +1346,6 @@ impl Config {
             for d in domains {
                 check_domain(&d.name, "wsl domain")?;
             }
-        }
-        for d in &self.tls_clients {
-            check_domain(&d.name, "tls domain")?;
         }
         Ok(())
     }

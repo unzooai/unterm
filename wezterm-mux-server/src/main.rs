@@ -300,7 +300,6 @@ fn terminate_with_error(err: anyhow::Error) -> ! {
     std::process::exit(1);
 }
 
-mod ossl;
 
 pub fn spawn_listener() -> anyhow::Result<()> {
     let config = configuration();
@@ -312,9 +311,6 @@ pub fn spawn_listener() -> anyhow::Result<()> {
         });
     }
 
-    for tls_server in &config.tls_servers {
-        ossl::spawn_tls_listener(tls_server)?;
-    }
 
     Ok(())
 }

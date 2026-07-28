@@ -1,6 +1,5 @@
-use config::{ConfigHandle, SshMultiplexing};
+use config::ConfigHandle;
 use mux::domain::{Domain, LocalDomain};
-use mux::ssh::RemoteSshDomain;
 use mux::Mux;
 use std::sync::Arc;
 use wezterm_client::domain::{ClientDomain, ClientDomainConfig};
@@ -16,15 +15,6 @@ fn client_domains(config: &config::ConfigHandle) -> Vec<ClientDomainConfig> {
         domains.push(ClientDomainConfig::Unix(unix_dom.clone()));
     }
 
-    for ssh_dom in config.ssh_domains().into_iter() {
-        if ssh_dom.multiplexing == SshMultiplexing::WezTerm {
-            domains.push(ClientDomainConfig::Ssh(ssh_dom.clone()));
-        }
-    }
-
-    for tls_client in &config.tls_clients {
-        domains.push(ClientDomainConfig::Tls(tls_client.clone()));
-    }
     domains
 }
 
@@ -45,19 +35,6 @@ fn update_mux_domains_impl(config: &ConfigHandle, is_standalone_mux: bool) -> an
         }
 
         let domain: Arc<dyn Domain> = Arc::new(ClientDomain::new(client_config));
-        mux.add_domain(&domain);
-    }
-
-    for ssh_dom in config.ssh_domains().into_iter() {
-        if ssh_dom.multiplexing != SshMultiplexing::None {
-            continue;
-        }
-
-        if mux.get_domain_by_name(&ssh_dom.name).is_some() {
-            continue;
-        }
-
-        let domain: Arc<dyn Domain> = Arc::new(RemoteSshDomain::with_ssh_domain(&ssh_dom)?);
         mux.add_domain(&domain);
     }
 

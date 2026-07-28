@@ -1,6 +1,6 @@
 use clap::builder::ValueParser;
 use clap::{Parser, ValueHint};
-use config::{GuiPosition, SshParameters};
+use config::GuiPosition;
 use std::ffi::OsString;
 use std::path::PathBuf;
 
@@ -108,65 +108,6 @@ pub struct StartCommand {
     pub prog: Vec<OsString>,
 }
 
-#[derive(Debug, Parser, Clone)]
-#[command(trailing_var_arg = true)]
-pub struct SshCommand {
-    /// Specifies the remote system using the form:
-    /// `[username@]host[:port]`.
-    /// If `username@` is omitted, then your local $USER is used
-    /// instead.
-    /// If `:port` is omitted, then the standard ssh port (22) is
-    /// used instead.
-    pub user_at_host_and_port: SshParameters,
-
-    /// Override specific SSH configuration options.
-    /// `wezterm ssh` is able to parse some (but not all!) options
-    /// from your `~/.ssh/config` and `/etc/ssh/ssh_config` files.
-    /// This command line switch allows you to override or otherwise
-    /// specify ssh_config style options.
-    ///
-    /// For example:
-    ///
-    /// `wezterm ssh -oIdentityFile=/secret/id_ed25519 some-host`
-    #[arg(
-        long = "ssh-option",
-        short = 'o',
-        name = "name=value",
-        value_parser=ValueParser::new(name_equals_value),
-        number_of_values = 1)]
-    pub config_override: Vec<(String, String)>,
-
-    /// Enable verbose ssh protocol tracing.
-    /// The trace information is printed to the stderr stream of
-    /// the process.
-    #[arg(short = 'v')]
-    pub verbose: bool,
-
-    /// Override the default windowing system class.
-    /// The default is "org.wezfurlong.wezterm".
-    /// Under X11 and Windows this changes the window class.
-    /// Under Wayland this changes the app_id.
-    /// This changes the class for all windows spawned by this
-    /// instance of wezterm, including error, update and ssh
-    /// authentication dialogs.
-    #[arg(long = "class")]
-    pub class: Option<String>,
-    /// Override the position for the initial window launched by this process.
-    ///
-    /// --position 10,20          to set x=10, y=20 in screen coordinates
-    /// --position screen:10,20   to set x=10, y=20 in screen coordinates
-    /// --position main:10,20     to set x=10, y=20 relative to the main monitor
-    /// --position active:10,20   to set x=10, y=20 relative to the active monitor
-    /// --position HDMI-1:10,20   to set x=10, y=20 relative to the monitor named HDMI-1
-    #[arg(long, verbatim_doc_comment)]
-    pub position: Option<GuiPosition>,
-
-    /// Instead of executing your shell, run PROG.
-    /// For example: `wezterm ssh user@host -- bash -l` will spawn bash
-    /// as if it were a login shell.
-    #[arg(value_parser, value_hint=ValueHint::CommandWithArguments, num_args=1..)]
-    pub prog: Vec<OsString>,
-}
 
 #[derive(Debug, Parser, Clone)]
 pub struct SerialCommand {

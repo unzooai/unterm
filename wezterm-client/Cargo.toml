@@ -35,7 +35,6 @@ thiserror.workspace = true
 umask.workspace = true
 url.workspace = true
 wezterm-dynamic.workspace = true
-wezterm-ssh.workspace = true
 wezterm-term = { workspace=true, features=["use_serde"] }
 wezterm-uds.workspace = true
 

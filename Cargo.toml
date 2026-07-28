@@ -13,7 +13,6 @@ members = [
   "wezterm-mux-server",
   "wezterm-open-url",
   "wezterm-render-escapes",
-  "wezterm-ssh",
   "wezterm-surface",
   "wezterm-uds",
   "unterm-engine",
@@ -285,7 +284,6 @@ wezterm-input-types = { version="0.1", path = "wezterm-input-types", default-fea
 wezterm-mux-server-impl = { path = "wezterm-mux-server-impl" }
 wezterm-open-url = { path = "wezterm-open-url" }
 wezterm-render-escapes = { path = "wezterm-render-escapes" }
-wezterm-ssh = { path = "wezterm-ssh" }
 wezterm-surface = { path = "wezterm-surface" }
 wezterm-term = { path = "term" }
 wezterm-toast-notification = { path = "wezterm-toast-notification" }

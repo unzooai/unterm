@@ -31,9 +31,7 @@ pub mod keybinding;
 pub mod meta;
 mod scheme_data;
 mod serial;
-mod ssh;
 mod terminal;
-mod tls;
 pub mod ui_tokens;
 mod units;
 mod unix;
@@ -53,9 +51,7 @@ pub use font::*;
 pub use frontend::*;
 pub use keys::*;
 pub use serial::*;
-pub use ssh::*;
 pub use terminal::*;
-pub use tls::*;
 pub use units::*;
 pub use unix::*;
 pub use version::*;
@@ -263,6 +259,19 @@ fn default_config_with_overrides_applied() -> anyhow::Result<Config> {
     )
     .context("Error applying config overrides")?;
     Ok(cfg)
+}
+
+/// The current user's name, as the OS reports it.
+///
+/// Lived in the ssh module because that is what first needed it; it is not
+/// about ssh.
+pub fn username_from_env() -> anyhow::Result<String> {
+    #[cfg(unix)]
+    const USER: &str = "USER";
+    #[cfg(windows)]
+    const USER: &str = "USERNAME";
+
+    std::env::var(USER).with_context(|| format!("while resolving {} env var", USER))
 }
 
 pub fn common_init(
