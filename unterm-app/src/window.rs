@@ -31,6 +31,9 @@ pub struct App {
     /// `pwsh` meant, and it emits its output in the console codepage rather
     /// than UTF-8.
     shell: Option<portable_pty::CommandBuilder>,
+    /// Whether shift is down, which is what separates a scroll from a key the
+    /// program should receive.
+    shift_held: bool,
     /// The last screen we drew, so a frame is skipped when nothing changed.
     /// A terminal is idle most of the time; redrawing an unchanged screen at
     /// display rate is a fan that never stops.
@@ -79,6 +82,7 @@ impl App {
             atlas: GlyphAtlas::new(1024, 1024),
             colors: colors_from(config),
             shell: shell_from(config),
+            shift_held: false,
             state: None,
             drawn_revision: None,
         })
@@ -252,6 +256,10 @@ impl ApplicationHandler for App {
                 self.drawn_revision = None;
             }
 
+            WindowEvent::ModifiersChanged(modifiers) => {
+                self.shift_held = modifiers.state().shift_key();
+            }
+
             WindowEvent::KeyboardInput { event, .. } => {
                 if event.state != ElementState::Pressed {
                     return;
@@ -259,8 +267,51 @@ impl ApplicationHandler for App {
                 let Some(live) = self.state.as_ref() else {
                     return;
                 };
+
+                // Shift+Page scrolls the viewport; unshifted pages belong to
+                // the program, which is how a pager gets its own keys.
+                use winit::keyboard::{Key, NamedKey};
+                if self.shift_held {
+                    let rows = self
+                        .engine
+                        .read_styled_screen(live.session_id)
+                        .map(|snapshot| snapshot.rows)
+                        .unwrap_or(24);
+                    let page = crate::scroll::lines_for_page(rows);
+                    let delta = match &event.logical_key {
+                        Key::Named(NamedKey::PageUp) => Some(-page),
+                        Key::Named(NamedKey::PageDown) => Some(page),
+                        _ => None,
+                    };
+                    if let Some(delta) = delta {
+                        let _ = self.engine.scroll_viewport_by(live.session_id, delta);
+                        return;
+                    }
+                }
+
                 if let Some(text) = encode(&event) {
                     let _ = self.engine.write_input(live.session_id, &text);
+                }
+            }
+
+            WindowEvent::MouseWheel { delta, .. } => {
+                use winit::event::MouseScrollDelta;
+                let cell_height = self.font.metrics().height;
+                let lines = match delta {
+                    MouseScrollDelta::LineDelta(_, y) => {
+                        crate::scroll::lines_for_wheel(crate::scroll::WheelDelta::Lines(y), cell_height)
+                    }
+                    MouseScrollDelta::PixelDelta(position) => crate::scroll::lines_for_wheel(
+                        crate::scroll::WheelDelta::Pixels(position.y as f32),
+                        cell_height,
+                    ),
+                };
+                if lines != 0 {
+                    if let Some(live) = self.state.as_ref() {
+                        // Positive is toward older output, and the wheel rolls
+                        // away from you to go back in time.
+                        let _ = self.engine.scroll_viewport_by(live.session_id, -lines);
+                    }
                 }
             }
 
@@ -285,9 +336,27 @@ impl ApplicationHandler for App {
 }
 
 /// The command the config names, if it names one.
+///
+/// A string is the program; a list is the program and its arguments. Real
+/// shells need arguments -- `pwsh -NoLogo`, `bash --login` -- and a setting
+/// that cannot express them makes the user pick between their flags and the
+/// config.
 fn shell_from(config: &config::Config) -> Option<portable_pty::CommandBuilder> {
-    let program = config.str_of("shell").ok().flatten()?;
-    Some(portable_pty::CommandBuilder::new(program))
+    match config.get("shell")? {
+        config::Value::Str(program) => Some(portable_pty::CommandBuilder::new(program)),
+        config::Value::List(parts) => {
+            let mut words = parts.iter().filter_map(|part| match part {
+                config::Value::Str(word) => Some(word.as_str()),
+                _ => None,
+            });
+            let mut command = portable_pty::CommandBuilder::new(words.next()?);
+            for word in words {
+                command.arg(word);
+            }
+            Some(command)
+        }
+        _ => None,
+    }
 }
 
 /// Turn a key press into the bytes a PTY expects.
@@ -336,6 +405,20 @@ mod tests {
         // Without this the session falls back to %COMSPEC% -- cmd.exe on
         // Windows, which is not what a config naming pwsh meant.
         assert_eq!(shell.get_argv()[0], "pwsh.exe");
+    }
+
+    #[test]
+    fn a_shell_can_carry_its_arguments() {
+        let config = config::parse(r#"shell = ["pwsh.exe", "-NoLogo"]"#)
+            .expect("config should parse");
+
+        let shell = shell_from(&config).expect("a named shell should be used");
+
+        // A setting that cannot express arguments makes the user choose
+        // between their flags and the config.
+        let argv = shell.get_argv();
+        assert_eq!(argv[0], "pwsh.exe");
+        assert_eq!(argv[1], "-NoLogo");
     }
 
     #[test]

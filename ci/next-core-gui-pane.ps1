@@ -345,10 +345,26 @@ $Suites = @(
         Name = "app shell"
         Package = "unterm-app"
         Filter = "window::tests::"
-        ExpectedCount = 2
+        ExpectedCount = 3
         RequiredTests = @(
             "window::tests::the_configured_shell_is_used",
-            "window::tests::a_config_naming_no_shell_leaves_the_choice_to_the_engine"
+            "window::tests::a_config_naming_no_shell_leaves_the_choice_to_the_engine",
+            "window::tests::a_shell_can_carry_its_arguments"
+        )
+    },
+    @{
+        # Wheel and page arithmetic: all of it wrong by a sign or a factor of
+        # three until someone tries it.
+        Name = "scroll amounts"
+        Package = "unterm-app"
+        Filter = "scroll::tests::"
+        ExpectedCount = 7
+        RequiredTests = @(
+            "scroll::tests::a_wheel_notch_moves_three_lines",
+            "scroll::tests::a_trackpad_moves_the_text_it_is_pushing",
+            "scroll::tests::a_small_trackpad_movement_still_moves",
+            "scroll::tests::a_zero_height_cell_does_not_divide_by_zero",
+            "scroll::tests::a_page_keeps_one_line_of_context"
         )
     },
     @{
