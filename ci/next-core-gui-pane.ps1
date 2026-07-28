@@ -147,7 +147,7 @@ $Suites = @(
         Name = "tab registry"
         Package = "unterm-engine"
         Filter = "next_core::tabs::tests::"
-        ExpectedCount = 16
+        ExpectedCount = 21
         RequiredTests = @(
             "next_core::tabs::tests::splitting_focuses_the_new_pane",
             "next_core::tabs::tests::closing_the_active_pane_moves_focus_to_a_survivor",
@@ -161,7 +161,10 @@ $Suites = @(
             "next_core::tabs::tests::adopting_a_tab_mirrors_its_panes_and_focus",
             "next_core::tabs::tests::re_adopting_a_tab_drops_panes_that_went_away",
             "next_core::tabs::tests::adoption_refuses_what_it_cannot_represent",
-            "next_core::tabs::tests::forgetting_a_tab_releases_its_panes"
+            "next_core::tabs::tests::forgetting_a_tab_releases_its_panes",
+            "next_core::tabs::tests::zooming_gives_one_pane_the_whole_tab",
+            "next_core::tabs::tests::unzooming_restores_the_arrangement_exactly",
+            "next_core::tabs::tests::zooming_also_focuses_the_pane"
         )
     },
     @{

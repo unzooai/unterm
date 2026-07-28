@@ -4597,6 +4597,7 @@ impl TermWindow {
                     None => return Ok(PerformAssignmentResult::Handled),
                 };
                 tab.toggle_zoom();
+                self.record_next_core_zoom(&tab);
             }
             SetPaneZoomState(zoomed) => {
                 let mux = Mux::get();
@@ -4605,6 +4606,7 @@ impl TermWindow {
                     None => return Ok(PerformAssignmentResult::Handled),
                 };
                 tab.set_zoomed(*zoomed);
+                self.record_next_core_zoom(&tab);
             }
             SwitchWorkspaceRelative(delta) => {
                 let mux = Mux::get();
@@ -5788,6 +5790,28 @@ impl TermWindow {
     /// Returns `None` to keep the mux's list whenever the registry cannot
     /// account for exactly the same panes. Rendering a subset would make a
     /// pane vanish, which is far worse than deferring the swap for a frame.
+    /// Tell the registry what the tab's zoom state became.
+    ///
+    /// Read back from the tab rather than tracked here: `toggle_zoom` decides
+    /// what "toggle" means, and duplicating that decision is how the two would
+    /// drift apart.
+    fn record_next_core_zoom(&self, tab: &Arc<Tab>) {
+        if !crate::engine::next_core_pane::next_core_panes_enabled() {
+            return;
+        }
+        let mut registry = self.next_core_tabs.borrow_mut();
+        match tab.get_zoomed_pane() {
+            Some(pane) => {
+                registry.set_zoomed(pane.pane_id() as usize, true);
+            }
+            None => {
+                for pane_id in registry.pane_ids(tab.tab_id()) {
+                    registry.set_zoomed(pane_id, false);
+                }
+            }
+        }
+    }
+
     fn next_core_positioned_panes(
         &self,
         tab: &Arc<Tab>,
@@ -5806,6 +5830,21 @@ impl TermWindow {
         // Which pane is focused is the registry's to say once it holds the
         // tab; falling back to the mux keeps a tab it has not adopted working.
         let registry_active = registry.active_pane(tab.tab_id());
+        let registry_zoomed = registry.zoomed_pane(tab.tab_id());
+        if let Some(mux_zoomed) = mux_panes.iter().find(|candidate| candidate.is_zoomed) {
+            if registry_zoomed.is_some()
+                && registry_zoomed != Some(mux_zoomed.pane.pane_id() as usize)
+            {
+                // Zoom hides every sibling, so disagreeing about it means
+                // showing the wrong pane entirely.
+                log::warn!(
+                    "next-core registry zoom differs for tab {}: registry {:?} vs mux {}",
+                    tab.tab_id(),
+                    registry_zoomed,
+                    mux_zoomed.pane.pane_id()
+                );
+            }
+        }
         if let Some(active) = registry_active {
             if let Some(mux_active) = mux_panes.iter().find(|candidate| candidate.is_active) {
                 if mux_active.pane.pane_id() as usize != active {
@@ -5855,7 +5894,9 @@ impl TermWindow {
                 is_active: registry_active
                     .map(|active| active == pos.pane_id)
                     .unwrap_or(source.is_active),
-                is_zoomed: source.is_zoomed,
+                is_zoomed: registry_zoomed
+                    .map(|zoomed| zoomed == pos.pane_id)
+                    .unwrap_or(source.is_zoomed),
                 left: pos.rect.left,
                 top: pos.rect.top,
                 width: pos.rect.width,

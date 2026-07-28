@@ -24,6 +24,11 @@ pub type PaneId = usize;
 struct Tab {
     layout: Layout,
     active_pane: PaneId,
+    /// A pane temporarily filling the tab, hiding its siblings.
+    ///
+    /// Zoom is a property of the arrangement, not of the pane: the split tree
+    /// underneath is untouched, so unzooming restores exactly what was there.
+    zoomed_pane: Option<PaneId>,
 }
 
 /// What closing a pane did to its tab.
@@ -90,6 +95,7 @@ impl TabRegistry {
             Tab {
                 layout: Layout::new(pane_id),
                 active_pane: pane_id,
+                zoomed_pane: None,
             },
         );
         self.tab_of_pane.insert(pane_id, tab_id);
@@ -140,6 +146,7 @@ impl TabRegistry {
             Tab {
                 layout,
                 active_pane,
+                zoomed_pane: None,
             },
         );
         self.next_tab_id = self.next_tab_id.max(tab_id + 1);
@@ -169,6 +176,31 @@ impl TabRegistry {
     }
 
     /// Focus `pane_id` within its own tab, and focus that tab.
+    /// The pane filling its tab, if one is.
+    pub fn zoomed_pane(&self, tab_id: TabId) -> Option<PaneId> {
+        self.tabs.get(&tab_id)?.zoomed_pane
+    }
+
+    /// Zoom `pane_id`, or clear the zoom on its tab when `zoomed` is false.
+    ///
+    /// Zooming also focuses the pane: a pane filling the tab while the keyboard
+    /// still went somewhere invisible would be its own bug.
+    pub fn set_zoomed(&mut self, pane_id: PaneId, zoomed: bool) -> bool {
+        let Some(tab_id) = self.tab_of_pane(pane_id) else {
+            return false;
+        };
+        let Some(tab) = self.tabs.get_mut(&tab_id) else {
+            return false;
+        };
+        if zoomed {
+            tab.zoomed_pane = Some(pane_id);
+            tab.active_pane = pane_id;
+        } else if tab.zoomed_pane == Some(pane_id) {
+            tab.zoomed_pane = None;
+        }
+        true
+    }
+
     pub fn set_active_pane(&mut self, pane_id: PaneId) -> bool {
         let Some(tab_id) = self.tab_of_pane(pane_id) else {
             return false;
@@ -253,10 +285,23 @@ impl TabRegistry {
 
     /// Lay out a tab in a `cols` x `rows` grid.
     pub fn positions(&self, tab_id: TabId, cols: usize, rows: usize) -> Vec<PositionedPane> {
-        self.tabs
-            .get(&tab_id)
-            .map(|tab| tab.layout.positions(cols, rows))
-            .unwrap_or_default()
+        let Some(tab) = self.tabs.get(&tab_id) else {
+            return Vec::new();
+        };
+        if let Some(zoomed) = tab.zoomed_pane {
+            // One pane, the whole tab. The tree is left alone so unzooming
+            // restores the arrangement rather than rebuilding a guess at it.
+            return vec![PositionedPane {
+                pane_id: zoomed,
+                rect: PaneRect {
+                    left: 0,
+                    top: 0,
+                    width: cols,
+                    height: rows,
+                },
+            }];
+        }
+        tab.layout.positions(cols, rows)
     }
 
     /// Where one pane sits in its own tab.
@@ -538,4 +583,70 @@ mod tests {
         // A reused id would let a stale reference address the new tab.
         assert_ne!(first, second);
     }
+    #[test]
+    fn zooming_gives_one_pane_the_whole_tab() {
+        let mut registry = TabRegistry::new();
+        let tab = registry.create_tab(1).expect("create");
+        registry.split(1, 2, SplitAxis::Vertical, 0.5).expect("split");
+
+        assert_eq!(registry.positions(tab, 80, 24).len(), 2);
+
+        assert!(registry.set_zoomed(2, true));
+        let placed = registry.positions(tab, 80, 24);
+        assert_eq!(placed.len(), 1);
+        assert_eq!(placed[0].pane_id, 2);
+        assert_eq!(placed[0].rect.width, 80);
+        assert_eq!(placed[0].rect.height, 24);
+    }
+
+    #[test]
+    fn unzooming_restores_the_arrangement_exactly() {
+        let mut registry = TabRegistry::new();
+        let tab = registry.create_tab(1).expect("create");
+        registry.split(1, 2, SplitAxis::Vertical, 0.5).expect("split");
+        let before = registry.positions(tab, 80, 24);
+
+        registry.set_zoomed(2, true);
+        registry.set_zoomed(2, false);
+
+        // The split tree is untouched while zoomed, so this is the same
+        // arrangement rather than a rebuilt guess at it.
+        assert_eq!(registry.positions(tab, 80, 24), before);
+    }
+
+    #[test]
+    fn zooming_also_focuses_the_pane() {
+        let mut registry = TabRegistry::new();
+        let tab = registry.create_tab(1).expect("create");
+        registry.split(1, 2, SplitAxis::Vertical, 0.5).expect("split");
+        registry.set_active_pane(1);
+
+        registry.set_zoomed(2, true);
+
+        // A pane filling the tab while the keyboard still went somewhere
+        // invisible would be its own bug.
+        assert_eq!(registry.active_pane(tab), Some(2));
+    }
+
+    #[test]
+    fn unzooming_a_pane_that_is_not_zoomed_leaves_the_zoom_alone() {
+        let mut registry = TabRegistry::new();
+        let tab = registry.create_tab(1).expect("create");
+        registry.split(1, 2, SplitAxis::Vertical, 0.5).expect("split");
+        registry.set_zoomed(2, true);
+
+        registry.set_zoomed(1, false);
+
+        assert_eq!(registry.zoomed_pane(tab), Some(2));
+    }
+
+    #[test]
+    fn a_tab_starts_unzoomed_and_an_unknown_pane_cannot_zoom() {
+        let mut registry = TabRegistry::new();
+        let tab = registry.create_tab(1).expect("create");
+
+        assert_eq!(registry.zoomed_pane(tab), None);
+        assert!(!registry.set_zoomed(99, true));
+    }
+
 }
