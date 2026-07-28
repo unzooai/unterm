@@ -5242,9 +5242,23 @@ impl TermWindow {
         self.destroy_next_core_pane_binding(pane_id);
     }
 
+    /// Tell the registry a pane closed, so it does not need repairing later.
+    ///
+    /// Close is the one structural event that arrives intact: the pane id is
+    /// enough, because removing a leaf needs no knowledge of how the tree was
+    /// built. Splits do not have that property, which is why the mirror is
+    /// still there.
+    fn close_next_core_registry_pane(&self, pane_id: PaneId) {
+        let mut registry = self.next_core_tabs.borrow_mut();
+        if let Some(result) = registry.close_pane(pane_id as usize) {
+            log::debug!("next-core tab registry closed pane {pane_id}: {result:?}");
+        }
+    }
+
     /// Drop this pane's next-core session, if it has one. Called from every
     /// pane-close path so a closed pane never leaves its PTY running.
     fn destroy_next_core_pane_binding(&self, pane_id: PaneId) {
+        self.close_next_core_registry_pane(pane_id);
         // A session the pane itself owns is destroyed by the pane on drop;
         // destroying it here too would kill a live session out from under a
         // pane the mux has not finished releasing.
@@ -6004,23 +6018,35 @@ impl TermWindow {
             .collect();
 
         let mut registry = self.next_core_tabs.borrow_mut();
-        // Re-adopt every frame rather than diffing: the mux is the authority,
-        // so mirroring it wholesale cannot drift, and adoption already refuses
-        // anything it cannot represent.
+
+        // The registry is meant to be driven by events, not rebuilt from the
+        // mux. Adoption is the bootstrap for a tab it has never seen, and the
+        // repair when something changed the structure without telling it --
+        // today that is any split, because MuxNotification::PaneAdded carries
+        // no split structure, so a tree cannot be rebuilt from it.
+        //
+        // Counting repairs is the honest measure of how much structure the mux
+        // still originates. When splits are reported structurally this drops
+        // to bootstrap only, and the mirror can go.
+        let mut held = registry.pane_ids(tab_id);
+        held.sort_unstable();
+        let mut actual: Vec<usize> = adopted.iter().map(|pos| pos.pane_id).collect();
+        actual.sort_unstable();
+
+        if held == actual {
+            // Already in step; only focus can have moved.
+            registry.set_active_pane(active_pane);
+            return;
+        }
+
+        let reason = if held.is_empty() { "bootstrap" } else { "repair" };
         if let Err(err) = registry.adopt_tab(tab_id, &adopted, active_pane) {
             log::debug!("next-core tab registry could not mirror tab {tab_id}: {err:#}");
             return;
         }
-
-        let mut mirrored = registry.pane_ids(tab_id);
-        mirrored.sort_unstable();
-        let mut actual: Vec<usize> = adopted.iter().map(|pos| pos.pane_id).collect();
-        actual.sort_unstable();
-        if mirrored != actual {
-            log::warn!(
-                "next-core tab registry disagrees with mux for tab {tab_id}:                  mirrored {mirrored:?} but the tab has {actual:?}"
-            );
-        }
+        log::debug!(
+            "next-core tab registry {reason} for tab {tab_id}: held {held:?}, tab has {actual:?}"
+        );
     }
 
     /// Re-derive pane geometry through next-core's layout tree.
