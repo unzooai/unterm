@@ -27,6 +27,7 @@ mod frontend;
 pub mod keyassignment;
 mod keys;
 pub mod declarative;
+pub mod keybinding;
 pub mod meta;
 mod scheme_data;
 mod serial;
@@ -277,6 +278,15 @@ pub fn common_init(
 
     set_config_overrides(overrides).context("common_init: set_config_overrides")?;
     reload();
+
+    // The reload path only announces an error on a *re*load, so a config that
+    // was already broken at startup would leave every CLI subcommand quietly
+    // printing defaults. Saying it once here means a broken config is never
+    // silent, whichever entry point loaded it.
+    if let Err(err) = configuration_result() {
+        log::error!("{err:#}");
+    }
+
     Ok(())
 }
 

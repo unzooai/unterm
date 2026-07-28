@@ -46,10 +46,11 @@ pub const SETTINGS: &[&str] = &[
 
 /// Sections whose keys the user invents.
 ///
-/// Environment variable names cannot be listed in advance, so this prefix
-/// accepts anything -- but only this prefix, so a typo anywhere else is still
-/// caught.
-const OPEN_SECTIONS: &[&str] = &["env."];
+/// Environment variable names and key chords cannot be listed in advance, so
+/// these prefixes accept anything -- but only these, so a typo anywhere else is
+/// still caught. Chords are validated where they are parsed, which is where a
+/// misspelled one can be reported usefully.
+const OPEN_SECTIONS: &[&str] = &["env.", "keys."];
 
 /// Check a config that has already had its platform sections resolved.
 ///

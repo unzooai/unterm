@@ -16,7 +16,7 @@ use anyhow::{anyhow, Context};
 use std::path::Path;
 use unterm_engine::next_core::config as declarative;
 use unterm_engine::next_core::config_schema;
-use wezterm_dynamic::{FromDynamic, Object, Value};
+use wezterm_dynamic::{FromDynamic, Object, ToDynamic, Value};
 
 /// Declarative key on the left, `Config` field on the right.
 ///
@@ -101,6 +101,26 @@ pub fn from_source(source: &str, name: &str) -> anyhow::Result<Config> {
         object.insert(
             Value::String("font".to_string()),
             Value::Object(style),
+        );
+    }
+
+    // Bindings are validated here rather than by the schema: a chord is not a
+    // key name, and a misspelled one deserves to be told apart from a
+    // misspelled setting.
+    let (bindings, binding_errors) = crate::keybinding::bindings_from(&resolved);
+    if !binding_errors.is_empty() {
+        return Err(report(name, &binding_errors));
+    }
+    if !bindings.is_empty() {
+        object.insert(
+            Value::String("keys".to_string()),
+            Value::Array(
+                bindings
+                    .iter()
+                    .map(|binding| binding.to_dynamic())
+                    .collect::<Vec<_>>()
+                    .into(),
+            ),
         );
     }
 
@@ -293,6 +313,33 @@ mod tests {
                 setting
             );
         }
+    }
+
+    #[test]
+    fn a_keys_section_becomes_bindings() {
+        let config = from_source(
+            "[keys]
+CTRL|SHIFT+N = \"SpawnWindow\"
+F11 = \"ToggleFullScreen\"",
+            "test",
+        )
+        .expect("should load");
+
+        // Binding a key was the last thing that needed Lua; removing the
+        // interpreter without this would have left users unable to change a
+        // single shortcut.
+        assert_eq!(config.keys.len(), 2);
+    }
+
+    #[test]
+    fn a_misspelled_binding_refuses_the_whole_config() {
+        let error = from_source("[keys]
+CTRL+T = \"SpwanWindow\"", "test")
+            .expect_err("should be refused");
+
+        // A binding that silently does nothing is the worst kind: the key does
+        // not work and nothing says why.
+        assert!(format!("{error:#}").contains("SpwanWindow"), "{:#}", error);
     }
 
     #[test]
