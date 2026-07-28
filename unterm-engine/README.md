@@ -126,7 +126,7 @@ This is independent of `UNTERM_NEXT_CORE_WEBGPU_PANE`, and the two compose:
 - `UNTERM_NEXT_CORE_PANE` alone — next-core owns the terminal (PTY, parsing, screen, scrollback, input); WezTerm's renderer draws it by reading `get_lines()`. One shell per pane.
 - plus `UNTERM_NEXT_CORE_WEBGPU_PANE=replace` — next-core also draws its own GPU frame, and the render path binds to the pane's existing session rather than spawning a second one. Requires `front_end = "WebGpu"`; the mode is a no-op on the Glium front end.
 
-With both flags on, next-core owns the terminal *and* the pixels: verified by screenshot against a live shell, with `replace_ready=true` and no fallbacks on any frame. Text, CJK, and the cursor render correctly through next-core's own GPU pipeline while the legacy pane quads stay suppressed.
+With both flags on, next-core owns the terminal *and* the pixels: verified by screenshot against a live shell, with `replace_ready=true` and no fallbacks on any frame. Text, CJK, and the cursor render correctly through next-core's own GPU pipeline while the legacy pane quads stay suppressed. Splits work too — `LocalDomain::split_pane` routes through `spawn_pane`, so a split gets its own next-core session, and a two-pane window renders both through next-core with the placement offset putting each in its own half.
 
 Three defects had to be fixed to get there, all of which only surfaced by running the GUI:
 
