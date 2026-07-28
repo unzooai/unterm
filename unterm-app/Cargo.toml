@@ -16,6 +16,7 @@ anyhow.workspace = true
 log.workspace = true
 env_logger = "0.10"
 termwiz.workspace = true
+portable-pty.workspace = true
 unterm-engine = { path = "../unterm-engine" }
 unterm-render = { path = "../unterm-render" }
 wgpu.workspace = true

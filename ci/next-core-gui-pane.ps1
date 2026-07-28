@@ -340,6 +340,18 @@ $Suites = @(
         )
     },
     @{
+        # Which shell the window starts. Falling back to %COMSPEC% is not what
+        # a config naming pwsh meant.
+        Name = "app shell"
+        Package = "unterm-app"
+        Filter = "window::tests::"
+        ExpectedCount = 2
+        RequiredTests = @(
+            "window::tests::the_configured_shell_is_used",
+            "window::tests::a_config_naming_no_shell_leaves_the_choice_to_the_engine"
+        )
+    },
+    @{
         # One face cannot draw everything. Without this, whole writing systems
         # come out as the empty box.
         Name = "font fallback"

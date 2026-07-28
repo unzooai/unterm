@@ -26,6 +26,11 @@ pub struct App {
     atlas: GlyphAtlas,
     colors: FrameColors,
     state: Option<Live>,
+    /// The shell the config asked for. Without this the session falls back to
+    /// `%COMSPEC%`, which on Windows is `cmd.exe` -- not what a config naming
+    /// `pwsh` meant, and it emits its output in the console codepage rather
+    /// than UTF-8.
+    shell: Option<portable_pty::CommandBuilder>,
     /// The last screen we drew, so a frame is skipped when nothing changed.
     /// A terminal is idle most of the time; redrawing an unchanged screen at
     /// display rate is a fan that never stops.
@@ -73,6 +78,7 @@ impl App {
             font: TerminalFont::open_with_fallback(pixel_size.round() as u32, &fallbacks)?,
             atlas: GlyphAtlas::new(1024, 1024),
             colors: colors_from(config),
+            shell: shell_from(config),
             state: None,
             drawn_revision: None,
         })
@@ -119,7 +125,7 @@ impl App {
             cols,
             rows,
             command_dir: None,
-            command: None,
+            command: self.shell.clone(),
             env: Vec::new(),
             launch_policy: LaunchPolicySnapshot::default(),
         })?;
@@ -278,6 +284,12 @@ impl ApplicationHandler for App {
     }
 }
 
+/// The command the config names, if it names one.
+fn shell_from(config: &config::Config) -> Option<portable_pty::CommandBuilder> {
+    let program = config.str_of("shell").ok().flatten()?;
+    Some(portable_pty::CommandBuilder::new(program))
+}
+
 /// Turn a key press into the bytes a PTY expects.
 ///
 /// Named keys go through next-core's encoder, which knows the escape sequences;
@@ -309,4 +321,27 @@ fn encode(event: &winit::event::KeyEvent) -> Option<String> {
     };
 
     key_encoding::encode_key(key, Modifiers::NONE)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_configured_shell_is_used() {
+        let config = config::parse("shell = \"pwsh.exe\"").expect("config should parse");
+
+        let shell = shell_from(&config).expect("a named shell should be used");
+
+        // Without this the session falls back to %COMSPEC% -- cmd.exe on
+        // Windows, which is not what a config naming pwsh meant.
+        assert_eq!(shell.get_argv()[0], "pwsh.exe");
+    }
+
+    #[test]
+    fn a_config_naming_no_shell_leaves_the_choice_to_the_engine() {
+        let config = config::parse("font_size = 13").expect("config should parse");
+
+        assert!(shell_from(&config).is_none());
+    }
 }
