@@ -568,7 +568,7 @@ fn connect_ssh_session(
         }
     }
 
-    let renderer = termwiz_funcs::new_wezterm_terminfo_renderer();
+    let renderer = wezterm_render_escapes::new_wezterm_terminfo_renderer();
     let mut shim = TerminalShim {
         stdout: &mut StdoutShim {
             stdout: stdout_write,

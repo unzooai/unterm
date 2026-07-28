@@ -2,22 +2,17 @@
 
 use anyhow::{anyhow, bail, Context, Error};
 use lazy_static::lazy_static;
-use mlua::Lua;
 use ordered_float::NotNan;
-use smol::channel::{Receiver, Sender};
-use smol::prelude::*;
-use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 use std::ffi::OsString;
 use std::fs::DirBuilder;
 #[cfg(unix)]
 use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use wezterm_dynamic::{FromDynamic, FromDynamicOptions, ToDynamic, UnknownFieldAction, Value};
+use wezterm_dynamic::{FromDynamic, ToDynamic, Value};
 use wezterm_term::UnicodeVersion;
 
 mod background;
@@ -32,7 +27,6 @@ mod frontend;
 pub mod keyassignment;
 mod keys;
 pub mod declarative;
-pub mod lua;
 pub mod meta;
 mod scheme_data;
 mod serial;
@@ -80,12 +74,7 @@ lazy_static! {
     static ref CONFIG_OVERRIDES: Mutex<Vec<(String, String)>> = Mutex::new(vec![]);
     static ref SHOW_ERROR: Mutex<Option<ErrorCallback>> =
         Mutex::new(Some(|e| log::error!("{}", e)));
-    static ref LUA_PIPE: LuaPipe = LuaPipe::new();
     pub static ref COLOR_SCHEMES: HashMap<String, Palette> = build_default_schemes();
-}
-
-thread_local! {
-    static LUA_CONFIG: RefCell<Option<LuaConfigState>> = RefCell::new(None);
 }
 
 fn toml_table_has_numeric_keys(t: &toml::value::Table) -> bool {
@@ -218,65 +207,9 @@ pub fn build_default_schemes() -> HashMap<String, Palette> {
     color_schemes
 }
 
-struct LuaPipe {
-    sender: Sender<mlua::Lua>,
-    receiver: Receiver<mlua::Lua>,
-}
-impl LuaPipe {
-    pub fn new() -> Self {
-        let (sender, receiver) = smol::channel::unbounded();
-        Self { sender, receiver }
-    }
-}
-
-/// The implementation is only slightly crazy...
-/// `Lua` is Send but !Sync.
-/// We take care to reference this only from the main thread of
-/// the application.
-/// We also need to take care to keep this `lua` alive if a long running
-/// future is outstanding while a config reload happens.
-/// We have to use `Rc` to manage its lifetime, but due to some issues
-/// with rust's async lifetime tracking we need to indirectly schedule
-/// some of the futures to avoid it thinking that the generated future
-/// in the async block needs to be Send.
-///
-/// A further complication is that config reloading tends to happen in
-/// a background filesystem watching thread.
-///
-/// The result of all these constraints is that the LuaPipe struct above
-/// is used as a channel to transport newly loaded lua configs to the
-/// main thread.
-///
-/// The main thread pops the loaded configs to obtain the latest one
-/// and updates LuaConfigState
-struct LuaConfigState {
-    lua: Option<Rc<mlua::Lua>>,
-}
-
-impl LuaConfigState {
-    /// Consume any lua contexts sent to us via the
-    /// config loader until we end up with the most
-    /// recent one being referenced by LUA_CONFIG.
-    fn update_to_latest(&mut self) {
-        while let Ok(lua) = LUA_PIPE.receiver.try_recv() {
-            self.lua.replace(Rc::new(lua));
-        }
-    }
-
-    /// Take a reference on the latest generation of the lua context
-    fn get_lua(&self) -> Option<Rc<mlua::Lua>> {
-        self.lua.as_ref().map(Rc::clone)
-    }
-}
-
-pub fn designate_this_as_the_main_thread() {
-    LUA_CONFIG.with(|lc| {
-        let mut lc = lc.borrow_mut();
-        if lc.is_none() {
-            lc.replace(LuaConfigState { lua: None });
-        }
-    });
-}
+/// Retained so callers need not care that there is no longer a per-thread
+/// interpreter to designate.
+pub fn designate_this_as_the_main_thread() {}
 
 #[must_use = "Cancels the subscription when dropped"]
 pub struct ConfigSubscription(usize);
@@ -294,97 +227,40 @@ where
     ConfigSubscription(CONFIG.subscribe(subscriber))
 }
 
-/// Spawn a future that will run with an optional Lua state from the most
-/// recently loaded lua configuration.
-/// The `func` argument is passed the lua state and must return a Future.
-///
-/// This function MUST only be called from the main thread.
-/// In exchange for the caller checking for this, the parameters to
-/// this method are not required to be Send.
-///
-/// Calling this function from a secondary thread will panic.
-/// You should use `with_lua_config` if you are triggering a
-/// call from a secondary thread.
-pub async fn with_lua_config_on_main_thread<F, RETF, RET>(func: F) -> anyhow::Result<RET>
-where
-    F: FnOnce(Option<Rc<mlua::Lua>>) -> RETF,
-    RETF: Future<Output = anyhow::Result<RET>>,
-{
-    let lua = LUA_CONFIG.with(|lc| {
-        let mut lc = lc.borrow_mut();
-        let lc = lc.as_mut().expect(
-            "with_lua_config_on_main_thread not called
-             from main thread, use with_lua_config instead!",
-        );
-        lc.update_to_latest();
-        lc.get_lua()
-    });
-
-    func(lua).await
-}
-
-pub fn run_immediate_with_lua_config<F, RET>(func: F) -> anyhow::Result<RET>
-where
-    F: FnOnce(Option<Rc<mlua::Lua>>) -> anyhow::Result<RET>,
-{
-    let lua = LUA_CONFIG.with(|lc| {
-        let mut lc = lc.borrow_mut();
-        let lc = lc.as_mut().expect(
-            "with_lua_config_on_main_thread not called
-             from main thread, use with_lua_config instead!",
-        );
-        lc.update_to_latest();
-        lc.get_lua()
-    });
-
-    func(lua)
-}
-
-fn schedule_with_lua<F, RETF, RET>(func: F) -> promise::spawn::Task<anyhow::Result<RET>>
-where
-    F: 'static,
-    RET: 'static,
-    F: Fn(Option<Rc<mlua::Lua>>) -> RETF,
-    RETF: Future<Output = anyhow::Result<RET>>,
-{
-    promise::spawn::spawn(async move { with_lua_config_on_main_thread(func).await })
-}
-
-/// Spawn a future that will run with an optional Lua state from the most
-/// recently loaded lua configuration.
-/// The `func` argument is passed the lua state and must return a Future.
-pub async fn with_lua_config<F, RETF, RET>(func: F) -> anyhow::Result<RET>
-where
-    F: Fn(Option<Rc<mlua::Lua>>) -> RETF,
-    RETF: Future<Output = anyhow::Result<RET>> + Send + 'static,
-    F: Send + 'static,
-    RET: Send + 'static,
-{
-    promise::spawn::spawn_into_main_thread(async move { schedule_with_lua(func).await }).await
-}
-
 fn default_config_with_overrides_applied() -> anyhow::Result<Config> {
-    // Cause the default config to be re-evaluated with the overrides applied
-    let lua = lua::make_lua_context(Path::new("override")).context("make_lua_context")?;
-    let table = mlua::Value::Table(lua.create_table()?);
-    let config = Config::apply_overrides_to(&lua, table).context("apply_overrides_to")?;
-
-    let dyn_config = luahelper::lua_value_to_dynamic(config)?;
+    // `--config key=value` used to be evaluated as a Lua expression. The value
+    // now uses the same syntax as the config file, so one grammar covers both
+    // and nothing is executed to read a command line flag.
+    let mut object = wezterm_dynamic::Object::default();
+    for (key, value) in CONFIG_OVERRIDES.lock().unwrap().iter() {
+        let parsed = unterm_engine::next_core::config::parse(&format!("value = {value}"))
+            .map_err(|errors| {
+                anyhow::anyhow!(
+                    "--config {key}={value}: {}",
+                    errors
+                        .iter()
+                        .map(|error| error.message.clone())
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                )
+            })?;
+        let parsed = parsed
+            .get("value")
+            .ok_or_else(|| anyhow::anyhow!("--config {key} has no value"))?;
+        object.insert(
+            wezterm_dynamic::Value::String(key.clone()),
+            crate::declarative::to_dynamic_value(parsed),
+        );
+    }
 
     let cfg: Config = Config::from_dynamic(
-        &dyn_config,
-        FromDynamicOptions {
-            unknown_fields: UnknownFieldAction::Deny,
-            deprecated_fields: UnknownFieldAction::Warn,
+        &wezterm_dynamic::Value::Object(object),
+        wezterm_dynamic::FromDynamicOptions {
+            unknown_fields: wezterm_dynamic::UnknownFieldAction::Deny,
+            deprecated_fields: wezterm_dynamic::UnknownFieldAction::Warn,
         },
     )
-    .context("Error converting lua value from overrides to Config struct")?;
-    // Compute but discard the key bindings here so that we raise any
-    // problems earlier than we use them.
-    let _ = cfg.key_bindings();
-
-    cfg.check_consistency().context("check_consistency")?;
-
+    .context("Error applying config overrides")?;
     Ok(cfg)
 }
 
@@ -607,16 +483,6 @@ impl ConfigInner {
         }
     }
 
-    fn accumulate_watch_paths(lua: &Lua, watch_paths: &mut Vec<PathBuf>) {
-        if let Ok(mlua::Value::Table(tbl)) = lua.named_registry_value("wezterm-watch-paths") {
-            for path in tbl.sequence_values::<String>() {
-                if let Ok(path) = path {
-                    watch_paths.push(PathBuf::from(path));
-                }
-            }
-        }
-    }
-
     /// Attempt to load the user's configuration.
     /// On success, clear any error and replace the current
     /// configuration.
@@ -626,7 +492,6 @@ impl ConfigInner {
         let LoadedConfig {
             config,
             file_name,
-            lua,
             warnings,
         } = Config::load();
 
@@ -649,24 +514,11 @@ impl ConfigInner {
             }
             watch_paths.push(path);
         }
-        if let Some(lua) = &lua {
-            ConfigInner::accumulate_watch_paths(lua, &mut watch_paths);
-        }
-
         match config {
             Ok(config) => {
                 self.config = Arc::new(config);
                 self.error.take();
                 self.generation += 1;
-
-                // If we loaded a user config, publish this latest version of
-                // the lua state to the LUA_PIPE.  This allows a subsequent
-                // call to `with_lua_config` to reference this lua context
-                // even though we are (probably) resolving this from a background
-                // reloading thread.
-                if let Some(lua) = lua {
-                    LUA_PIPE.sender.try_send(lua).ok();
-                }
                 log::debug!("Reloaded configuration! generation={}", self.generation);
             }
             Err(err) => {
@@ -877,7 +729,6 @@ impl std::ops::Deref for ConfigHandle {
 pub struct LoadedConfig {
     pub config: anyhow::Result<Config>,
     pub file_name: Option<PathBuf>,
-    pub lua: Option<mlua::Lua>,
     pub warnings: Vec<String>,
 }
 

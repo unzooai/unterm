@@ -1,7 +1,6 @@
 use crate::scripting::guiwin::GuiWin;
-use config::keyassignment::{Confirmation, KeyAssignment};
 use mux::termwiztermtab::TermWizTerminal;
-use mux_lua::MuxPane;
+use mux::pane::MuxPane;
 use std::rc::Rc;
 use termwiz::cell::{unicode_column_width, AttributeChange};
 use termwiz::color::ColorAttribute;
@@ -145,59 +144,4 @@ fn run_confirmation_impl(message: &str, term: &mut TermWizTerminal) -> anyhow::R
     }
 
     Ok(false)
-}
-
-pub fn show_confirmation_overlay(
-    mut term: TermWizTerminal,
-    args: Confirmation,
-    window: GuiWin,
-    pane: MuxPane,
-) -> anyhow::Result<()> {
-    let name = match *args.action {
-        KeyAssignment::EmitEvent(id) => id,
-        _ => anyhow::bail!("Confirmation requires action to be defined by wezterm.action_callback"),
-    };
-
-    if let Ok(confirm) = run_confirmation_impl(&args.message, &mut term) {
-        if confirm {
-            promise::spawn::spawn_into_main_thread(async move {
-                trampoline(name, window, pane);
-                anyhow::Result::<()>::Ok(())
-            })
-            .detach();
-        } else if let Some(key_assignment) = args.cancel {
-            if let KeyAssignment::EmitEvent(id) = *key_assignment {
-                promise::spawn::spawn_into_main_thread(async move {
-                    trampoline(id, window, pane);
-                    anyhow::Result::<()>::Ok(())
-                })
-                .detach();
-            }
-        }
-    }
-    Ok(())
-}
-
-fn trampoline(name: String, window: GuiWin, pane: MuxPane) {
-    promise::spawn::spawn(async move {
-        config::with_lua_config_on_main_thread(move |lua| do_event(lua, name, window, pane)).await
-    })
-    .detach();
-}
-
-async fn do_event(
-    lua: Option<Rc<mlua::Lua>>,
-    name: String,
-    window: GuiWin,
-    pane: MuxPane,
-) -> anyhow::Result<()> {
-    if let Some(lua) = lua {
-        let args = lua.pack_multi((window, pane))?;
-
-        if let Err(err) = config::lua::emit_event(&lua, (name.clone(), args)).await {
-            log::error!("while processing {} event: {:#}", name, err);
-        }
-    }
-
-    Ok(())
 }

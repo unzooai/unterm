@@ -11,8 +11,7 @@ use crate::utilsprites::RenderMetrics;
 use config::keyassignment::KeyAssignment;
 use config::Dimension;
 use frecency::Frecency;
-use luahelper::{from_lua_value_dynamic, impl_lua_conversion_dynamic};
-use mux_lua::MuxPane;
+use mux::pane::MuxPane;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
@@ -79,14 +78,6 @@ fn save_recent(command: &ExpandedCommand) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[derive(Debug, Clone, FromDynamic, ToDynamic)]
-pub struct UserPaletteEntry {
-    pub brief: String,
-    pub doc: Option<String>,
-    pub action: KeyAssignment,
-    pub icon: Option<String>,
-}
-impl_lua_conversion_dynamic!(UserPaletteEntry);
 
 fn build_commands(
     gui_window: GuiWin,
@@ -95,41 +86,8 @@ fn build_commands(
 ) -> Vec<ExpandedCommand> {
     let mut commands = CommandDef::actions_for_palette_and_menubar(&config::configuration());
 
-    match config::run_immediate_with_lua_config(|lua| {
-        let mut entries: Vec<UserPaletteEntry> = vec![];
-
-        if let Some(lua) = lua {
-            let result = config::lua::emit_sync_callback(
-                &*lua,
-                ("augment-command-palette".to_string(), (gui_window, pane)),
-            )?;
-
-            if !matches!(&result, mlua::Value::Nil) {
-                entries = from_lua_value_dynamic(result)?;
-            }
-        }
-
-        Ok(entries)
-    }) {
-        Ok(entries) => {
-            for entry in entries {
-                commands.push(ExpandedCommand {
-                    brief: entry.brief.into(),
-                    doc: match entry.doc {
-                        Some(doc) => doc.into(),
-                        None => "".into(),
-                    },
-                    action: entry.action,
-                    keys: vec![],
-                    menubar: &[],
-                    icon: entry.icon.map(Cow::Owned),
-                });
-            }
-        }
-        Err(err) => {
-            log::warn!("augment-command-palette: {err:#}");
-        }
-    }
+    // `augment-command-palette` let a config add entries here. The palette
+    // now shows exactly the commands the program defines.
 
     commands.retain(|cmd| {
         if filter_copy_mode {

@@ -25,7 +25,7 @@ use termwiz::color::ColorAttribute;
 use termwiz::input::{InputEvent, KeyCode, KeyEvent, Modifiers, MouseButtons, MouseEvent};
 use termwiz::surface::{Change, Position};
 use termwiz::terminal::Terminal;
-use termwiz_funcs::truncate_right;
+use wezterm_render_escapes::truncate_right;
 use window::WindowOps;
 
 pub use config::keyassignment::LauncherFlags;

@@ -13,7 +13,6 @@ use config::{ConfigHandle, SerialDomain, SshDomain, SshMultiplexing};
 use mux::activity::Activity;
 use mux::domain::{Domain, LocalDomain};
 use mux::Mux;
-use mux_lua::MuxDomain;
 use portable_pty::cmdbuilder::CommandBuilder;
 use promise::spawn::block_on;
 use std::borrow::Cow;
@@ -347,7 +346,6 @@ async fn spawn_tab_in_domain_if_mux_is_empty(
     domain.attach(Some(window_id)).await?;
 
     if have_panes_in_domain_and_ws(&domain, &workspace) {
-        trigger_and_log_gui_attached(MuxDomain(domain.domain_id())).await;
         return Ok(());
     }
 
@@ -370,7 +368,6 @@ async fn spawn_tab_in_domain_if_mux_is_empty(
             window_id,
         )
         .await?;
-    trigger_and_log_gui_attached(MuxDomain(domain.domain_id())).await;
     Ok(())
 }
 
@@ -455,45 +452,6 @@ async fn connect_to_auto_connect_domains() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn trigger_gui_startup(
-    lua: Option<Rc<mlua::Lua>>,
-    spawn: Option<SpawnCommand>,
-) -> anyhow::Result<()> {
-    if let Some(lua) = lua {
-        let args = lua.pack_multi(spawn)?;
-        config::lua::emit_event(&lua, ("gui-startup".to_string(), args)).await?;
-    }
-    Ok(())
-}
-
-async fn trigger_and_log_gui_startup(spawn_command: Option<SpawnCommand>) {
-    if let Err(err) =
-        config::with_lua_config_on_main_thread(move |lua| trigger_gui_startup(lua, spawn_command))
-            .await
-    {
-        let message = format!("while processing gui-startup event: {:#}", err);
-        log::error!("{}", message);
-        persistent_toast_notification("Error", &message);
-    }
-}
-
-async fn trigger_gui_attached(lua: Option<Rc<mlua::Lua>>, domain: MuxDomain) -> anyhow::Result<()> {
-    if let Some(lua) = lua {
-        let args = lua.pack_multi(domain)?;
-        config::lua::emit_event(&lua, ("gui-attached".to_string(), args)).await?;
-    }
-    Ok(())
-}
-
-async fn trigger_and_log_gui_attached(domain: MuxDomain) {
-    if let Err(err) =
-        config::with_lua_config_on_main_thread(move |lua| trigger_gui_attached(lua, domain)).await
-    {
-        let message = format!("while processing gui-attached event: {:#}", err);
-        log::error!("{}", message);
-        persistent_toast_notification("Error", &message);
-    }
-}
 
 fn cell_pixel_dims(config: &ConfigHandle, dpi: f64) -> anyhow::Result<(usize, usize)> {
     let fontconfig = Rc::new(FontConfiguration::new(Some(config.clone()), dpi as usize)?);
@@ -661,7 +619,6 @@ async fn async_run_terminal_gui(
     };
 
     if !opts.attach {
-        trigger_and_log_gui_startup(spawn_command).await;
     }
 
     let is_connecting = opts.attach;
@@ -694,8 +651,7 @@ async fn async_run_terminal_gui(
             if let Some(tab_idx) = window.idx_by_id(tab.tab_id()) {
                 window.set_active_without_saving(tab_idx);
             }
-            trigger_and_log_gui_attached(MuxDomain(domain.domain_id())).await;
-        }
+            }
     }
     crate::startup_timing::mark("pre spawn_tab");
     let result =
@@ -1608,9 +1564,6 @@ fn run() -> anyhow::Result<()> {
     // window_funcs is not set up by env_bootstrap as window_funcs is
     // GUI environment specific and env_bootstrap is used to setup the
     // headless mux server.
-    config::lua::add_context_setup_func(window_funcs::register);
-    config::lua::add_context_setup_func(crate::scripting::register);
-    config::lua::add_context_setup_func(crate::stats::register);
 
     stats::Stats::init()?;
     let _saver = umask::UmaskSaver::new();

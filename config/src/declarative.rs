@@ -147,6 +147,19 @@ fn report(name: &str, errors: &[declarative::ConfigError]) -> anyhow::Error {
     anyhow!("{name} has {} problem(s):\n{detail}", errors.len())
 }
 
+/// Convert a declarative value to the dynamic one `Config` is built from.
+pub(crate) fn to_dynamic_value(value: &declarative::Value) -> Value {
+    match value {
+        declarative::Value::Bool(value) => Value::Bool(*value),
+        declarative::Value::Int(value) => Value::I64(*value),
+        declarative::Value::Float(value) => Value::F64((*value).into()),
+        declarative::Value::Str(value) => Value::String(value.clone()),
+        declarative::Value::List(values) => {
+            Value::Array(values.iter().map(to_dynamic_value).collect::<Vec<_>>().into())
+        }
+    }
+}
+
 fn to_dynamic(value: &declarative::Value, key: &str) -> anyhow::Result<Value> {
     Ok(match value {
         declarative::Value::Bool(value) => Value::Bool(*value),

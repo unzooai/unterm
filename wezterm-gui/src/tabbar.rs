@@ -7,7 +7,7 @@ use termwiz::escape::csi::Sgr;
 use termwiz::escape::parser::Parser;
 use termwiz::escape::{Action, ControlCode, CSI};
 use termwiz::surface::SEQ_ZERO;
-use termwiz_funcs::{format_as_escapes, FormatColor, FormatItem};
+use wezterm_render_escapes::{format_as_escapes, FormatColor, FormatItem};
 use wezterm_term::{Line, Progress};
 use window::{IntegratedTitleButton, IntegratedTitleButtonAlignment, IntegratedTitleButtonStyle};
 

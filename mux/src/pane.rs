@@ -25,6 +25,20 @@ use wezterm_term::{
 static PANE_ID: ::std::sync::atomic::AtomicUsize = ::std::sync::atomic::AtomicUsize::new(0);
 pub type PaneId = usize;
 
+/// A pane referred to by id rather than held by reference.
+///
+/// Carried across the places that hand a pane to an overlay or a queued
+/// notification; the pane itself may go away in between, so resolving is
+/// always fallible.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MuxPane(pub PaneId);
+
+impl MuxPane {
+    pub fn resolve(&self, mux: &Arc<crate::Mux>) -> Option<Arc<dyn Pane>> {
+        mux.get_pane(self.0)
+    }
+}
+
 pub fn alloc_pane_id() -> PaneId {
     PANE_ID.fetch_add(1, ::std::sync::atomic::Ordering::Relaxed)
 }

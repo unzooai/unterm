@@ -1,6 +1,6 @@
 use clap::Parser;
 use mux::pane::PaneId;
-use termwiz_funcs::lines_to_escapes;
+use wezterm_render_escapes::lines_to_escapes;
 use wezterm_client::client::Client;
 use wezterm_term::{ScrollbackOrVisibleRowIndex, StableRowIndex};
 

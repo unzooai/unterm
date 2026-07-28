@@ -1,6 +1,4 @@
 use config::configuration;
-use config::lua::get_or_create_sub_module;
-use config::lua::mlua::Lua;
 use hdrhistogram::Histogram;
 use metrics::{Counter, Gauge, Key, KeyName, Metadata, Recorder, SharedString, Unit};
 use parking_lot::Mutex;
@@ -352,87 +350,4 @@ impl Recorder for Stats {
             }
         }
     }
-}
-
-pub fn register(lua: &Lua) -> anyhow::Result<()> {
-    let metrics_mod = get_or_create_sub_module(lua, "metrics")?;
-    metrics_mod.set(
-        "get_counters",
-        lua.create_function(|_, _: ()| {
-            let inner = INNER.lock();
-            let counters: HashMap<String, usize> = inner
-                .counters
-                .iter()
-                .map(|(k, v)| (k.name().to_string(), v.value.load(Ordering::Relaxed)))
-                .collect();
-            Ok(counters)
-        })?,
-    )?;
-    metrics_mod.set(
-        "get_throughput",
-        lua.create_function(|_, _: ()| {
-            let mut inner = INNER.lock();
-            let counters: HashMap<String, HashMap<String, u64>> = inner
-                .throughput
-                .iter_mut()
-                .map(|(k, tput)| {
-                    let mut res = HashMap::new();
-                    res.insert("current".to_string(), tput.current());
-                    let (p50, p75, p95) = tput.percentiles();
-                    res.insert("p50".to_string(), p50);
-                    res.insert("p75".to_string(), p75);
-                    res.insert("p95".to_string(), p95);
-                    (k.name().to_string(), res)
-                })
-                .collect();
-            Ok(counters)
-        })?,
-    )?;
-    metrics_mod.set(
-        "get_sizes",
-        lua.create_function(|_, _: ()| {
-            let mut inner = INNER.lock();
-            let counters: HashMap<String, HashMap<String, u64>> = inner
-                .histograms
-                .iter_mut()
-                .filter_map(|(key, hist)| {
-                    if key.name().ends_with(".size") {
-                        let mut res = HashMap::new();
-                        let (p50, p75, p95) = hist.percentiles();
-                        res.insert("p50".to_string(), p50);
-                        res.insert("p75".to_string(), p75);
-                        res.insert("p95".to_string(), p95);
-                        Some((key.name().to_string(), res))
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-            Ok(counters)
-        })?,
-    )?;
-    metrics_mod.set(
-        "get_latency",
-        lua.create_function(|_, _: ()| {
-            let mut inner = INNER.lock();
-            let counters: HashMap<String, HashMap<String, String>> = inner
-                .histograms
-                .iter_mut()
-                .filter_map(|(key, hist)| {
-                    if !key.name().ends_with(".size") {
-                        let mut res = HashMap::new();
-                        let (p50, p75, p95) = hist.latency_percentiles();
-                        res.insert("p50".to_string(), format!("{p50:?}"));
-                        res.insert("p75".to_string(), format!("{p75:?}"));
-                        res.insert("p95".to_string(), format!("{p95:?}"));
-                        Some((key.name().to_string(), res))
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-            Ok(counters)
-        })?,
-    )?;
-    Ok(())
 }

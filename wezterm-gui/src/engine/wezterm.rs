@@ -471,7 +471,7 @@ impl ScreenEngine for WezTermEngine {
 
         let (first, lines) = pane.get_lines(start..end);
         if request.escapes {
-            let text = termwiz_funcs::lines_to_escapes(lines).map_err(|e| anyhow!(e))?;
+            let text = wezterm_render_escapes::lines_to_escapes(lines).map_err(|e| anyhow!(e))?;
             Ok(ScrollbackTextSnapshot {
                 text,
                 lines: Vec::new(),

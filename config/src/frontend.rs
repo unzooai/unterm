@@ -1,4 +1,3 @@
-use luahelper::impl_lua_conversion_dynamic;
 use wezterm_dynamic::{FromDynamic, ToDynamic};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, FromDynamic, ToDynamic, Default)]
@@ -20,7 +19,6 @@ pub struct GpuInfo {
     pub vendor: Option<u32>,
     pub device: Option<u32>,
 }
-impl_lua_conversion_dynamic!(GpuInfo);
 
 impl ToString for GpuInfo {
     fn to_string(&self) -> String {

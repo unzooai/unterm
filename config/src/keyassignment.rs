@@ -1,7 +1,6 @@
 use crate::default_true;
 use crate::keys::KeyNoAction;
 use crate::window::WindowLevel;
-use luahelper::impl_lua_conversion_dynamic;
 use ordered_float::NotNan;
 use portable_pty::CommandBuilder;
 use serde::{Deserialize, Serialize};
@@ -199,7 +198,6 @@ pub struct SpawnCommand {
 
     pub position: Option<crate::GuiPosition>,
 }
-impl_lua_conversion_dynamic!(SpawnCommand);
 
 impl std::fmt::Debug for SpawnCommand {
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -313,7 +311,6 @@ pub enum ClipboardCopyDestination {
     PrimarySelection,
     ClipboardAndPrimarySelection,
 }
-impl_lua_conversion_dynamic!(ClipboardCopyDestination);
 
 impl Default for ClipboardCopyDestination {
     fn default() -> Self {
@@ -460,76 +457,6 @@ pub struct QuickSelectArguments {
     pub scope_lines: Option<usize>,
 }
 
-#[derive(Debug, Clone, PartialEq, FromDynamic, ToDynamic)]
-pub struct PromptInputLine {
-    pub action: Box<KeyAssignment>,
-    /// Optional label to pre-fill the input line with
-    #[dynamic(default)]
-    pub initial_value: Option<String>,
-    /// Descriptive text to show ahead of prompt
-    #[dynamic(default)]
-    pub description: String,
-    /// Text to show for prompt
-    #[dynamic(default = "default_prompt")]
-    pub prompt: String,
-}
-
-fn default_prompt() -> String {
-    "> ".to_string()
-}
-
-#[derive(Debug, Clone, PartialEq, FromDynamic, ToDynamic)]
-pub struct InputSelectorEntry {
-    pub label: String,
-    pub id: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, FromDynamic, ToDynamic)]
-pub struct InputSelector {
-    pub action: Box<KeyAssignment>,
-    #[dynamic(default)]
-    pub title: String,
-
-    pub choices: Vec<InputSelectorEntry>,
-
-    #[dynamic(default)]
-    pub fuzzy: bool,
-
-    #[dynamic(default = "default_num_alphabet")]
-    pub alphabet: String,
-
-    #[dynamic(default = "default_description")]
-    pub description: String,
-
-    #[dynamic(default = "default_fuzzy_description")]
-    pub fuzzy_description: String,
-}
-
-fn default_num_alphabet() -> String {
-    "1234567890abcdefghilmnopqrstuvwxyz".to_string()
-}
-
-fn default_description() -> String {
-    "Select an item and press Enter = accept,  Esc = cancel,  / = filter".to_string()
-}
-
-fn default_fuzzy_description() -> String {
-    "Fuzzy matching: ".to_string()
-}
-
-#[derive(Debug, Clone, PartialEq, FromDynamic, ToDynamic)]
-pub struct Confirmation {
-    pub action: Box<KeyAssignment>,
-    #[dynamic(default)]
-    pub cancel: Option<Box<KeyAssignment>>,
-    /// Text to show for confirmation
-    #[dynamic(default = "default_message")]
-    pub message: String,
-}
-
-fn default_message() -> String {
-    "🛑 Really continue?".to_string()
-}
 
 #[derive(Debug, Clone, PartialEq, FromDynamic, ToDynamic)]
 pub enum KeyAssignment {
@@ -611,7 +538,6 @@ pub enum KeyAssignment {
     CloseCurrentPane {
         confirm: bool,
     },
-    EmitEvent(String),
     QuickSelect,
     QuickSelectArgs(QuickSelectArguments),
 
@@ -666,9 +592,6 @@ pub enum KeyAssignment {
     ActivateWindow(usize),
     ActivateWindowRelative(isize),
     ActivateWindowRelativeNoWrap(isize),
-    PromptInputLine(PromptInputLine),
-    InputSelector(InputSelector),
-    Confirmation(Confirmation),
     /// Accept the oldest pending MCP suggestion on the active pane.
     /// Writes the suggestion's text to the pane's PTY. When
     /// `run_immediately` is true (Alt+Enter binding), `\n` is appended
@@ -699,7 +622,6 @@ pub enum KeyAssignment {
     /// terminal" at-a-glance debugging.
     ShowInsights,
 }
-impl_lua_conversion_dynamic!(KeyAssignment);
 
 #[derive(Debug, Clone, PartialEq, FromDynamic, ToDynamic)]
 pub struct SplitPane {

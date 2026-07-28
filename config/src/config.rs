@@ -14,7 +14,6 @@ use crate::keyassignment::{
     KeyAssignment, KeyTable, KeyTableEntry, KeyTables, MouseEventTrigger, SpawnCommand,
 };
 use crate::keys::{Key, LeaderKey, Mouse};
-use crate::lua::make_lua_context;
 use crate::ssh::{SshBackend, SshDomain};
 use crate::tls::{TlsDomainClient, TlsDomainServer};
 use crate::units::Dimension;
@@ -25,11 +24,9 @@ use crate::{
     default_true, default_win32_acrylic_accent_color, CellWidth, GpuInfo,
     IntegratedTitleButtonColor, KeyMapPreference, LoadedConfig, MouseEventTriggerMods, RgbaColor,
     SerialDomain, SystemBackdrop, WebGpuPowerPreference, CONFIG_DIRS, CONFIG_FILE_OVERRIDE,
-    CONFIG_OVERRIDES, CONFIG_SKIP, HOME_DIR,
+    CONFIG_SKIP, HOME_DIR,
 };
 use anyhow::Context;
-use luahelper::impl_lua_conversion_dynamic;
-use mlua::FromLua;
 use portable_pty::CommandBuilder;
 use std::collections::HashMap;
 use std::ffi::OsStr;
@@ -1010,7 +1007,6 @@ pub struct Config {
     #[dynamic(default = "default_cockpit_done_hold_secs")]
     pub cockpit_done_hold_secs: u64,
 }
-impl_lua_conversion_dynamic!(Config);
 
 fn default_one() -> usize {
     1
@@ -1256,7 +1252,6 @@ impl Config {
                     return LoadedConfig {
                         config: Err(err),
                         file_name: Some(path_item.path.clone()),
-                        lua: None,
                         warnings: vec![],
                     }
                 }
@@ -1275,7 +1270,6 @@ impl Config {
             Err(err) => LoadedConfig {
                 config: Err(err),
                 file_name: None,
-                lua: None,
                 warnings: vec![],
             },
             Ok(cfg) => cfg,
@@ -1291,14 +1285,13 @@ impl Config {
         Ok(LoadedConfig {
             config: Ok(config?),
             file_name: None,
-            lua: Some(make_lua_context(Path::new(""))?),
             warnings,
         })
     }
 
     fn try_load(
         path_item: &PathPossibility,
-        overrides: &wezterm_dynamic::Value,
+        _overrides: &wezterm_dynamic::Value,
     ) -> anyhow::Result<Option<LoadedConfig>> {
         let p = path_item.path.as_path();
         log::trace!("consider config: {}", p.display());
@@ -1324,143 +1317,16 @@ impl Config {
             return Ok(Some(LoadedConfig {
                 config: Ok(cfg.compute_extra_defaults(Some(p))),
                 file_name: Some(p.to_path_buf()),
-                lua: None,
                 warnings: vec![],
             }));
         }
 
-        let timing = std::time::Instant::now();
-        let lua = make_lua_context(p)?;
-        log::debug!("config-timing: make_lua_context {:?}", timing.elapsed());
-
-        let (config, warnings) =
-            wezterm_dynamic::Error::capture_warnings(|| -> anyhow::Result<Config> {
-                let cfg: Config;
-
-                let timing = std::time::Instant::now();
-                let config: mlua::Value = smol::block_on(
-                    // Skip a potential BOM that Windows software may have placed in the
-                    // file. Note that we can't catch this happening for files that are
-                    // imported via the lua require function.
-                    lua.load(s.trim_start_matches('\u{FEFF}'))
-                        .set_name(p.to_string_lossy())
-                        .eval_async(),
-                )?;
-                log::debug!("config-timing: eval user lua {:?}", timing.elapsed());
-                let config = Config::apply_overrides_to(&lua, config)?;
-                let config = Config::apply_overrides_obj_to(&lua, config, overrides)?;
-                let timing = std::time::Instant::now();
-                cfg = Config::from_lua(config, &lua).with_context(|| {
-                    format!(
-                        "Error converting lua value returned by script {} to Config struct",
-                        p.display()
-                    )
-                })?;
-                log::debug!("config-timing: from_lua {:?}", timing.elapsed());
-                cfg.check_consistency()?;
-
-                // Compute but discard the key bindings here so that we raise any
-                // problems earlier than we use them.
-                let timing = std::time::Instant::now();
-                let _ = cfg.key_bindings();
-                log::debug!("config-timing: key_bindings {:?}", timing.elapsed());
-
-                std::env::set_var("WEZTERM_CONFIG_FILE", p);
-                if let Some(dir) = p.parent() {
-                    std::env::set_var("WEZTERM_CONFIG_DIR", dir);
-                }
-                Ok(cfg)
-            });
-        let cfg = config?;
-
-        let timing = std::time::Instant::now();
-        let cfg_with_defaults = cfg.compute_extra_defaults(Some(p));
-        log::debug!(
-            "config-timing: compute_extra_defaults {:?}",
-            timing.elapsed()
-        );
-
-        Ok(Some(LoadedConfig {
-            config: Ok(cfg_with_defaults),
-            file_name: Some(p.to_path_buf()),
-            lua: Some(lua),
-            warnings,
-        }))
+        anyhow::bail!(
+            "{} is not a declarative config. Convert it with the migration tool: the engine no longer executes configuration.",
+            p.display()
+        )
     }
 
-    pub(crate) fn apply_overrides_obj_to<'l>(
-        lua: &'l mlua::Lua,
-        mut config: mlua::Value<'l>,
-        overrides: &wezterm_dynamic::Value,
-    ) -> anyhow::Result<mlua::Value<'l>> {
-        // config may be a table, or it may be a config builder.
-        // We'll leave it up to lua to call the appropriate
-        // index function as managing that from Rust is a PITA.
-        let setter: mlua::Function = lua
-            .load(
-                r#"
-                    return function(config, key, value)
-                        config[key] = value;
-                        return config;
-                    end
-                    "#,
-            )
-            .eval()?;
-
-        match overrides {
-            wezterm_dynamic::Value::Object(obj) => {
-                for (key, value) in obj {
-                    let key = luahelper::dynamic_to_lua_value(lua, key.clone())?;
-                    let value = luahelper::dynamic_to_lua_value(lua, value.clone())?;
-                    config = setter.call((config, key, value))?;
-                }
-                Ok(config)
-            }
-            _ => Ok(config),
-        }
-    }
-
-    pub(crate) fn apply_overrides_to<'l>(
-        lua: &'l mlua::Lua,
-        mut config: mlua::Value<'l>,
-    ) -> anyhow::Result<mlua::Value<'l>> {
-        let overrides = CONFIG_OVERRIDES.lock().unwrap();
-        for (key, value) in &*overrides {
-            if value == "nil" {
-                // Literal nil as the value is the same as not specifying the value.
-                // We special case this here as we want to explicitly check for
-                // the value evaluating as nil, as can happen in the case where the
-                // user specifies something like: `--config term=xterm`.
-                // The RHS references a global that doesn't exist and evaluates as
-                // nil. We want to raise this as an error.
-                continue;
-            }
-            let literal = value.escape_debug();
-            let code = format!(
-                r#"
-                local wezterm = require 'wezterm';
-                local value = {value};
-                if value == nil then
-                    error("{literal} evaluated as nil. Check for missing quotes or other syntax issues")
-                end
-                config.{key} = value;
-                return config;
-                "#,
-            );
-            let chunk = lua.load(&code);
-            let chunk = chunk.set_name(format!("--config {}={}", key, value));
-            lua.globals().set("config", config.clone())?;
-            log::debug!("Apply {}={} to config", key, value);
-            config = chunk.eval()?;
-        }
-        Ok(config)
-    }
-
-    /// Check for logical conflicts in the config
-    pub fn check_consistency(&self) -> anyhow::Result<()> {
-        self.check_domain_consistency()?;
-        Ok(())
-    }
 
     fn check_domain_consistency(&self) -> anyhow::Result<()> {
         let mut domains = HashMap::new();

@@ -336,24 +336,8 @@ impl LocalDomain {
                 position: None,
             };
 
-            let spawn_command = config::with_lua_config_on_main_thread(|lua| async {
-                let lua = lua.ok_or_else(|| anyhow::anyhow!("missing lua context"))?;
-                let value = config::lua::emit_async_callback(
-                    &*lua,
-                    (ed.fixup_command.clone(), (spawn_command.clone())),
-                )
-                .await?;
-                let cmd: SpawnCommand =
-                    luahelper::from_lua_value_dynamic(value).with_context(|| {
-                        format!(
-                            "interpreting SpawnCommand result from ExecDomain {}",
-                            ed.name
-                        )
-                    })?;
-                Ok(cmd)
-            })
-            .await
-            .with_context(|| format!("calling ExecDomain {} function", ed.name))?;
+            // The command fixup was a Lua callback on the exec domain. With
+            // no callbacks, the command is used as built.
 
             // Reinterpret the SpawnCommand into the builder
 
@@ -695,34 +679,10 @@ impl Domain for LocalDomain {
         if let Some(ed) = self.resolve_exec_domain() {
             match &ed.label {
                 Some(ValueOrFunc::Value(wezterm_dynamic::Value::String(s))) => s.to_string(),
-                Some(ValueOrFunc::Func(label_func)) => {
-                    let label = config::with_lua_config_on_main_thread(|lua| async {
-                        let lua = lua.ok_or_else(|| anyhow::anyhow!("missing lua context"))?;
-                        let value = config::lua::emit_async_callback(
-                            &*lua,
-                            (label_func.clone(), (self.name.clone())),
-                        )
-                        .await?;
-                        let label: String =
-                            luahelper::from_lua_value_dynamic(value).with_context(|| {
-                                format!(
-                                    "interpreting SpawnCommand result from ExecDomain {}",
-                                    ed.name
-                                )
-                            })?;
-                        Ok(label)
-                    })
-                    .await;
-                    match label {
-                        Ok(label) => label,
-                        Err(err) => {
-                            log::error!(
-                                "Error while calling label function for ExecDomain `{}`: {err:#}",
-                                self.name
-                            );
-                            self.name.to_string()
-                        }
-                    }
+                Some(ValueOrFunc::Func(_)) => {
+                    // A label function needed Lua to call it; the domain's own
+                    // name is what that function decorated.
+                    self.name.to_string()
                 }
                 _ => self.name.to_string(),
             }

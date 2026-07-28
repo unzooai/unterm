@@ -258,14 +258,6 @@ fn run() -> anyhow::Result<()> {
     }
 }
 
-async fn trigger_mux_startup(lua: Option<Rc<mlua::Lua>>) -> anyhow::Result<()> {
-    if let Some(lua) = lua {
-        let args = lua.pack_multi(())?;
-        config::lua::emit_event(&lua, ("mux-startup".to_string(), args)).await?;
-    }
-    Ok(())
-}
-
 async fn async_run(cmd: Option<CommandBuilder>) -> anyhow::Result<()> {
     let mux = Mux::get();
     let config = config::configuration();
@@ -283,11 +275,6 @@ async fn async_run(cmd: Option<CommandBuilder>) -> anyhow::Result<()> {
 
     let domain = mux.default_domain();
 
-    {
-        if let Err(err) = config::with_lua_config_on_main_thread(trigger_mux_startup).await {
-            log::error!("while processing mux-startup event: {:#}", err);
-        }
-    }
 
     let have_panes_in_domain = mux
         .iter_panes()

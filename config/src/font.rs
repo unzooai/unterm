@@ -2,7 +2,6 @@ use crate::color::RgbaColor;
 use crate::*;
 use bitflags::*;
 use enum_display_derive::Display;
-use luahelper::impl_lua_conversion_dynamic;
 use std::convert::TryFrom;
 use std::fmt::Display;
 use wezterm_dynamic::{FromDynamic, FromDynamicOptions, ToDynamic, Value};
@@ -380,7 +379,6 @@ pub struct FontAttributes {
     #[dynamic(default)]
     pub assume_emoji_presentation: Option<bool>,
 }
-impl_lua_conversion_dynamic!(FontAttributes);
 
 impl std::fmt::Display for FontAttributes {
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
@@ -463,7 +461,6 @@ pub struct TextStyle {
     /// the text color for eg: bold text.
     pub foreground: Option<RgbaColor>,
 }
-impl_lua_conversion_dynamic!(TextStyle);
 
 impl Default for TextStyle {
     fn default() -> Self {

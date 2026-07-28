@@ -994,30 +994,6 @@ pub fn derive_command_from_key_assignment(action: &KeyAssignment) -> Option<Comm
             menubar: &["Unterm"],
             icon: Some("cod_record"),
         },
-        InputSelector(_) => CommandDef {
-            brief: "Prompt the user to choose from a list".into(),
-            doc: "Activates the selector overlay and wait for input".into(),
-            keys: vec![],
-            args: &[ArgType::ActiveWindow],
-            menubar: &[],
-            icon: None,
-        },
-        Confirmation(_) => CommandDef {
-            brief: "Prompt the user for confirmation".into(),
-            doc: "Activates the confirmation overlay and wait for input".into(),
-            keys: vec![],
-            args: &[ArgType::ActiveWindow],
-            menubar: &[],
-            icon: None,
-        },
-        PromptInputLine(_) => CommandDef {
-            brief: "Prompt the user for a line of text".into(),
-            doc: "Activates the prompt overlay and wait for input".into(),
-            keys: vec![],
-            args: &[ArgType::ActiveWindow],
-            menubar: &[],
-            icon: None,
-        },
         QuickSelect => CommandDef {
             brief: "Enter QuickSelect mode".into(),
             doc: "Activates the quick selection UI for the current pane".into(),
@@ -1246,18 +1222,6 @@ pub fn derive_command_from_key_assignment(action: &KeyAssignment) -> Option<Comm
             args: &[ArgType::ActiveWindow],
             menubar: &[],
             icon: Some("md_fullscreen"),
-        },
-        EmitEvent(name) => CommandDef {
-            brief: format!("Emit event `{name}`").into(),
-            doc: format!(
-                "Emits the named event, causing any \
-                             associated event handler(s) to trigger"
-            )
-            .into(),
-            keys: vec![],
-            args: &[ArgType::ActiveWindow],
-            menubar: &[],
-            icon: None,
         },
         CloseCurrentTab { confirm: true } => CommandDef {
             brief: "Close current Tab".into(),

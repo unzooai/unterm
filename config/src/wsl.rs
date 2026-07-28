@@ -1,6 +1,5 @@
 use crate::config::validate_domain_name;
 use crate::*;
-use luahelper::impl_lua_conversion_dynamic;
 use std::collections::HashMap;
 use wezterm_dynamic::{FromDynamic, ToDynamic};
 
@@ -13,7 +12,6 @@ pub struct WslDomain {
     pub default_cwd: Option<PathBuf>,
     pub default_prog: Option<Vec<String>>,
 }
-impl_lua_conversion_dynamic!(WslDomain);
 
 impl WslDomain {
     pub fn default_domains() -> Vec<WslDomain> {

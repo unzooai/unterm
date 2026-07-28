@@ -1,6 +1,5 @@
 use crate::config::validate_domain_name;
 use crate::*;
-use luahelper::impl_lua_conversion_dynamic;
 use std::fmt::Display;
 use std::str::FromStr;
 use wezterm_dynamic::{FromDynamic, ToDynamic};
@@ -105,7 +104,6 @@ pub struct SshDomain {
     #[dynamic(default)]
     pub assume_shell: Shell,
 }
-impl_lua_conversion_dynamic!(SshDomain);
 
 impl SshDomain {
     pub fn default_domains() -> Vec<Self> {

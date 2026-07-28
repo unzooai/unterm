@@ -1,5 +1,4 @@
 use crate::{default_one_point_oh, Config, Dimension, HsbTransform, PixelUnit, RgbaColor};
-use luahelper::impl_lua_conversion_dynamic;
 use termwiz::color::SrgbaTuple;
 use wezterm_dynamic::{FromDynamic, FromDynamicOptions, ToDynamic, Value};
 
@@ -462,7 +461,6 @@ pub struct Gradient {
     #[dynamic(default)]
     pub noise: Option<usize>,
 }
-impl_lua_conversion_dynamic!(Gradient);
 
 impl Gradient {
     pub fn build(&self) -> anyhow::Result<colorgrad::Gradient> {

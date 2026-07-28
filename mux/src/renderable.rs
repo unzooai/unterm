@@ -1,5 +1,4 @@
 use crate::pane::{ForEachPaneLogicalLine, WithPaneLines};
-use luahelper::impl_lua_conversion_dynamic;
 use rangeset::RangeSet;
 use serde::{Deserialize, Serialize};
 use std::ops::Range;
@@ -17,7 +16,6 @@ pub struct StableCursorPosition {
     pub shape: termwiz::surface::CursorShape,
     pub visibility: termwiz::surface::CursorVisibility,
 }
-impl_lua_conversion_dynamic!(StableCursorPosition);
 
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize, FromDynamic, ToDynamic,
@@ -45,7 +43,6 @@ pub struct RenderableDimensions {
     /// True if the lines should be rendered reversed
     pub reverse_video: bool,
 }
-impl_lua_conversion_dynamic!(RenderableDimensions);
 
 /// Implements Pane::get_cursor_position for Terminal
 pub fn terminal_get_cursor_position(term: &mut Terminal) -> StableCursorPosition {

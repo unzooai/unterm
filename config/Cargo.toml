@@ -23,9 +23,7 @@ hostname.workspace = true
 lazy_static.workspace = true
 libc.workspace = true
 log.workspace = true
-luahelper.workspace = true
 unterm-engine = { path = "../unterm-engine" }
-mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 notify.workspace = true
 ordered-float = { workspace=true, features = ["serde"] }
 portable-pty = { workspace=true, features = ["serde_support"]}

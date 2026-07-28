@@ -515,17 +515,6 @@ name = "base91"
 version = "0.1.0"
 
 [[package]]
-name = "battery"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "config",
- "luahelper",
- "starship-battery",
- "wezterm-dynamic",
-]
-
-[[package]]
 name = "benchmarking"
 version = "0.4.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -957,28 +946,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "color-funcs"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "config",
- "csscolorparser",
- "deltae",
- "image",
- "lazy_static",
- "log",
- "lru",
- "luahelper",
- "plist",
- "serde",
- "serde_json",
- "serde_yaml",
- "wezterm-color-types",
- "wezterm-dynamic",
- "wezterm-term",
-]
-
-[[package]]
 name = "color_quant"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1032,11 +999,9 @@ dependencies = [
  "lazy_static",
  "libc",
  "log",
- "luahelper",
- "mlua",
  "nix 0.29.0",
  "notify",
- "ordered-float 4.6.0",
+ "ordered-float",
  "portable-pty",
  "promise",
  "serde",
@@ -1400,7 +1365,7 @@ dependencies = [
  "lazy_static",
  "mintex",
  "parking_lot",
- "rustc-hash 1.1.0",
+ "rustc-hash",
  "serde",
  "serde_json",
  "thousands",
@@ -1632,30 +1597,16 @@ name = "env-bootstrap"
 version = "0.1.0"
 dependencies = [
  "backtrace",
- "battery",
  "chrono",
- "color-funcs",
  "config",
  "dirs-next",
  "env_logger 0.10.2",
- "filesystem",
  "lazy_static",
  "libc",
  "log",
- "logging",
- "mux-lua",
  "objc2",
  "objc2-foundation",
- "plugin",
- "procinfo-funcs",
- "serde-funcs",
- "share-data",
- "spawn-funcs",
- "ssh-funcs",
  "termwiz",
- "termwiz-funcs",
- "time-funcs",
- "url-funcs",
  "wezterm-version",
  "winapi",
 ]
@@ -1669,12 +1620,6 @@ dependencies = [
  "log",
  "regex",
 ]
-
-[[package]]
-name = "env_home"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c7f84e12ccf0a7ddc17a6c41c93326024c42920d7ee630d04950e6926645c0fe"
 
 [[package]]
 name = "env_logger"
@@ -1727,17 +1672,6 @@ name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
-
-[[package]]
-name = "erased-serde"
-version = "0.4.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "89e8918065695684b2b0702da20382d5ae6065cf3327bc2d6436bd49a71ce9f3"
-dependencies = [
- "serde",
- "serde_core",
- "typeid",
-]
 
 [[package]]
 name = "errno"
@@ -1891,17 +1825,6 @@ dependencies = [
  "bstr",
  "regex",
  "walkdir",
-]
-
-[[package]]
-name = "filesystem"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "config",
- "filenamegen",
- "luahelper",
- "smol",
 ]
 
 [[package]]
@@ -3207,12 +3130,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 
 [[package]]
-name = "lazycell"
-version = "1.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
-
-[[package]]
 name = "leb128"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3398,16 +3315,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "34080505efa8e45a4b816c349525ebe327ceaa8559756f0356cba97ef3bf7432"
 
 [[package]]
-name = "logging"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "config",
- "log",
- "luahelper",
-]
-
-[[package]]
 name = "loop9"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3423,44 +3330,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a1dc47f592c06f33f8e3aea9591776ec7c9f9e4124778ff8a3c3b87159f7e593"
 dependencies = [
  "hashbrown 0.16.0",
-]
-
-[[package]]
-name = "lua-src"
-version = "547.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1edaf29e3517b49b8b746701e5648ccb5785cde1c119062cbabbc5d5cd115e42"
-dependencies = [
- "cc",
-]
-
-[[package]]
-name = "luahelper"
-version = "0.1.0"
-dependencies = [
- "bstr",
- "log",
- "mlua",
- "wezterm-dynamic",
-]
-
-[[package]]
-name = "luajit-src"
-version = "210.5.12+a4f56a4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b3a8e7962a5368d5f264d045a5a255e90f9aa3fc1941ae15a8d2940d42cac671"
-dependencies = [
- "cc",
- "which",
-]
-
-[[package]]
-name = "mach2"
-version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d640282b302c0bb0a2a8e0233ead9035e3bed871f0b7e81fe4a1ec829765db44"
-dependencies = [
- "libc",
 ]
 
 [[package]]
@@ -3623,36 +3492,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mlua"
-version = "0.9.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d111deb18a9c9bd33e1541309f4742523bfab01d276bfa9a27519f6de9c11dc7"
-dependencies = [
- "bstr",
- "erased-serde",
- "futures-util",
- "mlua-sys",
- "num-traits",
- "once_cell",
- "rustc-hash 2.1.1",
- "serde",
- "serde-value",
-]
-
-[[package]]
-name = "mlua-sys"
-version = "0.6.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "380c1f7e2099cafcf40e51d3a9f20a346977587aa4d012eae1f043149a728a93"
-dependencies = [
- "cc",
- "cfg-if",
- "lua-src",
- "luajit-src",
- "pkg-config",
-]
-
-[[package]]
 name = "moxcms"
 version = "0.7.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3683,9 +3522,7 @@ dependencies = [
  "lazy_static",
  "libc",
  "log",
- "luahelper",
  "metrics",
- "mlua",
  "names",
  "nix 0.29.0",
  "ntapi",
@@ -3701,34 +3538,14 @@ dependencies = [
  "smol",
  "terminfo",
  "termwiz",
- "termwiz-funcs",
  "textwrap",
  "thiserror 1.0.69",
  "url",
  "wezterm-dynamic",
+ "wezterm-render-escapes",
  "wezterm-ssh",
  "wezterm-term",
  "winapi",
-]
-
-[[package]]
-name = "mux-lua"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "config",
- "libc",
- "log",
- "luahelper",
- "mux",
- "parking_lot",
- "portable-pty",
- "smol",
- "termwiz",
- "termwiz-funcs",
- "url-funcs",
- "wezterm-dynamic",
- "wezterm-term",
 ]
 
 [[package]]
@@ -3749,7 +3566,7 @@ dependencies = [
  "log",
  "num-traits",
  "once_cell",
- "rustc-hash 1.1.0",
+ "rustc-hash",
  "spirv",
  "strum",
  "thiserror 2.0.17",
@@ -4194,15 +4011,6 @@ dependencies = [
 
 [[package]]
 name = "ordered-float"
-version = "2.10.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "68f19d67e5a2795c94e73e0bb1cc1a7edeb2e28efd39e2e1c9b7a40c1108b11c"
-dependencies = [
- "num-traits",
-]
-
-[[package]]
-name = "ordered-float"
 version = "4.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7bb71e1b3fa6ca1c61f383464aaf2bb0e2f8e772a1f01d486832464de363b951"
@@ -4458,19 +4266,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "plugin"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "config",
- "git2",
- "log",
- "luahelper",
- "tempfile",
- "wezterm-dynamic",
-]
-
-[[package]]
 name = "png"
 version = "0.17.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4657,22 +4452,9 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "log",
- "luahelper",
  "ntapi",
  "wezterm-dynamic",
  "winapi",
-]
-
-[[package]]
-name = "procinfo-funcs"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "config",
- "libc",
- "luahelper",
- "procinfo",
- "wezterm-dynamic",
 ]
 
 [[package]]
@@ -5150,12 +4932,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "08d43f7aa6b08d49f382cde6a7982047c3426db949b1424bc4b7ec9ae12c6ce2"
 
 [[package]]
-name = "rustc-hash"
-version = "2.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "357703d41365b4b27c590e3ed91eabb1b663f07c4c084095e60cbed4362dff0d"
-
-[[package]]
 name = "rustc_version"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5338,29 +5114,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "serde-funcs"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "config",
- "luahelper",
- "serde_json",
- "serde_yaml",
- "toml 0.8.23",
- "wezterm-dynamic",
-]
-
-[[package]]
-name = "serde-value"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3a1a3341211875ef120e117ea7fd5228530ae7e7036a779fdc9117be6b3282c"
-dependencies = [
- "ordered-float 2.10.1",
- "serde",
-]
-
-[[package]]
 name = "serde_core"
 version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5497,18 +5250,6 @@ dependencies = [
  "cfg-if",
  "cpufeatures",
  "digest",
-]
-
-[[package]]
-name = "share-data"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "config",
- "lazy_static",
- "luahelper",
- "ordered-float 4.6.0",
- "wezterm-dynamic",
 ]
 
 [[package]]
@@ -5680,30 +5421,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "spa"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab074195b3f78a133cd7b7998142cf39dfaac71f6e990eaeecd14f5524db009a"
-dependencies = [
- "chrono",
-]
-
-[[package]]
-name = "spawn-funcs"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bstr",
- "config",
- "log",
- "luahelper",
- "smol",
- "wezterm-dynamic",
- "wezterm-open-url",
- "winapi",
-]
-
-[[package]]
 name = "spin"
 version = "0.9.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5732,16 +5449,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ssh-funcs"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "config",
- "luahelper",
- "wezterm-ssh",
-]
-
-[[package]]
 name = "ssh2"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5758,24 +5465,6 @@ name = "stable_deref_trait"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
-
-[[package]]
-name = "starship-battery"
-version = "0.10.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce0bc92586a2cba9cd189520c457b95e50f5565c3011484a5c83949be2f9fdcc"
-dependencies = [
- "cfg-if",
- "core-foundation 0.10.0",
- "lazycell",
- "libc",
- "mach2",
- "nix 0.29.0",
- "num-traits",
- "plist",
- "uom",
- "windows-sys 0.59.0",
-]
 
 [[package]]
 name = "static_assertions"
@@ -6007,7 +5696,7 @@ dependencies = [
  "nix 0.29.0",
  "num-derive",
  "num-traits",
- "ordered-float 4.6.0",
+ "ordered-float",
  "pest",
  "pest_derive",
  "phf",
@@ -6031,21 +5720,6 @@ dependencies = [
  "wezterm-input-types",
  "wezterm-surface",
  "winapi",
-]
-
-[[package]]
-name = "termwiz-funcs"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "config",
- "finl_unicode",
- "lazy_static",
- "luahelper",
- "terminfo",
- "termwiz",
- "wezterm-dynamic",
- "wezterm-input-types",
 ]
 
 [[package]]
@@ -6139,21 +5813,6 @@ name = "time-core"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40868e7c1d2f0b8d73e4a8c7f0ff63af4f6d19be117e90bd73eb1d62cf831c6b"
-
-[[package]]
-name = "time-funcs"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "config",
- "lazy_static",
- "luahelper",
- "promise",
- "smol",
- "spa",
- "wezterm-dynamic",
-]
 
 [[package]]
 name = "time-macros"
@@ -6447,12 +6106,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
-name = "typeid"
-version = "1.0.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc7d623258602320d5c55d1bc22793b57daff0ec7efc270ea7d55ce1d5f5471c"
-
-[[package]]
 name = "typenum"
 version = "1.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6568,13 +6221,10 @@ dependencies = [
  "lfucache",
  "libc",
  "log",
- "luahelper",
  "metrics",
- "mlua",
  "mux",
- "mux-lua",
  "nucleo-matcher",
- "ordered-float 4.6.0",
+ "ordered-float",
  "parking_lot",
  "png 0.18.0",
  "portable-pty",
@@ -6595,7 +6245,6 @@ dependencies = [
  "tempfile",
  "terminfo",
  "termwiz",
- "termwiz-funcs",
  "textwrap",
  "thiserror 1.0.69",
  "tiny-skia",
@@ -6606,7 +6255,6 @@ dependencies = [
  "unterm-engine",
  "unterm-profile",
  "url",
- "url-funcs",
  "uuid",
  "walkdir",
  "wezterm-bidi",
@@ -6617,13 +6265,13 @@ dependencies = [
  "wezterm-gui-subcommands",
  "wezterm-mux-server-impl",
  "wezterm-open-url",
+ "wezterm-render-escapes",
  "wezterm-ssh",
  "wezterm-term",
  "wezterm-toast-notification",
  "wgpu",
  "winapi",
  "window",
- "window-funcs",
  "windows 0.33.0",
  "winreg",
 ]
@@ -6686,7 +6334,6 @@ dependencies = [
  "tempfile",
  "termios",
  "termwiz",
- "termwiz-funcs",
  "textwrap",
  "toml 0.8.23",
  "umask",
@@ -6695,6 +6342,7 @@ dependencies = [
  "url",
  "wezterm-client",
  "wezterm-gui-subcommands",
+ "wezterm-render-escapes",
  "wezterm-term",
  "winapi",
 ]
@@ -6728,7 +6376,6 @@ dependencies = [
  "env-bootstrap",
  "libc",
  "log",
- "mlua",
  "mux",
  "openssl",
  "portable-pty",
@@ -6764,16 +6411,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 
 [[package]]
-name = "uom"
-version = "0.36.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ffd36e5350a65d112584053ee91843955826bf9e56ec0d1351214e01f6d7cd9c"
-dependencies = [
- "num-traits",
- "typenum",
-]
-
-[[package]]
 name = "url"
 version = "2.5.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6783,18 +6420,6 @@ dependencies = [
  "idna",
  "percent-encoding",
  "serde",
-]
-
-[[package]]
-name = "url-funcs"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "config",
- "luahelper",
- "percent-encoding",
- "url",
- "wezterm-dynamic",
 ]
 
 [[package]]
@@ -7156,7 +6781,7 @@ dependencies = [
  "finl_unicode",
  "image",
  "log",
- "ordered-float 4.6.0",
+ "ordered-float",
  "serde",
  "sha2",
  "thiserror 1.0.69",
@@ -7240,7 +6865,7 @@ version = "0.57.4"
 dependencies = [
  "log",
  "maplit",
- "ordered-float 4.6.0",
+ "ordered-float",
  "strsim",
  "thiserror 2.0.17",
  "wezterm-dynamic-derive",
@@ -7270,7 +6895,7 @@ dependencies = [
  "nix 0.29.0",
  "num-derive",
  "num-traits",
- "ordered-float 4.6.0",
+ "ordered-float",
  "pest",
  "pest_derive",
  "serde",
@@ -7312,7 +6937,7 @@ dependencies = [
  "memmap2",
  "metrics",
  "objc",
- "ordered-float 4.6.0",
+ "ordered-float",
  "rangeset",
  "termwiz",
  "thiserror 1.0.69",
@@ -7380,6 +7005,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "wezterm-render-escapes"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "config",
+ "finl_unicode",
+ "lazy_static",
+ "terminfo",
+ "termwiz",
+ "wezterm-dynamic",
+]
+
+[[package]]
 name = "wezterm-ssh"
 version = "0.4.0"
 dependencies = [
@@ -7425,7 +7063,7 @@ dependencies = [
  "finl_unicode",
  "fixedbitset",
  "k9",
- "ordered-float 4.6.0",
+ "ordered-float",
  "serde",
  "siphasher",
  "unicode-segmentation",
@@ -7458,7 +7096,7 @@ dependencies = [
  "lru",
  "miniz_oxide 0.7.4",
  "num-traits",
- "ordered-float 4.6.0",
+ "ordered-float",
  "serde",
  "terminfo",
  "termwiz",
@@ -7555,7 +7193,7 @@ dependencies = [
  "portable-atomic",
  "profiling",
  "raw-window-handle",
- "rustc-hash 1.1.0",
+ "rustc-hash",
  "smallvec",
  "thiserror 2.0.17",
  "wgpu-core-deps-apple",
@@ -7623,7 +7261,7 @@ dependencies = [
  "naga",
  "ndk-sys",
  "objc",
- "ordered-float 4.6.0",
+ "ordered-float",
  "parking_lot",
  "portable-atomic",
  "profiling",
@@ -7651,18 +7289,6 @@ dependencies = [
  "log",
  "thiserror 2.0.17",
  "web-sys",
-]
-
-[[package]]
-name = "which"
-version = "7.0.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "24d643ce3fd3e5b54854602a080f34fb10ab75e0b813ee32d00ca2b44fa74762"
-dependencies = [
- "either",
- "env_home",
- "rustix 1.1.2",
- "winsafe",
 ]
 
 [[package]]
@@ -7772,17 +7398,6 @@ dependencies = [
  "xkbcommon",
  "zbus 4.4.0",
  "zvariant 4.2.0",
-]
-
-[[package]]
-name = "window-funcs"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "config",
- "luahelper",
- "wezterm-dynamic",
- "window",
 ]
 
 [[package]]
@@ -8315,12 +7930,6 @@ checksum = "80d0f4e272c85def139476380b12f9ac60926689dd2e01d4923222f40580869d"
 dependencies = [
  "winapi",
 ]
-
-[[package]]
-name = "winsafe"
-version = "0.0.19"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d135d17ab770252ad95e9a872d365cf3090e3be864a34ab46f48555993efc904"
 
 [[package]]
 name = "wio"

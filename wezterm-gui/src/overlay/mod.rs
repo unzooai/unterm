@@ -12,7 +12,6 @@ pub mod copy;
 pub mod debug;
 pub mod insights;
 pub mod launcher;
-pub mod prompt;
 pub mod proxy_settings;
 pub mod quickselect;
 pub mod selector;

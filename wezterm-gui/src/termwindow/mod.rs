@@ -35,7 +35,7 @@ use ::wezterm_term::input::{ClickPosition, MouseButton as TMB};
 use ::window::*;
 use anyhow::{anyhow, ensure, Context};
 use config::keyassignment::{
-    Confirmation, KeyAssignment, LauncherActionArgs, PaneDirection, Pattern, PromptInputLine,
+    KeyAssignment, LauncherActionArgs, PaneDirection, Pattern,
     QuickSelectArguments, RotationDirection, SpawnCommand, SplitSize,
 };
 use config::window::WindowLevel;
@@ -44,7 +44,6 @@ use config::{
     GeometryOrigin, GuiPosition, TermConfig, WindowCloseConfirmation,
 };
 use lfucache::*;
-use mlua::{FromLua, LuaSerdeExt, UserData, UserDataFields};
 use mux::pane::{
     CachePolicy, CloseReason, Pane, PaneId, Pattern as MuxPattern, PerformAssignmentResult,
 };
@@ -55,7 +54,7 @@ use mux::tab::{
 };
 use mux::window::WindowId as MuxWindowId;
 use mux::{Mux, MuxNotification};
-use mux_lua::MuxPane;
+use mux::pane::MuxPane;
 use smol::channel::Sender;
 use smol::Timer;
 use std::cell::{RefCell, RefMut};
@@ -370,44 +369,14 @@ pub struct TabInformation {
     pub tab_title: String,
 }
 
-impl UserData for TabInformation {
-    fn add_fields<'lua, F: UserDataFields<'lua, Self>>(fields: &mut F) {
-        fields.add_field_method_get("tab_id", |_, this| Ok(this.tab_id));
-        fields.add_field_method_get("tab_index", |_, this| Ok(this.tab_index));
-        fields.add_field_method_get("is_active", |_, this| Ok(this.is_active));
-        fields.add_field_method_get("is_last_active", |_, this| Ok(this.is_last_active));
-        fields.add_field_method_get("active_pane", |_, this| {
-            if let Some(pane) = &this.active_pane {
-                Ok(Some(pane.clone()))
-            } else {
-                Ok(None)
-            }
-        });
-        fields.add_field_method_get("panes", |_, this| {
-            let mux = Mux::get();
-            let mut panes = vec![];
-            if let Some(tab) = mux.get_tab(this.tab_id) {
-                panes = tab
-                    .iter_panes()
-                    .iter()
-                    .map(TermWindow::pos_pane_to_pane_info)
-                    .collect();
-            }
-            Ok(panes)
-        });
-        fields.add_field_method_get("window_id", |_, this| Ok(this.window_id));
-        fields.add_field_method_get("tab_title", |_, this| Ok(this.tab_title.clone()));
-        fields.add_field_method_get("window_title", |_, this| {
-            let mux = Mux::get();
-            let window = mux.get_window(this.window_id).ok_or_else(|| {
-                mlua::Error::external(format!("window {} not found", this.window_id))
-            })?;
-            Ok(window.get_title().to_string())
-        });
-    }
+#[derive(Default)]
+pub struct TabState {
+    /// If is_some(), rather than display the actual tab
+    /// contents, we're overlaying a little internal application
+    /// tab.  We'll also route input to it.
+    pub overlay: Option<OverlayState>,
 }
 
-/// Data used when synchronously formatting pane and window titles
 #[derive(Debug, Clone)]
 pub struct PaneInformation {
     pub pane_id: PaneId,
@@ -426,78 +395,6 @@ pub struct PaneInformation {
     pub progress: Progress,
 }
 
-impl UserData for PaneInformation {
-    fn add_fields<'lua, F: UserDataFields<'lua, Self>>(fields: &mut F) {
-        fields.add_field_method_get("pane_id", |_, this| Ok(this.pane_id));
-        fields.add_field_method_get("pane_index", |_, this| Ok(this.pane_index));
-        fields.add_field_method_get("is_active", |_, this| Ok(this.is_active));
-        fields.add_field_method_get("is_zoomed", |_, this| Ok(this.is_zoomed));
-        fields.add_field_method_get("has_unseen_output", |_, this| Ok(this.has_unseen_output));
-        fields.add_field_method_get("left", |_, this| Ok(this.left));
-        fields.add_field_method_get("top", |_, this| Ok(this.top));
-        fields.add_field_method_get("width", |_, this| Ok(this.width));
-        fields.add_field_method_get("height", |_, this| Ok(this.height));
-        fields.add_field_method_get("pixel_width", |_, this| Ok(this.pixel_width));
-        fields.add_field_method_get("pixel_height", |_, this| Ok(this.pixel_height));
-        fields.add_field_method_get("progress", |lua, this| lua.to_value(&this.progress));
-        fields.add_field_method_get("title", |_, this| Ok(this.title.clone()));
-        fields.add_field_method_get("user_vars", |_, this| Ok(this.user_vars.clone()));
-        fields.add_field_method_get("foreground_process_name", |_, this| {
-            let mut name = None;
-            if let Some(mux) = Mux::try_get() {
-                if let Some(pane) = mux.get_pane(this.pane_id) {
-                    name = pane.get_foreground_process_name(CachePolicy::AllowStale);
-                }
-            }
-            match name {
-                Some(name) => Ok(name),
-                None => Ok("".to_string()),
-            }
-        });
-        fields.add_field_method_get("tty_name", |_, this| {
-            let mut name = None;
-            if let Some(mux) = Mux::try_get() {
-                if let Some(pane) = mux.get_pane(this.pane_id) {
-                    name = pane.tty_name();
-                }
-            }
-            Ok(name)
-        });
-        fields.add_field_method_get("current_working_dir", |_, this| {
-            if let Some(mux) = Mux::try_get() {
-                if let Some(pane) = mux.get_pane(this.pane_id) {
-                    return Ok(pane
-                        .get_current_working_dir(CachePolicy::AllowStale)
-                        .map(|url| url_funcs::Url { url }));
-                }
-            }
-            Ok(None)
-        });
-        fields.add_field_method_get("domain_name", |_, this| {
-            let mut name = None;
-            if let Some(mux) = Mux::try_get() {
-                if let Some(pane) = mux.get_pane(this.pane_id) {
-                    let domain_id = pane.domain_id();
-                    name = mux
-                        .get_domain(domain_id)
-                        .map(|dom| dom.domain_name().to_string());
-                }
-            }
-            match name {
-                Some(name) => Ok(name),
-                None => Ok("".to_string()),
-            }
-        });
-    }
-}
-
-#[derive(Default)]
-pub struct TabState {
-    /// If is_some(), rather than display the actual tab
-    /// contents, we're overlaying a little internal application
-    /// tab.  We'll also route input to it.
-    pub overlay: Option<OverlayState>,
-}
 
 /// Manages the state/queue of lua based event handlers.
 /// We don't want to queue more than 1 event at a time,
@@ -2144,50 +2041,15 @@ impl TermWindow {
         self.emit_window_event("update-status", None);
     }
 
-    fn schedule_window_event(&mut self, name: &str, pane_id: Option<PaneId>) {
-        let window = GuiWin::new(self);
-        let pane = match pane_id {
-            Some(pane_id) => Mux::get().get_pane(pane_id),
-            None => None,
-        };
-        let pane = match pane {
-            Some(pane) => pane,
-            None => match self.get_active_pane_or_overlay() {
-                Some(pane) => pane,
-                None => return,
-            },
-        };
-        let pane = MuxPane(pane.pane_id());
+    fn schedule_window_event(&mut self, name: &str, _pane_id: Option<PaneId>) {
+        // Window events existed to reach user callbacks. With none to reach,
+        // the event completes immediately; the state machine below still runs
+        // so queued events drain in order.
         let name = name.to_string();
-
-        async fn do_event(
-            lua: Option<Rc<mlua::Lua>>,
-            name: String,
-            window: GuiWin,
-            pane: MuxPane,
-        ) -> anyhow::Result<()> {
-            let again = if let Some(lua) = lua {
-                let args = lua.pack_multi((window.clone(), pane))?;
-
-                if let Err(err) = config::lua::emit_event(&lua, (name.clone(), args)).await {
-                    log::error!("while processing {} event: {:#}", name, err);
-                }
-                true
-            } else {
-                false
-            };
-
-            window
-                .window
-                .notify(TermWindowNotif::FinishWindowEvent { name, again });
-
-            Ok(())
-        }
-
-        promise::spawn::spawn(config::with_lua_config_on_main_thread(move |lua| {
-            do_event(lua, name, window, pane)
-        }))
-        .detach();
+        let window = GuiWin::new(self);
+        window
+            .window
+            .notify(TermWindowNotif::FinishWindowEvent { name, again: false });
     }
 
     /// Called as part of finishing up a callout to lua.
@@ -2539,39 +2401,18 @@ impl TermWindow {
         let mux = Mux::get();
         let window = GuiWin::new(self);
         let pane = match mux.get_pane(pane_id) {
-            Some(pane) => mux_lua::MuxPane(pane.pane_id()),
+            Some(pane) => mux::pane::MuxPane(pane.pane_id()),
             None => return,
         };
 
-        async fn do_event(
-            lua: Option<Rc<mlua::Lua>>,
-            name: String,
-            value: String,
-            window: GuiWin,
-            pane: MuxPane,
-        ) -> anyhow::Result<()> {
-            if let Some(lua) = lua {
-                let args = lua.pack_multi((window.clone(), pane, name, value))?;
-                if let Err(err) =
-                    config::lua::emit_event(&lua, ("user-var-changed".to_string(), args)).await
-                {
-                    log::error!("while processing user-var-changed event: {:#}", err);
-                }
-            }
-
-            window
-                .window
-                .notify(TermWindowNotif::Apply(Box::new(move |term_window| {
-                    term_window.update_title();
-                })));
-
-            Ok(())
-        }
-
-        promise::spawn::spawn(config::with_lua_config_on_main_thread(move |lua| {
-            do_event(lua, name, value, window, pane)
-        }))
-        .detach();
+        // Nothing to notify: the variable change only ever went to user
+        // callbacks. The title still refreshes, which is what the terminal
+        // itself does with it.
+        window
+            .window
+            .notify(TermWindowNotif::Apply(Box::new(move |term_window| {
+                term_window.update_title();
+            })));
     }
 
     fn default_right_status(
@@ -2701,38 +2542,9 @@ impl TermWindow {
         }
         drop(window);
 
-        let title = match config::run_immediate_with_lua_config(|lua| {
-            if let Some(lua) = lua {
-                let tabs = lua.create_sequence_from(tabs.clone().into_iter())?;
-                let panes = lua.create_sequence_from(panes.clone().into_iter())?;
-
-                let v = config::lua::emit_sync_callback(
-                    &*lua,
-                    (
-                        "format-window-title".to_string(),
-                        (
-                            active_tab.clone(),
-                            active_pane.clone(),
-                            tabs,
-                            panes,
-                            (*self.config).clone(),
-                        ),
-                    ),
-                )?;
-                match &v {
-                    mlua::Value::Nil => Ok(None),
-                    _ => Ok(Some(String::from_lua(v, &*lua)?)),
-                }
-            } else {
-                Ok(None)
-            }
-        }) {
-            Ok(s) => s,
-            Err(err) => {
-                log::warn!("format-window-title: {}", err);
-                None
-            }
-        };
+        // The `format-window-title` override is gone with the callbacks; the
+        // built-in title below is what it overrode.
+        let title: Option<String> = None;
 
         // Window title — optimized for Dock / Cmd-Tab / Mission Control
         // distinguishability when multiple Unterm windows are open.
@@ -3019,80 +2831,6 @@ impl TermWindow {
         self.update_scrollbar();
 
         Ok(())
-    }
-
-    fn show_input_selector(&mut self, args: &config::keyassignment::InputSelector) {
-        let mux = Mux::get();
-        let tab = match mux.get_active_tab_for_window(self.mux_window_id) {
-            Some(tab) => tab,
-            None => return,
-        };
-
-        // Ignore any current overlay: we're going to cancel it out below
-        // and we don't want this new one to reference that cancelled pane
-        let pane = match self.get_active_pane_no_overlay() {
-            Some(pane) => pane,
-            None => return,
-        };
-
-        let args = args.clone();
-
-        let gui_win = GuiWin::new(self);
-        let pane = MuxPane(pane.pane_id());
-
-        let (overlay, future) = start_overlay(self, &tab, move |_tab_id, term| {
-            crate::overlay::selector::selector(term, args, gui_win, pane)
-        });
-        self.assign_overlay(tab.tab_id(), overlay);
-        promise::spawn::spawn(future).detach();
-    }
-
-    fn show_prompt_input_line(&mut self, args: &PromptInputLine) {
-        let mux = Mux::get();
-        let tab = match mux.get_active_tab_for_window(self.mux_window_id) {
-            Some(tab) => tab,
-            None => return,
-        };
-
-        let pane = match self.get_active_pane_or_overlay() {
-            Some(pane) => pane,
-            None => return,
-        };
-
-        let args = args.clone();
-
-        let gui_win = GuiWin::new(self);
-        let pane = MuxPane(pane.pane_id());
-
-        let (overlay, future) = start_overlay(self, &tab, move |_tab_id, term| {
-            crate::overlay::prompt::show_line_prompt_overlay(term, args, gui_win, pane)
-        });
-        self.assign_overlay(tab.tab_id(), overlay);
-        promise::spawn::spawn(future).detach();
-    }
-
-    fn show_confirmation(&mut self, args: &Confirmation) {
-        let mux = Mux::get();
-        let tab = match mux.get_active_tab_for_window(self.mux_window_id) {
-            Some(tab) => tab,
-            None => return,
-        };
-
-        let pane = match self.get_active_pane_or_overlay() {
-            Some(pane) => pane,
-            None => return,
-        };
-
-        let args = args.clone();
-
-        let gui_win = GuiWin::new(self);
-        let pane = MuxPane(pane.pane_id());
-
-        let (overlay, future) = start_overlay(self, &tab, move |_tab_id, term| {
-            crate::overlay::confirm::show_confirmation_overlay(term, args, gui_win, pane)
-        });
-        self.assign_overlay(tab.tab_id(), overlay);
-        promise::spawn::spawn(future).detach();
     }
 
     fn show_shell_selector(&mut self) {
@@ -4698,9 +4436,6 @@ impl TermWindow {
             OpenLinkAtMouseCursor => {
                 self.do_open_link_at_mouse_cursor(pane);
             }
-            EmitEvent(name) => {
-                self.emit_window_event(name, None);
-            }
             CompleteSelectionOrOpenLinkAtMouseCursor(dest) => {
                 let text = self.selection_text(pane);
                 if !text.is_empty() {
@@ -5028,9 +4763,6 @@ impl TermWindow {
                 let modal = crate::termwindow::palette::CommandPalette::new(self);
                 self.set_modal(Rc::new(modal));
             }
-            PromptInputLine(args) => self.show_prompt_input_line(args),
-            InputSelector(args) => self.show_input_selector(args),
-            Confirmation(args) => self.show_confirmation(args),
             AcceptSuggestion { run_immediately } => {
                 // Suggest bindings are conditional: if no suggestion
                 // is pending on the active pane, fall through to the
@@ -5122,40 +4854,15 @@ impl TermWindow {
         // of our window loop; on Windows it can cause a panic due to
         // triggering our WndProc recursively.
         // We get that assurance for free as part of the async dispatch that we
-        // perform below; here we allow the user to define an `open-uri` event
-        // handler that can bypass the normal `open_url` functionality.
+        // perform below.
         if let Some(link) = self.current_highlight.as_ref().cloned() {
-            let window = GuiWin::new(self);
-            let pane = MuxPane(pane.pane_id());
-
-            async fn open_uri(
-                lua: Option<Rc<mlua::Lua>>,
-                window: GuiWin,
-                pane: MuxPane,
-                link: String,
-            ) -> anyhow::Result<()> {
-                let default_click = match lua {
-                    Some(lua) => {
-                        let args = lua.pack_multi((window, pane, link.clone()))?;
-                        config::lua::emit_event(&lua, ("open-uri".to_string(), args))
-                            .await
-                            .map_err(|e| {
-                                log::error!("while processing open-uri event: {:#}", e);
-                                e
-                            })?
-                    }
-                    None => true,
-                };
-                if default_click {
-                    log::info!("clicking {}", link);
-                    wezterm_open_url::open_url(&link);
-                }
-                Ok(())
-            }
-
-            promise::spawn::spawn(config::with_lua_config_on_main_thread(move |lua| {
-                open_uri(lua, window, pane, link.uri().to_string())
-            }))
+            let link = link.uri().to_string();
+            // The `open-uri` handler that could bypass this is gone with the
+            // callbacks, so a clicked link always opens.
+            promise::spawn::spawn_into_main_thread(async move {
+                log::info!("clicking {}", link);
+                wezterm_open_url::open_url(&link);
+            })
             .detach();
         }
     }
