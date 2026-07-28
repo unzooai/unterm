@@ -90,7 +90,24 @@ impl GuiFrontEnd {
                 MuxNotification::TabTitleChanged { .. } => {}
                 MuxNotification::WindowTitleChanged { .. } => {}
                 MuxNotification::TabResized(_) => {}
-                MuxNotification::TabAddedToWindow { .. } => {}
+                MuxNotification::TabAddedToWindow { tab_id, .. } => {
+                    // Record the tab as the mux makes it, which is before any
+                    // window exists to hold a registry of its own. This is the
+                    // only point a window's *first* tab can be seen being
+                    // created rather than inferred afterwards.
+                    if crate::engine::next_core_pane::next_core_panes_enabled() {
+                        if let Some(mux) = mux::Mux::try_get() {
+                            if let Some(tab) = mux.get_tab(tab_id) {
+                                if let Some(pane) = tab.get_active_pane() {
+                                    crate::engine::tab_registry::record_created_tab(
+                                        tab_id as usize,
+                                        pane.pane_id() as usize,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
                 MuxNotification::PaneRemoved(_) => {}
                 MuxNotification::WindowInvalidated(_) => {}
                 MuxNotification::PaneOutput(_) => {}

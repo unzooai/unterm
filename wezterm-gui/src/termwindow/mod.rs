@@ -472,10 +472,6 @@ pub struct TermWindow {
     next_core_pane_bindings: RefCell<NextCorePaneBindings>,
     /// next-core's view of which panes belong to which tab.
     ///
-    /// Mirrors the mux rather than replacing it yet, so it can be checked
-    /// against the authority before becoming it -- the same way the layout's
-    /// geometry ran alongside mux's before taking over.
-    next_core_tabs: RefCell<unterm_engine::next_core::tabs::TabRegistry>,
     /// Last drawable render plan per next-core session, replayed on frames
     /// where the screen did not change. Keyed by session id, like the render
     /// consumers.
@@ -994,7 +990,6 @@ impl TermWindow {
             pane_state: RefCell::new(HashMap::new()),
             next_core_render_consumers: RefCell::new(EngineRenderConsumerSet::new()),
             next_core_pane_bindings: RefCell::new(NextCorePaneBindings::new()),
-            next_core_tabs: RefCell::new(unterm_engine::next_core::tabs::TabRegistry::new()),
             next_core_last_drawable_frames: RefCell::new(HashMap::new()),
             swallow_left_gesture_after_secondary_click: false,
             current_mouse_buttons: vec![],
@@ -2564,8 +2559,8 @@ impl TermWindow {
         //      (`unterm-cli instance set-title …` / set in MCP).
         //   2. cwd basename — the "project name" for vibe-coders.
         //   3. `pane.title` — shell-supplied title (OSC 0/2), used as
-        //      a last resort when we can't compute a cwd (e.g. very
-        //      early startup or a remote pane).
+        // a last resort when we can't compute a cwd (e.g. very
+        // early startup or a remote pane).
         //
         // Instance segment (NATO phonetic id) is kept as a trailing
         // `(alpha)` so AI agents doing screenshot-OCR can still map
@@ -5019,7 +5014,7 @@ impl TermWindow {
         }
         let pane_id = panes[0].pane.pane_id() as usize;
 
-        let mut registry = self.next_core_tabs.borrow_mut();
+        let mut registry = crate::engine::tab_registry::registry();
         if registry.tab_of_pane(pane_id).is_some() {
             return;
         }
@@ -5066,7 +5061,7 @@ impl TermWindow {
             mux::tab::SplitDirection::Horizontal => SplitAxis::Horizontal,
             mux::tab::SplitDirection::Vertical => SplitAxis::Vertical,
         };
-        let mut registry = self.next_core_tabs.borrow_mut();
+        let mut registry = crate::engine::tab_registry::registry();
         if registry.tab_of_pane(source_pane_id as usize) != Some(tab_id) {
             return;
         }
@@ -5079,10 +5074,10 @@ impl TermWindow {
             0.5,
         ) {
             Ok(_) => log::debug!(
-                "next-core tab registry recorded split of pane {source_pane_id}                  into {new_pane_id} on tab {tab_id}"
+                "next-core tab registry recorded split of pane {source_pane_id} into {new_pane_id} on tab {tab_id}"
             ),
             Err(err) => log::debug!(
-                "next-core tab registry could not record the split of pane                  {source_pane_id}: {err:#}"
+                "next-core tab registry could not record the split of pane {source_pane_id}: {err:#}"
             ),
         }
     }
@@ -5094,7 +5089,7 @@ impl TermWindow {
     /// built. Splits do not have that property, which is why the mirror is
     /// still there.
     fn close_next_core_registry_pane(&self, pane_id: PaneId) {
-        let mut registry = self.next_core_tabs.borrow_mut();
+        let mut registry = crate::engine::tab_registry::registry();
         if let Some(result) = registry.close_pane(pane_id as usize) {
             log::debug!("next-core tab registry closed pane {pane_id}: {result:?}");
         }
@@ -5799,7 +5794,7 @@ impl TermWindow {
         if !crate::engine::next_core_pane::next_core_panes_enabled() {
             return;
         }
-        let mut registry = self.next_core_tabs.borrow_mut();
+        let mut registry = crate::engine::tab_registry::registry();
         match tab.get_zoomed_pane() {
             Some(pane) => {
                 registry.set_zoomed(pane.pane_id() as usize, true);
@@ -5821,7 +5816,7 @@ impl TermWindow {
             return None;
         }
         let size = tab.get_size();
-        let registry = self.next_core_tabs.borrow();
+        let registry = crate::engine::tab_registry::registry();
         let placed = registry.positions(tab.tab_id(), size.cols as usize, size.rows as usize);
         if placed.len() != mux_panes.len() {
             return None;
@@ -5941,7 +5936,7 @@ impl TermWindow {
             })
             .collect();
 
-        let mut registry = self.next_core_tabs.borrow_mut();
+        let mut registry = crate::engine::tab_registry::registry();
 
         // The registry is meant to be driven by events, not rebuilt from the
         // mux. Adoption is the bootstrap for a tab it has never seen, and the
