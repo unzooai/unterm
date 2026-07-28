@@ -3457,7 +3457,7 @@ struct EngineFleetDriver {
 
 impl unterm_services::cockpit::fleet::FleetPaneSpawner for EngineFleetDriver {
     fn spawn_member(&mut self, cwd: &std::path::Path, command: &str) -> Result<u64> {
-        let env = crate::spawn::read_unterm_proxy_env().unwrap_or_default();
+        let env = unterm_services::launch_env::read_unterm_proxy_env().unwrap_or_default();
         let launch_policy = launch_policy_for_env(&env, &[], None);
         let session = self.engine.create_session(CreateSessionRequest {
             cols: 120,
@@ -5120,7 +5120,7 @@ impl McpHandler {
                 builder.cwd(cwd);
             }
         }
-        let mut env = crate::spawn::read_unterm_proxy_env().unwrap_or_default();
+        let mut env = unterm_services::launch_env::read_unterm_proxy_env().unwrap_or_default();
         let overlay_keys;
         {
             let state = mcp_state().lock();

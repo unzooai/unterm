@@ -535,8 +535,8 @@ async fn async_run_terminal_gui(
         (spawn, None) => spawn,
     };
     if let Some(spawn) = spawn_command.as_mut() {
-        crate::spawn::apply_unterm_proxy_to_spawn(spawn);
-        crate::spawn::apply_unterm_windows_utf8_to_spawn(spawn);
+        unterm_services::launch_env::apply_unterm_proxy_to_spawn(spawn);
+        unterm_services::launch_env::apply_unterm_windows_utf8_to_spawn(spawn);
     }
     let mux = Mux::get();
 
@@ -907,7 +907,7 @@ fn run_terminal_gui(opts: StartCommand, default_domain_name: Option<String>) -> 
     }
 
     let config = config::configuration();
-    crate::spawn::apply_unterm_proxy_to_process_env();
+    unterm_services::launch_env::apply_unterm_proxy_to_process_env();
     let need_builder = !opts.prog.is_empty() || opts.cwd.is_some();
 
     let cmd = if need_builder {

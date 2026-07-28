@@ -581,7 +581,7 @@ fn next_core_pane_session_request(
         rows: rows.max(1),
         command_dir: cwd,
         command: None,
-        env: crate::spawn::read_unterm_proxy_env().unwrap_or_default(),
+        env: unterm_services::launch_env::read_unterm_proxy_env().unwrap_or_default(),
         launch_policy: LaunchPolicySnapshot::default(),
     }
 }

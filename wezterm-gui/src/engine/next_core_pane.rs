@@ -241,7 +241,7 @@ pub fn install_pane_factory_if_enabled() {
         |pane_id, size, command, command_dir, domain_id| {
             // Same proxy env the local spawn path injects: a next-core pane
             // must not silently bypass the user's proxy configuration.
-            let env = crate::spawn::read_unterm_proxy_env().unwrap_or_default();
+            let env = unterm_services::launch_env::read_unterm_proxy_env().unwrap_or_default();
             let pane =
                 NextCorePane::spawn(pane_id, size, command, command_dir, domain_id, env)?;
             Ok(Some(std::sync::Arc::new(pane) as std::sync::Arc<dyn Pane>))
