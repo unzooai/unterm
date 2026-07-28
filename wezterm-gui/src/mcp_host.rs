@@ -16,6 +16,18 @@ pub fn install() {
 }
 
 impl McpHost for GuiMcpHost {
+    /// This front end draws into a window the `window` crate created and
+    /// owns, so closing it is that crate's decision, not the surface's.
+    fn window_identity(&self) -> unterm_engine::WindowIdentity {
+        unterm_engine::WindowIdentity {
+            engine: "wezterm-host",
+            window_owner: "host_gui",
+            native_window_lifecycle: "host_owned",
+            uses_host_window: true,
+        }
+    }
+
+
     fn render_scrollback_png(
         &self,
         pane_id: Option<usize>,

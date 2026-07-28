@@ -8,7 +8,7 @@ use unterm_engine::next_core::font_raster::FontFace;
 use unterm_engine::next_core::{config::Config, font_discovery};
 use unterm_render::atlas::{GlyphAtlas, GlyphKey};
 use unterm_render::quads::{build_row, CellMetrics, FrameColors, FrameQuads, Quad};
-use unterm_engine::StyledScreenSnapshot;
+use unterm_engine::{StyledCell, StyledScreenSnapshot};
 
 /// The font and the cell it dictates.
 ///
@@ -186,6 +186,64 @@ pub fn append_pane(
                 glyph.quad.color = colors.background;
             }
         }
+    }
+}
+
+/// Add a run of plain text at `origin`, in the given colour.
+///
+/// For the front end's own furniture -- a banner, a label -- which has no
+/// cells and no styles, only characters that have to land on the same grid as
+/// everything else.
+pub fn append_text(
+    text: &str,
+    font: &mut TerminalFont,
+    atlas: &mut GlyphAtlas,
+    color: [f32; 4],
+    origin: (f32, f32),
+    quads: &mut FrameQuads,
+) {
+    for ch in text.chars() {
+        ensure_glyph(font, atlas, ch);
+    }
+    let metrics = font.metrics();
+    let pixel_size = font.pixel_size();
+    let cells: Vec<StyledCell> = text
+        .chars()
+        .map(|ch| StyledCell {
+            ch,
+            style: Default::default(),
+            width: 1,
+        })
+        .collect();
+    let mut face_of: std::collections::HashMap<char, usize> = std::collections::HashMap::new();
+    for ch in text.chars() {
+        face_of.entry(ch).or_insert_with(|| font.stack.face_for(ch));
+    }
+
+    let before = quads.glyphs.len();
+    build_row(
+        &cells,
+        origin.0,
+        origin.1,
+        metrics,
+        FrameColors {
+            foreground: color,
+            // Transparent to the row builder: the caller has already drawn
+            // whatever this sits on.
+            background: color,
+        },
+        atlas,
+        |ch| {
+            atlas.get(GlyphKey {
+                face: face_of.get(&ch).copied().unwrap_or(0),
+                glyph_index: ch as u32,
+                pixel_size,
+            })
+        },
+        quads,
+    );
+    for glyph in &mut quads.glyphs[before..] {
+        glyph.quad.color = color;
     }
 }
 

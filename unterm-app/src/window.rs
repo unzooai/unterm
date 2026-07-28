@@ -51,6 +51,9 @@ pub struct App {
     /// A terminal is idle most of the time; redrawing an unchanged screen at
     /// display rate is a fan that never stops.
     drawn_revision: Option<u64>,
+    /// Which agent-write banner was on screen when we last drew, so one
+    /// appearing or being answered is itself a reason to draw again.
+    drawn_confirmation: Option<u64>,
 }
 
 struct Live {
@@ -91,10 +94,11 @@ impl App {
 
         Ok(Self {
             engine: NextCoreEngine,
+            drawn_confirmation: None,
             font: TerminalFont::open_with_fallback(pixel_size.round() as u32, &fallbacks)?,
             atlas: GlyphAtlas::new(1024, 1024),
             colors: colors_from(config),
-            shell: shell_from(config),
+            shell: launch_shell(config),
             shift_held: false,
             ctrl_held: false,
             pointer: (0.0, 0.0),
@@ -209,6 +213,15 @@ impl App {
                 &mut quads,
             );
         }
+        let window_width = live.width as f32;
+        append_confirmation_banner(
+            window_width,
+            &mut self.font,
+            &mut self.atlas,
+            self.colors,
+            &mut quads,
+        );
+
         // The atlas may have grown while building this frame's glyphs, so the
         // texture is uploaded after them rather than before.
         live.atlas_texture = live.renderer.upload_atlas(&self.atlas);
@@ -229,6 +242,7 @@ impl App {
         );
         frame.present();
         self.drawn_revision = Some(revision);
+        self.drawn_confirmation = unterm_mcp::handler::pending_confirmation_view().map(|v| v.id);
     }
 
     /// Which cell the pointer is over, in scrollback coordinates.
@@ -286,6 +300,33 @@ impl App {
     ///
     /// A selection nobody can copy is decoration, and this is the one action
     /// every terminal user reaches for within a minute of selecting anything.
+    /// Carry out a key binding.
+    fn run_key_action(&mut self, action: crate::keys::Action, session_id: usize) {
+        use crate::keys::Action;
+        match action {
+            Action::Copy => self.copy_selection(),
+            Action::Paste => self.paste_clipboard(),
+            Action::SplitRight => {
+                self.split(unterm_engine::next_core::layout::SplitAxis::Horizontal)
+            }
+            Action::SplitDown => self.split(unterm_engine::next_core::layout::SplitAxis::Vertical),
+            Action::ScrollPageUp | Action::ScrollPageDown => {
+                let rows = self
+                    .engine
+                    .read_styled_screen(session_id)
+                    .map(|snapshot| snapshot.rows)
+                    .unwrap_or(24);
+                let page = crate::scroll::lines_for_page(rows);
+                let delta = if action == Action::ScrollPageUp {
+                    -page
+                } else {
+                    page
+                };
+                let _ = self.engine.scroll_viewport_by(session_id, delta);
+            }
+        }
+    }
+
     fn copy_selection(&mut self) {
         let Some(text) = self.selected.clone() else {
             return;
@@ -410,7 +451,13 @@ impl App {
                 .filter_map(|placement| self.engine.screen_revision(placement.session_id).ok())
                 .fold(0u64, |sum, value| sum.wrapping_add(value))
         };
-        Some(revision) != self.drawn_revision
+        if Some(revision) != self.drawn_revision {
+            return true;
+        }
+        // A banner arrives from the MCP thread, which changes no screen; if
+        // only the screen could ask for a redraw, the question would never be
+        // drawn and the agent would wait out its timeout looking at nothing.
+        self.drawn_confirmation != unterm_mcp::handler::pending_confirmation_view().map(|v| v.id)
     }
 }
 
@@ -494,52 +541,36 @@ impl ApplicationHandler for App {
                     return;
                 };
 
-                use winit::keyboard::{Key, NamedKey};
+                use winit::keyboard::Key;
 
-                // Ctrl+Shift+C copies. Plain Ctrl+C has to stay interrupt, or
-                // a running program can never be stopped.
-                if self.shift_held && self.ctrl_held {
-                    if matches!(&event.logical_key, Key::Character(text) if text.eq_ignore_ascii_case("c"))
-                    {
-                        self.copy_selection();
-                        return;
-                    }
-                    if matches!(&event.logical_key, Key::Character(text) if text.eq_ignore_ascii_case("v"))
-                    {
-                        self.paste_clipboard();
-                        return;
-                    }
-                    // Right and down, as every terminal spells them.
-                    if matches!(&event.logical_key, Key::Character(text) if text.eq_ignore_ascii_case("d"))
-                    {
-                        self.split(unterm_engine::next_core::layout::SplitAxis::Horizontal);
-                        return;
-                    }
-                    if matches!(&event.logical_key, Key::Character(text) if text.eq_ignore_ascii_case("e"))
-                    {
-                        self.split(unterm_engine::next_core::layout::SplitAxis::Vertical);
-                        return;
-                    }
-                }
-
-                // Shift+Page scrolls the viewport; unshifted pages belong to
-                // the program, which is how a pager gets its own keys.
-                if self.shift_held {
-                    let rows = self
-                        .engine
-                        .read_styled_screen(live.session_id)
-                        .map(|snapshot| snapshot.rows)
-                        .unwrap_or(24);
-                    let page = crate::scroll::lines_for_page(rows);
-                    let delta = match &event.logical_key {
-                        Key::Named(NamedKey::PageUp) => Some(-page),
-                        Key::Named(NamedKey::PageDown) => Some(page),
+                // A parked agent write comes first: while the banner is up
+                // these keys answer it rather than reaching the shell, and
+                // everything else is ignored so a stray keystroke cannot be
+                // mistaken for consent.
+                if let Some(pending) = unterm_mcp::handler::pending_confirmation_view() {
+                    let decision = match &event.logical_key {
+                        Key::Named(winit::keyboard::NamedKey::Escape) => {
+                            Some(unterm_mcp::handler::ConfirmationDecision::Block)
+                        }
+                        Key::Character(text) => crate::confirm::decision_for(text),
                         _ => None,
                     };
-                    if let Some(delta) = delta {
-                        let _ = self.engine.scroll_viewport_by(live.session_id, delta);
-                        return;
+                    if let Some(decision) = decision {
+                        unterm_mcp::handler::resolve_confirmation(pending.id, decision);
+                        if let Some(live) = self.state.as_ref() {
+                            live.window.request_redraw();
+                        }
                     }
+                    return;
+                }
+
+                // What the keys do lives in `keys`, so an agent asking the
+                // MCP surface gets the same answer this acts on.
+                if let Some(action) =
+                    crate::keys::action_for(&event.logical_key, self.ctrl_held, self.shift_held)
+                {
+                    self.run_key_action(action, live.session_id);
+                    return;
                 }
 
                 if let Some(text) = encode(&event) {
@@ -628,6 +659,20 @@ impl ApplicationHandler for App {
 /// shells need arguments -- `pwsh -NoLogo`, `bash --login` -- and a setting
 /// that cannot express them makes the user pick between their flags and the
 /// config.
+/// The shell to start, with the environment the rest of the product gives it.
+///
+/// A shell launched bare on a Chinese Windows writes its output in the console
+/// codepage, not UTF-8, and a terminal that decodes it as UTF-8 shows a row of
+/// boxes where the text should be. The same rewrite the other front end
+/// applies is applied here, so both start shells that agree on encoding.
+fn launch_shell(config: &config::Config) -> Option<portable_pty::CommandBuilder> {
+    let mut shell = shell_from(config);
+    unterm_services::launch_env::apply_unterm_windows_utf8(&mut shell);
+    unterm_services::launch_env::apply_unterm_profile_env(&mut shell);
+    unterm_services::launch_env::apply_unterm_proxy_env(&mut shell);
+    shell
+}
+
 fn shell_from(config: &config::Config) -> Option<portable_pty::CommandBuilder> {
     match config.get("shell")? {
         config::Value::Str(program) => Some(portable_pty::CommandBuilder::new(program)),
@@ -715,3 +760,44 @@ mod tests {
         assert!(shell_from(&config).is_none());
     }
 }
+
+/// Draw the pending agent-write banner, if one is waiting.
+///
+/// Over everything else and at the top, because a thread is parked on the
+/// answer: a banner the user has to go looking for is a request that times out
+/// into a refusal.
+fn append_confirmation_banner(
+    window_width: f32,
+    font: &mut crate::terminal::TerminalFont,
+    atlas: &mut unterm_render::atlas::GlyphAtlas,
+    colors: unterm_render::quads::FrameColors,
+    quads: &mut unterm_render::quads::FrameQuads,
+) {
+    let Some(view) = unterm_mcp::handler::pending_confirmation_view() else {
+        return;
+    };
+    let metrics = font.metrics();
+    let cols = (window_width / metrics.width.max(1.0)) as usize;
+    let lines = crate::confirm::lines(&view.agent, &view.method, &view.input_preview, cols);
+
+    // An opaque strip first, so the terminal text underneath cannot be
+    // mistaken for part of the question.
+    quads.backgrounds.push(unterm_render::quads::Quad {
+        left: 0.0,
+        top: 0.0,
+        width: window_width,
+        height: metrics.height * lines.len() as f32,
+        color: colors.foreground,
+    });
+    for (row, line) in lines.iter().enumerate() {
+        crate::terminal::append_text(
+            line,
+            font,
+            atlas,
+            colors.background,
+            (metrics.width, row as f32 * metrics.height),
+            quads,
+        );
+    }
+}
+

@@ -172,3 +172,86 @@ mod tests {
         assert_ne!(background.lighten(0.05), foreground.darken(0.35));
     }
 }
+
+/// The xterm 256-colour palette, as every terminal agrees on it.
+///
+/// Indices 0-15 are the ANSI colours a theme may override; 16-231 are a
+/// 6x6x6 cube; 232-255 are a 24-step grey ramp. The cube and the ramp are
+/// arithmetic, not a table -- writing out 240 literals would be 240 chances
+/// to mistype one.
+///
+/// This belongs to the kernel rather than to a front end: an index in a cell
+/// means the same colour whoever is drawing it, and a front end that had to
+/// supply its own would be a front end that could disagree with the others.
+pub fn palette_rgb(index: u8) -> Rgb {
+    const ANSI: [(u8, u8, u8); 16] = [
+        (0x00, 0x00, 0x00),
+        (0xcd, 0x00, 0x00),
+        (0x00, 0xcd, 0x00),
+        (0xcd, 0xcd, 0x00),
+        (0x00, 0x00, 0xee),
+        (0xcd, 0x00, 0xcd),
+        (0x00, 0xcd, 0xcd),
+        (0xe5, 0xe5, 0xe5),
+        (0x7f, 0x7f, 0x7f),
+        (0xff, 0x00, 0x00),
+        (0x00, 0xff, 0x00),
+        (0xff, 0xff, 0x00),
+        (0x5c, 0x5c, 0xff),
+        (0xff, 0x00, 0xff),
+        (0x00, 0xff, 0xff),
+        (0xff, 0xff, 0xff),
+    ];
+    /// The cube's six levels are not evenly spaced: the first step is a large
+    /// one, and the rest are even. Spacing them evenly makes dark colours
+    /// visibly wrong against every other terminal.
+    const CUBE: [u8; 6] = [0, 0x5f, 0x87, 0xaf, 0xd7, 0xff];
+
+    match index {
+        0..=15 => {
+            let (red, green, blue) = ANSI[index as usize];
+            Rgb::new(red, green, blue)
+        }
+        16..=231 => {
+            let offset = index as usize - 16;
+            Rgb::new(
+                CUBE[offset / 36],
+                CUBE[(offset / 6) % 6],
+                CUBE[offset % 6],
+            )
+        }
+        232..=255 => {
+            let level = 8 + (index as usize - 232) * 10;
+            let level = level as u8;
+            Rgb::new(level, level, level)
+        }
+    }
+}
+
+#[cfg(test)]
+mod palette_tests {
+    use super::*;
+
+    #[test]
+    fn the_cube_corners_are_where_every_terminal_puts_them() {
+        assert_eq!(palette_rgb(16), Rgb::new(0, 0, 0));
+        assert_eq!(palette_rgb(231), Rgb::new(0xff, 0xff, 0xff));
+        // 196 is red, 46 green, 21 blue -- the three axes at full.
+        assert_eq!(palette_rgb(196), Rgb::new(0xff, 0, 0));
+        assert_eq!(palette_rgb(46), Rgb::new(0, 0xff, 0));
+        assert_eq!(palette_rgb(21), Rgb::new(0, 0, 0xff));
+    }
+
+    #[test]
+    fn the_grey_ramp_runs_from_near_black_to_near_white() {
+        assert_eq!(palette_rgb(232), Rgb::new(8, 8, 8));
+        assert_eq!(palette_rgb(255), Rgb::new(238, 238, 238));
+    }
+
+    #[test]
+    fn the_cube_steps_unevenly_at_the_bottom() {
+        // 0 -> 0x5f is the large first step. Even spacing would put it at
+        // 0x33, which reads as a different colour entirely.
+        assert_eq!(palette_rgb(16 + 1).blue, 0x5f);
+    }
+}

@@ -108,8 +108,9 @@ pub fn apply_unterm_proxy_to_process_env() {
 ///     The -Command runs first, then $PROFILE loads (so user
 ///     customizations still apply, but on top of UTF-8 defaults).
 ///   - args == ["cmd.exe"]: wrap with
-///     `cmd.exe /D /K "chcp 65001 > nul"` — sets the console codepage
-///     before the prompt appears, no command echoed.
+///     `cmd.exe /D /K "<System32>\chcp.com 65001 > nul"` — sets the console
+///     codepage before the prompt appears, no command echoed. By full path;
+///     see `chcp_command`.
 ///   - Anything else (user passed extra args, or non-shell exe): leave
 ///     untouched. They're customizing; we don't second-guess.
 ///
@@ -146,12 +147,15 @@ pub fn apply_unterm_windows_utf8(cmd_builder: &mut Option<CommandBuilder>) {
         // can't find the file and reports a corrupted name back. So we
         // set all four every time, on the same line so a profile that
         // overrides one of them only overrides that one.
-        let setup = "[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false);\
-                     [Console]::InputEncoding=[Text.UTF8Encoding]::new($false);\
-                     $OutputEncoding=[Console]::OutputEncoding;\
-                     $PSDefaultParameterValues['*:Encoding']='utf8';\
-                     chcp 65001>$null;\
-                     if(Test-Path $PROFILE){. $PROFILE}";
+        let setup = format!(
+            "[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false);\
+             [Console]::InputEncoding=[Text.UTF8Encoding]::new($false);\
+             $OutputEncoding=[Console]::OutputEncoding;\
+             $PSDefaultParameterValues['*:Encoding']='utf8';\
+             & '{}' 65001>$null;\
+             if(Test-Path $PROFILE){{. $PROFILE}}",
+            chcp_command()
+        );
         let exe = argv[0].clone();
         argv.clear();
         argv.push(exe);
@@ -165,12 +169,25 @@ pub fn apply_unterm_windows_utf8(cmd_builder: &mut Option<CommandBuilder>) {
         argv.push(exe);
         argv.push("/D".into());
         argv.push("/K".into());
-        argv.push("chcp 65001 > nul".into());
+        argv.push(format!("{} 65001 > nul", chcp_command()).into());
     }
 }
 
 #[cfg(not(windows))]
 pub fn apply_unterm_windows_utf8(_cmd_builder: &mut Option<CommandBuilder>) {}
+
+/// Where `chcp` actually lives.
+///
+/// By full path, not by name. A machine whose system PATH has been damaged --
+/// an installer that overwrites HKLM's `Path` instead of appending to it does
+/// exactly this -- cannot find `chcp`, and the codepage switch silently does
+/// nothing. What the user sees is a terminal full of boxes with no error to
+/// explain it, which is the hardest kind of bug to report.
+#[cfg(windows)]
+fn chcp_command() -> String {
+    let root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".to_string());
+    format!(r"{root}\System32\chcp.com")
+}
 
 /// SpawnCommand-shaped variant — same logic as `apply_unterm_windows_utf8`
 /// but operating on `config::keyassignment::SpawnCommand` (used for the
@@ -197,12 +214,15 @@ pub fn apply_unterm_windows_utf8_to_spawn(spawn: &mut config::keyassignment::Spa
         // can't find the file and reports a corrupted name back. So we
         // set all four every time, on the same line so a profile that
         // overrides one of them only overrides that one.
-        let setup = "[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false);\
-                     [Console]::InputEncoding=[Text.UTF8Encoding]::new($false);\
-                     $OutputEncoding=[Console]::OutputEncoding;\
-                     $PSDefaultParameterValues['*:Encoding']='utf8';\
-                     chcp 65001>$null;\
-                     if(Test-Path $PROFILE){. $PROFILE}";
+        let setup = format!(
+            "[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false);\
+             [Console]::InputEncoding=[Text.UTF8Encoding]::new($false);\
+             $OutputEncoding=[Console]::OutputEncoding;\
+             $PSDefaultParameterValues['*:Encoding']='utf8';\
+             & '{}' 65001>$null;\
+             if(Test-Path $PROFILE){{. $PROFILE}}",
+            chcp_command()
+        );
         spawn.args = Some(vec![
             args[0].clone(),
             "-NoLogo".into(),
@@ -215,7 +235,7 @@ pub fn apply_unterm_windows_utf8_to_spawn(spawn: &mut config::keyassignment::Spa
             args[0].clone(),
             "/D".into(),
             "/K".into(),
-            "chcp 65001 > nul".into(),
+            format!("{} 65001 > nul", chcp_command()),
         ]);
     }
 }
@@ -386,3 +406,63 @@ pub fn proxy_endpoint_reachable(url: &str) -> bool {
     }
 }
 
+#[cfg(all(test, windows))]
+mod utf8_tests {
+    use super::*;
+
+    #[test]
+    fn cmd_switches_codepage_by_full_path() {
+        let mut shell = Some(CommandBuilder::new("cmd.exe"));
+        apply_unterm_windows_utf8(&mut shell);
+        let argv: Vec<String> = shell
+            .expect("a builder")
+            .get_argv()
+            .iter()
+            .map(|arg| arg.to_string_lossy().to_string())
+            .collect();
+        let command = argv.last().expect("the /K command");
+        assert!(
+            command.to_lowercase().contains(r"system32\chcp.com"),
+            "a bare `chcp` is unreachable when the system PATH is damaged: {command}"
+        );
+        assert!(command.contains("65001"));
+    }
+
+    #[test]
+    fn powershell_switches_codepage_by_full_path() {
+        let mut shell = Some(CommandBuilder::new("pwsh.exe"));
+        apply_unterm_windows_utf8(&mut shell);
+        let argv: Vec<String> = shell
+            .expect("a builder")
+            .get_argv()
+            .iter()
+            .map(|arg| arg.to_string_lossy().to_string())
+            .collect();
+        let setup = argv.last().expect("the -Command setup");
+        assert!(
+            setup.to_lowercase().contains(r"system32\chcp.com"),
+            "setup should call chcp by path: {setup}"
+        );
+        // The other three knobs still have to be there: missing any one
+        // produces mojibake somewhere else in the chain.
+        assert!(setup.contains("OutputEncoding"));
+        assert!(setup.contains("InputEncoding"));
+        assert!(setup.contains("PSDefaultParameterValues"));
+    }
+
+    #[test]
+    fn a_shell_the_user_gave_arguments_to_is_left_alone() {
+        let mut command = CommandBuilder::new("cmd.exe");
+        command.arg("/K");
+        command.arg("echo mine");
+        let mut shell = Some(command);
+        apply_unterm_windows_utf8(&mut shell);
+        let argv: Vec<String> = shell
+            .expect("a builder")
+            .get_argv()
+            .iter()
+            .map(|arg| arg.to_string_lossy().to_string())
+            .collect();
+        assert_eq!(argv.last().map(String::as_str), Some("echo mine"));
+    }
+}

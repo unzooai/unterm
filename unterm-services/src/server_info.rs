@@ -359,6 +359,7 @@ fn instance_lifecycle_plan_from_paths_locked(
     current_id: Option<&str>,
     dir: &Path,
     active_path: &Path,
+    native_window_lifecycle: &str,
 ) -> InstanceLifecyclePlan {
     let snapshot = instance_registry_snapshot_from_paths_locked(dir, active_path);
     let registry_file_exists = current_id
@@ -388,7 +389,7 @@ fn instance_lifecycle_plan_from_paths_locked(
         would_update_legacy_server: would_clear_active_pointer,
         handoff_id,
         close_owner: "server_info".to_string(),
-        native_window_lifecycle: "host_owned".to_string(),
+        native_window_lifecycle: native_window_lifecycle.to_string(),
         values_redacted: true,
     };
     InstanceLifecyclePlan {
@@ -403,13 +404,19 @@ fn instance_lifecycle_plan_from_paths_locked(
     }
 }
 
-pub fn instance_lifecycle_plan() -> InstanceLifecyclePlan {
+/// The registry's side of shutting an instance down.
+///
+/// `native_window_lifecycle` comes from the caller because only a front end
+/// knows whether the window is its own to close: the registry can say what it
+/// will do to its own files and nothing more.
+pub fn instance_lifecycle_plan(native_window_lifecycle: &str) -> InstanceLifecyclePlan {
     let current = current_instance_id();
     let _g = file_lock().lock();
     instance_lifecycle_plan_from_paths_locked(
         current.as_deref(),
         &instances_dir(),
         &active_pointer_path(),
+        native_window_lifecycle,
     )
 }
 
@@ -420,7 +427,10 @@ fn apply_instance_shutdown_from_paths_locked(
     server_path: &Path,
     token_path: &Path,
 ) -> InstanceShutdownResult {
-    let lifecycle = instance_lifecycle_plan_from_paths_locked(current_id, dir, active_path);
+    // Applying a shutdown touches registry files only; whose window it was is
+    // not this function's business, so it reports the registry's own answer.
+    let lifecycle =
+        instance_lifecycle_plan_from_paths_locked(current_id, dir, active_path, "unknown");
     let plan = lifecycle.shutdown;
     let mut result = InstanceShutdownResult {
         applied: true,
@@ -909,7 +919,12 @@ mod tests {
         write_atomic(&instances.join("bravo.json"), &next)?;
         write_atomic(&active, &current)?;
 
-        let plan = instance_lifecycle_plan_from_paths_locked(Some("alpha"), &instances, &active);
+        let plan = instance_lifecycle_plan_from_paths_locked(
+            Some("alpha"),
+            &instances,
+            &active,
+            "host_owned",
+        );
 
         assert_eq!(plan.current_id.as_deref(), Some("alpha"));
         assert_eq!(plan.registration_owner, "server_info");

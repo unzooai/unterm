@@ -17,7 +17,11 @@ log.workspace = true
 env_logger = "0.10"
 termwiz.workspace = true
 portable-pty.workspace = true
+image.workspace = true
+serde_json.workspace = true
 unterm-engine = { path = "../unterm-engine" }
+unterm-mcp = { path = "../unterm-mcp" }
+unterm-services.workspace = true
 unterm-render = { path = "../unterm-render" }
 wgpu.workspace = true
 winit = "0.30"

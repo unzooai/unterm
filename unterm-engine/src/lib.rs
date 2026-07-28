@@ -1249,7 +1249,40 @@ impl CaptureEngine for next_core::NextCoreEngine {
 /// window (an OS API, and macOS-only), and the key table (the front end owns
 /// what its keys do). Rather than let those keep an entire MCP surface tied to
 /// one front end, they are asked of whoever is hosting it.
+/// How a front end's window relates to the MCP surface.
+///
+/// The surface reports these to agents so a caller can tell what it is
+/// talking to: a window someone else owns and this process only decorates,
+/// or one this process owns outright. Baking the answer in as a constant made
+/// every front end claim to be the same one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WindowIdentity {
+    /// What draws the window, named for an agent to read.
+    pub engine: &'static str,
+    /// Who the window belongs to.
+    pub window_owner: &'static str,
+    /// Who decides when it closes.
+    pub native_window_lifecycle: &'static str,
+    /// True when this process draws into a window it did not create.
+    pub uses_host_window: bool,
+}
+
+impl WindowIdentity {
+    /// What a surface with no front end reports.
+    pub const HEADLESS: Self = Self {
+        engine: "next-core",
+        window_owner: "none",
+        native_window_lifecycle: "none",
+        uses_host_window: false,
+    };
+}
+
 pub trait McpHost: Send + Sync {
+    /// How this front end's window relates to the surface.
+    fn window_identity(&self) -> WindowIdentity {
+        WindowIdentity::HEADLESS
+    }
+
     /// Render a pane's scrollback to `path`, returning the JSON to reply with.
     fn render_scrollback_png(
         &self,
@@ -1297,6 +1330,16 @@ static ENGINE_PROVIDER: std::sync::OnceLock<fn() -> Box<dyn HostEngine>> =
 /// front ends in one process would be a stranger problem than this.
 pub fn set_engine_provider(provider: fn() -> Box<dyn HostEngine>) -> bool {
     ENGINE_PROVIDER.set(provider).is_ok()
+}
+
+/// How the hosting front end's window relates to the surface.
+///
+/// Headless when nothing is hosting: an honest "no window" rather than a
+/// guess at which front end might be there.
+pub fn window_identity() -> WindowIdentity {
+    mcp_host()
+        .map(|host| host.window_identity())
+        .unwrap_or(WindowIdentity::HEADLESS)
 }
 
 /// The engine the front end installed, if it has.

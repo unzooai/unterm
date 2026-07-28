@@ -285,6 +285,7 @@ fn default_shell_launch_decision(command_provided: bool) -> Value {
 }
 
 fn instance_lifecycle_snapshot(info: &unterm_services::server_info::InstanceInfo, is_current: bool) -> Value {
+    let window = unterm_engine::window_identity();
     json!({
         "state": "live",
         "liveness_source": "pid",
@@ -292,11 +293,11 @@ fn instance_lifecycle_snapshot(info: &unterm_services::server_info::InstanceInfo
         "is_current": is_current,
         "registry_owner": "server_info",
         "metadata_owner": "product_registry",
-        "window_owner": "host_gui",
+        "window_owner": window.window_owner,
         "title_owner": "server_info",
-        "focus_owner": "host_gui",
-        "native_window_lifecycle": "host_owned",
-        "uses_host_window": true,
+        "focus_owner": window.window_owner,
+        "native_window_lifecycle": window.native_window_lifecycle,
+        "uses_host_window": window.uses_host_window,
         "values_redacted": true,
     })
 }
@@ -2217,6 +2218,7 @@ mod engine_neutral_handler_tests {
     }
 
     #[test]
+    /// ...nor a front end: the labels below are the headless ones.
     fn instance_metadata_methods_do_not_require_terminal_engine() {
         let _guard = env_lock().lock();
         unterm_engine::install_next_core_provider();
@@ -2252,30 +2254,30 @@ mod engine_neutral_handler_tests {
         let (server, info, list, lifecycle, close, title, focus) =
             result.expect("read instance metadata without WezTerm mux");
         assert_eq!(server["lifecycle"]["registry_owner"], "server_info");
-        assert_eq!(server["lifecycle"]["window_owner"], "host_gui");
-        assert_eq!(server["lifecycle"]["native_window_lifecycle"], "host_owned");
+        assert_eq!(server["lifecycle"]["window_owner"], "none");
+        assert_eq!(server["lifecycle"]["native_window_lifecycle"], "none");
         assert!(info.get("id").is_some());
         assert!(info.get("pid").is_some());
         assert!(info.get("mcp_port").is_some());
-        assert_eq!(info["window"]["engine"], "wezterm-host");
+        assert_eq!(info["window"]["engine"], "next-core");
         assert_eq!(info["window"]["title_owner"], "server_info");
-        assert_eq!(info["window"]["focus_owner"], "host_gui");
-        assert_eq!(info["window"]["uses_host_window"], true);
+        assert_eq!(info["window"]["focus_owner"], "none");
+        assert_eq!(info["window"]["uses_host_window"], false);
         assert_eq!(info["lifecycle"]["state"], "live");
         assert_eq!(info["lifecycle"]["liveness_source"], "pid");
         assert_eq!(info["lifecycle"]["registry_owner"], "server_info");
         assert_eq!(info["lifecycle"]["metadata_owner"], "product_registry");
-        assert_eq!(info["lifecycle"]["window_owner"], "host_gui");
+        assert_eq!(info["lifecycle"]["window_owner"], "none");
         assert_eq!(info["lifecycle"]["title_owner"], "server_info");
-        assert_eq!(info["lifecycle"]["focus_owner"], "host_gui");
-        assert_eq!(info["lifecycle"]["native_window_lifecycle"], "host_owned");
-        assert_eq!(info["lifecycle"]["uses_host_window"], true);
+        assert_eq!(info["lifecycle"]["focus_owner"], "none");
+        assert_eq!(info["lifecycle"]["native_window_lifecycle"], "none");
+        assert_eq!(info["lifecycle"]["uses_host_window"], false);
         assert_eq!(info["lifecycle"]["values_redacted"], true);
         assert!(list["instances"].is_array());
         for item in list["instances"].as_array().expect("instances array") {
             assert_eq!(item["lifecycle"]["state"], "live");
             assert_eq!(item["lifecycle"]["registry_owner"], "server_info");
-            assert_eq!(item["lifecycle"]["window_owner"], "host_gui");
+            assert_eq!(item["lifecycle"]["window_owner"], "none");
             assert_eq!(item["lifecycle"]["values_redacted"], true);
         }
         assert_eq!(list["registry"]["owner"], "server_info");
@@ -2291,28 +2293,28 @@ mod engine_neutral_handler_tests {
         assert_eq!(lifecycle["plan"]["registration_owner"], "server_info");
         assert_eq!(
             lifecycle["plan"]["shutdown"]["native_window_lifecycle"],
-            "host_owned"
+            "none"
         );
-        assert_eq!(lifecycle["native_window"]["owner"], "host_gui");
+        assert_eq!(lifecycle["native_window"]["owner"], "none");
         assert_eq!(lifecycle["native_window"]["can_close_from_mcp"], false);
         assert_eq!(lifecycle["values_redacted"], true);
         assert_eq!(close["ok"], true);
         assert_eq!(close["operation"], "dry_run");
         assert_eq!(close["requires_confirm"], "unregister-current-instance");
-        assert_eq!(close["native_window"]["owner"], "host_gui");
+        assert_eq!(close["native_window"]["owner"], "none");
         assert_eq!(close["native_window"]["closed"], false);
         assert_eq!(close["values_redacted"], true);
         assert_eq!(title["ok"], true);
         assert!(title["title"].is_null());
-        assert_eq!(title["window"]["engine"], "wezterm-host");
+        assert_eq!(title["window"]["engine"], "next-core");
         assert_eq!(title["window"]["title_owner"], "server_info");
         assert_eq!(title["window"]["metadata_owner"], "product_registry");
         assert_eq!(title["window"]["applied_to_native_window"], false);
-        assert_eq!(title["window"]["uses_host_window"], true);
+        assert_eq!(title["window"]["uses_host_window"], false);
         assert_eq!(title["lifecycle"]["title_owner"], "server_info");
         assert_eq!(title["lifecycle"]["metadata_owner"], "product_registry");
-        assert_eq!(title["lifecycle"]["native_window_lifecycle"], "host_owned");
-        assert_eq!(title["lifecycle"]["uses_host_window"], true);
+        assert_eq!(title["lifecycle"]["native_window_lifecycle"], "none");
+        assert_eq!(title["lifecycle"]["uses_host_window"], false);
         assert_eq!(title["lifecycle"]["values_redacted"], true);
         if let Err(err) = focus {
             let message = format!("{err:#}");
@@ -4613,12 +4615,13 @@ impl McpHandler {
 
     fn server_info(&self) -> Result<Value> {
         let instance = unterm_services::server_info::read_current();
+        let window = unterm_engine::window_identity();
         Ok(json!({
             "name": "Unterm MCP Server",
             "version": "2.0.0",
             "engine": self.engine_label(),
-            "window_engine": "wezterm-host",
-            "uses_host_window": true,
+            "window_engine": window.engine,
+            "uses_host_window": window.uses_host_window,
             "lifecycle": instance_lifecycle_snapshot(&instance, true),
             "protocol": "json-rpc-2.0",
         }))
@@ -4734,6 +4737,7 @@ impl McpHandler {
     fn instance_info(&self) -> Result<Value> {
         let i = unterm_services::server_info::read_current();
         let lifecycle = instance_lifecycle_snapshot(&i, true);
+        let window = unterm_engine::window_identity();
         Ok(json!({
             "id": i.id,
             "pid": i.pid,
@@ -4743,10 +4747,10 @@ impl McpHandler {
             "auth_token": i.auth_token,
             "title": i.title,
             "window": {
-                "engine": "wezterm-host",
+                "engine": window.engine,
                 "title_owner": "server_info",
-                "focus_owner": "host_gui",
-                "uses_host_window": true,
+                "focus_owner": window.window_owner,
+                "uses_host_window": window.uses_host_window,
             },
             "lifecycle": lifecycle,
             "cwd": i.cwd,
@@ -4756,17 +4760,20 @@ impl McpHandler {
     }
 
     /// Read-only instance lifecycle ownership and shutdown dry-run plan.
-    /// This intentionally does not close windows; native close remains
-    /// host-owned until next-core owns its own window lifecycle.
+    ///
+    /// This never closes a window: whether the window is even this process's
+    /// to close is the front end's answer, reported here rather than assumed.
     fn instance_lifecycle(&self) -> Result<Value> {
-        let plan = unterm_services::server_info::instance_lifecycle_plan();
+        let window = unterm_engine::window_identity();
+        let plan =
+            unterm_services::server_info::instance_lifecycle_plan(window.native_window_lifecycle);
         Ok(json!({
             "owner": "server_info",
             "operation": "dry_run",
             "plan": plan,
             "native_window": {
-                "owner": "host_gui",
-                "lifecycle": "host_owned",
+                "owner": window.window_owner,
+                "lifecycle": window.native_window_lifecycle,
                 "can_close_from_mcp": false,
             },
             "values_redacted": true,
@@ -4777,6 +4784,7 @@ impl McpHandler {
     /// process or close the native window; it executes the same registry
     /// unregister path that a future native close lifecycle service will call.
     fn instance_close(&self, params: &Value) -> Result<Value> {
+        let window = unterm_engine::window_identity();
         let apply = bool_param(params, "apply").unwrap_or(false);
         let confirmed = params.get("confirm").and_then(|value| value.as_str())
             == Some("unregister-current-instance");
@@ -4786,10 +4794,10 @@ impl McpHandler {
                 "ok": true,
                 "operation": "dry_run",
                 "requires_confirm": "unregister-current-instance",
-                "plan": unterm_services::server_info::instance_lifecycle_plan().shutdown,
+                "plan": unterm_services::server_info::instance_lifecycle_plan(window.native_window_lifecycle).shutdown,
                 "native_window": {
-                    "owner": "host_gui",
-                    "lifecycle": "host_owned",
+                    "owner": window.window_owner,
+                    "lifecycle": window.native_window_lifecycle,
                     "closed": false,
                 },
                 "values_redacted": true,
@@ -4807,8 +4815,8 @@ impl McpHandler {
             "operation": "apply",
             "result": result,
             "native_window": {
-                "owner": "host_gui",
-                "lifecycle": "host_owned",
+                "owner": window.window_owner,
+                "lifecycle": window.native_window_lifecycle,
                 "closed": false,
             },
             "values_redacted": true,
@@ -4834,21 +4842,22 @@ impl McpHandler {
             .filter(|s| !s.is_empty());
         unterm_services::server_info::set_title(title.clone())
             .context("failed to write instance title")?;
+        let window = unterm_engine::window_identity();
         Ok(json!({
             "ok": true,
             "title": title,
             "window": {
-                "engine": "wezterm-host",
+                "engine": window.engine,
                 "title_owner": "server_info",
                 "metadata_owner": "product_registry",
                 "applied_to_native_window": false,
-                "uses_host_window": true,
+                "uses_host_window": window.uses_host_window,
             },
             "lifecycle": {
                 "title_owner": "server_info",
                 "metadata_owner": "product_registry",
-                "native_window_lifecycle": "host_owned",
-                "uses_host_window": true,
+                "native_window_lifecycle": window.native_window_lifecycle,
+                "uses_host_window": window.uses_host_window,
                 "values_redacted": true,
             },
         }))

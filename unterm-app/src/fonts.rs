@@ -63,6 +63,18 @@ impl FontStack {
         Self { faces, pixel_size }
     }
 
+    /// The system's default monospace face, at a given size.
+    ///
+    /// For work that needs a font but has no window to take one from -- a
+    /// scrollback capture, say. Returns None when the machine has no
+    /// monospace font at all, which is a thing to report rather than panic on.
+    pub fn system(pixel_size: u32) -> Option<Self> {
+        let index = FontIndex::scan();
+        let entry = index.default_monospace()?;
+        let primary = FontFace::open(&entry.path, pixel_size).ok()?;
+        Some(FontStack::new(primary, &[], pixel_size))
+    }
+
     pub fn pixel_size(&self) -> u32 {
         self.pixel_size
     }
@@ -105,10 +117,7 @@ mod tests {
     use super::*;
 
     fn stack() -> Option<FontStack> {
-        let index = FontIndex::scan();
-        let entry = index.default_monospace()?;
-        let primary = FontFace::open(&entry.path, 16).ok()?;
-        Some(FontStack::new(primary, &[], 16))
+        FontStack::system(16)
     }
 
     #[test]

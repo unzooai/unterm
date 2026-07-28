@@ -4,7 +4,10 @@
 //! provides the window. This binary exists alongside `unterm` rather than
 //! replacing it, so the working terminal keeps working while this one grows.
 
+mod confirm;
 mod fonts;
+mod keys;
+mod mcp_host;
 mod panes;
 mod scroll;
 mod tabbar;
@@ -28,6 +31,15 @@ fn main() -> anyhow::Result<()> {
         .and_then(|path| std::fs::read_to_string(path).ok())
         .and_then(|source| config::parse(&source).ok())
         .unwrap_or_default();
+
+    // The agent-facing API. next-core answers everything about sessions and
+    // screens; this app answers the two things that need a font stack and a
+    // key table. Installed before the window opens so an agent connecting
+    // early finds a working surface rather than a half-built one.
+    unterm_engine::install_next_core_provider();
+    mcp_host::install();
+    let (port, _token) = unterm_mcp::start_mcp_server();
+    log::info!("MCP server listening on 127.0.0.1:{port}");
 
     let event_loop = winit::event_loop::EventLoop::new()?;
     let mut app = window::App::new(&config)?;
