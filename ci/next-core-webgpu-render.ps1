@@ -11,7 +11,7 @@ $Suites = @(
     @{
         Name = "draw replacement"
         Filter = "termwindow::render::draw::tests::"
-        ExpectedCount = 10
+        ExpectedCount = 13
         RequiredTests = @(
             "termwindow::render::draw::tests::next_core_replace_requires_draw_ready_batch",
             "termwindow::render::draw::tests::next_core_replace_keeps_legacy_pane_for_empty_repeat_batch",
@@ -19,7 +19,10 @@ $Suites = @(
             "termwindow::render::draw::tests::next_core_replace_requires_matching_batch_diagnostics",
             "termwindow::render::draw::tests::next_core_replace_requires_cached_glyph_upload_for_text_frames",
             "termwindow::render::draw::tests::only_replace_mode_gives_next_core_the_keyboard",
-            "termwindow::render::draw::tests::pane_mode_parses_env_values"
+            "termwindow::render::draw::tests::pane_mode_parses_env_values",
+            "termwindow::render::draw::tests::replacing_a_split_needs_every_pane_ready",
+            "termwindow::render::draw::tests::replacing_needs_at_least_one_prepared_pane",
+            "termwindow::render::draw::tests::a_pane_without_a_frame_keeps_the_legacy_renderer"
         )
     },
     @{
@@ -40,7 +43,7 @@ $Suites = @(
     @{
         Name = "engine render backend"
         Filter = "engine::render_backend::tests::"
-        ExpectedCount = 28
+        ExpectedCount = 33
         RequiredTests = @(
             "engine::render_backend::tests::prepared_frame_diagnostics_report_replace_readiness_issues",
             "engine::render_backend::tests::prepared_frame_plan_exposes_textured_glyph_layout_parity",
@@ -50,7 +53,11 @@ $Suites = @(
             "engine::render_backend::tests::glyph_atlas_cache_wraps_rows_and_reports_overflow",
             "engine::render_backend::tests::glyph_atlas_texture_update_prepares_inserted_regions",
             "engine::render_backend::tests::textured_glyph_upload_maps_instances_to_clip_space_and_uvs",
-            "engine::render_backend::tests::textured_glyph_pass_draws_complete_uploads"
+            "engine::render_backend::tests::textured_glyph_pass_draws_complete_uploads",
+            "engine::render_backend::tests::fullscreen_placement_maps_target_corners_to_clip_corners",
+            "engine::render_backend::tests::offset_placement_shifts_a_pane_into_its_own_corner",
+            "engine::render_backend::tests::buffer_plan_for_placement_offsets_every_vertex",
+            "engine::render_backend::tests::buffer_plan_for_viewport_still_means_a_fullscreen_placement"
         )
     }
 )

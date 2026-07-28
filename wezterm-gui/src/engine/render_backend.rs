@@ -698,6 +698,53 @@ impl EngineWgpuPreparedFramePlan {
     }
 }
 
+/// Where a pane's frame lands inside the render target.
+///
+/// next-core builds every frame in pane-local pixels with the pane's top-left
+/// at the origin. A window showing one pane can map those straight to clip
+/// space, but a split has to shift each pane to its own corner of the same
+/// target — otherwise every pane draws over the top-left one.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct EngineRenderViewportPlacement {
+    pub origin_x_px: f32,
+    pub origin_y_px: f32,
+    pub target_width_px: f32,
+    pub target_height_px: f32,
+}
+
+#[allow(dead_code)]
+impl EngineRenderViewportPlacement {
+    /// A pane that owns the whole target.
+    pub fn fullscreen(target_width_px: f32, target_height_px: f32) -> Self {
+        Self::at(0.0, 0.0, target_width_px, target_height_px)
+    }
+
+    /// A pane whose top-left sits at `origin` within the target.
+    pub fn at(
+        origin_x_px: f32,
+        origin_y_px: f32,
+        target_width_px: f32,
+        target_height_px: f32,
+    ) -> Self {
+        Self {
+            origin_x_px,
+            origin_y_px,
+            // Guard the divisor, not the origin: a zero-sized target would
+            // divide by zero, but a zero origin is the common case.
+            target_width_px: target_width_px.max(1.0),
+            target_height_px: target_height_px.max(1.0),
+        }
+    }
+
+    /// Map a pane-local pixel to clip space.
+    pub fn to_clip(&self, x: f32, y: f32) -> [f32; 2] {
+        [
+            ((self.origin_x_px + x) / self.target_width_px) * 2.0 - 1.0,
+            1.0 - ((self.origin_y_px + y) / self.target_height_px) * 2.0,
+        ]
+    }
+}
+
 #[allow(dead_code)]
 impl EngineRenderGpuUploadPlan {
     pub fn from_buffer_plan(plan: &EngineRenderBufferPlan) -> Self {
@@ -716,8 +763,16 @@ impl EngineRenderGpuUploadPlan {
         viewport_width_px: f32,
         viewport_height_px: f32,
     ) -> Self {
-        let viewport_width_px = viewport_width_px.max(1.0);
-        let viewport_height_px = viewport_height_px.max(1.0);
+        Self::from_buffer_plan_for_placement(
+            plan,
+            EngineRenderViewportPlacement::fullscreen(viewport_width_px, viewport_height_px),
+        )
+    }
+
+    pub fn from_buffer_plan_for_placement(
+        plan: &EngineRenderBufferPlan,
+        placement: EngineRenderViewportPlacement,
+    ) -> Self {
         Self {
             pane_id: plan.pane_id,
             submitted: plan.submitted,
@@ -728,10 +783,7 @@ impl EngineRenderGpuUploadPlan {
                 .iter()
                 .copied()
                 .map(|vertex| EngineRenderGpuVertex {
-                    position: [
-                        (vertex.position[0] / viewport_width_px) * 2.0 - 1.0,
-                        1.0 - (vertex.position[1] / viewport_height_px) * 2.0,
-                    ],
+                    position: placement.to_clip(vertex.position[0], vertex.position[1]),
                     color: vertex.color,
                     layer: match vertex.layer {
                         EngineRenderVertexLayer::Background => 0,
@@ -844,11 +896,26 @@ impl EngineWgpuRenderBackend {
         atlas_width_px: f32,
         atlas_height_px: f32,
     ) -> EngineRenderTexturedGlyphUploadPlan {
-        EngineRenderTexturedGlyphUploadPlan::from_glyph_atlas_plan_for_viewport(
+        Self::prepare_textured_glyph_upload_for_placement(
             glyphs,
             placements,
-            viewport_width_px,
-            viewport_height_px,
+            EngineRenderViewportPlacement::fullscreen(viewport_width_px, viewport_height_px),
+            atlas_width_px,
+            atlas_height_px,
+        )
+    }
+
+    pub fn prepare_textured_glyph_upload_for_placement(
+        glyphs: &EngineRenderGlyphAtlasPlan,
+        placements: &[EngineRenderGlyphAtlasPlacement],
+        viewport: EngineRenderViewportPlacement,
+        atlas_width_px: f32,
+        atlas_height_px: f32,
+    ) -> EngineRenderTexturedGlyphUploadPlan {
+        EngineRenderTexturedGlyphUploadPlan::from_glyph_atlas_plan_for_placement(
+            glyphs,
+            placements,
+            viewport,
             atlas_width_px,
             atlas_height_px,
         )
@@ -912,10 +979,20 @@ impl EngineWgpuRenderBackend {
         viewport_width_px: f32,
         viewport_height_px: f32,
     ) -> EngineWgpuPreparedFramePlan {
+        Self::prepare_frame_for_placement(
+            plan,
+            EngineRenderViewportPlacement::fullscreen(viewport_width_px, viewport_height_px),
+        )
+    }
+
+    pub fn prepare_frame_for_placement(
+        plan: &EngineRenderBufferPlan,
+        viewport: EngineRenderViewportPlacement,
+    ) -> EngineWgpuPreparedFramePlan {
         let text_atlas = Self::prepare_text_atlas(plan);
         let glyph_atlas = EngineRenderGlyphAtlasPlan::from_text_atlas_plan(&text_atlas);
         EngineWgpuPreparedFramePlan {
-            upload: Self::prepare_upload_for_viewport(plan, viewport_width_px, viewport_height_px),
+            upload: EngineRenderGpuUploadPlan::from_buffer_plan_for_placement(plan, viewport),
             text_atlas,
             glyph_atlas,
         }
@@ -1397,8 +1474,22 @@ impl EngineRenderTexturedGlyphUploadPlan {
         atlas_width_px: f32,
         atlas_height_px: f32,
     ) -> Self {
-        let viewport_width_px = viewport_width_px.max(1.0);
-        let viewport_height_px = viewport_height_px.max(1.0);
+        Self::from_glyph_atlas_plan_for_placement(
+            plan,
+            placements,
+            EngineRenderViewportPlacement::fullscreen(viewport_width_px, viewport_height_px),
+            atlas_width_px,
+            atlas_height_px,
+        )
+    }
+
+    pub fn from_glyph_atlas_plan_for_placement(
+        plan: &EngineRenderGlyphAtlasPlan,
+        placements: &[EngineRenderGlyphAtlasPlacement],
+        viewport: EngineRenderViewportPlacement,
+        atlas_width_px: f32,
+        atlas_height_px: f32,
+    ) -> Self {
         let atlas_width_px = atlas_width_px.max(1.0);
         let atlas_height_px = atlas_height_px.max(1.0);
         let layout = Self::layout_report_from_glyph_atlas_plan(plan, placements);
@@ -1411,8 +1502,7 @@ impl EngineRenderTexturedGlyphUploadPlan {
                     &mut vertices,
                     &mut indices,
                     entry,
-                    viewport_width_px,
-                    viewport_height_px,
+                    viewport,
                     atlas_width_px,
                     atlas_height_px,
                 );
@@ -1730,8 +1820,7 @@ fn push_textured_glyph_quad_from_layout(
     vertices: &mut Vec<EngineRenderTexturedGlyphVertex>,
     indices: &mut Vec<u32>,
     entry: &EngineRenderTexturedGlyphLayoutEntry,
-    viewport_width_px: f32,
-    viewport_height_px: f32,
+    viewport: EngineRenderViewportPlacement,
     atlas_width_px: f32,
     atlas_height_px: f32,
 ) {
@@ -1745,45 +1834,25 @@ fn push_textured_glyph_quad_from_layout(
 
     vertices.extend([
         EngineRenderTexturedGlyphVertex {
-            position: viewport_to_clip(
-                quad.left_px,
-                quad.top_px,
-                viewport_width_px,
-                viewport_height_px,
-            ),
+            position: viewport.to_clip(quad.left_px, quad.top_px),
             uv: [uv_left, uv_top],
             color: entry.foreground,
             key_index,
         },
         EngineRenderTexturedGlyphVertex {
-            position: viewport_to_clip(
-                quad.right_px,
-                quad.top_px,
-                viewport_width_px,
-                viewport_height_px,
-            ),
+            position: viewport.to_clip(quad.right_px, quad.top_px),
             uv: [uv_right, uv_top],
             color: entry.foreground,
             key_index,
         },
         EngineRenderTexturedGlyphVertex {
-            position: viewport_to_clip(
-                quad.left_px,
-                quad.bottom_px,
-                viewport_width_px,
-                viewport_height_px,
-            ),
+            position: viewport.to_clip(quad.left_px, quad.bottom_px),
             uv: [uv_left, uv_bottom],
             color: entry.foreground,
             key_index,
         },
         EngineRenderTexturedGlyphVertex {
-            position: viewport_to_clip(
-                quad.right_px,
-                quad.bottom_px,
-                viewport_width_px,
-                viewport_height_px,
-            ),
+            position: viewport.to_clip(quad.right_px, quad.bottom_px),
             uv: [uv_right, uv_bottom],
             color: entry.foreground,
             key_index,
@@ -1933,13 +2002,6 @@ fn glyph_key_seed(key: &EngineRenderGlyphAtlasKey) -> u32 {
     seed
 }
 
-fn viewport_to_clip(x: f32, y: f32, viewport_width_px: f32, viewport_height_px: f32) -> [f32; 2] {
-    [
-        (x / viewport_width_px) * 2.0 - 1.0,
-        1.0 - (y / viewport_height_px) * 2.0,
-    ]
-}
-
 fn push_unique_usize(values: &mut Vec<usize>, value: usize) {
     if !values.contains(&value) {
         values.push(value);
@@ -1986,6 +2048,101 @@ fn ansi_palette_rgb(index: u8) -> [u8; 3] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fullscreen_placement_maps_target_corners_to_clip_corners() {
+        let placement = EngineRenderViewportPlacement::fullscreen(800.0, 600.0);
+
+        assert_eq!(placement.to_clip(0.0, 0.0), [-1.0, 1.0]);
+        assert_eq!(placement.to_clip(800.0, 600.0), [1.0, -1.0]);
+        assert_eq!(placement.to_clip(400.0, 300.0), [0.0, 0.0]);
+    }
+
+    #[test]
+    fn offset_placement_shifts_a_pane_into_its_own_corner() {
+        // A right-hand split: the pane's own (0,0) is the middle of the
+        // window, so pane-local pixels must land in the right half of clip
+        // space rather than over the left pane.
+        let placement = EngineRenderViewportPlacement::at(400.0, 0.0, 800.0, 600.0);
+
+        assert_eq!(placement.to_clip(0.0, 0.0), [0.0, 1.0]);
+        assert_eq!(placement.to_clip(400.0, 600.0), [1.0, -1.0]);
+
+        // A bottom split shifts on y instead.
+        let bottom = EngineRenderViewportPlacement::at(0.0, 300.0, 800.0, 600.0);
+        assert_eq!(bottom.to_clip(0.0, 0.0), [-1.0, 0.0]);
+        assert_eq!(bottom.to_clip(800.0, 300.0), [1.0, -1.0]);
+    }
+
+    #[test]
+    fn placement_guards_a_zero_sized_target_without_moving_the_origin() {
+        let placement = EngineRenderViewportPlacement::at(0.0, 0.0, 0.0, 0.0);
+
+        assert_eq!(placement.target_width_px, 1.0);
+        assert_eq!(placement.target_height_px, 1.0);
+        assert_eq!(placement.origin_x_px, 0.0);
+        assert_eq!(placement.origin_y_px, 0.0);
+        assert!(placement.to_clip(0.0, 0.0).iter().all(|v| v.is_finite()));
+    }
+
+    #[test]
+    fn buffer_plan_for_placement_offsets_every_vertex() {
+        let plan = EngineRenderBufferPlan {
+            pane_id: 3,
+            submitted: true,
+            revision: 7,
+            requires_full_repaint: false,
+            damage_rects: Vec::new(),
+            text_runs: Vec::new(),
+            vertices: vec![EngineRenderVertex {
+                position: [0.0, 0.0],
+                color: [1.0, 1.0, 1.0, 1.0],
+                layer: EngineRenderVertexLayer::Background,
+                command_index: 0,
+            }],
+            indices: vec![0],
+        };
+
+        let fullscreen = EngineRenderGpuUploadPlan::from_buffer_plan_for_viewport(&plan, 800.0, 600.0);
+        let offset = EngineRenderGpuUploadPlan::from_buffer_plan_for_placement(
+            &plan,
+            EngineRenderViewportPlacement::at(400.0, 300.0, 800.0, 600.0),
+        );
+
+        assert_eq!(fullscreen.vertices[0].position, [-1.0, 1.0]);
+        assert_eq!(offset.vertices[0].position, [0.0, 0.0]);
+        // Everything except geometry is carried through untouched.
+        assert_eq!(offset.pane_id, plan.pane_id);
+        assert_eq!(offset.revision, plan.revision);
+        assert_eq!(offset.indices, plan.indices);
+    }
+
+    #[test]
+    fn buffer_plan_for_viewport_still_means_a_fullscreen_placement() {
+        let plan = EngineRenderBufferPlan {
+            pane_id: 1,
+            submitted: true,
+            revision: 1,
+            requires_full_repaint: true,
+            damage_rects: Vec::new(),
+            text_runs: Vec::new(),
+            vertices: vec![EngineRenderVertex {
+                position: [120.0, 45.0],
+                color: [0.5, 0.5, 0.5, 1.0],
+                layer: EngineRenderVertexLayer::Text,
+                command_index: 2,
+            }],
+            indices: vec![0],
+        };
+
+        let viewport = EngineRenderGpuUploadPlan::from_buffer_plan_for_viewport(&plan, 640.0, 480.0);
+        let placement = EngineRenderGpuUploadPlan::from_buffer_plan_for_placement(
+            &plan,
+            EngineRenderViewportPlacement::fullscreen(640.0, 480.0),
+        );
+
+        assert_eq!(viewport.vertices[0].position, placement.vertices[0].position);
+    }
 
     #[test]
     fn buffer_plan_preserves_text_run_metadata() {

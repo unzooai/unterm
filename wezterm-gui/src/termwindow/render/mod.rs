@@ -340,6 +340,35 @@ impl crate::TermWindow {
             })
     }
 
+    /// Top-left pixel of `pos` within the window.
+    ///
+    /// Padding, the OS border, and the tab bar all shift the terminal area,
+    /// and `pos.left`/`pos.top` are cell offsets from there. Anything drawing
+    /// into a pane's rectangle — the ghost-text overlay, a next-core frame —
+    /// has to agree with `paint_pane` on this origin or it lands in the wrong
+    /// pane.
+    pub fn pane_origin_pixels(&self, pos: &mux::tab::PositionedPane) -> (f32, f32) {
+        let cell_width = self.render_metrics.cell_size.width as f32;
+        let cell_height = self.render_metrics.cell_size.height as f32;
+        let (padding_left, padding_top) = self.padding_left_top();
+        let border = self.get_os_border();
+        let tab_bar_height = if self.show_tab_bar {
+            self.tab_bar_pixel_height().unwrap_or(0.)
+        } else {
+            0.
+        };
+        let top_bar_height = if self.config.tab_bar_at_bottom {
+            0.0
+        } else {
+            tab_bar_height
+        };
+
+        (
+            padding_left + border.left.get() as f32 + pos.left as f32 * cell_width,
+            top_bar_height + padding_top + border.top.get() as f32 + pos.top as f32 * cell_height,
+        )
+    }
+
     pub fn padding_left_top(&self) -> (f32, f32) {
         let h_context = DimensionContext {
             dpi: self.dimensions.dpi as f32,

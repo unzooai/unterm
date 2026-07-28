@@ -1,5 +1,5 @@
 use crate::colorease::ColorEaseUniform;
-use crate::termwindow::webgpu::ShaderUniform;
+use crate::termwindow::webgpu::{NextCoreWebGpuPaneDrawFrame, ShaderUniform};
 use crate::termwindow::RenderFrame;
 use crate::uniforms::UniformBuilder;
 use ::window::glium;
@@ -35,39 +35,56 @@ impl crate::TermWindow {
             });
 
         let next_core_mode = next_core_webgpu_pane_mode();
-        let next_core_pane_frame = if next_core_mode.is_enabled() {
-            if let Some(pane) = self.get_active_pane_no_overlay() {
-                // Bind before preparing: the frame is read by next-core session
-                // id, and an unbound pane has no session to read.
-                match self
-                    .ensure_next_core_pane_binding_for(&pane)
-                    .and_then(|_| {
+        let replace_requested = next_core_mode == NextCoreWebGpuPaneMode::Replace;
+        // Prepare a frame for every visible pane, not just the active one.
+        // Legacy pane quads are suppressed for *all* panes at once in replace
+        // mode, so covering only the active pane would blank the rest of a
+        // split.
+        let (next_core_pane_frames, next_core_pane_count) = if next_core_mode.is_enabled() {
+            let positions = self.get_panes_to_render();
+            let pane_count = positions.len();
+            // `get_panes_to_render` hands back the overlay's pane in place of
+            // the real one, so identify overlays by id. Binding one would
+            // spawn a shell and paint it over the overlay.
+            let overlay_pane_ids = self.overlay_pane_ids();
+            let frames: Vec<NextCoreWebGpuPaneDrawFrame> = positions
+                .iter()
+                .filter(|pos| !overlay_pane_ids.contains(&pos.pane.pane_id()))
+                .filter_map(|pos| {
+                    let viewport = self.next_core_pane_viewport(pos);
+                    // Bind before preparing: the frame is read by next-core
+                    // session id, and an unbound pane has no session to read.
+                    match self.ensure_next_core_pane_binding_for(&pos.pane).and_then(|_| {
                         self.prepare_next_core_webgpu_pane_frame(
-                            pane.pane_id(),
-                            next_core_mode == NextCoreWebGpuPaneMode::Replace,
+                            pos.pane.pane_id(),
+                            replace_requested,
+                            viewport,
                         )
                     }) {
-                    Ok(frame) => Some(frame),
-                    Err(err) => {
-                        log::debug!("next-core WebGPU pane render skipped: {err:#}");
-                        None
+                        Ok(frame) => Some(frame),
+                        Err(err) => {
+                            log::debug!(
+                                "next-core WebGPU pane render skipped for pane {}: {err:#}",
+                                pos.pane.pane_id()
+                            );
+                            None
+                        }
                     }
-                }
-            } else {
-                None
-            }
+                })
+                .collect();
+            (frames, pane_count)
         } else {
-            None
+            (Vec::new(), 0)
         };
-        let next_core_replace_diagnostics =
-            crate::engine::EngineRenderPreparedPaneFrame::replace_diagnostics_for_request(
-                next_core_mode == NextCoreWebGpuPaneMode::Replace,
-                next_core_pane_frame
-                    .as_ref()
-                    .map(|frame| &frame.engine_frame),
-            );
-        let replace_legacy_pane =
-            should_replace_legacy_pane(next_core_replace_diagnostics.as_ref());
+        let next_core_replace_diagnostics: Vec<_> = next_core_pane_frames
+            .iter()
+            .map(|frame| frame.engine_frame.replace_diagnostics)
+            .collect();
+        let replace_legacy_pane = should_replace_legacy_panes(
+            replace_requested,
+            next_core_pane_count,
+            &next_core_replace_diagnostics,
+        );
         {
             let render_state = self.render_state.as_ref().unwrap();
             let tex = render_state.glyph_cache.borrow().atlas.texture();
@@ -196,12 +213,13 @@ impl crate::TermWindow {
             }
         }
 
-        if next_core_mode.is_enabled() {
-            if let Some(frame) = next_core_pane_frame {
-                let encoded = webgpu.encode_next_core_pane_frame(&mut encoder, &view, frame, None);
-                if !encoded {
-                    log::debug!("next-core WebGPU pane render skipped: empty buffer plan");
-                }
+        for frame in next_core_pane_frames {
+            let pane_id = frame.engine_frame.batch.pane_id;
+            let encoded = webgpu.encode_next_core_pane_frame(&mut encoder, &view, frame, None);
+            if !encoded {
+                log::debug!(
+                    "next-core WebGPU pane render skipped for session {pane_id}: empty buffer plan"
+                );
             }
         }
 
@@ -404,6 +422,25 @@ fn should_replace_legacy_pane(
     diagnostics.should_replace_legacy_pane()
 }
 
+/// Whether the legacy quads for the whole tab can be suppressed.
+///
+/// Replacing is all-or-nothing: the draw pass skips the recorded quad ranges
+/// of *every* pane at once, so this needs one ready next-core frame per
+/// visible pane. A pane that was skipped (an overlay owns it) or whose frame
+/// is not draw-ready would otherwise be left as a blank rectangle.
+fn should_replace_legacy_panes(
+    replace_requested: bool,
+    pane_count: usize,
+    diagnostics: &[crate::engine::EngineRenderPaneReplaceDiagnostics],
+) -> bool {
+    replace_requested
+        && pane_count > 0
+        && diagnostics.len() == pane_count
+        && diagnostics
+            .iter()
+            .all(|diagnostics| should_replace_legacy_pane(Some(diagnostics)))
+}
+
 #[cfg(test)]
 fn should_replace_legacy_pane_from_parts(
     mode: NextCoreWebGpuPaneMode,
@@ -477,7 +514,7 @@ fn draw_quad_range(render_pass: &mut wgpu::RenderPass<'_>, start_quad: usize, en
 mod tests {
     use super::{
         next_core_webgpu_replace_diagnostics, non_pane_quad_ranges,
-        should_replace_legacy_pane_from_parts, NextCoreWebGpuPaneMode,
+        should_replace_legacy_pane_from_parts, should_replace_legacy_panes, NextCoreWebGpuPaneMode,
     };
     use crate::engine::render_backend::{EngineRenderVertex, EngineWgpuPreparedFrameDiagnostics};
     use crate::engine::EngineRenderVertexLayer;
@@ -489,6 +526,62 @@ mod tests {
     #[test]
     fn non_pane_quad_ranges_skip_middle() {
         assert_eq!(non_pane_quad_ranges(10, &[3..7]), vec![0..3, 7..10]);
+    }
+
+    #[test]
+    fn replacing_a_split_needs_every_pane_ready() {
+        let ready = next_core_webgpu_replace_diagnostics(
+            NextCoreWebGpuPaneMode::Replace,
+            &Some(buffer_batch(true)),
+            Some(&prepared_frame_diagnostics(true)),
+            None,
+        );
+        let not_ready = next_core_webgpu_replace_diagnostics(
+            NextCoreWebGpuPaneMode::Replace,
+            &Some(buffer_batch(true)),
+            Some(&prepared_frame_diagnostics(false)),
+            None,
+        );
+
+        assert!(should_replace_legacy_panes(true, 1, &[ready]));
+        assert!(should_replace_legacy_panes(true, 2, &[ready, ready]));
+        // One unready pane keeps the legacy renderer for the whole tab:
+        // suppressing its quads anyway would blank that pane.
+        assert!(!should_replace_legacy_panes(true, 2, &[ready, not_ready]));
+        assert!(!should_replace_legacy_panes(true, 2, &[not_ready, ready]));
+    }
+
+    #[test]
+    fn a_pane_without_a_frame_keeps_the_legacy_renderer() {
+        let ready = next_core_webgpu_replace_diagnostics(
+            NextCoreWebGpuPaneMode::Replace,
+            &Some(buffer_batch(true)),
+            Some(&prepared_frame_diagnostics(true)),
+            None,
+        );
+
+        // Two visible panes but only one frame: the skipped pane (an overlay
+        // owns it, or preparing its frame failed) would be blanked if the
+        // legacy quads went away.
+        assert!(!should_replace_legacy_panes(true, 2, &[ready]));
+        assert!(should_replace_legacy_panes(true, 1, &[ready]));
+    }
+
+    #[test]
+    fn replacing_needs_at_least_one_prepared_pane() {
+        let ready = next_core_webgpu_replace_diagnostics(
+            NextCoreWebGpuPaneMode::Replace,
+            &Some(buffer_batch(true)),
+            Some(&prepared_frame_diagnostics(true)),
+            None,
+        );
+
+        // No frames prepared at all means nothing would be drawn in place of
+        // the legacy quads.
+        assert!(!should_replace_legacy_panes(true, 0, &[]));
+        assert!(!should_replace_legacy_panes(true, 1, &[]));
+        // ...and append mode never replaces, however ready the panes are.
+        assert!(!should_replace_legacy_panes(false, 1, &[ready]));
     }
 
     #[test]

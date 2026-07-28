@@ -87,26 +87,9 @@ impl crate::TermWindow {
         let cell_width = self.render_metrics.cell_size.width as f32;
         let cell_height = self.render_metrics.cell_size.height as f32;
 
-        // Pane top-left pixel within the window. Mirrors the math
-        // in `paint_pane.rs` so the overlay registers with the
-        // underlying pane characters.
-        let (padding_left, padding_top) = self.padding_left_top();
-        let border = self.get_os_border();
-        let tab_bar_height = if self.show_tab_bar {
-            self.tab_bar_pixel_height().unwrap_or(0.)
-        } else {
-            0.
-        };
-        let top_bar_height = if self.config.tab_bar_at_bottom {
-            0.0
-        } else {
-            tab_bar_height
-        };
-
-        let pane_left_pixel =
-            padding_left + border.left.get() as f32 + pos.left as f32 * cell_width;
-        let pane_top_pixel =
-            top_bar_height + padding_top + border.top.get() as f32 + pos.top as f32 * cell_height;
+        // Pane top-left pixel within the window, shared with `paint_pane` so
+        // the overlay registers with the underlying pane characters.
+        let (pane_left_pixel, pane_top_pixel) = self.pane_origin_pixels(pos);
 
         // Truncate the ghost so it doesn't visually wrap past the
         // pane's right edge — drawing past the edge would either

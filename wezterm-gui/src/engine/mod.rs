@@ -28,6 +28,7 @@ pub use render_backend::{
     EngineRenderTexturedGlyphLayoutIdentity, EngineRenderTexturedGlyphLayoutMismatch,
     EngineRenderTexturedGlyphLayoutReport, EngineRenderTexturedGlyphUploadPlan,
     EngineRenderTexturedGlyphVertex, EngineRenderVertex, EngineRenderVertexLayer,
+    EngineRenderViewportPlacement,
     EngineWgpuPreparedFrameDiagnostics, EngineWgpuPreparedFramePlan,
     EngineWgpuPreparedFrameReadinessIssue, EngineWgpuRenderBackend, EngineWgpuRenderPassPlan,
     EngineWgpuTexturedGlyphPassPlan,

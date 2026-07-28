@@ -7,6 +7,7 @@ use crate::engine::{
     EngineRenderGpuVertex, EngineRenderPreparedPaneFrame, EngineRenderShaperGlyph,
     EngineRenderTextAtlasPlan, EngineRenderTexturedGlyphLayoutDiff,
     EngineRenderTexturedGlyphUploadPlan, EngineRenderTexturedGlyphVertex,
+    EngineRenderViewportPlacement,
     EngineWgpuPreparedFramePlan, EngineWgpuRenderBackend, EngineWgpuRenderPassPlan,
     EngineWgpuTexturedGlyphPassPlan,
 };
@@ -168,6 +169,9 @@ pub struct NextCoreCachedGlyphUpload {
 #[allow(dead_code)]
 pub struct NextCoreWebGpuPaneDrawFrame {
     pub engine_frame: EngineRenderPreparedPaneFrame,
+    /// Where this pane's frame lands in the window. Splits give each pane a
+    /// different origin in the same render target.
+    pub viewport: EngineRenderViewportPlacement,
     font: Option<Rc<LoadedFont>>,
 }
 
@@ -665,8 +669,7 @@ impl NextCoreGlyphAtlasState {
         &mut self,
         plan: &EngineRenderBufferPlan,
         glyphs: &EngineRenderGlyphAtlasPlan,
-        viewport_width_px: f32,
-        viewport_height_px: f32,
+        viewport: EngineRenderViewportPlacement,
     ) -> Option<NextCoreCachedGlyphUpload> {
         if !plan.submitted || plan.text_runs.is_empty() {
             return None;
@@ -692,11 +695,10 @@ impl NextCoreGlyphAtlasState {
             NEXT_CORE_GLYPH_ATLAS_HEIGHT_PX,
         );
         pane.cache.apply_texture_update_metrics(&texture_update);
-        let upload = EngineWgpuRenderBackend::prepare_textured_glyph_upload_for_viewport(
+        let upload = EngineWgpuRenderBackend::prepare_textured_glyph_upload_for_placement(
             glyphs,
             &pane.cache.placements,
-            viewport_width_px,
-            viewport_height_px,
+            viewport,
             NEXT_CORE_GLYPH_ATLAS_WIDTH_PX as f32,
             NEXT_CORE_GLYPH_ATLAS_HEIGHT_PX as f32,
         );
@@ -715,8 +717,7 @@ impl NextCoreGlyphAtlasState {
         &mut self,
         plan: &EngineRenderBufferPlan,
         glyphs: &EngineRenderGlyphAtlasPlan,
-        viewport_width_px: f32,
-        viewport_height_px: f32,
+        viewport: EngineRenderViewportPlacement,
         raster_source: &dyn EngineRenderGlyphRasterSource,
     ) -> Option<NextCoreCachedGlyphUpload> {
         if !plan.submitted || plan.text_runs.is_empty() {
@@ -745,11 +746,10 @@ impl NextCoreGlyphAtlasState {
                 raster_source,
             );
         pane.cache.apply_texture_update_metrics(&texture_update);
-        let upload = EngineWgpuRenderBackend::prepare_textured_glyph_upload_for_viewport(
+        let upload = EngineWgpuRenderBackend::prepare_textured_glyph_upload_for_placement(
             glyphs,
             &pane.cache.placements,
-            viewport_width_px,
-            viewport_height_px,
+            viewport,
             NEXT_CORE_GLYPH_ATLAS_WIDTH_PX as f32,
             NEXT_CORE_GLYPH_ATLAS_HEIGHT_PX as f32,
         );
@@ -1571,33 +1571,21 @@ impl WebGpuState {
         self.encode_next_core_textured_glyph_pass(encoder, target, &buffers, &pass)
     }
 
-    fn next_core_viewport_pixels(&self) -> (f32, f32) {
-        let dimensions = self.dimensions.borrow();
-        (
-            dimensions.pixel_width.max(1) as f32,
-            dimensions.pixel_height.max(1) as f32,
-        )
-    }
-
     pub fn prepare_next_core_pane_frame(
         &self,
         batch: EngineRenderBufferBatch,
         font: Option<Rc<LoadedFont>>,
         replace_requested: bool,
+        viewport: EngineRenderViewportPlacement,
     ) -> NextCoreWebGpuPaneDrawFrame {
-        let (viewport_width_px, viewport_height_px) = self.next_core_viewport_pixels();
-        let prepared = EngineWgpuRenderBackend::prepare_frame_for_viewport(
-            &batch.buffer_plan,
-            viewport_width_px,
-            viewport_height_px,
-        );
+        let prepared =
+            EngineWgpuRenderBackend::prepare_frame_for_placement(&batch.buffer_plan, viewport);
         let cached_glyph_upload = replace_requested
             .then(|| {
                 self.next_core_cached_glyph_upload_diagnostics_for_prepared(
                     &batch.buffer_plan,
                     &prepared,
-                    viewport_width_px,
-                    viewport_height_px,
+                    viewport,
                     font.clone(),
                 )
             })
@@ -1610,15 +1598,18 @@ impl WebGpuState {
             cached_glyph_upload.as_ref(),
         );
 
-        NextCoreWebGpuPaneDrawFrame { engine_frame, font }
+        NextCoreWebGpuPaneDrawFrame {
+            engine_frame,
+            font,
+            viewport,
+        }
     }
 
     fn next_core_cached_glyph_upload_diagnostics_for_prepared(
         &self,
         plan: &EngineRenderBufferPlan,
         prepared: &EngineWgpuPreparedFramePlan,
-        viewport_width_px: f32,
-        viewport_height_px: f32,
+        viewport: EngineRenderViewportPlacement,
         font: Option<Rc<LoadedFont>>,
     ) -> Option<EngineRenderCachedGlyphUploadDiagnostics> {
         let mut glyph_state = self.next_core_glyph_atlases.borrow().clone();
@@ -1648,17 +1639,11 @@ impl WebGpuState {
             glyph_state.prepare_cached_upload_with_raster_source(
                 plan,
                 shaped_glyph_atlas,
-                viewport_width_px,
-                viewport_height_px,
+                viewport,
                 font_raster_source,
             )
         } else {
-            glyph_state.prepare_cached_upload(
-                plan,
-                &prepared.glyph_atlas,
-                viewport_width_px,
-                viewport_height_px,
-            )
+            glyph_state.prepare_cached_upload(plan, &prepared.glyph_atlas, viewport)
         };
         glyph_upload.map(|upload| upload.diagnostics())
     }
@@ -1671,14 +1656,13 @@ impl WebGpuState {
         frame: NextCoreWebGpuPaneDrawFrame,
         clear_color: Option<[f64; 4]>,
     ) -> bool {
-        let (viewport_width_px, viewport_height_px) = self.next_core_viewport_pixels();
+        let viewport = frame.viewport;
         self.encode_prepared_next_core_pane_frame_with_font(
             encoder,
             target,
             &frame.engine_frame.batch.buffer_plan,
             &frame.engine_frame.prepared,
-            viewport_width_px,
-            viewport_height_px,
+            viewport,
             clear_color,
             frame.font,
         )
@@ -1690,8 +1674,7 @@ impl WebGpuState {
         target: &wgpu::TextureView,
         plan: &EngineRenderBufferPlan,
         prepared: &EngineWgpuPreparedFramePlan,
-        viewport_width_px: f32,
-        viewport_height_px: f32,
+        viewport: EngineRenderViewportPlacement,
         clear_color: Option<[f64; 4]>,
         font: Option<Rc<LoadedFont>>,
     ) -> bool {
@@ -1750,19 +1733,13 @@ impl WebGpuState {
                 .prepare_cached_upload_with_raster_source(
                     plan,
                     shaped_glyph_atlas,
-                    viewport_width_px,
-                    viewport_height_px,
+                    viewport,
                     font_raster_source,
                 )
         } else {
             self.next_core_glyph_atlases
                 .borrow_mut()
-                .prepare_cached_upload(
-                    plan,
-                    &prepared.glyph_atlas,
-                    viewport_width_px,
-                    viewport_height_px,
-                )
+                .prepare_cached_upload(plan, &prepared.glyph_atlas, viewport)
         };
         if let Some(glyph_upload) = glyph_upload {
             if !glyph_upload.texture_update.missing_key_indices.is_empty() {
@@ -1862,7 +1839,7 @@ mod tests {
         let glyphs = EngineWgpuRenderBackend::prepare_glyph_atlas(&plan);
 
         let first = state
-            .prepare_cached_upload(&plan, &glyphs, 80.0, 40.0)
+            .prepare_cached_upload(&plan, &glyphs, EngineRenderViewportPlacement::fullscreen(80.0, 40.0))
             .expect("first upload");
         assert_eq!(state.len(), 1);
         assert_eq!(first.update.inserted_key_indices, vec![0, 1]);
@@ -1871,7 +1848,7 @@ mod tests {
         assert_eq!(first.upload.vertices.len(), 12);
 
         let repeat = state
-            .prepare_cached_upload(&plan, &glyphs, 80.0, 40.0)
+            .prepare_cached_upload(&plan, &glyphs, EngineRenderViewportPlacement::fullscreen(80.0, 40.0))
             .expect("repeat upload");
         assert!(repeat.update.inserted_key_indices.is_empty());
         assert!(repeat.update.overflow_key_indices.is_empty());
@@ -1886,10 +1863,10 @@ mod tests {
         let glyphs = EngineWgpuRenderBackend::prepare_glyph_atlas(&plan);
 
         let first = state
-            .prepare_cached_upload(&plan, &glyphs, 80.0, 40.0)
+            .prepare_cached_upload(&plan, &glyphs, EngineRenderViewportPlacement::fullscreen(80.0, 40.0))
             .expect("first upload");
         let repeat = state
-            .prepare_cached_upload(&plan, &glyphs, 80.0, 40.0)
+            .prepare_cached_upload(&plan, &glyphs, EngineRenderViewportPlacement::fullscreen(80.0, 40.0))
             .expect("repeat upload");
 
         assert!(first.has_clean_layout_parity_with(&repeat));
@@ -1903,7 +1880,7 @@ mod tests {
         let glyphs = EngineWgpuRenderBackend::prepare_glyph_atlas(&plan);
 
         let upload = state
-            .prepare_cached_upload(&plan, &glyphs, 80.0, 40.0)
+            .prepare_cached_upload(&plan, &glyphs, EngineRenderViewportPlacement::fullscreen(80.0, 40.0))
             .expect("upload");
         let diagnostics = upload.diagnostics();
 
@@ -1937,7 +1914,7 @@ mod tests {
         let glyphs = EngineWgpuRenderBackend::prepare_glyph_atlas(&plan);
 
         let mut upload = state
-            .prepare_cached_upload(&plan, &glyphs, 80.0, 40.0)
+            .prepare_cached_upload(&plan, &glyphs, EngineRenderViewportPlacement::fullscreen(80.0, 40.0))
             .expect("upload");
         upload.update.overflow_key_indices.push(99);
         upload.texture_update.missing_key_indices.push(4);
@@ -1973,10 +1950,10 @@ mod tests {
         let actual_glyphs = EngineWgpuRenderBackend::prepare_glyph_atlas(&actual_plan);
 
         let expected = state
-            .prepare_cached_upload(&expected_plan, &expected_glyphs, 80.0, 40.0)
+            .prepare_cached_upload(&expected_plan, &expected_glyphs, EngineRenderViewportPlacement::fullscreen(80.0, 40.0))
             .expect("expected upload");
         let actual = state
-            .prepare_cached_upload(&actual_plan, &actual_glyphs, 80.0, 40.0)
+            .prepare_cached_upload(&actual_plan, &actual_glyphs, EngineRenderViewportPlacement::fullscreen(80.0, 40.0))
             .expect("actual upload");
         let diff = expected.diff_layout_against(&actual);
 
@@ -1996,10 +1973,10 @@ mod tests {
         let resized_glyphs = EngineWgpuRenderBackend::prepare_glyph_atlas(&resized_plan);
 
         let first = state
-            .prepare_cached_upload(&first_plan, &first_glyphs, 80.0, 40.0)
+            .prepare_cached_upload(&first_plan, &first_glyphs, EngineRenderViewportPlacement::fullscreen(80.0, 40.0))
             .expect("first upload");
         let resized = state
-            .prepare_cached_upload(&resized_plan, &resized_glyphs, 80.0, 40.0)
+            .prepare_cached_upload(&resized_plan, &resized_glyphs, EngineRenderViewportPlacement::fullscreen(80.0, 40.0))
             .expect("resized upload");
 
         assert_eq!(state.len(), 1);
@@ -2017,7 +1994,7 @@ mod tests {
         let glyphs = EngineWgpuRenderBackend::prepare_glyph_atlas(&plan);
 
         assert!(state
-            .prepare_cached_upload(&plan, &glyphs, 80.0, 40.0)
+            .prepare_cached_upload(&plan, &glyphs, EngineRenderViewportPlacement::fullscreen(80.0, 40.0))
             .is_some());
         assert_eq!(state.len(), 1);
         state.remove_pane(9);
@@ -2051,8 +2028,7 @@ mod tests {
             .prepare_cached_upload_with_raster_source(
                 &plan,
                 &glyphs,
-                80.0,
-                40.0,
+                EngineRenderViewportPlacement::fullscreen(80.0, 40.0),
                 &SolidRasterSource,
             )
             .expect("upload");

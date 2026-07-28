@@ -3,8 +3,9 @@ use super::renderstate::*;
 use super::utilsprites::RenderMetrics;
 use crate::colorease::ColorEase;
 use crate::engine::{
-    CreateSessionRequest, EngineRenderBufferBatch, EngineRenderConsumerSet, InputEngine,
-    LaunchPolicySnapshot, NextCorePaneBindings, RenderCellMetrics, SessionEngine,
+    CreateSessionRequest, EngineRenderBufferBatch, EngineRenderConsumerSet,
+    EngineRenderViewportPlacement, InputEngine, LaunchPolicySnapshot, NextCorePaneBindings,
+    RenderCellMetrics, SessionEngine,
 };
 use crate::frontend::{front_end, try_front_end};
 use crate::inputmap::InputMap;
@@ -5396,11 +5397,53 @@ impl TermWindow {
             .read_buffer_plan(&engine, session_id, metrics)
     }
 
+    /// Pane ids belonging to overlays (copy mode, launcher, debug output).
+    ///
+    /// `get_panes_to_render` substitutes an overlay's pane in place of the
+    /// real one, so a caller that wants only real terminal panes cannot just
+    /// ask whether the pane it was handed *has* an overlay — by then it *is*
+    /// the overlay. next-core must skip these: binding one would spawn a shell
+    /// and paint it over the overlay the user is looking at.
+    pub fn overlay_pane_ids(&self) -> std::collections::HashSet<PaneId> {
+        let mut ids: std::collections::HashSet<PaneId> = self
+            .pane_state
+            .borrow()
+            .values()
+            .filter_map(|state| state.overlay.as_ref().map(|overlay| overlay.pane.pane_id()))
+            .collect();
+        ids.extend(
+            self.tab_state
+                .borrow()
+                .values()
+                .filter_map(|state| state.overlay.as_ref().map(|overlay| overlay.pane.pane_id())),
+        );
+        ids
+    }
+
+    /// Where `pos` lands in the window, as a next-core render placement.
+    ///
+    /// next-core builds each frame with the pane's own top-left at the origin,
+    /// so a split has to shift it to the pane's corner of the shared render
+    /// target. Without this every pane would draw over the top-left one.
+    pub fn next_core_pane_viewport(
+        &self,
+        pos: &mux::tab::PositionedPane,
+    ) -> EngineRenderViewportPlacement {
+        let (origin_x_px, origin_y_px) = self.pane_origin_pixels(pos);
+        EngineRenderViewportPlacement::at(
+            origin_x_px,
+            origin_y_px,
+            self.dimensions.pixel_width.max(1) as f32,
+            self.dimensions.pixel_height.max(1) as f32,
+        )
+    }
+
     #[allow(dead_code)]
-    fn prepare_next_core_webgpu_pane_frame(
+    pub fn prepare_next_core_webgpu_pane_frame(
         &self,
         pane_id: PaneId,
         replace_requested: bool,
+        viewport: EngineRenderViewportPlacement,
     ) -> anyhow::Result<NextCoreWebGpuPaneDrawFrame> {
         let webgpu = self
             .webgpu
@@ -5415,7 +5458,7 @@ impl TermWindow {
             }
         };
 
-        Ok(webgpu.prepare_next_core_pane_frame(batch, font, replace_requested))
+        Ok(webgpu.prepare_next_core_pane_frame(batch, font, replace_requested, viewport))
     }
 
     pub fn tab_state(&self, tab_id: TabId) -> RefMut<'_, TabState> {
