@@ -51,7 +51,7 @@ $Suites = @(
         Name = "next-core mux pane"
         Package = "unterm"
         Filter = "engine::next_core_pane::tests::"
-        ExpectedCount = 13
+        ExpectedCount = 14
         RequiredTests = @(
             "engine::next_core_pane::tests::styled_line_becomes_a_line_of_the_requested_width",
             "engine::next_core_pane::tests::wide_cells_consume_their_trailing_column",
@@ -65,7 +65,8 @@ $Suites = @(
             "engine::next_core_pane::tests::a_wrapped_row_marks_its_last_cell",
             "engine::next_core_pane::tests::cursor_shapes_round_trip_through_their_names",
             "engine::next_core_pane::tests::killing_a_pane_ends_its_session",
-            "engine::next_core_pane::tests::unseen_output_tracks_revisions_since_focus_was_lost"
+            "engine::next_core_pane::tests::unseen_output_tracks_revisions_since_focus_was_lost",
+            "engine::next_core_pane::tests::layout_tree_matches_mux_tab_geometry"
         )
     },
     @{

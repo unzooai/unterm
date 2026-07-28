@@ -346,17 +346,23 @@ fn split_rect(rect: PaneRect, axis: SplitAxis, first_ratio: f64) -> (PaneRect, P
 
 /// Divide `total` cells between two panes, with the divider between them.
 ///
+/// The second pane's share is computed first and the remainder goes to the
+/// first, which is what mux does and is not interchangeable: an even split of
+/// 80 columns is 39 + divider + 40, not 40 + divider + 39. Rounding the first
+/// pane instead would shift every 50% split one cell, so a layout swap would
+/// silently move every divider on screen.
+///
 /// Both sides always get at least one cell; when even that does not fit, the
 /// sizes overlap rather than going to zero, because a zero-sized pane is
 /// unreachable while a cramped one is merely unpleasant.
 fn divide(total: usize, first_ratio: f64) -> (usize, usize) {
-    let usable = total.saturating_sub(DIVIDER_CELLS);
-    if usable < 2 {
+    if total <= DIVIDER_CELLS + 1 {
         return (1, 1);
     }
-    let first = ((usable as f64) * first_ratio).round() as usize;
-    let first = first.clamp(1, usable - 1);
-    (first, usable - first)
+    let second = ((total as f64) * (1.0 - first_ratio)).round() as usize;
+    // Leave room for the divider and at least one cell on the other side.
+    let second = second.clamp(1, total - DIVIDER_CELLS - 1);
+    (total - second - DIVIDER_CELLS, second)
 }
 
 #[cfg(test)]
@@ -399,8 +405,12 @@ mod tests {
         assert_eq!(panes.len(), 2);
         let (left, right) = (panes[0].1, panes[1].1);
 
-        // 80 columns: 40 + divider + 39. Dropping the divider is the classic
-        // off-by-one that makes nested splits overflow their space.
+        // 80 columns: 39 + divider + 40. Two things are pinned here -- that
+        // the divider costs a cell, and that the *second* pane gets the larger
+        // half, which is what mux does. Rounding the other way would shift
+        // every even split one cell when the layouts are swapped.
+        assert_eq!(left.width, 39);
+        assert_eq!(right.width, 40);
         assert_eq!(left.width + right.width + DIVIDER_CELLS, 80);
         assert_eq!(right.left, left.left + left.width + DIVIDER_CELLS);
         // Height is untouched by a horizontal split.
@@ -418,6 +428,9 @@ mod tests {
         let panes = rects(&layout, 80, 24);
         let (top, bottom) = (panes[0].1, panes[1].1);
 
+        // 24 rows: 11 + divider + 12, matching mux's own split arithmetic.
+        assert_eq!(top.height, 11);
+        assert_eq!(bottom.height, 12);
         assert_eq!(top.height + bottom.height + DIVIDER_CELLS, 24);
         assert_eq!(bottom.top, top.top + top.height + DIVIDER_CELLS);
         assert_eq!(top.width, 80);

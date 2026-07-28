@@ -126,9 +126,17 @@ impl NextCorePane {
                             if seen != Some(revision) {
                                 seen = Some(revision);
                                 last_revision.store(revision, Ordering::Release);
-                                mux::Mux::notify_from_any_thread(
-                                    mux::MuxNotification::PaneOutput(pane_id),
-                                );
+                                // Only when a mux exists. Without one there is
+                                // nobody to repaint, and the notify path falls
+                                // through to the main-thread scheduler, which
+                                // panics on a background thread if the GUI
+                                // event loop is not running -- during teardown,
+                                // or in a test.
+                                if mux::Mux::try_get().is_some() {
+                                    mux::Mux::notify_from_any_thread(
+                                        mux::MuxNotification::PaneOutput(pane_id),
+                                    );
+                                }
                             }
                         }
                         // The session is gone; the pane is on its way out and
@@ -775,6 +783,87 @@ mod tests {
         assert!(!pane.has_unseen_output());
 
         next_core().destroy_session(session.id)?;
+        Ok(())
+    }
+
+    /// next-core's layout tree must agree with the mux Tab it is meant to
+    /// replace, cell for cell.
+    ///
+    /// Swapping the two is only safe if they lay panes out identically; a
+    /// one-cell disagreement would move every divider on screen, and would
+    /// show up as a rendering bug long after the swap. Compare them directly
+    /// instead, on the real Tab rather than a reimplementation of it.
+    fn compare_layout_with_mux(
+        axis_request: mux::tab::SplitDirection,
+        axis: unterm_engine::next_core::layout::SplitAxis,
+    ) -> anyhow::Result<()> {
+        use unterm_engine::next_core::layout::Layout;
+        use wezterm_term::TerminalSize;
+
+        let size = TerminalSize {
+            rows: 24,
+            cols: 80,
+            pixel_width: 800,
+            pixel_height: 600,
+            dpi: 96,
+        };
+
+        let first = NextCorePane::spawn(mux::pane::alloc_pane_id(), size, None, None, 0, Vec::new())?;
+        let first_id = first.pane_id();
+        let tab = mux::tab::Tab::new(&size);
+        let first: std::sync::Arc<dyn Pane> = std::sync::Arc::new(first);
+        tab.assign_pane(&first);
+
+        let request = mux::tab::SplitRequest {
+            direction: axis_request,
+            ..Default::default()
+        };
+        let split = tab
+            .compute_split_size(0, request)
+            .ok_or_else(|| anyhow::anyhow!("mux declined to compute a split size"))?;
+        let second =
+            NextCorePane::spawn(mux::pane::alloc_pane_id(), split.second, None, None, 0, Vec::new())?;
+        let second_id = second.pane_id();
+        let second: std::sync::Arc<dyn Pane> = std::sync::Arc::new(second);
+        tab.split_and_insert(0, request, std::sync::Arc::clone(&second))?;
+
+        let mux_panes = tab.iter_panes();
+        assert_eq!(mux_panes.len(), 2, "the split should have produced 2 panes");
+
+        let mut layout = Layout::new(first_id);
+        layout.split(first_id, second_id, axis, 0.5)?;
+        let ours = layout.positions(size.cols as usize, size.rows as usize);
+
+        for (mux_pane, our_pane) in mux_panes.iter().zip(&ours) {
+            assert_eq!(
+                (
+                    mux_pane.left,
+                    mux_pane.top,
+                    mux_pane.width,
+                    mux_pane.height
+                ),
+                (
+                    our_pane.rect.left,
+                    our_pane.rect.top,
+                    our_pane.rect.width,
+                    our_pane.rect.height
+                ),
+                "layout disagrees with mux for pane index {}",
+                mux_pane.index
+            );
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn layout_tree_matches_mux_tab_geometry() -> anyhow::Result<()> {
+        use unterm_engine::next_core::layout::SplitAxis;
+
+        // Both axes: the arithmetic differs (80 columns splits 39/40, 24 rows
+        // splits 11/12), so agreeing on one says nothing about the other.
+        compare_layout_with_mux(mux::tab::SplitDirection::Horizontal, SplitAxis::Horizontal)?;
+        compare_layout_with_mux(mux::tab::SplitDirection::Vertical, SplitAxis::Vertical)?;
         Ok(())
     }
 
