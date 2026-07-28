@@ -244,6 +244,16 @@ pub struct ConnectCommand {
 }
 
 #[derive(Debug, Parser, Clone)]
+pub struct MigrateConfigCommand {
+    /// The Lua config to convert. Defaults to the first one found.
+    pub input: Option<std::path::PathBuf>,
+
+    /// Where to write the result. Defaults to printing it.
+    #[arg(long)]
+    pub output: Option<std::path::PathBuf>,
+}
+
+#[derive(Debug, Parser, Clone)]
 pub struct LsFontsCommand {
     /// Whether to list all fonts available to the system
     #[arg(long)]

@@ -1175,15 +1175,9 @@ impl Config {
         // Unterm: the declarative config comes first everywhere it is looked
         // for. Finding one means no Lua context is ever built, so a config can
         // no longer hang or crash startup.
-        let mut paths = vec![
-            PathPossibility::optional(HOME_DIR.join(".unterm.conf")),
-            PathPossibility::optional(HOME_DIR.join(".unterm.lua")),
-            PathPossibility::optional(HOME_DIR.join(".wezterm.lua")),
-        ];
+        let mut paths = vec![PathPossibility::optional(HOME_DIR.join(".unterm.conf"))];
         for dir in CONFIG_DIRS.iter() {
             paths.push(PathPossibility::optional(dir.join("unterm.conf")));
-            paths.push(PathPossibility::optional(dir.join("unterm.lua")));
-            paths.push(PathPossibility::optional(dir.join("wezterm.lua")));
         }
 
         if cfg!(windows) {
@@ -1197,40 +1191,38 @@ impl Config {
             // dir as the executable that will take precedence.
             if let Ok(exe_name) = std::env::current_exe() {
                 if let Some(exe_dir) = exe_name.parent() {
-                    paths.insert(0, PathPossibility::optional(exe_dir.join("unterm.lua")));
-                    paths.insert(1, PathPossibility::optional(exe_dir.join("wezterm.lua")));
+                    paths.insert(0, PathPossibility::optional(exe_dir.join("unterm.conf")));
                 }
             }
         }
 
         // Unterm: bundled product-default config, LOWEST priority — any config
         // the user writes above always wins. This is how the out-of-box look
-        // (unified top bar, font, padding, keys in assets/unterm.lua) reaches
-        // installed apps; without it, installs silently run on bare compiled
-        // defaults (the packaging gap that shipped through v0.39).
+        // reaches installed apps; without it, installs silently run on bare
+        // compiled defaults (the packaging gap that shipped through v0.39).
         if let Ok(exe_name) = std::env::current_exe() {
             if let Some(exe_dir) = exe_name.parent() {
-                // macOS .app: Contents/MacOS/unterm → Contents/Resources/unterm.lua
+                // macOS .app: Contents/MacOS/unterm → Contents/Resources/
                 #[cfg(target_os = "macos")]
                 paths.push(PathPossibility::optional(
-                    exe_dir.join("../Resources/unterm.lua"),
+                    exe_dir.join("../Resources/unterm.conf"),
                 ));
                 // Linux AppImage / portable unpack: next to the executable.
                 #[cfg(all(unix, not(target_os = "macos")))]
-                paths.push(PathPossibility::optional(exe_dir.join("unterm.lua")));
-                // Windows: exe_dir/unterm.lua above is the HIGH-priority
+                paths.push(PathPossibility::optional(exe_dir.join("unterm.conf")));
+                // Windows: exe_dir/unterm.conf above is the HIGH-priority
                 // thumb-drive override, so the shipped default lives in a
                 // separate defaults/ subdir to stay lowest priority.
                 #[cfg(windows)]
                 paths.push(PathPossibility::optional(
-                    exe_dir.join("defaults/unterm.lua"),
+                    exe_dir.join("defaults/unterm.conf"),
                 ));
             }
         }
         // Linux deb/system install location.
         #[cfg(all(unix, not(target_os = "macos")))]
         paths.push(PathPossibility::optional(PathBuf::from(
-            "/usr/share/unterm/unterm.lua",
+            "/usr/share/unterm/unterm.conf",
         )));
         if let Some(path) = std::env::var_os("WEZTERM_CONFIG_FILE") {
             log::trace!("Note: WEZTERM_CONFIG_FILE is set in the environment");
@@ -1260,9 +1252,32 @@ impl Config {
             }
         }
 
-        // We didn't find (or were asked to skip) a wezterm.lua file, so
-        // update the environment to make it simpler to understand this
-        // state.
+        // No config found. If the user still has a Lua one, say so rather than
+        // starting on defaults and leaving them to wonder why their settings
+        // stopped applying -- that silence is the whole failure this format
+        // was built to avoid, and it would be a poor way to greet them.
+        let mut legacy_paths = vec![
+            HOME_DIR.join(".unterm.lua"),
+            HOME_DIR.join(".wezterm.lua"),
+        ];
+        for dir in CONFIG_DIRS.iter() {
+            legacy_paths.push(dir.join("unterm.lua"));
+            legacy_paths.push(dir.join("wezterm.lua"));
+        }
+        for legacy in legacy_paths {
+            if legacy.exists() {
+                // Not `show_error`: that routes through the connection UI,
+                // which spawns onto a scheduler the CLI subcommands do not
+                // have. Warning from the config loader must not depend on who
+                // is loading the config.
+                log::warn!(
+                    "{} is a Lua config, which is no longer executed. Run `unterm migrate-config` to convert it to unterm.conf; it reports anything it cannot translate rather than dropping it. Starting on defaults until then.",
+                    legacy.display()
+                );
+                break;
+            }
+        }
+
         std::env::remove_var("WEZTERM_CONFIG_FILE");
         std::env::remove_var("WEZTERM_CONFIG_DIR");
 

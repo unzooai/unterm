@@ -156,6 +156,12 @@ enum SubCommand {
     #[command(name = "connect", about = "Connect to Unterm multiplexer")]
     Connect(ConnectCommand),
 
+    #[command(
+        name = "migrate-config",
+        about = "Convert a Lua config to the declarative unterm.conf format"
+    )]
+    MigrateConfig(MigrateConfigCommand),
+
     #[command(name = "ls-fonts", about = "Display information about fonts")]
     LsFonts(LsFontsCommand),
 
@@ -1130,6 +1136,61 @@ fn run_show_keys(config: config::ConfigHandle, cmd: &ShowKeysCommand) -> anyhow:
     Ok(())
 }
 
+/// Convert a Lua config to the declarative format.
+///
+/// Prints what it could not translate, with the line it came from, because a
+/// migration that quietly drops what it does not understand hands the user a
+/// config that parses, looks complete, and has lost settings.
+fn run_migrate_config(cmd: &MigrateConfigCommand) -> anyhow::Result<()> {
+    use unterm_engine::next_core::config_migrate;
+
+    let input = match &cmd.input {
+        Some(path) => path.clone(),
+        None => {
+            let home = std::env::var_os("HOME")
+                .or_else(|| std::env::var_os("USERPROFILE"))
+                .map(std::path::PathBuf::from)
+                .context("cannot determine the home directory")?;
+            [".unterm.lua", ".wezterm.lua"]
+                .iter()
+                .map(|name| home.join(name))
+                .find(|path| path.exists())
+                .ok_or_else(|| {
+                    anyhow::anyhow!("no Lua config found; pass one as an argument")
+                })?
+        }
+    };
+
+    let source = std::fs::read_to_string(&input)
+        .with_context(|| format!("reading {}", input.display()))?;
+    let migration = config_migrate::migrate_lua(&source);
+
+    match &cmd.output {
+        Some(path) => {
+            std::fs::write(path, &migration.text)
+                .with_context(|| format!("writing {}", path.display()))?;
+            eprintln!("wrote {}", path.display());
+        }
+        None => print!("{}", migration.text),
+    }
+
+    if !migration.unconverted.is_empty() {
+        eprintln!(
+            "
+{} line(s) in {} did not convert. Nothing was dropped silently: each is listed here so you can decide what it should become.
+",
+            migration.unconverted.len(),
+            input.display()
+        );
+        for item in &migration.unconverted {
+            eprintln!("  line {}: {}", item.line, item.reason);
+            eprintln!("    {}", item.snippet);
+        }
+    }
+
+    Ok(())
+}
+
 pub fn run_ls_fonts(config: config::ConfigHandle, cmd: &LsFontsCommand) -> anyhow::Result<()> {
     use wezterm_font::parser::ParsedFont;
 
@@ -1632,6 +1693,7 @@ fn run() -> anyhow::Result<()> {
             },
             Some(connect.domain_name),
         ),
+        SubCommand::MigrateConfig(cmd) => run_migrate_config(&cmd),
         SubCommand::LsFonts(cmd) => run_ls_fonts(config, &cmd),
         SubCommand::ShowKeys(cmd) => run_show_keys(config, &cmd),
     }
