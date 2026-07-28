@@ -8511,7 +8511,7 @@ impl McpHandler {
 
     fn session_recording_list(&self, params: &Value) -> Result<Value> {
         let project = params.get("project").and_then(|v| v.as_str());
-        let entries = crate::recording::list_sessions(project)?;
+        let entries = unterm_services::recording::archive::list_sessions(project)?;
         let entries_json: Vec<Value> = entries
             .into_iter()
             .map(|e| {
@@ -8537,7 +8537,7 @@ impl McpHandler {
             .get("session_id")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing 'session_id'"))?;
-        let md = crate::recording::read_session_markdown(session_id)?;
+        let md = unterm_services::recording::archive::read_session_markdown(session_id)?;
         Ok(json!({"markdown": md}))
     }
 

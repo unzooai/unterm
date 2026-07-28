@@ -8,6 +8,7 @@
 //! Splitting it this way is what lets a second front end list and read the
 //! same recordings without owning the recorder.
 
+pub mod archive;
 pub mod index;
 pub mod redact;
 pub mod render;

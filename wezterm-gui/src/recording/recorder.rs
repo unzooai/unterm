@@ -20,8 +20,6 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
-use termwiz::escape::osc::FinalTermSemanticPrompt;
-use termwiz::escape::OperatingSystemCommand;
 
 const FLUSH_BYTES_THRESHOLD: usize = 64 * 1024;
 const FLUSH_EVENT_THRESHOLD: usize = 100;
@@ -30,84 +28,9 @@ const FLUSH_INTERVAL: Duration = Duration::from_secs(5);
 const ROTATE_BYTES: u64 = 5 * 1024 * 1024;
 #[allow(dead_code)]
 const ROTATE_BLOCKS: u64 = 1000;
+use termwiz::escape::osc::FinalTermSemanticPrompt;
+use termwiz::escape::OperatingSystemCommand;
 
-/// Persistent config loaded from `~/.unterm/recording.json`.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct RecordingConfig {
-    #[serde(default)]
-    pub recording: RecordingFlags,
-    #[serde(default)]
-    pub redaction: RedactionFlags,
-    #[serde(default = "default_idle_minutes")]
-    pub idle_rotate_minutes: u64,
-}
-
-fn default_idle_minutes() -> u64 {
-    5
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct RecordingFlags {
-    #[serde(default)]
-    pub enabled: bool,
-}
-
-impl Default for RecordingFlags {
-    fn default() -> Self {
-        Self { enabled: false }
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct RedactionFlags {
-    #[serde(default = "default_true")]
-    pub enabled: bool,
-    #[serde(default)]
-    pub custom_patterns: Vec<String>,
-}
-
-impl Default for RedactionFlags {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            custom_patterns: Vec::new(),
-        }
-    }
-}
-
-fn default_true() -> bool {
-    true
-}
-
-impl Default for RecordingConfig {
-    fn default() -> Self {
-        Self {
-            recording: RecordingFlags::default(),
-            redaction: RedactionFlags::default(),
-            idle_rotate_minutes: default_idle_minutes(),
-        }
-    }
-}
-
-fn config_path() -> PathBuf {
-    dirs_next::home_dir()
-        .unwrap_or_default()
-        .join(".unterm")
-        .join("recording.json")
-}
-
-pub fn load_config() -> RecordingConfig {
-    let p = config_path();
-    if !p.exists() {
-        return RecordingConfig::default();
-    }
-    match std::fs::read_to_string(&p) {
-        Ok(raw) => serde_json::from_str(&raw).unwrap_or_default(),
-        Err(_) => RecordingConfig::default(),
-    }
-}
-
-#[allow(dead_code)]
 #[derive(Default)]
 pub struct RecordingMetrics {
     pub started_at: Option<i64>,
@@ -234,7 +157,7 @@ impl PaneRecorder {
             exit_reason: exit_reason.map(|s| s.to_string()),
             parent_session_id: inner.parent_session_id.clone(),
             osc133_active: inner.osc133_active,
-            redaction_active: load_config().redaction.enabled,
+            redaction_active: unterm_services::recording::archive::load_config().redaction.enabled,
             redaction_count: 0,
             trace_ids: inner.trace_ids.clone(),
             // Read agent identity from spawn-time env vars; these are set by
@@ -535,7 +458,7 @@ pub fn start_recording(pane_id: PaneId) -> Result<StartResult> {
         exit_reason: None,
         parent_session_id: None,
         osc133_active: false,
-        redaction_active: load_config().redaction.enabled,
+        redaction_active: unterm_services::recording::archive::load_config().redaction.enabled,
         redaction_count: 0,
         trace_ids: Vec::new(),
         agent_id: std::env::var("UNTERM_AGENT_ID").ok(),
@@ -580,7 +503,7 @@ pub fn stop_recording(pane_id: PaneId) -> Result<StopResult> {
 
     // Render markdown to its destination path so the file exists when
     // the user wants it.
-    let cfg = load_config();
+    let cfg = unterm_services::recording::archive::load_config();
     let render_cfg = RenderConfig {
         redaction_enabled: cfg.redaction.enabled,
         custom_patterns: cfg.redaction.custom_patterns.clone(),
@@ -675,7 +598,7 @@ pub fn export_active_recording_markdown(
         .ok_or_else(|| anyhow!("No active recording for pane {}", pane_id))?;
     rec.flush_now();
     let (log_path, _md_path, session_id) = rec.paths();
-    let cfg = load_config();
+    let cfg = unterm_services::recording::archive::load_config();
     let render_cfg = RenderConfig {
         redaction_enabled: cfg.redaction.enabled,
         custom_patterns: cfg.redaction.custom_patterns.clone(),
@@ -695,34 +618,6 @@ pub fn export_active_recording_markdown(
         bytes: out.markdown.len(),
         block_count: out.block_count,
     })
-}
-
-pub fn list_sessions(project_filter: Option<&str>) -> Result<Vec<IndexEntry>> {
-    let entries = index::load_index()?;
-    let filtered: Vec<IndexEntry> = entries
-        .into_iter()
-        .filter(|e| match project_filter {
-            Some(p) => {
-                e.project_slug == p || e.project_path.as_deref().map(|x| x == p).unwrap_or(false)
-            }
-            None => true,
-        })
-        .collect();
-    Ok(filtered)
-}
-
-/// Render a session's markdown on demand by reading its log file.
-pub fn read_session_markdown(session_id: &str) -> Result<String> {
-    let entry = index::find_entry(session_id)?
-        .ok_or_else(|| anyhow!("Unknown session_id {}", session_id))?;
-    let log_path = Path::new(&entry.log_path);
-    let cfg = load_config();
-    let render_cfg = RenderConfig {
-        redaction_enabled: cfg.redaction.enabled,
-        custom_patterns: cfg.redaction.custom_patterns.clone(),
-    };
-    let out = render::render_log(log_path, &entry, &render_cfg)?;
-    Ok(out.markdown)
 }
 
 /// One-shot export from a live pane regardless of whether recording is
@@ -833,7 +728,7 @@ fn export_scrollback_markdown_with_events(
     let (_log_path_unused, md_path, started_at_iso, _stem) =
         build_paths(project_path.as_deref(), &project_slug, tab_id);
     let session_id = uuid::Uuid::new_v4().to_string();
-    let cfg = load_config();
+    let cfg = unterm_services::recording::archive::load_config();
     let render_cfg = RenderConfig {
         redaction_enabled: cfg.redaction.enabled,
         custom_patterns: cfg.redaction.custom_patterns.clone(),
@@ -964,9 +859,9 @@ mod tests {
             None,
         );
         let exported = result.unwrap();
-        let listed = list_sessions(Some(&project_path)).unwrap();
+        let listed = unterm_services::recording::archive::list_sessions(Some(&project_path)).unwrap();
         let session_id = listed[0].unterm_session_id.clone();
-        let markdown = read_session_markdown(&session_id).unwrap();
+        let markdown = unterm_services::recording::archive::read_session_markdown(&session_id).unwrap();
 
         match previous_root {
             Some(value) => std::env::set_var("UNTERM_SESSIONS_ROOT", value),
