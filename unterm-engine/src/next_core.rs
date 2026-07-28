@@ -52,6 +52,8 @@ mod screen_search;
 mod screen_snapshot;
 mod screen_state;
 mod screen_text;
+pub mod config;
+pub mod config_migrate;
 pub mod selection;
 mod session_activity;
 mod session_creation;
@@ -478,14 +480,6 @@ impl NextCoreScreen {
         if let Some(last) = line.last_mut() {
             last.wrapped = true;
         }
-    }
-
-    /// Whether `row` soft-wrapped into the next one.
-    fn row_is_wrapped(&self, row: usize) -> bool {
-        self.lines
-            .get(row)
-            .and_then(|line| line.last())
-            .is_some_and(|cell| cell.wrapped)
     }
 
     fn put_cell(&mut self, cell: ScreenCell) {

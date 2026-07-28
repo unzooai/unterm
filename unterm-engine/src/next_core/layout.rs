@@ -617,8 +617,16 @@ mod tests {
         );
         // Nothing escapes the tab.
         for (_, rect) in &panes {
-            assert!(rect.left + rect.width <= 80, "{rect:?} overflows 80 columns");
-            assert!(rect.top + rect.height <= 24, "{rect:?} overflows 24 rows");
+            assert!(
+                rect.left + rect.width <= 80,
+                "{:?} overflows 80 columns",
+                rect
+            );
+            assert!(
+                rect.top + rect.height <= 24,
+                "{:?} overflows 24 rows",
+                rect
+            );
         }
     }
 
@@ -726,7 +734,8 @@ mod tests {
             let panes = rects(&layout, 80, 24);
             assert!(
                 panes.iter().all(|(_, rect)| rect.width >= 1),
-                "ratio {ratio} produced a zero-width pane"
+                "ratio {} produced a zero-width pane",
+                ratio
             );
         }
     }
@@ -764,7 +773,8 @@ mod tests {
             assert_eq!(panes.len(), 2);
             assert!(
                 panes.iter().all(|(_, rect)| rect.width >= 1),
-                "{cols} columns produced a zero-width pane"
+                "{} columns produced a zero-width pane",
+                cols
             );
         }
     }

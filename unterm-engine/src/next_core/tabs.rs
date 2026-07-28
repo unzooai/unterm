@@ -467,7 +467,11 @@ mod tests {
 
         // A later create_tab must not collide with an adopted id.
         let created = tabs.create_tab(20).unwrap();
-        assert!(created > 7, "created tab {created} collides with adopted 7");
+        assert!(
+            created > 7,
+            "created tab {} collides with adopted 7",
+            created
+        );
     }
 
     #[test]

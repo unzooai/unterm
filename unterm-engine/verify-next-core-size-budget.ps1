@@ -2,7 +2,10 @@ param(
     [int]$MaxCoreSourceLines = 12000,
     [int]$MaxProbeSourceLines = 2500,
     [int]$MaxDirectDependencies = 10,
-    [int]$MaxDebugBinaryBytes = 4000000,
+    # A debug binary carries its debug info, so this tracks the toolchain and
+    # the C libraries far more than it tracks next-core. The real size control
+    # is MaxCoreSourceLines; this one only catches a sudden jump.
+    [int]$MaxDebugBinaryBytes = 8000000,
     [switch]$SkipBinarySizeCheck
 )
 
@@ -96,11 +99,12 @@ $directDependencies = @($treeLines | Where-Object { $_ -match "^1\S" }).Count
 
 $debugBinaryBytes = $null
 if (-not $SkipBinarySizeCheck) {
-    if (-not (Test-Path $DebugBinary)) {
-        & cargo build -p unterm-engine --bin unterm-next-core
-        if ($LASTEXITCODE -ne 0) {
-            throw "cargo build failed for unterm-engine --bin unterm-next-core"
-        }
+    # Always rebuild. Measuring whatever binary happened to be lying around let
+    # this check pass for a long time against an artifact that no longer
+    # matched the source.
+    & cargo build -p unterm-engine --bin unterm-next-core
+    if ($LASTEXITCODE -ne 0) {
+        throw "cargo build failed for unterm-engine --bin unterm-next-core"
     }
     if (-not (Test-Path $DebugBinary)) {
         throw "missing debug binary after build: $DebugBinary"

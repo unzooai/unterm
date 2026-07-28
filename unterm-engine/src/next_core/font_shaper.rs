@@ -188,7 +188,8 @@ mod tests {
         assert!(!advances.is_empty());
         assert!(
             advances.windows(2).all(|w| w[0] == w[1]),
-            "monospace face gave uneven advances: {advances:?}"
+            "monospace face gave uneven advances: {:?}",
+            advances
         );
     }
 
@@ -209,7 +210,9 @@ mod tests {
 
         assert!(
             large_advance > small_advance,
-            "48px advance ({large_advance}) should exceed 16px ({small_advance})"
+            "48px advance ({}) should exceed 16px ({})",
+            large_advance,
+            small_advance
         );
     }
 

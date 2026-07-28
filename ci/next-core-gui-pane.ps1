@@ -165,6 +165,39 @@ $Suites = @(
         )
     },
     @{
+        # A declarative config the engine reads instead of executes.
+        Name = "config runtime"
+        Package = "unterm-engine"
+        Filter = "next_core::config::tests::"
+        ExpectedCount = 20
+        RequiredTests = @(
+            "next_core::config::tests::a_typo_is_rejected_with_the_nearest_real_setting",
+            "next_core::config::tests::an_unrelated_key_is_rejected_without_a_wild_guess",
+            "next_core::config::tests::setting_a_key_twice_is_an_error_naming_both_lines",
+            "next_core::config::tests::every_error_is_reported_not_just_the_first",
+            "next_core::config::tests::a_hash_inside_a_string_is_not_a_comment",
+            "next_core::config::tests::a_windows_path_does_not_need_doubled_backslashes",
+            "next_core::config::tests::a_wrong_type_names_the_key_and_both_types",
+            "next_core::config::tests::unterminated_constructs_are_errors_not_silent_truncation"
+        )
+    },
+    @{
+        # Existing Lua configs must survive the move -- and whatever cannot be
+        # converted must be reported, never dropped.
+        Name = "config migration"
+        Package = "unterm-engine"
+        Filter = "next_core::config_migrate::tests::"
+        ExpectedCount = 16
+        RequiredTests = @(
+            "next_core::config_migrate::tests::converts_the_ordinary_assignments",
+            "next_core::config_migrate::tests::a_nested_table_becomes_a_section",
+            "next_core::config_migrate::tests::a_function_is_reported_rather_than_dropped",
+            "next_core::config_migrate::tests::every_unconverted_line_carries_its_source",
+            "next_core::config_migrate::tests::the_converted_output_is_checked_against_the_parser",
+            "next_core::config_migrate::tests::a_realistic_config_converts_to_something_that_parses"
+        )
+    },
+    @{
         # The state behind copy mode, without its UI: two points, a shape, and
         # the text that comes out.
         Name = "selection model"
