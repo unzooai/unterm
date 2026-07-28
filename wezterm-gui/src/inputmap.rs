@@ -17,6 +17,7 @@ pub struct InputMap {
 }
 
 impl InputMap {
+    #[cfg(test)]
     pub fn default_input_map() -> Self {
         let config = ConfigHandle::default_config();
         Self::new(&config)

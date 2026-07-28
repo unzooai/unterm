@@ -1322,34 +1322,6 @@ impl Config {
     }
 
 
-    fn check_domain_consistency(&self) -> anyhow::Result<()> {
-        let mut domains = HashMap::new();
-
-        let mut check_domain = |name: &str, kind: &str| {
-            if let Some(exists) = domains.get(name) {
-                anyhow::bail!(
-                    "{kind} with name \"{name}\" conflicts with \
-                     another existing {exists} with the same name"
-                );
-            }
-            domains.insert(name.to_string(), kind.to_string());
-            Ok(())
-        };
-
-        for d in &self.unix_domains {
-            check_domain(&d.name, "unix domain")?;
-        }
-        for d in &self.exec_domains {
-            check_domain(&d.name, "exec domain")?;
-        }
-        if let Some(domains) = &self.wsl_domains {
-            for d in domains {
-                check_domain(&d.name, "wsl domain")?;
-            }
-        }
-        Ok(())
-    }
-
     pub fn default_config() -> Self {
         Self::default().compute_extra_defaults(None)
     }

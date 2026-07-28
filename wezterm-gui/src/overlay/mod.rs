@@ -15,7 +15,6 @@ pub mod launcher;
 pub mod proxy_settings;
 pub mod quickselect;
 pub mod selector;
-pub mod settings_menu;
 pub mod shell_selector;
 pub mod tab_context_menu;
 pub mod theme_selector;
