@@ -29,6 +29,39 @@ pub fn alloc_pane_id() -> PaneId {
     PANE_ID.fetch_add(1, ::std::sync::atomic::Ordering::Relaxed)
 }
 
+/// Builds a pane backed by something other than a local PTY terminal.
+///
+/// Returning `Ok(None)` declines this spawn and lets the domain fall back to
+/// its own pane; an `Err` is a real failure and aborts the spawn.
+pub type AlternatePaneFactory = dyn Fn(
+        PaneId,
+        TerminalSize,
+        Option<portable_pty::CommandBuilder>,
+        Option<String>,
+        DomainId,
+    ) -> anyhow::Result<Option<Arc<dyn Pane>>>
+    + Send
+    + Sync;
+
+static ALTERNATE_PANE_FACTORY: std::sync::OnceLock<Box<AlternatePaneFactory>> =
+    std::sync::OnceLock::new();
+
+/// Install the factory used in place of the local PTY pane.
+///
+/// The mux holds no policy about when an alternate pane is wanted: whoever
+/// installs the factory has already decided. Installing is one-shot, so a
+/// second call is a programming error rather than a silent swap of the
+/// terminal implementation mid-run.
+pub fn set_alternate_pane_factory(factory: Box<AlternatePaneFactory>) -> anyhow::Result<()> {
+    ALTERNATE_PANE_FACTORY
+        .set(factory)
+        .map_err(|_| anyhow::anyhow!("alternate pane factory is already installed"))
+}
+
+pub fn alternate_pane_factory() -> Option<&'static AlternatePaneFactory> {
+    ALTERNATE_PANE_FACTORY.get().map(|factory| factory.as_ref())
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PerformAssignmentResult {
     /// Continue search for handler

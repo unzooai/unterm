@@ -39,6 +39,12 @@ struct BoundSession {
     session_id: usize,
     cols: usize,
     rows: usize,
+    /// Whether tearing down this binding should destroy the session.
+    ///
+    /// False when the pane itself is a next-core session: that pane owns its
+    /// lifetime and destroys it on drop, so destroying it here too would kill
+    /// a live session out from under a pane that is still on screen.
+    owns_session: bool,
 }
 
 /// One-to-one map between GUI pane ids and next-core session ids.
@@ -68,6 +74,38 @@ impl NextCorePaneBindings {
         cols: usize,
         rows: usize,
     ) -> Option<usize> {
+        self.bind_with_ownership(pane_id, session_id, cols, rows, true)
+    }
+
+    /// Bind a session the pane itself owns.
+    ///
+    /// Used when the mux pane *is* a next-core session: the registry tracks it
+    /// for rendering and input, but the pane destroys it on drop.
+    pub fn bind_borrowed(
+        &mut self,
+        pane_id: usize,
+        session_id: usize,
+        cols: usize,
+        rows: usize,
+    ) -> Option<usize> {
+        self.bind_with_ownership(pane_id, session_id, cols, rows, false)
+    }
+
+    /// Whether tearing down `pane_id`'s binding should destroy its session.
+    pub fn owns_session(&self, pane_id: usize) -> bool {
+        self.session_by_pane
+            .get(&pane_id)
+            .is_some_and(|bound| bound.owns_session)
+    }
+
+    fn bind_with_ownership(
+        &mut self,
+        pane_id: usize,
+        session_id: usize,
+        cols: usize,
+        rows: usize,
+        owns_session: bool,
+    ) -> Option<usize> {
         if let Some(previous_pane) = self.pane_by_session.insert(session_id, pane_id) {
             if previous_pane != pane_id {
                 self.session_by_pane.remove(&previous_pane);
@@ -77,6 +115,7 @@ impl NextCorePaneBindings {
             session_id,
             cols,
             rows,
+            owns_session,
         };
         match self.session_by_pane.insert(pane_id, bound) {
             Some(previous) if previous.session_id != session_id => {

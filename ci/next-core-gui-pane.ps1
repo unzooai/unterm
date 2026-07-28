@@ -51,14 +51,16 @@ $Suites = @(
         Name = "next-core mux pane"
         Package = "unterm"
         Filter = "engine::next_core_pane::tests::"
-        ExpectedCount = 6
+        ExpectedCount = 8
         RequiredTests = @(
             "engine::next_core_pane::tests::styled_line_becomes_a_line_of_the_requested_width",
             "engine::next_core_pane::tests::wide_cells_consume_their_trailing_column",
             "engine::next_core_pane::tests::a_line_wider_than_the_screen_is_not_truncated",
             "engine::next_core_pane::tests::hyperlinks_survive_the_conversion",
             "engine::next_core_pane::tests::pane_reads_a_live_next_core_session",
-            "engine::next_core_pane::tests::get_lines_returns_real_session_output_at_the_reported_rows"
+            "engine::next_core_pane::tests::get_lines_returns_real_session_output_at_the_reported_rows",
+            "engine::next_core_pane::tests::pane_factory_flag_needs_an_explicit_opt_in",
+            "engine::next_core_pane::tests::session_revision_advances_when_output_arrives"
         )
     },
     @{

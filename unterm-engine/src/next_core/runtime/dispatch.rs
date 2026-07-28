@@ -27,6 +27,7 @@ pub(in crate::next_core) enum RuntimeDispatchResult {
     Search(Vec<ScreenSearchMatch>),
     Cursor(CursorSnapshot),
     PaneModes(crate::PaneModesSnapshot),
+    ScreenRevision(u64),
     Output(String),
     ShellSnapshot(ShellSnapshot),
     SessionActivity(SessionActivitySnapshot),
@@ -165,6 +166,9 @@ fn execute_screen_read(command: RuntimeCommand) -> Result<RuntimeDispatchResult>
         )),
         RuntimeCommand::PaneModes { .. } => Ok(RuntimeDispatchResult::PaneModes(
             screen_executor::execute_pane_modes(command)?,
+        )),
+        RuntimeCommand::ScreenRevision { .. } => Ok(RuntimeDispatchResult::ScreenRevision(
+            screen_executor::execute_screen_revision(command)?,
         )),
         _ => bail!("runtime dispatch expected screen read command"),
     }

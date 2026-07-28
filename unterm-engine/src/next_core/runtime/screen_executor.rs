@@ -165,6 +165,15 @@ pub(in crate::next_core) fn execute_pane_modes(
     }
 }
 
+pub(in crate::next_core) fn execute_screen_revision(command: RuntimeCommand) -> Result<u64> {
+    ensure_screen_read(&command)?;
+
+    match command {
+        RuntimeCommand::ScreenRevision { pane_id } => screen_dispatch::screen_revision(pane_id),
+        _ => bail!("runtime screen executor expected screen-revision read command"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

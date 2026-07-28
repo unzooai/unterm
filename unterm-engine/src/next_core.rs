@@ -1671,6 +1671,11 @@ impl NextCoreEngine {
     pub fn pane_modes(&self, pane_id: usize) -> Result<crate::PaneModesSnapshot> {
         runtime::pane_modes(pane_id)
     }
+
+    /// The screen revision counter, for cheap change detection.
+    pub fn screen_revision(&self, pane_id: usize) -> Result<u64> {
+        runtime::screen_revision(pane_id)
+    }
 }
 
 impl SessionEngine for NextCoreEngine {

@@ -112,9 +112,23 @@ This covers the pane/session binding invariants, the GUI key encoder, and an end
 
 In `replace` mode next-core drives every visible pane's pixels, keyboard, clipboard paste, IME text, mouse reporting, wheel scrolling, resize, and teardown. Replacing is all-or-nothing across a tab: if any pane is not ready to draw, the whole tab keeps the legacy renderer rather than leaving a blank rectangle.
 
-Known gaps at this stage:
+## next-core Panes
 
-- **A legacy WezTerm pane still runs underneath each next-core pane.** The mux owns pane/tab/split geometry and lifecycle, so a replaced pane means two shells are alive: the one you see and drive (next-core) and the hidden one the mux still holds. Making the GUI pane *be* a next-core session — a `NextCorePane` implementing `mux::pane::Pane` — is the next structural step.
+`UNTERM_NEXT_CORE_PANE=1` makes every mux pane *be* a next-core session instead of a local PTY terminal. No second shell runs underneath: `LocalDomain::spawn_pane` asks the alternate-pane factory before it opens a PTY, so nothing local is created at all.
+
+```powershell
+$env:UNTERM_NEXT_CORE_PANE = "1"
+cargo run -p unterm -- start
+```
+
+This is independent of `UNTERM_NEXT_CORE_WEBGPU_PANE`, and the two compose:
+
+- `UNTERM_NEXT_CORE_PANE` alone — next-core owns the terminal (PTY, parsing, screen, scrollback, input); WezTerm's renderer draws it by reading `get_lines()`. One shell per pane.
+- plus `UNTERM_NEXT_CORE_WEBGPU_PANE=replace` — next-core also draws its own GPU frame, and the render path binds to the pane's existing session rather than spawning a second one.
+
+The pane owns its session's lifetime and destroys it on drop. Because next-core runs its own PTY pump it hands the mux no reader, so the pane carries a change watcher that samples the screen revision and raises `PaneOutput`; without it the GUI would never be told to repaint.
+
+Known gaps at this stage:
 - Selection and copy still read the legacy pane's screen, so selecting inside a replaced pane copies from the hidden session.
 - Overlays (copy mode, launcher, debug output) keep their pane on the legacy renderer entirely.
 - next-core implements neither the kitty keyboard protocol nor win32-input-mode, so keys are sent in their plain xterm forms. Applications that negotiate those protocols will not see the extended encodings in a replaced pane.

@@ -938,6 +938,11 @@ fn setup_mux(
     default_domain_name: Option<&str>,
     default_workspace_name: Option<&str>,
 ) -> anyhow::Result<Arc<Mux>> {
+    // Before any pane is spawned: the factory decides what a pane *is*, so
+    // installing it after the first spawn would leave a mix of local and
+    // next-core panes in the same window.
+    crate::engine::next_core_pane::install_pane_factory_if_enabled();
+
     let mux = Arc::new(mux::Mux::new(Some(local_domain.clone())));
     Mux::set_mux(&mux);
     let client_id = Arc::new(mux::client::ClientId::new());

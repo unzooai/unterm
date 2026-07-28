@@ -594,6 +594,25 @@ impl Domain for LocalDomain {
         command_dir: Option<String>,
     ) -> anyhow::Result<Arc<dyn Pane>> {
         let pane_id = alloc_pane_id();
+
+        // Ask the alternate factory first, before any local PTY is opened:
+        // opening one and then discarding it would leave a second shell
+        // running behind every pane, which is the thing an alternate pane
+        // exists to avoid.
+        if let Some(factory) = crate::pane::alternate_pane_factory() {
+            if let Some(pane) = factory(
+                pane_id,
+                size,
+                command.clone(),
+                command_dir.clone(),
+                self.id,
+            )
+            .context("alternate pane factory")?
+            {
+                return Ok(pane);
+            }
+        }
+
         let cmd = self
             .build_command(command, command_dir, pane_id)
             .await

@@ -120,6 +120,10 @@ pub(in crate::next_core) enum RuntimeCommand {
     PaneModes {
         pane_id: usize,
     },
+    /// The screen revision counter, for cheap change detection.
+    ScreenRevision {
+        pane_id: usize,
+    },
     StartRecording {
         pane_id: usize,
     },
@@ -174,7 +178,8 @@ impl RuntimeCommand {
             | Self::ReadStyledScrollback { .. }
             | Self::SearchScreen { .. }
             | Self::Cursor { .. }
-            | Self::PaneModes { .. } => RuntimeCommandClass::ScreenRead,
+            | Self::PaneModes { .. }
+            | Self::ScreenRevision { .. } => RuntimeCommandClass::ScreenRead,
             Self::StartRecording { .. }
             | Self::StopRecording { .. }
             | Self::RecordingStatus { .. }
@@ -211,6 +216,7 @@ impl RuntimeCommand {
             | Self::SearchScreen { pane_id, .. }
             | Self::Cursor { pane_id }
             | Self::PaneModes { pane_id }
+            | Self::ScreenRevision { pane_id }
             | Self::StartRecording { pane_id }
             | Self::StopRecording { pane_id }
             | Self::RecordingStatus { pane_id }
@@ -245,7 +251,8 @@ impl RuntimeCommand {
             | Self::ReadStyledScrollback { .. }
             | Self::SearchScreen { .. }
             | Self::Cursor { .. }
-            | Self::PaneModes { .. } => RuntimeCommandLane::Screen,
+            | Self::PaneModes { .. }
+            | Self::ScreenRevision { .. } => RuntimeCommandLane::Screen,
             Self::StartRecording { .. }
             | Self::StopRecording { .. }
             | Self::RecordingStatus { .. }

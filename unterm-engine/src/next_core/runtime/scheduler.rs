@@ -346,6 +346,17 @@ pub(in crate::next_core) fn pane_modes(pane_id: usize) -> Result<crate::PaneMode
     }
 }
 
+pub(in crate::next_core) fn screen_revision(pane_id: usize) -> Result<u64> {
+    let command = RuntimeCommand::ScreenRevision { pane_id };
+    match consumer::submit_and_dispatch_response(command)? {
+        RuntimeDispatchResult::ScreenRevision(revision) => Ok(revision),
+        other => bail!(
+            "runtime scheduler expected screen-revision dispatch result, got {:?}",
+            other
+        ),
+    }
+}
+
 pub(in crate::next_core) fn output(pane_id: usize) -> Result<String> {
     let command = RuntimeCommand::RawOutput { pane_id };
     match consumer::submit_and_dispatch_response(command)? {

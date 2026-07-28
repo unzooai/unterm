@@ -17,6 +17,10 @@ pub(in crate::next_core) fn pane_modes(pane_id: usize) -> Result<crate::PaneMode
     scheduler::pane_modes(pane_id)
 }
 
+pub(in crate::next_core) fn screen_revision(pane_id: usize) -> Result<u64> {
+    scheduler::screen_revision(pane_id)
+}
+
 pub(in crate::next_core) fn read_screen(pane_id: usize) -> Result<ScreenSnapshot> {
     scheduler::read_screen(pane_id)
 }

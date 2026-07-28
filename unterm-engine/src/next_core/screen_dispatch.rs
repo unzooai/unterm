@@ -291,6 +291,18 @@ pub(super) fn scroll_viewport_by(pane_id: usize, delta: isize) -> Result<()> {
     Ok(())
 }
 
+/// The screen's revision counter, without building a snapshot.
+///
+/// Change detectors poll this, so it must stay O(1): reading a full
+/// `ScreenSnapshot` just to compare one number would allocate the whole
+/// screen on every tick.
+pub(super) fn screen_revision(pane_id: usize) -> Result<u64> {
+    let screen = session_handles::screen_current(pane_id)?;
+
+    let revision = screen.lock().revision();
+    Ok(revision)
+}
+
 pub(super) fn pane_modes(pane_id: usize) -> Result<crate::PaneModesSnapshot> {
     let screen = session_handles::screen_current(pane_id)?;
 

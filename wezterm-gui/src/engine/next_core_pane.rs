@@ -59,11 +59,21 @@ impl std::io::Write for NextCorePaneWriter {
     }
 }
 
+/// How often the change watcher samples the session's revision.
+///
+/// The mux normally learns about output from its PTY reader thread; next-core
+/// runs its own pump, so nothing would tell the GUI to repaint. Sampling at
+/// roughly frame rate keeps a next-core pane as live as a local one without
+/// spinning.
+const CHANGE_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(8);
+
 pub struct NextCorePane {
     pane_id: PaneId,
     session_id: usize,
     domain_id: DomainId,
     writer: Mutex<NextCorePaneWriter>,
+    /// Cleared on drop to stop the change watcher.
+    watching: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl NextCorePane {
@@ -73,7 +83,80 @@ impl NextCorePane {
             session_id,
             domain_id,
             writer: Mutex::new(NextCorePaneWriter { session_id }),
+            watching: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
+    }
+
+    /// Tell the mux about output so the GUI repaints.
+    ///
+    /// A local pane gets this from the mux's PTY reader thread. next-core owns
+    /// its own pump and hands the mux no reader, so without this a next-core
+    /// pane would sit showing stale content until some unrelated event forced
+    /// a repaint.
+    fn start_change_watcher(&self) {
+        use std::sync::atomic::Ordering;
+
+        if self.watching.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let watching = std::sync::Arc::clone(&self.watching);
+        let session_id = self.session_id;
+        let pane_id = self.pane_id;
+        let spawned = std::thread::Builder::new()
+            .name(format!("next-core-pane-{pane_id}"))
+            .spawn(move || {
+                let mut last_revision = None;
+                while watching.load(Ordering::Acquire) {
+                    match next_core().screen_revision(session_id) {
+                        Ok(revision) => {
+                            if last_revision != Some(revision) {
+                                last_revision = Some(revision);
+                                mux::Mux::notify_from_any_thread(
+                                    mux::MuxNotification::PaneOutput(pane_id),
+                                );
+                            }
+                        }
+                        // The session is gone; the pane is on its way out and
+                        // the mux will drop it.
+                        Err(_) => break,
+                    }
+                    std::thread::sleep(CHANGE_POLL_INTERVAL);
+                }
+            });
+        if let Err(err) = spawned {
+            // Without the watcher the pane still works, it just will not
+            // repaint on its own, so this must not pass silently.
+            self.watching.store(false, Ordering::Release);
+            log::error!(
+                "next-core pane {pane_id} change watcher failed to start; \
+                 the pane will not repaint on output: {err:#}"
+            );
+        }
+    }
+
+    /// Create the next-core session that will back a mux pane.
+    ///
+    /// The pane owns the session from here on: dropping it destroys the
+    /// session, which is what keeps a closed pane from leaving a PTY running.
+    pub fn spawn(
+        pane_id: PaneId,
+        size: TerminalSize,
+        command: Option<portable_pty::CommandBuilder>,
+        command_dir: Option<String>,
+        domain_id: DomainId,
+        env: Vec<(String, String)>,
+    ) -> anyhow::Result<Self> {
+        let session = next_core().create_session(crate::engine::CreateSessionRequest {
+            cols: size.cols.max(1),
+            rows: size.rows.max(1),
+            command_dir,
+            command,
+            env,
+            launch_policy: crate::engine::LaunchPolicySnapshot::default(),
+        })?;
+        let pane = Self::new(pane_id, session.id, domain_id);
+        pane.start_change_watcher();
+        Ok(pane)
     }
 
     pub fn session_id(&self) -> usize {
@@ -106,6 +189,47 @@ impl NextCorePane {
     }
 }
 
+/// Whether mux panes should be next-core sessions rather than local PTY
+/// terminals.
+///
+/// Separate from `UNTERM_NEXT_CORE_WEBGPU_PANE`: that one paints next-core
+/// over a local pane, this one replaces the pane outright. Unset or
+/// unrecognized leaves the local terminal in charge.
+pub fn next_core_panes_enabled_from_env(value: Option<&str>) -> bool {
+    matches!(
+        value.map(|raw| raw.trim().to_ascii_lowercase()).as_deref(),
+        Some("1" | "true" | "yes" | "on" | "next-core")
+    )
+}
+
+pub fn next_core_panes_enabled() -> bool {
+    next_core_panes_enabled_from_env(std::env::var("UNTERM_NEXT_CORE_PANE").ok().as_deref())
+}
+
+/// Install `NextCorePane` as the mux's pane implementation, if enabled.
+///
+/// Called once at startup. The mux holds no policy about when an alternate
+/// pane is wanted, so the decision is made here.
+pub fn install_pane_factory_if_enabled() {
+    if !next_core_panes_enabled() {
+        return;
+    }
+    let result = mux::pane::set_alternate_pane_factory(Box::new(
+        |pane_id, size, command, command_dir, domain_id| {
+            // Same proxy env the local spawn path injects: a next-core pane
+            // must not silently bypass the user's proxy configuration.
+            let env = crate::spawn::read_unterm_proxy_env().unwrap_or_default();
+            let pane =
+                NextCorePane::spawn(pane_id, size, command, command_dir, domain_id, env)?;
+            Ok(Some(std::sync::Arc::new(pane) as std::sync::Arc<dyn Pane>))
+        },
+    ));
+    match result {
+        Ok(()) => log::info!("next-core panes enabled: mux panes are next-core sessions"),
+        Err(err) => log::warn!("next-core pane factory not installed: {err:#}"),
+    }
+}
+
 /// Convert one next-core styled row into a wezterm `Line`.
 fn styled_line_to_line(line: &StyledScreenLine, cols: usize) -> Line {
     // Seqno 0: next-core tracks damage through its own revision counter, and
@@ -132,6 +256,23 @@ fn styled_cell_to_cell(cell: &StyledCell) -> Cell {
         attrs.set_hyperlink(Some(std::sync::Arc::new(Hyperlink::new(hyperlink))));
     }
     Cell::new(cell.ch, attrs)
+}
+
+impl Drop for NextCorePane {
+    fn drop(&mut self) {
+        self.watching
+            .store(false, std::sync::atomic::Ordering::Release);
+        // The pane owns its session, so a closed pane must not leave the PTY
+        // running. Already-destroyed is fine: the mux can drop a pane after
+        // an explicit session teardown.
+        if let Err(err) = next_core().destroy_session(self.session_id) {
+            log::debug!(
+                "next-core session {} for pane {} was already gone at drop: {err:#}",
+                self.session_id,
+                self.pane_id
+            );
+        }
+    }
 }
 
 impl Pane for NextCorePane {
@@ -265,7 +406,10 @@ impl Pane for NextCorePane {
     }
 
     fn palette(&self) -> ColorPalette {
-        ColorPalette::default()
+        // The user's configured colours, the same source a local pane resolves
+        // through. Falling back to ColorPalette::default() here would render
+        // every next-core pane in stock colours regardless of the theme.
+        wezterm_term::TerminalConfiguration::color_palette(&config::TermConfig::new())
     }
 
     fn domain_id(&self) -> DomainId {
@@ -402,6 +546,61 @@ mod tests {
                 .as_deref(),
             Some("https://example.invalid/")
         );
+    }
+
+    #[test]
+    fn pane_factory_flag_needs_an_explicit_opt_in() {
+        for value in ["1", "true", "yes", "on", "next-core", " TRUE "] {
+            assert!(
+                next_core_panes_enabled_from_env(Some(value)),
+                "{value:?} should enable next-core panes"
+            );
+        }
+        // Unset or unrecognized must leave the local terminal in charge:
+        // this flag changes what a pane fundamentally *is*.
+        for value in [None, Some(""), Some("0"), Some("off"), Some("replace")] {
+            assert!(
+                !next_core_panes_enabled_from_env(value),
+                "{value:?} should not enable next-core panes"
+            );
+        }
+    }
+
+    /// The pane has no mux PTY reader, so without its own change watcher the
+    /// GUI would never be told to repaint. Drive real output and check the
+    /// revision the watcher samples actually advances.
+    #[test]
+    fn session_revision_advances_when_output_arrives() -> anyhow::Result<()> {
+        let session = next_core().create_session(CreateSessionRequest {
+            cols: 40,
+            rows: 6,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: LaunchPolicySnapshot::default(),
+        })?;
+
+        let before = next_core().screen_revision(session.id)?;
+        next_core().write_input(session.id, "echo nc-pane-revision\r")?;
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        let advanced = loop {
+            if next_core().screen_revision(session.id)? > before {
+                break true;
+            }
+            if std::time::Instant::now() >= deadline {
+                break false;
+            }
+            std::thread::sleep(CHANGE_POLL_INTERVAL);
+        };
+
+        next_core().destroy_session(session.id)?;
+        assert!(
+            advanced,
+            "screen revision never advanced, so the change watcher would never \
+             tell the mux to repaint"
+        );
+        Ok(())
     }
 
     /// `get_lines` is what the renderer calls every frame, and it is where a

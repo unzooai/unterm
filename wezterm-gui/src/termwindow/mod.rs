@@ -5229,10 +5229,20 @@ impl TermWindow {
     /// Drop this pane's next-core session, if it has one. Called from every
     /// pane-close path so a closed pane never leaves its PTY running.
     fn destroy_next_core_pane_binding(&self, pane_id: PaneId) {
+        // A session the pane itself owns is destroyed by the pane on drop;
+        // destroying it here too would kill a live session out from under a
+        // pane the mux has not finished releasing.
+        let owns = self
+            .next_core_pane_bindings
+            .borrow()
+            .owns_session(pane_id as usize);
         let session_id = self
             .next_core_pane_bindings
             .borrow_mut()
             .unbind_pane(pane_id as usize);
+        if !owns {
+            return;
+        }
         if let Some(session_id) = session_id {
             if let Err(err) = crate::engine::next_core().destroy_session(session_id) {
                 log::debug!(
@@ -5245,8 +5255,17 @@ impl TermWindow {
 
     /// Drop every next-core session this window owns. Used by the paths that
     /// discard all pane state at once, where per-pane close never runs.
+    ///
+    /// Sessions owned by their pane are left alone; the pane destroys them.
     fn destroy_all_next_core_pane_bindings(&self) {
-        let bindings: Vec<(usize, usize)> = self.next_core_pane_bindings.borrow().bindings();
+        let bindings: Vec<(usize, usize)> = {
+            let borrowed = self.next_core_pane_bindings.borrow();
+            borrowed
+                .bindings()
+                .into_iter()
+                .filter(|(pane_id, _)| borrowed.owns_session(*pane_id))
+                .collect()
+        };
         self.next_core_pane_bindings.borrow_mut().clear();
         for (pane_id, session_id) in bindings {
             if let Err(err) = crate::engine::next_core().destroy_session(session_id) {
@@ -5303,6 +5322,29 @@ impl TermWindow {
         pane: &Arc<dyn mux::pane::Pane>,
     ) -> anyhow::Result<usize> {
         let dims = pane.get_dimensions();
+        // A pane that already *is* a next-core session must bind to that
+        // session, not get a second one spawned behind it.
+        if let Some(native) = pane.downcast_ref::<crate::engine::next_core_pane::NextCorePane>() {
+            let session_id = native.session_id();
+            if self
+                .next_core_pane_bindings
+                .borrow()
+                .session_for(pane.pane_id() as usize)
+                != Some(session_id)
+            {
+                self.next_core_pane_bindings.borrow_mut().bind_borrowed(
+                    pane.pane_id() as usize,
+                    session_id,
+                    dims.cols,
+                    dims.viewport_rows,
+                );
+            }
+            // Resize still flows through the registry so the size tracking
+            // stays in one place, but the pane owns the session's lifetime.
+            self.resize_next_core_pane_binding(pane.pane_id(), dims.cols, dims.viewport_rows);
+            return Ok(session_id);
+        }
+
         let cwd = pane_cwd_path(pane).map(|path| path.display().to_string());
         let session_id =
             self.ensure_next_core_pane_binding(pane.pane_id(), dims.cols, dims.viewport_rows, cwd)?;
