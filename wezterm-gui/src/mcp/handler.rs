@@ -1522,15 +1522,14 @@ mod engine_neutral_handler_tests {
         let export_path = temp_root.join("active-export.md");
         std::fs::create_dir_all(&project_dir).expect("create temp project dir");
 
-        #[cfg(windows)]
-        let command =
-            "echo ready & ping -n 2 127.0.0.1 > nul & echo next-core-active-export & ping -n 2 127.0.0.1 > nul";
-        #[cfg(not(windows))]
-        let command = "echo ready; sleep 1; echo next-core-active-export; sleep 1";
-
         let result: Result<(serde_json::Value, usize)> = (|| {
             let handler = McpHandler::new();
             let ctx = ConnectionContext::internal("handler-test");
+            // Start a plain shell and drive it with input *after* the recording
+            // attaches. Passing the command at create time raced the recording:
+            // a short command finishes before `recording_start` runs, and a
+            // recording that attaches after all the output has gone by captures
+            // nothing, so the block assertions below could never be satisfied.
             let created = handler.handle(
                 &ctx,
                 "session.create",
@@ -1538,7 +1537,6 @@ mod engine_neutral_handler_tests {
                     "cols": 80,
                     "rows": 6,
                     "cwd": project_dir.display().to_string(),
-                    "command": command,
                 }),
             )?;
             let pane_id = created["id"].as_u64().expect("session id") as usize;
@@ -1548,8 +1546,16 @@ mod engine_neutral_handler_tests {
                 "session.recording_start",
                 &json!({ "pane_id": pane_id }),
             )?;
+            next_core().write_input(pane_id, "echo next-core-active-export\r")?;
 
+            // Wait for both conditions the assertions below depend on.
+            //
+            // The marker alone is not enough: the shell echoes the typed
+            // command line, which satisfies the search before the recording has
+            // necessarily captured a block. Requiring a block too is what
+            // actually proves an *active* recording is being exported.
             let mut search = json!({});
+            let mut status = json!({});
             for _ in 0..100 {
                 search = handler.handle(
                     &ctx,
@@ -1559,7 +1565,14 @@ mod engine_neutral_handler_tests {
                         "pattern": "next-core-active-export",
                     }),
                 )?;
-                if search["total"].as_u64().unwrap_or_default() > 0 {
+                status = handler.handle(
+                    &ctx,
+                    "session.recording_status",
+                    &json!({ "pane_id": pane_id }),
+                )?;
+                if search["total"].as_u64().unwrap_or_default() > 0
+                    && status["block_count"].as_u64().unwrap_or_default() >= 1
+                {
                     break;
                 }
                 std::thread::sleep(std::time::Duration::from_millis(50));
@@ -1568,6 +1581,11 @@ mod engine_neutral_handler_tests {
                 search["total"].as_u64().unwrap_or_default() > 0,
                 "recording export marker was not visible in next-core screen search: {}",
                 search
+            );
+            assert!(
+                status["block_count"].as_u64().unwrap_or_default() >= 1,
+                "next-core recording captured no blocks while active: {}",
+                status
             );
 
             let exported = handler.handle(
