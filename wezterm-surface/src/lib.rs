@@ -7,6 +7,8 @@ use finl_unicode::grapheme_clusters::Graphemes;
 use serde::{Deserialize, Serialize};
 use wezterm_cell::color::ColorAttribute;
 #[cfg(feature = "use_image")]
+use alloc::boxed::Box;
+#[cfg(feature = "use_image")]
 use wezterm_cell::image::ImageCell;
 use wezterm_cell::{Cell, CellAttributes};
 use wezterm_dynamic::{FromDynamic, ToDynamic};

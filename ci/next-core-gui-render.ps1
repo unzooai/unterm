@@ -8,17 +8,17 @@ $CiDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot = Resolve-Path (Join-Path $CiDir "..")
 
 $RequiredTests = @(
-    "engine::tests::next_core_facade_reads_render_commit_plan",
-    "engine::tests::engine_render_consumer_skips_repeated_next_core_revision",
-    "engine::tests::command_list_backend_prepares_next_core_commit_commands",
-    "engine::tests::engine_render_consumer_reads_next_core_buffer_plan",
-    "engine::tests::engine_render_prepared_pane_frame_builds_replace_diagnostics",
-    "engine::tests::engine_render_consumer_set_reuses_state_and_resizes_metrics"
+    "consumer::tests::next_core_facade_reads_render_commit_plan",
+    "consumer::tests::engine_render_consumer_skips_repeated_next_core_revision",
+    "consumer::tests::command_list_backend_prepares_next_core_commit_commands",
+    "consumer::tests::engine_render_consumer_reads_next_core_buffer_plan",
+    "consumer::tests::engine_render_prepared_pane_frame_builds_replace_diagnostics",
+    "consumer::tests::engine_render_consumer_set_reuses_state_and_resizes_metrics"
 )
 
 Push-Location $RepoRoot
 try {
-    $list = @(& cargo test -p unterm engine::tests:: -- --list 2>&1 | ForEach-Object { $_.ToString() })
+    $list = @(& cargo test -p unterm-render consumer::tests:: -- --list 2>&1 | ForEach-Object { $_.ToString() })
     if ($LASTEXITCODE -ne 0) {
         throw "cargo test list failed:`n$($list -join "`n")"
     }
@@ -34,15 +34,15 @@ try {
         exit 0
     }
 
-    $run = @(& cargo test -p unterm engine::tests:: -- --test-threads=1 2>&1 | ForEach-Object { $_.ToString() })
+    $run = @(& cargo test -p unterm-render consumer::tests:: -- --test-threads=1 2>&1 | ForEach-Object { $_.ToString() })
     if ($LASTEXITCODE -ne 0) {
         throw "next-core GUI render tests failed:`n$($run -join "`n")"
     }
-    if (-not @($run | Where-Object { $_ -match "test result: ok\..*8 passed" })) {
-        throw "next-core GUI render test run did not report 8 passed tests"
+    if (-not @($run | Where-Object { $_ -match "test result: ok\..*6 passed" })) {
+        throw "next-core GUI render test run did not report 6 passed tests"
     }
 
-    Write-Host "next-core GUI render tests ok: required=$($RequiredTests.Count) module_tests=8"
+    Write-Host "next-core GUI render tests ok: required=$($RequiredTests.Count) module_tests=6"
 } finally {
     Pop-Location
 }

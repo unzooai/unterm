@@ -285,7 +285,7 @@ fn write_frontmatter(
             .unwrap_or_default()
     )
     .ok();
-    writeln!(out, "unterm_version: {}", config::wezterm_version()).ok();
+    writeln!(out, "unterm_version: {}", crate::VERSION).ok();
     writeln!(out, "started_at: {}", entry.started_at).ok();
     match &entry.ended_at {
         Some(e) => writeln!(out, "ended_at: {}", e).ok(),

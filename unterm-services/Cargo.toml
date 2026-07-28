@@ -20,7 +20,7 @@ log.workspace = true
 parking_lot.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
-config = { path = "../config" }
+unterm-engine = { path = "../unterm-engine" }
 chrono = { workspace = true, features = ["clock"] }
 uuid = { workspace = true, features = ["v4"] }
 dirs-next.workspace = true

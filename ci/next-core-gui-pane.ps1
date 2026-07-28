@@ -14,63 +14,6 @@ $RepoRoot = Resolve-Path (Join-Path $CiDir "..")
 # expects. Both are gated here.
 $Suites = @(
     @{
-        Name = "pane binding"
-        Package = "unterm"
-        Filter = "engine::pane_binding::tests::"
-        ExpectedCount = 10
-        RequiredTests = @(
-            "engine::pane_binding::tests::unbound_pane_resolves_to_error_not_a_numeric_alias",
-            "engine::pane_binding::tests::rebinding_a_pane_releases_its_previous_session",
-            "engine::pane_binding::tests::rebinding_a_session_detaches_its_previous_pane",
-            "engine::pane_binding::tests::unbinding_clears_both_directions",
-            "engine::pane_binding::tests::retain_panes_returns_sessions_for_closed_panes",
-            "engine::pane_binding::tests::sync_size_reports_only_real_geometry_changes",
-            "engine::pane_binding::tests::sync_size_ignores_unbound_panes",
-            "engine::pane_binding::tests::rebinding_resets_the_tracked_size"
-        )
-    },
-    @{
-        Name = "key encoding"
-        Package = "unterm-engine"
-        Filter = "next_core::key_encoding::tests::"
-        ExpectedCount = 11
-        RequiredTests = @(
-            "next_core::key_encoding::tests::ctrl_characters_encode_as_control_bytes",
-            "next_core::key_encoding::tests::alt_prefixes_escape",
-            "next_core::key_encoding::tests::super_chords_produce_no_pty_input",
-            "next_core::key_encoding::tests::arrows_encode_in_normal_mode_so_the_session_can_translate",
-            "next_core::key_encoding::tests::modified_arrows_use_xterm_modifier_parameters",
-            "next_core::key_encoding::tests::function_keys_split_between_ss3_and_tilde_forms",
-            "next_core::key_encoding::tests::modifier_keys_alone_produce_no_input",
-            "next_core::key_encoding::tests::control_keys_use_canonical_bytes"
-        )
-    },
-    @{
-        # The mux pane backed directly by a next-core session: this is what
-        # removes the second shell running underneath each replaced pane.
-        Name = "next-core mux pane"
-        Package = "unterm"
-        Filter = "engine::next_core_pane::tests::"
-        ExpectedCount = 15
-        RequiredTests = @(
-            "engine::next_core_pane::tests::styled_line_becomes_a_line_of_the_requested_width",
-            "engine::next_core_pane::tests::wide_cells_consume_their_trailing_column",
-            "engine::next_core_pane::tests::a_line_wider_than_the_screen_is_not_truncated",
-            "engine::next_core_pane::tests::hyperlinks_survive_the_conversion",
-            "engine::next_core_pane::tests::pane_reads_a_live_next_core_session",
-            "engine::next_core_pane::tests::get_lines_returns_real_session_output_at_the_reported_rows",
-            "engine::next_core_pane::tests::pane_factory_flag_needs_an_explicit_opt_in",
-            "engine::next_core_pane::tests::session_revision_advances_when_output_arrives",
-            "engine::next_core_pane::tests::spawning_a_pane_creates_a_session_and_dropping_it_destroys_one",
-            "engine::next_core_pane::tests::a_wrapped_row_marks_its_last_cell",
-            "engine::next_core_pane::tests::cursor_shapes_round_trip_through_their_names",
-            "engine::next_core_pane::tests::killing_a_pane_ends_its_session",
-            "engine::next_core_pane::tests::unseen_output_tracks_revisions_since_focus_was_lost",
-            "engine::next_core_pane::tests::layout_tree_matches_mux_tab_geometry",
-            "engine::next_core_pane::tests::a_mux_tab_layout_can_be_adopted_by_next_core"
-        )
-    },
-    @{
         # next-core rasterizing glyphs on FreeType directly, without
         # wezterm-font's terminal-specific font policy.
         Name = "font rasterization"

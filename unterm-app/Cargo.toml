@@ -1,6 +1,6 @@
 [package]
 name = "unterm-app"
-version = "0.1.0"
+version = "0.57.4"
 edition = "2021"
 publish = false
 
@@ -8,7 +8,7 @@ publish = false
 # the pixels, winit for the window. No wezterm-gui, no mux, no window crate.
 
 [[bin]]
-name = "unterm-app"
+name = "unterm"
 path = "src/main.rs"
 
 [dependencies]

@@ -64,15 +64,15 @@ try {
 
     # The other half of capture.scrollback: the surface refuses without a
     # front end (above), and a front end hosting it really renders (here).
-    $hostRun = @(& cargo test -p unterm --bin unterm "mcp_host::tests::" -- --test-threads=1 2>&1 | ForEach-Object { $_.ToString() })
+    $hostRun = @(& cargo test -p unterm-app --bin unterm "mcp_host::tests::" -- --test-threads=1 2>&1 | ForEach-Object { $_.ToString() })
     if ($LASTEXITCODE -ne 0) {
         throw "MCP host tests failed:`n$($hostRun -join "`n")"
     }
-    if (-not @($hostRun | Where-Object { $_ -match "test result: ok\..*1 passed" })) {
-        throw "MCP host test run did not report 1 passed test"
+    if (-not @($hostRun | Where-Object { $_ -match "test result: ok\..*4 passed" })) {
+        throw "MCP host test run did not report 4 passed tests"
     }
 
-    Write-Host "next-core MCP contract tests ok: required=$($RequiredTests.Count) module_tests=43 host_tests=1"
+    Write-Host "next-core MCP contract tests ok: required=$($RequiredTests.Count) module_tests=43 host_tests=4"
 } finally {
     Pop-Location
 }

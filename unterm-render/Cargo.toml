@@ -9,9 +9,11 @@ publish = false
 # what a GPU backend uploads.
 
 [dependencies]
+anyhow.workspace = true
 unterm-engine = { path = "../unterm-engine" }
 wgpu.workspace = true
 bytemuck.workspace = true
 
 [dev-dependencies]
+portable-pty.workspace = true
 pollster = "0.4"

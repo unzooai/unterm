@@ -10,7 +10,6 @@
 //! PowerShell both emit the console codepage unless told otherwise, and what
 //! a terminal receives then is not UTF-8 at all.
 
-use config::keyassignment::SpawnCommand;
 use portable_pty::CommandBuilder;
 
 pub fn apply_unterm_profile_env(cmd_builder: &mut Option<CommandBuilder>) {
@@ -70,14 +69,6 @@ pub fn apply_unterm_proxy_env(cmd_builder: &mut Option<CommandBuilder>) {
     }
 }
 
-pub fn apply_unterm_proxy_to_spawn(spawn: &mut SpawnCommand) {
-    let Some(proxy) = read_unterm_proxy_env() else {
-        return;
-    };
-    for (key, value) in proxy {
-        spawn.set_environment_variables.insert(key, value);
-    }
-}
 
 pub fn apply_unterm_proxy_to_process_env() {
     let Some(proxy) = read_unterm_proxy_env() else {
@@ -189,60 +180,7 @@ fn chcp_command() -> String {
     format!(r"{root}\System32\chcp.com")
 }
 
-/// SpawnCommand-shaped variant — same logic as `apply_unterm_windows_utf8`
-/// but operating on `config::keyassignment::SpawnCommand` (used for the
-/// MCP / Lua-driven spawn paths). Mutates `spawn.args` in place.
-#[cfg(windows)]
-pub fn apply_unterm_windows_utf8_to_spawn(spawn: &mut config::keyassignment::SpawnCommand) {
-    let args = match spawn.args.as_ref() {
-        None => return, // None = use default prog; the CommandBuilder path handles that.
-        Some(a) if a.len() == 1 => a.clone(),
-        Some(_) => return, // user passed extra args — don't wrap.
-    };
-    let exe_str = args[0].to_lowercase();
-    let basename = exe_str
-        .rsplit(['\\', '/'])
-        .next()
-        .unwrap_or(exe_str.as_str());
 
-    if basename.starts_with("powershell") || basename.starts_with("pwsh") {
-        // Four encoding knobs on Windows PowerShell. Missing any one
-        // causes mojibake somewhere in the I/O chain. In particular,
-        // omitting InputEncoding is what causes UTF-8 Chinese filenames
-        // typed at the prompt to be re-decoded as CP936/GBK by PowerShell
-        // before they reach cmdlets — at which point Move-Item / Get-Item
-        // can't find the file and reports a corrupted name back. So we
-        // set all four every time, on the same line so a profile that
-        // overrides one of them only overrides that one.
-        let setup = format!(
-            "[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false);\
-             [Console]::InputEncoding=[Text.UTF8Encoding]::new($false);\
-             $OutputEncoding=[Console]::OutputEncoding;\
-             $PSDefaultParameterValues['*:Encoding']='utf8';\
-             & '{}' 65001>$null;\
-             if(Test-Path $PROFILE){{. $PROFILE}}",
-            chcp_command()
-        );
-        spawn.args = Some(vec![
-            args[0].clone(),
-            "-NoLogo".into(),
-            "-NoExit".into(),
-            "-Command".into(),
-            setup.into(),
-        ]);
-    } else if basename == "cmd.exe" || basename == "cmd" {
-        spawn.args = Some(vec![
-            args[0].clone(),
-            "/D".into(),
-            "/K".into(),
-            format!("{} 65001 > nul", chcp_command()),
-        ]);
-    }
-}
-
-#[cfg(not(windows))]
-pub fn apply_unterm_windows_utf8_to_spawn(_spawn: &mut config::keyassignment::SpawnCommand) {
-}
 
 pub fn read_unterm_proxy_env() -> Option<Vec<(String, String)>> {
     // Reads ~/.unterm/proxy.json (managed by the ▼ menu / Web Settings).

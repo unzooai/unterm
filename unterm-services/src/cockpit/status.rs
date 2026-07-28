@@ -85,7 +85,7 @@ fn registry() -> &'static Mutex<HashMap<u64, Entry>> {
 }
 
 fn enabled() -> bool {
-    config::configuration().cockpit_enabled
+    crate::settings::current().cockpit_enabled
 }
 
 /// Core transition. Creates the entry when `agent` is provided; otherwise
@@ -183,7 +183,7 @@ fn checkpoint_queue() -> &'static Mutex<Vec<u64>> {
 }
 
 fn queue_checkpoint(pane_id: u64) {
-    if !config::configuration().cockpit_auto_checkpoint {
+    if !crate::settings::current().cockpit_auto_checkpoint {
         return;
     }
     let mut q = checkpoint_queue().lock();
@@ -414,7 +414,7 @@ where
 }
 
 fn done_hold() -> Duration {
-    Duration::from_secs(config::configuration().cockpit_done_hold_secs)
+    Duration::from_secs(crate::settings::current().cockpit_done_hold_secs)
 }
 
 /// Drop panes that no longer exist (called with the live pane-id set).

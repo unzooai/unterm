@@ -1,24 +1,15 @@
 [workspace]
 members = [
   "bidi",
-  "bidi/generate",
-  "strip-ansi-escapes",
-  "deps/cairo",
-  "wezterm",
   "wezterm-blob-leases",
   "wezterm-cell",
   "wezterm-escape-parser",
   "wezterm-dynamic",
-  "wezterm-gui",
-  "wezterm-mux-server",
-  "wezterm-open-url",
   "unterm-app",
   "unterm-mcp",
   "unterm-render",
   "unterm-services",
-  "wezterm-render-escapes",
   "wezterm-surface",
-  "wezterm-uds",
   "unterm-engine",
   "unterm-profile",
   "unterm-agents",
@@ -69,7 +60,6 @@ block2 = "0.6"
 bstr = "1.0"
 bytemuck = { version="1.4", features=["derive"]}
 bytes = "1.0"
-cairo-rs = {version="0.18", default-features=false} # See patch.crates-io section
 camino = "1.0"
 cassowary = "0.3"
 cc = {version="1.0", features = ["parallel"]}
@@ -247,7 +237,9 @@ tar = "0.4"
 tempfile = "3.20"
 terminfo = "0.9"
 termios = "0.3"
-termwiz = { version="0.24.0", path = "termwiz" }
+# `use_image` because the surface crate's cells can carry images and termwiz
+# matches on them exhaustively; wezterm-term used to be what asked for it.
+termwiz = { version="0.24.0", path = "termwiz", features = ["use_image"] }
 textwrap = "0.16"
 thiserror = "1.0"
 tiny-skia = "0.11"
@@ -278,7 +270,6 @@ wezterm-cell = { path = "wezterm-cell"}
 wezterm-char-props = { path = "wezterm-char-props", default-features=false }
 wezterm-client = { path = "wezterm-client" }
 wezterm-color-types = { version="0.3", path = "color-types", default-features=false }
-wezterm-config-derive = { version="0.1", path="config/derive" }
  wezterm-dynamic = { version = "0.57.4", path = "wezterm-dynamic", default-features=false }
 wezterm-dynamic-derive = { version="0.1.1", path="wezterm-dynamic/derive" }
 wezterm-escape-parser = { version="0.1.0", path="wezterm-escape-parser" }
@@ -312,6 +303,3 @@ zstd = "0.11"
 zvariant = "4.0"
 
 [patch.crates-io]
-# We use our own vendored cairo, which has minimal deps and should just
-# build via cargo.
-cairo-sys-rs = {path="deps/cairo", version="0.18.0"}

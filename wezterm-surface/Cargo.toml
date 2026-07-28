@@ -36,4 +36,9 @@ use_image = ["wezterm-cell/use_image"] # "image", "dep:image", "wezterm-escape-p
 
 [dev-dependencies]
 k9.workspace = true
+# The features these tests are written against. wezterm-term used to turn
+# them on for the whole workspace; when it was deleted the suite stopped
+# *compiling* rather than failing, which is the quieter and worse way for
+# tests to disappear. Stated here so it cannot happen again.
+wezterm-surface = { path = ".", features = ["std", "appdata", "use_image"] }
 

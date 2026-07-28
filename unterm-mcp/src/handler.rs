@@ -279,10 +279,7 @@ fn workspace_template_launch_decision(
 /// console codepage and shows as boxes. Naming the same shell we would have
 /// got makes it a shell we can set the encoding on.
 fn launch_shell_for_new_pane() -> Option<CommandBuilder> {
-    let configured = config::configuration()
-        .default_prog
-        .clone()
-        .filter(|argv| !argv.is_empty());
+    let configured = unterm_services::settings::current().shell.clone();
     let mut command = match configured {
         Some(argv) => {
             let mut command = CommandBuilder::new(&argv[0]);
@@ -3788,7 +3785,7 @@ pub fn trust_snapshot() -> Value {
     let state = mcp_state().lock();
     let mut runtime: Vec<&String> = state.confirmed_agents.iter().collect();
     runtime.sort();
-    let cfg = config::configuration();
+    let cfg = unterm_services::settings::current();
     let mut static_config: Vec<&String> = cfg.mcp_trusted_agents.iter().collect();
     static_config.sort();
     let mut counts: HashMap<String, u64> = HashMap::new();
@@ -3812,7 +3809,7 @@ pub fn trust_snapshot() -> Value {
 }
 
 pub fn pty_write_confirmation_snapshot() -> Value {
-    let cfg = config::configuration();
+    let cfg = unterm_services::settings::current();
     let state = mcp_state().lock();
     json!({
         "policy": format!("{:?}", cfg.mcp_input_confirmation),
@@ -4664,7 +4661,7 @@ impl McpHandler {
     fn server_health(&self) -> Result<Value> {
         let engine = self.engine();
         let engine_health = engine.health()?;
-        let config = config::configuration();
+        let config = unterm_services::settings::current();
         let instance = unterm_services::server_info::read_current();
         let status = engine_health.status.clone();
         let engine_name = engine_health.engine.clone();
@@ -4688,8 +4685,8 @@ impl McpHandler {
             "terminal": {
                 "initial_cols": config.initial_cols,
                 "initial_rows": config.initial_rows,
-                "color_scheme": config.color_scheme,
-                "term": config.term,
+                "color_scheme": config.color_scheme.clone(),
+                "term": config.term.clone(),
             },
         }))
     }
@@ -5319,7 +5316,7 @@ impl McpHandler {
     /// `GateOutcome::Block` when the user denied (or the banner
     /// timed out).
     fn gate_pty_write(&self, method: &str, pane_id: usize, input: &str) -> Result<GateOutcome> {
-        let cfg = config::configuration();
+        let cfg = unterm_services::settings::current();
         let agent = current_agent_label();
         let preview = input_preview(input);
 
@@ -5336,9 +5333,9 @@ impl McpHandler {
             false
         } else {
             match policy {
-                config::McpInputConfirmation::Never => false,
-                config::McpInputConfirmation::Always => true,
-                config::McpInputConfirmation::FirstTimePerAgent => {
+                unterm_services::settings::McpInputConfirmation::Never => false,
+                unterm_services::settings::McpInputConfirmation::Always => true,
+                unterm_services::settings::McpInputConfirmation::FirstTimePerAgent => {
                     // The first PTY write by this agent triggers a
                     // banner; once allowed, that decision sticks for
                     // the session via `confirmed_agents`. So this
@@ -5732,7 +5729,7 @@ impl McpHandler {
     /// pane and what it is doing. With `pane_id`, a single entry (or
     /// `null`); without, every tracked pane in Inbox order.
     fn cockpit_agent_status(&self, params: &Value) -> Result<Value> {
-        if !config::configuration().cockpit_enabled {
+        if !unterm_services::settings::current().cockpit_enabled {
             return Ok(json!({ "enabled": false, "agents": [] }));
         }
         let explicit_pane = params.get("pane_id").or_else(|| params.get("session_id"));
@@ -5788,7 +5785,7 @@ impl McpHandler {
     /// `cockpit.inbox` — every tracked agent joined with its tab/window
     /// location so a client can jump straight to it.
     fn cockpit_inbox(&self) -> Result<Value> {
-        if !config::configuration().cockpit_enabled {
+        if !unterm_services::settings::current().cockpit_enabled {
             return Ok(json!({ "enabled": false, "items": [] }));
         }
         let engine = self.engine();
@@ -6077,7 +6074,7 @@ impl McpHandler {
         let ttl_ms = params
             .get("ttl_ms")
             .and_then(|v| v.as_u64())
-            .unwrap_or_else(|| config::configuration().mcp_suggest_default_ttl_ms);
+            .unwrap_or_else(|| unterm_services::settings::current().mcp_suggest_default_ttl_ms);
         let source: SuggestionSource = params
             .get("source")
             .cloned()
@@ -6110,7 +6107,7 @@ impl McpHandler {
             posted_by_agent: agent_label.clone(),
         };
 
-        let suggest_max = config::configuration().mcp_suggest_queue_capacity.max(8);
+        let suggest_max = unterm_services::settings::current().mcp_suggest_queue_capacity.max(8);
         {
             let mut state = mcp_state().lock();
             state.suggestions.insert(id.clone(), suggestion);
@@ -6206,7 +6203,7 @@ impl McpHandler {
             allowed,
             agent: current_agent_label(),
         };
-        let audit_max = config::configuration().mcp_audit_log_capacity.max(16);
+        let audit_max = unterm_services::settings::current().mcp_audit_log_capacity.max(16);
         let mut state = mcp_state().lock();
         state.audit_log.push(entry);
         // Cap the in-memory log so a chatty agent can't OOM us. Drop the

@@ -6,6 +6,8 @@ use unicode_segmentation::UnicodeSegmentation;
 use wezterm_cell::Cell;
 
 extern crate alloc;
+// Attaching an image boxes it, and this crate is no_std by default.
+use alloc::boxed::Box;
 use alloc::vec::Vec;
 
 #[cfg_attr(feature = "use_serde", derive(Serialize, Deserialize))]
