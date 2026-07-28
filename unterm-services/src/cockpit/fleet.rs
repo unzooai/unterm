@@ -185,6 +185,66 @@ pub trait FleetPaneRemover {
     fn remove_member(&mut self, pane_id: u64) -> Result<()>;
 }
 
+/// Fleet members as next-core sessions.
+///
+/// Spawning a shell in a directory and stopping it are engine operations, not
+/// window ones: a fleet launched from the settings UI, from the CLI, or from
+/// an agent should get the same panes whether or not anything has a window
+/// open. A front end that wants them arranged its own way still can -- that is
+/// what the `*_with_driver` entry points are for.
+pub struct EngineFleetPanes;
+
+impl FleetPaneSpawner for EngineFleetPanes {
+    fn spawn_member(&mut self, cwd: &Path, command: &str) -> Result<u64> {
+        let mut builder = portable_pty::CommandBuilder::new_default_prog();
+        builder.cwd(cwd);
+        let engine = unterm_engine::next_core();
+        let session = unterm_engine::SessionEngine::create_session(
+            &engine,
+            unterm_engine::CreateSessionRequest {
+                cols: 120,
+                rows: 40,
+                command_dir: Some(cwd.display().to_string()),
+                command: Some(builder),
+                env: Vec::new(),
+                launch_policy: Default::default(),
+            },
+        )?;
+        // The agent's own command, typed into the shell that was started --
+        // the same thing a person launching a fleet member would do.
+        unterm_engine::InputEngine::write_input(&engine, session.id, &format!("{command}\r"))?;
+        Ok(session.id as u64)
+    }
+}
+
+impl FleetPaneRemover for EngineFleetPanes {
+    fn remove_member(&mut self, pane_id: u64) -> Result<()> {
+        unterm_engine::SessionEngine::destroy_session(
+            &unterm_engine::next_core(),
+            pane_id as usize,
+        )
+    }
+}
+
+/// Retry a failed member, in a pane of its own.
+pub fn retry_member(fleet_id: &str, member: &str) -> Result<FleetMember> {
+    let mut panes = EngineFleetPanes;
+    let mut remover = EngineFleetPanes;
+    retry_member_with_driver(fleet_id, member, &mut panes, &mut remover)
+}
+
+/// Remove a fleet: stop its panes, then its worktrees and branches.
+pub fn clean(fleet_id: &str, force: bool) -> Result<()> {
+    let mut remover = EngineFleetPanes;
+    clean_with_remover(fleet_id, force, &mut remover)
+}
+
+/// Launch a fleet, one pane per member.
+pub fn launch(cwd: &Path, task: &str, agents: &[String]) -> Result<Fleet> {
+    let mut panes = EngineFleetPanes;
+    launch_with_spawner(cwd, task, agents, &mut panes)
+}
+
 /// Fast pre-flight check (safe on the main thread): is `cwd` inside a
 /// clean git repo? Returns the i18n key of the failure for palette UI.
 pub fn precheck(cwd: &Path) -> std::result::Result<(), &'static str> {

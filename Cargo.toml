@@ -9,6 +9,7 @@ members = [
   "unterm-cli",
   "unterm-mcp",
   "unterm-render",
+  "unterm-settings",
   "unterm-services",
   "wezterm-surface",
   "unterm-engine",
@@ -283,6 +284,7 @@ wezterm-open-url = { path = "wezterm-open-url" }
 unterm-mcp = { path = "unterm-mcp" }
 unterm-render = { path = "unterm-render" }
 unterm-services = { path = "unterm-services" }
+unterm-settings = { path = "unterm-settings" }
 wezterm-render-escapes = { path = "wezterm-render-escapes" }
 wezterm-surface = { path = "wezterm-surface" }
 wezterm-term = { path = "term" }

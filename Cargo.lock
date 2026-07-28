@@ -2049,6 +2049,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "http_req"
+version = "0.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0122ab6637149482eb66b57288ac597bc7eb9859cbaa79dee62fa19a350df3d2"
+dependencies = [
+ "native-tls",
+ "unicase",
+]
+
+[[package]]
 name = "httparse"
 version = "1.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5388,6 +5398,7 @@ dependencies = [
  "unterm-mcp",
  "unterm-render",
  "unterm-services",
+ "unterm-settings",
  "wgpu",
  "winit",
 ]
@@ -5513,6 +5524,25 @@ dependencies = [
  "uuid",
  "winapi",
  "winreg",
+]
+
+[[package]]
+name = "unterm-settings"
+version = "0.57.4"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "dirs-next",
+ "hostname",
+ "http_req",
+ "log",
+ "serde",
+ "serde_json",
+ "unterm-agents",
+ "unterm-engine",
+ "unterm-mcp",
+ "unterm-profile",
+ "unterm-services",
 ]
 
 [[package]]

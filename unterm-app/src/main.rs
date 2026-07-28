@@ -40,8 +40,12 @@ fn main() -> anyhow::Result<()> {
     // early finds a working surface rather than a half-built one.
     unterm_engine::install_next_core_provider();
     mcp_host::install();
-    let (port, _token) = unterm_mcp::start_mcp_server();
+    let (port, token) = unterm_mcp::start_mcp_server();
     log::info!("MCP server listening on 127.0.0.1:{port}");
+
+    // The settings UI, on the same token. `unterm-cli settings` opens it.
+    let settings_port = unterm_settings::start_web_settings_server(token);
+    log::info!("settings UI listening on 127.0.0.1:{settings_port}");
 
     let event_loop = winit::event_loop::EventLoop::new()?;
     let mut app = window::App::new(&config)?;
