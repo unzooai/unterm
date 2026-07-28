@@ -37,10 +37,16 @@ impl crate::TermWindow {
         let next_core_mode = next_core_webgpu_pane_mode();
         let next_core_pane_frame = if next_core_mode.is_enabled() {
             if let Some(pane) = self.get_active_pane_no_overlay() {
-                match self.prepare_next_core_webgpu_pane_frame(
-                    pane.pane_id(),
-                    next_core_mode == NextCoreWebGpuPaneMode::Replace,
-                ) {
+                // Bind before preparing: the frame is read by next-core session
+                // id, and an unbound pane has no session to read.
+                match self
+                    .ensure_next_core_pane_binding_for(&pane)
+                    .and_then(|_| {
+                        self.prepare_next_core_webgpu_pane_frame(
+                            pane.pane_id(),
+                            next_core_mode == NextCoreWebGpuPaneMode::Replace,
+                        )
+                    }) {
                     Ok(frame) => Some(frame),
                     Err(err) => {
                         log::debug!("next-core WebGPU pane render skipped: {err:#}");
@@ -333,7 +339,7 @@ impl crate::TermWindow {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum NextCoreWebGpuPaneMode {
+pub(crate) enum NextCoreWebGpuPaneMode {
     Disabled,
     Append,
     Replace,
@@ -343,10 +349,26 @@ impl NextCoreWebGpuPaneMode {
     fn is_enabled(self) -> bool {
         self != Self::Disabled
     }
+
+    /// Whether next-core, rather than the legacy WezTerm pane, owns this
+    /// pane's keyboard input.
+    ///
+    /// Only `Replace` qualifies. In `Append` the legacy pane is still the one
+    /// the user is reading — routing keystrokes away from it would make the
+    /// visible pane look dead.
+    pub(crate) fn owns_pane_input(self) -> bool {
+        self == Self::Replace
+    }
 }
 
-fn next_core_webgpu_pane_mode() -> NextCoreWebGpuPaneMode {
-    let Some(raw) = std::env::var("UNTERM_NEXT_CORE_WEBGPU_PANE").ok() else {
+pub(crate) fn next_core_webgpu_pane_mode() -> NextCoreWebGpuPaneMode {
+    next_core_webgpu_pane_mode_from_env(
+        std::env::var("UNTERM_NEXT_CORE_WEBGPU_PANE").ok().as_deref(),
+    )
+}
+
+fn next_core_webgpu_pane_mode_from_env(value: Option<&str>) -> NextCoreWebGpuPaneMode {
+    let Some(raw) = value else {
         return NextCoreWebGpuPaneMode::Disabled;
     };
     match raw.trim().to_ascii_lowercase().as_str() {
@@ -467,6 +489,45 @@ mod tests {
     #[test]
     fn non_pane_quad_ranges_skip_middle() {
         assert_eq!(non_pane_quad_ranges(10, &[3..7]), vec![0..3, 7..10]);
+    }
+
+    #[test]
+    fn only_replace_mode_gives_next_core_the_keyboard() {
+        // Input has to follow the pixels. In Append the legacy pane is still
+        // the one on screen, so routing keystrokes to next-core would make
+        // the pane the user is reading look dead.
+        assert!(NextCoreWebGpuPaneMode::Replace.owns_pane_input());
+        assert!(!NextCoreWebGpuPaneMode::Append.owns_pane_input());
+        assert!(!NextCoreWebGpuPaneMode::Disabled.owns_pane_input());
+    }
+
+    #[test]
+    fn pane_mode_parses_env_values() {
+        use super::next_core_webgpu_pane_mode_from_env;
+
+        for value in ["replace", "replace-pane", "exclusive", "REPLACE", " replace "] {
+            assert_eq!(
+                next_core_webgpu_pane_mode_from_env(Some(value)),
+                NextCoreWebGpuPaneMode::Replace,
+                "{value:?}"
+            );
+        }
+        for value in ["1", "true", "yes", "on", "append"] {
+            assert_eq!(
+                next_core_webgpu_pane_mode_from_env(Some(value)),
+                NextCoreWebGpuPaneMode::Append,
+                "{value:?}"
+            );
+        }
+        // Unset and unrecognized values must both leave the legacy renderer
+        // fully in charge — this flag gates an experimental engine.
+        for value in [None, Some(""), Some("0"), Some("off"), Some("nonsense")] {
+            assert_eq!(
+                next_core_webgpu_pane_mode_from_env(value),
+                NextCoreWebGpuPaneMode::Disabled,
+                "{value:?}"
+            );
+        }
     }
 
     #[test]

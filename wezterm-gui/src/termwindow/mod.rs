@@ -2,7 +2,10 @@
 use super::renderstate::*;
 use super::utilsprites::RenderMetrics;
 use crate::colorease::ColorEase;
-use crate::engine::{EngineRenderBufferBatch, EngineRenderConsumerSet, RenderCellMetrics};
+use crate::engine::{
+    CreateSessionRequest, EngineRenderBufferBatch, EngineRenderConsumerSet, InputEngine,
+    LaunchPolicySnapshot, NextCorePaneBindings, RenderCellMetrics, SessionEngine,
+};
 use crate::frontend::{front_end, try_front_end};
 use crate::inputmap::InputMap;
 use crate::overlay::{
@@ -564,6 +567,11 @@ pub struct TermWindow {
     tab_state: RefCell<HashMap<TabId, TabState>>,
     pane_state: RefCell<HashMap<PaneId, PaneState>>,
     next_core_render_consumers: RefCell<EngineRenderConsumerSet>,
+    /// GUI pane id -> next-core session id. Pane ids and next-core session ids
+    /// come from independent allocators and overlap numerically, so the render
+    /// and input paths must resolve through this map rather than passing a raw
+    /// pane id to the engine.
+    next_core_pane_bindings: RefCell<NextCorePaneBindings>,
     semantic_zones: HashMap<PaneId, SemanticZoneCache>,
 
     /// True after a Ctrl+Left press was consumed as a macOS secondary click;
@@ -650,6 +658,28 @@ pub struct TermWindow {
 fn pane_cwd_path(pane: &Arc<dyn mux::pane::Pane>) -> Option<std::path::PathBuf> {
     let url = pane.get_current_working_dir(mux::pane::CachePolicy::AllowStale)?;
     url.to_file_path().ok()
+}
+
+/// Build the next-core session request for a GUI pane.
+///
+/// The pane's own geometry drives cols/rows so next-core wraps at the width
+/// the user actually sees, and the proxy env matches what `spawn` injects into
+/// a WezTerm pane — a next-core-backed pane must not silently bypass the
+/// user's proxy configuration. No command is set: next-core falls back to the
+/// platform default shell, the same as an MCP `session.create` without one.
+fn next_core_pane_session_request(
+    cols: usize,
+    rows: usize,
+    cwd: Option<String>,
+) -> CreateSessionRequest {
+    CreateSessionRequest {
+        cols: cols.max(1),
+        rows: rows.max(1),
+        command_dir: cwd,
+        command: None,
+        env: crate::spawn::read_unterm_proxy_env().unwrap_or_default(),
+        launch_policy: LaunchPolicySnapshot::default(),
+    }
 }
 
 fn posix_single_quote(s: &str) -> String {
@@ -1017,6 +1047,7 @@ impl TermWindow {
             tab_state: RefCell::new(HashMap::new()),
             pane_state: RefCell::new(HashMap::new()),
             next_core_render_consumers: RefCell::new(EngineRenderConsumerSet::new()),
+            next_core_pane_bindings: RefCell::new(NextCorePaneBindings::new()),
             swallow_left_gesture_after_secondary_click: false,
             current_mouse_buttons: vec![],
             current_mouse_capture: None,
@@ -1859,6 +1890,7 @@ impl TermWindow {
 
         self.pane_state.borrow_mut().clear();
         self.next_core_render_consumers.borrow_mut().clear();
+        self.destroy_all_next_core_pane_bindings();
         self.tab_state.borrow_mut().clear();
     }
 
@@ -5133,11 +5165,215 @@ impl TermWindow {
     }
 
     fn remove_next_core_render_consumer(&self, pane_id: PaneId) {
-        self.next_core_render_consumers
+        // Render consumers and glyph atlases are keyed by next-core session
+        // id, so resolve before unbinding — after `destroy_next_core_pane_binding`
+        // the mapping is gone and the entries would leak.
+        if let Ok(session_id) = self.next_core_pane_session(pane_id) {
+            self.next_core_render_consumers
+                .borrow_mut()
+                .remove_pane(session_id);
+            if let Some(webgpu) = &self.webgpu {
+                webgpu.remove_next_core_glyph_atlas_pane(session_id);
+            }
+        }
+        self.destroy_next_core_pane_binding(pane_id);
+    }
+
+    /// Drop this pane's next-core session, if it has one. Called from every
+    /// pane-close path so a closed pane never leaves its PTY running.
+    fn destroy_next_core_pane_binding(&self, pane_id: PaneId) {
+        let session_id = self
+            .next_core_pane_bindings
             .borrow_mut()
-            .remove_pane(pane_id as usize);
-        if let Some(webgpu) = &self.webgpu {
-            webgpu.remove_next_core_glyph_atlas_pane(pane_id as usize);
+            .unbind_pane(pane_id as usize);
+        if let Some(session_id) = session_id {
+            if let Err(err) = crate::engine::next_core().destroy_session(session_id) {
+                log::debug!(
+                    "next-core session {session_id} for pane {pane_id} \
+                     was already gone at unbind: {err:#}"
+                );
+            }
+        }
+    }
+
+    /// Drop every next-core session this window owns. Used by the paths that
+    /// discard all pane state at once, where per-pane close never runs.
+    fn destroy_all_next_core_pane_bindings(&self) {
+        let bindings: Vec<(usize, usize)> = self.next_core_pane_bindings.borrow().bindings();
+        self.next_core_pane_bindings.borrow_mut().clear();
+        for (pane_id, session_id) in bindings {
+            if let Err(err) = crate::engine::next_core().destroy_session(session_id) {
+                log::debug!(
+                    "next-core session {session_id} for pane {pane_id} \
+                     was already gone at teardown: {err:#}"
+                );
+            }
+        }
+    }
+
+    /// Resolve `pane_id` to its next-core session, creating and binding one on
+    /// first use. The session is sized to the pane and inherits the same proxy
+    /// env the spawn path uses, so a next-core-backed pane starts the same way
+    /// an MCP-created session does.
+    fn ensure_next_core_pane_binding(
+        &self,
+        pane_id: PaneId,
+        cols: usize,
+        rows: usize,
+        cwd: Option<String>,
+    ) -> anyhow::Result<usize> {
+        if let Some(session_id) = self
+            .next_core_pane_bindings
+            .borrow()
+            .session_for(pane_id as usize)
+        {
+            return Ok(session_id);
+        }
+
+        let request = next_core_pane_session_request(cols, rows, cwd);
+        let (request_cols, request_rows) = (request.cols, request.rows);
+        let session = crate::engine::next_core()
+            .create_session(request)
+            .with_context(|| format!("creating next-core session for pane {pane_id}"))?;
+        let replaced = self.next_core_pane_bindings.borrow_mut().bind(
+            pane_id as usize,
+            session.id,
+            request_cols,
+            request_rows,
+        );
+        if let Some(replaced) = replaced {
+            // Defensive: `session_for` said the pane was unbound, so this can
+            // only happen if a concurrent bind raced us. Don't leak its PTY.
+            let _ = crate::engine::next_core().destroy_session(replaced);
+        }
+        Ok(session.id)
+    }
+
+    /// Ensure `pane` has a next-core session, sizing it from the pane's own
+    /// viewport geometry and starting it in the pane's current directory.
+    fn ensure_next_core_pane_binding_for(
+        &self,
+        pane: &Arc<dyn mux::pane::Pane>,
+    ) -> anyhow::Result<usize> {
+        let dims = pane.get_dimensions();
+        let cwd = pane_cwd_path(pane).map(|path| path.display().to_string());
+        let session_id =
+            self.ensure_next_core_pane_binding(pane.pane_id(), dims.cols, dims.viewport_rows, cwd)?;
+        self.resize_next_core_pane_binding(pane.pane_id(), dims.cols, dims.viewport_rows);
+        Ok(session_id)
+    }
+
+    fn next_core_pane_session(&self, pane_id: PaneId) -> anyhow::Result<usize> {
+        Ok(self
+            .next_core_pane_bindings
+            .borrow()
+            .resolve_session(pane_id as usize)?)
+    }
+
+    /// Whether next-core owns `pane_id`'s keyboard input.
+    ///
+    /// True only when the pane is bound to a next-core session *and* next-core
+    /// is replacing the pane on screen. Input must follow the pixels: routing
+    /// keystrokes to a session the user cannot see makes the visible pane look
+    /// dead.
+    pub fn next_core_owns_pane_input(&self, pane_id: PaneId) -> bool {
+        crate::termwindow::render::draw::next_core_webgpu_pane_mode().owns_pane_input()
+            && self.next_core_pane_session(pane_id).is_ok()
+    }
+
+    /// Route a key press to the pane's next-core session.
+    ///
+    /// Returns `true` when next-core owns the pane, whether or not the key
+    /// produced bytes — a modifier keypress legitimately encodes to nothing,
+    /// and falling through would type it into the hidden legacy pane instead.
+    pub fn send_next_core_key(
+        &self,
+        pane_id: PaneId,
+        key: ::termwiz::input::KeyCode,
+        modifiers: ::termwiz::input::Modifiers,
+    ) -> bool {
+        if !self.next_core_owns_pane_input(pane_id) {
+            return false;
+        }
+        if let Some(encoded) =
+            unterm_engine::next_core::key_encoding::encode_key(key, modifiers)
+        {
+            self.write_next_core_pane_input(pane_id, &encoded);
+        }
+        true
+    }
+
+    /// Route already-encoded bytes (win32-input-mode, kitty, IME-composed
+    /// text) to the pane's next-core session.
+    pub fn send_next_core_encoded_input(&self, pane_id: PaneId, encoded: &str) -> bool {
+        if !self.next_core_owns_pane_input(pane_id) {
+            return false;
+        }
+        self.write_next_core_pane_input(pane_id, encoded);
+        true
+    }
+
+    /// Send `input` to the next-core session backing `pane_id`.
+    ///
+    /// Returns `false` when the pane has no next-core session, which is the
+    /// signal for the caller to fall back to the legacy WezTerm pane writer.
+    fn write_next_core_pane_input(&self, pane_id: PaneId, input: &str) -> bool {
+        let Ok(session_id) = self.next_core_pane_session(pane_id) else {
+            return false;
+        };
+        match crate::engine::next_core().write_input(session_id, input) {
+            Ok(()) => true,
+            Err(err) => {
+                log::warn!(
+                    "next-core input write for pane {pane_id} (session {session_id}) failed: {err:#}"
+                );
+                false
+            }
+        }
+    }
+
+    /// Paste `text` into the next-core session backing `pane_id`.
+    ///
+    /// Returns `false` when the pane has no next-core session, which is the
+    /// signal for the caller to fall back to the legacy WezTerm pane writer.
+    pub fn paste_next_core_pane_input(&self, pane_id: PaneId, text: &str) -> bool {
+        let Ok(session_id) = self.next_core_pane_session(pane_id) else {
+            return false;
+        };
+        match crate::engine::next_core().paste_input(session_id, text) {
+            Ok(()) => true,
+            Err(err) => {
+                log::warn!(
+                    "next-core paste for pane {pane_id} (session {session_id}) failed: {err:#}"
+                );
+                false
+            }
+        }
+    }
+
+    /// Keep the next-core session backing `pane_id` sized to the pane.
+    ///
+    /// A next-core-backed pane that misses a resize keeps wrapping at the old
+    /// width. This is driven from the render path rather than from
+    /// `apply_dimensions` so it covers every source of geometry change —
+    /// window resize, split drag, font size change, zoom — without each one
+    /// having to remember to call it. `sync_size` returns `None` when nothing
+    /// moved, so a steady-state frame costs one comparison.
+    fn resize_next_core_pane_binding(&self, pane_id: PaneId, cols: usize, rows: usize) {
+        let cols = cols.max(1);
+        let rows = rows.max(1);
+        let session_id = self
+            .next_core_pane_bindings
+            .borrow_mut()
+            .sync_size(pane_id as usize, cols, rows);
+        let Some(session_id) = session_id else {
+            return;
+        };
+        if let Err(err) = crate::engine::next_core().resize_session(session_id, cols, rows) {
+            log::debug!(
+                "next-core resize for pane {pane_id} (session {session_id}) \
+                 to {cols}x{rows} failed: {err:#}"
+            );
         }
     }
 
@@ -5151,9 +5387,13 @@ impl TermWindow {
             cell_width_px: self.render_metrics.cell_size.width as usize,
             cell_height_px: self.render_metrics.cell_size.height as usize,
         };
+        // Read by next-core session id, not by pane id: the two id spaces
+        // overlap, and indexing the engine by pane id paints whichever session
+        // happens to share the number.
+        let session_id = self.next_core_pane_session(pane_id)?;
         self.next_core_render_consumers
             .borrow_mut()
-            .read_buffer_plan(&engine, pane_id as usize, metrics)
+            .read_buffer_plan(&engine, session_id, metrics)
     }
 
     #[allow(dead_code)]

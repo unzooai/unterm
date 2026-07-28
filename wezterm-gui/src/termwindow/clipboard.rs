@@ -122,6 +122,20 @@ fn notify_paste(
             let mux = Mux::get();
             mux.get_pane(pane_id)
         }) {
+            // A next-core-replaced pane owns its input; pasting into the
+            // legacy pane would drop the text into a hidden session.
+            // `paste_next_core_pane_input` applies bracketed-paste framing
+            // from next-core's own mode state.
+            if myself.next_core_owns_pane_input(pane_id) {
+                if myself.paste_next_core_pane_input(pane_id, &clip) {
+                    if show_feedback {
+                        myself.show_ui_notice(crate::i18n::t("interaction.pasted"));
+                    }
+                } else if show_feedback {
+                    myself.show_ui_notice(crate::i18n::t("interaction.paste_failed"));
+                }
+                return;
+            }
             match pane.send_paste(&clip) {
                 Ok(()) if show_feedback => {
                     myself.show_ui_notice(crate::i18n::t("interaction.pasted"));

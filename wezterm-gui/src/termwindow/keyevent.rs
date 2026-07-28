@@ -361,6 +361,20 @@ impl super::TermWindow {
                     let tw_raw_modifiers = raw_modifiers;
 
                     let mut did_encode = false;
+                    // Same rule as the main Key::Code path: a next-core-replaced
+                    // pane owns its input. Ghost-text observe is deliberately
+                    // skipped here (see the note below) to avoid double-counting
+                    // keys that also arrive via the main path.
+                    if self.next_core_owns_pane_input(pane.pane_id()) {
+                        if is_down {
+                            crate::cockpit::on_user_input(pane.pane_id() as u64);
+                            self.send_next_core_key(pane.pane_id(), term_key, tw_raw_modifiers);
+                        }
+                        if !keycode.is_modifier() {
+                            context.invalidate();
+                        }
+                        return true;
+                    }
                     if let Some(key_event) = key_event {
                         if let Some(encoded) = self.encode_win32_input(&pane, &key_event) {
                             if self.config.debug_key_events {
@@ -679,6 +693,28 @@ impl super::TermWindow {
                     return;
                 }
 
+                // A next-core-replaced pane owns its own input: the legacy
+                // pane is no longer on screen, so writing to it would type
+                // into something the user cannot see.
+                //
+                // The kitty and win32-input encoders are deliberately not used
+                // here. They read protocol state from the *legacy* pane, which
+                // backs a different shell process, and next-core implements
+                // neither protocol — so their output would be sequences it
+                // cannot parse. Key-up carries no input outside those two
+                // protocols, so only key-down is forwarded.
+                if self.next_core_owns_pane_input(pane.pane_id()) {
+                    if window_key.key_is_down {
+                        crate::cockpit::on_user_input(pane.pane_id() as u64);
+                        let sent = self.send_next_core_key(pane.pane_id(), key, modifiers);
+                        if sent && !key.is_modifier() {
+                            observe_ghost_text_key(pane.pane_id() as u64, &key, modifiers);
+                            context.invalidate();
+                        }
+                    }
+                    return;
+                }
+
                 let res = if let Some(encoded) = self.encode_win32_input(&pane, &window_key) {
                     if self.config.debug_key_events {
                         log::info!("win32: Encoded input as {:?}", encoded);
@@ -770,7 +806,11 @@ impl super::TermWindow {
                 if self.config.debug_key_events {
                     log::info!("send to pane string={:?}", s);
                 }
-                pane.writer().write_all(s.as_bytes()).ok();
+                // IME-composed text follows the pixels too: a replaced pane
+                // takes the composed string, the legacy writer never sees it.
+                if !self.send_next_core_encoded_input(pane.pane_id(), &s) {
+                    pane.writer().write_all(s.as_bytes()).ok();
+                }
                 // Mirror composed characters into the ghost buffer.
                 // The dedup window inside `observe()` swallows the
                 // overlap when the same physical key also arrives

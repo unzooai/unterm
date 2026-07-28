@@ -4,6 +4,7 @@
 //! This module keeps the current WezTerm adapter available to GUI callers while
 //! letting product services migrate away from WezTerm internals.
 
+pub mod pane_binding;
 pub mod render_backend;
 pub mod render_consumer;
 pub mod wezterm;
@@ -31,6 +32,8 @@ pub use render_backend::{
     EngineWgpuPreparedFrameReadinessIssue, EngineWgpuRenderBackend, EngineWgpuRenderPassPlan,
     EngineWgpuTexturedGlyphPassPlan,
 };
+#[allow(unused_imports)]
+pub use pane_binding::{NextCorePaneBindingError, NextCorePaneBindings};
 #[allow(unused_imports)]
 pub use render_consumer::{
     EngineRenderBufferBatch, EngineRenderCommitBatch, EngineRenderCommitStats,
