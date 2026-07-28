@@ -69,6 +69,21 @@ $Suites = @(
         )
     },
     @{
+        # next-core rasterizing glyphs on FreeType directly, without
+        # wezterm-font's terminal-specific font policy.
+        Name = "font rasterization"
+        Package = "unterm-engine"
+        Filter = "next_core::font_raster::tests::"
+        ExpectedCount = 5
+        RequiredTests = @(
+            "next_core::font_raster::tests::rasterizes_a_glyph_with_partial_coverage",
+            "next_core::font_raster::tests::a_space_has_no_ink_but_still_advances",
+            "next_core::font_raster::tests::resizing_changes_the_rasterized_size",
+            "next_core::font_raster::tests::rgba_puts_coverage_in_the_alpha_channel",
+            "next_core::font_raster::tests::a_missing_font_file_is_an_error_not_a_panic"
+        )
+    },
+    @{
         Name = "mouse encoding"
         Package = "unterm-engine"
         Filter = "next_core::mouse_encoding::tests::"

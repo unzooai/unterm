@@ -26,6 +26,7 @@ mod health_snapshot;
 mod history;
 mod input_dispatch;
 mod input_pipeline;
+pub mod font_raster;
 pub mod key_encoding;
 pub mod mouse_encoding;
 mod launch;
