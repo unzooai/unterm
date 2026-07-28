@@ -62,6 +62,60 @@ impl super::TermWindow {
         result
     }
 
+    /// The same text, computed by next-core.
+    ///
+    /// Run alongside the implementation below rather than replacing it: copy
+    /// and paste is used every few minutes, and a subtle regression there is
+    /// the kind that annoys someone daily before anyone reports it. Divergence
+    /// is logged; the swap happens once real use has been quiet -- the same way
+    /// the layout geometry changed hands.
+    fn next_core_selection_text(&self, pane: &Arc<dyn Pane>) -> Option<String> {
+        use unterm_engine::next_core::selection::{
+            selected_text, Selection, SelectionPoint, SelectionRow, SelectionShape,
+        };
+
+        let rectangular = self.selection(pane.pane_id()).rectangular;
+        let range = self
+            .selection(pane.pane_id())
+            .range
+            .as_ref()
+            .map(|r| r.normalize())?;
+
+        let column_of = |x: crate::selection::SelectionX| match x {
+            crate::selection::SelectionX::Cell(cell) => cell,
+            // "Before the zeroth cell" is column zero once the end is
+            // exclusive, which is how next-core states a range.
+            crate::selection::SelectionX::BeforeZero => 0,
+        };
+
+        let mut selection = Selection::new(
+            SelectionPoint::new(column_of(range.start.x), range.start.y as i64),
+            if rectangular {
+                SelectionShape::Block
+            } else {
+                SelectionShape::Linear
+            },
+        );
+        selection.extend_to(SelectionPoint::new(column_of(range.end.x), range.end.y as i64));
+
+        let mut rows = Vec::new();
+        for line in pane.get_logical_lines(range.rows()) {
+            let last_idx = line.physical_lines.len().saturating_sub(1);
+            for (idx, phys) in line.physical_lines.iter().enumerate() {
+                let row = line.first_row + idx as StableRowIndex;
+                rows.push(SelectionRow {
+                    row: row as i64,
+                    text: phys.as_str().to_string(),
+                    // A physical line that is not the last of its logical line
+                    // continues into the next one.
+                    wrapped: idx != last_idx,
+                });
+            }
+        }
+
+        Some(selected_text(&selection, &rows))
+    }
+
     /// Returns the selection text only
     pub fn selection_text(&self, pane: &Arc<dyn Pane>) -> String {
         let mut s = String::new();
@@ -103,6 +157,16 @@ impl super::TermWindow {
                                 .unwrap_or(false);
                     }
                 }
+            }
+        }
+
+        if let Some(theirs) = self.next_core_selection_text(pane) {
+            if theirs != s {
+                log::warn!(
+                    "next-core selection text differs: {} chars vs {}",
+                    theirs.chars().count(),
+                    s.chars().count()
+                );
             }
         }
 
