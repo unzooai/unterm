@@ -6,8 +6,7 @@ use super::{
     ScrollbackTextRequest, ScrollbackTextSnapshot, SessionActivitySnapshot, SessionEngine,
     SessionSnapshot, ShellSnapshot, SplitDirection, SplitSessionRequest, StyledCell,
     StyledScreenLine, StyledScreenSnapshot, ViewportScrollResult, WindowEngine, WindowFocusResult,
-    WindowTitleResult,
-};
+    WindowTitleResult, ScrollbackImageEngine};
 use anyhow::{anyhow, Context, Result};
 use config::keyassignment::SpawnTabDomain;
 use mux::domain::SplitSource;
@@ -704,7 +703,9 @@ impl CaptureEngine for WezTermEngine {
     ) -> Result<serde_json::Value> {
         crate::mcp::handler::capture_window_image(title_filter, pid_filter, include_base64)
     }
+}
 
+impl ScrollbackImageEngine for WezTermEngine {
     fn render_scrollback_png(
         &self,
         pane_id: Option<usize>,
@@ -729,3 +730,4 @@ impl CaptureEngine for WezTermEngine {
         })
     }
 }
+

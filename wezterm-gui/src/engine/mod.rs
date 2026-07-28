@@ -158,6 +158,12 @@ pub fn next_core_scrollback_renderer_metadata() -> serde_json::Value {
     })
 }
 
+/// Screenshots, in terms nothing outside this crate has to know about.
+///
+/// Split from the scrollback renderer below because these two return plain
+/// JSON while that one needs this crate's PNG types. Keeping them apart is
+/// what lets the MCP handler -- which uses these seven times and that once --
+/// live somewhere that does not know about a GUI.
 pub trait CaptureEngine {
     fn capture_screen_image(&self, include_base64: bool) -> anyhow::Result<serde_json::Value>;
     fn capture_window_image(
@@ -166,7 +172,10 @@ pub trait CaptureEngine {
         pid_filter: Option<u32>,
         include_base64: bool,
     ) -> anyhow::Result<serde_json::Value>;
+}
 
+/// Rendering the scrollback to a PNG, which needs this crate's renderer.
+pub trait ScrollbackImageEngine {
     fn render_scrollback_png(
         &self,
         pane_id: Option<usize>,
@@ -995,7 +1004,9 @@ impl CaptureEngine for CurrentTerminalEngine {
     ) -> anyhow::Result<serde_json::Value> {
         crate::mcp::handler::capture_window_image(title_filter, pid_filter, include_base64)
     }
+}
 
+impl ScrollbackImageEngine for CurrentTerminalEngine {
     fn render_scrollback_png(
         &self,
         pane_id: Option<usize>,
@@ -1042,6 +1053,7 @@ impl CaptureEngine for CurrentTerminalEngine {
         }
     }
 }
+
 
 fn focus_current_instance_window() -> anyhow::Result<WindowFocusResult> {
     let window = crate::frontend::try_front_end()

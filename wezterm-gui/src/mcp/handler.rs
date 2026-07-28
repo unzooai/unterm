@@ -2,7 +2,7 @@
 //! Implements all methods required by unterm-cli compatibility.
 
 use crate::engine::{
-    CaptureEngine, CreateSessionRequest, CurrentTerminalEngine, HealthEngine, InputEngine,
+    CaptureEngine, ScrollbackImageEngine, CreateSessionRequest, CurrentTerminalEngine, HealthEngine, InputEngine,
     LaunchEnvBinding, LaunchEnvSource, LaunchPolicyDecision, LaunchPolicyDecisionSnapshot,
     LaunchPolicySnapshot, RecordingEngine, ScreenEngine, ScrollbackTextRequest,
     SessionActivitySnapshot, SessionEngine, ShellSnapshot, SplitDirection, SplitSessionRequest,
