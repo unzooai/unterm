@@ -1,0 +1,413 @@
+//! The Unterm command line.
+//!
+//! Everything here talks to a running Unterm over its MCP server, or to the
+//! files Unterm keeps under `~/.unterm`. Nothing needs a window, which is why
+//! this is a binary of its own rather than a mode of the terminal: an agent on
+//! a headless box uses the same commands a user does at a prompt.
+
+use anyhow::Result;
+use clap::{Parser, ValueHint};
+use clap_complete::{generate as generate_completion, shells::Shell};
+
+mod agent;
+mod client;
+mod cockpit_hooks;
+mod exec;
+mod fleet;
+mod i18n;
+mod instance;
+mod lang;
+mod mcp_stdio;
+mod output;
+mod policy;
+mod profile;
+mod proxy;
+mod reference;
+mod review;
+mod screenshot;
+mod scrollback;
+mod server;
+mod session;
+mod sessions;
+mod settings;
+mod setup_ai;
+mod theme;
+mod upload;
+mod workspace;
+
+use agent::AgentCommand;
+use fleet::FleetCommand;
+use review::ReviewCommand;
+use exec::ExecCommand;
+use instance::InstanceCommand;
+use lang::LangCommand;
+use policy::PolicyCommand;
+use profile::ProfileCommand;
+use proxy::ProxyCommand;
+use reference::ReferenceCommand;
+use scrollback::ScrollbackCommand;
+use server::ServerCommand;
+use session::SessionCommand;
+use sessions::SessionsCommand;
+use settings::SettingsCommand;
+use setup_ai::SetupAiCommand;
+use theme::ThemeCommand;
+use upload::UploadCommand;
+use workspace::WorkspaceCommand;
+
+#[derive(Debug, Parser)]
+#[command(
+    name = "unterm-cli",
+    about = "Drive Unterm from a shell or a script",
+    version
+)]
+struct Opt {
+    /// Emit raw JSON-RPC `result` payloads for MCP-backed subcommands such as
+    /// proxy, theme, session, sessions, workspace, instance, screenshot, and
+    /// lang.
+    #[arg(long = "json", global = true)]
+    json: bool,
+
+    /// Override the interface locale for this invocation only (does not
+    /// persist). Use `unterm-cli lang set <code>` to make it permanent.
+    #[arg(long = "lang", global = true, value_name = "code")]
+    lang: Option<String>,
+
+    /// Route MCP-backed CLI commands to a specific running Unterm instance
+    /// such as alpha, bravo, or charlie. Defaults to active/latest.
+    #[arg(long = "instance", global = true, value_name = "id")]
+    instance: Option<String>,
+
+    #[command(subcommand)]
+    cmd: SubCommand,
+}
+
+#[derive(Debug, Parser)]
+enum SubCommand {
+    #[command(
+        name = "profile",
+        about = "Manage identity profiles (GitHub / AWS / npm tokens, git identity, SSH keys)"
+    )]
+    Profile(ProfileCommand),
+
+    #[command(name = "proxy", about = "Manage Unterm's proxy via the MCP server")]
+    Proxy(ProxyCommand),
+
+    #[command(name = "theme", about = "List/switch Unterm theme presets")]
+    Theme(ThemeCommand),
+
+    #[command(name = "session", about = "Operate on a single live pane")]
+    Session(SessionCommand),
+
+    #[command(name = "exec", about = "Run commands in a live pane via MCP")]
+    Exec(ExecCommand),
+
+    #[command(name = "sessions", about = "Browse the recorded session archive")]
+    Sessions(SessionsCommand),
+
+    #[command(name = "workspace", about = "Save or restore named pane workspaces")]
+    Workspace(WorkspaceCommand),
+
+    #[command(
+        name = "instance",
+        about = "List, inspect, label, or focus live Unterm instances"
+    )]
+    Instance(InstanceCommand),
+
+    #[command(
+        name = "settings",
+        about = "Open the Unterm Web Settings UI in your browser"
+    )]
+    Settings(SettingsCommand),
+
+    #[command(
+        name = "lang",
+        about = "List, set, or print the active interface locale"
+    )]
+    Lang(LangCommand),
+
+    #[command(name = "policy", about = "Inspect MCP write-policy decisions")]
+    Policy(PolicyCommand),
+
+    #[command(
+        name = "agent",
+        about = "Install, authenticate, configure, and launch AI coding-agent CLIs (Claude Code / Codex / Gemini / OpenCode / Aider)"
+    )]
+    Agent(AgentCommand),
+
+    #[command(
+        name = "fleet",
+        about = "Run one task across N agents in N isolated git worktrees (Agent Cockpit)"
+    )]
+    Fleet(FleetCommand),
+
+    #[command(
+        name = "review",
+        about = "Inspect, merge, discard, or roll back agent-produced changes (Agent Cockpit)"
+    )]
+    Review(ReviewCommand),
+
+    #[command(
+        name = "screenshot",
+        about = "Capture the screen via Unterm's MCP server. \
+                 --scrollback renders a pane's entire history to one tall PNG; \
+                 --scroll-app/--scroll-title long-screenshots another app's window (macOS)"
+    )]
+    Screenshot {
+        /// Include Unterm's own window in the capture (default: exclude).
+        #[arg(long = "include-window")]
+        include_window: bool,
+        /// Capture only Unterm's own window, not the whole screen. Uses the
+        /// running server's CGWindowID — works even when Unterm isn't the
+        /// frontmost app and never depends on what's behind it.
+        #[arg(long = "self", conflicts_with_all = ["scrollback", "scroll_app", "scroll_title", "scroll_pid"])]
+        self_window: bool,
+        /// Include base64 PNG bytes in --json output. Supported for normal
+        /// screen capture and --self; long screenshot modes return paths.
+        #[arg(long = "base64", conflicts_with_all = ["scrollback", "scroll_app", "scroll_title", "scroll_pid"])]
+        base64: bool,
+        /// In-terminal long screenshot: render the pane's ENTIRE scrollback
+        /// to one tall PNG (headless re-render; window may be occluded).
+        #[arg(long = "scrollback")]
+        scrollback: bool,
+        /// Pane id for --scrollback (default: the active pane).
+        #[arg(long = "pane")]
+        pane: Option<u64>,
+        /// Row cap for --scrollback; keeps the most recent rows (default 10000).
+        #[arg(long = "max-rows")]
+        max_rows: Option<u64>,
+        /// Raster dpi for --scrollback, 48-288 (default 144 on macOS).
+        #[arg(long = "dpi")]
+        dpi: Option<u64>,
+        /// External long screenshot: scroll + stitch the window of the app
+        /// whose name contains this substring (macOS), e.g. "Safari".
+        #[arg(long = "scroll-app")]
+        scroll_app: Option<String>,
+        /// External long screenshot: match the window by title substring.
+        #[arg(long = "scroll-title")]
+        scroll_title: Option<String>,
+        /// External long screenshot: match the window by owning pid.
+        #[arg(long = "scroll-pid")]
+        scroll_pid: Option<u64>,
+        /// Frame cap for external scroll capture (default 25).
+        #[arg(long = "max-frames")]
+        max_frames: Option<u64>,
+        /// Optional output PNG path. If omitted, the MCP-side path is printed.
+        #[arg(short = 'o', long = "output", value_hint=ValueHint::FilePath)]
+        output: Option<std::path::PathBuf>,
+    },
+
+    #[command(
+        name = "upload",
+        about = "Upload a local file to your configured object storage \
+                 (Aliyun OSS / Tencent COS / Qiniu Kodo) and print the public URL"
+    )]
+    Upload(UploadCommand),
+
+    #[command(
+        name = "scrollback",
+        about = "Dump the full scrollback + viewport of a pane as text \
+                 (AI-friendly alternative to a rendered long screenshot)"
+    )]
+    Scrollback(ScrollbackCommand),
+
+    #[command(
+        name = "reference",
+        about = "Print MCP methods, CLI subcommands, and live keybindings \
+                 (one-call surface inventory for agents and operators)"
+    )]
+    Reference(ReferenceCommand),
+
+    #[command(
+        name = "server",
+        about = "Inspect the running Unterm MCP server health and capabilities"
+    )]
+    Server(ServerCommand),
+
+    #[command(
+        name = "setup-ai",
+        about = "Register Unterm with every AI coding agent on this machine \
+                 (Claude Code / Codex / Gemini / Cursor / Windsurf / OpenCode) \
+                 so they auto-discover and can drive the terminal. Idempotent; \
+                 use --remove to undo."
+    )]
+    SetupAi(SetupAiCommand),
+
+    #[command(
+        name = "mcp-stdio",
+        about = "Run an MCP (Model Context Protocol) stdio server that bridges \
+                 an AI agent to this Unterm instance. Spawned automatically by \
+                 the agent launcher; rarely run by hand."
+    )]
+    McpStdio,
+
+    /// Generate shell completion information
+    #[command(name = "shell-completion")]
+    ShellCompletion {
+        /// Which shell to generate for
+        #[arg(long, value_parser)]
+        shell: Shell,
+    },
+}
+
+fn main() -> Result<()> {
+    let opts = Opt::parse();
+    apply_transient_lang(opts.lang.as_deref());
+    set_target_instance(opts.instance.as_deref());
+    match opts.cmd {
+        SubCommand::Profile(cmd) => run_profile(cmd, opts.json),
+        SubCommand::Proxy(cmd) => run_proxy(cmd, opts.json),
+        SubCommand::Theme(cmd) => run_theme(cmd, opts.json),
+        SubCommand::Session(cmd) => run_session(cmd, opts.json),
+        SubCommand::Exec(cmd) => run_exec(cmd, opts.json),
+        SubCommand::Sessions(cmd) => run_sessions(cmd, opts.json),
+        SubCommand::Workspace(cmd) => run_workspace(cmd, opts.json),
+        SubCommand::Instance(cmd) => run_instance(cmd, opts.json),
+        SubCommand::Screenshot {
+            include_window,
+            self_window,
+            base64,
+            output,
+            scrollback,
+            pane,
+            max_rows,
+            dpi,
+            scroll_app,
+            scroll_title,
+            scroll_pid,
+            max_frames,
+        } => run_screenshot(
+            ScreenshotArgs {
+                include_window,
+                self_window,
+                base64,
+                output,
+                scrollback,
+                pane,
+                max_rows,
+                dpi,
+                scroll_app,
+                scroll_title,
+                scroll_pid,
+                max_frames,
+            },
+            opts.json,
+        ),
+        SubCommand::Upload(cmd) => run_upload(cmd, opts.json),
+        SubCommand::Scrollback(cmd) => run_scrollback(cmd, opts.json),
+        SubCommand::Reference(cmd) => run_reference(cmd, opts.json),
+        SubCommand::Server(cmd) => run_server(cmd, opts.json),
+        SubCommand::SetupAi(cmd) => run_setup_ai(cmd, opts.json),
+        SubCommand::McpStdio => run_mcp_stdio(),
+        SubCommand::Settings(cmd) => run_settings(cmd),
+        SubCommand::Lang(cmd) => run_lang(cmd, opts.json),
+        SubCommand::Policy(cmd) => run_policy(cmd, opts.json),
+        SubCommand::Agent(cmd) => run_agent(cmd, opts.json),
+        SubCommand::Fleet(cmd) => run_fleet(cmd, opts.json),
+        SubCommand::Review(cmd) => run_review(cmd, opts.json),
+        SubCommand::ShellCompletion { shell } => {
+            use clap::CommandFactory;
+            let mut cmd = Opt::command();
+            let name = cmd.get_name().to_string();
+            generate_completion(shell, &mut cmd, name, &mut std::io::stdout());
+            Ok(())
+        }
+    }
+}
+
+pub fn set_target_instance(id: Option<&str>) {
+    client::set_target_instance(id);
+}
+
+pub fn run_proxy(cmd: ProxyCommand, json_out: bool) -> Result<()> {
+    proxy::run(cmd, json_out)
+}
+
+pub fn run_profile(cmd: ProfileCommand, json_out: bool) -> Result<()> {
+    profile::run(cmd, json_out)
+}
+
+pub fn run_theme(cmd: ThemeCommand, json_out: bool) -> Result<()> {
+    theme::run(cmd, json_out)
+}
+
+pub fn run_session(cmd: SessionCommand, json_out: bool) -> Result<()> {
+    session::run(cmd, json_out)
+}
+
+pub fn run_sessions(cmd: SessionsCommand, json_out: bool) -> Result<()> {
+    sessions::run(cmd, json_out)
+}
+
+use screenshot::ScreenshotArgs;
+
+pub fn run_screenshot(args: ScreenshotArgs, json_out: bool) -> Result<()> {
+    screenshot::run(args, json_out)
+}
+
+pub fn run_settings(cmd: SettingsCommand) -> Result<()> {
+    settings::run(cmd)
+}
+
+pub fn run_lang(cmd: LangCommand, json_out: bool) -> Result<()> {
+    lang::run(cmd, json_out)
+}
+
+pub fn run_policy(cmd: PolicyCommand, json_out: bool) -> Result<()> {
+    policy::run(cmd, json_out)
+}
+
+pub fn run_agent(cmd: AgentCommand, json_out: bool) -> Result<()> {
+    agent::run(cmd, json_out)
+}
+
+pub fn run_fleet(cmd: FleetCommand, json_out: bool) -> Result<()> {
+    fleet::run(cmd, json_out)
+}
+
+pub fn run_review(cmd: ReviewCommand, json_out: bool) -> Result<()> {
+    review::run(cmd, json_out)
+}
+
+pub fn run_exec(cmd: ExecCommand, json_out: bool) -> Result<()> {
+    exec::run(cmd, json_out)
+}
+
+pub fn run_instance(cmd: InstanceCommand, json_out: bool) -> Result<()> {
+    instance::run(cmd, json_out)
+}
+
+pub fn run_upload(cmd: UploadCommand, json_out: bool) -> Result<()> {
+    upload::run(cmd, json_out)
+}
+
+pub fn run_workspace(cmd: WorkspaceCommand, json_out: bool) -> Result<()> {
+    workspace::run(cmd, json_out)
+}
+
+pub fn run_scrollback(cmd: ScrollbackCommand, json_out: bool) -> Result<()> {
+    scrollback::run(cmd, json_out)
+}
+
+pub fn run_server(cmd: ServerCommand, json_out: bool) -> Result<()> {
+    server::run(cmd, json_out)
+}
+
+pub fn run_reference(cmd: ReferenceCommand, json_out: bool) -> Result<()> {
+    reference::run(cmd, json_out)
+}
+
+pub fn run_setup_ai(cmd: SetupAiCommand, json_out: bool) -> Result<()> {
+    setup_ai::run(cmd, json_out)
+}
+
+pub fn run_mcp_stdio() -> Result<()> {
+    mcp_stdio::run()
+}
+
+/// Apply the optional `--lang <code>` flag for the lifetime of this process.
+pub fn apply_transient_lang(code: Option<&str>) {
+    if let Some(c) = code {
+        let _ = i18n::set_locale_transient(c);
+    }
+}

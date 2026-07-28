@@ -805,6 +805,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "clap_complete"
+version = "4.6.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1f84a88507dbd05c695f2cb5e8558e747179134005e9893882dec964190ed89"
+dependencies = [
+ "clap",
+]
+
+[[package]]
 name = "clap_derive"
 version = "4.5.49"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4181,6 +4190,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "rpassword"
+version = "7.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2da316a15f47e3d053de9cb2c439650bd8fa4aaeb9365f2e5f27f492ff73c196"
+dependencies = [
+ "libc",
+ "rtoolbox",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "rtoolbox"
+version = "0.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "50a0e551c1e27e1731aba276dbeaeac73f53c7cd34d1bda485d02bd1e0f36844"
+dependencies = [
+ "libc",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
 name = "rustc-hash"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4828,6 +4858,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "tabout"
+version = "0.3.0"
+dependencies = [
+ "termwiz",
+]
+
+[[package]]
 name = "target-lexicon"
 version = "0.12.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5353,6 +5390,33 @@ dependencies = [
  "unterm-services",
  "wgpu",
  "winit",
+]
+
+[[package]]
+name = "unterm-cli"
+version = "0.57.4"
+dependencies = [
+ "anyhow",
+ "base64",
+ "chrono",
+ "clap",
+ "clap_complete",
+ "dirs-next",
+ "hostname",
+ "humantime",
+ "image",
+ "log",
+ "rpassword",
+ "serde",
+ "serde_json",
+ "shell-words",
+ "tabout",
+ "tempfile",
+ "toml",
+ "unterm-agents",
+ "unterm-profile",
+ "unterm-services",
+ "winapi",
 ]
 
 [[package]]

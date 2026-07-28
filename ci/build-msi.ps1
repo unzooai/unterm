@@ -3,7 +3,7 @@
 Build the Unterm MSI on Windows.
 
 Prerequisites:
-  - cargo build --release -p unterm -p unterm-cli -p unterm-mux -p strip-ansi-escapes
+  - cargo build --release -p unterm-app -p unterm-cli
   - WiX 6 .NET tool installed at .\.tools\wix (or pass -WixPath).
     Install with:
       dotnet tool install --tool-path .\.tools wix --version 6.0.1
@@ -44,7 +44,6 @@ $helpers = if ($Arch -eq "arm64") { "assets\windows\arm64" } else { "assets\wind
 $payload = @(
   "$TargetDir\unterm.exe",
   "$TargetDir\unterm-cli.exe",
-  "$TargetDir\unterm-mux.exe",
   "$TargetDir\strip-ansi-escapes.exe",
   "$helpers\conhost\conpty.dll",
   "$helpers\conhost\OpenConsole.exe",

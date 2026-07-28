@@ -21,9 +21,9 @@ jobs:
           submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo check -p unterm -p unterm-cli -p unterm-mux -p strip-ansi-escapes
+      - run: cargo check -p unterm-app -p unterm-cli
       - name: Run product tests
-        run: cargo test --release -p config -p unterm
+        run: cargo test --release --workspace
 
   check-linux:
     name: cargo check (Linux)
@@ -43,9 +43,9 @@ jobs:
             libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
             libxcb-keysyms1-dev libxcb-icccm4-dev libxcb-image0-dev libxcb-util-dev \
             libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev
-      - run: cargo check -p unterm -p unterm-cli -p unterm-mux -p strip-ansi-escapes
+      - run: cargo check -p unterm-app -p unterm-cli
       - name: Run product tests
-        run: cargo test --release -p config -p unterm
+        run: cargo test --release --workspace
 
   check-windows:
     name: cargo check (Windows)
@@ -58,9 +58,9 @@ jobs:
         with:
           target: x86_64-pc-windows-msvc
       - uses: Swatinem/rust-cache@v2
-      - run: cargo check -p unterm -p unterm-cli -p unterm-mux -p strip-ansi-escapes
+      - run: cargo check -p unterm-app -p unterm-cli
       - name: Run product tests
-        run: cargo test --release -p config -p unterm -- --test-threads=1
+        run: cargo test --release --workspace -- --test-threads=1
       - name: Verify next-core gates
         shell: pwsh
         run: .\ci\next-core-benchmark.ps1

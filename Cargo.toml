@@ -6,6 +6,7 @@ members = [
   "wezterm-escape-parser",
   "wezterm-dynamic",
   "unterm-app",
+  "unterm-cli",
   "unterm-mcp",
   "unterm-render",
   "unterm-services",
@@ -253,6 +254,7 @@ unicode-segmentation = "1.12"
 unterm-engine = { path = "unterm-engine" }
 unterm-profile = { path = "unterm-profile" }
 unterm-agents = { path = "unterm-agents" }
+unterm-cli = { path = "unterm-cli" }
 url = "2"
 utf8parse = "0.2"
 uuid = { version = "1.13", features = ["v4"] }
