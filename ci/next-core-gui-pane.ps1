@@ -260,6 +260,50 @@ $Suites = @(
         )
     },
     @{
+        # The renderer that lets next-core draw its own pixels: the join that
+        # did not exist, and the reason its font modules had no caller.
+        Name = "glyph atlas"
+        Package = "unterm-render"
+        Filter = "atlas::tests::"
+        ExpectedCount = 8
+        RequiredTests = @(
+            "atlas::tests::the_same_glyph_is_placed_once",
+            "atlas::tests::an_atlas_that_runs_out_of_height_grows_instead_of_dropping_a_glyph",
+            "atlas::tests::growing_keeps_earlier_glyphs_where_they_were",
+            "atlas::tests::neighbours_do_not_touch",
+            "atlas::tests::a_space_gets_a_slot_with_no_pixels"
+        )
+    },
+    @{
+        # Styled cells to vertices. Pure, so a rendering bug is an assertion
+        # failure rather than a wrong-looking window.
+        Name = "render quads"
+        Package = "unterm-render"
+        Filter = "quads::tests::"
+        ExpectedCount = 10
+        RequiredTests = @(
+            "quads::tests::a_glyph_sits_on_the_baseline_by_its_bearings",
+            "quads::tests::texture_coordinates_follow_the_atlas_when_it_grows",
+            "quads::tests::a_wide_cell_covers_both_its_columns",
+            "quads::tests::inverse_swaps_the_two_colours",
+            "quads::tests::a_cell_with_the_frame_background_draws_no_background_quad",
+            "quads::tests::a_hidden_cell_keeps_its_background_and_loses_its_glyph"
+        )
+    },
+    @{
+        # The whole font path with a real face, which is the first code
+        # anywhere to use next-core's font modules.
+        Name = "font path"
+        Package = "unterm-render"
+        Filter = "text::tests::"
+        ExpectedCount = 4
+        RequiredTests = @(
+            "text::tests::a_real_font_fills_a_real_atlas",
+            "text::tests::a_run_advances_left_to_right",
+            "text::tests::placing_the_same_run_twice_reuses_the_atlas"
+        )
+    },
+    @{
         # The state behind copy mode, without its UI: two points, a shape, and
         # the text that comes out.
         Name = "selection model"
