@@ -191,7 +191,9 @@ pub fn keybindings_inventory() -> Vec<Value> {
 
 /// `meta.surface` MCP handler.
 pub fn surface(_params: &Value) -> Result<Value> {
-    let engine = crate::engine::selected_engine_name();
+    let engine = unterm_engine::engine_provider()
+        .map(|provider| provider().name())
+        .unwrap_or("next-core");
     Ok(json!({
         "version": env!("CARGO_PKG_VERSION"),
         "engine": engine,

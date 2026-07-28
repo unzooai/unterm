@@ -8,13 +8,15 @@
 pub mod recorder;
 
 pub use recorder::{
-    attach_trace, export_active_recording_markdown, export_scrollback_markdown_for_session,
-    recording_status, recording_status_snapshot, start_recording, stop_recording,
+    attach_trace, export_active_recording_markdown, recording_status, recording_status_snapshot,
+    start_recording, stop_recording,
 };
 
 /// Listing and reading finished recordings needs no pane, so it lives with the
 /// archive. Re-exported here so callers do not have to know that.
-pub use unterm_services::recording::archive::{list_sessions, read_session_markdown};
+pub use unterm_services::recording::archive::{
+    export_scrollback_markdown_for_session, list_sessions, read_session_markdown,
+};
 
 /// Apply the recording subsystem's secret patterns to product metadata.
 pub(crate) fn redact_sensitive_text(text: &str) -> String {

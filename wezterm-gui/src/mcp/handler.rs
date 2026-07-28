@@ -3495,7 +3495,7 @@ impl PaneResolutionOptions {
 }
 
 struct EngineFleetDriver {
-    engine: Box<dyn crate::engine::HostEngine>,
+    engine: Box<dyn unterm_engine::HostEngine>,
 }
 
 impl unterm_services::cockpit::fleet::FleetPaneSpawner for EngineFleetDriver {
@@ -4579,7 +4579,7 @@ impl McpHandler {
     /// Asked of the installed provider rather than chosen here: which engines
     /// exist is the front end's business, and the two that do choose
     /// differently.
-    fn engine(&self) -> Box<dyn crate::engine::HostEngine> {
+    fn engine(&self) -> Box<dyn unterm_engine::HostEngine> {
         match unterm_engine::engine_provider() {
             Some(provider) => provider(),
             // Before a front end installs one, next-core is the only engine
@@ -4617,7 +4617,7 @@ impl McpHandler {
 
     fn resolve_pane_id(
         &self,
-        engine: &dyn crate::engine::HostEngine,
+        engine: &dyn unterm_engine::HostEngine,
         params: &Value,
         options: PaneResolutionOptions,
     ) -> Result<usize> {
@@ -4644,7 +4644,7 @@ impl McpHandler {
     }
 
     fn resolve_active_pane_id(
-        engine: &dyn crate::engine::HostEngine,
+        engine: &dyn unterm_engine::HostEngine,
         options: PaneResolutionOptions,
     ) -> Result<usize> {
         let pane_id = engine
@@ -4716,7 +4716,7 @@ impl McpHandler {
         }
         let mut value = serde_json::to_value(&grouped)?;
         if let Some(object) = value.as_object_mut() {
-            let engine = crate::engine::selected_engine_name();
+            let engine = self.engine().name();
             object.insert("_engine".to_string(), json!(engine));
             object.insert(
                 "_engine_capabilities".to_string(),
@@ -6176,7 +6176,12 @@ impl McpHandler {
     }
 
     fn audit(&self, method: &str, session_id: Option<&str>, detail: &str) {
-        let detail = crate::recording::redact_sensitive_text(detail);
+        // Straight to the services redaction: the wrapper only looked the
+        // config up, and that is with the archive now.
+        let patterns = unterm_services::recording::archive::load_config()
+            .redaction
+            .custom_patterns;
+        let detail = unterm_services::recording::redact_sensitive_text(detail, &patterns);
         // A denied or expired confirmation is still an important audit
         // event, but it must not look like an authorized write.  Consumers
         // use this field to distinguish attempted writes from writes that
@@ -7491,7 +7496,7 @@ impl McpHandler {
         } else {
             None
         };
-        let mut opts = crate::scrollshot::ScrollbackPngOptions::default();
+        let mut opts = unterm_services::scrollback_options::ScrollbackPngOptions::default();
         if let Some(n) = params.get("max_rows").and_then(|v| v.as_u64()) {
             opts.max_rows = (n as usize).max(1);
         }
@@ -7923,7 +7928,7 @@ impl McpHandler {
             },
         }));
 
-        if crate::engine::selected_engine_name() == "next-core" {
+        if self.engine().name() == "next-core" {
             let advertised_metrics = caps
                 .pointer("/_engine_capabilities/diagnostics/health_metrics")
                 .and_then(|value| value.as_array())

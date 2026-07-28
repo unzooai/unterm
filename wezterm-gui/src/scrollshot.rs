@@ -37,23 +37,7 @@ use wezterm_font::{FontConfiguration, LoadedFont, RasterizedGlyph};
 use wezterm_term::color::ColorPalette;
 use wezterm_term::TerminalConfiguration;
 
-pub struct ScrollbackPngOptions {
-    /// Cap on history rows rendered. When the scrollback is longer we keep
-    /// the TAIL (most recent rows) — that is what a human reaching for a
-    /// long screenshot wants.
-    pub max_rows: usize,
-    /// Raster dpi. 144 ≈ retina-quality; 72 = compact.
-    pub dpi: usize,
-}
-
-impl Default for ScrollbackPngOptions {
-    fn default() -> Self {
-        Self {
-            max_rows: 10_000,
-            dpi: if cfg!(target_os = "macos") { 144 } else { 96 },
-        }
-    }
-}
+pub use unterm_services::scrollback_options::ScrollbackPngOptions;
 
 pub struct ScrollbackPng {
     pub path: PathBuf,

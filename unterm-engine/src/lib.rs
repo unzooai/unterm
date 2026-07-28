@@ -1247,6 +1247,46 @@ impl CaptureEngine for next_core::NextCoreEngine {
     }
 }
 
+/// What only a front end can answer.
+///
+/// Three things resist being moved: rendering a pane's scrollback to a PNG
+/// (built on one front end's font stack), capturing another application's
+/// window (an OS API, and macOS-only), and the key table (the front end owns
+/// what its keys do). Rather than let those keep an entire MCP surface tied to
+/// one front end, they are asked of whoever is hosting it.
+pub trait McpHost: Send + Sync {
+    /// Render a pane's scrollback to `path`, returning the JSON to reply with.
+    fn render_scrollback_png(
+        &self,
+        pane_id: Option<usize>,
+        path: &std::path::Path,
+        max_rows: usize,
+        dpi: usize,
+    ) -> Result<serde_json::Value>;
+
+    /// Capture another application's window. Only macOS has this today.
+    fn capture_external_window(&self, _request: &serde_json::Value) -> Result<serde_json::Value> {
+        anyhow::bail!("capturing other applications' windows is not supported here")
+    }
+
+    /// The key assignments this front end has, for the tool catalogue.
+    fn key_assignments(&self) -> Vec<serde_json::Value> {
+        Vec::new()
+    }
+}
+
+static MCP_HOST: std::sync::OnceLock<&'static dyn McpHost> = std::sync::OnceLock::new();
+
+/// Install the host once, at startup.
+pub fn set_mcp_host(host: &'static dyn McpHost) -> bool {
+    MCP_HOST.set(host).is_ok()
+}
+
+/// The host, if a front end installed one.
+pub fn mcp_host() -> Option<&'static dyn McpHost> {
+    MCP_HOST.get().copied()
+}
+
 /// How the MCP surface finds the engine to talk to.
 ///
 /// A slot rather than a call into the front end: the handler has no business

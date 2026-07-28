@@ -10,5 +10,6 @@ pub mod ghost_text;
 pub mod i18n;
 pub mod launch_env;
 pub mod recording;
+pub mod scrollback_options;
 pub mod server_info;
 pub mod system_proxy;

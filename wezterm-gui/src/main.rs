@@ -59,6 +59,7 @@ mod stats;
 mod tabbar;
 mod termwindow;
 mod fleet_spawner;
+mod mcp_host;
 mod unicode_names;
 mod uniforms;
 mod update;
@@ -831,6 +832,7 @@ fn setup_mux(
     // Before anything asks for an engine -- the MCP surface can be serving
     // before a window exists.
     crate::engine::install_engine_provider();
+    crate::mcp_host::install();
     crate::engine::next_core_pane::install_pane_factory_if_enabled();
 
     let mux = Arc::new(mux::Mux::new(Some(local_domain.clone())));
