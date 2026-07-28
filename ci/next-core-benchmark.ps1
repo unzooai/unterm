@@ -4,6 +4,7 @@ param(
     [switch]$SkipRuntime,
     [switch]$SkipUnicode,
     [switch]$SkipGuiRender,
+    [switch]$SkipGuiPane,
     [switch]$SkipWebGpuRender,
     [switch]$SkipMcp,
     [string]$SummaryJsonPath = "",
@@ -61,6 +62,13 @@ if (-not $SkipUnicode) {
 
 if (-not $SkipGuiRender) {
     & (Join-Path $CiDir "next-core-gui-render.ps1")
+    if ($LASTEXITCODE -ne 0) {
+        exit $LASTEXITCODE
+    }
+}
+
+if (-not $SkipGuiPane) {
+    & (Join-Path $CiDir "next-core-gui-pane.ps1")
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
     }

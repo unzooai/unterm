@@ -11,13 +11,15 @@ $Suites = @(
     @{
         Name = "draw replacement"
         Filter = "termwindow::render::draw::tests::"
-        ExpectedCount = 8
+        ExpectedCount = 10
         RequiredTests = @(
             "termwindow::render::draw::tests::next_core_replace_requires_draw_ready_batch",
             "termwindow::render::draw::tests::next_core_replace_keeps_legacy_pane_for_empty_repeat_batch",
             "termwindow::render::draw::tests::next_core_replace_keeps_legacy_pane_when_prepared_frame_is_not_ready",
             "termwindow::render::draw::tests::next_core_replace_requires_matching_batch_diagnostics",
-            "termwindow::render::draw::tests::next_core_replace_requires_cached_glyph_upload_for_text_frames"
+            "termwindow::render::draw::tests::next_core_replace_requires_cached_glyph_upload_for_text_frames",
+            "termwindow::render::draw::tests::only_replace_mode_gives_next_core_the_keyboard",
+            "termwindow::render::draw::tests::pane_mode_parses_env_values"
         )
     },
     @{

@@ -1,0 +1,98 @@
+param(
+    [switch]$ListOnly
+)
+
+$ErrorActionPreference = "Stop"
+
+$CiDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$RepoRoot = Resolve-Path (Join-Path $CiDir "..")
+
+# A GUI pane driven by next-core needs two things the render contract does not
+# cover: a pane->session binding that never aliases (pane ids and next-core
+# session ids are separate allocators that overlap numerically), and a key
+# encoder that turns GUI key events into the normal-mode sequences next-core
+# expects. Both are gated here.
+$Suites = @(
+    @{
+        Name = "pane binding"
+        Package = "unterm"
+        Filter = "engine::pane_binding::tests::"
+        ExpectedCount = 10
+        RequiredTests = @(
+            "engine::pane_binding::tests::unbound_pane_resolves_to_error_not_a_numeric_alias",
+            "engine::pane_binding::tests::rebinding_a_pane_releases_its_previous_session",
+            "engine::pane_binding::tests::rebinding_a_session_detaches_its_previous_pane",
+            "engine::pane_binding::tests::unbinding_clears_both_directions",
+            "engine::pane_binding::tests::retain_panes_returns_sessions_for_closed_panes",
+            "engine::pane_binding::tests::sync_size_reports_only_real_geometry_changes",
+            "engine::pane_binding::tests::sync_size_ignores_unbound_panes",
+            "engine::pane_binding::tests::rebinding_resets_the_tracked_size"
+        )
+    },
+    @{
+        Name = "key encoding"
+        Package = "unterm-engine"
+        Filter = "next_core::key_encoding::tests::"
+        ExpectedCount = 11
+        RequiredTests = @(
+            "next_core::key_encoding::tests::ctrl_characters_encode_as_control_bytes",
+            "next_core::key_encoding::tests::alt_prefixes_escape",
+            "next_core::key_encoding::tests::super_chords_produce_no_pty_input",
+            "next_core::key_encoding::tests::arrows_encode_in_normal_mode_so_the_session_can_translate",
+            "next_core::key_encoding::tests::modified_arrows_use_xterm_modifier_parameters",
+            "next_core::key_encoding::tests::function_keys_split_between_ss3_and_tilde_forms",
+            "next_core::key_encoding::tests::modifier_keys_alone_produce_no_input",
+            "next_core::key_encoding::tests::control_keys_use_canonical_bytes"
+        )
+    },
+    @{
+        # The end-to-end proof: encoded keys reach a real PTY and the shell's
+        # own output comes back. Unit tests alone would pass with the encoder
+        # wired to the wrong writer.
+        Name = "key path end to end"
+        Package = "unterm-engine"
+        Filter = "next_core::tests::encoded_keys_reach_a_real_shell_and_echo_back"
+        ExpectedCount = 1
+        RequiredTests = @(
+            "next_core::tests::encoded_keys_reach_a_real_shell_and_echo_back"
+        )
+    }
+)
+
+Push-Location $RepoRoot
+try {
+    $totalRequired = 0
+    foreach ($suite in $Suites) {
+        $list = @(& cargo test -p $suite.Package $suite.Filter -- --list 2>&1 | ForEach-Object { $_.ToString() })
+        if ($LASTEXITCODE -ne 0) {
+            throw "cargo test list failed for $($suite.Name):`n$($list -join "`n")"
+        }
+
+        foreach ($test in $suite.RequiredTests) {
+            if (-not @($list | Where-Object { $_ -like "$test`: test*" })) {
+                throw "missing required next-core GUI pane test: $test"
+            }
+        }
+        $totalRequired += $suite.RequiredTests.Count
+    }
+
+    if ($ListOnly) {
+        Write-Host "next-core GUI pane tests present: $totalRequired"
+        exit 0
+    }
+
+    foreach ($suite in $Suites) {
+        $run = @(& cargo test -p $suite.Package $suite.Filter -- --test-threads=1 2>&1 | ForEach-Object { $_.ToString() })
+        if ($LASTEXITCODE -ne 0) {
+            throw "next-core GUI pane tests failed for $($suite.Name):`n$($run -join "`n")"
+        }
+        $expected = $suite.ExpectedCount
+        if (-not @($run | Where-Object { $_ -match "test result: ok\..*$expected passed" })) {
+            throw "next-core GUI pane suite '$($suite.Name)' did not report $expected passed tests:`n$($run -join "`n")"
+        }
+    }
+
+    Write-Host "next-core GUI pane tests ok: required=$totalRequired suites=$($Suites.Count)"
+} finally {
+    Pop-Location
+}

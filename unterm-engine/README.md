@@ -78,6 +78,44 @@ cargo run -p unterm -- start
 
 This routes the engine-neutral session/screen/input/paste calls through next-core where supported. It does not make next-core the default GUI renderer yet.
 
+## Experimental next-core GUI Pane
+
+`UNTERM_NEXT_CORE_WEBGPU_PANE` drives the active pane from next-core inside the real GUI window. It is independent of `UNTERM_ENGINE`, which only affects MCP/product services.
+
+```powershell
+# Draw next-core's frame on top of the legacy pane, for visual comparison.
+$env:UNTERM_NEXT_CORE_WEBGPU_PANE = "append"
+
+# Replace the legacy pane: next-core owns the pixels *and* the keyboard.
+$env:UNTERM_NEXT_CORE_WEBGPU_PANE = "replace"
+cargo run -p unterm -- start
+```
+
+Unset or unrecognized values leave the legacy renderer fully in charge. WebGPU is required — the mode is a no-op on the Glium front end.
+
+The two modes differ in who owns input:
+
+- `append` draws next-core's frame but leaves keyboard, paste, and IME with the legacy pane. The pane you read is still the pane you type into.
+- `replace` hides the legacy pane's quads and hands next-core the keyboard, clipboard paste, and IME-composed text. Input follows the pixels: routing keystrokes to a session the user cannot see would make the visible pane look dead.
+
+In `replace` mode the pane gets its own next-core session on first paint, sized to the pane's viewport and started in the pane's current directory with the same proxy env `spawn` injects. The legacy WezTerm pane keeps running underneath — it still owns tab and split geometry — so the window holds two shells until the pane closes.
+
+Pane ids and next-core session ids come from independent allocators and overlap numerically, so the binding is explicit (`engine::pane_binding`) and one-to-one in both directions. An unbound pane resolves to an error rather than to whichever session shares its number. Closing the pane destroys its next-core session; resizing the pane resizes the session on the next frame.
+
+Gate the GUI pane contracts with:
+
+```powershell
+.\ci\next-core-gui-pane.ps1
+```
+
+This covers the pane/session binding invariants, the GUI key encoder, and an end-to-end check that encoded keystrokes reach a real shell and its output comes back on the next-core screen.
+
+Known gaps at this stage:
+
+- Only the active pane is driven by next-core; splits and inactive tabs still render legacy.
+- Scrollback, selection, and mouse reporting still belong to the legacy pane.
+- next-core implements neither the kitty keyboard protocol nor win32-input-mode, so keys are sent in their plain xterm forms. Applications that negotiate those protocols will not see the extended encodings in a replaced pane.
+
 Interactive input smoke test:
 
 ```powershell
