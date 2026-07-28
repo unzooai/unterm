@@ -142,6 +142,33 @@ impl FontFace {
         Ok(())
     }
 
+    /// What this face claims: family, style, and whether it is monospace.
+    ///
+    /// Returns `None` when the face reports no family name, which means the
+    /// file is not something we can meaningfully offer to a user.
+    pub fn describe(&self) -> Option<(String, String, bool)> {
+        // SAFETY: `self.face` is live; FreeType keeps these strings alive for
+        // the lifetime of the face, and they are NUL-terminated C strings.
+        unsafe {
+            let face = &*self.face;
+            if face.family_name.is_null() {
+                return None;
+            }
+            let family = std::ffi::CStr::from_ptr(face.family_name)
+                .to_string_lossy()
+                .into_owned();
+            let style = if face.style_name.is_null() {
+                String::new()
+            } else {
+                std::ffi::CStr::from_ptr(face.style_name)
+                    .to_string_lossy()
+                    .into_owned()
+            };
+            let monospace = face.face_flags & (freetype::FT_FACE_FLAG_FIXED_WIDTH as freetype::FT_Long) != 0;
+            Some((family, style, monospace))
+        }
+    }
+
     /// Rasterize `ch` at the current pixel size.
     ///
     /// A glyph with no outline — a space, or a character this face does not

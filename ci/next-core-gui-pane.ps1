@@ -84,6 +84,21 @@ $Suites = @(
         )
     },
     @{
+        # Choosing which font file to rasterize, without wezterm-font's
+        # fontconfig/CoreText/DirectWrite stack.
+        Name = "font discovery"
+        Package = "unterm-engine"
+        Filter = "next_core::font_discovery::tests::"
+        ExpectedCount = 5
+        RequiredTests = @(
+            "next_core::font_discovery::tests::the_platform_has_font_directories",
+            "next_core::font_discovery::tests::scanning_finds_a_usable_monospace_face",
+            "next_core::font_discovery::tests::family_lookup_is_case_insensitive_and_prefers_regular",
+            "next_core::font_discovery::tests::monospace_fallback_is_deterministic_and_skips_proportional_faces",
+            "next_core::font_discovery::tests::font_extensions_are_recognized_case_insensitively"
+        )
+    },
+    @{
         Name = "mouse encoding"
         Package = "unterm-engine"
         Filter = "next_core::mouse_encoding::tests::"
