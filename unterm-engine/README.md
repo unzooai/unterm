@@ -2,7 +2,51 @@
 
 Engine-neutral terminal traits plus the experimental `next-core` implementation.
 
-This crate is the boundary for moving Unterm product behavior away from WezTerm GUI internals. The GUI still uses the WezTerm adapter, but next-core can now be built, tested, and probed without starting the GUI.
+This crate is the boundary for moving Unterm product behavior away from WezTerm GUI internals. next-core can be built, tested, and probed without starting the GUI.
+
+## Configuration
+
+Configs are read, not run. `unterm.conf` is a declarative file -- `key = value`
+with `[section]` headers -- parsed by `next_core::config`, checked against
+`next_core::config_schema`, and turned into the GUI's config struct without an
+interpreter. The Lua runtime it replaces is gone: no `mlua` in the dependency
+graph and no source file references it.
+
+What that buys, and what each is worth:
+
+- A config cannot hang, crash, or read the disk on startup, because nothing in
+  it executes.
+- It can be validated before it is used. A Lua config only revealed what it set
+  by running.
+- An unknown setting is an error naming the nearest real one. A setting that is
+  accepted and then ignored is the failure the whole format exists to prevent,
+  so a test asserts that every key in the schema reaches a field.
+- A duplicate key is an error naming both lines, rather than the later one
+  silently winning.
+- Every problem is reported at once, with a line number.
+
+`[platform.windows]` and friends replace branching on the target triple;
+`[platform.other]` covers only the platforms a file does not name, matching the
+`else` arm it converts from. Tab titles come from a template
+(`{title}`, `{index}`) instead of the `format-tab-title` callback.
+
+`next_core::config_migrate` converts the declarative part of an existing Lua
+config and reports the rest with its line, source and reason. It never guesses:
+a value chosen at runtime -- `if pwsh_exists then ... else ... end` -- is
+reported rather than resolved to one branch, because silently shipping the
+fallback is exactly the quiet wrong answer a migration must not produce.
+Against the config this project shipped, 25 settings convert and 112 lines are
+reported; `assets/unterm.conf` is the hand-written result, 61 lines against 280.
+
+## Ownership
+
+next-core owns: PTY, VT parsing, screen and scrollback, keyboard, mouse, paste,
+IME, cursor, soft wrap, session lifecycle, the GPU render pipeline, font
+discovery/shaping/rasterization, layout geometry, split structure, tab
+registry, selection, configuration, and tab titles.
+
+The GUI still owns the window system, input mapping, overlays and the command
+palette.
 
 ## Probe
 
