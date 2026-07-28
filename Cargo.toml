@@ -12,6 +12,7 @@ members = [
   "wezterm-gui",
   "wezterm-mux-server",
   "wezterm-open-url",
+  "unterm-app",
   "unterm-render",
   "wezterm-render-escapes",
   "wezterm-surface",

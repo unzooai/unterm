@@ -1,0 +1,21 @@
+[package]
+name = "unterm-app"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# The terminal without WezTerm: next-core for the engine, unterm-render for
+# the pixels, winit for the window. No wezterm-gui, no mux, no window crate.
+
+[[bin]]
+name = "unterm-app"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+log.workspace = true
+unterm-engine = { path = "../unterm-engine" }
+unterm-render = { path = "../unterm-render" }
+wgpu.workspace = true
+winit = "0.30"
+pollster = "0.4"

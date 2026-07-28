@@ -319,6 +319,21 @@ $Suites = @(
         )
     },
     @{
+        # The frame the independent front end builds: font metrics to grid,
+        # screen snapshot to quads. No window involved, so it is assertable.
+        Name = "app frame"
+        Package = "unterm-app"
+        Filter = "terminal::tests::"
+        ExpectedCount = 9
+        RequiredTests = @(
+            "terminal::tests::a_window_sized_to_exactly_n_cells_gets_n",
+            "terminal::tests::a_window_too_small_for_one_cell_still_asks_for_one",
+            "terminal::tests::every_glyph_is_rasterized_before_any_quad_is_built",
+            "terminal::tests::text_becomes_glyph_quads",
+            "terminal::tests::a_config_without_colours_still_gives_readable_ones"
+        )
+    },
+    @{
         # The state behind copy mode, without its UI: two points, a shape, and
         # the text that comes out.
         Name = "selection model"
