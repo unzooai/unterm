@@ -97,6 +97,69 @@ impl TabRegistry {
         Ok(tab_id)
     }
 
+    /// Adopt a tab that another tree already arranged.
+    ///
+    /// The migration path: the registry mirrors an existing tab so it can be
+    /// checked against the authority before becoming it. `tab_id` comes from
+    /// the other side, so ids stay comparable; `next_tab_id` is advanced past
+    /// it so a later `create_tab` cannot collide.
+    ///
+    /// Fails rather than guessing when the rectangles are not an arrangement a
+    /// split tree can express, or when a pane already belongs elsewhere.
+    pub fn adopt_tab(
+        &mut self,
+        tab_id: TabId,
+        positions: &[PositionedPane],
+        active_pane: PaneId,
+    ) -> Result<()> {
+        let layout = Layout::from_positions(positions)
+            .ok_or_else(|| anyhow!("tab {tab_id} is not an arrangement a split tree can express"))?;
+        if !layout.contains(active_pane) {
+            return Err(anyhow!(
+                "active pane {active_pane} is not in tab {tab_id}'s arrangement"
+            ));
+        }
+        for pane_id in layout.pane_ids() {
+            if self.tab_of_pane.get(&pane_id).is_some_and(|owner| *owner != tab_id) {
+                return Err(anyhow!("pane {pane_id} already belongs to another tab"));
+            }
+        }
+
+        // Replacing an existing mirror: drop its old pane index first, or
+        // panes that have since closed would linger in the reverse map.
+        if let Some(previous) = self.tabs.get(&tab_id) {
+            for pane_id in previous.layout.pane_ids() {
+                self.tab_of_pane.remove(&pane_id);
+            }
+        }
+        for pane_id in layout.pane_ids() {
+            self.tab_of_pane.insert(pane_id, tab_id);
+        }
+        self.tabs.insert(
+            tab_id,
+            Tab {
+                layout,
+                active_pane,
+            },
+        );
+        self.next_tab_id = self.next_tab_id.max(tab_id + 1);
+        Ok(())
+    }
+
+    /// Forget a tab and its panes.
+    pub fn forget_tab(&mut self, tab_id: TabId) -> bool {
+        let Some(tab) = self.tabs.remove(&tab_id) else {
+            return false;
+        };
+        for pane_id in tab.layout.pane_ids() {
+            self.tab_of_pane.remove(&pane_id);
+        }
+        if self.active_tab == Some(tab_id) {
+            self.active_tab = self.tab_ids().first().copied();
+        }
+        true
+    }
+
     pub fn tab_of_pane(&self, pane_id: PaneId) -> Option<TabId> {
         self.tab_of_pane.get(&pane_id).copied()
     }
@@ -371,6 +434,94 @@ mod tests {
 
         assert!(!tabs.set_active_pane(99));
         assert!(!tabs.set_active_tab(999));
+    }
+
+    fn positioned(pane_id: PaneId, left: usize, top: usize, width: usize, height: usize)
+        -> PositionedPane
+    {
+        PositionedPane {
+            pane_id,
+            rect: PaneRect { left, top, width, height },
+        }
+    }
+
+    #[test]
+    fn adopting_a_tab_mirrors_its_panes_and_focus() {
+        let mut tabs = TabRegistry::new();
+
+        // Ids come from the other side, so they need not start at zero.
+        tabs.adopt_tab(
+            7,
+            &[
+                positioned(10, 0, 0, 39, 24),
+                positioned(11, 40, 0, 40, 24),
+            ],
+            11,
+        )
+        .unwrap();
+
+        assert_eq!(tabs.pane_ids(7), vec![10, 11]);
+        assert_eq!(tabs.active_pane(7), Some(11));
+        assert_eq!(tabs.tab_of_pane(10), Some(7));
+        assert_eq!(tabs.pane_rect(11, 80, 24).map(|r| r.left), Some(40));
+
+        // A later create_tab must not collide with an adopted id.
+        let created = tabs.create_tab(20).unwrap();
+        assert!(created > 7, "created tab {created} collides with adopted 7");
+    }
+
+    #[test]
+    fn re_adopting_a_tab_drops_panes_that_went_away() {
+        let mut tabs = TabRegistry::new();
+        tabs.adopt_tab(
+            1,
+            &[positioned(10, 0, 0, 39, 24), positioned(11, 40, 0, 40, 24)],
+            10,
+        )
+        .unwrap();
+
+        // The other side closed pane 11.
+        tabs.adopt_tab(1, &[positioned(10, 0, 0, 80, 24)], 10).unwrap();
+
+        assert_eq!(tabs.pane_ids(1), vec![10]);
+        // A lingering reverse-index entry would resolve a dead pane to a tab.
+        assert_eq!(tabs.tab_of_pane(11), None);
+    }
+
+    #[test]
+    fn adoption_refuses_what_it_cannot_represent() {
+        let mut tabs = TabRegistry::new();
+
+        // Nothing to adopt.
+        assert!(tabs.adopt_tab(1, &[], 10).is_err());
+
+        // An active pane that is not in the arrangement: mirroring it would
+        // put focus on a pane the tab does not have.
+        assert!(tabs
+            .adopt_tab(1, &[positioned(10, 0, 0, 80, 24)], 99)
+            .is_err());
+
+        // A pane already owned by another tab.
+        tabs.adopt_tab(1, &[positioned(10, 0, 0, 80, 24)], 10).unwrap();
+        assert!(tabs
+            .adopt_tab(2, &[positioned(10, 0, 0, 80, 24)], 10)
+            .is_err());
+        assert_eq!(tabs.tab_of_pane(10), Some(1));
+    }
+
+    #[test]
+    fn forgetting_a_tab_releases_its_panes() {
+        let mut tabs = TabRegistry::new();
+        tabs.adopt_tab(1, &[positioned(10, 0, 0, 80, 24)], 10).unwrap();
+        tabs.adopt_tab(2, &[positioned(20, 0, 0, 80, 24)], 20).unwrap();
+        tabs.set_active_tab(2);
+
+        assert!(tabs.forget_tab(2));
+
+        assert_eq!(tabs.tab_of_pane(20), None);
+        // Focus has to land somewhere while the window is still open.
+        assert_eq!(tabs.active_tab(), Some(1));
+        assert!(!tabs.forget_tab(2));
     }
 
     #[test]

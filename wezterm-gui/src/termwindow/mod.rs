@@ -573,6 +573,12 @@ pub struct TermWindow {
     /// and input paths must resolve through this map rather than passing a raw
     /// pane id to the engine.
     next_core_pane_bindings: RefCell<NextCorePaneBindings>,
+    /// next-core's view of which panes belong to which tab.
+    ///
+    /// Mirrors the mux rather than replacing it yet, so it can be checked
+    /// against the authority before becoming it -- the same way the layout's
+    /// geometry ran alongside mux's before taking over.
+    next_core_tabs: RefCell<unterm_engine::next_core::tabs::TabRegistry>,
     /// Last drawable render plan per next-core session, replayed on frames
     /// where the screen did not change. Keyed by session id, like the render
     /// consumers.
@@ -1091,6 +1097,7 @@ impl TermWindow {
             pane_state: RefCell::new(HashMap::new()),
             next_core_render_consumers: RefCell::new(EngineRenderConsumerSet::new()),
             next_core_pane_bindings: RefCell::new(NextCorePaneBindings::new()),
+            next_core_tabs: RefCell::new(unterm_engine::next_core::tabs::TabRegistry::new()),
             next_core_last_drawable_frames: RefCell::new(HashMap::new()),
             swallow_left_gesture_after_secondary_click: false,
             current_mouse_buttons: vec![],
@@ -5906,7 +5913,60 @@ impl TermWindow {
                 }
             }
             self.apply_next_core_layout(&mut panes, &tab.get_size());
+            self.track_next_core_tab(tab, &panes);
             panes
+        }
+    }
+
+    /// Keep next-core's tab registry mirroring the mux, and say so when they
+    /// disagree.
+    ///
+    /// The registry is not the authority yet. Running it alongside is what
+    /// turns "the structural swap might be wrong" into a log line naming the
+    /// panes that differ, before anything depends on it -- the same staging
+    /// the layout geometry went through.
+    fn track_next_core_tab(&self, tab: &Arc<Tab>, panes: &[mux::tab::PositionedPane]) {
+        use unterm_engine::next_core::layout::{PaneRect, PositionedPane};
+
+        if panes.is_empty() || !crate::engine::next_core_pane::next_core_panes_enabled() {
+            return;
+        }
+        let tab_id = tab.tab_id();
+        let active_pane = panes
+            .iter()
+            .find(|pos| pos.is_active)
+            .map(|pos| pos.pane.pane_id() as usize)
+            .unwrap_or_else(|| panes[0].pane.pane_id() as usize);
+        let adopted: Vec<PositionedPane> = panes
+            .iter()
+            .map(|pos| PositionedPane {
+                pane_id: pos.pane.pane_id() as usize,
+                rect: PaneRect {
+                    left: pos.left,
+                    top: pos.top,
+                    width: pos.width,
+                    height: pos.height,
+                },
+            })
+            .collect();
+
+        let mut registry = self.next_core_tabs.borrow_mut();
+        // Re-adopt every frame rather than diffing: the mux is the authority,
+        // so mirroring it wholesale cannot drift, and adoption already refuses
+        // anything it cannot represent.
+        if let Err(err) = registry.adopt_tab(tab_id, &adopted, active_pane) {
+            log::debug!("next-core tab registry could not mirror tab {tab_id}: {err:#}");
+            return;
+        }
+
+        let mut mirrored = registry.pane_ids(tab_id);
+        mirrored.sort_unstable();
+        let mut actual: Vec<usize> = adopted.iter().map(|pos| pos.pane_id).collect();
+        actual.sort_unstable();
+        if mirrored != actual {
+            log::warn!(
+                "next-core tab registry disagrees with mux for tab {tab_id}:                  mirrored {mirrored:?} but the tab has {actual:?}"
+            );
         }
     }
 
