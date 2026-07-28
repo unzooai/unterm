@@ -1046,6 +1046,7 @@ dependencies = [
  "termwiz",
  "toml 0.8.23",
  "umask",
+ "unterm-engine",
  "wezterm-bidi",
  "wezterm-config-derive",
  "wezterm-dynamic",

@@ -31,6 +31,7 @@ mod font;
 mod frontend;
 pub mod keyassignment;
 mod keys;
+pub mod declarative;
 pub mod lua;
 pub mod meta;
 mod scheme_data;

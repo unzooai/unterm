@@ -1154,12 +1154,16 @@ impl Config {
         // multiple.  In addition, it spawns a lot of subprocesses,
         // so we do this bit "by-hand"
 
-        // Unterm: 优先查找 unterm.lua，兼�?wezterm.lua
+        // Unterm: the declarative config comes first everywhere it is looked
+        // for. Finding one means no Lua context is ever built, so a config can
+        // no longer hang or crash startup.
         let mut paths = vec![
+            PathPossibility::optional(HOME_DIR.join(".unterm.conf")),
             PathPossibility::optional(HOME_DIR.join(".unterm.lua")),
             PathPossibility::optional(HOME_DIR.join(".wezterm.lua")),
         ];
         for dir in CONFIG_DIRS.iter() {
+            paths.push(PathPossibility::optional(dir.join("unterm.conf")));
             paths.push(PathPossibility::optional(dir.join("unterm.lua")));
             paths.push(PathPossibility::optional(dir.join("wezterm.lua")));
         }
@@ -1286,6 +1290,23 @@ impl Config {
 
         let mut s = String::new();
         file.read_to_string(&mut s)?;
+
+        // A declarative config is read, not run: no Lua context is created for
+        // it at all, which is the point of the format.
+        if p.extension().is_some_and(|ext| ext == "conf") {
+            let cfg = crate::declarative::from_source(&s, &p.display().to_string())?;
+            std::env::set_var("WEZTERM_CONFIG_FILE", p);
+            if let Some(dir) = p.parent() {
+                std::env::set_var("WEZTERM_CONFIG_DIR", dir);
+            }
+            return Ok(Some(LoadedConfig {
+                config: Ok(cfg.compute_extra_defaults(Some(p))),
+                file_name: Some(p.to_path_buf()),
+                lua: None,
+                warnings: vec![],
+            }));
+        }
+
         let timing = std::time::Instant::now();
         let lua = make_lua_context(p)?;
         log::debug!("config-timing: make_lua_context {:?}", timing.elapsed());
