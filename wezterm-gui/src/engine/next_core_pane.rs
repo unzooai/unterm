@@ -230,6 +230,24 @@ pub fn install_pane_factory_if_enabled() {
     }
 }
 
+/// Map next-core's cursor shape name onto the renderer's enum.
+///
+/// next-core names its shapes after the DECSCUSR forms, which are the same
+/// names termwiz uses. An unknown name falls back to the configured default
+/// rather than guessing a shape the application did not ask for.
+fn cursor_shape_from_name(name: &str) -> termwiz::surface::CursorShape {
+    use termwiz::surface::CursorShape;
+    match name {
+        "BlinkingBlock" => CursorShape::BlinkingBlock,
+        "SteadyBlock" => CursorShape::SteadyBlock,
+        "BlinkingUnderline" => CursorShape::BlinkingUnderline,
+        "SteadyUnderline" => CursorShape::SteadyUnderline,
+        "BlinkingBar" => CursorShape::BlinkingBar,
+        "SteadyBar" => CursorShape::SteadyBar,
+        _ => CursorShape::Default,
+    }
+}
+
 /// Convert one next-core styled row into a wezterm `Line`.
 fn styled_line_to_line(line: &StyledScreenLine, cols: usize) -> Line {
     // Seqno 0: next-core tracks damage through its own revision counter, and
@@ -292,7 +310,7 @@ impl Pane for NextCorePane {
         StableCursorPosition {
             x: screen.cursor.x,
             y: screen.cursor.y as StableRowIndex,
-            shape: termwiz::surface::CursorShape::Default,
+            shape: cursor_shape_from_name(&screen.cursor.shape),
             visibility: if screen.cursor.visible {
                 termwiz::surface::CursorVisibility::Visible
             } else {
@@ -399,6 +417,19 @@ impl Pane for NextCorePane {
             return Ok(());
         };
         next_core().report_mouse(self.session_id, event)
+    }
+
+    fn kill(&self) {
+        // The trait's default is a no-op, which would leave the shell running
+        // until the last Arc to this pane happened to drop. Destroying the
+        // session takes the PTY and its child with it.
+        if let Err(err) = next_core().destroy_session(self.session_id) {
+            log::debug!(
+                "next-core session {} for pane {} was already gone at kill: {err:#}",
+                self.session_id,
+                self.pane_id
+            );
+        }
     }
 
     fn is_dead(&self) -> bool {
@@ -538,6 +569,28 @@ mod tests {
     /// marker. Losing it splices a newline into the middle of a copied
     /// command that merely happened to be too long for the window.
     #[test]
+    fn cursor_shapes_round_trip_through_their_names() {
+        use termwiz::surface::CursorShape;
+
+        // next-core names its shapes after the DECSCUSR forms, so every
+        // termwiz variant must have a name that maps back to it. A silent
+        // fallback here would show the wrong cursor for an app that asked
+        // for a bar or an underline.
+        for (name, expected) in [
+            ("BlinkingBlock", CursorShape::BlinkingBlock),
+            ("SteadyBlock", CursorShape::SteadyBlock),
+            ("BlinkingUnderline", CursorShape::BlinkingUnderline),
+            ("SteadyUnderline", CursorShape::SteadyUnderline),
+            ("BlinkingBar", CursorShape::BlinkingBar),
+            ("SteadyBar", CursorShape::SteadyBar),
+            ("Default", CursorShape::Default),
+        ] {
+            assert_eq!(cursor_shape_from_name(name), expected, "{name}");
+        }
+        assert_eq!(cursor_shape_from_name("nonsense"), CursorShape::Default);
+    }
+
+    #[test]
     fn a_wrapped_row_marks_its_last_cell() {
         let wrapped = StyledScreenLine {
             row: 0,
@@ -606,6 +659,35 @@ mod tests {
             next_core().get_session(session_id).is_err(),
             "dropping the pane must destroy its session, or the PTY leaks"
         );
+        Ok(())
+    }
+
+    /// Closing a pane calls `kill`. The trait default is a no-op, which would
+    /// leave the shell running until the last Arc happened to drop.
+    #[test]
+    fn killing_a_pane_ends_its_session() -> anyhow::Result<()> {
+        let pane = NextCorePane::spawn(
+            8,
+            TerminalSize {
+                cols: 40,
+                rows: 6,
+                ..Default::default()
+            },
+            None,
+            None,
+            0,
+            Vec::new(),
+        )?;
+        let session_id = pane.session_id();
+        assert!(next_core().get_session(session_id).is_ok());
+
+        pane.kill();
+
+        assert!(
+            next_core().get_session(session_id).is_err(),
+            "kill must end the session, not wait for the pane to be dropped"
+        );
+        assert!(pane.is_dead(), "a killed pane must read as dead");
         Ok(())
     }
 

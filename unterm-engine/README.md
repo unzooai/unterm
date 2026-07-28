@@ -128,6 +128,8 @@ This is independent of `UNTERM_NEXT_CORE_WEBGPU_PANE`, and the two compose:
 
 The pane owns its session's lifetime and destroys it on drop. Because next-core runs its own PTY pump it hands the mux no reader, so the pane carries a change watcher that samples the screen revision and raises `PaneOutput`; without it the GUI would never be told to repaint.
 
+Known gaps for next-core panes specifically: `erase_scrollback` is a no-op (next-core has no clear-scrollback entry point yet, so the keybinding does nothing rather than doing something wrong), and `has_unseen_output` always reports false, so the tab bar's unseen-output marker stays dark.
+
 Known gaps at this stage:
 - Selection and copy still read the legacy pane's screen, so selecting inside a replaced pane copies from the hidden session.
 - Overlays (copy mode, launcher, debug output) keep their pane on the legacy renderer entirely.
