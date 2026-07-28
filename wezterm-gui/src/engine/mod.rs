@@ -57,54 +57,7 @@ pub use unterm_engine::{
     ScreenLine, ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot,
     SessionActivitySnapshot, SessionEngine, SessionSnapshot, ShellSnapshot, SplitDirection,
     SplitSessionRequest, StyledCell, StyledColor, StyledScreenLine, StyledScreenSnapshot,
-    StyledScrollbackSnapshot, StyledVerticalAlign, TerminalEngine,
-};
-
-#[derive(Clone, Debug)]
-pub struct WindowFocusResult {
-    pub mux_window_id: usize,
-    pub window_engine: &'static str,
-    pub uses_host_window: bool,
-}
-
-#[derive(Clone, Debug)]
-pub struct WindowTitleResult {
-    pub title: Option<String>,
-    pub window_engine: &'static str,
-    pub title_owner: &'static str,
-    pub metadata_owner: &'static str,
-    pub native_window_lifecycle: &'static str,
-    pub applied_to_native_window: bool,
-    pub uses_host_window: bool,
-}
-
-#[derive(Clone, Debug)]
-pub struct PaneLocation {
-    pub window_id: usize,
-    pub tab_id: usize,
-}
-
-#[derive(Clone, Debug)]
-#[allow(dead_code)]
-pub enum ViewportScrollResult {
-    Scrolled,
-    Unsupported { reason: String },
-}
-
-pub trait WindowEngine {
-    fn focus_current_instance_window(&self) -> anyhow::Result<WindowFocusResult>;
-    fn set_current_instance_title(
-        &self,
-        title: Option<String>,
-    ) -> anyhow::Result<WindowTitleResult>;
-    fn active_pane_id(&self) -> anyhow::Result<Option<u64>>;
-    fn pane_locations(&self) -> anyhow::Result<HashMap<u64, PaneLocation>>;
-    fn scroll_viewport_to(
-        &self,
-        pane_id: usize,
-        target: isize,
-    ) -> anyhow::Result<ViewportScrollResult>;
-}
+    StyledScrollbackSnapshot, StyledVerticalAlign, TerminalEngine, PaneLocation, ViewportScrollResult, WindowEngine, WindowFocusResult, WindowTitleResult};
 
 pub struct RenderedScrollbackPng {
     pub image: crate::scrollshot::ScrollbackPng,

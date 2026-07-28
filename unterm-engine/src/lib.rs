@@ -1095,6 +1095,62 @@ pub trait InputEngine {
     }
 }
 
+
+/// What focusing a window told us.
+///
+/// Plain data on purpose: these travel to whoever asked over MCP, and a type
+/// that knew about a window would tie that question to one front end.
+#[derive(Clone, Debug)]
+pub struct WindowFocusResult {
+    pub mux_window_id: usize,
+    pub window_engine: &'static str,
+    pub uses_host_window: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct WindowTitleResult {
+    pub title: Option<String>,
+    pub window_engine: &'static str,
+    pub title_owner: &'static str,
+    pub metadata_owner: &'static str,
+    pub native_window_lifecycle: &'static str,
+    pub applied_to_native_window: bool,
+    pub uses_host_window: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct PaneLocation {
+    pub window_id: usize,
+    pub tab_id: usize,
+}
+
+#[derive(Clone, Debug)]
+#[allow(dead_code)]
+pub enum ViewportScrollResult {
+    Scrolled,
+    Unsupported { reason: String },
+}
+
+/// Window-level questions a front end answers.
+///
+/// Not every front end has windows in the same sense -- a headless one has
+/// none -- so this is separate from the session and screen traits rather than
+/// folded into them.
+pub trait WindowEngine {
+    fn focus_current_instance_window(&self) -> anyhow::Result<WindowFocusResult>;
+    fn set_current_instance_title(
+        &self,
+        title: Option<String>,
+    ) -> anyhow::Result<WindowTitleResult>;
+    fn active_pane_id(&self) -> anyhow::Result<Option<u64>>;
+    fn pane_locations(&self) -> anyhow::Result<std::collections::HashMap<u64, PaneLocation>>;
+    fn scroll_viewport_to(
+        &self,
+        pane_id: usize,
+        target: isize,
+    ) -> anyhow::Result<ViewportScrollResult>;
+}
+
 pub trait RecordingEngine {
     fn start_recording(&self, pane_id: usize) -> Result<RecordingStartResult>;
     fn stop_recording(&self, pane_id: usize) -> Result<RecordingStopResult>;
