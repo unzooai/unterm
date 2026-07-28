@@ -6,6 +6,12 @@
 //! one into the other.
 
 use crate::terminal::{colors_from, TerminalFont};
+
+/// How many matches a search collects.
+///
+/// Enough that the count means something, bounded so a pattern matching every
+/// line of a long scrollback does not stall the keystroke that typed it.
+const MAX_SEARCH_MATCHES: usize = 500;
 use anyhow::Context;
 use std::sync::Arc;
 use unterm_engine::next_core::{config, key_encoding, NextCoreEngine};
@@ -56,6 +62,8 @@ pub struct App {
     drawn_confirmation: Option<u64>,
     /// Text an input method is still composing, not yet the shell's.
     preedit: crate::ime::Preedit,
+    /// The open search, if there is one.
+    search: Option<crate::search::Search>,
     /// The title last set, so an unchanged one is not set again every frame.
     window_title: Option<String>,
 }
@@ -100,6 +108,7 @@ impl App {
             engine: NextCoreEngine,
             drawn_confirmation: None,
             preedit: crate::ime::Preedit::default(),
+            search: None,
             window_title: None,
             font: TerminalFont::open_with_fallback(pixel_size.round() as u32, &fallbacks)?,
             atlas: GlyphAtlas::new(1024, 1024),
@@ -229,6 +238,7 @@ impl App {
         }
         quads.backgrounds.extend(dividers);
         self.append_preedit(&mut quads);
+        self.append_search_bar(window_width, &mut quads);
         let tab_count = self.tabs.tab_count();
         let active_tab = self
             .tab_id
@@ -350,6 +360,10 @@ impl App {
                 self.split(unterm_engine::next_core::layout::SplitAxis::Horizontal)
             }
             Action::SplitDown => self.split(unterm_engine::next_core::layout::SplitAxis::Vertical),
+            Action::Search => {
+                self.search = Some(crate::search::Search::default());
+                self.drawn_revision = None;
+            }
             Action::NewTab => self.new_tab(),
             Action::NextTab => self.cycle_tab(1),
             Action::PreviousTab => self.cycle_tab(-1),
@@ -631,6 +645,113 @@ impl App {
         }
         self.resize_panes();
         self.drawn_revision = None;
+    }
+
+    /// Type into the open search. Returns true when the key was the search's.
+    ///
+    /// Everything printable extends the pattern; Enter steps through the
+    /// matches and Esc closes. Nothing else is taken, so a key the search has
+    /// no use for still reaches the shell rather than vanishing.
+    fn handle_search_key(&mut self, event: &winit::event::KeyEvent) -> bool {
+        use winit::keyboard::Key as WinitKey;
+        let Some(mut search) = self.search.take() else {
+            return false;
+        };
+
+        let named = match &event.logical_key {
+            WinitKey::Named(named) => Some(format!("{named:?}")),
+            _ => None,
+        };
+        let character = match &event.logical_key {
+            WinitKey::Character(text) => Some(text.to_string()),
+            _ => None,
+        };
+
+        let mut keep = true;
+        let mut research = false;
+        match crate::search::key_for(
+            named.as_deref(),
+            character.as_deref(),
+            self.ctrl_held,
+            self.shift_held,
+        ) {
+            crate::search::Key::Close => keep = false,
+            crate::search::Key::Step(delta) => search.step(delta),
+            crate::search::Key::Backspace => {
+                search.pattern.pop();
+                research = true;
+            }
+            crate::search::Key::Type(text) => {
+                search.pattern.push_str(&text);
+                research = true;
+            }
+            crate::search::Key::NotOurs => {
+                self.search = Some(search);
+                return false;
+            }
+        }
+
+        if keep {
+            if research {
+                let matches = self
+                    .state
+                    .as_ref()
+                    .filter(|_| !search.pattern.is_empty())
+                    .and_then(|live| {
+                        self.engine
+                            .search(live.session_id, &search.pattern, MAX_SEARCH_MATCHES)
+                            .ok()
+                    })
+                    .unwrap_or_default();
+                search.adopt(matches);
+            }
+            // Follow the current match, so finding something shows it.
+            if let (Some(found), Some(live)) = (search.current(), self.state.as_ref()) {
+                let _ = self
+                    .engine
+                    .scroll_viewport_to(live.session_id, found.row as isize);
+            }
+            self.search = Some(search);
+        }
+        self.drawn_revision = None;
+        if let Some(live) = self.state.as_ref() {
+            live.window.request_redraw();
+        }
+        true
+    }
+
+    /// The search bar, along the bottom.
+    ///
+    /// The bottom rather than the top: the tab bar is up there, and a bar
+    /// that moved the terminal's rows around every time it opened would
+    /// reflow the shell mid-search.
+    fn append_search_bar(
+        &mut self,
+        window_width: f32,
+        quads: &mut unterm_render::quads::FrameQuads,
+    ) {
+        let Some(label) = self.search.as_ref().map(|search| search.label()) else {
+            return;
+        };
+        let metrics = self.font.metrics();
+        let height = self.state.as_ref().map(|live| live.height).unwrap_or(0) as f32;
+        let top = (height - metrics.height).max(0.0);
+        quads.backgrounds.push(unterm_render::quads::Quad {
+            left: 0.0,
+            top,
+            width: window_width,
+            height: metrics.height,
+            color: self.colors.foreground,
+        });
+        let background = self.colors.background;
+        crate::terminal::append_text(
+            &label,
+            &mut self.font,
+            &mut self.atlas,
+            background,
+            (metrics.width, top),
+            quads,
+        );
     }
 
     /// Name the window after what is running in it.
@@ -982,11 +1103,21 @@ impl ApplicationHandler for App {
                 if event.state != ElementState::Pressed {
                     return;
                 }
+                if self.state.is_none() {
+                    return;
+                }
+
+                use winit::keyboard::Key;
+
+                // A search takes the keyboard while it is open: the letters
+                // typed are the pattern, not input for the shell.
+                if self.search.is_some() && self.handle_search_key(&event) {
+                    return;
+                }
+
                 let Some(live) = self.state.as_ref() else {
                     return;
                 };
-
-                use winit::keyboard::Key;
 
                 // A parked agent write comes first: while the banner is up
                 // these keys answer it rather than reaching the shell, and

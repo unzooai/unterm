@@ -357,6 +357,21 @@ $Suites = @(
         )
     },
     @{
+        # Which keys a search takes decides which keys the shell never sees,
+        # and taking one too many breaks a program running underneath it.
+        Name = "app search"
+        Package = "unterm-app"
+        Filter = "search::tests::"
+        ExpectedCount = 13
+        RequiredTests = @(
+            "search::tests::stepping_past_the_last_match_wraps_to_the_first",
+            "search::tests::stepping_with_no_matches_answers_rather_than_dividing_by_zero",
+            "search::tests::narrowing_the_pattern_keeps_the_match_the_user_was_looking_at",
+            "search::tests::a_control_chord_is_not_text_to_search_for",
+            "search::tests::a_key_the_search_has_no_use_for_reaches_the_shell"
+        )
+    },
+    @{
         # Composing CJK text: where it is drawn, and how wide it measures.
         # Both are off by a character until someone types Chinese and looks.
         Name = "app input method"

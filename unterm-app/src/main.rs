@@ -11,6 +11,7 @@ mod keys;
 mod mcp_host;
 mod panes;
 mod scroll;
+mod search;
 mod tabbar;
 mod select;
 mod terminal;

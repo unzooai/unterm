@@ -22,6 +22,7 @@ pub enum Action {
     NextTab,
     PreviousTab,
     CloseTab,
+    Search,
 }
 
 impl Action {
@@ -38,6 +39,7 @@ impl Action {
             Action::NextTab => "NextTab",
             Action::PreviousTab => "PreviousTab",
             Action::CloseTab => "CloseTab",
+            Action::Search => "Search",
         }
     }
 }
@@ -150,6 +152,11 @@ pub const BINDINGS: &[Binding] = &[
         mods: CTRL_SHIFT,
         trigger: Trigger::Char('w'),
         action: Action::CloseTab,
+    },
+    Binding {
+        mods: CTRL_SHIFT,
+        trigger: Trigger::Char('f'),
+        action: Action::Search,
     },
     // Ctrl+Tab cycles, Ctrl+Shift+Tab cycles back -- the pair every tabbed
     // application uses. Plain Tab still belongs to the shell's completion.
