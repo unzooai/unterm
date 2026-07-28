@@ -104,6 +104,52 @@ pub fn from_source(source: &str, name: &str) -> anyhow::Result<Config> {
         );
     }
 
+    // The tab bar sits slightly above the theme background and inactive text
+    // slightly below the foreground. In Lua that meant parsing a colour and
+    // calling `lighten`/`darken`; here the config states the two colours and
+    // how far to move, and the frame is derived.
+    //
+    // A fixed step would be wrong: it blows out a light theme and does nothing
+    // to a dark one. The adjustment is proportional, so one setting works in
+    // both.
+    if let (Ok(Some(background)), Ok(Some(foreground))) = (
+        resolved.str_of("colors.background"),
+        resolved.str_of("colors.foreground"),
+    ) {
+        use unterm_engine::next_core::color::parse_hex;
+
+        let lift = resolved.float_of("colors.tab_bar_lift").ok().flatten().unwrap_or(0.05);
+        let dim = resolved.float_of("colors.inactive_dim").ok().flatten().unwrap_or(0.35);
+
+        if let (Some(background), Some(foreground)) =
+            (parse_hex(background), parse_hex(foreground))
+        {
+            let bar_bg = background.lighten(lift).to_hex();
+            let dim_fg = foreground.darken(dim).to_hex();
+            let foreground = foreground.to_hex();
+
+            let mut frame = Object::default();
+            for (field, value) in [
+                ("active_titlebar_bg", &bar_bg),
+                ("inactive_titlebar_bg", &bar_bg),
+                ("active_titlebar_fg", &foreground),
+                ("inactive_titlebar_fg", &dim_fg),
+                ("active_titlebar_border_bottom", &bar_bg),
+                ("inactive_titlebar_border_bottom", &bar_bg),
+                ("button_bg", &bar_bg),
+                ("button_fg", &foreground),
+                ("button_hover_bg", &bar_bg),
+                ("button_hover_fg", &foreground),
+            ] {
+                frame.insert(
+                    Value::String(field.to_string()),
+                    Value::String(value.clone()),
+                );
+            }
+            object.insert(Value::String("window_frame".to_string()), Value::Object(frame));
+        }
+    }
+
     // Bindings are validated here rather than by the schema: a chord is not a
     // key name, and a misspelled one deserves to be told apart from a
     // misspelled setting.
@@ -298,11 +344,14 @@ mod tests {
         // The schema is what tells a user a setting exists. One that is
         // accepted and then ignored is worse than one that is rejected.
         let handled_elsewhere = [
+            // Consumed to derive `window_frame` rather than mapped one-to-one.
+            "colors.background",
+            "colors.foreground",
+            "colors.tab_bar_lift",
+            "colors.inactive_dim",
             "font_family",
             "font_fallback",
             "path_append",
-            "colors.background",
-            "colors.foreground",
         ];
         for setting in config_schema::SETTINGS {
             let mapped = FIELD_MAP.iter().any(|(declared, _)| declared == setting);
@@ -343,6 +392,48 @@ CTRL+T = \"SpwanWindow\"", "test")
     }
 
     #[test]
+    fn the_frame_is_derived_from_the_theme_colours() {
+        let config = from_source(
+            r##"
+            [colors]
+            background = "#111315"
+            foreground = "#e8eaed"
+            "##,
+            "test",
+        )
+        .expect("should load");
+
+        // The bar sits above the background rather than matching it, which is
+        // what the Lua config used `lighten` for.
+        let bar: String = config.window_frame.active_titlebar_bg.to_string();
+        assert_ne!(bar.to_lowercase(), "#111315");
+
+        // Inactive text sits below the foreground, not at it.
+        let inactive: String = config.window_frame.inactive_titlebar_fg.to_string();
+        let active: String = config.window_frame.active_titlebar_fg.to_string();
+        assert_ne!(inactive, active);
+    }
+
+    #[test]
+    fn how_far_the_frame_moves_is_a_setting() {
+        let subtle = from_source(
+            "[colors]\nbackground = \"#111315\"\nforeground = \"#e8eaed\"\ntab_bar_lift = 0.02",
+            "test",
+        )
+        .expect("should load");
+        let strong = from_source(
+            "[colors]\nbackground = \"#111315\"\nforeground = \"#e8eaed\"\ntab_bar_lift = 0.4",
+            "test",
+        )
+        .expect("should load");
+
+        assert_ne!(
+            subtle.window_frame.active_titlebar_bg.to_string(),
+            strong.window_frame.active_titlebar_bg.to_string()
+        );
+    }
+
+    #[test]
     fn a_shell_becomes_a_command_line() {
         let config = from_source(r#"shell = "powershell.exe""#, "test").expect("should load");
 
@@ -362,5 +453,16 @@ CTRL+T = \"SpwanWindow\"", "test")
 
         assert_eq!(config.font_size, 13.0);
         assert_eq!(config.scrollback_lines, 100000);
+
+        // The frame is derived, not defaulted: the bar sits above the theme
+        // background rather than matching it.
+        assert_ne!(
+            config.window_frame.active_titlebar_bg.to_string().to_lowercase(),
+            "#111315"
+        );
+        assert_ne!(
+            config.window_frame.inactive_titlebar_fg.to_string(),
+            config.window_frame.active_titlebar_fg.to_string()
+        );
     }
 }

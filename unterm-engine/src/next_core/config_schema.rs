@@ -21,6 +21,8 @@ pub const SETTINGS: &[&str] = &[
     "color_scheme",
     "colors.background",
     "colors.foreground",
+    "colors.tab_bar_lift",
+    "colors.inactive_dim",
     "scrollback_lines",
     "enable_scroll_bar",
     "shell",
