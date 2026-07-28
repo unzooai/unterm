@@ -74,7 +74,14 @@ pub fn unknown_placeholders(format: &str) -> Vec<String> {
     unknown
 }
 
-pub fn render(rules: &TabTitleRules, context: TabContext) -> String {
+/// What this pane is called, before anyone decides how to show it.
+///
+/// Split out from `render` because the two tab bars lay a tab out very
+/// differently -- one substitutes into a template, the other places an icon, a
+/// name and a directory as separately coloured pieces -- but they have to agree
+/// on the name itself. Two implementations of "what is this pane called" is
+/// exactly how they came to disagree about which suffixes to strip.
+pub fn resolve_name(rules: &TabTitleRules, context: TabContext) -> String {
     let mut title = context.pane_title.trim().to_string();
 
     if title.is_empty() || rules.ignored_titles.iter().any(|ignored| *ignored == title) {
@@ -91,6 +98,11 @@ pub fn render(rules: &TabTitleRules, context: TabContext) -> String {
         // An unnamed tab is worse than a generically named one.
         title = rules.fallback.clone();
     }
+    title
+}
+
+pub fn render(rules: &TabTitleRules, context: TabContext) -> String {
+    let title = resolve_name(rules, context);
 
     rules
         .format
@@ -109,14 +121,20 @@ fn program_name(path: &str) -> String {
         .to_string()
 }
 
-/// Drop a trailing `.exe`, case-insensitively: Windows does not care about the
-/// case and neither should the tab.
+/// Suffixes that are noise in a tab. Windows runs `.com`, `.bat` and `.cmd` as
+/// readily as `.exe`, and a tab reading `git.cmd` helps nobody.
+const EXECUTABLE_SUFFIXES: &[&str] = &[".exe", ".com", ".bat", ".cmd"];
+
+/// Drop an executable suffix, case-insensitively: Windows does not care about
+/// the case and neither should the tab.
 fn strip_executable_extension(name: &str) -> String {
     let lower = name.to_ascii_lowercase();
-    match lower.strip_suffix(".exe") {
-        Some(stem) => name[..stem.len()].to_string(),
-        None => name.to_string(),
+    for suffix in EXECUTABLE_SUFFIXES {
+        if let Some(stem) = lower.strip_suffix(suffix) {
+            return name[..stem.len()].to_string();
+        }
     }
+    name.to_string()
 }
 
 fn capitalize_first(name: &str) -> String {
@@ -250,6 +268,29 @@ mod tests {
         assert_eq!(
             render(&rules, context("", r"C:\bin\pwsh.exe")),
             "  pwsh.exe  "
+        );
+    }
+
+    #[test]
+    fn every_executable_suffix_windows_runs_is_dropped() {
+        // The left tab bar already stripped all four; the template stripped
+        // only `.exe`, so the two bars disagreed about the same pane.
+        for path in [r"C:\bin\git.cmd", r"C:\bin\tool.bat", r"C:\bin\thing.com"] {
+            let name = resolve_name(&TabTitleRules::default(), context("", path));
+            assert!(!name.contains('.'), "{} -> {}", path, name);
+        }
+    }
+
+    #[test]
+    fn the_name_is_available_without_the_template() {
+        // The left bar needs the name but lays the tab out itself.
+        let name = resolve_name(&TabTitleRules::default(), context("", r"C:\bin\pwsh.exe"));
+        assert_eq!(name, "Pwsh");
+
+        // And the template is that same name, placed.
+        assert_eq!(
+            render(&TabTitleRules::default(), context("", r"C:\bin\pwsh.exe")),
+            "  Pwsh  "
         );
     }
 

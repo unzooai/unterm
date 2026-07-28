@@ -511,16 +511,28 @@ fn gutter_limited_width_pts(
 }
 
 /// Display-friendly process name for a tab row: drop the noisy executable
-/// extension (`powershell.exe` → `powershell`), the way Warp and iTerm show
-/// shells. Anything without a known suffix is returned unchanged.
+/// suffix (`powershell.exe` → `powershell`), the way Warp and iTerm show
+/// shells.
+///
+/// Both tab bars ask next-core for this, so a pane cannot be called one thing
+/// on the left and another along the top. Capitalisation stays off here: this
+/// row already carries an icon and a directory, and the sidebar's own casing is
+/// part of its look.
 fn prettify_proc_title(title: &str) -> String {
-    let lower = title.to_ascii_lowercase();
-    for ext in [".exe", ".com", ".bat", ".cmd"] {
-        if lower.ends_with(ext) {
-            return title[..title.len() - ext.len()].to_string();
-        }
-    }
-    title.to_string()
+    use unterm_engine::next_core::tab_title::{resolve_name, TabContext, TabTitleRules};
+
+    let rules = TabTitleRules {
+        capitalize: false,
+        ..TabTitleRules::default()
+    };
+    resolve_name(
+        &rules,
+        TabContext {
+            pane_title: title,
+            process_path: "",
+            index: 0,
+        },
+    )
 }
 
 impl crate::TermWindow {

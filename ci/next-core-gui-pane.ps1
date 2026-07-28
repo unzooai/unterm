@@ -229,7 +229,7 @@ $Suites = @(
         Name = "tab titles"
         Package = "unterm-engine"
         Filter = "next_core::tab_title::tests::"
-        ExpectedCount = 13
+        ExpectedCount = 15
         RequiredTests = @(
             "next_core::tab_title::tests::an_empty_title_falls_back_to_the_running_program",
             "next_core::tab_title::tests::a_placeholder_title_is_treated_as_no_title",
@@ -237,7 +237,9 @@ $Suites = @(
             "next_core::tab_title::tests::both_path_separators_are_understood_on_every_platform",
             "next_core::tab_title::tests::nothing_at_all_still_names_the_tab",
             "next_core::tab_title::tests::capitalizing_leaves_scripts_without_case_alone",
-            "next_core::tab_title::tests::an_unknown_placeholder_is_reported_rather_than_rendered_literally"
+            "next_core::tab_title::tests::an_unknown_placeholder_is_reported_rather_than_rendered_literally",
+            "next_core::tab_title::tests::every_executable_suffix_windows_runs_is_dropped",
+            "next_core::tab_title::tests::the_name_is_available_without_the_template"
         )
     },
     @{
