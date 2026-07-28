@@ -688,7 +688,7 @@ fn next_core_pane_session_request(
 /// Returns `None` for events next-core has no encoding for, which the caller
 /// treats as "nothing to report" rather than as a reason to fall back to the
 /// legacy pane.
-fn next_core_mouse_event(
+pub(crate) fn next_core_mouse_event(
     event: &wezterm_term::MouseEvent,
 ) -> Option<unterm_engine::next_core::mouse_encoding::MouseEvent> {
     use unterm_engine::next_core::mouse_encoding::{MouseButton, MouseEventKind};

@@ -116,6 +116,10 @@ pub(in crate::next_core) enum RuntimeCommand {
     Cursor {
         pane_id: usize,
     },
+    /// Terminal modes a GUI pane surfaces (mouse grab, alternate screen).
+    PaneModes {
+        pane_id: usize,
+    },
     StartRecording {
         pane_id: usize,
     },
@@ -169,7 +173,8 @@ impl RuntimeCommand {
             | Self::ReadScrollbackText { .. }
             | Self::ReadStyledScrollback { .. }
             | Self::SearchScreen { .. }
-            | Self::Cursor { .. } => RuntimeCommandClass::ScreenRead,
+            | Self::Cursor { .. }
+            | Self::PaneModes { .. } => RuntimeCommandClass::ScreenRead,
             Self::StartRecording { .. }
             | Self::StopRecording { .. }
             | Self::RecordingStatus { .. }
@@ -205,6 +210,7 @@ impl RuntimeCommand {
             | Self::ReadStyledScrollback { pane_id, .. }
             | Self::SearchScreen { pane_id, .. }
             | Self::Cursor { pane_id }
+            | Self::PaneModes { pane_id }
             | Self::StartRecording { pane_id }
             | Self::StopRecording { pane_id }
             | Self::RecordingStatus { pane_id }
@@ -238,7 +244,8 @@ impl RuntimeCommand {
             | Self::ReadScrollbackText { .. }
             | Self::ReadStyledScrollback { .. }
             | Self::SearchScreen { .. }
-            | Self::Cursor { .. } => RuntimeCommandLane::Screen,
+            | Self::Cursor { .. }
+            | Self::PaneModes { .. } => RuntimeCommandLane::Screen,
             Self::StartRecording { .. }
             | Self::StopRecording { .. }
             | Self::RecordingStatus { .. }

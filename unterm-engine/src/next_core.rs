@@ -200,6 +200,20 @@ struct NextCoreScreen {
 }
 
 impl NextCoreScreen {
+    /// The terminal modes a GUI pane surfaces.
+    ///
+    /// `alternate_screen_modes` holds every alt-screen mode the application
+    /// turned on (47/1047/1049), so a non-empty set means the alternate
+    /// screen is up.
+    pub(super) fn pane_modes(&self) -> crate::PaneModesSnapshot {
+        crate::PaneModesSnapshot {
+            mouse_grabbed: self.mouse_tracking != screen_state::MouseTrackingMode::None,
+            alt_screen_active: !self.alternate_screen_modes.is_empty(),
+            bracketed_paste: self.bracketed_paste,
+            application_cursor_keys: self.application_cursor_keys,
+        }
+    }
+
     /// The session's mouse reporting state, as the encoder needs it.
     ///
     /// `MouseTrackingMode`'s variant names do not line up with the DECSET
@@ -1651,6 +1665,11 @@ impl NextCoreEngine {
     /// Move the viewport by `delta` rows. Negative scrolls back into history.
     pub fn scroll_viewport_by(&self, pane_id: usize, delta: isize) -> Result<()> {
         runtime::scroll_viewport_by(pane_id, delta)
+    }
+
+    /// Terminal modes a GUI pane has to expose (mouse grab, alternate screen).
+    pub fn pane_modes(&self, pane_id: usize) -> Result<crate::PaneModesSnapshot> {
+        runtime::pane_modes(pane_id)
     }
 }
 

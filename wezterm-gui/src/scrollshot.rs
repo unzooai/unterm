@@ -335,7 +335,7 @@ fn resolve_styled_color(
     }
 }
 
-fn styled_cell_attributes(style: &CellStyle) -> TwCellAttributes {
+pub(crate) fn styled_cell_attributes(style: &CellStyle) -> TwCellAttributes {
     let mut attrs = TwCellAttributes::default();
     if style.bold {
         attrs.set_intensity(Intensity::Bold);

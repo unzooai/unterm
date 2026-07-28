@@ -4,6 +4,7 @@
 //! This module keeps the current WezTerm adapter available to GUI callers while
 //! letting product services migrate away from WezTerm internals.
 
+pub mod next_core_pane;
 pub mod pane_binding;
 pub mod render_backend;
 pub mod render_consumer;

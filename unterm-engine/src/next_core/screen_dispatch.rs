@@ -291,6 +291,13 @@ pub(super) fn scroll_viewport_by(pane_id: usize, delta: isize) -> Result<()> {
     Ok(())
 }
 
+pub(super) fn pane_modes(pane_id: usize) -> Result<crate::PaneModesSnapshot> {
+    let screen = session_handles::screen_current(pane_id)?;
+
+    let modes = screen.lock().pane_modes();
+    Ok(modes)
+}
+
 pub(super) fn cursor(pane_id: usize) -> Result<CursorSnapshot> {
     let screen = session_handles::screen_current(pane_id)?;
 

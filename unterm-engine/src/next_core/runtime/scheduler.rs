@@ -335,6 +335,17 @@ pub(in crate::next_core) fn cursor(pane_id: usize) -> Result<CursorSnapshot> {
     }
 }
 
+pub(in crate::next_core) fn pane_modes(pane_id: usize) -> Result<crate::PaneModesSnapshot> {
+    let command = RuntimeCommand::PaneModes { pane_id };
+    match consumer::submit_and_dispatch_response(command)? {
+        RuntimeDispatchResult::PaneModes(modes) => Ok(modes),
+        other => bail!(
+            "runtime scheduler expected pane-modes dispatch result, got {:?}",
+            other
+        ),
+    }
+}
+
 pub(in crate::next_core) fn output(pane_id: usize) -> Result<String> {
     let command = RuntimeCommand::RawOutput { pane_id };
     match consumer::submit_and_dispatch_response(command)? {

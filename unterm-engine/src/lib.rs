@@ -21,6 +21,17 @@ pub struct CursorSnapshot {
     pub shape: String,
 }
 
+/// Terminal modes a GUI pane has to expose without reaching into the engine's
+/// internals: whether the application grabbed the mouse, and whether the
+/// alternate screen is up.
+#[derive(Clone, Copy, Debug, Default, Serialize, PartialEq, Eq)]
+pub struct PaneModesSnapshot {
+    pub mouse_grabbed: bool,
+    pub alt_screen_active: bool,
+    pub bracketed_paste: bool,
+    pub application_cursor_keys: bool,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct PaneDimensions {
     pub cols: usize,

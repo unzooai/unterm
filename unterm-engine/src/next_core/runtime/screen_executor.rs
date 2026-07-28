@@ -154,6 +154,17 @@ pub(in crate::next_core) fn execute_cursor(command: RuntimeCommand) -> Result<Cu
     }
 }
 
+pub(in crate::next_core) fn execute_pane_modes(
+    command: RuntimeCommand,
+) -> Result<crate::PaneModesSnapshot> {
+    ensure_screen_read(&command)?;
+
+    match command {
+        RuntimeCommand::PaneModes { pane_id } => screen_dispatch::pane_modes(pane_id),
+        _ => bail!("runtime screen executor expected pane-modes read command"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -46,6 +46,22 @@ $Suites = @(
         )
     },
     @{
+        # The mux pane backed directly by a next-core session: this is what
+        # removes the second shell running underneath each replaced pane.
+        Name = "next-core mux pane"
+        Package = "unterm"
+        Filter = "engine::next_core_pane::tests::"
+        ExpectedCount = 6
+        RequiredTests = @(
+            "engine::next_core_pane::tests::styled_line_becomes_a_line_of_the_requested_width",
+            "engine::next_core_pane::tests::wide_cells_consume_their_trailing_column",
+            "engine::next_core_pane::tests::a_line_wider_than_the_screen_is_not_truncated",
+            "engine::next_core_pane::tests::hyperlinks_survive_the_conversion",
+            "engine::next_core_pane::tests::pane_reads_a_live_next_core_session",
+            "engine::next_core_pane::tests::get_lines_returns_real_session_output_at_the_reported_rows"
+        )
+    },
+    @{
         Name = "mouse encoding"
         Package = "unterm-engine"
         Filter = "next_core::mouse_encoding::tests::"
