@@ -12,6 +12,7 @@ members = [
   "wezterm-gui",
   "wezterm-mux-server",
   "wezterm-open-url",
+  "unterm-render",
   "wezterm-render-escapes",
   "wezterm-surface",
   "wezterm-uds",
@@ -283,6 +284,7 @@ wezterm-gui-subcommands = { path = "wezterm-gui-subcommands" }
 wezterm-input-types = { version="0.1", path = "wezterm-input-types", default-features=false }
 wezterm-mux-server-impl = { path = "wezterm-mux-server-impl" }
 wezterm-open-url = { path = "wezterm-open-url" }
+unterm-render = { path = "unterm-render" }
 wezterm-render-escapes = { path = "wezterm-render-escapes" }
 wezterm-surface = { path = "wezterm-surface" }
 wezterm-term = { path = "term" }

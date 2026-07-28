@@ -1,0 +1,12 @@
+[package]
+name = "unterm-render"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# The renderer that lets next-core draw its own pixels. Deliberately thin on
+# dependencies: it takes rasterized glyphs and render commands, and produces
+# what a GPU backend uploads.
+
+[dependencies]
+unterm-engine = { path = "../unterm-engine" }
