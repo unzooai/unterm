@@ -386,13 +386,42 @@ pub(crate) fn next_core_webgpu_pane_mode() -> NextCoreWebGpuPaneMode {
 }
 
 fn next_core_webgpu_pane_mode_from_env(value: Option<&str>) -> NextCoreWebGpuPaneMode {
+    next_core_webgpu_pane_mode_from_parts(value, crate::engine::next_core_pane::next_core_panes_enabled())
+}
+
+/// Resolve the render mode from the render flag and whether panes are
+/// next-core sessions.
+///
+/// A pane that *is* a next-core session should be drawn by next-core: leaving
+/// the legacy renderer in charge there would mean maintaining two renderers
+/// for the same content forever. So next-core panes imply `Replace` unless the
+/// render flag explicitly asks for something else -- `append` to compare the
+/// two side by side, or `off` to fall back while investigating.
+fn next_core_webgpu_pane_mode_from_parts(
+    value: Option<&str>,
+    next_core_panes: bool,
+) -> NextCoreWebGpuPaneMode {
     let Some(raw) = value else {
-        return NextCoreWebGpuPaneMode::Disabled;
+        return if next_core_panes {
+            NextCoreWebGpuPaneMode::Replace
+        } else {
+            NextCoreWebGpuPaneMode::Disabled
+        };
     };
     match raw.trim().to_ascii_lowercase().as_str() {
         "replace" | "replace-pane" | "exclusive" => NextCoreWebGpuPaneMode::Replace,
         "1" | "true" | "yes" | "on" | "append" => NextCoreWebGpuPaneMode::Append,
-        _ => NextCoreWebGpuPaneMode::Disabled,
+        "0" | "false" | "no" | "off" | "legacy" => NextCoreWebGpuPaneMode::Disabled,
+        // An unrecognized value is a typo, not a request for the legacy
+        // renderer: with next-core panes the sane reading is "the user wants
+        // next-core", so do not silently hand the pane back to wezterm.
+        _ => {
+            if next_core_panes {
+                NextCoreWebGpuPaneMode::Replace
+            } else {
+                NextCoreWebGpuPaneMode::Disabled
+            }
+        }
     }
 }
 
@@ -596,30 +625,45 @@ mod tests {
 
     #[test]
     fn pane_mode_parses_env_values() {
-        use super::next_core_webgpu_pane_mode_from_env;
+        use super::next_core_webgpu_pane_mode_from_parts as mode;
 
         for value in ["replace", "replace-pane", "exclusive", "REPLACE", " replace "] {
             assert_eq!(
-                next_core_webgpu_pane_mode_from_env(Some(value)),
+                mode(Some(value), false),
                 NextCoreWebGpuPaneMode::Replace,
                 "{value:?}"
             );
         }
         for value in ["1", "true", "yes", "on", "append"] {
             assert_eq!(
-                next_core_webgpu_pane_mode_from_env(Some(value)),
+                mode(Some(value), false),
                 NextCoreWebGpuPaneMode::Append,
                 "{value:?}"
             );
         }
-        // Unset and unrecognized values must both leave the legacy renderer
-        // fully in charge — this flag gates an experimental engine.
+        // Without next-core panes, unset and unrecognized both leave the
+        // legacy renderer fully in charge — this flag gates an experimental
+        // renderer.
         for value in [None, Some(""), Some("0"), Some("off"), Some("nonsense")] {
-            assert_eq!(
-                next_core_webgpu_pane_mode_from_env(value),
-                NextCoreWebGpuPaneMode::Disabled,
-                "{value:?}"
-            );
+            assert_eq!(mode(value, false), NextCoreWebGpuPaneMode::Disabled, "{value:?}");
+        }
+    }
+
+    #[test]
+    fn next_core_panes_draw_themselves_unless_told_otherwise() {
+        use super::next_core_webgpu_pane_mode_from_parts as mode;
+
+        // A pane that *is* a next-core session is drawn by next-core: not
+        // doing so would mean keeping two renderers alive for one pane.
+        assert_eq!(mode(None, true), NextCoreWebGpuPaneMode::Replace);
+        // A typo must not silently hand the pane back to the legacy renderer.
+        assert_eq!(mode(Some("nonsense"), true), NextCoreWebGpuPaneMode::Replace);
+
+        // Explicit requests still win, so both can be compared side by side
+        // and the legacy renderer stays reachable while investigating.
+        assert_eq!(mode(Some("append"), true), NextCoreWebGpuPaneMode::Append);
+        for off in ["0", "off", "false", "legacy"] {
+            assert_eq!(mode(Some(off), true), NextCoreWebGpuPaneMode::Disabled, "{off:?}");
         }
     }
 

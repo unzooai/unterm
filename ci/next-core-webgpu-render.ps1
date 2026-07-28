@@ -11,7 +11,7 @@ $Suites = @(
     @{
         Name = "draw replacement"
         Filter = "termwindow::render::draw::tests::"
-        ExpectedCount = 13
+        ExpectedCount = 14
         RequiredTests = @(
             "termwindow::render::draw::tests::next_core_replace_requires_draw_ready_batch",
             "termwindow::render::draw::tests::next_core_replace_keeps_legacy_pane_for_empty_repeat_batch",
@@ -22,7 +22,8 @@ $Suites = @(
             "termwindow::render::draw::tests::pane_mode_parses_env_values",
             "termwindow::render::draw::tests::replacing_a_split_needs_every_pane_ready",
             "termwindow::render::draw::tests::replacing_needs_at_least_one_prepared_pane",
-            "termwindow::render::draw::tests::a_pane_without_a_frame_keeps_the_legacy_renderer"
+            "termwindow::render::draw::tests::a_pane_without_a_frame_keeps_the_legacy_renderer",
+            "termwindow::render::draw::tests::next_core_panes_draw_themselves_unless_told_otherwise"
         )
     },
     @{

@@ -121,10 +121,13 @@ $env:UNTERM_NEXT_CORE_PANE = "1"
 cargo run -p unterm -- start
 ```
 
-This is independent of `UNTERM_NEXT_CORE_WEBGPU_PANE`, and the two compose:
+On the WebGpu front end this one flag is enough: a pane that *is* a next-core session is drawn by next-core, because keeping the legacy renderer in charge there would mean maintaining two renderers for the same content. `UNTERM_NEXT_CORE_WEBGPU_PANE` remains as an override:
 
-- `UNTERM_NEXT_CORE_PANE` alone — next-core owns the terminal (PTY, parsing, screen, scrollback, input); WezTerm's renderer draws it by reading `get_lines()`. One shell per pane.
-- plus `UNTERM_NEXT_CORE_WEBGPU_PANE=replace` — next-core also draws its own GPU frame, and the render path binds to the pane's existing session rather than spawning a second one. Requires `front_end = "WebGpu"`; the mode is a no-op on the Glium front end.
+- unset — next-core draws its own panes (and a typo in the value does not silently hand them back to wezterm).
+- `append` — draw next-core's frame on top of the legacy one, to compare them.
+- `off` / `0` / `legacy` — keep the legacy renderer while investigating.
+
+Without next-core panes the render flag behaves as before: unset means the legacy renderer stays fully in charge. Requires `front_end = "WebGpu"`; the mode is a no-op on the Glium front end.
 
 With both flags on, next-core owns the terminal *and* the pixels: verified by screenshot against a live shell, with `replace_ready=true` and no fallbacks on any frame. Text, CJK, and the cursor render correctly through next-core's own GPU pipeline while the legacy pane quads stay suppressed. Splits work too — `LocalDomain::split_pane` routes through `spawn_pane`, so a split gets its own next-core session, and a two-pane window renders both through next-core with the placement offset putting each in its own half.
 
