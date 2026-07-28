@@ -54,6 +54,10 @@ pub struct App {
     /// Which agent-write banner was on screen when we last drew, so one
     /// appearing or being answered is itself a reason to draw again.
     drawn_confirmation: Option<u64>,
+    /// Text an input method is still composing, not yet the shell's.
+    preedit: crate::ime::Preedit,
+    /// The title last set, so an unchanged one is not set again every frame.
+    window_title: Option<String>,
 }
 
 struct Live {
@@ -95,6 +99,8 @@ impl App {
         Ok(Self {
             engine: NextCoreEngine,
             drawn_confirmation: None,
+            preedit: crate::ime::Preedit::default(),
+            window_title: None,
             font: TerminalFont::open_with_fallback(pixel_size.round() as u32, &fallbacks)?,
             atlas: GlyphAtlas::new(1024, 1024),
             colors: colors_from(config),
@@ -120,6 +126,9 @@ impl App {
                 metrics.height * 30.0,
             ));
         let window = Arc::new(event_loop.create_window(attributes)?);
+        // Without this the system never starts an input method, and a Chinese
+        // or Japanese keyboard can only produce Latin letters.
+        window.set_ime_allowed(true);
 
         let size = window.inner_size();
         let instance = wgpu::Instance::default();
@@ -219,6 +228,7 @@ impl App {
             );
         }
         quads.backgrounds.extend(dividers);
+        self.append_preedit(&mut quads);
         let tab_count = self.tabs.tab_count();
         let active_tab = self
             .tab_id
@@ -623,6 +633,147 @@ impl App {
         self.drawn_revision = None;
     }
 
+    /// Name the window after what is running in it.
+    ///
+    /// A terminal called "Unterm" whatever is inside it tells the user
+    /// nothing when they are looking at a taskbar full of them. The rules are
+    /// the engine's, so both front ends name a shell the same way.
+    fn update_window_title(&mut self) {
+        let Some(live) = self.state.as_ref() else {
+            return;
+        };
+        use unterm_engine::next_core::tab_title::{render, TabContext, TabTitleRules};
+
+        let shell = unterm_engine::SessionEngine::shell(&self.engine, live.session_id).ok();
+        let process_path = shell
+            .map(|shell| shell.process_name)
+            .unwrap_or_default();
+        let pane_title = unterm_engine::SessionEngine::get_session(&self.engine, live.session_id)
+            .map(|session| session.title)
+            .unwrap_or_default();
+
+        let index = self
+            .tab_id
+            .and_then(|id| self.tabs.tab_ids().iter().position(|c| *c == id))
+            .unwrap_or(0)
+            + 1;
+        let rendered = render(
+            &TabTitleRules {
+                // No padding: a window title is not a tab label.
+                format: "{title}".to_string(),
+                ..Default::default()
+            },
+            TabContext {
+                pane_title: &pane_title,
+                process_path: &process_path,
+                index,
+            },
+        );
+        let title = format!("{rendered} — Unterm");
+        if self.window_title.as_deref() == Some(title.as_str()) {
+            return;
+        }
+        live.window.set_title(&title);
+        self.window_title = Some(title);
+    }
+
+    /// Tell the system where the candidate list belongs.
+    ///
+    /// At the caret, not in a corner: an input method that puts its
+    /// candidates across the window from what is being typed makes the user
+    /// look in two places to type one word.
+    fn place_ime_candidates(&self) {
+        let Some(live) = self.state.as_ref() else {
+            return;
+        };
+        let Some((origin, metrics)) = self.preedit_origin() else {
+            return;
+        };
+        live.window.set_ime_cursor_area(
+            winit::dpi::PhysicalPosition::new(origin.0 as f64, origin.1 as f64),
+            winit::dpi::PhysicalSize::new(
+                (self.preedit.columns().max(1) as f32 * metrics.width) as u32,
+                metrics.height as u32,
+            ),
+        );
+    }
+
+    /// Where composed text is drawn, and the cell size it is drawn on.
+    fn preedit_origin(&self) -> Option<((f32, f32), unterm_render::quads::CellMetrics)> {
+        let live = self.state.as_ref()?;
+        let metrics = self.font.metrics();
+        let snapshot = self.engine.read_styled_screen(live.session_id).ok()?;
+        let placement = self
+            .placements()
+            .into_iter()
+            .find(|placement| placement.session_id == live.session_id);
+        let (pane_origin, pane_cols) = match placement {
+            Some(placement) => (placement.origin, placement.cols),
+            None => (
+                (
+                    0.0,
+                    crate::tabbar::terminal_top(metrics, self.tabs.tab_count()),
+                ),
+                snapshot.cols,
+            ),
+        };
+        let cursor = (
+            snapshot.cursor.x,
+            snapshot.cursor.y.max(0) as usize,
+        );
+        Some((
+            crate::ime::origin(
+                cursor,
+                pane_origin,
+                (metrics.width, metrics.height),
+                pane_cols,
+                self.preedit.columns(),
+            ),
+            metrics,
+        ))
+    }
+
+    /// Draw what the input method is still composing.
+    ///
+    /// Inverted, the way every terminal marks text that is not committed yet:
+    /// it is not in the shell, and drawing it like ordinary output would
+    /// suggest it had already been typed.
+    fn append_preedit(&mut self, quads: &mut unterm_render::quads::FrameQuads) {
+        if self.preedit.is_empty() {
+            return;
+        }
+        let Some((origin, metrics)) = self.preedit_origin() else {
+            return;
+        };
+        quads.backgrounds.push(unterm_render::quads::Quad {
+            left: origin.0,
+            top: origin.1,
+            width: self.preedit.columns() as f32 * metrics.width,
+            height: metrics.height,
+            color: self.colors.foreground,
+        });
+        let text = self.preedit.text.clone();
+        let background = self.colors.background;
+        crate::terminal::append_text(
+            &text,
+            &mut self.font,
+            &mut self.atlas,
+            background,
+            origin,
+            quads,
+        );
+        // A caret inside the composition, so a user editing what they have
+        // typed so far can see where they are.
+        let caret = self.preedit.caret_column() as f32 * metrics.width;
+        quads.backgrounds.push(unterm_render::quads::Quad {
+            left: origin.0 + caret,
+            top: origin.1,
+            width: (metrics.width * 0.15).max(1.0),
+            height: metrics.height,
+            color: background,
+        });
+    }
+
     /// The lines between split panes.
     ///
     /// Without them two shells sharing a background read as one shell with
@@ -792,6 +943,36 @@ impl ApplicationHandler for App {
                 self.drawn_revision = None;
             }
 
+            WindowEvent::Ime(ime) => {
+                use winit::event::Ime;
+                match ime {
+                    Ime::Preedit(text, caret) => {
+                        self.preedit = crate::ime::Preedit {
+                            text,
+                            caret: caret.map(|(start, _end)| start),
+                        };
+                        self.place_ime_candidates();
+                        if let Some(live) = self.state.as_ref() {
+                            live.window.request_redraw();
+                        }
+                        self.drawn_revision = None;
+                    }
+                    Ime::Commit(text) => {
+                        // Only now is it text the shell should see.
+                        self.preedit = crate::ime::Preedit::default();
+                        if let Some(live) = self.state.as_ref() {
+                            let _ = self.engine.write_input(live.session_id, &text);
+                            live.window.request_redraw();
+                        }
+                        self.drawn_revision = None;
+                    }
+                    Ime::Enabled => self.place_ime_candidates(),
+                    Ime::Disabled => {
+                        self.preedit = crate::ime::Preedit::default();
+                        self.drawn_revision = None;
+                    }
+                }
+            }
             WindowEvent::ModifiersChanged(modifiers) => {
                 self.shift_held = modifiers.state().shift_key();
                 self.ctrl_held = modifiers.state().control_key();
@@ -907,6 +1088,7 @@ impl ApplicationHandler for App {
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         self.sync_tabs();
+        self.update_window_title();
         if self.needs_redraw() {
             if let Some(live) = self.state.as_ref() {
                 live.window.request_redraw();

@@ -357,6 +357,20 @@ $Suites = @(
         )
     },
     @{
+        # Composing CJK text: where it is drawn, and how wide it measures.
+        # Both are off by a character until someone types Chinese and looks.
+        Name = "app input method"
+        Package = "unterm-app"
+        Filter = "ime::tests::"
+        ExpectedCount = 8
+        RequiredTests = @(
+            "ime::tests::a_chinese_character_is_two_columns_wide",
+            "ime::tests::the_caret_is_measured_in_columns_not_bytes",
+            "ime::tests::a_caret_past_the_end_is_clamped_rather_than_panicking",
+            "ime::tests::composing_near_the_right_edge_stays_inside_the_pane"
+        )
+    },
+    @{
         # What an agent is told the keys do has to be what the window does.
         Name = "app keys"
         Package = "unterm-app"

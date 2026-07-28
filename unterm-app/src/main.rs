@@ -6,6 +6,7 @@
 
 mod confirm;
 mod fonts;
+mod ime;
 mod keys;
 mod mcp_host;
 mod panes;

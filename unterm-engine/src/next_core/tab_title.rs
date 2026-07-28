@@ -88,6 +88,15 @@ pub fn resolve_name(rules: &TabTitleRules, context: TabContext) -> String {
         title = program_name(context.process_path);
     }
 
+    // A shell that names itself by its path -- cmd.exe sets the console
+    // title to `C:\WINDOWS\system32\cmd.exe` -- is naming a program, not
+    // describing what it is doing. Only when the whole title is a path:
+    // "vim: src/main.rs" contains a separator too, and cutting that to
+    // "main.rs" would throw away what the tab is actually for.
+    if looks_like_a_path(&title) {
+        title = program_name(&title);
+    }
+
     if rules.strip_extension {
         title = strip_executable_extension(&title);
     }
@@ -108,6 +117,11 @@ pub fn render(rules: &TabTitleRules, context: TabContext) -> String {
         .format
         .replace("{title}", &title)
         .replace("{index}", &context.index.to_string())
+}
+
+/// Whether a title is a path and nothing else.
+fn looks_like_a_path(title: &str) -> bool {
+    !title.contains(char::is_whitespace) && title.contains(['/', '\\'])
 }
 
 /// The last component of a path, whichever separator it uses.
@@ -305,5 +319,40 @@ mod tests {
     #[test]
     fn an_unclosed_placeholder_does_not_hang_the_scan() {
         assert!(unknown_placeholders("{title").is_empty());
+    }
+}
+
+#[cfg(test)]
+mod path_title_tests {
+    use super::*;
+
+    fn named(title: &str) -> String {
+        resolve_name(
+            &TabTitleRules::default(),
+            TabContext {
+                pane_title: title,
+                process_path: "",
+                index: 1,
+            },
+        )
+    }
+
+    #[test]
+    fn a_shell_that_names_itself_by_its_path_is_shown_by_its_program() {
+        // cmd.exe sets the console title to its own full path.
+        assert_eq!(named(r"C:\WINDOWS\system32\cmd.exe"), "Cmd");
+        assert_eq!(named("/usr/bin/zsh"), "Zsh");
+    }
+
+    #[test]
+    fn a_title_that_merely_mentions_a_path_is_left_alone() {
+        // Cutting this to "main.rs" would throw away what the tab is for.
+        assert_eq!(named("vim: src/main.rs"), "Vim: src/main.rs");
+        assert_eq!(named("~/code/unterm — build"), "~/code/unterm — build");
+    }
+
+    #[test]
+    fn an_ordinary_title_is_untouched_apart_from_its_capital() {
+        assert_eq!(named("cargo build"), "Cargo build");
     }
 }
