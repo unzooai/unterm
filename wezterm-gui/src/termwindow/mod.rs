@@ -573,6 +573,10 @@ pub struct TermWindow {
     /// and input paths must resolve through this map rather than passing a raw
     /// pane id to the engine.
     next_core_pane_bindings: RefCell<NextCorePaneBindings>,
+    /// Last drawable render plan per next-core session, replayed on frames
+    /// where the screen did not change. Keyed by session id, like the render
+    /// consumers.
+    next_core_last_drawable_frames: RefCell<HashMap<usize, EngineRenderBufferBatch>>,
     semantic_zones: HashMap<PaneId, SemanticZoneCache>,
 
     /// True after a Ctrl+Left press was consumed as a macOS secondary click;
@@ -1087,6 +1091,7 @@ impl TermWindow {
             pane_state: RefCell::new(HashMap::new()),
             next_core_render_consumers: RefCell::new(EngineRenderConsumerSet::new()),
             next_core_pane_bindings: RefCell::new(NextCorePaneBindings::new()),
+            next_core_last_drawable_frames: RefCell::new(HashMap::new()),
             swallow_left_gesture_after_secondary_click: false,
             current_mouse_buttons: vec![],
             current_mouse_capture: None,
@@ -1929,6 +1934,7 @@ impl TermWindow {
 
         self.pane_state.borrow_mut().clear();
         self.next_core_render_consumers.borrow_mut().clear();
+        self.next_core_last_drawable_frames.borrow_mut().clear();
         self.destroy_all_next_core_pane_bindings();
         self.tab_state.borrow_mut().clear();
     }
@@ -5219,6 +5225,9 @@ impl TermWindow {
             self.next_core_render_consumers
                 .borrow_mut()
                 .remove_pane(session_id);
+            self.next_core_last_drawable_frames
+                .borrow_mut()
+                .remove(&session_id);
             if let Some(webgpu) = &self.webgpu {
                 webgpu.remove_next_core_glyph_atlas_pane(session_id);
             }
@@ -5529,9 +5538,32 @@ impl TermWindow {
         // overlap, and indexing the engine by pane id paints whichever session
         // happens to share the number.
         let session_id = self.next_core_pane_session(pane_id)?;
-        self.next_core_render_consumers
+        let batch = self
+            .next_core_render_consumers
             .borrow_mut()
-            .read_buffer_plan(&engine, session_id, metrics)
+            .read_buffer_plan(&engine, session_id, metrics)?;
+
+        // The consumer skips a revision it already submitted, so an unchanged
+        // screen yields no geometry. The GPU pass needs geometry on every
+        // paint -- the frame is cleared and redrawn each time -- so replay the
+        // last drawable plan instead of handing back an empty one, which would
+        // read as "not ready" and drop the pane back to the legacy renderer
+        // on every static frame.
+        if batch.stats.submit {
+            self.next_core_last_drawable_frames
+                .borrow_mut()
+                .insert(session_id, batch.clone());
+            return Ok(batch);
+        }
+        if let Some(cached) = self
+            .next_core_last_drawable_frames
+            .borrow()
+            .get(&session_id)
+            .cloned()
+        {
+            return Ok(cached);
+        }
+        Ok(batch)
     }
 
     /// Pane ids belonging to overlays (copy mode, launcher, debug output).
