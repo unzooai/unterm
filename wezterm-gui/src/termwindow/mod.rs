@@ -5514,7 +5514,13 @@ impl TermWindow {
         &self,
         pane_id: PaneId,
     ) -> anyhow::Result<EngineRenderBufferBatch> {
-        let engine = crate::engine::current();
+        // Always next-core, never `engine::current()`. The id below is a
+        // next-core session id, and `current()` follows UNTERM_ENGINE, which
+        // defaults to wezterm -- so this used to hand a next-core id to the
+        // WezTerm engine and get "session not found" on every frame, silently
+        // disabling the whole replace path unless UNTERM_ENGINE happened to be
+        // set too.
+        let engine = crate::engine::next_core();
         let metrics = RenderCellMetrics {
             cell_width_px: self.render_metrics.cell_size.width as usize,
             cell_height_px: self.render_metrics.cell_size.height as usize,

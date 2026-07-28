@@ -124,7 +124,9 @@ cargo run -p unterm -- start
 This is independent of `UNTERM_NEXT_CORE_WEBGPU_PANE`, and the two compose:
 
 - `UNTERM_NEXT_CORE_PANE` alone — next-core owns the terminal (PTY, parsing, screen, scrollback, input); WezTerm's renderer draws it by reading `get_lines()`. One shell per pane.
-- plus `UNTERM_NEXT_CORE_WEBGPU_PANE=replace` — next-core also draws its own GPU frame, and the render path binds to the pane's existing session rather than spawning a second one.
+- plus `UNTERM_NEXT_CORE_WEBGPU_PANE=replace` — next-core also draws its own GPU frame, and the render path binds to the pane's existing session rather than spawning a second one. Requires `front_end = "WebGpu"`; the mode is a no-op on the Glium front end.
+
+The replace path does not yet retire the legacy renderer. `read_render_commit_plan` deliberately skips a revision it has already submitted, so on a frame where nothing changed next-core produces no geometry, the frame is not draw-ready, and the tab falls back to the legacy renderer for that paint. Verified in a GUI run: with a static screen every frame logs `submitted=false replace_ready=false`. Retiring the legacy renderer needs the GPU side to retain and redraw the last frame when the revision is unchanged.
 
 The pane owns its session's lifetime and destroys it on drop. Because next-core runs its own PTY pump it hands the mux no reader, so the pane carries a change watcher that samples the screen revision and raises `PaneOutput`; without it the GUI would never be told to repaint.
 
