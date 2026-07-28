@@ -364,6 +364,9 @@ impl ScreenEngine for WezTermEngine {
             .iter()
             .map(|line| StyledScreenLine {
                 row: line.row,
+                // This adapter reconstructs cells from plain text, which has
+                // already lost the wrap marker.
+                wrapped: false,
                 cells: line
                     .text
                     .chars()

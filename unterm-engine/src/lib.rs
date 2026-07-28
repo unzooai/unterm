@@ -205,6 +205,12 @@ pub struct StyledCell {
 pub struct StyledScreenLine {
     pub row: i64,
     pub cells: Vec<StyledCell>,
+    /// True when this row soft-wrapped into the next one.
+    ///
+    /// A consumer that reassembles logical lines needs this: without it a
+    /// wrapped command reads back as several lines and copying it inserts a
+    /// newline the user never typed.
+    pub wrapped: bool,
 }
 
 #[allow(dead_code)]
@@ -1043,6 +1049,8 @@ pub trait ScreenEngine {
             .enumerate()
             .map(|(idx, line)| StyledScreenLine {
                 row: text.first_row + idx as i64,
+                // Plain-text fallback: the source has no wrap state to carry.
+                wrapped: false,
                 cells: line
                     .chars()
                     .map(|ch| {
@@ -1129,6 +1137,7 @@ mod tests {
             Ok(StyledScreenSnapshot {
                 lines: vec![StyledScreenLine {
                     row: 0,
+                    wrapped: false,
                     cells: vec![cell('x', CellStyle::default(), 1)],
                 }],
                 cursor: CursorSnapshot {
@@ -1195,7 +1204,7 @@ mod tests {
 
     fn frame(cells: Vec<StyledCell>) -> RenderFrameSnapshot {
         RenderFrameSnapshot {
-            lines: vec![StyledScreenLine { row: 0, cells }],
+            lines: vec![StyledScreenLine { row: 0, wrapped: false, cells }],
             cursor: CursorSnapshot {
                 x: 2,
                 y: 0,
@@ -1362,6 +1371,7 @@ mod tests {
         let dirty = RenderFrameSnapshot {
             lines: vec![StyledScreenLine {
                 row: 42,
+                wrapped: false,
                 cells: vec![cell('z', CellStyle::default(), 1)],
             }],
             cursor: CursorSnapshot {
@@ -1690,10 +1700,12 @@ mod tests {
             lines: vec![
                 StyledScreenLine {
                     row: 10,
+                    wrapped: false,
                     cells: vec![cell('a', CellStyle::default(), 1)],
                 },
                 StyledScreenLine {
                     row: 11,
+                    wrapped: false,
                     cells: vec![cell('b', CellStyle::default(), 1)],
                 },
             ],

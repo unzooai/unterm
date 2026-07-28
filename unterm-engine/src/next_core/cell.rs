@@ -8,6 +8,14 @@ pub(super) struct ScreenCell {
     pub(super) combining: String,
     pub(super) attr: CellAttributes,
     pub(super) width: usize,
+    /// True on the last cell of a row that soft-wrapped into the next one.
+    ///
+    /// A line property, but carried per-cell so it travels with the row data
+    /// through scrolling and into the scrollback without a parallel array to
+    /// keep in sync. Deliberately not part of `CellAttributes`: it is not a
+    /// style, and putting it there would leak into style comparison and SGR
+    /// reporting.
+    pub(super) wrapped: bool,
 }
 
 impl ScreenCell {
@@ -17,6 +25,7 @@ impl ScreenCell {
             combining: String::new(),
             attr,
             width: Self::char_width(ch),
+            wrapped: false,
         }
     }
 
@@ -26,6 +35,7 @@ impl ScreenCell {
             combining: String::new(),
             attr,
             width: 1,
+            wrapped: false,
         }
     }
 
@@ -35,6 +45,7 @@ impl ScreenCell {
             combining: String::new(),
             attr,
             width: 0,
+            wrapped: false,
         }
     }
 

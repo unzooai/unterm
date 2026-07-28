@@ -79,6 +79,8 @@ pub(super) fn escaped_styled_scrollback(
         .enumerate()
         .map(|(idx, line)| StyledScreenLine {
             row: first_row + idx as i64,
+            // Plain-text fallback: the source has no wrap state to carry.
+            wrapped: false,
             cells: line
                 .chars()
                 .map(|ch| {

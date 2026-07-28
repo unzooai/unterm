@@ -454,6 +454,34 @@ impl NextCoreScreen {
         self.put_cell(cell);
     }
 
+    /// Flag `row` as soft-wrapping into the next one.
+    ///
+    /// A row that has not reached the right margin yet still needs the flag,
+    /// so pad to the margin first: the marker lives on the last cell.
+    fn mark_row_wrapped(&mut self, row: usize) {
+        let attr = self.current_attr.clone();
+        let cols = self.cols;
+        let Some(line) = self.lines.get_mut(row) else {
+            return;
+        };
+        if line.is_empty() {
+            line.push(ScreenCell::blank(attr));
+        } else if line.len() < cols {
+            line.resize(cols, ScreenCell::blank(attr));
+        }
+        if let Some(last) = line.last_mut() {
+            last.wrapped = true;
+        }
+    }
+
+    /// Whether `row` soft-wrapped into the next one.
+    fn row_is_wrapped(&self, row: usize) -> bool {
+        self.lines
+            .get(row)
+            .and_then(|line| line.last())
+            .is_some_and(|cell| cell.wrapped)
+    }
+
     fn put_cell(&mut self, cell: ScreenCell) {
         let width = cell.width;
         let attr = cell.attr;
@@ -461,6 +489,11 @@ impl NextCoreScreen {
         let right_margin = self.active_right_margin();
         if self.cursor_x > right_margin || self.cursor_x + width - 1 > right_margin {
             if self.auto_wrap {
+                // Record that this row continues into the next one before
+                // leaving it. Without this a soft-wrapped line reads back as
+                // several independent lines, so copying a wrapped command
+                // inserts a newline that the user never typed.
+                self.mark_row_wrapped(self.cursor_y);
                 self.newline();
                 self.cursor_x = left_margin;
                 self.ensure_cursor_line();
@@ -2357,6 +2390,41 @@ mod tests {
             std::time::Duration::from_secs(30),
         )?;
         assert_eq!(line.trim(), marker);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    /// A line too long for the window is one logical line, not several.
+    /// Consumers reassemble it from this marker; without it, copying a
+    /// wrapped command yields a newline the user never typed.
+    #[test]
+    fn soft_wrapped_rows_are_marked_and_hard_newlines_are_not() -> Result<()> {
+        let _guard = test_guard();
+        reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 10,
+            rows: 6,
+            command_dir: None,
+            command: Some(quiet_wait_command_for_test()),
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        // 25 chars across a 10-column screen: two soft wraps, then a hard
+        // newline before a short line that does not wrap.
+        set_output_for_test(session.id, &format!("{}\r\nshort", "x".repeat(25)))?;
+
+        let styled = engine.read_styled_screen(session.id)?;
+        let wrapped: Vec<bool> = styled.lines.iter().map(|line| line.wrapped).collect();
+
+        assert_eq!(
+            &wrapped[..4],
+            &[true, true, false, false],
+            "expected two soft-wrapped rows, then the hard-terminated row, \
+             then the short row; got {wrapped:?}"
+        );
 
         engine.destroy_session(session.id)?;
         Ok(())

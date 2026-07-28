@@ -245,6 +245,11 @@ fn styled_line_to_line(line: &StyledScreenLine, cols: usize) -> Line {
         // keeps the column arithmetic aligned with next-core's own grid.
         idx += cell.width.max(1);
     }
+    if line.wrapped {
+        // Logical-line reassembly reads this bit. Without it a soft-wrapped
+        // command copies out with a newline spliced into the middle.
+        rendered.set_last_cell_was_wrapped(true, 0);
+    }
     rendered
 }
 
@@ -487,6 +492,7 @@ mod tests {
     fn styled_line_becomes_a_line_of_the_requested_width() {
         let line = StyledScreenLine {
             row: 0,
+            wrapped: false,
             cells: vec![styled('a', 1), styled('b', 1)],
         };
 
@@ -502,6 +508,7 @@ mod tests {
         // land at index 2 rather than overwriting the trailing half.
         let line = StyledScreenLine {
             row: 0,
+            wrapped: false,
             cells: vec![styled('你', 2), styled('x', 1)],
         };
 
@@ -517,6 +524,7 @@ mod tests {
         // (a resize in flight); dropping cells would lose text.
         let line = StyledScreenLine {
             row: 0,
+            wrapped: false,
             cells: vec![styled('a', 1), styled('b', 1), styled('c', 1)],
         };
 
@@ -524,6 +532,26 @@ mod tests {
 
         assert_eq!(rendered.len(), 3);
         assert_eq!(rendered.as_str().trim_end(), "abc");
+    }
+
+    /// Logical-line reassembly — which is what copy uses — keys off the wrap
+    /// marker. Losing it splices a newline into the middle of a copied
+    /// command that merely happened to be too long for the window.
+    #[test]
+    fn a_wrapped_row_marks_its_last_cell() {
+        let wrapped = StyledScreenLine {
+            row: 0,
+            wrapped: true,
+            cells: vec![styled('a', 1), styled('b', 1)],
+        };
+        let unwrapped = StyledScreenLine {
+            row: 1,
+            wrapped: false,
+            cells: vec![styled('c', 1)],
+        };
+
+        assert!(styled_line_to_line(&wrapped, 2).last_cell_was_wrapped());
+        assert!(!styled_line_to_line(&unwrapped, 2).last_cell_was_wrapped());
     }
 
     #[test]

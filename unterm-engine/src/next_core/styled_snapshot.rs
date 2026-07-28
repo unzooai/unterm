@@ -15,6 +15,7 @@ pub(super) fn viewport_lines<'a>(
         .enumerate()
         .map(|(idx, line)| StyledScreenLine {
             row: first_row + idx as i64,
+            wrapped: line_is_wrapped(line),
             cells: viewport_cells(line, cols, reverse_video, hyperlinks),
         })
         .collect()
@@ -31,9 +32,16 @@ pub(super) fn viewport_dirty_lines<'a>(
         .into_iter()
         .map(|(row, line)| StyledScreenLine {
             row: first_row + row as i64,
+            wrapped: line_is_wrapped(line),
             cells: viewport_cells(line, cols, reverse_video, hyperlinks),
         })
         .collect()
+}
+
+/// Whether a row soft-wrapped, read from the marker on its last cell.
+pub(super) fn line_is_wrapped(line: Option<&Vec<ScreenCell>>) -> bool {
+    line.and_then(|line| line.last())
+        .is_some_and(|cell| cell.wrapped)
 }
 
 pub(super) fn viewport_cells(
@@ -70,6 +78,7 @@ pub(super) fn history_range(
         .enumerate()
         .map(|(idx, line)| StyledScreenLine {
             row: start as i64 + idx as i64,
+            wrapped: line_is_wrapped(Some(line)),
             cells: line
                 .iter()
                 .map(|cell| cell.styled_with_reverse_video(reverse_video, hyperlinks))
