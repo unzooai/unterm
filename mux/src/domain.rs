@@ -460,10 +460,17 @@ impl LocalDomain {
         if let Some(dir) = command_dir {
             cmd.cwd(dir);
         }
-        if let Ok(sock) = std::env::var("WEZTERM_UNIX_SOCKET") {
-            cmd.env("WEZTERM_UNIX_SOCKET", sock);
+        if let Some(sock) = config::env_names::var("UNIX_SOCKET") {
+            for name in config::env_names::both("UNIX_SOCKET") {
+                cmd.env(name, &sock);
+            }
         }
-        cmd.env("WEZTERM_PANE", pane_id.to_string());
+        {
+            let pane = pane_id.to_string();
+            for name in config::env_names::both("PANE") {
+                cmd.env(name, &pane);
+            }
+        }
         if let Some(agent) = Mux::get().agent.as_ref() {
             cmd.env("SSH_AUTH_SOCK", agent.path());
         }

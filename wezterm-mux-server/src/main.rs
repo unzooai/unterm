@@ -202,11 +202,13 @@ fn run() -> anyhow::Result<()> {
         "OLDPWD",
         "PWD",
         "SHLVL",
-        "WEZTERM_PANE",
-        "WEZTERM_UNIX_SOCKET",
         "_",
     ] {
         std::env::remove_var(name);
+    }
+    // Both spellings, so a stale one cannot leak into a mux session.
+    for name in ["PANE", "UNIX_SOCKET"] {
+        config::env_names::remove_var(name);
     }
     for name in &config::configuration().mux_env_remove {
         std::env::remove_var(name);
@@ -304,7 +306,7 @@ fn terminate_with_error(err: anyhow::Error) -> ! {
 pub fn spawn_listener() -> anyhow::Result<()> {
     let config = configuration();
     for unix_dom in &config.unix_domains {
-        std::env::set_var("WEZTERM_UNIX_SOCKET", unix_dom.socket_path());
+        config::env_names::set_var("UNIX_SOCKET", unix_dom.socket_path());
         let mut listener = wezterm_mux_server_impl::local::LocalListener::with_domain(unix_dom)?;
         thread::spawn(move || {
             listener.run();

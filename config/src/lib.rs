@@ -27,6 +27,7 @@ mod frontend;
 pub mod keyassignment;
 mod keys;
 pub mod declarative;
+pub mod env_names;
 pub mod keybinding;
 pub mod meta;
 mod scheme_data;

@@ -860,7 +860,7 @@ impl Client {
         prefer_mux: bool,
         class_name: &str,
     ) -> anyhow::Result<config::UnixDomain> {
-        match std::env::var_os("WEZTERM_UNIX_SOCKET") {
+        match config::env_names::var_os("UNIX_SOCKET") {
             Some(path) if !path.is_empty() => Ok(config::UnixDomain {
                 socket_path: Some(path.into()),
                 ..Default::default()
@@ -929,7 +929,7 @@ impl Client {
         let pane_id: PaneId = match pane_id {
             Some(p) => p,
             None => {
-                if let Ok(pane) = std::env::var("WEZTERM_PANE") {
+                if let Ok(pane) = config::env_names::var("PANE").ok_or(()) {
                     pane.parse()?
                 } else {
                     let mut clients = self.list_clients().await?.clients;

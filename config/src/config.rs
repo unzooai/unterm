@@ -1203,7 +1203,7 @@ impl Config {
         paths.push(PathPossibility::optional(PathBuf::from(
             "/usr/share/unterm/unterm.conf",
         )));
-        if let Some(path) = std::env::var_os("WEZTERM_CONFIG_FILE") {
+        if let Some(path) = crate::env_names::var_os("CONFIG_FILE") {
             log::trace!("Note: WEZTERM_CONFIG_FILE is set in the environment");
             paths.insert(0, PathPossibility::required(path.into()));
         }
@@ -1257,8 +1257,8 @@ impl Config {
             }
         }
 
-        std::env::remove_var("WEZTERM_CONFIG_FILE");
-        std::env::remove_var("WEZTERM_CONFIG_DIR");
+        crate::env_names::remove_var("CONFIG_FILE");
+        crate::env_names::remove_var("CONFIG_DIR");
 
         match Self::try_default() {
             Err(err) => LoadedConfig {
@@ -1304,9 +1304,9 @@ impl Config {
         // it at all, which is the point of the format.
         if p.extension().is_some_and(|ext| ext == "conf") {
             let cfg = crate::declarative::from_source(&s, &p.display().to_string())?;
-            std::env::set_var("WEZTERM_CONFIG_FILE", p);
+            crate::env_names::set_var("CONFIG_FILE", p);
             if let Some(dir) = p.parent() {
-                std::env::set_var("WEZTERM_CONFIG_DIR", dir);
+                crate::env_names::set_var("CONFIG_DIR", dir);
             }
             return Ok(Some(LoadedConfig {
                 config: Ok(cfg.compute_extra_defaults(Some(p))),

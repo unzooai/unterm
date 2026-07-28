@@ -474,7 +474,7 @@ async fn async_run_terminal_gui(
 ) -> anyhow::Result<()> {
     let unix_socket_path =
         config::RUNTIME_DIR.join(format!("gui-sock-{}", unsafe { libc::getpid() }));
-    std::env::set_var("WEZTERM_UNIX_SOCKET", unix_socket_path.clone());
+    config::env_names::set_var("UNIX_SOCKET", unix_socket_path.clone());
     wezterm_blob_leases::register_storage(Arc::new(
         wezterm_blob_leases::simple_tempdir::SimpleTempDir::new_in(&*config::CACHE_DIR)?,
     ))?;
@@ -712,7 +712,7 @@ impl Publish {
                                 "Running GUI is a different executable from us, will start a new one");
                         }
                         if vers.config_file_path
-                            != std::env::var_os("WEZTERM_CONFIG_FILE").map(Into::into)
+                            != config::env_names::var_os("CONFIG_FILE").map(Into::into)
                         {
                             *self = Publish::NoConnectNoPublish;
                             anyhow::bail!(

@@ -346,7 +346,7 @@ fn run_cockpit_signal(
     // only unique within one instance, so with several Unterm windows a
     // signal sent to "the latest instance" would tag the wrong pane.
     // gui-sock-<pid> in the inherited env is the instance-unique key.
-    if let Some(pid) = std::env::var("WEZTERM_UNIX_SOCKET")
+    if let Some(pid) = config::env_names::var("UNIX_SOCKET").ok_or(())
         .ok()
         .and_then(|s| s.rsplit("gui-sock-").next().and_then(|p| p.parse::<u32>().ok()))
     {
@@ -362,7 +362,7 @@ fn run_cockpit_signal(
     };
     let pane_id = pane
         .map(|s| s.to_string())
-        .or_else(|| std::env::var("WEZTERM_PANE").ok());
+        .or_else(|| config::env_names::var("PANE"));
     let mut params = serde_json::Map::new();
     params.insert("event".into(), Value::String(event.into()));
     if let Some(a) = agent {
