@@ -156,13 +156,13 @@ impl LauncherArgs {
                         cwd_path,
                         project,
                         project_path,
-                    ) = crate::mcp::handler::agent_fg_cwd_path_for_pane(pane.pane_id() as u64);
+                    ) = unterm_mcp::handler::agent_fg_cwd_path_for_pane(pane.pane_id() as u64);
                     // The shared sidebar cache refreshes off-thread and can be
                     // empty on the first open. Merge in values already exposed
                     // by the pane so the launcher is immediately searchable,
                     // without synchronously walking every process tree.
                     let agent = cached_agent
-                        .or_else(|| crate::mcp::handler::agent_for_pane(pane.pane_id() as u64));
+                        .or_else(|| unterm_mcp::handler::agent_for_pane(pane.pane_id() as u64));
                     let foreground = cached_foreground.or_else(|| {
                         pane.get_foreground_process_name(mux::pane::CachePolicy::AllowStale)
                     });

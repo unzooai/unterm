@@ -150,7 +150,7 @@ fn compute_tab_title(tab: &TabInformation, config: &ConfigHandle) -> TitleText {
                 // every `update_title`, i.e. ~50ms of synchronous work on
                 // every tab switch once a window held several tabs.
                 let (agent_name, cwd_short) =
-                    crate::mcp::handler::agent_and_cwd_for_pane(pane.pane_id as u64);
+                    unterm_mcp::handler::agent_and_cwd_for_pane(pane.pane_id as u64);
 
                 let icon_source = agent_name.as_deref().unwrap_or(&pane_title);
                 let shell_icon = detect_shell_icon(icon_source);

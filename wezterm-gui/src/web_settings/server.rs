@@ -18,7 +18,7 @@
 //!   GET  /api/sessions                  -> recording::list_sessions
 //!   GET  /api/sessions/:id/markdown     -> recording::read_session_markdown
 
-use crate::mcp::handler::McpHandler;
+use unterm_mcp::handler::McpHandler;
 use unterm_services::server_info::{self, HTTP_PREFERRED_PORT, SERVER_BIND};
 use crate::web_settings::assets;
 use anyhow::Result;
@@ -378,7 +378,7 @@ fn route(req: &Request, auth_token: &str, handler: &McpHandler) -> Response {
         // MCP trust + audit surface for the Settings panel. Read endpoints
         // are cheap (one lock acquire each); write endpoints persist to
         // ~/.unterm/trusted_agents.json synchronously.
-        ("GET", "/api/mcp/trusted") => Response::ok_json(crate::mcp::handler::trust_snapshot()),
+        ("GET", "/api/mcp/trusted") => Response::ok_json(unterm_mcp::handler::trust_snapshot()),
         ("POST", "/api/mcp/trust") => api_mcp_trust(&req.body),
         ("POST", "/api/mcp/untrust") => api_mcp_untrust(&req.body),
         ("GET", "/api/mcp/audit") => api_mcp_audit(&req.query),
@@ -534,7 +534,7 @@ fn api_mcp_trust(body: &[u8]) -> Response {
         Some(s) if !s.trim().is_empty() => s.to_string(),
         _ => return Response::err(400, "Bad Request", "name required"),
     };
-    let added = crate::mcp::handler::grant_trust(&name);
+    let added = unterm_mcp::handler::grant_trust(&name);
     Response::ok_json(json!({ "ok": true, "name": name, "added": added }))
 }
 
@@ -544,7 +544,7 @@ fn api_mcp_untrust(body: &[u8]) -> Response {
         Some(s) if !s.trim().is_empty() => s.to_string(),
         _ => return Response::err(400, "Bad Request", "name required"),
     };
-    let removed = crate::mcp::handler::revoke_trust(&name);
+    let removed = unterm_mcp::handler::revoke_trust(&name);
     Response::ok_json(json!({ "ok": true, "name": name, "removed": removed }))
 }
 
@@ -559,7 +559,7 @@ fn api_mcp_audit(query: &str) -> Response {
         .find_map(|(k, v)| (k == "limit").then(|| v.parse::<usize>().ok()).flatten())
         .unwrap_or(100)
         .min(1000);
-    let payload_str = crate::mcp::handler::audit_log_snapshot_json(limit);
+    let payload_str = unterm_mcp::handler::audit_log_snapshot_json(limit);
     // audit_log_snapshot_json already returns a complete JSON value; we
     // serve it as-is rather than re-parsing + re-serializing.
     Response::text(
@@ -820,7 +820,7 @@ fn api_profile_install_ssh_include() -> Response {
 /// Reference tab in Web Settings renders the same inventory an agent
 /// would receive. No params, no auth state — pure read.
 fn api_reference() -> Response {
-    match crate::mcp::meta::surface(&serde_json::Value::Null) {
+    match unterm_mcp::meta::surface(&serde_json::Value::Null) {
         Ok(v) => Response::ok_json(v),
         Err(e) => Response::err(500, "Internal Server Error", &e.to_string()),
     }
@@ -918,7 +918,7 @@ fn api_state(handler: &McpHandler) -> Response {
     // 19879, which is both confusing and breaks the "click to copy
     // a working /api/health curl command" affordance.
     let info = server_info::read_current();
-    let ctx = crate::mcp::handler::ConnectionContext::internal("web_settings");
+    let ctx = unterm_mcp::handler::ConnectionContext::internal("web_settings");
     let proxy = handler
         .handle(&ctx, "proxy.status", &json!({}))
         .unwrap_or_else(|e| json!({"error": e.to_string()}));
@@ -1136,7 +1136,7 @@ fn api_proxy(handler: &McpHandler, body: &[u8]) -> Response {
         .get("enabled")
         .and_then(|v| v.as_bool())
         .unwrap_or(true);
-    let ctx = crate::mcp::handler::ConnectionContext::internal("web_settings");
+    let ctx = unterm_mcp::handler::ConnectionContext::internal("web_settings");
     let result = if !enabled {
         handler.handle(&ctx, "proxy.disable", &json!({}))
     } else {
@@ -1172,7 +1172,7 @@ fn api_proxy_rotation(handler: &McpHandler, body: &[u8]) -> Response {
             params.insert(k.into(), v.clone());
         }
     }
-    let ctx = crate::mcp::handler::ConnectionContext::internal("web_settings");
+    let ctx = unterm_mcp::handler::ConnectionContext::internal("web_settings");
     match handler.handle(&ctx, "proxy.rotation", &Value::Object(params)) {
         Ok(v) => Response::ok_json(v),
         Err(e) => Response::err(400, "Bad Request", &e.to_string()),
@@ -1189,7 +1189,7 @@ fn api_proxy_clash_controller(handler: &McpHandler, body: &[u8]) -> Response {
             params.insert(k.into(), v.clone());
         }
     }
-    let ctx = crate::mcp::handler::ConnectionContext::internal("web_settings");
+    let ctx = unterm_mcp::handler::ConnectionContext::internal("web_settings");
     match handler.handle(&ctx, "proxy.clash_set_controller", &Value::Object(params)) {
         Ok(v) => Response::ok_json(v),
         Err(e) => Response::err(400, "Bad Request", &e.to_string()),
@@ -1205,7 +1205,7 @@ fn api_proxy_set_nodes(handler: &McpHandler, body: &[u8]) -> Response {
     if let Some(nodes) = body.get("nodes") {
         params.insert("nodes".into(), nodes.clone());
     }
-    let ctx = crate::mcp::handler::ConnectionContext::internal("web_settings");
+    let ctx = unterm_mcp::handler::ConnectionContext::internal("web_settings");
     match handler.handle(&ctx, "proxy.set_nodes", &Value::Object(params)) {
         Ok(v) => Response::ok_json(v),
         Err(e) => Response::err(400, "Bad Request", &e.to_string()),
@@ -1215,7 +1215,7 @@ fn api_proxy_set_nodes(handler: &McpHandler, body: &[u8]) -> Response {
 /// GET /api/proxy/clash — controller status + switchable groups and their
 /// nodes (alive + delay), read from the Clash/mihomo controller.
 fn api_proxy_clash_status(handler: &McpHandler) -> Response {
-    let ctx = crate::mcp::handler::ConnectionContext::internal("web_settings");
+    let ctx = unterm_mcp::handler::ConnectionContext::internal("web_settings");
     match handler.handle(&ctx, "proxy.clash_status", &json!({})) {
         Ok(v) => Response::ok_json(v),
         Err(e) => Response::err(400, "Bad Request", &e.to_string()),
@@ -1231,7 +1231,7 @@ fn api_proxy_clash_select(handler: &McpHandler, body: &[u8]) -> Response {
             params.insert(k.into(), v.clone());
         }
     }
-    let ctx = crate::mcp::handler::ConnectionContext::internal("web_settings");
+    let ctx = unterm_mcp::handler::ConnectionContext::internal("web_settings");
     match handler.handle(&ctx, "proxy.clash_select", &Value::Object(params)) {
         Ok(v) => Response::ok_json(v),
         Err(e) => Response::err(400, "Bad Request", &e.to_string()),
@@ -1276,7 +1276,7 @@ fn api_recording(handler: &McpHandler, body: &[u8], start: bool) -> Response {
     } else {
         "session.recording_stop"
     };
-    let ctx = crate::mcp::handler::ConnectionContext::internal("web_settings");
+    let ctx = unterm_mcp::handler::ConnectionContext::internal("web_settings");
     match handler.handle(&ctx, method, &json!({"id": pane_id})) {
         Ok(v) => Response::ok_json(v),
         Err(e) => Response::err(500, "Internal Error", &e.to_string()),
@@ -1288,7 +1288,7 @@ fn api_sessions(handler: &McpHandler, query: &str) -> Response {
     if let Some(p) = parse_query(query, "project") {
         params.insert("project".into(), Value::String(p));
     }
-    let ctx = crate::mcp::handler::ConnectionContext::internal("web_settings");
+    let ctx = unterm_mcp::handler::ConnectionContext::internal("web_settings");
     match handler.handle(&ctx, "session.recording_list", &Value::Object(params)) {
         // The MCP method returns an array directly; wrap it for the SPA so
         // it can grow `total`/etc. fields later without breaking clients.
@@ -1311,7 +1311,7 @@ fn api_session_markdown(handler: &McpHandler, path: &str) -> Response {
         Some(s) => s,
         None => return Response::err(400, "Bad Request", "invalid session id encoding"),
     };
-    let ctx = crate::mcp::handler::ConnectionContext::internal("web_settings");
+    let ctx = unterm_mcp::handler::ConnectionContext::internal("web_settings");
     match handler.handle(&ctx, "session.recording_read", &json!({"session_id": id})) {
         Ok(v) => {
             let md = v

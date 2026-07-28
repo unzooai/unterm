@@ -1717,7 +1717,7 @@ impl TermWindow {
                     let panes = mux.iter_panes();
                     let ids: Vec<u64> = panes.iter().map(|p| p.pane_id() as u64).collect();
                     unterm_services::cockpit::poll(&ids, |id| {
-                        crate::mcp::handler::agent_and_cwd_for_pane(id).0
+                        unterm_mcp::handler::agent_and_cwd_for_pane(id).0
                     });
                     unterm_services::cockpit::status::retain_panes(&ids.iter().copied().collect());
                     // Layer-4 screen-text heuristics for tracked panes
@@ -3887,8 +3887,8 @@ impl TermWindow {
         let dims = pane.get_dimensions();
         let recent_commits = unterm_services::ghost_text::recent_global_commits(10);
         let top_commits = unterm_services::ghost_text::commit_frequency(5);
-        let activity = crate::mcp::handler::recent_mcp_input_activity();
-        let mcp = crate::mcp::handler::insights_mcp_snapshot(8);
+        let activity = unterm_mcp::handler::recent_mcp_input_activity();
+        let mcp = unterm_mcp::handler::insights_mcp_snapshot(8);
 
         let snap = crate::overlay::InsightsSnapshot {
             pane_id: pane_id as u64,
@@ -4766,11 +4766,11 @@ impl TermWindow {
                 // pane's default handling so Tab still triggers shell
                 // completion, Esc still goes to vim, etc.
                 let pane_id = pane.pane_id() as u64;
-                let suggestions = crate::mcp::handler::pending_suggestions_for_pane(pane_id);
+                let suggestions = unterm_mcp::handler::pending_suggestions_for_pane(pane_id);
                 let Some(first) = suggestions.first() else {
                     return Ok(PerformAssignmentResult::Unhandled);
                 };
-                match crate::mcp::handler::accept_suggestion(&first.id, *run_immediately) {
+                match unterm_mcp::handler::accept_suggestion(&first.id, *run_immediately) {
                     Ok(mut text) => {
                         if *run_immediately {
                             text.push('\n');
@@ -4791,38 +4791,38 @@ impl TermWindow {
                 // 2) Dismiss the oldest pending suggestion.
                 // Try (1) first. If neither is pending, fall through
                 // so Esc reaches vim / less / etc.
-                if let Some(view) = crate::mcp::handler::pending_confirmation_view() {
-                    crate::mcp::handler::resolve_confirmation(
+                if let Some(view) = unterm_mcp::handler::pending_confirmation_view() {
+                    unterm_mcp::handler::resolve_confirmation(
                         view.id,
-                        crate::mcp::handler::ConfirmationDecision::Block,
+                        unterm_mcp::handler::ConfirmationDecision::Block,
                     );
                 } else {
                     let pane_id = pane.pane_id() as u64;
-                    let suggestions = crate::mcp::handler::pending_suggestions_for_pane(pane_id);
+                    let suggestions = unterm_mcp::handler::pending_suggestions_for_pane(pane_id);
                     let Some(first) = suggestions.first() else {
                         return Ok(PerformAssignmentResult::Unhandled);
                     };
-                    if let Err(e) = crate::mcp::handler::dismiss_suggestion(&first.id) {
+                    if let Err(e) = unterm_mcp::handler::dismiss_suggestion(&first.id) {
                         log::warn!("dismiss_suggestion failed: {e}");
                     }
                 }
             }
             McpConfirmAllow => {
-                let Some(view) = crate::mcp::handler::pending_confirmation_view() else {
+                let Some(view) = unterm_mcp::handler::pending_confirmation_view() else {
                     return Ok(PerformAssignmentResult::Unhandled);
                 };
-                crate::mcp::handler::resolve_confirmation(
+                unterm_mcp::handler::resolve_confirmation(
                     view.id,
-                    crate::mcp::handler::ConfirmationDecision::Allow,
+                    unterm_mcp::handler::ConfirmationDecision::Allow,
                 );
             }
             McpConfirmAlwaysAllow => {
-                let Some(view) = crate::mcp::handler::pending_confirmation_view() else {
+                let Some(view) = unterm_mcp::handler::pending_confirmation_view() else {
                     return Ok(PerformAssignmentResult::Unhandled);
                 };
-                crate::mcp::handler::resolve_confirmation(
+                unterm_mcp::handler::resolve_confirmation(
                     view.id,
-                    crate::mcp::handler::ConfirmationDecision::AlwaysAllow,
+                    unterm_mcp::handler::ConfirmationDecision::AlwaysAllow,
                 );
             }
             AcceptGhostText => {

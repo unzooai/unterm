@@ -1632,7 +1632,7 @@ impl crate::TermWindow {
     /// user paste it into a text editor and see who wrote what.
     fn mouse_event_status_bar_mcp_audit(&mut self, event: MouseEvent, context: &dyn WindowOps) {
         if matches!(event.kind, WMEK::Press(MousePress::Left)) {
-            let snapshot = crate::mcp::handler::audit_log_snapshot_json(200);
+            let snapshot = unterm_mcp::handler::audit_log_snapshot_json(200);
             self.copy_to_clipboard(
                 config::keyassignment::ClipboardCopyDestination::ClipboardAndPrimarySelection,
                 snapshot,

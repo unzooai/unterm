@@ -199,7 +199,7 @@ mod tests {
 
     #[test]
     fn dispatch_routes_recording_commands_to_recording_executor() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
 
         let result = execute(RuntimeCommand::RecordingStatus { pane_id: 404 })
             .expect("missing recording status should be inactive");
@@ -209,7 +209,7 @@ mod tests {
 
     #[test]
     fn dispatch_routes_lifecycle_commands_to_session_executor() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
 
         let err = execute(RuntimeCommand::FocusSession { pane_id: 404 })
             .expect_err("missing pane should come from session executor");
@@ -219,7 +219,7 @@ mod tests {
 
     #[test]
     fn dispatch_routes_split_session_to_lifecycle_response() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
 
         let err = execute(RuntimeCommand::SplitSession(crate::SplitSessionRequest {
             source_pane_id: 404,
@@ -234,7 +234,7 @@ mod tests {
 
     #[test]
     fn dispatch_routes_session_queries_to_session_query_executor() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
 
         let result = execute(RuntimeCommand::ListSessions).expect("list should dispatch");
 
@@ -243,7 +243,7 @@ mod tests {
 
     #[test]
     fn dispatch_routes_status_commands_to_status_executor() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
 
         let result = execute(RuntimeCommand::HealthSnapshot).expect("health should dispatch");
 
@@ -252,7 +252,7 @@ mod tests {
 
     #[test]
     fn dispatch_routes_screen_reads_to_screen_executor() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
 
         let err = execute(RuntimeCommand::ReadScreen { pane_id: 404 })
             .expect_err("missing pane should still come from screen executor");

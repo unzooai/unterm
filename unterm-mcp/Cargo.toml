@@ -1,0 +1,42 @@
+[package]
+name = "unterm-mcp"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Unterm's MCP server: the surface an agent drives the terminal through.
+#
+# It was inside the WezTerm GUI crate, which meant a second front end could
+# not have it. It talks to an engine through traits and asks its host for the
+# three things only a front end can answer, so it belongs to neither.
+
+[dependencies]
+anyhow.workspace = true
+base64.workspace = true
+chrono = { workspace = true, features = ["clock"] }
+dirs-next.workspace = true
+hmac.workspace = true
+image.workspace = true
+log.workspace = true
+parking_lot.workspace = true
+portable-pty.workspace = true
+reqwest = { workspace = true, features = ["blocking", "json", "multipart"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+sha1.workspace = true
+uuid = { workspace = true, features = ["v4"] }
+config = { path = "../config" }
+unterm-engine = { path = "../unterm-engine" }
+unterm-services = { path = "../unterm-services" }
+unterm-agents.workspace = true
+unterm-profile.workspace = true
+promise.workspace = true
+url.workspace = true
+hostname.workspace = true
+procinfo = { workspace = true, default-features = false }
+
+[target."cfg(windows)".dependencies]
+winapi = { workspace = true, features = ["winuser", "winbase", "minwindef", "handleapi", "processthreadsapi", "wingdi", "shellapi"] }
+
+[dev-dependencies]
+unterm-services = { workspace = true, features = ["test-support"] }

@@ -1,8 +1,8 @@
 //! MCP request handler — bridges JSON-RPC methods to terminal engine APIs.
 //! Implements all methods required by unterm-cli compatibility.
 
-use crate::engine::{
-    CaptureEngine, ScrollbackImageEngine, CreateSessionRequest, CurrentTerminalEngine, HealthEngine, InputEngine,
+use unterm_engine::{
+    CaptureEngine, CreateSessionRequest, HealthEngine, InputEngine,
     LaunchEnvBinding, LaunchEnvSource, LaunchPolicyDecision, LaunchPolicyDecisionSnapshot,
     LaunchPolicySnapshot, RecordingEngine, ScreenEngine, ScrollbackTextRequest,
     SessionActivitySnapshot, SessionEngine, ShellSnapshot, SplitDirection, SplitSessionRequest,
@@ -459,7 +459,7 @@ mod engine_neutral_handler_tests {
     use super::{
         compute_agent_cwd, mcp_state, shell_command_builder, ConnectionContext, McpHandler,
     };
-    use crate::engine::{next_core, CreateSessionRequest, InputEngine, SessionEngine};
+    use unterm_engine::{next_core, CreateSessionRequest, InputEngine, SessionEngine};
     use anyhow::{anyhow, Context, Result};
     use parking_lot::Mutex;
     use serde_json::{json, Value};
@@ -567,7 +567,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn session_destroy_uses_next_core_pane_id_path() {
         let _guard = env_lock().lock();
-        crate::engine::install_engine_provider();
+        unterm_engine::install_next_core_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -602,7 +602,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn session_env_reads_next_core_launch_env_keys_without_values() {
         let _guard = env_lock().lock();
-        crate::engine::install_engine_provider();
+        unterm_engine::install_next_core_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -700,7 +700,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn session_set_env_applies_next_core_future_launch_overlay_without_values() {
         let _guard = env_lock().lock();
-        crate::engine::install_engine_provider();
+        unterm_engine::install_next_core_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
         {
@@ -833,7 +833,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn session_create_reports_default_shell_launch_decision() {
         let _guard = env_lock().lock();
-        crate::engine::install_engine_provider();
+        unterm_engine::install_next_core_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -878,7 +878,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn session_create_reports_explicit_launch_policy_requests() {
         let _guard = env_lock().lock();
-        crate::engine::install_engine_provider();
+        unterm_engine::install_next_core_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -928,7 +928,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn workspace_restore_dry_run_reports_template_launch_decisions() {
         let _guard = env_lock().lock();
-        crate::engine::install_engine_provider();
+        unterm_engine::install_next_core_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -990,7 +990,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn activity_methods_expose_next_core_io_metrics() {
         let _guard = env_lock().lock();
-        crate::engine::install_engine_provider();
+        unterm_engine::install_next_core_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -1057,7 +1057,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn core_status_history_cursor_methods_use_next_core_engine() {
         let _guard = env_lock().lock();
-        crate::engine::install_engine_provider();
+        unterm_engine::install_next_core_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -1130,7 +1130,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn screen_detect_errors_uses_next_core_screen_snapshot() {
         let _guard = env_lock().lock();
-        crate::engine::install_engine_provider();
+        unterm_engine::install_next_core_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -1186,7 +1186,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn screen_search_goto_scrolls_next_core_logical_viewport() {
         let _guard = env_lock().lock();
-        crate::engine::install_engine_provider();
+        unterm_engine::install_next_core_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -1251,7 +1251,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn screen_scroll_goto_updates_next_core_logical_viewport() {
         let _guard = env_lock().lock();
-        crate::engine::install_engine_provider();
+        unterm_engine::install_next_core_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -1325,98 +1325,44 @@ mod engine_neutral_handler_tests {
             .any(|line| line.as_str() == Some("next-core-scroll-2")));
     }
 
+    /// Without a front end, capture.scrollback says so rather than guessing.
+    ///
+    /// The renderer is built on a front end's font stack, so a surface with
+    /// no front end genuinely cannot produce the image. Saying that is the
+    /// correct answer; the rendered case is covered where a host exists.
     #[test]
-    fn capture_scrollback_renders_next_core_styled_png() {
+    fn capture_scrollback_without_a_host_reports_no_front_end() {
         let _guard = env_lock().lock();
-        crate::engine::install_engine_provider();
+        unterm_engine::install_next_core_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
-        let result: Result<(serde_json::Value, usize)> = (|| {
-            let handler = McpHandler::new();
-            let ctx = ConnectionContext::internal("handler-test");
-            let created = handler.handle(
-                &ctx,
-                "session.create",
-                &json!({
-                    "cols": 80,
-                    "rows": 4,
-                    "command": "echo \u{001b}[31;1mnext-core-scrollback-capture\u{001b}[0m"
-                }),
-            )?;
-            let pane_id = created["id"].as_u64().expect("session id") as usize;
-
-            for _ in 0..20 {
-                let search = handler.handle(
-                    &ctx,
-                    "screen.search",
-                    &json!({
-                        "pane_id": pane_id,
-                        "pattern": "next-core-scrollback-capture",
-                    }),
-                )?;
-                if search["total"].as_u64().unwrap_or_default() > 0 {
-                    break;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(50));
-            }
-
-            let image = handler.handle(
-                &ctx,
-                "capture.scrollback",
-                &json!({
-                    "pane_id": pane_id,
-                    "max_rows": 20,
-                    "dpi": 48,
-                }),
-            )?;
-            let _ = handler.handle(&ctx, "session.destroy", &json!({ "pane_id": pane_id }));
-            Ok((image, pane_id))
-        })();
+        let handler = McpHandler::new();
+        let ctx = ConnectionContext::internal("handler-test");
+        let error = handler
+            .handle(&ctx, "capture.scrollback", &json!({ "max_rows": 4 }))
+            .expect_err("no front end can render");
 
         match previous_engine {
             Some(value) => std::env::set_var("UNTERM_ENGINE", value),
             None => std::env::remove_var("UNTERM_ENGINE"),
         }
 
-        let (image, pane_id) = result.expect("render next-core scrollback PNG");
-        assert!(next_core().get_session(pane_id).is_err());
-        assert_eq!(image["type"], "image/png");
-        assert_eq!(image["renderer"]["engine"], "next-core");
-        assert_eq!(image["renderer"]["renderer"], "standalone-styled");
-        assert_eq!(image["renderer"]["uses_wezterm_pane"], false);
-        assert_eq!(image["renderer"]["standalone"], true);
-        assert_eq!(image["renderer"]["palette"], "config-resolved");
-        let supported_styles = image["renderer"]["supported_styles"]
-            .as_array()
-            .expect("supported styles");
-        assert!(supported_styles.iter().any(|style| style == "fg"));
-        assert!(supported_styles.iter().any(|style| style == "underline"));
-        assert!(supported_styles
-            .iter()
-            .any(|style| style == "theme_palette"));
-        assert!(supported_styles.iter().any(|style| style == "bold"));
-        assert!(supported_styles.iter().any(|style| style == "italic"));
-        let missing_parity = image["renderer"]["missing_parity"]
-            .as_array()
-            .expect("missing parity");
-        assert!(!missing_parity
-            .iter()
-            .any(|item| item == "theme_palette_resolution"));
-        assert!(!missing_parity.iter().any(|item| item == "bold_font_face"));
-        assert!(!missing_parity.iter().any(|item| item == "italic_font_face"));
-        assert!(image["width"].as_u64().unwrap_or_default() > 0);
-        assert!(image["height"].as_u64().unwrap_or_default() > 0);
-        let path = std::path::PathBuf::from(image["path"].as_str().expect("png path"));
-        let bytes = std::fs::read(&path).expect("read generated png");
-        assert!(bytes.starts_with(b"\x89PNG\r\n\x1a\n"));
-        let _ = std::fs::remove_file(path);
+        assert!(
+            error.to_string().contains("no front end is hosting"),
+            "unexpected error: {error}"
+        );
+        assert_eq!(
+            crate::meta::engine_capabilities("next-core")["diagnostics"]
+                ["styled_scrollback_png"],
+            false
+        );
     }
 
     #[test]
     fn recording_status_and_trace_attach_use_next_core_engine() {
         let _guard = env_lock().lock();
-        crate::engine::install_engine_provider();
+        unterm_engine::install_next_core_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -1520,7 +1466,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn active_recording_export_uses_next_core_engine() {
         let _guard = env_lock().lock();
-        crate::engine::install_engine_provider();
+        unterm_engine::install_next_core_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -1639,7 +1585,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn inactive_scrollback_export_markdown_uses_next_core_screen_engine() {
         let _guard = env_lock().lock();
-        crate::engine::install_engine_provider();
+        unterm_engine::install_next_core_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -1702,7 +1648,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn session_resize_uses_next_core_pane_id_path() {
         let _guard = env_lock().lock();
-        crate::engine::install_engine_provider();
+        unterm_engine::install_next_core_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -1749,7 +1695,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn fleet_lifecycle_uses_next_core_session_engine() {
         let _guard = env_lock().lock();
-        crate::engine::install_engine_provider();
+        unterm_engine::install_next_core_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         let previous_fleets_path = std::env::var("UNTERM_FLEETS_PATH").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
@@ -1868,7 +1814,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn review_diff_does_not_require_wezterm_mux_in_next_core_mode() {
         let _guard = env_lock().lock();
-        crate::engine::install_engine_provider();
+        unterm_engine::install_next_core_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -1911,7 +1857,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn review_verify_and_merge_work_for_next_core_fleet_member() {
         let _guard = env_lock().lock();
-        crate::engine::install_engine_provider();
+        unterm_engine::install_next_core_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         let previous_fleets_path = std::env::var("UNTERM_FLEETS_PATH").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
@@ -2021,7 +1967,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn agent_status_uses_pane_id_registry_path() {
         let _guard = env_lock().lock();
-        crate::engine::install_engine_provider();
+        unterm_engine::install_next_core_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
         unterm_services::cockpit::status::reset_for_tests();
@@ -2079,7 +2025,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn agent_signal_uses_explicit_pane_id_registry_path() {
         let _guard = env_lock().lock();
-        crate::engine::install_engine_provider();
+        unterm_engine::install_next_core_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
         unterm_services::cockpit::status::reset_for_tests();
@@ -2136,7 +2082,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn agent_signal_rejects_stale_explicit_pane_id() {
         let _guard = env_lock().lock();
-        crate::engine::install_engine_provider();
+        unterm_engine::install_next_core_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
         unterm_services::cockpit::status::reset_for_tests();
@@ -2169,7 +2115,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn agent_signal_fallback_uses_terminal_engine_active_session() {
         let _guard = env_lock().lock();
-        crate::engine::install_engine_provider();
+        unterm_engine::install_next_core_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
         unterm_services::cockpit::status::reset_for_tests();
@@ -2214,7 +2160,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn cockpit_inbox_uses_engine_session_snapshot() {
         let _guard = env_lock().lock();
-        crate::engine::install_engine_provider();
+        unterm_engine::install_next_core_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
         unterm_services::cockpit::status::reset_for_tests();
@@ -2273,7 +2219,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn instance_metadata_methods_do_not_require_terminal_engine() {
         let _guard = env_lock().lock();
-        crate::engine::install_engine_provider();
+        unterm_engine::install_next_core_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -2381,7 +2327,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn ghost_debug_reads_product_registry_by_pane_id() {
         let _guard = env_lock().lock();
-        crate::engine::install_engine_provider();
+        unterm_engine::install_next_core_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -2439,7 +2385,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn capture_clipboard_does_not_require_terminal_engine() {
         let _guard = env_lock().lock();
-        crate::engine::install_engine_provider();
+        unterm_engine::install_next_core_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -2467,7 +2413,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn capture_screen_text_snapshot_uses_terminal_engine() {
         let _guard = env_lock().lock();
-        crate::engine::install_engine_provider();
+        unterm_engine::install_next_core_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -2523,7 +2469,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn capture_window_text_snapshot_uses_terminal_engine() {
         let _guard = env_lock().lock();
-        crate::engine::install_engine_provider();
+        unterm_engine::install_next_core_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -2584,7 +2530,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn orchestrate_methods_use_next_core_sessions_and_screen() {
         let _guard = env_lock().lock();
-        crate::engine::install_engine_provider();
+        unterm_engine::install_next_core_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
         let test_agent = "handler-test-orchestrate";
@@ -2715,7 +2661,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn capture_scrollback_routes_through_capture_engine() {
         let _guard = env_lock().lock();
-        crate::engine::install_engine_provider();
+        unterm_engine::install_next_core_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -2748,7 +2694,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn capture_scrollback_rejects_stale_explicit_pane_id() {
         let _guard = env_lock().lock();
-        crate::engine::install_engine_provider();
+        unterm_engine::install_next_core_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -2790,7 +2736,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn product_capture_methods_do_not_require_terminal_engine() {
         let _guard = env_lock().lock();
-        crate::engine::install_engine_provider();
+        unterm_engine::install_next_core_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -2824,7 +2770,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn server_health_uses_selected_next_core_engine() {
         let _guard = env_lock().lock();
-        crate::engine::install_engine_provider();
+        unterm_engine::install_next_core_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -2850,7 +2796,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn server_health_exposes_next_core_io_summary() {
         let _guard = env_lock().lock();
-        crate::engine::install_engine_provider();
+        unterm_engine::install_next_core_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -2920,7 +2866,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn capability_surfaces_expose_next_core_health_io_diagnostics() {
         let _guard = env_lock().lock();
-        crate::engine::install_engine_provider();
+        unterm_engine::install_next_core_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -2958,7 +2904,7 @@ mod engine_neutral_handler_tests {
         );
         assert_eq!(
             surface["engine_capabilities"]["diagnostics"]["styled_scrollback_png"],
-            true
+            false
         );
         assert_eq!(
             surface["engine_capabilities"]["diagnostics"]["styled_scrollback_renderer_metadata"],
@@ -3025,9 +2971,10 @@ mod engine_neutral_handler_tests {
             capabilities["_engine_capabilities"]["diagnostics"]["session_create_launch_decision"],
             true
         );
+        // The renderer belongs to a front end, and none is hosting a test.
         assert_eq!(
             capabilities["_engine_capabilities"]["diagnostics"]["styled_scrollback_png"],
-            true
+            false
         );
         assert_eq!(
             capabilities["_engine_capabilities"]["diagnostics"]
@@ -3109,7 +3056,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn selftest_run_uses_selected_terminal_engine() {
         let _guard = env_lock().lock();
-        crate::engine::install_engine_provider();
+        unterm_engine::install_next_core_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -3180,12 +3127,14 @@ mod engine_neutral_handler_tests {
             .iter()
             .find(|check| check["name"] == "next_core.styled_scrollback_capture")
             .expect("next-core styled scrollback capture check");
+        // No front end hosts a test binary, so the renderer check does not
+        // apply here; it is exercised where a host exists.
         assert_eq!(styled_capture_check["ok"], true);
-        assert_eq!(styled_capture_check["detail"]["advertised"], true);
-        assert_eq!(styled_capture_check["detail"]["found_marker"], true);
-        assert_eq!(styled_capture_check["detail"]["png_header_ok"], true);
-        assert_eq!(styled_capture_check["detail"]["dimensions_ok"], true);
-        assert_eq!(styled_capture_check["detail"]["destroyed"], true);
+        assert_eq!(styled_capture_check["detail"]["advertised"], false);
+        assert_eq!(
+            styled_capture_check["detail"]["skipped"],
+            "no front end is hosting this MCP surface"
+        );
         let launch_check = checks
             .iter()
             .find(|check| check["name"] == "next_core.launch_context_diagnostics")
@@ -3216,7 +3165,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn product_system_methods_do_not_require_terminal_engine() {
         let _guard = env_lock().lock();
-        crate::engine::install_engine_provider();
+        unterm_engine::install_next_core_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -3252,7 +3201,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn agent_cwd_metadata_uses_selected_terminal_engine() {
         let _guard = env_lock().lock();
-        crate::engine::install_engine_provider();
+        unterm_engine::install_next_core_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -3289,7 +3238,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn session_suggest_uses_terminal_engine_session_lookup() {
         let _guard = env_lock().lock();
-        crate::engine::install_engine_provider();
+        unterm_engine::install_next_core_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -3330,7 +3279,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn screen_scrollback_text_resolves_active_next_core_session_without_pane_param() {
         let _guard = env_lock().lock();
-        crate::engine::install_engine_provider();
+        unterm_engine::install_next_core_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -3376,7 +3325,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn screen_scrollback_text_preserves_active_fallback_for_stale_pane_param() {
         let _guard = env_lock().lock();
-        crate::engine::install_engine_provider();
+        unterm_engine::install_next_core_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -3425,7 +3374,7 @@ mod engine_neutral_handler_tests {
     #[test]
     fn screen_text_rejects_missing_pane_id_for_required_resolution() {
         let _guard = env_lock().lock();
-        crate::engine::install_engine_provider();
+        unterm_engine::install_next_core_provider();
         let previous_engine = std::env::var("UNTERM_ENGINE").ok();
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
@@ -4129,7 +4078,11 @@ fn agent_fg_cwd_for_pane_inner(pane_id: u64) -> PaneAgentCwd {
 /// The expensive part, run on a worker thread: snapshot the pane's foreground
 /// process and derive the agent name + cwd basename.
 fn compute_agent_cwd(pane_id: u64) -> PaneAgentCwd {
-    let Ok(shell) = crate::engine::current().shell(pane_id as usize) else {
+    let engine: Box<dyn unterm_engine::HostEngine> = match unterm_engine::engine_provider() {
+        Some(provider) => provider(),
+        None => Box::new(unterm_engine::next_core::NextCoreEngine),
+    };
+    let Ok(shell) = engine.shell(pane_id as usize) else {
         return PaneAgentCwd::default();
     };
     let agent = agent_for_pane(pane_id)
@@ -4435,7 +4388,7 @@ impl McpHandler {
             // group by agent name instead of by connection ID.
             "agent.identify" => self.agent_identify(ctx, params),
             "agent.whoami" => self.agent_whoami(ctx),
-            "agent.list_trusted" => Ok(crate::mcp::handler::trust_snapshot()),
+            "agent.list_trusted" => Ok(crate::handler::trust_snapshot()),
             "agent.trust" => self.agent_trust(params),
             "agent.untrust" => self.agent_untrust(params),
             // Cockpit — agent state per pane, hook ingestion, inbox.
@@ -4531,7 +4484,7 @@ impl McpHandler {
             // ~/.unterm/upload.json (OSS / COS / Qiniu) and never leave the
             // local machine. Pairs with `capture.*` so an AI agent can
             // screenshot → upload → embed the URL without dragging files.
-            "upload.file" => crate::mcp::upload::upload(params),
+            "upload.file" => crate::upload::upload(params),
             // Policy
             "policy.set" => self.policy_set(params),
             "policy.check" => self.policy_check(params),
@@ -4544,7 +4497,7 @@ impl McpHandler {
             // Single-call discovery surface for AI agents and the Web Settings
             // "Reference" tab: MCP methods + CLI subcommands + live keybindings
             // in one round trip. See `meta.rs` for the source of truth list.
-            "meta.surface" => crate::mcp::meta::surface(params),
+            "meta.surface" => crate::meta::surface(params),
             // Multi-instance discovery (one Unterm process = one instance,
             // each with a NATO-phonetic name like "alpha", "bravo", ...)
             "instance.list" => self.instance_list(),
@@ -4711,7 +4664,7 @@ impl McpHandler {
         // call `server.capabilities`; new agents should prefer `meta.surface`.
         let mut grouped: std::collections::BTreeMap<&'static str, Vec<&'static str>> =
             std::collections::BTreeMap::new();
-        for m in crate::mcp::meta::MCP_METHODS {
+        for m in crate::meta::MCP_METHODS {
             grouped.entry(m.namespace).or_default().push(m.name);
         }
         let mut value = serde_json::to_value(&grouped)?;
@@ -4720,7 +4673,7 @@ impl McpHandler {
             object.insert("_engine".to_string(), json!(engine));
             object.insert(
                 "_engine_capabilities".to_string(),
-                crate::mcp::meta::engine_capabilities(engine),
+                crate::meta::engine_capabilities(engine),
             );
         }
         Ok(value)
@@ -4867,31 +4820,35 @@ impl McpHandler {
     /// shows up alongside the NATO id in `instance.list` so peers
     /// can route to the right window. Pass `null` (or omit) to
     /// clear the override and resume auto-titling.
+    /// Name this instance in the registry.
+    ///
+    /// Not a window operation despite the name: the title lives in the
+    /// instance registry, which is how peers and `instance.list` see it. No
+    /// front end's window caption changes, which is why this works with no
+    /// front end at all.
     fn instance_set_title(&self, params: &Value) -> Result<Value> {
         let title = params
             .get("title")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string())
             .filter(|s| !s.is_empty());
-        let result = self
-            .engine()
-            .set_current_instance_title(title)
+        unterm_services::server_info::set_title(title.clone())
             .context("failed to write instance title")?;
         Ok(json!({
             "ok": true,
-            "title": result.title,
+            "title": title,
             "window": {
-                "engine": result.window_engine,
-                "title_owner": result.title_owner,
-                "metadata_owner": result.metadata_owner,
-                "applied_to_native_window": result.applied_to_native_window,
-                "uses_host_window": result.uses_host_window,
+                "engine": "wezterm-host",
+                "title_owner": "server_info",
+                "metadata_owner": "product_registry",
+                "applied_to_native_window": false,
+                "uses_host_window": true,
             },
             "lifecycle": {
-                "title_owner": result.title_owner,
-                "metadata_owner": result.metadata_owner,
-                "native_window_lifecycle": result.native_window_lifecycle,
-                "uses_host_window": result.uses_host_window,
+                "title_owner": "server_info",
+                "metadata_owner": "product_registry",
+                "native_window_lifecycle": "host_owned",
+                "uses_host_window": true,
                 "values_redacted": true,
             },
         }))
@@ -7508,23 +7465,21 @@ impl McpHandler {
             "scrollback_{}.png",
             chrono::Local::now().format("%Y%m%d_%H%M%S_%3f")
         ));
-        // Rendering a pane's scrollback to a PNG is this front end's, not the
-        // engine trait's -- see ScrollbackImageEngine.
-        let r = crate::engine::current().render_scrollback_png(pane_id, &path, &opts)?;
-        let session = r.session_id.to_string();
+        // Only a front end can render this: the renderer is built on its own
+        // font stack, so the reply comes back already shaped.
+        let host = unterm_engine::mcp_host()
+            .ok_or_else(|| anyhow!("no front end is hosting this MCP surface"))?;
+        let mut value = host.render_scrollback_png(pane_id, &path, opts.max_rows, opts.dpi)?;
+        let session = value
+            .get("session_id")
+            .and_then(|id| id.as_str())
+            .unwrap_or_default()
+            .to_string();
         self.audit("capture.scrollback", Some(&session), "");
-        Ok(json!({
-            "path": r.image.path.display().to_string(),
-            "width": r.image.width,
-            "height": r.image.height,
-            "rows": r.image.rows,
-            "cols": r.image.cols,
-            "truncated": r.image.truncated,
-            "first_row": r.image.first_row,
-            "session_id": session,
-            "renderer": r.renderer,
-            "type": "image/png",
-        }))
+        if let Some(object) = value.as_object_mut() {
+            object.insert("type".to_string(), json!("image/png"));
+        }
+        Ok(value)
     }
 
     /// Scrolling screenshot of ANOTHER app's window (macOS): synthesize
@@ -7532,6 +7487,12 @@ impl McpHandler {
     fn capture_window_scroll(&self, params: &Value) -> Result<Value> {
         #[cfg(target_os = "macos")]
         {
+            // Capturing another application's window is an OS API the host
+            // owns; on other platforms the default says so.
+            let host = unterm_engine::mcp_host()
+                .ok_or_else(|| anyhow!("no front end is hosting this MCP surface"))?;
+            return host.capture_external_window(params);
+            #[allow(unreachable_code)]
             use crate::scrollshot::external;
             let pid = params.get("pid").and_then(|v| v.as_u64()).map(|v| v as u32);
             let app = params.get("app").and_then(|v| v.as_str());
@@ -8384,6 +8345,17 @@ impl McpHandler {
             .pointer("/_engine_capabilities/diagnostics/styled_scrollback_png")
             .and_then(|value| value.as_bool())
             .unwrap_or(false);
+        if !advertised {
+            // Nothing to check: no front end is hosting us, so there is no
+            // renderer. Reporting a pass would be a lie and a failure would be
+            // a false alarm -- say plainly that it does not apply.
+            return Ok(json!({
+                "ok": true,
+                "advertised": false,
+                "skipped": "no front end is hosting this MCP surface",
+                "destroyed": true,
+            }));
+        }
         let command = "echo \u{001b}[31;1mnext-core-selftest-styled-capture\u{001b}[0m";
         let created = self.session_create(&json!({
             "cols": 80,
@@ -8590,7 +8562,7 @@ impl McpHandler {
                     escapes: false,
                 },
             )?;
-            crate::recording::export_scrollback_markdown_for_session(
+            unterm_services::recording::archive::export_scrollback_markdown_for_session(
                 pane_id,
                 project_path,
                 scrollback.text,
@@ -9358,7 +9330,7 @@ mod exec_wait_tests {
         contains_ignoring_line_breaks, extract_wait_output, resolve_exec_wait_shell,
         strip_ignoring_line_breaks,
     };
-    use crate::engine::{SessionActivitySnapshot, ShellSnapshot};
+    use unterm_engine::{SessionActivitySnapshot, ShellSnapshot};
     use unterm_engine::{LaunchContextSnapshot, ProcessTreeSnapshot};
 
     #[test]
@@ -9812,7 +9784,7 @@ fn run_powershell_json(script: &str) -> Result<Value> {
 }
 
 #[cfg(windows)]
-pub(crate) fn capture_screen_image(include_base64: bool) -> Result<Value> {
+pub fn capture_screen_image(include_base64: bool) -> Result<Value> {
     let path = capture_output_dir()?.join(format!(
         "screen_{}.png",
         chrono::Local::now().format("%Y%m%d_%H%M%S_%3f")
@@ -9844,7 +9816,7 @@ $bmp.Dispose()
 }
 
 #[cfg(windows)]
-pub(crate) fn capture_window_image(
+pub fn capture_window_image(
     title_filter: Option<&str>,
     pid_filter: Option<u32>,
     include_base64: bool,
@@ -9985,7 +9957,7 @@ fn png_dimensions(path: &std::path::Path) -> (u32, u32) {
 }
 
 #[cfg(target_os = "macos")]
-pub(crate) fn capture_screen_image(include_base64: bool) -> Result<Value> {
+pub fn capture_screen_image(include_base64: bool) -> Result<Value> {
     let dir = capture_output_dir()?;
     let path = dir.join(format!(
         "screen_{}.png",
@@ -10017,7 +9989,7 @@ pub(crate) fn capture_screen_image(include_base64: bool) -> Result<Value> {
 }
 
 #[cfg(target_os = "macos")]
-pub(crate) fn capture_window_image(
+pub fn capture_window_image(
     title_filter: Option<&str>,
     pid_filter: Option<u32>,
     include_base64: bool,
@@ -10231,7 +10203,7 @@ fn clipboard_read_macos() -> Result<Value> {
 // ---------------------------------------------------------------------------
 
 #[cfg(all(unix, not(target_os = "macos")))]
-pub(crate) fn capture_screen_image(include_base64: bool) -> Result<Value> {
+pub fn capture_screen_image(include_base64: bool) -> Result<Value> {
     let dir = capture_output_dir()?;
     let path = dir.join(format!(
         "screen_{}.png",
@@ -10281,7 +10253,7 @@ pub(crate) fn capture_screen_image(include_base64: bool) -> Result<Value> {
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]
-pub(crate) fn capture_window_image(
+pub fn capture_window_image(
     _title_filter: Option<&str>,
     _pid_filter: Option<u32>,
     include_base64: bool,

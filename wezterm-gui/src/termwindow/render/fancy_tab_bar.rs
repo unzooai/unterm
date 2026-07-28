@@ -1118,7 +1118,7 @@ fn compute_top_stats_text(active: Option<std::sync::Arc<dyn mux::pane::Pane>>) -
         .unwrap_or_default();
     let pane_id = active.as_ref().map(|p| p.pane_id() as u64);
     let agent_text = pane_id
-        .and_then(|id| crate::mcp::handler::detect_agent_for_pane(id, proc_info.as_ref()))
+        .and_then(|id| unterm_mcp::handler::detect_agent_for_pane(id, proc_info.as_ref()))
         .map(|name| format!("⚡ {name}"))
         .unwrap_or_default();
     let title_text = active

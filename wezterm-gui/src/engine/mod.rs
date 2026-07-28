@@ -57,7 +57,7 @@ pub use unterm_engine::{
     ScreenLine, ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot,
     SessionActivitySnapshot, SessionEngine, SessionSnapshot, ShellSnapshot, SplitDirection,
     SplitSessionRequest, StyledCell, StyledColor, StyledScreenLine, StyledScreenSnapshot,
-    StyledScrollbackSnapshot, StyledVerticalAlign, TerminalEngine, PaneLocation, ViewportScrollResult, WindowEngine, WindowFocusResult, WindowTitleResult, CaptureEngine, HostEngine};
+    StyledScrollbackSnapshot, StyledVerticalAlign, TerminalEngine, PaneLocation, ViewportScrollResult, WindowEngine, WindowFocusResult, CaptureEngine, HostEngine};
 
 pub struct RenderedScrollbackPng {
     pub image: crate::scrollshot::ScrollbackPng,
@@ -269,11 +269,17 @@ mod tests {
         assert_eq!(first.stats.damage_rect_count, 1);
         assert!(first.commit.submission.is_some());
 
-        let repeat = consumer
-            .read_commit(&engine)
-            .expect("read repeated render commit batch");
-        assert!(!repeat.stats.submit);
-        assert_eq!(repeat.stats.previous_revision, Some(first.stats.revision));
+        let (repeat, submitted) = read_unchanged(
+            first.stats.revision,
+            || {
+                consumer
+                    .read_commit(&engine)
+                    .expect("read repeated render commit batch")
+            },
+            |batch| batch.stats.submit,
+            |batch| batch.stats.revision,
+        );
+        assert_eq!(repeat.stats.previous_revision, Some(submitted));
         assert!(repeat.commit.submission.is_none());
         engine
             .destroy_session(session.id)
@@ -379,9 +385,16 @@ mod tests {
         assert_eq!(pass_plan.vertex_count, upload_plan.vertices.len());
         assert_eq!(pass_plan.index_count, upload_plan.indices.len());
 
-        let repeat = consumer
-            .read_commit(&engine)
-            .expect("read repeated render commit batch");
+        let (repeat, _) = read_unchanged(
+            first.stats.revision,
+            || {
+                consumer
+                    .read_commit(&engine)
+                    .expect("read repeated render commit batch")
+            },
+            |batch| batch.stats.submit,
+            |batch| batch.stats.revision,
+        );
         let skipped = backend
             .submit(&repeat)
             .expect("prepare repeated backend frame");
@@ -444,12 +457,18 @@ mod tests {
         assert!(first.is_draw_ready());
         assert!(first.readiness_issues().is_empty());
 
-        let repeat = consumer
-            .read_buffer_plan(&engine)
-            .expect("read repeated render buffer plan");
-        assert!(!repeat.stats.submit);
+        let (repeat, submitted) = read_unchanged(
+            first.stats.revision,
+            || {
+                consumer
+                    .read_buffer_plan(&engine)
+                    .expect("read repeated render buffer plan")
+            },
+            |batch| batch.stats.submit,
+            |batch| batch.stats.revision,
+        );
         assert!(!repeat.buffer_plan.submitted);
-        assert_eq!(repeat.stats.previous_revision, Some(first.stats.revision));
+        assert_eq!(repeat.stats.previous_revision, Some(submitted));
         assert!(repeat.buffer_plan.text_runs.is_empty());
         assert!(repeat.buffer_plan.vertices.is_empty());
         assert!(repeat.buffer_plan.indices.is_empty());
@@ -599,10 +618,16 @@ mod tests {
             Some(first.stats.revision)
         );
 
-        let repeat = consumers
-            .read_buffer_plan(&engine, session.id, metrics)
-            .expect("read repeated render buffer plan");
-        assert!(!repeat.stats.submit);
+        let (repeat, _) = read_unchanged(
+            first.stats.revision,
+            || {
+                consumers
+                    .read_buffer_plan(&engine, session.id, metrics)
+                    .expect("read repeated render buffer plan")
+            },
+            |batch| batch.stats.submit,
+            |batch| batch.stats.revision,
+        );
         assert!(repeat.buffer_plan.vertices.is_empty());
         assert_eq!(consumers.len(), 1);
 
@@ -629,17 +654,49 @@ mod tests {
             .expect("destroy next-core test session");
     }
 
+    /// Read until one read finds nothing new, and hand that read back.
+    ///
+    /// A shell on a fresh pty writes its setup sequences over several
+    /// milliseconds, so *which* read is the one that finds nothing changed is
+    /// a matter of timing. The property under test is what such a read does,
+    /// so these tests find one and assert about it rather than assuming the
+    /// second read will be it. The revision returned alongside is the last one
+    /// that was submitted, which is what an unchanged read reports having seen.
+    fn read_unchanged<B>(
+        seen: u64,
+        mut read: impl FnMut() -> B,
+        submitted: impl Fn(&B) -> bool,
+        revision: impl Fn(&B) -> u64,
+    ) -> (B, u64) {
+        let mut last = seen;
+        for _ in 0..400 {
+            let batch = read();
+            if !submitted(&batch) {
+                return (batch, last);
+            }
+            last = revision(&batch);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        panic!("next-core never stopped writing to the pane");
+    }
+
+    /// A shell that stays quiet and stays alive.
+    ///
+    /// It has to outlive the whole test: when the command exits the PTY closes
+    /// and next-core bumps its revision, which is the very thing the
+    /// "reading twice changes nothing" tests assert does not happen. A short
+    /// wait made them fail whenever the suite ran slower than the wait.
     fn quiet_wait_command_for_test() -> portable_pty::CommandBuilder {
         #[cfg(windows)]
         {
             let mut command = portable_pty::CommandBuilder::new("cmd.exe");
-            command.args(["/c", "ping -n 5 127.0.0.1 >nul"]);
+            command.args(["/c", "ping -n 600 127.0.0.1 >nul"]);
             command
         }
         #[cfg(not(windows))]
         {
             let mut command = portable_pty::CommandBuilder::new("sh");
-            command.args(["-c", "sleep 5"]);
+            command.args(["-c", "sleep 600"]);
             command
         }
     }
@@ -891,13 +948,6 @@ impl WindowEngine for CurrentTerminalEngine {
         focus_current_instance_window()
     }
 
-    fn set_current_instance_title(
-        &self,
-        title: Option<String>,
-    ) -> anyhow::Result<WindowTitleResult> {
-        set_current_instance_title(title)
-    }
-
     fn active_pane_id(&self) -> anyhow::Result<Option<u64>> {
         match self {
             Self::WezTerm(engine) => engine.active_pane_id(),
@@ -945,7 +995,7 @@ impl WindowEngine for CurrentTerminalEngine {
 
 impl CaptureEngine for CurrentTerminalEngine {
     fn capture_screen_image(&self, include_base64: bool) -> anyhow::Result<serde_json::Value> {
-        crate::mcp::handler::capture_screen_image(include_base64)
+        unterm_mcp::handler::capture_screen_image(include_base64)
     }
 
     fn capture_window_image(
@@ -954,7 +1004,7 @@ impl CaptureEngine for CurrentTerminalEngine {
         pid_filter: Option<u32>,
         include_base64: bool,
     ) -> anyhow::Result<serde_json::Value> {
-        crate::mcp::handler::capture_window_image(title_filter, pid_filter, include_base64)
+        unterm_mcp::handler::capture_window_image(title_filter, pid_filter, include_base64)
     }
 }
 
@@ -1019,15 +1069,3 @@ fn focus_current_instance_window() -> anyhow::Result<WindowFocusResult> {
     })
 }
 
-fn set_current_instance_title(title: Option<String>) -> anyhow::Result<WindowTitleResult> {
-    unterm_services::server_info::set_title(title.clone())?;
-    Ok(WindowTitleResult {
-        title,
-        window_engine: "wezterm-host",
-        title_owner: "server_info",
-        metadata_owner: "product_registry",
-        native_window_lifecycle: "host_owned",
-        applied_to_native_window: false,
-        uses_host_window: true,
-    })
-}

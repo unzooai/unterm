@@ -183,7 +183,7 @@ mod tests {
 
     #[test]
     fn dispatch_next_scheduled_uses_input_first_policy() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
         with_current_mut(|state| {
             state
                 .command_queue
@@ -209,7 +209,7 @@ mod tests {
 
     #[test]
     fn dispatch_next_scheduled_completes_attached_response() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
         let (tx, rx) = response::channel();
         with_current_mut(|state| {
             state
@@ -230,7 +230,7 @@ mod tests {
 
     #[test]
     fn drain_until_response_pumps_until_attached_response_completes() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
         let (tx, rx) = response::channel();
         with_current_mut(|state| {
             state
@@ -253,7 +253,7 @@ mod tests {
 
     #[test]
     fn drain_until_response_continues_after_unrelated_attached_response() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
         let (other_tx, other_rx) = response::channel();
         let (target_tx, target_rx) = response::channel();
         with_current_mut(|state| {
@@ -294,7 +294,7 @@ mod tests {
 
     #[test]
     fn drain_until_response_reads_immediate_rejected_response() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
         with_current_mut(|state| {
             state.command_queue = RuntimeCommandQueue::new(RuntimeQueuePolicy {
                 max_pending_commands: 0,
@@ -317,7 +317,7 @@ mod tests {
 
     #[test]
     fn drain_until_response_report_counts_rejected_immediate_completion() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
         with_current_mut(|state| {
             state.command_queue = RuntimeCommandQueue::new(RuntimeQueuePolicy {
                 max_pending_commands: 0,

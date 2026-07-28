@@ -6,7 +6,7 @@ use super::{
     ScrollbackTextRequest, ScrollbackTextSnapshot, SessionActivitySnapshot, SessionEngine,
     SessionSnapshot, ShellSnapshot, SplitDirection, SplitSessionRequest, StyledCell,
     StyledScreenLine, StyledScreenSnapshot, ViewportScrollResult, WindowEngine, WindowFocusResult,
-    WindowTitleResult, ScrollbackImageEngine};
+    ScrollbackImageEngine};
 use anyhow::{anyhow, Context, Result};
 use config::keyassignment::SpawnTabDomain;
 use mux::domain::SplitSource;
@@ -631,10 +631,6 @@ impl WindowEngine for WezTermEngine {
         anyhow::bail!("WezTermEngine window focusing is provided by CurrentTerminalEngine")
     }
 
-    fn set_current_instance_title(&self, _title: Option<String>) -> Result<WindowTitleResult> {
-        anyhow::bail!("WezTermEngine window title updates are provided by CurrentTerminalEngine")
-    }
-
     fn active_pane_id(&self) -> Result<Option<u64>> {
         let mux = self.mux()?;
         Ok(WezTermEngine::active_pane_id(self, &mux).map(|pane_id| pane_id as u64))
@@ -692,7 +688,7 @@ impl WindowEngine for WezTermEngine {
 
 impl CaptureEngine for WezTermEngine {
     fn capture_screen_image(&self, include_base64: bool) -> Result<serde_json::Value> {
-        crate::mcp::handler::capture_screen_image(include_base64)
+        unterm_mcp::handler::capture_screen_image(include_base64)
     }
 
     fn capture_window_image(
@@ -701,7 +697,7 @@ impl CaptureEngine for WezTermEngine {
         pid_filter: Option<u32>,
         include_base64: bool,
     ) -> Result<serde_json::Value> {
-        crate::mcp::handler::capture_window_image(title_filter, pid_filter, include_base64)
+        unterm_mcp::handler::capture_window_image(title_filter, pid_filter, include_base64)
     }
 }
 

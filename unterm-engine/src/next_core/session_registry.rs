@@ -227,7 +227,7 @@ mod tests {
 
     #[test]
     fn runtime_with_current_visits_registry_state() {
-        crate::next_core::test_support::reset_state_for_test();
+        let _runtime = crate::next_core::test_support::reset_state_for_test();
 
         let pane_count = crate::next_core::runtime::test_facade::pane_count();
 
@@ -236,7 +236,7 @@ mod tests {
 
     #[test]
     fn runtime_with_current_mut_visits_registry_state() {
-        crate::next_core::test_support::reset_state_for_test();
+        let _runtime = crate::next_core::test_support::reset_state_for_test();
 
         let id = crate::next_core::runtime::test_facade::next_session_id();
 

@@ -439,14 +439,14 @@ mod tests {
 
     #[test]
     fn runtime_owns_command_queue_stats() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
 
         assert_eq!(queue_stats(), RuntimeQueueStats::default());
     }
 
     #[test]
     fn submit_input_rejects_non_input_before_queueing() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
 
         let err = submit_input(RuntimeCommand::ReadScreen { pane_id: 1 })
             .expect_err("non-input command should be rejected");
@@ -457,7 +457,7 @@ mod tests {
 
     #[test]
     fn submit_input_uses_command_backpressure() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
 
         install_zero_command_budget();
 
@@ -475,7 +475,7 @@ mod tests {
 
     #[test]
     fn submit_input_uses_input_byte_backpressure() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
 
         with_current_mut(|state| {
             state.command_queue =
@@ -501,7 +501,7 @@ mod tests {
 
     #[test]
     fn submit_input_dispatches_before_older_screen_backlog() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
         with_current_mut(|state| {
             state
                 .command_queue
@@ -523,7 +523,7 @@ mod tests {
 
     #[test]
     fn lifecycle_mutations_enter_runtime_queue_before_dispatch() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
 
         let err = focus_session(404).expect_err("missing pane should fail");
 
@@ -534,7 +534,7 @@ mod tests {
 
     #[test]
     fn lifecycle_mutations_use_lifecycle_backpressure() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
         install_zero_command_budget();
 
         let err = destroy_session(1).expect_err("zero command budget should reject destroy");
@@ -547,7 +547,7 @@ mod tests {
 
     #[test]
     fn session_creation_uses_lifecycle_backpressure() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
         install_zero_command_budget();
 
         let err = create_session(CreateSessionRequest {
@@ -568,7 +568,7 @@ mod tests {
 
     #[test]
     fn split_session_enters_runtime_queue_before_dispatch() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
 
         let err = split_session(SplitSessionRequest {
             source_pane_id: 404,
@@ -585,7 +585,7 @@ mod tests {
 
     #[test]
     fn lifecycle_dispatches_before_older_render_and_screen_backlog() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
         with_current_mut(|state| {
             state
                 .command_queue
@@ -611,7 +611,7 @@ mod tests {
 
     #[test]
     fn session_queries_enter_runtime_queue_before_dispatch() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
 
         let sessions = list_sessions().expect("list should dispatch through runtime queue");
 
@@ -622,7 +622,7 @@ mod tests {
 
     #[test]
     fn session_queries_use_background_backpressure() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
         install_zero_command_budget();
 
         let err = get_session(1).expect_err("zero command budget should reject get-session");
@@ -635,7 +635,7 @@ mod tests {
 
     #[test]
     fn session_query_backlog_waits_behind_input() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
         with_current_mut(|state| {
             state
                 .command_queue
@@ -657,7 +657,7 @@ mod tests {
 
     #[test]
     fn recording_reads_enter_runtime_queue_before_dispatch() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
 
         let status = recording_status(404).expect("missing recording status is inactive");
 
@@ -668,7 +668,7 @@ mod tests {
 
     #[test]
     fn recording_commands_use_background_backpressure() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
         install_zero_command_budget();
 
         let err = recording_status(1).expect_err("zero command budget should reject recording");
@@ -681,7 +681,7 @@ mod tests {
 
     #[test]
     fn recording_backlog_waits_behind_lifecycle() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
         with_current_mut(|state| {
             state
                 .command_queue
@@ -699,7 +699,7 @@ mod tests {
 
     #[test]
     fn render_frame_reads_enter_runtime_queue_before_dispatch() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
 
         let err = read_render_frame(404, Some(7)).expect_err("missing pane should fail");
 
@@ -710,7 +710,7 @@ mod tests {
 
     #[test]
     fn render_frame_reads_use_command_backpressure() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
 
         install_zero_command_budget();
 
@@ -724,7 +724,7 @@ mod tests {
 
     #[test]
     fn plain_screen_reads_enter_runtime_queue_before_dispatch() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
 
         let err = read_screen(404).expect_err("missing pane should fail");
 
@@ -735,7 +735,7 @@ mod tests {
 
     #[test]
     fn plain_screen_reads_use_command_backpressure() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
 
         install_zero_command_budget();
 
@@ -749,7 +749,7 @@ mod tests {
 
     #[test]
     fn styled_screen_reads_enter_runtime_queue_before_dispatch() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
 
         let err = read_styled_screen(404).expect_err("missing pane should fail");
 
@@ -760,7 +760,7 @@ mod tests {
 
     #[test]
     fn styled_screen_reads_use_command_backpressure() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
 
         install_zero_command_budget();
 
@@ -774,7 +774,7 @@ mod tests {
 
     #[test]
     fn visible_text_reads_enter_runtime_queue_before_dispatch() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
 
         let err = read_visible_text(404).expect_err("missing pane should fail");
 
@@ -785,7 +785,7 @@ mod tests {
 
     #[test]
     fn remaining_screen_reads_use_command_backpressure() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
         install_zero_command_budget();
 
         let err = read_visible_text(1).expect_err("zero command budget should reject visible text");
@@ -793,21 +793,21 @@ mod tests {
             .to_string()
             .contains("runtime screen queue rejected command"));
 
-        test_facade::reset();
+        _runtime.reset();
         install_zero_command_budget();
         let err = read_lines(1, 0, 1).expect_err("zero command budget should reject line read");
         assert!(err
             .to_string()
             .contains("runtime screen queue rejected command"));
 
-        test_facade::reset();
+        _runtime.reset();
         install_zero_command_budget();
         let err = read_scrollback(1, 1).expect_err("zero command budget should reject scrollback");
         assert!(err
             .to_string()
             .contains("runtime screen queue rejected command"));
 
-        test_facade::reset();
+        _runtime.reset();
         install_zero_command_budget();
         let err = read_scrollback_text(
             1,
@@ -823,7 +823,7 @@ mod tests {
             .to_string()
             .contains("runtime screen queue rejected command"));
 
-        test_facade::reset();
+        _runtime.reset();
         install_zero_command_budget();
         let err = read_styled_scrollback(
             1,
@@ -839,7 +839,7 @@ mod tests {
             .to_string()
             .contains("runtime screen queue rejected command"));
 
-        test_facade::reset();
+        _runtime.reset();
         install_zero_command_budget();
         let err =
             search_screen(1, "needle", 1).expect_err("zero command budget should reject search");
@@ -847,7 +847,7 @@ mod tests {
             .to_string()
             .contains("runtime screen queue rejected command"));
 
-        test_facade::reset();
+        _runtime.reset();
         install_zero_command_budget();
         let err = cursor(1).expect_err("zero command budget should reject cursor read");
         assert!(err
@@ -857,7 +857,7 @@ mod tests {
 
     #[test]
     fn line_range_reads_enter_runtime_queue_before_dispatch() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
 
         let err = read_lines(404, 0, 1).expect_err("missing pane should fail");
 
@@ -868,7 +868,7 @@ mod tests {
 
     #[test]
     fn scrollback_reads_enter_runtime_queue_before_dispatch() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
 
         let err = read_scrollback(404, 10).expect_err("missing pane should fail");
 
@@ -879,7 +879,7 @@ mod tests {
 
     #[test]
     fn viewport_scrolls_enter_runtime_queue_before_dispatch() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
 
         let err = scroll_viewport_to(404, 5).expect_err("missing pane should fail");
 
@@ -890,7 +890,7 @@ mod tests {
 
     #[test]
     fn viewport_scrolls_use_command_backpressure() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
 
         install_zero_command_budget();
 
@@ -904,7 +904,7 @@ mod tests {
 
     #[test]
     fn viewport_scrolls_dispatch_before_background_backlog() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
         with_current_mut(|state| {
             state
                 .command_queue
@@ -922,7 +922,7 @@ mod tests {
 
     #[test]
     fn status_reads_enter_runtime_queue_before_dispatch() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
 
         let health = health_snapshot().expect("health should dispatch through runtime queue");
 
@@ -933,7 +933,7 @@ mod tests {
 
     #[test]
     fn status_reads_use_background_backpressure() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
         install_zero_command_budget();
 
         let err = shell_snapshot(1).expect_err("zero command budget should reject shell status");
@@ -946,7 +946,7 @@ mod tests {
 
     #[test]
     fn scrollback_text_reads_enter_runtime_queue_before_dispatch() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
 
         let err = read_scrollback_text(
             404,
@@ -966,7 +966,7 @@ mod tests {
 
     #[test]
     fn styled_scrollback_reads_enter_runtime_queue_before_dispatch() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
 
         let err = read_styled_scrollback(
             404,
@@ -986,7 +986,7 @@ mod tests {
 
     #[test]
     fn screen_search_reads_enter_runtime_queue_before_dispatch() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
 
         let err = search_screen(404, "needle", 5).expect_err("missing pane should fail");
 
@@ -997,7 +997,7 @@ mod tests {
 
     #[test]
     fn cursor_reads_enter_runtime_queue_before_dispatch() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
 
         let err = cursor(404).expect_err("missing pane should fail");
 
@@ -1008,7 +1008,7 @@ mod tests {
 
     #[test]
     fn enqueue_dequeue_updates_runtime_queue_backpressure_state() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
 
         with_current_mut(|state| {
             state.command_queue =

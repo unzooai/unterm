@@ -6645,6 +6645,7 @@ dependencies = [
  "unicode-segmentation",
  "unterm-agents",
  "unterm-engine",
+ "unterm-mcp",
  "unterm-profile",
  "unterm-services",
  "url",
@@ -6770,6 +6771,36 @@ dependencies = [
  "serde",
  "serde_json",
  "termwiz",
+]
+
+[[package]]
+name = "unterm-mcp"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "chrono",
+ "config",
+ "dirs-next",
+ "hmac",
+ "hostname",
+ "image",
+ "log",
+ "parking_lot",
+ "portable-pty",
+ "procinfo",
+ "promise",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha1",
+ "unterm-agents",
+ "unterm-engine",
+ "unterm-profile",
+ "unterm-services",
+ "url",
+ "uuid",
+ "winapi",
 ]
 
 [[package]]

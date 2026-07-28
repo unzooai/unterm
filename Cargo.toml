@@ -13,6 +13,7 @@ members = [
   "wezterm-mux-server",
   "wezterm-open-url",
   "unterm-app",
+  "unterm-mcp",
   "unterm-render",
   "unterm-services",
   "wezterm-render-escapes",
@@ -286,6 +287,7 @@ wezterm-gui-subcommands = { path = "wezterm-gui-subcommands" }
 wezterm-input-types = { version="0.1", path = "wezterm-input-types", default-features=false }
 wezterm-mux-server-impl = { path = "wezterm-mux-server-impl" }
 wezterm-open-url = { path = "wezterm-open-url" }
+unterm-mcp = { path = "unterm-mcp" }
 unterm-render = { path = "unterm-render" }
 unterm-services = { path = "unterm-services" }
 wezterm-render-escapes = { path = "wezterm-render-escapes" }

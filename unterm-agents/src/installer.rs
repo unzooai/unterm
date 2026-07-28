@@ -643,14 +643,25 @@ mod path_fallback_tests {
 
     #[test]
     fn enriched_path_includes_gui_unreachable_dirs() {
-        // launchd hands a Dock-launched app a bare PATH; enriched_path must
-        // always re-add the dirs where node/npm/pipx actually live, so an
-        // install step can find them. /opt/homebrew/bin (Apple silicon) and
-        // /usr/local/bin (Intel brew) are the canonical examples.
-        let s = enriched_path().to_string_lossy().to_string();
+        // A GUI launched from the Dock or from Explorer inherits a narrower
+        // PATH than the user's shell, so enriched_path must always re-add the
+        // dirs where node/npm/pipx actually live. Which dirs those are is
+        // entirely platform-specific, so each platform checks its own.
+        let path = enriched_path();
+        let dirs: Vec<_> = std::env::split_paths(&path).collect();
+
+        #[cfg(unix)]
         assert!(
-            s.contains("/opt/homebrew/bin") || s.contains("/usr/local/bin"),
-            "enriched_path missing brew dirs: {s}"
+            dirs.iter().any(|dir| dir.ends_with("homebrew/bin"))
+                || dirs.iter().any(|dir| dir == std::path::Path::new("/usr/local/bin")),
+            "enriched_path missing brew dirs: {dirs:?}"
+        );
+
+        #[cfg(windows)]
+        assert!(
+            dirs.iter().any(|dir| dir.ends_with("npm"))
+                || dirs.iter().any(|dir| dir.ends_with(r"WinGet\Links")),
+            "enriched_path missing the npm and winget dirs: {dirs:?}"
         );
     }
 

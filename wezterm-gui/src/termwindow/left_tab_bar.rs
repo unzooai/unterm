@@ -938,7 +938,7 @@ impl crate::TermWindow {
                 .map(|(idx, tab_id, pane, title)| {
                     let (agent, foreground, cwd, cwd_path, project, project_path) = match pane {
                         Some(p) => {
-                            crate::mcp::handler::agent_fg_cwd_path_for_pane(p.pane_id() as u64)
+                            unterm_mcp::handler::agent_fg_cwd_path_for_pane(p.pane_id() as u64)
                         }
                         None => (None, None, None, None, None, None),
                     };

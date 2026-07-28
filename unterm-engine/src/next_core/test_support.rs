@@ -4,8 +4,13 @@ use super::{
 use anyhow::Result;
 use std::{sync::atomic::Ordering, sync::Arc, time::Instant};
 
-pub(super) fn reset_state_for_test() {
-    runtime::test_facade::reset();
+/// Put the runtime back to empty for a test, keeping other tests out.
+///
+/// Hold the returned guard for the length of the test -- see
+/// `runtime::test_facade::reset`.
+#[must_use = "hold the guard for the length of the test"]
+pub(super) fn reset_state_for_test() -> runtime::test_facade::RuntimeTestGuard {
+    runtime::test_facade::reset()
 }
 
 pub(super) fn set_output_for_test(pane_id: usize, text: &str) -> Result<()> {

@@ -41,7 +41,6 @@ mod engine;
 mod frontend;
 mod glyphcache;
 mod inputmap;
-mod mcp;
 mod overlay;
 mod quad;
 mod recording;
@@ -482,7 +481,7 @@ async fn async_run_terminal_gui(
     // written to ~/.unterm/server.json; legacy ~/.unterm/auth_token is also
     // written for back-compat with older clients.
     crate::startup_timing::mark("async gui chain enter");
-    let (mcp_port, mcp_token) = mcp::start_mcp_server();
+    let (mcp_port, mcp_token) = unterm_mcp::start_mcp_server();
     crate::startup_timing::mark("mcp server started");
     log::info!(
         "Unterm MCP server started on 127.0.0.1:{}, server.json written",
@@ -512,7 +511,7 @@ async fn async_run_terminal_gui(
     // Endpoint-level proxy auto-rotation: a background monitor that, when
     // enabled, probes the active proxy node and fails over to the fastest live
     // node in the configured pool. No-op (cheap) unless the user turned it on.
-    mcp::handler::start_proxy_rotation_monitor();
+    unterm_mcp::handler::start_proxy_rotation_monitor();
 
     if !opts.no_auto_connect {
         connect_to_auto_connect_domains().await?;

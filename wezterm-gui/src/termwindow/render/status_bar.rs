@@ -68,7 +68,7 @@ impl crate::TermWindow {
     /// the active pane. The pane layout subtracts this so the banner
     /// doesn't overlap the terminal output.
     pub fn suggest_bar_pixel_height(&self) -> f32 {
-        if crate::mcp::handler::pending_confirmation_count() > 0
+        if unterm_mcp::handler::pending_confirmation_count() > 0
             || self.active_pane_first_pending_suggestion().is_some()
         {
             self.render_metrics.cell_size.height as f32
@@ -77,9 +77,9 @@ impl crate::TermWindow {
         }
     }
 
-    fn active_pane_first_pending_suggestion(&self) -> Option<crate::mcp::handler::Suggestion> {
+    fn active_pane_first_pending_suggestion(&self) -> Option<unterm_mcp::handler::Suggestion> {
         let pane = self.get_active_pane_no_overlay()?;
-        crate::mcp::handler::pending_suggestions_for_pane(pane.pane_id() as u64)
+        unterm_mcp::handler::pending_suggestions_for_pane(pane.pane_id() as u64)
             .into_iter()
             .next()
     }
@@ -94,7 +94,7 @@ impl crate::TermWindow {
         &mut self,
         layers: &mut TripleLayerQuadAllocator,
     ) -> anyhow::Result<()> {
-        if let Some(view) = crate::mcp::handler::pending_confirmation_view() {
+        if let Some(view) = unterm_mcp::handler::pending_confirmation_view() {
             return self.paint_confirmation_banner(layers, &view);
         }
         let Some(suggestion) = self.active_pane_first_pending_suggestion() else {
@@ -394,7 +394,7 @@ impl crate::TermWindow {
     fn paint_confirmation_banner(
         &mut self,
         layers: &mut TripleLayerQuadAllocator,
-        view: &crate::mcp::handler::ConfirmationView,
+        view: &unterm_mcp::handler::ConfirmationView,
     ) -> anyhow::Result<()> {
         let cell_height = self.render_metrics.cell_size.height as f32;
         let cell_width = self.render_metrics.cell_size.width as f32;
@@ -636,7 +636,7 @@ impl crate::TermWindow {
         // segment's click hit-test). `⚡` suffix marks "writes recently"
         // so the user notices a flash without having to compare counts.
         let mcp_part = if density.show_telemetry {
-            let mcp_activity = crate::mcp::handler::recent_mcp_input_activity();
+            let mcp_activity = unterm_mcp::handler::recent_mcp_input_activity();
             let flash = mcp_activity
                 .seconds_since_last
                 .map(|s| s < 5.0)

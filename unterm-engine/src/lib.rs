@@ -1108,17 +1108,6 @@ pub struct WindowFocusResult {
 }
 
 #[derive(Clone, Debug)]
-pub struct WindowTitleResult {
-    pub title: Option<String>,
-    pub window_engine: &'static str,
-    pub title_owner: &'static str,
-    pub metadata_owner: &'static str,
-    pub native_window_lifecycle: &'static str,
-    pub applied_to_native_window: bool,
-    pub uses_host_window: bool,
-}
-
-#[derive(Clone, Debug)]
 pub struct PaneLocation {
     pub window_id: usize,
     pub tab_id: usize,
@@ -1138,10 +1127,6 @@ pub enum ViewportScrollResult {
 /// folded into them.
 pub trait WindowEngine {
     fn focus_current_instance_window(&self) -> anyhow::Result<WindowFocusResult>;
-    fn set_current_instance_title(
-        &self,
-        title: Option<String>,
-    ) -> anyhow::Result<WindowTitleResult>;
     fn active_pane_id(&self) -> anyhow::Result<Option<u64>>;
     fn pane_locations(&self) -> anyhow::Result<std::collections::HashMap<u64, PaneLocation>>;
     fn scroll_viewport_to(
@@ -1212,9 +1197,6 @@ impl WindowEngine for next_core::NextCoreEngine {
     fn focus_current_instance_window(&self) -> Result<WindowFocusResult> {
         anyhow::bail!("next-core has no window of its own to focus")
     }
-    fn set_current_instance_title(&self, _title: Option<String>) -> Result<WindowTitleResult> {
-        anyhow::bail!("next-core has no window of its own to title")
-    }
     fn active_pane_id(&self) -> Result<Option<u64>> {
         Ok(self
             .list_sessions()?
@@ -1223,9 +1205,22 @@ impl WindowEngine for next_core::NextCoreEngine {
             .map(|session| session.id as u64))
     }
     fn pane_locations(&self) -> Result<std::collections::HashMap<u64, PaneLocation>> {
-        // No windows and no tabs to report, and inventing them would be worse
-        // than reporting none.
-        Ok(std::collections::HashMap::new())
+        // One window, and a tab per session. next-core does not group sessions
+        // into windows -- a front end does that -- so every session reports
+        // window 0 and its own id as its tab.
+        Ok(self
+            .list_sessions()?
+            .into_iter()
+            .map(|session| {
+                (
+                    session.id as u64,
+                    PaneLocation {
+                        window_id: 0,
+                        tab_id: session.id,
+                    },
+                )
+            })
+            .collect())
     }
     fn scroll_viewport_to(&self, pane_id: usize, target: isize) -> Result<ViewportScrollResult> {
         next_core::NextCoreEngine::scroll_viewport_to(self, pane_id, target)?;
@@ -1307,6 +1302,16 @@ pub fn set_engine_provider(provider: fn() -> Box<dyn HostEngine>) -> bool {
 /// The engine the front end installed, if it has.
 pub fn engine_provider() -> Option<fn() -> Box<dyn HostEngine>> {
     ENGINE_PROVIDER.get().copied()
+}
+
+/// Install next-core itself as the engine, for a process with no front end.
+///
+/// The MCP surface's own tests need an engine but no window, and next-core is
+/// exactly that: it answers every session, screen, input and recording
+/// question, and says plainly that it has no window of its own. Idempotent,
+/// so every test can call it.
+pub fn install_next_core_provider() {
+    set_engine_provider(|| Box::new(next_core()));
 }
 
 pub trait TerminalEngine:

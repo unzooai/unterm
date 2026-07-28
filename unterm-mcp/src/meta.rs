@@ -127,7 +127,10 @@ pub fn engine_capabilities(engine: &str) -> Value {
             "default_shell_launch_decision": true,
             "session_create_launch_decision": true,
             "workspace_restore_launch_plan": true,
-            "styled_scrollback_png": engine == "next-core",
+            // Rendering needs a front end's font stack, so the answer is
+            // whether one is hosting us, not which engine is selected.
+            "styled_scrollback_png": engine == "next-core"
+                && unterm_engine::mcp_host().is_some(),
             "styled_scrollback_renderer_metadata": true,
             "pty_write_confirmation": true,
             "recording_block_markdown": engine == "next-core",
@@ -147,46 +150,13 @@ pub fn engine_capabilities(engine: &str) -> Value {
 }
 
 /// Read the effective keybindings from the current config and return them
-/// as serializable rows. The InputMap is built fresh from `config::configuration()`
-/// so the listing reflects the user's actual unterm.lua at call time.
+/// as serializable rows, as the hosting front end reports them.
 pub fn keybindings_inventory() -> Vec<Value> {
-    use crate::inputmap::InputMap;
-
-    let config = config::configuration();
-    let map = InputMap::new(&config);
-    let mut out = Vec::new();
-
-    // (InputMap.leader is private; we surface it indirectly by listing
-    // entries whose mods contain LEADER. The default table iteration
-    // below picks those up alongside everything else.)
-
-    // Default key table
-    for ((key, mods), entry) in &map.keys.default {
-        out.push(json!({
-            "table": "default",
-            "key": format!("{key:?}"),
-            "mods": format!("{mods:?}"),
-            "action": format!("{:?}", entry.action),
-        }));
-    }
-
-    // Named key tables (vi-mode, etc.)
-    let mut named_tables: Vec<_> = map.keys.by_name.keys().collect();
-    named_tables.sort();
-    for table_name in named_tables {
-        if let Some(table) = map.keys.by_name.get(table_name) {
-            for ((key, mods), entry) in table {
-                out.push(json!({
-                    "table": table_name,
-                    "key": format!("{key:?}"),
-                    "mods": format!("{mods:?}"),
-                    "action": format!("{:?}", entry.action),
-                }));
-            }
-        }
-    }
-
-    out
+    // The key table belongs to whichever front end is hosting us: it decides
+    // what its keys do, and a headless surface has none.
+    unterm_engine::mcp_host()
+        .map(|host| host.key_assignments())
+        .unwrap_or_default()
 }
 
 /// `meta.surface` MCP handler.
@@ -347,7 +317,8 @@ mod tests {
         assert_eq!(caps["diagnostics"]["default_shell_launch_decision"], true);
         assert_eq!(caps["diagnostics"]["session_create_launch_decision"], true);
         assert_eq!(caps["diagnostics"]["workspace_restore_launch_plan"], true);
-        assert_eq!(caps["diagnostics"]["styled_scrollback_png"], true);
+        // No front end is hosting a test binary, so nothing can render.
+        assert_eq!(caps["diagnostics"]["styled_scrollback_png"], false);
         assert_eq!(
             caps["diagnostics"]["styled_scrollback_renderer_metadata"],
             true

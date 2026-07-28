@@ -3,8 +3,34 @@ use anyhow::Result;
 use parking_lot::Mutex;
 use std::sync::{atomic::AtomicBool, Arc};
 
-pub(in crate::next_core) fn reset() {
-    with_current_mut(|state| *state = NextCoreRuntime::default());
+/// Serialises every test that touches the process-wide runtime.
+static RUNTIME_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+/// Put the runtime back to empty, and keep other tests out until you are done.
+///
+/// The runtime is one global. A test that resets it while another is midway
+/// through pulls the floor out from under that one, which is why the guard
+/// comes back with the reset rather than being a separate thing to remember:
+/// you cannot reset without holding it.
+#[must_use = "hold the guard for the length of the test, or another test will reset the runtime under you"]
+pub(in crate::next_core) fn reset() -> RuntimeTestGuard {
+    let guard = RuntimeTestGuard(RUNTIME_TEST_LOCK.lock());
+    guard.reset();
+    guard
+}
+
+/// Proof that this test has the runtime to itself.
+pub(in crate::next_core) struct RuntimeTestGuard(parking_lot::MutexGuard<'static, ()>);
+
+impl RuntimeTestGuard {
+    /// Start over without giving up the lock.
+    ///
+    /// A test that checks several independent cases needs a clean runtime for
+    /// each; calling `reset()` again would deadlock on the lock it already
+    /// holds, so it asks the guard instead.
+    pub(in crate::next_core) fn reset(&self) {
+        with_current_mut(|state| *state = NextCoreRuntime::default());
+    }
 }
 
 pub(in crate::next_core) struct TestSessionHandles {

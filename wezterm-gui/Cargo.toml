@@ -93,6 +93,7 @@ termwiz.workspace = true
 wezterm-render-escapes.workspace = true
 unterm-engine.workspace = true
 unterm-services.workspace = true
+unterm-mcp.workspace = true
 unterm-profile.workspace = true
 unterm-agents.workspace = true
 textwrap.workspace = true

@@ -75,7 +75,7 @@ mod tests {
 
     #[test]
     fn consume_sync_drains_enqueued_command() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
 
         let command = consume_sync(RuntimeCommand::ReadScreen { pane_id: 7 })
             .expect("command should enqueue and dequeue");
@@ -89,7 +89,7 @@ mod tests {
 
     #[test]
     fn consume_sync_reports_lane_specific_backpressure() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
         with_current_mut(|state| {
             state.command_queue = RuntimeCommandQueue::new(RuntimeQueuePolicy {
                 max_pending_commands: 0,
@@ -115,7 +115,7 @@ mod tests {
 
     #[test]
     fn consume_sync_selects_matching_lane_from_existing_backlog() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
         with_current_mut(|state| {
             state
                 .command_queue
@@ -137,7 +137,7 @@ mod tests {
 
     #[test]
     fn dispatch_next_scheduled_uses_input_first_policy() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
         with_current_mut(|state| {
             state
                 .command_queue
@@ -163,7 +163,7 @@ mod tests {
 
     #[test]
     fn dispatch_next_scheduled_completes_attached_response() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
         let (tx, rx) = response::channel();
         with_current_mut(|state| {
             state
@@ -184,7 +184,7 @@ mod tests {
 
     #[test]
     fn submit_with_response_completes_rejected_commands() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
         with_current_mut(|state| {
             state.command_queue = RuntimeCommandQueue::new(RuntimeQueuePolicy {
                 max_pending_commands: 0,
@@ -207,7 +207,7 @@ mod tests {
 
     #[test]
     fn submit_and_dispatch_response_returns_dispatch_result() {
-        test_facade::reset();
+        let _runtime = test_facade::reset();
 
         let err = submit_and_dispatch_response(RuntimeCommand::ReadScreen { pane_id: 404 })
             .expect_err("missing pane should flow through response receiver");
