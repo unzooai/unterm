@@ -5,6 +5,7 @@
 //! replacing it, so the working terminal keeps working while this one grows.
 
 mod args;
+mod chrome;
 mod cockpit;
 mod composer;
 mod confirm;
@@ -25,6 +26,7 @@ mod search;
 mod shape;
 mod statusbar;
 mod tabbar;
+mod topbar;
 mod select;
 mod terminal;
 mod window;
