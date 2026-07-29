@@ -21,7 +21,6 @@ const MAX_SEARCH_MATCHES: usize = 500;
 ///
 /// Enough to choose from, few enough that it does not become the window. A
 /// query that narrows the list is the way to reach the rest.
-const MAX_PALETTE_ROWS: usize = 12;
 
 /// How many inbox rows fit before the list becomes the window.
 /// How many changed paths the git panel shows before it stops.
@@ -213,7 +212,7 @@ impl App {
             .unwrap_or_default();
 
         let cursor_style = crate::terminal::CursorStyle::from_config(config);
-        let family: Option<String> = config.str_of("font").ok().flatten().map(|f| f.to_string());
+        let family: Option<String> = config.str_of("font").ok().flatten().map(|f| f.to_string(        ));
         let shape = crate::terminal::Shape::from_config(config);
         let pixel_size = config
             .float_of("font_size")
@@ -289,7 +288,7 @@ impl App {
             .with_inner_size(winit::dpi::LogicalSize::new(
                 metrics.width * 100.0,
                 metrics.height * 30.0,
-            ));
+                    ));
         let window = Arc::new(event_loop.create_window(attributes)?);
         // The window knows the display's scale; the font was opened before it
         // existed, at 1.0. On a scaled panel every glyph until now was drawn
@@ -300,7 +299,7 @@ impl App {
         }
         // So `instance.focus`, which arrives on the MCP thread, has a window
         // to raise.
-        crate::mcp_host::remember_window(window.clone());
+        crate::mcp_host::remember_window(window.clone(        ));
         // Without this the system never starts an input method, and a Chinese
         // or Japanese keyboard can only produce Latin letters.
         window.set_ime_allowed(true);
@@ -387,7 +386,7 @@ impl App {
             if placement.session_id == session_id {
                 self.mouse_modes = snapshot.mouse;
                 self.note_bells(snapshot.bells);
-            self.take_clipboard_request(snapshot.clipboard_request.clone());
+            self.take_clipboard_request(snapshot.clipboard_request.clone(        ));
             }
             crate::terminal::append_pane(
                 &snapshot,
@@ -407,12 +406,12 @@ impl App {
             revision = snapshot.revision;
             self.mouse_modes = snapshot.mouse;
             self.note_bells(snapshot.bells);
-            self.take_clipboard_request(snapshot.clipboard_request.clone());
+            self.take_clipboard_request(snapshot.clipboard_request.clone(        ));
             // Below the top bar, like every other pane. Drawn at the window's
             // own origin it lands on the bar, which is what the first frame
             // with a bar in it looked like.
             let metrics = self.font.metrics();
-            let origin = (self.terminal_left(), crate::topbar::terminal_top(metrics));
+            let origin = (self.terminal_left(), crate::topbar::terminal_top(metrics        ));
             crate::terminal::append_pane(
                 &snapshot,
                 &mut self.font,
@@ -491,7 +490,7 @@ impl App {
         };
         let view = frame
             .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
+            .create_view(&wgpu::TextureViewDescriptor::default(        ));
         live.renderer.draw(
             &view,
             live.width,
@@ -542,7 +541,7 @@ impl App {
     fn note_bells(&mut self, bells: u64) {
         if bells > self.bells_seen {
             self.bells_seen = bells;
-            self.bell_at = Some(std::time::Instant::now());
+            self.bell_at = Some(std::time::Instant::now(        ));
         }
     }
 
@@ -652,7 +651,7 @@ impl App {
     /// short enough that it is gone before it becomes furniture.
     fn show_notice(&mut self, message: String) {
         const SHOWN_FOR: std::time::Duration = std::time::Duration::from_millis(2400);
-        self.notice = Some((message, std::time::Instant::now() + SHOWN_FOR));
+        self.notice = Some((message, std::time::Instant::now() + SHOWN_FOR        ));
         self.drawn_revision = None;
     }
 
@@ -725,11 +724,11 @@ impl App {
         };
 
         let metrics = self.font.metrics();
-        let origin = (self.terminal_left(), crate::topbar::terminal_top(metrics));
+        let origin = (self.terminal_left(), crate::topbar::terminal_top(metrics        ));
         let theme = self.theme();
 
         for (index, line) in snapshot.lines.iter().enumerate() {
-            let columns = selection.columns_for_row(line.row, line.cells.len());
+            let columns = selection.columns_for_row(line.row, line.cells.len(        ));
             if columns.is_empty() {
                 continue;
             }
@@ -963,7 +962,7 @@ impl App {
                 };
                 quads.backgrounds.extend(crate::window_buttons::quads(
                     button, left, 0.0, width, height, color,
-                ));
+                        ));
                 continue;
             }
 
@@ -1064,7 +1063,7 @@ impl App {
             }
             crate::topbar::Item::Maximise => {
                 if let Some(live) = self.state.as_ref() {
-                    live.window.set_maximized(!live.window.is_maximized());
+                    live.window.set_maximized(!live.window.is_maximized(        ));
                 }
             }
             crate::topbar::Item::Close => {
@@ -1244,7 +1243,7 @@ impl App {
         // the gap around the grid are not part of it, and a selection measured
         // from the window's corner lands two rows above where it was drawn.
         let metrics = self.font.metrics();
-        let origin = (self.terminal_left(), crate::topbar::terminal_top(metrics));
+        let origin = (self.terminal_left(), crate::topbar::terminal_top(metrics        ));
         crate::select::cell_at(
             self.pointer.0 - origin.0,
             self.pointer.1 - origin.1,
@@ -1308,7 +1307,7 @@ impl App {
             }
             Action::SplitDown => self.split(unterm_engine::next_core::layout::SplitAxis::Vertical),
             Action::CopyMode => {
-                self.copy_mode = Some(crate::copy_mode::CopyMode::default());
+                self.copy_mode = Some(crate::copy_mode::CopyMode::default(        ));
                 self.drawn_revision = None;
             }
             Action::QuickSelect => self.open_quick_select(),
@@ -1340,7 +1339,7 @@ impl App {
             Action::CommandPalette => self.open_palette(command_entries()),
             Action::Launcher => self.open_palette(launcher_entries()),
             Action::Search => {
-                self.search = Some(crate::search::Search::default());
+                self.search = Some(crate::search::Search::default(        ));
                 self.drawn_revision = None;
             }
             Action::NewTab => self.new_tab(),
@@ -1403,7 +1402,7 @@ impl App {
         command
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null());
+            .stderr(std::process::Stdio::null(        ));
         if let Err(err) = command.spawn() {
             log::warn!("could not open another window: {err}");
         }
@@ -1575,7 +1574,7 @@ impl App {
             Ok(text) => text,
             Err(err) => {
                 log::warn!("could not read the clipboard: {err}");
-                self.show_notice(unterm_services::i18n::t("interaction.paste_failed"));
+                self.show_notice(unterm_services::i18n::t("interaction.paste_failed"        ));
                 return;
             }
         };
@@ -1587,7 +1586,7 @@ impl App {
             Ok(_) => self.show_notice(unterm_services::i18n::t("interaction.pasted")),
             Err(err) => {
                 log::warn!("could not paste: {err:#}");
-                self.show_notice(unterm_services::i18n::t("interaction.paste_failed"));
+                self.show_notice(unterm_services::i18n::t("interaction.paste_failed"        ));
             }
         }
     }
@@ -1633,7 +1632,7 @@ impl App {
         }
         self.tabs.set_active_pane(session.id);
         self.resize_panes();
-        self.show_notice(unterm_services::i18n::t("interaction.split"));
+        self.show_notice(unterm_services::i18n::t("interaction.split"        ));
         if let Some(live) = self.state.as_ref() {
             live.window.request_redraw();
         }
@@ -1653,7 +1652,7 @@ impl App {
         if self.clipboard_honoured.as_deref() == Some(text.as_str()) {
             return;
         }
-        self.clipboard_honoured = Some(text.clone());
+        self.clipboard_honoured = Some(text.clone(        ));
         self.copy_text(&text);
     }
 
@@ -1808,7 +1807,7 @@ impl App {
         else {
             return;
         };
-        let _ = self.engine.write_input(session_id, &format!("{prompt}\r"));
+        let _ = self.engine.write_input(session_id, &format!("{prompt}\r"        ));
         self.drawn_revision = None;
     }
 
@@ -1844,11 +1843,12 @@ impl App {
         let top = metrics.height * 2.0;
         let foreground = self.colors.foreground;
 
-        quads.backgrounds.extend(unterm_render::rounded::default_panel(
+        quads.backgrounds.extend(unterm_render::rounded::panel(
             left,
             top,
             width,
             metrics.height * rows as f32,
+            self.corner_radius(),
             mix(self.colors.background, foreground, 0.10),
         ));
 
@@ -1874,7 +1874,7 @@ impl App {
         );
         // The line being written, with a cursor after it so it is obviously
         // the one accepting keys.
-        lines.push(format!("> {}_", composer.typing));
+        lines.push(format!("> {}_", composer.typing        ));
 
         for (index, line) in lines.iter().enumerate() {
             crate::terminal::append_text(
@@ -1923,11 +1923,12 @@ impl App {
             .collect();
         let height = metrics.height * (lines.len() + 1) as f32;
 
-        quads.backgrounds.extend(unterm_render::rounded::default_panel(
+        quads.backgrounds.extend(unterm_render::rounded::panel(
             left,
             top,
             width,
             height,
+            self.corner_radius(),
             mix(self.colors.background, foreground, 0.10),
         ));
         crate::terminal::append_text(
@@ -1955,7 +1956,7 @@ impl App {
             return;
         }
         let statuses = unterm_services::cockpit::status::snapshot();
-        let rows = crate::cockpit::rows(&statuses, |status| status.since.elapsed().as_secs());
+        let rows = crate::cockpit::rows(&statuses, |status| status.since.elapsed().as_secs(        ));
 
         let metrics = self.font.metrics();
         let width = (window_width * 0.5).max(metrics.width * 30.0).min(window_width);
@@ -1965,11 +1966,12 @@ impl App {
         let height = metrics.height * (shown + 1) as f32;
         let foreground = self.colors.foreground;
 
-        quads.backgrounds.extend(unterm_render::rounded::default_panel(
+        quads.backgrounds.extend(unterm_render::rounded::panel(
             left,
             top,
             width,
             height,
+            self.corner_radius(),
             mix(self.colors.background, foreground, 0.10),
         ));
 
@@ -2041,7 +2043,7 @@ impl App {
         if found.is_empty() {
             return;
         }
-        self.quick_select = Some((found, String::new()));
+        self.quick_select = Some((found, String::new()        ));
         self.drawn_revision = None;
     }
 
@@ -2060,7 +2062,7 @@ impl App {
                     self.copy_text(&text);
                 } else if found.iter().any(|item| item.label.starts_with(&typed)) {
                     // A prefix of a longer label: wait for the rest.
-                    self.quick_select = Some((found, typed));
+                    self.quick_select = Some((found, typed        ));
                 }
             }
             _ => self.quick_select = Some((found, typed)),
@@ -2104,7 +2106,7 @@ impl App {
             }
             motion => {
                 let (rows, widths) = self.screen_shape();
-                mode.apply(motion, rows, |row| widths.get(row).copied().unwrap_or(0));
+                mode.apply(motion, rows, |row| widths.get(row).copied().unwrap_or(0        ));
                 self.copy_mode = Some(mode);
             }
         }
@@ -2118,10 +2120,10 @@ impl App {
     /// How many rows the screen has, and how wide each one's text is.
     fn screen_shape(&self) -> (usize, Vec<usize>) {
         let Some(live) = self.state.as_ref() else {
-            return (0, Vec::new());
+            return (0, Vec::new(        ));
         };
         let Ok(snapshot) = self.engine.read_styled_screen(live.session_id) else {
-            return (0, Vec::new());
+            return (0, Vec::new(        ));
         };
         let widths = snapshot
             .lines
@@ -2156,7 +2158,7 @@ impl App {
                 text.chars().count()
             };
             if from < to {
-                out.extend(text.chars().skip(from).take(to - from));
+                out.extend(text.chars().skip(from).take(to - from        ));
             }
             if row < end_row {
                 out.push('\n');
@@ -2174,7 +2176,7 @@ impl App {
             Ok(()) => self.show_notice(unterm_services::i18n::t("interaction.copied")),
             Err(err) => {
                 log::warn!("could not copy to the clipboard: {err}");
-                self.show_notice(unterm_services::i18n::t("interaction.paste_failed"));
+                self.show_notice(unterm_services::i18n::t("interaction.paste_failed"        ));
             }
         }
     }
@@ -2197,7 +2199,7 @@ impl App {
     }
 
     fn new_tab_in(&mut self, path: &str) {
-        self.start_directory = Some(std::path::PathBuf::from(path));
+        self.start_directory = Some(std::path::PathBuf::from(path        ));
         self.new_tab();
     }
 
@@ -2281,14 +2283,14 @@ impl App {
             foreground: theme.foreground,
             palette: &theme.ansi,
         };
-        self.theme_id = Some(theme.id.to_string());
+        self.theme_id = Some(theme.id.to_string(        ));
         if let Err(err) = crate::theme::remember(theme.id) {
             log::warn!("could not remember the theme: {err:#}");
         }
         self.show_notice(unterm_services::i18n::t_args(
             "theme.switched_to",
             &[("name", theme.name)],
-        ));
+                ));
         self.drawn_revision = None;
     }
 
@@ -2301,7 +2303,7 @@ impl App {
     fn dir_jump_entries(&self, query: &str) -> Vec<crate::palette::Entry> {
         let here = self
             .current_directory()
-            .unwrap_or_else(|| std::path::PathBuf::from("."));
+            .unwrap_or_else(|| std::path::PathBuf::from("."        ));
 
         // Where the pane already is, first, and only while nothing has been
         // typed: once there is a query it is a row that matches nothing and
@@ -2327,7 +2329,7 @@ impl App {
                     path: entry.path.display().to_string(),
                 },
             },
-        ));
+                ));
         entries
     }
 
@@ -2335,7 +2337,7 @@ impl App {
     fn quick_entries(&self) -> Vec<crate::palette::Entry> {
         let here = self
             .current_directory()
-            .unwrap_or_else(|| std::path::PathBuf::from("."));
+            .unwrap_or_else(|| std::path::PathBuf::from("."        ));
         let recording = self
             .state
             .as_ref()
@@ -2439,7 +2441,7 @@ impl App {
     }
 
     fn open_palette(&mut self, entries: Vec<crate::palette::Entry>) {
-        self.palette = Some(crate::palette::Palette::new(entries));
+        self.palette = Some(crate::palette::Palette::new(entries        ));
         self.drawn_revision = None;
     }
 
@@ -2449,16 +2451,16 @@ impl App {
     /// agents installed is an empty card.
     fn open_fleet(&mut self, entries: Vec<crate::palette::Entry>) {
         if entries.is_empty() {
-            self.show_notice(unterm_services::i18n::t("cockpit.fleet_no_agents"));
+            self.show_notice(unterm_services::i18n::t("cockpit.fleet_no_agents"        ));
             return;
         }
-        self.palette = Some(crate::palette::Palette::writing(entries));
+        self.palette = Some(crate::palette::Palette::writing(entries        ));
         self.drawn_revision = None;
     }
 
     /// Open a palette that goes and looks again as the query changes.
     fn open_browser(&mut self, entries: Vec<crate::palette::Entry>) {
-        self.palette = Some(crate::palette::Palette::browsing(entries));
+        self.palette = Some(crate::palette::Palette::browsing(entries        ));
         self.drawn_revision = None;
     }
 
@@ -2479,6 +2481,79 @@ impl App {
                 palette.replace_entries(rows);
             }
         }
+    }
+
+    /// How round a panel's corners are on this display.
+    ///
+    /// The radius is a size the reader sees, so it grows with the display's
+    /// scale. Fixed in device pixels it is a third smaller on a 1.5x screen
+    /// than on a 1x one, which is the difference between a rounded corner and
+    /// a corner that looks slightly damaged.
+    fn corner_radius(&self) -> f32 {
+        unterm_render::rounded::RADIUS * self.scale.max(1.0)
+    }
+
+    /// Where the open palette is, for hit-testing.
+    fn palette_card(&self) -> Option<crate::palette::Geometry> {
+        let palette = self.palette.as_ref()?;
+        let live = self.state.as_ref()?;
+        let metrics = self.font.metrics();
+        Some(crate::palette::Geometry::new(
+            live.width as f32,
+            (metrics.width, metrics.height),
+            palette.visible().len().min(crate::palette::MAX_ROWS),
+            palette.error.is_some(),
+        ))
+    }
+
+    /// Follow the pointer over an open palette.
+    ///
+    /// Selecting rather than highlighting separately: the row under the
+    /// pointer is the row Enter runs, so moving the mouse and then pressing
+    /// Enter does what it looks like it will.
+    fn hover_palette(&mut self) -> bool {
+        let Some(card) = self.palette_card() else {
+            return false;
+        };
+        let Some(row) = card.row_at(self.pointer.0, self.pointer.1) else {
+            return false;
+        };
+        if let Some(palette) = self.palette.as_mut() {
+            if palette.selected != row {
+                palette.selected = row;
+                self.drawn_revision = None;
+            }
+        }
+        true
+    }
+
+    /// A press while a palette is open. Returns true when the palette took it.
+    ///
+    /// A press on a row runs it; a press anywhere else closes the palette
+    /// without reaching the terminal. Closing is what everyone expects from a
+    /// menu, and letting the press through as well would put the cursor
+    /// somewhere in the pane the menu was covering.
+    fn click_palette(&mut self) -> bool {
+        let Some(card) = self.palette_card() else {
+            return false;
+        };
+        match card.row_at(self.pointer.0, self.pointer.1) {
+            Some(row) => {
+                let chosen = self.palette.as_ref().and_then(|palette| {
+                    palette
+                        .visible()
+                        .get(row)
+                        .map(|entry| (entry.command.clone(), palette.query.clone()))
+                });
+                self.palette = None;
+                if let Some((command, task)) = chosen {
+                    self.run_palette_command(command, &task);
+                }
+            }
+            None => self.palette = None,
+        }
+        self.drawn_revision = None;
+        true
     }
 
     /// Type into the open palette. Returns true when the key was the palette's.
@@ -2510,8 +2585,9 @@ impl App {
             }
             crate::palette::Key::Accept => {
                 keep = false;
+                let task = palette.query.clone();
                 if let Some(entry) = palette.current().cloned() {
-                    self.run_palette_command(entry.command);
+                    self.run_palette_command(entry.command, &task);
                 }
             }
             // Nothing reaches the shell while the palette is open: a
@@ -2529,7 +2605,15 @@ impl App {
         true
     }
 
-    fn run_palette_command(&mut self, command: crate::palette::Command) {
+    /// Do what a palette row says.
+    ///
+    /// `task` is what was typed. Almost every row ignores it -- the line is a
+    /// filter and the row is the answer -- but on the fleet card the line *is*
+    /// the request, and it has to travel with the row: by the time this runs
+    /// the palette has been taken away, and reading the task back out of it
+    /// finds nothing. Which is what happened: Enter closed the card and
+    /// launched nothing at all.
+    fn run_palette_command(&mut self, command: crate::palette::Command, task: &str) {
         match command {
             crate::palette::Command::Action(action) => {
                 let session_id = self.state.as_ref().map(|live| live.session_id);
@@ -2544,12 +2628,14 @@ impl App {
             crate::palette::Command::ExportSession => self.export_session(),
             crate::palette::Command::OpenSettings => self.open_settings(),
             crate::palette::Command::ApplyTheme { id } => self.apply_theme(&id),
-            crate::palette::Command::LaunchFleet { agents } => self.launch_fleet(agents),
+            crate::palette::Command::LaunchFleet { agents } => {
+                self.launch_fleet(agents, task.trim().to_string())
+            }
             crate::palette::Command::Browse { path, then } => {
                 // Stays open on the new directory rather than closing: picking
                 // a folder three deep should be three keystrokes, not three
                 // trips through the menu.
-                self.open_palette(crate::directory::entries(std::path::Path::new(&path), then));
+                self.open_palette(crate::directory::entries(std::path::Path::new(&path), then        ));
             }
         }
     }
@@ -2561,12 +2647,12 @@ impl App {
         // that starts a shell which writes its console codepage produces a
         // tab full of boxes, and the user picked it from a list rather than
         // typing it, so they have nothing to blame it on.
-        let mut shell = Some(command.clone());
+        let mut shell = Some(command.clone(        ));
         unterm_services::launch_env::apply_unterm_windows_utf8(&mut shell);
         if let Some(rewritten) = shell {
             command = rewritten;
         }
-        self.open_tab_with(Some(command));
+        self.open_tab_with(Some(command        ));
     }
 
     /// Open a tab, with a shell of its own.
@@ -2581,7 +2667,7 @@ impl App {
         let Some(_live) = self.state.as_ref() else {
             return;
         };
-        let (cols, rows) = self.font.grid_for(self.terminal_width(), self.terminal_height());
+        let (cols, rows) = self.font.grid_for(self.terminal_width(), self.terminal_height(        ));
         let session = match self.engine.create_session(CreateSessionRequest {
             cols,
             rows,
@@ -2620,7 +2706,7 @@ impl App {
         if ids.len() < 2 {
             return;
         }
-        let current = self.tab_id.or_else(|| self.tabs.active_tab());
+        let current = self.tab_id.or_else(|| self.tabs.active_tab(        ));
         let next = ids[next_tab_index(&ids, current, step)];
         self.tabs.set_active_tab(next);
         self.tab_id = Some(next);
@@ -2710,7 +2796,7 @@ impl App {
             // something else than it asked for.
             let split = session
                 .split_from
-                .filter(|source| self.tabs.tab_of_pane(*source).is_some());
+                .filter(|source| self.tabs.tab_of_pane(*source).is_some(        ));
             // Which way, if whoever asked for it said. The kernel records only
             // that the pane came from another one -- how they sit together is
             // this side's decision, so the request's own answer is left here
@@ -2905,13 +2991,14 @@ impl App {
             let height = metrics.height * 2.0;
             let left = pane.origin.0;
             let top = pane.origin.1;
-            quads.backgrounds.extend(unterm_render::rounded::default_panel(
+            quads.backgrounds.extend(unterm_render::rounded::panel(
                 left,
                 top,
                 width,
                 height,
+                self.corner_radius(),
                 theme.selection,
-            ));
+        ));
             crate::terminal::append_text(
                 label,
                 &mut self.font,
@@ -2976,7 +3063,7 @@ impl App {
         let rows: Vec<(String, bool)> = palette
             .visible()
             .iter()
-            .take(MAX_PALETTE_ROWS)
+            .take(crate::palette::MAX_ROWS)
             .enumerate()
             .map(|(index, entry)| {
                 let hint = if entry.hint.is_empty() {
@@ -2989,17 +3076,22 @@ impl App {
             .collect();
 
         let error = palette.error.clone();
-        let width = (window_width * 0.6).max(metrics.width * 24.0).min(window_width);
-        let left = ((window_width - width) / 2.0).max(0.0);
-        let top = metrics.height * 2.0;
-        let lines = rows.len() + 1 + usize::from(error.is_some());
-        let height = metrics.height * lines as f32;
+        // The same arithmetic the hit-testing uses, so a row is pressed where
+        // it is drawn.
+        let card = crate::palette::Geometry::new(
+            window_width,
+            (metrics.width, metrics.height),
+            rows.len(),
+            error.is_some(),
+        );
+        let (left, top, width, height) = (card.left, card.top, card.width, card.height);
 
-        quads.backgrounds.extend(unterm_render::rounded::default_panel(
+        quads.backgrounds.extend(unterm_render::rounded::panel(
             left,
             top,
             width,
             height,
+            self.corner_radius(),
             mix(self.colors.background, self.colors.foreground, 0.10),
         ));
 
@@ -3248,7 +3340,7 @@ impl App {
         let metrics = self.font.metrics();
         let (cols, rows) = self
             .font
-            .grid_for(live.width as f32, self.terminal_height());
+            .grid_for(live.width as f32, self.terminal_height(        ));
         let top_offset = crate::topbar::terminal_top(metrics);
         let positions = self.tabs.positions(tab_id, cols, rows);
         if positions.len() < 2 {
@@ -3304,39 +3396,33 @@ impl App {
     /// The launch itself is not: creating a worktree per agent and starting a
     /// tab for each takes seconds, and doing it here would freeze the window
     /// for all of them.
-    fn launch_fleet(&mut self, agents: Vec<String>) {
-        let Some(task) = self
-            .palette
-            .as_ref()
-            .map(|palette| palette.query.trim().to_string())
-        else {
-            return;
-        };
-        // A blank task is not a task. Every agent would get a bare newline
-        // into whatever it happened to be showing, and by then there are
-        // worktrees and tabs to clean up.
-        if !crate::fleet::task_is_ready(&task) {
-            if let Some(palette) = self.palette.as_mut() {
-                palette.error = Some(unterm_services::i18n::t("cockpit.fleet_no_task"));
-            }
-            self.drawn_revision = None;
-            return;
-        }
+    fn launch_fleet(&mut self, agents: Vec<String>, task: String) {
         let here = self
             .current_directory()
             .unwrap_or_else(|| std::path::PathBuf::from("."));
 
-        if let Err(key) = unterm_services::cockpit::fleet::precheck(&here) {
-            if let Some(palette) = self.palette.as_mut() {
-                palette.error = Some(unterm_services::i18n::t(key));
-            }
+        // Two refusals, and both bring the card back with what was typed still
+        // in it. The answer to either is to go and fix something and press
+        // Enter again, which needs the task to have survived.
+        let refusal = if !crate::fleet::task_is_ready(&task) {
+            Some("cockpit.fleet_no_task")
+        } else {
+            unterm_services::cockpit::fleet::precheck(&here).err()
+        };
+        if let Some(key) = refusal {
+            let entries = self.fleet_entries();
+            let mut palette = crate::palette::Palette::writing(entries);
+            palette.query = task;
+            palette.error = Some(unterm_services::i18n::t(key));
+            self.palette = Some(palette);
             self.drawn_revision = None;
             return;
         }
 
-        self.palette = None;
         self.show_notice(unterm_services::i18n::t("cockpit.fleet_launching"));
         self.drawn_revision = None;
+        // Creating a worktree per agent and starting a tab for each takes
+        // seconds; doing it here would freeze the window for all of them.
         let spawned = std::thread::Builder::new()
             .name("fleet-launch".into())
             .spawn(move || {
@@ -3376,7 +3462,7 @@ impl App {
             "notice.screen_cleared"
         } else {
             "notice.scrollback_cleared"
-        }));
+        }        ));
         self.drawn_revision = None;
     }
 
@@ -3389,7 +3475,7 @@ impl App {
         if panes.len() < 2 {
             return;
         }
-        self.pane_select = Some(crate::paneselect::Selector::new(panes.len(), mode));
+        self.pane_select = Some(crate::paneselect::Selector::new(panes.len(), mode        ));
         self.drawn_revision = None;
     }
 
@@ -3454,7 +3540,7 @@ impl App {
         if focused == chosen {
             return;
         }
-        let (cols, rows) = self.font.grid_for(self.terminal_width(), self.terminal_height());
+        let (cols, rows) = self.font.grid_for(self.terminal_width(), self.terminal_height(        ));
         let mut positions = self.tabs.positions(tab_id, cols, rows);
         for position in &mut positions {
             if position.pane_id == focused {
@@ -3480,7 +3566,7 @@ impl App {
             return Vec::new();
         };
         let metrics = self.font.metrics();
-        let (cols, rows) = self.font.grid_for(self.terminal_width(), self.terminal_height());
+        let (cols, rows) = self.font.grid_for(self.terminal_width(), self.terminal_height(        ));
         let left = self.terminal_left();
         let top = crate::topbar::terminal_top(metrics);
         self.tabs
@@ -3599,12 +3685,12 @@ impl ApplicationHandler for App {
             }
 
             WindowEvent::Resized(size) => {
-                let (width, height) = (size.width.max(1), size.height.max(1));
+                let (width, height) = (size.width.max(1), size.height.max(1        ));
                 let (cols, rows) = self.font.grid_for(width as f32, height as f32);
                 if let Some(live) = self.state.as_mut() {
                     live.width = width;
                     live.height = height;
-                    live.configure(live.renderer.format());
+                    live.configure(live.renderer.format(        ));
                     live.window.request_redraw();
                 }
                 // Every pane has to learn its new grid, or a shell keeps
@@ -3785,6 +3871,12 @@ impl ApplicationHandler for App {
                     self.scroll_to_pointer();
                     return;
                 }
+                // An open menu follows the pointer before anything else looks
+                // at it: the row under the mouse is the row Enter runs, and
+                // nothing behind a menu should react to being pointed at.
+                if self.hover_palette() {
+                    return;
+                }
                 if self.report_mouse(
                     unterm_engine::next_core::mouse_encoding::MouseEventKind::Motion,
                     self.held_mouse_button,
@@ -3827,6 +3919,16 @@ impl ApplicationHandler for App {
                     ElementState::Pressed => MouseEventKind::Press,
                     ElementState::Released => MouseEventKind::Release,
                 };
+                // An open menu takes the press before the program does: a
+                // click aimed at a row must not also land in the pane the menu
+                // is covering.
+                if self.palette.is_some()
+                    && state == ElementState::Pressed
+                    && button == MouseButton::Left
+                    && self.click_palette()
+                {
+                    return;
+                }
                 if self.report_mouse(kind, engine_button) {
                     return;
                 }
@@ -3897,7 +3999,7 @@ impl ApplicationHandler for App {
                             unterm_engine::next_core::selection::SelectionShape::Linear
                         };
                         self.drag =
-                            Some(crate::select::Drag::start(self.cell_under_pointer(), shape));
+                            Some(crate::select::Drag::start(self.cell_under_pointer(), shape        ));
                         self.selected = None;
                     }
                     ElementState::Released => {
@@ -4082,7 +4184,7 @@ fn encode(logical: &winit::keyboard::Key, held: crate::mouse::Held) -> Option<St
                 // Several characters from one key press: a dead-key
                 // composition or an input method's output. It is already the
                 // text the user meant, and no modifier applies to it.
-                return Some(text.to_string());
+                return Some(text.to_string(        ));
             };
             KeyCode::Char(first)
         }
@@ -4127,7 +4229,7 @@ mod tests {
     fn a_config_naming_no_shell_leaves_the_choice_to_the_engine() {
         let config = config::parse("font_size = 13").expect("config should parse");
 
-        assert!(shell_from(&config).is_none());
+        assert!(shell_from(&config).is_none(        ));
     }
 
     #[test]
@@ -4294,7 +4396,7 @@ fn which(program: &str) -> Option<std::path::PathBuf> {
         }
         // A name without its extension, which is how everyone writes them.
         for extension in &extensions {
-            let candidate = directory.join(format!("{program}{extension}"));
+            let candidate = directory.join(format!("{program}{extension}"        ));
             if candidate.is_file() {
                 return Some(candidate);
             }
@@ -4315,9 +4417,9 @@ mod palette_entry_tests {
     #[test]
     fn the_palette_lists_what_the_keys_do() {
         let entries = command_entries();
-        assert_eq!(entries.len(), crate::keys::BINDINGS.len());
+        assert_eq!(entries.len(), crate::keys::BINDINGS.len(        ));
         for (entry, binding) in entries.iter().zip(crate::keys::BINDINGS) {
-            assert_eq!(entry.label, binding.action.label());
+            assert_eq!(entry.label, binding.action.label(        ));
             assert!(
                 entry.hint.contains(&binding.trigger.name()),
                 "{} should show the chord that reaches it",
@@ -4379,8 +4481,8 @@ mod encode_tests {
 
     #[test]
     fn a_letter_is_itself() {
-        assert_eq!(encode(&character("a"), plain()), Some("a".to_string()));
-        assert_eq!(encode(&character("A"), plain()), Some("A".to_string()));
+        assert_eq!(encode(&character("a"), plain()), Some("a".to_string()        ));
+        assert_eq!(encode(&character("A"), plain()), Some("A".to_string()        ));
     }
 
     /// Ctrl+letter is a control byte, not the letter.
@@ -4391,21 +4493,21 @@ mod encode_tests {
     /// instead of doing its job.
     #[test]
     fn ctrl_letter_sends_its_control_byte() {
-        assert_eq!(encode(&character("c"), ctrl()), Some("\x03".to_string()));
-        assert_eq!(encode(&character("d"), ctrl()), Some("\x04".to_string()));
-        assert_eq!(encode(&character("a"), ctrl()), Some("\x01".to_string()));
-        assert_eq!(encode(&character("e"), ctrl()), Some("\x05".to_string()));
-        assert_eq!(encode(&character("r"), ctrl()), Some("\x12".to_string()));
-        assert_eq!(encode(&character("u"), ctrl()), Some("\x15".to_string()));
-        assert_eq!(encode(&character("w"), ctrl()), Some("\x17".to_string()));
-        assert_eq!(encode(&character("z"), ctrl()), Some("\x1a".to_string()));
+        assert_eq!(encode(&character("c"), ctrl()), Some("\x03".to_string()        ));
+        assert_eq!(encode(&character("d"), ctrl()), Some("\x04".to_string()        ));
+        assert_eq!(encode(&character("a"), ctrl()), Some("\x01".to_string()        ));
+        assert_eq!(encode(&character("e"), ctrl()), Some("\x05".to_string()        ));
+        assert_eq!(encode(&character("r"), ctrl()), Some("\x12".to_string()        ));
+        assert_eq!(encode(&character("u"), ctrl()), Some("\x15".to_string()        ));
+        assert_eq!(encode(&character("w"), ctrl()), Some("\x17".to_string()        ));
+        assert_eq!(encode(&character("z"), ctrl()), Some("\x1a".to_string()        ));
     }
 
     #[test]
     fn ctrl_letter_ignores_the_case_the_layout_produced() {
         // Shift changes the letter's case; it does not change the control
         // byte, and a shell reading 0x03 does not care which arrived.
-        assert_eq!(encode(&character("C"), ctrl()), Some("\x03".to_string()));
+        assert_eq!(encode(&character("C"), ctrl()), Some("\x03".to_string()        ));
     }
 
     #[test]
@@ -4414,7 +4516,7 @@ mod encode_tests {
             alt: true,
             ..Default::default()
         };
-        assert_eq!(encode(&character("b"), alt), Some("\x1bb".to_string()));
+        assert_eq!(encode(&character("b"), alt), Some("\x1bb".to_string()        ));
     }
 
     #[test]
@@ -4422,9 +4524,9 @@ mod encode_tests {
         // Ctrl+arrow moves by word and Shift+arrow selects: both need the
         // modifier in the sequence, and both were unreachable when it was
         // dropped.
-        let plain_left = encode(&named(NamedKey::ArrowLeft), plain());
-        let ctrl_left = encode(&named(NamedKey::ArrowLeft), ctrl());
-        assert!(plain_left.is_some());
+        let plain_left = encode(&named(NamedKey::ArrowLeft), plain(        ));
+        let ctrl_left = encode(&named(NamedKey::ArrowLeft), ctrl(        ));
+        assert!(plain_left.is_some(        ));
         assert_ne!(plain_left, ctrl_left, "Ctrl+Left has to differ from Left");
 
         let shift = crate::mouse::Held {
@@ -4436,14 +4538,14 @@ mod encode_tests {
 
     #[test]
     fn backspace_sends_delete_as_readline_expects() {
-        assert_eq!(encode(&named(NamedKey::Backspace), plain()), Some("\x7f".to_string()));
+        assert_eq!(encode(&named(NamedKey::Backspace), plain()), Some("\x7f".to_string()        ));
     }
 
     #[test]
     fn enter_and_tab_and_escape_are_what_they_look_like() {
-        assert_eq!(encode(&named(NamedKey::Enter), plain()), Some("\r".to_string()));
-        assert_eq!(encode(&named(NamedKey::Tab), plain()), Some("\t".to_string()));
-        assert_eq!(encode(&named(NamedKey::Escape), plain()), Some("\x1b".to_string()));
+        assert_eq!(encode(&named(NamedKey::Enter), plain()), Some("\r".to_string()        ));
+        assert_eq!(encode(&named(NamedKey::Tab), plain()), Some("\t".to_string()        ));
+        assert_eq!(encode(&named(NamedKey::Escape), plain()), Some("\x1b".to_string()        ));
     }
 
     #[test]
@@ -4452,7 +4554,7 @@ mod encode_tests {
             shift: true,
             ..Default::default()
         };
-        assert_eq!(encode(&named(NamedKey::Tab), shift), Some("\x1b[Z".to_string()));
+        assert_eq!(encode(&named(NamedKey::Tab), shift), Some("\x1b[Z".to_string()        ));
     }
 
     #[test]
@@ -4463,7 +4565,7 @@ mod encode_tests {
             (NamedKey::F5, 5),
             (NamedKey::F12, 12),
         ] {
-            let encoded = encode(&named(key), plain());
+            let encoded = encode(&named(key), plain(        ));
             assert!(encoded.is_some(), "F{number} produced nothing");
         }
     }
@@ -4493,20 +4595,20 @@ mod encode_tests {
     #[test]
     fn a_super_chord_stays_with_the_window_manager() {
         // Super+L locks the screen; it must not also type an L.
-        let text = encode(&character("l"), plain());
+        let text = encode(&character("l"), plain(        ));
         assert_eq!(text, Some("l".to_string()), "plain L still types");
     }
 
     #[test]
     fn composed_text_from_an_input_method_arrives_whole() {
         // Several characters from one press: already what the user meant.
-        assert_eq!(encode(&character("中文"), plain()), Some("中文".to_string()));
+        assert_eq!(encode(&character("中文"), plain()), Some("中文".to_string()        ));
     }
 
     #[test]
     fn space_is_a_space_and_ctrl_space_is_a_null() {
-        assert_eq!(encode(&named(NamedKey::Space), plain()), Some(" ".to_string()));
-        assert_eq!(encode(&named(NamedKey::Space), ctrl()), Some("\0".to_string()));
+        assert_eq!(encode(&named(NamedKey::Space), plain()), Some(" ".to_string()        ));
+        assert_eq!(encode(&named(NamedKey::Space), ctrl()), Some("\0".to_string()        ));
     }
 }
 

@@ -243,6 +243,11 @@ pub fn key_for(named: Option<&str>, character: Option<&str>, ctrl: bool) -> Key 
         Some("Backspace") => return Key::Backspace,
         Some("ArrowDown") => return Key::Step(1),
         Some("ArrowUp") => return Key::Step(-1),
+        // Space arrives as a named key rather than as a character, and falling
+        // through to the character arm loses it. Which meant no query could
+        // contain one: "new tab" typed as "newtab" found nothing, and a task
+        // written on the fleet card arrived as one word.
+        Some("Space") if !ctrl => return Key::Type(" ".to_string()),
         _ => {}
     }
     match character {
@@ -510,5 +515,192 @@ mod text_source_tests {
         let palette = Palette::writing(vec![row("a")]);
         assert_eq!(palette.error, None);
         assert_eq!(palette.visible().len(), 1);
+    }
+}
+
+/// How many rows a palette shows at once.
+///
+/// Enough that the answer is usually visible without typing, few enough that
+/// the card does not become the window. Here rather than at the paint site
+/// because the hit-testing has to agree with it.
+pub const MAX_ROWS: usize = 12;
+
+/// Where an open palette is on screen.
+///
+/// One place, so a row that is drawn somewhere is a row that is clicked there.
+/// The previous front end learned this the hard way with its menu: laid out in
+/// one function and hit-tested in another, and a row could be pressed where it
+/// was not drawn.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Geometry {
+    pub left: f32,
+    pub top: f32,
+    pub width: f32,
+    pub height: f32,
+    /// How tall one row is, which is also the height of the line above them.
+    pub row_height: f32,
+    pub rows: usize,
+}
+
+impl Geometry {
+    /// Lay a palette out in a window `window_width` wide.
+    pub fn new(window_width: f32, cell: (f32, f32), rows: usize, has_error: bool) -> Self {
+        let (cell_width, cell_height) = cell;
+        let width = (window_width * 0.6)
+            .max(cell_width * 24.0)
+            .min(window_width);
+        let lines = rows + 1 + usize::from(has_error);
+        Self {
+            left: ((window_width - width) / 2.0).max(0.0),
+            top: cell_height * 2.0,
+            width,
+            height: cell_height * lines as f32,
+            row_height: cell_height,
+            rows,
+        }
+    }
+
+    /// Which row a point is over, if any.
+    ///
+    /// The line being typed into is not a row: pressing it should not run
+    /// whatever happens to be selected.
+    pub fn row_at(&self, x: f32, y: f32) -> Option<usize> {
+        if !self.contains(x, y) {
+            return None;
+        }
+        let below_query = y - (self.top + self.row_height);
+        if below_query < 0.0 {
+            return None;
+        }
+        let row = (below_query / self.row_height.max(1.0)) as usize;
+        (row < self.rows).then_some(row)
+    }
+
+    /// Whether a point is anywhere on the card.
+    pub fn contains(&self, x: f32, y: f32) -> bool {
+        x >= self.left
+            && x < self.left + self.width
+            && y >= self.top
+            && y < self.top + self.height
+    }
+}
+
+#[cfg(test)]
+mod geometry_tests {
+    use super::*;
+
+    const CELL: (f32, f32) = (10.0, 20.0);
+
+    fn card(rows: usize) -> Geometry {
+        Geometry::new(1000.0, CELL, rows, false)
+    }
+
+    /// A row is clicked where it is drawn. The rows start one line down,
+    /// because the first line is what is typed into.
+    #[test]
+    fn a_point_lands_on_the_row_that_is_drawn_there() {
+        let card = card(4);
+        assert_eq!(card.row_at(card.left + 5.0, card.top + 25.0), Some(0));
+        assert_eq!(card.row_at(card.left + 5.0, card.top + 45.0), Some(1));
+        assert_eq!(card.row_at(card.left + 5.0, card.top + 85.0), Some(3));
+    }
+
+    /// The line being typed into is not a row: pressing it should not run
+    /// whichever row happens to be selected.
+    #[test]
+    fn the_line_that_is_typed_into_is_not_a_row() {
+        let card = card(4);
+        assert_eq!(card.row_at(card.left + 5.0, card.top + 1.0), None);
+        assert_eq!(card.row_at(card.left + 5.0, card.top + 19.0), None);
+    }
+
+    /// And nothing outside the card is a row, or a click meant for the
+    /// terminal runs a command instead.
+    #[test]
+    fn nothing_outside_the_card_is_a_row() {
+        let card = card(4);
+        assert_eq!(card.row_at(card.left - 1.0, card.top + 25.0), None);
+        assert_eq!(card.row_at(card.left + card.width, card.top + 25.0), None);
+        assert_eq!(card.row_at(card.left + 5.0, card.top - 1.0), None);
+        assert_eq!(card.row_at(card.left + 5.0, card.top + card.height), None);
+    }
+
+    /// Past the last row is not the last row. The card is a line taller when
+    /// it is complaining about something, and that line is not pressable.
+    #[test]
+    fn the_space_past_the_last_row_is_not_a_row() {
+        let card = Geometry::new(1000.0, CELL, 3, true);
+        assert_eq!(card.row_at(card.left + 5.0, card.top + 65.0), Some(2));
+        assert_eq!(card.row_at(card.left + 5.0, card.top + 85.0), None);
+        assert!(card.contains(card.left + 5.0, card.top + 85.0));
+    }
+
+    /// An empty palette has no rows to press, and is still a card.
+    #[test]
+    fn an_empty_palette_has_no_rows() {
+        let card = card(0);
+        assert_eq!(card.row_at(card.left + 5.0, card.top + 25.0), None);
+        assert!(card.contains(card.left + 5.0, card.top + 5.0));
+    }
+
+    /// The card stays on screen in a window narrower than its own minimum.
+    #[test]
+    fn a_narrow_window_does_not_push_the_card_off_the_edge() {
+        let card = Geometry::new(100.0, CELL, 3, false);
+        assert!(card.left >= 0.0);
+        assert!(card.left + card.width <= 100.0 + 0.001);
+    }
+}
+
+#[cfg(test)]
+mod typing_tests {
+    use super::*;
+
+    /// Space arrives as a named key, not as a character. Losing it meant no
+    /// query could contain one: `new tab` typed as `newtab` matched nothing,
+    /// and a task written on the fleet card arrived as a single word.
+    #[test]
+    fn a_space_is_typed_rather_than_swallowed() {
+        assert_eq!(
+            key_for(Some("Space"), None, false),
+            Key::Type(" ".to_string())
+        );
+    }
+
+    /// Ctrl+Space is not a space: it is a chord, and passing it through would
+    /// put a space in the query every time somebody reached for one.
+    #[test]
+    fn control_space_is_not_a_space() {
+        assert_eq!(key_for(Some("Space"), None, true), Key::NotOurs);
+    }
+
+    /// Ordinary letters still arrive as characters.
+    #[test]
+    fn letters_are_typed() {
+        assert_eq!(key_for(None, Some("n"), false), Key::Type("n".to_string()));
+        assert_eq!(key_for(None, Some("n"), true), Key::NotOurs);
+    }
+
+    /// And a query with a space in it finds the row that has one.
+    #[test]
+    fn a_query_with_a_space_matches_a_label_with_one() {
+        let mut palette = Palette::new(vec![
+            Entry {
+                label: "New Tab".into(),
+                hint: String::new(),
+                command: Command::Action(crate::keys::Action::NewTab),
+            },
+            Entry {
+                label: "Notebook".into(),
+                hint: String::new(),
+                command: Command::Action(crate::keys::Action::Copy),
+            },
+        ]);
+        palette.query = "new t".into();
+        palette.refilter();
+        assert_eq!(
+            palette.visible().first().map(|entry| entry.label.as_str()),
+            Some("New Tab")
+        );
     }
 }

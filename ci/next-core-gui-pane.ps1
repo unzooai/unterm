@@ -1412,6 +1412,34 @@ $Suites = @(
         )
     },
     @{
+        # Menus are pressed, not only typed at. The rows are hit-tested from
+        # the same arithmetic that draws them, because a row that can be
+        # pressed where it is not drawn is the bug that shape prevents.
+        Name = "palette geometry"
+        Package = "unterm-app"
+        Filter = "palette::geometry_tests::"
+        ExpectedCount = 6
+        RequiredTests = @(
+            "palette::geometry_tests::a_point_lands_on_the_row_that_is_drawn_there",
+            "palette::geometry_tests::the_line_that_is_typed_into_is_not_a_row",
+            "palette::geometry_tests::nothing_outside_the_card_is_a_row",
+            "palette::geometry_tests::the_space_past_the_last_row_is_not_a_row"
+        )
+    },
+    @{
+        # Space arrives as a named key. Losing it meant no query could contain
+        # one -- `new tab` typed as `newtab` matched nothing.
+        Name = "palette typing"
+        Package = "unterm-app"
+        Filter = "palette::typing_tests::"
+        ExpectedCount = 4
+        RequiredTests = @(
+            "palette::typing_tests::a_space_is_typed_rather_than_swallowed",
+            "palette::typing_tests::control_space_is_not_a_space",
+            "palette::typing_tests::a_query_with_a_space_matches_a_label_with_one"
+        )
+    },
+    @{
         Name = "viewport scroll end to end"
         Package = "unterm-engine"
         Filter = "next_core::tests::relative_viewport_scroll_steps_and_resumes_following"
