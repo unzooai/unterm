@@ -79,6 +79,10 @@ pub struct App {
     /// The families to try after the primary one, kept because reopening the
     /// font at a new size has to make the same choices as the first open.
     font_fallbacks: Vec<String>,
+    /// The family the config named, if it named one.
+    font_family: Option<String>,
+    /// How far the cell is stretched around its glyphs.
+    font_shape: crate::terminal::Shape,
     atlas: GlyphAtlas,
     colors: FrameColors,
     state: Option<Live>,
@@ -197,6 +201,8 @@ impl App {
             })
             .unwrap_or_default();
 
+        let family: Option<String> = config.str_of("font").ok().flatten().map(|f| f.to_string());
+        let shape = crate::terminal::Shape::from_config(config);
         let pixel_size = config
             .float_of("font_size")
             .ok()
@@ -228,10 +234,14 @@ impl App {
             held_mouse_button: None,
             alt_held: false,
             window_title: None,
-            font: TerminalFont::open_with_fallback(
+            font: TerminalFont::open_named(
+                family.as_deref(),
                 crate::terminal::pixels_for_points(pixel_size as f32, 1.0),
                 &fallbacks,
+                shape,
             )?,
+            font_family: family,
+            font_shape: shape,
             font_points: pixel_size as f32,
             configured_font_points: pixel_size as f32,
             scale: 1.0,
@@ -365,6 +375,7 @@ impl App {
                 &mut self.atlas,
                 self.colors,
                 placement.origin,
+                placement.session_id == session_id,
                 &mut quads,
             );
         }
@@ -390,6 +401,7 @@ impl App {
                 &mut self.atlas,
                 self.colors,
                 origin,
+                true,
                 &mut quads,
             );
         }
@@ -1226,7 +1238,12 @@ impl App {
     /// Open the font at a size in points, for a display at `scale`.
     fn reopen_font(&mut self, points: f32, scale: f32) {
         let pixels = crate::terminal::pixels_for_points(points, scale);
-        let Ok(font) = TerminalFont::open_with_fallback(pixels, &self.font_fallbacks) else {
+        let Ok(font) = TerminalFont::open_named(
+            self.font_family.as_deref(),
+            pixels,
+            &self.font_fallbacks,
+            self.font_shape,
+        ) else {
             log::warn!("no font at {pixels} pixels; keeping {}", self.font_points);
             return;
         };

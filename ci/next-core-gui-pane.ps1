@@ -410,6 +410,31 @@ $Suites = @(
         )
     },
     @{
+        # Which pane has the keyboard, said by its cursor. Dimming the pane
+        # instead leaves a brightness step down the split seam.
+        Name = "focused pane cursor"
+        Package = "unterm-app"
+        Filter = "terminal::focus_cursor_tests::"
+        ExpectedCount = 2
+        RequiredTests = @(
+            "terminal::focus_cursor_tests::an_unfocused_pane_gets_the_outline_of_its_cursor",
+            "terminal::focus_cursor_tests::an_outlined_cursor_does_not_invert_its_character"
+        )
+    },
+    @{
+        # The cell stretched around its glyphs: line height and cell width.
+        Name = "font shape"
+        Package = "unterm-app"
+        Filter = "terminal::shape_tests::"
+        ExpectedCount = 4
+        RequiredTests = @(
+            "terminal::shape_tests::the_default_shape_changes_nothing",
+            "terminal::shape_tests::line_height_opens_the_rows_without_widening_them",
+            "terminal::shape_tests::cell_width_opens_the_columns_without_heightening_them",
+            "terminal::shape_tests::a_taller_line_keeps_its_text_off_the_bottom"
+        )
+    },
+    @{
         # Font size in points at the display's scale. Treating the point size
         # as pixels drew every glyph at a fraction of its size.
         Name = "font size in points"

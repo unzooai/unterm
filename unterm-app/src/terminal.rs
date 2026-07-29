@@ -25,6 +25,48 @@ pub fn pixels_for_points(points: f32, scale: f32) -> u32 {
     (((points.max(1.0) * NOMINAL_DPI * scale.max(0.1)) / POINTS_PER_INCH).round() as u32).max(1)
 }
 
+/// How far the cell is stretched around its glyphs.
+///
+/// Both default to one, which is the font's own metrics. They exist because a
+/// terminal's readability is as much about the space between lines as about
+/// the letters, and the config has always been able to say so.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Shape {
+    pub line_height: f32,
+    pub cell_width: f32,
+}
+
+impl Default for Shape {
+    fn default() -> Self {
+        Self {
+            line_height: 1.0,
+            cell_width: 1.0,
+        }
+    }
+}
+
+impl Shape {
+    /// From the config, refusing anything that would collapse the cell.
+    ///
+    /// A zero or negative multiplier is a grid with no rows, which divides by
+    /// nothing and draws nothing; the clamp keeps a typo from producing a
+    /// blank window with no explanation.
+    pub fn from_config(config: &Config) -> Self {
+        let number = |key: &str, fallback: f32| {
+            config
+                .float_of(key)
+                .ok()
+                .flatten()
+                .map(|value| (value as f32).clamp(0.5, 4.0))
+                .unwrap_or(fallback)
+        };
+        Self {
+            line_height: number("line_height", 1.0),
+            cell_width: number("cell_width", 1.0),
+        }
+    }
+}
+
 /// The font and the cell it dictates.
 ///
 /// Cell size comes from the font rather than the other way round: a terminal
@@ -49,15 +91,45 @@ impl TerminalFont {
 
     /// Open the primary face and whichever fallbacks the config names.
     pub fn open_with_fallback(pixel_size: u32, families: &[String]) -> anyhow::Result<Self> {
-        let index = font_discovery::FontIndex::scan();
-        let entry = index
-            .default_monospace()
-            .ok_or_else(|| anyhow::anyhow!("no monospace font found on this machine"))?;
-        let face = FontFace::open(&entry.path, pixel_size)?;
-        Ok(Self::from_face(face, families, pixel_size))
+        Self::open_named(None, pixel_size, families, Shape::default())
     }
 
-    pub fn from_face(mut face: FontFace, fallbacks: &[String], pixel_size: u32) -> Self {
+    /// Open a named family, or the machine's default monospace.
+    ///
+    /// A name that is not installed falls back rather than refusing to start:
+    /// a config naming a font from another machine is the ordinary case, and a
+    /// terminal that will not open is no way to find out about it.
+    pub fn open_named(
+        family: Option<&str>,
+        pixel_size: u32,
+        fallbacks: &[String],
+        shape: Shape,
+    ) -> anyhow::Result<Self> {
+        let index = font_discovery::FontIndex::scan();
+        let entry = family
+            .and_then(|name| index.family(name).first())
+            .or_else(|| index.default_monospace())
+            .ok_or_else(|| anyhow::anyhow!("no monospace font found on this machine"))?;
+        if let Some(name) = family {
+            if index.family(name).is_empty() {
+                log::warn!("font {name:?} is not installed; using the default");
+            }
+        }
+        let face = FontFace::open(&entry.path, pixel_size)?;
+        Ok(Self::from_face_shaped(face, fallbacks, pixel_size, shape))
+    }
+
+    pub fn from_face(face: FontFace, fallbacks: &[String], pixel_size: u32) -> Self {
+        Self::from_face_shaped(face, fallbacks, pixel_size, Shape::default())
+    }
+
+    /// As `from_face`, with the cell stretched by the config's multipliers.
+    pub fn from_face_shaped(
+        mut face: FontFace,
+        fallbacks: &[String],
+        pixel_size: u32,
+        shape: Shape,
+    ) -> Self {
         // Measure from a character every monospace face has, rather than
         // trusting a nominal size: hinting and rounding mean the advance for
         // `M` is what the grid actually has to be.
@@ -77,10 +149,18 @@ impl TerminalFont {
             }
         };
 
+        // The cell can be stretched without changing the glyphs: `line_height`
+        // opens the text up without making it bigger, and `cell_width` is how
+        // a narrow font is given room to breathe. The baseline moves with the
+        // extra height so the text stays centred in the taller cell rather
+        // than sitting on its old line with a gap underneath.
+        let height = height * shape.line_height;
+        let baseline = baseline + (height - baseline) * (shape.line_height - 1.0) * 0.5;
+
         Self {
             stack: FontStack::new(face, fallbacks, pixel_size),
             metrics: CellMetrics {
-                width: advance,
+                width: advance * shape.cell_width,
                 height,
                 baseline,
             },
@@ -125,7 +205,7 @@ pub fn frame_quads(
     colors: FrameColors,
 ) -> FrameQuads {
     let mut quads = FrameQuads::default();
-    append_pane(snapshot, font, atlas, colors, (0.0, 0.0), &mut quads);
+    append_pane(snapshot, font, atlas, colors, (0.0, 0.0), true, &mut quads);
     quads
 }
 
@@ -134,12 +214,14 @@ pub fn frame_quads(
 /// Panes are drawn into the same buffer rather than one each, so a window of
 /// four splits is still one draw call. The origin is what a split needs and
 /// the single-pane case gets for free at (0, 0).
+#[allow(clippy::too_many_arguments)]
 pub fn append_pane(
     snapshot: &StyledScreenSnapshot,
     font: &mut TerminalFont,
     atlas: &mut GlyphAtlas,
     colors: FrameColors,
     origin: (f32, f32),
+    focused: bool,
     quads: &mut FrameQuads,
 ) {
     let metrics = font.metrics();
@@ -187,7 +269,7 @@ pub fn append_pane(
 
     // The cursor goes in before the glyphs so text lands on top of it, which is
     // what makes an inverted cell readable.
-    let inverted = push_cursor(snapshot, metrics, colors, origin, quads);
+    let inverted = push_cursor(snapshot, metrics, colors, origin, focused, quads);
 
     for (row, line) in snapshot.lines.iter().enumerate() {
         let top = origin.1 + row as f32 * metrics.height;
@@ -333,6 +415,7 @@ fn push_cursor(
     metrics: CellMetrics,
     colors: FrameColors,
     origin: (f32, f32),
+    focused: bool,
     quads: &mut FrameQuads,
 ) -> Option<(usize, usize)> {
     let cursor = &snapshot.cursor;
@@ -348,6 +431,23 @@ fn push_cursor(
 
     let left = origin.0 + cursor.x as f32 * metrics.width;
     let top = origin.1 + row as f32 * metrics.height;
+
+    // An unfocused pane gets the outline of its cursor rather than the solid
+    // block. This is how the previous front end said which pane had the
+    // keyboard -- rather than dimming the pane itself, which leaves a visible
+    // brightness step down the split seam and into the status bar.
+    if !focused {
+        quads.backgrounds.extend(unterm_render::strokes::rectangle(
+            left,
+            top,
+            metrics.width,
+            metrics.height,
+            (metrics.height / 14.0).round().max(1.0),
+            colors.foreground,
+        ));
+        // Nothing is inverted: the character underneath stays as it was.
+        return None;
+    }
 
     // Shapes as the escape sequences name them. An unknown shape draws a block
     // rather than nothing: a missing cursor is worse than an unexpected one.
@@ -1162,7 +1262,7 @@ mod missing_glyph_regression {
             clipboard_request: None,
         };
 
-        append_pane(&snapshot, &mut font, &mut atlas, colors, (0.0, 0.0), &mut quads);
+        append_pane(&snapshot, &mut font, &mut atlas, colors, (0.0, 0.0), true, &mut quads);
 
         let metrics = font.metrics();
         let last_row_top = 2.0 * metrics.height;
@@ -1247,7 +1347,7 @@ mod cursor_inversion_tests {
 
         // Text on the row above, cursor at column 2 of the row below.
         let snapshot = snapshot(&["abcde", "abcde"], (2, 1));
-        append_pane(&snapshot, &mut font, &mut atlas, colors, (0.0, 0.0), &mut quads);
+        append_pane(&snapshot, &mut font, &mut atlas, colors, (0.0, 0.0), true, &mut quads);
 
         let metrics = font.metrics();
         let above: Vec<_> = quads
@@ -1443,5 +1543,166 @@ mod dpi_tests {
         assert!(pixels_for_points(0.0, 1.0) > 0);
         assert!(pixels_for_points(13.0, 0.0) > 0);
         assert!(pixels_for_points(-5.0, -5.0) > 0);
+    }
+}
+
+#[cfg(test)]
+mod shape_tests {
+    use super::*;
+
+    fn face() -> Option<FontFace> {
+        let index = font_discovery::FontIndex::scan();
+        FontFace::open(&index.default_monospace()?.path, 20).ok()
+    }
+
+    /// The default is the font's own metrics, untouched.
+    #[test]
+    fn the_default_shape_changes_nothing() {
+        let Some(plain) = face().map(|f| TerminalFont::from_face(f, &[], 20)) else {
+            return;
+        };
+        let Some(shaped) = face()
+            .map(|f| TerminalFont::from_face_shaped(f, &[], 20, Shape::default()))
+        else {
+            return;
+        };
+        assert_eq!(plain.metrics(), shaped.metrics());
+    }
+
+    /// A taller line is taller, and no wider.
+    #[test]
+    fn line_height_opens_the_rows_without_widening_them() {
+        let Some(plain) = face().map(|f| TerminalFont::from_face(f, &[], 20)) else {
+            return;
+        };
+        let shape = Shape { line_height: 1.4, cell_width: 1.0 };
+        let tall = TerminalFont::from_face_shaped(face().unwrap(), &[], 20, shape);
+        assert!(tall.metrics().height > plain.metrics().height);
+        assert_eq!(tall.metrics().width, plain.metrics().width);
+    }
+
+    /// And a wider cell is wider, and no taller.
+    #[test]
+    fn cell_width_opens_the_columns_without_heightening_them() {
+        let Some(plain) = face().map(|f| TerminalFont::from_face(f, &[], 20)) else {
+            return;
+        };
+        let shape = Shape { line_height: 1.0, cell_width: 1.3 };
+        let wide = TerminalFont::from_face_shaped(face().unwrap(), &[], 20, shape);
+        assert!(wide.metrics().width > plain.metrics().width);
+        assert_eq!(wide.metrics().height, plain.metrics().height);
+    }
+
+    /// The text stays inside the taller cell rather than sitting on its old
+    /// line with the gap all underneath.
+    #[test]
+    fn a_taller_line_keeps_its_text_off_the_bottom() {
+        let Some(_) = face() else { return };
+        let shape = Shape { line_height: 1.6, cell_width: 1.0 };
+        let tall = TerminalFont::from_face_shaped(face().unwrap(), &[], 20, shape);
+        let metrics = tall.metrics();
+        assert!(metrics.baseline < metrics.height, "{metrics:?}");
+        assert!(metrics.baseline > metrics.height * 0.4, "{metrics:?}");
+    }
+}
+
+#[cfg(test)]
+mod focus_cursor_tests {
+    use super::*;
+    use unterm_engine::{CellStyle, CursorSnapshot, StyledCell, StyledScreenLine};
+
+    fn screen() -> StyledScreenSnapshot {
+        StyledScreenSnapshot {
+            lines: vec![StyledScreenLine {
+                row: 0,
+                wrapped: false,
+                cells: "ab"
+                    .chars()
+                    .map(|ch| StyledCell {
+                        ch,
+                        style: CellStyle::default(),
+                        width: 1,
+                    })
+                    .collect(),
+            }],
+            cursor: CursorSnapshot {
+                x: 0,
+                y: 0,
+                visible: true,
+                shape: "block".to_string(),
+            },
+            cols: 2,
+            rows: 1,
+            scrollback_rows: 0,
+            revision: 1,
+            dirty_rows: None,
+            mouse: Default::default(),
+            bells: 0,
+            focus_reporting: false,
+            clipboard_request: None,
+        }
+    }
+
+    fn drawn(focused: bool) -> Option<FrameQuads> {
+        let mut font = TerminalFont::open(16).ok()?;
+        let mut atlas = GlyphAtlas::new(256, 256);
+        let mut quads = FrameQuads::default();
+        let snapshot = screen();
+        append_pane(
+            &snapshot,
+            &mut font,
+            &mut atlas,
+            FrameColors {
+                foreground: [1.0; 4],
+                background: [0.0, 0.0, 0.0, 1.0],
+                palette: &unterm_render::quads::DEFAULT_PALETTE,
+            },
+            (0.0, 0.0),
+            focused,
+            &mut quads,
+        );
+        Some(quads)
+    }
+
+    /// Which pane has the keyboard is said by the cursor, not by dimming the
+    /// pane: dimming leaves a brightness step down the split seam and into the
+    /// status bar, which is why the previous front end chose this instead.
+    #[test]
+    fn an_unfocused_pane_gets_the_outline_of_its_cursor() {
+        let Some(focused) = drawn(true) else {
+            return; // No usable system font on this machine.
+        };
+        let unfocused = drawn(false).unwrap();
+
+        let solid = |quads: &FrameQuads| {
+            quads.backgrounds.iter().any(|quad| {
+                quad.width > 4.0 && quad.height > 8.0 && quad.color == [1.0; 4]
+            })
+        };
+        assert!(solid(&focused), "the focused pane's cursor is a solid block");
+        assert!(!solid(&unfocused), "the unfocused one's is not");
+        assert!(
+            unfocused.backgrounds.len() > 1,
+            "but it is drawn: {:?}",
+            unfocused.backgrounds
+        );
+    }
+
+    /// And the character under it stays as it was: an outline does not
+    /// invert, so an unfocused pane reads exactly as its text.
+    #[test]
+    fn an_outlined_cursor_does_not_invert_its_character() {
+        let Some(focused) = drawn(true) else {
+            return;
+        };
+        let unfocused = drawn(false).unwrap();
+        let inverted = |quads: &FrameQuads| {
+            quads
+                .glyphs
+                .iter()
+                .any(|glyph| glyph.quad.color == [0.0, 0.0, 0.0, 1.0])
+        };
+        assert!(inverted(&focused), "the focused cursor inverts its cell");
+        assert!(!inverted(&unfocused), "the outlined one leaves it alone");
     }
 }
