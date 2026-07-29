@@ -52,6 +52,7 @@ pub enum Action {
     CopyMode,
     QuickSelect,
     CockpitInbox,
+    GitPanel,
     NewWindow,
     ClosePane,
     ZoomPane,
@@ -84,6 +85,7 @@ impl Action {
             Action::CopyMode => "CopyMode",
             Action::QuickSelect => "QuickSelect",
             Action::CockpitInbox => "CockpitInbox",
+            Action::GitPanel => "GitPanel",
             Action::NewWindow => "NewWindow",
             Action::ClosePane => "ClosePane",
             Action::ZoomPane => "ZoomPane",
@@ -131,6 +133,7 @@ impl Action {
             Action::CopyMode => "Copy Mode",
             Action::QuickSelect => "Quick Select",
             Action::CockpitInbox => "Agent Inbox",
+            Action::GitPanel => "Git Status",
             Action::NewWindow => "New Window",
             Action::ClosePane => "Close Pane",
             Action::ZoomPane => "Zoom Pane",
@@ -450,6 +453,11 @@ pub const BINDINGS: &[Binding] = &[
         mods: CTRL_SHIFT,
         trigger: Trigger::Char('a'),
         action: Action::CockpitInbox,
+    },
+    Binding {
+        mods: CTRL_SHIFT,
+        trigger: Trigger::Char('g'),
+        action: Action::GitPanel,
     },
     // Ctrl+Tab cycles, Ctrl+Shift+Tab cycles back -- the pair every tabbed
     // application uses. Plain Tab still belongs to the shell's completion.

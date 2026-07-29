@@ -24,6 +24,12 @@ const MAX_SEARCH_MATCHES: usize = 500;
 const MAX_PALETTE_ROWS: usize = 12;
 
 /// How many inbox rows fit before the list becomes the window.
+/// How many changed paths the git panel shows before it stops.
+///
+/// A repository mid-rebase can have hundreds; a panel that covers the
+/// terminal is a panel nobody opens twice.
+const MAX_GIT_ROWS: usize = 20;
+
 const MAX_INBOX_ROWS: usize = 12;
 
 /// How often the cockpit tracker is shown the panes.
@@ -117,6 +123,13 @@ pub struct App {
     clipboard_honoured: Option<String>,
     /// Whether the agent inbox is showing.
     inbox_open: bool,
+    /// The git panel's contents, held while it is open.
+    ///
+    /// Read once when it opens rather than every frame: `git status` on a
+    /// large repository is not something to run sixty times a second, and a
+    /// panel that changes under the eye while being read is worse than one
+    /// that is a moment old.
+    git_panel: Option<crate::git::Panel>,
     /// When the cockpit tracker last saw the panes.
     cockpit_fed_at: std::time::Instant,
     /// What the program wants from the mouse, as of the last frame drawn.
@@ -185,6 +198,7 @@ impl App {
             start_directory: None,
             clipboard_honoured: None,
             inbox_open: false,
+            git_panel: None,
             cockpit_fed_at: std::time::Instant::now(),
             mouse_modes: Default::default(),
             held_mouse_button: None,
@@ -342,6 +356,7 @@ impl App {
         self.append_copy_mode(&mut quads);
         self.append_quick_select(&mut quads);
         self.append_inbox(window_width, &mut quads);
+        self.append_git_panel(window_width, &mut quads);
         self.append_palette(window_width, &mut quads);
         let tab_count = self.tabs.tab_count();
         let active_tab = self
@@ -770,6 +785,7 @@ impl App {
                 self.inbox_open = !self.inbox_open;
                 self.drawn_revision = None;
             }
+            Action::GitPanel => self.toggle_git_panel(),
             Action::CommandPalette => self.open_palette(command_entries()),
             Action::Launcher => self.open_palette(launcher_entries()),
             Action::Search => {
@@ -1145,6 +1161,69 @@ impl App {
     }
 
     /// The agent inbox, over the terminal.
+
+    fn toggle_git_panel(&mut self) {
+        self.git_panel = match self.git_panel {
+            Some(_) => None,
+            None => Some(match self.current_directory() {
+                Some(directory) => crate::git::read(&directory),
+                None => crate::git::Panel::NotARepository,
+            }),
+        };
+        self.drawn_revision = None;
+    }
+
+    /// What git says about where this pane is.
+    fn append_git_panel(
+        &mut self,
+        window_width: f32,
+        quads: &mut unterm_render::quads::FrameQuads,
+    ) {
+        let Some(status) = self.git_panel.clone() else {
+            return;
+        };
+        let metrics = self.font.metrics();
+        let width = (window_width * 0.5).max(metrics.width * 30.0).min(window_width);
+        let left = ((window_width - width) / 2.0).max(0.0);
+        let top = metrics.height * 2.0;
+        let foreground = self.colors.foreground;
+
+        let heading = status.heading();
+        let lines: Vec<String> = status
+            .entries()
+            .iter()
+            .take(MAX_GIT_ROWS)
+            .map(|entry| format!("{:<3}{}", entry.code, entry.path))
+            .collect();
+        let height = metrics.height * (lines.len() + 1) as f32;
+
+        quads.backgrounds.push(unterm_render::quads::Quad {
+            left,
+            top,
+            width,
+            height,
+            color: mix(self.colors.background, foreground, 0.10),
+        });
+        crate::terminal::append_text(
+            &heading,
+            &mut self.font,
+            &mut self.atlas,
+            foreground,
+            (left + metrics.width, top),
+            quads,
+        );
+        for (index, line) in lines.iter().enumerate() {
+            crate::terminal::append_text(
+                line,
+                &mut self.font,
+                &mut self.atlas,
+                foreground,
+                (left + metrics.width, top + metrics.height * (index + 1) as f32),
+                quads,
+            );
+        }
+    }
+
     fn append_inbox(&mut self, window_width: f32, quads: &mut unterm_render::quads::FrameQuads) {
         if !self.inbox_open {
             return;

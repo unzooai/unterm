@@ -364,6 +364,24 @@ $Suites = @(
         )
     },
     @{
+        # What git says about where a pane is. Read-only: the shell is right
+        # there for the rest, and what is missing when you look at a terminal
+        # is knowing which branch you are on, not the ability to run `git add`.
+        Name = "git status"
+        Package = "unterm-app"
+        Filter = "git::tests::"
+        ExpectedCount = 14
+        RequiredTests = @(
+            "git::tests::a_missing_git_does_not_claim_the_folder_is_untracked",
+            "git::tests::a_detached_head_says_so_rather_than_naming_a_branch",
+            "git::tests::ahead_alone_does_not_invent_a_behind",
+            "git::tests::a_rename_shows_where_the_file_is_now",
+            "git::tests::a_quoted_path_loses_its_quotes",
+            "git::tests::a_line_too_short_to_be_an_entry_is_ignored",
+            "git::tests::empty_output_is_a_status_rather_than_a_panic"
+        )
+    },
+    @{
         # Which agent wants you, readable from the tab bar. Four agents
         # running and no marker means visiting each pane to find out.
         Name = "agent badges"

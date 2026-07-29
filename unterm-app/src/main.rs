@@ -10,6 +10,7 @@ mod confirm;
 mod copy_mode;
 mod directory;
 mod fonts;
+mod git;
 mod ime;
 mod keys;
 mod links;
