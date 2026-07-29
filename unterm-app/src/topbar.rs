@@ -13,13 +13,28 @@
 /// row of output that failed to scroll.
 pub const ROWS: usize = 2;
 
+/// The space between the window's edge and the text.
+///
+/// One cell either side, half a row above and below -- the previous front
+/// end's defaults, and the difference between a terminal and a wall of text
+/// starting in the corner of a window. Applied inside the bars, so the bars
+/// themselves still run edge to edge.
+pub fn padding(metrics: unterm_render::quads::CellMetrics) -> (f32, f32) {
+    (metrics.width, (metrics.height / 2.0).round())
+}
+
 /// Where the terminal area starts, in pixels from the top of the window.
 ///
 /// The bar is always there, unlike the strip it replaces: it carries the
 /// window buttons, and a window whose close button appears only once there
 /// are two tabs is not a window.
 pub fn terminal_top(metrics: unterm_render::quads::CellMetrics) -> f32 {
-    metrics.height * ROWS as f32
+    metrics.height * ROWS as f32 + padding(metrics).1
+}
+
+/// The gap on the left, before the first column.
+pub fn terminal_left(metrics: unterm_render::quads::CellMetrics) -> f32 {
+    padding(metrics).0
 }
 
 /// What is left for the terminal once both bars have taken their rows.
@@ -32,7 +47,16 @@ pub fn terminal_height(
     metrics: unterm_render::quads::CellMetrics,
 ) -> f32 {
     let taken = ROWS + crate::statusbar::ROWS;
-    (window_height - metrics.height * taken as f32).max(metrics.height)
+    let padding = padding(metrics).1 * 2.0;
+    (window_height - metrics.height * taken as f32 - padding).max(metrics.height)
+}
+
+/// The width the terminal has, once the gaps either side are taken.
+pub fn terminal_width(
+    window_width: f32,
+    metrics: unterm_render::quads::CellMetrics,
+) -> f32 {
+    (window_width - padding(metrics).0 * 2.0).max(metrics.width)
 }
 
 /// What a piece of the bar is.
@@ -574,5 +598,42 @@ mod resize_tests {
     #[test]
     fn the_edge_does_not_reach_the_window_buttons() {
         assert_eq!(resize_edge((SIZE.0 - 20.0, 20.0), SIZE), None);
+    }
+}
+
+#[cfg(test)]
+mod padding_tests {
+    use super::*;
+    use unterm_render::quads::CellMetrics;
+
+    fn metrics() -> CellMetrics {
+        CellMetrics { width: 10.0, height: 20.0, baseline: 16.0 }
+    }
+
+    /// Text starting in the very corner of a window is the difference between
+    /// a terminal and a wall of text.
+    #[test]
+    fn there_is_a_gap_before_the_first_column() {
+        assert!(terminal_left(metrics()) > 0.0);
+        assert!(terminal_top(metrics()) > metrics().height * ROWS as f32);
+    }
+
+    /// The gap is taken out of the space the grid gets, not added to the
+    /// window: a shell told it has more columns than are drawn wraps its
+    /// output somewhere the user cannot see.
+    #[test]
+    fn the_gap_comes_out_of_the_grid_rather_than_the_window() {
+        let (left, top) = padding(metrics());
+        assert_eq!(terminal_width(800.0, metrics()), 800.0 - left * 2.0);
+        let bars = metrics().height * (ROWS + crate::statusbar::ROWS) as f32;
+        assert_eq!(terminal_height(600.0, metrics()), 600.0 - bars - top * 2.0);
+    }
+
+    /// A window too small for the padding still leaves a cell of terminal
+    /// rather than a negative one.
+    #[test]
+    fn a_tiny_window_still_has_a_cell_of_terminal() {
+        assert!(terminal_width(4.0, metrics()) >= metrics().width);
+        assert!(terminal_height(4.0, metrics()) >= metrics().height);
     }
 }

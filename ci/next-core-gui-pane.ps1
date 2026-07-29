@@ -410,6 +410,19 @@ $Suites = @(
         )
     },
     @{
+        # The gap between the window's edge and the text. Its absence is the
+        # difference between a terminal and a wall of text in a corner.
+        Name = "window padding"
+        Package = "unterm-app"
+        Filter = "topbar::padding_tests::"
+        ExpectedCount = 3
+        RequiredTests = @(
+            "topbar::padding_tests::there_is_a_gap_before_the_first_column",
+            "topbar::padding_tests::the_gap_comes_out_of_the_grid_rather_than_the_window",
+            "topbar::padding_tests::a_tiny_window_still_has_a_cell_of_terminal"
+        )
+    },
+    @{
         # A borderless window has no system resize handles, so it grows its
         # own. Without them the window is stuck at the size it opened at.
         Name = "window resize edges"

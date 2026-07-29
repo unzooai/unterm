@@ -362,13 +362,17 @@ impl App {
             // Below the top bar, like every other pane. Drawn at the window's
             // own origin it lands on the bar, which is what the first frame
             // with a bar in it looked like.
-            let top = crate::topbar::terminal_top(self.font.metrics());
+            let metrics = self.font.metrics();
+            let origin = (
+                crate::topbar::terminal_left(metrics),
+                crate::topbar::terminal_top(metrics),
+            );
             crate::terminal::append_pane(
                 &snapshot,
                 &mut self.font,
                 &mut self.atlas,
                 self.colors,
-                (0.0, top),
+                origin,
                 &mut quads,
             );
         }
@@ -460,8 +464,9 @@ impl App {
             return false;
         };
         let metrics = self.font.metrics();
+        let left = crate::topbar::terminal_left(metrics);
         let top = crate::topbar::terminal_top(metrics);
-        let column = (self.pointer.0 / metrics.width.max(1.0)) as usize;
+        let column = ((self.pointer.0 - left).max(0.0) / metrics.width.max(1.0)) as usize;
         let row = ((self.pointer.1 - top).max(0.0) / metrics.height.max(1.0)) as usize;
 
         let held = crate::mouse::Held {
@@ -916,8 +921,9 @@ impl App {
         let live = self.state.as_ref()?;
         let snapshot = self.engine.read_styled_screen(live.session_id).ok()?;
         let metrics = self.font.metrics();
+        let left = crate::topbar::terminal_left(metrics);
         let top = crate::topbar::terminal_top(metrics);
-        let column = (self.pointer.0 / metrics.width.max(1.0)) as usize;
+        let column = ((self.pointer.0 - left).max(0.0) / metrics.width.max(1.0)) as usize;
         let row = ((self.pointer.1 - top).max(0.0) / metrics.height.max(1.0)) as usize;
 
         let line = snapshot.lines.get(row)?;
@@ -937,7 +943,20 @@ impl App {
             .map(|snapshot| snapshot.lines.first().map(|line| line.row).unwrap_or(0))
             .unwrap_or(0);
 
-        crate::select::cell_at(self.pointer.0, self.pointer.1, self.font.metrics(), top)
+        // From the terminal's own origin, not the window's: the bar above and
+        // the gap around the grid are not part of it, and a selection measured
+        // from the window's corner lands two rows above where it was drawn.
+        let metrics = self.font.metrics();
+        let origin = (
+            crate::topbar::terminal_left(metrics),
+            crate::topbar::terminal_top(metrics),
+        );
+        crate::select::cell_at(
+            self.pointer.0 - origin.0,
+            self.pointer.1 - origin.1,
+            metrics,
+            top,
+        )
     }
 
     /// Extract what the current drag covers.
@@ -2085,7 +2104,10 @@ impl App {
         let Some(live) = self.state.as_ref() else {
             return;
         };
-        let (cols, rows) = self.font.grid_for(live.width as f32, self.terminal_height());
+        let (cols, rows) = self.font.grid_for(
+            crate::topbar::terminal_width(live.width as f32, self.font.metrics()),
+            self.terminal_height(),
+        );
         let session = match self.engine.create_session(CreateSessionRequest {
             cols,
             rows,
@@ -2712,16 +2734,19 @@ impl App {
         let (Some(tab_id), Some(live)) = (self.tab_id, self.state.as_ref()) else {
             return Vec::new();
         };
-        let (cols, rows) = self
-            .font
-            .grid_for(live.width as f32, self.terminal_height());
-        let top = crate::topbar::terminal_top(self.font.metrics());
+        let metrics = self.font.metrics();
+        let (cols, rows) = self.font.grid_for(
+            crate::topbar::terminal_width(live.width as f32, metrics),
+            self.terminal_height(),
+        );
+        let (left, _) = crate::topbar::padding(metrics);
+        let top = crate::topbar::terminal_top(metrics);
         self.tabs
             .positions(tab_id, cols, rows)
             .into_iter()
             .map(|placed| {
-                let mut placement =
-                    crate::panes::place(placed.pane_id, placed.rect, self.font.metrics());
+                let mut placement = crate::panes::place(placed.pane_id, placed.rect, metrics);
+                placement.origin.0 += left;
                 placement.origin.1 += top;
                 placement
             })
