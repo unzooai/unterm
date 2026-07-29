@@ -20,6 +20,7 @@ mod scroll;
 mod scrollbar;
 mod search;
 mod shape;
+mod statusbar;
 mod tabbar;
 mod select;
 mod terminal;

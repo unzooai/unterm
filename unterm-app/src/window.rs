@@ -365,6 +365,8 @@ impl App {
             &mut quads,
         );
 
+        self.append_status_bar(window_width, &mut quads);
+
         append_confirmation_banner(
             window_width,
             &mut self.font,
@@ -471,6 +473,76 @@ impl App {
     ///
     /// Only when there is history above: a bar that fills its whole track
     /// tells the user nothing and takes a column to say it.
+
+    /// The bar along the bottom: where you are, and what agents are doing.
+    fn append_status_bar(
+        &mut self,
+        window_width: f32,
+        quads: &mut unterm_render::quads::FrameQuads,
+    ) {
+        let metrics = self.font.metrics();
+        let height = self.state.as_ref().map(|live| live.height).unwrap_or(600) as f32;
+        let top = height - metrics.height * crate::statusbar::ROWS as f32;
+        let columns = (window_width / metrics.width.max(1.0)).floor().max(0.0) as usize;
+
+        let status = self.status();
+        let segments = crate::statusbar::segments(&status, columns);
+        if segments.is_empty() {
+            return;
+        }
+
+        // A band behind the text, so it reads as a bar rather than as a line
+        // of output that failed to scroll.
+        quads.backgrounds.push(unterm_render::quads::Quad {
+            left: 0.0,
+            top,
+            width: window_width,
+            height: metrics.height,
+            color: dim(self.colors.foreground, 0.10),
+        });
+        for segment in segments {
+            let color = if segment.dim {
+                dim(self.colors.foreground, 0.65)
+            } else {
+                self.colors.foreground
+            };
+            crate::terminal::append_text(
+                &segment.text,
+                &mut self.font,
+                &mut self.atlas,
+                color,
+                (segment.column as f32 * metrics.width, top),
+                quads,
+            );
+        }
+    }
+
+    /// What the status bar has to say right now.
+    fn status(&self) -> crate::statusbar::Status {
+        let session = self.state.as_ref().and_then(|live| {
+            unterm_engine::SessionEngine::list_sessions(&self.engine)
+                .ok()
+                .into_iter()
+                .flatten()
+                .find(|session| session.id == live.session_id)
+        });
+        let mcp = unterm_mcp::handler::insights_mcp_snapshot(0);
+        crate::statusbar::Status {
+            shell: session
+                .as_ref()
+                .map(|session| crate::statusbar::short_name(&session.shell.process_name))
+                .unwrap_or_default(),
+            directory: session
+                .as_ref()
+                .and_then(|session| session.shell.cwd.clone())
+                .unwrap_or_default(),
+            agent_writes: mcp.input_count,
+            pending: mcp.pending_confirmations,
+            proxy: unterm_services::system_proxy::detect()
+                .and_then(|proxy| proxy.primary_http().map(crate::statusbar::short_proxy)),
+        }
+    }
+
     fn append_scrollbar(&mut self, quads: &mut unterm_render::quads::FrameQuads) {
         let Some(live) = self.state.as_ref() else {
             return;
@@ -2965,4 +3037,15 @@ mod encode_tests {
         assert_eq!(encode(&named(NamedKey::Space), plain()), Some(" ".to_string()));
         assert_eq!(encode(&named(NamedKey::Space), ctrl()), Some("\0".to_string()));
     }
+}
+
+/// A colour toned towards the background, for chrome that must not compete
+/// with the text it sits beside.
+fn dim(color: [f32; 4], weight: f32) -> [f32; 4] {
+    [
+        color[0] * weight,
+        color[1] * weight,
+        color[2] * weight,
+        color[3],
+    ]
 }

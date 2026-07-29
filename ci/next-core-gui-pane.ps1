@@ -364,6 +364,37 @@ $Suites = @(
         )
     },
     @{
+        # The bar along the bottom. Its row comes out of the terminal area --
+        # drawn over the grid it would hide the last row while the shell still
+        # believed it was there.
+        Name = "status bar"
+        Package = "unterm-app"
+        Filter = "statusbar::tests::"
+        ExpectedCount = 12
+        RequiredTests = @(
+            "statusbar::tests::the_chips_survive_a_laptop_sized_window",
+            "statusbar::tests::a_long_path_keeps_its_end",
+            "statusbar::tests::no_segment_runs_off_the_end",
+            "statusbar::tests::the_left_text_stops_before_the_chips",
+            "statusbar::tests::a_narrow_pane_keeps_the_directory_and_drops_the_chips",
+            "statusbar::tests::a_pending_confirmation_leads_the_chips"
+        )
+    },
+    @{
+        # The front end's own text -- labels, banners, bars -- was looked up by
+        # code point while it was stored by glyph index, so every one of them
+        # drew whichever glyph carried that number.
+        Name = "front end text"
+        Package = "unterm-app"
+        Filter = "terminal::furniture_tests::"
+        ExpectedCount = 3
+        RequiredTests = @(
+            "terminal::furniture_tests::a_labels_glyphs_are_found_where_they_were_put",
+            "terminal::furniture_tests::a_label_draws_one_glyph_per_visible_character",
+            "terminal::furniture_tests::a_labels_characters_advance_by_one_cell_each"
+        )
+    },
+    @{
         # The keys a terminal is expected to have. Font size, tab numbers,
         # full screen and pane navigation were all missing, which is what
         # "the shortcuts are not all implemented" meant.

@@ -17,14 +17,20 @@ use unterm_render::quads::{CellMetrics, FrameColors, Quad};
 /// does not get.
 pub const ROWS: usize = 1;
 
-/// The terminal area left after the bar takes its share.
+/// The terminal area left after the bars take their share.
+///
+/// The status bar is always there, so its row always comes out. Drawing over
+/// the grid instead would hide the last row while the shell still believed it
+/// was there, and the cursor would sit somewhere nobody can see.
 pub fn terminal_height(window_height: f32, metrics: CellMetrics, tabs: usize) -> f32 {
-    if tabs <= 1 {
-        // One tab needs no bar. Reserving a row for something not drawn is a
-        // row of output thrown away.
-        return window_height;
-    }
-    (window_height - metrics.height * ROWS as f32).max(metrics.height)
+    let taken = if tabs <= 1 {
+        // One tab needs no tab bar. Reserving a row for something not drawn
+        // is a row of output thrown away.
+        crate::statusbar::ROWS
+    } else {
+        ROWS + crate::statusbar::ROWS
+    };
+    (window_height - metrics.height * taken as f32).max(metrics.height)
 }
 
 /// Where the terminal area starts, in pixels from the top.
@@ -93,20 +99,31 @@ mod tests {
     }
 
     #[test]
-    fn one_tab_needs_no_bar() {
+    fn one_tab_needs_no_tab_bar() {
         // Reserving a row for something not drawn is a row of output thrown
-        // away on every window that never opens a second tab.
-        assert_eq!(terminal_height(400.0, metrics(), 1), 400.0);
+        // away on every window that never opens a second tab. The status bar
+        // below is always drawn, so its row always goes.
+        assert_eq!(terminal_height(400.0, metrics(), 1), 380.0);
         assert_eq!(terminal_top(metrics(), 1), 0.0);
         assert!(quads(1, 0, 800.0, metrics(), colors()).is_empty());
     }
 
     #[test]
-    fn the_bar_takes_its_height_from_the_terminal() {
-        // Drawing over the grid instead hides the last row while the shell
-        // still believes it is there.
-        assert_eq!(terminal_height(400.0, metrics(), 2), 380.0);
+    fn both_bars_take_their_height_from_the_terminal() {
+        // Drawing over the grid instead hides a row while the shell still
+        // believes it is there, and the cursor ends up somewhere nobody can
+        // see. Two tabs means two bars: one at each end.
+        assert_eq!(terminal_height(400.0, metrics(), 2), 360.0);
         assert_eq!(terminal_top(metrics(), 2), 20.0);
+    }
+
+    /// The terminal shrinks by exactly the tab bar when a second tab opens --
+    /// no more, or the status bar would be charged for twice.
+    #[test]
+    fn opening_a_second_tab_costs_exactly_one_row() {
+        let one = terminal_height(400.0, metrics(), 1);
+        let two = terminal_height(400.0, metrics(), 2);
+        assert_eq!(one - two, metrics().height);
     }
 
     #[test]

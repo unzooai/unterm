@@ -256,7 +256,6 @@ pub fn append_text(
         ensure_glyph(font, atlas, ch);
     }
     let metrics = font.metrics();
-    let pixel_size = font.pixel_size();
     let cells: Vec<StyledCell> = text
         .chars()
         .map(|ch| StyledCell {
@@ -265,9 +264,17 @@ pub fn append_text(
             width: 1,
         })
         .collect();
-    let mut face_of: std::collections::HashMap<char, usize> = std::collections::HashMap::new();
+    // Keyed the same way `ensure_glyph` filed them. Working the key out
+    // separately here is how the front end's own text came to be looked up by
+    // code point while it was stored by glyph index: every label, banner and
+    // bar drew whatever glyph happened to have that number, which is not the
+    // letter asked for and often nothing at all.
+    let mut key_of: std::collections::HashMap<char, GlyphKey> =
+        std::collections::HashMap::new();
     for ch in text.chars() {
-        face_of.entry(ch).or_insert_with(|| font.stack.face_for(ch));
+        if let std::collections::hash_map::Entry::Vacant(slot) = key_of.entry(ch) {
+            slot.insert(glyph_key(font, ch));
+        }
     }
 
     let before = quads.glyphs.len();
@@ -283,13 +290,7 @@ pub fn append_text(
             background: color,
         },
         atlas,
-        |ch| {
-            atlas.get(GlyphKey {
-                face: face_of.get(&ch).copied().unwrap_or(0),
-                glyph_index: ch as u32,
-                pixel_size,
-            })
-        },
+        |ch| key_of.get(&ch).and_then(|key| atlas.get(*key)),
         quads,
         // Plain text, drawn a character at a time: the front end's own
         // furniture has no ligatures to find.
@@ -1220,5 +1221,88 @@ mod cursor_inversion_tests {
             .filter(|glyph| glyph.quad.color == colors.background)
             .count();
         assert_eq!(inverted, 1, "exactly the cursor's own cell");
+    }
+}
+
+#[cfg(test)]
+mod furniture_tests {
+    use super::*;
+
+    /// The front end's own text has to be looked up the way it was stored.
+    ///
+    /// These were two separate calculations, and they drifted: `ensure_glyph`
+    /// filed by the face's real glyph index while `append_text` asked by code
+    /// point. Every label, banner and bar then drew whichever glyph happened
+    /// to carry that number -- a scattering of wrong letters where the status
+    /// bar's path should have been. One key, worked out in one place.
+    #[test]
+    fn a_labels_glyphs_are_found_where_they_were_put() {
+        let Ok(mut font) = TerminalFont::open(16) else {
+            return; // No usable system font on this machine.
+        };
+        let mut atlas = GlyphAtlas::new(256, 256);
+
+        let text = r"D:\code\unterm";
+        for ch in text.chars() {
+            ensure_glyph(&mut font, &mut atlas, ch);
+        }
+        for ch in text.chars().filter(|ch| *ch != ' ') {
+            let key = glyph_key(&mut font, ch);
+            assert!(
+                atlas.get(key).is_some(),
+                "{ch:?} was stored under a key nothing asks for"
+            );
+        }
+    }
+
+    /// And the text actually reaches the frame: a lookup that quietly misses
+    /// produces no glyph and no error, which is exactly how this hid.
+    #[test]
+    fn a_label_draws_one_glyph_per_visible_character() {
+        let Ok(mut font) = TerminalFont::open(16) else {
+            return;
+        };
+        let mut atlas = GlyphAtlas::new(256, 256);
+        let mut quads = FrameQuads::default();
+
+        append_text(
+            "mcp:7",
+            &mut font,
+            &mut atlas,
+            [1.0, 1.0, 1.0, 1.0],
+            (0.0, 0.0),
+            &mut quads,
+        );
+        assert_eq!(quads.glyphs.len(), 5, "one per character, none dropped");
+    }
+
+    /// Laid out left to right on the grid, so a bar's columns line up with
+    /// the terminal's.
+    #[test]
+    fn a_labels_characters_advance_by_one_cell_each() {
+        let Ok(mut font) = TerminalFont::open(16) else {
+            return;
+        };
+        let mut atlas = GlyphAtlas::new(256, 256);
+        let mut quads = FrameQuads::default();
+        let width = font.metrics().width;
+
+        append_text(
+            "abc",
+            &mut font,
+            &mut atlas,
+            [1.0, 1.0, 1.0, 1.0],
+            (0.0, 0.0),
+            &mut quads,
+        );
+        let lefts: Vec<f32> = quads.glyphs.iter().map(|g| g.quad.left).collect();
+        assert_eq!(lefts.len(), 3);
+        for (index, left) in lefts.iter().enumerate() {
+            let expected = index as f32 * width;
+            assert!(
+                (left - expected).abs() <= width,
+                "character {index} sits at {left}, not near {expected}"
+            );
+        }
     }
 }
