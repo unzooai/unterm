@@ -367,6 +367,63 @@ $Suites = @(
         )
     },
     @{
+        # The frame's own colours, ported from the front end that was deleted:
+        # the tones were chosen against linear-light mixing and checked for
+        # contrast, and that work is not worth guessing at twice.
+        Name = "chrome colours"
+        Package = "unterm-app"
+        Filter = "chrome::tests::"
+        ExpectedCount = 9
+        RequiredTests = @(
+            "chrome::tests::every_bundled_theme_keeps_its_text_and_focus_visible",
+            "chrome::tests::chrome_text_meets_aa_in_light_and_dark",
+            "chrome::tests::mixing_is_done_in_linear_light",
+            "chrome::tests::the_frame_stays_close_to_the_terminals_background"
+        )
+    },
+    @{
+        # Where each piece of the top bar goes, and what a click there hits.
+        Name = "top bar layout"
+        Package = "unterm-app"
+        Filter = "topbar::tests::"
+        ExpectedCount = 12
+        RequiredTests = @(
+            "topbar::tests::the_window_buttons_are_never_dropped",
+            "topbar::tests::the_close_button_is_the_rightmost_thing",
+            "topbar::tests::no_two_pieces_share_a_column",
+            "topbar::tests::a_click_finds_what_was_drawn_there",
+            "topbar::tests::the_empty_parts_of_the_bar_drag_the_window",
+            "topbar::tests::a_tiny_window_still_has_a_close_button"
+        )
+    },
+    @{
+        # Minimise, maximise and close, drawn rather than typeset.
+        Name = "window buttons"
+        Package = "unterm-app"
+        Filter = "window_buttons::tests::"
+        ExpectedCount = 9
+        RequiredTests = @(
+            "window_buttons::tests::every_button_draws_something",
+            "window_buttons::tests::an_icon_stays_inside_its_button",
+            "window_buttons::tests::only_the_close_button_turns_red",
+            "window_buttons::tests::the_close_cross_is_white_on_its_red"
+        )
+    },
+    @{
+        # Thin lines from rectangles: a gap in a close button reads as a
+        # rendering fault, which is what it would be.
+        Name = "strokes"
+        Package = "unterm-render"
+        Filter = "strokes::tests::"
+        ExpectedCount = 10
+        RequiredTests = @(
+            "strokes::tests::a_diagonal_has_no_gaps_along_its_length",
+            "strokes::tests::a_shallow_diagonal_has_no_gaps_either",
+            "strokes::tests::a_diagonal_reaches_both_of_its_ends",
+            "strokes::tests::a_stroke_is_never_thinner_than_a_pixel"
+        )
+    },
+    @{
         # Nine languages, and the front end's own chrome among them. A label
         # in Chinese is mostly double-width characters, and drawing each one
         # cell wide puts the next on top of the last.

@@ -11,6 +11,7 @@
 
 /// How tall the bar is, in cells. Two, so it reads as chrome rather than as a
 /// row of output that failed to scroll.
+#[allow(dead_code)] // Read once the bar is drawn; see the module's plan.
 pub const ROWS: usize = 2;
 
 /// What a piece of the bar is.
@@ -107,7 +108,7 @@ pub fn layout(tabs: usize, active: usize, columns: usize) -> Vec<Placed> {
     // are what the bar is for.
     let left_minimum = width_of(WORDMARK) + MIN_TAB + width_of(NEW_TAB);
     let mut chrome = Vec::new();
-    let mut take = |label: &str, item: Item, right: &mut usize, chrome: &mut Vec<Placed>| {
+    let take = |label: &str, item: Item, right: &mut usize, chrome: &mut Vec<Placed>| {
         let wide = width_of(label);
         if right.saturating_sub(wide) < left_minimum {
             return;

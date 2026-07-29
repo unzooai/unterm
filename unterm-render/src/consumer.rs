@@ -409,7 +409,7 @@ mod tests {
     use super::*;
     use crate::backend::*;
     use unterm_engine::{
-        next_core, next_core::NextCoreEngine, CreateSessionRequest, LaunchPolicySnapshot,
+        next_core, CreateSessionRequest, LaunchPolicySnapshot,
         SessionEngine,
     };
 

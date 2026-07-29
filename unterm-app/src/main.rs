@@ -30,8 +30,8 @@ mod topbar;
 mod select;
 mod terminal;
 mod window;
+mod window_buttons;
 
-use unterm_engine::next_core::config;
 
 fn main() -> anyhow::Result<()> {
     env_logger::Builder::from_env(

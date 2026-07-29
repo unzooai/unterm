@@ -40,6 +40,10 @@ pub struct Chrome {
 /// From the terminal's background rather than a fixed grey, which is what
 /// makes the window read as one surface in any theme -- and what the old
 /// design document called out as the bug when it did not.
+///
+/// Not yet drawn: the bars that use it are being ported one at a time, and
+/// this is the piece they all stand on.
+#[allow(dead_code)]
 pub fn chrome(background: [f32; 4], foreground: [f32; 4]) -> Chrome {
     let is_light = is_light_surface(background);
 
@@ -79,6 +83,7 @@ pub fn chrome(background: [f32; 4], foreground: [f32; 4]) -> Chrome {
 }
 
 /// Whether a background counts as a light one.
+#[allow(dead_code)]
 pub fn is_light_surface(background: [f32; 4]) -> bool {
     luma(to_linear(background)) > 0.48
 }

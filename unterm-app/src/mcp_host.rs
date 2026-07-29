@@ -119,8 +119,6 @@ impl McpHost for AppMcpHost {
         pid: Option<u32>,
         include_base64: bool,
     ) -> Result<Value> {
-        use base64::Engine as _;
-
         let shot = unterm_services::window_capture::capture_window(title, pid)?;
         write_capture(shot, include_base64)
     }
