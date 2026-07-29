@@ -31,6 +31,8 @@ pub enum Command {
     Browse { path: String, then: BrowseThen },
     /// Switch to a named theme.
     ApplyTheme { id: String },
+    /// Type a character at the prompt, and remember that it was picked.
+    TypeCharacter { glyph: String, name: String },
     /// Send a crew of agents at the task that has been typed.
     LaunchFleet { agents: Vec<String> },
 }
@@ -67,6 +69,14 @@ pub enum Source {
     /// rows are crews. Narrowing them by what has been typed would empty the
     /// list on the first word of the task.
     Text,
+    /// Characters, matched again on every keystroke.
+    ///
+    /// Asked again rather than narrowed for the same reason as directories,
+    /// but a different one underneath: there are thousands of them, and only
+    /// the top of the list is ever drawn. Handing the palette all of them and
+    /// letting it score them on every keystroke is thousands of comparisons
+    /// per letter for rows nobody sees.
+    Characters,
     /// Directories, asked for again on every keystroke.
     ///
     /// It has to be asked again, because typing a path names a place nothing
@@ -118,6 +128,13 @@ impl Palette {
     pub fn browsing(entries: Vec<Entry>) -> Self {
         let mut palette = Self::new(entries);
         palette.source = Source::Directories;
+        palette
+    }
+
+    /// A palette of characters, matched again as the query changes.
+    pub fn characters(entries: Vec<Entry>) -> Self {
+        let mut palette = Self::new(entries);
+        palette.source = Source::Characters;
         palette
     }
 

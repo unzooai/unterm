@@ -287,5 +287,6 @@
   "cockpit.fleet_no_agents": "未安裝任何 agent CLI",
   "menu.fleet_launch": "啟動小隊…",
   "cockpit.fleet_no_task": "先寫下任務",
-  "menu.tree_sidebar": "檔案樹"
+  "menu.tree_sidebar": "檔案樹",
+  "menu.char_select": "插入字元…"
 }

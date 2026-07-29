@@ -818,6 +818,35 @@ impl App {
     }
 
     /// Draw the strip, if it is open.
+    /// The characters that match what has been typed.
+    ///
+    /// Built fresh each time rather than held: the whole list is thousands of
+    /// rows, and only the top of it is ever drawn.
+    fn character_entries(&self, query: &str) -> Vec<crate::palette::Entry> {
+        let all = crate::charselect::choices();
+        crate::charselect::matching(&all, query, crate::palette::MAX_ROWS)
+            .into_iter()
+            .map(|choice| crate::palette::Entry {
+                label: format!("{}  {}", choice.glyph, choice.name),
+                hint: choice.group.heading().to_string(),
+                command: crate::palette::Command::TypeCharacter {
+                    glyph: choice.glyph,
+                    name: choice.name.into_owned(),
+                },
+            })
+            .collect()
+    }
+
+    /// Type a character at the prompt, and remember it was picked.
+    fn type_character(&mut self, glyph: &str, name: &str) {
+        let Some(live) = self.state.as_ref() else {
+            return;
+        };
+        let _ = self.engine.write_input(live.session_id, glyph);
+        crate::charselect::remember(glyph, name);
+        self.drawn_revision = None;
+    }
+
     /// Open or close the file tree.
     ///
     /// It takes the left dock, and the tab strip gives it up: two strips
@@ -901,10 +930,16 @@ impl App {
         let foreground = self.colors.foreground;
         let visible = (height / metrics.height).floor().max(1.0) as usize;
 
+        // Follow the pane. A tree still rooted where the shell used to be is
+        // a tree of somewhere else, and nothing on screen says so.
+        let here = self.current_directory();
         let rows = {
             let Some(tree) = self.tree.as_mut() else {
                 return;
             };
+            if let Some(here) = here {
+                tree.go_to(here);
+            }
             tree.refresh();
             // Never scrolled past the end: a tree showing nothing looks like a
             // tree that failed to read the disk.
@@ -1500,6 +1535,11 @@ impl App {
             Action::NewWindow => self.new_window(),
             Action::ClosePane => self.close_pane(session_id),
             Action::ZoomPane => self.toggle_zoom(session_id),
+            Action::CharSelect => {
+                let entries = self.character_entries("");
+                self.palette = Some(crate::palette::Palette::characters(entries));
+                self.drawn_revision = None;
+            }
             Action::TreeSidebar => self.toggle_tree(),
             Action::FleetLaunch => {
                 let entries = self.fleet_entries();
@@ -2526,6 +2566,11 @@ impl App {
             // Only with something to choose between: a selector over one pane
             // is a letter you press to stay where you already are.
             crate::palette::Entry {
+                label: t("menu.char_select"),
+                hint: "CTRL|SHIFT U".to_string(),
+                command: crate::palette::Command::Action(crate::keys::Action::CharSelect),
+            },
+            crate::palette::Entry {
                 label: t("menu.tree_sidebar"),
                 hint: "CTRL|SHIFT B".to_string(),
                 command: crate::palette::Command::Action(crate::keys::Action::TreeSidebar),
@@ -2635,6 +2680,10 @@ impl App {
             crate::palette::Source::Text => palette.error = None,
             crate::palette::Source::Directories => {
                 let rows = self.dir_jump_entries(&palette.query);
+                palette.replace_entries(rows);
+            }
+            crate::palette::Source::Characters => {
+                let rows = self.character_entries(&palette.query);
                 palette.replace_entries(rows);
             }
         }
@@ -2785,6 +2834,9 @@ impl App {
             crate::palette::Command::ExportSession => self.export_session(),
             crate::palette::Command::OpenSettings => self.open_settings(),
             crate::palette::Command::ApplyTheme { id } => self.apply_theme(&id),
+            crate::palette::Command::TypeCharacter { glyph, name } => {
+                self.type_character(&glyph, &name)
+            }
             crate::palette::Command::LaunchFleet { agents } => {
                 self.launch_fleet(agents, task.trim().to_string())
             }

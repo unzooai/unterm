@@ -1,0 +1,64 @@
+{
+  "device_id": "cdad3d78-e508-44a4-a7f4-9f2d1793a0e8",
+  "device_label": "Windows",
+  "saved_at": 1785351300,
+  "active_index": 7,
+  "tabs": [
+    {
+      "file_path": null,
+      "file_name": "Untitled.md",
+      "cursor_line": null,
+      "cursor_col": null,
+      "rel_path": null
+    },
+    {
+      "file_path": "D:\\dian\\test\\20210\\交付物\\01_测试执行清单.md",
+      "file_name": "01_测试执行清单.md",
+      "cursor_line": null,
+      "cursor_col": null,
+      "rel_path": null
+    },
+    {
+      "file_path": null,
+      "file_name": "Untitled.md",
+      "cursor_line": null,
+      "cursor_col": null,
+      "rel_path": null
+    },
+    {
+      "file_path": null,
+      "file_name": "Untitled.md",
+      "cursor_line": null,
+      "cursor_col": null,
+      "rel_path": null
+    },
+    {
+      "file_path": "D:\\PM\\doaipm\\src\\content\\blog\\zh\\a-terminal-for-ai.md",
+      "file_name": "a-terminal-for-ai.md",
+      "cursor_line": null,
+      "cursor_col": null,
+      "rel_path": null
+    },
+    {
+      "file_path": null,
+      "file_name": "Untitled.md",
+      "cursor_line": null,
+      "cursor_col": null,
+      "rel_path": null
+    },
+    {
+      "file_path": "D:\\PM\\doaipm-course\\manual\\01-从一句话到规格.md",
+      "file_name": "01-从一句话到规格.md",
+      "cursor_line": null,
+      "cursor_col": null,
+      "rel_path": null
+    },
+    {
+      "file_path": "D:\\code\\unterm\\ci\\README.md",
+      "file_name": "README.md",
+      "cursor_line": null,
+      "cursor_col": null,
+      "rel_path": "README.md"
+    }
+  ]
+}

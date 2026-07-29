@@ -287,5 +287,6 @@
   "cockpit.fleet_no_agents": "कोई agent CLI स्थापित नहीं",
   "menu.fleet_launch": "क्रू शुरू करें…",
   "cockpit.fleet_no_task": "पहले कार्य लिखें",
-  "menu.tree_sidebar": "फ़ाइल ट्री"
+  "menu.tree_sidebar": "फ़ाइल ट्री",
+  "menu.char_select": "वर्ण डालें…"
 }

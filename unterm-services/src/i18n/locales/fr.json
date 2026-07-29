@@ -287,5 +287,6 @@
   "cockpit.fleet_no_agents": "Aucune CLI d'agent installée",
   "menu.fleet_launch": "Lancer l'équipe…",
   "cockpit.fleet_no_task": "Écrivez d'abord la tâche",
-  "menu.tree_sidebar": "Arborescence"
+  "menu.tree_sidebar": "Arborescence",
+  "menu.char_select": "Insérer un caractère…"
 }

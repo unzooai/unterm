@@ -60,6 +60,8 @@ pub enum Action {
     NewWindow,
     ClosePane,
     ZoomPane,
+    /// Find a character by its name and type it.
+    CharSelect,
     /// Show the files under the pane's directory, down the left edge.
     TreeSidebar,
     /// Send a crew of agents at one task, each in its own worktree.
@@ -109,6 +111,7 @@ impl Action {
             Action::NewWindow => "NewWindow",
             Action::ClosePane => "ClosePane",
             Action::ZoomPane => "ZoomPane",
+            Action::CharSelect => "CharSelect",
             Action::TreeSidebar => "TreeSidebar",
             Action::FleetLaunch => "FleetLaunch",
             Action::ClearScrollback => "ClearScrollback",
@@ -167,6 +170,7 @@ impl Action {
             Action::NewWindow => "New Window",
             Action::ClosePane => "Close Pane",
             Action::ZoomPane => "Zoom Pane",
+            Action::CharSelect => "Insert Character",
             Action::TreeSidebar => "File Tree",
             Action::FleetLaunch => "Launch Fleet",
             Action::ClearScrollback => "Clear Scrollback",
@@ -406,6 +410,12 @@ pub const BINDINGS: &[Binding] = &[
         mods: CTRL_SHIFT,
         trigger: Trigger::Char('b'),
         action: Action::TreeSidebar,
+    },
+    // The character picker, on the letter the previous front end used.
+    Binding {
+        mods: CTRL_SHIFT,
+        trigger: Trigger::Char('u'),
+        action: Action::CharSelect,
     },
     // A crew of agents on one task, each in its own worktree. On the letter
     // the cockpit already uses for itself.

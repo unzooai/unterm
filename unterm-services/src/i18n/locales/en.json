@@ -554,5 +554,6 @@
   "cockpit.fleet_launching": "Launching the crew…",
   "cockpit.fleet_no_agents": "No agent CLIs are installed",
   "menu.fleet_launch": "Launch Fleet…",
-  "cockpit.fleet_no_task": "Write the task first"
+  "cockpit.fleet_no_task": "Write the task first",
+  "menu.char_select": "Insert Character…"
 }

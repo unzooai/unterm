@@ -1462,6 +1462,24 @@ $Suites = @(
         )
     },
     @{
+        # A terminal is the one place the system emoji picker is no use: it
+        # types into a text field, and there is no text field here.
+        Name = "character picker"
+        Package = "unterm-app"
+        Filter = "charselect::picker_tests::"
+        ExpectedCount = 11
+        RequiredTests = @(
+            "charselect::picker_tests::a_name_finds_its_character",
+            "charselect::picker_tests::separate_words_match_in_order",
+            "charselect::picker_tests::words_out_of_order_do_not_match",
+            "charselect::picker_tests::a_word_boundary_beats_the_middle_of_a_word",
+            "charselect::picker_tests::the_characters_with_no_keys_are_all_there",
+            "charselect::picker_tests::emoji_are_offered_by_name_and_by_shortcode",
+            "charselect::picker_tests::every_offer_types_something",
+            "charselect::picker_tests::something_used_often_outranks_something_used_once"
+        )
+    },
+    @{
         Name = "viewport scroll end to end"
         Package = "unterm-engine"
         Filter = "next_core::tests::relative_viewport_scroll_steps_and_resumes_following"

@@ -287,5 +287,6 @@
   "cockpit.fleet_no_agents": "설치된 agent CLI 없음",
   "menu.fleet_launch": "팀 시작…",
   "cockpit.fleet_no_task": "먼저 작업을 적으세요",
-  "menu.tree_sidebar": "파일 트리"
+  "menu.tree_sidebar": "파일 트리",
+  "menu.char_select": "문자 삽입…"
 }
