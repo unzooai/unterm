@@ -315,6 +315,34 @@ $Suites = @(
         )
     },
     @{
+        # A palette that finds the wrong row is worse than no palette: the
+        # order it puts matches in is the whole feature.
+        Name = "app command palette"
+        Package = "unterm-app"
+        Filter = "palette::tests::"
+        ExpectedCount = 12
+        RequiredTests = @(
+            "palette::tests::initials_find_the_command_they_stand_for",
+            "palette::tests::consecutive_letters_beat_scattered_ones",
+            "palette::tests::an_exact_command_beats_one_that_merely_contains_it",
+            "palette::tests::the_palette_takes_the_keyboard_while_it_is_open"
+        )
+    },
+    @{
+        # The rows themselves: built from the key table so a chord and a
+        # palette row cannot drift, and probed so the launcher never offers a
+        # shell this machine does not have.
+        Name = "app palette rows"
+        Package = "unterm-app"
+        Filter = "window::palette_entry_tests::"
+        ExpectedCount = 3
+        RequiredTests = @(
+            "window::palette_entry_tests::the_palette_lists_what_the_keys_do",
+            "window::palette_entry_tests::the_launcher_offers_only_shells_that_exist",
+            "window::palette_entry_tests::this_machine_has_at_least_one_shell_to_offer"
+        )
+    },
+    @{
         # Scrollbar arithmetic. Every one of these is off by a bit until
         # someone drags to the very bottom and checks.
         Name = "app scrollbar"

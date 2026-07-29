@@ -10,6 +10,10 @@ use winit::keyboard::{Key, NamedKey};
 
 /// Something the front end does in response to a key, rather than sending it
 /// to the shell.
+///
+/// Also the command palette's rows: an action a key can reach is an action a
+/// palette should list, and keeping them one list is what stops the two from
+/// drifting apart.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
     Copy,
@@ -23,6 +27,8 @@ pub enum Action {
     PreviousTab,
     CloseTab,
     Search,
+    CommandPalette,
+    Launcher,
 }
 
 impl Action {
@@ -40,6 +46,32 @@ impl Action {
             Action::PreviousTab => "PreviousTab",
             Action::CloseTab => "CloseTab",
             Action::Search => "Search",
+            Action::CommandPalette => "CommandPalette",
+            Action::Launcher => "Launcher",
+        }
+    }
+}
+
+impl Action {
+    /// What the palette calls this.
+    ///
+    /// Separate from `name()`, which is the stable identifier an agent sees:
+    /// renaming a row in the UI should not change what a script matches on.
+    pub fn label(self) -> &'static str {
+        match self {
+            Action::Copy => "Copy",
+            Action::Paste => "Paste",
+            Action::SplitRight => "Split Right",
+            Action::SplitDown => "Split Down",
+            Action::ScrollPageUp => "Scroll Page Up",
+            Action::ScrollPageDown => "Scroll Page Down",
+            Action::NewTab => "New Tab",
+            Action::NextTab => "Next Tab",
+            Action::PreviousTab => "Previous Tab",
+            Action::CloseTab => "Close Tab",
+            Action::Search => "Search",
+            Action::CommandPalette => "Command Palette",
+            Action::Launcher => "New Tab With...",
         }
     }
 }
@@ -157,6 +189,16 @@ pub const BINDINGS: &[Binding] = &[
         mods: CTRL_SHIFT,
         trigger: Trigger::Char('f'),
         action: Action::Search,
+    },
+    Binding {
+        mods: CTRL_SHIFT,
+        trigger: Trigger::Char('p'),
+        action: Action::CommandPalette,
+    },
+    Binding {
+        mods: CTRL_SHIFT,
+        trigger: Trigger::Char('n'),
+        action: Action::Launcher,
     },
     // Ctrl+Tab cycles, Ctrl+Shift+Tab cycles back -- the pair every tabbed
     // application uses. Plain Tab still belongs to the shell's completion.

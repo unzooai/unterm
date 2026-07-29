@@ -11,6 +11,7 @@ mod keys;
 mod links;
 mod mcp_host;
 mod mouse;
+mod palette;
 mod panes;
 mod scroll;
 mod scrollbar;

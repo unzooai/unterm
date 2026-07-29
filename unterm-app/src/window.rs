@@ -17,6 +17,12 @@ const MAX_SEARCH_MATCHES: usize = 500;
 ///
 /// Long enough to notice out of the corner of an eye, short enough that a
 /// program ringing repeatedly does not leave the screen washed out.
+/// How many rows the palette shows at once.
+///
+/// Enough to choose from, few enough that it does not become the window. A
+/// query that narrows the list is the way to reach the rest.
+const MAX_PALETTE_ROWS: usize = 12;
+
 const BELL_FLASH: std::time::Duration = std::time::Duration::from_millis(120);
 use anyhow::Context;
 use std::sync::Arc;
@@ -76,6 +82,8 @@ pub struct App {
     bell_at: Option<std::time::Instant>,
     /// True while a drag is holding the scrollbar's thumb.
     dragging_scrollbar: bool,
+    /// The open command palette or launcher, if there is one.
+    palette: Option<crate::palette::Palette>,
     /// What the program wants from the mouse, as of the last frame drawn.
     ///
     /// Cached rather than read per event: a motion arrives a hundred times a
@@ -136,6 +144,7 @@ impl App {
             bells_seen: 0,
             bell_at: None,
             dragging_scrollbar: false,
+            palette: None,
             mouse_modes: Default::default(),
             held_mouse_button: None,
             alt_held: false,
@@ -278,6 +287,7 @@ impl App {
         self.append_hovered_link(&mut quads);
         self.append_preedit(&mut quads);
         self.append_search_bar(window_width, &mut quads);
+        self.append_palette(window_width, &mut quads);
         let tab_count = self.tabs.tab_count();
         let active_tab = self
             .tab_id
@@ -581,6 +591,8 @@ impl App {
                 self.split(unterm_engine::next_core::layout::SplitAxis::Horizontal)
             }
             Action::SplitDown => self.split(unterm_engine::next_core::layout::SplitAxis::Vertical),
+            Action::CommandPalette => self.open_palette(command_entries()),
+            Action::Launcher => self.open_palette(launcher_entries()),
             Action::Search => {
                 self.search = Some(crate::search::Search::default());
                 self.drawn_revision = None;
@@ -689,8 +701,94 @@ impl App {
         self.drawn_revision = None;
     }
 
+    /// Open the palette on a set of rows.
+    fn open_palette(&mut self, entries: Vec<crate::palette::Entry>) {
+        self.palette = Some(crate::palette::Palette::new(entries));
+        self.drawn_revision = None;
+    }
+
+    /// Type into the open palette. Returns true when the key was the palette's.
+    fn handle_palette_key(&mut self, event: &winit::event::KeyEvent) -> bool {
+        use winit::keyboard::Key as WinitKey;
+        let Some(mut palette) = self.palette.take() else {
+            return false;
+        };
+        let named = match &event.logical_key {
+            WinitKey::Named(named) => Some(format!("{named:?}")),
+            _ => None,
+        };
+        let character = match &event.logical_key {
+            WinitKey::Character(text) => Some(text.to_string()),
+            _ => None,
+        };
+
+        let mut keep = true;
+        match crate::palette::key_for(named.as_deref(), character.as_deref(), self.ctrl_held) {
+            crate::palette::Key::Close => keep = false,
+            crate::palette::Key::Step(delta) => palette.step(delta),
+            crate::palette::Key::Backspace => {
+                palette.query.pop();
+                palette.refilter();
+            }
+            crate::palette::Key::Type(text) => {
+                palette.query.push_str(&text);
+                palette.refilter();
+            }
+            crate::palette::Key::Accept => {
+                keep = false;
+                if let Some(entry) = palette.current().cloned() {
+                    self.run_palette_command(entry.command);
+                }
+            }
+            // Nothing reaches the shell while the palette is open: a
+            // keystroke through it would run in the pane behind.
+            crate::palette::Key::NotOurs => {}
+        }
+
+        if keep {
+            self.palette = Some(palette);
+        }
+        self.drawn_revision = None;
+        if let Some(live) = self.state.as_ref() {
+            live.window.request_redraw();
+        }
+        true
+    }
+
+    fn run_palette_command(&mut self, command: crate::palette::Command) {
+        match command {
+            crate::palette::Command::Action(action) => {
+                let session_id = self.state.as_ref().map(|live| live.session_id);
+                if let Some(session_id) = session_id {
+                    self.run_key_action(action, session_id);
+                }
+            }
+            crate::palette::Command::Launch { program } => self.new_tab_running(&program),
+        }
+    }
+
+    /// Open a tab running a named program.
+    fn new_tab_running(&mut self, program: &str) {
+        let mut command = portable_pty::CommandBuilder::new(program);
+        // The same encoding treatment a configured shell gets: a launcher
+        // that starts a shell which writes its console codepage produces a
+        // tab full of boxes, and the user picked it from a list rather than
+        // typing it, so they have nothing to blame it on.
+        let mut shell = Some(command.clone());
+        unterm_services::launch_env::apply_unterm_windows_utf8(&mut shell);
+        if let Some(rewritten) = shell {
+            command = rewritten;
+        }
+        self.open_tab_with(Some(command));
+    }
+
     /// Open a tab, with a shell of its own.
     fn new_tab(&mut self) {
+        let shell = self.shell.clone();
+        self.open_tab_with(shell);
+    }
+
+    fn open_tab_with(&mut self, command: Option<portable_pty::CommandBuilder>) {
         let Some(live) = self.state.as_ref() else {
             return;
         };
@@ -699,7 +797,7 @@ impl App {
             cols,
             rows,
             command_dir: None,
-            command: self.shell.clone(),
+            command,
             env: Vec::new(),
             launch_policy: LaunchPolicySnapshot::default(),
         }) {
@@ -939,6 +1037,89 @@ impl App {
             live.window.request_redraw();
         }
         true
+    }
+
+    /// The command palette, centred over the terminal.
+    ///
+    /// Drawn last so it sits over everything, and opaque so the text behind it
+    /// cannot be mistaken for one of its rows.
+    fn append_palette(
+        &mut self,
+        window_width: f32,
+        quads: &mut unterm_render::quads::FrameQuads,
+    ) {
+        let Some(palette) = self.palette.as_ref() else {
+            return;
+        };
+        let metrics = self.font.metrics();
+        let rows: Vec<(String, bool)> = palette
+            .visible()
+            .iter()
+            .take(MAX_PALETTE_ROWS)
+            .enumerate()
+            .map(|(index, entry)| {
+                let hint = if entry.hint.is_empty() {
+                    String::new()
+                } else {
+                    format!("   {}", entry.hint)
+                };
+                (format!("{}{hint}", entry.label), index == palette.selected)
+            })
+            .collect();
+
+        let width = (window_width * 0.6).max(metrics.width * 24.0).min(window_width);
+        let left = ((window_width - width) / 2.0).max(0.0);
+        let top = metrics.height * 2.0;
+        let height = metrics.height * (rows.len() + 1) as f32;
+
+        quads.backgrounds.push(unterm_render::quads::Quad {
+            left,
+            top,
+            width,
+            height,
+            color: mix(self.colors.background, self.colors.foreground, 0.10),
+        });
+
+        // The query line, with a caret so an empty palette still looks like
+        // something you type into.
+        let query = format!("> {}", palette.query);
+        let foreground = self.colors.foreground;
+        crate::terminal::append_text(
+            &query,
+            &mut self.font,
+            &mut self.atlas,
+            foreground,
+            (left + metrics.width, top),
+            quads,
+        );
+        quads.backgrounds.push(unterm_render::quads::Quad {
+            left: left + metrics.width * (query.chars().count() + 1) as f32,
+            top,
+            width: (metrics.width * 0.15).max(1.0),
+            height: metrics.height,
+            color: foreground,
+        });
+
+        for (index, (text, selected)) in rows.iter().enumerate() {
+            let row_top = top + metrics.height * (index + 1) as f32;
+            if *selected {
+                quads.backgrounds.push(unterm_render::quads::Quad {
+                    left,
+                    top: row_top,
+                    width,
+                    height: metrics.height,
+                    color: mix(self.colors.background, self.colors.foreground, 0.30),
+                });
+            }
+            crate::terminal::append_text(
+                text,
+                &mut self.font,
+                &mut self.atlas,
+                foreground,
+                (left + metrics.width, row_top),
+                quads,
+            );
+        }
     }
 
     /// The search bar, along the bottom.
@@ -1341,6 +1522,12 @@ impl ApplicationHandler for App {
                 }
 
                 use winit::keyboard::Key;
+
+                // The palette takes the keyboard while it is open, before
+                // anything else looks at the key.
+                if self.palette.is_some() && self.handle_palette_key(&event) {
+                    return;
+                }
 
                 // A search takes the keyboard while it is open: the letters
                 // typed are the pattern, not input for the shell.
@@ -1782,3 +1969,124 @@ fn append_confirmation_banner(
 
 }
 
+/// The palette's rows: every action a key can reach.
+///
+/// Built from the same table the keys use, so a chord and a palette row
+/// cannot drift apart -- and the chord is shown as the hint, which is how a
+/// palette teaches the keyboard.
+fn command_entries() -> Vec<crate::palette::Entry> {
+    crate::keys::BINDINGS
+        .iter()
+        .map(|binding| crate::palette::Entry {
+            label: binding.action.label().to_string(),
+            hint: format!("{} {}", binding.mods.name(), binding.trigger.name()),
+            command: crate::palette::Command::Action(binding.action),
+        })
+        .collect()
+}
+
+/// The launcher's rows: the shells this machine actually has.
+///
+/// Probed rather than listed: offering a shell that is not installed is a row
+/// that opens an empty tab and an error in a log the user will not read.
+fn launcher_entries() -> Vec<crate::palette::Entry> {
+    const CANDIDATES: &[(&str, &str)] = &[
+        ("pwsh.exe", "PowerShell 7"),
+        ("powershell.exe", "Windows PowerShell"),
+        ("cmd.exe", "Command Prompt"),
+        ("wsl.exe", "WSL"),
+        ("bash", "Bash"),
+        ("zsh", "Zsh"),
+        ("fish", "Fish"),
+        ("nu", "Nushell"),
+    ];
+    CANDIDATES
+        .iter()
+        .filter(|(program, _)| which(program).is_some())
+        .map(|(program, description)| crate::palette::Entry {
+            label: program.to_string(),
+            hint: description.to_string(),
+            command: crate::palette::Command::Launch {
+                program: program.to_string(),
+            },
+        })
+        .collect()
+}
+
+/// Where a program is, if it is anywhere on PATH.
+fn which(program: &str) -> Option<std::path::PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    let extensions: Vec<String> = if cfg!(windows) {
+        std::env::var("PATHEXT")
+            .unwrap_or_else(|_| ".EXE".to_string())
+            .split(';')
+            .map(|ext| ext.to_lowercase())
+            .collect()
+    } else {
+        vec![String::new()]
+    };
+    for directory in std::env::split_paths(&path) {
+        let candidate = directory.join(program);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+        // A name without its extension, which is how everyone writes them.
+        for extension in &extensions {
+            let candidate = directory.join(format!("{program}{extension}"));
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod palette_entry_tests {
+    use super::*;
+
+    /// The palette lists every key action, with the chord that reaches it.
+    ///
+    /// Built from the key table rather than a second list, so a chord and a
+    /// palette row cannot drift apart -- and showing the chord is how a
+    /// palette teaches the keyboard.
+    #[test]
+    fn the_palette_lists_what_the_keys_do() {
+        let entries = command_entries();
+        assert_eq!(entries.len(), crate::keys::BINDINGS.len());
+        for (entry, binding) in entries.iter().zip(crate::keys::BINDINGS) {
+            assert_eq!(entry.label, binding.action.label());
+            assert!(
+                entry.hint.contains(&binding.trigger.name()),
+                "{} should show the chord that reaches it",
+                entry.label
+            );
+        }
+    }
+
+    /// The launcher offers shells this machine has, and only those.
+    ///
+    /// A row for a shell that is not installed opens an empty tab and writes
+    /// an error to a log nobody reads.
+    #[test]
+    fn the_launcher_offers_only_shells_that_exist() {
+        for entry in launcher_entries() {
+            let crate::palette::Command::Launch { program } = &entry.command else {
+                panic!("a launcher row should launch something");
+            };
+            assert!(
+                which(program).is_some(),
+                "{program} is offered but not installed"
+            );
+        }
+    }
+
+    #[test]
+    fn this_machine_has_at_least_one_shell_to_offer() {
+        // An empty launcher is indistinguishable from a broken one.
+        assert!(
+            !launcher_entries().is_empty(),
+            "no shell found on PATH; the launcher would open on an empty list"
+        );
+    }
+}
