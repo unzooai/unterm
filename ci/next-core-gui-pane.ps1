@@ -636,6 +636,26 @@ $Suites = @(
         )
     },
     @{
+        # Jump to a directory by typing part of its name. The parts with
+        # reasons that are not visible from the code came across verbatim:
+        # the scan's limits, the directories it refuses to walk into, and the
+        # Windows rules for a typed path.
+        Name = "directory jump"
+        Package = "unterm-app"
+        Filter = "dir_jump::tests::"
+        ExpectedCount = 15
+        RequiredTests = @(
+            "dir_jump::tests::a_bare_drive_is_promoted_to_its_root",
+            "dir_jump::tests::a_parent_that_is_a_drive_keeps_its_slash",
+            "dir_jump::tests::backslashes_split_like_slashes",
+            "dir_jump::tests::a_drive_or_a_share_is_a_path_too",
+            "dir_jump::tests::matching_finds_characters_in_order_anywhere",
+            "dir_jump::tests::the_scan_is_bounded_in_both_directions",
+            "dir_jump::tests::the_directories_nobody_navigates_to_are_skipped",
+            "dir_jump::tests::a_directory_that_cannot_be_read_lists_nothing_rather_than_failing"
+        )
+    },
+    @{
         # Picking a folder without a folder dialog. A native picker differs on
         # every platform, and parity here is a correctness property -- so the
         # picker is the palette.

@@ -1249,6 +1249,10 @@ impl App {
                 self.drawn_revision = None;
             }
             Action::GitPanel => self.toggle_git_panel(),
+            Action::DirJump => {
+                let entries = self.dir_jump_entries();
+                self.open_palette(entries);
+            }
             Action::LeftTabBar => {
                 self.sidebar_open = !self.sidebar_open;
                 self.resize_panes();
@@ -2169,6 +2173,38 @@ impl App {
         self.drawn_revision = None;
     }
 
+    /// The rows for jumping to a directory.
+    ///
+    /// Everything at once -- what is under here, what was open before, and the
+    /// machine's drives -- because the palette filters as you type and the
+    /// point of this picker is not knowing which of the three it is in.
+    fn dir_jump_entries(&self) -> Vec<crate::palette::Entry> {
+        let here = self
+            .current_directory()
+            .unwrap_or_else(|| std::path::PathBuf::from("."));
+
+        let mut found = crate::dir_jump::subdirectories(&here);
+        found.extend(crate::dir_jump::deep_scan(&here));
+        found.extend(crate::dir_jump::recents());
+        found.extend(crate::dir_jump::locations());
+
+        let mut entries = vec![crate::palette::Entry {
+            label: unterm_services::i18n::t("dirjump.here"),
+            hint: here.display().to_string(),
+            command: crate::palette::Command::ChangeDirectory {
+                path: here.display().to_string(),
+            },
+        }];
+        entries.extend(found.into_iter().map(|entry| crate::palette::Entry {
+            label: entry.label,
+            hint: entry.section.heading(),
+            command: crate::palette::Command::ChangeDirectory {
+                path: entry.path.display().to_string(),
+            },
+        }));
+        entries
+    }
+
     /// The rows behind the status bar's triangle.
     fn quick_entries(&self) -> Vec<crate::palette::Entry> {
         let here = self
@@ -2220,6 +2256,11 @@ impl App {
                 label: t("settings.menu.export_session"),
                 hint: t("settings.menu.export_session.hint"),
                 command: crate::palette::Command::ExportSession,
+            },
+            crate::palette::Entry {
+                label: unterm_services::i18n::t("menu.dir_jump"),
+                hint: unterm_services::i18n::t("dirjump.placeholder"),
+                command: crate::palette::Command::Action(crate::keys::Action::DirJump),
             },
             crate::palette::Entry {
                 label: unterm_services::i18n::t("menu.left_tabs"),
