@@ -828,7 +828,17 @@ impl App {
 
         let rows = self.sidebar_rows();
         let visible = (height / metrics.height).floor().max(1.0) as usize;
-        let scroll = crate::sidebar::clamp_scroll(self.sidebar_scroll, rows.len(), visible);
+        // Follow the selection. A strip longer than the window that stays put
+        // while tabs are switched shows a list with nothing selected in it,
+        // which reads as the strip having lost track rather than as the
+        // selection being further down.
+        let mut scroll = self.sidebar_scroll;
+        if let Some(active) = rows.iter().position(
+            |row| matches!(row, crate::sidebar::Row::Tab { active: true, .. }),
+        ) {
+            scroll = crate::sidebar::scroll_to_show(scroll, active, visible);
+        }
+        let scroll = crate::sidebar::clamp_scroll(scroll, rows.len(), visible);
 
         for (offset, row) in rows.iter().skip(scroll).take(visible).enumerate() {
             let row_top = top + offset as f32 * metrics.height;
@@ -1010,24 +1020,27 @@ impl App {
     /// The empty parts drag the window, which is the first thing anyone tries
     /// on a window with no title bar -- and the last thing they find missing.
     fn click_top_bar(&mut self) -> bool {
-        let Some(item) = self.hovered_top_bar_item() else {
-            // Above the terminal but on nothing: a handle.
-            let metrics = self.font.metrics();
-            if self.pointer.1 < metrics.height * crate::topbar::ROWS as f32 {
-                if let Some(live) = self.state.as_ref() {
-                    let _ = live.window.drag_window();
-                }
-                return true;
-            }
+        let metrics = self.font.metrics();
+        if self.pointer.1 >= metrics.height * crate::topbar::ROWS as f32 {
             return false;
+        }
+        // What is a handle is the bar's own question to answer -- the same
+        // list that decided where things were drawn. Deciding it again here
+        // is how a piece comes to be drawn in one place and grabbed in
+        // another.
+        if self.pointer_is_on_a_drag_handle() {
+            if let Some(live) = self.state.as_ref() {
+                let _ = live.window.drag_window();
+            }
+            return true;
+        }
+        let Some(item) = self.hovered_top_bar_item() else {
+            return true;
         };
 
         match item {
-            crate::topbar::Item::Wordmark | crate::topbar::Item::Stats => {
-                if let Some(live) = self.state.as_ref() {
-                    let _ = live.window.drag_window();
-                }
-            }
+            // Both of these are handles, and were taken above.
+            crate::topbar::Item::Wordmark | crate::topbar::Item::Stats => {}
             crate::topbar::Item::Tab(index) => self.select_tab(index as u8 + 1),
             crate::topbar::Item::NewTab => self.new_tab(),
             crate::topbar::Item::Menu => {
@@ -1061,8 +1074,10 @@ impl App {
         true
     }
 
-    /// Which piece of the top bar the pointer is over.
-    fn hovered_top_bar_item(&self) -> Option<crate::topbar::Item> {
+    /// The bar as it is drawn right now, and which column the pointer is in.
+    ///
+    /// One place, so what is hit is always what was drawn.
+    fn top_bar_under_pointer(&self) -> Option<(Vec<crate::topbar::Placed>, usize)> {
         let metrics = self.font.metrics();
         if self.pointer.1 >= metrics.height * crate::topbar::ROWS as f32 {
             return None;
@@ -1076,7 +1091,20 @@ impl App {
             columns,
             &self.stats_line(live.width as f32),
         );
+        Some((bar, column))
+    }
+
+    /// Which piece of the top bar the pointer is over.
+    fn hovered_top_bar_item(&self) -> Option<crate::topbar::Item> {
+        let (bar, column) = self.top_bar_under_pointer()?;
         crate::topbar::hit(&bar, column)
+    }
+
+    /// Whether a press here should drag the window rather than do something.
+    fn pointer_is_on_a_drag_handle(&self) -> bool {
+        self.top_bar_under_pointer()
+            .map(|(bar, column)| crate::topbar::is_drag_handle(&bar, column))
+            .unwrap_or(false)
     }
 
     fn append_scrollbar(&mut self, quads: &mut unterm_render::quads::FrameQuads) {
@@ -1286,8 +1314,8 @@ impl App {
             }
             Action::GitPanel => self.toggle_git_panel(),
             Action::DirJump => {
-                let entries = self.dir_jump_entries();
-                self.open_palette(entries);
+                let entries = self.dir_jump_entries("");
+                self.open_browser(entries);
             }
             Action::LeftTabBar => {
                 self.sidebar_open = !self.sidebar_open;
@@ -1714,7 +1742,17 @@ impl App {
             WinitKey::Named(NamedKey::Backspace) => {
                 composer.typing.pop();
             }
-            WinitKey::Named(NamedKey::Escape) => self.composer = None,
+            WinitKey::Named(NamedKey::Escape) => {
+                // The queue first, the panel second. A batch someone has just
+                // written is not something one keystroke should throw away
+                // without saying so -- and the panel emptying is it saying so.
+                if composer.is_empty() {
+                    self.composer = None;
+                } else {
+                    composer.clear();
+                    composer.typing.clear();
+                }
+            }
             WinitKey::Named(NamedKey::Space) => composer.typing.push(' '),
             WinitKey::Character(text) => composer.typing.push_str(text),
             // Everything else belongs to the shell behind this: a queue is
@@ -1731,18 +1769,49 @@ impl App {
     /// waits on -- the pane going idle -- is something the frame loop already
     /// knows about.
     fn drain_composer(&mut self) {
-        let (Some(composer), Some(live)) = (self.composer.as_mut(), self.state.as_ref()) else {
-            return;
-        };
-        let idle = unterm_engine::SessionEngine::activity(&self.engine, live.session_id)
-            .map(|activity| activity.idle)
-            .unwrap_or(false);
-        let Some(prompt) = composer.take_next(idle) else {
+        let (true, Some(live)) = (self.composer.is_some(), self.state.as_ref()) else {
             return;
         };
         let session_id = live.session_id;
+        let idle = unterm_engine::SessionEngine::activity(&self.engine, session_id)
+            .map(|activity| activity.idle)
+            .unwrap_or(false);
+
+        // An agent asking permission to carry on looks exactly like an agent
+        // that has finished, and a queue that cannot tell them apart sends its
+        // next prompt as the answer to the question. So the question is
+        // answered first, and only the narrow shape of question that offers a
+        // yes as the obvious answer -- anything that mentions deleting,
+        // removing, overwriting or forcing waits for a person.
+        if idle && self.pane_is_asking_permission(session_id) {
+            let _ = self.engine.write_input(session_id, "y\r");
+            self.drawn_revision = None;
+            return;
+        }
+
+        let Some(prompt) = self
+            .composer
+            .as_mut()
+            .and_then(|composer| composer.take_next(idle))
+        else {
+            return;
+        };
         let _ = self.engine.write_input(session_id, &format!("{prompt}\r"));
         self.drawn_revision = None;
+    }
+
+    /// Whether the pane's last line is a question the composer may answer.
+    fn pane_is_asking_permission(&self, session_id: usize) -> bool {
+        let Ok(screen) = self.engine.read_screen(session_id) else {
+            return false;
+        };
+        screen
+            .lines
+            .iter()
+            .rev()
+            .find(|line| !line.trim().is_empty())
+            .map(|line| crate::composer::is_confirmation(line))
+            .unwrap_or(false)
     }
 
     /// The queue, and the line being written.
@@ -2216,30 +2285,37 @@ impl App {
     /// Everything at once -- what is under here, what was open before, and the
     /// machine's drives -- because the palette filters as you type and the
     /// point of this picker is not knowing which of the three it is in.
-    fn dir_jump_entries(&self) -> Vec<crate::palette::Entry> {
+    /// The rows for the directory jump, for what has been typed so far.
+    fn dir_jump_entries(&self, query: &str) -> Vec<crate::palette::Entry> {
         let here = self
             .current_directory()
             .unwrap_or_else(|| std::path::PathBuf::from("."));
 
-        let mut found = crate::dir_jump::subdirectories(&here);
-        found.extend(crate::dir_jump::deep_scan(&here));
-        found.extend(crate::dir_jump::recents());
-        found.extend(crate::dir_jump::locations());
-
-        let mut entries = vec![crate::palette::Entry {
-            label: unterm_services::i18n::t("dirjump.here"),
-            hint: here.display().to_string(),
-            command: crate::palette::Command::ChangeDirectory {
-                path: here.display().to_string(),
+        // Where the pane already is, first, and only while nothing has been
+        // typed: once there is a query it is a row that matches nothing and
+        // sits above the rows that do.
+        let mut entries = Vec::new();
+        if query.is_empty() {
+            entries.push(crate::palette::Entry {
+                label: unterm_services::i18n::t("dirjump.here"),
+                hint: here.display().to_string(),
+                command: crate::palette::Command::ChangeDirectory {
+                    path: here.display().to_string(),
+                },
+            });
+        }
+        entries.extend(crate::dir_jump::for_query(&here, query).into_iter().map(
+            |entry| crate::palette::Entry {
+                // The section it came from and the path it is. The section
+                // is the grouping the picker used to show as headings; the
+                // path is what tells two same-named directories apart.
+                hint: format!("{}  {}", entry.section.heading(), entry.path.display()),
+                label: entry.label,
+                command: crate::palette::Command::ChangeDirectory {
+                    path: entry.path.display().to_string(),
+                },
             },
-        }];
-        entries.extend(found.into_iter().map(|entry| crate::palette::Entry {
-            label: entry.label,
-            hint: entry.section.heading(),
-            command: crate::palette::Command::ChangeDirectory {
-                path: entry.path.display().to_string(),
-            },
-        }));
+        ));
         entries
     }
 
@@ -2333,6 +2409,27 @@ impl App {
         self.drawn_revision = None;
     }
 
+    /// Open a palette that goes and looks again as the query changes.
+    fn open_browser(&mut self, entries: Vec<crate::palette::Entry>) {
+        self.palette = Some(crate::palette::Palette::browsing(entries));
+        self.drawn_revision = None;
+    }
+
+    /// Bring a palette's rows up to date with what has been typed.
+    ///
+    /// A fixed list only narrows. A directory list is asked again, because a
+    /// typed path names a place nothing has scanned -- the scan is bounded and
+    /// the disk is not.
+    fn requery_palette(&self, palette: &mut crate::palette::Palette) {
+        match palette.source {
+            crate::palette::Source::Fixed => palette.refilter(),
+            crate::palette::Source::Directories => {
+                let rows = self.dir_jump_entries(&palette.query);
+                palette.replace_entries(rows);
+            }
+        }
+    }
+
     /// Type into the open palette. Returns true when the key was the palette's.
     fn handle_palette_key(&mut self, event: &winit::event::KeyEvent) -> bool {
         use winit::keyboard::Key as WinitKey;
@@ -2354,11 +2451,11 @@ impl App {
             crate::palette::Key::Step(delta) => palette.step(delta),
             crate::palette::Key::Backspace => {
                 palette.query.pop();
-                palette.refilter();
+                self.requery_palette(&mut palette);
             }
             crate::palette::Key::Type(text) => {
                 palette.query.push_str(&text);
-                palette.refilter();
+                self.requery_palette(&mut palette);
             }
             crate::palette::Key::Accept => {
                 keep = false;
@@ -4083,17 +4180,6 @@ mod encode_tests {
         assert_eq!(encode(&named(NamedKey::Space), plain()), Some(" ".to_string()));
         assert_eq!(encode(&named(NamedKey::Space), ctrl()), Some("\0".to_string()));
     }
-}
-
-/// A colour toned towards the background, for chrome that must not compete
-/// with the text it sits beside.
-fn dim(color: [f32; 4], weight: f32) -> [f32; 4] {
-    [
-        color[0] * weight,
-        color[1] * weight,
-        color[2] * weight,
-        color[3],
-    ]
 }
 
 #[cfg(test)]

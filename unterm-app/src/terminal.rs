@@ -169,11 +169,6 @@ impl TerminalFont {
         Ok(Self::from_face(face, &[], pixel_size))
     }
 
-    /// Open the primary face and whichever fallbacks the config names.
-    pub fn open_with_fallback(pixel_size: u32, families: &[String]) -> anyhow::Result<Self> {
-        Self::open_named(None, pixel_size, families, Shape::default())
-    }
-
     /// Open a named family, or the machine's default monospace.
     ///
     /// A name that is not installed falls back rather than refusing to start:
@@ -199,6 +194,7 @@ impl TerminalFont {
         Ok(Self::from_face_shaped(face, fallbacks, pixel_size, shape))
     }
 
+    #[cfg(test)]
     pub fn from_face(face: FontFace, fallbacks: &[String], pixel_size: u32) -> Self {
         Self::from_face_shaped(face, fallbacks, pixel_size, Shape::default())
     }

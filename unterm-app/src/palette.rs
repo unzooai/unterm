@@ -53,6 +53,22 @@ pub struct Entry {
     pub command: Command,
 }
 
+/// Where a palette's rows come from.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Source {
+    /// A list settled when the palette opened. Typing narrows it.
+    #[default]
+    Fixed,
+    /// Directories, asked for again on every keystroke.
+    ///
+    /// It has to be asked again, because typing a path names a place nothing
+    /// has scanned: the scan is bounded and the disk is not, so `D:/somewhere`
+    /// can only be answered by going and looking. Narrowing a settled list
+    /// cannot do it -- and that is exactly what the first version did, which
+    /// is why typing a path found nothing.
+    Directories,
+}
+
 /// An open palette.
 #[derive(Clone, Debug, Default)]
 pub struct Palette {
@@ -61,6 +77,7 @@ pub struct Palette {
     /// Indices into `entries`, best first.
     pub matches: Vec<usize>,
     pub selected: usize,
+    pub source: Source,
 }
 
 impl Palette {
@@ -70,9 +87,29 @@ impl Palette {
             entries,
             matches: Vec::new(),
             selected: 0,
+            source: Source::Fixed,
         };
         palette.refilter();
         palette
+    }
+
+    /// A palette whose rows are asked for again as the query changes.
+    pub fn browsing(entries: Vec<Entry>) -> Self {
+        let mut palette = Self::new(entries);
+        palette.source = Source::Directories;
+        palette
+    }
+
+    /// Replace the rows without disturbing what has been typed.
+    ///
+    /// The rows are shown in the order they arrive: they were already ordered
+    /// by whoever went and looked, and scoring them again against the query
+    /// undoes that -- a typed path is not a fuzzy match, and rescoring it puts
+    /// whichever child happens to contain those letters at the top.
+    pub fn replace_entries(&mut self, entries: Vec<Entry>) {
+        self.matches = (0..entries.len()).collect();
+        self.entries = entries;
+        self.selected = 0;
     }
 
     /// The rows to show, in order.
@@ -321,5 +358,90 @@ mod tests {
                 program: "pwsh.exe".to_string()
             })
         );
+    }
+}
+
+#[cfg(test)]
+mod source_tests {
+    use super::*;
+
+    fn row(label: &str) -> Entry {
+        Entry {
+            label: label.to_string(),
+            hint: String::new(),
+            command: Command::ChangeDirectory {
+                path: label.to_string(),
+            },
+        }
+    }
+
+    /// An ordinary palette settles its list when it opens and only narrows it.
+    #[test]
+    fn a_fixed_palette_narrows_what_it_was_given() {
+        let mut palette = Palette::new(vec![row("alpha"), row("beta")]);
+        assert_eq!(palette.source, Source::Fixed);
+        palette.query = "al".into();
+        palette.refilter();
+        assert_eq!(
+            palette.visible().iter().map(|e| e.label.as_str()).collect::<Vec<_>>(),
+            vec!["alpha"]
+        );
+    }
+
+    /// A browsing palette says so, so the window knows to go and look again.
+    /// Without this the directory jump can only ever narrow what was scanned
+    /// when it opened, and a typed path finds nothing.
+    #[test]
+    fn a_browsing_palette_says_it_wants_asking_again() {
+        let palette = Palette::browsing(vec![row("alpha")]);
+        assert_eq!(palette.source, Source::Directories);
+    }
+
+    /// New rows arrive in the order they were found. They were ordered by
+    /// whoever went and looked -- scoring them again against a typed path puts
+    /// whichever child happens to contain those letters at the top.
+    #[test]
+    fn replaced_rows_keep_the_order_they_arrived_in() {
+        let mut palette = Palette::browsing(vec![row("old")]);
+        palette.query = "d:/code/".into();
+        palette.replace_entries(vec![row("zebra"), row("apple"), row("mango")]);
+        assert_eq!(
+            palette.visible().iter().map(|e| e.label.as_str()).collect::<Vec<_>>(),
+            vec!["zebra", "apple", "mango"]
+        );
+    }
+
+    /// And what has been typed survives the replacement: the query is what
+    /// asked for these rows in the first place.
+    #[test]
+    fn replacing_rows_leaves_the_query_alone() {
+        let mut palette = Palette::browsing(vec![row("old")]);
+        palette.query = "d:/code/un".into();
+        palette.replace_entries(vec![row("unterm")]);
+        assert_eq!(palette.query, "d:/code/un");
+        assert_eq!(palette.current().map(|e| e.label.as_str()), Some("unterm"));
+    }
+
+    /// The selection starts at the top of the new list rather than staying on
+    /// a row number that now means something else.
+    #[test]
+    fn replacing_rows_puts_the_selection_back_at_the_top() {
+        let mut palette = Palette::browsing(vec![row("a"), row("b"), row("c")]);
+        palette.step(2);
+        assert_eq!(palette.selected, 2);
+        palette.replace_entries(vec![row("x"), row("y")]);
+        assert_eq!(palette.selected, 0);
+        assert_eq!(palette.current().map(|e| e.label.as_str()), Some("x"));
+    }
+
+    /// Nothing found is an empty list rather than the previous one: a picker
+    /// that keeps showing the last directory's children while you type a path
+    /// that names nothing is a picker showing the wrong place.
+    #[test]
+    fn nothing_found_shows_nothing() {
+        let mut palette = Palette::browsing(vec![row("a"), row("b")]);
+        palette.replace_entries(Vec::new());
+        assert!(palette.visible().is_empty());
+        assert_eq!(palette.current(), None);
     }
 }

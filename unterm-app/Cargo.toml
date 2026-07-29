@@ -31,3 +31,6 @@ wgpu.workspace = true
 winit = "0.30"
 arboard = "3"
 pollster = "0.4"
+
+[dev-dependencies]
+tempfile.workspace = true

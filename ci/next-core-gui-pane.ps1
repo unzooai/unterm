@@ -1264,6 +1264,36 @@ $Suites = @(
         )
     },
     @{
+        # Typing a path browses it. The scan is bounded and the disk is not, so
+        # a typed path names a place nothing has scanned -- narrowing a settled
+        # list cannot answer it, which is why the first version found nothing.
+        Name = "directory jump by path"
+        Package = "unterm-app"
+        Filter = "dir_jump::query_tests::"
+        ExpectedCount = 5
+        RequiredTests = @(
+            "dir_jump::query_tests::a_typed_path_lists_a_directory_nothing_had_scanned",
+            "dir_jump::query_tests::a_bare_directory_offers_itself_first",
+            "dir_jump::query_tests::the_fragment_after_the_last_separator_filters",
+            "dir_jump::query_tests::a_path_that_names_nothing_offers_nothing",
+            "dir_jump::query_tests::a_plain_word_still_searches_what_is_near"
+        )
+    },
+    @{
+        # And the palette machinery that lets it: rows asked for again on every
+        # keystroke, in the order they were found rather than rescored.
+        Name = "palette sources"
+        Package = "unterm-app"
+        Filter = "palette::source_tests::"
+        ExpectedCount = 6
+        RequiredTests = @(
+            "palette::source_tests::a_browsing_palette_says_it_wants_asking_again",
+            "palette::source_tests::replaced_rows_keep_the_order_they_arrived_in",
+            "palette::source_tests::replacing_rows_leaves_the_query_alone",
+            "palette::source_tests::nothing_found_shows_nothing"
+        )
+    },
+    @{
         Name = "viewport scroll end to end"
         Package = "unterm-engine"
         Filter = "next_core::tests::relative_viewport_scroll_steps_and_resumes_following"

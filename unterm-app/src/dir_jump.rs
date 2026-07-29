@@ -309,6 +309,59 @@ pub fn matches(label: &str, query: &str) -> bool {
         .all(|wanted| haystack.any(|found| found == wanted))
 }
 
+/// The rows for what has been typed, wherever they have to come from.
+///
+/// Two modes, and which one is in force is decided by the query itself. A
+/// query that looks like a path lists that path, so typing `D:/other-project/`
+/// browses a directory that was never scanned and never will be -- the scan is
+/// bounded, and the disk is not. Anything else fuzzy-matches what is near.
+///
+/// The two cannot be one list. Scanning every directory a path query could
+/// name is the whole disk, and fuzzy-matching a typed path finds directories
+/// that merely contain those letters, which is never what a typed path means.
+pub fn for_query(here: &Path, query: &str) -> Vec<Entry> {
+    if is_path_query(query) {
+        return path_completions(query);
+    }
+    let mut found = subdirectories(here);
+    found.extend(deep_scan(here));
+    found.extend(recents());
+    found.extend(locations());
+    filter(&found, query)
+}
+
+/// The directories under the path that has been typed.
+///
+/// With a bare `dir/` and nothing after it, the typed directory itself is the
+/// first row: completion should not force you one level deeper than what you
+/// asked for.
+fn path_completions(query: &str) -> Vec<Entry> {
+    let Some((parent, fragment)) = split_path_query(&expand_tilde(query), cfg!(windows)) else {
+        return Vec::new();
+    };
+    let parent = PathBuf::from(&parent);
+    let mut rows = Vec::new();
+    if fragment.is_empty() && parent.is_dir() {
+        rows.push(Entry {
+            label: unterm_services::i18n::t("dirjump.here"),
+            path: parent.clone(),
+            section: Section::Subdirectories,
+        });
+    }
+    let mut children = subdirectories(&parent);
+    children.retain(|entry| matches(&entry.label, &fragment));
+    // By how early the match starts, then alphabetically: a name that begins
+    // with what was typed is what was meant far more often than one that
+    // merely contains it.
+    let lowered = fragment.to_lowercase();
+    children.sort_by_key(|entry| {
+        let label = entry.label.to_lowercase();
+        (label.find(&lowered).unwrap_or(usize::MAX - 1), entry.label.clone())
+    });
+    rows.extend(children);
+    rows
+}
+
 /// Filter and order the entries for a query.
 ///
 /// Ordered by section, and within a section by how early the match starts: a
@@ -511,5 +564,88 @@ mod tests {
             assert!(!heading.is_empty());
             assert!(!heading.starts_with("dirjump."), "{heading} is a raw key");
         }
+    }
+}
+
+#[cfg(test)]
+mod query_tests {
+    use super::*;
+
+    /// A typed path names a place nothing has scanned. The scan is bounded and
+    /// the disk is not, so the only way to answer is to go and look -- which
+    /// is what narrowing a settled list cannot do, and why typing a path found
+    /// nothing at all in the first version.
+    #[test]
+    fn a_typed_path_lists_a_directory_nothing_had_scanned() {
+        let root = tempfile::tempdir().expect("a temporary directory");
+        let far = root.path().join("nowhere-near-anything");
+        std::fs::create_dir_all(far.join("alpha")).expect("make alpha");
+        std::fs::create_dir_all(far.join("beta")).expect("make beta");
+        std::fs::write(far.join("a-file"), b"not a directory").expect("write a file");
+
+        // Somewhere else entirely, so nothing here came from the scan.
+        let elsewhere = tempfile::tempdir().expect("a second temporary directory");
+        let typed = format!("{}/", far.display());
+        let rows = for_query(elsewhere.path(), &typed);
+
+        let labels: Vec<&str> = rows.iter().map(|row| row.label.as_str()).collect();
+        assert!(labels.contains(&"alpha"), "{labels:?}");
+        assert!(labels.contains(&"beta"), "{labels:?}");
+        assert!(!labels.contains(&"a-file"), "a file was offered: {labels:?}");
+    }
+
+    /// With a bare `dir/` and nothing typed after it, the directory itself is
+    /// the first row: completion should not force you one level deeper than
+    /// what you asked for.
+    #[test]
+    fn a_bare_directory_offers_itself_first() {
+        let root = tempfile::tempdir().expect("a temporary directory");
+        std::fs::create_dir_all(root.path().join("child")).expect("make a child");
+        let rows = for_query(root.path(), &format!("{}/", root.path().display()));
+        assert_eq!(rows.first().map(|row| row.path.as_path()), Some(root.path()));
+    }
+
+    /// And the fragment after the last separator filters, rather than being
+    /// treated as part of the directory to list.
+    #[test]
+    fn the_fragment_after_the_last_separator_filters() {
+        let root = tempfile::tempdir().expect("a temporary directory");
+        for name in ["alpha", "album", "beta"] {
+            std::fs::create_dir_all(root.path().join(name)).expect("make a child");
+        }
+        let rows = for_query(root.path(), &format!("{}/al", root.path().display()));
+        let labels: Vec<&str> = rows.iter().map(|row| row.label.as_str()).collect();
+        assert!(labels.contains(&"alpha"), "{labels:?}");
+        assert!(labels.contains(&"album"), "{labels:?}");
+        assert!(!labels.contains(&"beta"), "{labels:?}");
+        // The directory itself is not offered once a fragment has been typed:
+        // the fragment says it is not where you meant to stop.
+        assert!(!labels.contains(&unterm_services::i18n::t("dirjump.here").as_str()));
+    }
+
+    /// A path that names nothing is an empty list, not the fuzzy list -- a
+    /// picker that answers a typed path with unrelated directories is worse
+    /// than one that says there is nothing there.
+    #[test]
+    fn a_path_that_names_nothing_offers_nothing() {
+        let root = tempfile::tempdir().expect("a temporary directory");
+        std::fs::create_dir_all(root.path().join("something")).expect("make a child");
+        let typed = format!("{}/no-such-directory/", root.path().display());
+        assert!(for_query(root.path(), &typed).is_empty());
+    }
+
+    /// Anything that is not a path is still the near list, fuzzily matched.
+    #[test]
+    fn a_plain_word_still_searches_what_is_near() {
+        let root = tempfile::tempdir().expect("a temporary directory");
+        std::fs::create_dir_all(root.path().join("workspace")).expect("make a child");
+        let labels: Vec<String> = for_query(root.path(), "wksp")
+            .into_iter()
+            .map(|row| row.label)
+            .collect();
+        assert!(
+            labels.iter().any(|label| label == "workspace"),
+            "loose matching stopped working: {labels:?}"
+        );
     }
 }

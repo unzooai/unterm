@@ -5396,6 +5396,7 @@ dependencies = [
  "pollster",
  "portable-pty",
  "serde_json",
+ "tempfile",
  "termwiz",
  "unterm-engine",
  "unterm-mcp",
