@@ -57,6 +57,13 @@ use winit::window::{Window, WindowId};
 pub struct App {
     engine: NextCoreEngine,
     font: TerminalFont,
+    /// The size the font is open at now, which the zoom keys move.
+    font_size: f32,
+    /// The size the config asked for, which the reset key goes back to.
+    configured_font_size: f32,
+    /// The families to try after the primary one, kept because reopening the
+    /// font at a new size has to make the same choices as the first open.
+    font_fallbacks: Vec<String>,
     atlas: GlyphAtlas,
     colors: FrameColors,
     state: Option<Live>,
@@ -184,6 +191,9 @@ impl App {
             alt_held: false,
             window_title: None,
             font: TerminalFont::open_with_fallback(pixel_size.round() as u32, &fallbacks)?,
+            font_size: pixel_size as f32,
+            configured_font_size: pixel_size as f32,
+            font_fallbacks: fallbacks,
             atlas: GlyphAtlas::new(1024, 1024),
             colors: colors_from(config),
             shell: launch_shell(config),
@@ -208,6 +218,9 @@ impl App {
                 metrics.height * 30.0,
             ));
         let window = Arc::new(event_loop.create_window(attributes)?);
+        // So `instance.focus`, which arrives on the MCP thread, has a window
+        // to raise.
+        crate::mcp_host::remember_window(window.clone());
         // Without this the system never starts an input method, and a Chinese
         // or Japanese keyboard can only produce Latin letters.
         window.set_ime_allowed(true);
@@ -626,6 +639,9 @@ impl App {
     /// Carry out a key binding.
     fn run_key_action(&mut self, action: crate::keys::Action, session_id: usize) {
         use crate::keys::Action;
+        if std::env::var_os("UNTERM_TRACE_KEYS").is_some() {
+            log::info!("  run_key_action {:?} font={} ", action, self.font_size);
+        }
         match action {
             Action::Copy => self.copy_selection(),
             Action::Paste => self.paste_clipboard(),
@@ -652,6 +668,15 @@ impl App {
             Action::NextTab => self.cycle_tab(1),
             Action::PreviousTab => self.cycle_tab(-1),
             Action::CloseTab => self.close_tab(),
+            Action::NewWindow => self.new_window(),
+            Action::ClosePane => self.close_pane(session_id),
+            Action::ZoomPane => self.toggle_zoom(session_id),
+            Action::FocusPane(direction) => self.focus_pane_toward(direction),
+            Action::SelectTab(number) => self.select_tab(number),
+            Action::IncreaseFontSize => self.change_font_size(1.0),
+            Action::DecreaseFontSize => self.change_font_size(-1.0),
+            Action::ResetFontSize => self.set_font_size(self.configured_font_size),
+            Action::ToggleFullScreen => self.toggle_full_screen(),
             Action::ScrollPageUp | Action::ScrollPageDown => {
                 let rows = self
                     .engine
@@ -667,6 +692,167 @@ impl App {
                 let _ = self.engine.scroll_viewport_by(session_id, delta);
             }
         }
+    }
+
+
+    /// Another terminal, as its own process.
+    ///
+    /// Unterm's windows are separate processes -- that is what makes
+    /// `instance.list` able to name them and an agent able to drive one
+    /// without touching another -- so a new window is a new instance, started
+    /// where this one is looking.
+    fn new_window(&mut self) {
+        let Ok(program) = std::env::current_exe() else {
+            log::warn!("cannot find this executable to open another window");
+            return;
+        };
+        let mut command = std::process::Command::new(program);
+        command.arg("start");
+        if let Some(directory) = self.current_directory() {
+            command.arg("--cwd").arg(directory);
+        }
+        // Detached: the new window outlives this one, and inheriting our
+        // handles would keep a pipe open that nobody is reading.
+        command
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        if let Err(err) = command.spawn() {
+            log::warn!("could not open another window: {err}");
+        }
+    }
+
+    /// Where a new window should start: where the focused pane is.
+    fn current_directory(&self) -> Option<std::path::PathBuf> {
+        let live = self.state.as_ref()?;
+        unterm_engine::SessionEngine::list_sessions(&self.engine)
+            .ok()
+            .into_iter()
+            .flatten()
+            .find(|session| session.id == live.session_id)
+            .and_then(|session| session.shell.cwd)
+            .map(std::path::PathBuf::from)
+            .or_else(|| self.start_directory.clone())
+    }
+
+    /// Close one pane, leaving the rest of the tab alone.
+    ///
+    /// Distinct from closing the tab: with a split open, the pane is what the
+    /// key is aimed at. When it was the last one the tab goes with it, which
+    /// is what makes this safe to reach for.
+    fn close_pane(&mut self, session_id: usize) {
+        let Some(tab_id) = self.tabs.tab_of_pane(session_id) else {
+            return;
+        };
+        if self.tabs.pane_ids(tab_id).len() < 2 {
+            self.close_tab();
+            return;
+        }
+        let _ = self.engine.destroy_session(session_id);
+        self.tabs.close_pane(session_id);
+        if let Some(pane) = self.tabs.active_pane(tab_id) {
+            self.focus_session(pane);
+        }
+        self.resize_panes();
+        self.drawn_revision = None;
+    }
+
+    /// One pane fills the tab, or gives the space back.
+    fn toggle_zoom(&mut self, session_id: usize) {
+        let Some(tab_id) = self.tabs.tab_of_pane(session_id) else {
+            return;
+        };
+        let zoomed = self.tabs.zoomed_pane(tab_id) == Some(session_id);
+        self.tabs.set_zoomed(session_id, !zoomed);
+        self.resize_panes();
+        self.drawn_revision = None;
+    }
+
+    /// Move focus to the nearest pane in a direction.
+    ///
+    /// Nearest by edge rather than by tree position: with three panes the tree
+    /// has a shape the screen does not show, and someone pressing Alt+Right
+    /// means the pane to the right of this one.
+    /// Move focus to the nearest pane in a direction.
+    fn focus_pane_toward(&mut self, direction: crate::keys::Direction) {
+        let Some(live) = self.state.as_ref() else {
+            return;
+        };
+        let placements = self.placements();
+        let target = crate::panes::pane_toward(
+            &placements,
+            live.session_id,
+            direction,
+            self.font.metrics(),
+        );
+        if let Some(pane) = target {
+            self.tabs.set_active_pane(pane);
+            self.focus_session(pane);
+            self.drawn_revision = None;
+        }
+    }
+
+    /// Go to a tab by its number, counting from one as the keys are labelled.
+    ///
+    /// Nine means the last one however many there are, which is what every
+    /// browser does and what people reach for.
+    fn select_tab(&mut self, number: u8) {
+        let ids = self.tabs.tab_ids();
+        let Some(tab_id) = crate::tabbar::tab_for_number(number, ids.len())
+            .and_then(|index| ids.get(index).copied())
+        else {
+            return;
+        };
+        self.tabs.set_active_tab(tab_id);
+        self.tab_id = Some(tab_id);
+        if let Some(pane) = self.tabs.active_pane(tab_id) {
+            self.focus_session(pane);
+        }
+        self.resize_panes();
+        self.drawn_revision = None;
+    }
+
+    fn change_font_size(&mut self, steps: f32) {
+        self.set_font_size(self.font_size + steps);
+    }
+
+    /// Redraw everything at a new size.
+    ///
+    /// The atlas is thrown away rather than added to: it is keyed by pixel
+    /// size, so keeping it would only hold glyphs nothing will ask for again.
+    /// The panes are told their new grid afterwards -- a shell that still
+    /// thinks it has eighty columns wraps its output in the wrong place.
+    fn set_font_size(&mut self, size: f32) {
+        let size = size.clamp(6.0, 72.0);
+        if (size - self.font_size).abs() < f32::EPSILON {
+            return;
+        }
+        let Ok(font) = TerminalFont::open_with_fallback(size.round() as u32, &self.font_fallbacks)
+        else {
+            log::warn!("no font at {size} pixels; keeping {}", self.font_size);
+            return;
+        };
+        self.font = font;
+        self.font_size = size;
+        self.atlas = GlyphAtlas::new(1024, 1024);
+        self.resize_panes();
+        self.drawn_revision = None;
+    }
+
+    fn toggle_full_screen(&mut self) {
+        let Some(live) = self.state.as_ref() else {
+            return;
+        };
+        let full = live.window.fullscreen().is_some();
+        live.window.set_fullscreen(if full {
+            None
+        } else {
+            // Borderless on whichever monitor the window is on: an exclusive
+            // mode would change the display's resolution, which is not what
+            // a terminal going full screen should do to the rest of a desktop.
+            Some(winit::window::Fullscreen::Borderless(None))
+        });
+        self.drawn_revision = None;
     }
 
     fn copy_selection(&mut self) {
@@ -1980,7 +2166,12 @@ impl ApplicationHandler for App {
                     );
                     log::info!(
                         "  action_for -> {:?}",
-                        crate::keys::action_for(&event.logical_key, self.ctrl_held, self.shift_held)
+                        crate::keys::action_for(
+                            &event.logical_key,
+                            self.ctrl_held,
+                            self.shift_held,
+                            self.alt_held,
+                        )
                     );
                 }
 
@@ -2031,7 +2222,12 @@ impl ApplicationHandler for App {
                 // What the keys do lives in `keys`, so an agent asking the
                 // MCP surface gets the same answer this acts on.
                 if let Some(action) =
-                    crate::keys::action_for(&event.logical_key, self.ctrl_held, self.shift_held)
+                    crate::keys::action_for(
+                            &event.logical_key,
+                            self.ctrl_held,
+                            self.shift_held,
+                            self.alt_held,
+                        )
                 {
                     self.run_key_action(action, live.session_id);
                     return;

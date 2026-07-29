@@ -342,7 +342,7 @@ $Suites = @(
         # A picture of the terminal. The kernel has no window -- it draws into
         # whatever surface a front end gives it -- so `capture.window` has to
         # reach the front end, which is also what `selftest.run` checks.
-        Name = "capture reaches the window's owner"
+        Name = "capture and focus reach the window's owner"
         Package = "unterm-engine"
         Filter = "host_capture_tests::"
         ExpectedCount = 1
@@ -361,6 +361,50 @@ $Suites = @(
             "window_capture::tests::a_capture_has_to_say_which_window",
             "window_capture::tests::a_blank_bitmap_is_not_mistaken_for_a_picture",
             "window_capture::tests::a_process_with_no_window_is_told_so_rather_than_handed_one"
+        )
+    },
+    @{
+        # The keys a terminal is expected to have. Font size, tab numbers,
+        # full screen and pane navigation were all missing, which is what
+        # "the shortcuts are not all implemented" meant.
+        Name = "key bindings"
+        Package = "unterm-app"
+        Filter = "keys::"
+        ExpectedCount = 13
+        RequiredTests = @(
+            "keys::added_binding_tests::the_font_size_keys_exist",
+            "keys::added_binding_tests::ctrl_and_a_digit_goes_to_that_tab",
+            "keys::added_binding_tests::alt_arrows_move_between_panes_and_alt_letters_do_not",
+            "keys::added_binding_tests::an_unmodified_arrow_still_belongs_to_the_shell",
+            "keys::added_binding_tests::f11_goes_full_screen_and_the_other_function_keys_are_the_programs",
+            "keys::added_binding_tests::a_new_window_and_a_pane_of_ones_own_are_both_reachable",
+            "keys::added_binding_tests::every_bound_action_is_named_distinctly",
+            "keys::tests::plain_ctrl_c_stays_the_programs_interrupt",
+            "keys::tests::plain_tab_still_completes_in_the_shell"
+        )
+    },
+    @{
+        # Where a direction key goes, and which tab a number key means.
+        Name = "pane and tab navigation"
+        Package = "unterm-app"
+        Filter = "direction_tests::"
+        ExpectedCount = 6
+        RequiredTests = @(
+            "panes::direction_tests::a_split_moves_both_ways",
+            "panes::direction_tests::there_is_no_pane_past_the_last_one",
+            "panes::direction_tests::the_pane_beside_this_one_wins_over_a_nearer_one_off_to_a_side",
+            "panes::direction_tests::a_single_pane_has_no_neighbours"
+        )
+    },
+    @{
+        Name = "tab number keys"
+        Package = "unterm-app"
+        Filter = "tabbar::number_key_tests::"
+        ExpectedCount = 4
+        RequiredTests = @(
+            "tabbar::number_key_tests::nine_is_the_last_tab_not_the_ninth",
+            "tabbar::number_key_tests::a_number_past_the_last_tab_does_nothing",
+            "tabbar::number_key_tests::there_is_no_tab_when_there_are_no_tabs"
         )
     },
     @{

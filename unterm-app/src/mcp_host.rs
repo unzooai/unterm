@@ -21,6 +21,20 @@ pub fn install() {
     unterm_engine::set_mcp_host(&AppMcpHost);
 }
 
+/// The window, for the threads that are not the one drawing it.
+///
+/// `instance.focus` arrives on the MCP server's thread and has to reach a
+/// window the event loop owns. A winit `Window` is shareable, so the handle
+/// is kept here rather than a message being posted through the event loop --
+/// one fewer moving part on a path an agent calls to say "look at this".
+static WINDOW: std::sync::OnceLock<std::sync::Arc<winit::window::Window>> =
+    std::sync::OnceLock::new();
+
+/// Called once, when the window exists.
+pub fn remember_window(window: std::sync::Arc<winit::window::Window>) {
+    let _ = WINDOW.set(window);
+}
+
 /// The default colours a cell falls back to when it names none.
 const DEFAULT_FG: Rgb = Rgb {
     red: 0xd0,
@@ -51,6 +65,33 @@ impl McpHost for AppMcpHost {
         }
     }
 
+
+    /// Name the window, so an agent's chosen name is what a person sees in
+    /// the taskbar and Alt-Tab -- not only what `instance.list` reports.
+    fn set_window_title(&self, title: Option<&str>) -> bool {
+        let Some(window) = WINDOW.get() else {
+            return false;
+        };
+        window.set_title(&match title {
+            Some(title) => format!("{title} — Unterm"),
+            None => "Unterm".to_string(),
+        });
+        true
+    }
+
+    /// Bring the window to the front.
+    ///
+    /// Minimised windows are restored first: an agent asking for attention
+    /// means the window should be visible, and raising one that is minimised
+    /// otherwise does nothing at all.
+    fn focus_window(&self) -> Result<()> {
+        let window = WINDOW
+            .get()
+            .context("the window is not open yet")?;
+        window.set_minimized(false);
+        window.focus_window();
+        Ok(())
+    }
 
     /// A picture of the terminal's own window.
     ///

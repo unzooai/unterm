@@ -8,6 +8,26 @@
 
 use winit::keyboard::{Key, NamedKey};
 
+/// Which way a pane-focus key points.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Direction {
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
+impl Direction {
+    pub fn name(self) -> &'static str {
+        match self {
+            Direction::Left => "Left",
+            Direction::Right => "Right",
+            Direction::Up => "Up",
+            Direction::Down => "Down",
+        }
+    }
+}
+
 /// Something the front end does in response to a key, rather than sending it
 /// to the shell.
 ///
@@ -32,6 +52,16 @@ pub enum Action {
     CopyMode,
     QuickSelect,
     CockpitInbox,
+    NewWindow,
+    ClosePane,
+    ZoomPane,
+    FocusPane(Direction),
+    /// One-based, as the key is labelled.
+    SelectTab(u8),
+    IncreaseFontSize,
+    DecreaseFontSize,
+    ResetFontSize,
+    ToggleFullScreen,
 }
 
 impl Action {
@@ -54,6 +84,26 @@ impl Action {
             Action::CopyMode => "CopyMode",
             Action::QuickSelect => "QuickSelect",
             Action::CockpitInbox => "CockpitInbox",
+            Action::NewWindow => "NewWindow",
+            Action::ClosePane => "ClosePane",
+            Action::ZoomPane => "ZoomPane",
+            Action::FocusPane(Direction::Left) => "FocusPaneLeft",
+            Action::FocusPane(Direction::Right) => "FocusPaneRight",
+            Action::FocusPane(Direction::Up) => "FocusPaneUp",
+            Action::FocusPane(Direction::Down) => "FocusPaneDown",
+            Action::SelectTab(1) => "SelectTab1",
+            Action::SelectTab(2) => "SelectTab2",
+            Action::SelectTab(3) => "SelectTab3",
+            Action::SelectTab(4) => "SelectTab4",
+            Action::SelectTab(5) => "SelectTab5",
+            Action::SelectTab(6) => "SelectTab6",
+            Action::SelectTab(7) => "SelectTab7",
+            Action::SelectTab(8) => "SelectTab8",
+            Action::SelectTab(_) => "SelectTab9",
+            Action::IncreaseFontSize => "IncreaseFontSize",
+            Action::DecreaseFontSize => "DecreaseFontSize",
+            Action::ResetFontSize => "ResetFontSize",
+            Action::ToggleFullScreen => "ToggleFullScreen",
         }
     }
 }
@@ -81,6 +131,20 @@ impl Action {
             Action::CopyMode => "Copy Mode",
             Action::QuickSelect => "Quick Select",
             Action::CockpitInbox => "Agent Inbox",
+            Action::NewWindow => "New Window",
+            Action::ClosePane => "Close Pane",
+            Action::ZoomPane => "Zoom Pane",
+            Action::FocusPane(Direction::Left) => "Focus Pane Left",
+            Action::FocusPane(Direction::Right) => "Focus Pane Right",
+            Action::FocusPane(Direction::Up) => "Focus Pane Up",
+            Action::FocusPane(Direction::Down) => "Focus Pane Down",
+            // One row for the whole family: nine that differ by a digit push
+            // everything else off a short list.
+            Action::SelectTab(_) => "Select Tab By Number",
+            Action::IncreaseFontSize => "Increase Font Size",
+            Action::DecreaseFontSize => "Decrease Font Size",
+            Action::ResetFontSize => "Reset Font Size",
+            Action::ToggleFullScreen => "Full Screen",
         }
     }
 }
@@ -90,15 +154,22 @@ impl Action {
 pub struct Mods {
     pub ctrl: bool,
     pub shift: bool,
+    /// Alt is a modifier the shell wants too -- Alt+B and Alt+F are readline's
+    /// word motions -- so it appears here on arrow keys and nothing else.
+    pub alt: bool,
 }
 
 impl Mods {
     pub fn name(self) -> &'static str {
-        match (self.ctrl, self.shift) {
-            (true, true) => "CTRL|SHIFT",
-            (true, false) => "CTRL",
-            (false, true) => "SHIFT",
-            (false, false) => "NONE",
+        match (self.ctrl, self.shift, self.alt) {
+            (true, true, false) => "CTRL|SHIFT",
+            (true, false, false) => "CTRL",
+            (false, true, false) => "SHIFT",
+            (false, false, true) => "ALT",
+            (true, false, true) => "CTRL|ALT",
+            (false, true, true) => "SHIFT|ALT",
+            (true, true, true) => "CTRL|SHIFT|ALT",
+            (false, false, false) => "NONE",
         }
     }
 }
@@ -112,6 +183,9 @@ pub enum Trigger {
     PageUp,
     PageDown,
     Tab,
+    Arrow(Direction),
+    /// F1 and up.
+    Function(u8),
 }
 
 impl Trigger {
@@ -121,6 +195,8 @@ impl Trigger {
             Trigger::PageUp => "PageUp".to_string(),
             Trigger::PageDown => "PageDown".to_string(),
             Trigger::Tab => "Tab".to_string(),
+            Trigger::Arrow(direction) => direction.name().to_string(),
+            Trigger::Function(number) => format!("F{number}"),
         }
     }
 
@@ -132,9 +208,33 @@ impl Trigger {
             (Trigger::PageUp, Key::Named(NamedKey::PageUp)) => true,
             (Trigger::PageDown, Key::Named(NamedKey::PageDown)) => true,
             (Trigger::Tab, Key::Named(NamedKey::Tab)) => true,
+            (Trigger::Arrow(Direction::Left), Key::Named(NamedKey::ArrowLeft)) => true,
+            (Trigger::Arrow(Direction::Right), Key::Named(NamedKey::ArrowRight)) => true,
+            (Trigger::Arrow(Direction::Up), Key::Named(NamedKey::ArrowUp)) => true,
+            (Trigger::Arrow(Direction::Down), Key::Named(NamedKey::ArrowDown)) => true,
+            (Trigger::Function(number), Key::Named(named)) => function_number(*named) == Some(number),
             _ => false,
         }
     }
+}
+
+/// Which function key this is, if it is one.
+fn function_number(named: NamedKey) -> Option<u8> {
+    Some(match named {
+        NamedKey::F1 => 1,
+        NamedKey::F2 => 2,
+        NamedKey::F3 => 3,
+        NamedKey::F4 => 4,
+        NamedKey::F5 => 5,
+        NamedKey::F6 => 6,
+        NamedKey::F7 => 7,
+        NamedKey::F8 => 8,
+        NamedKey::F9 => 9,
+        NamedKey::F10 => 10,
+        NamedKey::F11 => 11,
+        NamedKey::F12 => 12,
+        _ => return None,
+    })
 }
 
 pub struct Binding {
@@ -146,14 +246,27 @@ pub struct Binding {
 const CTRL_SHIFT: Mods = Mods {
     ctrl: true,
     shift: true,
+    alt: false,
 };
 const CTRL: Mods = Mods {
     ctrl: true,
     shift: false,
+    alt: false,
 };
 const SHIFT: Mods = Mods {
     ctrl: false,
     shift: true,
+    alt: false,
+};
+const ALT: Mods = Mods {
+    ctrl: false,
+    shift: false,
+    alt: true,
+};
+const NONE: Mods = Mods {
+    ctrl: false,
+    shift: false,
+    alt: false,
 };
 
 /// Every key this front end keeps for itself.
@@ -204,10 +317,124 @@ pub const BINDINGS: &[Binding] = &[
         trigger: Trigger::Char('p'),
         action: Action::CommandPalette,
     },
+    // The launcher moves off N so a new window can have the key every
+    // application puts it on.
+    Binding {
+        mods: CTRL_SHIFT,
+        trigger: Trigger::Char('l'),
+        action: Action::Launcher,
+    },
     Binding {
         mods: CTRL_SHIFT,
         trigger: Trigger::Char('n'),
-        action: Action::Launcher,
+        action: Action::NewWindow,
+    },
+    Binding {
+        mods: CTRL_SHIFT,
+        trigger: Trigger::Char('z'),
+        action: Action::ZoomPane,
+    },
+    Binding {
+        mods: CTRL_SHIFT,
+        trigger: Trigger::Char('q'),
+        action: Action::ClosePane,
+    },
+    // Alt and an arrow moves between panes. Alt+letters stay with the shell,
+    // which is where readline's word motions live.
+    Binding {
+        mods: ALT,
+        trigger: Trigger::Arrow(Direction::Left),
+        action: Action::FocusPane(Direction::Left),
+    },
+    Binding {
+        mods: ALT,
+        trigger: Trigger::Arrow(Direction::Right),
+        action: Action::FocusPane(Direction::Right),
+    },
+    Binding {
+        mods: ALT,
+        trigger: Trigger::Arrow(Direction::Up),
+        action: Action::FocusPane(Direction::Up),
+    },
+    Binding {
+        mods: ALT,
+        trigger: Trigger::Arrow(Direction::Down),
+        action: Action::FocusPane(Direction::Down),
+    },
+    // Font size, on the keys every application uses. `=` rather than `+`
+    // because that is the unshifted key, and a terminal that needed shift to
+    // grow the text would be the only one.
+    Binding {
+        mods: CTRL,
+        trigger: Trigger::Char('='),
+        action: Action::IncreaseFontSize,
+    },
+    Binding {
+        mods: CTRL,
+        trigger: Trigger::Char('+'),
+        action: Action::IncreaseFontSize,
+    },
+    Binding {
+        mods: CTRL,
+        trigger: Trigger::Char('-'),
+        action: Action::DecreaseFontSize,
+    },
+    Binding {
+        mods: CTRL,
+        trigger: Trigger::Char('0'),
+        action: Action::ResetFontSize,
+    },
+    Binding {
+        mods: NONE,
+        trigger: Trigger::Function(11),
+        action: Action::ToggleFullScreen,
+    },
+    // Ctrl and a digit goes to that tab. Nine is the last one, and reaches
+    // the last tab however many there are, which is what every browser does.
+    Binding {
+        mods: CTRL,
+        trigger: Trigger::Char('1'),
+        action: Action::SelectTab(1),
+    },
+    Binding {
+        mods: CTRL,
+        trigger: Trigger::Char('2'),
+        action: Action::SelectTab(2),
+    },
+    Binding {
+        mods: CTRL,
+        trigger: Trigger::Char('3'),
+        action: Action::SelectTab(3),
+    },
+    Binding {
+        mods: CTRL,
+        trigger: Trigger::Char('4'),
+        action: Action::SelectTab(4),
+    },
+    Binding {
+        mods: CTRL,
+        trigger: Trigger::Char('5'),
+        action: Action::SelectTab(5),
+    },
+    Binding {
+        mods: CTRL,
+        trigger: Trigger::Char('6'),
+        action: Action::SelectTab(6),
+    },
+    Binding {
+        mods: CTRL,
+        trigger: Trigger::Char('7'),
+        action: Action::SelectTab(7),
+    },
+    Binding {
+        mods: CTRL,
+        trigger: Trigger::Char('8'),
+        action: Action::SelectTab(8),
+    },
+    Binding {
+        mods: CTRL,
+        trigger: Trigger::Char('9'),
+        action: Action::SelectTab(9),
     },
     Binding {
         mods: CTRL_SHIFT,
@@ -252,10 +479,12 @@ pub const BINDINGS: &[Binding] = &[
 ///
 /// The most specific binding wins: Ctrl+Shift+C is a copy, not a scroll that
 /// happens to have shift held.
-pub fn action_for(key: &Key, ctrl: bool, shift: bool) -> Option<Action> {
+pub fn action_for(key: &Key, ctrl: bool, shift: bool, alt: bool) -> Option<Action> {
     BINDINGS
         .iter()
-        .filter(|binding| binding.mods.ctrl == ctrl && binding.mods.shift == shift)
+        .filter(|binding| {
+            binding.mods.ctrl == ctrl && binding.mods.shift == shift && binding.mods.alt == alt
+        })
         .find(|binding| binding.trigger.matches(key))
         .map(|binding| binding.action)
 }
@@ -271,26 +500,26 @@ mod tests {
     #[test]
     fn ctrl_shift_c_copies_whatever_the_shift_did_to_the_letter() {
         assert_eq!(
-            action_for(&character("C"), true, true),
+            action_for(&character("C"), true, true, false),
             Some(Action::Copy),
             "shift capitalised the letter, which is not a different key"
         );
-        assert_eq!(action_for(&character("c"), true, true), Some(Action::Copy));
+        assert_eq!(action_for(&character("c"), true, true, false), Some(Action::Copy));
     }
 
     #[test]
     fn plain_tab_still_completes_in_the_shell() {
         assert_eq!(
-            action_for(&Key::Named(NamedKey::Tab), false, false),
+            action_for(&Key::Named(NamedKey::Tab), false, false, false),
             None,
             "taking Tab would break every shell's completion"
         );
         assert_eq!(
-            action_for(&Key::Named(NamedKey::Tab), true, false),
+            action_for(&Key::Named(NamedKey::Tab), true, false, false),
             Some(Action::NextTab)
         );
         assert_eq!(
-            action_for(&Key::Named(NamedKey::Tab), true, true),
+            action_for(&Key::Named(NamedKey::Tab), true, true, false),
             Some(Action::PreviousTab)
         );
     }
@@ -298,7 +527,7 @@ mod tests {
     #[test]
     fn plain_ctrl_c_stays_the_programs_interrupt() {
         assert_eq!(
-            action_for(&character("c"), true, false),
+            action_for(&character("c"), true, false, false),
             None,
             "taking Ctrl+C would leave no way to stop a running program"
         );
@@ -307,12 +536,12 @@ mod tests {
     #[test]
     fn unshifted_pages_belong_to_the_program() {
         assert_eq!(
-            action_for(&Key::Named(NamedKey::PageUp), false, false),
+            action_for(&Key::Named(NamedKey::PageUp), false, false, false),
             None,
             "a pager needs its own PageUp"
         );
         assert_eq!(
-            action_for(&Key::Named(NamedKey::PageUp), false, true),
+            action_for(&Key::Named(NamedKey::PageUp), false, true, false),
             Some(Action::ScrollPageUp)
         );
     }
@@ -326,6 +555,150 @@ mod tests {
                     "{:?}+{:?} is bound twice",
                     a.mods,
                     a.trigger
+                );
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod added_binding_tests {
+    use super::*;
+
+    fn character(text: &str) -> Key {
+        Key::Character(text.into())
+    }
+
+    /// Ctrl+= and Ctrl+- grow and shrink the text in every application that
+    /// shows text. A terminal without them is the odd one out, and this one
+    /// was: the whole family was missing.
+    #[test]
+    fn the_font_size_keys_exist() {
+        assert_eq!(
+            action_for(&character("="), true, false, false),
+            Some(Action::IncreaseFontSize)
+        );
+        assert_eq!(
+            action_for(&character("-"), true, false, false),
+            Some(Action::DecreaseFontSize)
+        );
+        assert_eq!(
+            action_for(&character("0"), true, false, false),
+            Some(Action::ResetFontSize)
+        );
+    }
+
+    /// On many layouts Ctrl+Shift+= is how `+` is typed, and people press it
+    /// meaning "bigger" either way.
+    #[test]
+    fn the_shifted_plus_grows_the_text_too() {
+        assert_eq!(
+            action_for(&character("+"), true, false, false),
+            Some(Action::IncreaseFontSize)
+        );
+    }
+
+    #[test]
+    fn ctrl_and_a_digit_goes_to_that_tab() {
+        assert_eq!(
+            action_for(&character("1"), true, false, false),
+            Some(Action::SelectTab(1))
+        );
+        assert_eq!(
+            action_for(&character("9"), true, false, false),
+            Some(Action::SelectTab(9))
+        );
+    }
+
+    /// Alt and an arrow moves between panes. Alt and a *letter* must not:
+    /// Alt+B and Alt+F are readline's word motions, and taking them would
+    /// break editing a long command line.
+    #[test]
+    fn alt_arrows_move_between_panes_and_alt_letters_do_not() {
+        assert_eq!(
+            action_for(&Key::Named(NamedKey::ArrowLeft), false, false, true),
+            Some(Action::FocusPane(Direction::Left))
+        );
+        assert_eq!(
+            action_for(&Key::Named(NamedKey::ArrowDown), false, false, true),
+            Some(Action::FocusPane(Direction::Down))
+        );
+        assert_eq!(
+            action_for(&character("b"), false, false, true),
+            None,
+            "Alt+B is readline's word-back"
+        );
+        assert_eq!(
+            action_for(&character("f"), false, false, true),
+            None,
+            "Alt+F is readline's word-forward"
+        );
+    }
+
+    /// A plain arrow moves the shell's cursor and must keep doing so.
+    #[test]
+    fn an_unmodified_arrow_still_belongs_to_the_shell() {
+        assert_eq!(
+            action_for(&Key::Named(NamedKey::ArrowLeft), false, false, false),
+            None
+        );
+    }
+
+    #[test]
+    fn f11_goes_full_screen_and_the_other_function_keys_are_the_programs() {
+        assert_eq!(
+            action_for(&Key::Named(NamedKey::F11), false, false, false),
+            Some(Action::ToggleFullScreen)
+        );
+        for key in [NamedKey::F1, NamedKey::F5, NamedKey::F10, NamedKey::F12] {
+            assert_eq!(
+                action_for(&Key::Named(key), false, false, false),
+                None,
+                "{key:?} belongs to whatever is running"
+            );
+        }
+    }
+
+    #[test]
+    fn a_new_window_and_a_pane_of_ones_own_are_both_reachable() {
+        assert_eq!(
+            action_for(&character("n"), true, true, false),
+            Some(Action::NewWindow)
+        );
+        assert_eq!(
+            action_for(&character("q"), true, true, false),
+            Some(Action::ClosePane)
+        );
+        assert_eq!(
+            action_for(&character("z"), true, true, false),
+            Some(Action::ZoomPane)
+        );
+        // The launcher moved to make room, and has to still be somewhere.
+        assert_eq!(
+            action_for(&character("l"), true, true, false),
+            Some(Action::Launcher)
+        );
+    }
+
+    /// Every action has a name and a label, and no two *different* actions
+    /// share a name -- the name is what an agent matches on over MCP.
+    ///
+    /// Two keys reaching one action is fine and deliberate: Ctrl+= and Ctrl++
+    /// both grow the text, because on many layouts they are the same physical
+    /// key with and without shift.
+    #[test]
+    fn every_bound_action_is_named_distinctly() {
+        let mut by_name: std::collections::HashMap<&str, Action> =
+            std::collections::HashMap::new();
+        for binding in BINDINGS {
+            let name = binding.action.name();
+            assert!(!name.is_empty(), "{:?} has no name", binding.action);
+            assert!(!binding.action.label().is_empty(), "{name} has no label");
+            if let Some(other) = by_name.insert(name, binding.action) {
+                assert_eq!(
+                    other, binding.action,
+                    "{other:?} and {:?} are both called {name}",
+                    binding.action
                 );
             }
         }

@@ -9,6 +9,7 @@
 //! rectangle that is one cell out is a line of text disappearing under a
 //! divider, and that is easier to assert than to notice.
 
+use crate::keys::Direction;
 use unterm_engine::next_core::layout::PaneRect;
 use unterm_render::quads::CellMetrics;
 
@@ -140,5 +141,130 @@ mod tests {
             right.origin.0 >= left_edge,
             "panes overlap: {left:?} then {right:?}"
         );
+    }
+}
+
+/// Which pane a direction key should move to.
+///
+/// By where the panes are on screen, not by where they sit in the split tree:
+/// with three panes the tree has a shape the screen does not show, and someone
+/// pressing Alt+Right means the pane to the right of this one.
+///
+/// Distance is weighted across the direction rather than along it, so a pane
+/// directly beside this one wins over a nearer one that is off to a side.
+pub fn pane_toward(
+    placements: &[PanePlacement],
+    from: usize,
+    direction: Direction,
+    metrics: CellMetrics,
+) -> Option<usize> {
+    let centre = |placement: &PanePlacement| {
+        (
+            placement.origin.0 + placement.cols as f32 * metrics.width / 2.0,
+            placement.origin.1 + placement.rows as f32 * metrics.height / 2.0,
+        )
+    };
+    let (from_x, from_y) = centre(placements.iter().find(|p| p.session_id == from)?);
+
+    placements
+        .iter()
+        .filter(|placement| placement.session_id != from)
+        .filter(|placement| {
+            let (x, y) = centre(placement);
+            match direction {
+                Direction::Left => x < from_x,
+                Direction::Right => x > from_x,
+                Direction::Up => y < from_y,
+                Direction::Down => y > from_y,
+            }
+        })
+        .min_by(|a, b| {
+            let cost = |placement: &PanePlacement| {
+                let (x, y) = centre(placement);
+                let (along, across) = match direction {
+                    Direction::Left => (from_x - x, (from_y - y).abs()),
+                    Direction::Right => (x - from_x, (from_y - y).abs()),
+                    Direction::Up => (from_y - y, (from_x - x).abs()),
+                    Direction::Down => (y - from_y, (from_x - x).abs()),
+                };
+                across * 4.0 + along
+            };
+            cost(a).total_cmp(&cost(b))
+        })
+        .map(|placement| placement.session_id)
+}
+
+#[cfg(test)]
+mod direction_tests {
+    use super::*;
+
+    fn metrics() -> CellMetrics {
+        CellMetrics { width: 10.0, height: 20.0, baseline: 16.0 }
+    }
+
+    fn pane(session_id: usize, left: usize, top: usize, cols: usize, rows: usize) -> PanePlacement {
+        place(
+            session_id,
+            PaneRect { left, top, width: cols, height: rows },
+            metrics(),
+        )
+    }
+
+    /// Two panes side by side: right goes right, left comes back.
+    #[test]
+    fn a_split_moves_both_ways() {
+        let panes = vec![pane(1, 0, 0, 40, 24), pane(2, 41, 0, 40, 24)];
+        assert_eq!(pane_toward(&panes, 1, Direction::Right, metrics()), Some(2));
+        assert_eq!(pane_toward(&panes, 2, Direction::Left, metrics()), Some(1));
+    }
+
+    /// And there is nothing past the edge, which must be nothing rather than
+    /// a wrap round to the far side -- a key that jumps somewhere unexpected
+    /// is worse than one that does nothing.
+    #[test]
+    fn there_is_no_pane_past_the_last_one() {
+        let panes = vec![pane(1, 0, 0, 40, 24), pane(2, 41, 0, 40, 24)];
+        assert_eq!(pane_toward(&panes, 2, Direction::Right, metrics()), None);
+        assert_eq!(pane_toward(&panes, 1, Direction::Up, metrics()), None);
+    }
+
+    /// A tall pane on the left, two stacked on the right. From the left one,
+    /// Right must reach the one it is actually beside.
+    #[test]
+    fn the_pane_beside_this_one_wins_over_a_nearer_one_off_to_a_side() {
+        let panes = vec![
+            pane(1, 0, 12, 40, 12),  // left, lower half
+            pane(2, 41, 0, 40, 11),  // right, upper
+            pane(3, 41, 12, 40, 12), // right, level with pane 1
+        ];
+        assert_eq!(pane_toward(&panes, 1, Direction::Right, metrics()), Some(3));
+    }
+
+    #[test]
+    fn stacked_panes_move_up_and_down() {
+        let panes = vec![pane(1, 0, 0, 80, 11), pane(2, 0, 12, 80, 12)];
+        assert_eq!(pane_toward(&panes, 1, Direction::Down, metrics()), Some(2));
+        assert_eq!(pane_toward(&panes, 2, Direction::Up, metrics()), Some(1));
+    }
+
+    /// One pane has nowhere to go, and asking must not panic.
+    #[test]
+    fn a_single_pane_has_no_neighbours() {
+        let panes = vec![pane(1, 0, 0, 80, 24)];
+        for direction in [
+            Direction::Left,
+            Direction::Right,
+            Direction::Up,
+            Direction::Down,
+        ] {
+            assert_eq!(pane_toward(&panes, 1, direction, metrics()), None);
+        }
+    }
+
+    /// A pane id that is not in the list is a stale focus, not a crash.
+    #[test]
+    fn an_unknown_pane_is_answered_with_nothing() {
+        let panes = vec![pane(1, 0, 0, 80, 24)];
+        assert_eq!(pane_toward(&panes, 99, Direction::Left, metrics()), None);
     }
 }

@@ -147,3 +147,54 @@ mod tests {
         assert!(bar.iter().all(|quad| quad.width >= 1.0));
     }
 }
+
+/// Which tab a number key means, counting from one as the keys are labelled.
+///
+/// Nine is the last tab however many there are, which is what every browser
+/// does -- someone with four tabs pressing Ctrl+9 means the last one, not
+/// nothing. Other numbers past the end are nothing rather than the last one:
+/// Ctrl+3 with two tabs open is a miss, and jumping somewhere unasked-for is
+/// worse than staying put.
+pub fn tab_for_number(number: u8, count: usize) -> Option<usize> {
+    if count == 0 || number == 0 {
+        return None;
+    }
+    if number >= 9 {
+        return Some(count - 1);
+    }
+    let index = number as usize - 1;
+    (index < count).then_some(index)
+}
+
+#[cfg(test)]
+mod number_key_tests {
+    use super::*;
+
+    #[test]
+    fn a_number_picks_the_tab_with_that_position() {
+        assert_eq!(tab_for_number(1, 4), Some(0));
+        assert_eq!(tab_for_number(3, 4), Some(2));
+    }
+
+    /// Nine is the last one, however many there are.
+    #[test]
+    fn nine_is_the_last_tab_not_the_ninth() {
+        assert_eq!(tab_for_number(9, 4), Some(3));
+        assert_eq!(tab_for_number(9, 1), Some(0));
+        assert_eq!(tab_for_number(9, 12), Some(11));
+    }
+
+    /// And a number past the end is a miss, not a jump to the end -- those
+    /// two rules only look inconsistent until you press Ctrl+3 by accident.
+    #[test]
+    fn a_number_past_the_last_tab_does_nothing() {
+        assert_eq!(tab_for_number(3, 2), None);
+        assert_eq!(tab_for_number(8, 2), None);
+    }
+
+    #[test]
+    fn there_is_no_tab_when_there_are_no_tabs() {
+        assert_eq!(tab_for_number(1, 0), None);
+        assert_eq!(tab_for_number(9, 0), None);
+    }
+}

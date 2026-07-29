@@ -4879,6 +4879,12 @@ impl McpHandler {
             .filter(|s| !s.is_empty());
         unterm_services::server_info::set_title(title.clone())
             .context("failed to write instance title")?;
+        // And on the window itself, so the name an agent chose is the one a
+        // person sees in the taskbar rather than only the one `instance.list`
+        // reports.
+        let applied = unterm_engine::mcp_host()
+            .map(|host| host.set_window_title(title.as_deref()))
+            .unwrap_or(false);
         let window = unterm_engine::window_identity();
         Ok(json!({
             "ok": true,
@@ -4887,7 +4893,7 @@ impl McpHandler {
                 "engine": window.engine,
                 "title_owner": "server_info",
                 "metadata_owner": "product_registry",
-                "applied_to_native_window": false,
+                "applied_to_native_window": applied,
                 "uses_host_window": window.uses_host_window,
             },
             "lifecycle": {
@@ -4912,29 +4918,18 @@ impl McpHandler {
     /// instance; cross-instance focus is still modeled by connecting to that
     /// peer with `--instance <id>` and calling `instance.focus` there.
     fn instance_focus(&self, _params: &Value) -> Result<Value> {
-        if !promise::spawn::is_scheduler_configured() {
-            return Err(anyhow!(
-                "GUI scheduler is not configured for instance.focus"
-            ));
-        }
-
-        let engine = self.engine();
-        let (tx, rx) = std::sync::mpsc::channel();
-        promise::spawn::spawn_into_main_thread(async move {
-            let result = engine.focus_current_instance_window().map(|focus| {
-                json!({
-                    "ok": true,
-                    "mux_window_id": focus.mux_window_id,
-                    "window_engine": focus.window_engine,
-                    "uses_host_window": focus.uses_host_window,
-                })
-            });
-            tx.send(result).ok();
-        })
-        .detach();
-
-        rx.recv_timeout(std::time::Duration::from_secs(2))
-            .map_err(|_| anyhow!("Timeout waiting for instance.focus"))?
+        // No hop onto a GUI thread. The engine that needed one is gone, and
+        // the requirement outlived it: this returned "GUI scheduler is not
+        // configured" to every caller, so an agent asking the user to look at
+        // something was answered with an error about an engine that no longer
+        // exists. Raising a window is safe from any thread.
+        let focus = self.engine().focus_current_instance_window()?;
+        Ok(json!({
+            "ok": true,
+            "mux_window_id": focus.mux_window_id,
+            "window_engine": focus.window_engine,
+            "uses_host_window": focus.uses_host_window,
+        }))
     }
 
     /// `profile.list` — every identity profile on disk plus a hint at

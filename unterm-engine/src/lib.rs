@@ -1264,8 +1264,20 @@ impl HostEngine for next_core::NextCoreEngine {
 /// serve terminal work before, or without, any window existing, and a front
 /// end that does have one installs a provider that answers properly.
 impl WindowEngine for next_core::NextCoreEngine {
+    /// The kernel has no window; whatever is hosting it does.
     fn focus_current_instance_window(&self) -> Result<WindowFocusResult> {
-        anyhow::bail!("next-core has no window of its own to focus")
+        let Some(host) = mcp_host() else {
+            anyhow::bail!("no front end is hosting a window to focus");
+        };
+        host.focus_window()?;
+        let identity = host.window_identity();
+        Ok(WindowFocusResult {
+            // One window per instance: separate windows are separate
+            // processes, which is what lets `instance.list` name them.
+            mux_window_id: 0,
+            window_engine: identity.engine,
+            uses_host_window: identity.uses_host_window,
+        })
     }
     fn active_pane_id(&self) -> Result<Option<u64>> {
         Ok(self
@@ -1389,6 +1401,23 @@ pub trait McpHost: Send + Sync {
     /// Capture another application's window. Only macOS has this today.
     fn capture_external_window(&self, _request: &serde_json::Value) -> Result<serde_json::Value> {
         anyhow::bail!("capturing other applications' windows is not supported here")
+    }
+
+    /// Put a title on the front end's own window, or take it off again.
+    ///
+    /// Returns whether it was applied, so a caller can say plainly rather
+    /// than claim something it did not do.
+    fn set_window_title(&self, _title: Option<&str>) -> bool {
+        false
+    }
+
+    /// Bring this front end's window to the front.
+    ///
+    /// An agent that has just written something worth looking at needs a way
+    /// to say so; `instance.focus` is it, and without a front end to ask,
+    /// there is no window to raise.
+    fn focus_window(&self) -> Result<()> {
+        anyhow::bail!("this front end has no window to focus")
     }
 
     /// Photograph this front end's own window, returning the JSON to reply
@@ -2117,6 +2146,7 @@ mod host_capture_tests {
 
     static ASKED: std::sync::Mutex<Vec<(Option<String>, Option<u32>, bool)>> =
         std::sync::Mutex::new(Vec::new());
+    static FOCUSED: std::sync::Mutex<usize> = std::sync::Mutex::new(0);
 
     impl McpHost for Recorder {
         fn render_scrollback_png(
@@ -2127,6 +2157,20 @@ mod host_capture_tests {
             _dpi: usize,
         ) -> Result<serde_json::Value> {
             anyhow::bail!("not what this test is about")
+        }
+
+        fn window_identity(&self) -> WindowIdentity {
+            WindowIdentity {
+                engine: "recorder",
+                window_owner: "recorder",
+                native_window_lifecycle: "self_owned",
+                uses_host_window: false,
+            }
+        }
+
+        fn focus_window(&self) -> Result<()> {
+            *FOCUSED.lock().unwrap() += 1;
+            Ok(())
         }
 
         fn capture_own_window(
@@ -2174,5 +2218,12 @@ mod host_capture_tests {
         CaptureEngine::capture_screen_image(&engine, true).unwrap();
         let asked = ASKED.lock().unwrap().pop().unwrap();
         assert_eq!(asked, (None, Some(std::process::id()), true));
+
+        // Focus reaches the same place, and reports the front end's own
+        // identity rather than a guess at which one is running.
+        let focus = WindowEngine::focus_current_instance_window(&engine).unwrap();
+        assert_eq!(*FOCUSED.lock().unwrap(), 1);
+        assert_eq!(focus.window_engine, "recorder");
+        assert!(!focus.uses_host_window);
     }
 }
