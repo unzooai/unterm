@@ -10,6 +10,21 @@ use unterm_render::atlas::{GlyphAtlas, GlyphKey};
 use unterm_render::quads::{build_row, CellMetrics, FrameColors, FrameQuads, Quad};
 use unterm_engine::{StyledCell, StyledScreenSnapshot};
 
+/// Pixels per em for a size in points on a display at `scale`.
+///
+/// A point is 1/72 inch, and winit reports scale against 96 dpi -- so the
+/// pixel size is points * 96 * scale / 72. The previous front end did the same
+/// arithmetic; this one skipped it and used the point size as pixels, which on
+/// a 1.5x display drew every glyph at half the size it should be. That is most
+/// of what "it still looks very different" was.
+pub fn pixels_for_points(points: f32, scale: f32) -> u32 {
+    const POINTS_PER_INCH: f32 = 72.0;
+    const NOMINAL_DPI: f32 = 96.0;
+    // Never zero: a face opened at no pixels rasterizes nothing, and the
+    // window comes up blank with no error to explain it.
+    (((points.max(1.0) * NOMINAL_DPI * scale.max(0.1)) / POINTS_PER_INCH).round() as u32).max(1)
+}
+
 /// The font and the cell it dictates.
 ///
 /// Cell size comes from the font rather than the other way round: a terminal
@@ -1395,5 +1410,38 @@ mod width_tests {
             gap >= width * 1.5,
             "the Latin character sits {gap} from the wide one, cell is {width}"
         );
+    }
+}
+
+#[cfg(test)]
+mod dpi_tests {
+    use super::*;
+
+    /// 13pt is 17px on an ordinary display -- not 13. Using the point size as
+    /// pixels is a third smaller than asked for, and half on a scaled panel.
+    #[test]
+    fn points_become_more_pixels_than_points() {
+        assert_eq!(pixels_for_points(13.0, 1.0), 17);
+        assert_eq!(pixels_for_points(12.0, 1.0), 16);
+    }
+
+    /// And the scale multiplies. This is the one that was missing entirely.
+    #[test]
+    fn a_scaled_display_gets_proportionally_more_pixels() {
+        assert_eq!(pixels_for_points(13.0, 2.0), 35);
+        assert_eq!(
+            pixels_for_points(13.0, 1.5),
+            26,
+            "a 1.5x panel at 13pt, which was being drawn at 13px"
+        );
+    }
+
+    /// Never zero, whatever nonsense arrives: a face opened at zero pixels
+    /// rasterizes nothing and the window is blank.
+    #[test]
+    fn nothing_rounds_away_to_no_font_at_all() {
+        assert!(pixels_for_points(0.0, 1.0) > 0);
+        assert!(pixels_for_points(13.0, 0.0) > 0);
+        assert!(pixels_for_points(-5.0, -5.0) > 0);
     }
 }

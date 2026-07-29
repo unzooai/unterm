@@ -66,10 +66,16 @@ use winit::window::{Window, WindowId};
 pub struct App {
     engine: NextCoreEngine,
     font: TerminalFont,
-    /// The size the font is open at now, which the zoom keys move.
-    font_size: f32,
+    /// The size the font is asked for, in points, which the zoom keys move.
+    ///
+    /// Points rather than pixels, as the config and every other terminal mean
+    /// it: how many pixels that is depends on the display, and the display can
+    /// change while the window is open.
+    font_points: f32,
     /// The size the config asked for, which the reset key goes back to.
-    configured_font_size: f32,
+    configured_font_points: f32,
+    /// The display's scale, as winit reports it against 96 dpi.
+    scale: f32,
     /// The families to try after the primary one, kept because reopening the
     /// font at a new size has to make the same choices as the first open.
     font_fallbacks: Vec<String>,
@@ -222,9 +228,13 @@ impl App {
             held_mouse_button: None,
             alt_held: false,
             window_title: None,
-            font: TerminalFont::open_with_fallback(pixel_size.round() as u32, &fallbacks)?,
-            font_size: pixel_size as f32,
-            configured_font_size: pixel_size as f32,
+            font: TerminalFont::open_with_fallback(
+                crate::terminal::pixels_for_points(pixel_size as f32, 1.0),
+                &fallbacks,
+            )?,
+            font_points: pixel_size as f32,
+            configured_font_points: pixel_size as f32,
+            scale: 1.0,
             font_fallbacks: fallbacks,
             atlas: GlyphAtlas::new(1024, 1024),
             colors: colors_from(config),
@@ -253,6 +263,13 @@ impl App {
                 metrics.height * 30.0,
             ));
         let window = Arc::new(event_loop.create_window(attributes)?);
+        // The window knows the display's scale; the font was opened before it
+        // existed, at 1.0. On a scaled panel every glyph until now was drawn
+        // at a fraction of its size.
+        let scale = window.scale_factor() as f32;
+        if (scale - self.scale).abs() > f32::EPSILON {
+            self.reopen_font(self.font_points, scale);
+        }
         // So `instance.focus`, which arrives on the MCP thread, has a window
         // to raise.
         crate::mcp_host::remember_window(window.clone());
@@ -1004,7 +1021,7 @@ impl App {
     fn run_key_action(&mut self, action: crate::keys::Action, session_id: usize) {
         use crate::keys::Action;
         if std::env::var_os("UNTERM_TRACE_KEYS").is_some() {
-            log::info!("  run_key_action {:?} font={} ", action, self.font_size);
+            log::info!("  run_key_action {:?} font={}pt", action, self.font_points);
         }
         match action {
             Action::Copy => self.copy_selection(),
@@ -1051,7 +1068,7 @@ impl App {
             Action::SelectTab(number) => self.select_tab(number),
             Action::IncreaseFontSize => self.change_font_size(1.0),
             Action::DecreaseFontSize => self.change_font_size(-1.0),
-            Action::ResetFontSize => self.set_font_size(self.configured_font_size),
+            Action::ResetFontSize => self.set_font_size(self.configured_font_points),
             Action::ToggleFullScreen => self.toggle_full_screen(),
             Action::ScrollPageUp | Action::ScrollPageDown => {
                 let rows = self
@@ -1189,7 +1206,7 @@ impl App {
     }
 
     fn change_font_size(&mut self, steps: f32) {
-        self.set_font_size(self.font_size + steps);
+        self.set_font_size(self.font_points + steps);
     }
 
     /// Redraw everything at a new size.
@@ -1198,18 +1215,24 @@ impl App {
     /// size, so keeping it would only hold glyphs nothing will ask for again.
     /// The panes are told their new grid afterwards -- a shell that still
     /// thinks it has eighty columns wraps its output in the wrong place.
-    fn set_font_size(&mut self, size: f32) {
-        let size = size.clamp(6.0, 72.0);
-        if (size - self.font_size).abs() < f32::EPSILON {
+    fn set_font_size(&mut self, points: f32) {
+        let points = points.clamp(6.0, 72.0);
+        if (points - self.font_points).abs() < f32::EPSILON {
             return;
         }
-        let Ok(font) = TerminalFont::open_with_fallback(size.round() as u32, &self.font_fallbacks)
-        else {
-            log::warn!("no font at {size} pixels; keeping {}", self.font_size);
+        self.reopen_font(points, self.scale);
+    }
+
+    /// Open the font at a size in points, for a display at `scale`.
+    fn reopen_font(&mut self, points: f32, scale: f32) {
+        let pixels = crate::terminal::pixels_for_points(points, scale);
+        let Ok(font) = TerminalFont::open_with_fallback(pixels, &self.font_fallbacks) else {
+            log::warn!("no font at {pixels} pixels; keeping {}", self.font_points);
             return;
         };
         self.font = font;
-        self.font_size = size;
+        self.font_points = points;
+        self.scale = scale;
         self.atlas = GlyphAtlas::new(1024, 1024);
         self.resize_panes();
         self.drawn_revision = None;

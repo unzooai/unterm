@@ -410,6 +410,19 @@ $Suites = @(
         )
     },
     @{
+        # Font size in points at the display's scale. Treating the point size
+        # as pixels drew every glyph at a fraction of its size.
+        Name = "font size in points"
+        Package = "unterm-app"
+        Filter = "terminal::dpi_tests::"
+        ExpectedCount = 3
+        RequiredTests = @(
+            "terminal::dpi_tests::points_become_more_pixels_than_points",
+            "terminal::dpi_tests::a_scaled_display_gets_proportionally_more_pixels",
+            "terminal::dpi_tests::nothing_rounds_away_to_no_font_at_all"
+        )
+    },
+    @{
         # The gap between the window's edge and the text. Its absence is the
         # difference between a terminal and a wall of text in a corner.
         Name = "window padding"
