@@ -598,6 +598,7 @@ mod tests {
             revision: 1,
             dirty_rows: None,
             mouse: Default::default(),
+            bells: 0,
         }
     }
 
@@ -1106,6 +1107,7 @@ mod missing_glyph_regression {
             revision: 1,
             dirty_rows: None,
             mouse: Default::default(),
+            bells: 0,
         };
 
         append_pane(&snapshot, &mut font, &mut atlas, colors, (0.0, 0.0), &mut quads);
@@ -1165,6 +1167,7 @@ mod cursor_inversion_tests {
             revision: 1,
             dirty_rows: None,
             mouse: Default::default(),
+            bells: 0,
         }
     }
 

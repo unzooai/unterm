@@ -315,6 +315,32 @@ $Suites = @(
         )
     },
     @{
+        # Scrollbar arithmetic. Every one of these is off by a bit until
+        # someone drags to the very bottom and checks.
+        Name = "app scrollbar"
+        Package = "unterm-app"
+        Filter = "scrollbar::"
+        ExpectedCount = 11
+        RequiredTests = @(
+            "scrollbar::tests::scrolled_to_the_bottom_puts_the_thumb_at_the_bottom",
+            "scrollbar::tests::a_drag_and_the_thumb_it_produces_agree",
+            "scrollbar::tests::a_very_long_history_still_leaves_something_to_grab",
+            "scrollbar::live_shape_tests::a_pane_with_history_above_it_gets_a_bar"
+        )
+    },
+    @{
+        # A bell is counted, not flagged: a flag is missed when two land
+        # between frames, and shown twice if a reader forgets to clear it.
+        Name = "engine bell"
+        Package = "unterm-engine"
+        Filter = "next_core::screen_state::bell_tests::"
+        ExpectedCount = 2
+        RequiredTests = @(
+            "next_core::screen_state::bell_tests::ringing_the_bell_is_counted_rather_than_flagged",
+            "next_core::screen_state::bell_tests::a_bell_inside_an_osc_string_terminates_it_rather_than_ringing"
+        )
+    },
+    @{
         # Links a program marked, and links it merely printed. Opening is
         # behind a modifier: a terminal where a stray click launches a
         # browser is one you cannot select text in.

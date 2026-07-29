@@ -170,6 +170,8 @@ struct NextCoreScreen {
     cursor_x: usize,
     cursor_y: usize,
     cursor_visible: bool,
+    /// How many times a program has rung the bell.
+    bells: u64,
     cursor_blinking: bool,
     cursor_shape: String,
     column_132_mode: bool,
@@ -225,6 +227,17 @@ impl NextCoreScreen {
         }
     }
 
+    /// A program rang the bell.
+    ///
+    /// Counted rather than flagged: a front end reads the screen when it
+    /// draws, and a flag would be missed whenever two bells landed between
+    /// two frames -- or shown twice if the reader forgot to clear it. A
+    /// number that only goes up is one both sides can compare.
+    fn ring_bell(&mut self) {
+        self.bells = self.bells.saturating_add(1);
+        self.bump_revision();
+    }
+
     /// The session's mouse reporting state, as the encoder needs it.
     pub fn mouse_modes(&self) -> mouse_encoding::MouseModes {
         use mouse_encoding::MouseTracking;
@@ -246,6 +259,7 @@ impl NextCoreScreen {
             cols: cols.max(1),
             rows: rows.max(1),
             cursor_visible: true,
+            bells: 0,
             cursor_blinking: true,
             cursor_shape: "Default".to_string(),
             auto_wrap: true,

@@ -13,6 +13,7 @@ mod mcp_host;
 mod mouse;
 mod panes;
 mod scroll;
+mod scrollbar;
 mod search;
 mod shape;
 mod tabbar;

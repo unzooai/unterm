@@ -230,6 +230,12 @@ pub struct DirtyRows {
 #[allow(dead_code)]
 #[derive(Clone, Debug, Serialize)]
 pub struct StyledScreenSnapshot {
+    /// How many times a program has rung the bell in this pane.
+    ///
+    /// A running total, not a flag: a front end compares it with what it saw
+    /// last frame, so two bells between frames are not one, and a reader that
+    /// forgets to clear anything cannot show the same bell twice.
+    pub bells: u64,
     /// What the program in this pane wants from the mouse.
     ///
     /// A front end has to ask before deciding what a click means: with
@@ -747,6 +753,12 @@ pub struct ScreenSearchMatch {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct ScreenSnapshot {
+    /// How many times a program has rung the bell in this pane.
+    ///
+    /// A running total, not a flag: a front end compares it with what it saw
+    /// last frame, so two bells between frames are not one, and a reader that
+    /// forgets to clear anything cannot show the same bell twice.
+    pub bells: u64,
     /// What the program in this pane wants from the mouse.
     ///
     /// A front end has to ask before deciding what a click means: with
@@ -1407,6 +1419,7 @@ mod tests {
         fn read_styled_screen(&self, _pane_id: usize) -> Result<StyledScreenSnapshot> {
             Ok(StyledScreenSnapshot {
                 mouse: Default::default(),
+                bells: 0,
                 lines: vec![StyledScreenLine {
                     row: 0,
                     wrapped: false,

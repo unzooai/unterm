@@ -265,3 +265,40 @@ mod mouse_mode_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod bell_tests {
+    use crate::next_core::NextCoreScreen;
+
+    /// A bell is counted, and counting is what makes it not get lost.
+    ///
+    /// A flag would be missed whenever two bells landed between two frames,
+    /// or shown twice if a reader forgot to clear it. A number that only goes
+    /// up is one both sides can compare.
+    #[test]
+    fn ringing_the_bell_is_counted_rather_than_flagged() {
+        let mut screen = NextCoreScreen::new(20, 4);
+        assert_eq!(screen.bells, 0);
+
+        screen.feed("hi\x07there");
+        assert_eq!(screen.bells, 1);
+        assert_eq!(
+            screen.lines[0].iter().map(|cell| cell.ch).collect::<String>().trim_end(),
+            "hithere",
+            "the bell is not a character and takes no cell"
+        );
+
+        screen.feed("\x07\x07");
+        assert_eq!(screen.bells, 3, "two bells between reads are two bells");
+    }
+
+    #[test]
+    fn a_bell_inside_an_osc_string_terminates_it_rather_than_ringing() {
+        // BEL is how an OSC ends. Counting that one would ring on every
+        // window-title change, which is most of what a shell does.
+        let mut screen = NextCoreScreen::new(20, 4);
+        screen.feed("\x1b]0;a title\x07");
+        assert_eq!(screen.bells, 0);
+        assert_eq!(screen.title(), Some("a title".to_string()));
+    }
+}

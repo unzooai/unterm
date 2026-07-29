@@ -12,6 +12,12 @@ use crate::terminal::{colors_from, TerminalFont};
 /// Enough that the count means something, bounded so a pattern matching every
 /// line of a long scrollback does not stall the keystroke that typed it.
 const MAX_SEARCH_MATCHES: usize = 500;
+
+/// How long the bell's flash lasts.
+///
+/// Long enough to notice out of the corner of an eye, short enough that a
+/// program ringing repeatedly does not leave the screen washed out.
+const BELL_FLASH: std::time::Duration = std::time::Duration::from_millis(120);
 use anyhow::Context;
 use std::sync::Arc;
 use unterm_engine::next_core::{config, key_encoding, NextCoreEngine};
@@ -64,6 +70,12 @@ pub struct App {
     preedit: crate::ime::Preedit,
     /// The open search, if there is one.
     search: Option<crate::search::Search>,
+    /// How many bells the pane had rung when we last drew.
+    bells_seen: u64,
+    /// When the current flash started.
+    bell_at: Option<std::time::Instant>,
+    /// True while a drag is holding the scrollbar's thumb.
+    dragging_scrollbar: bool,
     /// What the program wants from the mouse, as of the last frame drawn.
     ///
     /// Cached rather than read per event: a motion arrives a hundred times a
@@ -121,6 +133,9 @@ impl App {
             drawn_confirmation: None,
             preedit: crate::ime::Preedit::default(),
             search: None,
+            bells_seen: 0,
+            bell_at: None,
+            dragging_scrollbar: false,
             mouse_modes: Default::default(),
             held_mouse_button: None,
             alt_held: false,
@@ -230,6 +245,7 @@ impl App {
             revision = revision.wrapping_add(snapshot.revision);
             if placement.session_id == session_id {
                 self.mouse_modes = snapshot.mouse;
+                self.note_bells(snapshot.bells);
             }
             crate::terminal::append_pane(
                 &snapshot,
@@ -246,6 +262,7 @@ impl App {
             };
             revision = snapshot.revision;
             self.mouse_modes = snapshot.mouse;
+            self.note_bells(snapshot.bells);
             crate::terminal::append_pane(
                 &snapshot,
                 &mut self.font,
@@ -256,6 +273,8 @@ impl App {
             );
         }
         quads.backgrounds.extend(dividers);
+        self.append_scrollbar(&mut quads);
+        self.append_bell_flash(&mut quads);
         self.append_hovered_link(&mut quads);
         self.append_preedit(&mut quads);
         self.append_search_bar(window_width, &mut quads);
@@ -345,6 +364,116 @@ impl App {
             }
             crate::mouse::Route::ToTerminal => false,
         }
+    }
+
+    /// Start a flash if the pane has rung since the last frame.
+    fn note_bells(&mut self, bells: u64) {
+        if bells > self.bells_seen {
+            self.bells_seen = bells;
+            self.bell_at = Some(std::time::Instant::now());
+        }
+    }
+
+    /// Whether the pointer is over the scrollbar's track.
+    fn pointer_on_scrollbar(&self) -> bool {
+        let Some(live) = self.state.as_ref() else {
+            return false;
+        };
+        self.pointer.0 >= live.width as f32 - crate::scrollbar::WIDTH
+    }
+
+    /// Scroll to wherever the pointer is on the track.
+    fn scroll_to_pointer(&mut self) {
+        let Some(live) = self.state.as_ref() else {
+            return;
+        };
+        let Ok(snapshot) = self.engine.read_styled_screen(live.session_id) else {
+            return;
+        };
+        let metrics = self.font.metrics();
+        let track_top = crate::tabbar::terminal_top(metrics, self.tabs.tab_count());
+        let track = (live.height as f32 - track_top).max(1.0);
+        let total = snapshot.scrollback_rows + snapshot.rows;
+        let row = crate::scrollbar::row_at(total, snapshot.rows, self.pointer.1 - track_top, track);
+        let _ = self
+            .engine
+            .scroll_viewport_to(live.session_id, row as isize);
+        self.drawn_revision = None;
+        live.window.request_redraw();
+    }
+
+    /// The scrollbar, down the right edge.
+    ///
+    /// Only when there is history above: a bar that fills its whole track
+    /// tells the user nothing and takes a column to say it.
+    fn append_scrollbar(&mut self, quads: &mut unterm_render::quads::FrameQuads) {
+        let Some(live) = self.state.as_ref() else {
+            return;
+        };
+        let Ok(snapshot) = self.engine.read_styled_screen(live.session_id) else {
+            return;
+        };
+        let metrics = self.font.metrics();
+        let track_top = crate::tabbar::terminal_top(metrics, self.tabs.tab_count());
+        let track = (live.height as f32 - track_top).max(1.0);
+
+        let total = snapshot.scrollback_rows + snapshot.rows;
+        let top_row = snapshot
+            .lines
+            .first()
+            .map(|line| line.row.max(0) as usize)
+            .unwrap_or(0);
+        let Some(thumb) = crate::scrollbar::thumb(total, snapshot.rows, top_row, track) else {
+            return;
+        };
+
+        let left = live.width as f32 - crate::scrollbar::WIDTH;
+        // The track first, so the thumb reads as a position within something
+        // rather than a stripe floating at the edge.
+        quads.backgrounds.push(unterm_render::quads::Quad {
+            left,
+            top: track_top,
+            width: crate::scrollbar::WIDTH,
+            height: track,
+            color: mix(self.colors.background, self.colors.foreground, 0.12),
+        });
+        quads.backgrounds.push(unterm_render::quads::Quad {
+            left,
+            top: track_top + thumb.top,
+            width: crate::scrollbar::WIDTH,
+            height: thumb.height,
+            color: mix(self.colors.background, self.colors.foreground, 0.45),
+        });
+    }
+
+    /// A visual bell: the screen lightens for a moment.
+    ///
+    /// Visual rather than audible. A terminal that beeps out of a background
+    /// window is the reason people turn bells off entirely, and a flash says
+    /// the same thing to someone who is looking.
+    fn append_bell_flash(&mut self, quads: &mut unterm_render::quads::FrameQuads) {
+        let Some(live) = self.state.as_ref() else {
+            return;
+        };
+        let Some(rung_at) = self.bell_at else {
+            return;
+        };
+        let elapsed = rung_at.elapsed();
+        if elapsed >= BELL_FLASH {
+            self.bell_at = None;
+            return;
+        }
+        // Fading out, so a bell in a stream of them does not strobe.
+        let remaining = 1.0 - elapsed.as_secs_f32() / BELL_FLASH.as_secs_f32();
+        let mut color = self.colors.foreground;
+        color[3] = 0.18 * remaining;
+        quads.backgrounds.push(unterm_render::quads::Quad {
+            left: 0.0,
+            top: 0.0,
+            width: live.width as f32,
+            height: live.height as f32,
+            color,
+        });
     }
 
     /// Underline the link the pointer is over, while Ctrl says a click opens.
@@ -1082,6 +1211,11 @@ impl App {
         if Some(revision) != self.drawn_revision {
             return true;
         }
+        // A fading flash needs frames of its own: nothing about the screen
+        // changes while it fades out.
+        if self.bell_at.is_some() {
+            return true;
+        }
         // A banner arrives from the MCP thread, which changes no screen; if
         // only the screen could ask for a redraw, the question would never be
         // drawn and the agent would wait out its timeout looking at nothing.
@@ -1255,6 +1389,10 @@ impl ApplicationHandler for App {
 
             WindowEvent::CursorMoved { position, .. } => {
                 self.pointer = (position.x as f32, position.y as f32);
+                if self.dragging_scrollbar {
+                    self.scroll_to_pointer();
+                    return;
+                }
                 if self.report_mouse(
                     unterm_engine::next_core::mouse_encoding::MouseEventKind::Motion,
                     self.held_mouse_button,
@@ -1302,6 +1440,15 @@ impl ApplicationHandler for App {
                 }
 
                 if button != MouseButton::Left {
+                    return;
+                }
+                if state == ElementState::Pressed && self.pointer_on_scrollbar() {
+                    self.dragging_scrollbar = true;
+                    self.scroll_to_pointer();
+                    return;
+                }
+                if state == ElementState::Released && self.dragging_scrollbar {
+                    self.dragging_scrollbar = false;
                     return;
                 }
                 if state == ElementState::Pressed

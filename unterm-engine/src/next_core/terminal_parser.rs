@@ -28,6 +28,7 @@ impl TerminalParser {
                 '\u{009d}' => self.state = ParserState::Osc(String::new()),
                 '\r' => screen.carriage_return(),
                 '\n' | '\x0b' | '\x0c' => screen.newline(),
+                '\x07' => screen.ring_bell(),
                 '\x08' => screen.backspace(),
                 '\t' => screen.horizontal_tab(),
                 c if !c.is_control() => screen.put_char(c),

@@ -333,6 +333,7 @@ fn meta(screen: &super::NextCoreScreen) -> ScreenSnapshotMeta {
         revision: screen.revision(),
         dirty_rows: screen.dirty_rows(),
         mouse: screen.mouse_modes(),
+        bells: screen.bells,
     }
 }
 
