@@ -599,6 +599,8 @@ mod tests {
             dirty_rows: None,
             mouse: Default::default(),
             bells: 0,
+            focus_reporting: false,
+            clipboard_request: None,
         }
     }
 
@@ -1108,6 +1110,8 @@ mod missing_glyph_regression {
             dirty_rows: None,
             mouse: Default::default(),
             bells: 0,
+            focus_reporting: false,
+            clipboard_request: None,
         };
 
         append_pane(&snapshot, &mut font, &mut atlas, colors, (0.0, 0.0), &mut quads);
@@ -1168,6 +1172,8 @@ mod cursor_inversion_tests {
             dirty_rows: None,
             mouse: Default::default(),
             bells: 0,
+            focus_reporting: false,
+            clipboard_request: None,
         }
     }
 

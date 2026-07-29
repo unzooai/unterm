@@ -315,6 +315,30 @@ $Suites = @(
         )
     },
     @{
+        # OSC 52 and focus reporting: the two things a program tells the
+        # terminal that the new front end was not listening for.
+        Name = "engine osc and focus"
+        Package = "unterm-engine"
+        Filter = "next_core::osc_params::clipboard_tests::"
+        ExpectedCount = 7
+        RequiredTests = @(
+            "next_core::osc_params::clipboard_tests::a_program_can_put_text_on_the_clipboard",
+            "next_core::osc_params::clipboard_tests::reading_the_clipboard_is_refused",
+            "next_core::osc_params::clipboard_tests::text_that_is_not_utf8_is_ignored"
+        )
+    },
+    @{
+        Name = "engine focus and clipboard modes"
+        Package = "unterm-engine"
+        Filter = "next_core::screen_state::focus_and_clipboard_tests::"
+        ExpectedCount = 3
+        RequiredTests = @(
+            "next_core::screen_state::focus_and_clipboard_tests::a_program_asking_for_focus_events_is_reported",
+            "next_core::screen_state::focus_and_clipboard_tests::a_clipboard_write_reaches_the_front_end",
+            "next_core::screen_state::focus_and_clipboard_tests::a_clipboard_read_request_leaves_nothing_to_honour"
+        )
+    },
+    @{
         # Ctrl+C. On a pty the byte is the whole story; Windows has no line
         # discipline, so a running command needs more -- and an editor
         # reading that same byte as a keystroke needs to be left alone.

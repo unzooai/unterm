@@ -302,3 +302,40 @@ mod bell_tests {
         assert_eq!(screen.title(), Some("a title".to_string()));
     }
 }
+
+#[cfg(test)]
+mod focus_and_clipboard_tests {
+    use crate::next_core::NextCoreScreen;
+
+    /// A program asking for focus events is reported to the front end.
+    ///
+    /// vim reloads a changed file on it and tmux redraws its borders; without
+    /// the mode reaching the window, nothing ever sends them and every such
+    /// program stays stuck in whichever state it was last told about.
+    #[test]
+    fn a_program_asking_for_focus_events_is_reported() {
+        let mut screen = NextCoreScreen::new(20, 4);
+        assert!(!screen.focus_event_reporting);
+        screen.feed("\x1b[?1004h");
+        assert!(screen.focus_event_reporting);
+        screen.feed("\x1b[?1004l");
+        assert!(!screen.focus_event_reporting);
+    }
+
+    #[test]
+    fn a_clipboard_write_reaches_the_front_end() {
+        let mut screen = NextCoreScreen::new(20, 4);
+        assert!(screen.clipboard_request.is_none());
+        screen.feed("\x1b]52;c;aGVsbG8=\x07");
+        assert_eq!(screen.clipboard_request.as_deref(), Some("hello"));
+    }
+
+    #[test]
+    fn a_clipboard_read_request_leaves_nothing_to_honour() {
+        // Reporting the user's clipboard to any program that can print is how
+        // a terminal leaks a password.
+        let mut screen = NextCoreScreen::new(20, 4);
+        screen.feed("\x1b]52;c;?\x07");
+        assert!(screen.clipboard_request.is_none());
+    }
+}

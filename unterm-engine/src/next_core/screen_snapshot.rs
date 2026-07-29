@@ -13,6 +13,8 @@ pub(super) struct ScreenSnapshotMeta {
     pub(super) dirty_rows: Option<DirtyRows>,
     pub(super) mouse: crate::next_core::mouse_encoding::MouseModes,
     pub(super) bells: u64,
+    pub(super) focus_reporting: bool,
+    pub(super) clipboard_request: Option<String>,
 }
 
 pub(super) fn plain_viewport(
@@ -40,6 +42,8 @@ pub(super) fn plain_viewport(
         dirty_rows: meta.dirty_rows,
         mouse: meta.mouse,
         bells: meta.bells,
+        focus_reporting: meta.focus_reporting,
+        clipboard_request: meta.clipboard_request.clone(),
     }
 }
 
@@ -57,6 +61,8 @@ pub(super) fn styled_viewport(
         dirty_rows: meta.dirty_rows,
         mouse: meta.mouse,
         bells: meta.bells,
+        focus_reporting: meta.focus_reporting,
+        clipboard_request: meta.clipboard_request.clone(),
     }
 }
 
@@ -131,6 +137,8 @@ mod tests {
             dirty_rows: Some(DirtyRows { start: 1, end: 1 }),
             mouse: Default::default(),
             bells: 0,
+            focus_reporting: false,
+            clipboard_request: None,
         }
     }
 

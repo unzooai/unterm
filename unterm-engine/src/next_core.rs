@@ -172,6 +172,8 @@ struct NextCoreScreen {
     cursor_visible: bool,
     /// How many times a program has rung the bell.
     bells: u64,
+    /// Text a program asked to put on the system clipboard.
+    clipboard_request: Option<String>,
     cursor_blinking: bool,
     cursor_shape: String,
     column_132_mode: bool,
@@ -260,6 +262,7 @@ impl NextCoreScreen {
             rows: rows.max(1),
             cursor_visible: true,
             bells: 0,
+            clipboard_request: None,
             cursor_blinking: true,
             cursor_shape: "Default".to_string(),
             auto_wrap: true,
@@ -1372,6 +1375,10 @@ impl NextCoreScreen {
             Some(osc_params::OscCommand::Title(title)) => self.title = Some(title),
             Some(osc_params::OscCommand::CurrentDir(cwd)) => self.current_dir = Some(cwd),
             Some(osc_params::OscCommand::Hyperlink(uri)) => self.apply_osc8_hyperlink(uri),
+            // Held for the front end to collect: the kernel has no clipboard
+            // and should not grow one, but it is the only thing that sees
+            // the sequence.
+            Some(osc_params::OscCommand::Clipboard(text)) => self.clipboard_request = Some(text),
             None => {}
         }
     }

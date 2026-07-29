@@ -106,6 +106,8 @@ pub struct App {
     quick_select: Option<(Vec<crate::copy_mode::Labelled>, String)>,
     /// Where the first shell should start, if the command line said.
     start_directory: Option<std::path::PathBuf>,
+    /// The last clipboard request honoured, so it is not honoured twice.
+    clipboard_honoured: Option<String>,
     /// Whether the agent inbox is showing.
     inbox_open: bool,
     /// When the cockpit tracker last saw the panes.
@@ -174,6 +176,7 @@ impl App {
             copy_mode: None,
             quick_select: None,
             start_directory: None,
+            clipboard_honoured: None,
             inbox_open: false,
             cockpit_fed_at: std::time::Instant::now(),
             mouse_modes: Default::default(),
@@ -289,6 +292,7 @@ impl App {
             if placement.session_id == session_id {
                 self.mouse_modes = snapshot.mouse;
                 self.note_bells(snapshot.bells);
+            self.take_clipboard_request(snapshot.clipboard_request.clone());
             }
             crate::terminal::append_pane(
                 &snapshot,
@@ -306,6 +310,7 @@ impl App {
             revision = snapshot.revision;
             self.mouse_modes = snapshot.mouse;
             self.note_bells(snapshot.bells);
+            self.take_clipboard_request(snapshot.clipboard_request.clone());
             crate::terminal::append_pane(
                 &snapshot,
                 &mut self.font,
@@ -740,6 +745,45 @@ impl App {
             live.window.request_redraw();
         }
         self.drawn_revision = None;
+    }
+
+    /// Put text a program asked for onto the system clipboard.
+    ///
+    /// `OSC 52`, which is the only way anything running over ssh can copy.
+    /// Taken once: the engine reports the last request, and without
+    /// remembering what was already honoured every frame would set the
+    /// clipboard again and stamp on whatever the user copied since.
+    fn take_clipboard_request(&mut self, request: Option<String>) {
+        let Some(text) = request else {
+            return;
+        };
+        if self.clipboard_honoured.as_deref() == Some(text.as_str()) {
+            return;
+        }
+        self.clipboard_honoured = Some(text.clone());
+        self.copy_text(&text);
+    }
+
+    /// Tell a pane the terminal gained or lost focus, if it asked.
+    ///
+    /// `CSI I` and `CSI O`, and only when the program turned reporting on:
+    /// sending them unasked puts stray characters into anything that did not
+    /// negotiate it, which is what the mode exists to prevent.
+    fn report_focus(&mut self, focused: bool) {
+        let Ok(sessions) = unterm_engine::SessionEngine::list_sessions(&self.engine) else {
+            return;
+        };
+        let sequence = if focused { "[I" } else { "[O" };
+        for session in sessions {
+            let asked = self
+                .engine
+                .read_styled_screen(session.id)
+                .map(|snapshot| snapshot.focus_reporting)
+                .unwrap_or(false);
+            if asked {
+                let _ = self.engine.write_input(session.id, sequence);
+            }
+        }
     }
 
     /// Interrupt whatever the pane is running.
@@ -1892,6 +1936,16 @@ impl ApplicationHandler for App {
                     }
                 }
             }
+            WindowEvent::Focused(focused) => {
+                self.report_focus(focused);
+                // A prompt that dims when unfocused has to be redrawn to show
+                // it, and nothing about the screen changed to ask for a frame.
+                self.drawn_revision = None;
+                if let Some(live) = self.state.as_ref() {
+                    live.window.request_redraw();
+                }
+            }
+
             WindowEvent::ModifiersChanged(modifiers) => {
                 self.shift_held = modifiers.state().shift_key();
                 self.ctrl_held = modifiers.state().control_key();

@@ -3,6 +3,11 @@ pub(super) enum OscCommand {
     Title(String),
     CurrentDir(String),
     Hyperlink(Option<String>),
+    /// `OSC 52`: text a program wants on the system clipboard, decoded.
+    ///
+    /// How tmux copies out of a remote session, and the only way anything
+    /// over ssh reaches the clipboard at all.
+    Clipboard(String),
 }
 
 pub(super) fn parse(sequence: &str) -> Option<OscCommand> {
@@ -11,8 +16,18 @@ pub(super) fn parse(sequence: &str) -> Option<OscCommand> {
         "0" | "2" if !value.is_empty() => Some(OscCommand::Title(value.to_string())),
         "7" => parse_osc7_cwd(value).map(OscCommand::CurrentDir),
         "8" => parse_osc8_hyperlink(value).map(OscCommand::Hyperlink),
+        "52" => parse_osc52_clipboard(value).map(OscCommand::Clipboard),
         _ => None,
     }
+}
+
+/// `OSC 52 ; <selection> ; <base64>`. A `?` payload -- read the clipboard --
+/// is not base64 and is refused with everything else that is not.
+fn parse_osc52_clipboard(value: &str) -> Option<String> {
+    use base64::Engine as _;
+    let (_selection, payload) = value.split_once(';')?;
+    let decoded = base64::engine::general_purpose::STANDARD.decode(payload).ok()?;
+    String::from_utf8(decoded).ok()
 }
 
 fn parse_osc8_hyperlink(value: &str) -> Option<Option<String>> {
@@ -127,6 +142,74 @@ mod tests {
         assert_eq!(
             parsed,
             Some(OscCommand::CurrentDir("/tmp/my project".to_string()))
+        );
+    }
+}
+
+#[cfg(test)]
+mod clipboard_tests {
+    use super::*;
+
+    #[test]
+    fn a_program_can_put_text_on_the_clipboard() {
+        // What tmux sends to copy a selection out of a remote session.
+        assert_eq!(
+            parse("52;c;aGVsbG8="),
+            Some(OscCommand::Clipboard("hello".to_string()))
+        );
+    }
+
+    #[test]
+    fn every_selection_name_is_accepted() {
+        // c, p, s, and the combinations programs actually send.
+        for selection in ["c", "p", "s", "cp", ""] {
+            assert!(
+                parse(&format!("52;{selection};aGk=")).is_some(),
+                "selection {selection:?} should still be a clipboard write"
+            );
+        }
+    }
+
+    #[test]
+    fn reading_the_clipboard_is_refused() {
+        // `?` asks the terminal to report what the user has copied. Handing
+        // that to any program that can print is how a terminal leaks
+        // passwords, and every terminal that has thought about it refuses.
+        assert_eq!(parse("52;c;?"), None);
+    }
+
+    #[test]
+    fn a_payload_that_is_not_base64_is_ignored_rather_than_guessed() {
+        assert_eq!(parse("52;c;not base64!!"), None);
+    }
+
+    #[test]
+    fn text_that_is_not_utf8_is_ignored() {
+        // 0xff is not a valid UTF-8 start byte.
+        assert_eq!(parse("52;c;/w=="), None);
+    }
+
+    #[test]
+    fn padding_is_handled_whichever_length_the_text_is() {
+        assert_eq!(
+            parse("52;c;YQ=="),
+            Some(OscCommand::Clipboard("a".to_string()))
+        );
+        assert_eq!(
+            parse("52;c;YWI="),
+            Some(OscCommand::Clipboard("ab".to_string()))
+        );
+        assert_eq!(
+            parse("52;c;YWJj"),
+            Some(OscCommand::Clipboard("abc".to_string()))
+        );
+    }
+
+    #[test]
+    fn a_multi_line_payload_survives_the_newlines_in_it() {
+        assert_eq!(
+            parse("52;c;bGluZSAxCmxpbmUgMg=="),
+            Some(OscCommand::Clipboard("line 1\nline 2".to_string()))
         );
     }
 }

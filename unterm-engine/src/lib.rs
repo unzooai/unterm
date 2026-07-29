@@ -230,6 +230,22 @@ pub struct DirtyRows {
 #[allow(dead_code)]
 #[derive(Clone, Debug, Serialize)]
 pub struct StyledScreenSnapshot {
+    /// Text a program asked to be put on the system clipboard.
+    ///
+    /// `OSC 52`, which is how tmux copies out of a remote session and the
+    /// only way anything over ssh reaches the clipboard at all. The kernel
+    /// has no clipboard and should not grow one; it reports the request and a
+    /// front end decides. A read request -- `OSC 52 ; c ; ?` -- never appears
+    /// here: reporting the user's clipboard to any program that can print is
+    /// how a terminal leaks a password.
+    pub clipboard_request: Option<String>,
+    /// The program asked to be told when the terminal gains or loses focus.
+    ///
+    /// `CSI ? 1004 h`. vim reloads a changed file on it, tmux redraws its
+    /// borders, and a shell prompt can dim itself -- all of which stay stuck
+    /// in whichever state they were last told about if the terminal never
+    /// says anything.
+    pub focus_reporting: bool,
     /// How many times a program has rung the bell in this pane.
     ///
     /// A running total, not a flag: a front end compares it with what it saw
@@ -753,6 +769,22 @@ pub struct ScreenSearchMatch {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct ScreenSnapshot {
+    /// Text a program asked to be put on the system clipboard.
+    ///
+    /// `OSC 52`, which is how tmux copies out of a remote session and the
+    /// only way anything over ssh reaches the clipboard at all. The kernel
+    /// has no clipboard and should not grow one; it reports the request and a
+    /// front end decides. A read request -- `OSC 52 ; c ; ?` -- never appears
+    /// here: reporting the user's clipboard to any program that can print is
+    /// how a terminal leaks a password.
+    pub clipboard_request: Option<String>,
+    /// The program asked to be told when the terminal gains or loses focus.
+    ///
+    /// `CSI ? 1004 h`. vim reloads a changed file on it, tmux redraws its
+    /// borders, and a shell prompt can dim itself -- all of which stay stuck
+    /// in whichever state they were last told about if the terminal never
+    /// says anything.
+    pub focus_reporting: bool,
     /// How many times a program has rung the bell in this pane.
     ///
     /// A running total, not a flag: a front end compares it with what it saw
@@ -1420,6 +1452,8 @@ mod tests {
             Ok(StyledScreenSnapshot {
                 mouse: Default::default(),
                 bells: 0,
+                focus_reporting: false,
+                clipboard_request: None,
                 lines: vec![StyledScreenLine {
                     row: 0,
                     wrapped: false,
