@@ -1,9 +1,11 @@
 // Textured quads for terminal text.
 //
-// Two draws share this shader. Backgrounds carry `has_texture = 0` and are
+// Three draws share this shader. Backgrounds carry `has_texture = 0` and are
 // filled with their colour; glyphs carry 1 and are tinted by it, with the
-// atlas supplying only coverage in the alpha channel. Keeping both in one
-// pipeline means one buffer, one bind group and one pass per frame.
+// atlas supplying only coverage in the alpha channel; a background picture
+// carries 2 and comes from its own texture in full colour, with the quad's
+// alpha as its opacity. Keeping all three in one pipeline means one buffer,
+// one bind group and one pass per frame.
 
 struct Uniforms {
     // Pixels to clip space, so positions can be authored in pixels.
@@ -14,6 +16,7 @@ struct Uniforms {
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
 @group(0) @binding(1) var atlas_texture: texture_2d<f32>;
 @group(0) @binding(2) var atlas_sampler: sampler;
+@group(0) @binding(3) var image_texture: texture_2d<f32>;
 
 struct VertexInput {
     @location(0) position: vec2<f32>,
@@ -46,6 +49,13 @@ fn vs_main(input: VertexInput) -> VertexOutput {
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     if (input.has_texture < 0.5) {
         return input.color;
+    }
+    if (input.has_texture > 1.5) {
+        // A picture, in its own colours. The quad's alpha is how much of it
+        // shows through -- a background at full strength is a background you
+        // cannot read text on.
+        let texel = textureSample(image_texture, atlas_sampler, input.tex_coord);
+        return vec4<f32>(texel.rgb, texel.a * input.color.a);
     }
     // The atlas stores coverage, not colour: the glyph takes the cell's
     // foreground and the texture decides only how much of it lands.

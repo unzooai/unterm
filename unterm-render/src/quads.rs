@@ -81,6 +81,12 @@ pub static DEFAULT_PALETTE: std::sync::LazyLock<Palette> = std::sync::LazyLock::
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct FrameQuads {
+    /// A picture behind everything, if one is configured.
+    ///
+    /// Its own list rather than a flag on a background quad, because it is the
+    /// one thing drawn from a different texture: the atlas holds coverage for
+    /// glyphs, and a photograph is not coverage.
+    pub image: Option<GlyphQuad>,
     pub backgrounds: Vec<Quad>,
     pub glyphs: Vec<GlyphQuad>,
     /// Drawn after everything above, so a panel can cover what is behind it.

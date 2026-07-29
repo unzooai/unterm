@@ -5,6 +5,7 @@
 //! replacing it, so the working terminal keeps working while this one grows.
 
 mod args;
+mod background;
 mod charselect;
 mod chrome;
 mod cockpit;

@@ -184,6 +184,9 @@ pub struct App {
     alt_held: bool,
     /// The title last set, so an unchanged one is not set again every frame.
     window_title: Option<String>,
+    /// The picture the config named, read once at startup. Uploaded to the
+    /// device when the window opens.
+    picture: Option<crate::background::Image>,
 }
 
 struct Live {
@@ -191,6 +194,14 @@ struct Live {
     surface: wgpu::Surface<'static>,
     renderer: Renderer,
     atlas_texture: wgpu::Texture,
+    /// The picture behind the terminal, uploaded once. Held here rather than
+    /// beside the window's other state because it belongs to the device that
+    /// draws it, and the device is here.
+    background: Option<wgpu::Texture>,
+    /// Its size, for working out which part of it fills the window.
+    background_size: Option<(u32, u32)>,
+    /// And how much of it shows through.
+    background_opacity: f32,
     session_id: usize,
     width: u32,
     height: u32,
@@ -256,6 +267,7 @@ impl App {
             held_mouse_button: None,
             alt_held: false,
             window_title: None,
+            picture: crate::background::configured(config),
             font: TerminalFont::open_named(
                 family.as_deref(),
                 crate::terminal::pixels_for_points(pixel_size as f32, 1.0),
@@ -352,11 +364,19 @@ impl App {
             // has an arrangement to grow rather than one to infer.
         self.tab_id = self.tabs.create_tab(session.id).ok();
 
+        // Uploaded once: a photograph re-read every frame is a photograph read
+        // sixty times a second.
+        let picture = self.picture.as_ref();
+        let background =
+            picture.map(|image| renderer.upload_image(image.width, image.height, &image.rgba));
         let live = Live {
             window,
             surface,
             renderer,
             atlas_texture,
+            background,
+            background_size: picture.map(|image| (image.width, image.height)),
+            background_opacity: picture.map(|image| image.opacity).unwrap_or(0.0),
             session_id: session.id,
             width: size.width.max(1),
             height: size.height.max(1),
@@ -380,6 +400,32 @@ impl App {
         };
 
         let mut quads = unterm_render::quads::FrameQuads::default();
+        // The picture, under everything, filling the window with the middle of
+        // itself. Its alpha is how much shows through -- text has to win.
+        let picture = self
+            .state
+            .as_ref()
+            .and_then(|live| {
+                live.background_size
+                    .map(|size| (size, live.background_opacity, live.width, live.height))
+            });
+        if let Some(((image_width, image_height), opacity, width, height)) = picture {
+            let window = (width as f32, height as f32);
+            let uv = crate::background::cover((image_width, image_height), window);
+            quads.image = Some(unterm_render::quads::GlyphQuad {
+                quad: unterm_render::quads::Quad {
+                    left: 0.0,
+                    top: 0.0,
+                    width: window.0,
+                    height: window.1,
+                    color: [1.0, 1.0, 1.0, opacity],
+                },
+                tex_left: uv[0],
+                tex_top: uv[1],
+                tex_right: uv[2],
+                tex_bottom: uv[3],
+            });
+        }
         let cursor = self.cursor_style;
         let solid_cursor = self.cursor_is_solid();
         let mut revision = 0u64;
@@ -503,6 +549,7 @@ impl App {
             live.height,
             &quads,
             &live.atlas_texture,
+            live.background.as_ref(),
             self.colors.background,
         );
         frame.present();

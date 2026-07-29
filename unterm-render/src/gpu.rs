@@ -74,6 +74,20 @@ fn push_quad(
 pub fn build_vertices(quads: &FrameQuads) -> Vec<u8> {
     let mut vertices = Vec::with_capacity((quads.backgrounds.len() + quads.glyphs.len()) * 6);
 
+    // The picture first, under everything, and from its own texture.
+    if let Some(image) = &quads.image {
+        push_quad(
+            &mut vertices,
+            image.quad,
+            [
+                image.tex_left,
+                image.tex_top,
+                image.tex_right,
+                image.tex_bottom,
+            ],
+            2.0,
+        );
+    }
     for quad in &quads.backgrounds {
         push_quad(&mut vertices, *quad, [0.0; 4], 0.0);
     }
@@ -114,7 +128,8 @@ pub fn build_vertices(quads: &FrameQuads) -> Vec<u8> {
 
 /// How many vertices `build_vertices` produced.
 pub fn vertex_count(quads: &FrameQuads) -> u32 {
-    ((quads.backgrounds.len()
+    ((usize::from(quads.image.is_some())
+        + quads.backgrounds.len()
         + quads.glyphs.len()
         + quads.overlay_backgrounds.len()
         + quads.overlay_glyphs.len())
@@ -166,6 +181,20 @@ impl Renderer {
                         binding: 2,
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                    // The background picture. Always bound, because a bind
+                    // group has to match its layout whether or not anything
+                    // is drawn from it -- a single transparent pixel stands in
+                    // when there is no picture.
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
                         count: None,
                     },
                 ],
@@ -289,6 +318,44 @@ impl Renderer {
     }
 
     /// Draw a frame into `target`.
+    /// Upload a picture as an ordinary colour texture.
+    ///
+    /// Separate from the atlas, which stores coverage in one channel: a
+    /// photograph in a coverage texture is a photograph of its own alpha.
+    pub fn upload_image(&self, width: u32, height: u32, rgba: &[u8]) -> wgpu::Texture {
+        let size = wgpu::Extent3d {
+            width: width.max(1),
+            height: height.max(1),
+            depth_or_array_layers: 1,
+        };
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("unterm-render image"),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        self.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            rgba,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(size.width * 4),
+                rows_per_image: Some(size.height),
+            },
+            size,
+        );
+        texture
+    }
+
     pub fn draw(
         &self,
         target: &wgpu::TextureView,
@@ -296,6 +363,7 @@ impl Renderer {
         height: u32,
         quads: &FrameQuads,
         atlas_texture: &wgpu::Texture,
+        image_texture: Option<&wgpu::Texture>,
         clear: [f32; 4],
     ) {
         let vertices = build_vertices(quads);
@@ -324,6 +392,16 @@ impl Renderer {
         );
 
         let view = atlas_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        // One transparent pixel when there is no picture: the binding has to
+        // exist either way.
+        let blank;
+        let image_view = match image_texture {
+            Some(texture) => texture.create_view(&wgpu::TextureViewDescriptor::default()),
+            None => {
+                blank = self.upload_image(1, 1, &[0, 0, 0, 0]);
+                blank.create_view(&wgpu::TextureViewDescriptor::default())
+            }
+        };
         let sampler = self.device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("unterm-render sampler"),
             mag_filter: wgpu::FilterMode::Linear,
@@ -346,6 +424,10 @@ impl Renderer {
                 wgpu::BindGroupEntry {
                     binding: 2,
                     resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(&image_view),
                 },
             ],
         });

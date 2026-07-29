@@ -252,14 +252,16 @@ $Suites = @(
         Name = "offscreen render"
         Package = "unterm-render"
         Filter = "offscreen_"
-        ExpectedCount = 6
+        ExpectedCount = 8
         RequiredTests = @(
             "offscreen_a_background_quad_lands_where_it_was_put",
             "offscreen_the_top_left_of_a_quad_is_the_top_left_of_the_image",
             "offscreen_a_glyph_is_tinted_by_its_colour_and_shaped_by_the_atlas",
             "offscreen_a_glyph_draws_over_its_own_background",
             "offscreen_an_empty_frame_is_the_clear_colour",
-            "offscreen_a_rounded_panel_has_its_corners_taken_off"
+            "offscreen_a_rounded_panel_has_its_corners_taken_off",
+            "offscreen_a_background_picture_is_drawn_under_everything",
+            "offscreen_a_background_picture_is_dimmed_by_its_opacity"
         )
     },
     @{
@@ -1477,6 +1479,25 @@ $Suites = @(
             "charselect::picker_tests::emoji_are_offered_by_name_and_by_shortcode",
             "charselect::picker_tests::every_offer_types_something",
             "charselect::picker_tests::something_used_often_outranks_something_used_once"
+        )
+    },
+    @{
+        # A picture behind the terminal. Cover rather than stretch, because
+        # stretching makes every photograph wrong in a way people notice
+        # without being able to say why; and capped opacity, because a picture
+        # at full strength is a picture you cannot read a terminal on.
+        Name = "background picture"
+        Package = "unterm-app"
+        Filter = "background::tests::"
+        ExpectedCount = 8
+        RequiredTests = @(
+            "background::tests::opacity_never_reaches_the_point_where_text_is_lost",
+            "background::tests::a_wide_picture_is_cropped_at_the_sides",
+            "background::tests::a_tall_picture_is_cropped_at_the_top_and_bottom",
+            "background::tests::cropping_takes_from_the_middle",
+            "background::tests::a_window_with_no_size_yet_does_not_divide_by_it",
+            "background::tests::a_missing_file_is_nothing_rather_than_a_failure",
+            "background::tests::a_real_picture_loads"
         )
     },
     @{

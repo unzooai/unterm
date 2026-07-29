@@ -158,6 +158,7 @@ fn offscreen_an_empty_frame_is_the_clear_colour() {
         target.height,
         &FrameQuads::default(),
         &atlas,
+        None,
         [0.0, 0.0, 1.0, 1.0],
     );
 
@@ -188,6 +189,7 @@ fn offscreen_a_background_quad_lands_where_it_was_put() {
         target.height,
         &quads,
         &atlas,
+        None,
         [0.0, 0.0, 0.0, 1.0],
     );
 
@@ -220,6 +222,7 @@ fn offscreen_the_top_left_of_a_quad_is_the_top_left_of_the_image() {
         target.height,
         &quads,
         &atlas,
+        None,
         [0.0, 0.0, 0.0, 1.0],
     );
 
@@ -276,6 +279,7 @@ fn offscreen_a_glyph_is_tinted_by_its_colour_and_shaped_by_the_atlas() {
         target.height,
         &quads,
         &atlas_texture,
+        None,
         [0.0, 0.0, 0.0, 1.0],
     );
 
@@ -340,6 +344,7 @@ fn offscreen_a_glyph_draws_over_its_own_background() {
         target.height,
         &quads,
         &atlas_texture,
+        None,
         [0.0, 0.0, 0.0, 1.0],
     );
 
@@ -376,6 +381,7 @@ fn offscreen_a_rounded_panel_has_its_corners_taken_off() {
         target.height,
         &quads,
         &atlas,
+        None,
         [0.0, 0.0, 0.0, 1.0],
     );
 
@@ -407,4 +413,110 @@ fn offscreen_a_rounded_panel_has_its_corners_taken_off() {
     assert_eq!(target.pixel(&pixels, 20, 23), RED, "no bottom edge");
     assert_eq!(target.pixel(&pixels, 0, 12), RED, "no left edge");
     assert_eq!(target.pixel(&pixels, 39, 12), RED, "no right edge");
+}
+
+/// A background picture reaches the framebuffer, and text lands on top of it.
+///
+/// The two claims are separate: the picture comes from its own texture in full
+/// colour, and everything else still draws over it. A picture that covered the
+/// terminal would be a wallpaper rather than a background.
+#[test]
+fn offscreen_a_background_picture_is_drawn_under_everything() {
+    let Some(target) = offscreen(8, 8) else {
+        return;
+    };
+    let atlas = empty_atlas(&target.renderer);
+    // Four pixels of solid blue, so any part of the quad samples the same
+    // colour and the test is about where it lands rather than about filtering.
+    let blue: Vec<u8> = (0..4).flat_map(|_| [0u8, 0, 255, 255]).collect();
+    let picture = target.renderer.upload_image(2, 2, &blue);
+
+    let mut quads = FrameQuads::default();
+    quads.image = Some(unterm_render::quads::GlyphQuad {
+        quad: Quad {
+            left: 0.0,
+            top: 0.0,
+            width: 8.0,
+            height: 8.0,
+            color: [1.0, 1.0, 1.0, 1.0],
+        },
+        tex_left: 0.0,
+        tex_top: 0.0,
+        tex_right: 1.0,
+        tex_bottom: 1.0,
+    });
+    // And something opaque over part of it.
+    quads.backgrounds.push(Quad {
+        left: 0.0,
+        top: 0.0,
+        width: 4.0,
+        height: 8.0,
+        color: [1.0, 0.0, 0.0, 1.0],
+    });
+
+    target.renderer.draw(
+        &target.view(),
+        target.width,
+        target.height,
+        &quads,
+        &atlas,
+        Some(&picture),
+        [0.0, 0.0, 0.0, 1.0],
+    );
+
+    let pixels = target.read_pixels();
+    let right = target.pixel(&pixels, 6, 4);
+    assert!(
+        right[2] > 200 && right[0] < 60,
+        "the picture is not there: {right:?}"
+    );
+    let left = target.pixel(&pixels, 1, 4);
+    assert!(
+        left[0] > 200 && left[2] < 60,
+        "the picture drew over what is in front of it: {left:?}"
+    );
+}
+
+/// And an opacity below one lets the clear colour through, which is what makes
+/// text readable on top of a photograph.
+#[test]
+fn offscreen_a_background_picture_is_dimmed_by_its_opacity() {
+    let Some(target) = offscreen(4, 4) else {
+        return;
+    };
+    let atlas = empty_atlas(&target.renderer);
+    let white: Vec<u8> = (0..4).flat_map(|_| [255u8, 255, 255, 255]).collect();
+    let picture = target.renderer.upload_image(2, 2, &white);
+
+    let mut quads = FrameQuads::default();
+    quads.image = Some(unterm_render::quads::GlyphQuad {
+        quad: Quad {
+            left: 0.0,
+            top: 0.0,
+            width: 4.0,
+            height: 4.0,
+            color: [1.0, 1.0, 1.0, 0.25],
+        },
+        tex_left: 0.0,
+        tex_top: 0.0,
+        tex_right: 1.0,
+        tex_bottom: 1.0,
+    });
+
+    target.renderer.draw(
+        &target.view(),
+        target.width,
+        target.height,
+        &quads,
+        &atlas,
+        Some(&picture),
+        [0.0, 0.0, 0.0, 1.0],
+    );
+
+    let pixels = target.read_pixels();
+    let shown = target.pixel(&pixels, 2, 2);
+    assert!(
+        shown[0] > 10 && shown[0] < 245,
+        "a quarter-strength white picture came out at {shown:?}"
+    );
 }
