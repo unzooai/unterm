@@ -93,6 +93,20 @@ impl McpHost for AppMcpHost {
         Ok(())
     }
 
+    /// A rectangle of the desktop.
+    fn capture_region(
+        &self,
+        left: i32,
+        top: i32,
+        width: usize,
+        height: usize,
+        include_base64: bool,
+    ) -> Result<Value> {
+        let region = unterm_services::window_capture::Region { left, top, width, height };
+        let shot = unterm_services::window_capture::capture_region(region)?;
+        write_capture(shot, include_base64)
+    }
+
     /// A picture of the terminal's own window.
     ///
     /// Text is what an agent usually wants, and `screen.text` is cheaper. This
@@ -108,36 +122,7 @@ impl McpHost for AppMcpHost {
         use base64::Engine as _;
 
         let shot = unterm_services::window_capture::capture_window(title, pid)?;
-        let buffer = image::RgbaImage::from_raw(
-            shot.width as u32,
-            shot.height as u32,
-            shot.pixels,
-        )
-        .context("the capture's size and its pixels disagree")?;
-
-        let path = capture_path("window", "png");
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!("make {}", parent.display()))?;
-        }
-        buffer
-            .save_with_format(&path, image::ImageFormat::Png)
-            .with_context(|| format!("write the capture to {}", path.display()))?;
-
-        let mut reply = json!({
-            "path": path.display().to_string(),
-            "width": shot.width,
-            "height": shot.height,
-            // Which of the two ways it was taken. They are not equivalent:
-            // a screen copy also sees whatever is on top of the window.
-            "mode": shot.mode,
-        });
-        if include_base64 {
-            let bytes = std::fs::read(&path)
-                .with_context(|| format!("read back {}", path.display()))?;
-            reply["base64"] = json!(base64::engine::general_purpose::STANDARD.encode(bytes));
-        }
-        Ok(reply)
+        write_capture(shot, include_base64)
     }
 
     fn render_scrollback_png(
@@ -443,4 +428,42 @@ fn capture_path(kind: &str, extension: &str) -> std::path::PathBuf {
         .join(".unterm")
         .join("captures");
     directory.join(format!("{kind}-{stamp}.{extension}"))
+}
+
+/// Write a capture out and describe it.
+///
+/// One place, so a window capture and a region capture cannot end up in
+/// different directories or answer with differently-shaped JSON.
+fn write_capture(
+    shot: unterm_services::window_capture::WindowImage,
+    include_base64: bool,
+) -> Result<Value> {
+    use base64::Engine as _;
+
+    let buffer =
+        image::RgbaImage::from_raw(shot.width as u32, shot.height as u32, shot.pixels)
+            .context("the capture's size and its pixels disagree")?;
+
+    let path = capture_path(shot.mode, "png");
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).with_context(|| format!("make {}", parent.display()))?;
+    }
+    buffer
+        .save_with_format(&path, image::ImageFormat::Png)
+        .with_context(|| format!("write the capture to {}", path.display()))?;
+
+    let mut reply = json!({
+        "path": path.display().to_string(),
+        "width": shot.width,
+        "height": shot.height,
+        // How it was taken. The ways are not equivalent: a screen copy also
+        // sees whatever is on top of the window.
+        "mode": shot.mode,
+    });
+    if include_base64 {
+        let bytes =
+            std::fs::read(&path).with_context(|| format!("read back {}", path.display()))?;
+        reply["base64"] = json!(base64::engine::general_purpose::STANDARD.encode(bytes));
+    }
+    Ok(reply)
 }

@@ -1237,6 +1237,22 @@ pub trait CaptureEngine {
         pid_filter: Option<u32>,
         include_base64: bool,
     ) -> anyhow::Result<serde_json::Value>;
+
+    /// A rectangle of the desktop, in physical pixels.
+    ///
+    /// The interactive version of this is a person dragging a box. An agent
+    /// has no way to drag, so it passes the rectangle instead -- which is the
+    /// same picture by a route an agent can take.
+    fn capture_region_image(
+        &self,
+        _left: i32,
+        _top: i32,
+        _width: usize,
+        _height: usize,
+        _include_base64: bool,
+    ) -> anyhow::Result<serde_json::Value> {
+        anyhow::bail!("capturing a region is not supported here")
+    }
 }
 
 /// Everything a front end has to answer for a full MCP surface.
@@ -1320,6 +1336,20 @@ impl CaptureEngine for next_core::NextCoreEngine {
     fn capture_screen_image(&self, include_base64: bool) -> Result<serde_json::Value> {
         host_capture(None, Some(std::process::id()), include_base64)
     }
+    fn capture_region_image(
+        &self,
+        left: i32,
+        top: i32,
+        width: usize,
+        height: usize,
+        include_base64: bool,
+    ) -> Result<serde_json::Value> {
+        match mcp_host() {
+            Some(host) => host.capture_region(left, top, width, height, include_base64),
+            None => anyhow::bail!("no front end is hosting a screen to capture"),
+        }
+    }
+
     fn capture_window_image(
         &self,
         title_filter: Option<&str>,
@@ -1418,6 +1448,18 @@ pub trait McpHost: Send + Sync {
     /// there is no window to raise.
     fn focus_window(&self) -> Result<()> {
         anyhow::bail!("this front end has no window to focus")
+    }
+
+    /// Photograph a rectangle of the desktop.
+    fn capture_region(
+        &self,
+        _left: i32,
+        _top: i32,
+        _width: usize,
+        _height: usize,
+        _include_base64: bool,
+    ) -> Result<serde_json::Value> {
+        anyhow::bail!("this front end cannot capture the screen")
     }
 
     /// Photograph this front end's own window, returning the JSON to reply

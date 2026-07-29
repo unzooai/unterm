@@ -4515,7 +4515,7 @@ impl McpHandler {
             // Capture
             "capture.screen" => self.capture_screen(params),
             "capture.window" => self.capture_window(params),
-            "capture.select" => self.capture_select(),
+            "capture.select" => self.capture_select(params),
             "capture.clipboard" => self.capture_clipboard(),
             "capture.scrollback" => self.capture_scrollback(params),
             "capture.window_scroll" => self.capture_window_scroll(params),
@@ -7501,14 +7501,48 @@ impl McpHandler {
         }))
     }
 
-    fn capture_select(&self) -> Result<Value> {
-        let image = self.engine().capture_screen_image(false)?;
-        Ok(json!({
-            "image": image,
-            "type": "image/png",
-            "mode": "screen_fallback",
-            "message": "Interactive region selection is not available in headless MCP mode; captured the screen instead.",
-        }))
+    /// `capture.select` -- a rectangle of the desktop.
+    ///
+    /// A person selects one by dragging a box; an agent has no way to drag, so
+    /// it passes the rectangle instead. Without one there is nothing to
+    /// select, and the terminal's own window is the useful answer -- said
+    /// plainly rather than presented as though a selection had been made.
+    fn capture_select(&self, params: &Value) -> Result<Value> {
+        let number = |name: &str| params.get(name).and_then(|value| value.as_i64());
+        match (
+            number("left"),
+            number("top"),
+            number("width"),
+            number("height"),
+        ) {
+            (Some(left), Some(top), Some(width), Some(height)) if width > 0 && height > 0 => {
+                let image = self.engine().capture_region_image(
+                    left as i32,
+                    top as i32,
+                    width as usize,
+                    height as usize,
+                    false,
+                )?;
+                Ok(json!({
+                    "image": image,
+                    "type": "image/png",
+                    "mode": "region",
+                }))
+            }
+            _ => {
+                let image = self.engine().capture_window_image(None, None, false)?;
+                Ok(json!({
+                    "image": image,
+                    "type": "image/png",
+                    "mode": "window_fallback",
+                    "message": concat!(
+                        "Pass left/top/width/height to capture a region; ",
+                        "with no rectangle there is nothing to select, ",
+                        "so this is the terminal's own window.",
+                    ),
+                }))
+            }
+        }
     }
 
     fn capture_clipboard(&self) -> Result<Value> {

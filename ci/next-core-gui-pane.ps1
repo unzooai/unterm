@@ -356,11 +356,14 @@ $Suites = @(
         Name = "window capture"
         Package = "unterm-services"
         Filter = "window_capture::tests::"
-        ExpectedCount = 5
+        ExpectedCount = 9
         RequiredTests = @(
             "window_capture::tests::a_capture_has_to_say_which_window",
             "window_capture::tests::a_blank_bitmap_is_not_mistaken_for_a_picture",
-            "window_capture::tests::a_process_with_no_window_is_told_so_rather_than_handed_one"
+            "window_capture::tests::a_process_with_no_window_is_told_so_rather_than_handed_one",
+            "window_capture::tests::a_region_is_the_same_whichever_way_it_was_dragged",
+            "window_capture::tests::a_click_is_not_a_region",
+            "window_capture::tests::a_region_on_a_monitor_left_of_the_first_keeps_its_position"
         )
     },
     @{

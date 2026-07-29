@@ -71,6 +71,88 @@ pub fn capture_window(_title: Option<&str>, _pid: Option<u32>) -> anyhow::Result
     anyhow::bail!("capturing a window is only implemented on Windows so far")
 }
 
+/// A rectangle on the desktop, in physical pixels.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Region {
+    pub left: i32,
+    pub top: i32,
+    pub width: usize,
+    pub height: usize,
+}
+
+impl Region {
+    /// The rectangle between two corners, whichever way round they were
+    /// dragged.
+    ///
+    /// People drag up and to the left as often as down and to the right, and a
+    /// capture that only works one way is a capture that fails half the time
+    /// with nothing to say why.
+    pub fn between(from: (i32, i32), to: (i32, i32)) -> Self {
+        let left = from.0.min(to.0);
+        let top = from.1.min(to.1);
+        Self {
+            left,
+            top,
+            width: (from.0 - to.0).unsigned_abs() as usize,
+            height: (from.1 - to.1).unsigned_abs() as usize,
+        }
+    }
+
+    /// Whether there is anything to capture.
+    ///
+    /// A click without a drag is how anyone cancels; a one-pixel PNG is not
+    /// what they meant by it.
+    pub fn is_usable(&self) -> bool {
+        self.width >= MIN_REGION && self.height >= MIN_REGION
+    }
+}
+
+/// Below this, a drag was a click.
+const MIN_REGION: usize = 8;
+
+/// Copy a rectangle of the desktop.
+#[cfg(windows)]
+pub fn capture_region(region: Region) -> anyhow::Result<WindowImage> {
+    use winapi::um::wingdi::{BitBlt, SRCCOPY};
+    use winapi::um::winuser::{GetDC, ReleaseDC};
+
+    if !region.is_usable() {
+        anyhow::bail!("the region is too small to capture");
+    }
+    // SAFETY: the DC is released on every path out.
+    unsafe {
+        let screen_dc = GetDC(std::ptr::null_mut());
+        if screen_dc.is_null() {
+            anyhow::bail!("no device context for the screen");
+        }
+        let copied = into_bitmap(screen_dc, region.width, region.height, |memory_dc| {
+            BitBlt(
+                memory_dc,
+                0,
+                0,
+                region.width as i32,
+                region.height as i32,
+                screen_dc,
+                region.left,
+                region.top,
+                SRCCOPY,
+            ) != 0
+        });
+        ReleaseDC(std::ptr::null_mut(), screen_dc);
+        Ok(WindowImage {
+            width: region.width,
+            height: region.height,
+            pixels: copied?,
+            mode: "region",
+        })
+    }
+}
+
+#[cfg(not(windows))]
+pub fn capture_region(_region: Region) -> anyhow::Result<WindowImage> {
+    anyhow::bail!("capturing a region is only implemented on Windows so far")
+}
+
 /// Whether a capture is a picture of something rather than one flat colour.
 ///
 /// `PrintWindow` on a compositor-drawn window succeeds and hands back a blank
@@ -308,6 +390,43 @@ fn last_error() -> std::io::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// People drag up and to the left as often as down and to the right.
+    #[test]
+    fn a_region_is_the_same_whichever_way_it_was_dragged() {
+        let forward = Region::between((10, 20), (110, 220));
+        let backward = Region::between((110, 220), (10, 20));
+        assert_eq!(forward, backward);
+        assert_eq!(forward.left, 10);
+        assert_eq!(forward.top, 20);
+        assert_eq!((forward.width, forward.height), (100, 200));
+    }
+
+    /// A click without a drag is how anyone cancels, and a one-pixel PNG is
+    /// not what they meant by it.
+    #[test]
+    fn a_click_is_not_a_region() {
+        assert!(!Region::between((10, 10), (10, 10)).is_usable());
+        assert!(!Region::between((10, 10), (13, 40)).is_usable());
+        assert!(Region::between((10, 10), (110, 110)).is_usable());
+    }
+
+    #[test]
+    fn a_region_too_small_to_capture_is_refused_rather_than_attempted() {
+        let err = capture_region(Region::between((0, 0), (2, 2)))
+            .expect_err("a three-pixel drag is a cancelled one");
+        assert!(err.to_string().contains("too small"), "{err}");
+    }
+
+    /// Negative coordinates are ordinary: a second monitor to the left of the
+    /// first has them, and a capture that clamps to zero grabs the wrong
+    /// screen.
+    #[test]
+    fn a_region_on_a_monitor_left_of_the_first_keeps_its_position() {
+        let region = Region::between((-1900, 100), (-1400, 500));
+        assert_eq!(region.left, -1900);
+        assert_eq!(region.width, 500);
+    }
 
     /// Naming nothing would mean picking somebody's window at random.
     #[test]
