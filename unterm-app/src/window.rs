@@ -128,6 +128,9 @@ pub struct App {
     inbox_open: bool,
     /// Set when the close button is pressed, so the loop can exit.
     closing: bool,
+    /// The theme in force, so the picker can mark it and the next launch can
+    /// restore it.
+    theme_id: Option<String>,
     /// Something that just happened, and when it stops being shown.
     notice: Option<(String, std::time::Instant)>,
     /// The git panel's contents, held while it is open.
@@ -210,6 +213,7 @@ impl App {
             clipboard_honoured: None,
             inbox_open: false,
             closing: false,
+            theme_id: crate::theme::remembered(),
             notice: None,
             git_panel: None,
             composer: None,
@@ -547,18 +551,27 @@ impl App {
             return;
         }
 
-        // A band behind the text, so it reads as a bar rather than as a line
-        // of output that failed to scroll.
+        // The same surface as the top bar, so the window reads as one thing
+        // with two edges. Toning the foreground towards black instead is what
+        // left a black strip along the bottom of every light theme.
+        let chrome = self.chrome();
         quads.backgrounds.push(unterm_render::quads::Quad {
             left: 0.0,
             top,
             width: window_width,
             height: metrics.height,
-            color: dim(self.colors.foreground, 0.10),
+            color: chrome.surface,
+        });
+        quads.backgrounds.push(unterm_render::quads::Quad {
+            left: 0.0,
+            top,
+            width: window_width,
+            height: 1.0,
+            color: chrome.outer_edge,
         });
         for segment in segments {
             let color = if segment.dim {
-                dim(self.colors.foreground, 0.65)
+                chrome.dim_text
             } else {
                 self.colors.foreground
             };
@@ -991,6 +1004,10 @@ impl App {
                 self.drawn_revision = None;
             }
             Action::GitPanel => self.toggle_git_panel(),
+            Action::ThemePicker => {
+                let entries = self.theme_entries();
+                self.open_palette(entries);
+            }
             Action::Composer => {
                 self.composer = match self.composer.take() {
                     Some(_) => None,
@@ -1846,6 +1863,51 @@ impl App {
         }
     }
 
+    /// The picker's rows: every theme the product ships.
+    fn theme_entries(&self) -> Vec<crate::palette::Entry> {
+        let current = self.theme_id.clone();
+        crate::theme::THEMES
+            .iter()
+            .map(|theme| crate::palette::Entry {
+                label: theme.name.to_string(),
+                hint: if current.as_deref() == Some(theme.id) {
+                    unterm_services::i18n::t_args("theme.current", &[("name", theme.name)])
+                } else {
+                    unterm_services::i18n::t(&format!("theme.preset.{}.desc", theme.id))
+                },
+                command: crate::palette::Command::ApplyTheme {
+                    id: theme.id.to_string(),
+                },
+            })
+            .collect()
+    }
+
+    /// Switch to a theme, and remember it for next time.
+    ///
+    /// The atlas goes with it: glyphs are rasterized as coverage and tinted
+    /// when drawn, so they survive -- but the frame's own colours are baked
+    /// into quads that have already been built, and the simplest way to be
+    /// sure none are stale is to draw the next frame from nothing.
+    fn apply_theme(&mut self, id: &str) {
+        let Some(theme) = crate::theme::by_id(id) else {
+            return;
+        };
+        self.colors = unterm_render::quads::FrameColors {
+            background: theme.background,
+            foreground: theme.foreground,
+            palette: &theme.ansi,
+        };
+        self.theme_id = Some(theme.id.to_string());
+        if let Err(err) = crate::theme::remember(theme.id) {
+            log::warn!("could not remember the theme: {err:#}");
+        }
+        self.show_notice(unterm_services::i18n::t_args(
+            "theme.switched_to",
+            &[("name", theme.name)],
+        ));
+        self.drawn_revision = None;
+    }
+
     /// The rows behind the status bar's triangle.
     fn quick_entries(&self) -> Vec<crate::palette::Entry> {
         let here = self
@@ -1897,6 +1959,21 @@ impl App {
                 label: t("settings.menu.export_session"),
                 hint: t("settings.menu.export_session.hint"),
                 command: crate::palette::Command::ExportSession,
+            },
+            crate::palette::Entry {
+                label: unterm_services::i18n::t("theme.title"),
+                hint: unterm_services::i18n::t_args(
+                    "theme.current",
+                    &[(
+                        "name",
+                        self.theme_id
+                            .as_deref()
+                            .and_then(crate::theme::by_id)
+                            .map(|theme| theme.name)
+                            .unwrap_or(crate::theme::default_theme().name),
+                    )],
+                ),
+                command: crate::palette::Command::Action(crate::keys::Action::ThemePicker),
             },
             crate::palette::Entry {
                 label: t("settings.menu.web_settings"),
@@ -1973,6 +2050,7 @@ impl App {
             crate::palette::Command::ToggleRecording => self.toggle_recording(),
             crate::palette::Command::ExportSession => self.export_session(),
             crate::palette::Command::OpenSettings => self.open_settings(),
+            crate::palette::Command::ApplyTheme { id } => self.apply_theme(&id),
             crate::palette::Command::Browse { path, then } => {
                 // Stays open on the new directory rather than closing: picking
                 // a folder three deep should be three keystrokes, not three

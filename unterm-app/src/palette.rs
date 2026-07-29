@@ -29,6 +29,8 @@ pub enum Command {
     OpenSettings,
     /// Show the directories under a path, so one can be picked.
     Browse { path: String, then: BrowseThen },
+    /// Switch to a named theme.
+    ApplyTheme { id: String },
 }
 
 /// What picking a folder is for.

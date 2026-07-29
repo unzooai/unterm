@@ -292,6 +292,8 @@ pub fn append_text(
             // Transparent to the row builder: the caller has already drawn
             // whatever this sits on.
             background: color,
+            // Furniture names its own colour; nothing here is themed.
+            palette: &unterm_render::quads::DEFAULT_PALETTE,
         },
         atlas,
         |ch| key_of.get(&ch).and_then(|key| atlas.get(*key)),
@@ -539,42 +541,45 @@ fn glyph_key(font: &mut TerminalFont, ch: char) -> GlyphKey {
     }
 }
 
-/// Frame colours from a declarative config, falling back to a readable pair.
+/// Frame colours: the theme, with the config's own colours on top.
+///
+/// A theme is the whole scheme -- background, foreground and the sixteen
+/// colours programs ask for -- and `colors.background` / `colors.foreground`
+/// still win where they are set, because someone who wrote those meant them.
 pub fn colors_from(config: &Config) -> FrameColors {
     use unterm_engine::next_core::color::parse_hex;
 
-    let background = config
-        .str_of("colors.background")
+    // The config first, then whatever was last chosen in the picker, then the
+    // default. One order, decided here, so the picker and the config file
+    // cannot each believe they won.
+    let theme = config
+        .str_of("theme")
         .ok()
         .flatten()
-        .and_then(parse_hex);
-    let foreground = config
-        .str_of("colors.foreground")
-        .ok()
-        .flatten()
-        .and_then(parse_hex);
+        .and_then(|id| crate::theme::by_id(&id))
+        .or_else(|| crate::theme::remembered().and_then(|id| crate::theme::by_id(&id)))
+        .unwrap_or_else(crate::theme::default_theme);
+
+    let from_config = |key: &str| {
+        config
+            .str_of(key)
+            .ok()
+            .flatten()
+            .and_then(parse_hex)
+            .map(|color| {
+                [
+                    color.red as f32 / 255.0,
+                    color.green as f32 / 255.0,
+                    color.blue as f32 / 255.0,
+                    1.0,
+                ]
+            })
+    };
 
     FrameColors {
-        background: background
-            .map(|color| {
-                [
-                    color.red as f32 / 255.0,
-                    color.green as f32 / 255.0,
-                    color.blue as f32 / 255.0,
-                    1.0,
-                ]
-            })
-            .unwrap_or([0.07, 0.07, 0.08, 1.0]),
-        foreground: foreground
-            .map(|color| {
-                [
-                    color.red as f32 / 255.0,
-                    color.green as f32 / 255.0,
-                    color.blue as f32 / 255.0,
-                    1.0,
-                ]
-            })
-            .unwrap_or([0.91, 0.92, 0.93, 1.0]),
+        background: from_config("colors.background").unwrap_or(theme.background),
+        foreground: from_config("colors.foreground").unwrap_or(theme.foreground),
+        palette: &theme.ansi,
     }
 }
 
@@ -682,6 +687,7 @@ mod tests {
         let colors = FrameColors {
             foreground: [1.0; 4],
             background: [0.0, 0.0, 0.0, 1.0],
+            palette: &unterm_render::quads::DEFAULT_PALETTE,
         };
 
         let quads = frame_quads(&snapshot("hi"), &mut font, &mut atlas, colors);
@@ -701,6 +707,7 @@ mod tests {
         let colors = FrameColors {
             foreground: [1.0; 4],
             background: [0.0, 0.0, 0.0, 1.0],
+            palette: &unterm_render::quads::DEFAULT_PALETTE,
         };
 
         let quads = frame_quads(&snapshot("abcdefghij"), &mut font, &mut atlas, colors);
@@ -727,6 +734,7 @@ mod tests {
         let colors = FrameColors {
             foreground: [1.0; 4],
             background: [0.0, 0.0, 0.0, 1.0],
+            palette: &unterm_render::quads::DEFAULT_PALETTE,
         };
 
         // Two Han characters a programming font almost never carries.
@@ -774,6 +782,7 @@ mod tests {
         let colors = FrameColors {
             foreground: [1.0; 4],
             background: [0.0, 0.0, 0.0, 1.0],
+            palette: &unterm_render::quads::DEFAULT_PALETTE,
         };
         let metrics = font.metrics();
 
@@ -801,6 +810,7 @@ mod tests {
         let colors = FrameColors {
             foreground: [1.0; 4],
             background: [0.0, 0.0, 0.0, 1.0],
+            palette: &unterm_render::quads::DEFAULT_PALETTE,
         };
 
         let quads = frame_quads(
@@ -825,6 +835,7 @@ mod tests {
         let colors = FrameColors {
             foreground: [1.0; 4],
             background: [0.0, 0.0, 0.0, 1.0],
+            palette: &unterm_render::quads::DEFAULT_PALETTE,
         };
 
         let quads = frame_quads(
@@ -855,6 +866,7 @@ mod tests {
         let colors = FrameColors {
             foreground: [1.0; 4],
             background: [0.0, 0.0, 0.0, 1.0],
+            palette: &unterm_render::quads::DEFAULT_PALETTE,
         };
         let metrics = font.metrics();
 
@@ -887,6 +899,7 @@ mod tests {
         let colors = FrameColors {
             foreground: [1.0; 4],
             background: [0.0, 0.0, 0.0, 1.0],
+            palette: &unterm_render::quads::DEFAULT_PALETTE,
         };
         let metrics = font.metrics();
 
@@ -915,6 +928,7 @@ mod tests {
         let colors = FrameColors {
             foreground: [1.0; 4],
             background: [0.0, 0.0, 0.0, 1.0],
+            palette: &unterm_render::quads::DEFAULT_PALETTE,
         };
 
         // Scrolled back far enough that the cursor is above the viewport.
@@ -941,6 +955,7 @@ mod tests {
         let colors = FrameColors {
             foreground: [1.0; 4],
             background: [0.0, 0.0, 0.0, 1.0],
+            palette: &unterm_render::quads::DEFAULT_PALETTE,
         };
 
         let quads = frame_quads(&snapshot("   "), &mut font, &mut atlas, colors);
@@ -1022,6 +1037,7 @@ mod shaped_row_tests {
         let colors = FrameColors {
             foreground: [1.0; 4],
             background: [0.0, 0.0, 0.0, 1.0],
+            palette: &unterm_render::quads::DEFAULT_PALETTE,
         };
         let mut quads = FrameQuads::default();
 
@@ -1047,6 +1063,7 @@ mod shaped_row_tests {
         let colors = FrameColors {
             foreground: [1.0; 4],
             background: [0.0, 0.0, 0.0, 1.0],
+            palette: &unterm_render::quads::DEFAULT_PALETTE,
         };
         let mut quads = FrameQuads::default();
 
@@ -1092,6 +1109,7 @@ mod missing_glyph_regression {
         let colors = FrameColors {
             foreground: [1.0; 4],
             background: [0.0, 0.0, 0.0, 1.0],
+            palette: &unterm_render::quads::DEFAULT_PALETTE,
         };
         let mut quads = FrameQuads::default();
 
@@ -1208,6 +1226,7 @@ mod cursor_inversion_tests {
         let colors = FrameColors {
             foreground: [1.0; 4],
             background: [0.0, 0.0, 0.0, 1.0],
+            palette: &unterm_render::quads::DEFAULT_PALETTE,
         };
         let mut quads = FrameQuads::default();
 

@@ -50,7 +50,34 @@ pub struct CellMetrics {
 pub struct FrameColors {
     pub foreground: [f32; 4],
     pub background: [f32; 4],
+    /// The sixteen colours programs actually ask for, and the rest of the 256
+    /// derived from them.
+    ///
+    /// Carried here rather than looked up from a global, so a theme can change
+    /// what `ls --color` looks like. A borrow because themes are `'static` and
+    /// this struct is copied per row -- sixteen colours by value would be a
+    /// quarter of a kilobyte moved for every line drawn.
+    pub palette: &'static Palette,
 }
+
+/// A terminal's sixteen colours.
+pub type Palette = [[f32; 4]; 16];
+
+/// The colours a terminal has when nothing has said otherwise.
+///
+/// xterm's, as the kernel reports them -- so a front end that never sets a
+/// theme still draws what every other terminal draws.
+pub static DEFAULT_PALETTE: std::sync::LazyLock<Palette> = std::sync::LazyLock::new(|| {
+    std::array::from_fn(|index| {
+        let rgb = unterm_engine::next_core::color::palette_rgb(index as u8);
+        [
+            rgb.red as f32 / 255.0,
+            rgb.green as f32 / 255.0,
+            rgb.blue as f32 / 255.0,
+            1.0,
+        ]
+    })
+});
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct FrameQuads {
@@ -76,11 +103,11 @@ pub fn resolve_style(style: Option<&CellStyle>, colors: FrameColors) -> ([f32; 4
 fn resolve(style: &CellStyle, colors: FrameColors) -> ([f32; 4], [f32; 4]) {
     let foreground = style
         .fg
-        .map(|color| to_rgba(color, colors.foreground))
+        .map(|color| to_rgba(color, colors.palette))
         .unwrap_or(colors.foreground);
     let background = style
         .bg
-        .map(|color| to_rgba(color, colors.background))
+        .map(|color| to_rgba(color, colors.palette))
         .unwrap_or(colors.background);
 
     if style.inverse {
@@ -97,7 +124,7 @@ fn resolve(style: &CellStyle, colors: FrameColors) -> ([f32; 4], [f32; 4]) {
 /// colour a program actually sends -- `ls --color`, git's diffs, any prompt --
 /// came out the same shade as ordinary text. Only truecolor worked, and
 /// truecolor is the one programs use least.
-fn to_rgba(color: StyledColor, _fallback: [f32; 4]) -> [f32; 4] {
+fn to_rgba(color: StyledColor, palette: &Palette) -> [f32; 4] {
     match color {
         StyledColor::Rgb(red, green, blue) => [
             red as f32 / 255.0,
@@ -105,6 +132,11 @@ fn to_rgba(color: StyledColor, _fallback: [f32; 4]) -> [f32; 4] {
             blue as f32 / 255.0,
             1.0,
         ],
+        // The first sixteen come from the theme; the rest of the 256 are the
+        // cube and the greys, which no theme redefines.
+        StyledColor::Palette(index) if (index as usize) < palette.len() => {
+            palette[index as usize]
+        }
         StyledColor::Palette(index) => {
             let rgb = unterm_engine::next_core::color::palette_rgb(index);
             [
@@ -246,6 +278,7 @@ mod tests {
         FrameColors {
             foreground: [1.0, 1.0, 1.0, 1.0],
             background: [0.0, 0.0, 0.0, 1.0],
+            palette: &crate::quads::DEFAULT_PALETTE,
         }
     }
 
@@ -497,6 +530,7 @@ mod palette_tests {
         FrameColors {
             foreground: [0.9, 0.9, 0.9, 1.0],
             background: [0.1, 0.1, 0.1, 1.0],
+            palette: &crate::quads::DEFAULT_PALETTE,
         }
     }
 
@@ -566,6 +600,7 @@ mod drawn_glyph_tests {
         FrameColors {
             foreground: [0.9, 0.9, 0.9, 1.0],
             background: [0.1, 0.1, 0.1, 1.0],
+            palette: &crate::quads::DEFAULT_PALETTE,
         }
     }
 
@@ -659,5 +694,70 @@ mod drawn_glyph_tests {
         let quads = row(&[cell('\u{2500}'), cell('a')]);
         assert_eq!(quads.glyphs.len(), 1);
         assert_eq!(quads.glyphs[0].quad.left, metrics().width);
+    }
+}
+
+#[cfg(test)]
+mod themed_palette_tests {
+    use super::*;
+
+    fn frame(palette: &'static Palette) -> FrameColors {
+        FrameColors {
+            foreground: [0.9, 0.9, 0.9, 1.0],
+            background: [0.1, 0.1, 0.1, 1.0],
+            palette,
+        }
+    }
+
+    fn red(index: u8) -> CellStyle {
+        let mut style = CellStyle::default();
+        style.fg = Some(StyledColor::Palette(index));
+        style
+    }
+
+    static ALL_GREEN: Palette = [[0.0, 1.0, 0.0, 1.0]; 16];
+
+    /// A theme has to reach the colours programs actually ask for. Themed
+    /// background and foreground while `ls --color` stays xterm's red is a
+    /// theme that only half applied.
+    #[test]
+    fn a_theme_decides_what_the_first_sixteen_colours_are() {
+        let (themed, _) = resolve(&red(1), frame(&ALL_GREEN));
+        assert_eq!(themed, [0.0, 1.0, 0.0, 1.0]);
+
+        let (standard, _) = resolve(&red(1), frame(&DEFAULT_PALETTE));
+        assert_ne!(standard, themed, "the default is not the themed one");
+        assert!(standard[0] > standard[1], "and it is still red: {standard:?}");
+    }
+
+    /// Only the first sixteen. The rest of the 256 are the cube and the
+    /// greys, which are defined by their index rather than chosen.
+    #[test]
+    fn the_colour_cube_is_not_themed() {
+        let (cube, _) = resolve(&red(196), frame(&ALL_GREEN));
+        assert!(
+            (cube[0] - 1.0).abs() < 0.01 && cube[1] < 0.01,
+            "196 is the cube's pure red whatever the theme: {cube:?}"
+        );
+    }
+
+    /// And truecolor is never touched: a program naming an exact colour has
+    /// said what it wants.
+    #[test]
+    fn truecolor_is_never_themed() {
+        let mut style = CellStyle::default();
+        style.fg = Some(StyledColor::Rgb(10, 20, 30));
+        let (exact, _) = resolve(&style, frame(&ALL_GREEN));
+        assert!((exact[0] - 10.0 / 255.0).abs() < 0.001, "{exact:?}");
+    }
+
+    /// The default palette is a real one, not an accident of initialisation.
+    #[test]
+    fn the_default_palette_is_the_one_every_terminal_draws() {
+        assert_eq!(DEFAULT_PALETTE.len(), 16);
+        let black = DEFAULT_PALETTE[0];
+        let white = DEFAULT_PALETTE[15];
+        assert!(black.iter().take(3).all(|c| *c < 0.2), "{black:?}");
+        assert!(white.iter().take(3).all(|c| *c > 0.8), "{white:?}");
     }
 }

@@ -367,6 +367,34 @@ $Suites = @(
         )
     },
     @{
+        # The six colour schemes the product ships, recovered whole. Every one
+        # was chosen against a terminal; a theme that is nearly the old one is
+        # one people notice is wrong without being able to say why.
+        Name = "themes"
+        Package = "unterm-app"
+        Filter = "theme::tests::"
+        ExpectedCount = 7
+        RequiredTests = @(
+            "theme::tests::the_six_bundled_themes_are_all_here",
+            "theme::tests::text_is_readable_on_its_own_background",
+            "theme::tests::the_cursor_stands_out_from_the_background",
+            "theme::tests::no_background_is_pure_black",
+            "theme::tests::every_theme_has_sixteen_usable_colours"
+        )
+    },
+    @{
+        # A theme has to reach the colours programs actually ask for.
+        Name = "themed palette"
+        Package = "unterm-render"
+        Filter = "quads::themed_palette_tests::"
+        ExpectedCount = 4
+        RequiredTests = @(
+            "quads::themed_palette_tests::a_theme_decides_what_the_first_sixteen_colours_are",
+            "quads::themed_palette_tests::the_colour_cube_is_not_themed",
+            "quads::themed_palette_tests::truecolor_is_never_themed"
+        )
+    },
+    @{
         # The frame's own colours, ported from the front end that was deleted:
         # the tones were chosen against linear-light mixing and checked for
         # contrast, and that work is not worth guessing at twice.

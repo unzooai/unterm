@@ -25,6 +25,7 @@ mod scrollbar;
 mod search;
 mod shape;
 mod statusbar;
+mod theme;
 mod topbar;
 mod select;
 mod terminal;
