@@ -126,6 +126,8 @@ pub struct App {
     clipboard_honoured: Option<String>,
     /// Whether the agent inbox is showing.
     inbox_open: bool,
+    /// Set when the close button is pressed, so the loop can exit.
+    closing: bool,
     /// The git panel's contents, held while it is open.
     ///
     /// Read once when it opens rather than every frame: `git status` on a
@@ -205,6 +207,7 @@ impl App {
             start_directory: None,
             clipboard_honoured: None,
             inbox_open: false,
+            closing: false,
             git_panel: None,
             composer: None,
             cockpit_fed_at: std::time::Instant::now(),
@@ -235,6 +238,9 @@ impl App {
         let metrics = self.font.metrics();
         let attributes = Window::default_attributes()
             .with_title("Unterm")
+            // The top bar is the title bar. A grey native one above a dark
+            // one is the three-stacked-strips look the design called out.
+            .with_decorations(false)
             .with_inner_size(winit::dpi::LogicalSize::new(
                 metrics.width * 100.0,
                 metrics.height * 30.0,
@@ -346,12 +352,16 @@ impl App {
             self.mouse_modes = snapshot.mouse;
             self.note_bells(snapshot.bells);
             self.take_clipboard_request(snapshot.clipboard_request.clone());
+            // Below the top bar, like every other pane. Drawn at the window's
+            // own origin it lands on the bar, which is what the first frame
+            // with a bar in it looked like.
+            let top = crate::topbar::terminal_top(self.font.metrics());
             crate::terminal::append_pane(
                 &snapshot,
                 &mut self.font,
                 &mut self.atlas,
                 self.colors,
-                (0.0, 0.0),
+                (0.0, top),
                 &mut quads,
             );
         }
@@ -372,28 +382,19 @@ impl App {
             .tab_id
             .and_then(|id| self.tabs.tab_ids().iter().position(|c| *c == id))
             .unwrap_or(0);
-        quads.backgrounds.extend(crate::tabbar::quads(
-            tab_count,
-            active_tab,
-            window_width,
-            self.font.metrics(),
-            self.colors,
-        ));
-        // One badge per tab, in the order the tabs are drawn.
+        // One badge per tab, in the order the tabs are drawn. A tab shows
+        // the most urgent of its panes': a split where one half is waiting is
+        // a tab that is waiting.
         let statuses = unterm_services::cockpit::status::snapshot();
         let badges: Vec<Option<crate::cockpit::Badge>> = self
             .tabs
             .tab_ids()
             .into_iter()
             .map(|tab| {
-                // A tab's badge is the most urgent of its panes': a split
-                // where one half is waiting is a tab that is waiting.
                 self.tabs
                     .pane_ids(tab)
                     .into_iter()
-                    .filter_map(|pane| {
-                        crate::cockpit::badge_for_pane(&statuses, pane as u64)
-                    })
+                    .filter_map(|pane| crate::cockpit::badge_for_pane(&statuses, pane as u64))
                     .min_by_key(|badge| match badge {
                         crate::cockpit::Badge::NeedsYou => 0,
                         crate::cockpit::Badge::Done => 1,
@@ -401,17 +402,7 @@ impl App {
                     })
             })
             .collect();
-        append_tab_labels(
-            tab_count,
-            active_tab,
-            &badges,
-            window_width,
-            &mut self.font,
-            &mut self.atlas,
-            self.colors,
-            &mut quads,
-        );
-
+        self.append_top_bar(tab_count, active_tab, &badges, window_width, &mut quads);
         self.append_status_bar(window_width, &mut quads);
 
         append_confirmation_banner(
@@ -462,7 +453,7 @@ impl App {
             return false;
         };
         let metrics = self.font.metrics();
-        let top = crate::tabbar::terminal_top(metrics, self.tabs.tab_count());
+        let top = crate::topbar::terminal_top(metrics);
         let column = (self.pointer.0 / metrics.width.max(1.0)) as usize;
         let row = ((self.pointer.1 - top).max(0.0) / metrics.height.max(1.0)) as usize;
 
@@ -520,7 +511,7 @@ impl App {
             return;
         };
         let metrics = self.font.metrics();
-        let track_top = crate::tabbar::terminal_top(metrics, self.tabs.tab_count());
+        let track_top = crate::topbar::terminal_top(metrics);
         let track = (live.height as f32 - track_top).max(1.0);
         let total = snapshot.scrollback_rows + snapshot.rows;
         let row = crate::scrollbar::row_at(total, snapshot.rows, self.pointer.1 - track_top, track);
@@ -607,6 +598,189 @@ impl App {
         }
     }
 
+
+    /// The frame's tones, from the terminal's own colours.
+    fn chrome(&self) -> crate::chrome::Chrome {
+        crate::chrome::chrome(self.colors.background, self.colors.foreground)
+    }
+
+    /// Draw the bar along the top: wordmark, tabs, buttons.
+    fn append_top_bar(
+        &mut self,
+        tab_count: usize,
+        active_tab: usize,
+        badges: &[Option<crate::cockpit::Badge>],
+        window_width: f32,
+        quads: &mut unterm_render::quads::FrameQuads,
+    ) {
+        let metrics = self.font.metrics();
+        let height = metrics.height * crate::topbar::ROWS as f32;
+        let columns = (window_width / metrics.width.max(1.0)).floor().max(0.0) as usize;
+        let chrome = self.chrome();
+
+        quads.backgrounds.push(unterm_render::quads::Quad {
+            left: 0.0,
+            top: 0.0,
+            width: window_width,
+            height,
+            color: chrome.surface,
+        });
+        // A hairline under it, so the bar and the terminal read as two
+        // surfaces of one window rather than one surface with a seam.
+        quads.backgrounds.push(unterm_render::quads::Quad {
+            left: 0.0,
+            top: height - 1.0,
+            width: window_width,
+            height: 1.0,
+            color: chrome.outer_edge,
+        });
+
+        let bar = crate::topbar::layout(tab_count, active_tab, columns);
+        let hovered = self.hovered_top_bar_item();
+        for piece in &bar {
+            let left = piece.column as f32 * metrics.width;
+            let width = piece.columns as f32 * metrics.width;
+            let is_hovered = hovered == Some(piece.item);
+
+            if let Some(button) = crate::topbar::window_button(piece.item) {
+                if is_hovered {
+                    quads.backgrounds.push(unterm_render::quads::Quad {
+                        left,
+                        top: 0.0,
+                        width,
+                        height,
+                        color: crate::window_buttons::hover_fill(button, chrome.is_light),
+                    });
+                }
+                let color = if is_hovered {
+                    crate::window_buttons::hovered_icon_color(button, chrome.is_light)
+                } else {
+                    crate::window_buttons::icon_color(chrome.is_light)
+                };
+                quads.backgrounds.extend(crate::window_buttons::quads(
+                    button, left, 0.0, width, height, color,
+                ));
+                continue;
+            }
+
+            if is_hovered || matches!(piece.item, crate::topbar::Item::Tab(index) if index == active_tab)
+            {
+                quads.backgrounds.push(unterm_render::quads::Quad {
+                    left,
+                    top: 0.0,
+                    width,
+                    height,
+                    color: if is_hovered {
+                        chrome.hover_bg
+                    } else {
+                        chrome.selected_bg
+                    },
+                });
+            }
+            if let crate::topbar::Item::Tab(index) = piece.item {
+                if let Some(badge) = badges.get(index).copied().flatten() {
+                    crate::terminal::append_text(
+                        crate::cockpit::BADGE,
+                        &mut self.font,
+                        &mut self.atlas,
+                        badge.color(),
+                        (
+                            crate::topbar::badge_column(piece) as f32 * metrics.width,
+                            (height - metrics.height) / 2.0,
+                        ),
+                        quads,
+                    );
+                }
+            }
+            if piece.label.trim().is_empty() {
+                continue;
+            }
+            // Centred down the bar's two rows.
+            let text_top = (height - metrics.height) / 2.0;
+            crate::terminal::append_text(
+                &piece.label,
+                &mut self.font,
+                &mut self.atlas,
+                if matches!(piece.item, crate::topbar::Item::Wordmark) {
+                    chrome.dim_text
+                } else {
+                    self.colors.foreground
+                },
+                (left, text_top),
+                quads,
+            );
+        }
+    }
+
+    /// A press on the top bar. Returns true when the bar took it.
+    ///
+    /// The empty parts drag the window, which is the first thing anyone tries
+    /// on a window with no title bar -- and the last thing they find missing.
+    fn click_top_bar(&mut self) -> bool {
+        let Some(item) = self.hovered_top_bar_item() else {
+            // Above the terminal but on nothing: a handle.
+            let metrics = self.font.metrics();
+            if self.pointer.1 < metrics.height * crate::topbar::ROWS as f32 {
+                if let Some(live) = self.state.as_ref() {
+                    let _ = live.window.drag_window();
+                }
+                return true;
+            }
+            return false;
+        };
+
+        match item {
+            crate::topbar::Item::Wordmark => {
+                if let Some(live) = self.state.as_ref() {
+                    let _ = live.window.drag_window();
+                }
+            }
+            crate::topbar::Item::Tab(index) => self.select_tab(index as u8 + 1),
+            crate::topbar::Item::NewTab => self.new_tab(),
+            crate::topbar::Item::Menu => {
+                let entries = self.quick_entries();
+                self.open_palette(entries);
+            }
+            crate::topbar::Item::Action(action) => {
+                if let Some(live) = self.state.as_ref() {
+                    let session_id = live.session_id;
+                    self.run_key_action(action, session_id);
+                }
+            }
+            crate::topbar::Item::Minimise => {
+                if let Some(live) = self.state.as_ref() {
+                    live.window.set_minimized(true);
+                }
+            }
+            crate::topbar::Item::Maximise => {
+                if let Some(live) = self.state.as_ref() {
+                    live.window.set_maximized(!live.window.is_maximized());
+                }
+            }
+            crate::topbar::Item::Close => {
+                if let Some(live) = self.state.as_ref() {
+                    live.window.set_visible(false);
+                }
+                self.closing = true;
+            }
+        }
+        self.drawn_revision = None;
+        true
+    }
+
+    /// Which piece of the top bar the pointer is over.
+    fn hovered_top_bar_item(&self) -> Option<crate::topbar::Item> {
+        let metrics = self.font.metrics();
+        if self.pointer.1 >= metrics.height * crate::topbar::ROWS as f32 {
+            return None;
+        }
+        let live = self.state.as_ref()?;
+        let columns = (live.width as f32 / metrics.width.max(1.0)).floor().max(0.0) as usize;
+        let column = (self.pointer.0 / metrics.width.max(1.0)).floor().max(0.0) as usize;
+        let bar = crate::topbar::layout(self.tabs.tab_count(), 0, columns);
+        crate::topbar::hit(&bar, column)
+    }
+
     fn append_scrollbar(&mut self, quads: &mut unterm_render::quads::FrameQuads) {
         let Some(live) = self.state.as_ref() else {
             return;
@@ -615,7 +789,7 @@ impl App {
             return;
         };
         let metrics = self.font.metrics();
-        let track_top = crate::tabbar::terminal_top(metrics, self.tabs.tab_count());
+        let track_top = crate::topbar::terminal_top(metrics);
         let track = (live.height as f32 - track_top).max(1.0);
 
         let total = snapshot.scrollback_rows + snapshot.rows;
@@ -690,7 +864,7 @@ impl App {
             return;
         };
         let metrics = self.font.metrics();
-        let top_offset = crate::tabbar::terminal_top(metrics, self.tabs.tab_count());
+        let top_offset = crate::topbar::terminal_top(metrics);
         quads.backgrounds.push(unterm_render::quads::Quad {
             left: link.start as f32 * metrics.width,
             top: top_offset
@@ -707,7 +881,7 @@ impl App {
         let live = self.state.as_ref()?;
         let snapshot = self.engine.read_styled_screen(live.session_id).ok()?;
         let metrics = self.font.metrics();
-        let top = crate::tabbar::terminal_top(metrics, self.tabs.tab_count());
+        let top = crate::topbar::terminal_top(metrics);
         let column = (self.pointer.0 / metrics.width.max(1.0)) as usize;
         let row = ((self.pointer.1 - top).max(0.0) / metrics.height.max(1.0)) as usize;
 
@@ -942,7 +1116,7 @@ impl App {
     /// browser does and what people reach for.
     fn select_tab(&mut self, number: u8) {
         let ids = self.tabs.tab_ids();
-        let Some(tab_id) = crate::tabbar::tab_for_number(number, ids.len())
+        let Some(tab_id) = crate::topbar::tab_for_number(number, ids.len())
             .and_then(|index| ids.get(index).copied())
         else {
             return;
@@ -1890,7 +2064,7 @@ impl App {
     /// How tall the terminal area is, once the tab bar has taken its share.
     fn terminal_height(&self) -> f32 {
         let height = self.state.as_ref().map(|live| live.height).unwrap_or(600) as f32;
-        crate::tabbar::terminal_height(height, self.font.metrics(), self.tabs.tab_count())
+        crate::topbar::terminal_height(height, self.font.metrics())
     }
 
     /// Make the window's tabs match the engine's sessions.
@@ -2053,7 +2227,7 @@ impl App {
             return;
         };
         let metrics = self.font.metrics();
-        let top_offset = crate::tabbar::terminal_top(metrics, self.tabs.tab_count());
+        let top_offset = crate::topbar::terminal_top(metrics);
         let (_, widths) = self.screen_shape();
 
         if let Some(((start_row, start_col), (end_row, end_col))) = mode.selection() {
@@ -2090,7 +2264,7 @@ impl App {
             return;
         };
         let metrics = self.font.metrics();
-        let top_offset = crate::tabbar::terminal_top(metrics, self.tabs.tab_count());
+        let top_offset = crate::topbar::terminal_top(metrics);
         let background = self.colors.background;
         let foreground = self.colors.foreground;
 
@@ -2317,7 +2491,7 @@ impl App {
             None => (
                 (
                     0.0,
-                    crate::tabbar::terminal_top(metrics, self.tabs.tab_count()),
+                    crate::topbar::terminal_top(metrics),
                 ),
                 snapshot.cols,
             ),
@@ -2392,7 +2566,7 @@ impl App {
         let (cols, rows) = self
             .font
             .grid_for(live.width as f32, self.terminal_height());
-        let top_offset = crate::tabbar::terminal_top(metrics, self.tabs.tab_count());
+        let top_offset = crate::topbar::terminal_top(metrics);
         let positions = self.tabs.positions(tab_id, cols, rows);
         if positions.len() < 2 {
             return Vec::new();
@@ -2430,7 +2604,7 @@ impl App {
         let (cols, rows) = self
             .font
             .grid_for(live.width as f32, self.terminal_height());
-        let top = crate::tabbar::terminal_top(self.font.metrics(), self.tabs.tab_count());
+        let top = crate::topbar::terminal_top(self.font.metrics());
         self.tabs
             .positions(tab_id, cols, rows)
             .into_iter()
@@ -2783,6 +2957,9 @@ impl ApplicationHandler for App {
                 if button != MouseButton::Left {
                     return;
                 }
+                if state == ElementState::Pressed && self.click_top_bar() {
+                    return;
+                }
                 if state == ElementState::Pressed && self.pointer_on_menu() {
                     let entries = self.quick_entries();
                     self.open_palette(entries);
@@ -2875,6 +3052,12 @@ impl ApplicationHandler for App {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        if self.closing {
+            // The close button was pressed. There is no native title bar to
+            // do this for us any more.
+            event_loop.exit();
+            return;
+        }
         self.sync_tabs();
         self.feed_cockpit();
         self.drain_composer();
@@ -3102,57 +3285,6 @@ fn mix(from: [f32; 4], to: [f32; 4], amount: f32) -> [f32; 4] {
 ///
 /// Drawn separately from the bar's blocks so the active tab's number reads
 /// against its highlight rather than disappearing into it.
-/// Number each tab, and mark the ones whose agent has something to say.
-///
-/// The badge is why anyone would look at this bar: a person running four
-/// agents needs to know which one is waiting on them without visiting each
-/// pane. It is drawn separately from the number because it has its own colour
-/// -- amber wants you, blue is working, green is finished -- and the number
-/// takes the tab's own foreground.
-#[allow(clippy::too_many_arguments)]
-fn append_tab_labels(
-    tab_count: usize,
-    active_index: usize,
-    badges: &[Option<crate::cockpit::Badge>],
-    window_width: f32,
-    font: &mut crate::terminal::TerminalFont,
-    atlas: &mut unterm_render::atlas::GlyphAtlas,
-    colors: unterm_render::quads::FrameColors,
-    quads: &mut unterm_render::quads::FrameQuads,
-) {
-    if tab_count <= 1 {
-        return;
-    }
-    let metrics = font.metrics();
-    let width = (window_width / tab_count as f32).max(metrics.width);
-    for index in 0..tab_count {
-        let color = if index == active_index {
-            colors.background
-        } else {
-            colors.foreground
-        };
-        let left = index as f32 * width + metrics.width;
-        crate::terminal::append_text(
-            &format!(" {} ", index + 1),
-            font,
-            atlas,
-            color,
-            (left, 0.0),
-            quads,
-        );
-        if let Some(Some(badge)) = badges.get(index) {
-            crate::terminal::append_text(
-                crate::cockpit::BADGE,
-                font,
-                atlas,
-                badge.color(),
-                (left + metrics.width * 3.0, 0.0),
-                quads,
-            );
-        }
-    }
-}
-
 /// Draw the pending agent-write banner, if one is waiting.
 ///
 /// Over everything else and at the top, because a thread is parked on the
@@ -3486,97 +3618,53 @@ fn dim(color: [f32; 4], weight: f32) -> [f32; 4] {
 
 #[cfg(test)]
 mod tab_badge_tests {
-    use super::*;
     use crate::cockpit::Badge;
-
-    fn font_and_atlas() -> Option<(crate::terminal::TerminalFont, unterm_render::atlas::GlyphAtlas)>
-    {
-        crate::terminal::TerminalFont::open(16)
-            .ok()
-            .map(|font| (font, unterm_render::atlas::GlyphAtlas::new(256, 256)))
-    }
-
-    fn colors() -> unterm_render::quads::FrameColors {
-        unterm_render::quads::FrameColors {
-            foreground: [0.9, 0.9, 0.9, 1.0],
-            background: [0.1, 0.1, 0.1, 1.0],
-        }
-    }
-
-    fn drawn(badges: &[Option<Badge>]) -> Option<unterm_render::quads::FrameQuads> {
-        let (mut font, mut atlas) = font_and_atlas()?;
-        let mut quads = unterm_render::quads::FrameQuads::default();
-        append_tab_labels(
-            badges.len(),
-            0,
-            badges,
-            800.0,
-            &mut font,
-            &mut atlas,
-            colors(),
-            &mut quads,
-        );
-        Some(quads)
-    }
+    use crate::topbar;
 
     /// The badge is the reason to look at this bar at all: four agents
     /// running, and which one wants you has to be readable without visiting
-    /// each pane.
-    #[test]
-    fn a_marked_tab_draws_more_than_an_unmarked_one() {
-        let Some(plain) = drawn(&[None, None]) else {
-            return; // No usable system font on this machine.
-        };
-        let marked = drawn(&[Some(Badge::NeedsYou), None]).unwrap();
-        assert!(
-            marked.glyphs.len() > plain.glyphs.len(),
-            "the badge drew nothing"
-        );
-    }
-
-    /// And in its own colour, not the tab's: amber against the bar is the
-    /// whole signal.
-    #[test]
-    fn the_badge_keeps_its_own_colour() {
-        let Some(marked) = drawn(&[Some(Badge::NeedsYou), None]) else {
-            return;
-        };
-        let amber = Badge::NeedsYou.color();
-        assert!(
-            marked.glyphs.iter().any(|glyph| glyph.quad.color == amber),
-            "nothing was drawn in the badge's colour"
-        );
-    }
-
-    /// A badge belongs to its own tab. Drawn at the wrong offset it lands on
-    /// the tab beside it, which points at the wrong pane -- worse than no
-    /// badge, because it is believed.
+    /// each pane. It belongs to its own tab, and a badge drawn past that tab's
+    /// width lands on the next one -- pointing at the wrong pane, which is
+    /// worse than no badge because it is believed.
     #[test]
     fn a_badge_stays_within_its_own_tab() {
-        let Some(marked) = drawn(&[None, Some(Badge::Working)]) else {
-            return;
-        };
-        let blue = Badge::Working.color();
-        let badge = marked
-            .glyphs
-            .iter()
-            .find(|glyph| glyph.quad.color == blue)
-            .expect("the badge was not drawn");
-        let tab_width = 800.0 / 2.0;
-        assert!(
-            badge.quad.left >= tab_width,
-            "the second tab's badge landed on the first: {}",
-            badge.quad.left
-        );
-        assert!(badge.quad.left < tab_width * 2.0, "{}", badge.quad.left);
+        let bar = topbar::layout(4, 0, 160);
+        for index in 0..4 {
+            let tab = bar
+                .iter()
+                .find(|piece| piece.item == topbar::Item::Tab(index))
+                .expect("every tab is laid out");
+            let column = topbar::badge_column(tab);
+            assert!(tab.contains(column), "{tab:?} badge at {column}");
+        }
     }
 
-    /// One tab needs no bar, so it needs no badges either.
+    /// And it never overlaps the tab's number.
     #[test]
-    fn a_single_tab_draws_nothing() {
-        let Some(quads) = drawn(&[Some(Badge::NeedsYou)]) else {
-            return;
-        };
-        assert!(quads.glyphs.is_empty());
+    fn a_badge_sits_after_the_number_it_belongs_to() {
+        let bar = topbar::layout(3, 0, 160);
+        for index in 0..3 {
+            let tab = bar
+                .iter()
+                .find(|piece| piece.item == topbar::Item::Tab(index))
+                .unwrap();
+            let number_ends = tab.column + tab.label.trim_end().chars().count();
+            assert!(topbar::badge_column(tab) >= number_ends, "{tab:?}");
+        }
+    }
+
+    /// Three states, three colours, and idle is no badge at all.
+    #[test]
+    fn the_badges_are_told_apart_by_colour() {
+        let colours = [
+            Badge::NeedsYou.color(),
+            Badge::Working.color(),
+            Badge::Done.color(),
+        ];
+        for (index, colour) in colours.iter().enumerate() {
+            for other in &colours[index + 1..] {
+                assert_ne!(colour, other, "two badges share a colour");
+            }
+        }
     }
 }

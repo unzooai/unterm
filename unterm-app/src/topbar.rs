@@ -11,8 +11,29 @@
 
 /// How tall the bar is, in cells. Two, so it reads as chrome rather than as a
 /// row of output that failed to scroll.
-#[allow(dead_code)] // Read once the bar is drawn; see the module's plan.
 pub const ROWS: usize = 2;
+
+/// Where the terminal area starts, in pixels from the top of the window.
+///
+/// The bar is always there, unlike the strip it replaces: it carries the
+/// window buttons, and a window whose close button appears only once there
+/// are two tabs is not a window.
+pub fn terminal_top(metrics: unterm_render::quads::CellMetrics) -> f32 {
+    metrics.height * ROWS as f32
+}
+
+/// What is left for the terminal once both bars have taken their rows.
+///
+/// Taken *out of* the terminal rather than drawn over it: a bar over the grid
+/// hides a row the shell still believes in, and the cursor ends up somewhere
+/// nobody can see.
+pub fn terminal_height(
+    window_height: f32,
+    metrics: unterm_render::quads::CellMetrics,
+) -> f32 {
+    let taken = ROWS + crate::statusbar::ROWS;
+    (window_height - metrics.height * taken as f32).max(metrics.height)
+}
 
 /// What a piece of the bar is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -78,7 +99,7 @@ const ACTIONS: &[(crate::keys::Action, &str)] = &[
 /// The window buttons come first in the arithmetic and last in the list: they
 /// are the one thing that must never be dropped or moved, because a window
 /// with no title bar has no other way to be closed.
-pub fn layout(tabs: usize, active: usize, columns: usize) -> Vec<Placed> {
+pub fn layout(tabs: usize, _active: usize, columns: usize) -> Vec<Placed> {
     let mut placed = Vec::new();
     if columns == 0 {
         return placed;
@@ -138,7 +159,7 @@ pub fn layout(tabs: usize, active: usize, columns: usize) -> Vec<Placed> {
         let each = (tab_room / tabs).clamp(MIN_TAB, MAX_TAB);
         let shown = (tab_room / each).min(tabs).max(1);
         for index in 0..shown {
-            let label = tab_label(index, active, each);
+            let label = tab_label(index, each);
             placed.push(Placed {
                 item: Item::Tab(index),
                 column: left + index * each,
@@ -162,14 +183,30 @@ const MIN_TAB: usize = 4;
 /// Wider than this and two tabs look like a toolbar.
 const MAX_TAB: usize = 24;
 
-/// What a tab says. The number always fits; the marker for the active one is
-/// what makes the bar readable without counting.
-fn tab_label(index: usize, active: usize, width: usize) -> String {
-    let number = index + 1;
-    let mark = if index == active { "\u{25CF}" } else { " " };
-    let text = format!("{mark} {number}");
+/// What a tab says: its number, and room after it for an agent's badge.
+///
+/// Which tab is active is shown by its background rather than by a mark in the
+/// label. That leaves a glyph of room for the badge -- the thing that actually
+/// needs to be seen from across a window.
+fn tab_label(index: usize, width: usize) -> String {
+    let text = format!(" {}", index + 1);
     let padding = width.saturating_sub(width_of(&text));
     format!("{text}{}", " ".repeat(padding))
+}
+
+/// Where a tab's agent badge goes: the column after its number.
+pub fn badge_column(tab: &Placed) -> usize {
+    tab.column + tab.label.trim_end().chars().count() + 1
+}
+
+/// The window button this piece is, if it is one.
+pub fn window_button(item: Item) -> Option<crate::window_buttons::Button> {
+    match item {
+        Item::Minimise => Some(crate::window_buttons::Button::Minimise),
+        Item::Maximise => Some(crate::window_buttons::Button::Maximise),
+        Item::Close => Some(crate::window_buttons::Button::Close),
+        _ => None,
+    }
 }
 
 /// Which piece a click at `column` landed on.
@@ -201,6 +238,57 @@ fn width_of(text: &str) -> usize {
             termwiz::cell::unicode_column_width(ch.encode_utf8(&mut buffer), None).max(1)
         })
         .sum()
+}
+
+/// Which tab a number key means, counting from one as the keys are labelled.
+///
+/// Nine is the last tab however many there are, which is what every browser
+/// does -- someone with four tabs pressing Ctrl+9 means the last one, not
+/// nothing. Other numbers past the end are nothing rather than the last one:
+/// Ctrl+3 with two tabs open is a miss, and jumping somewhere unasked-for is
+/// worse than staying put.
+pub fn tab_for_number(number: u8, count: usize) -> Option<usize> {
+    if count == 0 || number == 0 {
+        return None;
+    }
+    if number >= 9 {
+        return Some(count - 1);
+    }
+    let index = number as usize - 1;
+    (index < count).then_some(index)
+}
+
+#[cfg(test)]
+mod number_key_tests {
+    use super::*;
+
+    #[test]
+    fn a_number_picks_the_tab_with_that_position() {
+        assert_eq!(tab_for_number(1, 4), Some(0));
+        assert_eq!(tab_for_number(3, 4), Some(2));
+    }
+
+    /// Nine is the last one, however many there are.
+    #[test]
+    fn nine_is_the_last_tab_not_the_ninth() {
+        assert_eq!(tab_for_number(9, 4), Some(3));
+        assert_eq!(tab_for_number(9, 1), Some(0));
+        assert_eq!(tab_for_number(9, 12), Some(11));
+    }
+
+    /// And a number past the end is a miss, not a jump to the end -- those
+    /// two rules only look inconsistent until you press Ctrl+3 by accident.
+    #[test]
+    fn a_number_past_the_last_tab_does_nothing() {
+        assert_eq!(tab_for_number(3, 2), None);
+        assert_eq!(tab_for_number(8, 2), None);
+    }
+
+    #[test]
+    fn there_is_no_tab_when_there_are_no_tabs() {
+        assert_eq!(tab_for_number(1, 0), None);
+        assert_eq!(tab_for_number(9, 0), None);
+    }
 }
 
 #[cfg(test)]
@@ -291,13 +379,29 @@ mod tests {
         );
     }
 
+    /// Tabs are numbered, and nothing in the label says which is active --
+    /// that is the background's job, which leaves room for the agent badge.
     #[test]
-    fn the_active_tab_is_marked() {
+    fn tabs_are_numbered_from_one() {
         let bar = layout(3, 1, 120);
-        let active = bar.iter().find(|p| p.item == Item::Tab(1)).unwrap();
-        let other = bar.iter().find(|p| p.item == Item::Tab(0)).unwrap();
-        assert!(active.label.contains('●'), "{:?}", active.label);
-        assert!(!other.label.contains('●'), "{:?}", other.label);
+        for index in 0..3 {
+            let tab = bar.iter().find(|p| p.item == Item::Tab(index)).unwrap();
+            assert!(tab.label.contains(&(index + 1).to_string()), "{:?}", tab.label);
+        }
+    }
+
+    /// The badge sits after the number, inside the tab it belongs to. Drawn
+    /// past the tab's own width it lands on the next tab, which points at the
+    /// wrong pane.
+    #[test]
+    fn a_badge_goes_beside_its_tabs_number() {
+        let bar = layout(3, 0, 120);
+        for index in 0..3 {
+            let tab = bar.iter().find(|p| p.item == Item::Tab(index)).unwrap();
+            let badge = badge_column(tab);
+            assert!(badge > tab.column, "{tab:?}");
+            assert!(badge < tab.column + tab.columns, "{tab:?} badge at {badge}");
+        }
     }
 
     /// Every tab is the same width, or the bar reflows as tabs are marked and

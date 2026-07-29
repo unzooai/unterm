@@ -386,7 +386,7 @@ $Suites = @(
         Name = "top bar layout"
         Package = "unterm-app"
         Filter = "topbar::tests::"
-        ExpectedCount = 12
+        ExpectedCount = 13
         RequiredTests = @(
             "topbar::tests::the_window_buttons_are_never_dropped",
             "topbar::tests::the_close_button_is_the_rightmost_thing",
@@ -492,9 +492,9 @@ $Suites = @(
             "cockpit::badge_tests::every_state_that_means_something_has_a_badge",
             "cockpit::badge_tests::an_idle_pane_is_not_marked",
             "cockpit::badge_tests::the_three_badges_are_three_different_colours",
-            "window::tab_badge_tests::a_marked_tab_draws_more_than_an_unmarked_one",
-            "window::tab_badge_tests::the_badge_keeps_its_own_colour",
-            "window::tab_badge_tests::a_badge_stays_within_its_own_tab"
+            "window::tab_badge_tests::a_badge_stays_within_its_own_tab",
+            "window::tab_badge_tests::a_badge_sits_after_the_number_it_belongs_to",
+            "window::tab_badge_tests::the_badges_are_told_apart_by_colour"
         )
     },
     @{
@@ -594,12 +594,12 @@ $Suites = @(
     @{
         Name = "tab number keys"
         Package = "unterm-app"
-        Filter = "tabbar::number_key_tests::"
+        Filter = "topbar::number_key_tests::"
         ExpectedCount = 4
         RequiredTests = @(
-            "tabbar::number_key_tests::nine_is_the_last_tab_not_the_ninth",
-            "tabbar::number_key_tests::a_number_past_the_last_tab_does_nothing",
-            "tabbar::number_key_tests::there_is_no_tab_when_there_are_no_tabs"
+            "topbar::number_key_tests::nine_is_the_last_tab_not_the_ninth",
+            "topbar::number_key_tests::a_number_past_the_last_tab_does_nothing",
+            "topbar::number_key_tests::there_is_no_tab_when_there_are_no_tabs"
         )
     },
     @{
