@@ -315,6 +315,22 @@ $Suites = @(
         )
     },
     @{
+        # Selecting without a mouse, and grabbing what is already on screen.
+        # Both are modes: a stray keystroke reaching the shell behind one is
+        # the worst thing a mode can do.
+        Name = "app copy mode"
+        Package = "unterm-app"
+        Filter = "copy_mode::tests::"
+        ExpectedCount = 13
+        RequiredTests = @(
+            "copy_mode::tests::the_cursor_stops_at_the_edges",
+            "copy_mode::tests::moving_to_a_shorter_line_pulls_the_column_in",
+            "copy_mode::tests::a_selection_is_ordered_however_it_was_made",
+            "copy_mode::tests::ordinary_words_are_not_labelled",
+            "copy_mode::tests::labels_never_run_out"
+        )
+    },
+    @{
         # A palette that finds the wrong row is worse than no palette: the
         # order it puts matches in is the whole feature.
         Name = "app command palette"

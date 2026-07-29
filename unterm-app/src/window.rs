@@ -84,6 +84,10 @@ pub struct App {
     dragging_scrollbar: bool,
     /// The open command palette or launcher, if there is one.
     palette: Option<crate::palette::Palette>,
+    /// The keyboard selection, if copy mode is on.
+    copy_mode: Option<crate::copy_mode::CopyMode>,
+    /// Quick select's labels, and what has been typed towards one.
+    quick_select: Option<(Vec<crate::copy_mode::Labelled>, String)>,
     /// What the program wants from the mouse, as of the last frame drawn.
     ///
     /// Cached rather than read per event: a motion arrives a hundred times a
@@ -145,6 +149,8 @@ impl App {
             bell_at: None,
             dragging_scrollbar: false,
             palette: None,
+            copy_mode: None,
+            quick_select: None,
             mouse_modes: Default::default(),
             held_mouse_button: None,
             alt_held: false,
@@ -287,6 +293,8 @@ impl App {
         self.append_hovered_link(&mut quads);
         self.append_preedit(&mut quads);
         self.append_search_bar(window_width, &mut quads);
+        self.append_copy_mode(&mut quads);
+        self.append_quick_select(&mut quads);
         self.append_palette(window_width, &mut quads);
         let tab_count = self.tabs.tab_count();
         let active_tab = self
@@ -591,6 +599,11 @@ impl App {
                 self.split(unterm_engine::next_core::layout::SplitAxis::Horizontal)
             }
             Action::SplitDown => self.split(unterm_engine::next_core::layout::SplitAxis::Vertical),
+            Action::CopyMode => {
+                self.copy_mode = Some(crate::copy_mode::CopyMode::default());
+                self.drawn_revision = None;
+            }
+            Action::QuickSelect => self.open_quick_select(),
             Action::CommandPalette => self.open_palette(command_entries()),
             Action::Launcher => self.open_palette(launcher_entries()),
             Action::Search => {
@@ -622,12 +635,7 @@ impl App {
         let Some(text) = self.selected.clone() else {
             return;
         };
-        match arboard::Clipboard::new().and_then(|mut board| board.set_text(text)) {
-            Ok(()) => {}
-            // Worth saying rather than swallowing: a copy that silently does
-            // nothing sends the user hunting through their clipboard manager.
-            Err(err) => log::warn!("could not copy to the clipboard: {err}"),
-        }
+        self.copy_text(&text);
     }
 
     /// Send the clipboard to the shell.
@@ -699,6 +707,155 @@ impl App {
             live.window.request_redraw();
         }
         self.drawn_revision = None;
+    }
+
+    /// Start quick select, if there is anything worth labelling.
+    ///
+    /// Nothing worth labelling means nothing to do: an overlay with no labels
+    /// in it looks like a broken feature rather than an empty screen.
+    fn open_quick_select(&mut self) {
+        let Some(live) = self.state.as_ref() else {
+            return;
+        };
+        let Ok(snapshot) = self.engine.read_styled_screen(live.session_id) else {
+            return;
+        };
+        let found = crate::copy_mode::labelled(&snapshot.lines);
+        if found.is_empty() {
+            return;
+        }
+        self.quick_select = Some((found, String::new()));
+        self.drawn_revision = None;
+    }
+
+    /// Type a label. Returns true when the key was quick select's.
+    fn handle_quick_select_key(&mut self, event: &winit::event::KeyEvent) -> bool {
+        use winit::keyboard::Key as WinitKey;
+        let Some((found, mut typed)) = self.quick_select.take() else {
+            return false;
+        };
+        match &event.logical_key {
+            WinitKey::Named(winit::keyboard::NamedKey::Escape) => {}
+            WinitKey::Character(text) => {
+                typed.push_str(text);
+                if let Some(hit) = found.iter().find(|item| item.label == typed) {
+                    let text = hit.text.clone();
+                    self.copy_text(&text);
+                } else if found.iter().any(|item| item.label.starts_with(&typed)) {
+                    // A prefix of a longer label: wait for the rest.
+                    self.quick_select = Some((found, typed));
+                }
+            }
+            _ => self.quick_select = Some((found, typed)),
+        }
+        self.drawn_revision = None;
+        if let Some(live) = self.state.as_ref() {
+            live.window.request_redraw();
+        }
+        true
+    }
+
+    /// Move and select with the keyboard. Returns true when handled.
+    fn handle_copy_mode_key(&mut self, event: &winit::event::KeyEvent) -> bool {
+        use winit::keyboard::Key as WinitKey;
+        let Some(mut mode) = self.copy_mode else {
+            return false;
+        };
+        let named = match &event.logical_key {
+            WinitKey::Named(named) => Some(format!("{named:?}")),
+            _ => None,
+        };
+        let character = match &event.logical_key {
+            WinitKey::Character(text) => Some(text.to_string()),
+            _ => None,
+        };
+        let Some(motion) = crate::copy_mode::motion_for(named.as_deref(), character.as_deref())
+        else {
+            // Nothing reaches the shell: a stray keystroke running a command
+            // in the pane behind is the worst thing a mode can do.
+            self.copy_mode = Some(mode);
+            return true;
+        };
+
+        match motion {
+            crate::copy_mode::Motion::Leave => self.copy_mode = None,
+            crate::copy_mode::Motion::Yank => {
+                if let Some(text) = self.copy_mode_selection(&mode) {
+                    self.copy_text(&text);
+                }
+                self.copy_mode = None;
+            }
+            motion => {
+                let (rows, widths) = self.screen_shape();
+                mode.apply(motion, rows, |row| widths.get(row).copied().unwrap_or(0));
+                self.copy_mode = Some(mode);
+            }
+        }
+        self.drawn_revision = None;
+        if let Some(live) = self.state.as_ref() {
+            live.window.request_redraw();
+        }
+        true
+    }
+
+    /// How many rows the screen has, and how wide each one's text is.
+    fn screen_shape(&self) -> (usize, Vec<usize>) {
+        let Some(live) = self.state.as_ref() else {
+            return (0, Vec::new());
+        };
+        let Ok(snapshot) = self.engine.read_styled_screen(live.session_id) else {
+            return (0, Vec::new());
+        };
+        let widths = snapshot
+            .lines
+            .iter()
+            .map(|line| {
+                // Trailing blanks are padding, not text: end-of-line should
+                // land on the last character someone wrote.
+                line.cells
+                    .iter()
+                    .rposition(|cell| cell.ch != ' ' && cell.ch != '\0')
+                    .map(|last| last + 1)
+                    .unwrap_or(0)
+            })
+            .collect();
+        (snapshot.lines.len(), widths)
+    }
+
+    /// The text copy mode has selected.
+    fn copy_mode_selection(&self, mode: &crate::copy_mode::CopyMode) -> Option<String> {
+        let live = self.state.as_ref()?;
+        let snapshot = self.engine.read_styled_screen(live.session_id).ok()?;
+        let ((start_row, start_col), (end_row, end_col)) = mode.selection()?;
+        let last = snapshot.lines.len().saturating_sub(1);
+
+        let mut out = String::new();
+        for row in start_row..=end_row.min(last) {
+            let text: String = snapshot.lines[row].cells.iter().map(|cell| cell.ch).collect();
+            let from = if row == start_row { start_col } else { 0 };
+            let to = if row == end_row {
+                (end_col + 1).min(text.chars().count())
+            } else {
+                text.chars().count()
+            };
+            if from < to {
+                out.extend(text.chars().skip(from).take(to - from));
+            }
+            if row < end_row {
+                out.push('\n');
+            }
+        }
+        Some(out.trim_end().to_string())
+    }
+
+    /// Put text on the clipboard.
+    fn copy_text(&self, text: &str) {
+        match arboard::Clipboard::new().and_then(|mut board| board.set_text(text.to_string())) {
+            Ok(()) => {}
+            // Worth saying rather than swallowing: a copy that silently does
+            // nothing sends the user hunting through their clipboard manager.
+            Err(err) => log::warn!("could not copy to the clipboard: {err}"),
+        }
     }
 
     /// Open the palette on a set of rows.
@@ -1037,6 +1194,80 @@ impl App {
             live.window.request_redraw();
         }
         true
+    }
+
+    /// Copy mode's cursor, and whatever it has selected.
+    fn append_copy_mode(&mut self, quads: &mut unterm_render::quads::FrameQuads) {
+        let Some(mode) = self.copy_mode else {
+            return;
+        };
+        let metrics = self.font.metrics();
+        let top_offset = crate::tabbar::terminal_top(metrics, self.tabs.tab_count());
+        let (_, widths) = self.screen_shape();
+
+        if let Some(((start_row, start_col), (end_row, end_col))) = mode.selection() {
+            for row in start_row..=end_row {
+                let width = widths.get(row).copied().unwrap_or(0);
+                let from = if row == start_row { start_col } else { 0 };
+                let to = if row == end_row { end_col + 1 } else { width };
+                if to <= from {
+                    continue;
+                }
+                quads.backgrounds.push(unterm_render::quads::Quad {
+                    left: from as f32 * metrics.width,
+                    top: top_offset + row as f32 * metrics.height,
+                    width: (to - from) as f32 * metrics.width,
+                    height: metrics.height,
+                    color: mix(self.colors.background, self.colors.foreground, 0.28),
+                });
+            }
+        }
+
+        // The cursor over the selection, so it stays visible inside it.
+        quads.backgrounds.push(unterm_render::quads::Quad {
+            left: mode.column as f32 * metrics.width,
+            top: top_offset + mode.row as f32 * metrics.height,
+            width: metrics.width,
+            height: metrics.height,
+            color: self.colors.foreground,
+        });
+    }
+
+    /// Quick select's labels, over the text they stand for.
+    fn append_quick_select(&mut self, quads: &mut unterm_render::quads::FrameQuads) {
+        let Some((found, typed)) = self.quick_select.clone() else {
+            return;
+        };
+        let metrics = self.font.metrics();
+        let top_offset = crate::tabbar::terminal_top(metrics, self.tabs.tab_count());
+        let background = self.colors.background;
+        let foreground = self.colors.foreground;
+
+        for item in &found {
+            // Once a letter is typed, only the labels still in the running:
+            // showing the rest is showing the user options they no longer have.
+            if !typed.is_empty() && !item.label.starts_with(&typed) {
+                continue;
+            }
+            let left = item.start as f32 * metrics.width;
+            let top = top_offset + item.row as f32 * metrics.height;
+            let width = metrics.width * item.label.chars().count() as f32;
+            quads.backgrounds.push(unterm_render::quads::Quad {
+                left,
+                top,
+                width,
+                height: metrics.height,
+                color: foreground,
+            });
+            crate::terminal::append_text(
+                &item.label,
+                &mut self.font,
+                &mut self.atlas,
+                background,
+                (left, top),
+                quads,
+            );
+        }
     }
 
     /// The command palette, centred over the terminal.
@@ -1522,6 +1753,13 @@ impl ApplicationHandler for App {
                 }
 
                 use winit::keyboard::Key;
+
+                if self.quick_select.is_some() && self.handle_quick_select_key(&event) {
+                    return;
+                }
+                if self.copy_mode.is_some() && self.handle_copy_mode_key(&event) {
+                    return;
+                }
 
                 // The palette takes the keyboard while it is open, before
                 // anything else looks at the key.

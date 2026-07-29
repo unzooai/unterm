@@ -5,6 +5,7 @@
 //! replacing it, so the working terminal keeps working while this one grows.
 
 mod confirm;
+mod copy_mode;
 mod fonts;
 mod ime;
 mod keys;
