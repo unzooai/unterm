@@ -71,6 +71,13 @@ pub struct Status {
     pub agents_waiting: usize,
     /// The proxy in force, if any.
     pub proxy: Option<String>,
+    /// Something that just happened, shown for a moment in place of the
+    /// directory.
+    ///
+    /// The bar rather than a floating panel, as before: an action's
+    /// confirmation belongs where the eye already goes, and a panel over the
+    /// terminal covers the thing being worked on.
+    pub notice: Option<String>,
 }
 
 /// One piece of the bar, already placed.
@@ -129,10 +136,20 @@ pub fn segments(status: &Status, columns: usize) -> Vec<Segment> {
     segments
 }
 
-/// The shell and directory, shortened to fit.
+/// The shell and directory, shortened to fit -- or a notice, while one is up.
 fn left_text(status: &Status, room: usize) -> String {
     if room == 0 {
         return String::new();
+    }
+    if let Some(notice) = &status.notice {
+        // Cut from the *end*, unlike a path: the start of a sentence is the
+        // part that says what happened.
+        let notice = notice.trim();
+        if notice.chars().count() <= room {
+            return notice.to_string();
+        }
+        let kept: String = notice.chars().take(room.saturating_sub(1)).collect();
+        return format!("{kept}…");
     }
     let shell = status.shell.trim();
     let directory = status.directory.trim();
@@ -208,6 +225,7 @@ mod tests {
             pending: 0,
             agents_waiting: 0,
             proxy: None,
+            notice: None,
         }
     }
 
@@ -241,6 +259,39 @@ mod tests {
     fn no_agents_waiting_means_no_chip_about_it() {
         let line = rendered(&status(), 120);
         assert!(!line.contains("waiting"), "{line:?}");
+    }
+
+    /// A notice takes the bar for a moment. It goes where the eye already
+    /// goes, rather than over the thing being worked on.
+    #[test]
+    fn a_notice_replaces_the_directory_while_it_is_up() {
+        let mut status = status();
+        status.notice = Some("Selection copied".to_string());
+        let line = rendered(&status, 120);
+        assert!(line.contains("Selection copied"), "{line:?}");
+        assert!(!line.contains("unterm"), "the path stands down: {line:?}");
+    }
+
+    /// The chips stay: an agent waiting is not less true because something
+    /// was just copied.
+    #[test]
+    fn a_notice_does_not_hide_the_chips() {
+        let mut status = status();
+        status.notice = Some("Selection copied".to_string());
+        let line = rendered(&status, 120);
+        assert!(line.contains("mcp:7"), "{line:?}");
+    }
+
+    /// Cut from the end, unlike a path.
+    #[test]
+    fn a_long_notice_keeps_its_beginning() {
+        let mut status = status();
+        status.notice =
+            Some("Recording started and the output is going somewhere".to_string());
+        let line = rendered(&status, 40);
+        // After the menu button, which leads every bar.
+        assert!(line.contains("Recording started"), "{line:?}");
+        assert!(line.contains('\u{2026}'), "the cut should show: {line:?}");
     }
 
     /// The button is always there, and always in the same place: a menu that

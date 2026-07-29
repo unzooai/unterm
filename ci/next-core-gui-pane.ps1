@@ -545,10 +545,12 @@ $Suites = @(
         Name = "status bar"
         Package = "unterm-app"
         Filter = "statusbar::tests::"
-        ExpectedCount = 17
+        ExpectedCount = 20
         RequiredTests = @(
             "statusbar::tests::the_chips_survive_a_laptop_sized_window",
             "statusbar::tests::a_waiting_agent_is_counted_on_the_bar",
+            "statusbar::tests::a_notice_replaces_the_directory_while_it_is_up",
+            "statusbar::tests::a_notice_does_not_hide_the_chips",
             "statusbar::tests::the_menu_button_is_the_first_thing_on_the_bar",
             "statusbar::tests::a_click_on_the_button_is_recognised_and_one_beside_it_is_not",
             "statusbar::tests::a_long_path_keeps_its_end",

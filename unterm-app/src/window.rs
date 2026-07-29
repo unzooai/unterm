@@ -128,6 +128,8 @@ pub struct App {
     inbox_open: bool,
     /// Set when the close button is pressed, so the loop can exit.
     closing: bool,
+    /// Something that just happened, and when it stops being shown.
+    notice: Option<(String, std::time::Instant)>,
     /// The git panel's contents, held while it is open.
     ///
     /// Read once when it opens rather than every frame: `git status` on a
@@ -208,6 +210,7 @@ impl App {
             clipboard_honoured: None,
             inbox_open: false,
             closing: false,
+            notice: None,
             git_panel: None,
             composer: None,
             cockpit_fed_at: std::time::Instant::now(),
@@ -570,6 +573,24 @@ impl App {
         }
     }
 
+    /// Say what just happened, for a moment.
+    ///
+    /// 2400 milliseconds, as before: long enough to read on the way past,
+    /// short enough that it is gone before it becomes furniture.
+    fn show_notice(&mut self, message: String) {
+        const SHOWN_FOR: std::time::Duration = std::time::Duration::from_millis(2400);
+        self.notice = Some((message, std::time::Instant::now() + SHOWN_FOR));
+        self.drawn_revision = None;
+    }
+
+    /// The notice, if one is still up. Clears it once it is not.
+    fn active_notice(&self) -> Option<String> {
+        self.notice
+            .as_ref()
+            .filter(|(_, expires)| *expires > std::time::Instant::now())
+            .map(|(message, _)| message.clone())
+    }
+
     /// What the status bar has to say right now.
     fn status(&self) -> crate::statusbar::Status {
         let session = self.state.as_ref().and_then(|live| {
@@ -583,6 +604,7 @@ impl App {
         let agents = unterm_services::cockpit::status::snapshot();
         crate::statusbar::Status {
             agents_waiting: crate::cockpit::attention_count(&agents),
+            notice: self.active_notice(),
             shell: session
                 .as_ref()
                 .map(|session| crate::statusbar::short_name(&session.shell.process_name))
@@ -1194,14 +1216,20 @@ impl App {
             Ok(text) => text,
             Err(err) => {
                 log::warn!("could not read the clipboard: {err}");
+                self.show_notice(unterm_services::i18n::t("interaction.paste_failed"));
                 return;
             }
         };
         if text.is_empty() {
             return;
         }
-        if let Err(err) = self.engine.paste_input(live.session_id, &text) {
-            log::warn!("could not paste: {err:#}");
+        let session_id = live.session_id;
+        match self.engine.paste_input(session_id, &text) {
+            Ok(_) => self.show_notice(unterm_services::i18n::t("interaction.pasted")),
+            Err(err) => {
+                log::warn!("could not paste: {err:#}");
+                self.show_notice(unterm_services::i18n::t("interaction.paste_failed"));
+            }
         }
     }
 
@@ -1245,6 +1273,7 @@ impl App {
         }
         self.tabs.set_active_pane(session.id);
         self.resize_panes();
+        self.show_notice(unterm_services::i18n::t("interaction.split"));
         if let Some(live) = self.state.as_ref() {
             live.window.request_redraw();
         }
@@ -1735,13 +1764,17 @@ impl App {
         Some(out.trim_end().to_string())
     }
 
-    /// Put text on the clipboard.
-    fn copy_text(&self, text: &str) {
+    /// Put text on the clipboard, and say so.
+    ///
+    /// A copy that does nothing visible is one the user repeats, and then
+    /// goes hunting through a clipboard manager for.
+    fn copy_text(&mut self, text: &str) {
         match arboard::Clipboard::new().and_then(|mut board| board.set_text(text.to_string())) {
-            Ok(()) => {}
-            // Worth saying rather than swallowing: a copy that silently does
-            // nothing sends the user hunting through their clipboard manager.
-            Err(err) => log::warn!("could not copy to the clipboard: {err}"),
+            Ok(()) => self.show_notice(unterm_services::i18n::t("interaction.copied")),
+            Err(err) => {
+                log::warn!("could not copy to the clipboard: {err}");
+                self.show_notice(unterm_services::i18n::t("interaction.paste_failed"));
+            }
         }
     }
 
