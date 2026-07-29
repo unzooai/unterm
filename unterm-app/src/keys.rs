@@ -31,6 +31,7 @@ pub enum Action {
     Launcher,
     CopyMode,
     QuickSelect,
+    CockpitInbox,
 }
 
 impl Action {
@@ -52,6 +53,7 @@ impl Action {
             Action::Launcher => "Launcher",
             Action::CopyMode => "CopyMode",
             Action::QuickSelect => "QuickSelect",
+            Action::CockpitInbox => "CockpitInbox",
         }
     }
 }
@@ -78,6 +80,7 @@ impl Action {
             Action::Launcher => "New Tab With...",
             Action::CopyMode => "Copy Mode",
             Action::QuickSelect => "Quick Select",
+            Action::CockpitInbox => "Agent Inbox",
         }
     }
 }
@@ -215,6 +218,11 @@ pub const BINDINGS: &[Binding] = &[
         mods: CTRL_SHIFT,
         trigger: Trigger::Char('s'),
         action: Action::QuickSelect,
+    },
+    Binding {
+        mods: CTRL_SHIFT,
+        trigger: Trigger::Char('i'),
+        action: Action::CockpitInbox,
     },
     // Ctrl+Tab cycles, Ctrl+Shift+Tab cycles back -- the pair every tabbed
     // application uses. Plain Tab still belongs to the shell's completion.

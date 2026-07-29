@@ -315,6 +315,20 @@ $Suites = @(
         )
     },
     @{
+        # The inbox's ordering is the whole feature: a list in pane order is
+        # a list of panes, not an inbox.
+        Name = "app agent inbox"
+        Package = "unterm-app"
+        Filter = "cockpit::tests::"
+        ExpectedCount = 9
+        RequiredTests = @(
+            "cockpit::tests::waiting_panes_come_first",
+            "cockpit::tests::the_longest_wait_is_at_the_top",
+            "cockpit::tests::done_outranks_working_but_not_waiting",
+            "cockpit::tests::only_waiting_and_done_want_the_person"
+        )
+    },
+    @{
         # Selecting without a mouse, and grabbing what is already on screen.
         # Both are modes: a stray keystroke reaching the shell behind one is
         # the worst thing a mode can do.

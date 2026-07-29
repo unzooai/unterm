@@ -23,6 +23,22 @@ const MAX_SEARCH_MATCHES: usize = 500;
 /// query that narrows the list is the way to reach the rest.
 const MAX_PALETTE_ROWS: usize = 12;
 
+/// How many inbox rows fit before the list becomes the window.
+const MAX_INBOX_ROWS: usize = 12;
+
+/// How often the cockpit tracker is shown the panes.
+///
+/// Not every frame: it scans each pane's last rows for the shapes an agent
+/// makes when it is waiting, and doing that sixty times a second would spend
+/// more on watching the agents than on drawing them.
+const COCKPIT_POLL: std::time::Duration = std::time::Duration::from_millis(400);
+
+/// How many rows of each pane the tracker is shown.
+///
+/// A prompt asking a question is at the bottom; more than this is scrollback
+/// that has already been answered.
+const COCKPIT_TAIL_ROWS: usize = 8;
+
 const BELL_FLASH: std::time::Duration = std::time::Duration::from_millis(120);
 use anyhow::Context;
 use std::sync::Arc;
@@ -88,6 +104,10 @@ pub struct App {
     copy_mode: Option<crate::copy_mode::CopyMode>,
     /// Quick select's labels, and what has been typed towards one.
     quick_select: Option<(Vec<crate::copy_mode::Labelled>, String)>,
+    /// Whether the agent inbox is showing.
+    inbox_open: bool,
+    /// When the cockpit tracker last saw the panes.
+    cockpit_fed_at: std::time::Instant,
     /// What the program wants from the mouse, as of the last frame drawn.
     ///
     /// Cached rather than read per event: a motion arrives a hundred times a
@@ -151,6 +171,8 @@ impl App {
             palette: None,
             copy_mode: None,
             quick_select: None,
+            inbox_open: false,
+            cockpit_fed_at: std::time::Instant::now(),
             mouse_modes: Default::default(),
             held_mouse_button: None,
             alt_held: false,
@@ -295,6 +317,7 @@ impl App {
         self.append_search_bar(window_width, &mut quads);
         self.append_copy_mode(&mut quads);
         self.append_quick_select(&mut quads);
+        self.append_inbox(window_width, &mut quads);
         self.append_palette(window_width, &mut quads);
         let tab_count = self.tabs.tab_count();
         let active_tab = self
@@ -604,6 +627,10 @@ impl App {
                 self.drawn_revision = None;
             }
             Action::QuickSelect => self.open_quick_select(),
+            Action::CockpitInbox => {
+                self.inbox_open = !self.inbox_open;
+                self.drawn_revision = None;
+            }
             Action::CommandPalette => self.open_palette(command_entries()),
             Action::Launcher => self.open_palette(launcher_entries()),
             Action::Search => {
@@ -707,6 +734,107 @@ impl App {
             live.window.request_redraw();
         }
         self.drawn_revision = None;
+    }
+
+    /// Feed the cockpit what the panes are showing.
+    ///
+    /// The tracker watches screen tails and titles to work out whether an
+    /// agent is waiting on a person. Nothing else in this front end calls it,
+    /// so without this the inbox is always empty and looks broken rather than
+    /// idle.
+    fn feed_cockpit(&mut self) {
+        if self.cockpit_fed_at.elapsed() < COCKPIT_POLL {
+            return;
+        }
+        self.cockpit_fed_at = std::time::Instant::now();
+
+        let Ok(sessions) = unterm_engine::SessionEngine::list_sessions(&self.engine) else {
+            return;
+        };
+        for session in sessions {
+            let Ok(snapshot) = self.engine.read_styled_screen(session.id) else {
+                continue;
+            };
+            let tail: Vec<String> = snapshot
+                .lines
+                .iter()
+                .rev()
+                .take(COCKPIT_TAIL_ROWS)
+                .map(|line| line.cells.iter().map(|cell| cell.ch).collect::<String>())
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect();
+            unterm_services::cockpit::status::on_screen_tail(session.id as u64, &tail);
+            unterm_services::cockpit::status::on_title_change(session.id as u64, &session.title);
+        }
+    }
+
+    /// The agent inbox, over the terminal.
+    fn append_inbox(&mut self, window_width: f32, quads: &mut unterm_render::quads::FrameQuads) {
+        if !self.inbox_open {
+            return;
+        }
+        let statuses = unterm_services::cockpit::status::snapshot();
+        let rows = crate::cockpit::rows(&statuses, |status| status.since.elapsed().as_secs());
+
+        let metrics = self.font.metrics();
+        let width = (window_width * 0.5).max(metrics.width * 30.0).min(window_width);
+        let left = ((window_width - width) / 2.0).max(0.0);
+        let top = metrics.height * 2.0;
+        let shown = rows.len().min(MAX_INBOX_ROWS);
+        let height = metrics.height * (shown + 1) as f32;
+        let foreground = self.colors.foreground;
+
+        quads.backgrounds.push(unterm_render::quads::Quad {
+            left,
+            top,
+            width,
+            height,
+            color: mix(self.colors.background, foreground, 0.10),
+        });
+
+        let heading = if rows.is_empty() {
+            "Agents  (none running)".to_string()
+        } else {
+            format!("Agents  ({} waiting)", crate::cockpit::attention_count(&statuses))
+        };
+        crate::terminal::append_text(
+            &heading,
+            &mut self.font,
+            &mut self.atlas,
+            foreground,
+            (left + metrics.width, top),
+            quads,
+        );
+
+        for (index, row) in rows.iter().take(shown).enumerate() {
+            let row_top = top + metrics.height * (index + 1) as f32;
+            if row.needs_you {
+                // The ones wanting an answer are marked, so the list can be
+                // read at a glance rather than word by word.
+                quads.backgrounds.push(unterm_render::quads::Quad {
+                    left,
+                    top: row_top,
+                    width: metrics.width * 0.4,
+                    height: metrics.height,
+                    color: foreground,
+                });
+            }
+            let text = if row.hint.is_empty() {
+                format!("{}  {}", row.pane_id, row.label)
+            } else {
+                format!("{}  {}  -- {}", row.pane_id, row.label, row.hint)
+            };
+            crate::terminal::append_text(
+                &text,
+                &mut self.font,
+                &mut self.atlas,
+                foreground,
+                (left + metrics.width, row_top),
+                quads,
+            );
+        }
     }
 
     /// Start quick select, if there is anything worth labelling.
@@ -1955,6 +2083,7 @@ impl ApplicationHandler for App {
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         self.sync_tabs();
+        self.feed_cockpit();
         self.update_window_title();
         if self.needs_redraw() {
             if let Some(live) = self.state.as_ref() {
