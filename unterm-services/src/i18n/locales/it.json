@@ -281,5 +281,10 @@
   "menu.swap_pane": "Scambia riquadri…",
   "notice.scrollback_cleared": "Cronologia cancellata",
   "notice.screen_cleared": "Schermo cancellato",
-  "menu.clear_scrollback": "Cancella cronologia"
+  "menu.clear_scrollback": "Cancella cronologia",
+  "cockpit.fleet_worktrees": "un worktree ciascuno",
+  "cockpit.fleet_launching": "Avvio della squadra…",
+  "cockpit.fleet_no_agents": "Nessuna CLI di agent installata",
+  "menu.fleet_launch": "Avvia squadra…",
+  "cockpit.fleet_no_task": "Scrivi prima il compito"
 }

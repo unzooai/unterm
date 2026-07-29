@@ -1350,6 +1350,10 @@ impl App {
             Action::NewWindow => self.new_window(),
             Action::ClosePane => self.close_pane(session_id),
             Action::ZoomPane => self.toggle_zoom(session_id),
+            Action::FleetLaunch => {
+                let entries = self.fleet_entries();
+                self.open_fleet(entries);
+            }
             Action::ClearScrollback => self.clear_scrollback(session_id, false),
             Action::ClearScreen => self.clear_scrollback(session_id, true),
             Action::SelectPane => self.open_pane_select(crate::paneselect::Mode::Activate),
@@ -2368,6 +2372,11 @@ impl App {
             // Only with something to choose between: a selector over one pane
             // is a letter you press to stay where you already are.
             crate::palette::Entry {
+                label: t("menu.fleet_launch"),
+                hint: "CTRL|SHIFT|ALT A".to_string(),
+                command: crate::palette::Command::Action(crate::keys::Action::FleetLaunch),
+            },
+            crate::palette::Entry {
                 label: t("menu.clear_scrollback"),
                 hint: "CTRL|SHIFT K".to_string(),
                 command: crate::palette::Command::Action(crate::keys::Action::ClearScrollback),
@@ -2434,6 +2443,19 @@ impl App {
         self.drawn_revision = None;
     }
 
+    /// Open a palette whose line is a task rather than a filter.
+    ///
+    /// Nothing to send is nothing to open: a crew picker on a machine with no
+    /// agents installed is an empty card.
+    fn open_fleet(&mut self, entries: Vec<crate::palette::Entry>) {
+        if entries.is_empty() {
+            self.show_notice(unterm_services::i18n::t("cockpit.fleet_no_agents"));
+            return;
+        }
+        self.palette = Some(crate::palette::Palette::writing(entries));
+        self.drawn_revision = None;
+    }
+
     /// Open a palette that goes and looks again as the query changes.
     fn open_browser(&mut self, entries: Vec<crate::palette::Entry>) {
         self.palette = Some(crate::palette::Palette::browsing(entries));
@@ -2448,6 +2470,10 @@ impl App {
     fn requery_palette(&self, palette: &mut crate::palette::Palette) {
         match palette.source {
             crate::palette::Source::Fixed => palette.refilter(),
+            // The line is the task, not a filter: narrowing the crews by what
+            // has been typed empties the list on the first word. Typing does
+            // clear a stale complaint, though -- it was about the last attempt.
+            crate::palette::Source::Text => palette.error = None,
             crate::palette::Source::Directories => {
                 let rows = self.dir_jump_entries(&palette.query);
                 palette.replace_entries(rows);
@@ -2518,6 +2544,7 @@ impl App {
             crate::palette::Command::ExportSession => self.export_session(),
             crate::palette::Command::OpenSettings => self.open_settings(),
             crate::palette::Command::ApplyTheme { id } => self.apply_theme(&id),
+            crate::palette::Command::LaunchFleet { agents } => self.launch_fleet(agents),
             crate::palette::Command::Browse { path, then } => {
                 // Stays open on the new directory rather than closing: picking
                 // a folder three deep should be three keystrokes, not three
@@ -2961,10 +2988,12 @@ impl App {
             })
             .collect();
 
+        let error = palette.error.clone();
         let width = (window_width * 0.6).max(metrics.width * 24.0).min(window_width);
         let left = ((window_width - width) / 2.0).max(0.0);
         let top = metrics.height * 2.0;
-        let height = metrics.height * (rows.len() + 1) as f32;
+        let lines = rows.len() + 1 + usize::from(error.is_some());
+        let height = metrics.height * lines as f32;
 
         quads.backgrounds.push(unterm_render::quads::Quad {
             left,
@@ -3010,6 +3039,22 @@ impl App {
                 &mut self.font,
                 &mut self.atlas,
                 foreground,
+                (left + metrics.width, row_top),
+                quads,
+            );
+        }
+
+        // Under the rows rather than instead of them: the answer to "this
+        // repository has uncommitted changes" is to go and commit, and the
+        // task has to still be there to press Enter on afterwards.
+        if let Some(error) = error {
+            let row_top = top + metrics.height * (rows.len() + 1) as f32;
+            let danger = crate::window_buttons::CLOSE_HOVER;
+            crate::terminal::append_text(
+                &error,
+                &mut self.font,
+                &mut self.atlas,
+                danger,
                 (left + metrics.width, row_top),
                 quads,
             );
@@ -3235,6 +3280,80 @@ impl App {
     }
 
     /// Where each pane goes, in pixels.
+    /// The crews worth offering here, and the task line above them.
+    fn fleet_entries(&self) -> Vec<crate::palette::Entry> {
+        crate::fleet::crews(&unterm_services::cockpit::fleet::installed_agents())
+            .into_iter()
+            .map(|crew| crate::palette::Entry {
+                hint: unterm_services::i18n::t("cockpit.fleet_worktrees"),
+                label: crew.label,
+                command: crate::palette::Command::LaunchFleet {
+                    agents: crew.agents,
+                },
+            })
+            .collect()
+    }
+
+    /// Send a crew at the task that has been typed.
+    ///
+    /// The repository is checked first and on the palette's own thread,
+    /// because the answer is instant and the failure belongs in the card that
+    /// asked: a dirty worktree is fixed by going and committing, and the task
+    /// has to still be there afterwards.
+    ///
+    /// The launch itself is not: creating a worktree per agent and starting a
+    /// tab for each takes seconds, and doing it here would freeze the window
+    /// for all of them.
+    fn launch_fleet(&mut self, agents: Vec<String>) {
+        let Some(task) = self
+            .palette
+            .as_ref()
+            .map(|palette| palette.query.trim().to_string())
+        else {
+            return;
+        };
+        // A blank task is not a task. Every agent would get a bare newline
+        // into whatever it happened to be showing, and by then there are
+        // worktrees and tabs to clean up.
+        if !crate::fleet::task_is_ready(&task) {
+            if let Some(palette) = self.palette.as_mut() {
+                palette.error = Some(unterm_services::i18n::t("cockpit.fleet_no_task"));
+            }
+            self.drawn_revision = None;
+            return;
+        }
+        let here = self
+            .current_directory()
+            .unwrap_or_else(|| std::path::PathBuf::from("."));
+
+        if let Err(key) = unterm_services::cockpit::fleet::precheck(&here) {
+            if let Some(palette) = self.palette.as_mut() {
+                palette.error = Some(unterm_services::i18n::t(key));
+            }
+            self.drawn_revision = None;
+            return;
+        }
+
+        self.palette = None;
+        self.show_notice(unterm_services::i18n::t("cockpit.fleet_launching"));
+        self.drawn_revision = None;
+        let spawned = std::thread::Builder::new()
+            .name("fleet-launch".into())
+            .spawn(move || {
+                match unterm_services::cockpit::fleet::launch(&here, &task, &agents) {
+                    Ok(fleet) => log::info!(
+                        "fleet {} launched with {} members",
+                        fleet.id,
+                        fleet.members.len()
+                    ),
+                    Err(err) => log::error!("fleet launch failed: {err:#}"),
+                }
+            });
+        if let Err(err) = spawned {
+            log::error!("could not start the fleet launcher: {err:#}");
+        }
+    }
+
     /// Throw away a pane's history.
     ///
     /// The scrollback only, unless the screen is asked for too. A pane with a

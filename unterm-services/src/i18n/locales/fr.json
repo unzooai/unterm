@@ -281,5 +281,10 @@
   "menu.swap_pane": "Échanger les volets…",
   "notice.scrollback_cleared": "Historique effacé",
   "notice.screen_cleared": "Écran effacé",
-  "menu.clear_scrollback": "Effacer l'historique"
+  "menu.clear_scrollback": "Effacer l'historique",
+  "cockpit.fleet_worktrees": "un worktree chacun",
+  "cockpit.fleet_launching": "Démarrage de l'équipe…",
+  "cockpit.fleet_no_agents": "Aucune CLI d'agent installée",
+  "menu.fleet_launch": "Lancer l'équipe…",
+  "cockpit.fleet_no_task": "Écrivez d'abord la tâche"
 }

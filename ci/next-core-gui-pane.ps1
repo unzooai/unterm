@@ -1356,6 +1356,45 @@ $Suites = @(
         )
     },
     @{
+        # A crew of agents on one task, each in its own git worktree. The crews
+        # come from the agents actually on PATH: offering one that names an
+        # agent that is not installed is offering a launch that fails once the
+        # worktrees already exist.
+        Name = "fleet crews"
+        Package = "unterm-app"
+        Filter = "fleet::tests::"
+        ExpectedCount = 7
+        RequiredTests = @(
+            "fleet::tests::a_crew_never_contains_an_agent_that_is_not_there",
+            "fleet::tests::no_agents_installed_is_no_crews",
+            "fleet::tests::one_agent_still_gets_a_crew",
+            "fleet::tests::the_combinations_are_offered_before_the_singles",
+            "fleet::tests::a_blank_task_is_not_ready"
+        )
+    },
+    @{
+        # And the card it is picked from: the line is the task, not a filter.
+        Name = "fleet precheck"
+        Package = "unterm-services"
+        Filter = "cockpit::fleet::precheck_tests::"
+        ExpectedCount = 3
+        RequiredTests = @(
+            "cockpit::fleet::precheck_tests::a_folder_that_is_not_a_repository_is_refused",
+            "cockpit::fleet::precheck_tests::a_dirty_repository_is_refused_and_a_clean_one_is_not",
+            "cockpit::fleet::precheck_tests::a_subdirectory_answers_for_its_repository"
+        )
+    },
+    @{
+        Name = "task palette"
+        Package = "unterm-app"
+        Filter = "palette::text_source_tests::"
+        ExpectedCount = 3
+        RequiredTests = @(
+            "palette::text_source_tests::typing_a_task_does_not_narrow_the_crews",
+            "palette::text_source_tests::choosing_a_crew_leaves_the_task_alone"
+        )
+    },
+    @{
         Name = "viewport scroll end to end"
         Package = "unterm-engine"
         Filter = "next_core::tests::relative_viewport_scroll_steps_and_resumes_following"

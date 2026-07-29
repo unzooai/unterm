@@ -60,6 +60,8 @@ pub enum Action {
     NewWindow,
     ClosePane,
     ZoomPane,
+    /// Send a crew of agents at one task, each in its own worktree.
+    FleetLaunch,
     /// Throw away the scrollback, keeping what is on screen.
     ClearScrollback,
     /// Throw away the scrollback and the screen with it.
@@ -105,6 +107,7 @@ impl Action {
             Action::NewWindow => "NewWindow",
             Action::ClosePane => "ClosePane",
             Action::ZoomPane => "ZoomPane",
+            Action::FleetLaunch => "FleetLaunch",
             Action::ClearScrollback => "ClearScrollback",
             Action::ClearScreen => "ClearScreen",
             Action::SelectPane => "SelectPane",
@@ -161,6 +164,7 @@ impl Action {
             Action::NewWindow => "New Window",
             Action::ClosePane => "Close Pane",
             Action::ZoomPane => "Zoom Pane",
+            Action::FleetLaunch => "Launch Fleet",
             Action::ClearScrollback => "Clear Scrollback",
             Action::ClearScreen => "Clear Screen",
             Action::SelectPane => "Select Pane",
@@ -392,6 +396,13 @@ pub const BINDINGS: &[Binding] = &[
         mods: CTRL_SHIFT,
         trigger: Trigger::Char('k'),
         action: Action::ClearScrollback,
+    },
+    // A crew of agents on one task, each in its own worktree. On the letter
+    // the cockpit already uses for itself.
+    Binding {
+        mods: CTRL_SHIFT_ALT,
+        trigger: Trigger::Char('a'),
+        action: Action::FleetLaunch,
     },
     Binding {
         mods: CTRL_SHIFT_ALT,

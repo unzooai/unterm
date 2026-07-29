@@ -281,5 +281,10 @@
   "menu.swap_pane": "交換分割窗格…",
   "notice.scrollback_cleared": "已清空歷史",
   "notice.screen_cleared": "已清屏",
-  "menu.clear_scrollback": "清空歷史"
+  "menu.clear_scrollback": "清空歷史",
+  "cockpit.fleet_worktrees": "每人一個工作樹",
+  "cockpit.fleet_launching": "正在啟動小隊…",
+  "cockpit.fleet_no_agents": "未安裝任何 agent CLI",
+  "menu.fleet_launch": "啟動小隊…",
+  "cockpit.fleet_no_task": "先寫下任務"
 }

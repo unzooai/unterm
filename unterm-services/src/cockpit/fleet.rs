@@ -663,3 +663,85 @@ mod tests {
             .contains("expected"));
     }
 }
+
+#[cfg(test)]
+mod precheck_tests {
+    use super::*;
+
+    fn git_in(dir: &Path, args: &[&str]) -> bool {
+        std::process::Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false)
+    }
+
+    /// A repository is what a fleet needs: every member gets a worktree, and
+    /// there are no worktrees without one.
+    #[test]
+    fn a_folder_that_is_not_a_repository_is_refused() {
+        let plain = tempfile::tempdir().expect("a temporary directory");
+        assert_eq!(precheck(plain.path()), Err("cockpit.fleet_not_repo"));
+    }
+
+    /// And a clean one, because every member branches from what is committed.
+    /// Launching from a dirty tree silently leaves the uncommitted work behind
+    /// in the original checkout while several agents rewrite the same files
+    /// from an older state -- which is how a fleet loses somebody's work.
+    #[test]
+    fn a_dirty_repository_is_refused_and_a_clean_one_is_not() {
+        let repo = tempfile::tempdir().expect("a temporary directory");
+        if !git_in(repo.path(), &["init"]) {
+            // No git on PATH is this machine's problem, not the check's.
+            return;
+        }
+        git_in(repo.path(), &["config", "user.email", "test@example.com"]);
+        git_in(repo.path(), &["config", "user.name", "Test"]);
+        std::fs::write(repo.path().join("a.txt"), b"first").expect("write a file");
+        git_in(repo.path(), &["add", "-A"]);
+        assert!(
+            git_in(repo.path(), &["commit", "-m", "first"]),
+            "could not make a commit"
+        );
+
+        assert_eq!(precheck(repo.path()), Ok(()), "a clean repository was refused");
+
+        std::fs::write(repo.path().join("a.txt"), b"changed").expect("change the file");
+        assert_eq!(
+            precheck(repo.path()),
+            Err("cockpit.fleet_not_clean"),
+            "a dirty repository was allowed"
+        );
+
+        // An untracked file counts too: it is work that would be left behind.
+        git_in(repo.path(), &["checkout", "--", "a.txt"]);
+        assert_eq!(precheck(repo.path()), Ok(()));
+        std::fs::write(repo.path().join("b.txt"), b"new").expect("add a file");
+        assert_eq!(precheck(repo.path()), Err("cockpit.fleet_not_clean"));
+    }
+
+    /// The check answers for the repository, not for the directory: standing
+    /// in a subdirectory of a dirty repository is still standing in a dirty
+    /// repository.
+    #[test]
+    fn a_subdirectory_answers_for_its_repository() {
+        let repo = tempfile::tempdir().expect("a temporary directory");
+        if !git_in(repo.path(), &["init"]) {
+            return;
+        }
+        git_in(repo.path(), &["config", "user.email", "test@example.com"]);
+        git_in(repo.path(), &["config", "user.name", "Test"]);
+        let inner = repo.path().join("nested");
+        std::fs::create_dir_all(&inner).expect("make a subdirectory");
+        std::fs::write(inner.join("a.txt"), b"first").expect("write a file");
+        git_in(repo.path(), &["add", "-A"]);
+        assert!(git_in(repo.path(), &["commit", "-m", "first"]));
+
+        assert_eq!(precheck(&inner), Ok(()));
+        std::fs::write(repo.path().join("elsewhere.txt"), b"dirty").expect("dirty it");
+        assert_eq!(precheck(&inner), Err("cockpit.fleet_not_clean"));
+    }
+}

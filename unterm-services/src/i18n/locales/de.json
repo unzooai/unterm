@@ -281,5 +281,10 @@
   "menu.swap_pane": "Bereiche tauschen…",
   "notice.scrollback_cleared": "Verlauf gelöscht",
   "notice.screen_cleared": "Bildschirm gelöscht",
-  "menu.clear_scrollback": "Verlauf löschen"
+  "menu.clear_scrollback": "Verlauf löschen",
+  "cockpit.fleet_worktrees": "je ein Worktree",
+  "cockpit.fleet_launching": "Crew wird gestartet…",
+  "cockpit.fleet_no_agents": "Keine Agent-CLIs installiert",
+  "menu.fleet_launch": "Crew starten…",
+  "cockpit.fleet_no_task": "Zuerst die Aufgabe schreiben"
 }

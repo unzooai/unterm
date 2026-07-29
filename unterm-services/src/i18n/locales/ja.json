@@ -281,5 +281,10 @@
   "menu.swap_pane": "ペインを入れ替え…",
   "notice.scrollback_cleared": "スクロールバックを消去",
   "notice.screen_cleared": "画面を消去",
-  "menu.clear_scrollback": "スクロールバックを消去"
+  "menu.clear_scrollback": "スクロールバックを消去",
+  "cockpit.fleet_worktrees": "ワークツリーを各自に",
+  "cockpit.fleet_launching": "クルーを起動中…",
+  "cockpit.fleet_no_agents": "agent CLI が未インストール",
+  "menu.fleet_launch": "クルーを起動…",
+  "cockpit.fleet_no_task": "先にタスクを書いてください"
 }

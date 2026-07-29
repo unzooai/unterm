@@ -549,5 +549,10 @@
   "web.update.view_release": "查看更新内容 →",
   "notice.scrollback_cleared": "已清空历史",
   "notice.screen_cleared": "已清屏",
-  "menu.clear_scrollback": "清空历史"
+  "menu.clear_scrollback": "清空历史",
+  "cockpit.fleet_worktrees": "每人一个工作树",
+  "cockpit.fleet_launching": "正在启动小队…",
+  "cockpit.fleet_no_agents": "未安装任何 agent CLI",
+  "menu.fleet_launch": "启动小队…",
+  "cockpit.fleet_no_task": "先写下任务"
 }

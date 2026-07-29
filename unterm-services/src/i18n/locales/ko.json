@@ -281,5 +281,10 @@
   "menu.swap_pane": "창 바꾸기…",
   "notice.scrollback_cleared": "스크롤백 지움",
   "notice.screen_cleared": "화면 지움",
-  "menu.clear_scrollback": "스크롤백 지우기"
+  "menu.clear_scrollback": "스크롤백 지우기",
+  "cockpit.fleet_worktrees": "각자 워크트리 하나씩",
+  "cockpit.fleet_launching": "팀을 시작하는 중…",
+  "cockpit.fleet_no_agents": "설치된 agent CLI 없음",
+  "menu.fleet_launch": "팀 시작…",
+  "cockpit.fleet_no_task": "먼저 작업을 적으세요"
 }

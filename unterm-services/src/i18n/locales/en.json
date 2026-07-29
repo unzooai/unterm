@@ -549,5 +549,10 @@
   "web.update.view_release": "View release →",
   "notice.scrollback_cleared": "Scrollback cleared",
   "notice.screen_cleared": "Screen cleared",
-  "menu.clear_scrollback": "Clear Scrollback"
+  "menu.clear_scrollback": "Clear Scrollback",
+  "cockpit.fleet_worktrees": "worktrees, one each",
+  "cockpit.fleet_launching": "Launching the crew…",
+  "cockpit.fleet_no_agents": "No agent CLIs are installed",
+  "menu.fleet_launch": "Launch Fleet…",
+  "cockpit.fleet_no_task": "Write the task first"
 }

@@ -281,5 +281,10 @@
   "menu.swap_pane": "पैन बदलें…",
   "notice.scrollback_cleared": "इतिहास साफ़ किया",
   "notice.screen_cleared": "स्क्रीन साफ़ की",
-  "menu.clear_scrollback": "इतिहास साफ़ करें"
+  "menu.clear_scrollback": "इतिहास साफ़ करें",
+  "cockpit.fleet_worktrees": "प्रत्येक को एक वर्कट्री",
+  "cockpit.fleet_launching": "क्रू शुरू हो रहा है…",
+  "cockpit.fleet_no_agents": "कोई agent CLI स्थापित नहीं",
+  "menu.fleet_launch": "क्रू शुरू करें…",
+  "cockpit.fleet_no_task": "पहले कार्य लिखें"
 }

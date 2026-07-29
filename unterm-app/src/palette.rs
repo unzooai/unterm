@@ -31,6 +31,8 @@ pub enum Command {
     Browse { path: String, then: BrowseThen },
     /// Switch to a named theme.
     ApplyTheme { id: String },
+    /// Send a crew of agents at the task that has been typed.
+    LaunchFleet { agents: Vec<String> },
 }
 
 /// What picking a folder is for.
@@ -59,6 +61,12 @@ pub enum Source {
     /// A list settled when the palette opened. Typing narrows it.
     #[default]
     Fixed,
+    /// A fixed list, and a line of text that is not a filter.
+    ///
+    /// The fleet card: what is typed is the task to send the crew at, and the
+    /// rows are crews. Narrowing them by what has been typed would empty the
+    /// list on the first word of the task.
+    Text,
     /// Directories, asked for again on every keystroke.
     ///
     /// It has to be asked again, because typing a path names a place nothing
@@ -78,6 +86,11 @@ pub struct Palette {
     pub matches: Vec<usize>,
     pub selected: usize,
     pub source: Source,
+    /// Something that went wrong, shown under the line rather than instead of
+    /// the palette: the answer to "this repository has uncommitted changes" is
+    /// to go and commit them and press Enter again, which needs the task still
+    /// to be there.
+    pub error: Option<String>,
 }
 
 impl Palette {
@@ -88,8 +101,16 @@ impl Palette {
             matches: Vec::new(),
             selected: 0,
             source: Source::Fixed,
+            error: None,
         };
         palette.refilter();
+        palette
+    }
+
+    /// A palette whose line is text rather than a filter.
+    pub fn writing(entries: Vec<Entry>) -> Self {
+        let mut palette = Self::new(entries);
+        palette.source = Source::Text;
         palette
     }
 
@@ -443,5 +464,51 @@ mod source_tests {
         palette.replace_entries(Vec::new());
         assert!(palette.visible().is_empty());
         assert_eq!(palette.current(), None);
+    }
+}
+
+#[cfg(test)]
+mod text_source_tests {
+    use super::*;
+
+    fn row(label: &str) -> Entry {
+        Entry {
+            label: label.to_string(),
+            hint: String::new(),
+            command: Command::LaunchFleet {
+                agents: vec![label.to_string()],
+            },
+        }
+    }
+
+    /// The line is what will be sent, not a filter over the rows. Narrowing
+    /// the crews by the task empties the list on its first word, and there is
+    /// then nothing to press Enter on.
+    #[test]
+    fn typing_a_task_does_not_narrow_the_crews() {
+        let mut palette = Palette::writing(vec![row("claude x2"), row("codex x1")]);
+        assert_eq!(palette.source, Source::Text);
+        palette.query = "fix the flaky test".into();
+        assert_eq!(palette.visible().len(), 2);
+        assert!(palette.current().is_some());
+    }
+
+    /// Moving between crews leaves the task alone.
+    #[test]
+    fn choosing_a_crew_leaves_the_task_alone() {
+        let mut palette = Palette::writing(vec![row("a"), row("b"), row("c")]);
+        palette.query = "rewrite the parser".into();
+        palette.step(2);
+        assert_eq!(palette.query, "rewrite the parser");
+        assert_eq!(palette.current().map(|e| e.label.as_str()), Some("c"));
+    }
+
+    /// A complaint starts absent, and it is not one of the rows: it is about
+    /// the attempt, and the rows are still what can be pressed.
+    #[test]
+    fn a_new_palette_has_nothing_to_complain_about() {
+        let palette = Palette::writing(vec![row("a")]);
+        assert_eq!(palette.error, None);
+        assert_eq!(palette.visible().len(), 1);
     }
 }
