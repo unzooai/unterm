@@ -25,6 +25,86 @@ pub fn pixels_for_points(points: f32, scale: f32) -> u32 {
     (((points.max(1.0) * NOMINAL_DPI * scale.max(0.1)) / POINTS_PER_INCH).round() as u32).max(1)
 }
 
+/// How a cursor is drawn when the program has not asked for a shape.
+///
+/// The config's own names, as the previous front end spelled them:
+/// `SteadyBlock`, `BlinkingBlock`, `SteadyUnderline`, `BlinkingUnderline`,
+/// `SteadyBar`, `BlinkingBar`. A program's own escape sequence still wins --
+/// this is only what it looks like when nothing has said.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CursorStyle {
+    pub shape: CursorShape,
+    pub blinking: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CursorShape {
+    Block,
+    Underline,
+    Bar,
+}
+
+impl Default for CursorStyle {
+    fn default() -> Self {
+        Self {
+            shape: CursorShape::Block,
+            blinking: false,
+        }
+    }
+}
+
+impl CursorStyle {
+    /// Parse one of the config's names. Anything else is the default rather
+    /// than an error: a typo should not stop the terminal opening, and a block
+    /// cursor is the one nobody is surprised by.
+    pub fn parse(name: &str) -> Self {
+        let lowered = name.trim().to_lowercase();
+        let blinking = lowered.starts_with("blinking");
+        let shape = if lowered.ends_with("underline") {
+            CursorShape::Underline
+        } else if lowered.ends_with("bar") {
+            CursorShape::Bar
+        } else {
+            CursorShape::Block
+        };
+        if !lowered.starts_with("blinking") && !lowered.starts_with("steady") {
+            return Self::default();
+        }
+        Self { shape, blinking }
+    }
+
+    /// The style from the config, and how fast it blinks.
+    ///
+    /// Zero milliseconds means no blinking, which is how the setting has
+    /// always been turned off.
+    pub fn from_config(config: &Config) -> (Self, u64) {
+        let style = config
+            .str_of("default_cursor_style")
+            .ok()
+            .flatten()
+            .map(|name| Self::parse(&name))
+            .unwrap_or_default();
+        let rate = config
+            .float_of("cursor_blink_rate")
+            .ok()
+            .flatten()
+            .map(|value| value.max(0.0) as u64)
+            .unwrap_or(800);
+        (style, rate)
+    }
+}
+
+/// Whether a blinking cursor is showing at this moment.
+///
+/// Half the period on, half off. A rate of zero is not a blink of no length --
+/// it is the setting turned off, and the cursor stays put.
+pub fn blink_is_on(elapsed_ms: u128, rate_ms: u64) -> bool {
+    if rate_ms == 0 {
+        return true;
+    }
+    (elapsed_ms / rate_ms as u128) % 2 == 0
+}
+
 /// How far the cell is stretched around its glyphs.
 ///
 /// Both default to one, which is the font's own metrics. They exist because a
@@ -205,7 +285,16 @@ pub fn frame_quads(
     colors: FrameColors,
 ) -> FrameQuads {
     let mut quads = FrameQuads::default();
-    append_pane(snapshot, font, atlas, colors, (0.0, 0.0), true, &mut quads);
+    append_pane(
+        snapshot,
+        font,
+        atlas,
+        colors,
+        (0.0, 0.0),
+        true,
+        CursorStyle::default(),
+        &mut quads,
+    );
     quads
 }
 
@@ -221,7 +310,8 @@ pub fn append_pane(
     atlas: &mut GlyphAtlas,
     colors: FrameColors,
     origin: (f32, f32),
-    focused: bool,
+    solid_cursor: bool,
+    cursor: CursorStyle,
     quads: &mut FrameQuads,
 ) {
     let metrics = font.metrics();
@@ -269,7 +359,7 @@ pub fn append_pane(
 
     // The cursor goes in before the glyphs so text lands on top of it, which is
     // what makes an inverted cell readable.
-    let inverted = push_cursor(snapshot, metrics, colors, origin, focused, quads);
+    let inverted = push_cursor(snapshot, metrics, colors, origin, solid_cursor, cursor, quads);
 
     for (row, line) in snapshot.lines.iter().enumerate() {
         let top = origin.1 + row as f32 * metrics.height;
@@ -415,7 +505,13 @@ fn push_cursor(
     metrics: CellMetrics,
     colors: FrameColors,
     origin: (f32, f32),
-    focused: bool,
+    // Whether to draw the solid cursor rather than its outline. Two things
+    // make it hollow: the pane not having the keyboard, and a blinking cursor
+    // being mid-blink. An outline in both cases rather than nothing at all --
+    // a cursor that vanishes entirely is one people lose track of, and the
+    // outline still says where it is.
+    solid: bool,
+    style: CursorStyle,
     quads: &mut FrameQuads,
 ) -> Option<(usize, usize)> {
     let cursor = &snapshot.cursor;
@@ -432,11 +528,10 @@ fn push_cursor(
     let left = origin.0 + cursor.x as f32 * metrics.width;
     let top = origin.1 + row as f32 * metrics.height;
 
-    // An unfocused pane gets the outline of its cursor rather than the solid
-    // block. This is how the previous front end said which pane had the
-    // keyboard -- rather than dimming the pane itself, which leaves a visible
-    // brightness step down the split seam and into the status bar.
-    if !focused {
+    // This is how the previous front end said which pane had the keyboard --
+    // rather than dimming the pane itself, which leaves a visible brightness
+    // step down the split seam and into the status bar.
+    if !solid {
         quads.backgrounds.extend(unterm_render::strokes::rectangle(
             left,
             top,
@@ -449,9 +544,19 @@ fn push_cursor(
         return None;
     }
 
-    // Shapes as the escape sequences name them. An unknown shape draws a block
-    // rather than nothing: a missing cursor is worse than an unexpected one.
-    let quad = match cursor.shape.as_str() {
+    // Shapes as the escape sequences name them, falling back to what the
+    // config asked for. An unknown shape draws a block rather than nothing: a
+    // missing cursor is worse than an unexpected one.
+    let named = if cursor.shape.trim().is_empty() {
+        match style.shape {
+            CursorShape::Bar => "Bar",
+            CursorShape::Underline => "Underline",
+            CursorShape::Block => "Block",
+        }
+    } else {
+        cursor.shape.as_str()
+    };
+    let quad = match named {
         shape if shape.contains("Bar") => Quad {
             left,
             top,
@@ -1262,7 +1367,7 @@ mod missing_glyph_regression {
             clipboard_request: None,
         };
 
-        append_pane(&snapshot, &mut font, &mut atlas, colors, (0.0, 0.0), true, &mut quads);
+        append_pane(&snapshot, &mut font, &mut atlas, colors, (0.0, 0.0), true, CursorStyle::default(), &mut quads);
 
         let metrics = font.metrics();
         let last_row_top = 2.0 * metrics.height;
@@ -1347,7 +1452,7 @@ mod cursor_inversion_tests {
 
         // Text on the row above, cursor at column 2 of the row below.
         let snapshot = snapshot(&["abcde", "abcde"], (2, 1));
-        append_pane(&snapshot, &mut font, &mut atlas, colors, (0.0, 0.0), true, &mut quads);
+        append_pane(&snapshot, &mut font, &mut atlas, colors, (0.0, 0.0), true, CursorStyle::default(), &mut quads);
 
         let metrics = font.metrics();
         let above: Vec<_> = quads
@@ -1659,6 +1764,7 @@ mod focus_cursor_tests {
             },
             (0.0, 0.0),
             focused,
+            CursorStyle::default(),
             &mut quads,
         );
         Some(quads)
@@ -1704,5 +1810,64 @@ mod focus_cursor_tests {
         };
         assert!(inverted(&focused), "the focused cursor inverts its cell");
         assert!(!inverted(&unfocused), "the outlined one leaves it alone");
+    }
+}
+
+#[cfg(test)]
+mod cursor_style_tests {
+    use super::*;
+
+    /// The config's own six names.
+    #[test]
+    fn every_named_style_parses_to_what_it_says() {
+        let cases = [
+            ("SteadyBlock", CursorShape::Block, false),
+            ("BlinkingBlock", CursorShape::Block, true),
+            ("SteadyUnderline", CursorShape::Underline, false),
+            ("BlinkingUnderline", CursorShape::Underline, true),
+            ("SteadyBar", CursorShape::Bar, false),
+            ("BlinkingBar", CursorShape::Bar, true),
+        ];
+        for (name, shape, blinking) in cases {
+            let style = CursorStyle::parse(name);
+            assert_eq!(style.shape, shape, "{name}");
+            assert_eq!(style.blinking, blinking, "{name}");
+        }
+    }
+
+    /// Case is not the point: a config written by hand says `steadybar` as
+    /// often as `SteadyBar`.
+    #[test]
+    fn the_names_are_not_case_sensitive() {
+        assert_eq!(CursorStyle::parse("steadybar").shape, CursorShape::Bar);
+        assert_eq!(CursorStyle::parse("BLINKINGBAR").blinking, true);
+    }
+
+    /// A typo is a block cursor, not a refusal to open: nobody is surprised by
+    /// a block, and a terminal that will not start is no way to report one.
+    #[test]
+    fn an_unknown_name_is_the_ordinary_cursor() {
+        assert_eq!(CursorStyle::parse("wobbly"), CursorStyle::default());
+        assert_eq!(CursorStyle::parse(""), CursorStyle::default());
+        assert_eq!(CursorStyle::default().shape, CursorShape::Block);
+    }
+
+    /// Half the period on, half off.
+    #[test]
+    fn a_blink_is_on_for_half_its_period() {
+        assert!(blink_is_on(0, 800));
+        assert!(blink_is_on(799, 800));
+        assert!(!blink_is_on(800, 800));
+        assert!(!blink_is_on(1599, 800));
+        assert!(blink_is_on(1600, 800));
+    }
+
+    /// A rate of zero is the setting turned off, not a blink of no length --
+    /// which would divide by nothing and flicker every frame.
+    #[test]
+    fn a_rate_of_zero_leaves_the_cursor_alone() {
+        for elapsed in [0, 1, 999_999] {
+            assert!(blink_is_on(elapsed, 0), "at {elapsed}");
+        }
     }
 }

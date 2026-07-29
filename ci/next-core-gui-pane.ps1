@@ -440,6 +440,20 @@ $Suites = @(
         )
     },
     @{
+        # The cursor the config asks for when a program has not named one, and
+        # how fast it blinks.
+        Name = "cursor style"
+        Package = "unterm-app"
+        Filter = "terminal::cursor_style_tests::"
+        ExpectedCount = 5
+        RequiredTests = @(
+            "terminal::cursor_style_tests::every_named_style_parses_to_what_it_says",
+            "terminal::cursor_style_tests::an_unknown_name_is_the_ordinary_cursor",
+            "terminal::cursor_style_tests::a_blink_is_on_for_half_its_period",
+            "terminal::cursor_style_tests::a_rate_of_zero_leaves_the_cursor_alone"
+        )
+    },
+    @{
         # Which pane has the keyboard, said by its cursor. Dimming the pane
         # instead leaves a brightness step down the split seam.
         Name = "focused pane cursor"

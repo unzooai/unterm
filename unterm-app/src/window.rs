@@ -142,6 +142,11 @@ pub struct App {
     sidebar_scroll: usize,
     /// Set when the close button is pressed, so the loop can exit.
     closing: bool,
+    /// The cursor the config asked for, and how fast it blinks.
+    cursor_style: crate::terminal::CursorStyle,
+    cursor_blink_ms: u64,
+    /// When the window opened, which is what a blink is measured from.
+    started: std::time::Instant,
     /// The theme in force, so the picker can mark it and the next launch can
     /// restore it.
     theme_id: Option<String>,
@@ -205,6 +210,7 @@ impl App {
             })
             .unwrap_or_default();
 
+        let cursor_style = crate::terminal::CursorStyle::from_config(config);
         let family: Option<String> = config.str_of("font").ok().flatten().map(|f| f.to_string());
         let shape = crate::terminal::Shape::from_config(config);
         let pixel_size = config
@@ -231,6 +237,9 @@ impl App {
             sidebar_open: false,
             sidebar_scroll: 0,
             closing: false,
+            cursor_style: cursor_style.0,
+            cursor_blink_ms: cursor_style.1,
+            started: std::time::Instant::now(),
             theme_id: crate::theme::remembered(),
             notice: None,
             git_panel: None,
@@ -364,6 +373,8 @@ impl App {
         };
 
         let mut quads = unterm_render::quads::FrameQuads::default();
+        let cursor = self.cursor_style;
+        let solid_cursor = self.cursor_is_solid();
         let mut revision = 0u64;
         for placement in &placements {
             let Ok(snapshot) = self.engine.read_styled_screen(placement.session_id) else {
@@ -381,7 +392,8 @@ impl App {
                 &mut self.atlas,
                 self.colors,
                 placement.origin,
-                placement.session_id == session_id,
+                placement.session_id == session_id && solid_cursor,
+                cursor,
                 &mut quads,
             );
         }
@@ -404,7 +416,8 @@ impl App {
                 &mut self.atlas,
                 self.colors,
                 origin,
-                true,
+                solid_cursor,
+                cursor,
                 &mut quads,
             );
         }
@@ -675,6 +688,27 @@ impl App {
         }
     }
 
+
+    /// Whether the cursor is solid at this instant.
+    ///
+    /// A steady cursor always is. A blinking one is for half of each period;
+    /// the other half it is drawn as an outline rather than removed, so it
+    /// stays findable while it blinks.
+    fn cursor_is_solid(&self) -> bool {
+        if !self.cursor_style.blinking {
+            return true;
+        }
+        crate::terminal::blink_is_on(self.started.elapsed().as_millis(), self.cursor_blink_ms)
+    }
+
+    /// The scheme in force, for the colours that are its rather than the
+    /// frame's: the divider between panes, the scrollbar, the selection.
+    fn theme(&self) -> &'static crate::theme::Theme {
+        self.theme_id
+            .as_deref()
+            .and_then(crate::theme::by_id)
+            .unwrap_or_else(crate::theme::default_theme)
+    }
 
     /// The frame's tones, from the terminal's own colours.
     fn chrome(&self) -> crate::chrome::Chrome {
@@ -1000,14 +1034,21 @@ impl App {
             top: track_top,
             width: crate::scrollbar::WIDTH,
             height: track,
-            color: mix(self.colors.background, self.colors.foreground, 0.12),
+            // The track is a tint of the thumb rather than a mix of the
+            // frame: a scheme that chose a scrollbar colour chose it against
+            // its own background, and deriving one here ignores that.
+            color: crate::chrome::mix(
+                self.colors.background,
+                self.theme().scrollbar,
+                0.35,
+            ),
         });
         quads.backgrounds.push(unterm_render::quads::Quad {
             left,
             top: track_top + thumb.top,
             width: crate::scrollbar::WIDTH,
             height: thumb.height,
-            color: mix(self.colors.background, self.colors.foreground, 0.45),
+            color: self.theme().scrollbar,
         });
     }
 
@@ -2889,7 +2930,7 @@ impl App {
                 height,
                 // Between the two backgrounds: visible against both without
                 // drawing attention to itself.
-                color: mix(self.colors.background, self.colors.foreground, 0.25),
+                color: self.theme().divider,
             })
             .collect()
     }
@@ -2947,8 +2988,11 @@ impl App {
             return true;
         }
         // A fading flash needs frames of its own: nothing about the screen
-        // changes while it fades out.
-        if self.bell_at.is_some() {
+        // changes while it fades out. A blinking cursor is the same -- without
+        // this it would change state only when something else happened to
+        // redraw, which is a cursor that blinks when you type and not
+        // otherwise.
+        if self.bell_at.is_some() || self.cursor_style.blinking {
             return true;
         }
         // A banner arrives from the MCP thread, which changes no screen; if
