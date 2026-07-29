@@ -410,6 +410,36 @@ $Suites = @(
         )
     },
     @{
+        # The strip of tabs down the left, grouped by the directory each pane
+        # is in. The grouping is derived, not configured -- three projects get
+        # three groups without anyone setting anything up.
+        Name = "left tab strip"
+        Package = "unterm-app"
+        Filter = "sidebar::tests::"
+        ExpectedCount = 14
+        RequiredTests = @(
+            "sidebar::tests::a_single_project_gets_no_group_headers",
+            "sidebar::tests::same_named_projects_are_told_apart_by_the_shortest_parent",
+            "sidebar::tests::a_path_that_is_a_suffix_of_another_still_gets_a_hint",
+            "sidebar::tests::no_row_is_wider_than_the_strip",
+            "sidebar::tests::scrolling_cannot_run_off_the_end",
+            "sidebar::tests::a_tab_with_no_directory_is_still_listed"
+        )
+    },
+    @{
+        # A panel has to cover what is behind it. In one layer its background
+        # goes down before any glyph and the terminal shows straight through.
+        Name = "overlay layer"
+        Package = "unterm-render"
+        Filter = "quads::layer_tests::"
+        ExpectedCount = 3
+        RequiredTests = @(
+            "quads::layer_tests::what_is_raised_is_drawn_after_the_glyphs",
+            "quads::layer_tests::raising_keeps_the_order_things_were_drawn_in",
+            "quads::layer_tests::a_frame_with_no_overlay_is_left_alone"
+        )
+    },
+    @{
         # Which pane has the keyboard, said by its cursor. Dimming the pane
         # instead leaves a brightness step down the split seam.
         Name = "focused pane cursor"

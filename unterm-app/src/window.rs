@@ -136,6 +136,10 @@ pub struct App {
     clipboard_honoured: Option<String>,
     /// Whether the agent inbox is showing.
     inbox_open: bool,
+    /// Whether the strip of tabs down the left is showing.
+    sidebar_open: bool,
+    /// The strip's first visible row, for lists longer than the window.
+    sidebar_scroll: usize,
     /// Set when the close button is pressed, so the loop can exit.
     closing: bool,
     /// The theme in force, so the picker can mark it and the next launch can
@@ -224,6 +228,8 @@ impl App {
             start_directory: None,
             clipboard_honoured: None,
             inbox_open: false,
+            sidebar_open: false,
+            sidebar_scroll: 0,
             closing: false,
             theme_id: crate::theme::remembered(),
             notice: None,
@@ -391,10 +397,7 @@ impl App {
             // own origin it lands on the bar, which is what the first frame
             // with a bar in it looked like.
             let metrics = self.font.metrics();
-            let origin = (
-                crate::topbar::terminal_left(metrics),
-                crate::topbar::terminal_top(metrics),
-            );
+            let origin = (self.terminal_left(), crate::topbar::terminal_top(metrics));
             crate::terminal::append_pane(
                 &snapshot,
                 &mut self.font,
@@ -413,6 +416,9 @@ impl App {
         self.append_search_bar(window_width, &mut quads);
         self.append_copy_mode(&mut quads);
         self.append_quick_select(&mut quads);
+        // Everything from here up is a panel, and a panel has to cover what
+        // is behind it rather than sit in the same layer as it.
+        let overlays = quads.mark();
         self.append_inbox(window_width, &mut quads);
         self.append_git_panel(window_width, &mut quads);
         self.append_composer(window_width, &mut quads);
@@ -443,7 +449,9 @@ impl App {
             })
             .collect();
         self.append_top_bar(tab_count, active_tab, &badges, window_width, &mut quads);
+        self.append_sidebar(&mut quads);
         self.append_status_bar(window_width, &mut quads);
+        quads.raise_since(overlays);
 
         append_confirmation_banner(
             window_width,
@@ -493,7 +501,7 @@ impl App {
             return false;
         };
         let metrics = self.font.metrics();
-        let left = crate::topbar::terminal_left(metrics);
+        let left = self.terminal_left();
         let top = crate::topbar::terminal_top(metrics);
         let column = ((self.pointer.0 - left).max(0.0) / metrics.width.max(1.0)) as usize;
         let row = ((self.pointer.1 - top).max(0.0) / metrics.height.max(1.0)) as usize;
@@ -671,6 +679,119 @@ impl App {
     /// The frame's tones, from the terminal's own colours.
     fn chrome(&self) -> crate::chrome::Chrome {
         crate::chrome::chrome(self.colors.background, self.colors.foreground)
+    }
+
+
+    /// Where the terminal's first column starts, the strip included.
+    fn terminal_left(&self) -> f32 {
+        let metrics = self.font.metrics();
+        crate::sidebar::width(self.sidebar_open, metrics) + crate::topbar::terminal_left(metrics)
+    }
+
+    /// How wide the terminal is, once the strip and the gaps are taken.
+    fn terminal_width(&self) -> f32 {
+        let metrics = self.font.metrics();
+        let window = self.state.as_ref().map(|live| live.width).unwrap_or(800) as f32;
+        crate::topbar::terminal_width(window - crate::sidebar::width(self.sidebar_open, metrics), metrics)
+    }
+
+    /// What the strip shows: one line per tab, grouped by project.
+    fn sidebar_rows(&self) -> Vec<crate::sidebar::Row> {
+        let sessions = unterm_engine::SessionEngine::list_sessions(&self.engine)
+            .unwrap_or_default();
+        let active = self.tab_id;
+        let tabs: Vec<crate::sidebar::TabInfo> = self
+            .tabs
+            .tab_ids()
+            .into_iter()
+            .enumerate()
+            .map(|(index, tab)| {
+                let pane = self.tabs.active_pane(tab);
+                let session = pane.and_then(|pane| {
+                    sessions.iter().find(|session| session.id == pane)
+                });
+                crate::sidebar::TabInfo {
+                    index,
+                    title: session
+                        .map(|session| session.title.clone())
+                        .unwrap_or_default(),
+                    cwd: session.and_then(|session| session.shell.cwd.clone()),
+                    foreground: session
+                        .map(|session| session.shell.process_name.clone())
+                        .map(|name| crate::statusbar::short_name(&name)),
+                    active: Some(tab) == active,
+                }
+            })
+            .collect();
+        crate::sidebar::rows(&tabs)
+    }
+
+    /// Draw the strip, if it is open.
+    fn append_sidebar(&mut self, quads: &mut unterm_render::quads::FrameQuads) {
+        if !self.sidebar_open {
+            return;
+        }
+        let metrics = self.font.metrics();
+        let width = crate::sidebar::width(true, metrics);
+        let top = crate::topbar::terminal_top(metrics) - crate::topbar::padding(metrics).1;
+        let height = self.terminal_height() + crate::topbar::padding(metrics).1 * 2.0;
+        let chrome = self.chrome();
+
+        quads.backgrounds.push(unterm_render::quads::Quad {
+            left: 0.0,
+            top,
+            width,
+            height,
+            color: chrome.surface,
+        });
+        // The seam, so the strip and the terminal read as two surfaces rather
+        // than one that changed colour.
+        quads.backgrounds.push(unterm_render::quads::Quad {
+            left: width - 1.0,
+            top,
+            width: 1.0,
+            height,
+            color: chrome.outer_edge,
+        });
+
+        let rows = self.sidebar_rows();
+        let visible = (height / metrics.height).floor().max(1.0) as usize;
+        let scroll = crate::sidebar::clamp_scroll(self.sidebar_scroll, rows.len(), visible);
+
+        for (offset, row) in rows.iter().skip(scroll).take(visible).enumerate() {
+            let row_top = top + offset as f32 * metrics.height;
+            let (color, active) = match row {
+                crate::sidebar::Row::Group { .. } => (chrome.dim_text, false),
+                crate::sidebar::Row::Tab { active, .. } => (self.colors.foreground, *active),
+            };
+            if active {
+                quads.backgrounds.push(unterm_render::quads::Quad {
+                    left: 0.0,
+                    top: row_top,
+                    width: width - 1.0,
+                    height: metrics.height,
+                    color: chrome.selected_bg,
+                });
+                // The rail down the side of the selected row: the one place
+                // the accent colour is used, and what the eye finds first.
+                quads.backgrounds.push(unterm_render::quads::Quad {
+                    left: 0.0,
+                    top: row_top,
+                    width: 2.0,
+                    height: metrics.height,
+                    color: chrome.focus_rail,
+                });
+            }
+            let text = crate::sidebar::text_for(row, crate::sidebar::COLUMNS);
+            crate::terminal::append_text(
+                &text,
+                &mut self.font,
+                &mut self.atlas,
+                color,
+                (metrics.width * 0.5, row_top),
+                quads,
+            );
+        }
     }
 
     /// Draw the bar along the top: wordmark, tabs, buttons.
@@ -950,7 +1071,7 @@ impl App {
         let live = self.state.as_ref()?;
         let snapshot = self.engine.read_styled_screen(live.session_id).ok()?;
         let metrics = self.font.metrics();
-        let left = crate::topbar::terminal_left(metrics);
+        let left = self.terminal_left();
         let top = crate::topbar::terminal_top(metrics);
         let column = ((self.pointer.0 - left).max(0.0) / metrics.width.max(1.0)) as usize;
         let row = ((self.pointer.1 - top).max(0.0) / metrics.height.max(1.0)) as usize;
@@ -976,10 +1097,7 @@ impl App {
         // the gap around the grid are not part of it, and a selection measured
         // from the window's corner lands two rows above where it was drawn.
         let metrics = self.font.metrics();
-        let origin = (
-            crate::topbar::terminal_left(metrics),
-            crate::topbar::terminal_top(metrics),
-        );
+        let origin = (self.terminal_left(), crate::topbar::terminal_top(metrics));
         crate::select::cell_at(
             self.pointer.0 - origin.0,
             self.pointer.1 - origin.1,
@@ -1052,6 +1170,11 @@ impl App {
                 self.drawn_revision = None;
             }
             Action::GitPanel => self.toggle_git_panel(),
+            Action::LeftTabBar => {
+                self.sidebar_open = !self.sidebar_open;
+                self.resize_panes();
+                self.drawn_revision = None;
+            }
             Action::ThemePicker => {
                 let entries = self.theme_entries();
                 self.open_palette(entries);
@@ -2020,6 +2143,11 @@ impl App {
                 command: crate::palette::Command::ExportSession,
             },
             crate::palette::Entry {
+                label: unterm_services::i18n::t("menu.left_tabs"),
+                hint: String::new(),
+                command: crate::palette::Command::Action(crate::keys::Action::LeftTabBar),
+            },
+            crate::palette::Entry {
                 label: unterm_services::i18n::t("theme.title"),
                 hint: unterm_services::i18n::t_args(
                     "theme.current",
@@ -2144,10 +2272,7 @@ impl App {
         let Some(live) = self.state.as_ref() else {
             return;
         };
-        let (cols, rows) = self.font.grid_for(
-            crate::topbar::terminal_width(live.width as f32, self.font.metrics()),
-            self.terminal_height(),
-        );
+        let (cols, rows) = self.font.grid_for(self.terminal_width(), self.terminal_height());
         let session = match self.engine.create_session(CreateSessionRequest {
             cols,
             rows,
@@ -2775,11 +2900,8 @@ impl App {
             return Vec::new();
         };
         let metrics = self.font.metrics();
-        let (cols, rows) = self.font.grid_for(
-            crate::topbar::terminal_width(live.width as f32, metrics),
-            self.terminal_height(),
-        );
-        let (left, _) = crate::topbar::padding(metrics);
+        let (cols, rows) = self.font.grid_for(self.terminal_width(), self.terminal_height());
+        let left = self.terminal_left();
         let top = crate::topbar::terminal_top(metrics);
         self.tabs
             .positions(tab_id, cols, rows)

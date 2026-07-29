@@ -90,13 +90,35 @@ pub fn build_vertices(quads: &FrameQuads) -> Vec<u8> {
             1.0,
         );
     }
+    // Then the overlays, which is what puts a panel in front of the text it
+    // covers rather than behind it.
+    for quad in &quads.overlay_backgrounds {
+        push_quad(&mut vertices, *quad, [0.0; 4], 0.0);
+    }
+    for glyph in &quads.overlay_glyphs {
+        push_quad(
+            &mut vertices,
+            glyph.quad,
+            [
+                glyph.tex_left,
+                glyph.tex_top,
+                glyph.tex_right,
+                glyph.tex_bottom,
+            ],
+            1.0,
+        );
+    }
 
     bytemuck::cast_slice(&vertices).to_vec()
 }
 
 /// How many vertices `build_vertices` produced.
 pub fn vertex_count(quads: &FrameQuads) -> u32 {
-    ((quads.backgrounds.len() + quads.glyphs.len()) * 6) as u32
+    ((quads.backgrounds.len()
+        + quads.glyphs.len()
+        + quads.overlay_backgrounds.len()
+        + quads.overlay_glyphs.len())
+        * 6) as u32
 }
 
 /// Everything needed to draw, once a device exists.

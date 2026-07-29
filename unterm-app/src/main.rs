@@ -24,6 +24,7 @@ mod scroll;
 mod scrollbar;
 mod search;
 mod shape;
+mod sidebar;
 mod statusbar;
 mod theme;
 mod topbar;

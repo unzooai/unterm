@@ -83,6 +83,41 @@ pub static DEFAULT_PALETTE: std::sync::LazyLock<Palette> = std::sync::LazyLock::
 pub struct FrameQuads {
     pub backgrounds: Vec<Quad>,
     pub glyphs: Vec<GlyphQuad>,
+    /// Drawn after everything above, so a panel can cover what is behind it.
+    ///
+    /// Without this an overlay's background goes down with every other
+    /// background -- before any text -- and the terminal's own characters show
+    /// straight through the panel that is supposed to be on top of them.
+    pub overlay_backgrounds: Vec<Quad>,
+    pub overlay_glyphs: Vec<GlyphQuad>,
+}
+
+/// How much had been drawn at a moment, so what came after can be raised.
+#[derive(Clone, Copy, Debug)]
+pub struct Mark {
+    backgrounds: usize,
+    glyphs: usize,
+}
+
+impl FrameQuads {
+    /// Remember how much has been drawn so far.
+    pub fn mark(&self) -> Mark {
+        Mark {
+            backgrounds: self.backgrounds.len(),
+            glyphs: self.glyphs.len(),
+        }
+    }
+
+    /// Move everything drawn since `mark` in front of the terminal.
+    ///
+    /// Overlays are built with the same helpers as everything else and simply
+    /// drawn last; this is what makes "last" mean "on top" rather than "in the
+    /// same layer, after".
+    pub fn raise_since(&mut self, mark: Mark) {
+        self.overlay_backgrounds
+            .extend(self.backgrounds.drain(mark.backgrounds..));
+        self.overlay_glyphs.extend(self.glyphs.drain(mark.glyphs..));
+    }
 }
 
 /// The foreground and background a cell is drawn in.
@@ -759,5 +794,55 @@ mod themed_palette_tests {
         let white = DEFAULT_PALETTE[15];
         assert!(black.iter().take(3).all(|c| *c < 0.2), "{black:?}");
         assert!(white.iter().take(3).all(|c| *c > 0.8), "{white:?}");
+    }
+}
+
+#[cfg(test)]
+mod layer_tests {
+    use super::*;
+
+    fn quad(top: f32) -> Quad {
+        Quad { left: 0.0, top, width: 10.0, height: 10.0, color: [1.0; 4] }
+    }
+
+    /// A panel's background has to be drawn after the text it covers. In one
+    /// layer it goes down with every other background -- before any glyph --
+    /// and the terminal's characters show straight through it.
+    #[test]
+    fn what_is_raised_is_drawn_after_the_glyphs() {
+        let mut frame = FrameQuads::default();
+        frame.backgrounds.push(quad(0.0));
+        let mark = frame.mark();
+        frame.backgrounds.push(quad(1.0));
+
+        frame.raise_since(mark);
+        assert_eq!(frame.backgrounds.len(), 1, "the terminal's own stays put");
+        assert_eq!(frame.overlay_backgrounds.len(), 1);
+        assert_eq!(frame.overlay_backgrounds[0].top, 1.0);
+    }
+
+    /// Order within the overlay is kept: a panel's text goes on its own
+    /// background, not under it.
+    #[test]
+    fn raising_keeps_the_order_things_were_drawn_in() {
+        let mut frame = FrameQuads::default();
+        let mark = frame.mark();
+        for top in 0..3 {
+            frame.backgrounds.push(quad(top as f32));
+        }
+        frame.raise_since(mark);
+        let tops: Vec<f32> = frame.overlay_backgrounds.iter().map(|q| q.top).collect();
+        assert_eq!(tops, vec![0.0, 1.0, 2.0]);
+    }
+
+    /// Raising nothing changes nothing.
+    #[test]
+    fn a_frame_with_no_overlay_is_left_alone() {
+        let mut frame = FrameQuads::default();
+        frame.backgrounds.push(quad(0.0));
+        let mark = frame.mark();
+        frame.raise_since(mark);
+        assert_eq!(frame.backgrounds.len(), 1);
+        assert!(frame.overlay_backgrounds.is_empty());
     }
 }
