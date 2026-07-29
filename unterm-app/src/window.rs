@@ -1844,13 +1844,13 @@ impl App {
         let top = metrics.height * 2.0;
         let foreground = self.colors.foreground;
 
-        quads.backgrounds.push(unterm_render::quads::Quad {
+        quads.backgrounds.extend(unterm_render::rounded::default_panel(
             left,
             top,
             width,
-            height: metrics.height * rows as f32,
-            color: mix(self.colors.background, foreground, 0.10),
-        });
+            metrics.height * rows as f32,
+            mix(self.colors.background, foreground, 0.10),
+        ));
 
         let title = unterm_services::i18n::t("composer.title");
         let heading = if queued.is_empty() {
@@ -1923,13 +1923,13 @@ impl App {
             .collect();
         let height = metrics.height * (lines.len() + 1) as f32;
 
-        quads.backgrounds.push(unterm_render::quads::Quad {
+        quads.backgrounds.extend(unterm_render::rounded::default_panel(
             left,
             top,
             width,
             height,
-            color: mix(self.colors.background, foreground, 0.10),
-        });
+            mix(self.colors.background, foreground, 0.10),
+        ));
         crate::terminal::append_text(
             &heading,
             &mut self.font,
@@ -1965,13 +1965,13 @@ impl App {
         let height = metrics.height * (shown + 1) as f32;
         let foreground = self.colors.foreground;
 
-        quads.backgrounds.push(unterm_render::quads::Quad {
+        quads.backgrounds.extend(unterm_render::rounded::default_panel(
             left,
             top,
             width,
             height,
-            color: mix(self.colors.background, foreground, 0.10),
-        });
+            mix(self.colors.background, foreground, 0.10),
+        ));
 
         let heading = if rows.is_empty() {
             unterm_services::i18n::t("cockpit.inbox_title")
@@ -2905,13 +2905,13 @@ impl App {
             let height = metrics.height * 2.0;
             let left = pane.origin.0;
             let top = pane.origin.1;
-            quads.backgrounds.push(unterm_render::quads::Quad {
+            quads.backgrounds.extend(unterm_render::rounded::default_panel(
                 left,
                 top,
                 width,
                 height,
-                color: theme.selection,
-            });
+                theme.selection,
+            ));
             crate::terminal::append_text(
                 label,
                 &mut self.font,
@@ -2995,13 +2995,13 @@ impl App {
         let lines = rows.len() + 1 + usize::from(error.is_some());
         let height = metrics.height * lines as f32;
 
-        quads.backgrounds.push(unterm_render::quads::Quad {
+        quads.backgrounds.extend(unterm_render::rounded::default_panel(
             left,
             top,
             width,
             height,
-            color: mix(self.colors.background, self.colors.foreground, 0.10),
-        });
+            mix(self.colors.background, self.colors.foreground, 0.10),
+        ));
 
         // The query line, with a caret so an empty palette still looks like
         // something you type into.

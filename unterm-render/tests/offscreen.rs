@@ -348,3 +348,63 @@ fn offscreen_a_glyph_draws_over_its_own_background() {
     // Ordering is what puts text on top of its cell without a depth buffer.
     assert!(drawn[2] > 200, "glyph should be on top, got {drawn:?}");
 }
+
+/// A rounded panel reaches the framebuffer with its corners actually missing.
+///
+/// The geometry is checked in the module's own tests; this is the other half:
+/// that the rows it produces survive the vertex builder and the pass, and land
+/// as pixels rather than as a rectangle with a seam in it.
+#[test]
+fn offscreen_a_rounded_panel_has_its_corners_taken_off() {
+    let Some(target) = offscreen(40, 24) else {
+        return;
+    };
+    let atlas = empty_atlas(&target.renderer);
+    let mut quads = FrameQuads::default();
+    quads.backgrounds.extend(unterm_render::rounded::panel(
+        0.0,
+        0.0,
+        40.0,
+        24.0,
+        6.0,
+        [1.0, 0.0, 0.0, 1.0],
+    ));
+
+    target.renderer.draw(
+        &target.view(),
+        target.width,
+        target.height,
+        &quads,
+        &atlas,
+        [0.0, 0.0, 0.0, 1.0],
+    );
+
+    let pixels = target.read_pixels();
+    const RED: [u8; 4] = [255, 0, 0, 255];
+    const CLEAR: [u8; 4] = [0, 0, 0, 255];
+
+    // The four corners are not drawn.
+    for (x, y) in [(0, 0), (39, 0), (0, 23), (39, 23)] {
+        assert_eq!(
+            target.pixel(&pixels, x, y),
+            CLEAR,
+            "the corner at {x},{y} is square"
+        );
+    }
+    // The middle is solid, with no gap between the rows the corners are made
+    // of and the rectangle between them.
+    for y in 0..24 {
+        for x in 8..32 {
+            assert_eq!(
+                target.pixel(&pixels, x, y),
+                RED,
+                "a hole at {x},{y}"
+            );
+        }
+    }
+    // And each edge is reached between its corners.
+    assert_eq!(target.pixel(&pixels, 20, 0), RED, "no top edge");
+    assert_eq!(target.pixel(&pixels, 20, 23), RED, "no bottom edge");
+    assert_eq!(target.pixel(&pixels, 0, 12), RED, "no left edge");
+    assert_eq!(target.pixel(&pixels, 39, 12), RED, "no right edge");
+}

@@ -16,3 +16,4 @@ pub mod box_glyphs;
 pub mod strokes;
 pub mod decorations;
 pub mod consumer;
+pub mod rounded;

@@ -252,13 +252,14 @@ $Suites = @(
         Name = "offscreen render"
         Package = "unterm-render"
         Filter = "offscreen_"
-        ExpectedCount = 5
+        ExpectedCount = 6
         RequiredTests = @(
             "offscreen_a_background_quad_lands_where_it_was_put",
             "offscreen_the_top_left_of_a_quad_is_the_top_left_of_the_image",
             "offscreen_a_glyph_is_tinted_by_its_colour_and_shaped_by_the_atlas",
             "offscreen_a_glyph_draws_over_its_own_background",
-            "offscreen_an_empty_frame_is_the_clear_colour"
+            "offscreen_an_empty_frame_is_the_clear_colour",
+            "offscreen_a_rounded_panel_has_its_corners_taken_off"
         )
     },
     @{
@@ -1392,6 +1393,22 @@ $Suites = @(
         RequiredTests = @(
             "palette::text_source_tests::typing_a_task_does_not_narrow_the_crews",
             "palette::text_source_tests::choosing_a_crew_leaves_the_task_alone"
+        )
+    },
+    @{
+        # Panels float over the terminal, so they have to look like they do.
+        # Square corners read as another region of the grid.
+        Name = "rounded panels"
+        Package = "unterm-render"
+        Filter = "rounded::tests::"
+        ExpectedCount = 9
+        RequiredTests = @(
+            "rounded::tests::the_corners_are_taken_off",
+            "rounded::tests::the_middle_is_filled",
+            "rounded::tests::every_edge_is_reached_between_its_corners",
+            "rounded::tests::a_panel_never_reaches_outside_its_rectangle",
+            "rounded::tests::a_small_panel_keeps_its_shape",
+            "rounded::tests::the_four_corners_match"
         )
     },
     @{
