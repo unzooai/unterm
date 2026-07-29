@@ -315,6 +315,34 @@ $Suites = @(
         )
     },
     @{
+        # Shaping a row: where a ligature lands, and where a run has to stop.
+        # A run that crosses a face is shaped by the wrong font, which is how
+        # a CJK character mid-word comes out as a box.
+        Name = "app text shaping"
+        Package = "unterm-app"
+        Filter = "shape::tests::"
+        ExpectedCount = 9
+        RequiredTests = @(
+            "shape::tests::a_font_change_ends_a_run",
+            "shape::tests::a_colour_change_ends_a_run",
+            "shape::tests::a_glyph_finds_the_column_its_cluster_came_from",
+            "shape::tests::wide_characters_advance_the_column_by_their_width"
+        )
+    },
+    @{
+        # The fallback list has to name families as the font files report
+        # them. It said "Microsoft YaHei UI", which matches nothing, and
+        # Chinese drew as boxes on the platform most likely to need it.
+        Name = "app font fallback"
+        Package = "unterm-app"
+        Filter = "fonts::cjk_tests::"
+        ExpectedCount = 2
+        RequiredTests = @(
+            "fonts::cjk_tests::a_chinese_character_finds_a_face_that_has_it",
+            "fonts::cjk_tests::the_stack_actually_has_a_face_with_chinese"
+        )
+    },
+    @{
         # Who owns the mouse. Getting this wrong means either vim never sees a
         # click, or a click in vim also drags out a selection nobody asked for.
         Name = "app mouse ownership"

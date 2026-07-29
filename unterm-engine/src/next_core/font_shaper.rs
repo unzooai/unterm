@@ -38,6 +38,13 @@ pub struct ShapedGlyph {
 /// use the same font without one outliving the other.
 pub struct Shaper {
     font: *mut harfbuzz::hb_font_t,
+    /// Keeps the FreeType library alive for as long as this shaper.
+    ///
+    /// HarfBuzz references the *face*, which is not enough: destroying the
+    /// library destroys its faces whatever their reference count, and a
+    /// shaper dropped after its library would then free a face that is
+    /// already gone. Declared after `font` so it outlives it.
+    _library: std::sync::Arc<dyn std::any::Any + Send + Sync>,
 }
 
 // SAFETY: the raw handle is private and every method takes `&mut self`, so
@@ -72,7 +79,10 @@ impl Shaper {
         if font.is_null() {
             return Err(anyhow!("hb_ft_font_create_referenced returned null"));
         }
-        Ok(Self { font })
+        Ok(Self {
+            font,
+            _library: face.library(),
+        })
     }
 
     /// Shape `text` into positioned glyphs.
@@ -297,5 +307,37 @@ mod tests {
                 glyph.cluster
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod lifetime_tests {
+    use super::*;
+    use crate::next_core::font_discovery::FontIndex;
+
+    /// A shaper outliving the face it was built from must not crash.
+    ///
+    /// Each face owns a share in a FreeType library, and destroying a library
+    /// destroys its faces whatever their reference count -- so a shaper that
+    /// only held HarfBuzz's reference to the *face* would free memory that had
+    /// already gone. It cost an access violation to find; this is what keeps
+    /// it found.
+    #[test]
+    fn a_shaper_survives_the_face_it_was_built_from() {
+        let index = FontIndex::scan();
+        let Some(entry) = index.default_monospace() else {
+            eprintln!("no monospace font found; skipping");
+            return;
+        };
+        let Ok(face) = FontFace::open(&entry.path, 16) else {
+            return;
+        };
+        let mut shaper = Shaper::new(&face).expect("create shaper");
+
+        drop(face);
+
+        // Still usable, and still droppable.
+        let glyphs = shaper.shape("abc").expect("shape after the face is gone");
+        assert_eq!(glyphs.len(), 3);
     }
 }

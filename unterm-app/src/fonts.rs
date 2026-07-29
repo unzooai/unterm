@@ -11,6 +11,7 @@
 //! Every lookup here asks `has_glyph` first.
 
 use unterm_engine::next_core::font_discovery::{FontEntry, FontIndex};
+use unterm_engine::next_core::font_shaper::{ShapedGlyph, Shaper};
 use unterm_engine::next_core::font_raster::{FontFace, RasterizedGlyph};
 
 /// Families to try when the primary face has nothing, in order.
@@ -18,11 +19,31 @@ use unterm_engine::next_core::font_raster::{FontFace, RasterizedGlyph};
 /// Chosen for coverage rather than looks: the first three carry CJK on the
 /// three platforms, and the last two carry symbols and emoji. A character with
 /// no face at all is still better shown as the primary's box than as nothing.
+/// Faces to try for characters the chosen font does not have.
+///
+/// Family names as the font files actually report them, which is not always
+/// what the font is called in a menu: Windows ships "Microsoft YaHei", and
+/// asking for "Microsoft YaHei UI" -- which is what this list used to say --
+/// matches nothing, so Chinese fell through to the primary face and drew as
+/// boxes on the one platform most likely to need it.
 const FALLBACK_FAMILIES: &[&str] = &[
-    "Microsoft YaHei UI",
+    // Chinese
+    "Microsoft YaHei",
+    "SimSun",
+    "DengXian",
     "PingFang SC",
     "Noto Sans CJK SC",
     "Noto Sans Mono CJK SC",
+    "Source Han Sans SC",
+    "WenQuanYi Micro Hei",
+    // Japanese and Korean, which the Chinese faces do not fully cover
+    "Yu Gothic",
+    "Meiryo",
+    "Hiragino Sans",
+    "Malgun Gothic",
+    "Noto Sans CJK JP",
+    "Noto Sans CJK KR",
+    // Symbols and emoji
     "Segoe UI Symbol",
     "Segoe UI Emoji",
     "Symbols Nerd Font Mono",
@@ -32,6 +53,12 @@ const FALLBACK_FAMILIES: &[&str] = &[
 pub struct FontStack {
     faces: Vec<FontFace>,
     pixel_size: u32,
+    /// One shaper per face, built on first use.
+    ///
+    /// Building one binds HarfBuzz to a FreeType face and reads its tables;
+    /// doing that per row would cost more than the shaping. They live as long
+    /// as the stack because the faces do.
+    shapers: Vec<Option<Shaper>>,
 }
 
 impl FontStack {
@@ -60,7 +87,12 @@ impl FontStack {
             }
         }
 
-        Self { faces, pixel_size }
+        let shapers = (0..faces.len()).map(|_| None).collect();
+        Self {
+            faces,
+            pixel_size,
+            shapers,
+        }
     }
 
     /// The system's default monospace face, at a given size.
@@ -93,6 +125,34 @@ impl FontStack {
             .iter()
             .position(|face| face.has_glyph(ch))
             .unwrap_or(0)
+    }
+
+    /// Shape a run of text with one face.
+    ///
+    /// `None` when the face cannot be shaped -- a bitmap font, a face
+    /// HarfBuzz will not open. The caller falls back to placing each
+    /// character on its own cell, which is what this did before shaping
+    /// existed and is still right for a font with no ligatures.
+    pub fn shape(&mut self, face: usize, text: &str) -> Option<Vec<ShapedGlyph>> {
+        if face >= self.faces.len() {
+            return None;
+        }
+        if self.shapers.len() <= face {
+            self.shapers.resize_with(face + 1, || None);
+        }
+        if self.shapers[face].is_none() {
+            self.shapers[face] = Shaper::new(&self.faces[face]).ok();
+        }
+        self.shapers[face]
+            .as_mut()?
+            .shape(text)
+            .ok()
+            .filter(|glyphs| !glyphs.is_empty())
+    }
+
+    /// Rasterize one glyph of a face by its index, as the shaper reports it.
+    pub fn rasterize_index(&mut self, face: usize, glyph_index: u32) -> Option<RasterizedGlyph> {
+        self.faces.get_mut(face)?.rasterize_glyph_index(glyph_index).ok()
     }
 
     /// Rasterize `ch` from whichever face has it.
@@ -198,5 +258,92 @@ mod tests {
         if index.best_in_family("Consolas").is_some() {
             assert!(stack.len() >= 2);
         }
+    }
+}
+
+#[cfg(test)]
+mod shaping_tests {
+    use super::*;
+
+    /// The same thing the engine's own test does, in this binary.
+    ///
+    /// If this crashes and the engine's does not, the fault is in how this
+    /// binary is linked rather than in either piece of code.
+    #[test]
+    fn a_bare_face_shapes_in_this_binary_too() {
+        use unterm_engine::next_core::font_discovery::FontIndex;
+        let index = FontIndex::scan();
+        let Some(entry) = index.default_monospace() else {
+            return;
+        };
+        let Ok(face) = FontFace::open(&entry.path, 16) else {
+            return;
+        };
+        let Ok(mut shaper) = Shaper::new(&face) else {
+            return;
+        };
+        let glyphs = shaper.shape("abc").expect("shape abc");
+        assert_eq!(glyphs.len(), 3);
+    }
+
+    #[test]
+    fn a_stack_can_shape_with_its_primary_face() {
+        let Some(mut stack) = FontStack::system(16) else {
+            return;
+        };
+        let Some(glyphs) = stack.shape(0, "abc") else {
+            return;
+        };
+        assert_eq!(glyphs.len(), 3, "plain ASCII should not fuse or split");
+        for glyph in &glyphs {
+            assert!(
+                stack.rasterize_index(0, glyph.glyph_index).is_some(),
+                "the shaper's own glyph index must be rasterizable"
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod cjk_tests {
+    use super::*;
+
+    /// A Chinese character has to reach a face that can draw it.
+    ///
+    /// The screen showed boxes where the engine held correct UTF-8, which is
+    /// the symptom of a fallback that never happened: every face reports the
+    /// character, or none does, and the stack draws .notdef either way.
+    #[test]
+    fn a_chinese_character_finds_a_face_that_has_it() {
+        let Some(mut stack) = FontStack::system(16) else {
+            return;
+        };
+        let face = stack.face_for('中');
+        assert!(
+            stack.faces[face].has_glyph('中'),
+            "face {face} of {} was chosen for 中 but does not have it",
+            stack.faces.len()
+        );
+
+        let (drew, glyph) = stack.rasterize('中').expect("something must draw it");
+        assert_eq!(drew, face, "the face that draws it is the one chosen");
+        assert!(
+            glyph.width > 0 && glyph.height > 0,
+            "a blank bitmap is a box in disguise"
+        );
+    }
+
+    #[test]
+    fn the_stack_actually_has_a_face_with_chinese() {
+        let Some(stack) = FontStack::system(16) else {
+            return;
+        };
+        let with_cjk: Vec<usize> = (0..stack.faces.len())
+            .filter(|index| stack.faces[*index].has_glyph('中'))
+            .collect();
+        assert!(
+            !with_cjk.is_empty(),
+            "no face in the stack can draw Chinese; the fallback list is the bug"
+        );
     }
 }

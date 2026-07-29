@@ -13,6 +13,7 @@ mod mouse;
 mod panes;
 mod scroll;
 mod search;
+mod shape;
 mod tabbar;
 mod select;
 mod terminal;

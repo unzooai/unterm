@@ -62,6 +62,17 @@ pub struct FrameQuads {
 ///
 /// Inverse swaps foreground and background rather than picking a third colour,
 /// which is what every terminal does and what a selection highlight relies on.
+/// The foreground and background a cell is drawn in.
+///
+/// Public because a shaped row resolves the colour for a glyph that may cover
+/// several cells, and has to reach the same answer this does for one.
+pub fn resolve_style(style: Option<&CellStyle>, colors: FrameColors) -> ([f32; 4], [f32; 4]) {
+    match style {
+        Some(style) => resolve(style, colors),
+        None => (colors.foreground, colors.background),
+    }
+}
+
 fn resolve(style: &CellStyle, colors: FrameColors) -> ([f32; 4], [f32; 4]) {
     let foreground = style
         .fg
@@ -107,6 +118,7 @@ pub fn build_row(
     atlas: &GlyphAtlas,
     mut slot_for: impl FnMut(char) -> Option<GlyphSlot>,
     out: &mut FrameQuads,
+    already_drawn: &std::collections::HashSet<usize>,
 ) {
     let mut column = 0usize;
 
@@ -129,7 +141,13 @@ pub fn build_row(
             });
         }
 
-        if !cell.style.hidden && cell.ch != ' ' && cell.ch != '\0' {
+        // A column the shaper already drew: drawing it again would put a
+        // second glyph underneath the ligature that replaced it.
+        if !already_drawn.contains(&column)
+            && !cell.style.hidden
+            && cell.ch != ' '
+            && cell.ch != '\0'
+        {
             if let Some(slot) = slot_for(cell.ch) {
                 if slot.width > 0 && slot.height > 0 {
                     out.glyphs.push(glyph_quad(
@@ -281,6 +299,7 @@ mod tests {
             &atlas,
             |_| Some(slot),
             &mut out,
+            &Default::default(),
         );
 
         // Filling every cell with the frame colour is the whole screen drawn
@@ -307,6 +326,7 @@ mod tests {
             &atlas,
             |_| Some(slot),
             &mut out,
+            &Default::default(),
         );
 
         let quad = out.backgrounds[0];
@@ -329,7 +349,7 @@ mod tests {
             width: 2,
         };
 
-        build_row(&[wide], 0.0, 0.0, metrics(), colors(), &atlas, |_| Some(slot), &mut out);
+        build_row(&[wide], 0.0, 0.0, metrics(), colors(), &atlas, |_| Some(slot), &mut out, &Default::default());
 
         // Covering only one column lets the frame background show through the
         // right half of the character.
@@ -359,6 +379,7 @@ mod tests {
             &atlas,
             |_| Some(slot),
             &mut out,
+            &Default::default(),
         );
 
         // The narrow cell starts after both columns of the wide one.
@@ -374,7 +395,7 @@ mod tests {
             ..CellStyle::default()
         };
 
-        build_row(&[cell('a', style)], 0.0, 0.0, metrics(), colors(), &atlas, |_| Some(slot), &mut out);
+        build_row(&[cell('a', style)], 0.0, 0.0, metrics(), colors(), &atlas, |_| Some(slot), &mut out, &Default::default());
 
         // What a selection highlight relies on: the background becomes the
         // frame's foreground, not some third colour.
@@ -387,7 +408,7 @@ mod tests {
         let (atlas, slot) = atlas_with_glyph();
         let mut out = FrameQuads::default();
 
-        build_row(&[cell(' ', CellStyle::default())], 0.0, 0.0, metrics(), colors(), &atlas, |_| Some(slot), &mut out);
+        build_row(&[cell(' ', CellStyle::default())], 0.0, 0.0, metrics(), colors(), &atlas, |_| Some(slot), &mut out, &Default::default());
 
         assert!(out.glyphs.is_empty());
     }
@@ -402,7 +423,7 @@ mod tests {
             ..CellStyle::default()
         };
 
-        build_row(&[cell('a', style)], 0.0, 0.0, metrics(), colors(), &atlas, |_| Some(slot), &mut out);
+        build_row(&[cell('a', style)], 0.0, 0.0, metrics(), colors(), &atlas, |_| Some(slot), &mut out, &Default::default());
 
         // `hidden` conceals the character, not the cell -- a password prompt
         // still occupies its space.
@@ -424,6 +445,7 @@ mod tests {
             &atlas,
             |ch| if ch == 'a' { None } else { Some(slot) },
             &mut out,
+            &Default::default(),
         );
 
         // A gap is easier to diagnose than a blank line.

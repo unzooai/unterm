@@ -155,15 +155,21 @@ pub fn append_pane(
     let inverted = push_cursor(snapshot, metrics, colors, origin, quads);
 
     for (row, line) in snapshot.lines.iter().enumerate() {
-        // A cell under a block cursor takes the frame's background colour, so
-        // it reads against the block rather than vanishing into it.
-        let row_colors = colors;
+        let top = origin.1 + row as f32 * metrics.height;
+
+        // Backgrounds and any cell the shaper could not draw. Shaping runs
+        // first so it can claim the columns it drew; what it leaves is drawn
+        // a character at a time, which is right for a font with no ligatures
+        // and the only option for one the shaper will not open.
+        let shaped = append_shaped_row(
+            &line.cells, origin.0, top, metrics, colors, font, atlas, quads,
+        );
         build_row(
             &line.cells,
             origin.0,
-            origin.1 + row as f32 * metrics.height,
+            top,
             metrics,
-            row_colors,
+            colors,
             atlas,
             |ch| {
                 atlas.get(GlyphKey {
@@ -173,6 +179,7 @@ pub fn append_pane(
                 })
             },
             quads,
+            &shaped,
         );
     }
 
@@ -243,6 +250,9 @@ pub fn append_text(
             })
         },
         quads,
+        // Plain text, drawn a character at a time: the front end's own
+        // furniture has no ligatures to find.
+        &std::collections::HashSet::new(),
     );
     for glyph in &mut quads.glyphs[before..] {
         glyph.quad.color = color;
@@ -324,6 +334,128 @@ fn ensure_glyph(font: &mut TerminalFont, atlas: &mut GlyphAtlas, ch: char) {
     }
     if let Some((_, glyph)) = font.stack_mut().rasterize(ch) {
         atlas.insert(key, &glyph);
+    }
+}
+
+/// Draw a row's text through the shaper, falling back per cell where it
+/// cannot.
+///
+/// Returns the columns it drew, so the caller knows which cells still need
+/// the per-character path. Glyphs are placed at the cell their cluster came
+/// from rather than at the pen position: that is what keeps a ligature inside
+/// the columns its characters occupied, and keeps a font whose advances drift
+/// from the cell width from pulling the row out of alignment.
+fn append_shaped_row(
+    cells: &[StyledCell],
+    left_origin: f32,
+    top: f32,
+    metrics: CellMetrics,
+    colors: FrameColors,
+    font: &mut TerminalFont,
+    atlas: &mut GlyphAtlas,
+    quads: &mut FrameQuads,
+) -> std::collections::HashSet<usize> {
+    let mut drawn = std::collections::HashSet::new();
+    let pixel_size = font.pixel_size();
+
+    let runs = {
+        let stack = font.stack_mut();
+        crate::shape::runs(cells, |ch| stack.face_for(ch))
+    };
+
+    for run in runs {
+        let face = {
+            let stack = font.stack_mut();
+            run.text.chars().next().map(|ch| stack.face_for(ch)).unwrap_or(0)
+        };
+        let Some(glyphs) = font.stack_mut().shape(face, &run.text) else {
+            continue;
+        };
+
+        // Every glyph has to be in the atlas before any is placed: the atlas
+        // can grow while filling, which moves the coordinates of everything
+        // already in it.
+        let mut usable = true;
+        for glyph in &glyphs {
+            if !ensure_shaped_glyph(font, atlas, face, glyph.glyph_index) {
+                usable = false;
+                break;
+            }
+        }
+        if !usable {
+            continue;
+        }
+
+        for glyph in &glyphs {
+            let column = run.column_of(glyph.cluster as usize);
+            let Some(slot) = atlas.get(GlyphKey {
+                face,
+                glyph_index: glyph.glyph_index,
+                pixel_size,
+            }) else {
+                continue;
+            };
+            if slot.width == 0 || slot.height == 0 {
+                drawn.insert(column);
+                continue;
+            }
+            let cell = cells_at(cells, column);
+            let (foreground, _) = unterm_render::quads::resolve_style(
+                cell.map(|cell| &cell.style),
+                colors,
+            );
+            let left = left_origin + column as f32 * metrics.width + glyph.x_offset as f32;
+            quads.glyphs.push(unterm_render::quads::glyph_quad(
+                slot,
+                left,
+                top + metrics.baseline - glyph.y_offset as f32,
+                foreground,
+                atlas,
+            ));
+            drawn.insert(column);
+        }
+    }
+    drawn
+}
+
+/// The cell at a column, counting wide cells as the columns they occupy.
+fn cells_at(cells: &[StyledCell], column: usize) -> Option<&StyledCell> {
+    let mut at = 0usize;
+    for cell in cells {
+        let width = cell.width.max(1);
+        if column < at + width {
+            return Some(cell);
+        }
+        at += width;
+    }
+    None
+}
+
+/// Put a shaped glyph in the atlas, by the index the shaper reported.
+///
+/// A shaped glyph has no character: a ligature is one glyph for several, and
+/// a positional form is a different glyph for the same one. So it is filed by
+/// face and index, which is what the key was always made of.
+fn ensure_shaped_glyph(
+    font: &mut TerminalFont,
+    atlas: &mut GlyphAtlas,
+    face: usize,
+    glyph_index: u32,
+) -> bool {
+    let key = GlyphKey {
+        face,
+        glyph_index,
+        pixel_size: font.pixel_size(),
+    };
+    if atlas.get(key).is_some() {
+        return true;
+    }
+    match font.stack_mut().rasterize_index(face, glyph_index) {
+        Some(glyph) => {
+            atlas.insert(key, &glyph);
+            true
+        }
+        None => false,
     }
 }
 
@@ -769,5 +901,90 @@ mod tests {
 
         // Foreground and background must differ, or the window is blank.
         assert_ne!(colors.foreground, colors.background);
+    }
+}
+
+#[cfg(test)]
+mod shaped_row_tests {
+    use super::*;
+    use unterm_engine::{CellStyle, StyledCell};
+
+    fn cells(text: &str) -> Vec<StyledCell> {
+        text.chars()
+            .map(|ch| StyledCell {
+                ch,
+                style: CellStyle::default(),
+                width: if ch.is_ascii() { 1 } else { 2 },
+            })
+            .collect()
+    }
+
+    /// The shaper draws the row, not the per-character fallback.
+    ///
+    /// Both paths produce readable text, so a silent fall back to the old one
+    /// looks identical on screen -- and takes ligatures and every complex
+    /// script with it. What is checked here is that shaping claimed the
+    /// columns, which is the only externally visible difference.
+    #[test]
+    fn shaping_claims_the_columns_it_drew() {
+        let Ok(mut font) = TerminalFont::open(16) else {
+            return;
+        };
+        let mut atlas = GlyphAtlas::new(256, 256);
+        let colors = FrameColors {
+            foreground: [1.0; 4],
+            background: [0.0, 0.0, 0.0, 1.0],
+        };
+        let mut quads = FrameQuads::default();
+
+        let drawn = append_shaped_row(
+            &cells("hello"),
+            0.0,
+            0.0,
+            font.metrics(),
+            colors,
+            &mut font,
+            &mut atlas,
+            &mut quads,
+        );
+
+        assert_eq!(
+            drawn.len(),
+            5,
+            "every column of a plain word should come from the shaper"
+        );
+        assert_eq!(quads.glyphs.len(), 5);
+    }
+
+    #[test]
+    fn a_fallback_face_is_shaped_by_that_face() {
+        let Ok(mut font) = TerminalFont::open(16) else {
+            return;
+        };
+        if font.stack_mut().rasterize('中').is_none() {
+            return;
+        }
+        let mut atlas = GlyphAtlas::new(256, 256);
+        let colors = FrameColors {
+            foreground: [1.0; 4],
+            background: [0.0, 0.0, 0.0, 1.0],
+        };
+        let mut quads = FrameQuads::default();
+
+        let drawn = append_shaped_row(
+            &cells("中文"),
+            0.0,
+            0.0,
+            font.metrics(),
+            colors,
+            &mut font,
+            &mut atlas,
+            &mut quads,
+        );
+
+        // Two characters, two columns apart -- a wide cell takes two.
+        assert!(drawn.contains(&0), "first character drawn");
+        assert!(drawn.contains(&2), "second character at column 2, not 1");
+        assert_eq!(quads.glyphs.len(), 2);
     }
 }
