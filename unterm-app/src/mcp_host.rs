@@ -52,6 +52,53 @@ impl McpHost for AppMcpHost {
     }
 
 
+    /// A picture of the terminal's own window.
+    ///
+    /// Text is what an agent usually wants, and `screen.text` is cheaper. This
+    /// is for the rest of it: which pane has focus, whether the tab bar is
+    /// showing, what a selection looks like, whether anything is drawn wrong.
+    /// Reading the screen cannot answer any of those.
+    fn capture_own_window(
+        &self,
+        title: Option<&str>,
+        pid: Option<u32>,
+        include_base64: bool,
+    ) -> Result<Value> {
+        use base64::Engine as _;
+
+        let shot = unterm_services::window_capture::capture_window(title, pid)?;
+        let buffer = image::RgbaImage::from_raw(
+            shot.width as u32,
+            shot.height as u32,
+            shot.pixels,
+        )
+        .context("the capture's size and its pixels disagree")?;
+
+        let path = capture_path("window", "png");
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("make {}", parent.display()))?;
+        }
+        buffer
+            .save_with_format(&path, image::ImageFormat::Png)
+            .with_context(|| format!("write the capture to {}", path.display()))?;
+
+        let mut reply = json!({
+            "path": path.display().to_string(),
+            "width": shot.width,
+            "height": shot.height,
+            // Which of the two ways it was taken. They are not equivalent:
+            // a screen copy also sees whatever is on top of the window.
+            "mode": shot.mode,
+        });
+        if include_base64 {
+            let bytes = std::fs::read(&path)
+                .with_context(|| format!("read back {}", path.display()))?;
+            reply["base64"] = json!(base64::engine::general_purpose::STANDARD.encode(bytes));
+        }
+        Ok(reply)
+    }
+
     fn render_scrollback_png(
         &self,
         pane_id: Option<usize>,
@@ -338,4 +385,21 @@ mod tests {
             assert_eq!(value["key"], binding.trigger.name());
         }
     }
+}
+
+/// Where a capture is written.
+///
+/// Under the user's own unterm directory rather than the system temp: these
+/// are files a person may want to look at again, and a name that says what it
+/// is beats one that says `tmp8f2a`.
+fn capture_path(kind: &str, extension: &str) -> std::path::PathBuf {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|since| since.as_millis())
+        .unwrap_or_default();
+    let directory = dirs_next::home_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join(".unterm")
+        .join("captures");
+    directory.join(format!("{kind}-{stamp}.{extension}"))
 }

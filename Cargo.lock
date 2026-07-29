@@ -5387,6 +5387,7 @@ version = "0.57.4"
 dependencies = [
  "anyhow",
  "arboard",
+ "base64",
  "dirs-next",
  "env_logger 0.10.2",
  "image",

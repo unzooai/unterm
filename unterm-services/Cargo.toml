@@ -31,7 +31,7 @@ portable-pty.workspace = true
 unterm-profile.workspace = true
 
 [target."cfg(windows)".dependencies]
-winapi = { workspace = true, features = ["handleapi", "processthreadsapi", "winnt", "synchapi", "errhandlingapi", "consoleapi", "wincon"] }
+winapi = { workspace = true, features = ["handleapi", "processthreadsapi", "winnt", "synchapi", "errhandlingapi", "consoleapi", "wincon", "winuser", "wingdi"] }
 winreg.workspace = true
 
 [dev-dependencies]

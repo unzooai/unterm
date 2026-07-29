@@ -15,6 +15,7 @@ pub mod server_info;
 pub mod env_names;
 pub mod interrupt;
 pub mod settings;
+pub mod window_capture;
 
 /// What this build calls itself, stamped into recordings and reported to
 /// agents. Read from the crate rather than from a config, which is where it

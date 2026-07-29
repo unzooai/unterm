@@ -339,6 +339,31 @@ $Suites = @(
         )
     },
     @{
+        # A picture of the terminal. The kernel has no window -- it draws into
+        # whatever surface a front end gives it -- so `capture.window` has to
+        # reach the front end, which is also what `selftest.run` checks.
+        Name = "capture reaches the window's owner"
+        Package = "unterm-engine"
+        Filter = "host_capture_tests::"
+        ExpectedCount = 1
+        RequiredTests = @(
+            "host_capture_tests::capture_reaches_the_front_end_that_owns_the_window"
+        )
+    },
+    @{
+        # Finding and photographing a window, and not mistaking a compositor's
+        # blank answer for a picture of one.
+        Name = "window capture"
+        Package = "unterm-services"
+        Filter = "window_capture::tests::"
+        ExpectedCount = 5
+        RequiredTests = @(
+            "window_capture::tests::a_capture_has_to_say_which_window",
+            "window_capture::tests::a_blank_bitmap_is_not_mistaken_for_a_picture",
+            "window_capture::tests::a_process_with_no_window_is_told_so_rather_than_handed_one"
+        )
+    },
+    @{
         # Lines, blocks and separators drawn rather than looked up. A font's
         # own box-drawing glyphs are laid out for the font's metrics, so a
         # table built from them shows a hairline gap at every join.

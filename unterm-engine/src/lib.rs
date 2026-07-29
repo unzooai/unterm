@@ -1298,17 +1298,41 @@ impl WindowEngine for next_core::NextCoreEngine {
     }
 }
 
+/// next-core has no window, but whatever is hosting it does.
+///
+/// The kernel draws into whatever surface a front end gives it and has no idea
+/// what that surface is on, so the picture has to come from the front end.
+/// Routing it through the host is what makes `capture.window` -- and the
+/// `selftest.run` check that watches it -- work again.
 impl CaptureEngine for next_core::NextCoreEngine {
-    fn capture_screen_image(&self, _include_base64: bool) -> Result<serde_json::Value> {
-        anyhow::bail!("next-core has no window of its own to capture")
+    fn capture_screen_image(&self, include_base64: bool) -> Result<serde_json::Value> {
+        host_capture(None, Some(std::process::id()), include_base64)
     }
     fn capture_window_image(
         &self,
-        _title_filter: Option<&str>,
-        _pid_filter: Option<u32>,
-        _include_base64: bool,
+        title_filter: Option<&str>,
+        pid_filter: Option<u32>,
+        include_base64: bool,
     ) -> Result<serde_json::Value> {
-        anyhow::bail!("next-core has no window of its own to capture")
+        // Our own process unless the caller named something else, so a bare
+        // `capture.window` means "the terminal", which is what it is for.
+        let pid = pid_filter.or(if title_filter.is_some() {
+            None
+        } else {
+            Some(std::process::id())
+        });
+        host_capture(title_filter, pid, include_base64)
+    }
+}
+
+fn host_capture(
+    title: Option<&str>,
+    pid: Option<u32>,
+    include_base64: bool,
+) -> Result<serde_json::Value> {
+    match mcp_host() {
+        Some(host) => host.capture_own_window(title, pid, include_base64),
+        None => anyhow::bail!("no front end is hosting a window to capture"),
     }
 }
 
@@ -1365,6 +1389,18 @@ pub trait McpHost: Send + Sync {
     /// Capture another application's window. Only macOS has this today.
     fn capture_external_window(&self, _request: &serde_json::Value) -> Result<serde_json::Value> {
         anyhow::bail!("capturing other applications' windows is not supported here")
+    }
+
+    /// Photograph this front end's own window, returning the JSON to reply
+    /// with. An agent can read the screen as text without this; what it
+    /// cannot do is see what a person sees.
+    fn capture_own_window(
+        &self,
+        _title: Option<&str>,
+        _pid: Option<u32>,
+        _include_base64: bool,
+    ) -> Result<serde_json::Value> {
+        anyhow::bail!("this front end has no window to capture")
     }
 
     /// The key assignments this front end has, for the tool catalogue.
@@ -2069,5 +2105,74 @@ mod tests {
         frame.cursor.y = 0;
         frame.cursor.x = 99;
         assert_eq!(frame.to_draw_plan().cursor, None);
+    }
+}
+
+#[cfg(test)]
+mod host_capture_tests {
+    use super::*;
+
+    /// A stand-in front end that records what it was asked for.
+    struct Recorder;
+
+    static ASKED: std::sync::Mutex<Vec<(Option<String>, Option<u32>, bool)>> =
+        std::sync::Mutex::new(Vec::new());
+
+    impl McpHost for Recorder {
+        fn render_scrollback_png(
+            &self,
+            _pane_id: Option<usize>,
+            _path: &std::path::Path,
+            _max_rows: usize,
+            _dpi: usize,
+        ) -> Result<serde_json::Value> {
+            anyhow::bail!("not what this test is about")
+        }
+
+        fn capture_own_window(
+            &self,
+            title: Option<&str>,
+            pid: Option<u32>,
+            include_base64: bool,
+        ) -> Result<serde_json::Value> {
+            ASKED
+                .lock()
+                .unwrap()
+                .push((title.map(str::to_string), pid, include_base64));
+            Ok(serde_json::json!({ "path": "recorded.png" }))
+        }
+    }
+
+    /// One test, because the host is installed once for the process. Splitting
+    /// it would mean whichever ran second found a host already there.
+    #[test]
+    fn capture_reaches_the_front_end_that_owns_the_window() {
+        assert!(
+            set_mcp_host(&Recorder),
+            "no other test may install a host first"
+        );
+        let engine = next_core::NextCoreEngine::default();
+
+        // With nothing named, a capture means this terminal -- which is what
+        // an agent asking `capture.window` with no arguments means by it.
+        CaptureEngine::capture_window_image(&engine, None, None, false).unwrap();
+        let asked = ASKED.lock().unwrap().pop().unwrap();
+        assert_eq!(asked, (None, Some(std::process::id()), false));
+
+        // A title names somebody else's window, so our pid must not be forced
+        // in alongside it -- the two together match nothing.
+        CaptureEngine::capture_window_image(&engine, Some("Notepad"), None, true).unwrap();
+        let asked = ASKED.lock().unwrap().pop().unwrap();
+        assert_eq!(asked, (Some("Notepad".to_string()), None, true));
+
+        // An explicit pid wins over the default either way.
+        CaptureEngine::capture_window_image(&engine, None, Some(4242), false).unwrap();
+        let asked = ASKED.lock().unwrap().pop().unwrap();
+        assert_eq!(asked, (None, Some(4242), false));
+
+        // `capture.screen` is this terminal, always.
+        CaptureEngine::capture_screen_image(&engine, true).unwrap();
+        let asked = ASKED.lock().unwrap().pop().unwrap();
+        assert_eq!(asked, (None, Some(std::process::id()), true));
     }
 }
