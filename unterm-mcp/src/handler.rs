@@ -6475,21 +6475,17 @@ impl McpHandler {
         // a console control event for that pane's process group.
         let mut delivered = json!("byte");
         if input == unterm_services::interrupt::INTERRUPT_BYTE {
-            let pid = engine
-                .activity(pane_id)
-                .ok()
-                .and_then(|activity| activity.process)
-                .and_then(|process| process.root_pid);
-            match pid {
-                Some(pid) => match unterm_services::interrupt::interrupt_process_group(pid) {
-                    Ok(unterm_services::interrupt::Interrupt::ConsoleEvent) => {
-                        delivered = json!("console_event");
+            let process = engine.activity(pane_id).ok().and_then(|a| a.process);
+            match process.as_ref().and_then(|p| p.root_pid) {
+                Some(shell) => {
+                    let foreground = process.as_ref().and_then(|p| p.foreground_pid);
+                    match unterm_services::interrupt::stop_foreground(shell, foreground) {
+                        Ok(outcome) => delivered = json!(format!("{outcome:?}").to_lowercase()),
+                        // Said rather than swallowed: an interrupt that
+                        // quietly did nothing is the thing being fixed here.
+                        Err(err) => delivered = json!({ "failed": err.to_string() }),
                     }
-                    Ok(unterm_services::interrupt::Interrupt::Byte) => {}
-                    // Said rather than swallowed: an interrupt that quietly
-                    // did nothing is the thing being fixed here.
-                    Err(err) => delivered = json!({ "failed": err.to_string() }),
-                },
+                }
                 None => delivered = json!({ "failed": "the pane has no process to interrupt" }),
             }
         }

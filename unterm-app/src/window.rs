@@ -749,14 +749,14 @@ impl App {
     /// line editor, so a running program -- which is the thing you press
     /// Ctrl+C at -- never hears it without a console control event.
     fn interrupt(&self, pane_id: usize) {
-        let pid = unterm_engine::SessionEngine::activity(&self.engine, pane_id)
+        let process = unterm_engine::SessionEngine::activity(&self.engine, pane_id)
             .ok()
-            .and_then(|activity| activity.process)
-            .and_then(|process| process.root_pid);
-        let Some(pid) = pid else {
+            .and_then(|activity| activity.process);
+        let Some(shell) = process.as_ref().and_then(|p| p.root_pid) else {
             return;
         };
-        if let Err(err) = unterm_services::interrupt::interrupt_process_group(pid) {
+        let foreground = process.as_ref().and_then(|p| p.foreground_pid);
+        if let Err(err) = unterm_services::interrupt::stop_foreground(shell, foreground) {
             // Worth a line: an interrupt that quietly did nothing is what
             // this exists to remove.
             log::warn!("could not interrupt pane {pane_id}: {err}");

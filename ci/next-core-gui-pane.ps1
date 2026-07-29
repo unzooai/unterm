@@ -315,6 +315,21 @@ $Suites = @(
         )
     },
     @{
+        # Ctrl+C. On a pty the byte is the whole story; Windows has no line
+        # discipline, so a running command needs more -- and an editor
+        # reading that same byte as a keystroke needs to be left alone.
+        Name = "interrupt"
+        Package = "unterm-services"
+        Filter = "interrupt::tests::"
+        ExpectedCount = 7
+        RequiredTests = @(
+            "interrupt::tests::a_shell_at_its_prompt_is_never_stopped",
+            "interrupt::tests::a_program_reading_keys_is_left_alone",
+            "interrupt::tests::the_parent_process_is_never_interrupted_by_accident",
+            "interrupt::tests::a_process_that_is_gone_is_reported_rather_than_silently_ignored"
+        )
+    },
+    @{
         # What a key sends the shell. Modifiers were dropped entirely, so
         # Ctrl+C typed a `c` and every readline binding was unreachable.
         Name = "app key encoding"
