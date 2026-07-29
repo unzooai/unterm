@@ -23,6 +23,9 @@ pub struct Theme {
     pub foreground: [f32; 4],
     pub cursor: [f32; 4],
     pub selection: [f32; 4],
+    /// What text on a selection is drawn in. A scheme that chose a highlight
+    /// chose a colour to read on it; deriving one here would undo that.
+    pub selection_text: [f32; 4],
     pub divider: [f32; 4],
     pub scrollbar: [f32; 4],
     /// The eight ANSI colours, then their bright halves.
@@ -38,6 +41,7 @@ pub const THEMES: &[Theme] = &[
         foreground: srgb(0xe8, 0xea, 0xed),
         cursor: srgb(0xe8, 0xea, 0xed),
         selection: srgb(0x2b, 0x34, 0x34),
+        selection_text: srgb(0xff, 0xff, 0xff),
         divider: srgb(0x30, 0x36, 0x38),
         scrollbar: srgb(0x76, 0x76, 0x76),
         ansi: [
@@ -51,6 +55,7 @@ pub const THEMES: &[Theme] = &[
         foreground: srgb(0xdf, 0xe7, 0xf1),
         cursor: srgb(0xdf, 0xe7, 0xf1),
         selection: srgb(0x26, 0x3a, 0x4d),
+        selection_text: srgb(0xf8, 0xfb, 0xff),
         divider: srgb(0x35, 0x44, 0x5d),
         scrollbar: srgb(0x71, 0x80, 0x98),
         ansi: [
@@ -64,6 +69,7 @@ pub const THEMES: &[Theme] = &[
         foreground: srgb(0x16, 0x1a, 0x1d),
         cursor: srgb(0x16, 0x1a, 0x1d),
         selection: srgb(0xc9, 0xdd, 0xd8),
+        selection_text: srgb(0x10, 0x17, 0x15),
         divider: srgb(0xa9, 0xb4, 0xaf),
         scrollbar: srgb(0x69, 0x75, 0x6f),
         ansi: [
@@ -77,6 +83,7 @@ pub const THEMES: &[Theme] = &[
         foreground: srgb(0xee, 0xee, 0xee),
         cursor: srgb(0xee, 0xee, 0xee),
         selection: srgb(0x38, 0x38, 0x38),
+        selection_text: srgb(0xff, 0xff, 0xff),
         divider: srgb(0x56, 0x56, 0x56),
         scrollbar: srgb(0x7a, 0x7a, 0x7a),
         ansi: [
@@ -90,6 +97,7 @@ pub const THEMES: &[Theme] = &[
         foreground: srgb(0xee, 0xee, 0xec),
         cursor: srgb(0xee, 0xee, 0xec),
         selection: srgb(0x3f, 0x3f, 0x3a),
+        selection_text: srgb(0xff, 0xff, 0xff),
         divider: srgb(0x56, 0x54, 0x4d),
         scrollbar: srgb(0x8a, 0x86, 0x7c),
         ansi: [
@@ -103,6 +111,7 @@ pub const THEMES: &[Theme] = &[
         foreground: srgb(0x1f, 0x1e, 0x1a),
         cursor: srgb(0x1f, 0x1e, 0x1a),
         selection: srgb(0xb8, 0xd4, 0xe6),
+        selection_text: srgb(0x10, 0x13, 0x15),
         divider: srgb(0x9f, 0x9a, 0x8f),
         scrollbar: srgb(0x5f, 0x5a, 0x51),
         ansi: [
@@ -217,6 +226,21 @@ mod tests {
         for theme in THEMES {
             let contrast = contrast(theme.foreground, theme.background);
             assert!(contrast >= 7.0, "{}: contrast is only {contrast}", theme.name);
+        }
+    }
+
+    /// Selected text has to be readable on its own highlight -- the pair was
+    /// chosen together, and using the ordinary foreground on the highlight is
+    /// how a selection becomes a smear.
+    #[test]
+    fn selected_text_is_readable_on_its_highlight() {
+        for theme in THEMES {
+            let contrast = contrast(theme.selection_text, theme.selection);
+            assert!(
+                contrast >= 4.5,
+                "{}: selected text contrast is {contrast}",
+                theme.name
+            );
         }
     }
 

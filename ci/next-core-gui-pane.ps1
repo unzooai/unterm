@@ -373,10 +373,11 @@ $Suites = @(
         Name = "themes"
         Package = "unterm-app"
         Filter = "theme::tests::"
-        ExpectedCount = 7
+        ExpectedCount = 8
         RequiredTests = @(
             "theme::tests::the_six_bundled_themes_are_all_here",
             "theme::tests::text_is_readable_on_its_own_background",
+            "theme::tests::selected_text_is_readable_on_its_highlight",
             "theme::tests::the_cursor_stands_out_from_the_background",
             "theme::tests::no_background_is_pure_black",
             "theme::tests::every_theme_has_sixteen_usable_colours"

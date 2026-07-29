@@ -421,6 +421,7 @@ impl App {
                 &mut quads,
             );
         }
+        self.append_selection(&mut quads);
         quads.backgrounds.extend(dividers);
         self.append_scrollbar(&mut quads);
         self.append_bell_flash(&mut quads);
@@ -699,6 +700,43 @@ impl App {
             return true;
         }
         crate::terminal::blink_is_on(self.started.elapsed().as_millis(), self.cursor_blink_ms)
+    }
+
+
+    /// Highlight what is selected.
+    ///
+    /// It was being tracked and copied, but never drawn -- so dragging across
+    /// text selected it, copying worked, and nothing on screen said which text
+    /// you had. Drawn in the scheme's own highlight, with its own text colour,
+    /// because those two were chosen together.
+    fn append_selection(&mut self, quads: &mut unterm_render::quads::FrameQuads) {
+        let Some(selection) = self.drag.and_then(|drag| drag.selection()) else {
+            return;
+        };
+        let Some(live) = self.state.as_ref() else {
+            return;
+        };
+        let Ok(snapshot) = self.engine.read_styled_screen(live.session_id) else {
+            return;
+        };
+
+        let metrics = self.font.metrics();
+        let origin = (self.terminal_left(), crate::topbar::terminal_top(metrics));
+        let theme = self.theme();
+
+        for (index, line) in snapshot.lines.iter().enumerate() {
+            let columns = selection.columns_for_row(line.row, line.cells.len());
+            if columns.is_empty() {
+                continue;
+            }
+            quads.backgrounds.push(unterm_render::quads::Quad {
+                left: origin.0 + columns.start as f32 * metrics.width,
+                top: origin.1 + index as f32 * metrics.height,
+                width: (columns.end - columns.start) as f32 * metrics.width,
+                height: metrics.height,
+                color: theme.selection,
+            });
+        }
     }
 
     /// The scheme in force, for the colours that are its rather than the
@@ -2993,6 +3031,11 @@ impl App {
         // redraw, which is a cursor that blinks when you type and not
         // otherwise.
         if self.bell_at.is_some() || self.cursor_style.blinking {
+            return true;
+        }
+        // A drag changes what is highlighted without changing the screen
+        // underneath it.
+        if self.drag.is_some() {
             return true;
         }
         // A banner arrives from the MCP thread, which changes no screen; if
