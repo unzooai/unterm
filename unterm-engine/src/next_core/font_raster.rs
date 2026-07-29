@@ -51,6 +51,14 @@ impl RasterizedGlyph {
     }
 }
 
+/// One thread inside FreeType at a time, process-wide. This build has no
+/// threading support, so separate libraries still share an allocator with no
+/// lock of its own and two threads inside is an access violation -- which
+/// guarding setup and teardown alone did not fix. Not a hot path: glyphs are
+/// rasterized once and then live in an atlas. Not reentrant: never hold it
+/// across another entry point.
+pub(crate) static FREETYPE: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
+
 /// Owns the FreeType library handle.
 ///
 /// FreeType's library and face handles are not `Sync`: a face borrows from its
@@ -78,6 +86,7 @@ unsafe impl Send for Library {}
 
 impl Drop for Library {
     fn drop(&mut self) {
+        let _inside = FREETYPE.lock();
         // SAFETY: `raw` came from a successful FT_Init_FreeType and is dropped
         // exactly once. Faces hold an Arc to this, so none are alive here.
         unsafe {
@@ -101,6 +110,8 @@ unsafe impl Send for FontFace {}
 
 impl Drop for FontFace {
     fn drop(&mut self) {
+        // Released before `_library` drops and takes the same lock.
+        let _inside = FREETYPE.lock();
         // SAFETY: `face` came from a successful FT_New_Face and is dropped
         // exactly once, before the library it borrows from.
         unsafe {
@@ -119,7 +130,10 @@ impl FontFace {
         let mut face: FT_Face = std::ptr::null_mut();
         // SAFETY: `library.raw` is live, `path_c` outlives the call, and
         // `face` is a valid out-pointer.
-        let err = unsafe { FT_New_Face(library.raw, path_c.as_ptr(), 0, &mut face) };
+        let err = {
+            let _inside = FREETYPE.lock();
+            unsafe { FT_New_Face(library.raw, path_c.as_ptr(), 0, &mut face) }
+        };
         if err != 0 {
             return Err(anyhow!("FT_New_Face({path:?}) failed with error {err}"));
         }
@@ -161,6 +175,7 @@ impl FontFace {
     pub fn set_pixel_size(&mut self, pixel_size: u32) -> Result<()> {
         let pixel_size = pixel_size.max(1);
         // SAFETY: `self.face` is live for the lifetime of `self`.
+        let _inside = FREETYPE.lock();
         let err = unsafe { FT_Set_Pixel_Sizes(self.face, 0, pixel_size) };
         if err != 0 {
             return Err(anyhow!(
@@ -212,6 +227,7 @@ impl FontFace {
     /// the character -- which is exactly what CJK looked like here.
     pub fn glyph_index_for(&self, ch: char) -> Option<u32> {
         // SAFETY: `self.face` is live for the lifetime of self.
+        let _inside = FREETYPE.lock();
         let index = unsafe { FT_Get_Char_Index(self.face, ch as freetype::FT_ULong) };
         (index != 0).then_some(index as u32)
     }
@@ -222,6 +238,7 @@ impl FontFace {
     }
 
     pub fn rasterize(&mut self, ch: char) -> Result<RasterizedGlyph> {
+        let _inside = FREETYPE.lock();
         // SAFETY: `self.face` is live; FT_LOAD_RENDER asks FreeType to
         // rasterize into the face's glyph slot in the same call.
         let err =
@@ -237,6 +254,7 @@ impl FontFace {
     /// This is the entry point the shaper feeds: shaping maps text to glyph
     /// ids, and a ligature or a positional form has no character to look up.
     pub fn rasterize_glyph_index(&mut self, glyph_index: u32) -> Result<RasterizedGlyph> {
+        let _inside = FREETYPE.lock();
         // SAFETY: `self.face` is live. An index past the face's glyph count is
         // rejected by FreeType with an error rather than read out of bounds.
         let err = unsafe {
@@ -307,6 +325,7 @@ impl FontFace {
 
 impl Library {
     fn init() -> Result<Self> {
+        let _inside = FREETYPE.lock();
         let mut raw: FT_Library = std::ptr::null_mut();
         // SAFETY: `raw` is a valid out-pointer; on success FreeType fills it.
         let err = unsafe { FT_Init_FreeType(&mut raw) };

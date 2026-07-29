@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 
 use super::{
     command::RuntimeCommandLane,
@@ -75,8 +74,6 @@ impl RuntimePumpStats {
 #[derive(Debug)]
 pub(in crate::next_core) struct RuntimePumpDrain {
     pub(in crate::next_core) result: Result<RuntimeDispatchResult>,
-    pub(in crate::next_core) dispatched_commands: usize,
-    pub(in crate::next_core) waited_for_response: bool,
 }
 
 #[derive(Debug)]
@@ -96,48 +93,31 @@ pub(in crate::next_core) fn drain_until_response_report(
     rx: RuntimeResponseReceiver,
 ) -> RuntimePumpDrain {
     let started = Instant::now();
-    let mut dispatched_commands = 0;
     loop {
         match rx.try_recv() {
-            Ok(Some(result)) => {
-                return complete_drain(Ok(result), dispatched_commands, false, started.elapsed());
-            }
+            Ok(Some(result)) => return complete_drain(Ok(result), false, started.elapsed()),
             Ok(None) => {}
-            Err(err) => {
-                return complete_drain(Err(err), dispatched_commands, false, started.elapsed());
-            }
+            Err(err) => return complete_drain(Err(err), false, started.elapsed()),
         }
         match dispatch_next_scheduled_step() {
             Ok(RuntimePumpStep::Empty) => {
-                return complete_drain(rx.recv(), dispatched_commands, true, started.elapsed());
+                return complete_drain(rx.recv(), true, started.elapsed());
             }
-            Ok(RuntimePumpStep::CompletedAttachedResponse) => {
-                dispatched_commands += 1;
-            }
-            Ok(RuntimePumpStep::DirectResult(_)) => {
-                dispatched_commands += 1;
-            }
-            Err(err) => {
-                return complete_drain(Err(err), dispatched_commands, false, started.elapsed());
-            }
+            Ok(_) => {}
+            Err(err) => return complete_drain(Err(err), false, started.elapsed()),
         }
     }
 }
 
 fn complete_drain(
     result: Result<RuntimeDispatchResult>,
-    dispatched_commands: usize,
     waited_for_response: bool,
     elapsed: Duration,
 ) -> RuntimePumpDrain {
     with_current_mut(|state| {
         state.pump_stats.record_drain(waited_for_response, elapsed);
     });
-    RuntimePumpDrain {
-        result,
-        dispatched_commands,
-        waited_for_response,
-    }
+    RuntimePumpDrain { result }
 }
 
 pub(in crate::next_core) fn dispatch_next_scheduled() -> Result<Option<RuntimeDispatchResult>> {
@@ -274,8 +254,11 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("next-core session 222 not found"));
-        assert_eq!(report.dispatched_commands, 2);
-        assert!(!report.waited_for_response);
+        // Through the stats rather than the report: they are the same two
+        // numbers, and one place to read them is one place to keep right.
+        let stats = pump_stats();
+        assert_eq!(stats.dispatched_commands, 2);
+        assert_eq!(stats.waited_for_response, 0);
         assert!(other_rx
             .recv()
             .unwrap_err()
@@ -338,8 +321,6 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("runtime render queue rejected command"));
-        assert_eq!(report.dispatched_commands, 0);
-        assert!(!report.waited_for_response);
         let stats = pump_stats();
         assert_eq!(stats.drain_calls, 1);
         assert_eq!(stats.dispatched_commands, 0);

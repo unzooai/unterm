@@ -13,6 +13,37 @@ pub(super) fn reset_state_for_test() -> runtime::test_facade::RuntimeTestGuard {
     runtime::test_facade::reset()
 }
 
+/// Wait until the shell has finished announcing itself.
+///
+/// A session runs a real shell, and a shell says who it is: cmd.exe sets its
+/// console title within the first moments of starting, and that arrives on the
+/// same screen a test is about to write to. Injecting before it lands means
+/// the shell overwrites the test's output a moment later -- which failed about
+/// one run in ten, with a title nobody in the test had written.
+///
+/// Settling on the output going quiet rather than on a fixed sleep: the wait
+/// is then as short as the machine allows, and still correct on a slow one.
+fn wait_for_the_shell_to_settle(handles: &runtime::test_facade::TestSessionHandles) {
+    use std::time::Duration;
+
+    const QUIET: Duration = Duration::from_millis(120);
+    const GIVE_UP: Duration = Duration::from_millis(1_000);
+
+    let deadline = Instant::now() + GIVE_UP;
+    let mut seen = usize::MAX;
+    let mut unchanged_since = Instant::now();
+    while Instant::now() < deadline {
+        let produced = handles.output.lock().len();
+        if produced != seen {
+            seen = produced;
+            unchanged_since = Instant::now();
+        } else if produced > 0 && unchanged_since.elapsed() >= QUIET {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
 pub(super) fn set_output_for_test(pane_id: usize, text: &str) -> Result<()> {
     let handles = runtime::test_facade::session_handles(pane_id)?;
     let started_at = Instant::now();
@@ -47,6 +78,18 @@ fn make_activity_stale_for_test(pane_id: usize) -> Result<()> {
     let handles = runtime::test_facade::session_handles(pane_id)?;
 
     handles.activity.lock().mark_stale_for_test();
+    Ok(())
+}
+
+/// Wait until the shell has finished announcing itself.
+///
+/// Only for tests that assert on the *title*. Everything else can run against
+/// a session that is still starting up, and waiting there would only make the
+/// suite slower -- and, for the two tests that assert exact I/O counts or
+/// recent activity, wrong.
+pub(super) fn settle_session_for_test(pane_id: usize) -> Result<()> {
+    let handles = runtime::test_facade::session_handles(pane_id)?;
+    wait_for_the_shell_to_settle(&handles);
     Ok(())
 }
 

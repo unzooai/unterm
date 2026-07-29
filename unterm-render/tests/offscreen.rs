@@ -20,13 +20,28 @@ struct Offscreen {
     height: u32,
 }
 
+/// One device for the whole suite.
+///
+/// Each test used to open its own, so five ran at once and five were torn down
+/// at once. Drivers do not enjoy that: under a full workspace run it took the
+/// test binary down with an access violation, roughly one run in three, in a
+/// place that looked nothing like the code that caused it. One device, opened
+/// once, is also what an application does.
+static GPU: std::sync::OnceLock<Option<(wgpu::Device, wgpu::Queue)>> = std::sync::OnceLock::new();
+
+fn gpu() -> Option<(wgpu::Device, wgpu::Queue)> {
+    GPU.get_or_init(|| {
+        let instance = wgpu::Instance::default();
+        let adapter =
+            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+                .ok()?;
+        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).ok()
+    })
+    .clone()
+}
+
 fn offscreen(width: u32, height: u32) -> Option<Offscreen> {
-    let instance = wgpu::Instance::default();
-    let adapter =
-        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-            .ok()?;
-    let (device, queue) =
-        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).ok()?;
+    let (device, queue) = gpu()?;
 
     let texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("offscreen target"),

@@ -53,6 +53,7 @@ unsafe impl Send for Shaper {}
 
 impl Drop for Shaper {
     fn drop(&mut self) {
+        let _inside = crate::next_core::font_raster::FREETYPE.lock();
         // SAFETY: `font` came from hb_ft_font_create_referenced and is
         // destroyed exactly once; it released its own face reference.
         unsafe {
@@ -75,6 +76,7 @@ impl Shaper {
         // SAFETY: `face.raw()` is live for the duration of the call, and the
         // "referenced" variant takes its own reference rather than borrowing,
         // so the HarfBuzz font stays valid even if the caller drops the face.
+        let _inside = crate::next_core::font_raster::FREETYPE.lock();
         let font = unsafe { harfbuzz::hb_ft_font_create_referenced(face.raw() as _) };
         if font.is_null() {
             return Err(anyhow!("hb_ft_font_create_referenced returned null"));
@@ -93,6 +95,7 @@ impl Shaper {
         if text.is_empty() {
             return Ok(Vec::new());
         }
+        let _inside = crate::next_core::font_raster::FREETYPE.lock();
 
         // SAFETY: the buffer is created, filled, shaped, read, and destroyed
         // within this call; no pointer escapes it.

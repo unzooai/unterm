@@ -90,7 +90,7 @@ use terminal_parser::TerminalParser;
 #[cfg(test)]
 use test_support::{
     mark_dead_for_test, reset_activity_for_test, reset_state_for_test, screen_for_test,
-    set_output_for_test, viewport_attrs_for_test,
+    set_output_for_test, settle_session_for_test, viewport_attrs_for_test,
 };
 
 const MAX_OUTPUT_BYTES: usize = 1024 * 1024;
@@ -3699,6 +3699,11 @@ mod tests {
             env: Vec::new(),
             launch_policy: Default::default(),
         })?;
+        // The shell announces itself with a title of its own within the first
+        // moments of starting. Injecting before that lands means it overwrites
+        // this a moment later -- which failed about one run in ten, with a
+        // title nobody in this test had written.
+        settle_session_for_test(session.id)?;
         set_output_for_test(
             session.id,
             "before\x1b]0;Claude Session\x07after\x1b]2;Codex Pane\x1b\\",
