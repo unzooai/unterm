@@ -364,15 +364,44 @@ $Suites = @(
         )
     },
     @{
+        # Picking a folder without a folder dialog. A native picker differs on
+        # every platform, and parity here is a correctness property -- so the
+        # picker is the palette.
+        Name = "directory picker"
+        Package = "unterm-app"
+        Filter = "directory::tests::"
+        ExpectedCount = 8
+        RequiredTests = @(
+            "directory::tests::the_folders_are_listed_and_the_files_are_not",
+            "directory::tests::a_folder_row_descends_into_it",
+            "directory::tests::a_picker_opened_for_a_new_tab_ends_in_a_new_tab",
+            "directory::tests::an_unreadable_directory_still_offers_a_way_out",
+            "directory::tests::a_root_has_no_parent_row"
+        )
+    },
+    @{
+        # Right-click is a gesture, not a menu.
+        Name = "right click"
+        Package = "unterm-app"
+        Filter = "mouse::right_click_tests::"
+        ExpectedCount = 2
+        RequiredTests = @(
+            "mouse::right_click_tests::a_selection_is_copied_and_let_go_of",
+            "mouse::right_click_tests::with_nothing_selected_it_pastes"
+        )
+    },
+    @{
         # The bar along the bottom. Its row comes out of the terminal area --
         # drawn over the grid it would hide the last row while the shell still
         # believed it was there.
         Name = "status bar"
         Package = "unterm-app"
         Filter = "statusbar::tests::"
-        ExpectedCount = 12
+        ExpectedCount = 15
         RequiredTests = @(
             "statusbar::tests::the_chips_survive_a_laptop_sized_window",
+            "statusbar::tests::the_menu_button_is_the_first_thing_on_the_bar",
+            "statusbar::tests::a_click_on_the_button_is_recognised_and_one_beside_it_is_not",
             "statusbar::tests::a_long_path_keeps_its_end",
             "statusbar::tests::no_segment_runs_off_the_end",
             "statusbar::tests::the_left_text_stops_before_the_chips",

@@ -18,6 +18,21 @@
 /// How tall the bar is, in cells.
 pub const ROWS: usize = 1;
 
+/// The quick-action button, at the far left of the bar.
+///
+/// Left rather than right, and on this bar rather than the tab bar, because
+/// this bar is always drawn -- a tab bar appears only once there are two tabs,
+/// and a menu that comes and goes is a menu people stop reaching for.
+pub const MENU: &str = "▼";
+
+/// How many columns the button occupies, the gap after it included.
+pub const MENU_COLUMNS: usize = 2;
+
+/// Whether a click at `column` hit the button.
+pub fn menu_hit(column: usize, columns: usize) -> bool {
+    columns >= 12 && column < MENU_COLUMNS
+}
+
 /// Below this width there is no room for anything but the directory.
 const CHIPS_FROM_COLUMNS: usize = 60;
 
@@ -88,12 +103,16 @@ pub fn segments(status: &Status, columns: usize) -> Vec<Segment> {
         chip_text.chars().count() + 2
     };
 
-    let mut segments = Vec::new();
-    let left_room = columns.saturating_sub(reserved);
+    let mut segments = vec![Segment {
+        column: 0,
+        text: MENU.to_string(),
+        dim: true,
+    }];
+    let left_room = columns.saturating_sub(reserved + MENU_COLUMNS);
     let left = left_text(status, left_room);
     if !left.is_empty() {
         segments.push(Segment {
-            column: 0,
+            column: MENU_COLUMNS,
             text: left,
             dim: false,
         });
@@ -192,6 +211,32 @@ mod tests {
         line.into_iter().collect::<String>().trim_end().to_string()
     }
 
+    /// The button is always there, and always in the same place: a menu that
+    /// moves or disappears is a menu people stop reaching for.
+    #[test]
+    fn the_menu_button_is_the_first_thing_on_the_bar() {
+        for columns in [12, 40, 80, 150] {
+            let segments = segments(&status(), columns);
+            assert_eq!(segments[0].column, 0, "{columns} columns");
+            assert_eq!(segments[0].text, MENU, "{columns} columns");
+        }
+    }
+
+    #[test]
+    fn a_click_on_the_button_is_recognised_and_one_beside_it_is_not() {
+        assert!(menu_hit(0, 100));
+        assert!(menu_hit(1, 100));
+        assert!(!menu_hit(2, 100));
+        assert!(!menu_hit(0, 4), "no bar, no button");
+    }
+
+    /// And the text does not start underneath it.
+    #[test]
+    fn the_path_begins_after_the_button() {
+        let segments = segments(&status(), 100);
+        assert!(segments[1].column >= MENU_COLUMNS, "{segments:?}");
+    }
+
     #[test]
     fn a_shell_is_named_not_located() {
         assert_eq!(short_name(r"C:\WINDOWS\system32\cmd.exe"), "cmd.exe");
@@ -210,7 +255,8 @@ mod tests {
     #[test]
     fn the_shell_and_the_directory_are_on_the_left() {
         let line = rendered(&status(), 100);
-        assert!(line.starts_with("pwsh"), "{line:?}");
+        assert!(line.starts_with(MENU), "the button leads: {line:?}");
+        assert!(line[MENU.len()..].trim_start().starts_with("pwsh"), "{line:?}");
         assert!(line.contains(r"D:\code\unterm"), "{line:?}");
     }
 
@@ -282,11 +328,12 @@ mod tests {
         let mut status = status();
         status.directory = r"C:\Users\somebody\code\projects\unterm\unterm-app\src".to_string();
         status.proxy = Some("clash".to_string());
+        // The button, the path, the chips.
         let segments = segments(&status, 70);
-        assert_eq!(segments.len(), 2);
-        let left = &segments[0];
+        assert_eq!(segments.len(), 3, "{segments:?}");
+        let left = &segments[1];
         assert!(
-            left.column + left.text.chars().count() <= segments[1].column,
+            left.column + left.text.chars().count() <= segments[2].column,
             "{segments:?}"
         );
     }
@@ -310,6 +357,10 @@ mod tests {
             directory: r"D:\code".to_string(),
             ..Default::default()
         };
-        assert_eq!(segments(&quiet, 120).len(), 1, "just the directory");
+        assert_eq!(
+            segments(&quiet, 120).len(),
+            2,
+            "the button and the directory, and nothing else"
+        );
     }
 }

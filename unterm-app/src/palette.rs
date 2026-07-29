@@ -17,6 +17,29 @@ pub enum Command {
     Action(crate::keys::Action),
     /// Start a new tab running a named program.
     Launch { program: String },
+    /// Take the focused pane to a directory.
+    ChangeDirectory { path: String },
+    /// Start a new tab already in a directory.
+    NewTabIn { path: String },
+    /// Start or stop recording the focused pane.
+    ToggleRecording,
+    /// Write the focused pane's session out as markdown.
+    ExportSession,
+    /// Open the web settings page in a browser.
+    OpenSettings,
+    /// Show the directories under a path, so one can be picked.
+    Browse { path: String, then: BrowseThen },
+}
+
+/// What picking a folder is for.
+///
+/// Carried through the browsing rather than asked at the end: the two quick
+/// actions that open a picker differ only in what happens once a folder is
+/// chosen, and a picker that forgets which one opened it can only do one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BrowseThen {
+    ChangeDirectory,
+    NewTab,
 }
 
 /// A row.

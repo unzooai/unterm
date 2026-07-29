@@ -8,6 +8,7 @@ mod args;
 mod cockpit;
 mod confirm;
 mod copy_mode;
+mod directory;
 mod fonts;
 mod ime;
 mod keys;

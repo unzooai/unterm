@@ -250,3 +250,41 @@ mod tests {
         assert_eq!(wheel_button(0.0), None);
     }
 }
+
+/// What a right-click does.
+///
+/// A gesture, not a menu. With something selected it copies and lets go of the
+/// selection -- the two things anyone does next, in one press. With nothing
+/// selected it pastes. Both are one motion where a context menu is three, and
+/// the terminal it replaces is the one people are used to on Windows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RightClick {
+    CopyAndClear,
+    Paste,
+}
+
+pub fn right_click(has_selection: bool) -> RightClick {
+    if has_selection {
+        RightClick::CopyAndClear
+    } else {
+        RightClick::Paste
+    }
+}
+
+#[cfg(test)]
+mod right_click_tests {
+    use super::*;
+
+    #[test]
+    fn a_selection_is_copied_and_let_go_of() {
+        assert_eq!(right_click(true), RightClick::CopyAndClear);
+    }
+
+    /// The clearing matters: leaving the selection up means the next
+    /// right-click copies the same text again instead of pasting, which is
+    /// the opposite of what the second press was for.
+    #[test]
+    fn with_nothing_selected_it_pastes() {
+        assert_eq!(right_click(false), RightClick::Paste);
+    }
+}

@@ -442,6 +442,21 @@ impl App {
     }
 
     /// Whether the pointer is over the scrollbar's track.
+    /// Whether the pointer is on the status bar's quick-action button.
+    fn pointer_on_menu(&self) -> bool {
+        let Some(live) = self.state.as_ref() else {
+            return false;
+        };
+        let metrics = self.font.metrics();
+        let bar_top = live.height as f32 - metrics.height * crate::statusbar::ROWS as f32;
+        if self.pointer.1 < bar_top {
+            return false;
+        }
+        let columns = (live.width as f32 / metrics.width.max(1.0)).floor().max(0.0) as usize;
+        let column = (self.pointer.0 / metrics.width.max(1.0)).floor().max(0.0) as usize;
+        crate::statusbar::menu_hit(column, columns)
+    }
+
     fn pointer_on_scrollbar(&self) -> bool {
         let Some(live) = self.state.as_ref() else {
             return false;
@@ -1321,6 +1336,131 @@ impl App {
     }
 
     /// Open the palette on a set of rows.
+
+    /// Take the focused pane to a directory, by typing it there.
+    ///
+    /// Through the shell rather than behind its back: a shell that is told to
+    /// `cd` updates its own prompt, its history and its OSC 7 report, and the
+    /// terminal learns the new directory the same way it learns every other
+    /// one. Moving the pty's directory underneath it would leave the shell
+    /// convinced it was somewhere else.
+    fn change_directory(&mut self, path: &str) {
+        let Some(live) = self.state.as_ref() else {
+            return;
+        };
+        let command = format!("cd \"{path}\"\r");
+        let _ = self.engine.write_input(live.session_id, &command);
+    }
+
+    fn new_tab_in(&mut self, path: &str) {
+        self.start_directory = Some(std::path::PathBuf::from(path));
+        self.new_tab();
+    }
+
+    /// Start recording the focused pane, or stop and say where it went.
+    fn toggle_recording(&mut self) {
+        let Some(live) = self.state.as_ref() else {
+            return;
+        };
+        let pane = live.session_id;
+        let recording = unterm_engine::RecordingEngine::recording_status(&self.engine, pane)
+            .map(|status| status.enabled)
+            .unwrap_or(false);
+        let outcome = if recording {
+            unterm_engine::RecordingEngine::stop_recording(&self.engine, pane)
+                .map(|stopped| format!("recording saved to {}", stopped.md_path))
+        } else {
+            unterm_engine::RecordingEngine::start_recording(&self.engine, pane)
+                .map(|started| format!("recording to {}", started.md_path))
+        };
+        match outcome {
+            Ok(message) => log::info!("{message}"),
+            Err(err) => log::warn!("recording: {err}"),
+        }
+        self.drawn_revision = None;
+    }
+
+    fn export_session(&mut self) {
+        let Some(live) = self.state.as_ref() else {
+            return;
+        };
+        match unterm_engine::RecordingEngine::export_markdown(&self.engine, live.session_id, None) {
+            Ok(exported) => log::info!("session exported to {}", exported.path),
+            Err(err) => log::warn!("could not export the session: {err}"),
+        }
+    }
+
+    /// Settings live in a browser, not in a cell grid.
+    fn open_settings(&mut self) {
+        let info = unterm_services::server_info::read();
+        if info.http_port == 0 {
+            log::warn!("the settings server has not started yet");
+            return;
+        }
+        let url = format!("http://127.0.0.1:{}", info.http_port);
+        if let Err(err) = crate::links::open(&url) {
+            log::warn!("could not open {url}: {err}");
+        }
+    }
+
+    /// The rows behind the status bar's triangle.
+    fn quick_entries(&self) -> Vec<crate::palette::Entry> {
+        let here = self
+            .current_directory()
+            .unwrap_or_else(|| std::path::PathBuf::from("."));
+        let recording = self
+            .state
+            .as_ref()
+            .and_then(|live| {
+                unterm_engine::RecordingEngine::recording_status(&self.engine, live.session_id).ok()
+            })
+            .map(|status| status.enabled)
+            .unwrap_or(false);
+
+        vec![
+            crate::palette::Entry {
+                label: "Change Working Directory".to_string(),
+                hint: here.display().to_string(),
+                command: crate::palette::Command::Browse {
+                    path: here.display().to_string(),
+                    then: crate::palette::BrowseThen::ChangeDirectory,
+                },
+            },
+            crate::palette::Entry {
+                label: "Open Folder in New Tab".to_string(),
+                hint: here.display().to_string(),
+                command: crate::palette::Command::Browse {
+                    path: here.display().to_string(),
+                    then: crate::palette::BrowseThen::NewTab,
+                },
+            },
+            crate::palette::Entry {
+                label: "Split Right".to_string(),
+                hint: "CTRL|SHIFT D".to_string(),
+                command: crate::palette::Command::Action(crate::keys::Action::SplitRight),
+            },
+            crate::palette::Entry {
+                label: if recording {
+                    "Stop Session Recording".to_string()
+                } else {
+                    "Start Session Recording".to_string()
+                },
+                hint: String::new(),
+                command: crate::palette::Command::ToggleRecording,
+            },
+            crate::palette::Entry {
+                label: "Export Current Session".to_string(),
+                hint: "markdown".to_string(),
+                command: crate::palette::Command::ExportSession,
+            },
+            crate::palette::Entry {
+                label: "Settings (Web)".to_string(),
+                hint: "opens a browser".to_string(),
+                command: crate::palette::Command::OpenSettings,
+            },
+        ]
+    }
+
     fn open_palette(&mut self, entries: Vec<crate::palette::Entry>) {
         self.palette = Some(crate::palette::Palette::new(entries));
         self.drawn_revision = None;
@@ -1383,6 +1523,17 @@ impl App {
                 }
             }
             crate::palette::Command::Launch { program } => self.new_tab_running(&program),
+            crate::palette::Command::ChangeDirectory { path } => self.change_directory(&path),
+            crate::palette::Command::NewTabIn { path } => self.new_tab_in(&path),
+            crate::palette::Command::ToggleRecording => self.toggle_recording(),
+            crate::palette::Command::ExportSession => self.export_session(),
+            crate::palette::Command::OpenSettings => self.open_settings(),
+            crate::palette::Command::Browse { path, then } => {
+                // Stays open on the new directory rather than closing: picking
+                // a folder three deep should be three keystrokes, not three
+                // trips through the menu.
+                self.open_palette(crate::directory::entries(std::path::Path::new(&path), then));
+            }
         }
     }
 
@@ -2371,7 +2522,29 @@ impl ApplicationHandler for App {
                     return;
                 }
 
+                // Right-click is a direct gesture rather than a menu: it
+                // copies a selection and lets go of it, or pastes when there
+                // is none. Only on press, so the release does not undo it.
+                if button == MouseButton::Right {
+                    if state == ElementState::Pressed {
+                        match crate::mouse::right_click(self.selected.is_some()) {
+                            crate::mouse::RightClick::CopyAndClear => {
+                                self.copy_selection();
+                                self.selected = None;
+                                self.drag = None;
+                                self.drawn_revision = None;
+                            }
+                            crate::mouse::RightClick::Paste => self.paste_clipboard(),
+                        }
+                    }
+                    return;
+                }
                 if button != MouseButton::Left {
+                    return;
+                }
+                if state == ElementState::Pressed && self.pointer_on_menu() {
+                    let entries = self.quick_entries();
+                    self.open_palette(entries);
                     return;
                 }
                 if state == ElementState::Pressed && self.pointer_on_scrollbar() {

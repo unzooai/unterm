@@ -448,7 +448,7 @@ pub const BINDINGS: &[Binding] = &[
     },
     Binding {
         mods: CTRL_SHIFT,
-        trigger: Trigger::Char('i'),
+        trigger: Trigger::Char('a'),
         action: Action::CockpitInbox,
     },
     // Ctrl+Tab cycles, Ctrl+Shift+Tab cycles back -- the pair every tabbed
