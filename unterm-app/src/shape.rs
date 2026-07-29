@@ -67,6 +67,12 @@ pub fn same_run(
 /// `face_of` says which face draws a character. Blank cells end a run: there
 /// is nothing to shape across a space, and stopping there keeps runs short,
 /// which is what makes shaping a whole screen affordable.
+///
+/// Characters the renderer draws itself end a run too, and are left out of it.
+/// Most monospace fonts ship their own box-drawing and powerline glyphs, so
+/// without this the shaper claims the column and the drawn version never
+/// runs -- tables come back with the hairline gaps between cells that drawing
+/// them was meant to close.
 pub fn runs(
     cells: &[unterm_engine::StyledCell],
     mut face_of: impl FnMut(char) -> usize,
@@ -77,7 +83,11 @@ pub fn runs(
 
     for cell in cells {
         let width = cell.width.max(1);
-        if cell.ch == ' ' || cell.ch == '\0' || cell.style.hidden {
+        if cell.ch == ' '
+            || cell.ch == '\0'
+            || cell.style.hidden
+            || unterm_render::box_glyphs::draws(cell.ch)
+        {
             if let Some((run, _, _)) = current.take() {
                 runs.push(run);
             }
@@ -281,5 +291,68 @@ mod url_regression {
             glyphs.len(),
             text.chars().count()
         );
+    }
+}
+
+#[cfg(test)]
+mod drawn_cell_tests {
+    use super::*;
+    use unterm_engine::{CellStyle, StyledCell};
+
+    fn cell(ch: char) -> StyledCell {
+        StyledCell { ch, width: 1, style: CellStyle::default() }
+    }
+
+    fn line(text: &str) -> Vec<StyledCell> {
+        text.chars().map(cell).collect()
+    }
+
+    /// The font has its own box-drawing glyphs, and they lose.
+    ///
+    /// If the shaper claims the column, the renderer's own drawing never runs,
+    /// and the table comes back with the hairline gaps that drawing it was
+    /// meant to close. So a drawn character must not appear in any run.
+    #[test]
+    fn a_character_the_renderer_draws_is_left_out_of_every_run() {
+        let runs = runs(&line("ab\u{2500}cd"), |_| 0);
+        let shaped: String = runs.iter().map(|run| run.text.as_str()).collect();
+        assert_eq!(shaped, "abcd", "the line drew {shaped:?}");
+    }
+
+    #[test]
+    fn it_breaks_the_run_rather_than_joining_across_itself() {
+        let runs = runs(&line("ab\u{2500}cd"), |_| 0);
+        assert_eq!(runs.len(), 2, "got {runs:?}");
+        assert_eq!(runs[0].text, "ab");
+        assert_eq!(runs[1].text, "cd");
+    }
+
+    /// The column a run starts at still counts the cells that were skipped,
+    /// or the text after a box glyph would be drawn one cell to the left.
+    #[test]
+    fn the_run_after_a_drawn_cell_keeps_its_column() {
+        let runs = runs(&line("ab\u{2500}cd"), |_| 0);
+        assert_eq!(runs[1].column, 3);
+    }
+
+    #[test]
+    fn a_powerline_separator_is_skipped_too() {
+        let runs = runs(&line("main\u{E0B0}dev"), |_| 0);
+        let shaped: String = runs.iter().map(|run| run.text.as_str()).collect();
+        assert_eq!(shaped, "maindev");
+    }
+
+    /// Only the forms we actually draw. A character in the same block that we
+    /// leave to the font must still be shaped, or it turns into a blank cell.
+    #[test]
+    fn an_undrawn_neighbour_is_still_shaped() {
+        let undrawn = ('\u{2500}'..='\u{259F}')
+            .find(|ch| !unterm_render::box_glyphs::draws(*ch));
+        let Some(undrawn) = undrawn else {
+            return; // We draw the whole block; nothing to check.
+        };
+        let runs = runs(&line(&format!("a{undrawn}b")), |_| 0);
+        let shaped: String = runs.iter().map(|run| run.text.as_str()).collect();
+        assert!(shaped.contains(undrawn), "{undrawn:?} was dropped by both");
     }
 }

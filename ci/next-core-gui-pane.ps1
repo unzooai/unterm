@@ -339,18 +339,78 @@ $Suites = @(
         )
     },
     @{
+        # Lines, blocks and separators drawn rather than looked up. A font's
+        # own box-drawing glyphs are laid out for the font's metrics, so a
+        # table built from them shows a hairline gap at every join.
+        Name = "box glyphs"
+        Package = "unterm-render"
+        Filter = "box_glyphs::"
+        ExpectedCount = 24
+        RequiredTests = @(
+            "box_glyphs::tests::every_drawn_character_produces_something",
+            "box_glyphs::tests::a_line_and_a_corner_meet_at_the_same_place",
+            "box_glyphs::junction_tests::the_whole_double_block_is_ours",
+            "box_glyphs::junction_tests::the_double_cross_stays_open_in_the_middle",
+            "box_glyphs::junction_tests::a_double_corner_does_not_overshoot",
+            "box_glyphs::junction_tests::a_single_line_through_a_double_one_is_not_broken"
+        )
+    },
+    @{
+        # The drawn glyphs have to reach the frame, and a font that ships its
+        # own box-drawing characters must not get the column first.
+        Name = "drawn cells reach the frame"
+        Package = "unterm-render"
+        Filter = "quads::drawn_glyph_tests::"
+        ExpectedCount = 5
+        RequiredTests = @(
+            "quads::drawn_glyph_tests::a_box_character_is_drawn_rather_than_looked_up",
+            "quads::drawn_glyph_tests::two_horizontals_side_by_side_leave_no_gap",
+            "quads::drawn_glyph_tests::an_ordinary_character_still_comes_from_the_font"
+        )
+    },
+    @{
+        Name = "shaping leaves drawn cells alone"
+        Package = "unterm-app"
+        Filter = "shape::drawn_cell_tests::"
+        ExpectedCount = 5
+        RequiredTests = @(
+            "shape::drawn_cell_tests::a_character_the_renderer_draws_is_left_out_of_every_run",
+            "shape::drawn_cell_tests::a_powerline_separator_is_skipped_too",
+            "shape::drawn_cell_tests::an_undrawn_neighbour_is_still_shaped"
+        )
+    },
+    @{
+        # The colours programs actually send. Palette indices resolved to the
+        # frame's foreground, so `ls --color`, git diffs and every coloured
+        # prompt came out the same shade as ordinary text; only truecolor
+        # worked, and truecolor is what programs use least.
+        Name = "palette colours"
+        Package = "unterm-render"
+        Filter = "quads::palette_tests::"
+        ExpectedCount = 5
+        RequiredTests = @(
+            "quads::palette_tests::a_palette_colour_is_resolved_rather_than_dropped",
+            "quads::palette_tests::the_bright_half_of_the_palette_differs_from_the_dim_half",
+            "quads::palette_tests::the_256_colour_cube_resolves_too",
+            "quads::palette_tests::truecolor_still_arrives_exactly"
+        )
+    },
+    @{
         # Ctrl+C. On a pty the byte is the whole story; Windows has no line
         # discipline, so a running command needs more -- and an editor
         # reading that same byte as a keystroke needs to be left alone.
         Name = "interrupt"
         Package = "unterm-services"
         Filter = "interrupt::tests::"
-        ExpectedCount = 7
+        ExpectedCount = 10
         RequiredTests = @(
+            "interrupt::tests::a_process_with_its_own_console_does_not_give_it_up",
+            "interrupt::tests::the_console_mode_probe_leaves_our_console_alone_too",
             "interrupt::tests::a_shell_at_its_prompt_is_never_stopped",
             "interrupt::tests::a_program_reading_keys_is_left_alone",
             "interrupt::tests::the_parent_process_is_never_interrupted_by_accident",
-            "interrupt::tests::a_process_that_is_gone_is_reported_rather_than_silently_ignored"
+            "interrupt::tests::a_process_that_is_gone_is_reported_rather_than_silently_ignored",
+            "interrupt::tests::raising_an_interrupt_repeatedly_does_not_end_us"
         )
     },
     @{

@@ -90,9 +90,14 @@ fn resolve(style: &CellStyle, colors: FrameColors) -> ([f32; 4], [f32; 4]) {
     }
 }
 
-/// A palette index needs a palette to mean anything; without one, fall back to
-/// the frame colour rather than inventing a shade.
-fn to_rgba(color: StyledColor, fallback: [f32; 4]) -> [f32; 4] {
+/// A cell's colour as the GPU wants it.
+///
+/// Palette indices are resolved through the kernel's table rather than
+/// dropped. They used to fall back to the frame colour, which meant every
+/// colour a program actually sends -- `ls --color`, git's diffs, any prompt --
+/// came out the same shade as ordinary text. Only truecolor worked, and
+/// truecolor is the one programs use least.
+fn to_rgba(color: StyledColor, _fallback: [f32; 4]) -> [f32; 4] {
     match color {
         StyledColor::Rgb(red, green, blue) => [
             red as f32 / 255.0,
@@ -100,7 +105,15 @@ fn to_rgba(color: StyledColor, fallback: [f32; 4]) -> [f32; 4] {
             blue as f32 / 255.0,
             1.0,
         ],
-        StyledColor::Palette(_) => fallback,
+        StyledColor::Palette(index) => {
+            let rgb = unterm_engine::next_core::color::palette_rgb(index);
+            [
+                rgb.red as f32 / 255.0,
+                rgb.green as f32 / 255.0,
+                rgb.blue as f32 / 255.0,
+                1.0,
+            ]
+        }
     }
 }
 
@@ -139,6 +152,17 @@ pub fn build_row(
                 height: metrics.height,
                 color: background,
             });
+        }
+
+        // Lines, blocks and separators we draw ourselves, over the cell's
+        // background and instead of the font's glyph. A font's box-drawing
+        // characters are laid out for its own metrics, so at our cell size
+        // they leave hairline gaps where a table's lines should meet; drawn
+        // to the cell, they join exactly.
+        if let Some(drawn) = crate::box_glyphs::quads_for(cell.ch, left, top, metrics, foreground) {
+            out.backgrounds.extend(drawn);
+            column += cell.width.max(1);
+            continue;
         }
 
         // A column the shaper already drew: drawing it again would put a
@@ -462,5 +486,178 @@ mod tests {
 
         // A gap is easier to diagnose than a blank line.
         assert_eq!(out.glyphs.len(), 1);
+    }
+}
+
+#[cfg(test)]
+mod palette_tests {
+    use super::*;
+
+    fn colors() -> FrameColors {
+        FrameColors {
+            foreground: [0.9, 0.9, 0.9, 1.0],
+            background: [0.1, 0.1, 0.1, 1.0],
+        }
+    }
+
+    fn style_with(fg: StyledColor) -> CellStyle {
+        let mut style = CellStyle::default();
+        style.fg = Some(fg);
+        style
+    }
+
+    /// The colours programs actually send are the palette ones.
+    ///
+    /// These used to resolve to the frame's foreground, so `ls --color`, git
+    /// diffs and every coloured prompt came out the same shade as ordinary
+    /// text. Only truecolor worked, and truecolor is what programs use least.
+    #[test]
+    fn a_palette_colour_is_resolved_rather_than_dropped() {
+        let (red, _) = resolve(&style_with(StyledColor::Palette(1)), colors());
+        assert_ne!(red, colors().foreground, "palette red is not the default");
+        assert!(red[0] > red[1] && red[0] > red[2], "and it is red: {red:?}");
+
+        let (green, _) = resolve(&style_with(StyledColor::Palette(2)), colors());
+        assert!(green[1] > green[0] && green[1] > green[2], "got {green:?}");
+
+        let (blue, _) = resolve(&style_with(StyledColor::Palette(4)), colors());
+        assert!(blue[2] > blue[0] && blue[2] > blue[1], "got {blue:?}");
+    }
+
+    #[test]
+    fn the_bright_half_of_the_palette_differs_from_the_dim_half() {
+        let (dim, _) = resolve(&style_with(StyledColor::Palette(1)), colors());
+        let (bright, _) = resolve(&style_with(StyledColor::Palette(9)), colors());
+        assert_ne!(dim, bright, "bright red and red are different colours");
+    }
+
+    #[test]
+    fn the_256_colour_cube_resolves_too() {
+        // 196 is the cube's pure red; a program using it means it.
+        let (red, _) = resolve(&style_with(StyledColor::Palette(196)), colors());
+        assert!((red[0] - 1.0).abs() < 0.01 && red[1] < 0.01 && red[2] < 0.01);
+    }
+
+    #[test]
+    fn truecolor_still_arrives_exactly() {
+        let (colour, _) = resolve(&style_with(StyledColor::Rgb(10, 20, 30)), colors());
+        assert!((colour[0] - 10.0 / 255.0).abs() < 0.001);
+        assert!((colour[1] - 20.0 / 255.0).abs() < 0.001);
+        assert!((colour[2] - 30.0 / 255.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn a_cell_naming_no_colour_still_takes_the_frames() {
+        let (fg, bg) = resolve(&CellStyle::default(), colors());
+        assert_eq!(fg, colors().foreground);
+        assert_eq!(bg, colors().background);
+    }
+}
+
+#[cfg(test)]
+mod drawn_glyph_tests {
+    use super::*;
+
+    fn metrics() -> CellMetrics {
+        CellMetrics { width: 10.0, height: 20.0, baseline: 16.0 }
+    }
+
+    fn colors() -> FrameColors {
+        FrameColors {
+            foreground: [0.9, 0.9, 0.9, 1.0],
+            background: [0.1, 0.1, 0.1, 1.0],
+        }
+    }
+
+    fn cell(ch: char) -> StyledCell {
+        StyledCell { ch, width: 1, style: CellStyle::default() }
+    }
+
+    fn row(cells: &[StyledCell]) -> FrameQuads {
+        let atlas = GlyphAtlas::new(64, 64);
+        let mut out = FrameQuads::default();
+        build_row(
+            cells,
+            0.0,
+            0.0,
+            metrics(),
+            colors(),
+            &atlas,
+            |_| {
+                Some(GlyphSlot {
+                    x: 0,
+                    y: 0,
+                    width: 8,
+                    height: 12,
+                    bearing_x: 0,
+                    bearing_y: 12,
+                    advance_x: 10,
+                })
+            },
+            &mut out,
+            &Default::default(),
+        );
+        out
+    }
+
+    /// The font also has a `─`, and it is the wrong one: laid out for the
+    /// font's own metrics, it stops short of the cell edge and a table comes
+    /// back with hairline gaps at every join.
+    #[test]
+    fn a_box_character_is_drawn_rather_than_looked_up() {
+        let quads = row(&[cell('\u{2500}')]);
+        assert!(quads.glyphs.is_empty(), "the font's glyph was placed as well");
+        assert!(!quads.backgrounds.is_empty(), "and nothing was drawn instead");
+    }
+
+    /// Drawn to the cell, so two side by side meet with nothing between them.
+    #[test]
+    fn two_horizontals_side_by_side_leave_no_gap() {
+        let quads = row(&[cell('\u{2500}'), cell('\u{2500}')]);
+        let mut spans: Vec<(f32, f32)> = quads
+            .backgrounds
+            .iter()
+            .map(|quad| (quad.left, quad.left + quad.width))
+            .collect();
+        spans.sort_by(|a, b| a.0.total_cmp(&b.0));
+        assert_eq!(spans.len(), 2);
+        assert!(
+            spans[0].1 >= spans[1].0,
+            "gap between {:?} and {:?}",
+            spans[0],
+            spans[1]
+        );
+    }
+
+    #[test]
+    fn an_ordinary_character_still_comes_from_the_font() {
+        let quads = row(&[cell('a')]);
+        assert_eq!(quads.glyphs.len(), 1);
+    }
+
+    /// The cell's own background still goes down; the drawing sits on top.
+    #[test]
+    fn a_coloured_cell_keeps_its_background_under_the_drawing() {
+        let mut style = CellStyle::default();
+        style.bg = Some(StyledColor::Rgb(0, 0, 255));
+        let quads = row(&[StyledCell { ch: '\u{2500}', width: 1, style }]);
+        let blue = quads
+            .backgrounds
+            .iter()
+            .position(|quad| quad.color[2] > 0.9 && quad.color[0] < 0.1);
+        let line = quads
+            .backgrounds
+            .iter()
+            .position(|quad| quad.height < metrics().height);
+        assert!(blue.is_some() && line.is_some(), "{:?}", quads.backgrounds);
+        assert!(blue < line, "the background covered the drawing");
+    }
+
+    /// A drawn cell must not shift what follows it.
+    #[test]
+    fn the_column_after_a_drawn_cell_is_where_it_should_be() {
+        let quads = row(&[cell('\u{2500}'), cell('a')]);
+        assert_eq!(quads.glyphs.len(), 1);
+        assert_eq!(quads.glyphs[0].quad.left, metrics().width);
     }
 }

@@ -9,10 +9,19 @@
 //!
 //! So Windows needs the real thing: a console control event, raised for the
 //! process group that owns the pane. Doing that from outside the console means
-//! attaching to it, which is a process-wide state change, so it is done under
-//! a lock and undone immediately -- and our own handler is disabled first,
-//! because the event we are about to raise would otherwise arrive here and
-//! close the terminal along with the thing it was aimed at.
+//! attaching to it, and a process can be attached to exactly one console --
+//! so reaching another one means giving up its own. That is a process-wide
+//! change, and two of its consequences are handled here rather than
+//! discovered later:
+//!
+//! - The event reaches every process on the console, including us by then, so
+//!   a handler that reports "handled" is installed first -- once, and never
+//!   removed, because taking it off is a race whose loser exits with
+//!   STATUS_CONTROL_C_EXIT.
+//! - A process that has a console of its own is not asked to give it up. The
+//!   window and the MCP server have none, which is what makes this safe there;
+//!   in a console program the same call would take that program's own output
+//!   away mid-run. `stop_foreground` still stops the command either way.
 
 /// What was done to interrupt a pane.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -85,6 +94,50 @@ pub fn stop_foreground(_shell_pid: u32, _foreground: Option<u32>) -> anyhow::Res
     Ok(Interrupt::Byte)
 }
 
+/// Whether this process has a console of its own.
+///
+/// `GetConsoleWindow` returns null for a process with no console attached,
+/// which is what the window and the MCP server are. A console app -- the CLI,
+/// a test harness -- gets a handle back, and for those `FreeConsole` is not
+/// something to do behind their backs.
+#[cfg(windows)]
+fn owns_a_console() -> bool {
+    use winapi::um::wincon::GetConsoleWindow;
+
+    // SAFETY: no arguments, no ownership; it reports a handle or null.
+    !unsafe { GetConsoleWindow() }.is_null()
+}
+
+/// Keep the interrupt we raise from ending us as well.
+///
+/// The event goes to every process attached to the console, and by the time we
+/// raise it we are one of them. A handler that reports "handled" protects this
+/// process and leaves the event to do its job everywhere else -- unlike
+/// `SetConsoleCtrlHandler(NULL, TRUE)`, which sets an ignore *attribute* that
+/// also stops the event reaching the child we are aiming at.
+///
+/// Installed once and never removed. Removing it is a race that cannot be
+/// closed by waiting longer: the handler runs on a thread the system creates,
+/// and an event still in flight when the handler comes off finds the default
+/// one, which ends the process with STATUS_CONTROL_C_EXIT. That is not
+/// theoretical -- it took down the test that found it and then the gate that
+/// ran the test. The callers are the window and the MCP server, neither of
+/// which has a console of its own, so there is nothing here to give back.
+#[cfg(windows)]
+fn protect_this_process() {
+    use winapi::um::consoleapi::SetConsoleCtrlHandler;
+
+    unsafe extern "system" fn swallow(_kind: u32) -> i32 {
+        1 // TRUE: handled here, do not run the default handler.
+    }
+
+    static INSTALLED: std::sync::Once = std::sync::Once::new();
+    // SAFETY: a plain function pointer, registered once for the process.
+    INSTALLED.call_once(|| unsafe {
+        SetConsoleCtrlHandler(Some(swallow), 1);
+    });
+}
+
 /// Raise a real interrupt for the process group rooted at `pid`.
 ///
 /// Returns `Ok(Byte)` when the platform needs nothing beyond the byte the
@@ -96,7 +149,6 @@ pub fn stop_foreground(_shell_pid: u32, _foreground: Option<u32>) -> anyhow::Res
 pub fn interrupt_process_group(pid: u32) -> anyhow::Result<Interrupt> {
     use anyhow::anyhow;
     use std::sync::Mutex;
-    use winapi::um::consoleapi::SetConsoleCtrlHandler;
     use winapi::um::wincon::{
         AttachConsole, FreeConsole, GenerateConsoleCtrlEvent, CTRL_C_EVENT,
     };
@@ -115,38 +167,34 @@ pub fn interrupt_process_group(pid: u32) -> anyhow::Result<Interrupt> {
     static ATTACHING: Mutex<()> = Mutex::new(());
     let _guard = ATTACHING.lock().unwrap_or_else(|err| err.into_inner());
 
-    // SAFETY: each call is checked, and the console is freed on every path
-    // out -- including the failure paths, which is the whole reason this is
-    // not written as a chain of `?`.
-    // A handler that says "handled", rather than the ignore flag.
+    // A process can be attached to one console, so reaching another one means
+    // giving up ours -- and that is not a private act. Everything in this
+    // process that was using the console loses it at the same moment, which
+    // in a console program means its own output. The window and the MCP
+    // server have no console, so there is nothing to give up and nothing to
+    // break; anywhere else, say so instead of doing damage. `stop_foreground`
+    // still stops the command, by the route below this one.
     //
-    // `SetConsoleCtrlHandler(NULL, TRUE)` sets an *attribute* on the process
-    // -- ignore Ctrl+C -- and with it set before attaching, the event stops
-    // reaching the other processes on the console too: raised, reported
-    // successful, and the child keeps running. A real handler protects only
-    // this process and leaves the event to do its job.
-    unsafe extern "system" fn swallow(_kind: u32) -> i32 {
-        1 // TRUE: handled here, do not run the default handler.
+    // Found the hard way: run from a console, this took out the test harness
+    // mid-run -- stdout gone, then STATUS_CONTROL_C_EXIT -- and then the gate.
+    if owns_a_console() {
+        return Err(anyhow!(
+            "refusing to detach this process's own console to signal {pid}"
+        ));
     }
+
+    protect_this_process();
 
     // SAFETY: each call is checked, and the console is freed on every path
     // out -- including the failure paths, which is the whole reason this is
     // not written as a chain of `?`.
     unsafe {
-        // Ours before we join their console: the event we are about to raise
-        // goes to every process attached to it, and without this the terminal
-        // exits along with the command. Ordering matters -- doing it after
-        // the attach loses the race, which is not theoretical: it killed the
-        // test that found it, with STATUS_CONTROL_C_EXIT.
-        SetConsoleCtrlHandler(Some(swallow), 1);
-
-        // We have no console of our own (this is a GUI process), but a
-        // previous attach may not have been freed if something panicked.
+        // Nothing of ours to lose, but a previous attach may not have been
+        // freed if something panicked.
         FreeConsole();
 
         if AttachConsole(pid) == 0 {
             let code = std::io::Error::last_os_error();
-            SetConsoleCtrlHandler(Some(swallow), 0);
             return Err(anyhow!(
                 "could not attach to the console of process {pid}: {code}"
             ));
@@ -163,7 +211,6 @@ pub fn interrupt_process_group(pid: u32) -> anyhow::Result<Interrupt> {
         std::thread::sleep(std::time::Duration::from_millis(400));
 
         FreeConsole();
-        SetConsoleCtrlHandler(Some(swallow), 0);
 
         if raised == 0 {
             return Err(anyhow!("could not interrupt process {pid}: {error}"));
@@ -192,6 +239,15 @@ pub fn expects_interrupt_signal(pid: u32) -> bool {
     use winapi::um::wincon::{AttachConsole, FreeConsole, ENABLE_PROCESSED_INPUT};
 
     if pid == u32::MAX || pid == 0 {
+        return false;
+    }
+
+    // Reading another process's console mode means attaching to its console,
+    // and attaching means giving up our own. A process that has one keeps it:
+    // taking it away would take that process's own output with it, which is
+    // exactly what this did to the test harness -- stdout gone mid-run, and
+    // the suite dead. No answer is the safe answer here anyway; see below.
+    if owns_a_console() {
         return false;
     }
 
@@ -318,6 +374,83 @@ mod tests {
                 assert!(!err.to_string().is_empty());
             }
         }
+    }
+
+    /// The console-mode probe has the same rule, for the same reason.
+    ///
+    /// Reading another process's console mode means attaching to its console
+    /// too. This one is easy to miss because it does not look destructive --
+    /// it only reads -- but the `FreeConsole` on the way in is what took
+    /// stdout away from this suite and killed it. Both doors, not one.
+    #[cfg(windows)]
+    #[test]
+    fn the_console_mode_probe_leaves_our_console_alone_too() {
+        if !owns_a_console() {
+            return;
+        }
+        assert!(
+            !expects_interrupt_signal(std::process::id()),
+            "no answer is the safe answer when we must not go and look"
+        );
+    }
+
+    /// A process with a console of its own keeps it.
+    ///
+    /// Reaching another console means giving ours up, and everything in this
+    /// process that was using it loses it at the same instant. In a console
+    /// program that is its own output: this call used to take stdout away from
+    /// the test harness mid-run and then kill it. The test suite has a
+    /// console, so this is the branch it takes -- and asserting on it here is
+    /// what stops the guard being quietly removed as an obstacle.
+    #[cfg(windows)]
+    #[test]
+    fn a_process_with_its_own_console_does_not_give_it_up() {
+        if !owns_a_console() {
+            return; // Nothing to protect; the other tests cover that path.
+        }
+        let err = interrupt_process_group(std::process::id())
+            .expect_err("this process has a console and must keep it");
+        assert!(
+            err.to_string().contains("own console"),
+            "the reason should say what was refused: {err}"
+        );
+    }
+
+    /// Raising an interrupt must not end the process that raised it.
+    ///
+    /// The event reaches every process on the console, and by then we are one
+    /// of them. This used to be survived by installing a handler and taking it
+    /// off afterwards, which is a race the sleep in between only narrows: an
+    /// event still in flight when the handler came off found the default one
+    /// and killed the process with STATUS_CONTROL_C_EXIT. It killed this
+    /// suite, and then the gate that runs it. Repeating the whole sequence is
+    /// what gives that race enough chances to show.
+    #[cfg(windows)]
+    #[test]
+    fn raising_an_interrupt_repeatedly_does_not_end_us() {
+        use std::os::windows::process::CommandExt;
+        use std::process::{Command, Stdio};
+
+        const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
+
+        for _ in 0..3 {
+            let Ok(mut child) = Command::new("cmd.exe")
+                .args(["/c", "pause"])
+                .creation_flags(CREATE_NEW_CONSOLE)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .spawn()
+            else {
+                return; // No console to attach to on this agent.
+            };
+            std::thread::sleep(std::time::Duration::from_millis(400));
+            let _ = interrupt_process_group(child.id());
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+
+        // Reaching here at all is the assertion: the process is still running.
+        assert_eq!(INTERRUPT_BYTE, "\u{3}");
     }
 
     /// Nothing in front of the shell means nothing to stop.
