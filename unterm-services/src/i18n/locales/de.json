@@ -286,5 +286,6 @@
   "cockpit.fleet_launching": "Crew wird gestartet…",
   "cockpit.fleet_no_agents": "Keine Agent-CLIs installiert",
   "menu.fleet_launch": "Crew starten…",
-  "cockpit.fleet_no_task": "Zuerst die Aufgabe schreiben"
+  "cockpit.fleet_no_task": "Zuerst die Aufgabe schreiben",
+  "menu.tree_sidebar": "Dateibaum"
 }

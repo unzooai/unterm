@@ -1440,6 +1440,28 @@ $Suites = @(
         )
     },
     @{
+        # The files under the pane's directory, down the left edge. The order
+        # and the dimming are the parts with reasons that are not visible from
+        # the code: sorting purely by name buries `src` under a dozen dot
+        # directories, and dimming `dev` anywhere would dim somebody's
+        # `~/work/dev`.
+        Name = "file tree"
+        Package = "unterm-app"
+        Filter = "tree::tests::"
+        ExpectedCount = 13
+        RequiredTests = @(
+            "tree::tests::directories_come_first_and_dotfiles_come_last",
+            "tree::tests::the_machines_own_directories_are_dimmed_only_at_the_root",
+            "tree::tests::a_dotfile_is_dimmed_at_any_depth",
+            "tree::tests::pressing_a_directory_opens_and_closes_it",
+            "tree::tests::pressing_a_file_hands_back_its_path",
+            "tree::tests::a_tree_offers_a_way_up",
+            "tree::tests::scrolling_stops_at_both_ends",
+            "tree::tests::every_row_fits_the_width_it_is_given",
+            "tree::tests::a_long_name_keeps_both_of_its_ends"
+        )
+    },
+    @{
         Name = "viewport scroll end to end"
         Package = "unterm-engine"
         Filter = "next_core::tests::relative_viewport_scroll_steps_and_resumes_following"

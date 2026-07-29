@@ -32,6 +32,7 @@ mod statsbar;
 mod statusbar;
 mod theme;
 mod topbar;
+mod tree;
 mod select;
 mod terminal;
 mod window;

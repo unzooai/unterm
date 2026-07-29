@@ -141,6 +141,10 @@ pub struct App {
     sidebar_open: bool,
     /// The strip's first visible row, for lists longer than the window.
     sidebar_scroll: usize,
+    /// The file tree, while it is open. It shares the left dock with the tab
+    /// strip: two strips either side of a terminal is most of a narrow window,
+    /// so opening one closes the other.
+    tree: Option<crate::tree::Tree>,
     /// Set when the close button is pressed, so the loop can exit.
     closing: bool,
     /// The cursor the config asked for, and how fast it blinks.
@@ -238,6 +242,7 @@ impl App {
             inbox_open: false,
             sidebar_open: false,
             sidebar_scroll: 0,
+            tree: None,
             closing: false,
             cursor_style: cursor_style.0,
             cursor_blink_ms: cursor_style.1,
@@ -467,6 +472,7 @@ impl App {
             .collect();
         self.append_top_bar(tab_count, active_tab, &badges, window_width, &mut quads);
         self.append_sidebar(&mut quads);
+        self.append_tree(&mut quads);
         self.append_status_bar(window_width, &mut quads);
         quads.raise_since(overlays);
 
@@ -760,14 +766,24 @@ impl App {
     /// Where the terminal's first column starts, the strip included.
     fn terminal_left(&self) -> f32 {
         let metrics = self.font.metrics();
-        crate::sidebar::width(self.sidebar_open, metrics) + crate::topbar::terminal_left(metrics)
+        self.dock_width(metrics) + crate::topbar::terminal_left(metrics)
+    }
+
+    /// How much of the window the left dock has taken.
+    ///
+    /// One dock, whichever strip is in it. The terminal makes room rather than
+    /// being covered: a panel over the grid hides a row the shell still
+    /// believes in, and the cursor ends up somewhere nobody can see.
+    fn dock_width(&self, metrics: unterm_render::quads::CellMetrics) -> f32 {
+        crate::sidebar::width(self.sidebar_open, metrics)
+            + crate::tree::width(self.tree.is_some(), metrics)
     }
 
     /// How wide the terminal is, once the strip and the gaps are taken.
     fn terminal_width(&self) -> f32 {
         let metrics = self.font.metrics();
         let window = self.state.as_ref().map(|live| live.width).unwrap_or(800) as f32;
-        crate::topbar::terminal_width(window - crate::sidebar::width(self.sidebar_open, metrics), metrics)
+        crate::topbar::terminal_width(window - self.dock_width(metrics), metrics)
     }
 
     /// What the strip shows: one line per tab, grouped by project.
@@ -802,6 +818,141 @@ impl App {
     }
 
     /// Draw the strip, if it is open.
+    /// Open or close the file tree.
+    ///
+    /// It takes the left dock, and the tab strip gives it up: two strips
+    /// either side of a terminal is most of a narrow window, and the two are
+    /// answering the same question -- where am I, and what else is here.
+    fn toggle_tree(&mut self) {
+        self.tree = match self.tree.take() {
+            Some(_) => None,
+            None => {
+                self.sidebar_open = false;
+                let here = self
+                    .current_directory()
+                    .unwrap_or_else(|| std::path::PathBuf::from("."));
+                Some(crate::tree::Tree::new(here))
+            }
+        };
+        self.resize_panes();
+        self.drawn_revision = None;
+    }
+
+    /// Which tree row a point is over.
+    fn tree_row_at(&self, x: f32, y: f32) -> Option<usize> {
+        let (left, top, width, height) = self.tree_dock()?;
+        if x < left || x >= left + width || y < top || y >= top + height {
+            return None;
+        }
+        let metrics = self.font.metrics();
+        let row = ((y - top) / metrics.height.max(1.0)) as usize;
+        let tree = self.tree.as_ref()?;
+        let at = tree.scroll + row;
+        (at < tree.rows.len()).then_some(at)
+    }
+
+    /// A press on the file tree. Returns true when the tree took it.
+    ///
+    /// A directory opens or closes; a file has its path written at the prompt
+    /// rather than being opened. Writing it is the useful thing in a terminal:
+    /// what you were about to do with that file is type a command in front of
+    /// its name.
+    fn click_tree(&mut self) -> bool {
+        let Some(row) = self.tree_row_at(self.pointer.0, self.pointer.1) else {
+            return false;
+        };
+        let picked = self.tree.as_mut().and_then(|tree| tree.press(row));
+        if let (Some(path), Some(live)) = (picked, self.state.as_ref()) {
+            let text = path.display().to_string();
+            // Quoted, because a path with a space in it is two arguments
+            // otherwise -- and on this platform most of them have one.
+            let quoted = if text.contains(' ') {
+                format!("\"{text}\" ")
+            } else {
+                format!("{text} ")
+            };
+            let _ = self.engine.write_input(live.session_id, &quoted);
+        }
+        self.drawn_revision = None;
+        true
+    }
+
+    /// Where the file tree is on screen, so a press lands on the row it is
+    /// drawn on.
+    fn tree_dock(&self) -> Option<(f32, f32, f32, f32)> {
+        self.tree.as_ref()?;
+        let metrics = self.font.metrics();
+        let width = crate::tree::width(true, metrics);
+        let top = crate::topbar::terminal_top(metrics) - crate::topbar::padding(metrics).1;
+        let height = self.terminal_height() + crate::topbar::padding(metrics).1 * 2.0;
+        // To the right of the tab strip when both are open, so the two docks
+        // do not draw over each other.
+        let left = crate::sidebar::width(self.sidebar_open, metrics);
+        Some((left, top, width, height))
+    }
+
+    /// Draw the file tree, if it is open.
+    fn append_tree(&mut self, quads: &mut unterm_render::quads::FrameQuads) {
+        let Some((left, top, width, height)) = self.tree_dock() else {
+            return;
+        };
+        let metrics = self.font.metrics();
+        let chrome = self.chrome();
+        let foreground = self.colors.foreground;
+        let visible = (height / metrics.height).floor().max(1.0) as usize;
+
+        let rows = {
+            let Some(tree) = self.tree.as_mut() else {
+                return;
+            };
+            tree.refresh();
+            // Never scrolled past the end: a tree showing nothing looks like a
+            // tree that failed to read the disk.
+            tree.scroll_by(0, visible);
+            tree.rows
+                .iter()
+                .skip(tree.scroll)
+                .take(visible)
+                .map(|row| (row.text(crate::tree::COLUMNS), row.is_hidden, row.is_dir))
+                .collect::<Vec<_>>()
+        };
+
+        quads.backgrounds.push(unterm_render::quads::Quad {
+            left,
+            top,
+            width,
+            height,
+            color: chrome.surface,
+        });
+        // The seam, so the strip and the terminal read as two surfaces of one
+        // window rather than one surface that changed colour.
+        quads.backgrounds.push(unterm_render::quads::Quad {
+            left: left + width - 1.0,
+            top,
+            width: 1.0,
+            height,
+            color: chrome.outer_edge,
+        });
+
+        for (index, (text, hidden, is_dir)) in rows.iter().enumerate() {
+            let color = if *hidden {
+                chrome.dim_text
+            } else if *is_dir {
+                foreground
+            } else {
+                chrome.dim_text
+            };
+            crate::terminal::append_text(
+                text,
+                &mut self.font,
+                &mut self.atlas,
+                color,
+                (left, top + index as f32 * metrics.height),
+                quads,
+            );
+        }
+    }
+
     fn append_sidebar(&mut self, quads: &mut unterm_render::quads::FrameQuads) {
         if !self.sidebar_open {
             return;
@@ -1349,6 +1500,7 @@ impl App {
             Action::NewWindow => self.new_window(),
             Action::ClosePane => self.close_pane(session_id),
             Action::ZoomPane => self.toggle_zoom(session_id),
+            Action::TreeSidebar => self.toggle_tree(),
             Action::FleetLaunch => {
                 let entries = self.fleet_entries();
                 self.open_fleet(entries);
@@ -2373,6 +2525,11 @@ impl App {
             },
             // Only with something to choose between: a selector over one pane
             // is a letter you press to stay where you already are.
+            crate::palette::Entry {
+                label: t("menu.tree_sidebar"),
+                hint: "CTRL|SHIFT B".to_string(),
+                command: crate::palette::Command::Action(crate::keys::Action::TreeSidebar),
+            },
             crate::palette::Entry {
                 label: t("menu.fleet_launch"),
                 hint: "CTRL|SHIFT|ALT A".to_string(),
@@ -3929,6 +4086,15 @@ impl ApplicationHandler for App {
                 {
                     return;
                 }
+                // And so does the file tree: a press on a row is a press on a
+                // row, not a click into the pane beside it.
+                if self.tree.is_some()
+                    && state == ElementState::Pressed
+                    && button == MouseButton::Left
+                    && self.click_tree()
+                {
+                    return;
+                }
                 if self.report_mouse(kind, engine_button) {
                     return;
                 }
@@ -4022,6 +4188,18 @@ impl ApplicationHandler for App {
                     ),
                 };
                 if lines == 0 {
+                    return;
+                }
+                // The wheel belongs to whatever is under the pointer. A tree
+                // that scrolls the pane beside it instead is a tree you cannot
+                // reach the bottom of.
+                if self.tree_row_at(self.pointer.0, self.pointer.1).is_some() {
+                    let metrics = self.font.metrics();
+                    let visible = (self.terminal_height() / metrics.height.max(1.0)) as usize;
+                    if let Some(tree) = self.tree.as_mut() {
+                        tree.scroll_by(-lines, visible.max(1));
+                    }
+                    self.drawn_revision = None;
                     return;
                 }
                 // A program that asked for the mouse gets the wheel too --

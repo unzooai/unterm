@@ -111,7 +111,7 @@
   "menu.new_tab_here": "在此打开新标签页",
   "menu.reveal": "在访达中显示",
   "menu.scrollshot_window": "长截图其他窗口…",
-  "menu.tree_sidebar": "目录树",
+  "menu.tree_sidebar": "文件树",
   "onboarding.body": "按 Ctrl+Shift+P 查看全部命令；AI Agent 可通过 MCP 安全操作此窗口。",
   "onboarding.title": "Unterm 已准备就绪",
   "profile.toast.no_profiles": "还没有 profile。创建一个：`unterm-cli profile create \"工作\"`。",

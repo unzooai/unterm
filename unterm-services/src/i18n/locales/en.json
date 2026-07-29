@@ -111,7 +111,7 @@
   "menu.new_tab_here": "New Tab Here",
   "menu.reveal": "Reveal in File Manager",
   "menu.scrollshot_window": "Long-shot another window…",
-  "menu.tree_sidebar": "Directory Tree",
+  "menu.tree_sidebar": "File Tree",
   "onboarding.body": "Ctrl+Shift+P opens every command. AI agents can drive this window securely through MCP.",
   "onboarding.title": "Unterm is ready",
   "profile.toast.no_profiles": "No profiles yet. Create one: `unterm-cli profile create \"Work\"`.",

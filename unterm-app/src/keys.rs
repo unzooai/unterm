@@ -60,6 +60,8 @@ pub enum Action {
     NewWindow,
     ClosePane,
     ZoomPane,
+    /// Show the files under the pane's directory, down the left edge.
+    TreeSidebar,
     /// Send a crew of agents at one task, each in its own worktree.
     FleetLaunch,
     /// Throw away the scrollback, keeping what is on screen.
@@ -107,6 +109,7 @@ impl Action {
             Action::NewWindow => "NewWindow",
             Action::ClosePane => "ClosePane",
             Action::ZoomPane => "ZoomPane",
+            Action::TreeSidebar => "TreeSidebar",
             Action::FleetLaunch => "FleetLaunch",
             Action::ClearScrollback => "ClearScrollback",
             Action::ClearScreen => "ClearScreen",
@@ -164,6 +167,7 @@ impl Action {
             Action::NewWindow => "New Window",
             Action::ClosePane => "Close Pane",
             Action::ZoomPane => "Zoom Pane",
+            Action::TreeSidebar => "File Tree",
             Action::FleetLaunch => "Launch Fleet",
             Action::ClearScrollback => "Clear Scrollback",
             Action::ClearScreen => "Clear Screen",
@@ -396,6 +400,12 @@ pub const BINDINGS: &[Binding] = &[
         mods: CTRL_SHIFT,
         trigger: Trigger::Char('k'),
         action: Action::ClearScrollback,
+    },
+    // The file tree, on the letter every editor uses for it.
+    Binding {
+        mods: CTRL_SHIFT,
+        trigger: Trigger::Char('b'),
+        action: Action::TreeSidebar,
     },
     // A crew of agents on one task, each in its own worktree. On the letter
     // the cockpit already uses for itself.

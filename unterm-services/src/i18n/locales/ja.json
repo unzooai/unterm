@@ -286,5 +286,6 @@
   "cockpit.fleet_launching": "クルーを起動中…",
   "cockpit.fleet_no_agents": "agent CLI が未インストール",
   "menu.fleet_launch": "クルーを起動…",
-  "cockpit.fleet_no_task": "先にタスクを書いてください"
+  "cockpit.fleet_no_task": "先にタスクを書いてください",
+  "menu.tree_sidebar": "ファイルツリー"
 }

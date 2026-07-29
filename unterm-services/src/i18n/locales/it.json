@@ -286,5 +286,6 @@
   "cockpit.fleet_launching": "Avvio della squadra…",
   "cockpit.fleet_no_agents": "Nessuna CLI di agent installata",
   "menu.fleet_launch": "Avvia squadra…",
-  "cockpit.fleet_no_task": "Scrivi prima il compito"
+  "cockpit.fleet_no_task": "Scrivi prima il compito",
+  "menu.tree_sidebar": "Albero file"
 }
