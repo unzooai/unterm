@@ -278,5 +278,8 @@
   "web.toast.theme_applied": "テーマを適用しました:{id}",
   "web.toast.theme_failed": "テーマ:{err}",
   "menu.select_pane": "ペインを選択…",
-  "menu.swap_pane": "ペインを入れ替え…"
+  "menu.swap_pane": "ペインを入れ替え…",
+  "notice.scrollback_cleared": "スクロールバックを消去",
+  "notice.screen_cleared": "画面を消去",
+  "menu.clear_scrollback": "スクロールバックを消去"
 }

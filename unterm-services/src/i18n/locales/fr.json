@@ -278,5 +278,8 @@
   "web.toast.theme_applied": "Thème appliqué : {id}",
   "web.toast.theme_failed": "thème : {err}",
   "menu.select_pane": "Sélectionner un volet…",
-  "menu.swap_pane": "Échanger les volets…"
+  "menu.swap_pane": "Échanger les volets…",
+  "notice.scrollback_cleared": "Historique effacé",
+  "notice.screen_cleared": "Écran effacé",
+  "menu.clear_scrollback": "Effacer l'historique"
 }

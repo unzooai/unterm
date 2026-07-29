@@ -546,5 +546,8 @@
   "web.update.available_post": "可用——升级一下吧。",
   "web.update.available_pre": "新版本",
   "web.update.dismiss": "知道了",
-  "web.update.view_release": "查看更新内容 →"
+  "web.update.view_release": "查看更新内容 →",
+  "notice.scrollback_cleared": "已清空历史",
+  "notice.screen_cleared": "已清屏",
+  "menu.clear_scrollback": "清空历史"
 }

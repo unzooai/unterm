@@ -278,5 +278,8 @@
   "web.toast.theme_applied": "थीम लागू: {id}",
   "web.toast.theme_failed": "थीम: {err}",
   "menu.select_pane": "पैन चुनें…",
-  "menu.swap_pane": "पैन बदलें…"
+  "menu.swap_pane": "पैन बदलें…",
+  "notice.scrollback_cleared": "इतिहास साफ़ किया",
+  "notice.screen_cleared": "स्क्रीन साफ़ की",
+  "menu.clear_scrollback": "इतिहास साफ़ करें"
 }

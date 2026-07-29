@@ -1747,11 +1747,6 @@ impl NextCoreEngine {
         runtime::screen_revision(pane_id)
     }
 
-    /// Drop the pane's scrollback, and the visible screen with it when
-    /// `include_viewport` is set.
-    pub fn erase_scrollback(&self, pane_id: usize, include_viewport: bool) -> Result<()> {
-        runtime::erase_scrollback(pane_id, include_viewport)
-    }
 }
 
 impl SessionEngine for NextCoreEngine {
@@ -1848,6 +1843,9 @@ impl ScreenEngine for NextCoreEngine {
 
     fn cursor(&self, pane_id: usize) -> Result<CursorSnapshot> {
         runtime::cursor(pane_id)
+    }
+    fn erase_scrollback(&self, pane_id: usize, include_viewport: bool) -> Result<()> {
+        runtime::erase_scrollback(pane_id, include_viewport)
     }
 }
 

@@ -1350,6 +1350,8 @@ impl App {
             Action::NewWindow => self.new_window(),
             Action::ClosePane => self.close_pane(session_id),
             Action::ZoomPane => self.toggle_zoom(session_id),
+            Action::ClearScrollback => self.clear_scrollback(session_id, false),
+            Action::ClearScreen => self.clear_scrollback(session_id, true),
             Action::SelectPane => self.open_pane_select(crate::paneselect::Mode::Activate),
             Action::SwapPane => self.open_pane_select(crate::paneselect::Mode::Swap),
             Action::FocusPane(direction) => self.focus_pane_toward(direction),
@@ -2366,6 +2368,11 @@ impl App {
             // Only with something to choose between: a selector over one pane
             // is a letter you press to stay where you already are.
             crate::palette::Entry {
+                label: t("menu.clear_scrollback"),
+                hint: "CTRL|SHIFT K".to_string(),
+                command: crate::palette::Command::Action(crate::keys::Action::ClearScrollback),
+            },
+            crate::palette::Entry {
                 label: t("menu.select_pane"),
                 hint: "CTRL|SHIFT '".to_string(),
                 command: crate::palette::Command::Action(crate::keys::Action::SelectPane),
@@ -3228,6 +3235,32 @@ impl App {
     }
 
     /// Where each pane goes, in pixels.
+    /// Throw away a pane's history.
+    ///
+    /// The scrollback only, unless the screen is asked for too. A pane with a
+    /// hundred thousand lines behind it is the reason anyone asks; losing what
+    /// is currently on screen is not part of the request.
+    ///
+    /// The view is put back to the bottom afterwards. Scrolled up into history
+    /// that no longer exists is a blank pane, and it looks like the clear broke
+    /// something rather than like it worked.
+    fn clear_scrollback(&mut self, session_id: usize, include_screen: bool) {
+        if let Err(err) = self.engine.erase_scrollback(session_id, include_screen) {
+            log::warn!("could not clear the scrollback: {err:#}");
+            return;
+        }
+        // Back to the bottom. Scrolled up into history that no longer exists
+        // is a blank pane, and that reads as the clear having broken something
+        // rather than as it having worked.
+        let _ = self.engine.scroll_viewport_to(session_id, isize::MAX);
+        self.show_notice(unterm_services::i18n::t(if include_screen {
+            "notice.screen_cleared"
+        } else {
+            "notice.scrollback_cleared"
+        }));
+        self.drawn_revision = None;
+    }
+
     /// Put a letter on every pane.
     ///
     /// Nothing to choose between is nothing to open: a selector over one pane

@@ -278,5 +278,8 @@
   "web.toast.theme_applied": "테마 적용: {id}",
   "web.toast.theme_failed": "테마: {err}",
   "menu.select_pane": "창 선택…",
-  "menu.swap_pane": "창 바꾸기…"
+  "menu.swap_pane": "창 바꾸기…",
+  "notice.scrollback_cleared": "스크롤백 지움",
+  "notice.screen_cleared": "화면 지움",
+  "menu.clear_scrollback": "스크롤백 지우기"
 }

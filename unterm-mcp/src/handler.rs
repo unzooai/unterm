@@ -596,6 +596,82 @@ mod engine_neutral_handler_tests {
         ))
     }
 
+    /// Clearing drops the history and keeps what is on screen.
+    ///
+    /// The reason anyone asks is a pane with a hundred thousand lines behind
+    /// it; losing what is currently being read is not part of the request. And
+    /// there was no other way to ask: sending `clear` to the shell is a command
+    /// the user did not run, and `CSI 3 J` written as input is text the shell
+    /// reads rather than a sequence the terminal acts on.
+    #[test]
+    fn screen_clear_drops_history_and_keeps_the_screen() {
+        let _guard = env_lock().lock();
+        unterm_engine::install_next_core_provider();
+        let previous_engine = std::env::var("UNTERM_ENGINE").ok();
+        std::env::set_var("UNTERM_ENGINE", "next-core");
+
+        let result: Result<(usize, usize, usize, usize)> = (|| {
+            let handler = McpHandler::new();
+            let ctx = ConnectionContext::internal("handler-test");
+            let command = if cfg!(windows) {
+                "for /L %i in (1,1,120) do @echo clear-me-%i"
+            } else {
+                "for i in $(seq 1 120); do echo clear-me-$i; done"
+            };
+            let created = handler.handle(
+                &ctx,
+                "session.create",
+                &json!({ "cols": 80, "rows": 6, "command": command }),
+            )?;
+            let pane_id = created["id"].as_u64().expect("session id") as usize;
+            wait_for_screen_pattern(&handler, &ctx, pane_id, "clear-me-120")?;
+
+            let history = |handler: &McpHandler| -> Result<usize> {
+                let read = handler.handle(
+                    &ctx,
+                    "screen.scrollback_text",
+                    &json!({ "pane_id": pane_id, "tail_lines": 4000 }),
+                )?;
+                Ok(read["lines"].as_array().map(|lines| lines.len()).unwrap_or(0))
+            };
+            let visible = |handler: &McpHandler| -> Result<usize> {
+                let read = handler.handle(&ctx, "screen.text", &json!({ "pane_id": pane_id }))?;
+                Ok(read["lines"]
+                    .as_array()
+                    .map(|lines| {
+                        lines
+                            .iter()
+                            .filter(|line| !line.as_str().unwrap_or("").trim().is_empty())
+                            .count()
+                    })
+                    .unwrap_or(0))
+            };
+
+            let before = history(&handler)?;
+            let seen_before = visible(&handler)?;
+            handler.handle(&ctx, "screen.clear", &json!({ "pane_id": pane_id }))?;
+            let after = history(&handler)?;
+            let seen_after = visible(&handler)?;
+            handler.handle(&ctx, "session.destroy", &json!({ "pane_id": pane_id }))?;
+            Ok((before, after, seen_before, seen_after))
+        })();
+
+        match previous_engine {
+            Some(value) => std::env::set_var("UNTERM_ENGINE", value),
+            None => std::env::remove_var("UNTERM_ENGINE"),
+        }
+
+        let (before, after, seen_before, seen_after) =
+            result.expect("clear a next-core pane's history through the MCP handler");
+        assert!(before > 100, "the pane never filled up: {before} lines");
+        assert!(after < before, "clearing kept {after} of {before} lines");
+        assert!(seen_before > 0, "nothing was on screen to keep");
+        assert_eq!(
+            seen_after, seen_before,
+            "clearing the history took the screen with it"
+        );
+    }
+
     #[test]
     fn session_destroy_uses_next_core_pane_id_path() {
         let _guard = env_lock().lock();
@@ -4487,6 +4563,7 @@ impl McpHandler {
             "screen.scrollback_text" => self.screen_scrollback_text(params),
             "screen.cursor" => self.screen_cursor(params),
             "screen.scroll" => self.screen_scroll(params),
+            "screen.clear" => self.screen_clear(params),
             "screen.search" => self.screen_search(params),
             "screen.detect_errors" => self.screen_detect_errors(params),
             // Signal
@@ -6496,6 +6573,37 @@ impl McpHandler {
     }
 
     // --- Screen extensions ---
+
+    /// `screen.clear` — throw away a pane's history.
+    ///
+    /// The scrollback only, unless `include_screen` is set. An agent that has
+    /// just filled a pane with a build log has no other way to get rid of it:
+    /// sending `clear` to the shell is a command the user did not run and it
+    /// lands in their history, and `CSI 3 J` written as input is text the
+    /// shell reads rather than a sequence the terminal acts on.
+    ///
+    /// Params: `id` / `session_id` (optional, defaults to the active pane),
+    /// `include_screen` (optional, default false).
+    /// Returns: `{ ok: true, id, include_screen }`.
+    fn screen_clear(&self, params: &Value) -> Result<Value> {
+        let engine = self.engine();
+        // The active pane when none is named, the same as every read on this
+        // namespace: an agent clearing the pane it has been watching should
+        // not have to look its id up first.
+        let pane_id =
+            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::ACTIVE_EXISTING)?;
+        let include_screen = params
+            .get("include_screen")
+            .or_else(|| params.get("include_viewport"))
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false);
+        engine.erase_scrollback(pane_id, include_screen)?;
+        Ok(json!({
+            "ok": true,
+            "id": pane_id,
+            "include_screen": include_screen,
+        }))
+    }
 
     fn screen_scroll(&self, params: &Value) -> Result<Value> {
         let offset = params.get("offset").and_then(|v| v.as_i64()).unwrap_or(0) as isize;

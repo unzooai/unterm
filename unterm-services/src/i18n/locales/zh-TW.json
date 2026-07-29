@@ -278,5 +278,8 @@
   "web.toast.theme_applied": "已套用佈景主題:{id}",
   "web.toast.theme_failed": "佈景主題:{err}",
   "menu.select_pane": "選擇分割窗格…",
-  "menu.swap_pane": "交換分割窗格…"
+  "menu.swap_pane": "交換分割窗格…",
+  "notice.scrollback_cleared": "已清空歷史",
+  "notice.screen_cleared": "已清屏",
+  "menu.clear_scrollback": "清空歷史"
 }

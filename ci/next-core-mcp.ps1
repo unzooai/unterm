@@ -16,6 +16,7 @@ $RequiredTests = @(
     "handler::engine_neutral_handler_tests::screen_search_goto_scrolls_next_core_logical_viewport",
     "handler::engine_neutral_handler_tests::screen_scroll_goto_updates_next_core_logical_viewport",
     "handler::engine_neutral_handler_tests::screen_scrollback_text_resolves_active_next_core_session_without_pane_param",
+    "handler::engine_neutral_handler_tests::screen_clear_drops_history_and_keeps_the_screen",
     "handler::engine_neutral_handler_tests::session_destroy_uses_next_core_pane_id_path",
     "handler::engine_neutral_handler_tests::session_resize_uses_next_core_pane_id_path",
     "handler::engine_neutral_handler_tests::session_env_reads_next_core_launch_env_keys_without_values",
@@ -58,8 +59,8 @@ try {
     if ($LASTEXITCODE -ne 0) {
         throw "next-core MCP contract tests failed:`n$($run -join "`n")"
     }
-    if (-not @($run | Where-Object { $_ -match "test result: ok\..*43 passed" })) {
-        throw "next-core MCP contract test run did not report 43 passed tests"
+    if (-not @($run | Where-Object { $_ -match "test result: ok\..*44 passed" })) {
+        throw "next-core MCP contract test run did not report 44 passed tests"
     }
 
     # The other half of capture.scrollback: the surface refuses without a
@@ -72,7 +73,7 @@ try {
         throw "MCP host test run did not report 4 passed tests"
     }
 
-    Write-Host "next-core MCP contract tests ok: required=$($RequiredTests.Count) module_tests=43 host_tests=4"
+    Write-Host "next-core MCP contract tests ok: required=$($RequiredTests.Count) module_tests=44 host_tests=4"
 } finally {
     Pop-Location
 }

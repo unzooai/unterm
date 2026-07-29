@@ -1037,6 +1037,21 @@ pub trait SessionEngine {
 
 pub trait ScreenEngine {
     fn read_screen(&self, pane_id: usize) -> Result<ScreenSnapshot>;
+
+    /// Throw away a pane's history, and the visible screen with it when asked.
+    ///
+    /// Not the `CSI 3 J` a program can send: this is somebody -- a person at
+    /// the keyboard or an agent that has just filled a pane with a build log
+    /// -- saying they are done with it. The cursor stays where it is rather
+    /// than being homed, because nothing about the running command changed.
+    ///
+    /// Defaults to refusing rather than to quietly doing nothing: an engine
+    /// that cannot forget should say so, or a caller has no way to tell the
+    /// difference between "cleared" and "ignored".
+    fn erase_scrollback(&self, _pane_id: usize, _include_viewport: bool) -> Result<()> {
+        anyhow::bail!("this engine cannot clear a pane's history")
+    }
+
     #[allow(dead_code)]
     fn read_styled_screen(&self, pane_id: usize) -> Result<StyledScreenSnapshot>;
     #[allow(dead_code)]

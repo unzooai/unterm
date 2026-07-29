@@ -322,6 +322,21 @@ pub const MCP_METHODS: &[McpMethod] = &[
         ],
     },
     McpMethod {
+        name: "screen.clear",
+        namespace: "screen",
+        summary: "Throw away a pane's scrollback, and the visible screen with it when asked.",
+        params: &[
+            P_PANE_ID,
+            P_SESSION_ID,
+            Param {
+                name: "include_screen",
+                kind: "bool",
+                required: false,
+                summary: "Also clear what is currently on screen. Default false.",
+            },
+        ],
+    },
+    McpMethod {
         name: "screen.search",
         namespace: "screen",
         summary: "Find a substring in the scrollback; optionally jump the viewport to a match.",

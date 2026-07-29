@@ -278,5 +278,8 @@
   "web.toast.theme_applied": "Theme angewendet: {id}",
   "web.toast.theme_failed": "Theme: {err}",
   "menu.select_pane": "Bereich wählen…",
-  "menu.swap_pane": "Bereiche tauschen…"
+  "menu.swap_pane": "Bereiche tauschen…",
+  "notice.scrollback_cleared": "Verlauf gelöscht",
+  "notice.screen_cleared": "Bildschirm gelöscht",
+  "menu.clear_scrollback": "Verlauf löschen"
 }

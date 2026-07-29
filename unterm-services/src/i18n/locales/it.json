@@ -278,5 +278,8 @@
   "web.toast.theme_applied": "Tema applicato: {id}",
   "web.toast.theme_failed": "tema: {err}",
   "menu.select_pane": "Seleziona riquadro…",
-  "menu.swap_pane": "Scambia riquadri…"
+  "menu.swap_pane": "Scambia riquadri…",
+  "notice.scrollback_cleared": "Cronologia cancellata",
+  "notice.screen_cleared": "Schermo cancellato",
+  "menu.clear_scrollback": "Cancella cronologia"
 }

@@ -60,6 +60,10 @@ pub enum Action {
     NewWindow,
     ClosePane,
     ZoomPane,
+    /// Throw away the scrollback, keeping what is on screen.
+    ClearScrollback,
+    /// Throw away the scrollback and the screen with it.
+    ClearScreen,
     /// Put a letter on every pane and go to the one that is typed.
     SelectPane,
     /// The same, but exchange the chosen pane with the one in front.
@@ -101,6 +105,8 @@ impl Action {
             Action::NewWindow => "NewWindow",
             Action::ClosePane => "ClosePane",
             Action::ZoomPane => "ZoomPane",
+            Action::ClearScrollback => "ClearScrollback",
+            Action::ClearScreen => "ClearScreen",
             Action::SelectPane => "SelectPane",
             Action::SwapPane => "SwapPane",
             Action::FocusPane(Direction::Left) => "FocusPaneLeft",
@@ -155,6 +161,8 @@ impl Action {
             Action::NewWindow => "New Window",
             Action::ClosePane => "Close Pane",
             Action::ZoomPane => "Zoom Pane",
+            Action::ClearScrollback => "Clear Scrollback",
+            Action::ClearScreen => "Clear Screen",
             Action::SelectPane => "Select Pane",
             Action::SwapPane => "Swap Pane",
             Action::FocusPane(Direction::Left) => "Focus Pane Left",
@@ -375,6 +383,20 @@ pub const BINDINGS: &[Binding] = &[
         mods: CTRL_SHIFT_ALT,
         trigger: Trigger::Char('\''),
         action: Action::SwapPane,
+    },
+    // Throw away the history. The screen is kept, because the reason to ask is
+    // almost always "this pane has a hundred thousand lines of build output
+    // behind it" and not "I want to lose what I am reading". Adding Alt takes
+    // the screen too, which is `clear` with nothing left to scroll back to.
+    Binding {
+        mods: CTRL_SHIFT,
+        trigger: Trigger::Char('k'),
+        action: Action::ClearScrollback,
+    },
+    Binding {
+        mods: CTRL_SHIFT_ALT,
+        trigger: Trigger::Char('k'),
+        action: Action::ClearScreen,
     },
     Binding {
         mods: CTRL_SHIFT,
