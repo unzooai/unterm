@@ -276,5 +276,7 @@
   "web.toast.refresh": "更新失敗:{err}",
   "web.toast.session_failed": "セッション:{err}",
   "web.toast.theme_applied": "テーマを適用しました:{id}",
-  "web.toast.theme_failed": "テーマ:{err}"
+  "web.toast.theme_failed": "テーマ:{err}",
+  "menu.select_pane": "ペインを選択…",
+  "menu.swap_pane": "ペインを入れ替え…"
 }

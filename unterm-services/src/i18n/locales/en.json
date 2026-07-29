@@ -102,6 +102,8 @@
   "menu.command_palette": "Command Palette",
   "menu.copy_path": "Copy Path",
   "menu.dir_jump": "Go to Directory…",
+  "menu.select_pane": "Select Pane…",
+  "menu.swap_pane": "Swap Pane…",
   "menu.find": "Find",
   "menu.git_panel": "Git Panel",
   "menu.left_tabs": "Left Tab Bar",

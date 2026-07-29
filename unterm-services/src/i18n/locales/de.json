@@ -276,5 +276,7 @@
   "web.toast.refresh": "Aktualisierung: {err}",
   "web.toast.session_failed": "Sitzung: {err}",
   "web.toast.theme_applied": "Theme angewendet: {id}",
-  "web.toast.theme_failed": "Theme: {err}"
+  "web.toast.theme_failed": "Theme: {err}",
+  "menu.select_pane": "Bereich wählen…",
+  "menu.swap_pane": "Bereiche tauschen…"
 }

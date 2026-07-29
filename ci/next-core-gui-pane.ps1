@@ -1085,12 +1085,13 @@ $Suites = @(
         Name = "pane placement"
         Package = "unterm-app"
         Filter = "panes::tests::"
-        ExpectedCount = 7
+        ExpectedCount = 8
         RequiredTests = @(
             "panes::tests::a_pane_to_the_right_starts_after_the_cells_before_it",
             "panes::tests::a_pane_below_starts_after_the_rows_above_it",
             "panes::tests::a_pane_the_engine_sized_to_nothing_still_asks_for_a_cell",
-            "panes::tests::placements_do_not_overlap"
+            "panes::tests::placements_do_not_overlap",
+            "panes::tests::a_divider_stays_inside_the_cell_that_was_reserved_for_it"
         )
     },
     @{
@@ -1291,6 +1292,67 @@ $Suites = @(
             "palette::source_tests::replaced_rows_keep_the_order_they_arrived_in",
             "palette::source_tests::replacing_rows_leaves_the_query_alone",
             "palette::source_tests::nothing_found_shows_nothing"
+        )
+    },
+    @{
+        # Pick a pane by typing one letter. Four panes open and the one you
+        # want is the bottom right: the mouse, or three presses of a direction
+        # key, or this.
+        Name = "pane selector"
+        Package = "unterm-app"
+        Filter = "paneselect::"
+        ExpectedCount = 11
+        RequiredTests = @(
+            "paneselect::picker_tests::a_label_takes_you_to_its_pane",
+            "paneselect::picker_tests::a_two_letter_label_needs_both_letters",
+            "paneselect::picker_tests::a_letter_that_leads_nowhere_starts_again",
+            "paneselect::picker_tests::labels_are_assigned_in_reading_order",
+            "paneselect::picker_tests::anything_else_is_swallowed_rather_than_passed_on",
+            "paneselect::picker_tests::the_labels_are_the_ones_the_copy_hints_use"
+        )
+    },
+    @{
+        # And the labels themselves: no label may be the beginning of another,
+        # or it fires the moment it is typed and everything longer that starts
+        # with it can never be reached.
+        Name = "hint labels"
+        Package = "unterm-app"
+        Filter = "copy_mode::label_tests::"
+        ExpectedCount = 7
+        RequiredTests = @(
+            "copy_mode::label_tests::no_label_is_the_beginning_of_another",
+            "copy_mode::label_tests::exactly_the_number_asked_for",
+            "copy_mode::label_tests::every_label_is_different",
+            "copy_mode::label_tests::labels_stay_as_short_as_they_can"
+        )
+    },
+    @{
+        # Which way a split goes. The kernel deliberately does not arrange
+        # panes, so the direction an agent asked for reaches the front end
+        # from the MCP surface rather than through the kernel.
+        Name = "split direction"
+        Package = "unterm-app"
+        Filter = "mcp_host::split_tests::"
+        ExpectedCount = 5
+        RequiredTests = @(
+            "mcp_host::split_tests::every_direction_becomes_the_cut_it_names",
+            "mcp_host::split_tests::the_share_is_always_the_new_panes",
+            "mcp_host::split_tests::no_split_leaves_a_pane_with_nothing",
+            "mcp_host::split_tests::the_note_is_taken_rather_than_read"
+        )
+    },
+    @{
+        # Whether a window is still open. A check that cannot say no keeps
+        # every window ever opened in the registry, and routing to one of them
+        # reaches a process that exited.
+        Name = "instance liveness"
+        Package = "unterm-services"
+        Filter = "server_info::pid_alive_tests::"
+        ExpectedCount = 3
+        RequiredTests = @(
+            "server_info::pid_alive_tests::this_process_is_alive",
+            "server_info::pid_alive_tests::a_process_id_nobody_has_reads_as_dead",
+            "server_info::pid_alive_tests::a_process_that_has_exited_reads_as_dead"
         )
     },
     @{

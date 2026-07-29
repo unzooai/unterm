@@ -1474,6 +1474,26 @@ pub trait McpHost: Send + Sync {
         anyhow::bail!("this front end has no window to capture")
     }
 
+    /// Tell the front end which way a pane was just split.
+    ///
+    /// The kernel deliberately does not arrange panes -- where a pane sits is
+    /// a product decision, and the kernel's job stops at running the shell. So
+    /// it records only that a pane came from another one, and a front end
+    /// adopting it has to guess which way. This is how the request's own
+    /// answer reaches it instead: an agent asking to split downwards and
+    /// getting a column beside it got something other than what it asked for.
+    ///
+    /// Called after the pane exists, so the front end can act on it whenever
+    /// it next looks. A front end with no arrangement to keep ignores it.
+    fn note_split(
+        &self,
+        _new_pane: usize,
+        _source_pane: usize,
+        _direction: SplitDirection,
+        _size_percent: u8,
+    ) {
+    }
+
     /// The key assignments this front end has, for the tool catalogue.
     fn key_assignments(&self) -> Vec<serde_json::Value> {
         Vec::new()

@@ -276,5 +276,7 @@
   "web.toast.refresh": "actualisation : {err}",
   "web.toast.session_failed": "session : {err}",
   "web.toast.theme_applied": "Thème appliqué : {id}",
-  "web.toast.theme_failed": "thème : {err}"
+  "web.toast.theme_failed": "thème : {err}",
+  "menu.select_pane": "Sélectionner un volet…",
+  "menu.swap_pane": "Échanger les volets…"
 }

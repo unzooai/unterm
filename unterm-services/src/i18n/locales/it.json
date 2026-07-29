@@ -276,5 +276,7 @@
   "web.toast.refresh": "aggiornamento: {err}",
   "web.toast.session_failed": "sessione: {err}",
   "web.toast.theme_applied": "Tema applicato: {id}",
-  "web.toast.theme_failed": "tema: {err}"
+  "web.toast.theme_failed": "tema: {err}",
+  "menu.select_pane": "Seleziona riquadro…",
+  "menu.swap_pane": "Scambia riquadri…"
 }

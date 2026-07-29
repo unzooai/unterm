@@ -276,5 +276,7 @@
   "web.toast.refresh": "새로 고침: {err}",
   "web.toast.session_failed": "세션: {err}",
   "web.toast.theme_applied": "테마 적용: {id}",
-  "web.toast.theme_failed": "테마: {err}"
+  "web.toast.theme_failed": "테마: {err}",
+  "menu.select_pane": "창 선택…",
+  "menu.swap_pane": "창 바꾸기…"
 }

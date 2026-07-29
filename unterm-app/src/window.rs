@@ -130,6 +130,8 @@ pub struct App {
     copy_mode: Option<crate::copy_mode::CopyMode>,
     /// Quick select's labels, and what has been typed towards one.
     quick_select: Option<(Vec<crate::copy_mode::Labelled>, String)>,
+    /// A letter on every pane, while one is being picked.
+    pane_select: Option<crate::paneselect::Selector>,
     /// Where the first shell should start, if the command line said.
     start_directory: Option<std::path::PathBuf>,
     /// The last clipboard request honoured, so it is not honoured twice.
@@ -231,6 +233,7 @@ impl App {
             palette: None,
             copy_mode: None,
             quick_select: None,
+            pane_select: None,
             start_directory: None,
             clipboard_honoured: None,
             inbox_open: false,
@@ -430,6 +433,7 @@ impl App {
         self.append_search_bar(window_width, &mut quads);
         self.append_copy_mode(&mut quads);
         self.append_quick_select(&mut quads);
+        self.append_pane_select(&mut quads);
         // Everything from here up is a panel, and a panel has to cover what
         // is behind it rather than sit in the same layer as it.
         let overlays = quads.mark();
@@ -1346,6 +1350,8 @@ impl App {
             Action::NewWindow => self.new_window(),
             Action::ClosePane => self.close_pane(session_id),
             Action::ZoomPane => self.toggle_zoom(session_id),
+            Action::SelectPane => self.open_pane_select(crate::paneselect::Mode::Activate),
+            Action::SwapPane => self.open_pane_select(crate::paneselect::Mode::Swap),
             Action::FocusPane(direction) => self.focus_pane_toward(direction),
             Action::SelectTab(number) => self.select_tab(number),
             Action::IncreaseFontSize => self.change_font_size(1.0),
@@ -2357,6 +2363,18 @@ impl App {
                 hint: "CTRL|SHIFT D".to_string(),
                 command: crate::palette::Command::Action(crate::keys::Action::SplitRight),
             },
+            // Only with something to choose between: a selector over one pane
+            // is a letter you press to stay where you already are.
+            crate::palette::Entry {
+                label: t("menu.select_pane"),
+                hint: "CTRL|SHIFT '".to_string(),
+                command: crate::palette::Command::Action(crate::keys::Action::SelectPane),
+            },
+            crate::palette::Entry {
+                label: t("menu.swap_pane"),
+                hint: "CTRL|SHIFT|ALT '".to_string(),
+                command: crate::palette::Command::Action(crate::keys::Action::SwapPane),
+            },
             crate::palette::Entry {
                 label: if recording {
                     t("settings.menu.recording_on")
@@ -2659,14 +2677,22 @@ impl App {
             let split = session
                 .split_from
                 .filter(|source| self.tabs.tab_of_pane(*source).is_some());
+            // Which way, if whoever asked for it said. The kernel records only
+            // that the pane came from another one -- how they sit together is
+            // this side's decision, so the request's own answer is left here
+            // by the MCP surface rather than carried through the kernel.
+            let asked = crate::mcp_host::take_split(session.id)
+                .filter(|split| Some(split.source) == session.split_from);
             let outcome = match split {
                 Some(source) => self
                     .tabs
                     .split(
                         source,
                         session.id,
-                        unterm_engine::next_core::layout::SplitAxis::Horizontal,
-                        0.5,
+                        asked
+                            .map(|split| split.axis)
+                            .unwrap_or(unterm_engine::next_core::layout::SplitAxis::Horizontal),
+                        asked.map(|split| split.first_ratio).unwrap_or(0.5),
                     )
                     .map(|_| ()),
                 None => self.tabs.create_tab(session.id).map(|_| ()),
@@ -2816,6 +2842,54 @@ impl App {
     }
 
     /// Quick select's labels, over the text they stand for.
+    /// A letter on every pane, while one is being picked.
+    ///
+    /// Drawn over the pane's own top-left corner rather than centred: centred
+    /// puts the letter in the middle of whatever the pane is showing, and the
+    /// corner is where the eye already goes to tell panes apart.
+    fn append_pane_select(&mut self, quads: &mut unterm_render::quads::FrameQuads) {
+        let Some(selector) = self.pane_select.clone() else {
+            return;
+        };
+        let panes = self.placements();
+        let order = crate::paneselect::reading_order(&panes);
+        let metrics = self.font.metrics();
+        let theme = self.theme();
+
+        // Over everything, so a label is never behind the text it labels.
+        let mark = quads.mark();
+        for (index, label) in selector.labels.iter().enumerate() {
+            // Once a letter is typed, only the labels still in the running.
+            // Showing the rest offers choices that are no longer there.
+            if !selector.typing.is_empty() && !label.starts_with(&selector.typing) {
+                continue;
+            }
+            let Some(pane) = order.get(index).and_then(|at| panes.get(*at)) else {
+                continue;
+            };
+            let width = metrics.width * (label.chars().count() as f32 + 2.0);
+            let height = metrics.height * 2.0;
+            let left = pane.origin.0;
+            let top = pane.origin.1;
+            quads.backgrounds.push(unterm_render::quads::Quad {
+                left,
+                top,
+                width,
+                height,
+                color: theme.selection,
+            });
+            crate::terminal::append_text(
+                label,
+                &mut self.font,
+                &mut self.atlas,
+                theme.selection_text,
+                (left + metrics.width, top + metrics.height / 2.0),
+                quads,
+            );
+        }
+        quads.raise_since(mark);
+    }
+
     fn append_quick_select(&mut self, quads: &mut unterm_render::quads::FrameQuads) {
         let Some((found, typed)) = self.quick_select.clone() else {
             return;
@@ -3154,6 +3228,101 @@ impl App {
     }
 
     /// Where each pane goes, in pixels.
+    /// Put a letter on every pane.
+    ///
+    /// Nothing to choose between is nothing to open: a selector over one pane
+    /// is a letter you have to press to stay where you already are.
+    fn open_pane_select(&mut self, mode: crate::paneselect::Mode) {
+        let panes = self.placements();
+        if panes.len() < 2 {
+            return;
+        }
+        self.pane_select = Some(crate::paneselect::Selector::new(panes.len(), mode));
+        self.drawn_revision = None;
+    }
+
+    /// Type at the pane selector. Returns true when the key was its.
+    fn handle_pane_select_key(&mut self, event: &winit::event::KeyEvent) -> bool {
+        use winit::keyboard::Key as WinitKey;
+        let Some(mut selector) = self.pane_select.take() else {
+            return false;
+        };
+        let named = match &event.logical_key {
+            WinitKey::Named(named) => Some(format!("{named:?}")),
+            _ => None,
+        };
+        let character = match &event.logical_key {
+            WinitKey::Character(text) => Some(text.to_string()),
+            _ => None,
+        };
+
+        match selector.key(named.as_deref(), character.as_deref(), self.ctrl_held) {
+            crate::paneselect::Outcome::Chose(index) => self.take_pane(&selector, index),
+            crate::paneselect::Outcome::Typing => self.pane_select = Some(selector),
+            crate::paneselect::Outcome::Cancelled => {}
+            // Nothing reaches the shell while it is open: a keystroke through
+            // it would run in whichever pane happens to be in front.
+            crate::paneselect::Outcome::Ignored => self.pane_select = Some(selector),
+        }
+        self.drawn_revision = None;
+        true
+    }
+
+    /// Do whatever the selector was opened to do, to the pane that was picked.
+    fn take_pane(&mut self, selector: &crate::paneselect::Selector, index: usize) {
+        let panes = self.placements();
+        let order = crate::paneselect::reading_order(&panes);
+        let Some(chosen) = order.get(index).and_then(|at| panes.get(*at)) else {
+            return;
+        };
+        let chosen = chosen.session_id;
+
+        match selector.mode {
+            crate::paneselect::Mode::Activate => {
+                self.tabs.set_active_pane(chosen);
+                self.focus_session(chosen);
+            }
+            crate::paneselect::Mode::Swap | crate::paneselect::Mode::SwapKeepFocus => {
+                let follow = selector.mode == crate::paneselect::Mode::Swap;
+                self.swap_panes(chosen, follow);
+            }
+        }
+    }
+
+    /// Exchange the chosen pane with the one in front.
+    ///
+    /// Done by rebuilding the tab's arrangement with the two panes' places
+    /// exchanged, rather than by moving anything: the shells keep running
+    /// where they are, and only the rectangles they are drawn in change.
+    fn swap_panes(&mut self, chosen: usize, follow: bool) {
+        let (Some(tab_id), Some(live)) = (self.tab_id, self.state.as_ref()) else {
+            return;
+        };
+        let focused = self.tabs.active_pane(tab_id).unwrap_or(live.session_id);
+        if focused == chosen {
+            return;
+        }
+        let (cols, rows) = self.font.grid_for(self.terminal_width(), self.terminal_height());
+        let mut positions = self.tabs.positions(tab_id, cols, rows);
+        for position in &mut positions {
+            if position.pane_id == focused {
+                position.pane_id = chosen;
+            } else if position.pane_id == chosen {
+                position.pane_id = focused;
+            }
+        }
+        // Staying put means the focus keeps its *place*, which after the
+        // exchange is the other pane; following means it keeps its *pane*.
+        let active = if follow { chosen } else { focused };
+        if let Err(err) = self.tabs.adopt_tab(tab_id, &positions, active) {
+            log::warn!("could not swap panes: {err:#}");
+            return;
+        }
+        self.tabs.set_active_pane(active);
+        self.focus_session(active);
+        self.resize_panes();
+    }
+
     fn placements(&self) -> Vec<crate::panes::PanePlacement> {
         let (Some(tab_id), Some(_live)) = (self.tab_id, self.state.as_ref()) else {
             return Vec::new();
@@ -3386,6 +3555,13 @@ impl ApplicationHandler for App {
                 // The palette takes the keyboard while it is open, before
                 // anything else looks at the key.
                 if self.palette.is_some() && self.handle_palette_key(&event) {
+                    return;
+                }
+
+                // And so does the pane selector: every letter on screen is one
+                // of its labels, and a letter that fell through would run in
+                // whichever pane happens to be in front.
+                if self.pane_select.is_some() && self.handle_pane_select_key(&event) {
                     return;
                 }
 

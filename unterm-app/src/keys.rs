@@ -60,6 +60,10 @@ pub enum Action {
     NewWindow,
     ClosePane,
     ZoomPane,
+    /// Put a letter on every pane and go to the one that is typed.
+    SelectPane,
+    /// The same, but exchange the chosen pane with the one in front.
+    SwapPane,
     FocusPane(Direction),
     /// One-based, as the key is labelled.
     SelectTab(u8),
@@ -97,6 +101,8 @@ impl Action {
             Action::NewWindow => "NewWindow",
             Action::ClosePane => "ClosePane",
             Action::ZoomPane => "ZoomPane",
+            Action::SelectPane => "SelectPane",
+            Action::SwapPane => "SwapPane",
             Action::FocusPane(Direction::Left) => "FocusPaneLeft",
             Action::FocusPane(Direction::Right) => "FocusPaneRight",
             Action::FocusPane(Direction::Up) => "FocusPaneUp",
@@ -149,6 +155,8 @@ impl Action {
             Action::NewWindow => "New Window",
             Action::ClosePane => "Close Pane",
             Action::ZoomPane => "Zoom Pane",
+            Action::SelectPane => "Select Pane",
+            Action::SwapPane => "Swap Pane",
             Action::FocusPane(Direction::Left) => "Focus Pane Left",
             Action::FocusPane(Direction::Right) => "Focus Pane Right",
             Action::FocusPane(Direction::Up) => "Focus Pane Up",
@@ -263,6 +271,11 @@ const CTRL_SHIFT: Mods = Mods {
     shift: true,
     alt: false,
 };
+const CTRL_SHIFT_ALT: Mods = Mods {
+    ctrl: true,
+    shift: true,
+    alt: true,
+};
 const CTRL: Mods = Mods {
     ctrl: true,
     shift: false,
@@ -348,6 +361,20 @@ pub const BINDINGS: &[Binding] = &[
         mods: CTRL_SHIFT,
         trigger: Trigger::Char('z'),
         action: Action::ZoomPane,
+    },
+    // The pane selector, on the letter the previous front end used. Swapping
+    // is the same gesture with a different ending, so it is the same key with
+    // a different hand on it -- and Alt rather than another letter, because
+    // the two belong together in the muscle memory.
+    Binding {
+        mods: CTRL_SHIFT,
+        trigger: Trigger::Char('\''),
+        action: Action::SelectPane,
+    },
+    Binding {
+        mods: CTRL_SHIFT_ALT,
+        trigger: Trigger::Char('\''),
+        action: Action::SwapPane,
     },
     Binding {
         mods: CTRL_SHIFT,

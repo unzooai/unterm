@@ -176,9 +176,10 @@ pub fn labelled(lines: &[StyledScreenLine]) -> Vec<Labelled> {
 
     // Bottom-up: the thing you want is usually the thing that just appeared.
     found.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+    let labels = labels_for(found.len());
     found
         .into_iter()
-        .zip(labels())
+        .zip(labels)
         .map(|((row, start, end, text), label)| Labelled {
             label,
             row,
@@ -189,15 +190,51 @@ pub fn labelled(lines: &[StyledScreenLine]) -> Vec<Labelled> {
         .collect()
 }
 
-/// Labels: single letters first, then pairs when those run out.
-fn labels() -> impl Iterator<Item = String> {
-    let singles = LABEL_ALPHABET.iter().map(|ch| (*ch as char).to_string());
-    let pairs = LABEL_ALPHABET.iter().flat_map(|a| {
-        LABEL_ALPHABET
+/// Exactly `count` labels, none of them a prefix of another.
+///
+/// That last part is the whole algorithm, and getting it wrong is not subtle.
+/// Single letters first and pairs afterwards looks right and is broken: `a`
+/// and `aa` both exist, `a` matches the moment it is typed, and every label
+/// starting with `a` becomes unreachable. Which is what happened here -- with
+/// more than twenty things on screen, most of the hints could not be typed.
+///
+/// Instead letters are *taken* from the end of the alphabet to become the
+/// first character of pairs, so no letter is ever both a label and a prefix.
+/// Twenty-one matches means the last letter stops being a label of its own and
+/// becomes the prefix for as many pairs as are still needed.
+///
+/// From tmux-thumbs by way of the previous front end, which is where the
+/// property came from in the first place.
+pub fn labels_for(count: usize) -> Vec<String> {
+    let alphabet: Vec<String> = LABEL_ALPHABET
+        .iter()
+        .map(|ch| (*ch as char).to_string())
+        .collect();
+    let mut single = alphabet.clone();
+    let mut paired: Vec<String> = Vec::new();
+
+    while single.len() + paired.len() < count {
+        let Some(prefix) = single.pop() else {
+            break;
+        };
+        // Only as many pairs as are still short, and taken from the front of
+        // the alphabet -- the prefix came off the back, so the two cannot
+        // collide.
+        let wanted = count.saturating_sub(single.len() + paired.len());
+        let prefixed: Vec<String> = alphabet
             .iter()
-            .map(move |b| format!("{}{}", *a as char, *b as char))
-    });
-    singles.chain(pairs)
+            .take(wanted)
+            .map(|second| format!("{prefix}{second}"))
+            .collect();
+        paired.splice(0..0, prefixed);
+    }
+
+    let pairs = paired.len();
+    single
+        .into_iter()
+        .take(count.saturating_sub(pairs))
+        .chain(paired)
+        .collect()
 }
 
 /// Character ranges worth offering: URLs, paths, hashes, quoted strings.
@@ -391,5 +428,93 @@ mod tests {
         line.cells[0].width = 2;
         let found = labelled(&[line]);
         assert_eq!(found[0].start, 3, "two columns for the character, one space");
+    }
+}
+
+#[cfg(test)]
+mod label_tests {
+    use super::*;
+
+    #[test]
+    fn a_short_list_gets_single_letters() {
+        assert_eq!(labels_for(3), vec!["a", "s", "d"]);
+        assert_eq!(labels_for(0), Vec::<String>::new());
+    }
+
+    #[test]
+    fn exactly_the_number_asked_for() {
+        for count in [0, 1, 5, 20, 21, 40, 100, 399] {
+            assert_eq!(labels_for(count).len(), count, "for {count}");
+        }
+    }
+
+    /// The property everything else rests on. Without it a label that is also
+    /// the start of another label fires the moment it is typed, and every
+    /// longer label beginning with it can never be reached -- which is what
+    /// singles-then-pairs did, and why most hints on a busy screen could not
+    /// be typed at all.
+    #[test]
+    fn no_label_is_the_beginning_of_another() {
+        for count in [1, 19, 20, 21, 25, 40, 60, 200, 399] {
+            let labels = labels_for(count);
+            for (index, label) in labels.iter().enumerate() {
+                for other in labels.iter().skip(index + 1) {
+                    assert!(
+                        !other.starts_with(label.as_str()),
+                        "with {count} labels, {label:?} is the start of {other:?}"
+                    );
+                    assert!(
+                        !label.starts_with(other.as_str()),
+                        "with {count} labels, {other:?} is the start of {label:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn every_label_is_different() {
+        for count in [20, 21, 40, 200] {
+            let labels = labels_for(count);
+            let unique: std::collections::HashSet<&String> = labels.iter().collect();
+            assert_eq!(unique.len(), labels.len(), "for {count}");
+        }
+    }
+
+    /// Twenty-one is the interesting number: one more than the alphabet, so
+    /// exactly one letter has to stop being a label and become a prefix.
+    #[test]
+    fn one_letter_past_the_alphabet_gives_up_exactly_one_letter() {
+        let labels = labels_for(21);
+        let singles = labels.iter().filter(|label| label.len() == 1).count();
+        assert_eq!(singles, 19, "{labels:?}");
+        assert_eq!(labels.iter().filter(|label| label.len() == 2).count(), 2);
+    }
+
+    /// Labels stay short: a screen full of matches should not need three
+    /// keystrokes each while two-letter labels are still available.
+    #[test]
+    fn labels_stay_as_short_as_they_can() {
+        for (count, longest) in [(20, 1), (21, 2), (100, 2), (399, 2)] {
+            let widest = labels_for(count)
+                .iter()
+                .map(|label| label.chars().count())
+                .max()
+                .unwrap_or(0);
+            assert_eq!(widest, longest, "for {count}");
+        }
+    }
+
+    /// And they only use the alphabet that was chosen for being unambiguous in
+    /// a terminal font.
+    #[test]
+    fn labels_use_only_the_chosen_alphabet() {
+        let allowed: std::collections::HashSet<char> =
+            LABEL_ALPHABET.iter().map(|ch| *ch as char).collect();
+        for label in labels_for(200) {
+            for ch in label.chars() {
+                assert!(allowed.contains(&ch), "{label:?} uses {ch:?}");
+            }
+        }
     }
 }

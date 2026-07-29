@@ -276,5 +276,7 @@
   "web.toast.refresh": "ताज़ा करना: {err}",
   "web.toast.session_failed": "सत्र: {err}",
   "web.toast.theme_applied": "थीम लागू: {id}",
-  "web.toast.theme_failed": "थीम: {err}"
+  "web.toast.theme_failed": "थीम: {err}",
+  "menu.select_pane": "पैन चुनें…",
+  "menu.swap_pane": "पैन बदलें…"
 }

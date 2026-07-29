@@ -37,24 +37,36 @@ pub fn place(session_id: usize, rect: PaneRect, metrics: CellMetrics) -> PanePla
     }
 }
 
+/// How thick the line between two panes is drawn, in pixels.
+///
+/// A line, not the gap it sits in. The layout keeps a whole cell between
+/// panes, because the panes have to land on cell boundaries -- but filling
+/// that cell draws a bar as wide as a character, which reads as a window frame
+/// between two windows rather than as a seam in one.
+const WEIGHT: f32 = 2.0;
+
 /// The divider between two panes, if there is room for one.
 ///
 /// A line rather than a gap: without something drawn there, two shells with
-/// the same background look like one shell with strange wrapping.
+/// the same background look like one shell with strange wrapping. Centred in
+/// the cell the layout reserved, so the space either side of it belongs to
+/// neither pane and the line itself is the boundary.
 pub fn divider_after(rect: PaneRect, metrics: CellMetrics, vertical: bool) -> Option<(f32, f32, f32, f32)> {
     if vertical {
+        let cell_left = (rect.left + rect.width) as f32 * metrics.width;
         Some((
-            (rect.left + rect.width) as f32 * metrics.width,
+            cell_left + ((metrics.width - WEIGHT) / 2.0).round().max(0.0),
             rect.top as f32 * metrics.height,
-            metrics.width,
+            WEIGHT.min(metrics.width),
             rect.height as f32 * metrics.height,
         ))
     } else {
+        let cell_top = (rect.top + rect.height) as f32 * metrics.height;
         Some((
             rect.left as f32 * metrics.width,
-            (rect.top + rect.height) as f32 * metrics.height,
+            cell_top + ((metrics.height - WEIGHT) / 2.0).round().max(0.0),
             rect.width as f32 * metrics.width,
-            metrics.height,
+            WEIGHT.min(metrics.height),
         ))
     }
 }
@@ -111,22 +123,60 @@ mod tests {
         assert_eq!((placed.cols, placed.rows), (1, 1));
     }
 
+    /// In the reserved column, and thin: the layout keeps a whole cell between
+    /// panes because panes land on cell boundaries, but filling that cell
+    /// draws a bar as wide as a character -- a frame between two windows
+    /// rather than a seam in one.
     #[test]
-    fn a_vertical_divider_sits_in_the_column_between_two_panes() {
+    fn a_vertical_divider_is_a_line_centred_in_the_column_between_two_panes() {
+        let cell = metrics();
         let (left, top, width, height) =
-            divider_after(rect(0, 0, 40, 24), metrics(), true).expect("a divider");
+            divider_after(rect(0, 0, 40, 24), cell, true).expect("a divider");
 
-        assert_eq!((left, top), (400.0, 0.0));
-        assert_eq!((width, height), (10.0, 480.0));
+        assert_eq!(top, 0.0);
+        assert_eq!(height, 480.0);
+        assert!(width < cell.width, "the divider fills its column");
+        // Inside the reserved column, with room either side.
+        assert!(left > 400.0 && left + width < 410.0, "at {left} wide {width}");
     }
 
     #[test]
-    fn a_horizontal_divider_sits_in_the_row_between_two_panes() {
+    fn a_horizontal_divider_is_a_line_centred_in_the_row_between_two_panes() {
+        let cell = metrics();
         let (left, top, width, height) =
-            divider_after(rect(0, 0, 80, 12), metrics(), false).expect("a divider");
+            divider_after(rect(0, 0, 80, 12), cell, false).expect("a divider");
 
-        assert_eq!((left, top), (0.0, 240.0));
-        assert_eq!((width, height), (800.0, 20.0));
+        assert_eq!(left, 0.0);
+        assert_eq!(width, 800.0);
+        assert!(height < cell.height, "the divider fills its row");
+        assert!(top > 240.0 && top + height < 260.0, "at {top} high {height}");
+    }
+
+    /// It never reaches into either pane. A divider a pixel too wide eats the
+    /// first column of the pane beside it, which is where a prompt starts.
+    #[test]
+    fn a_divider_stays_inside_the_cell_that_was_reserved_for_it() {
+        for cell in [
+            CellMetrics { width: 3.0, height: 4.0, baseline: 3.0 },
+            CellMetrics { width: 10.0, height: 20.0, baseline: 16.0 },
+            CellMetrics { width: 1.0, height: 1.0, baseline: 1.0 },
+        ] {
+            let (left, _, width, _) = divider_after(rect(0, 0, 4, 4), cell, true).expect("one");
+            let column = 4.0 * cell.width;
+            assert!(left >= column, "{cell:?}: starts before the column");
+            assert!(
+                left + width <= column + cell.width,
+                "{cell:?}: runs into the pane beside it"
+            );
+
+            let (_, top, _, height) = divider_after(rect(0, 0, 4, 4), cell, false).expect("one");
+            let row = 4.0 * cell.height;
+            assert!(top >= row, "{cell:?}: starts above the row");
+            assert!(
+                top + height <= row + cell.height,
+                "{cell:?}: runs into the pane below it"
+            );
+        }
     }
 
     #[test]

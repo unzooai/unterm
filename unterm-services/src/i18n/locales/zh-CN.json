@@ -102,6 +102,8 @@
   "menu.command_palette": "命令面板",
   "menu.copy_path": "复制路径",
   "menu.dir_jump": "跳转目录…",
+  "menu.select_pane": "选择分栏…",
+  "menu.swap_pane": "交换分栏…",
   "menu.find": "查找",
   "menu.git_panel": "Git 面板",
   "menu.left_tabs": "左侧标签栏",

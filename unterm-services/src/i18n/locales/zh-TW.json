@@ -276,5 +276,7 @@
   "web.toast.refresh": "重新整理失敗:{err}",
   "web.toast.session_failed": "工作階段:{err}",
   "web.toast.theme_applied": "已套用佈景主題:{id}",
-  "web.toast.theme_failed": "佈景主題:{err}"
+  "web.toast.theme_failed": "佈景主題:{err}",
+  "menu.select_pane": "選擇分割窗格…",
+  "menu.swap_pane": "交換分割窗格…"
 }

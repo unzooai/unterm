@@ -246,16 +246,27 @@ pub fn pid_alive(pid: u32) -> bool {
     #[cfg(windows)]
     unsafe {
         use winapi::shared::minwindef::FALSE;
+        use winapi::um::errhandlingapi::GetLastError;
         use winapi::um::handleapi::CloseHandle;
         use winapi::um::processthreadsapi::{GetExitCodeProcess, OpenProcess};
         use winapi::um::winnt::PROCESS_QUERY_LIMITED_INFORMATION;
-        let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
-        if h.is_null() {
-            return true;
+
+        /// There is no process with this id.
+        const ERROR_INVALID_PARAMETER: u32 = 87;
+
+        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+        if handle.is_null() {
+            // Two different answers arrive as the same null. A process that
+            // does not exist fails with "invalid parameter"; one that exists
+            // but will not be opened fails with "access denied". Reading both
+            // as "alive" is how the registry came to list eleven windows when
+            // one was open -- every window ever opened stayed in it, and
+            // routing to one of them reached a process that had exited.
+            return GetLastError() != ERROR_INVALID_PARAMETER;
         }
         let mut code: u32 = 0;
-        let ok = GetExitCodeProcess(h, &mut code) != 0;
-        CloseHandle(h);
+        let ok = GetExitCodeProcess(handle, &mut code) != 0;
+        CloseHandle(handle);
         // STILL_ACTIVE (259) means the process hasn't exited.
         !ok || code == 259
     }
@@ -1001,5 +1012,50 @@ mod tests {
 
         let _ = fs::remove_dir_all(&root);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod pid_alive_tests {
+    use super::*;
+
+    #[test]
+    fn this_process_is_alive() {
+        assert!(pid_alive(std::process::id()));
+    }
+
+    /// A process id nobody has been given reads as dead.
+    ///
+    /// Without this the registry keeps every window ever opened: entries are
+    /// only removed when their process is known to have gone, and a check that
+    /// never says so removes nothing. `instance.list` then reports windows
+    /// that are not there and routing to one reaches a process that exited.
+    #[test]
+    fn a_process_id_nobody_has_reads_as_dead() {
+        // Above the range the kernels allocate from, and not a multiple of
+        // four, which Windows process ids always are.
+        assert!(!pid_alive(0xFFFF_FFFE));
+        assert!(!pid_alive(0xFFFF_FFFD));
+        assert!(!pid_alive(0));
+    }
+
+    /// A process that has exited reads as dead, which is the case the registry
+    /// actually meets: a window that was open a moment ago and is not now.
+    #[test]
+    fn a_process_that_has_exited_reads_as_dead() {
+        let program = if cfg!(windows) { "cmd" } else { "true" };
+        let mut command = std::process::Command::new(program);
+        if cfg!(windows) {
+            command.args(["/C", "exit"]);
+        }
+        let Ok(mut child) = command.spawn() else {
+            // No shell on PATH is this machine's problem, not the check's.
+            return;
+        };
+        let pid = child.id();
+        assert!(pid_alive(pid), "a running child read as dead");
+        let _ = child.wait();
+        // The handle is closed by `wait`, so nothing is keeping the id alive.
+        assert!(!pid_alive(pid), "an exited child read as alive");
     }
 }
