@@ -6,6 +6,7 @@
 
 mod args;
 mod cockpit;
+mod composer;
 mod confirm;
 mod copy_mode;
 mod directory;

@@ -364,6 +364,22 @@ $Suites = @(
         )
     },
     @{
+        # A batch of prompts fed to an agent one at a time. The two rules that
+        # make it safe to leave running: nothing goes in while the pane is
+        # busy, and nothing goes in twice.
+        Name = "prompt queue"
+        Package = "unterm-app"
+        Filter = "composer::tests::"
+        ExpectedCount = 13
+        RequiredTests = @(
+            "composer::tests::nothing_is_sent_while_the_pane_is_busy",
+            "composer::tests::the_next_prompt_waits_for_the_pane_to_actually_start",
+            "composer::tests::a_blank_line_is_not_a_prompt",
+            "composer::tests::a_destructive_question_is_never_answered_automatically",
+            "composer::tests::clearing_lets_the_next_queue_start_immediately"
+        )
+    },
+    @{
         # What git says about where a pane is. Read-only: the shell is right
         # there for the rest, and what is missing when you look at a terminal
         # is knowing which branch you are on, not the ability to run `git add`.

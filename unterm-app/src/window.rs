@@ -30,6 +30,9 @@ const MAX_PALETTE_ROWS: usize = 12;
 /// terminal is a panel nobody opens twice.
 const MAX_GIT_ROWS: usize = 20;
 
+/// How many queued prompts the composer shows.
+const MAX_COMPOSER_ROWS: usize = 12;
+
 const MAX_INBOX_ROWS: usize = 12;
 
 /// How often the cockpit tracker is shown the panes.
@@ -130,6 +133,10 @@ pub struct App {
     /// panel that changes under the eye while being read is worse than one
     /// that is a moment old.
     git_panel: Option<crate::git::Panel>,
+    /// Prompts waiting to go into the focused pane, while the composer
+    /// is open. Closing it drops them: a queue that outlives the window
+    /// showing it would fire prompts nobody can see coming.
+    composer: Option<crate::composer::Composer>,
     /// When the cockpit tracker last saw the panes.
     cockpit_fed_at: std::time::Instant,
     /// What the program wants from the mouse, as of the last frame drawn.
@@ -199,6 +206,7 @@ impl App {
             clipboard_honoured: None,
             inbox_open: false,
             git_panel: None,
+            composer: None,
             cockpit_fed_at: std::time::Instant::now(),
             mouse_modes: Default::default(),
             held_mouse_button: None,
@@ -357,6 +365,7 @@ impl App {
         self.append_quick_select(&mut quads);
         self.append_inbox(window_width, &mut quads);
         self.append_git_panel(window_width, &mut quads);
+        self.append_composer(window_width, &mut quads);
         self.append_palette(window_width, &mut quads);
         let tab_count = self.tabs.tab_count();
         let active_tab = self
@@ -786,6 +795,13 @@ impl App {
                 self.drawn_revision = None;
             }
             Action::GitPanel => self.toggle_git_panel(),
+            Action::Composer => {
+                self.composer = match self.composer.take() {
+                    Some(_) => None,
+                    None => Some(crate::composer::Composer::default()),
+                };
+                self.drawn_revision = None;
+            }
             Action::CommandPalette => self.open_palette(command_entries()),
             Action::Launcher => self.open_palette(launcher_entries()),
             Action::Search => {
@@ -1161,6 +1177,105 @@ impl App {
     }
 
     /// The agent inbox, over the terminal.
+
+
+    /// Type into the composer. Returns true when the key was the composer's.
+    fn handle_composer_key(&mut self, event: &winit::event::KeyEvent) -> bool {
+        use winit::keyboard::{Key as WinitKey, NamedKey};
+
+        let Some(composer) = self.composer.as_mut() else {
+            return false;
+        };
+        match &event.logical_key {
+            WinitKey::Named(NamedKey::Enter) => composer.commit(),
+            WinitKey::Named(NamedKey::Backspace) => {
+                composer.typing.pop();
+            }
+            WinitKey::Named(NamedKey::Escape) => self.composer = None,
+            WinitKey::Named(NamedKey::Space) => composer.typing.push(' '),
+            WinitKey::Character(text) => composer.typing.push_str(text),
+            // Everything else belongs to the shell behind this: a queue is
+            // being written, not a program driven.
+            _ => return false,
+        }
+        self.drawn_revision = None;
+        true
+    }
+
+    /// Send the next queued prompt if the pane is ready for one.
+    ///
+    /// Called from the frame loop rather than on a timer, because the thing it
+    /// waits on -- the pane going idle -- is something the frame loop already
+    /// knows about.
+    fn drain_composer(&mut self) {
+        let (Some(composer), Some(live)) = (self.composer.as_mut(), self.state.as_ref()) else {
+            return;
+        };
+        let idle = unterm_engine::SessionEngine::activity(&self.engine, live.session_id)
+            .map(|activity| activity.idle)
+            .unwrap_or(false);
+        let Some(prompt) = composer.take_next(idle) else {
+            return;
+        };
+        let session_id = live.session_id;
+        let _ = self.engine.write_input(session_id, &format!("{prompt}\r"));
+        self.drawn_revision = None;
+    }
+
+    /// The queue, and the line being written.
+    fn append_composer(
+        &mut self,
+        window_width: f32,
+        quads: &mut unterm_render::quads::FrameQuads,
+    ) {
+        let Some(composer) = self.composer.clone() else {
+            return;
+        };
+        let metrics = self.font.metrics();
+        let width = (window_width * 0.6).max(metrics.width * 30.0).min(window_width);
+        let left = ((window_width - width) / 2.0).max(0.0);
+        let queued = composer.queued();
+        let shown = queued.len().min(MAX_COMPOSER_ROWS);
+        let rows = shown + 2;
+        let top = metrics.height * 2.0;
+        let foreground = self.colors.foreground;
+
+        quads.backgrounds.push(unterm_render::quads::Quad {
+            left,
+            top,
+            width,
+            height: metrics.height * rows as f32,
+            color: mix(self.colors.background, foreground, 0.10),
+        });
+
+        let heading = match queued.len() {
+            0 => "Prompt Queue  (type, Enter to queue, Esc to close)".to_string(),
+            1 => "Prompt Queue  (1 waiting)".to_string(),
+            count => format!("Prompt Queue  ({count} waiting)"),
+        };
+        let mut lines = vec![heading];
+        lines.extend(
+            queued
+                .iter()
+                .take(shown)
+                .enumerate()
+                .map(|(index, prompt)| format!("{}. {prompt}", index + 1)),
+        );
+        // The line being written, with a cursor after it so it is obviously
+        // the one accepting keys.
+        lines.push(format!("> {}_", composer.typing));
+
+        for (index, line) in lines.iter().enumerate() {
+            crate::terminal::append_text(
+                line,
+                &mut self.font,
+                &mut self.atlas,
+                foreground,
+                (left + metrics.width, top + metrics.height * index as f32),
+                quads,
+            );
+        }
+    }
 
     fn toggle_git_panel(&mut self) {
         self.git_panel = match self.git_panel {
@@ -2520,6 +2635,9 @@ impl ApplicationHandler for App {
                 if self.search.is_some() && self.handle_search_key(&event) {
                     return;
                 }
+                if self.composer.is_some() && self.handle_composer_key(&event) {
+                    return;
+                }
 
                 let Some(live) = self.state.as_ref() else {
                     return;
@@ -2740,6 +2858,7 @@ impl ApplicationHandler for App {
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         self.sync_tabs();
         self.feed_cockpit();
+        self.drain_composer();
         self.update_window_title();
         if self.needs_redraw() {
             if let Some(live) = self.state.as_ref() {

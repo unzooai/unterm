@@ -53,6 +53,7 @@ pub enum Action {
     QuickSelect,
     CockpitInbox,
     GitPanel,
+    Composer,
     NewWindow,
     ClosePane,
     ZoomPane,
@@ -86,6 +87,7 @@ impl Action {
             Action::QuickSelect => "QuickSelect",
             Action::CockpitInbox => "CockpitInbox",
             Action::GitPanel => "GitPanel",
+            Action::Composer => "Composer",
             Action::NewWindow => "NewWindow",
             Action::ClosePane => "ClosePane",
             Action::ZoomPane => "ZoomPane",
@@ -134,6 +136,7 @@ impl Action {
             Action::QuickSelect => "Quick Select",
             Action::CockpitInbox => "Agent Inbox",
             Action::GitPanel => "Git Status",
+            Action::Composer => "Prompt Queue",
             Action::NewWindow => "New Window",
             Action::ClosePane => "Close Pane",
             Action::ZoomPane => "Zoom Pane",
@@ -458,6 +461,11 @@ pub const BINDINGS: &[Binding] = &[
         mods: CTRL_SHIFT,
         trigger: Trigger::Char('g'),
         action: Action::GitPanel,
+    },
+    Binding {
+        mods: CTRL_SHIFT,
+        trigger: Trigger::Char('j'),
+        action: Action::Composer,
     },
     // Ctrl+Tab cycles, Ctrl+Shift+Tab cycles back -- the pair every tabbed
     // application uses. Plain Tab still belongs to the shell's completion.
