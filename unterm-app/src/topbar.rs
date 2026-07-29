@@ -471,3 +471,108 @@ mod tests {
         assert!(items(&bar).contains(&Item::Close));
     }
 }
+
+/// Which edge of the window the pointer is on, if any.
+///
+/// A window with no system frame has no system resize handles either, so it
+/// has to grow its own. Without them the window is stuck at whatever size it
+/// opened at, which is the price of a borderless window nobody mentions until
+/// they try to make one wider.
+///
+/// The band is deliberately wider than a pixel: a one-pixel target is one
+/// nobody hits.
+pub fn resize_edge(
+    pointer: (f32, f32),
+    size: (f32, f32),
+) -> Option<winit::window::ResizeDirection> {
+    use winit::window::ResizeDirection;
+
+    const BAND: f32 = 6.0;
+    let left = pointer.0 <= BAND;
+    let right = pointer.0 >= size.0 - BAND;
+    let top = pointer.1 <= BAND;
+    let bottom = pointer.1 >= size.1 - BAND;
+
+    Some(match (top, bottom, left, right) {
+        (true, _, true, _) => ResizeDirection::NorthWest,
+        (true, _, _, true) => ResizeDirection::NorthEast,
+        (_, true, true, _) => ResizeDirection::SouthWest,
+        (_, true, _, true) => ResizeDirection::SouthEast,
+        (true, ..) => ResizeDirection::North,
+        (_, true, ..) => ResizeDirection::South,
+        (_, _, true, _) => ResizeDirection::West,
+        (_, _, _, true) => ResizeDirection::East,
+        _ => return None,
+    })
+}
+
+#[cfg(test)]
+mod resize_tests {
+    use super::*;
+    use winit::window::ResizeDirection;
+
+    const SIZE: (f32, f32) = (800.0, 600.0);
+
+    #[test]
+    fn the_middle_of_the_window_is_not_an_edge() {
+        assert_eq!(resize_edge((400.0, 300.0), SIZE), None);
+    }
+
+    #[test]
+    fn each_side_reports_its_own_direction() {
+        assert_eq!(resize_edge((0.0, 300.0), SIZE), Some(ResizeDirection::West));
+        assert_eq!(
+            resize_edge((799.0, 300.0), SIZE),
+            Some(ResizeDirection::East)
+        );
+        assert_eq!(resize_edge((400.0, 0.0), SIZE), Some(ResizeDirection::North));
+        assert_eq!(
+            resize_edge((400.0, 599.0), SIZE),
+            Some(ResizeDirection::South)
+        );
+    }
+
+    /// The corners resize both ways at once, which is the whole reason to
+    /// grab one.
+    #[test]
+    fn each_corner_resizes_in_two_directions() {
+        assert_eq!(
+            resize_edge((1.0, 1.0), SIZE),
+            Some(ResizeDirection::NorthWest)
+        );
+        assert_eq!(
+            resize_edge((799.0, 1.0), SIZE),
+            Some(ResizeDirection::NorthEast)
+        );
+        assert_eq!(
+            resize_edge((1.0, 599.0), SIZE),
+            Some(ResizeDirection::SouthWest)
+        );
+        assert_eq!(
+            resize_edge((799.0, 599.0), SIZE),
+            Some(ResizeDirection::SouthEast)
+        );
+    }
+
+    /// Wide enough to hit. A one-pixel target is one nobody hits, and the
+    /// window is then stuck at the size it opened at.
+    #[test]
+    fn the_edge_is_wide_enough_to_aim_at() {
+        for offset in 0..=5 {
+            let at = offset as f32;
+            assert!(resize_edge((at, 300.0), SIZE).is_some(), "{at} from the left");
+            assert!(
+                resize_edge((SIZE.0 - at, 300.0), SIZE).is_some(),
+                "{at} from the right"
+            );
+        }
+    }
+
+    /// But not so wide it swallows the buttons: they sit within a couple of
+    /// cells of the top-right corner, and an edge that reached them would
+    /// resize the window instead of closing it.
+    #[test]
+    fn the_edge_does_not_reach_the_window_buttons() {
+        assert_eq!(resize_edge((SIZE.0 - 20.0, 20.0), SIZE), None);
+    }
+}

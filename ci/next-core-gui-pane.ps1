@@ -382,6 +382,20 @@ $Suites = @(
         )
     },
     @{
+        # A borderless window has no system resize handles, so it grows its
+        # own. Without them the window is stuck at the size it opened at.
+        Name = "window resize edges"
+        Package = "unterm-app"
+        Filter = "topbar::resize_tests::"
+        ExpectedCount = 5
+        RequiredTests = @(
+            "topbar::resize_tests::each_side_reports_its_own_direction",
+            "topbar::resize_tests::each_corner_resizes_in_two_directions",
+            "topbar::resize_tests::the_edge_is_wide_enough_to_aim_at",
+            "topbar::resize_tests::the_edge_does_not_reach_the_window_buttons"
+        )
+    },
+    @{
         # Where each piece of the top bar goes, and what a click there hits.
         Name = "top bar layout"
         Package = "unterm-app"

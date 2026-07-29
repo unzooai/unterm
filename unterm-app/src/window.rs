@@ -2957,6 +2957,17 @@ impl ApplicationHandler for App {
                 if button != MouseButton::Left {
                     return;
                 }
+                // The edges first: a borderless window has no system resize
+                // handles, so a press there has to start one.
+                if state == ElementState::Pressed {
+                    if let Some(live) = self.state.as_ref() {
+                        let size = (live.width as f32, live.height as f32);
+                        if let Some(direction) = crate::topbar::resize_edge(self.pointer, size) {
+                            let _ = live.window.drag_resize_window(direction);
+                            return;
+                        }
+                    }
+                }
                 if state == ElementState::Pressed && self.click_top_bar() {
                     return;
                 }
