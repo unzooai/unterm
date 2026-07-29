@@ -6468,7 +6468,32 @@ impl McpHandler {
 
         self.audit("signal.send", Some(&pane_id.to_string()), signal);
         engine.write_input(pane_id, input)?;
-        Ok(json!({"sent": true, "signal": signal}))
+
+        // On Windows the byte alone only reaches the shell's line editor: a
+        // program that is running and not reading input -- which is every
+        // program worth interrupting -- never hears it. The real interrupt is
+        // a console control event for that pane's process group.
+        let mut delivered = json!("byte");
+        if input == unterm_services::interrupt::INTERRUPT_BYTE {
+            let pid = engine
+                .activity(pane_id)
+                .ok()
+                .and_then(|activity| activity.process)
+                .and_then(|process| process.root_pid);
+            match pid {
+                Some(pid) => match unterm_services::interrupt::interrupt_process_group(pid) {
+                    Ok(unterm_services::interrupt::Interrupt::ConsoleEvent) => {
+                        delivered = json!("console_event");
+                    }
+                    Ok(unterm_services::interrupt::Interrupt::Byte) => {}
+                    // Said rather than swallowed: an interrupt that quietly
+                    // did nothing is the thing being fixed here.
+                    Err(err) => delivered = json!({ "failed": err.to_string() }),
+                },
+                None => delivered = json!({ "failed": "the pane has no process to interrupt" }),
+            }
+        }
+        Ok(json!({"sent": true, "signal": signal, "delivered": delivered}))
     }
 
     // --- Screen extensions ---

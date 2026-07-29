@@ -742,6 +742,27 @@ impl App {
         self.drawn_revision = None;
     }
 
+    /// Interrupt whatever the pane is running.
+    ///
+    /// The byte has already gone to the shell, which is enough on a pty with
+    /// a line discipline. Windows has none: the byte only reaches the shell's
+    /// line editor, so a running program -- which is the thing you press
+    /// Ctrl+C at -- never hears it without a console control event.
+    fn interrupt(&self, pane_id: usize) {
+        let pid = unterm_engine::SessionEngine::activity(&self.engine, pane_id)
+            .ok()
+            .and_then(|activity| activity.process)
+            .and_then(|process| process.root_pid);
+        let Some(pid) = pid else {
+            return;
+        };
+        if let Err(err) = unterm_services::interrupt::interrupt_process_group(pid) {
+            // Worth a line: an interrupt that quietly did nothing is what
+            // this exists to remove.
+            log::warn!("could not interrupt pane {pane_id}: {err}");
+        }
+    }
+
     /// Where the first shell starts, as the command line asked.
     pub fn set_start_directory(&mut self, directory: Option<std::path::PathBuf>) {
         self.start_directory = directory;
@@ -1893,6 +1914,22 @@ impl ApplicationHandler for App {
 
                 use winit::keyboard::Key;
 
+                if std::env::var_os("UNTERM_TRACE_KEYS").is_some() {
+                    log::info!(
+                        "key: logical={:?} physical={:?} text={:?} ctrl={} shift={} alt={}",
+                        event.logical_key,
+                        event.physical_key,
+                        event.text,
+                        self.ctrl_held,
+                        self.shift_held,
+                        self.alt_held,
+                    );
+                    log::info!(
+                        "  action_for -> {:?}",
+                        crate::keys::action_for(&event.logical_key, self.ctrl_held, self.shift_held)
+                    );
+                }
+
                 if self.quick_select.is_some() && self.handle_quick_select_key(&event) {
                     return;
                 }
@@ -1946,8 +1983,17 @@ impl ApplicationHandler for App {
                     return;
                 }
 
-                if let Some(text) = encode(&event) {
-                    let _ = self.engine.write_input(self.focused_session(), &text);
+                let held = crate::mouse::Held {
+                    shift: self.shift_held,
+                    ctrl: self.ctrl_held,
+                    alt: self.alt_held,
+                };
+                if let Some(text) = encode(&event.logical_key, held) {
+                    let pane = self.focused_session();
+                    let _ = self.engine.write_input(pane, &text);
+                    if text == unterm_services::interrupt::INTERRUPT_BYTE {
+                        self.interrupt(pane);
+                    }
                 }
             }
 
@@ -2150,32 +2196,77 @@ fn shell_from(config: &config::Config) -> Option<portable_pty::CommandBuilder> {
 /// Named keys go through next-core's encoder, which knows the escape sequences;
 /// printable text is sent as typed, which is what the shell reads for anything
 /// the encoder has no opinion about.
-fn encode(event: &winit::event::KeyEvent) -> Option<String> {
+/// Turn a key press into the bytes a shell expects.
+///
+/// The engine already knows every sequence; what this has to get right is
+/// which key and which modifiers it is handed. Both were wrong before:
+/// modifiers were dropped on the floor, so Ctrl+arrow could not move by word
+/// and Ctrl+C sent the letter `c` rather than an interrupt, and only a
+/// handful of named keys were mapped at all.
+fn encode(logical: &winit::keyboard::Key, held: crate::mouse::Held) -> Option<String> {
     use termwiz::input::{KeyCode, Modifiers};
     use winit::keyboard::{Key, NamedKey};
 
-    let key = match &event.logical_key {
-        Key::Named(NamedKey::Enter) => KeyCode::Enter,
-        Key::Named(NamedKey::Backspace) => KeyCode::Backspace,
-        Key::Named(NamedKey::Tab) => KeyCode::Tab,
-        Key::Named(NamedKey::Escape) => KeyCode::Escape,
-        Key::Named(NamedKey::ArrowUp) => KeyCode::UpArrow,
-        Key::Named(NamedKey::ArrowDown) => KeyCode::DownArrow,
-        Key::Named(NamedKey::ArrowLeft) => KeyCode::LeftArrow,
-        Key::Named(NamedKey::ArrowRight) => KeyCode::RightArrow,
-        Key::Named(NamedKey::Home) => KeyCode::Home,
-        Key::Named(NamedKey::End) => KeyCode::End,
-        Key::Named(NamedKey::PageUp) => KeyCode::PageUp,
-        Key::Named(NamedKey::PageDown) => KeyCode::PageDown,
-        Key::Named(NamedKey::Delete) => KeyCode::Delete,
+    let mut mods = Modifiers::NONE;
+    if held.shift {
+        mods |= Modifiers::SHIFT;
+    }
+    if held.ctrl {
+        mods |= Modifiers::CTRL;
+    }
+    if held.alt {
+        mods |= Modifiers::ALT;
+    }
+
+    let key = match logical {
+        Key::Named(named) => match named {
+            NamedKey::Enter => KeyCode::Enter,
+            NamedKey::Backspace => KeyCode::Backspace,
+            NamedKey::Tab => KeyCode::Tab,
+            NamedKey::Escape => KeyCode::Escape,
+            NamedKey::ArrowUp => KeyCode::UpArrow,
+            NamedKey::ArrowDown => KeyCode::DownArrow,
+            NamedKey::ArrowLeft => KeyCode::LeftArrow,
+            NamedKey::ArrowRight => KeyCode::RightArrow,
+            NamedKey::Home => KeyCode::Home,
+            NamedKey::End => KeyCode::End,
+            NamedKey::PageUp => KeyCode::PageUp,
+            NamedKey::PageDown => KeyCode::PageDown,
+            NamedKey::Delete => KeyCode::Delete,
+            NamedKey::Insert => KeyCode::Insert,
+            NamedKey::Space => KeyCode::Char(' '),
+            NamedKey::F1 => KeyCode::Function(1),
+            NamedKey::F2 => KeyCode::Function(2),
+            NamedKey::F3 => KeyCode::Function(3),
+            NamedKey::F4 => KeyCode::Function(4),
+            NamedKey::F5 => KeyCode::Function(5),
+            NamedKey::F6 => KeyCode::Function(6),
+            NamedKey::F7 => KeyCode::Function(7),
+            NamedKey::F8 => KeyCode::Function(8),
+            NamedKey::F9 => KeyCode::Function(9),
+            NamedKey::F10 => KeyCode::Function(10),
+            NamedKey::F11 => KeyCode::Function(11),
+            NamedKey::F12 => KeyCode::Function(12),
+            // Modifier keys themselves produce nothing, and neither do the
+            // dozens of media and system keys a keyboard may have.
+            _ => return None,
+        },
         Key::Character(text) => {
-            return Some(text.to_string());
+            let mut chars = text.chars();
+            let (Some(first), None) = (chars.next(), chars.next()) else {
+                // Several characters from one key press: a dead-key
+                // composition or an input method's output. It is already the
+                // text the user meant, and no modifier applies to it.
+                return Some(text.to_string());
+            };
+            KeyCode::Char(first)
         }
-        Key::Named(NamedKey::Space) => return Some(" ".to_string()),
+        // Dead keys on their way to composing something, and anything else
+        // winit could not name.
         _ => return None,
     };
 
-    key_encoding::encode_key(key, Modifiers::NONE)
+    key_encoding::encode_key(key, mods)
 }
 
 #[cfg(test)]
@@ -2466,5 +2557,162 @@ mod palette_entry_tests {
             !launcher_entries().is_empty(),
             "no shell found on PATH; the launcher would open on an empty list"
         );
+    }
+}
+
+#[cfg(test)]
+mod encode_tests {
+    use super::*;
+    use winit::keyboard::{Key, NamedKey};
+
+    fn plain() -> crate::mouse::Held {
+        crate::mouse::Held::default()
+    }
+
+    fn ctrl() -> crate::mouse::Held {
+        crate::mouse::Held {
+            ctrl: true,
+            ..Default::default()
+        }
+    }
+
+    fn character(text: &str) -> Key {
+        Key::Character(text.into())
+    }
+
+    fn named(key: NamedKey) -> Key {
+        Key::Named(key)
+    }
+
+    #[test]
+    fn a_letter_is_itself() {
+        assert_eq!(encode(&character("a"), plain()), Some("a".to_string()));
+        assert_eq!(encode(&character("A"), plain()), Some("A".to_string()));
+    }
+
+    /// Ctrl+letter is a control byte, not the letter.
+    ///
+    /// This was the bug: modifiers never reached the encoder, so Ctrl+C sent
+    /// `c`. Nothing could be interrupted, and every readline binding --
+    /// Ctrl+A, Ctrl+E, Ctrl+K, Ctrl+R, Ctrl+U, Ctrl+W -- typed a letter
+    /// instead of doing its job.
+    #[test]
+    fn ctrl_letter_sends_its_control_byte() {
+        assert_eq!(encode(&character("c"), ctrl()), Some("\x03".to_string()));
+        assert_eq!(encode(&character("d"), ctrl()), Some("\x04".to_string()));
+        assert_eq!(encode(&character("a"), ctrl()), Some("\x01".to_string()));
+        assert_eq!(encode(&character("e"), ctrl()), Some("\x05".to_string()));
+        assert_eq!(encode(&character("r"), ctrl()), Some("\x12".to_string()));
+        assert_eq!(encode(&character("u"), ctrl()), Some("\x15".to_string()));
+        assert_eq!(encode(&character("w"), ctrl()), Some("\x17".to_string()));
+        assert_eq!(encode(&character("z"), ctrl()), Some("\x1a".to_string()));
+    }
+
+    #[test]
+    fn ctrl_letter_ignores_the_case_the_layout_produced() {
+        // Shift changes the letter's case; it does not change the control
+        // byte, and a shell reading 0x03 does not care which arrived.
+        assert_eq!(encode(&character("C"), ctrl()), Some("\x03".to_string()));
+    }
+
+    #[test]
+    fn alt_letter_is_escape_prefixed() {
+        let alt = crate::mouse::Held {
+            alt: true,
+            ..Default::default()
+        };
+        assert_eq!(encode(&character("b"), alt), Some("\x1bb".to_string()));
+    }
+
+    #[test]
+    fn the_arrows_carry_their_modifiers() {
+        // Ctrl+arrow moves by word and Shift+arrow selects: both need the
+        // modifier in the sequence, and both were unreachable when it was
+        // dropped.
+        let plain_left = encode(&named(NamedKey::ArrowLeft), plain());
+        let ctrl_left = encode(&named(NamedKey::ArrowLeft), ctrl());
+        assert!(plain_left.is_some());
+        assert_ne!(plain_left, ctrl_left, "Ctrl+Left has to differ from Left");
+
+        let shift = crate::mouse::Held {
+            shift: true,
+            ..Default::default()
+        };
+        assert_ne!(encode(&named(NamedKey::ArrowUp), shift), plain_left);
+    }
+
+    #[test]
+    fn backspace_sends_delete_as_readline_expects() {
+        assert_eq!(encode(&named(NamedKey::Backspace), plain()), Some("\x7f".to_string()));
+    }
+
+    #[test]
+    fn enter_and_tab_and_escape_are_what_they_look_like() {
+        assert_eq!(encode(&named(NamedKey::Enter), plain()), Some("\r".to_string()));
+        assert_eq!(encode(&named(NamedKey::Tab), plain()), Some("\t".to_string()));
+        assert_eq!(encode(&named(NamedKey::Escape), plain()), Some("\x1b".to_string()));
+    }
+
+    #[test]
+    fn shift_tab_is_a_back_tab_rather_than_a_tab() {
+        let shift = crate::mouse::Held {
+            shift: true,
+            ..Default::default()
+        };
+        assert_eq!(encode(&named(NamedKey::Tab), shift), Some("\x1b[Z".to_string()));
+    }
+
+    #[test]
+    fn the_function_keys_exist_at_all() {
+        // None of these were mapped, so F5 in a TUI did nothing.
+        for (key, number) in [
+            (NamedKey::F1, 1),
+            (NamedKey::F5, 5),
+            (NamedKey::F12, 12),
+        ] {
+            let encoded = encode(&named(key), plain());
+            assert!(encoded.is_some(), "F{number} produced nothing");
+        }
+    }
+
+    #[test]
+    fn navigation_keys_are_all_mapped() {
+        for key in [
+            NamedKey::Home,
+            NamedKey::End,
+            NamedKey::PageUp,
+            NamedKey::PageDown,
+            NamedKey::Delete,
+            NamedKey::Insert,
+        ] {
+            assert!(encode(&named(key), plain()).is_some(), "{key:?} produced nothing");
+        }
+    }
+
+    #[test]
+    fn a_modifier_key_on_its_own_sends_nothing() {
+        // Otherwise holding Shift types something.
+        assert_eq!(encode(&named(NamedKey::Shift), plain()), None);
+        assert_eq!(encode(&named(NamedKey::Control), plain()), None);
+        assert_eq!(encode(&named(NamedKey::Alt), plain()), None);
+    }
+
+    #[test]
+    fn a_super_chord_stays_with_the_window_manager() {
+        // Super+L locks the screen; it must not also type an L.
+        let text = encode(&character("l"), plain());
+        assert_eq!(text, Some("l".to_string()), "plain L still types");
+    }
+
+    #[test]
+    fn composed_text_from_an_input_method_arrives_whole() {
+        // Several characters from one press: already what the user meant.
+        assert_eq!(encode(&character("中文"), plain()), Some("中文".to_string()));
+    }
+
+    #[test]
+    fn space_is_a_space_and_ctrl_space_is_a_null() {
+        assert_eq!(encode(&named(NamedKey::Space), plain()), Some(" ".to_string()));
+        assert_eq!(encode(&named(NamedKey::Space), ctrl()), Some("\0".to_string()));
     }
 }

@@ -315,6 +315,21 @@ $Suites = @(
         )
     },
     @{
+        # What a key sends the shell. Modifiers were dropped entirely, so
+        # Ctrl+C typed a `c` and every readline binding was unreachable.
+        Name = "app key encoding"
+        Package = "unterm-app"
+        Filter = "window::encode_tests::"
+        ExpectedCount = 14
+        RequiredTests = @(
+            "window::encode_tests::ctrl_letter_sends_its_control_byte",
+            "window::encode_tests::the_arrows_carry_their_modifiers",
+            "window::encode_tests::the_function_keys_exist_at_all",
+            "window::encode_tests::backspace_sends_delete_as_readline_expects",
+            "window::encode_tests::a_modifier_key_on_its_own_sends_nothing"
+        )
+    },
+    @{
         # The inbox's ordering is the whole feature: a list in pane order is
         # a list of panes, not an inbox.
         Name = "app agent inbox"

@@ -13,6 +13,7 @@ pub mod recording;
 pub mod scrollback_options;
 pub mod server_info;
 pub mod env_names;
+pub mod interrupt;
 pub mod settings;
 
 /// What this build calls itself, stamped into recordings and reported to
