@@ -355,9 +355,32 @@ impl App {
             self.font.metrics(),
             self.colors,
         ));
+        // One badge per tab, in the order the tabs are drawn.
+        let statuses = unterm_services::cockpit::status::snapshot();
+        let badges: Vec<Option<crate::cockpit::Badge>> = self
+            .tabs
+            .tab_ids()
+            .into_iter()
+            .map(|tab| {
+                // A tab's badge is the most urgent of its panes': a split
+                // where one half is waiting is a tab that is waiting.
+                self.tabs
+                    .pane_ids(tab)
+                    .into_iter()
+                    .filter_map(|pane| {
+                        crate::cockpit::badge_for_pane(&statuses, pane as u64)
+                    })
+                    .min_by_key(|badge| match badge {
+                        crate::cockpit::Badge::NeedsYou => 0,
+                        crate::cockpit::Badge::Done => 1,
+                        crate::cockpit::Badge::Working => 2,
+                    })
+            })
+            .collect();
         append_tab_labels(
             tab_count,
             active_tab,
+            &badges,
             window_width,
             &mut self.font,
             &mut self.atlas,
@@ -542,7 +565,9 @@ impl App {
                 .find(|session| session.id == live.session_id)
         });
         let mcp = unterm_mcp::handler::insights_mcp_snapshot(0);
+        let agents = unterm_services::cockpit::status::snapshot();
         crate::statusbar::Status {
+            agents_waiting: crate::cockpit::attention_count(&agents),
             shell: session
                 .as_ref()
                 .map(|session| crate::statusbar::short_name(&session.shell.process_name))
@@ -2860,9 +2885,18 @@ fn mix(from: [f32; 4], to: [f32; 4], amount: f32) -> [f32; 4] {
 ///
 /// Drawn separately from the bar's blocks so the active tab's number reads
 /// against its highlight rather than disappearing into it.
+/// Number each tab, and mark the ones whose agent has something to say.
+///
+/// The badge is why anyone would look at this bar: a person running four
+/// agents needs to know which one is waiting on them without visiting each
+/// pane. It is drawn separately from the number because it has its own colour
+/// -- amber wants you, blue is working, green is finished -- and the number
+/// takes the tab's own foreground.
+#[allow(clippy::too_many_arguments)]
 fn append_tab_labels(
     tab_count: usize,
     active_index: usize,
+    badges: &[Option<crate::cockpit::Badge>],
     window_width: f32,
     font: &mut crate::terminal::TerminalFont,
     atlas: &mut unterm_render::atlas::GlyphAtlas,
@@ -2875,20 +2909,30 @@ fn append_tab_labels(
     let metrics = font.metrics();
     let width = (window_width / tab_count as f32).max(metrics.width);
     for index in 0..tab_count {
-        let label = format!(" {} ", index + 1);
         let color = if index == active_index {
             colors.background
         } else {
             colors.foreground
         };
+        let left = index as f32 * width + metrics.width;
         crate::terminal::append_text(
-            &label,
+            &format!(" {} ", index + 1),
             font,
             atlas,
             color,
-            (index as f32 * width + metrics.width, 0.0),
+            (left, 0.0),
             quads,
         );
+        if let Some(Some(badge)) = badges.get(index) {
+            crate::terminal::append_text(
+                crate::cockpit::BADGE,
+                font,
+                atlas,
+                badge.color(),
+                (left + metrics.width * 3.0, 0.0),
+                quads,
+            );
+        }
     }
 }
 
@@ -3221,4 +3265,101 @@ fn dim(color: [f32; 4], weight: f32) -> [f32; 4] {
         color[2] * weight,
         color[3],
     ]
+}
+
+#[cfg(test)]
+mod tab_badge_tests {
+    use super::*;
+    use crate::cockpit::Badge;
+
+    fn font_and_atlas() -> Option<(crate::terminal::TerminalFont, unterm_render::atlas::GlyphAtlas)>
+    {
+        crate::terminal::TerminalFont::open(16)
+            .ok()
+            .map(|font| (font, unterm_render::atlas::GlyphAtlas::new(256, 256)))
+    }
+
+    fn colors() -> unterm_render::quads::FrameColors {
+        unterm_render::quads::FrameColors {
+            foreground: [0.9, 0.9, 0.9, 1.0],
+            background: [0.1, 0.1, 0.1, 1.0],
+        }
+    }
+
+    fn drawn(badges: &[Option<Badge>]) -> Option<unterm_render::quads::FrameQuads> {
+        let (mut font, mut atlas) = font_and_atlas()?;
+        let mut quads = unterm_render::quads::FrameQuads::default();
+        append_tab_labels(
+            badges.len(),
+            0,
+            badges,
+            800.0,
+            &mut font,
+            &mut atlas,
+            colors(),
+            &mut quads,
+        );
+        Some(quads)
+    }
+
+    /// The badge is the reason to look at this bar at all: four agents
+    /// running, and which one wants you has to be readable without visiting
+    /// each pane.
+    #[test]
+    fn a_marked_tab_draws_more_than_an_unmarked_one() {
+        let Some(plain) = drawn(&[None, None]) else {
+            return; // No usable system font on this machine.
+        };
+        let marked = drawn(&[Some(Badge::NeedsYou), None]).unwrap();
+        assert!(
+            marked.glyphs.len() > plain.glyphs.len(),
+            "the badge drew nothing"
+        );
+    }
+
+    /// And in its own colour, not the tab's: amber against the bar is the
+    /// whole signal.
+    #[test]
+    fn the_badge_keeps_its_own_colour() {
+        let Some(marked) = drawn(&[Some(Badge::NeedsYou), None]) else {
+            return;
+        };
+        let amber = Badge::NeedsYou.color();
+        assert!(
+            marked.glyphs.iter().any(|glyph| glyph.quad.color == amber),
+            "nothing was drawn in the badge's colour"
+        );
+    }
+
+    /// A badge belongs to its own tab. Drawn at the wrong offset it lands on
+    /// the tab beside it, which points at the wrong pane -- worse than no
+    /// badge, because it is believed.
+    #[test]
+    fn a_badge_stays_within_its_own_tab() {
+        let Some(marked) = drawn(&[None, Some(Badge::Working)]) else {
+            return;
+        };
+        let blue = Badge::Working.color();
+        let badge = marked
+            .glyphs
+            .iter()
+            .find(|glyph| glyph.quad.color == blue)
+            .expect("the badge was not drawn");
+        let tab_width = 800.0 / 2.0;
+        assert!(
+            badge.quad.left >= tab_width,
+            "the second tab's badge landed on the first: {}",
+            badge.quad.left
+        );
+        assert!(badge.quad.left < tab_width * 2.0, "{}", badge.quad.left);
+    }
+
+    /// One tab needs no bar, so it needs no badges either.
+    #[test]
+    fn a_single_tab_draws_nothing() {
+        let Some(quads) = drawn(&[Some(Badge::NeedsYou)]) else {
+            return;
+        };
+        assert!(quads.glyphs.is_empty());
+    }
 }

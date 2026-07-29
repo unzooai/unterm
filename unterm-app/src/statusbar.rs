@@ -67,6 +67,8 @@ pub struct Status {
     pub agent_writes: u64,
     /// How many agent writes are waiting on the user to allow them.
     pub pending: usize,
+    /// How many panes have an agent waiting on the user.
+    pub agents_waiting: usize,
     /// The proxy in force, if any.
     pub proxy: Option<String>,
 }
@@ -176,6 +178,15 @@ fn chips_for(status: &Status) -> Vec<String> {
         // rather than a count, because a number here is easy to read past.
         chips.push(format!("{} waiting on you", status.pending));
     }
+    if status.agents_waiting > 0 {
+        // Second only to a blocked write, and phrased the same way: this is
+        // the number the whole cockpit exists to surface.
+        chips.push(format!(
+            "{} agent{} waiting",
+            status.agents_waiting,
+            if status.agents_waiting == 1 { "" } else { "s" }
+        ));
+    }
     if status.agent_writes > 0 {
         chips.push(format!("mcp:{}", status.agent_writes));
     }
@@ -195,6 +206,7 @@ mod tests {
             directory: r"D:\code\unterm".to_string(),
             agent_writes: 7,
             pending: 0,
+            agents_waiting: 0,
             proxy: None,
         }
     }
@@ -209,6 +221,26 @@ mod tests {
             }
         }
         line.into_iter().collect::<String>().trim_end().to_string()
+    }
+
+    /// An agent waiting in another tab is invisible otherwise: its badge is
+    /// on a tab, and the tab bar is not drawn until there are two of them.
+    #[test]
+    fn a_waiting_agent_is_counted_on_the_bar() {
+        let mut status = status();
+        status.agents_waiting = 2;
+        let line = rendered(&status, 120);
+        assert!(line.contains("2 agents waiting"), "{line:?}");
+
+        status.agents_waiting = 1;
+        let line = rendered(&status, 120);
+        assert!(line.contains("1 agent waiting"), "{line:?}");
+    }
+
+    #[test]
+    fn no_agents_waiting_means_no_chip_about_it() {
+        let line = rendered(&status(), 120);
+        assert!(!line.contains("waiting"), "{line:?}");
     }
 
     /// The button is always there, and always in the same place: a menu that

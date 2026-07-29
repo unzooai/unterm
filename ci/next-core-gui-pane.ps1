@@ -364,6 +364,22 @@ $Suites = @(
         )
     },
     @{
+        # Which agent wants you, readable from the tab bar. Four agents
+        # running and no marker means visiting each pane to find out.
+        Name = "agent badges"
+        Package = "unterm-app"
+        Filter = "badge"
+        ExpectedCount = 9
+        RequiredTests = @(
+            "cockpit::badge_tests::every_state_that_means_something_has_a_badge",
+            "cockpit::badge_tests::an_idle_pane_is_not_marked",
+            "cockpit::badge_tests::the_three_badges_are_three_different_colours",
+            "window::tab_badge_tests::a_marked_tab_draws_more_than_an_unmarked_one",
+            "window::tab_badge_tests::the_badge_keeps_its_own_colour",
+            "window::tab_badge_tests::a_badge_stays_within_its_own_tab"
+        )
+    },
+    @{
         # Picking a folder without a folder dialog. A native picker differs on
         # every platform, and parity here is a correctness property -- so the
         # picker is the palette.
@@ -397,9 +413,10 @@ $Suites = @(
         Name = "status bar"
         Package = "unterm-app"
         Filter = "statusbar::tests::"
-        ExpectedCount = 15
+        ExpectedCount = 17
         RequiredTests = @(
             "statusbar::tests::the_chips_survive_a_laptop_sized_window",
+            "statusbar::tests::a_waiting_agent_is_counted_on_the_bar",
             "statusbar::tests::the_menu_button_is_the_first_thing_on_the_bar",
             "statusbar::tests::a_click_on_the_button_is_recognised_and_one_beside_it_is_not",
             "statusbar::tests::a_long_path_keeps_its_end",

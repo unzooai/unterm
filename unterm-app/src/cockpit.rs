@@ -207,3 +207,99 @@ mod tests {
         assert_eq!(rows[0].hint, "refactoring the parser");
     }
 }
+
+/// How a pane's agent shows on its tab.
+///
+/// A dot, because a tab is three characters wide and a word does not fit. The
+/// colours are the ones the product has always used and people read without
+/// being told: amber means it wants you, blue means it is working, green means
+/// it finished. Idle is nothing at all -- a marker on every tab is a marker
+/// that says nothing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Badge {
+    NeedsYou,
+    Working,
+    Done,
+}
+
+impl Badge {
+    /// The colour, as the renderer wants it.
+    pub fn color(self) -> [f32; 4] {
+        match self {
+            // Amber: the one colour on the bar that should pull an eye.
+            Badge::NeedsYou => [0.98, 0.70, 0.20, 1.0],
+            Badge::Working => [0.35, 0.65, 0.98, 1.0],
+            Badge::Done => [0.35, 0.80, 0.45, 1.0],
+        }
+    }
+}
+
+/// The badge for a state, if it has one.
+pub fn badge(state: AgentState) -> Option<Badge> {
+    match state {
+        AgentState::WaitingForUser => Some(Badge::NeedsYou),
+        AgentState::Working => Some(Badge::Working),
+        AgentState::Done => Some(Badge::Done),
+        AgentState::Idle => None,
+    }
+}
+
+/// The badge for a pane, given every pane's status.
+pub fn badge_for_pane(statuses: &[PaneAgentStatus], pane_id: u64) -> Option<Badge> {
+    statuses
+        .iter()
+        .find(|status| status.pane_id == pane_id)
+        .and_then(|status| badge(status.state))
+}
+
+/// The dot itself. One character, so a tab's label keeps its width.
+pub const BADGE: &str = "●";
+
+#[cfg(test)]
+mod badge_tests {
+    use super::*;
+
+    #[test]
+    fn every_state_that_means_something_has_a_badge() {
+        assert_eq!(badge(AgentState::WaitingForUser), Some(Badge::NeedsYou));
+        assert_eq!(badge(AgentState::Working), Some(Badge::Working));
+        assert_eq!(badge(AgentState::Done), Some(Badge::Done));
+    }
+
+    /// A marker on every tab is a marker that says nothing.
+    #[test]
+    fn an_idle_pane_is_not_marked() {
+        assert_eq!(badge(AgentState::Idle), None);
+    }
+
+    /// Three states, three colours. Two that matched would be a badge that
+    /// cannot be read without clicking the tab, which is the trip it exists
+    /// to save.
+    #[test]
+    fn the_three_badges_are_three_different_colours() {
+        let colours = [
+            Badge::NeedsYou.color(),
+            Badge::Working.color(),
+            Badge::Done.color(),
+        ];
+        for (index, colour) in colours.iter().enumerate() {
+            for other in &colours[index + 1..] {
+                assert_ne!(colour, other, "two badges share a colour");
+            }
+        }
+    }
+
+    /// Amber is the one that has to pull an eye across the window: more red
+    /// and green than blue, and brighter than the others.
+    #[test]
+    fn the_one_that_wants_you_is_the_warm_one() {
+        let needs_you = Badge::NeedsYou.color();
+        assert!(needs_you[0] > needs_you[2], "amber is warm: {needs_you:?}");
+        assert!(needs_you[1] > needs_you[2], "{needs_you:?}");
+    }
+
+    #[test]
+    fn a_pane_nobody_is_tracking_has_no_badge() {
+        assert_eq!(badge_for_pane(&[], 7), None);
+    }
+}
