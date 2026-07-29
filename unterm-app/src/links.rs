@@ -157,7 +157,9 @@ pub fn open(uri: &str) -> std::io::Result<()> {
     #[cfg(target_os = "windows")]
     {
         // `start` needs an empty title first, or it treats the URL as one.
-        std::process::Command::new("cmd")
+        // And no console: this is a GUI binary, so `cmd` would otherwise flash
+        // a black window every time a link is clicked.
+        crate::git::hidden_command("cmd")
             .args(["/C", "start", "", uri])
             .spawn()
             .map(|_| ())

@@ -597,7 +597,7 @@ fn push_cursor(
 /// From termwiz's tables rather than a guess at ranges: the kernel measures
 /// the grid the same way, and furniture that disagrees with the grid it sits
 /// on is furniture in the wrong place.
-fn column_width(ch: char) -> usize {
+pub fn column_width(ch: char) -> usize {
     let mut buffer = [0u8; 4];
     termwiz::cell::unicode_column_width(ch.encode_utf8(&mut buffer), None).max(1)
 }

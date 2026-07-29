@@ -867,6 +867,33 @@ impl App {
     }
 
     /// Draw the bar along the top: wordmark, tabs, buttons.
+    /// The line of facts about the pane in front, for the top bar.
+    ///
+    /// Everything in it comes from a cache that refreshes on another thread,
+    /// so this is cheap enough to call while painting -- which it has to be,
+    /// because the bar is repainted whenever anything moves.
+    ///
+    /// Empty on a narrow window: the tabs are what the bar is for, and pushing
+    /// them off the edge to make room for a memory figure is the wrong trade.
+    fn stats_line(&self, window_width: f32) -> String {
+        if window_width / self.scale.max(0.1) < crate::statsbar::MIN_WIDTH {
+            return String::new();
+        }
+        let Some(live) = self.state.as_ref() else {
+            return String::new();
+        };
+        let metrics = self.font.metrics();
+        let columns = (window_width / metrics.width.max(1.0)).floor().max(0.0) as usize;
+        // Exactly the room the bar has left once the tabs and the buttons have
+        // what they need. Composing a longer line and letting the layout refuse
+        // it is how the whole line disappears when one value grows.
+        crate::statsbar::fit(
+            &crate::statsbar::facts_for(live.session_id).segments(),
+            &crate::statsbar::Facts::GIVE_UP,
+            crate::topbar::stats_room(columns),
+        )
+    }
+
     fn append_top_bar(
         &mut self,
         tab_count: usize,
@@ -897,7 +924,8 @@ impl App {
             color: chrome.outer_edge,
         });
 
-        let bar = crate::topbar::layout(tab_count, active_tab, columns);
+        let stats = self.stats_line(window_width);
+        let bar = crate::topbar::layout(tab_count, active_tab, columns, &stats);
         let hovered = self.hovered_top_bar_item();
         for piece in &bar {
             let left = piece.column as f32 * metrics.width;
@@ -963,7 +991,10 @@ impl App {
                 &piece.label,
                 &mut self.font,
                 &mut self.atlas,
-                if matches!(piece.item, crate::topbar::Item::Wordmark) {
+                if matches!(
+                    piece.item,
+                    crate::topbar::Item::Wordmark | crate::topbar::Item::Stats
+                ) {
                     chrome.dim_text
                 } else {
                     self.colors.foreground
@@ -992,7 +1023,7 @@ impl App {
         };
 
         match item {
-            crate::topbar::Item::Wordmark => {
+            crate::topbar::Item::Wordmark | crate::topbar::Item::Stats => {
                 if let Some(live) = self.state.as_ref() {
                     let _ = live.window.drag_window();
                 }
@@ -1039,7 +1070,12 @@ impl App {
         let live = self.state.as_ref()?;
         let columns = (live.width as f32 / metrics.width.max(1.0)).floor().max(0.0) as usize;
         let column = (self.pointer.0 / metrics.width.max(1.0)).floor().max(0.0) as usize;
-        let bar = crate::topbar::layout(self.tabs.tab_count(), 0, columns);
+        let bar = crate::topbar::layout(
+            self.tabs.tab_count(),
+            0,
+            columns,
+            &self.stats_line(live.width as f32),
+        );
         crate::topbar::hit(&bar, column)
     }
 
@@ -1359,6 +1395,7 @@ impl App {
             self.close_tab();
             return;
         }
+        crate::statsbar::forget(session_id);
         let _ = self.engine.destroy_session(session_id);
         self.tabs.close_pane(session_id);
         if let Some(pane) = self.tabs.active_pane(tab_id) {
@@ -1550,6 +1587,7 @@ impl App {
 
         if let Err(err) = self.tabs.split(focused, session.id, axis, 0.5) {
             log::warn!("could not split: {err:#}");
+            crate::statsbar::forget(session.id);
             let _ = self.engine.destroy_session(session.id);
             return;
         }
@@ -2389,7 +2427,9 @@ impl App {
     }
 
     fn open_tab_with(&mut self, command: Option<portable_pty::CommandBuilder>) {
-        let Some(live) = self.state.as_ref() else {
+        // A tab needs a window to open into; the size comes from the layout
+        // rather than from the window, because the strip may have taken some.
+        let Some(_live) = self.state.as_ref() else {
             return;
         };
         let (cols, rows) = self.font.grid_for(self.terminal_width(), self.terminal_height());
@@ -2415,7 +2455,8 @@ impl App {
             }
             Err(err) => {
                 log::warn!("could not record the tab: {err:#}");
-                let _ = self.engine.destroy_session(session.id);
+                crate::statsbar::forget(session.id);
+            let _ = self.engine.destroy_session(session.id);
             }
         }
     }
@@ -2452,6 +2493,7 @@ impl App {
             return;
         };
         for pane in self.tabs.pane_ids(tab_id) {
+            crate::statsbar::forget(pane);
             let _ = self.engine.destroy_session(pane);
         }
         self.tabs.forget_tab(tab_id);
@@ -3016,7 +3058,7 @@ impl App {
 
     /// Where each pane goes, in pixels.
     fn placements(&self) -> Vec<crate::panes::PanePlacement> {
-        let (Some(tab_id), Some(live)) = (self.tab_id, self.state.as_ref()) else {
+        let (Some(tab_id), Some(_live)) = (self.tab_id, self.state.as_ref()) else {
             return Vec::new();
         };
         let metrics = self.font.metrics();
@@ -3132,6 +3174,7 @@ impl ApplicationHandler for App {
                 if let Some(live) = self.state.take() {
                     // Destroy the session rather than leaving the shell running
                     // with nothing attached to it.
+                    crate::statsbar::forget(live.session_id);
                     let _ = self.engine.destroy_session(live.session_id);
                 }
                 event_loop.exit();
@@ -4065,7 +4108,7 @@ mod tab_badge_tests {
     /// worse than no badge because it is believed.
     #[test]
     fn a_badge_stays_within_its_own_tab() {
-        let bar = topbar::layout(4, 0, 160);
+        let bar = topbar::layout(4, 0, 160, "");
         for index in 0..4 {
             let tab = bar
                 .iter()
@@ -4079,7 +4122,7 @@ mod tab_badge_tests {
     /// And it never overlaps the tab's number.
     #[test]
     fn a_badge_sits_after_the_number_it_belongs_to() {
-        let bar = topbar::layout(3, 0, 160);
+        let bar = topbar::layout(3, 0, 160, "");
         for index in 0..3 {
             let tab = bar
                 .iter()

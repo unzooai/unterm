@@ -71,6 +71,9 @@ pub enum Item {
     Action(crate::keys::Action),
     /// The quick-action menu.
     Menu,
+    /// The line of facts about the pane in front. Not clickable: it is what
+    /// the window knows, not something to do.
+    Stats,
     Minimise,
     Maximise,
     Close,
@@ -109,12 +112,18 @@ const CLOSE: &str = " \u{2715} ";
 /// The actions worth a button of their own: the ones reached constantly.
 const NEW_TAB: &str = " + ";
 const MENU: &str = " \u{25BE} ";
+/// The split button's icon: a square divided in two.
+///
+/// Drawn by the renderer rather than looked up, because the code point this
+/// replaced was in no font on the machine and the button appeared as an empty
+/// box -- one control with no icon, next to two that had one.
+const SPLIT_ICON: &str = " \u{25EB} ";
 
 /// The action buttons, most useful first -- which is also the order they
 /// survive in as the window narrows.
 const ACTIONS: &[(crate::keys::Action, &str)] = &[
     (crate::keys::Action::CommandPalette, " \u{2318} "),
-    (crate::keys::Action::SplitRight, " \u{2337} "),
+    (crate::keys::Action::SplitRight, SPLIT_ICON),
     (crate::keys::Action::CockpitInbox, " \u{25C9} "),
 ];
 
@@ -123,7 +132,12 @@ const ACTIONS: &[(crate::keys::Action, &str)] = &[
 /// The window buttons come first in the arithmetic and last in the list: they
 /// are the one thing that must never be dropped or moved, because a window
 /// with no title bar has no other way to be closed.
-pub fn layout(tabs: usize, _active: usize, columns: usize) -> Vec<Placed> {
+///
+/// `stats` is the line of facts about the pane in front, already composed and
+/// already emptied if the window is too narrow to be worth it. It is taken
+/// last, so it is the first thing the bar gives up: everything else here is
+/// something to press.
+pub fn layout(tabs: usize, _active: usize, columns: usize, stats: &str) -> Vec<Placed> {
     let mut placed = Vec::new();
     if columns == 0 {
         return placed;
@@ -165,6 +179,11 @@ pub fn layout(tabs: usize, _active: usize, columns: usize) -> Vec<Placed> {
     for (action, label) in ACTIONS {
         take(label, Item::Action(*action), &mut right, &mut chrome);
     }
+    // Then the facts, in whatever is left. A cell of air either side, so the
+    // text is not touching the button next to it.
+    if !stats.trim().is_empty() {
+        take(&format!(" {} ", stats.trim()), Item::Stats, &mut right, &mut chrome);
+    }
 
     // Left-hand side: the wordmark, then the tabs in the space that is left.
     // Everything here is bounded by `right`, which is where the chrome starts
@@ -201,6 +220,32 @@ pub fn layout(tabs: usize, _active: usize, columns: usize) -> Vec<Placed> {
     placed.extend(window_buttons);
     placed
 }
+
+/// How many columns the facts may have on a bar this wide.
+///
+/// Worked out the same way `layout` spends the bar, so the two cannot drift:
+/// the buttons and the menu come off the right, the wordmark and one tab have
+/// to survive on the left, and whatever is between them is what the facts get.
+/// Composing a line longer than this and letting the layout refuse it is how
+/// the whole line disappears the moment a branch name gets long.
+pub fn stats_room(columns: usize) -> usize {
+    let left_minimum = width_of(WORDMARK) + MIN_TAB + width_of(NEW_TAB);
+    let chrome: usize = [CLOSE, MAXIMISE, MINIMISE, MENU]
+        .iter()
+        .map(|label| width_of(label))
+        .sum::<usize>()
+        + ACTIONS
+            .iter()
+            .map(|(_, label)| width_of(label))
+            .sum::<usize>();
+    // Two cells for the air either side of the text.
+    columns
+        .saturating_sub(chrome + left_minimum + 2)
+        .min(MAX_STATS)
+}
+
+/// Wider than this and the facts are the bar rather than a note in it.
+const MAX_STATS: usize = 64;
 
 /// Narrower than this and a tab cannot say which one it is.
 const MIN_TAB: usize = 4;
@@ -250,7 +295,9 @@ pub fn hit(placed: &[Placed], column: usize) -> Option<Item> {
 pub fn is_drag_handle(placed: &[Placed], column: usize) -> bool {
     match hit(placed, column) {
         None => true,
-        Some(Item::Wordmark) => true,
+        // Both of these are text rather than controls, and both are obvious
+        // places to grab a window that has no title bar to grab.
+        Some(Item::Wordmark) | Some(Item::Stats) => true,
         Some(_) => false,
     }
 }
@@ -325,7 +372,7 @@ mod tests {
 
     #[test]
     fn a_wide_window_gets_everything() {
-        let bar = layout(3, 0, 160);
+        let bar = layout(3, 0, 160, "");
         let items = items(&bar);
         assert!(items.contains(&Item::Wordmark));
         assert!(items.contains(&Item::Tab(0)));
@@ -340,7 +387,7 @@ mod tests {
     #[test]
     fn the_window_buttons_are_never_dropped() {
         for columns in 10..200 {
-            let bar = layout(3, 0, columns);
+            let bar = layout(3, 0, columns, "");
             let items = items(&bar);
             assert!(items.contains(&Item::Close), "{columns} columns");
             assert!(items.contains(&Item::Minimise), "{columns} columns");
@@ -351,7 +398,7 @@ mod tests {
     #[test]
     fn the_close_button_is_the_rightmost_thing() {
         for columns in [40, 80, 160] {
-            let bar = layout(2, 0, columns);
+            let bar = layout(2, 0, columns, "");
             let close = bar.iter().find(|p| p.item == Item::Close).unwrap();
             assert_eq!(close.column + close.columns, columns, "{columns} columns");
             for piece in &bar {
@@ -368,7 +415,7 @@ mod tests {
     #[test]
     fn no_two_pieces_share_a_column() {
         for columns in 10..200 {
-            let bar = layout(4, 1, columns);
+            let bar = layout(4, 1, columns, "");
             for column in 0..columns {
                 let hits = bar.iter().filter(|p| p.contains(column)).count();
                 assert!(hits <= 1, "{columns} columns: {hits} pieces at {column}");
@@ -381,7 +428,7 @@ mod tests {
     #[test]
     fn a_button_never_crowds_out_a_tab() {
         for columns in 10..200 {
-            let bar = layout(2, 0, columns);
+            let bar = layout(2, 0, columns, "");
             let items = items(&bar);
             let has_button = items.iter().any(|item| matches!(item, Item::Action(_)));
             let has_tab = items.iter().any(|item| matches!(item, Item::Tab(_)));
@@ -396,7 +443,7 @@ mod tests {
     /// taking the room the terminal is for.
     #[test]
     fn a_narrow_window_has_no_action_buttons_at_all() {
-        let narrow = layout(2, 0, 24);
+        let narrow = layout(2, 0, 24, "");
         assert!(
             !items(&narrow).iter().any(|item| matches!(item, Item::Action(_))),
             "{narrow:?}"
@@ -407,7 +454,7 @@ mod tests {
     /// that is the background's job, which leaves room for the agent badge.
     #[test]
     fn tabs_are_numbered_from_one() {
-        let bar = layout(3, 1, 120);
+        let bar = layout(3, 1, 120, "");
         for index in 0..3 {
             let tab = bar.iter().find(|p| p.item == Item::Tab(index)).unwrap();
             assert!(tab.label.contains(&(index + 1).to_string()), "{:?}", tab.label);
@@ -419,7 +466,7 @@ mod tests {
     /// wrong pane.
     #[test]
     fn a_badge_goes_beside_its_tabs_number() {
-        let bar = layout(3, 0, 120);
+        let bar = layout(3, 0, 120, "");
         for index in 0..3 {
             let tab = bar.iter().find(|p| p.item == Item::Tab(index)).unwrap();
             let badge = badge_column(tab);
@@ -432,7 +479,7 @@ mod tests {
     /// unmarked and the whole thing twitches on every focus change.
     #[test]
     fn tabs_are_all_the_same_width() {
-        let bar = layout(5, 2, 160);
+        let bar = layout(5, 2, 160, "");
         let widths: Vec<usize> = bar
             .iter()
             .filter(|p| matches!(p.item, Item::Tab(_)))
@@ -445,7 +492,7 @@ mod tests {
     /// cannot disagree.
     #[test]
     fn a_click_finds_what_was_drawn_there() {
-        let bar = layout(3, 0, 120);
+        let bar = layout(3, 0, 120, "");
         for piece in &bar {
             assert_eq!(
                 hit(&bar, piece.column),
@@ -461,7 +508,7 @@ mod tests {
     /// bar cannot be moved, which is the first thing anyone tries.
     #[test]
     fn the_empty_parts_of_the_bar_drag_the_window() {
-        let bar = layout(1, 0, 120);
+        let bar = layout(1, 0, 120, "");
         let close = bar.iter().find(|p| p.item == Item::Close).unwrap();
         assert!(!is_drag_handle(&bar, close.column), "a button is not a handle");
 
@@ -481,16 +528,16 @@ mod tests {
     /// have a way to be closed.
     #[test]
     fn a_tiny_window_still_has_a_close_button() {
-        let bar = layout(1, 0, 3);
+        let bar = layout(1, 0, 3, "");
         assert_eq!(items(&bar), vec![Item::Close]);
-        assert!(layout(1, 0, 0).is_empty());
+        assert!(layout(1, 0, 0, "").is_empty());
     }
 
     /// One tab still gets a bar: unlike the old strip, this one carries the
     /// window buttons, so it cannot come and go with the tab count.
     #[test]
     fn one_tab_still_gets_a_bar() {
-        let bar = layout(1, 0, 120);
+        let bar = layout(1, 0, 120, "");
         assert!(items(&bar).contains(&Item::Tab(0)));
         assert!(items(&bar).contains(&Item::Close));
     }
@@ -635,5 +682,103 @@ mod padding_tests {
     fn a_tiny_window_still_has_a_cell_of_terminal() {
         assert!(terminal_width(4.0, metrics()) >= metrics().width);
         assert!(terminal_height(4.0, metrics()) >= metrics().height);
+    }
+}
+
+#[cfg(test)]
+mod stats_tests {
+    use super::*;
+
+    /// The facts sit between the tabs and the buttons, so the eye reads left
+    /// to right: which tab, what is true of it, what can be pressed.
+    #[test]
+    fn the_facts_go_between_the_tabs_and_the_buttons() {
+        let bar = layout(2, 0, 160, "main *3");
+        let stats = bar
+            .iter()
+            .find(|piece| piece.item == Item::Stats)
+            .expect("the facts were dropped from a wide bar");
+        let last_tab = bar
+            .iter()
+            .filter(|piece| matches!(piece.item, Item::Tab(_)))
+            .map(|piece| piece.column)
+            .max()
+            .expect("no tabs");
+        let close = bar
+            .iter()
+            .find(|piece| piece.item == Item::Close)
+            .expect("no close button");
+        assert!(stats.column > last_tab, "the facts are among the tabs");
+        assert!(stats.column < close.column, "the facts are past the buttons");
+    }
+
+    /// They are the first thing given up. A window that has dropped its tabs
+    /// to fit a memory figure has the trade backwards.
+    #[test]
+    fn a_narrow_bar_keeps_its_tabs_and_drops_the_facts() {
+        let long = "\u{26A1} claude    main *3 +1    8.0% cpu  1.4G  4m";
+        for columns in [24, 40, 56, 60] {
+            let bar = layout(3, 0, columns, long);
+            assert!(
+                !bar.iter().any(|piece| piece.item == Item::Stats),
+                "the facts survived a bar {columns} columns wide"
+            );
+            assert!(
+                bar.iter().any(|piece| matches!(piece.item, Item::Tab(_))),
+                "the tabs were dropped at {columns} columns"
+            );
+        }
+    }
+
+    /// Nothing to say takes no room -- not an empty slot the tabs cannot use.
+    #[test]
+    fn nothing_to_say_takes_no_room() {
+        let quiet = layout(3, 0, 160, "");
+        let loud = layout(3, 0, 160, "main");
+        assert!(!quiet.iter().any(|piece| piece.item == Item::Stats));
+        let tabs_of = |bar: &[Placed]| {
+            bar.iter()
+                .filter(|piece| matches!(piece.item, Item::Tab(_)))
+                .map(|piece| piece.columns)
+                .sum::<usize>()
+        };
+        assert!(
+            tabs_of(&quiet) >= tabs_of(&loud),
+            "an empty line still took room from the tabs"
+        );
+    }
+
+    /// The facts are text, not a control: pressing them drags the window, the
+    /// same as pressing the empty part of the bar next to them.
+    #[test]
+    fn pressing_the_facts_drags_the_window() {
+        let bar = layout(2, 0, 160, "main *3");
+        let stats = bar
+            .iter()
+            .find(|piece| piece.item == Item::Stats)
+            .expect("the facts were dropped");
+        assert!(is_drag_handle(&bar, stats.column));
+        assert_eq!(window_button(Item::Stats), None);
+    }
+
+    /// And they never sit under the window buttons: a click that lands on a
+    /// close button drawn underneath a memory figure closes the window.
+    #[test]
+    fn the_facts_never_overlap_the_buttons() {
+        let long = "\u{26A1} claude    main *3 +1    8.0% cpu  1.4G  4m    \u{25B6} cargo test";
+        for columns in 20..200 {
+            let bar = layout(3, 0, columns, long);
+            for (index, piece) in bar.iter().enumerate() {
+                for other in &bar[index + 1..] {
+                    let apart = piece.column + piece.columns <= other.column
+                        || other.column + other.columns <= piece.column;
+                    assert!(
+                        apart,
+                        "at {columns} columns {:?} and {:?} overlap",
+                        piece.item, other.item
+                    );
+                }
+            }
+        }
     }
 }

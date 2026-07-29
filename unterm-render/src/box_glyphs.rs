@@ -20,6 +20,15 @@ fn stroke(metrics: CellMetrics) -> f32 {
     (metrics.height / 14.0).round().max(1.0)
 }
 
+/// The branch mark, from the range patched fonts put their icons in.
+pub const BRANCH: char = '\u{E0A0}';
+
+/// A square with a line down the middle: two panes side by side.
+///
+/// A real code point rather than one of our own invention, so a program that
+/// prints it gets the character it asked for and not an icon.
+pub const SPLIT: char = '\u{25EB}';
+
 /// Whether this is a character we draw ourselves.
 ///
 /// Answered by asking for the drawing, so there is no second list to fall out
@@ -176,6 +185,69 @@ pub fn quads_for(
                     rect(x.max(left), y, thin, 1.0)
                 })
                 .collect()
+        }
+
+        // A square split down the middle -- what the button that splits a pane
+        // is drawn as. Fonts that have this at all draw it at whatever weight
+        // suits running text, which next to a hairline box-drawing table looks
+        // like a different icon set; and the one this replaced was missing
+        // from the font entirely and drew as an empty box.
+        SPLIT => {
+            // A hairline, not a box-drawing weight. This is an outline the
+            // size of a letter, and at a table's weight the interior closes up
+            // and it reads as a filled block with a slot in it.
+            let weight = (thin - 1.0).max(1.0);
+            let side = (width * 0.9).round();
+            let box_left = left + ((width - side) / 2.0).round();
+            let box_top = top + ((height - side) / 2.0).round();
+            let mut quads =
+                crate::strokes::rectangle(box_left, box_top, side, side, weight, color);
+            quads.extend(crate::strokes::line(
+                (box_left + ((side - weight) / 2.0).round(), box_top),
+                (box_left + ((side - weight) / 2.0).round(), box_top + side),
+                weight,
+                color,
+            ));
+            quads
+        }
+
+        // The branch mark the status line puts before a branch name. It lives
+        // in the private-use area, so only a patched font has it and every
+        // other font draws an empty box -- which is why it is here rather than
+        // looked up. Two stems and a join: the icon every git client uses, at
+        // a size where a curve would be three pixels of staircase anyway.
+        BRANCH => {
+            let stem_x = left + (width * 0.30).round();
+            let fork_x = left + (width * 0.70).round();
+            let top_y = top + (height * 0.24).round();
+            let bottom_y = top + (height * 0.78).round();
+            let join_y = top + (height * 0.55).round();
+            let node = (thin * 2.0).max(2.0);
+            let dot = |x: f32, y: f32| {
+                rect(
+                    x - (node - thin) / 2.0,
+                    y - (node - thin) / 2.0,
+                    node,
+                    node,
+                )
+            };
+            let mut quads = crate::strokes::line((stem_x, top_y), (stem_x, bottom_y), thin, color);
+            quads.extend(crate::strokes::line(
+                (fork_x, top_y),
+                (fork_x, join_y),
+                thin,
+                color,
+            ));
+            quads.extend(crate::strokes::line(
+                (fork_x, join_y),
+                (stem_x, join_y + (height * 0.12).round()),
+                thin,
+                color,
+            ));
+            quads.push(dot(stem_x, top_y));
+            quads.push(dot(stem_x, bottom_y));
+            quads.push(dot(fork_x, top_y));
+            quads
         }
 
         // Dashed lines: the same run, broken. How many dashes and how
@@ -732,5 +804,130 @@ mod junction_tests {
             .filter(|quad| quad.left + quad.width >= metrics().width)
             .count();
         assert_eq!(reaching, 2, "both rails must reach the right edge: {quads:?}");
+    }
+}
+
+#[cfg(test)]
+mod branch_tests {
+    use super::*;
+
+    /// The branch mark is in the private-use area: a font that has not been
+    /// patched draws an empty box there, and an empty box in front of a branch
+    /// name looks like a bug in the terminal.
+    #[test]
+    fn the_branch_mark_is_drawn_rather_than_looked_up() {
+        assert!(draws(BRANCH));
+    }
+
+    /// It has to read as a branch, which means two stems at different heights
+    /// joined in the middle -- not one line.
+    #[test]
+    fn the_branch_mark_has_two_stems_and_a_join() {
+        let metrics = CellMetrics {
+            width: 9.0,
+            height: 20.0,
+            baseline: 15.0,
+        };
+        let quads = quads_for(BRANCH, 0.0, 0.0, metrics, [1.0; 4]).expect("drawn");
+        let columns: std::collections::BTreeSet<i32> = quads
+            .iter()
+            .map(|quad| quad.left.round() as i32)
+            .collect();
+        assert!(
+            columns.len() >= 2,
+            "the mark is one column wide: {columns:?}"
+        );
+        let tallest = quads
+            .iter()
+            .map(|quad| quad.height)
+            .fold(0.0f32, f32::max);
+        assert!(
+            tallest > metrics.height * 0.4,
+            "no stem: tallest piece is {tallest}"
+        );
+    }
+
+    /// And it has to stay inside its cell, or it collides with the branch name
+    /// that follows it.
+    #[test]
+    fn the_branch_mark_stays_in_its_cell() {
+        let metrics = CellMetrics {
+            width: 9.0,
+            height: 20.0,
+            baseline: 15.0,
+        };
+        for quad in quads_for(BRANCH, 100.0, 50.0, metrics, [1.0; 4]).expect("drawn") {
+            assert!(quad.left >= 100.0, "{quad:?} starts left of the cell");
+            assert!(
+                quad.left + quad.width <= 100.0 + metrics.width + 1.0,
+                "{quad:?} runs past the cell"
+            );
+            assert!(quad.top >= 50.0, "{quad:?} starts above the cell");
+            assert!(
+                quad.top + quad.height <= 50.0 + metrics.height + 1.0,
+                "{quad:?} runs below the cell"
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod split_tests {
+    use super::*;
+
+    /// The button that splits a pane was drawn with a code point the font did
+    /// not have, so it appeared as an empty box -- a control with no icon,
+    /// next to two that had one.
+    #[test]
+    fn the_split_mark_is_drawn_rather_than_looked_up() {
+        assert!(draws(SPLIT));
+    }
+
+    /// A square with a line down the middle: two panes, side by side.
+    #[test]
+    fn the_split_mark_is_a_box_divided_in_two() {
+        let metrics = CellMetrics {
+            width: 18.0,
+            height: 20.0,
+            baseline: 15.0,
+        };
+        let quads = quads_for(SPLIT, 0.0, 0.0, metrics, [1.0; 4]).expect("drawn");
+        let mut uprights: Vec<f32> = quads
+            .iter()
+            .filter(|quad| quad.height > metrics.height * 0.4)
+            .map(|quad| quad.left)
+            .collect();
+        uprights.sort_by(f32::total_cmp);
+        assert_eq!(
+            uprights.len(),
+            3,
+            "a split mark has two sides and a divider: {uprights:?}"
+        );
+        let divider = uprights[1];
+        assert!(
+            divider > uprights[0] && divider < uprights[2],
+            "the divider is not between the sides: {uprights:?}"
+        );
+    }
+
+    #[test]
+    fn the_split_mark_stays_in_its_cell() {
+        let metrics = CellMetrics {
+            width: 18.0,
+            height: 20.0,
+            baseline: 15.0,
+        };
+        for quad in quads_for(SPLIT, 40.0, 10.0, metrics, [1.0; 4]).expect("drawn") {
+            assert!(quad.left >= 40.0, "{quad:?} starts left of the cell");
+            assert!(
+                quad.left + quad.width <= 40.0 + metrics.width + 1.0,
+                "{quad:?} runs past the cell"
+            );
+            assert!(quad.top >= 10.0, "{quad:?} starts above the cell");
+            assert!(
+                quad.top + quad.height <= 10.0 + metrics.height + 1.0,
+                "{quad:?} runs below the cell"
+            );
+        }
     }
 }

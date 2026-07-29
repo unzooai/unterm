@@ -769,14 +769,18 @@ $Suites = @(
         Name = "box glyphs"
         Package = "unterm-render"
         Filter = "box_glyphs::"
-        ExpectedCount = 24
+        ExpectedCount = 30
         RequiredTests = @(
             "box_glyphs::tests::every_drawn_character_produces_something",
             "box_glyphs::tests::a_line_and_a_corner_meet_at_the_same_place",
             "box_glyphs::junction_tests::the_whole_double_block_is_ours",
             "box_glyphs::junction_tests::the_double_cross_stays_open_in_the_middle",
             "box_glyphs::junction_tests::a_double_corner_does_not_overshoot",
-            "box_glyphs::junction_tests::a_single_line_through_a_double_one_is_not_broken"
+            "box_glyphs::junction_tests::a_single_line_through_a_double_one_is_not_broken",
+            "box_glyphs::branch_tests::the_branch_mark_is_drawn_rather_than_looked_up",
+            "box_glyphs::branch_tests::the_branch_mark_has_two_stems_and_a_join",
+            "box_glyphs::split_tests::the_split_mark_is_drawn_rather_than_looked_up",
+            "box_glyphs::split_tests::the_split_mark_is_a_box_divided_in_two"
         )
     },
     @{
@@ -1183,6 +1187,80 @@ $Suites = @(
         ExpectedCount = 1
         RequiredTests = @(
             "next_core::tests::erase_scrollback_drops_history_and_optionally_the_viewport"
+        )
+    },
+    @{
+        # What the top bar says about the pane in front. Four facts, and the
+        # rules for what happens when they do not all fit.
+        Name = "top bar facts"
+        Package = "unterm-app"
+        Filter = "statsbar::"
+        ExpectedCount = 15
+        RequiredTests = @(
+            "statsbar::tests::a_shell_running_another_shell_is_worth_naming",
+            "statsbar::tests::a_shell_sitting_at_its_prompt_is_not_worth_naming",
+            "statsbar::tests::a_shell_is_recognised_however_it_is_spelled",
+            "statsbar::tests::a_narrow_bar_gives_up_the_numbers_before_anything_else",
+            "statsbar::tests::segments_are_dropped_whole",
+            "statsbar::tests::width_is_counted_in_cells_rather_than_characters",
+            "statsbar::tests::nothing_known_shows_nothing"
+        )
+    },
+    @{
+        # And where they sit in the bar, which is between the tabs and the
+        # buttons, and what happens to them when the window narrows.
+        Name = "top bar facts placement"
+        Package = "unterm-app"
+        Filter = "topbar::stats_tests::"
+        ExpectedCount = 5
+        RequiredTests = @(
+            "topbar::stats_tests::the_facts_go_between_the_tabs_and_the_buttons",
+            "topbar::stats_tests::a_narrow_bar_keeps_its_tabs_and_drops_the_facts",
+            "topbar::stats_tests::the_facts_never_overlap_the_buttons",
+            "topbar::stats_tests::pressing_the_facts_drags_the_window"
+        )
+    },
+    @{
+        # The branch, as one line rather than as a panel. A branch name is the
+        # one value here that is abbreviated instead of dropped: a branch
+        # always has a name, so there is no nothing to fall back to.
+        Name = "git in the top bar"
+        Package = "unterm-app"
+        Filter = "git::segment_tests::"
+        ExpectedCount = 6
+        RequiredTests = @(
+            "git::segment_tests::changes_and_both_directions_are_all_counted",
+            "git::segment_tests::nothing_to_say_says_nothing",
+            "git::segment_tests::a_detached_head_says_so_rather_than_showing_a_blank",
+            "git::segment_tests::a_second_reading_inside_the_window_is_free"
+        )
+    },
+    @{
+        Name = "branch names in a bar"
+        Package = "unterm-app"
+        Filter = "git::branch_name_tests::"
+        ExpectedCount = 4
+        RequiredTests = @(
+            "git::branch_name_tests::a_long_branch_name_keeps_both_of_its_ends",
+            "git::branch_name_tests::two_long_branches_do_not_shorten_to_the_same_thing",
+            "git::branch_name_tests::the_segment_fits_the_room_a_bar_has"
+        )
+    },
+    @{
+        # What a pane's process is costing. Sampled by hand rather than by
+        # running something: a percent is a difference between two readings,
+        # and a program that exits has only made one.
+        Name = "process stats"
+        Package = "unterm-services"
+        Filter = "process_stats::"
+        ExpectedCount = 10
+        RequiredTests = @(
+            "process_stats::tests::this_process_can_be_sampled",
+            "process_stats::tests::cpu_is_measured_between_two_readings",
+            "process_stats::tests::a_process_that_is_not_there_reports_nothing",
+            "process_stats::tests::the_cached_reader_never_blocks",
+            "process_stats::tests::a_duration_is_written_at_one_unit_of_precision",
+            "process_stats::tests::nothing_known_shows_nothing"
         )
     },
     @{

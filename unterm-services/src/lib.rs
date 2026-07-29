@@ -22,3 +22,4 @@ pub mod window_capture;
 /// used to live for no reason other than history.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub mod system_proxy;
+pub mod process_stats;
