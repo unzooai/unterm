@@ -113,10 +113,13 @@ pub enum Panel {
 impl Panel {
     /// The heading this answer deserves.
     pub fn heading(&self) -> String {
+        let title = unterm_services::i18n::t("menu.git_panel");
         match self {
-            Panel::Status(status) => format!("Git  {}", status.summary()),
-            Panel::NotARepository => "Git  (not a repository)".to_string(),
-            Panel::NoGit => "Git  (git is not on PATH)".to_string(),
+            Panel::Status(status) => format!("{title}  {}", status.summary()),
+            Panel::NotARepository => {
+                format!("{title}  ({})", unterm_services::i18n::t("git.not_a_repository"))
+            }
+            Panel::NoGit => format!("{title}  ({})", unterm_services::i18n::t("git.no_git")),
         }
     }
 
@@ -150,11 +153,36 @@ mod tests {
     /// "No git" and "not a repository" are different answers. Showing the
     /// second when the first is true sends someone looking for a `.git`
     /// directory that is sitting right there.
+    ///
+    /// Checked against the catalogue rather than against English words: the
+    /// front end is translated, and a test that expects English passes or
+    /// fails depending on the machine's language.
     #[test]
     fn a_missing_git_does_not_claim_the_folder_is_untracked() {
-        assert!(Panel::NoGit.heading().contains("PATH"));
-        assert!(Panel::NotARepository.heading().contains("not a repository"));
-        assert_ne!(Panel::NoGit.heading(), Panel::NotARepository.heading());
+        let no_git = Panel::NoGit.heading();
+        let untracked = Panel::NotARepository.heading();
+        assert_ne!(no_git, untracked);
+        assert!(
+            no_git.contains(&unterm_services::i18n::t("git.no_git")),
+            "{no_git}"
+        );
+        assert!(
+            untracked.contains(&unterm_services::i18n::t("git.not_a_repository")),
+            "{untracked}"
+        );
+    }
+
+    /// And every language actually has both, so neither falls back to the
+    /// key itself showing through the interface.
+    #[test]
+    fn both_answers_are_translated_everywhere() {
+        for key in ["git.no_git", "git.not_a_repository", "menu.git_panel"] {
+            assert_ne!(
+                unterm_services::i18n::t(key),
+                key,
+                "{key} is missing from the catalogue"
+            );
+        }
     }
 
     #[test]

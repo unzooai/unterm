@@ -256,12 +256,16 @@ pub fn append_text(
         ensure_glyph(font, atlas, ch);
     }
     let metrics = font.metrics();
+    // A character's real width, not one cell each. Anything but Latin has
+    // double-width characters in it, and a label that calls them one cell
+    // wide draws the next character on top of the last -- which is what the
+    // quick menu looked like the first time it was translated.
     let cells: Vec<StyledCell> = text
         .chars()
         .map(|ch| StyledCell {
             ch,
             style: Default::default(),
-            width: 1,
+            width: column_width(ch),
         })
         .collect();
     // Keyed the same way `ensure_glyph` filed them. Working the key out
@@ -366,6 +370,16 @@ fn push_cursor(
 ///
 /// Keyed by character rather than by shaped glyph index: shaping comes later,
 /// and a terminal's grid means most cells are one character to one glyph.
+/// How many cells a character occupies.
+///
+/// From termwiz's tables rather than a guess at ranges: the kernel measures
+/// the grid the same way, and furniture that disagrees with the grid it sits
+/// on is furniture in the wrong place.
+fn column_width(ch: char) -> usize {
+    let mut buffer = [0u8; 4];
+    termwiz::cell::unicode_column_width(ch.encode_utf8(&mut buffer), None).max(1)
+}
+
 fn ensure_glyph(font: &mut TerminalFont, atlas: &mut GlyphAtlas, ch: char) {
     if ch == ' ' || ch == '\0' {
         return;
@@ -1304,5 +1318,63 @@ mod furniture_tests {
                 "character {index} sits at {left}, not near {expected}"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod width_tests {
+    use super::*;
+
+    /// A label in Chinese, Japanese or Korean is mostly double-width
+    /// characters. Drawing each one cell wide puts the next character on top
+    /// of the last, which is what the translated quick menu looked like.
+    #[test]
+    fn a_wide_character_takes_two_cells() {
+        assert_eq!(column_width('中'), 2);
+        assert_eq!(column_width('あ'), 2);
+        assert_eq!(column_width('한'), 2);
+    }
+
+    #[test]
+    fn latin_takes_one() {
+        assert_eq!(column_width('a'), 1);
+        assert_eq!(column_width(' '), 1);
+        assert_eq!(column_width('→'), 1);
+    }
+
+    /// Never zero: a combining mark that advances nothing would stack the
+    /// whole rest of the label in one cell.
+    #[test]
+    fn nothing_is_narrower_than_a_cell() {
+        for ch in ['\u{0301}', '\u{200b}', '\u{0}'] {
+            assert!(column_width(ch) >= 1, "{ch:?} advanced nothing");
+        }
+    }
+
+    /// And the label lays out accordingly: two Latin characters after a wide
+    /// one start three cells in, not two.
+    #[test]
+    fn a_label_after_a_wide_character_is_not_drawn_on_top_of_it() {
+        let Ok(mut font) = TerminalFont::open(16) else {
+            return;
+        };
+        let mut atlas = GlyphAtlas::new(256, 256);
+        let mut quads = FrameQuads::default();
+        let width = font.metrics().width;
+
+        append_text(
+            "中a",
+            &mut font,
+            &mut atlas,
+            [1.0; 4],
+            (0.0, 0.0),
+            &mut quads,
+        );
+        assert_eq!(quads.glyphs.len(), 2);
+        let gap = quads.glyphs[1].quad.left - quads.glyphs[0].quad.left;
+        assert!(
+            gap >= width * 1.5,
+            "the Latin character sits {gap} from the wide one, cell is {width}"
+        );
     }
 }

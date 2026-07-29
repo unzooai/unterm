@@ -364,6 +364,30 @@ $Suites = @(
         )
     },
     @{
+        # Nine languages, and the front end's own chrome among them. A label
+        # in Chinese is mostly double-width characters, and drawing each one
+        # cell wide puts the next on top of the last.
+        Name = "front end languages"
+        Package = "unterm-services"
+        Filter = "i18n::catalogue_tests::"
+        ExpectedCount = 2
+        RequiredTests = @(
+            "i18n::catalogue_tests::the_interfaces_own_strings_exist_in_every_language",
+            "i18n::catalogue_tests::a_counted_string_keeps_its_placeholder_in_every_language"
+        )
+    },
+    @{
+        Name = "character widths in the chrome"
+        Package = "unterm-app"
+        Filter = "terminal::width_tests::"
+        ExpectedCount = 4
+        RequiredTests = @(
+            "terminal::width_tests::a_wide_character_takes_two_cells",
+            "terminal::width_tests::nothing_is_narrower_than_a_cell",
+            "terminal::width_tests::a_label_after_a_wide_character_is_not_drawn_on_top_of_it"
+        )
+    },
+    @{
         # A batch of prompts fed to an agent one at a time. The two rules that
         # make it safe to leave running: nothing goes in while the pane is
         # busy, and nothing goes in twice.
@@ -386,7 +410,7 @@ $Suites = @(
         Name = "git status"
         Package = "unterm-app"
         Filter = "git::tests::"
-        ExpectedCount = 14
+        ExpectedCount = 15
         RequiredTests = @(
             "git::tests::a_missing_git_does_not_claim_the_folder_is_untracked",
             "git::tests::a_detached_head_says_so_rather_than_naming_a_branch",

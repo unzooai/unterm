@@ -1248,10 +1248,17 @@ impl App {
             color: mix(self.colors.background, foreground, 0.10),
         });
 
-        let heading = match queued.len() {
-            0 => "Prompt Queue  (type, Enter to queue, Esc to close)".to_string(),
-            1 => "Prompt Queue  (1 waiting)".to_string(),
-            count => format!("Prompt Queue  ({count} waiting)"),
+        let title = unterm_services::i18n::t("composer.title");
+        let heading = if queued.is_empty() {
+            format!("{title}  ({})", unterm_services::i18n::t("composer.hint"))
+        } else {
+            format!(
+                "{title}  ({})",
+                unterm_services::i18n::t_args(
+                    "composer.waiting",
+                    &[("n", &queued.len().to_string())]
+                )
+            )
         };
         let mut lines = vec![heading];
         lines.extend(
@@ -1363,9 +1370,19 @@ impl App {
         });
 
         let heading = if rows.is_empty() {
-            "Agents  (none running)".to_string()
+            unterm_services::i18n::t("cockpit.inbox_title")
         } else {
-            format!("Agents  ({} waiting)", crate::cockpit::attention_count(&statuses))
+            format!(
+                "{}  ({})",
+                unterm_services::i18n::t("cockpit.inbox_title"),
+                unterm_services::i18n::t_args(
+                    "composer.waiting",
+                    &[(
+                        "n",
+                        &crate::cockpit::attention_count(&statuses).to_string()
+                    )]
+                )
+            )
         };
         crate::terminal::append_text(
             &heading,
@@ -1636,9 +1653,11 @@ impl App {
             .map(|status| status.enabled)
             .unwrap_or(false);
 
+        use unterm_services::i18n::t;
+
         vec![
             crate::palette::Entry {
-                label: "Change Working Directory".to_string(),
+                label: t("settings.menu.change_cwd"),
                 hint: here.display().to_string(),
                 command: crate::palette::Command::Browse {
                     path: here.display().to_string(),
@@ -1646,7 +1665,7 @@ impl App {
                 },
             },
             crate::palette::Entry {
-                label: "Open Folder in New Tab".to_string(),
+                label: t("settings.menu.open_folder"),
                 hint: here.display().to_string(),
                 command: crate::palette::Command::Browse {
                     path: here.display().to_string(),
@@ -1654,27 +1673,27 @@ impl App {
                 },
             },
             crate::palette::Entry {
-                label: "Split Right".to_string(),
+                label: t("settings.menu.split_right"),
                 hint: "CTRL|SHIFT D".to_string(),
                 command: crate::palette::Command::Action(crate::keys::Action::SplitRight),
             },
             crate::palette::Entry {
                 label: if recording {
-                    "Stop Session Recording".to_string()
+                    t("settings.menu.recording_on")
                 } else {
-                    "Start Session Recording".to_string()
+                    t("settings.menu.recording_off")
                 },
-                hint: String::new(),
+                hint: t("settings.menu.recording.hint"),
                 command: crate::palette::Command::ToggleRecording,
             },
             crate::palette::Entry {
-                label: "Export Current Session".to_string(),
-                hint: "markdown".to_string(),
+                label: t("settings.menu.export_session"),
+                hint: t("settings.menu.export_session.hint"),
                 command: crate::palette::Command::ExportSession,
             },
             crate::palette::Entry {
-                label: "Settings (Web)".to_string(),
-                hint: "opens a browser".to_string(),
+                label: t("settings.menu.web_settings"),
+                hint: t("settings.menu.web_settings.hint"),
                 command: crate::palette::Command::OpenSettings,
             },
         ]

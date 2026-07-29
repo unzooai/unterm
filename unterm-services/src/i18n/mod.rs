@@ -221,3 +221,57 @@ mod tests {
         assert_eq!(detect::map_to_canonical("zh_CN.UTF-8"), Some("zh-CN"));
     }
 }
+
+#[cfg(test)]
+mod catalogue_tests {
+    use super::*;
+
+    /// Every language the product claims has every string the interface asks
+    /// for. A missing one falls back to English, and one missing from English
+    /// falls back to the key -- `composer.title` showing through the window
+    /// where a heading should be.
+    #[test]
+    fn the_interfaces_own_strings_exist_in_every_language() {
+        const NEEDED: &[&str] = &[
+            "composer.title",
+            "composer.hint",
+            "composer.waiting",
+            "git.no_git",
+            "git.not_a_repository",
+            "menu.git_panel",
+            "cockpit.inbox_title",
+            "settings.menu.change_cwd",
+            "settings.menu.open_folder",
+            "settings.menu.split_right",
+            "settings.menu.recording_on",
+            "settings.menu.recording_off",
+            "settings.menu.export_session",
+            "settings.menu.web_settings",
+        ];
+
+        let bundles = bundles();
+        for (code, dictionary) in &bundles.by_code {
+            for key in NEEDED {
+                assert!(
+                    dictionary.contains_key(*key),
+                    "{code} is missing {key}"
+                );
+                assert!(
+                    !dictionary[*key].trim().is_empty(),
+                    "{code}'s {key} is empty"
+                );
+            }
+        }
+    }
+
+    /// A placeholder that is not carried through the translation leaves the
+    /// number out of the sentence entirely.
+    #[test]
+    fn a_counted_string_keeps_its_placeholder_in_every_language() {
+        let bundles = bundles();
+        for (code, dictionary) in &bundles.by_code {
+            let waiting = &dictionary["composer.waiting"];
+            assert!(waiting.contains("{n}"), "{code}: {waiting}");
+        }
+    }
+}
