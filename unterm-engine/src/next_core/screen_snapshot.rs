@@ -11,6 +11,7 @@ pub(super) struct ScreenSnapshotMeta {
     pub(super) scrollback_rows: usize,
     pub(super) revision: u64,
     pub(super) dirty_rows: Option<DirtyRows>,
+    pub(super) mouse: crate::next_core::mouse_encoding::MouseModes,
 }
 
 pub(super) fn plain_viewport(
@@ -36,6 +37,7 @@ pub(super) fn plain_viewport(
         scrollback_rows: meta.scrollback_rows,
         revision: meta.revision,
         dirty_rows: meta.dirty_rows,
+        mouse: meta.mouse,
     }
 }
 
@@ -51,6 +53,7 @@ pub(super) fn styled_viewport(
         scrollback_rows: meta.scrollback_rows,
         revision: meta.revision,
         dirty_rows: meta.dirty_rows,
+        mouse: meta.mouse,
     }
 }
 
@@ -123,6 +126,7 @@ mod tests {
             scrollback_rows: 9,
             revision: 7,
             dirty_rows: Some(DirtyRows { start: 1, end: 1 }),
+            mouse: Default::default(),
         }
     }
 

@@ -9,6 +9,7 @@ mod fonts;
 mod ime;
 mod keys;
 mod mcp_host;
+mod mouse;
 mod panes;
 mod scroll;
 mod search;

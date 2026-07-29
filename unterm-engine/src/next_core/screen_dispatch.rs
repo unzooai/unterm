@@ -332,6 +332,7 @@ fn meta(screen: &super::NextCoreScreen) -> ScreenSnapshotMeta {
         scrollback_rows: screen.scrollback_rows(),
         revision: screen.revision(),
         dirty_rows: screen.dirty_rows(),
+        mouse: screen.mouse_modes(),
     }
 }
 

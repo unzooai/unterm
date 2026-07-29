@@ -226,24 +226,13 @@ impl NextCoreScreen {
     }
 
     /// The session's mouse reporting state, as the encoder needs it.
-    ///
-    /// `MouseTrackingMode`'s variant names do not line up with the DECSET
-    /// numbers that set them, so the mapping is spelled out by mode number
-    /// rather than by name:
-    ///
-    /// - `X10`          <- `CSI ? 1000 h`, press and release
-    /// - `ButtonEvent`  <- `CSI ? 1002 h`, plus motion while a button is held
-    /// - `AnyEvent`     <- `CSI ? 1003 h`, plus free motion
-    ///
-    /// Real X10 tracking (`CSI ? 9 h`) is not parsed, so nothing maps to
-    /// `MouseTracking::X10`.
-    pub(super) fn mouse_modes(&self) -> mouse_encoding::MouseModes {
+    pub fn mouse_modes(&self) -> mouse_encoding::MouseModes {
         use mouse_encoding::MouseTracking;
         mouse_encoding::MouseModes {
             tracking: match self.mouse_tracking {
                 screen_state::MouseTrackingMode::None => MouseTracking::None,
-                screen_state::MouseTrackingMode::X10 => MouseTracking::ButtonEvent,
-                screen_state::MouseTrackingMode::ButtonEvent => MouseTracking::ButtonMotion,
+                screen_state::MouseTrackingMode::ButtonEvent => MouseTracking::ButtonEvent,
+                screen_state::MouseTrackingMode::ButtonMotion => MouseTracking::ButtonMotion,
                 screen_state::MouseTrackingMode::AnyEvent => MouseTracking::AnyEvent,
             },
             sgr: self.sgr_mouse,
@@ -5996,9 +5985,9 @@ mod tests {
         assert!(!screen.sgr_pixel_mouse);
 
         screen.feed("\x1b[?1000h");
-        assert_eq!(screen.mouse_tracking, MouseTrackingMode::X10);
-        screen.feed("\x1b[?1002h");
         assert_eq!(screen.mouse_tracking, MouseTrackingMode::ButtonEvent);
+        screen.feed("\x1b[?1002h");
+        assert_eq!(screen.mouse_tracking, MouseTrackingMode::ButtonMotion);
         screen.feed("\x1b[?1003h\x1b[?1005h\x1b[?1006h\x1b[?1007h\x1b[?1015h\x1b[?1016h");
         assert_eq!(screen.mouse_tracking, MouseTrackingMode::AnyEvent);
         assert!(screen.utf8_mouse);

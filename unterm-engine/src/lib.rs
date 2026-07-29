@@ -230,6 +230,12 @@ pub struct DirtyRows {
 #[allow(dead_code)]
 #[derive(Clone, Debug, Serialize)]
 pub struct StyledScreenSnapshot {
+    /// What the program in this pane wants from the mouse.
+    ///
+    /// A front end has to ask before deciding what a click means: with
+    /// reporting on, the click belongs to the program -- vim, htop, less --
+    /// and the terminal must not also start a selection with it.
+    pub mouse: next_core::mouse_encoding::MouseModes,
     pub lines: Vec<StyledScreenLine>,
     pub cursor: CursorSnapshot,
     pub cols: usize,
@@ -741,6 +747,12 @@ pub struct ScreenSearchMatch {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct ScreenSnapshot {
+    /// What the program in this pane wants from the mouse.
+    ///
+    /// A front end has to ask before deciding what a click means: with
+    /// reporting on, the click belongs to the program -- vim, htop, less --
+    /// and the terminal must not also start a selection with it.
+    pub mouse: next_core::mouse_encoding::MouseModes,
     pub lines: Vec<String>,
     pub cells: Vec<ScreenLine>,
     pub cursor: CursorSnapshot,
@@ -1394,6 +1406,7 @@ mod tests {
 
         fn read_styled_screen(&self, _pane_id: usize) -> Result<StyledScreenSnapshot> {
             Ok(StyledScreenSnapshot {
+                mouse: Default::default(),
                 lines: vec![StyledScreenLine {
                     row: 0,
                     wrapped: false,

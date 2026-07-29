@@ -319,8 +319,8 @@ impl TerminalParser {
                             }
                             66 => screen.application_keypad = true,
                             69 => screen.left_right_margin_mode = true,
-                            1000 => screen.mouse_tracking = MouseTrackingMode::X10,
-                            1002 => screen.mouse_tracking = MouseTrackingMode::ButtonEvent,
+                            1000 => screen.mouse_tracking = MouseTrackingMode::ButtonEvent,
+                            1002 => screen.mouse_tracking = MouseTrackingMode::ButtonMotion,
                             1003 => screen.mouse_tracking = MouseTrackingMode::AnyEvent,
                             1004 => screen.focus_event_reporting = true,
                             1005 => screen.utf8_mouse = true,
@@ -366,12 +366,12 @@ impl TerminalParser {
                                 screen.set_horizontal_margins(0, screen.cols.saturating_sub(1));
                             }
                             1000 => {
-                                if screen.mouse_tracking == MouseTrackingMode::X10 {
+                                if screen.mouse_tracking == MouseTrackingMode::ButtonEvent {
                                     screen.mouse_tracking = MouseTrackingMode::None;
                                 }
                             }
                             1002 => {
-                                if screen.mouse_tracking == MouseTrackingMode::ButtonEvent {
+                                if screen.mouse_tracking == MouseTrackingMode::ButtonMotion {
                                     screen.mouse_tracking = MouseTrackingMode::None;
                                 }
                             }

@@ -64,6 +64,18 @@ pub struct App {
     preedit: crate::ime::Preedit,
     /// The open search, if there is one.
     search: Option<crate::search::Search>,
+    /// What the program wants from the mouse, as of the last frame drawn.
+    ///
+    /// Cached rather than read per event: a motion arrives a hundred times a
+    /// second and building a screen snapshot for each would be most of a
+    /// frame's work spent deciding who owns a pointer that has not moved a
+    /// cell. Modes only change when the program writes an escape sequence,
+    /// which changes the screen, which draws a frame -- so the cache is never
+    /// more than one frame behind the thing that sets it.
+    mouse_modes: unterm_engine::next_core::mouse_encoding::MouseModes,
+    /// Which mouse button is down, so a drag reports the right one.
+    held_mouse_button: Option<unterm_engine::next_core::mouse_encoding::MouseButton>,
+    alt_held: bool,
     /// The title last set, so an unchanged one is not set again every frame.
     window_title: Option<String>,
 }
@@ -109,6 +121,9 @@ impl App {
             drawn_confirmation: None,
             preedit: crate::ime::Preedit::default(),
             search: None,
+            mouse_modes: Default::default(),
+            held_mouse_button: None,
+            alt_held: false,
             window_title: None,
             font: TerminalFont::open_with_fallback(pixel_size.round() as u32, &fallbacks)?,
             atlas: GlyphAtlas::new(1024, 1024),
@@ -213,6 +228,9 @@ impl App {
                 continue;
             };
             revision = revision.wrapping_add(snapshot.revision);
+            if placement.session_id == session_id {
+                self.mouse_modes = snapshot.mouse;
+            }
             crate::terminal::append_pane(
                 &snapshot,
                 &mut self.font,
@@ -227,6 +245,7 @@ impl App {
                 return;
             };
             revision = snapshot.revision;
+            self.mouse_modes = snapshot.mouse;
             crate::terminal::append_pane(
                 &snapshot,
                 &mut self.font,
@@ -293,6 +312,38 @@ impl App {
         frame.present();
         self.drawn_revision = Some(revision);
         self.drawn_confirmation = unterm_mcp::handler::pending_confirmation_view().map(|v| v.id);
+    }
+
+    /// Offer a mouse event to the program. True when it took it.
+    ///
+    /// The front end asks before acting on a click of its own: with reporting
+    /// on, a drag that also selected text would give the user a selection they
+    /// did not ask for on top of a click that did work.
+    fn report_mouse(
+        &mut self,
+        kind: unterm_engine::next_core::mouse_encoding::MouseEventKind,
+        button: Option<unterm_engine::next_core::mouse_encoding::MouseButton>,
+    ) -> bool {
+        let Some(live) = self.state.as_ref() else {
+            return false;
+        };
+        let metrics = self.font.metrics();
+        let top = crate::tabbar::terminal_top(metrics, self.tabs.tab_count());
+        let column = (self.pointer.0 / metrics.width.max(1.0)) as usize;
+        let row = ((self.pointer.1 - top).max(0.0) / metrics.height.max(1.0)) as usize;
+
+        let held = crate::mouse::Held {
+            shift: self.shift_held,
+            ctrl: self.ctrl_held,
+            alt: self.alt_held,
+        };
+        match crate::mouse::route(self.mouse_modes, kind, button, column, row, held) {
+            crate::mouse::Route::ToProgram(event) => {
+                let _ = self.engine.report_mouse(live.session_id, event);
+                true
+            }
+            crate::mouse::Route::ToTerminal => false,
+        }
     }
 
     /// Which cell the pointer is over, in scrollback coordinates.
@@ -1097,6 +1148,7 @@ impl ApplicationHandler for App {
             WindowEvent::ModifiersChanged(modifiers) => {
                 self.shift_held = modifiers.state().shift_key();
                 self.ctrl_held = modifiers.state().control_key();
+                self.alt_held = modifiers.state().alt_key();
             }
 
             WindowEvent::KeyboardInput { event, .. } => {
@@ -1156,6 +1208,12 @@ impl ApplicationHandler for App {
 
             WindowEvent::CursorMoved { position, .. } => {
                 self.pointer = (position.x as f32, position.y as f32);
+                if self.report_mouse(
+                    unterm_engine::next_core::mouse_encoding::MouseEventKind::Motion,
+                    self.held_mouse_button,
+                ) {
+                    return;
+                }
                 if self.drag.is_some() {
                     let point = self.cell_under_pointer();
                     if let Some(drag) = self.drag.as_mut() {
@@ -1166,7 +1224,36 @@ impl ApplicationHandler for App {
             }
 
             WindowEvent::MouseInput { state, button, .. } => {
+                use unterm_engine::next_core::mouse_encoding::MouseEventKind;
                 use winit::event::MouseButton;
+
+                // The program gets the click if it asked for one -- every
+                // button, not only the left, since that is what a program
+                // with a context menu is waiting for.
+                let engine_button = match button {
+                    MouseButton::Left => {
+                        Some(unterm_engine::next_core::mouse_encoding::MouseButton::Left)
+                    }
+                    MouseButton::Middle => {
+                        Some(unterm_engine::next_core::mouse_encoding::MouseButton::Middle)
+                    }
+                    MouseButton::Right => {
+                        Some(unterm_engine::next_core::mouse_encoding::MouseButton::Right)
+                    }
+                    _ => None,
+                };
+                self.held_mouse_button = match state {
+                    ElementState::Pressed => engine_button,
+                    ElementState::Released => None,
+                };
+                let kind = match state {
+                    ElementState::Pressed => MouseEventKind::Press,
+                    ElementState::Released => MouseEventKind::Release,
+                };
+                if self.report_mouse(kind, engine_button) {
+                    return;
+                }
+
                 if button != MouseButton::Left {
                     return;
                 }
@@ -1200,12 +1287,32 @@ impl ApplicationHandler for App {
                         cell_height,
                     ),
                 };
-                if lines != 0 {
-                    if let Some(live) = self.state.as_ref() {
-                        // Positive is toward older output, and the wheel rolls
-                        // away from you to go back in time.
-                        let _ = self.engine.scroll_viewport_by(live.session_id, -lines);
+                if lines == 0 {
+                    return;
+                }
+                // A program that asked for the mouse gets the wheel too --
+                // that is how less and htop scroll themselves. One report per
+                // notch, because that is what a wheel is.
+                if let Some(button) = crate::mouse::wheel_button(lines as f32) {
+                    let notches = lines.unsigned_abs().min(16);
+                    let mut reported = false;
+                    for _ in 0..notches {
+                        reported = self.report_mouse(
+                            unterm_engine::next_core::mouse_encoding::MouseEventKind::Press,
+                            Some(button),
+                        );
+                        if !reported {
+                            break;
+                        }
                     }
+                    if reported {
+                        return;
+                    }
+                }
+                if let Some(live) = self.state.as_ref() {
+                    // Positive is toward older output, and the wheel rolls
+                    // away from you to go back in time.
+                    let _ = self.engine.scroll_viewport_by(live.session_id, -lines);
                 }
             }
 

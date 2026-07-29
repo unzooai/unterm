@@ -414,6 +414,7 @@ mod tests {
             scrollback_rows: 0,
             revision: 1,
             dirty_rows: None,
+            mouse: Default::default(),
         }
     }
 

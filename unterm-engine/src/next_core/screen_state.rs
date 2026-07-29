@@ -44,11 +44,23 @@ pub(super) struct ScreenState {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+/// Named after the sequence that sets each one.
+///
+/// They used to be named one number off -- `X10` meant `CSI ? 1000 h` -- and
+/// the mapping had to be explained in a comment wherever it was read. A name
+/// that lies is a bug waiting for someone to "fix" the mapping.
+///
+/// Real X10 tracking (`CSI ? 9 h`) is not parsed. It is ignored rather than
+/// approximated: guessing would send a program bytes it never asked for, and
+/// nothing written this century uses it.
 pub(super) enum MouseTrackingMode {
     #[default]
     None,
-    X10,
+    /// `CSI ? 1000 h` -- press and release.
     ButtonEvent,
+    /// `CSI ? 1002 h` -- plus motion while a button is held.
+    ButtonMotion,
+    /// `CSI ? 1003 h` -- plus free motion.
     AnyEvent,
 }
 
@@ -191,5 +203,65 @@ mod resize_cursor_tests {
             screen.cursor_snapshot().y >= screen.rows as isize,
             "the cursor should be below the viewport, not inside it"
         );
+    }
+}
+
+#[cfg(test)]
+mod mouse_mode_tests {
+    use crate::next_core::mouse_encoding::MouseTracking;
+    use crate::next_core::NextCoreScreen;
+
+    /// What a program asks for reaches the front end.
+    ///
+    /// A front end has to know whether a click belongs to the program before
+    /// it acts on one itself. It learns that from the screen snapshot, so the
+    /// path from the escape sequence to that snapshot is the thing to check --
+    /// a mode parsed but not reported is the same as a mode not parsed.
+    #[test]
+    fn a_program_asking_for_the_mouse_is_reported_to_the_front_end() {
+        let mut screen = NextCoreScreen::new(40, 6);
+        assert_eq!(
+            screen.mouse_modes().tracking,
+            MouseTracking::None,
+            "nothing has asked yet"
+        );
+
+        // What vim sends: button events, SGR encoding.
+        screen.feed("\x1b[?1000h");
+        screen.feed("\x1b[?1006h");
+        let modes = screen.mouse_modes();
+        assert_eq!(modes.tracking, MouseTracking::ButtonEvent);
+        assert!(modes.sgr, "SGR is what survives past column 223");
+
+        // And what it sends on the way out.
+        screen.feed("\x1b[?1000l");
+        screen.feed("\x1b[?1006l");
+        assert_eq!(
+            screen.mouse_modes().tracking,
+            MouseTracking::None,
+            "leaving the program gives the mouse back to the terminal"
+        );
+    }
+
+    #[test]
+    fn each_tracking_mode_is_understood() {
+        let cases: [(&str, MouseTracking); 4] = [
+            ("[?1000h", MouseTracking::ButtonEvent),
+            ("[?1002h", MouseTracking::ButtonMotion),
+            ("[?1003h", MouseTracking::AnyEvent),
+            // Real X10 (`CSI ? 9 h`) is not parsed. Ignoring it is the safe
+            // reading: approximating it would send a program bytes it never
+            // asked for, and nothing written this century uses it.
+            ("[?9h", MouseTracking::None),
+        ];
+        for (sequence, expected) in cases {
+            let mut screen = NextCoreScreen::new(40, 6);
+            screen.feed(sequence);
+            assert_eq!(
+                screen.mouse_modes().tracking,
+                expected,
+                "{sequence:?} should ask for {expected:?}"
+            );
+        }
     }
 }

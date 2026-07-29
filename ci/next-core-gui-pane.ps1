@@ -315,6 +315,20 @@ $Suites = @(
         )
     },
     @{
+        # Who owns the mouse. Getting this wrong means either vim never sees a
+        # click, or a click in vim also drags out a selection nobody asked for.
+        Name = "app mouse ownership"
+        Package = "unterm-app"
+        Filter = "mouse::tests::"
+        ExpectedCount = 9
+        RequiredTests = @(
+            "mouse::tests::with_reporting_off_the_terminal_keeps_the_mouse",
+            "mouse::tests::a_program_that_asked_for_clicks_gets_them",
+            "mouse::tests::shift_takes_the_mouse_back_from_the_program",
+            "mouse::tests::button_motion_mode_gets_motion_only_while_dragging"
+        )
+    },
+    @{
         # Composing CJK text: where it is drawn, and how wide it measures.
         # Both are off by a character until someone types Chinese and looks.
         Name = "app input method"
