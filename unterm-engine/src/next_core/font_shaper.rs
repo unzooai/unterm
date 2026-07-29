@@ -44,7 +44,7 @@ pub struct Shaper {
     /// library destroys its faces whatever their reference count, and a
     /// shaper dropped after its library would then free a face that is
     /// already gone. Declared after `font` so it outlives it.
-    _library: std::sync::Arc<dyn std::any::Any + Send + Sync>,
+    _library: crate::next_core::font_raster::LibraryHandle,
 }
 
 // SAFETY: the raw handle is private and every method takes `&mut self`, so

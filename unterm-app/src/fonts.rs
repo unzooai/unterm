@@ -150,6 +150,16 @@ impl FontStack {
             .filter(|glyphs| !glyphs.is_empty())
     }
 
+    /// The face's own index for a character.
+    ///
+    /// The real index, not the code point. Both drawing paths file glyphs in
+    /// the atlas by index, and a character code standing in for one collides
+    /// with whatever glyph actually has that number -- which shows up as
+    /// characters vanishing from the middle of a word.
+    pub fn glyph_index_for(&self, face: usize, ch: char) -> Option<u32> {
+        self.faces.get(face)?.glyph_index_for(ch)
+    }
+
     /// Rasterize one glyph of a face by its index, as the shaper reports it.
     pub fn rasterize_index(&mut self, face: usize, glyph_index: u32) -> Option<RasterizedGlyph> {
         self.faces.get_mut(face)?.rasterize_glyph_index(glyph_index).ok()

@@ -8,6 +8,7 @@ mod confirm;
 mod fonts;
 mod ime;
 mod keys;
+mod links;
 mod mcp_host;
 mod mouse;
 mod panes;

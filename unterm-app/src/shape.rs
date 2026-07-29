@@ -233,3 +233,53 @@ mod tests {
         assert_eq!(runs[0].text, "ab");
     }
 }
+
+#[cfg(test)]
+mod url_regression {
+    use super::*;
+    use unterm_engine::{CellStyle, StyledCell};
+
+    /// Every column of a URL gets a glyph.
+    ///
+    /// "example.com" rendered as "exampl  com" -- two characters silently
+    /// gone. Whatever the cause, the property to hold is that shaping a run
+    /// covers every column the run occupies.
+    #[test]
+    fn shaping_a_url_covers_every_column() {
+        let Some(mut stack) = crate::fonts::FontStack::system(16) else {
+            return;
+        };
+        let text = "https://example.com";
+        let cells: Vec<StyledCell> = text
+            .chars()
+            .map(|ch| StyledCell {
+                ch,
+                style: CellStyle::default(),
+                width: 1,
+            })
+            .collect();
+
+        let runs = runs(&cells, |ch| stack.face_for(ch));
+        assert_eq!(runs.len(), 1, "no spaces, so one run");
+        let run = &runs[0];
+
+        let Some(glyphs) = stack.shape(0, &run.text) else {
+            return;
+        };
+        let covered: std::collections::HashSet<usize> = glyphs
+            .iter()
+            .map(|glyph| run.column_of(glyph.cluster as usize))
+            .collect();
+
+        let missing: Vec<usize> = (0..text.chars().count())
+            .filter(|column| !covered.contains(column))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "columns {missing:?} of {text:?} got no glyph; \
+             shaped {} glyphs for {} characters",
+            glyphs.len(),
+            text.chars().count()
+        );
+    }
+}

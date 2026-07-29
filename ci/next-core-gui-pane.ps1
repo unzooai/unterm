@@ -315,6 +315,47 @@ $Suites = @(
         )
     },
     @{
+        # Links a program marked, and links it merely printed. Opening is
+        # behind a modifier: a terminal where a stray click launches a
+        # browser is one you cannot select text in.
+        Name = "app links"
+        Package = "unterm-app"
+        Filter = "links::tests::"
+        ExpectedCount = 11
+        RequiredTests = @(
+            "links::tests::a_printed_url_is_a_link",
+            "links::tests::a_marked_link_wins_over_the_text_that_looks_like_one",
+            "links::tests::a_click_only_opens_with_the_modifier",
+            "links::tests::an_unrecognised_scheme_is_refused_rather_than_handed_to_the_shell"
+        )
+    },
+    @{
+        # Underlines and the rest. A line the program asked for is
+        # information; dropping it silently loses what it sent.
+        Name = "app decorations"
+        Package = "unterm-render"
+        Filter = "decorations::tests::"
+        ExpectedCount = 10
+        RequiredTests = @(
+            "decorations::tests::an_underline_sits_below_the_baseline",
+            "decorations::tests::a_double_underline_is_two_lines_that_do_not_overlap",
+            "decorations::tests::strikethrough_crosses_the_text_not_the_gap_below_it",
+            "decorations::tests::lines_scale_with_the_cell_rather_than_staying_one_pixel"
+        )
+    },
+    @{
+        # The cursor inverts its own cell and no other. A window of one cell
+        # in each direction painted the row above the prompt in the
+        # background colour, and characters there vanished.
+        Name = "app cursor inversion"
+        Package = "unterm-app"
+        Filter = "terminal::cursor_inversion_tests::"
+        ExpectedCount = 1
+        RequiredTests = @(
+            "terminal::cursor_inversion_tests::the_cursor_inverts_its_own_cell_and_no_other"
+        )
+    },
+    @{
         # Shaping a row: where a ligature lands, and where a run has to stop.
         # A run that crosses a face is shaped by the wrong font, which is how
         # a CJK character mid-word comes out as a box.

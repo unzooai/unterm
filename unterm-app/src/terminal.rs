@@ -129,12 +129,26 @@ pub fn append_pane(
 ) {
     let metrics = font.metrics();
 
-    // Rasterize every character this frame needs before building quads, so the
-    // atlas cannot grow midway and leave earlier texture coordinates pointing
-    // at the wrong pixels.
+    // Shape every row and rasterize everything this frame needs *before*
+    // building any quads. The atlas grows, and growing it renormalizes every
+    // texture coordinate -- so a glyph placed before a later one made the
+    // atlas bigger ends up sampling the wrong pixels. It shows up as
+    // characters missing from the middle of a word, which is how this was
+    // found: "example.com" rendered as "exampl  com".
+    let mut shaped_rows: Vec<Vec<(usize, ShapedRun)>> = Vec::with_capacity(snapshot.lines.len());
+    for line in &snapshot.lines {
+        shaped_rows.push(shape_row(&line.cells, font));
+    }
     for line in &snapshot.lines {
         for cell in &line.cells {
             ensure_glyph(font, atlas, cell.ch);
+        }
+    }
+    for row in &shaped_rows {
+        for (face, run) in row {
+            for glyph in &run.glyphs {
+                ensure_shaped_glyph(font, atlas, *face, glyph.glyph_index);
+            }
         }
     }
 
@@ -142,11 +156,17 @@ pub fn append_pane(
     // matches the key each glyph was filed under.
     let pixel_size = font.pixel_size();
     let mut face_of: std::collections::HashMap<char, usize> = std::collections::HashMap::new();
+    let mut index_of: std::collections::HashMap<char, u32> = std::collections::HashMap::new();
     for line in &snapshot.lines {
         for cell in &line.cells {
-            face_of
+            let face = *face_of
                 .entry(cell.ch)
                 .or_insert_with(|| font.stack.face_for(cell.ch));
+            index_of.entry(cell.ch).or_insert_with(|| {
+                font.stack
+                    .glyph_index_for(face, cell.ch)
+                    .unwrap_or_default()
+            });
         }
     }
 
@@ -161,8 +181,16 @@ pub fn append_pane(
         // first so it can claim the columns it drew; what it leaves is drawn
         // a character at a time, which is right for a font with no ligatures
         // and the only option for one the shaper will not open.
-        let shaped = append_shaped_row(
-            &line.cells, origin.0, top, metrics, colors, font, atlas, quads,
+        let shaped = place_shaped_row(
+            &shaped_rows[row],
+            &line.cells,
+            origin.0,
+            top,
+            metrics,
+            colors,
+            pixel_size,
+            atlas,
+            quads,
         );
         build_row(
             &line.cells,
@@ -172,9 +200,10 @@ pub fn append_pane(
             colors,
             atlas,
             |ch| {
+                let face = face_of.get(&ch).copied().unwrap_or(0);
                 atlas.get(GlyphKey {
-                    face: face_of.get(&ch).copied().unwrap_or(0),
-                    glyph_index: ch as u32,
+                    face,
+                    glyph_index: index_of.get(&ch).copied().unwrap_or_default(),
                     pixel_size,
                 })
             },
@@ -184,14 +213,26 @@ pub fn append_pane(
     }
 
     if let Some((column, row)) = inverted {
-        let left = origin.0 + column as f32 * metrics.width;
-        let top = origin.1 + row as f32 * metrics.height;
+        // The cursor's own cell, and nothing around it. A glyph is placed by
+        // its bearing, so it can start slightly left of its cell and its top
+        // sits well above the cell's -- which is why this compares against
+        // the cell the glyph *belongs to* rather than against a box drawn
+        // around the cursor. A window of plus-or-minus one cell, which is
+        // what this used to be, silently painted the row above the cursor in
+        // the background colour: characters directly over the prompt
+        // disappeared, and only there.
+        let cell_of = |left: f32, top: f32| {
+            (
+                ((left - origin.0) / metrics.width.max(1.0)).floor().max(0.0) as usize,
+                ((top - origin.1) / metrics.height.max(1.0)).floor().max(0.0) as usize,
+            )
+        };
         for glyph in &mut quads.glyphs {
-            let on_cursor = glyph.quad.left >= left - metrics.width
-                && glyph.quad.left < left + metrics.width
-                && glyph.quad.top >= top - metrics.height
-                && glyph.quad.top < top + metrics.height;
-            if on_cursor {
+            // Measured from the glyph's baseline row rather than its top: a
+            // tall glyph starts above its own cell.
+            let baseline_top = glyph.quad.top + glyph.quad.height;
+            let (glyph_column, glyph_row) = cell_of(glyph.quad.left, baseline_top - 1.0);
+            if glyph_column == column && glyph_row == row {
                 glyph.quad.color = colors.background;
             }
         }
@@ -337,82 +378,83 @@ fn ensure_glyph(font: &mut TerminalFont, atlas: &mut GlyphAtlas, ch: char) {
     }
 }
 
-/// Draw a row's text through the shaper, falling back per cell where it
-/// cannot.
-///
-/// Returns the columns it drew, so the caller knows which cells still need
-/// the per-character path. Glyphs are placed at the cell their cluster came
-/// from rather than at the pen position: that is what keeps a ligature inside
-/// the columns its characters occupied, and keeps a font whose advances drift
-/// from the cell width from pulling the row out of alignment.
-fn append_shaped_row(
-    cells: &[StyledCell],
-    left_origin: f32,
-    top: f32,
-    metrics: CellMetrics,
-    colors: FrameColors,
-    font: &mut TerminalFont,
-    atlas: &mut GlyphAtlas,
-    quads: &mut FrameQuads,
-) -> std::collections::HashSet<usize> {
-    let mut drawn = std::collections::HashSet::new();
-    let pixel_size = font.pixel_size();
+/// A run of a row, shaped.
+pub struct ShapedRun {
+    run: crate::shape::Run,
+    glyphs: Vec<unterm_engine::next_core::font_shaper::ShapedGlyph>,
+}
 
+/// Shape every run of a row, without touching the atlas.
+///
+/// Separate from placing so that a whole frame can be shaped and rasterized
+/// before any quad is built: the atlas grows, and growing it invalidates the
+/// texture coordinates of everything already placed.
+fn shape_row(cells: &[StyledCell], font: &mut TerminalFont) -> Vec<(usize, ShapedRun)> {
     let runs = {
         let stack = font.stack_mut();
         crate::shape::runs(cells, |ch| stack.face_for(ch))
     };
 
+    let mut out = Vec::new();
     for run in runs {
-        let face = {
-            let stack = font.stack_mut();
-            run.text.chars().next().map(|ch| stack.face_for(ch)).unwrap_or(0)
+        let Some(first) = run.text.chars().next() else {
+            continue;
         };
+        let face = font.stack_mut().face_for(first);
         let Some(glyphs) = font.stack_mut().shape(face, &run.text) else {
             continue;
         };
+        out.push((face, ShapedRun { run, glyphs }));
+    }
+    out
+}
 
-        // Every glyph has to be in the atlas before any is placed: the atlas
-        // can grow while filling, which moves the coordinates of everything
-        // already in it.
-        let mut usable = true;
-        for glyph in &glyphs {
-            if !ensure_shaped_glyph(font, atlas, face, glyph.glyph_index) {
-                usable = false;
-                break;
-            }
-        }
-        if !usable {
-            continue;
-        }
+/// Place a row's shaped glyphs, and say which columns they covered.
+///
+/// Glyphs go at the cell their cluster came from rather than at the pen
+/// position shaping would have used. That is what keeps a ligature inside the
+/// columns its characters occupied, and keeps a font whose advances drift from
+/// the cell width from pulling the row out of alignment.
+#[allow(clippy::too_many_arguments)]
+fn place_shaped_row(
+    rows: &[(usize, ShapedRun)],
+    cells: &[StyledCell],
+    left_origin: f32,
+    top: f32,
+    metrics: CellMetrics,
+    colors: FrameColors,
+    pixel_size: u32,
+    atlas: &GlyphAtlas,
+    quads: &mut FrameQuads,
+) -> std::collections::HashSet<usize> {
+    let mut drawn = std::collections::HashSet::new();
 
-        for glyph in &glyphs {
-            let column = run.column_of(glyph.cluster as usize);
+    for (face, shaped) in rows {
+        for glyph in &shaped.glyphs {
+            let column = shaped.run.column_of(glyph.cluster as usize);
             let Some(slot) = atlas.get(GlyphKey {
-                face,
+                face: *face,
                 glyph_index: glyph.glyph_index,
                 pixel_size,
             }) else {
+                // Not in the atlas: leave the column to the per-character
+                // path rather than claiming it and drawing nothing.
                 continue;
             };
+            drawn.insert(column);
             if slot.width == 0 || slot.height == 0 {
-                drawn.insert(column);
                 continue;
             }
             let cell = cells_at(cells, column);
-            let (foreground, _) = unterm_render::quads::resolve_style(
-                cell.map(|cell| &cell.style),
-                colors,
-            );
-            let left = left_origin + column as f32 * metrics.width + glyph.x_offset as f32;
+            let (foreground, _) =
+                unterm_render::quads::resolve_style(cell.map(|cell| &cell.style), colors);
             quads.glyphs.push(unterm_render::quads::glyph_quad(
                 slot,
-                left,
+                left_origin + column as f32 * metrics.width + glyph.x_offset as f32,
                 top + metrics.baseline - glyph.y_offset as f32,
                 foreground,
                 atlas,
             ));
-            drawn.insert(column);
         }
     }
     drawn
@@ -466,9 +508,18 @@ fn ensure_shaped_glyph(
 /// would show one where the other belongs.
 fn glyph_key(font: &mut TerminalFont, ch: char) -> GlyphKey {
     let pixel_size = font.pixel_size();
+    let face = font.stack_mut().face_for(ch);
     GlyphKey {
-        face: font.stack_mut().face_for(ch),
-        glyph_index: ch as u32,
+        face,
+        // The face's own index for the character, not its code point. The
+        // shaped path files glyphs by real index, and a code point standing
+        // in for one collides with whatever glyph actually has that number:
+        // the two entries overwrite each other and characters disappear from
+        // the middle of a word.
+        glyph_index: font
+            .stack_mut()
+            .glyph_index_for(face, ch)
+            .unwrap_or_default(),
         pixel_size,
     }
 }
@@ -909,6 +960,25 @@ mod shaped_row_tests {
     use super::*;
     use unterm_engine::{CellStyle, StyledCell};
 
+    /// Shape a row and place it, as `append_pane` does in two passes.
+    fn shape_and_place(
+        cells: &[StyledCell],
+        font: &mut TerminalFont,
+        atlas: &mut GlyphAtlas,
+        colors: FrameColors,
+        quads: &mut FrameQuads,
+    ) -> std::collections::HashSet<usize> {
+        let rows = shape_row(cells, font);
+        for (face, run) in &rows {
+            for glyph in &run.glyphs {
+                ensure_shaped_glyph(font, atlas, *face, glyph.glyph_index);
+            }
+        }
+        let metrics = font.metrics();
+        let pixel_size = font.pixel_size();
+        place_shaped_row(&rows, cells, 0.0, 0.0, metrics, colors, pixel_size, atlas, quads)
+    }
+
     fn cells(text: &str) -> Vec<StyledCell> {
         text.chars()
             .map(|ch| StyledCell {
@@ -937,16 +1007,7 @@ mod shaped_row_tests {
         };
         let mut quads = FrameQuads::default();
 
-        let drawn = append_shaped_row(
-            &cells("hello"),
-            0.0,
-            0.0,
-            font.metrics(),
-            colors,
-            &mut font,
-            &mut atlas,
-            &mut quads,
-        );
+        let drawn = shape_and_place(&cells("hello"), &mut font, &mut atlas, colors, &mut quads);
 
         assert_eq!(
             drawn.len(),
@@ -971,20 +1032,184 @@ mod shaped_row_tests {
         };
         let mut quads = FrameQuads::default();
 
-        let drawn = append_shaped_row(
-            &cells("中文"),
-            0.0,
-            0.0,
-            font.metrics(),
-            colors,
-            &mut font,
-            &mut atlas,
-            &mut quads,
-        );
+        let drawn = shape_and_place(&cells("中文"), &mut font, &mut atlas, colors, &mut quads);
 
         // Two characters, two columns apart -- a wide cell takes two.
         assert!(drawn.contains(&0), "first character drawn");
         assert!(drawn.contains(&2), "second character at column 2, not 1");
         assert_eq!(quads.glyphs.len(), 2);
+    }
+}
+
+#[cfg(test)]
+mod missing_glyph_regression {
+    use super::*;
+    use unterm_engine::{CellStyle, CursorSnapshot, StyledCell, StyledScreenLine};
+
+    /// Every non-blank column of a line gets a glyph.
+    ///
+    /// "see https://example.com here" rendered as "see https://exampl  com
+    /// here" -- two characters silently gone from the middle of a word. This
+    /// is the whole pipeline, because each piece checked out on its own.
+    #[test]
+    fn every_column_of_a_line_is_drawn() {
+        for pixel_size in [12, 13, 14, 16, 18, 20] {
+            check_every_column_drawn(pixel_size);
+        }
+    }
+
+    fn check_every_column_drawn(pixel_size: u32) {
+        let Ok(mut font) = TerminalFont::open(pixel_size) else {
+            return;
+        };
+        // Three rows, because the same text drew correctly on the first row
+        // and lost two characters on the third.
+        let rows = [
+            "see https://example.com here",
+            "aaa bbbbbbbbbbbbbbbbbbb ccc",
+            "see https://exampleXcom here",
+        ];
+        let text = rows[2];
+        let mut atlas = GlyphAtlas::new(256, 256);
+        let colors = FrameColors {
+            foreground: [1.0; 4],
+            background: [0.0, 0.0, 0.0, 1.0],
+        };
+        let mut quads = FrameQuads::default();
+
+        let snapshot = StyledScreenSnapshot {
+            lines: rows
+                .iter()
+                .enumerate()
+                .map(|(index, line)| StyledScreenLine {
+                    row: index as i64,
+                    wrapped: false,
+                    cells: line
+                        .chars()
+                        .map(|ch| StyledCell {
+                            ch,
+                            style: CellStyle::default(),
+                            width: 1,
+                        })
+                        .collect(),
+                })
+                .collect(),
+            cursor: CursorSnapshot {
+                x: 0,
+                y: 99,
+                visible: false,
+                shape: "Default".to_string(),
+            },
+            cols: text.len(),
+            rows: rows.len(),
+            scrollback_rows: 0,
+            revision: 1,
+            dirty_rows: None,
+            mouse: Default::default(),
+        };
+
+        append_pane(&snapshot, &mut font, &mut atlas, colors, (0.0, 0.0), &mut quads);
+
+        let metrics = font.metrics();
+        let last_row_top = 2.0 * metrics.height;
+        let drawn: std::collections::HashSet<usize> = quads
+            .glyphs
+            .iter()
+            .filter(|glyph| glyph.quad.top >= last_row_top - metrics.height * 0.5)
+            .map(|glyph| (glyph.quad.left / metrics.width).round() as usize)
+            .collect();
+        let missing: Vec<(usize, char)> = text
+            .chars()
+            .enumerate()
+            .filter(|(column, ch)| *ch != ' ' && !drawn.contains(column))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "at {pixel_size}px, columns with no glyph: {missing:?}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod cursor_inversion_tests {
+    use super::*;
+    use unterm_engine::{CellStyle, CursorSnapshot, StyledCell, StyledScreenLine};
+
+    fn snapshot(rows: &[&str], cursor: (usize, isize)) -> StyledScreenSnapshot {
+        StyledScreenSnapshot {
+            lines: rows
+                .iter()
+                .enumerate()
+                .map(|(index, line)| StyledScreenLine {
+                    row: index as i64,
+                    wrapped: false,
+                    cells: line
+                        .chars()
+                        .map(|ch| StyledCell {
+                            ch,
+                            style: CellStyle::default(),
+                            width: 1,
+                        })
+                        .collect(),
+                })
+                .collect(),
+            cursor: CursorSnapshot {
+                x: cursor.0,
+                y: cursor.1,
+                visible: true,
+                shape: "Default".to_string(),
+            },
+            cols: rows.iter().map(|line| line.len()).max().unwrap_or(1),
+            rows: rows.len(),
+            scrollback_rows: 0,
+            revision: 1,
+            dirty_rows: None,
+            mouse: Default::default(),
+        }
+    }
+
+    /// The block cursor inverts its own cell and no other.
+    ///
+    /// It used to invert everything within one cell in each direction, which
+    /// painted the row above the cursor in the background colour: characters
+    /// sitting directly over the prompt disappeared, and only there. It looked
+    /// like a shaping bug for a long time because the text was fine, the
+    /// quads were fine, and the pixels were not.
+    #[test]
+    fn the_cursor_inverts_its_own_cell_and_no_other() {
+        let Ok(mut font) = TerminalFont::open(16) else {
+            return;
+        };
+        let mut atlas = GlyphAtlas::new(256, 256);
+        let colors = FrameColors {
+            foreground: [1.0; 4],
+            background: [0.0, 0.0, 0.0, 1.0],
+        };
+        let mut quads = FrameQuads::default();
+
+        // Text on the row above, cursor at column 2 of the row below.
+        let snapshot = snapshot(&["abcde", "abcde"], (2, 1));
+        append_pane(&snapshot, &mut font, &mut atlas, colors, (0.0, 0.0), &mut quads);
+
+        let metrics = font.metrics();
+        let above: Vec<_> = quads
+            .glyphs
+            .iter()
+            .filter(|glyph| glyph.quad.top + glyph.quad.height < metrics.height * 1.5)
+            .collect();
+        assert_eq!(above.len(), 5, "the row above should be fully drawn");
+        for glyph in above {
+            assert_eq!(
+                glyph.quad.color, colors.foreground,
+                "a glyph on the row above the cursor was painted the background colour"
+            );
+        }
+
+        let inverted = quads
+            .glyphs
+            .iter()
+            .filter(|glyph| glyph.quad.color == colors.background)
+            .count();
+        assert_eq!(inverted, 1, "exactly the cursor's own cell");
     }
 }

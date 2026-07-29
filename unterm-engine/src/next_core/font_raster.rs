@@ -61,9 +61,16 @@ struct Library {
     raw: FT_Library,
 }
 
-// SAFETY: the handle is private and every use goes through `&mut` on a face,
-// so sharing the owning handle does not let two threads into FreeType.
-unsafe impl Sync for Library {}
+/// Keeps a face's FreeType library alive for as long as something needs it.
+///
+/// Handed to the shaper, which references the *face* through HarfBuzz --
+/// which is not enough on its own, because destroying a library destroys its
+/// faces whatever their reference count says.
+///
+/// Deliberately not `Sync`: FreeType's library is not thread-safe, and saying
+/// otherwise to make a type parameter fit is how an intermittent access
+/// violation gets written. One was.
+pub struct LibraryHandle(#[allow(dead_code)] std::sync::Arc<Library>);
 
 // SAFETY: the raw handle is never handed out, and every method that touches it
 // takes `&mut`, so no two threads can be inside FreeType at the same time.
@@ -132,8 +139,8 @@ impl FontFace {
     /// which keeps the face alive -- but destroying the library destroys every
     /// face in it regardless, so without this a shaper outliving its face
     /// would call into freed memory when it was itself dropped.
-    pub(crate) fn library(&self) -> std::sync::Arc<impl Send + Sync> {
-        self._library.clone()
+    pub(crate) fn library(&self) -> LibraryHandle {
+        LibraryHandle(self._library.clone())
     }
 
     /// The underlying FreeType face.

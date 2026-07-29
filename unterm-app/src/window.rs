@@ -256,6 +256,7 @@ impl App {
             );
         }
         quads.backgrounds.extend(dividers);
+        self.append_hovered_link(&mut quads);
         self.append_preedit(&mut quads);
         self.append_search_bar(window_width, &mut quads);
         let tab_count = self.tabs.tab_count();
@@ -344,6 +345,46 @@ impl App {
             }
             crate::mouse::Route::ToTerminal => false,
         }
+    }
+
+    /// Underline the link the pointer is over, while Ctrl says a click opens.
+    ///
+    /// Only while the modifier is down: a line that appears under everything
+    /// the pointer passes is noise, and one that appears when clicking would
+    /// do something is a hint.
+    fn append_hovered_link(&mut self, quads: &mut unterm_render::quads::FrameQuads) {
+        if !self.ctrl_held {
+            return;
+        }
+        let Some(link) = self.link_under_pointer() else {
+            return;
+        };
+        let metrics = self.font.metrics();
+        let top_offset = crate::tabbar::terminal_top(metrics, self.tabs.tab_count());
+        quads.backgrounds.push(unterm_render::quads::Quad {
+            left: link.start as f32 * metrics.width,
+            top: top_offset
+                + link.row as f32 * metrics.height
+                + unterm_render::decorations::underline_top(metrics),
+            width: (link.end - link.start) as f32 * metrics.width,
+            height: unterm_render::decorations::thickness(metrics),
+            color: self.colors.foreground,
+        });
+    }
+
+    /// The link the pointer is over, if any.
+    fn link_under_pointer(&self) -> Option<crate::links::Link> {
+        let live = self.state.as_ref()?;
+        let snapshot = self.engine.read_styled_screen(live.session_id).ok()?;
+        let metrics = self.font.metrics();
+        let top = crate::tabbar::terminal_top(metrics, self.tabs.tab_count());
+        let column = (self.pointer.0 / metrics.width.max(1.0)) as usize;
+        let row = ((self.pointer.1 - top).max(0.0) / metrics.height.max(1.0)) as usize;
+
+        let line = snapshot.lines.get(row)?;
+        crate::links::links_in_row(row, line)
+            .into_iter()
+            .find(|link| link.covers(row, column))
     }
 
     /// Which cell the pointer is over, in scrollback coordinates.
@@ -1149,6 +1190,12 @@ impl ApplicationHandler for App {
                 self.shift_held = modifiers.state().shift_key();
                 self.ctrl_held = modifiers.state().control_key();
                 self.alt_held = modifiers.state().alt_key();
+                // The link hint appears and disappears with Ctrl, and nothing
+                // else about the screen changed to ask for a frame.
+                self.drawn_revision = None;
+                if let Some(live) = self.state.as_ref() {
+                    live.window.request_redraw();
+                }
             }
 
             WindowEvent::KeyboardInput { event, .. } => {
@@ -1256,6 +1303,16 @@ impl ApplicationHandler for App {
 
                 if button != MouseButton::Left {
                     return;
+                }
+                if state == ElementState::Pressed
+                    && crate::links::opens_on_click(self.ctrl_held)
+                {
+                    if let Some(link) = self.link_under_pointer() {
+                        if let Err(err) = crate::links::open(&link.uri) {
+                            log::warn!("could not open {}: {err}", link.uri);
+                        }
+                        return;
+                    }
                 }
                 match state {
                     ElementState::Pressed => {

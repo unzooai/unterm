@@ -2237,10 +2237,16 @@ mod engine_neutral_handler_tests {
             .iter()
             .find(|entry| entry["pane_id"] == pane_id as u64)
             .expect("inbox entry");
-        let expected_title = format!("next-core:{pane_id}");
-        assert_eq!(item["pane_title"], expected_title);
+        // Whatever the engine calls the pane, not a name spelled here: a
+        // shell sets its own console title when it feels like it, so a
+        // hard-coded "next-core:N" is a race against cmd.exe rather than a
+        // check that the inbox reads the engine.
+        assert_eq!(item["pane_title"], item["session"]["title"]);
+        assert!(
+            item["session"]["title"].is_string(),
+            "the inbox should carry whatever title the engine reported"
+        );
         assert_eq!(item["session"]["id"], pane_id as u64);
-        assert_eq!(item["session"]["title"], expected_title);
         assert_eq!(item["session"]["engine"], "next-core");
         assert_eq!(item["session"]["is_active"], true);
         assert_eq!(item["window_id"], 0);

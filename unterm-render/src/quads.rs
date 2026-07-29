@@ -58,10 +58,6 @@ pub struct FrameQuads {
     pub glyphs: Vec<GlyphQuad>,
 }
 
-/// Resolve a cell colour, honouring inverse.
-///
-/// Inverse swaps foreground and background rather than picking a third colour,
-/// which is what every terminal does and what a selection highlight relies on.
 /// The foreground and background a cell is drawn in.
 ///
 /// Public because a shaped row resolves the colour for a glyph that may cover
@@ -73,6 +69,10 @@ pub fn resolve_style(style: Option<&CellStyle>, colors: FrameColors) -> ([f32; 4
     }
 }
 
+/// Resolve a cell colour, honouring inverse.
+///
+/// Inverse swaps foreground and background rather than picking a third colour,
+/// which is what every terminal does and what a selection highlight relies on.
 fn resolve(style: &CellStyle, colors: FrameColors) -> ([f32; 4], [f32; 4]) {
     let foreground = style
         .fg
@@ -160,6 +160,18 @@ pub fn build_row(
                 }
             }
         }
+
+        // Underlines and the rest, over the background and under nothing --
+        // a line the program asked for is information, and losing it silently
+        // is the same as not parsing it.
+        out.backgrounds.extend(crate::decorations::quads_for(
+            &cell.style,
+            left,
+            top,
+            metrics.width * span,
+            metrics,
+            foreground,
+        ));
 
         column += cell.width.max(1);
     }
