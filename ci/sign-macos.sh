@@ -76,10 +76,10 @@ mkdir -p "$stagedir/Unterm.app/Contents/MacOS"
 mkdir -p "$stagedir/Unterm.app/Contents/Resources"
 cp -r assets/shell-integration/* "$stagedir/Unterm.app/Contents/Resources"
 cp -r assets/shell-completion "$stagedir/Unterm.app/Contents/Resources"
-# Product-default config: config.rs looks up Contents/Resources/unterm.lua as
+# Product-default config: the terminal looks up Contents/Resources/unterm.conf as
 # the LOWEST-priority fallback, so installs get the out-of-box look while any
 # user config still wins. Without this, installs run on bare compiled defaults.
-cp assets/unterm.lua "$stagedir/Unterm.app/Contents/Resources/unterm.lua"
+cp assets/unterm.conf "$stagedir/Unterm.app/Contents/Resources/unterm.conf"
 tic -xe wezterm -o "$stagedir/Unterm.app/Contents/Resources/terminfo" termwiz/data/wezterm.terminfo
 
 # Stamp CFBundleShortVersionString on the main app from the tag, so Finder
@@ -99,7 +99,7 @@ fi
 
 bash ci/build-macos-finder-sync.sh "$stagedir/Unterm.app"
 
-for bin in unterm unterm-cli unterm-mux strip-ansi-escapes ; do
+for bin in unterm unterm-cli ; do
   # Prefer the per-arch builds (target/<triple>/release/$bin) and lipo them
   # together into a fat universal binary. We only fall back to the host-arch
   # direct path (target/release/$bin) if no per-arch builds exist at all —
@@ -127,7 +127,7 @@ for bin in unterm unterm-cli unterm-mux strip-ansi-escapes ; do
   elif [[ -f "$TARGET_DIR/release/$bin" ]] ; then
     cp "$TARGET_DIR/release/$bin" "$stagedir/Unterm.app/Contents/MacOS/$bin"
   else
-    echo "ERROR: missing build artifact $bin — run 'cargo build --release -p unterm -p unterm-cli -p unterm-mux -p strip-ansi-escapes' first"
+    echo "ERROR: missing build artifact $bin — run 'cargo build --release -p unterm-app -p unterm-cli' first"
     exit 1
   fi
 done

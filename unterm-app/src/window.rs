@@ -104,6 +104,8 @@ pub struct App {
     copy_mode: Option<crate::copy_mode::CopyMode>,
     /// Quick select's labels, and what has been typed towards one.
     quick_select: Option<(Vec<crate::copy_mode::Labelled>, String)>,
+    /// Where the first shell should start, if the command line said.
+    start_directory: Option<std::path::PathBuf>,
     /// Whether the agent inbox is showing.
     inbox_open: bool,
     /// When the cockpit tracker last saw the panes.
@@ -171,6 +173,7 @@ impl App {
             palette: None,
             copy_mode: None,
             quick_select: None,
+            start_directory: None,
             inbox_open: false,
             cockpit_fed_at: std::time::Instant::now(),
             mouse_modes: Default::default(),
@@ -236,7 +239,10 @@ impl App {
         let session = self.engine.create_session(CreateSessionRequest {
             cols,
             rows,
-            command_dir: None,
+            command_dir: self
+                .start_directory
+                .as_ref()
+                .map(|path| path.display().to_string()),
             command: self.shell.clone(),
             env: Vec::new(),
             launch_policy: LaunchPolicySnapshot::default(),
@@ -734,6 +740,11 @@ impl App {
             live.window.request_redraw();
         }
         self.drawn_revision = None;
+    }
+
+    /// Where the first shell starts, as the command line asked.
+    pub fn set_start_directory(&mut self, directory: Option<std::path::PathBuf>) {
+        self.start_directory = directory;
     }
 
     /// Feed the cockpit what the panes are showing.

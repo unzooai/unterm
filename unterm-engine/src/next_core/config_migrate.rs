@@ -952,3 +952,38 @@ config.font_size = 13
         assert!(migration.text.trim().is_empty());
     }
 }
+
+#[cfg(test)]
+mod shipped_default_tests {
+    use super::*;
+
+    /// The config we ship converts, and what it converts to is valid.
+    ///
+    /// The installer used to place a Lua file that the terminal no longer
+    /// reads. Converting it is how the out-of-box defaults survive the format
+    /// change -- and a conversion that produces a config the parser rejects
+    /// would ship a terminal that starts on nothing.
+    #[test]
+    fn the_shipped_default_config_converts_and_parses() {
+        let Ok(source) = std::fs::read_to_string("../assets/unterm.lua") else {
+            eprintln!("no shipped config next to this crate; skipping");
+            return;
+        };
+        let migration = migrate_lua(&source);
+        assert!(
+            !migration.text.trim().is_empty(),
+            "the shipped config converted to nothing"
+        );
+        let parsed = crate::next_core::config::parse(&migration.text);
+        assert!(
+            parsed.is_ok(),
+            "the converted default does not parse: {:?}",
+            parsed.err()
+        );
+        eprintln!(
+            "shipped default: {} lines out, {} settings left behind",
+            migration.text.lines().count(),
+            migration.unconverted.len()
+        );
+    }
+}

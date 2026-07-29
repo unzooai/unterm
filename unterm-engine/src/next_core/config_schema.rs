@@ -41,6 +41,15 @@ pub const SETTINGS: &[&str] = &[
     "tab_bar.fallback_title",
     "tab_bar.strip_extension",
     "tab_bar.capitalize",
+    "mcp.input_confirmation",
+    "mcp.trusted_agents",
+    "mcp.confirmation_timeout_ms",
+    "mcp.suggest_default_ttl_ms",
+    "mcp.suggest_queue_capacity",
+    "mcp.audit_log_capacity",
+    "cockpit.enabled",
+    "cockpit.auto_checkpoint",
+    "cockpit.done_hold_secs",
     "title_button.style",
     "title_button.alignment",
     "title_button.buttons",
@@ -240,5 +249,39 @@ mod tests {
 
         assert_eq!(errors.len(), 1);
         assert!(errors[0].message.contains("number"), "{}", errors[0].message);
+    }
+}
+
+#[cfg(test)]
+mod shipped_config_tests {
+    use super::*;
+
+    /// The config we install passes our own validator.
+    ///
+    /// Shipping a default the terminal complains about on first run is the
+    /// worst possible first impression, and it is exactly the kind of thing
+    /// that survives a release because nobody reads the defaults.
+    #[test]
+    fn the_shipped_default_config_is_valid() {
+        let Ok(source) = std::fs::read_to_string("../assets/unterm.conf") else {
+            eprintln!("no shipped config next to this crate; skipping");
+            return;
+        };
+        let config = match crate::next_core::config::parse(&source) {
+            Ok(config) => config,
+            Err(errors) => panic!("the shipped config does not parse: {:?}", errors),
+        };
+        // Every platform, because a section only this machine ignores is
+        // still a section someone else's machine will read.
+        for platform in ["windows", "macos", "linux"] {
+            let resolved = config.resolve_platform(platform);
+            let problems = check(&resolved);
+            assert!(
+                problems.is_empty(),
+                "the shipped config has problems on {}: {:?}",
+                platform,
+                problems
+            );
+        }
     }
 }

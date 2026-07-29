@@ -44,7 +44,6 @@ $helpers = if ($Arch -eq "arm64") { "assets\windows\arm64" } else { "assets\wind
 $payload = @(
   "$TargetDir\unterm.exe",
   "$TargetDir\unterm-cli.exe",
-  "$TargetDir\strip-ansi-escapes.exe",
   "$helpers\conhost\conpty.dll",
   "$helpers\conhost\OpenConsole.exe",
   "$helpers\angle\libEGL.dll",
@@ -62,13 +61,13 @@ if ($Arch -ne "arm64") {
   Copy-Item "assets\windows\mesa\opengl32.dll" $mesa
 }
 
-# Product-default config. The WiX DefaultUntermLua component references
-# defaults\unterm.lua; it lives in defaults\ (NOT next to the exe) because
-# config.rs treats an exe-adjacent unterm.lua as a HIGH-priority thumb-drive
-# override, while defaults\ is the lowest-priority out-of-box fallback.
+# Product-default config, in the declarative format the terminal reads now.
+# The WiX DefaultUntermConf component references defaults\unterm.conf; it
+# lives in defaults\ rather than beside the exe so an installed default can
+# never outrank the user's own.
 $defaults = Join-Path $stage "defaults"
 New-Item -ItemType Directory -Path $defaults | Out-Null
-Copy-Item "assets\unterm.lua" $defaults
+Copy-Item "assets\unterm.conf" $defaults
 
 if (-not (Test-Path $WixPath)) {
   throw "WiX not found at $WixPath. Download wix.exe from https://github.com/wixtoolset/wix and place it there."

@@ -50,12 +50,6 @@
       <Component Id="UntermCliExe" Guid="2C81E2F0-2E83-4B73-9F1B-5C4A7B3C7CE0">
         <File Source="$(var.SourceDir)\unterm-cli.exe" KeyPath="yes" />
       </Component>
-      <Component Id="UntermMuxExe" Guid="A2BAF1A0-8C2C-4F0B-9E0A-FE2D3D9B0D11">
-        <File Source="$(var.SourceDir)\unterm-mux.exe" KeyPath="yes" />
-      </Component>
-      <Component Id="StripAnsiEscapesExe" Guid="9AECD6AC-68D7-4883-A670-6E162BEFD103">
-        <File Source="$(var.SourceDir)\strip-ansi-escapes.exe" KeyPath="yes" />
-      </Component>
       <Component Id="ConptyDll" Guid="E32B8E38-04D9-44C4-B06B-FE97D2E7CC20">
         <File Source="$(var.SourceDir)\conpty.dll" KeyPath="yes" />
       </Component>
@@ -88,8 +82,8 @@
           </RegistryKey>
         </RegistryKey>
       </Component>
-      <Component Id="DefaultUntermLua" Directory="DefaultsFolder" Guid="F3B2F196-E64A-4045-8B40-490D18018546">
-        <File Source="$(var.SourceDir)\defaults\unterm.lua" KeyPath="yes" />
+      <Component Id="DefaultUntermConf" Directory="DefaultsFolder" Guid="F3B2F196-E64A-4045-8B40-490D18018546">
+        <File Source="$(var.SourceDir)\defaults\unterm.conf" KeyPath="yes" />
       </Component>
       <!-- x64-only: arm64 has no Mesa software-GL fallback (ANGLE is primary). -->
       <?if $(sys.BUILDARCH) != "arm64" ?>
