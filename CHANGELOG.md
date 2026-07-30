@@ -1,5 +1,46 @@
 # Changelog
 
+## v0.60.0 — 2026-07-30
+
+The version jumps from 0.57 because what is underneath it changed completely.
+Unterm was a fork of WezTerm. It is not one any more: WezTerm is gone from the
+build and everything it used to do is done by a kernel written for this product.
+
+### Changed
+
+- **The terminal kernel is Unterm's own.** Parsing, the screen model, scrollback,
+  Unicode width, selection, panes and sessions are all `next-core` now, held to
+  a hard budget of 12,000 source lines and 10 direct dependencies so it stays
+  something a person can read. The front end is winit + wgpu.
+- **The window is drawn from a design scale rather than the terminal grid.** The
+  chrome has its own proportional face at 13pt; it stopped being laid out in
+  terminal cells, which is what used to spell the wordmark `u n t e r m`.
+- **The left tab strip is the primary navigation again**, with project groups,
+  shell and agent icons, count badges, and a jade rail on the active row. The top
+  bar is a single row of labelled actions and carries no tabs.
+
+### Fixed
+
+- **An idle window cost most of a CPU core.** The event loop polled as fast as
+  the CPU allowed, and every pass re-listed sessions, re-derived the title and
+  resized every pane -- a PTY resize syscall per pane, four times a second,
+  forever. It now waits between frames, drops to 48ms once nothing has happened
+  for two seconds, and only resizes a pane when the pane actually moved.
+  Measured idle at a prompt, release build: **80% of a core before, 6.6% after**.
+- **Focus reporting never worked.** Two `WindowEvent::Focused` arms, the second
+  unreachable, and the unreachable one was the half that sent DEC mode 1004. vim
+  and tmux have been showing the wrong focus state the whole time.
+- **The chrome had no icons.** The bundled Nerd Font was requested by family
+  name, which only works for installed fonts, so every icon resolved to nothing.
+  Bundled faces are now loaded by file.
+- **The play mark `▶` drew nothing while still advancing the pen.** The bundled
+  colour-emoji face sat ahead of the installed families and claims text symbols
+  it cannot render under a monochrome pass. It now sorts last, and rasterisation
+  skips any face that returns an empty bitmap.
+- **`unterm-services` and `unterm-cli` did not build on Linux or macOS**, having
+  called `libc::kill` without declaring libc. Nothing caught it because CI was
+  still checking crates that the WezTerm removal had already deleted.
+
 ## v0.57.4 — 2026-07-25
 
 ### Fixed
