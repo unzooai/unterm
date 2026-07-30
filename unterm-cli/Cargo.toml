@@ -34,5 +34,9 @@ unterm-agents.workspace = true
 unterm-profile.workspace = true
 unterm-services.workspace = true
 
+# Asking whether a pid is still alive is a raw syscall on Unix.
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
 [target.'cfg(windows)'.dependencies]
 winapi = { workspace = true, features = ["winuser", "processthreadsapi", "handleapi", "winbase"] }

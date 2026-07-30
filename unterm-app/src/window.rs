@@ -4503,11 +4503,20 @@ impl ApplicationHandler for App {
         match event {
             WindowEvent::Focused(focused) => {
                 self.focused = focused;
+                // Anything that turned on focus reporting is told. vim redraws
+                // its cursor on it and tmux its pane borders, so a terminal
+                // that stays silent leaves them showing the wrong thing.
+                self.report_focus(focused);
                 // Coming back is a reason to look again straight away rather
                 // than at the next resting tick.
                 if focused {
                     self.quiet_since = None;
-                    self.drawn_revision = None;
+                }
+                // A prompt that dims when unfocused has to be redrawn to show
+                // it, and nothing about the screen changed to ask for a frame.
+                self.drawn_revision = None;
+                if let Some(live) = self.state.as_ref() {
+                    live.window.request_redraw();
                 }
             }
 
@@ -4567,16 +4576,6 @@ impl ApplicationHandler for App {
                     }
                 }
             }
-            WindowEvent::Focused(focused) => {
-                self.report_focus(focused);
-                // A prompt that dims when unfocused has to be redrawn to show
-                // it, and nothing about the screen changed to ask for a frame.
-                self.drawn_revision = None;
-                if let Some(live) = self.state.as_ref() {
-                    live.window.request_redraw();
-                }
-            }
-
             WindowEvent::ModifiersChanged(modifiers) => {
                 self.shift_held = modifiers.state().shift_key();
                 self.ctrl_held = modifiers.state().control_key();

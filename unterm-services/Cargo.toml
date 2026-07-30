@@ -30,6 +30,11 @@ hostname.workspace = true
 portable-pty.workspace = true
 unterm-profile.workspace = true
 
+# Killing a process group and asking whether a pid is still alive have no
+# portable form; both are raw syscalls on Unix and Win32 calls on Windows.
+[target."cfg(unix)".dependencies]
+libc.workspace = true
+
 [target."cfg(windows)".dependencies]
 winapi = { workspace = true, features = ["handleapi", "processthreadsapi", "winnt", "synchapi", "errhandlingapi", "consoleapi", "wincon", "winuser", "wingdi", "psapi", "sysinfoapi", "winbase", "minwindef"] }
 winreg.workspace = true
