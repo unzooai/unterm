@@ -272,6 +272,17 @@ fn project_key(cwd: &str) -> String {
     }
 }
 
+/// What a project is called: the last part of the path it is in.
+///
+/// The same naming the strip uses, so the status bar and the strip never
+/// disagree about which project a pane is in.
+pub fn project_name(cwd: &str) -> String {
+    if cwd.trim().is_empty() {
+        return String::new();
+    }
+    leaf(&project_key(cwd))
+}
+
 /// The last component of a path -- what a project is called.
 fn leaf(path: &str) -> String {
     // Home is "Home", not whatever the account is called. It is the one project

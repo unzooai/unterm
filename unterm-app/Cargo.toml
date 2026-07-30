@@ -28,6 +28,7 @@ serde_json.workspace = true
 unterm-engine = { path = "../unterm-engine" }
 unterm-mcp = { path = "../unterm-mcp" }
 unterm-services.workspace = true
+unterm-profile.workspace = true
 unterm-settings.workspace = true
 unterm-render = { path = "../unterm-render" }
 wgpu.workspace = true

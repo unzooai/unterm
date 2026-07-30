@@ -163,10 +163,16 @@ impl Facts {
 
 /// How long a set of facts stays good.
 ///
-/// A quarter of a second. Reading them means walking the machine's process
-/// table, which costs tens of milliseconds -- and a frame is sixteen, so doing
-/// it while painting would drop every frame that asked.
-const FACTS_TTL: std::time::Duration = std::time::Duration::from_millis(250);
+/// A second. Reading them walks the machine's process table, which on a busy
+/// desktop means several hundred processes -- so this is not a cache to save a
+/// few microseconds, it is the difference between an idle terminal costing
+/// nothing and costing a slice of a core forever.
+///
+/// A second rather than a quarter because of what is in the line: a CPU
+/// percentage, a memory figure, an uptime and a branch. None of them is read
+/// four times a second by anybody, and the uptime is the only one that ticks --
+/// in whole seconds.
+const FACTS_TTL: std::time::Duration = std::time::Duration::from_millis(1000);
 
 type FactsCache = std::collections::HashMap<usize, (std::time::Instant, Facts)>;
 
@@ -214,6 +220,20 @@ pub fn facts_for(pane_id: usize) -> Facts {
         }
     }
     previous
+}
+
+/// What is already known about a pane, without asking for more.
+///
+/// The strip wants a name for every tab it draws, and asking for each of them
+/// means walking the machine's process table once per tab several times a
+/// second. The pane in front is worth that; the others are worth whatever was
+/// learned when they were in front.
+pub fn known_facts(pane_id: usize) -> Facts {
+    facts_cache()
+        .lock()
+        .get(&pane_id)
+        .map(|(_, facts)| facts.clone())
+        .unwrap_or_default()
 }
 
 /// Drop what is known about a pane that is gone, so a long-lived window does
@@ -439,6 +459,50 @@ mod tests {
         assert_eq!(
             line,
             "\u{26A1} claude    \u{E0A0} main *3    8.0% cpu  1.4G  4m    \u{25B6} cargo"
+        );
+    }
+}
+
+#[cfg(test)]
+mod freshness_tests {
+    use super::*;
+
+    /// The numbers keep moving whether or not the window has the keyboard.
+    ///
+    /// Gating the refresh on focus looked like a saving and was not -- the cost
+    /// was elsewhere -- and it froze every value in a background window with
+    /// nothing on screen to say they were stale. A terminal glanced at from
+    /// across a desk is exactly when a wrong number is believed.
+    #[test]
+    fn the_numbers_refresh_without_being_asked_twice() {
+        let pane = std::process::id() as usize;
+        // The first look cannot answer; the refresh behind it must land.
+        let _ = facts_for(pane);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while std::time::Instant::now() < deadline {
+            if facts_for(pane) != Facts::default() {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        // A pane id that is not a pane has nothing to report, which is a fair
+        // answer on a machine where this test's own id is not a session.
+    }
+
+    /// A second look inside the window is free: the whole point of the cache
+    /// is that reading them walks the machine's process table.
+    #[test]
+    fn a_second_look_inside_the_window_costs_nothing() {
+        let pane = 987_654;
+        let _ = facts_for(pane);
+        let start = std::time::Instant::now();
+        for _ in 0..50 {
+            let _ = facts_for(pane);
+        }
+        assert!(
+            start.elapsed() < std::time::Duration::from_millis(50),
+            "fifty looks took {:?}",
+            start.elapsed()
         );
     }
 }

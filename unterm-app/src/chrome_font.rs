@@ -105,10 +105,83 @@ mod tests {
         );
     }
 
+    /// Every mark the chrome draws has to exist somewhere in the stack.
+    ///
+    /// A missing one is not a box here -- it is nothing at all, because the
+    /// fallback face has nothing to draw either. Which reads as a layout bug
+    /// rather than a font one, and is how `▶` went missing from the top bar
+    /// without anything looking broken.
+    #[test]
+    fn the_marks_the_chrome_draws_are_all_reachable() {
+        let Some(stack) = crate::fonts::FontStack::system(16) else {
+            return;
+        };
+        let mut missing = Vec::new();
+        for (name, ch) in [
+            ("play", '\u{25B6}'),
+            ("chevron down", '\u{25BE}'),
+            ("chevron right", '\u{25B8}'),
+            ("tick", '\u{2713}'),
+            ("bolt", '\u{26A1}'),
+            ("ellipsis", '\u{2026}'),
+            ("branch", '\u{E0A0}'),
+            ("folder", '\u{F07B}'),
+        ] {
+            if !stack.covers(ch) {
+                missing.push(format!("{name} ({ch:?})"));
+            }
+        }
+        assert!(missing.is_empty(), "no face carries: {missing:?}");
+    }
+
     #[test]
     fn a_nonsense_scale_still_gives_a_usable_point() {
         for scale in [0.0, -1.0, f32::NAN] {
             assert!(point(scale) >= 0.5, "scale {scale} gave {}", point(scale));
         }
+    }
+}
+
+#[cfg(test)]
+mod raster_tests {
+    use super::*;
+
+    /// A mark the stack claims to have must also rasterise to actual pixels.
+    ///
+    /// These are two different questions and the gap between them is invisible:
+    /// a face can report a glyph and produce an empty bitmap -- a colour-bitmap
+    /// emoji face does exactly that under a monochrome render -- and the mark
+    /// then advances the pen and draws nothing. Which looks like a spacing bug,
+    /// not a font one, and is how the play mark vanished from the top bar while
+    /// leaving its gap behind.
+    #[test]
+    fn every_chrome_mark_rasterises_to_something() {
+        let Ok(mut font) = open(&[], 1.0) else {
+            return;
+        };
+        let mut empty = Vec::new();
+        for (name, ch) in [
+            ("play", '\u{25B6}'),
+            ("chevron down", '\u{25BE}'),
+            ("chevron right", '\u{25B8}'),
+            ("tick", '\u{2713}'),
+            ("bolt", '\u{26A1}'),
+            ("ellipsis", '\u{2026}'),
+            ("branch", '\u{E0A0}'),
+            ("folder", '\u{F07B}'),
+            ("terminal", '\u{EA85}'),
+            ("three bars", '\u{EB6A}'),
+            ("gear", '\u{EB51}'),
+        ] {
+            let drawn = font
+                .stack_mut()
+                .rasterize(ch)
+                .map(|(_, glyph)| glyph.width > 0 && glyph.height > 0)
+                .unwrap_or(false);
+            if !drawn {
+                empty.push(format!("{name} ({ch:?})"));
+            }
+        }
+        assert!(empty.is_empty(), "these draw nothing: {empty:?}");
     }
 }

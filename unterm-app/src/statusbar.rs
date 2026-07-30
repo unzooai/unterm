@@ -1,216 +1,361 @@
-//! The strip along the bottom that says where you are and what agents are up
-//! to.
+//! The line along the bottom: what shell, where, how big, and the window's own
+//! state.
 //!
-//! Two halves. On the left, the shell and the directory it is in -- the two
-//! things people look down for. On the right, chips: `mcp:N` for how many
-//! times an agent has written to a pane, and the proxy in force if there is
-//! one. An agent driving this terminal is invisible otherwise, and a terminal
-//! that hides that is the wrong terminal for the job.
+//! Ported from the previous front end, segment order and thresholds included:
 //!
-//! Laid out here rather than in the event handler because the interesting part
-//! is what happens when there is not enough room. Chips are dropped before the
-//! directory is, and the directory is shortened from the left, so the end of
-//! the path -- the part that says which project -- survives. A previous
-//! version of this hid the chips behind a 208-column window, wider than a
-//! laptop screen can reach, so they were effectively never drawn; the tiers
-//! here are pinned by tests naming the sizes real screens have.
+//!     ▼  pwsh 7   ~/   120x31   project:unterm   capture:exclude
+//!        capture:include   proxy:on   mcp:0   theme:standard
+//!
+//! Three spaces between segments rather than a separator character. They are
+//! already differently shaped -- a name, a path, a pair of numbers, a run of
+//! `key:value` -- and a bar full of pipes reads as a table.
+//!
+//! Segments appear as the window widens, in the order the previous front end
+//! revealed them, and the thresholds are its own. The point of porting them
+//! rather than re-picking is that they were chosen against real window widths:
+//! a 13-inch laptop at full screen lands around 150-180 columns, so anything
+//! gated higher than that is a segment nobody on a laptop ever sees.
 
-/// How tall the bar is, in cells.
+/// How tall the bar is, in rows of chrome text.
 pub const ROWS: usize = 1;
 
-/// The quick-action button, at the far left of the bar.
+/// The mark at the left-hand end that opens the quick menu.
 ///
-/// Left rather than right, and on this bar rather than the tab bar, because
-/// this bar is always drawn -- a tab bar appears only once there are two tabs,
-/// and a menu that comes and goes is a menu people stop reaching for.
-pub const MENU: &str = "▼";
+/// A menu here as well as in the top bar because this is where the eye already
+/// is when the question is about *this* pane.
+pub const MENU: &str = "\u{25BE}";
 
-/// How many columns the button occupies, the gap after it included.
-pub const MENU_COLUMNS: usize = 2;
-
-/// Whether a click at `column` hit the button.
-pub fn menu_hit(column: usize, columns: usize) -> bool {
-    columns >= 12 && column < MENU_COLUMNS
+/// What the bar shows at a given width, in columns of chrome text.
+///
+/// Ported thresholds. The path shortens rather than disappearing, because where
+/// you are is the one thing a status bar is for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Density {
+    pub cwd_columns: usize,
+    pub show_project: bool,
+    pub show_theme: bool,
+    pub show_telemetry: bool,
+    pub show_profile: bool,
+    pub show_capture: bool,
 }
 
-/// Below this width there is no room for anything but the directory.
-const CHIPS_FROM_COLUMNS: usize = 60;
-
-/// A program's name without the path that found it.
-///
-/// The engine reports what it launched, which on Windows is
-/// `C:\WINDOWS\system32\cmd.exe`. Half the bar spent saying where cmd lives
-/// is half a bar not saying where *you* are.
-pub fn short_name(program: &str) -> String {
-    program
-        .rsplit(['\\', '/'])
-        .next()
-        .unwrap_or(program)
-        .to_string()
-}
-
-/// A proxy as host and port, without the scheme.
-///
-/// `http://127.0.0.1:7897` is a quarter of a narrow bar, and the scheme is the
-/// part nobody is checking.
-pub fn short_proxy(url: &str) -> String {
-    let without_scheme = url.rsplit("://").next().unwrap_or(url);
-    without_scheme.trim_end_matches('/').to_string()
+pub fn density(columns: usize) -> Density {
+    Density {
+        cwd_columns: match columns {
+            0..=79 => 18,
+            80..=111 => 26,
+            112..=143 => 34,
+            _ => 48,
+        },
+        show_project: columns >= 72,
+        show_theme: columns >= 96,
+        // The same tier as the capture chips: a laptop at full screen lands
+        // around 150-180 columns, so anything higher is unreachable there.
+        show_telemetry: columns >= 128,
+        show_capture: columns >= 128,
+        show_profile: columns >= 160,
+    }
 }
 
 /// What the bar has to say.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Status {
+    /// The shell, named with its version where the version matters.
     pub shell: String,
+    /// Where the pane is, as a tilde path.
     pub directory: String,
-    /// How many times an agent has written to a pane this session.
-    pub agent_writes: u64,
-    /// How many agent writes are waiting on the user to allow them.
-    pub pending: usize,
-    /// How many panes have an agent waiting on the user.
-    pub agents_waiting: usize,
+    pub columns: usize,
+    pub rows: usize,
+    /// The project the pane is in.
+    pub project: String,
     /// The proxy in force, if any.
     pub proxy: Option<String>,
-    /// Something that just happened, shown for a moment in place of the
-    /// directory.
+    /// How many times an agent has written to a pane this session, and whether
+    /// one of those writes was a moment ago.
+    pub agent_writes: u64,
+    pub agent_wrote_recently: bool,
+    /// The theme by the id the config and the CLI use.
+    pub theme: String,
+    /// The identity profile bound to this window, if one is.
+    pub profile: Option<String>,
+    /// Something that just happened, shown for a moment in place of the rest.
     ///
-    /// The bar rather than a floating panel, as before: an action's
-    /// confirmation belongs where the eye already goes, and a panel over the
-    /// terminal covers the thing being worked on.
+    /// The bar rather than a floating panel: a confirmation belongs where the
+    /// eye already is, and a panel over the terminal covers the work.
     pub notice: Option<String>,
 }
 
-/// One piece of the bar, already placed.
+/// One piece of the bar.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Segment {
-    pub column: usize,
     pub text: String,
-    /// Chips are drawn dimmer than the left-hand text, which is what makes
-    /// the directory readable at a glance rather than one of five things.
+    /// Chips are drawn dimmer than the shell and the path, which is what makes
+    /// where-you-are readable at a glance rather than one of nine things.
     pub dim: bool,
 }
 
-/// Lay the bar out for a window `columns` wide.
+/// The shell's name, with the version where two versions behave differently.
 ///
-/// Empty when there is no room for even a shortened directory: a bar with one
-/// letter in it is a row of output spent on nothing.
-pub fn segments(status: &Status, columns: usize) -> Vec<Segment> {
-    if columns < 12 {
-        return Vec::new();
+/// Ported: `pwsh 7` and `pwsh 5.1` are different shells in practice, and a bar
+/// that calls both "powershell" answers the wrong question. A WSL shell says so,
+/// because a `bash` on Windows is either Git Bash or WSL and they are not the
+/// same machine.
+pub fn shell_label(process: &str) -> String {
+    let lower = process.to_lowercase();
+    let name = lower
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(&lower)
+        .to_string();
+    let from_wsl = cfg!(windows) && lower.starts_with('/');
+    let with_wsl = |base: &str| {
+        if from_wsl {
+            format!("{base} (wsl)")
+        } else {
+            base.to_string()
+        }
+    };
+
+    if name.contains("pwsh") {
+        "pwsh 7".to_string()
+    } else if name.contains("powershell") {
+        "pwsh 5.1".to_string()
+    } else if name.contains("cmd") {
+        "cmd".to_string()
+    } else if name.contains("wsl") {
+        "wsl".to_string()
+    } else if name.contains("bash") {
+        with_wsl("bash")
+    } else if name.contains("zsh") {
+        with_wsl("zsh")
+    } else if name.contains("fish") {
+        with_wsl("fish")
+    } else if name.starts_with("nu") {
+        "nu".to_string()
+    } else {
+        "shell".to_string()
     }
+}
 
-    let chips = if columns >= CHIPS_FROM_COLUMNS {
-        chips_for(status)
-    } else {
-        Vec::new()
-    };
-    let chip_text = chips.join("  ");
-    // A gap eitherhand of the chips, so they do not touch the path or the edge.
-    let reserved = if chip_text.is_empty() {
-        0
-    } else {
-        chip_text.chars().count() + 2
-    };
+/// A path as a tilde path, shortened from the front.
+///
+/// From the front because the end of a path is where you are: `…/unterm/ci` says
+/// more than `D:/code/unt…`.
+pub fn short_path(path: &str, columns: usize) -> String {
+    let path = tilde(path);
+    if columns == 0 {
+        return String::new();
+    }
+    let width: usize = path.chars().map(crate::terminal::column_width).sum();
+    if width <= columns {
+        return path;
+    }
+    let mut kept: Vec<char> = Vec::new();
+    let mut used = 1usize;
+    for ch in path.chars().rev() {
+        let wide = crate::terminal::column_width(ch);
+        if used + wide > columns {
+            break;
+        }
+        kept.push(ch);
+        used += wide;
+    }
+    kept.reverse();
+    format!("\u{2026}{}", kept.into_iter().collect::<String>())
+}
 
+/// Home as `~`, and forward slashes: a status bar is not a shell prompt, and
+/// one separator reads better than two.
+fn tilde(path: &str) -> String {
+    let path = path.replace('\\', "/");
+    let trimmed = path.trim_end_matches('/');
+    let shown = if trimmed.is_empty() { &path } else { trimmed };
+    if let Some(home) = dirs_next::home_dir() {
+        let home = home.display().to_string().replace('\\', "/");
+        let home = home.trim_end_matches('/');
+        let comparable = |text: &str| {
+            if cfg!(windows) {
+                text.to_lowercase()
+            } else {
+                text.to_string()
+            }
+        };
+        if comparable(shown) == comparable(home) {
+            return "~/".to_string();
+        }
+        if let Some(rest) = comparable(shown).strip_prefix(&format!("{}/", comparable(home))) {
+            let at = shown.len() - rest.len();
+            return format!("~/{}", &shown[at..]);
+        }
+    }
+    format!("{shown}/")
+}
+
+/// Shorten a label to `columns`, cutting the middle.
+fn middle(text: &str, columns: usize) -> String {
+    let width: usize = text.chars().map(crate::terminal::column_width).sum();
+    if columns == 0 || width <= columns {
+        return text.to_string();
+    }
+    if columns == 1 {
+        return "\u{2026}".to_string();
+    }
+    let available = columns - 1;
+    let head_budget = available / 2;
+    let characters: Vec<char> = text.chars().collect();
+    let mut head = String::new();
+    let mut used = 0;
+    let mut taken = 0;
+    for ch in &characters {
+        let wide = crate::terminal::column_width(*ch);
+        if used + wide > head_budget {
+            break;
+        }
+        head.push(*ch);
+        used += wide;
+        taken += 1;
+    }
+    let mut tail: Vec<char> = Vec::new();
+    let mut used = 0;
+    for ch in characters[taken..].iter().rev() {
+        let wide = crate::terminal::column_width(*ch);
+        if used + wide > available - head_budget {
+            break;
+        }
+        tail.push(*ch);
+        used += wide;
+    }
+    tail.reverse();
+    format!("{head}\u{2026}{}", tail.into_iter().collect::<String>())
+}
+
+/// The bar's segments, in order, for a window this many columns wide.
+pub fn segments(status: &Status, columns: usize) -> Vec<Segment> {
     let mut segments = vec![Segment {
-        column: 0,
         text: MENU.to_string(),
         dim: true,
     }];
-    let left_room = columns.saturating_sub(reserved + MENU_COLUMNS);
-    let left = left_text(status, left_room);
-    if !left.is_empty() {
-        segments.push(Segment {
-            column: MENU_COLUMNS,
-            text: left,
-            dim: false,
-        });
+    if columns < 12 {
+        return segments;
     }
-    if !chip_text.is_empty() {
-        segments.push(Segment {
-            column: columns - chip_text.chars().count(),
-            text: chip_text,
-            dim: true,
-        });
+
+    // A notice takes the whole line: it is transient, and reading it matters
+    // more for the moment it is up than any of the standing state does.
+    if let Some(notice) = status.notice.as_deref().map(str::trim) {
+        if !notice.is_empty() {
+            segments.push(Segment {
+                text: format!("\u{2713} {}", middle(notice, columns.saturating_sub(4))),
+                dim: false,
+            });
+            return segments;
+        }
+    }
+
+    let density = density(columns);
+    let mut push = |text: String, dim: bool, into: &mut Vec<Segment>| {
+        if !text.is_empty() {
+            into.push(Segment { text, dim });
+        }
+    };
+
+    // The shell, where, and how big: the three that are always there.
+    push(status.shell.clone(), false, &mut segments);
+    push(
+        short_path(&status.directory, density.cwd_columns),
+        false,
+        &mut segments,
+    );
+    push(
+        format!("{}x{}", status.columns, status.rows),
+        true,
+        &mut segments,
+    );
+
+    if density.show_project && !status.project.is_empty() {
+        push(
+            format!("project:{}", middle(&status.project, 18)),
+            true,
+            &mut segments,
+        );
+    }
+    // Both capture chips, always as a pair: they are two halves of one
+    // decision, and one of them alone reads as a state rather than a choice.
+    if density.show_capture {
+        push("capture:exclude".to_string(), true, &mut segments);
+        push("capture:include".to_string(), true, &mut segments);
+    }
+    if density.show_telemetry {
+        push(
+            match status.proxy.as_deref() {
+                Some(_) => "proxy:on".to_string(),
+                None => "proxy:off".to_string(),
+            },
+            true,
+            &mut segments,
+        );
+        // Always drawn, even at zero, so the position is stable: a chip that
+        // appears and disappears moves every neighbour and every hit test with
+        // it. The bolt says a write landed a moment ago, so a flash is
+        // noticeable without comparing counts.
+        push(
+            format!(
+                "mcp:{}{}",
+                status.agent_writes,
+                if status.agent_wrote_recently {
+                    "\u{26A1}"
+                } else {
+                    ""
+                }
+            ),
+            true,
+            &mut segments,
+        );
+    }
+    if density.show_theme && !status.theme.is_empty() {
+        push(format!("theme:{}", status.theme), true, &mut segments);
+    }
+    if density.show_profile {
+        // A dash rather than nothing when no profile is bound: the chip is how
+        // somebody finds out profiles exist, and one that is missing until it
+        // is configured cannot be.
+        let profile = status.profile.as_deref().unwrap_or("\u{2014}");
+        push(
+            format!("profile:{}", middle(profile, 18)),
+            true,
+            &mut segments,
+        );
     }
     segments
 }
 
-/// The shell and directory, shortened to fit -- or a notice, while one is up.
-fn left_text(status: &Status, room: usize) -> String {
-    if room == 0 {
-        return String::new();
-    }
-    if let Some(notice) = &status.notice {
-        // Cut from the *end*, unlike a path: the start of a sentence is the
-        // part that says what happened.
-        let notice = notice.trim();
-        if notice.chars().count() <= room {
-            return notice.to_string();
-        }
-        let kept: String = notice.chars().take(room.saturating_sub(1)).collect();
-        return format!("{kept}…");
-    }
-    let shell = status.shell.trim();
-    let directory = status.directory.trim();
-    if directory.is_empty() {
-        return truncate_start(shell, room);
-    }
-    let prefix = if shell.is_empty() {
-        String::new()
-    } else {
-        format!("{shell}  ")
-    };
-    let prefix_width = prefix.chars().count();
-    if prefix_width + 8 <= room {
-        format!("{prefix}{}", truncate_start(directory, room - prefix_width))
-    } else {
-        // Not enough room for both: the directory is the one worth keeping.
-        truncate_start(directory, room)
-    }
+/// The gap between segments: three spaces.
+pub const GAP: &str = "   ";
+
+/// Whether a press at `column` opens the quick menu.
+pub fn menu_hit(column: usize, columns: usize) -> bool {
+    let _ = columns;
+    column <= 1
 }
 
-/// Shorten from the left, so the end of a path survives.
-///
-/// The end is the part that says which project this is; the beginning is
-/// `C:\Users\somebody\code` on every pane at once.
-fn truncate_start(text: &str, room: usize) -> String {
-    let width = text.chars().count();
-    if width <= room {
-        return text.to_string();
-    }
-    if room <= 1 {
-        return "…".repeat(room);
-    }
-    let kept: String = text.chars().skip(width - (room - 1)).collect();
-    format!("…{kept}")
+/// A program's bare name, for the places that want one.
+pub fn short_name(program: &str) -> String {
+    program
+        .trim()
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or("")
+        .trim_end_matches(".exe")
+        .trim_end_matches(".EXE")
+        .to_string()
 }
 
-/// The right-hand chips, in the order they are dropped when room runs out --
-/// which is to say, least important last.
-fn chips_for(status: &Status) -> Vec<String> {
-    let mut chips = Vec::new();
-    if status.pending > 0 {
-        // Something is waiting on the user. First, and worded as a question
-        // rather than a count, because a number here is easy to read past.
-        chips.push(format!("{} waiting on you", status.pending));
-    }
-    if status.agents_waiting > 0 {
-        // Second only to a blocked write, and phrased the same way: this is
-        // the number the whole cockpit exists to surface.
-        chips.push(format!(
-            "{} agent{} waiting",
-            status.agents_waiting,
-            if status.agents_waiting == 1 { "" } else { "s" }
-        ));
-    }
-    if status.agent_writes > 0 {
-        chips.push(format!("mcp:{}", status.agent_writes));
-    }
-    if let Some(proxy) = &status.proxy {
-        chips.push(format!("proxy:{proxy}"));
-    }
-    chips
+/// A proxy URL as something short enough for a bar.
+pub fn short_proxy(url: &str) -> String {
+    url.trim()
+        .trim_start_matches("http://")
+        .trim_start_matches("https://")
+        .trim_end_matches('/')
+        .to_string()
 }
 
 #[cfg(test)]
@@ -219,231 +364,192 @@ mod tests {
 
     fn status() -> Status {
         Status {
-            shell: "pwsh".to_string(),
-            directory: r"D:\code\unterm".to_string(),
-            agent_writes: 7,
-            pending: 0,
-            agents_waiting: 0,
-            proxy: None,
+            shell: "pwsh 7".into(),
+            directory: "/home/me/work/unterm".into(),
+            columns: 120,
+            rows: 31,
+            project: "unterm".into(),
+            proxy: Some("127.0.0.1:7897".into()),
+            agent_writes: 0,
+            agent_wrote_recently: false,
+            theme: "standard".into(),
+            profile: None,
             notice: None,
         }
     }
 
-    fn rendered(status: &Status, columns: usize) -> String {
-        let mut line = vec![' '; columns];
-        for segment in segments(status, columns) {
-            for (offset, ch) in segment.text.chars().enumerate() {
-                if let Some(slot) = line.get_mut(segment.column + offset) {
-                    *slot = ch;
-                }
-            }
+    fn texts(segments: &[Segment]) -> Vec<String> {
+        segments.iter().map(|s| s.text.clone()).collect()
+    }
+
+    /// The order is the previous front end's, and it is the order the questions
+    /// are asked in: what shell, where, how big, then the window's own state.
+    #[test]
+    fn the_segments_come_in_the_order_they_did_before() {
+        let shown = texts(&segments(&status(), 200));
+        let wanted = [
+            MENU,
+            "pwsh 7",
+            "project:unterm",
+            "capture:exclude",
+            "capture:include",
+            "proxy:on",
+            "mcp:0",
+            "theme:standard",
+        ];
+        let mut at = 0;
+        for want in wanted {
+            let found = shown[at..]
+                .iter()
+                .position(|text| text == want)
+                .unwrap_or_else(|| panic!("{want:?} is missing or out of order in {shown:?}"));
+            at += found + 1;
         }
-        line.into_iter().collect::<String>().trim_end().to_string()
+        // The size sits between the path and the project.
+        assert!(shown.iter().any(|text| text == "120x31"), "{shown:?}");
     }
 
-    /// An agent waiting in another tab is invisible otherwise: its badge is
-    /// on a tab, and the tab bar is not drawn until there are two of them.
+    /// Segments appear as the window widens, and the ones that go first are the
+    /// ones that matter least. Ported thresholds.
     #[test]
-    fn a_waiting_agent_is_counted_on_the_bar() {
+    fn segments_appear_as_the_window_widens() {
+        assert!(!density(60).show_project);
+        assert!(density(72).show_project);
+        assert!(!density(90).show_theme);
+        assert!(density(96).show_theme);
+        assert!(!density(120).show_telemetry);
+        assert!(density(128).show_telemetry);
+        assert!(!density(150).show_profile);
+        assert!(density(160).show_profile);
+    }
+
+    /// A narrow window still says which shell and where: those are what a
+    /// status bar is for, and everything else is context.
+    #[test]
+    fn a_narrow_window_keeps_the_shell_and_the_path() {
+        let shown = texts(&segments(&status(), 40));
+        assert!(shown.iter().any(|text| text == "pwsh 7"), "{shown:?}");
+        assert!(
+            shown.iter().any(|text| text.contains("unterm")),
+            "{shown:?}"
+        );
+        assert!(
+            !shown.iter().any(|text| text.starts_with("proxy:")),
+            "a narrow bar showed telemetry: {shown:?}"
+        );
+    }
+
+    /// The MCP chip is always drawn once telemetry is on, even at zero: a chip
+    /// that appears and disappears moves every neighbour with it.
+    #[test]
+    fn the_agent_chip_holds_its_place_at_zero() {
+        let shown = texts(&segments(&status(), 200));
+        assert!(shown.iter().any(|text| text == "mcp:0"), "{shown:?}");
+    }
+
+    /// And says when something just happened, so a flash is noticeable without
+    /// comparing counts.
+    #[test]
+    fn a_recent_agent_write_is_marked() {
         let mut status = status();
-        status.agents_waiting = 2;
-        let line = rendered(&status, 120);
-        assert!(line.contains("2 agents waiting"), "{line:?}");
-
-        status.agents_waiting = 1;
-        let line = rendered(&status, 120);
-        assert!(line.contains("1 agent waiting"), "{line:?}");
+        status.agent_writes = 3;
+        status.agent_wrote_recently = true;
+        let shown = texts(&segments(&status, 200));
+        assert!(
+            shown.iter().any(|text| text == "mcp:3\u{26A1}"),
+            "{shown:?}"
+        );
     }
 
+    /// Two versions of PowerShell behave differently enough that a bar calling
+    /// both "powershell" answers the wrong question.
     #[test]
-    fn no_agents_waiting_means_no_chip_about_it() {
-        let line = rendered(&status(), 120);
-        assert!(!line.contains("waiting"), "{line:?}");
+    fn the_shell_is_named_with_its_version() {
+        assert_eq!(shell_label("pwsh.exe"), "pwsh 7");
+        assert_eq!(shell_label("powershell.exe"), "pwsh 5.1");
+        assert_eq!(shell_label("cmd.exe"), "cmd");
+        assert_eq!(shell_label("fish"), "fish");
+        assert_eq!(shell_label("nu"), "nu");
+        assert_eq!(shell_label("something-else"), "shell");
     }
 
-    /// A notice takes the bar for a moment. It goes where the eye already
-    /// goes, rather than over the thing being worked on.
+    /// On Windows a shell whose path starts at the root came through WSL, and
+    /// that is worth saying: a `bash` there is either Git Bash or another
+    /// machine entirely.
     #[test]
-    fn a_notice_replaces_the_directory_while_it_is_up() {
-        let mut status = status();
-        status.notice = Some("Selection copied".to_string());
-        let line = rendered(&status, 120);
-        assert!(line.contains("Selection copied"), "{line:?}");
-        assert!(!line.contains("unterm"), "the path stands down: {line:?}");
+    #[cfg(windows)]
+    fn a_shell_reached_through_wsl_says_so() {
+        assert_eq!(shell_label("/usr/bin/bash"), "bash (wsl)");
+        assert_eq!(shell_label("/bin/zsh"), "zsh (wsl)");
+        assert_eq!(shell_label("bash"), "bash");
     }
 
-    /// The chips stay: an agent waiting is not less true because something
-    /// was just copied.
+    /// Home is `~`. A bar that spells out the home directory spends a third of
+    /// itself on something every path starts with.
     #[test]
-    fn a_notice_does_not_hide_the_chips() {
-        let mut status = status();
-        status.notice = Some("Selection copied".to_string());
-        let line = rendered(&status, 120);
-        assert!(line.contains("mcp:7"), "{line:?}");
+    fn home_is_a_tilde() {
+        let Some(home) = dirs_next::home_dir() else {
+            return;
+        };
+        assert_eq!(short_path(&home.display().to_string(), 40), "~/");
+        let inside = home.join("work");
+        assert_eq!(short_path(&inside.display().to_string(), 40), "~/work");
     }
 
-    /// Cut from the end, unlike a path.
-    #[test]
-    fn a_long_notice_keeps_its_beginning() {
-        let mut status = status();
-        status.notice =
-            Some("Recording started and the output is going somewhere".to_string());
-        let line = rendered(&status, 40);
-        // After the menu button, which leads every bar.
-        assert!(line.contains("Recording started"), "{line:?}");
-        assert!(line.contains('\u{2026}'), "the cut should show: {line:?}");
-    }
-
-    /// The button is always there, and always in the same place: a menu that
-    /// moves or disappears is a menu people stop reaching for.
-    #[test]
-    fn the_menu_button_is_the_first_thing_on_the_bar() {
-        for columns in [12, 40, 80, 150] {
-            let segments = segments(&status(), columns);
-            assert_eq!(segments[0].column, 0, "{columns} columns");
-            assert_eq!(segments[0].text, MENU, "{columns} columns");
-        }
-    }
-
-    #[test]
-    fn a_click_on_the_button_is_recognised_and_one_beside_it_is_not() {
-        assert!(menu_hit(0, 100));
-        assert!(menu_hit(1, 100));
-        assert!(!menu_hit(2, 100));
-        assert!(!menu_hit(0, 4), "no bar, no button");
-    }
-
-    /// And the text does not start underneath it.
-    #[test]
-    fn the_path_begins_after_the_button() {
-        let segments = segments(&status(), 100);
-        assert!(segments[1].column >= MENU_COLUMNS, "{segments:?}");
-    }
-
-    #[test]
-    fn a_shell_is_named_not_located() {
-        assert_eq!(short_name(r"C:\WINDOWS\system32\cmd.exe"), "cmd.exe");
-        assert_eq!(short_name("/usr/bin/zsh"), "zsh");
-        assert_eq!(short_name("pwsh"), "pwsh");
-        assert_eq!(short_name(""), "");
-    }
-
-    #[test]
-    fn a_proxy_is_shown_as_host_and_port() {
-        assert_eq!(short_proxy("http://127.0.0.1:7897"), "127.0.0.1:7897");
-        assert_eq!(short_proxy("socks5://proxy.internal:1080/"), "proxy.internal:1080");
-        assert_eq!(short_proxy("127.0.0.1:7897"), "127.0.0.1:7897");
-    }
-
-    #[test]
-    fn the_shell_and_the_directory_are_on_the_left() {
-        let line = rendered(&status(), 100);
-        assert!(line.starts_with(MENU), "the button leads: {line:?}");
-        assert!(line[MENU.len()..].trim_start().starts_with("pwsh"), "{line:?}");
-        assert!(line.contains(r"D:\code\unterm"), "{line:?}");
-    }
-
-    #[test]
-    fn the_chips_are_on_the_right() {
-        let segments = segments(&status(), 100);
-        let chip = segments.last().unwrap();
-        assert_eq!(chip.text, "mcp:7");
-        assert_eq!(chip.column + chip.text.len(), 100, "flush to the edge");
-    }
-
-    /// A laptop at full screen is about 150 columns, and a split pane half
-    /// that. The chips have to survive both: gating them behind a window
-    /// wider than the screen is the same as not drawing them.
-    #[test]
-    fn the_chips_survive_a_laptop_sized_window() {
-        for columns in [80, 100, 128, 150, 180] {
-            let line = rendered(&status(), columns);
-            assert!(line.contains("mcp:7"), "{columns} columns: {line:?}");
-        }
-    }
-
-    #[test]
-    fn a_narrow_pane_keeps_the_directory_and_drops_the_chips() {
-        let line = rendered(&status(), 40);
-        assert!(!line.contains("mcp:"), "{line:?}");
-        assert!(line.contains("unterm"), "{line:?}");
-    }
-
-    /// Shortened from the left: the end of a path is the part that says which
-    /// project this is. Cutting the other end leaves every pane looking the
-    /// same.
+    /// A path too long is cut from the front: the end of a path is where you
+    /// are, and `D:/code/unt…` says nothing.
     #[test]
     fn a_long_path_keeps_its_end() {
-        let mut status = status();
-        status.directory = r"C:\Users\somebody\code\projects\unterm\unterm-app".to_string();
-        let line = rendered(&status, 40);
-        assert!(line.ends_with("unterm-app"), "{line:?}");
-        assert!(line.contains('…'), "the cut should be visible: {line:?}");
+        let shown = short_path("/a/very/deeply/nested/place/indeed/here", 18);
+        let width: usize = shown.chars().map(crate::terminal::column_width).sum();
+        assert!(width <= 18, "{shown:?} is {width} wide");
+        // The trailing slash is the previous front end's, and it is what makes
+        // the path read as a place rather than as a file.
+        assert!(shown.ends_with("here/"), "{shown:?}");
+        assert!(shown.starts_with('\u{2026}'), "{shown:?}");
     }
 
+    /// A notice takes the line while it is up: for that moment it matters more
+    /// than any of the standing state.
     #[test]
-    fn nothing_is_drawn_when_there_is_no_room_for_anything() {
-        assert!(segments(&status(), 4).is_empty());
-        assert!(segments(&status(), 0).is_empty());
+    fn a_notice_takes_the_whole_line() {
+        let mut status = status();
+        status.notice = Some("copied".into());
+        let shown = texts(&segments(&status, 200));
+        assert_eq!(shown.len(), 2, "{shown:?}");
+        assert!(shown[1].contains("copied"), "{shown:?}");
     }
 
-    /// Nothing must ever run past the edge: a segment that does is drawn over
-    /// the pane beside it.
+    /// The profile chip shows a dash rather than vanishing: it is how somebody
+    /// finds out profiles exist, and one that is missing until it is configured
+    /// cannot be.
     #[test]
-    fn no_segment_runs_off_the_end() {
+    fn the_profile_chip_is_visible_before_it_is_set() {
+        let shown = texts(&segments(&status(), 200));
+        assert!(
+            shown.iter().any(|text| text == "profile:\u{2014}"),
+            "{shown:?}"
+        );
+    }
+
+    /// Every segment fits its own budget, so nothing runs into its neighbour.
+    #[test]
+    fn no_segment_runs_away_with_the_bar() {
         let mut status = status();
-        status.pending = 2;
-        status.proxy = Some("clash".to_string());
-        status.directory = r"C:\Users\somebody\code\projects\unterm".to_string();
-        for columns in 12..200 {
-            for segment in segments(&status, columns) {
-                assert!(
-                    segment.column + segment.text.chars().count() <= columns,
-                    "{columns} columns: {segment:?}"
-                );
-            }
+        status.project = "a-project-with-a-very-long-name-indeed".into();
+        status.profile = Some("a-profile-with-a-very-long-name".into());
+        for piece in segments(&status, 200) {
+            let width: usize = piece.text.chars().map(crate::terminal::column_width).sum();
+            assert!(width <= 27, "{:?} is {width} wide", piece.text);
         }
     }
 
-    /// The left text must not run into the chips either.
+    /// The menu is at the left-hand end and is the only thing a press there
+    /// finds.
     #[test]
-    fn the_left_text_stops_before_the_chips() {
-        let mut status = status();
-        status.directory = r"C:\Users\somebody\code\projects\unterm\unterm-app\src".to_string();
-        status.proxy = Some("clash".to_string());
-        // The button, the path, the chips.
-        let segments = segments(&status, 70);
-        assert_eq!(segments.len(), 3, "{segments:?}");
-        let left = &segments[1];
-        assert!(
-            left.column + left.text.chars().count() <= segments[2].column,
-            "{segments:?}"
-        );
-    }
-
-    /// Something waiting on the user goes first and says so in words.
-    #[test]
-    fn a_pending_confirmation_leads_the_chips() {
-        let mut status = status();
-        status.pending = 1;
-        let segments = segments(&status, 120);
-        assert!(
-            segments.last().unwrap().text.starts_with("1 waiting on you"),
-            "{segments:?}"
-        );
-    }
-
-    #[test]
-    fn a_quiet_session_shows_no_chips_at_all() {
-        let quiet = Status {
-            shell: "pwsh".to_string(),
-            directory: r"D:\code".to_string(),
-            ..Default::default()
-        };
-        assert_eq!(
-            segments(&quiet, 120).len(),
-            2,
-            "the button and the directory, and nothing else"
-        );
+    fn the_menu_sits_at_the_left_hand_end() {
+        assert!(menu_hit(0, 120));
+        assert!(menu_hit(1, 120));
+        assert!(!menu_hit(4, 120));
     }
 }

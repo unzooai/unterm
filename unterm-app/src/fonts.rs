@@ -132,10 +132,18 @@ impl FontStack {
             .map(String::as_str)
             .chain(FALLBACK_FAMILIES.iter().copied());
 
-        // The bundled faces first among the fallbacks, so the chrome's icons
-        // come from the file that has them rather than from whichever installed
-        // face happens to claim the code point.
-        faces.extend(bundled_faces(pixel_size));
+        // The bundled symbols face goes in front of the installed families, so
+        // the chrome's icons come from the file that was chosen for them rather
+        // than from whichever installed face happens to claim the code point.
+        //
+        // The emoji face does not: it is a colour-bitmap font that claims a lot
+        // of ordinary text symbols -- arrows, geometric shapes -- and renders
+        // none of them under a monochrome pass. In front, it swallows every one
+        // of those and they come out blank. It belongs at the very end, where
+        // it answers only for what nothing else has.
+        let mut bundled = bundled_faces(pixel_size);
+        let emoji = (bundled.len() > 1).then(|| bundled.remove(1));
+        faces.extend(bundled);
 
         let mut seen: Vec<String> = Vec::new();
         for family in wanted {
@@ -149,6 +157,9 @@ impl FontStack {
                 }
             }
         }
+
+        // And the emoji face last of all, for the code points nothing else has.
+        faces.extend(emoji);
 
         let shapers = (0..faces.len()).map(|_| None).collect();
         Self {
@@ -183,6 +194,15 @@ impl FontStack {
     ///
     /// Falls back to the primary when nothing has it, so the character comes
     /// out as that face's box rather than as a hole in the line.
+    /// Whether any face in the stack actually has this character.
+    ///
+    /// Distinct from `face_for`, which falls back to the primary so that
+    /// something is always drawn: a caller asking whether a mark exists at all
+    /// has to be able to tell a real answer from the fallback.
+    pub fn covers(&self, ch: char) -> bool {
+        self.faces.iter().any(|face| face.has_glyph(ch))
+    }
+
     pub fn face_for(&self, ch: char) -> usize {
         self.faces
             .iter()
@@ -228,13 +248,41 @@ impl FontStack {
         self.faces.get_mut(face)?.rasterize_glyph_index(glyph_index).ok()
     }
 
-    /// Rasterize `ch` from whichever face has it.
+    /// Rasterize `ch` from whichever face can actually draw it.
+    ///
+    /// Having a glyph and drawing one are different questions, and the gap
+    /// between them is invisible: a colour-bitmap face reports a glyph for a
+    /// text symbol like `▶` and renders nothing at all under a monochrome
+    /// pass. The pen then advances over a blank, which reads as a spacing bug
+    /// rather than a font one -- which is exactly how the play mark vanished
+    /// from the top bar while leaving its gap behind.
+    ///
+    /// So a face whose bitmap comes out empty is passed over, and the next one
+    /// that has the character is asked. A character that is *meant* to be
+    /// blank -- a space, a zero-width joiner -- has no bitmap from any face and
+    /// falls out of the loop with nothing, which is the right answer for it.
     pub fn rasterize(&mut self, ch: char) -> Option<(usize, RasterizedGlyph)> {
-        let index = self.face_for(ch);
-        self.faces[index]
-            .rasterize(ch)
-            .ok()
-            .map(|glyph| (index, glyph))
+        let candidates: Vec<usize> = self
+            .faces
+            .iter()
+            .enumerate()
+            .filter(|(_, face)| face.has_glyph(ch))
+            .map(|(index, _)| index)
+            .collect();
+
+        let mut first: Option<(usize, RasterizedGlyph)> = None;
+        for index in candidates {
+            let Ok(glyph) = self.faces[index].rasterize(ch) else {
+                continue;
+            };
+            if glyph.width > 0 && glyph.height > 0 {
+                return Some((index, glyph));
+            }
+            // Keep the first answer as a fallback: a character with no ink
+            // anywhere still needs its advance.
+            first.get_or_insert((index, glyph));
+        }
+        first
     }
 }
 

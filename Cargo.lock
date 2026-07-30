@@ -5565,6 +5565,7 @@ dependencies = [
  "termwiz",
  "unterm-engine",
  "unterm-mcp",
+ "unterm-profile",
  "unterm-render",
  "unterm-services",
  "unterm-settings",

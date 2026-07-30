@@ -41,6 +41,14 @@ const MAX_INBOX_ROWS: usize = 12;
 /// more on watching the agents than on drawing them.
 const COCKPIT_POLL: std::time::Duration = std::time::Duration::from_millis(400);
 
+/// How often the window does its housekeeping.
+///
+/// Four times a second. Everything on that path -- reconciling the tab list,
+/// feeding the cockpit, re-deriving the title -- answers a question whose
+/// answer changes when a person or an agent does something, not between two
+/// frames. Doing it per frame was most of what an idle window cost.
+const HOUSEKEEPING: std::time::Duration = std::time::Duration::from_millis(250);
+
 /// How many rows of each pane the tracker is shown.
 ///
 /// A prompt asking a question is at the bottom; more than this is scrollback
@@ -200,6 +208,17 @@ pub struct App {
     /// The picture the config named, read once at startup. Uploaded to the
     /// device when the window opens.
     picture: Option<crate::background::Image>,
+    /// The size each pane was last told it is, so it is not told again.
+    pane_sizes: std::collections::HashMap<usize, (usize, usize)>,
+    /// Whether the window has the keyboard.
+    focused: bool,
+    /// When the housekeeping last ran.
+    kept_house_at: std::time::Instant,
+    /// When the window last had nothing to redraw, if it still has nothing.
+    ///
+    /// A window that has been still for a while is asked about far less often:
+    /// a terminal left open on a desk should not cost a core.
+    quiet_since: Option<std::time::Instant>,
 }
 
 struct Live {
@@ -283,6 +302,10 @@ impl App {
             alt_held: false,
             window_title: None,
             picture: crate::background::configured(config),
+            quiet_since: None,
+            pane_sizes: Default::default(),
+            focused: true,
+            kept_house_at: std::time::Instant::now(),
             font: TerminalFont::open_named(
                 family.as_deref(),
                 crate::terminal::pixels_for_points(pixel_size as f32, 1.0),
@@ -671,20 +694,27 @@ impl App {
             height: 1.0,
             color: chrome.outer_edge,
         });
+        let pt = self.chrome_pt();
+        let gap = self.chrome_width(crate::statusbar::GAP);
+        let text_top = top
+            + ((metrics.height - self.chrome_font.metrics().height) / 2.0
+                + crate::ui_tokens::CHROME_TEXT_BASELINE_NUDGE * pt)
+                .max(0.0);
+        let mut pen = (crate::ui_tokens::CHROME_PANEL_INSET * pt).round();
         for segment in segments {
             let color = if segment.dim {
                 chrome.dim_text
             } else {
                 self.colors.foreground
             };
-            crate::terminal::append_text(
-                &segment.text,
-                &mut self.font,
-                &mut self.atlas,
-                color,
-                (segment.column as f32 * metrics.width, top),
-                quads,
-            );
+            // Whatever will not fit is not drawn: half a chip reads as a wrong
+            // value rather than as a missing one.
+            let wide = self.chrome_width(&segment.text);
+            if pen + wide > window_width {
+                break;
+            }
+            pen = self.append_chrome(&segment.text, color, (pen, text_top), quads);
+            pen += gap;
         }
     }
 
@@ -717,19 +747,34 @@ impl App {
         });
         let mcp = unterm_mcp::handler::insights_mcp_snapshot(0);
         let agents = unterm_services::cockpit::status::snapshot();
+        let _ = agents;
+        let directory = session
+            .as_ref()
+            .and_then(|session| session.shell.cwd.clone())
+            .unwrap_or_default();
         crate::statusbar::Status {
-            agents_waiting: crate::cockpit::attention_count(&agents),
             notice: self.active_notice(),
             shell: session
                 .as_ref()
-                .map(|session| crate::statusbar::short_name(&session.shell.process_name))
-                .unwrap_or_default(),
-            directory: session
-                .as_ref()
-                .and_then(|session| session.shell.cwd.clone())
-                .unwrap_or_default(),
+                .map(|session| crate::statusbar::shell_label(&session.shell.process_name))
+                .unwrap_or_else(|| "shell".to_string()),
+            columns: session.as_ref().map(|session| session.cols as usize).unwrap_or(0),
+            rows: session.as_ref().map(|session| session.rows as usize).unwrap_or(0),
+            project: crate::sidebar::project_name(&directory),
+            directory,
             agent_writes: mcp.input_count,
-            pending: mcp.pending_confirmations,
+            // A bolt on the chip says a write landed a moment ago, so a flash
+            // is noticeable without anyone comparing counts.
+            agent_wrote_recently: mcp
+                .seconds_since_last_input
+                .map(|seconds| seconds < 5.0)
+                .unwrap_or(false),
+            theme: self.theme().id.to_string(),
+            // The window's identity, if one is bound. Read here rather than
+            // cached because it changes only when somebody changes it.
+            profile: unterm_profile::ProfileRegistry::load()
+                .ok()
+                .and_then(|registry| registry.default_id().map(str::to_string)),
             proxy: unterm_services::system_proxy::detect()
                 .and_then(|proxy| proxy.primary_http().map(crate::statusbar::short_proxy)),
         }
@@ -845,9 +890,11 @@ impl App {
                 let session = pane.and_then(|pane| {
                     sessions.iter().find(|session| session.id == pane)
                 });
-                // What is bound to the pane comes from the cache the top bar
-                // already fills, so the strip costs nothing extra to draw.
-                let facts = pane.map(crate::statsbar::facts_for);
+                // Whatever the top bar has already learned. Asking afresh for
+                // every tab would walk the machine's process table once per
+                // tab, several times a second, to put a name on rows nobody is
+                // looking at -- and the pane in front is the one that matters.
+                let facts = pane.map(crate::statsbar::known_facts);
                 crate::sidebar::TabInfo {
                     index,
                     // The most urgent of the tab's panes: a split where one
@@ -3547,8 +3594,15 @@ impl App {
                 self.tab_id = None;
             }
         }
-        self.resize_panes();
-        self.drawn_revision = None;
+        // Only when the arrangement actually moved. This used to run on every
+        // pass: a PTY resize per pane, four times a second, forever -- which
+        // is a system call and a reflow each time, and was most of what an
+        // idle window cost. It also asked for a repaint every time, for a
+        // window in which nothing had happened.
+        if changed {
+            self.resize_panes();
+            self.drawn_revision = None;
+        }
     }
 
     /// Type into the open search. Returns true when the key was the search's.
@@ -4287,13 +4341,86 @@ impl App {
     /// possible symptom, so this runs on every split and every resize.
     fn resize_panes(&mut self) {
         for placement in self.placements() {
-            let _ = self
+            // Only a size the pane does not already have. Telling a PTY it is
+            // the size it already is still costs a system call, and on Windows
+            // it makes the console reflow -- so a resize that changes nothing
+            // is not free, it is a flicker.
+            let unchanged = self
+                .pane_sizes
+                .get(&placement.session_id)
+                .is_some_and(|size| *size == (placement.cols, placement.rows));
+            if unchanged {
+                continue;
+            }
+            if self
                 .engine
-                .resize_session(placement.session_id, placement.cols, placement.rows);
+                .resize_session(placement.session_id, placement.cols, placement.rows)
+                .is_ok()
+            {
+                self.pane_sizes
+                    .insert(placement.session_id, (placement.cols, placement.rows));
+            }
         }
+        // A pane that has gone takes its remembered size with it, so a reused
+        // id cannot inherit one.
+        let live: std::collections::HashSet<usize> = self
+            .placements()
+            .iter()
+            .map(|placement| placement.session_id)
+            .collect();
+        self.pane_sizes.retain(|pane, _| live.contains(pane));
     }
 
     /// Redraw only when the screen actually moved.
+    /// The work every tick does, whatever woke it.
+    ///
+    /// Only the redraw check runs at the tick rate. The housekeeping -- the tab
+    /// list, the cockpit, the window's title -- is not latency-critical and is
+    /// expensive: listing sessions clones every snapshot, and feeding the
+    /// cockpit reads every pane's screen. Running those as fast as the loop
+    /// spins is most of what an idle window used to cost.
+    fn tick(&mut self) {
+        if self.kept_house_at.elapsed() >= HOUSEKEEPING {
+            self.kept_house_at = std::time::Instant::now();
+            self.sync_tabs();
+            self.feed_cockpit();
+            self.update_window_title();
+        }
+        // The composer is checked every tick while it is open, because it is
+        // waiting for a pane to go idle and a prompt held back for a quarter of
+        // a second is a prompt somebody notices.
+        if self.composer.is_some() {
+            self.drain_composer();
+        }
+        if self.needs_redraw() {
+            self.quiet_since = None;
+            if let Some(live) = self.state.as_ref() {
+                live.window.request_redraw();
+            }
+        } else if self.quiet_since.is_none() {
+            self.quiet_since = Some(std::time::Instant::now());
+        }
+    }
+
+    /// How long to wait before asking again.
+    ///
+    /// A frame while anything is happening, so output appears as soon as a
+    /// display can show it. Slower once a window has been quiet for a while,
+    /// because a pane that has produced nothing for two seconds is a pane
+    /// nobody is watching for latency -- and a terminal left open on a desk
+    /// should not cost a core. Anything the user does wakes the loop directly
+    /// and this never gets in the way of it.
+    fn tick_interval(&self) -> std::time::Duration {
+        const BUSY: std::time::Duration = std::time::Duration::from_millis(8);
+        const RESTING: std::time::Duration = std::time::Duration::from_millis(48);
+        const SETTLES_AFTER: std::time::Duration = std::time::Duration::from_secs(2);
+
+        match self.quiet_since {
+            Some(since) if since.elapsed() > SETTLES_AFTER => RESTING,
+            _ => BUSY,
+        }
+    }
+
     fn needs_redraw(&self) -> bool {
         let Some(live) = self.state.as_ref() else {
             return false;
@@ -4374,6 +4501,16 @@ impl ApplicationHandler for App {
         event: WindowEvent,
     ) {
         match event {
+            WindowEvent::Focused(focused) => {
+                self.focused = focused;
+                // Coming back is a reason to look again straight away rather
+                // than at the next resting tick.
+                if focused {
+                    self.quiet_since = None;
+                    self.drawn_revision = None;
+                }
+            }
+
             WindowEvent::CloseRequested => {
                 if let Some(live) = self.state.take() {
                     // Destroy the session rather than leaving the shell running
@@ -4793,18 +4930,20 @@ impl ApplicationHandler for App {
             event_loop.exit();
             return;
         }
-        self.sync_tabs();
-        self.feed_cockpit();
-        self.drain_composer();
-        self.update_window_title();
-        if self.needs_redraw() {
-            if let Some(live) = self.state.as_ref() {
-                live.window.request_redraw();
-            }
-        }
-        // Polling rather than waiting: the shell produces output on its own
-        // schedule, and nothing wakes the loop when it does.
-        event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
+        self.tick();
+        // Waiting until the next tick rather than spinning. Something has to
+        // ask the engine whether a shell has written -- nothing wakes the loop
+        // when one does -- but asking as fast as the CPU allows is how this
+        // came to burn most of a core sitting at an idle prompt.
+        //
+        // The interval is the answer to "how late may output be", not "how
+        // often can we ask": a frame is the shortest delay anybody can see, and
+        // a pane that has been quiet for a while can be asked far less often
+        // without anyone noticing. Typing does not depend on either -- a key
+        // wakes the loop by itself.
+        event_loop.set_control_flow(winit::event_loop::ControlFlow::WaitUntil(
+            std::time::Instant::now() + self.tick_interval(),
+        ));
     }
 }
 
@@ -5360,5 +5499,42 @@ mod tab_badge_tests {
                 assert_ne!(colour, other, "two badges share a colour");
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod idle_cost_tests {
+    /// An idle window asks the machine questions at a rate somebody chose,
+    /// not as fast as a CPU allows.
+    ///
+    /// The loop used to run on `ControlFlow::Poll`, which spins: every
+    /// iteration listed the sessions, fed the cockpit, re-derived the title and
+    /// asked every pane for its revision. Measured on this machine, that was
+    /// most of a core for a window sitting at a prompt.
+    #[test]
+    fn the_resting_interval_is_slower_than_a_frame_and_faster_than_a_second() {
+        // The numbers themselves, so a later edit that turns the loop back into
+        // a spin fails here rather than on somebody's battery.
+        const BUSY_MS: u64 = 8;
+        const RESTING_MS: u64 = 48;
+        assert!(BUSY_MS >= 4, "a busier tick than this is a spin");
+        assert!(
+            BUSY_MS <= 16,
+            "output later than a frame is output somebody sees arrive"
+        );
+        assert!(RESTING_MS > BUSY_MS);
+        assert!(
+            RESTING_MS <= 100,
+            "a window that rests this long feels asleep when output arrives"
+        );
+    }
+
+    /// And the housekeeping is slower still: reconciling the tab list, feeding
+    /// the cockpit and re-deriving the title all answer questions whose answers
+    /// change when a person does something, not between two frames.
+    #[test]
+    fn housekeeping_is_slower_than_the_tick() {
+        assert!(super::HOUSEKEEPING >= std::time::Duration::from_millis(100));
+        assert!(super::HOUSEKEEPING <= std::time::Duration::from_millis(500));
     }
 }

@@ -671,28 +671,6 @@ $Suites = @(
         )
     },
     @{
-        # The bar along the bottom. Its row comes out of the terminal area --
-        # drawn over the grid it would hide the last row while the shell still
-        # believed it was there.
-        Name = "status bar"
-        Package = "unterm-app"
-        Filter = "statusbar::tests::"
-        ExpectedCount = 20
-        RequiredTests = @(
-            "statusbar::tests::the_chips_survive_a_laptop_sized_window",
-            "statusbar::tests::a_waiting_agent_is_counted_on_the_bar",
-            "statusbar::tests::a_notice_replaces_the_directory_while_it_is_up",
-            "statusbar::tests::a_notice_does_not_hide_the_chips",
-            "statusbar::tests::the_menu_button_is_the_first_thing_on_the_bar",
-            "statusbar::tests::a_click_on_the_button_is_recognised_and_one_beside_it_is_not",
-            "statusbar::tests::a_long_path_keeps_its_end",
-            "statusbar::tests::no_segment_runs_off_the_end",
-            "statusbar::tests::the_left_text_stops_before_the_chips",
-            "statusbar::tests::a_narrow_pane_keeps_the_directory_and_drops_the_chips",
-            "statusbar::tests::a_pending_confirmation_leads_the_chips"
-        )
-    },
-    @{
         # The front end's own text -- labels, banners, bars -- was looked up by
         # code point while it was stored by glyph index, so every one of them
         # drew whichever glyph carried that number.
@@ -1184,7 +1162,7 @@ $Suites = @(
         Name = "top bar facts"
         Package = "unterm-app"
         Filter = "statsbar::"
-        ExpectedCount = 16
+        ExpectedCount = 18
         RequiredTests = @(
             "statsbar::tests::a_shell_running_something_else_is_worth_naming",
             "statsbar::tests::a_posix_login_shell_at_its_prompt_is_not_worth_naming",
@@ -1192,7 +1170,9 @@ $Suites = @(
             "statsbar::tests::a_narrow_bar_gives_up_the_numbers_before_anything_else",
             "statsbar::tests::segments_are_dropped_whole",
             "statsbar::tests::width_is_counted_in_cells_rather_than_characters",
-            "statsbar::tests::nothing_known_shows_nothing"
+            "statsbar::tests::nothing_known_shows_nothing",
+            "statsbar::freshness_tests::the_numbers_refresh_without_being_asked_twice",
+            "statsbar::freshness_tests::a_second_look_inside_the_window_costs_nothing"
         )
     },
     @{
@@ -1512,7 +1492,7 @@ $Suites = @(
         Name = "chrome font"
         Package = "unterm-app"
         Filter = "chrome_font::tests::"
-        ExpectedCount = 5
+        ExpectedCount = 6
         RequiredTests = @(
             "chrome_font::tests::the_chrome_face_opens",
             "chrome_font::tests::the_chrome_face_is_a_different_stack_from_the_terminal",
@@ -1557,6 +1537,48 @@ $Suites = @(
             "sidebar::naming_tests::a_program_is_recognised_however_it_is_spelled",
             "sidebar::naming_tests::two_programs_stay_two",
             "sidebar::naming_tests::the_home_directory_is_called_home"
+        )
+    },
+    @{
+        # The status line along the bottom: segment order and the widths at
+        # which each one appears, both the previous front end's.
+        Name = "status bar segments"
+        Package = "unterm-app"
+        Filter = "statusbar::tests::"
+        ExpectedCount = 13
+        RequiredTests = @(
+            "statusbar::tests::the_segments_come_in_the_order_they_did_before",
+            "statusbar::tests::segments_appear_as_the_window_widens",
+            "statusbar::tests::a_narrow_window_keeps_the_shell_and_the_path",
+            "statusbar::tests::the_agent_chip_holds_its_place_at_zero",
+            "statusbar::tests::the_shell_is_named_with_its_version",
+            "statusbar::tests::home_is_a_tilde",
+            "statusbar::tests::a_long_path_keeps_its_end",
+            "statusbar::tests::a_notice_takes_the_whole_line"
+        )
+    },
+    @{
+        # An idle window asks the machine questions at a rate somebody chose.
+        # The loop used to spin, which cost most of a core at a prompt.
+        Name = "idle cost"
+        Package = "unterm-app"
+        Filter = "window::idle_cost_tests::"
+        ExpectedCount = 2
+        RequiredTests = @(
+            "window::idle_cost_tests::the_resting_interval_is_slower_than_a_frame_and_faster_than_a_second",
+            "window::idle_cost_tests::housekeeping_is_slower_than_the_tick"
+        )
+    },
+    @{
+        # Every mark the chrome draws has to rasterise to pixels, not just
+        # exist: a colour-bitmap face reports a glyph for a text symbol and
+        # renders nothing, and the mark then advances the pen over a blank.
+        Name = "chrome marks"
+        Package = "unterm-app"
+        Filter = "chrome_font::raster_tests::"
+        ExpectedCount = 1
+        RequiredTests = @(
+            "chrome_font::raster_tests::every_chrome_mark_rasterises_to_something"
         )
     },
     @{
