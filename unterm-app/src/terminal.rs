@@ -1898,3 +1898,174 @@ mod cursor_style_tests {
         }
     }
 }
+
+/// Draw chrome text at the font's own advances, and say how wide it came out.
+///
+/// Not on the terminal's grid. Chrome is drawn in a proportional face, and
+/// placing each character on a fixed cell spreads a word out into `u n t e r m`
+/// -- which is exactly what the sidebar looked like the first time it was drawn
+/// this way. Every glyph goes where its own advance puts it.
+///
+/// `top` is the top of the row; the baseline is taken from the font, so a row
+/// of text and a row of icons sit on the same line.
+pub fn append_chrome_text(
+    text: &str,
+    font: &mut TerminalFont,
+    atlas: &mut GlyphAtlas,
+    color: [f32; 4],
+    origin: (f32, f32),
+    quads: &mut FrameQuads,
+) -> f32 {
+    for ch in text.chars() {
+        ensure_glyph(font, atlas, ch);
+    }
+    let baseline = font.metrics().baseline;
+    let mut pen = origin.0;
+    for ch in text.chars() {
+        if ch == ' ' {
+            pen += space_advance(font);
+            continue;
+        }
+        let key = glyph_key(font, ch);
+        let Some(slot) = atlas.get(key) else {
+            pen += space_advance(font);
+            continue;
+        };
+        if slot.width > 0 && slot.height > 0 {
+            quads.glyphs.push(unterm_render::quads::glyph_quad(
+                slot,
+                pen,
+                origin.1 + baseline,
+                color,
+                atlas,
+            ));
+        }
+        pen += slot.advance_x as f32;
+    }
+    pen - origin.0
+}
+
+/// How wide chrome text will be, without drawing it.
+///
+/// Measured the same way it is drawn, so a label that is measured as fitting
+/// fits. Anything measured on the terminal's grid instead is wrong for a
+/// proportional face, in whichever direction the face happens to differ.
+pub fn chrome_text_width(text: &str, font: &mut TerminalFont, atlas: &mut GlyphAtlas) -> f32 {
+    for ch in text.chars() {
+        ensure_glyph(font, atlas, ch);
+    }
+    let mut width = 0.0;
+    for ch in text.chars() {
+        if ch == ' ' {
+            width += space_advance(font);
+            continue;
+        }
+        width += match atlas.get(glyph_key(font, ch)) {
+            Some(slot) => slot.advance_x as f32,
+            None => space_advance(font),
+        };
+    }
+    width
+}
+
+/// A space's advance in this face, falling back to a third of the size for a
+/// face that reports none.
+fn space_advance(font: &mut TerminalFont) -> f32 {
+    match font.stack_mut().rasterize(' ') {
+        Some((_, glyph)) if glyph.advance_x > 0 => glyph.advance_x as f32,
+        _ => font.pixel_size() as f32 * 0.32,
+    }
+}
+
+#[cfg(test)]
+mod chrome_text_tests {
+    use super::*;
+
+    /// Chrome text is placed at the face's own advances. On a fixed cell grid a
+    /// proportional word comes out as `u n t e r m`, which is what the sidebar
+    /// looked like the first time it was drawn that way.
+    #[test]
+    fn a_narrow_letter_takes_less_room_than_a_wide_one() {
+        let Ok(mut font) = crate::chrome_font::open(&[], 1.0) else {
+            return;
+        };
+        let mut atlas = GlyphAtlas::new(512, 512);
+        let narrow = chrome_text_width("iiii", &mut font, &mut atlas);
+        let wide = chrome_text_width("WWWW", &mut font, &mut atlas);
+        assert!(
+            wide > narrow,
+            "four W came out no wider than four i: {wide} vs {narrow}"
+        );
+    }
+
+    /// And what is measured is what is drawn, or a label that measures as
+    /// fitting runs off the end of its row.
+    #[test]
+    fn what_is_measured_is_what_is_drawn() {
+        let Ok(mut font) = crate::chrome_font::open(&[], 1.0) else {
+            return;
+        };
+        let mut atlas = GlyphAtlas::new(512, 512);
+        let mut quads = FrameQuads::default();
+        let measured = chrome_text_width("unterm", &mut font, &mut atlas);
+        let drawn = append_chrome_text(
+            "unterm",
+            &mut font,
+            &mut atlas,
+            [1.0; 4],
+            (0.0, 0.0),
+            &mut quads,
+        );
+        assert!((measured - drawn).abs() < 0.5, "{measured} then {drawn}");
+        assert!(!quads.glyphs.is_empty(), "nothing was drawn");
+    }
+
+    /// Every glyph lands inside the run it was asked for, left to right.
+    #[test]
+    fn glyphs_run_left_to_right_from_the_origin() {
+        let Ok(mut font) = crate::chrome_font::open(&[], 1.0) else {
+            return;
+        };
+        let mut atlas = GlyphAtlas::new(512, 512);
+        let mut quads = FrameQuads::default();
+        let width = append_chrome_text(
+            "abcdef",
+            &mut font,
+            &mut atlas,
+            [1.0; 4],
+            (100.0, 50.0),
+            &mut quads,
+        );
+        let mut previous = 0.0f32;
+        for glyph in &quads.glyphs {
+            assert!(glyph.quad.left >= 99.0, "{:?} is before the origin", glyph.quad);
+            assert!(
+                glyph.quad.left <= 100.0 + width + 2.0,
+                "{:?} is past the run",
+                glyph.quad
+            );
+            assert!(glyph.quad.left >= previous - 1.0, "the glyphs went backwards");
+            previous = glyph.quad.left;
+        }
+    }
+
+    /// A space moves the pen without drawing anything.
+    #[test]
+    fn a_space_advances_without_drawing() {
+        let Ok(mut font) = crate::chrome_font::open(&[], 1.0) else {
+            return;
+        };
+        let mut atlas = GlyphAtlas::new(512, 512);
+        let mut quads = FrameQuads::default();
+        let width = append_chrome_text(
+            " ",
+            &mut font,
+            &mut atlas,
+            [1.0; 4],
+            (0.0, 0.0),
+            &mut quads,
+        );
+        assert!(width > 0.0, "a space took no room");
+        assert!(quads.glyphs.is_empty(), "a space drew something");
+    }
+}

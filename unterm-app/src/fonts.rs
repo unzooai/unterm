@@ -471,7 +471,7 @@ mod bundled_tests {
     /// the window actually depends on.
     #[test]
     fn a_stack_can_reach_the_chrome_icons() {
-        let Some(mut stack) = FontStack::system(16) else {
+        let Some(stack) = FontStack::system(16) else {
             return;
         };
         for ch in ['\u{f07b}', '\u{ebc7}', '\u{ea85}', '\u{f06a9}'] {

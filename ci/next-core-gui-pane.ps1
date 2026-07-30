@@ -420,7 +420,7 @@ $Suites = @(
         Name = "left tab strip"
         Package = "unterm-app"
         Filter = "sidebar::tests::"
-        ExpectedCount = 14
+        ExpectedCount = 16
         RequiredTests = @(
             "sidebar::tests::a_single_project_gets_no_group_headers",
             "sidebar::tests::same_named_projects_are_told_apart_by_the_shortest_parent",
@@ -1538,6 +1538,33 @@ $Suites = @(
         RequiredTests = @(
             "ui_tokens::tests::chrome_density_scale_is_ordered",
             "ui_tokens::tests::sidebar_defaults_respect_minimums_and_window_budget"
+        )
+    },
+    @{
+        # Chrome is drawn at the face own advances, not on the terminal grid.
+        # A proportional word on a fixed cell comes out as `u n t e r m`, which
+        # is what the sidebar looked like the first time it was drawn that way.
+        Name = "proportional chrome text"
+        Package = "unterm-app"
+        Filter = "terminal::chrome_text_tests::"
+        ExpectedCount = 4
+        RequiredTests = @(
+            "terminal::chrome_text_tests::a_narrow_letter_takes_less_room_than_a_wide_one",
+            "terminal::chrome_text_tests::what_is_measured_is_what_is_drawn",
+            "terminal::chrome_text_tests::glyphs_run_left_to_right_from_the_origin",
+            "terminal::chrome_text_tests::a_space_advances_without_drawing"
+        )
+    },
+    @{
+        # What a strip row is called, and what it does not repeat.
+        Name = "tab strip naming"
+        Package = "unterm-app"
+        Filter = "sidebar::naming_tests::"
+        ExpectedCount = 3
+        RequiredTests = @(
+            "sidebar::naming_tests::a_program_is_recognised_however_it_is_spelled",
+            "sidebar::naming_tests::two_programs_stay_two",
+            "sidebar::naming_tests::the_home_directory_is_called_home"
         )
     },
     @{

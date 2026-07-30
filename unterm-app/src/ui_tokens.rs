@@ -7,6 +7,11 @@
 //! here was chosen against a running window.
 //!
 //! Values are in points. Multiply by `dpi / 72` at the place that draws.
+//!
+//! Kept whole even where nothing reads a token yet: the scale is the point, and
+//! deleting the parts not currently used would leave the next piece of chrome
+//! picking its own numbers -- which is the habit this file exists to break.
+#![allow(dead_code)]
 
 /// Chrome text: tabs, sidebar rows, status bar. Keep this close to the
 /// terminal font while using the title/UI font's natural weight; oversizing
