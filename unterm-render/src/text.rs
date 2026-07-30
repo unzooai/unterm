@@ -34,6 +34,8 @@ pub fn place_run(
 
     for &glyph_index in glyph_indices {
         let key = GlyphKey {
+            // The terminal's stack. The chrome files its glyphs under its own.
+            stack: 0,
             face: face_id,
             glyph_index,
             pixel_size,
@@ -95,6 +97,7 @@ mod tests {
         assert!(glyph.width > 0 && glyph.height > 0, "'A' should have pixels");
 
         let key = GlyphKey {
+            stack: 0,
             face: 0,
             glyph_index: 0,
             pixel_size: 16,

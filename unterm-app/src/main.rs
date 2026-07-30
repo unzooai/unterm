@@ -8,6 +8,7 @@ mod args;
 mod background;
 mod charselect;
 mod chrome;
+mod chrome_font;
 mod cockpit;
 mod composer;
 mod confirm;
@@ -37,6 +38,7 @@ mod topbar;
 mod tree;
 mod select;
 mod terminal;
+mod ui_tokens;
 mod window;
 mod window_buttons;
 

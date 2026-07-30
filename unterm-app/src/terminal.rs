@@ -155,6 +155,13 @@ impl Shape {
 pub struct TerminalFont {
     stack: FontStack,
     metrics: CellMetrics,
+    /// Which stack this is, for the atlas.
+    ///
+    /// Two fonts are open at once: the terminal's, and the chrome's at its own
+    /// size. A face index means nothing without saying whose stack it indexes,
+    /// and without this the two overwrite each other in the atlas whenever they
+    /// land on the same pixel size.
+    stack_id: u8,
 }
 
 impl TerminalFont {
@@ -240,7 +247,21 @@ impl TerminalFont {
                 height,
                 baseline,
             },
+            stack_id: 0,
         }
+    }
+
+    /// The same face, filed in the atlas under a different stack.
+    ///
+    /// Used for the chrome's own font: it is a different stack at a different
+    /// size, and the atlas has to be able to tell the two apart.
+    pub fn as_stack(mut self, stack_id: u8) -> Self {
+        self.stack_id = stack_id;
+        self
+    }
+
+    pub fn stack_id(&self) -> u8 {
+        self.stack_id
     }
 
     pub fn metrics(&self) -> CellMetrics {
@@ -338,6 +359,7 @@ pub fn append_pane(
     // Which face drew each character, resolved once, so the lookup below
     // matches the key each glyph was filed under.
     let pixel_size = font.pixel_size();
+    let stack_id = font.stack_id();
     let mut face_of: std::collections::HashMap<char, usize> = std::collections::HashMap::new();
     let mut index_of: std::collections::HashMap<char, u32> = std::collections::HashMap::new();
     for line in &snapshot.lines {
@@ -372,6 +394,7 @@ pub fn append_pane(
             metrics,
             colors,
             pixel_size,
+            stack_id,
             atlas,
             quads,
         );
@@ -385,6 +408,7 @@ pub fn append_pane(
             |ch| {
                 let face = face_of.get(&ch).copied().unwrap_or(0);
                 atlas.get(GlyphKey {
+                    stack: stack_id,
                     face,
                     glyph_index: index_of.get(&ch).copied().unwrap_or_default(),
                     pixel_size,
@@ -657,6 +681,7 @@ fn place_shaped_row(
     metrics: CellMetrics,
     colors: FrameColors,
     pixel_size: u32,
+    stack_id: u8,
     atlas: &GlyphAtlas,
     quads: &mut FrameQuads,
 ) -> std::collections::HashSet<usize> {
@@ -666,6 +691,7 @@ fn place_shaped_row(
         for glyph in &shaped.glyphs {
             let column = shaped.run.column_of(glyph.cluster as usize);
             let Some(slot) = atlas.get(GlyphKey {
+                stack: stack_id,
                 face: *face,
                 glyph_index: glyph.glyph_index,
                 pixel_size,
@@ -718,6 +744,7 @@ fn ensure_shaped_glyph(
     glyph_index: u32,
 ) -> bool {
     let key = GlyphKey {
+        stack: font.stack_id(),
         face,
         glyph_index,
         pixel_size: font.pixel_size(),
@@ -741,8 +768,10 @@ fn ensure_shaped_glyph(
 /// would show one where the other belongs.
 fn glyph_key(font: &mut TerminalFont, ch: char) -> GlyphKey {
     let pixel_size = font.pixel_size();
+    let stack = font.stack_id();
     let face = font.stack_mut().face_for(ch);
     GlyphKey {
+        stack,
         face,
         // The face's own index for the character, not its code point. The
         // shaped path files glyphs by real index, and a code point standing
@@ -1225,7 +1254,9 @@ mod shaped_row_tests {
         }
         let metrics = font.metrics();
         let pixel_size = font.pixel_size();
-        place_shaped_row(&rows, cells, 0.0, 0.0, metrics, colors, pixel_size, atlas, quads)
+        place_shaped_row(
+            &rows, cells, 0.0, 0.0, metrics, colors, pixel_size, 0, atlas, quads,
+        )
     }
 
     fn cells(text: &str) -> Vec<StyledCell> {

@@ -65,6 +65,14 @@ use winit::window::{Window, WindowId};
 pub struct App {
     engine: NextCoreEngine,
     font: TerminalFont,
+    /// The font the chrome is drawn in.
+    ///
+    /// A second face at its own size, because the chrome is not terminal
+    /// output: the previous front end drew every tab, sidebar row and status
+    /// segment at 13pt with a looser line height, and drawing them in the
+    /// terminal's font at the terminal's cell size is what made this window
+    /// read as a wall of output with a wall of output around it.
+    chrome_font: TerminalFont,
     /// The size the font is asked for, in points, which the zoom keys move.
     ///
     /// Points rather than pixels, as the config and every other terminal mean
@@ -274,6 +282,7 @@ impl App {
                 &fallbacks,
                 shape,
             )?,
+            chrome_font: crate::chrome_font::open(&fallbacks, 1.0)?,
             font_family: family,
             font_shape: shape,
             font_points: pixel_size as f32,
@@ -1769,6 +1778,12 @@ impl App {
             return;
         };
         self.font = font;
+        // The chrome follows the display's scale but not the terminal's font
+        // size: making the tab labels bigger because somebody zoomed the
+        // terminal is not what zooming the terminal means.
+        if let Ok(chrome) = crate::chrome_font::open(&self.font_fallbacks, scale) {
+            self.chrome_font = chrome;
+        }
         self.font_points = points;
         self.scale = scale;
         self.atlas = GlyphAtlas::new(1024, 1024);

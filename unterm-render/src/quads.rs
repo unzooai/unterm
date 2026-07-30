@@ -335,6 +335,7 @@ mod tests {
         let mut atlas = GlyphAtlas::new(64, 64);
         let slot = atlas.insert(
             GlyphKey {
+                stack: 0,
                 face: 0,
                 glyph_index: 1,
                 pixel_size: 16,
@@ -373,6 +374,7 @@ mod tests {
         while atlas.height() == 64 {
             atlas.insert(
                 GlyphKey {
+                    stack: 0,
                     face: 0,
                     glyph_index: atlas.len() as u32 + 100,
                     pixel_size: 16,

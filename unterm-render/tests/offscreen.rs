@@ -243,6 +243,7 @@ fn offscreen_a_glyph_is_tinted_by_its_colour_and_shaped_by_the_atlas() {
     let mut atlas = GlyphAtlas::new(8, 8);
     let slot = atlas.insert(
         GlyphKey {
+            stack: 0,
             face: 0,
             glyph_index: 1,
             pixel_size: 16,
@@ -301,6 +302,7 @@ fn offscreen_a_glyph_draws_over_its_own_background() {
     let mut atlas = GlyphAtlas::new(8, 8);
     let slot = atlas.insert(
         GlyphKey {
+            stack: 0,
             face: 0,
             glyph_index: 1,
             pixel_size: 16,

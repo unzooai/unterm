@@ -50,6 +50,64 @@ const FALLBACK_FAMILIES: &[&str] = &[
     "Noto Color Emoji",
 ];
 
+/// The font files that ship with the product.
+///
+/// Two of them, and both matter for how the window looks rather than for what
+/// the terminal can print. The symbols face carries the icon language the
+/// chrome is drawn in -- the folder on a project row, the shell mark on a tab,
+/// the robot on an agent's pane -- and the emoji face carries the rest.
+///
+/// Looked up by file rather than by family, because they are not installed:
+/// asking the system index for "Symbols Nerd Font Mono" on a machine that has
+/// only the bundled copy finds nothing, and every icon in the chrome comes out
+/// as an empty box. Which is exactly what happened.
+const BUNDLED: &[&str] = &["SymbolsNerdFontMono-Regular.ttf", "NotoColorEmoji.ttf"];
+
+/// Where the bundled fonts are, wherever this build is running from.
+///
+/// Beside the executable in an installed copy; a few levels up in a build
+/// tree, where the exe sits in `target/debug`. Tried in that order so an
+/// installed copy never reads out of somebody's source checkout.
+fn bundled_font_dirs() -> Vec<std::path::PathBuf> {
+    let mut dirs = Vec::new();
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(beside) = exe.parent() {
+            dirs.push(beside.join("assets").join("fonts"));
+            for up in [1usize, 2, 3] {
+                let mut at = beside.to_path_buf();
+                for _ in 0..up {
+                    at = match at.parent() {
+                        Some(parent) => parent.to_path_buf(),
+                        None => break,
+                    };
+                }
+                dirs.push(at.join("assets").join("fonts"));
+            }
+        }
+    }
+    if let Ok(here) = std::env::current_dir() {
+        dirs.push(here.join("assets").join("fonts"));
+    }
+    dirs
+}
+
+/// The bundled faces this build can actually find.
+fn bundled_faces(pixel_size: u32) -> Vec<FontFace> {
+    let dirs = bundled_font_dirs();
+    let mut faces = Vec::new();
+    for name in BUNDLED {
+        let found = dirs.iter().map(|dir| dir.join(name)).find(|path| path.is_file());
+        match found {
+            Some(path) => match FontFace::open(&path, pixel_size) {
+                Ok(face) => faces.push(face),
+                Err(err) => log::warn!("bundled font {path:?} would not open: {err:#}"),
+            },
+            None => log::warn!("bundled font {name} is not beside this build"),
+        }
+    }
+    faces
+}
+
 pub struct FontStack {
     faces: Vec<FontFace>,
     pixel_size: u32,
@@ -73,6 +131,11 @@ impl FontStack {
             .iter()
             .map(String::as_str)
             .chain(FALLBACK_FAMILIES.iter().copied());
+
+        // The bundled faces first among the fallbacks, so the chrome's icons
+        // come from the file that has them rather than from whichever installed
+        // face happens to claim the code point.
+        faces.extend(bundled_faces(pixel_size));
 
         let mut seen: Vec<String> = Vec::new();
         for family in wanted {
@@ -355,5 +418,69 @@ mod cjk_tests {
             !with_cjk.is_empty(),
             "no face in the stack can draw Chinese; the fallback list is the bug"
         );
+    }
+}
+
+#[cfg(test)]
+mod bundled_tests {
+    use super::*;
+
+    /// The product ships the face its own chrome is drawn in. Without it every
+    /// icon in the window -- the folder on a project row, the shell mark on a
+    /// tab, the robot on an agent's pane -- is an empty box, which is what a
+    /// missing glyph looks like and exactly what happened.
+    #[test]
+    fn the_bundled_faces_are_found_and_open() {
+        let faces = bundled_faces(16);
+        assert_eq!(
+            faces.len(),
+            BUNDLED.len(),
+            "only {} of {} bundled faces were found; looked in {:?}",
+            faces.len(),
+            BUNDLED.len(),
+            bundled_font_dirs()
+        );
+    }
+
+    /// And they carry the code points the chrome asks for. A face that opens
+    /// but has no folder glyph is a face that changes nothing.
+    #[test]
+    fn the_symbols_face_has_the_icons_the_chrome_uses() {
+        let Some(face) = bundled_faces(16).into_iter().next() else {
+            panic!("no bundled symbols face");
+        };
+        // Folder, the shell marks, the robot, the remote mark: every icon the
+        // sidebar and the tab rows draw.
+        for (name, ch) in [
+            ("folder", '\u{f07b}'),
+            ("powershell", '\u{ebc7}'),
+            ("cmd", '\u{ebc4}'),
+            ("bash", '\u{ebca}'),
+            ("terminal", '\u{ea85}'),
+            ("robot", '\u{f06a9}'),
+            ("remote", '\u{eb3a}'),
+        ] {
+            assert!(
+                face.has_glyph(ch),
+                "the bundled symbols face has no {name} ({ch:?})"
+            );
+        }
+    }
+
+    /// A stack built from it can reach those code points, which is the thing
+    /// the window actually depends on.
+    #[test]
+    fn a_stack_can_reach_the_chrome_icons() {
+        let Some(mut stack) = FontStack::system(16) else {
+            return;
+        };
+        for ch in ['\u{f07b}', '\u{ebc7}', '\u{ea85}', '\u{f06a9}'] {
+            // Face 0 is the primary text face, which has none of these: an
+            // icon that falls through to it is an icon drawn as an empty box.
+            assert!(
+                stack.face_for(ch) > 0,
+                "{ch:?} fell through to the primary face"
+            );
+        }
     }
 }

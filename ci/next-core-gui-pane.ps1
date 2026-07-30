@@ -1501,6 +1501,46 @@ $Suites = @(
         )
     },
     @{
+        # The product ships the face its own chrome is drawn in. Looked up by
+        # file, not by family: the system index does not know about a font that
+        # is only bundled, and every icon came out as an empty box.
+        Name = "bundled chrome font"
+        Package = "unterm-app"
+        Filter = "fonts::bundled_tests::"
+        ExpectedCount = 3
+        RequiredTests = @(
+            "fonts::bundled_tests::the_bundled_faces_are_found_and_open",
+            "fonts::bundled_tests::the_symbols_face_has_the_icons_the_chrome_uses",
+            "fonts::bundled_tests::a_stack_can_reach_the_chrome_icons"
+        )
+    },
+    @{
+        # And the chrome has its own face at its own size, because chrome is
+        # not terminal output.
+        Name = "chrome font"
+        Package = "unterm-app"
+        Filter = "chrome_font::tests::"
+        ExpectedCount = 5
+        RequiredTests = @(
+            "chrome_font::tests::the_chrome_face_opens",
+            "chrome_font::tests::the_chrome_face_is_a_different_stack_from_the_terminal",
+            "chrome_font::tests::chrome_rows_are_looser_than_terminal_rows",
+            "chrome_font::tests::a_point_grows_with_the_display"
+        )
+    },
+    @{
+        # One scale for every piece of chrome, ported verbatim: every number in
+        # it was chosen against a running window.
+        Name = "chrome tokens"
+        Package = "unterm-app"
+        Filter = "ui_tokens::tests::"
+        ExpectedCount = 2
+        RequiredTests = @(
+            "ui_tokens::tests::chrome_density_scale_is_ordered",
+            "ui_tokens::tests::sidebar_defaults_respect_minimums_and_window_budget"
+        )
+    },
+    @{
         Name = "viewport scroll end to end"
         Package = "unterm-engine"
         Filter = "next_core::tests::relative_viewport_scroll_steps_and_resumes_following"

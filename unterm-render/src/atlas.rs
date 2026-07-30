@@ -41,6 +41,14 @@ pub struct GlyphSlot {
 /// indices, and one character can map to several depending on its neighbours.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct GlyphKey {
+    /// Which font stack the face index belongs to.
+    ///
+    /// Two stacks are in play -- the terminal's and the chrome's -- and a face
+    /// index means nothing without saying whose. Without this, face 0 of the
+    /// chrome's UI font and face 0 of the terminal's monospace face are the
+    /// same key whenever the two happen to be the same pixel size, and each
+    /// overwrites the other's glyphs.
+    pub stack: u8,
     pub face: usize,
     pub glyph_index: u32,
     pub pixel_size: u32,
@@ -200,6 +208,7 @@ mod tests {
 
     fn key(index: u32) -> GlyphKey {
         GlyphKey {
+            stack: 0,
             face: 0,
             glyph_index: index,
             pixel_size: 16,
