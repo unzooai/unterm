@@ -60,6 +60,8 @@ pub enum Action {
     NewWindow,
     ClosePane,
     ZoomPane,
+    /// Open the settings page in a browser.
+    Settings,
     /// Find a character by its name and type it.
     CharSelect,
     /// Show the files under the pane's directory, down the left edge.
@@ -111,6 +113,7 @@ impl Action {
             Action::NewWindow => "NewWindow",
             Action::ClosePane => "ClosePane",
             Action::ZoomPane => "ZoomPane",
+            Action::Settings => "Settings",
             Action::CharSelect => "CharSelect",
             Action::TreeSidebar => "TreeSidebar",
             Action::FleetLaunch => "FleetLaunch",
@@ -170,6 +173,7 @@ impl Action {
             Action::NewWindow => "New Window",
             Action::ClosePane => "Close Pane",
             Action::ZoomPane => "Zoom Pane",
+            Action::Settings => "Settings",
             Action::CharSelect => "Insert Character",
             Action::TreeSidebar => "File Tree",
             Action::FleetLaunch => "Launch Fleet",

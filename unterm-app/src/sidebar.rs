@@ -133,6 +133,10 @@ pub enum Row {
         icon: char,
         /// Whether it sits under a project header, and is therefore indented.
         grouped: bool,
+        /// What the agent in this pane wants, if anything. Right-aligned, and
+        /// the reason it is here rather than on a top-bar tab: an agent waiting
+        /// for an answer has to be visible from whichever tab you are in.
+        badge: Option<crate::cockpit::Badge>,
     },
 }
 
@@ -141,6 +145,8 @@ pub enum Row {
 pub struct TabInfo {
     pub index: usize,
     pub title: String,
+    /// What the agent in this pane wants, if anything.
+    pub badge: Option<crate::cockpit::Badge>,
     /// The AI agent bound to the pane, if one is. The agent's name *is* the
     /// row's title when there is one -- the pane title just repeats it.
     pub agent: Option<String>,
@@ -216,6 +222,7 @@ pub fn rows(tabs: &[TabInfo], collapsed: &std::collections::HashSet<String>) -> 
             active: tab.active,
             icon: shell_icon(tab.agent.as_deref().unwrap_or(&tab.title)),
             grouped,
+            badge: tab.badge,
         });
     }
     rows
@@ -410,6 +417,7 @@ mod tests {
         TabInfo {
             index,
             title: title.to_string(),
+            badge: None,
             agent: None,
             cwd: cwd.map(str::to_string),
             foreground: None,
@@ -437,6 +445,7 @@ mod tests {
             TabInfo {
                 index: 0,
                 title: "a very long shell name that goes on".to_string(),
+                badge: None,
                 agent: None,
                 cwd: Some("/work/some/deeply/nested/project".to_string()),
                 foreground: Some("npm run dev --workspace=everything".to_string()),
@@ -469,6 +478,7 @@ mod tests {
         let rows = rows_of(&[TabInfo {
             index: 0,
             title: "pwsh".to_string(),
+            badge: None,
             agent: None,
             cwd: Some("/work/app".to_string()),
             foreground: Some("cargo test".to_string()),

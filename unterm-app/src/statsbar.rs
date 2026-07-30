@@ -34,20 +34,27 @@ pub fn agent_segment(name: Option<&str>) -> String {
     }
 }
 
-/// What the pane is running, if it is running something worth naming.
+/// The names a POSIX login shell gives itself at an idle prompt.
 ///
-/// The pane's own shell is not. A pane sitting at a prompt has its shell in
-/// front, and saying "pwsh" in the bar above a pane that obviously contains a
-/// shell is noise.
+/// Exactly the previous front end's list, and deliberately not longer. It is
+/// tempting to add `pwsh` and `cmd` -- they are shells too -- but doing that
+/// empties the segment on every Windows machine, where the shell *is* one of
+/// those and the whole point of the segment is to say what the pane is running.
+/// The old bar showed `pwsh.exe`, and that was right: on a platform whose
+/// shells are named after themselves, the name is still the answer.
+const QUIET_SHELLS: &[&str] = &["zsh", "bash", "fish", "nu", "sh"];
+
+/// What the pane is running.
 ///
-/// Which is decided by comparing the process in front with the one the pane
-/// was started with, rather than by matching names against a list of shells.
-/// The list gets this wrong in exactly the case the segment exists for: a pane
-/// running `powershell` from a `cmd` prompt is running something, and a list
-/// with "powershell" in it hides it.
+/// Empty when there is nothing to say, or when the name is one of the few a
+/// login shell gives itself while doing nothing -- those repeat what the window
+/// already makes obvious.
 pub fn title_segment(foreground: &str, shell: &str) -> String {
+    // The pane's own shell is not consulted: which program is in front is the
+    // question, and the answer does not change because the pane started with it.
+    let _ = shell;
     let name = program_name(foreground);
-    if name.is_empty() || name.eq_ignore_ascii_case(&program_name(shell)) {
+    if name.is_empty() || QUIET_SHELLS.contains(&name.to_lowercase().as_str()) {
         return String::new();
     }
     format!("\u{25B6} {name}")
@@ -286,35 +293,45 @@ mod tests {
         assert_eq!(agent_segment(Some("  ")), "");
     }
 
-    /// A shell at its prompt is what a terminal contains. Saying so twice, in
-    /// the pane and in the bar above it, is noise.
+    /// The few names a login shell gives itself while doing nothing repeat
+    /// what the window already makes obvious.
     #[test]
-    fn a_shell_sitting_at_its_prompt_is_not_worth_naming() {
-        for shell in ["pwsh", "bash", "zsh", "PowerShell.exe", "C:\\Windows\\cmd.exe"] {
+    fn a_posix_login_shell_at_its_prompt_is_not_worth_naming() {
+        for shell in ["zsh", "bash", "fish", "nu", "sh", "/usr/bin/zsh"] {
             assert_eq!(title_segment(shell, shell), "", "{shell}");
         }
     }
 
-    /// The path and the extension are spelling, not identity: the process in
-    /// front comes back as `C:\Windows\System32\cmd.exe` while the pane was
-    /// started with `cmd`, and those are the same shell.
+    /// The Windows shells *are* named. Adding them to that list empties the
+    /// segment on every Windows machine -- the shell there is one of them, and
+    /// the point of the segment is to say what the pane is running. The old bar
+    /// showed `pwsh.exe`, and that was right.
     #[test]
-    fn a_shell_is_recognised_however_it_is_spelled() {
-        assert_eq!(title_segment("C:\\Windows\\System32\\cmd.exe", "cmd"), "");
-        assert_eq!(title_segment("PWSH.EXE", "pwsh"), "");
-        assert_eq!(title_segment("/usr/bin/zsh", "zsh"), "");
+    fn a_windows_shell_is_still_named() {
+        assert_eq!(title_segment("pwsh.exe", "pwsh"), "\u{25B6} pwsh");
+        assert_eq!(title_segment("cmd.exe", "cmd"), "\u{25B6} cmd");
+        assert_eq!(
+            title_segment("C:\\Windows\\System32\\cmd.exe", "cmd"),
+            "\u{25B6} cmd"
+        );
     }
 
-    /// And the case the segment exists for: a shell running another shell. A
-    /// list of shell names hides exactly this, which is why there is no list --
-    /// the pane already knows which shell is its own.
+    /// The path and the extension are spelling, not identity: what comes back
+    /// as `C:\Windows\System32\cmd.exe` is named `cmd`.
     #[test]
-    fn a_shell_running_another_shell_is_worth_naming() {
+    fn a_program_is_named_however_its_path_is_spelled() {
+        assert_eq!(title_segment("/usr/bin/vim", "bash"), "\u{25B6} vim");
+        assert_eq!(title_segment("CARGO.EXE", "cmd"), "\u{25B6} CARGO");
+    }
+
+    /// And a shell running another program is named, which is what the segment
+    /// exists for.
+    #[test]
+    fn a_shell_running_something_else_is_worth_naming() {
         assert_eq!(
             title_segment("powershell.exe", "cmd.exe"),
             "\u{25B6} powershell"
         );
-        assert_eq!(title_segment("bash", "zsh"), "\u{25B6} bash");
     }
 
     #[test]

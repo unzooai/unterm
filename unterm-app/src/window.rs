@@ -477,8 +477,7 @@ impl App {
             // Below the top bar, like every other pane. Drawn at the window's
             // own origin it lands on the bar, which is what the first frame
             // with a bar in it looked like.
-            let metrics = self.font.metrics();
-            let origin = (self.terminal_left(), crate::topbar::terminal_top(metrics        ));
+            let origin = (self.terminal_left(), self.terminal_top());
             crate::terminal::append_pane(
                 &snapshot,
                 &mut self.font,
@@ -507,35 +506,11 @@ impl App {
         self.append_git_panel(window_width, &mut quads);
         self.append_composer(window_width, &mut quads);
         self.append_palette(window_width, &mut quads);
-        let tab_count = self.tabs.tab_count();
-        let active_tab = self
-            .tab_id
-            .and_then(|id| self.tabs.tab_ids().iter().position(|c| *c == id))
-            .unwrap_or(0);
-        // One badge per tab, in the order the tabs are drawn. A tab shows
-        // the most urgent of its panes': a split where one half is waiting is
-        // a tab that is waiting.
-        let statuses = unterm_services::cockpit::status::snapshot();
-        let badges: Vec<Option<crate::cockpit::Badge>> = self
-            .tabs
-            .tab_ids()
-            .into_iter()
-            .map(|tab| {
-                self.tabs
-                    .pane_ids(tab)
-                    .into_iter()
-                    .filter_map(|pane| crate::cockpit::badge_for_pane(&statuses, pane as u64))
-                    .min_by_key(|badge| match badge {
-                        crate::cockpit::Badge::NeedsYou => 0,
-                        crate::cockpit::Badge::Done => 1,
-                        crate::cockpit::Badge::Working => 2,
-                    })
-            })
-            .collect();
-        self.append_top_bar(tab_count, active_tab, &badges, window_width, &mut quads);
+        self.append_top_bar(window_width, &mut quads);
         self.append_sidebar(&mut quads);
         self.append_tree(&mut quads);
         self.append_status_bar(window_width, &mut quads);
+        self.append_tooltip(window_width, &mut quads);
         quads.raise_since(overlays);
 
         append_confirmation_banner(
@@ -588,7 +563,7 @@ impl App {
         };
         let metrics = self.font.metrics();
         let left = self.terminal_left();
-        let top = crate::topbar::terminal_top(metrics);
+        let top = self.terminal_top();
         let column = ((self.pointer.0 - left).max(0.0) / metrics.width.max(1.0)) as usize;
         let row = ((self.pointer.1 - top).max(0.0) / metrics.height.max(1.0)) as usize;
 
@@ -645,8 +620,7 @@ impl App {
         let Ok(snapshot) = self.engine.read_styled_screen(live.session_id) else {
             return;
         };
-        let metrics = self.font.metrics();
-        let track_top = crate::topbar::terminal_top(metrics);
+        let track_top = self.terminal_top();
         let track = (live.height as f32 - track_top).max(1.0);
         let total = snapshot.scrollback_rows + snapshot.rows;
         let row = crate::scrollbar::row_at(total, snapshot.rows, self.pointer.1 - track_top, track);
@@ -793,7 +767,7 @@ impl App {
         };
 
         let metrics = self.font.metrics();
-        let origin = (self.terminal_left(), crate::topbar::terminal_top(metrics        ));
+        let origin = (self.terminal_left(), self.terminal_top());
         let theme = self.theme();
 
         for (index, line) in snapshot.lines.iter().enumerate() {
@@ -829,7 +803,7 @@ impl App {
     /// Where the terminal's first column starts, the strip included.
     fn terminal_left(&self) -> f32 {
         let metrics = self.font.metrics();
-        self.dock_width(metrics) + crate::topbar::terminal_left(metrics)
+        self.dock_width(metrics) + self.chrome_inset()
     }
 
     /// How much of the window the left dock has taken.
@@ -851,13 +825,15 @@ impl App {
     fn terminal_width(&self) -> f32 {
         let metrics = self.font.metrics();
         let window = self.state.as_ref().map(|live| live.width).unwrap_or(800) as f32;
-        crate::topbar::terminal_width(window - self.dock_width(metrics), metrics)
+        (window - self.dock_width(metrics) - self.chrome_inset() * 2.0)
+            .max(self.font.metrics().width)
     }
 
     /// What the strip shows: one line per tab, grouped by project.
     fn sidebar_rows(&self) -> Vec<crate::sidebar::Row> {
         let sessions = unterm_engine::SessionEngine::list_sessions(&self.engine)
             .unwrap_or_default();
+        let statuses = unterm_services::cockpit::status::snapshot();
         let active = self.tab_id;
         let tabs: Vec<crate::sidebar::TabInfo> = self
             .tabs
@@ -874,6 +850,20 @@ impl App {
                 let facts = pane.map(crate::statsbar::facts_for);
                 crate::sidebar::TabInfo {
                     index,
+                    // The most urgent of the tab's panes: a split where one
+                    // half is waiting is a tab that is waiting.
+                    badge: self
+                        .tabs
+                        .pane_ids(tab)
+                        .into_iter()
+                        .filter_map(|pane| {
+                            crate::cockpit::badge_for_pane(&statuses, pane as u64)
+                        })
+                        .min_by_key(|badge| match badge {
+                            crate::cockpit::Badge::NeedsYou => 0,
+                            crate::cockpit::Badge::Done => 1,
+                            crate::cockpit::Badge::Working => 2,
+                        }),
                     title: session
                         .map(|session| session.title.clone())
                         .unwrap_or_default(),
@@ -993,8 +983,8 @@ impl App {
         self.tree.as_ref()?;
         let metrics = self.font.metrics();
         let width = crate::tree::width(true, metrics);
-        let top = crate::topbar::terminal_top(metrics) - crate::topbar::padding(metrics).1;
-        let height = self.terminal_height() + crate::topbar::padding(metrics).1 * 2.0;
+        let top = self.terminal_top() - self.chrome_inset();
+        let height = self.terminal_height() + self.chrome_inset() * 2.0;
         // To the right of the tab strip when both are open, so the two docks
         // do not draw over each other.
         let window_width = self.state.as_ref().map(|live| live.width).unwrap_or(800) as f32;
@@ -1085,10 +1075,29 @@ impl App {
         }
         let window_width = self.state.as_ref().map(|live| live.width).unwrap_or(800) as f32;
         let width = crate::sidebar::width(true, self.sidebar_points, window_width, self.scale);
-        let metrics = self.font.metrics();
-        let top = crate::topbar::terminal_top(metrics) - crate::topbar::padding(metrics).1;
-        let height = self.terminal_height() + crate::topbar::padding(metrics).1 * 2.0;
+        let top = self.terminal_top() - self.chrome_inset();
+        let height = self.terminal_height() + self.chrome_inset() * 2.0;
         Some((0.0, top, width, height, self.chrome_row_height()))
+    }
+
+    /// One point in pixels on this display.
+    fn chrome_pt(&self) -> f32 {
+        crate::chrome_font::point(self.scale)
+    }
+
+    /// The gap between a docked panel and what is beside it.
+    fn chrome_inset(&self) -> f32 {
+        (crate::ui_tokens::CHROME_PANEL_INSET * self.chrome_pt()).round()
+    }
+
+    /// How tall the bar along the top is.
+    fn top_bar_height(&self) -> f32 {
+        crate::topbar::height(self.chrome_row_height(), self.chrome_pt())
+    }
+
+    /// Where the terminal's first row starts, below the bar.
+    fn terminal_top(&self) -> f32 {
+        crate::topbar::terminal_top(self.chrome_row_height(), self.chrome_pt())
     }
 
     /// How tall one chrome row is: its text plus the padding above and below.
@@ -1359,6 +1368,7 @@ impl App {
                     active,
                     icon,
                     grouped,
+                    badge,
                 } => {
                     // Children are inset under their header, so tabs and
                     // projects read as parent and child rather than as peers.
@@ -1418,7 +1428,19 @@ impl App {
                     );
                     pen += 7.0 * pt;
 
-                    let right = row_left + row_width - 6.0 * pt;
+                    // What the agent wants, against the right edge, so it can
+                    // be seen from whichever tab happens to be in front.
+                    let mut right = row_left + row_width - 6.0 * pt;
+                    if let Some(badge) = badge {
+                        let wide = self.chrome_width(crate::cockpit::BADGE);
+                        right -= wide + 4.0 * pt;
+                        self.append_chrome(
+                            crate::cockpit::BADGE,
+                            badge.color(),
+                            (right + 4.0 * pt, row_top + text_offset),
+                            quads,
+                        );
+                    }
                     // The command only when it is not the shell repeating
                     // itself: `cmd  cmd.exe` says one thing twice on a row
                     // with no room for it.
@@ -1454,15 +1476,15 @@ impl App {
         }
     }
 
-    /// Draw the bar along the top: wordmark, tabs, buttons.
     /// The line of facts about the pane in front, for the top bar.
     ///
     /// Everything in it comes from a cache that refreshes on another thread,
     /// so this is cheap enough to call while painting -- which it has to be,
     /// because the bar is repainted whenever anything moves.
     ///
-    /// Empty on a narrow window: the tabs are what the bar is for, and pushing
-    /// them off the edge to make room for a memory figure is the wrong trade.
+    /// Empty on a narrow window: the actions are what the bar is for, and
+    /// pushing one off to make room for a memory figure is the wrong trade.
+    /// The bar itself drops the whole line if what is left does not hold it.
     fn stats_line(&self, window_width: f32) -> String {
         if window_width / self.scale.max(0.1) < crate::statsbar::MIN_WIDTH {
             return String::new();
@@ -1470,30 +1492,38 @@ impl App {
         let Some(live) = self.state.as_ref() else {
             return String::new();
         };
-        let metrics = self.font.metrics();
-        let columns = (window_width / metrics.width.max(1.0)).floor().max(0.0) as usize;
-        // Exactly the room the bar has left once the tabs and the buttons have
-        // what they need. Composing a longer line and letting the layout refuse
-        // it is how the whole line disappears when one value grows.
-        crate::statsbar::fit(
-            &crate::statsbar::facts_for(live.session_id).segments(),
-            &crate::statsbar::Facts::GIVE_UP,
-            crate::topbar::stats_room(columns),
-        )
+        crate::statsbar::compose(&crate::statsbar::facts_for(live.session_id).segments())
     }
 
+    /// The bar as it is laid out right now.
+    ///
+    /// One place, so a piece is pressed where it is drawn. Measured through the
+    /// chrome's own face: a proportional label measured on the terminal's grid
+    /// puts every button somewhere other than where it looks.
+    fn top_bar(&mut self, window_width: f32) -> Vec<crate::topbar::Placed> {
+        let pt = self.chrome_pt();
+        let logical = window_width / self.scale.max(0.1);
+        let stats = self.stats_line(window_width);
+        let open = self.tree.is_some();
+        // The measuring closure needs the font and the atlas, and so does the
+        // caller afterwards -- so they are taken apart for the call and put
+        // back by the borrow ending.
+        let (font, atlas) = (&mut self.chrome_font, &mut self.atlas);
+        let mut measure =
+            |text: &str| crate::terminal::chrome_text_width(text, font, atlas);
+        crate::topbar::layout(window_width, logical, pt, &stats, open, &mut measure)
+    }
+
+    /// Draw the bar along the top: the wordmark, the facts, the actions and the
+    /// window buttons. No tabs -- those are in the strip down the left.
     fn append_top_bar(
         &mut self,
-        tab_count: usize,
-        active_tab: usize,
-        badges: &[Option<crate::cockpit::Badge>],
         window_width: f32,
         quads: &mut unterm_render::quads::FrameQuads,
     ) {
-        let metrics = self.font.metrics();
-        let height = metrics.height * crate::topbar::ROWS as f32;
-        let columns = (window_width / metrics.width.max(1.0)).floor().max(0.0) as usize;
+        let height = self.top_bar_height();
         let chrome = self.chrome();
+        let foreground = self.colors.foreground;
 
         quads.backgrounds.push(unterm_render::quads::Quad {
             left: 0.0,
@@ -1502,8 +1532,8 @@ impl App {
             height,
             color: chrome.surface,
         });
-        // A hairline under it, so the bar and the terminal read as two
-        // surfaces of one window rather than one surface with a seam.
+        // A hairline under it, so the bar and the terminal read as two surfaces
+        // of one window rather than one surface with a seam.
         quads.backgrounds.push(unterm_render::quads::Quad {
             left: 0.0,
             top: height - 1.0,
@@ -1512,20 +1542,26 @@ impl App {
             color: chrome.outer_edge,
         });
 
-        let stats = self.stats_line(window_width);
-        let bar = crate::topbar::layout(tab_count, active_tab, columns, &stats);
+        let bar = self.top_bar(window_width);
         let hovered = self.hovered_top_bar_item();
+        let pt = self.chrome_pt();
+        let radius = crate::ui_tokens::CORNER_RADIUS * pt;
+        let text_top =
+            ((height - self.chrome_font.metrics().height) / 2.0
+                + crate::ui_tokens::CHROME_TEXT_BASELINE_NUDGE * pt)
+                .max(0.0);
+
         for piece in &bar {
-            let left = piece.column as f32 * metrics.width;
-            let width = piece.columns as f32 * metrics.width;
             let is_hovered = hovered == Some(piece.item);
 
+            // The window buttons are drawn rather than typed: a close cross
+            // from a font is a different cross on every machine.
             if let Some(button) = crate::topbar::window_button(piece.item) {
                 if is_hovered {
                     quads.backgrounds.push(unterm_render::quads::Quad {
-                        left,
+                        left: piece.left,
                         top: 0.0,
-                        width,
+                        width: piece.width,
                         height,
                         color: crate::window_buttons::hover_fill(button, chrome.is_light),
                     });
@@ -1536,61 +1572,119 @@ impl App {
                     crate::window_buttons::icon_color(chrome.is_light)
                 };
                 quads.backgrounds.extend(crate::window_buttons::quads(
-                    button, left, 0.0, width, height, color,
-                        ));
+                    button, piece.left, 0.0, piece.width, height, color,
+                ));
                 continue;
             }
 
-            if is_hovered || matches!(piece.item, crate::topbar::Item::Tab(index) if index == active_tab)
+            // An action under the pointer gets a rounded surface, inset from
+            // the bar's edges so it reads as a button rather than as a column.
+            if is_hovered && !matches!(piece.item, crate::topbar::Item::Wordmark) {
+                let inset = 4.0 * pt;
+                quads.backgrounds.extend(unterm_render::rounded::panel(
+                    piece.left,
+                    inset,
+                    piece.width,
+                    height - inset * 2.0,
+                    radius,
+                    chrome.hover_bg,
+                ));
+            }
+
+            // The project toggle says whether it is on, the way a pressed
+            // button does: without it there is no way to tell the strip is
+            // hidden rather than empty.
+            if piece.item == crate::topbar::Item::Action(crate::keys::Action::TreeSidebar)
+                && self.tree.is_some()
             {
-                quads.backgrounds.push(unterm_render::quads::Quad {
-                    left,
-                    top: 0.0,
-                    width,
-                    height,
-                    color: if is_hovered {
-                        chrome.hover_bg
-                    } else {
-                        chrome.selected_bg
-                    },
-                });
+                let inset = 4.0 * pt;
+                quads.backgrounds.extend(unterm_render::rounded::panel(
+                    piece.left,
+                    inset,
+                    piece.width,
+                    height - inset * 2.0,
+                    radius,
+                    chrome.selected_bg,
+                ));
             }
-            if let crate::topbar::Item::Tab(index) = piece.item {
-                if let Some(badge) = badges.get(index).copied().flatten() {
-                    crate::terminal::append_text(
-                        crate::cockpit::BADGE,
-                        &mut self.font,
-                        &mut self.atlas,
-                        badge.color(),
-                        (
-                            crate::topbar::badge_column(piece) as f32 * metrics.width,
-                            (height - metrics.height) / 2.0,
-                        ),
-                        quads,
-                    );
-                }
-            }
-            if piece.label.trim().is_empty() {
+
+            let text = match (piece.icon, piece.label.is_empty()) {
+                (Some(icon), true) => icon.to_string(),
+                (Some(icon), false) => format!("{icon}  {}", piece.label),
+                (None, _) => piece.label.clone(),
+            };
+            if text.trim().is_empty() {
                 continue;
             }
-            // Centred down the bar's two rows.
-            let text_top = (height - metrics.height) / 2.0;
-            crate::terminal::append_text(
-                &piece.label,
-                &mut self.font,
-                &mut self.atlas,
-                if matches!(
-                    piece.item,
-                    crate::topbar::Item::Wordmark | crate::topbar::Item::Stats
-                ) {
-                    chrome.dim_text
-                } else {
-                    self.colors.foreground
-                },
-                (left, text_top),
-                quads,
-            );
+            let color = match piece.item {
+                // Both pieces of text are secondary: the window's name and the
+                // facts about a pane are context, not the thing being read.
+                crate::topbar::Item::Wordmark | crate::topbar::Item::Stats => chrome.dim_text,
+                _ if is_hovered => foreground,
+                _ => chrome.dim_text,
+            };
+            // Icons are centred in their button; text starts where it was put.
+            let left = if piece.icon.is_some() {
+                let wide = self.chrome_width(&text);
+                piece.left + ((piece.width - wide) / 2.0).max(0.0)
+            } else {
+                piece.left
+            };
+            self.append_chrome(&text, color, (left, text_top), quads);
         }
+    }
+
+    /// The name of whatever the pointer is resting on, if it has one to give.
+    ///
+    /// Only the icons with no words beside them: a button that says what it
+    /// does needs no second chance to say it.
+    fn append_tooltip(
+        &mut self,
+        window_width: f32,
+        quads: &mut unterm_render::quads::FrameQuads,
+    ) {
+        if self.pointer.1 >= self.top_bar_height() {
+            return;
+        }
+        let bar = self.top_bar(window_width);
+        let Some(piece) = bar
+            .iter()
+            .find(|piece| piece.contains(self.pointer.0))
+            .cloned()
+        else {
+            return;
+        };
+        let Some(tooltip) = piece.tooltip.filter(|text| !text.trim().is_empty()) else {
+            return;
+        };
+
+        let pt = self.chrome_pt();
+        let chrome = self.chrome();
+        let wide = self.chrome_width(&tooltip);
+        let pad = 6.0 * pt;
+        let width = wide + pad * 2.0;
+        let height = self.chrome_row_height();
+        // Under the button it names, and never off the right edge.
+        let left = (piece.left + piece.width / 2.0 - width / 2.0)
+            .clamp(0.0, (window_width - width).max(0.0));
+        let top = self.top_bar_height() + 2.0 * pt;
+
+        // Over everything: a tooltip behind the text it explains is no help.
+        let mark = quads.mark();
+        quads.backgrounds.extend(unterm_render::rounded::panel(
+            left,
+            top,
+            width,
+            height,
+            crate::ui_tokens::CORNER_RADIUS * pt,
+            chrome.group_bg,
+        ));
+        let text_top = ((height - self.chrome_font.metrics().height) / 2.0
+            + crate::ui_tokens::CHROME_TEXT_BASELINE_NUDGE * pt)
+            .max(0.0);
+        let color = self.colors.foreground;
+        self.append_chrome(&tooltip, color, (left + pad, top + text_top), quads);
+        quads.raise_since(mark);
     }
 
     /// A press on the top bar. Returns true when the bar took it.
@@ -1598,8 +1692,7 @@ impl App {
     /// The empty parts drag the window, which is the first thing anyone tries
     /// on a window with no title bar -- and the last thing they find missing.
     fn click_top_bar(&mut self) -> bool {
-        let metrics = self.font.metrics();
-        if self.pointer.1 >= metrics.height * crate::topbar::ROWS as f32 {
+        if self.pointer.1 >= self.top_bar_height() {
             return false;
         }
         // What is a handle is the bar's own question to answer -- the same
@@ -1619,8 +1712,6 @@ impl App {
         match item {
             // Both of these are handles, and were taken above.
             crate::topbar::Item::Wordmark | crate::topbar::Item::Stats => {}
-            crate::topbar::Item::Tab(index) => self.select_tab(index as u8 + 1),
-            crate::topbar::Item::NewTab => self.new_tab(),
             crate::topbar::Item::Menu => {
                 let entries = self.quick_entries();
                 self.open_palette(entries);
@@ -1655,34 +1746,26 @@ impl App {
     /// The bar as it is drawn right now, and which column the pointer is in.
     ///
     /// One place, so what is hit is always what was drawn.
-    fn top_bar_under_pointer(&self) -> Option<(Vec<crate::topbar::Placed>, usize)> {
-        let metrics = self.font.metrics();
-        if self.pointer.1 >= metrics.height * crate::topbar::ROWS as f32 {
+    /// Which piece of the top bar the pointer is over.
+    fn hovered_top_bar_item(&mut self) -> Option<crate::topbar::Item> {
+        if self.pointer.1 >= self.top_bar_height() {
             return None;
         }
-        let live = self.state.as_ref()?;
-        let columns = (live.width as f32 / metrics.width.max(1.0)).floor().max(0.0) as usize;
-        let column = (self.pointer.0 / metrics.width.max(1.0)).floor().max(0.0) as usize;
-        let bar = crate::topbar::layout(
-            self.tabs.tab_count(),
-            0,
-            columns,
-            &self.stats_line(live.width as f32),
-        );
-        Some((bar, column))
-    }
-
-    /// Which piece of the top bar the pointer is over.
-    fn hovered_top_bar_item(&self) -> Option<crate::topbar::Item> {
-        let (bar, column) = self.top_bar_under_pointer()?;
-        crate::topbar::hit(&bar, column)
+        let width = self.state.as_ref()?.width as f32;
+        let bar = self.top_bar(width);
+        crate::topbar::hit(&bar, self.pointer.0)
     }
 
     /// Whether a press here should drag the window rather than do something.
-    fn pointer_is_on_a_drag_handle(&self) -> bool {
-        self.top_bar_under_pointer()
-            .map(|(bar, column)| crate::topbar::is_drag_handle(&bar, column))
-            .unwrap_or(false)
+    fn pointer_is_on_a_drag_handle(&mut self) -> bool {
+        if self.pointer.1 >= self.top_bar_height() {
+            return false;
+        }
+        let Some(width) = self.state.as_ref().map(|live| live.width as f32) else {
+            return false;
+        };
+        let bar = self.top_bar(width);
+        crate::topbar::is_drag_handle(&bar, self.pointer.0)
     }
 
     fn append_scrollbar(&mut self, quads: &mut unterm_render::quads::FrameQuads) {
@@ -1692,8 +1775,7 @@ impl App {
         let Ok(snapshot) = self.engine.read_styled_screen(live.session_id) else {
             return;
         };
-        let metrics = self.font.metrics();
-        let track_top = crate::topbar::terminal_top(metrics);
+        let track_top = self.terminal_top();
         let track = (live.height as f32 - track_top).max(1.0);
 
         let total = snapshot.scrollback_rows + snapshot.rows;
@@ -1775,7 +1857,7 @@ impl App {
             return;
         };
         let metrics = self.font.metrics();
-        let top_offset = crate::topbar::terminal_top(metrics);
+        let top_offset = self.terminal_top();
         quads.backgrounds.push(unterm_render::quads::Quad {
             left: link.start as f32 * metrics.width,
             top: top_offset
@@ -1793,7 +1875,7 @@ impl App {
         let snapshot = self.engine.read_styled_screen(live.session_id).ok()?;
         let metrics = self.font.metrics();
         let left = self.terminal_left();
-        let top = crate::topbar::terminal_top(metrics);
+        let top = self.terminal_top();
         let column = ((self.pointer.0 - left).max(0.0) / metrics.width.max(1.0)) as usize;
         let row = ((self.pointer.1 - top).max(0.0) / metrics.height.max(1.0)) as usize;
 
@@ -1818,7 +1900,7 @@ impl App {
         // the gap around the grid are not part of it, and a selection measured
         // from the window's corner lands two rows above where it was drawn.
         let metrics = self.font.metrics();
-        let origin = (self.terminal_left(), crate::topbar::terminal_top(metrics        ));
+        let origin = (self.terminal_left(), self.terminal_top());
         crate::select::cell_at(
             self.pointer.0 - origin.0,
             self.pointer.1 - origin.1,
@@ -1929,6 +2011,7 @@ impl App {
                 self.palette = Some(crate::palette::Palette::characters(entries));
                 self.drawn_revision = None;
             }
+            Action::Settings => self.open_settings(),
             Action::TreeSidebar => self.toggle_tree(),
             Action::FleetLaunch => {
                 let entries = self.fleet_entries();
@@ -3363,7 +3446,20 @@ impl App {
     /// How tall the terminal area is, once the tab bar has taken its share.
     fn terminal_height(&self) -> f32 {
         let height = self.state.as_ref().map(|live| live.height).unwrap_or(600) as f32;
-        crate::topbar::terminal_height(height, self.font.metrics())
+        // The bar above, the status line below, and a gap at each end. Taken
+        // out of the terminal rather than drawn over it: a bar over the grid
+        // hides a row the shell still believes in.
+        let taken = self.terminal_top() + self.status_bar_height() + self.chrome_inset();
+        (height - taken).max(self.font.metrics().height)
+    }
+
+    /// How tall the line along the bottom is.
+    fn status_bar_height(&self) -> f32 {
+        let pt = self.chrome_pt();
+        (self.chrome_font.metrics().height
+            + crate::ui_tokens::STATUS_BAR_VERTICAL_PADDING * 2.0 * pt)
+            .round()
+            .max(1.0)
     }
 
     /// Make the window's tabs match the engine's sessions.
@@ -3534,7 +3630,7 @@ impl App {
             return;
         };
         let metrics = self.font.metrics();
-        let top_offset = crate::topbar::terminal_top(metrics);
+        let top_offset = self.terminal_top();
         let (_, widths) = self.screen_shape();
 
         if let Some(((start_row, start_col), (end_row, end_col))) = mode.selection() {
@@ -3620,7 +3716,7 @@ impl App {
             return;
         };
         let metrics = self.font.metrics();
-        let top_offset = crate::topbar::terminal_top(metrics);
+        let top_offset = self.terminal_top();
         let background = self.colors.background;
         let foreground = self.colors.foreground;
 
@@ -3870,7 +3966,7 @@ impl App {
             None => (
                 (
                     0.0,
-                    crate::topbar::terminal_top(metrics),
+                    self.terminal_top(),
                 ),
                 snapshot.cols,
             ),
@@ -3945,7 +4041,7 @@ impl App {
         let (cols, rows) = self
             .font
             .grid_for(live.width as f32, self.terminal_height(        ));
-        let top_offset = crate::topbar::terminal_top(metrics);
+        let top_offset = self.terminal_top();
         let positions = self.tabs.positions(tab_id, cols, rows);
         if positions.len() < 2 {
             return Vec::new();
@@ -4172,7 +4268,7 @@ impl App {
         let metrics = self.font.metrics();
         let (cols, rows) = self.font.grid_for(self.terminal_width(), self.terminal_height(        ));
         let left = self.terminal_left();
-        let top = crate::topbar::terminal_top(metrics);
+        let top = self.terminal_top();
         self.tabs
             .positions(tab_id, cols, rows)
             .into_iter()
@@ -5244,46 +5340,16 @@ mod encode_tests {
     }
 }
 
+
 #[cfg(test)]
 mod tab_badge_tests {
     use crate::cockpit::Badge;
-    use crate::topbar;
 
-    /// The badge is the reason to look at this bar at all: four agents
-    /// running, and which one wants you has to be readable without visiting
-    /// each pane. It belongs to its own tab, and a badge drawn past that tab's
-    /// width lands on the next one -- pointing at the wrong pane, which is
-    /// worse than no badge because it is believed.
+    /// Three states, three colours. Two badges that look alike are two
+    /// states nobody can tell apart from across a window, which is the one
+    /// distance a badge exists to be read at.
     #[test]
-    fn a_badge_stays_within_its_own_tab() {
-        let bar = topbar::layout(4, 0, 160, "");
-        for index in 0..4 {
-            let tab = bar
-                .iter()
-                .find(|piece| piece.item == topbar::Item::Tab(index))
-                .expect("every tab is laid out");
-            let column = topbar::badge_column(tab);
-            assert!(tab.contains(column), "{tab:?} badge at {column}");
-        }
-    }
-
-    /// And it never overlaps the tab's number.
-    #[test]
-    fn a_badge_sits_after_the_number_it_belongs_to() {
-        let bar = topbar::layout(3, 0, 160, "");
-        for index in 0..3 {
-            let tab = bar
-                .iter()
-                .find(|piece| piece.item == topbar::Item::Tab(index))
-                .unwrap();
-            let number_ends = tab.column + tab.label.trim_end().chars().count();
-            assert!(topbar::badge_column(tab) >= number_ends, "{tab:?}");
-        }
-    }
-
-    /// Three states, three colours, and idle is no badge at all.
-    #[test]
-    fn the_badges_are_told_apart_by_colour() {
+    fn every_badge_has_its_own_colour() {
         let colours = [
             Badge::NeedsYou.color(),
             Badge::Working.color(),

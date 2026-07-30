@@ -1,271 +1,239 @@
-//! The bar along the top: wordmark, tabs, actions, window buttons.
+//! The bar along the top: the wordmark, what the pane is doing, and the
+//! actions.
 //!
-//! One dark strip in the window's own colour, in place of the grey native
-//! title bar with a separate tab strip under it. Three stacked bands of
-//! different colours read as three windows; one band reads as a window.
+//! One row. The tabs are not here -- they live in the strip down the left,
+//! where a tab's identity (a project and a command) fits along a row instead of
+//! across one. What is left is what a window needs at the top: its name, the
+//! facts about the pane in front, the handful of things reached constantly, and
+//! the buttons that close it.
 //!
-//! Laid out here, away from the event loop, because the interesting part is
-//! what gets dropped as the window narrows and because a button that is drawn
-//! in one place and clicked in another is a bug nobody can see in a
-//! screenshot. Drawing and hit-testing both come from this one list.
+//! Laid out in pixels rather than in terminal cells, and measured through the
+//! caller's own font, because the chrome is drawn in a proportional face: a
+//! label placed on a grid comes out spread across it, and a bar laid out on one
+//! grid and hit-tested on another has buttons that are not where they look.
+//!
+//! What drops as the window narrows is ported from the previous front end,
+//! thresholds included. The order matters more than the numbers: labels go
+//! first, then the two navigation icons, then split. The command palette, the
+//! project toggle, the settings gear and the menu never go, and neither do the
+//! window buttons -- a window with no title bar has no other way to be closed.
 
-/// How tall the bar is, in cells. Two, so it reads as chrome rather than as a
-/// row of output that failed to scroll.
-pub const ROWS: usize = 2;
+use crate::keys::Action;
 
-/// The space between the window's edge and the text.
+/// How tall the bar is: one chrome row with a little air around it.
+pub fn height(row_height: f32, pt: f32) -> f32 {
+    (row_height + 8.0 * pt).round()
+}
+
+/// Where the terminal starts, below the bar.
+pub fn terminal_top(row_height: f32, pt: f32) -> f32 {
+    height(row_height, pt) + (crate::ui_tokens::CHROME_PANEL_INSET * pt).round()
+}
+
+/// What the bar shows at a given width, in logical pixels.
 ///
-/// One cell either side, half a row above and below -- the previous front
-/// end's defaults, and the difference between a terminal and a wall of text
-/// starting in the corner of a window. Applied inside the bars, so the bars
-/// themselves still run edge to edge.
-pub fn padding(metrics: unterm_render::quads::CellMetrics) -> (f32, f32) {
-    (metrics.width, (metrics.height / 2.0).round())
+/// Ported thresholds. Labels are the first thing to go because an icon still
+/// says what it does; the navigation pair goes next because the palette can
+/// reach both; split goes last of the optional ones because it is the one
+/// people press without looking.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Density {
+    pub show_split: bool,
+    pub show_navigation: bool,
+    pub show_labels: bool,
 }
 
-/// Where the terminal area starts, in pixels from the top of the window.
+pub fn density(logical_width: f32) -> Density {
+    Density {
+        show_split: logical_width >= 600.0,
+        show_navigation: logical_width >= 760.0,
+        show_labels: logical_width >= 1200.0,
+    }
+}
+
+/// The name in the corner. Not clickable; it is there so a window with no
+/// title bar says what it is.
+pub const WORDMARK: &str = "Unterm";
+
+/// The actions on the right, in the order they are drawn.
 ///
-/// The bar is always there, unlike the strip it replaces: it carries the
-/// window buttons, and a window whose close button appears only once there
-/// are two tabs is not a window.
-pub fn terminal_top(metrics: unterm_render::quads::CellMetrics) -> f32 {
-    metrics.height * ROWS as f32 + padding(metrics).1
-}
+/// Code points from the bundled symbols face, as the previous front end used
+/// them: three bars for the palette, a left sidebar for the project strip, a
+/// horizontal split, a folder, a magnifier, a gear.
+pub const ACTIONS: &[(Action, char, &str)] = &[
+    (Action::CommandPalette, '\u{eb6a}', "menu.command_palette"),
+    (Action::TreeSidebar, '\u{ebf3}', "web.nav.project"),
+    (Action::SplitRight, '\u{eb56}', ""),
+    (Action::DirJump, '\u{ea83}', ""),
+    (Action::Search, '\u{ea6d}', ""),
+    (Action::Settings, '\u{eb51}', ""),
+];
 
-/// The gap on the left, before the first column.
-pub fn terminal_left(metrics: unterm_render::quads::CellMetrics) -> f32 {
-    padding(metrics).0
-}
-
-/// What is left for the terminal once both bars have taken their rows.
-///
-/// Taken *out of* the terminal rather than drawn over it: a bar over the grid
-/// hides a row the shell still believes in, and the cursor ends up somewhere
-/// nobody can see.
-pub fn terminal_height(
-    window_height: f32,
-    metrics: unterm_render::quads::CellMetrics,
-) -> f32 {
-    let taken = ROWS + crate::statusbar::ROWS;
-    let padding = padding(metrics).1 * 2.0;
-    (window_height - metrics.height * taken as f32 - padding).max(metrics.height)
-}
-
-/// The width the terminal has, once the gaps either side are taken.
-pub fn terminal_width(
-    window_width: f32,
-    metrics: unterm_render::quads::CellMetrics,
-) -> f32 {
-    (window_width - padding(metrics).0 * 2.0).max(metrics.width)
-}
+/// The quick menu at the far right of the actions.
+pub const MENU: char = '\u{25BE}';
 
 /// What a piece of the bar is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Item {
-    /// The product's name. Not clickable; it is there so the window says what
-    /// it is when it has no title bar to do it.
     Wordmark,
-    Tab(usize),
-    NewTab,
-    /// One of the front-end actions the bar offers directly.
-    Action(crate::keys::Action),
-    /// The quick-action menu.
-    Menu,
-    /// The line of facts about the pane in front. Not clickable: it is what
-    /// the window knows, not something to do.
+    /// The line of facts about the pane in front. Text, not a control.
     Stats,
+    Action(Action),
+    Menu,
     Minimise,
     Maximise,
     Close,
 }
 
 /// A piece of the bar, placed.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Placed {
     pub item: Item,
-    pub column: usize,
-    pub columns: usize,
+    pub left: f32,
+    pub width: f32,
+    /// What to draw: an icon, a label, or both.
+    pub icon: Option<char>,
     pub label: String,
+    /// What to say when the pointer rests on it, for the icon-only ones.
+    pub tooltip: Option<String>,
 }
 
 impl Placed {
-    fn new(item: Item, column: usize, label: &str) -> Self {
-        Self {
-            item,
-            column,
-            columns: width_of(label),
-            label: label.to_string(),
-        }
-    }
-
-    pub fn contains(&self, column: usize) -> bool {
-        column >= self.column && column < self.column + self.columns
+    pub fn contains(&self, x: f32) -> bool {
+        x >= self.left && x < self.left + self.width
     }
 }
 
-/// The name in the corner.
-const WORDMARK: &str = " Unterm ";
-/// The window buttons, in the order Windows puts them.
-const MINIMISE: &str = " \u{2500} ";
-const MAXIMISE: &str = " \u{25A1} ";
-const CLOSE: &str = " \u{2715} ";
-/// The actions worth a button of their own: the ones reached constantly.
-const NEW_TAB: &str = " + ";
-const MENU: &str = " \u{25BE} ";
-/// The split button's icon: a square divided in two.
+/// Lay the bar out.
 ///
-/// Drawn by the renderer rather than looked up, because the code point this
-/// replaced was in no font on the machine and the button appeared as an empty
-/// box -- one control with no icon, next to two that had one.
-const SPLIT_ICON: &str = " \u{25EB} ";
-
-/// The action buttons, most useful first -- which is also the order they
-/// survive in as the window narrows.
-const ACTIONS: &[(crate::keys::Action, &str)] = &[
-    (crate::keys::Action::CommandPalette, " \u{2318} "),
-    (crate::keys::Action::SplitRight, SPLIT_ICON),
-    (crate::keys::Action::CockpitInbox, " \u{25C9} "),
-];
-
-/// Lay the bar out for a window `columns` wide.
-///
-/// The window buttons come first in the arithmetic and last in the list: they
-/// are the one thing that must never be dropped or moved, because a window
-/// with no title bar has no other way to be closed.
-///
-/// `stats` is the line of facts about the pane in front, already composed and
-/// already emptied if the window is too narrow to be worth it. It is taken
-/// last, so it is the first thing the bar gives up: everything else here is
-/// something to press.
-pub fn layout(tabs: usize, _active: usize, columns: usize, stats: &str) -> Vec<Placed> {
+/// `measure` gives the width of a piece of text in the face it will be drawn
+/// in; `pt` is one point in pixels on this display. The window buttons come
+/// first in the arithmetic and last in the list, because they are the one thing
+/// that must never move or be dropped.
+pub fn layout(
+    width: f32,
+    logical_width: f32,
+    pt: f32,
+    stats: &str,
+    project_open: bool,
+    measure: &mut dyn FnMut(&str) -> f32,
+) -> Vec<Placed> {
+    let density = density(logical_width);
     let mut placed = Vec::new();
-    if columns == 0 {
+    if width <= 0.0 {
         return placed;
     }
 
-    // Right-hand side, from the edge inwards.
-    let buttons = [
-        (Item::Close, CLOSE),
-        (Item::Maximise, MAXIMISE),
-        (Item::Minimise, MINIMISE),
-    ];
-    let mut right = columns;
-    let mut window_buttons = Vec::new();
-    for (item, label) in buttons {
-        let wide = width_of(label);
-        if right < wide {
-            break;
-        }
-        right -= wide;
-        window_buttons.push(Placed::new(item, right, label));
+    // The window buttons, from the right edge inwards, in the order the
+    // platform puts them.
+    let button = (28.0 * pt).round();
+    let mut right = width;
+    let mut buttons = Vec::new();
+    for item in [Item::Close, Item::Maximise, Item::Minimise] {
+        right -= button;
+        buttons.push(Placed {
+            item,
+            left: right,
+            width: button,
+            icon: None,
+            label: String::new(),
+            tooltip: None,
+        });
     }
 
-    // Then the menu and the action buttons, while there is room to spare.
-    //
-    // "Room to spare" means room left over after the left-hand side has what
-    // it needs: a bar of buttons with no tabs in it is a toolbar, and the tabs
-    // are what the bar is for.
-    let left_minimum = width_of(WORDMARK) + MIN_TAB + width_of(NEW_TAB);
-    let mut chrome = Vec::new();
-    let take = |label: &str, item: Item, right: &mut usize, chrome: &mut Vec<Placed>| {
-        let wide = width_of(label);
-        if right.saturating_sub(wide) < left_minimum {
+    // Then the actions, right to left, so the menu sits closest to the buttons.
+    let gap = (4.0 * pt).round();
+    let pad = (7.0 * pt).round();
+    let mut actions = Vec::new();
+
+    let mut take = |item: Item, icon: char, label: &str, tooltip: Option<String>, right: &mut f32| {
+        let text = if label.is_empty() {
+            icon.to_string()
+        } else {
+            format!("{icon}  {label}")
+        };
+        let wide = (measure(&text) + pad * 2.0).round();
+        if *right - wide < 0.0 {
             return;
         }
-        *right -= wide;
-        chrome.push(Placed::new(item, *right, label));
+        *right -= wide + gap;
+        actions.push(Placed {
+            item,
+            left: *right + gap,
+            width: wide,
+            icon: Some(icon),
+            label: label.to_string(),
+            tooltip,
+        });
     };
-    take(MENU, Item::Menu, &mut right, &mut chrome);
-    for (action, label) in ACTIONS {
-        take(label, Item::Action(*action), &mut right, &mut chrome);
+
+    take(Item::Menu, MENU, "", None, &mut right);
+    for (action, icon, label_key) in ACTIONS.iter().rev() {
+        let wanted = match action {
+            Action::SplitRight => density.show_split,
+            Action::DirJump | Action::Search => density.show_navigation,
+            _ => true,
+        };
+        if !wanted {
+            continue;
+        }
+        // Only the two that carry one, and only when there is room for words.
+        let label = if density.show_labels && !label_key.is_empty() {
+            unterm_services::i18n::t(label_key)
+        } else {
+            String::new()
+        };
+        // An icon with no words needs a name on hover, or nobody learns what
+        // it does without pressing it.
+        let tooltip = if label.is_empty() {
+            Some(match label_key {
+                key if !key.is_empty() => unterm_services::i18n::t(key),
+                _ => action.label().to_string(),
+            })
+        } else {
+            None
+        };
+        take(Item::Action(*action), *icon, &label, tooltip, &mut right);
     }
-    // Then the facts, in whatever is left. A cell of air either side, so the
-    // text is not touching the button next to it.
-    if !stats.trim().is_empty() {
-        take(&format!(" {} ", stats.trim()), Item::Stats, &mut right, &mut chrome);
+    let _ = project_open;
+
+    // The wordmark on the left.
+    let mut left = (crate::ui_tokens::CHROME_PANEL_INSET * pt).round();
+    let wordmark = measure(WORDMARK);
+    if left + wordmark < right {
+        placed.push(Placed {
+            item: Item::Wordmark,
+            left,
+            width: wordmark,
+            icon: None,
+            label: WORDMARK.to_string(),
+            tooltip: None,
+        });
+        left += wordmark;
     }
 
-    // Left-hand side: the wordmark, then the tabs in the space that is left.
-    // Everything here is bounded by `right`, which is where the chrome starts
-    // -- without that the wordmark is drawn underneath the window buttons on a
-    // narrow window, and a click lands on whichever was drawn last.
-    let mut left = 0;
-    if right >= width_of(WORDMARK) + MIN_TAB {
-        placed.push(Placed::new(Item::Wordmark, 0, WORDMARK));
-        left = width_of(WORDMARK);
-    }
-
-    let plus = width_of(NEW_TAB);
-    let room = right.saturating_sub(left);
-    let tab_room = room.saturating_sub(plus);
-    if tabs > 0 && tab_room >= MIN_TAB {
-        let each = (tab_room / tabs).clamp(MIN_TAB, MAX_TAB);
-        let shown = (tab_room / each).min(tabs).max(1);
-        for index in 0..shown {
-            let label = tab_label(index, each);
+    // And the facts, in whatever is between. Right-aligned against the
+    // actions, because that is where the eye goes back to after reading them.
+    let stats = stats.trim();
+    if !stats.is_empty() {
+        let wide = measure(stats);
+        let start = right - wide - (8.0 * pt).round();
+        if start > left + (12.0 * pt).round() {
             placed.push(Placed {
-                item: Item::Tab(index),
-                column: left + index * each,
-                columns: each,
-                label,
+                item: Item::Stats,
+                left: start,
+                width: wide,
+                icon: None,
+                label: stats.to_string(),
+                tooltip: None,
             });
         }
-        left += shown * each;
-    }
-    if left + plus <= right {
-        placed.push(Placed::new(Item::NewTab, left, NEW_TAB));
     }
 
-    placed.extend(chrome);
-    placed.extend(window_buttons);
+    actions.reverse();
+    placed.extend(actions);
+    placed.extend(buttons);
     placed
-}
-
-/// How many columns the facts may have on a bar this wide.
-///
-/// Worked out the same way `layout` spends the bar, so the two cannot drift:
-/// the buttons and the menu come off the right, the wordmark and one tab have
-/// to survive on the left, and whatever is between them is what the facts get.
-/// Composing a line longer than this and letting the layout refuse it is how
-/// the whole line disappears the moment a branch name gets long.
-pub fn stats_room(columns: usize) -> usize {
-    let left_minimum = width_of(WORDMARK) + MIN_TAB + width_of(NEW_TAB);
-    let chrome: usize = [CLOSE, MAXIMISE, MINIMISE, MENU]
-        .iter()
-        .map(|label| width_of(label))
-        .sum::<usize>()
-        + ACTIONS
-            .iter()
-            .map(|(_, label)| width_of(label))
-            .sum::<usize>();
-    // Two cells for the air either side of the text.
-    columns
-        .saturating_sub(chrome + left_minimum + 2)
-        .min(MAX_STATS)
-}
-
-/// Wider than this and the facts are the bar rather than a note in it.
-const MAX_STATS: usize = 64;
-
-/// Narrower than this and a tab cannot say which one it is.
-const MIN_TAB: usize = 4;
-/// Wider than this and two tabs look like a toolbar.
-const MAX_TAB: usize = 24;
-
-/// What a tab says: its number, and room after it for an agent's badge.
-///
-/// Which tab is active is shown by its background rather than by a mark in the
-/// label. That leaves a glyph of room for the badge -- the thing that actually
-/// needs to be seen from across a window.
-fn tab_label(index: usize, width: usize) -> String {
-    let text = format!(" {}", index + 1);
-    let padding = width.saturating_sub(width_of(&text));
-    format!("{text}{}", " ".repeat(padding))
-}
-
-/// Where a tab's agent badge goes: the column after its number.
-pub fn badge_column(tab: &Placed) -> usize {
-    tab.column + tab.label.trim_end().chars().count() + 1
 }
 
 /// The window button this piece is, if it is one.
@@ -278,37 +246,272 @@ pub fn window_button(item: Item) -> Option<crate::window_buttons::Button> {
     }
 }
 
-/// Which piece a click at `column` landed on.
-pub fn hit(placed: &[Placed], column: usize) -> Option<Item> {
+/// Which piece a press at `x` landed on.
+pub fn hit(placed: &[Placed], x: f32) -> Option<Item> {
     placed
         .iter()
-        .find(|piece| piece.contains(column))
+        .find(|piece| piece.contains(x))
         .map(|piece| piece.item)
 }
 
-/// Whether a click here should drag the window.
+/// Whether a press here should drag the window.
 ///
-/// Everywhere the bar has nothing in it. A title bar you cannot drag the
-/// window by is the thing people notice first about a window with no title
-/// bar -- and the wordmark counts as empty for this, because it is the
-/// obvious place to grab.
-pub fn is_drag_handle(placed: &[Placed], column: usize) -> bool {
-    match hit(placed, column) {
-        None => true,
-        // Both of these are text rather than controls, and both are obvious
-        // places to grab a window that has no title bar to grab.
-        Some(Item::Wordmark) | Some(Item::Stats) => true,
+/// Everywhere the bar has nothing in it, plus the two pieces that are text
+/// rather than controls. A title bar you cannot drag the window by is the first
+/// thing anyone notices about a window that has none.
+pub fn is_drag_handle(placed: &[Placed], x: f32) -> bool {
+    match hit(placed, x) {
+        None | Some(Item::Wordmark) | Some(Item::Stats) => true,
         Some(_) => false,
     }
 }
 
-fn width_of(text: &str) -> usize {
-    text.chars()
-        .map(|ch| {
-            let mut buffer = [0u8; 4];
-            termwiz::cell::unicode_column_width(ch.encode_utf8(&mut buffer), None).max(1)
-        })
-        .sum()
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A stand-in for a proportional face: every character the same width, but
+    /// a width that is not a terminal cell, so nothing can accidentally depend
+    /// on the grid.
+    fn measurer() -> impl FnMut(&str) -> f32 {
+        |text: &str| text.chars().count() as f32 * 7.0
+    }
+
+    fn bar(width: f32) -> Vec<Placed> {
+        let mut measure = measurer();
+        layout(width, width, 1.33, "", true, &mut measure)
+    }
+
+    fn has(bar: &[Placed], item: Item) -> bool {
+        bar.iter().any(|piece| piece.item == item)
+    }
+
+    /// The buttons that close the window are never dropped and never move: a
+    /// window with no title bar has no other way to be closed.
+    #[test]
+    fn the_window_buttons_survive_every_width() {
+        for width in [80.0, 200.0, 600.0, 1400.0, 3000.0] {
+            let bar = bar(width);
+            for item in [Item::Close, Item::Maximise, Item::Minimise] {
+                assert!(has(&bar, item), "{item:?} was dropped at {width}");
+            }
+            let close = bar.iter().find(|piece| piece.item == Item::Close).unwrap();
+            assert!(
+                close.left + close.width <= width + 0.5,
+                "the close button is off the edge at {width}"
+            );
+        }
+    }
+
+    /// Nothing ever overlaps. A press landing on a button drawn underneath
+    /// another closes the window by accident.
+    #[test]
+    fn no_two_pieces_overlap() {
+        for width in (60..2400).step_by(37) {
+            let mut measure = measurer();
+            let bar = layout(
+                width as f32,
+                width as f32,
+                1.33,
+                "\u{26A1} claude    main *3    8.0% cpu  1.4G",
+                true,
+                &mut measure,
+            );
+            for (index, piece) in bar.iter().enumerate() {
+                for other in &bar[index + 1..] {
+                    let apart = piece.left + piece.width <= other.left + 0.01
+                        || other.left + other.width <= piece.left + 0.01;
+                    assert!(
+                        apart,
+                        "at {width}: {:?} and {:?} overlap",
+                        piece.item, other.item
+                    );
+                }
+            }
+        }
+    }
+
+    /// The palette, the project toggle, the gear and the menu are always
+    /// reachable: they are how everything else is reached.
+    #[test]
+    fn the_essential_actions_are_never_dropped() {
+        for width in [400.0, 800.0, 1600.0] {
+            let bar = bar(width);
+            for action in [Action::CommandPalette, Action::TreeSidebar, Action::Settings] {
+                assert!(
+                    has(&bar, Item::Action(action)),
+                    "{action:?} was dropped at {width}"
+                );
+            }
+            assert!(has(&bar, Item::Menu), "the menu was dropped at {width}");
+        }
+    }
+
+    /// What drops, drops in order: labels, then the navigation pair, then
+    /// split. Ported thresholds.
+    #[test]
+    fn things_drop_in_the_order_they_were_given() {
+        assert!(!density(500.0).show_split);
+        assert!(density(600.0).show_split);
+        assert!(!density(700.0).show_navigation);
+        assert!(density(760.0).show_navigation);
+        assert!(!density(1000.0).show_labels);
+        assert!(density(1200.0).show_labels);
+    }
+
+    /// Only the two that have words carry them, and only when there is room.
+    #[test]
+    fn labels_appear_only_on_the_two_that_have_them() {
+        let mut measure = measurer();
+        let wide = layout(1600.0, 1600.0, 1.33, "", true, &mut measure);
+        let labelled: Vec<Action> = wide
+            .iter()
+            .filter(|piece| !piece.label.is_empty())
+            .filter_map(|piece| match piece.item {
+                Item::Action(action) => Some(action),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(labelled, vec![Action::CommandPalette, Action::TreeSidebar]);
+
+        let mut measure = measurer();
+        let narrow = layout(900.0, 900.0, 1.33, "", true, &mut measure);
+        assert!(
+            narrow
+                .iter()
+                .filter(|piece| matches!(piece.item, Item::Action(_)))
+                .all(|piece| piece.label.is_empty()),
+            "a label survived a narrow bar"
+        );
+    }
+
+    /// An icon with no words says what it is on hover. Without that, nobody
+    /// learns what it does except by pressing it.
+    #[test]
+    fn an_icon_with_no_words_has_something_to_say_on_hover() {
+        let mut measure = measurer();
+        let bar = layout(900.0, 900.0, 1.33, "", true, &mut measure);
+        for piece in &bar {
+            if matches!(piece.item, Item::Action(_)) && piece.label.is_empty() {
+                let tooltip = piece.tooltip.as_deref().unwrap_or("");
+                assert!(!tooltip.trim().is_empty(), "{:?} has no name", piece.item);
+            }
+        }
+    }
+
+    /// The actions read left to right in the order they are declared, whatever
+    /// order they were placed in: the menu is at the far right.
+    #[test]
+    fn the_actions_read_in_the_declared_order() {
+        let mut measure = measurer();
+        let bar = layout(1600.0, 1600.0, 1.33, "", true, &mut measure);
+        let order: Vec<Item> = bar
+            .iter()
+            .filter(|piece| matches!(piece.item, Item::Action(_) | Item::Menu))
+            .map(|piece| piece.item)
+            .collect();
+        let mut wanted: Vec<Item> = ACTIONS
+            .iter()
+            .map(|(action, _, _)| Item::Action(*action))
+            .collect();
+        wanted.push(Item::Menu);
+        assert_eq!(order, wanted);
+    }
+
+    /// No tabs. They live in the strip, and a tab in two places is a tab whose
+    /// selection can disagree with itself.
+    #[test]
+    fn the_bar_carries_no_tabs() {
+        let bar = bar(1600.0);
+        assert!(bar.iter().all(|piece| !matches!(
+            piece.item,
+            Item::Wordmark if piece.label.chars().all(char::is_numeric)
+        )));
+        // The only things here are the wordmark, the facts, actions, the menu
+        // and the window buttons.
+        for piece in &bar {
+            assert!(
+                matches!(
+                    piece.item,
+                    Item::Wordmark
+                        | Item::Stats
+                        | Item::Action(_)
+                        | Item::Menu
+                        | Item::Minimise
+                        | Item::Maximise
+                        | Item::Close
+                ),
+                "{:?} does not belong in the top bar",
+                piece.item
+            );
+        }
+    }
+
+    /// The facts sit between the wordmark and the actions, and are dropped
+    /// rather than allowed to collide with either.
+    #[test]
+    fn the_facts_sit_between_the_wordmark_and_the_actions() {
+        let mut measure = measurer();
+        let bar = layout(1600.0, 1600.0, 1.33, "8.0% cpu  1.4G  4m", true, &mut measure);
+        let stats = bar
+            .iter()
+            .find(|piece| piece.item == Item::Stats)
+            .expect("a wide bar has room for the facts");
+        let wordmark = bar
+            .iter()
+            .find(|piece| piece.item == Item::Wordmark)
+            .expect("a wide bar has its wordmark");
+        let first_action = bar
+            .iter()
+            .filter(|piece| matches!(piece.item, Item::Action(_)))
+            .map(|piece| piece.left)
+            .fold(f32::MAX, f32::min);
+        assert!(stats.left > wordmark.left + wordmark.width);
+        assert!(stats.left + stats.width <= first_action + 0.5);
+    }
+
+    /// A narrow bar gives the facts up rather than pushing anything else off.
+    #[test]
+    fn a_narrow_bar_gives_up_the_facts() {
+        let mut measure = measurer();
+        let bar = layout(
+            360.0,
+            360.0,
+            1.33,
+            "\u{26A1} claude    main *3    8.0% cpu  1.4G  4m",
+            true,
+            &mut measure,
+        );
+        assert!(!has(&bar, Item::Stats));
+        assert!(has(&bar, Item::Close));
+    }
+
+    /// Both pieces of text are places to grab the window; nothing else is.
+    #[test]
+    fn the_text_drags_and_the_controls_do_not() {
+        let mut measure = measurer();
+        let bar = layout(1600.0, 1600.0, 1.33, "8.0% cpu", true, &mut measure);
+        for piece in &bar {
+            let middle = piece.left + piece.width / 2.0;
+            let expected = matches!(piece.item, Item::Wordmark | Item::Stats);
+            assert_eq!(
+                is_drag_handle(&bar, middle),
+                expected,
+                "{:?} drags the window: {expected}",
+                piece.item
+            );
+        }
+        // And the empty space between them does too.
+        assert!(is_drag_handle(&bar, 1.0));
+    }
+
+    /// A bar with no width draws nothing rather than a row of pieces at
+    /// negative positions.
+    #[test]
+    fn a_bar_with_no_width_is_empty() {
+        assert!(bar(0.0).is_empty());
+        assert!(bar(-10.0).is_empty());
+    }
 }
 
 /// Which tab a number key means, counting from one as the keys are labelled.
@@ -362,186 +565,6 @@ mod number_key_tests {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn items(placed: &[Placed]) -> Vec<Item> {
-        placed.iter().map(|piece| piece.item).collect()
-    }
-
-    #[test]
-    fn a_wide_window_gets_everything() {
-        let bar = layout(3, 0, 160, "");
-        let items = items(&bar);
-        assert!(items.contains(&Item::Wordmark));
-        assert!(items.contains(&Item::Tab(0)));
-        assert!(items.contains(&Item::Tab(2)));
-        assert!(items.contains(&Item::NewTab));
-        assert!(items.contains(&Item::Menu));
-        assert!(items.contains(&Item::Close));
-    }
-
-    /// A window with no title bar has no other way to be closed. The window
-    /// buttons are the one thing that survives every width.
-    #[test]
-    fn the_window_buttons_are_never_dropped() {
-        for columns in 10..200 {
-            let bar = layout(3, 0, columns, "");
-            let items = items(&bar);
-            assert!(items.contains(&Item::Close), "{columns} columns");
-            assert!(items.contains(&Item::Minimise), "{columns} columns");
-        }
-    }
-
-    /// And they stay flush to the right edge, where they are on Windows.
-    #[test]
-    fn the_close_button_is_the_rightmost_thing() {
-        for columns in [40, 80, 160] {
-            let bar = layout(2, 0, columns, "");
-            let close = bar.iter().find(|p| p.item == Item::Close).unwrap();
-            assert_eq!(close.column + close.columns, columns, "{columns} columns");
-            for piece in &bar {
-                assert!(
-                    piece.column + piece.columns <= columns,
-                    "{piece:?} runs off a {columns}-column bar"
-                );
-            }
-        }
-    }
-
-    /// Nothing may overlap: two pieces sharing a column means a click does one
-    /// thing and the drawing shows another.
-    #[test]
-    fn no_two_pieces_share_a_column() {
-        for columns in 10..200 {
-            let bar = layout(4, 1, columns, "");
-            for column in 0..columns {
-                let hits = bar.iter().filter(|p| p.contains(column)).count();
-                assert!(hits <= 1, "{columns} columns: {hits} pieces at {column}");
-            }
-        }
-    }
-
-    /// Action buttons go before tabs do. A bar with buttons and no tabs is a
-    /// toolbar; the tabs are what the bar is for.
-    #[test]
-    fn a_button_never_crowds_out_a_tab() {
-        for columns in 10..200 {
-            let bar = layout(2, 0, columns, "");
-            let items = items(&bar);
-            let has_button = items.iter().any(|item| matches!(item, Item::Action(_)));
-            let has_tab = items.iter().any(|item| matches!(item, Item::Tab(_)));
-            assert!(
-                !has_button || has_tab,
-                "{columns} columns: buttons but no tabs: {bar:?}"
-            );
-        }
-    }
-
-    /// And below some width the buttons are gone entirely, or they would be
-    /// taking the room the terminal is for.
-    #[test]
-    fn a_narrow_window_has_no_action_buttons_at_all() {
-        let narrow = layout(2, 0, 24, "");
-        assert!(
-            !items(&narrow).iter().any(|item| matches!(item, Item::Action(_))),
-            "{narrow:?}"
-        );
-    }
-
-    /// Tabs are numbered, and nothing in the label says which is active --
-    /// that is the background's job, which leaves room for the agent badge.
-    #[test]
-    fn tabs_are_numbered_from_one() {
-        let bar = layout(3, 1, 120, "");
-        for index in 0..3 {
-            let tab = bar.iter().find(|p| p.item == Item::Tab(index)).unwrap();
-            assert!(tab.label.contains(&(index + 1).to_string()), "{:?}", tab.label);
-        }
-    }
-
-    /// The badge sits after the number, inside the tab it belongs to. Drawn
-    /// past the tab's own width it lands on the next tab, which points at the
-    /// wrong pane.
-    #[test]
-    fn a_badge_goes_beside_its_tabs_number() {
-        let bar = layout(3, 0, 120, "");
-        for index in 0..3 {
-            let tab = bar.iter().find(|p| p.item == Item::Tab(index)).unwrap();
-            let badge = badge_column(tab);
-            assert!(badge > tab.column, "{tab:?}");
-            assert!(badge < tab.column + tab.columns, "{tab:?} badge at {badge}");
-        }
-    }
-
-    /// Every tab is the same width, or the bar reflows as tabs are marked and
-    /// unmarked and the whole thing twitches on every focus change.
-    #[test]
-    fn tabs_are_all_the_same_width() {
-        let bar = layout(5, 2, 160, "");
-        let widths: Vec<usize> = bar
-            .iter()
-            .filter(|p| matches!(p.item, Item::Tab(_)))
-            .map(|p| p.columns)
-            .collect();
-        assert!(widths.windows(2).all(|pair| pair[0] == pair[1]), "{widths:?}");
-    }
-
-    /// A click is answered by the same list that drew the bar, so the two
-    /// cannot disagree.
-    #[test]
-    fn a_click_finds_what_was_drawn_there() {
-        let bar = layout(3, 0, 120, "");
-        for piece in &bar {
-            assert_eq!(
-                hit(&bar, piece.column),
-                Some(piece.item),
-                "{piece:?} is not clickable where it was drawn"
-            );
-            let last = piece.column + piece.columns - 1;
-            assert_eq!(hit(&bar, last), Some(piece.item), "{piece:?} right edge");
-        }
-    }
-
-    /// The empty parts drag the window. Without this a window with no title
-    /// bar cannot be moved, which is the first thing anyone tries.
-    #[test]
-    fn the_empty_parts_of_the_bar_drag_the_window() {
-        let bar = layout(1, 0, 120, "");
-        let close = bar.iter().find(|p| p.item == Item::Close).unwrap();
-        assert!(!is_drag_handle(&bar, close.column), "a button is not a handle");
-
-        let wordmark = bar.iter().find(|p| p.item == Item::Wordmark).unwrap();
-        assert!(
-            is_drag_handle(&bar, wordmark.column),
-            "the wordmark is the obvious place to grab"
-        );
-
-        let empty = (0..120).find(|column| hit(&bar, *column).is_none());
-        if let Some(empty) = empty {
-            assert!(is_drag_handle(&bar, empty));
-        }
-    }
-
-    /// A window too narrow for anything must still not panic, and must still
-    /// have a way to be closed.
-    #[test]
-    fn a_tiny_window_still_has_a_close_button() {
-        let bar = layout(1, 0, 3, "");
-        assert_eq!(items(&bar), vec![Item::Close]);
-        assert!(layout(1, 0, 0, "").is_empty());
-    }
-
-    /// One tab still gets a bar: unlike the old strip, this one carries the
-    /// window buttons, so it cannot come and go with the tab count.
-    #[test]
-    fn one_tab_still_gets_a_bar() {
-        let bar = layout(1, 0, 120, "");
-        assert!(items(&bar).contains(&Item::Tab(0)));
-        assert!(items(&bar).contains(&Item::Close));
-    }
-}
 
 /// Which edge of the window the pointer is on, if any.
 ///
@@ -649,136 +672,43 @@ mod resize_tests {
 }
 
 #[cfg(test)]
-mod padding_tests {
-    use super::*;
-    use unterm_render::quads::CellMetrics;
-
-    fn metrics() -> CellMetrics {
-        CellMetrics { width: 10.0, height: 20.0, baseline: 16.0 }
-    }
-
-    /// Text starting in the very corner of a window is the difference between
-    /// a terminal and a wall of text.
-    #[test]
-    fn there_is_a_gap_before_the_first_column() {
-        assert!(terminal_left(metrics()) > 0.0);
-        assert!(terminal_top(metrics()) > metrics().height * ROWS as f32);
-    }
-
-    /// The gap is taken out of the space the grid gets, not added to the
-    /// window: a shell told it has more columns than are drawn wraps its
-    /// output somewhere the user cannot see.
-    #[test]
-    fn the_gap_comes_out_of_the_grid_rather_than_the_window() {
-        let (left, top) = padding(metrics());
-        assert_eq!(terminal_width(800.0, metrics()), 800.0 - left * 2.0);
-        let bars = metrics().height * (ROWS + crate::statusbar::ROWS) as f32;
-        assert_eq!(terminal_height(600.0, metrics()), 600.0 - bars - top * 2.0);
-    }
-
-    /// A window too small for the padding still leaves a cell of terminal
-    /// rather than a negative one.
-    #[test]
-    fn a_tiny_window_still_has_a_cell_of_terminal() {
-        assert!(terminal_width(4.0, metrics()) >= metrics().width);
-        assert!(terminal_height(4.0, metrics()) >= metrics().height);
-    }
-}
-
-#[cfg(test)]
-mod stats_tests {
+mod geometry_tests {
     use super::*;
 
-    /// The facts sit between the tabs and the buttons, so the eye reads left
-    /// to right: which tab, what is true of it, what can be pressed.
+    /// The terminal starts below the bar, with a gap. Without the gap the first
+    /// row of text sits against the chrome and the two read as one surface.
     #[test]
-    fn the_facts_go_between_the_tabs_and_the_buttons() {
-        let bar = layout(2, 0, 160, "main *3");
-        let stats = bar
-            .iter()
-            .find(|piece| piece.item == Item::Stats)
-            .expect("the facts were dropped from a wide bar");
-        let last_tab = bar
-            .iter()
-            .filter(|piece| matches!(piece.item, Item::Tab(_)))
-            .map(|piece| piece.column)
-            .max()
-            .expect("no tabs");
-        let close = bar
-            .iter()
-            .find(|piece| piece.item == Item::Close)
-            .expect("no close button");
-        assert!(stats.column > last_tab, "the facts are among the tabs");
-        assert!(stats.column < close.column, "the facts are past the buttons");
-    }
-
-    /// They are the first thing given up. A window that has dropped its tabs
-    /// to fit a memory figure has the trade backwards.
-    #[test]
-    fn a_narrow_bar_keeps_its_tabs_and_drops_the_facts() {
-        let long = "\u{26A1} claude    main *3 +1    8.0% cpu  1.4G  4m";
-        for columns in [24, 40, 56, 60] {
-            let bar = layout(3, 0, columns, long);
-            assert!(
-                !bar.iter().any(|piece| piece.item == Item::Stats),
-                "the facts survived a bar {columns} columns wide"
-            );
-            assert!(
-                bar.iter().any(|piece| matches!(piece.item, Item::Tab(_))),
-                "the tabs were dropped at {columns} columns"
-            );
+    fn the_terminal_starts_below_the_bar_with_a_gap() {
+        for (row, pt) in [(24.0, 1.0), (31.0, 1.33), (46.0, 2.0)] {
+            let bar = height(row, pt);
+            let top = terminal_top(row, pt);
+            assert!(bar > row, "the bar is no taller than its text at {pt}x");
+            assert!(top > bar, "the terminal starts inside the bar at {pt}x");
         }
     }
 
-    /// Nothing to say takes no room -- not an empty slot the tabs cannot use.
+    /// Both measurements grow with the display, because the tokens are in
+    /// points: fixed in device pixels they would be a third small on this
+    /// machine.
     #[test]
-    fn nothing_to_say_takes_no_room() {
-        let quiet = layout(3, 0, 160, "");
-        let loud = layout(3, 0, 160, "main");
-        assert!(!quiet.iter().any(|piece| piece.item == Item::Stats));
-        let tabs_of = |bar: &[Placed]| {
-            bar.iter()
-                .filter(|piece| matches!(piece.item, Item::Tab(_)))
-                .map(|piece| piece.columns)
-                .sum::<usize>()
-        };
-        assert!(
-            tabs_of(&quiet) >= tabs_of(&loud),
-            "an empty line still took room from the tabs"
-        );
+    fn the_bar_grows_with_the_display() {
+        let one = height(24.0, 1.0);
+        let bigger = height(36.0, 1.5);
+        assert!(bigger > one, "{one} then {bigger}");
     }
 
-    /// The facts are text, not a control: pressing them drags the window, the
-    /// same as pressing the empty part of the bar next to them.
+    /// A bar is never taller than a comfortable share of a small window: a
+    /// chrome that takes half the height of a short window is a window with no
+    /// terminal in it.
     #[test]
-    fn pressing_the_facts_drags_the_window() {
-        let bar = layout(2, 0, 160, "main *3");
-        let stats = bar
-            .iter()
-            .find(|piece| piece.item == Item::Stats)
-            .expect("the facts were dropped");
-        assert!(is_drag_handle(&bar, stats.column));
-        assert_eq!(window_button(Item::Stats), None);
-    }
-
-    /// And they never sit under the window buttons: a click that lands on a
-    /// close button drawn underneath a memory figure closes the window.
-    #[test]
-    fn the_facts_never_overlap_the_buttons() {
-        let long = "\u{26A1} claude    main *3 +1    8.0% cpu  1.4G  4m    \u{25B6} cargo test";
-        for columns in 20..200 {
-            let bar = layout(3, 0, columns, long);
-            for (index, piece) in bar.iter().enumerate() {
-                for other in &bar[index + 1..] {
-                    let apart = piece.column + piece.columns <= other.column
-                        || other.column + other.columns <= piece.column;
-                    assert!(
-                        apart,
-                        "at {columns} columns {:?} and {:?} overlap",
-                        piece.item, other.item
-                    );
-                }
-            }
+    fn the_bar_stays_a_small_share_of_a_short_window() {
+        let pt = 1.33;
+        let bar = height(31.0, pt);
+        for window in [400.0, 600.0, 900.0] {
+            assert!(
+                bar < window * 0.2,
+                "a {bar}px bar in a {window}px window is too much"
+            );
         }
     }
 }

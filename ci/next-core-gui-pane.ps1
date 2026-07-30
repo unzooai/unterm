@@ -496,16 +496,18 @@ $Suites = @(
         )
     },
     @{
-        # The gap between the window's edge and the text. Its absence is the
-        # difference between a terminal and a wall of text in a corner.
-        Name = "window padding"
+        # Where the bar ends and the terminal begins. Without the gap the
+        # first row of text sits against the chrome and the two read as one
+        # surface; without the point scaling the whole bar is a third small on
+        # a scaled display.
+        Name = "chrome geometry"
         Package = "unterm-app"
-        Filter = "topbar::padding_tests::"
+        Filter = "topbar::geometry_tests::"
         ExpectedCount = 3
         RequiredTests = @(
-            "topbar::padding_tests::there_is_a_gap_before_the_first_column",
-            "topbar::padding_tests::the_gap_comes_out_of_the_grid_rather_than_the_window",
-            "topbar::padding_tests::a_tiny_window_still_has_a_cell_of_terminal"
+            "topbar::geometry_tests::the_terminal_starts_below_the_bar_with_a_gap",
+            "topbar::geometry_tests::the_bar_grows_with_the_display",
+            "topbar::geometry_tests::the_bar_stays_a_small_share_of_a_short_window"
         )
     },
     @{
@@ -520,21 +522,6 @@ $Suites = @(
             "topbar::resize_tests::each_corner_resizes_in_two_directions",
             "topbar::resize_tests::the_edge_is_wide_enough_to_aim_at",
             "topbar::resize_tests::the_edge_does_not_reach_the_window_buttons"
-        )
-    },
-    @{
-        # Where each piece of the top bar goes, and what a click there hits.
-        Name = "top bar layout"
-        Package = "unterm-app"
-        Filter = "topbar::tests::"
-        ExpectedCount = 13
-        RequiredTests = @(
-            "topbar::tests::the_window_buttons_are_never_dropped",
-            "topbar::tests::the_close_button_is_the_rightmost_thing",
-            "topbar::tests::no_two_pieces_share_a_column",
-            "topbar::tests::a_click_finds_what_was_drawn_there",
-            "topbar::tests::the_empty_parts_of_the_bar_drag_the_window",
-            "topbar::tests::a_tiny_window_still_has_a_close_button"
         )
     },
     @{
@@ -628,14 +615,12 @@ $Suites = @(
         Name = "agent badges"
         Package = "unterm-app"
         Filter = "badge"
-        ExpectedCount = 9
+        ExpectedCount = 6
         RequiredTests = @(
             "cockpit::badge_tests::every_state_that_means_something_has_a_badge",
             "cockpit::badge_tests::an_idle_pane_is_not_marked",
             "cockpit::badge_tests::the_three_badges_are_three_different_colours",
-            "window::tab_badge_tests::a_badge_stays_within_its_own_tab",
-            "window::tab_badge_tests::a_badge_sits_after_the_number_it_belongs_to",
-            "window::tab_badge_tests::the_badges_are_told_apart_by_colour"
+            "window::tab_badge_tests::every_badge_has_its_own_colour"
         )
     },
     @{
@@ -1199,11 +1184,11 @@ $Suites = @(
         Name = "top bar facts"
         Package = "unterm-app"
         Filter = "statsbar::"
-        ExpectedCount = 15
+        ExpectedCount = 16
         RequiredTests = @(
-            "statsbar::tests::a_shell_running_another_shell_is_worth_naming",
-            "statsbar::tests::a_shell_sitting_at_its_prompt_is_not_worth_naming",
-            "statsbar::tests::a_shell_is_recognised_however_it_is_spelled",
+            "statsbar::tests::a_shell_running_something_else_is_worth_naming",
+            "statsbar::tests::a_posix_login_shell_at_its_prompt_is_not_worth_naming",
+            "statsbar::tests::a_windows_shell_is_still_named",
             "statsbar::tests::a_narrow_bar_gives_up_the_numbers_before_anything_else",
             "statsbar::tests::segments_are_dropped_whole",
             "statsbar::tests::width_is_counted_in_cells_rather_than_characters",
@@ -1211,17 +1196,24 @@ $Suites = @(
         )
     },
     @{
-        # And where they sit in the bar, which is between the tabs and the
-        # buttons, and what happens to them when the window narrows.
-        Name = "top bar facts placement"
+        # One row, no tabs, and what drops as the window narrows. Laid out in
+        # pixels and measured through the chrome own face, because a bar laid
+        # out on one grid and hit-tested on another has buttons that are not
+        # where they look.
+        Name = "top bar layout"
         Package = "unterm-app"
-        Filter = "topbar::stats_tests::"
-        ExpectedCount = 5
+        Filter = "topbar::tests::"
+        ExpectedCount = 12
         RequiredTests = @(
-            "topbar::stats_tests::the_facts_go_between_the_tabs_and_the_buttons",
-            "topbar::stats_tests::a_narrow_bar_keeps_its_tabs_and_drops_the_facts",
-            "topbar::stats_tests::the_facts_never_overlap_the_buttons",
-            "topbar::stats_tests::pressing_the_facts_drags_the_window"
+            "topbar::tests::the_window_buttons_survive_every_width",
+            "topbar::tests::no_two_pieces_overlap",
+            "topbar::tests::the_essential_actions_are_never_dropped",
+            "topbar::tests::things_drop_in_the_order_they_were_given",
+            "topbar::tests::labels_appear_only_on_the_two_that_have_them",
+            "topbar::tests::an_icon_with_no_words_has_something_to_say_on_hover",
+            "topbar::tests::the_bar_carries_no_tabs",
+            "topbar::tests::the_facts_sit_between_the_wordmark_and_the_actions",
+            "topbar::tests::the_text_drags_and_the_controls_do_not"
         )
     },
     @{
