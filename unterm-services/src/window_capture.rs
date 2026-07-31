@@ -524,7 +524,11 @@ mod tests {
     fn a_region_too_small_to_capture_is_refused_rather_than_attempted() {
         let err = capture_region(Region::between((0, 0), (2, 2)))
             .expect_err("a three-pixel drag is a cancelled one");
+        // Elsewhere the refusal is the platform's, and says so instead.
+        #[cfg(windows)]
         assert!(err.to_string().contains("too small"), "{err}");
+        #[cfg(not(windows))]
+        assert!(err.to_string().contains("Windows"), "{err}");
     }
 
     /// Negative coordinates are ordinary: a second monitor to the left of the

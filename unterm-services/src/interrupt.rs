@@ -433,6 +433,12 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn raising_an_interrupt_repeatedly_does_not_end_us() {
+        // Same hosted-runner rule as the child-interrupt test above: the
+        // console event has been observed reaching the whole harness on a
+        // service session, which is exactly what this test must not do.
+        if std::env::var_os("GITHUB_ACTIONS").is_some() {
+            return;
+        }
         use std::os::windows::process::CommandExt;
         use std::process::{Command, Stdio};
 
