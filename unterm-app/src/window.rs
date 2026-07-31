@@ -368,6 +368,8 @@ pub struct App {
     /// `window_close_confirmation = "NeverPrompt"` turns the close
     /// confirmation off, exactly as it always had.
     close_prompts: bool,
+    /// `window.decorations = true` asks for the system frame back.
+    system_decorations: bool,
     /// The strip's first visible row, for lists longer than the window.
     sidebar_scroll: usize,
     /// Its width in points, once somebody has dragged it.
@@ -579,6 +581,11 @@ impl App {
                 .flatten()
                 .map(|value| !value.eq_ignore_ascii_case("neverprompt"))
                 .unwrap_or(true),
+            system_decorations: config
+                .bool_of("window.decorations")
+                .ok()
+                .flatten()
+                .unwrap_or(false),
             sidebar_scroll: 0,
             sidebar_points: None,
             dragging_sidebar_width: false,
@@ -693,7 +700,9 @@ impl App {
             .with_window_icon(window_icon)
             // The top bar is the title bar. A grey native one above a dark
             // one is the three-stacked-strips look the design called out.
-            .with_decorations(false)
+            // The custom chrome is the default; `window.decorations = true`
+            // asks for the system's frame back and is finally listened to.
+            .with_decorations(self.system_decorations)
             .with_inner_size(winit::dpi::LogicalSize::new(initial_width, initial_height));
         if let Some(saved) = &self.restore {
             attributes = attributes.with_inner_size(winit::dpi::PhysicalSize::new(
@@ -4731,6 +4740,11 @@ impl App {
     /// menu.
     fn chrome_right_click(&mut self) -> bool {
         if self.pointer.1 < self.top_bar_height() {
+            // The chevron answers either button with its menu, as before.
+            if self.hovered_top_bar_item() == Some(crate::topbar::Item::Menu) {
+                let entries = self.quick_entries();
+                self.open_palette(entries);
+            }
             return true;
         }
         if let Some(live) = self.state.as_ref() {

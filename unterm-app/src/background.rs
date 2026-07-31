@@ -35,10 +35,14 @@ pub fn configured(config: &unterm_engine::next_core::config::Config) -> Option<I
         .ok()
         .flatten()
         .filter(|path| !path.trim().is_empty())?;
+    // Both spellings answer: the schema's `window.background_opacity`, and
+    // the flat legacy name migrations wrote before the schema had a home
+    // for it.
     let opacity = config
-        .float_of("window_background_opacity")
+        .float_of("window.background_opacity")
         .ok()
         .flatten()
+        .or_else(|| config.float_of("window_background_opacity").ok().flatten())
         .map(|value| value as f32)
         .unwrap_or(0.25);
     load(std::path::Path::new(&path), opacity)

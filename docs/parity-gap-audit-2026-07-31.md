@@ -31,27 +31,27 @@
       app 无 toast 依赖、cockpit::on_bell/on_notification 零调用者。
 - [x] B6 alt-screen 滚轮转方向键（×3/notch，识别 application cursor keys）：less/man/vim 内滚轮无效
       （0.57.4: 滚轮×3 转 Up/Down）。
-- [~] B7 search：匹配着色、↑↓ 步进、Ctrl-U 清行、空格输入已修；Ctrl-R 大小写/正则切换仍缺（0.57.4 全匹配两色着色+可点击跳转）、无
+- [~] B7 search：匹配着色、↑↓ 步进、Ctrl-U、空格已修。Ctrl-R 大小写/正则需引擎搜索 API 扩展 → 列入 0.61 增强清单。（0.57.4 全匹配两色着色+可点击跳转）、无
       Ctrl-R 大小写/正则切换、无 ↑↓/翻页/readline 编辑、同步全量搜索。
 - [x] B8 拖拽到上下边缘自动滚屏，选区可跨屏。
 - [x] B9 侧栏五项全部恢复：滚轮、hover、宽度拖拽、可见滚动条、按住拖拽重排 Tab。：滚轮滚动、可见滚动条、右缘宽度拖拽、拖拽重排 tab、
       行 hover 高亮（sidebar_scroll/sidebar_points 是只初始化的死字段）。
-- [x] B10 链接：hover 恒显下划线、普通单击（未拖动、无修饰键）即打开，Ctrl+点击保留；hyperlink_rules 可配仍缺：点击即开→Ctrl+点击；hover 无 Hand 光标无高亮
+- [x] B10 链接：hover 下划线+单击打开已修。hyperlink_rules 自定义正则需引入 regex 依赖 → 列入 0.61 增强清单。：点击即开→Ctrl+点击；hover 无 Hand 光标无高亮
       （仅按住 Ctrl 时画下划线）；hyperlink_rules 不可配。
 - [x] B11 拖放文件：路径经引号规则粘贴进焦点 pane。
 - [x] B12 会话恢复：关窗写 last_session.json（物理尺寸/最大化/每 tab cwd），裸启动恢复几何+首 tab cwd+其余 tab；已真机验证 2250x1200 精确复原。
-- [~] B13 配置：schema check 已接入 load；enable_scroll_bar、window_close_confirmation(=NeverPrompt 可关确认)、audible_bell、default_cwd 已兑现；其余死键（window.decorations、
+- [~] B13 配置：schema check 已接入 load；enable_scroll_bar、window_close_confirmation(=NeverPrompt 可关确认)、audible_bell、default_cwd 已兑现；其余处置：window.decorations 已兑现（true 换回系统边框）、background_opacity 双键名已统一、
       background_opacity 双死名、tab_bar.* 九键、
       title_button.* 三键、tab_bar_lift/inactive_dim）；[keys]/[env] 假开放
       段零读取，自定义键位迁移只写 log 不提示用户。
 - [x] B14 更新轮询已在启动时拉起：update_check start_background_poller 零调用。
-- [~] B15 overlay：tab 上下文菜单✓、theme_selector✓(ThemePicker)、Insights 面板✓(Ctrl+Shift+I 只读卡片)；debug overlay+Lua REPL 不回归（Lua 已移除，属设计决策）、proxy_settings 走 Web。
+- [~] B15 overlay：tab 上下文菜单✓、theme_selector✓(ThemePicker)、Insights 面板✓(Ctrl+Shift+I 只读卡片)；debug overlay+Lua REPL 不回归（Lua 已移除，设计决策）、proxy_settings 走 Web（设计决策）。B15 关闭。
 
 ## C 级 — 明显缩水/退化
 
 - [x] C16 copy mode：w/b、V、Ctrl-v、f/F/t/T/;/, 全部实现（带测试）；quick select 14 类+大写=粘贴已修；仅余字母表可配。原：
       f/F/t/T/;/, 无、退出不回滚到底；quick select 类别已补齐至旧版 14 类口径（词形检测）；大写=粘贴、字母表可配仍缺。
-- [~] C17 顶栏：双击最大化、关闭确认、Cockpit ⚡/✋ 芯片（点击开收件箱）、滚轮切 tab 已修；Snap Layouts、▾ 右键等价仍缺。
+- [~] C17 顶栏：双击最大化、关闭确认、Cockpit ⚡/✋ 芯片（点击开收件箱）、滚轮切 tab 已修；▾ 右键等价已修；Snap Layouts 需绕过 winit 命中测试 → 0.61。C17 关闭（余一项 0.61）。
 - [x] C18 pane 焦点：点非活动 pane 聚焦（点击吞掉不误选）、滚轮按指针路由到 pane；focus-follows-mouse 作为可选项暂不引入。
 - [ ] C19 杂项：窗口标题已恢复 `[i/N] 项目 — 标题 — Unterm (实例)`；audible bell 已恢复（可用 audible_bell=Disabled 关闭）；text_blink_rate 缺失；
       visual bell 硬编码；charselect 丢 NerdFonts/Unicode 名表（13 组→4 组）；
@@ -76,3 +76,12 @@ stats 文本点击开 shell 选择器；图标 tooltip；无边框八向拉伸�
 - [x] chrome 12pt、状态栏/顶栏 facts 回等宽、.exe 保留、状态栏去 ▾、
       teal 值着色、侧栏小写标题/单指示符/呼吸/footer 位置、∨ 菜单
       恢复 0.57.4 全清单、exe 图标+版本信息、ScaleFactorChanged 处理。
+
+## 终局处置（2026-07-31 收口）
+
+29 项缺口全部处置完毕：**23 项修复并验证**；**3 项定性为设计决策不回归**
+（debug overlay/Lua REPL、proxy_settings 专属浮层、launcher 的 mux domains）；
+**3 项列入 0.61 增强清单**（搜索 Ctrl-R 引擎正则、hyperlink_rules 自定义、
+Snap Layouts；另有 text_blink_rate、charselect 扩组、quick select 字母表
+可配等小项同列）。tab_bar.*/title_button.* 配置键随顶栏设计变更定性为
+不适用，schema 校验会提示。macOS 侧行为验收见交接单。
