@@ -5,7 +5,14 @@
 //! not a second list that drifts from it. And a chain of `matches!` arms
 //! scattered through a winit callback is a poor place to look up what a key
 //! does.
+//!
+//! The config's `[keys]` section folds into the same table: a user entry on a
+//! chord replaces the built-in binding on it, a new chord adds one, and
+//! `"None"` unbinds. Everything downstream -- dispatch, the palette, the MCP
+//! reply -- reads the folded result, so a rebound key cannot mean different
+//! things in different places.
 
+use unterm_engine::next_core::config::{Config, ConfigError};
 use winit::keyboard::{Key, NamedKey};
 
 /// Which way a pane-focus key points.
@@ -310,6 +317,7 @@ fn function_number(named: NamedKey) -> Option<u8> {
     })
 }
 
+#[derive(Clone, Copy, Debug)]
 pub struct Binding {
     pub mods: Mods,
     pub trigger: Trigger,
@@ -682,19 +690,288 @@ pub const BINDINGS: &[Binding] = &[
     },
 ];
 
-/// What this key press means to the front end, if anything.
+/// A binding the config wrote. `action: None` is `"None"`: the chord is
+/// taken away from the front end and falls through to the shell.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct UserBinding {
+    pub mods: Mods,
+    pub trigger: Trigger,
+    pub action: Option<Action>,
+}
+
+/// Every action a `[keys]` entry can name.
 ///
-/// The most specific binding wins: Ctrl+Shift+C is a copy, not a scroll that
-/// happens to have shift held.
+/// The same stable names `Action::name` reports over MCP, so what an agent
+/// reads from `meta.keybindings` is exactly what a config writes -- and the
+/// round trip is tested, which is what keeps the two from drifting.
+const NAMED_ACTIONS: &[(&str, Action)] = &[
+    ("Copy", Action::Copy),
+    ("Paste", Action::Paste),
+    ("SplitRight", Action::SplitRight),
+    ("SplitDown", Action::SplitDown),
+    ("ScrollPageUp", Action::ScrollPageUp),
+    ("ScrollPageDown", Action::ScrollPageDown),
+    ("PreviousPrompt", Action::PreviousPrompt),
+    ("NextPrompt", Action::NextPrompt),
+    ("NewTab", Action::NewTab),
+    ("NextTab", Action::NextTab),
+    ("PreviousTab", Action::PreviousTab),
+    ("CloseTab", Action::CloseTab),
+    ("Search", Action::Search),
+    ("CommandPalette", Action::CommandPalette),
+    ("Launcher", Action::Launcher),
+    ("CopyMode", Action::CopyMode),
+    ("QuickSelect", Action::QuickSelect),
+    ("Insights", Action::Insights),
+    ("CockpitInbox", Action::CockpitInbox),
+    ("GitPanel", Action::GitPanel),
+    ("Composer", Action::Composer),
+    ("ThemePicker", Action::ThemePicker),
+    ("LeftTabBar", Action::LeftTabBar),
+    ("DirJump", Action::DirJump),
+    ("NewWindow", Action::NewWindow),
+    ("ClosePane", Action::ClosePane),
+    ("ZoomPane", Action::ZoomPane),
+    ("Settings", Action::Settings),
+    ("CharSelect", Action::CharSelect),
+    ("TreeSidebar", Action::TreeSidebar),
+    ("FleetLaunch", Action::FleetLaunch),
+    ("ClearScrollback", Action::ClearScrollback),
+    ("ClearScreen", Action::ClearScreen),
+    ("SelectPane", Action::SelectPane),
+    ("SwapPane", Action::SwapPane),
+    ("FocusPaneLeft", Action::FocusPane(Direction::Left)),
+    ("FocusPaneRight", Action::FocusPane(Direction::Right)),
+    ("FocusPaneUp", Action::FocusPane(Direction::Up)),
+    ("FocusPaneDown", Action::FocusPane(Direction::Down)),
+    ("ResizePaneLeft", Action::ResizePane(Direction::Left)),
+    ("ResizePaneRight", Action::ResizePane(Direction::Right)),
+    ("ResizePaneUp", Action::ResizePane(Direction::Up)),
+    ("ResizePaneDown", Action::ResizePane(Direction::Down)),
+    ("MoveTabLeft", Action::MoveTab(-1)),
+    ("MoveTabRight", Action::MoveTab(1)),
+    ("SelectTab1", Action::SelectTab(1)),
+    ("SelectTab2", Action::SelectTab(2)),
+    ("SelectTab3", Action::SelectTab(3)),
+    ("SelectTab4", Action::SelectTab(4)),
+    ("SelectTab5", Action::SelectTab(5)),
+    ("SelectTab6", Action::SelectTab(6)),
+    ("SelectTab7", Action::SelectTab(7)),
+    ("SelectTab8", Action::SelectTab(8)),
+    ("SelectTab9", Action::SelectTab(9)),
+    ("IncreaseFontSize", Action::IncreaseFontSize),
+    ("DecreaseFontSize", Action::DecreaseFontSize),
+    ("ResetFontSize", Action::ResetFontSize),
+    ("ToggleFullScreen", Action::ToggleFullScreen),
+];
+
+/// The action a config names. Case-insensitive, because `newtab` for `NewTab`
+/// is a spelling, not a different request.
+pub fn action_by_name(name: &str) -> Option<Action> {
+    NAMED_ACTIONS
+        .iter()
+        .find(|(known, _)| known.eq_ignore_ascii_case(name))
+        .map(|(_, action)| *action)
+}
+
+/// A chord as the config spells one: modifiers with `|` or `+` between them
+/// and the key last -- `CTRL|SHIFT+T`, `ALT+Left`, `F11`.
+fn parse_chord(text: &str) -> Result<(Mods, Trigger), String> {
+    let parts: Vec<&str> = text.split(['|', '+']).map(str::trim).collect();
+    let (key, modifiers) = parts.split_last().expect("split always yields one part");
+    let mut mods = NONE;
+    for name in modifiers {
+        match name.to_ascii_uppercase().as_str() {
+            "CTRL" | "CONTROL" => mods.ctrl = true,
+            "SHIFT" => mods.shift = true,
+            "ALT" | "OPT" | "META" => mods.alt = true,
+            // `NONE+F11` is how `Mods::name` spells an unmodified chord, so
+            // reading it back has to work.
+            "NONE" => {}
+            other => {
+                return Err(format!(
+                    "`{other}` is not a modifier -- CTRL, SHIFT and ALT are"
+                ))
+            }
+        }
+    }
+    Ok((mods, parse_trigger(key)?))
+}
+
+fn parse_trigger(name: &str) -> Result<Trigger, String> {
+    let mut chars = name.chars();
+    if let (Some(ch), None) = (chars.next(), chars.next()) {
+        // Folded, as `Trigger::matches` folds: `CTRL+T` and `CTRL+t` are one
+        // binding, and comparing triggers for an override must agree.
+        return Ok(Trigger::Char(ch.to_ascii_lowercase()));
+    }
+    let folded = name.to_ascii_lowercase();
+    if let Some(number) = folded
+        .strip_prefix('f')
+        .and_then(|digits| digits.parse::<u8>().ok())
+    {
+        if (1..=12).contains(&number) {
+            return Ok(Trigger::Function(number));
+        }
+    }
+    Ok(match folded.as_str() {
+        "pageup" => Trigger::PageUp,
+        "pagedown" => Trigger::PageDown,
+        "tab" => Trigger::Tab,
+        "left" => Trigger::Arrow(Direction::Left),
+        "right" => Trigger::Arrow(Direction::Right),
+        "up" => Trigger::Arrow(Direction::Up),
+        "down" => Trigger::Arrow(Direction::Down),
+        "space" => Trigger::Char(' '),
+        // The keys the file format cannot spell directly: a chord ending in
+        // `+=` would split at the wrong `=`, and `+` and `|` are separators.
+        "equal" | "equals" => Trigger::Char('='),
+        "plus" => Trigger::Char('+'),
+        "minus" => Trigger::Char('-'),
+        "" => return Err("the chord ends without a key".to_string()),
+        _ => return Err(format!("`{name}` is not a key this terminal can bind")),
+    })
+}
+
+/// The `[keys]` section: the user's bindings, and every complaint about them.
+///
+/// A broken entry is a warning and the entry is skipped, never a refusal to
+/// start -- but each one is reported with its line, because a chord that
+/// silently does nothing is the same failure as a setting that silently does
+/// nothing.
+pub fn user_bindings_from(config: &Config) -> (Vec<UserBinding>, Vec<ConfigError>) {
+    let mut bindings = Vec::new();
+    let mut errors = Vec::new();
+    // The store hands keys back sorted; warnings should read in file order,
+    // and a chord written twice should keep the later line's meaning.
+    let mut chords: Vec<String> = config
+        .keys()
+        .filter_map(|key| key.strip_prefix("keys."))
+        .map(String::from)
+        .collect();
+    chords.sort_by_key(|chord| config.line_of(&format!("keys.{chord}")).unwrap_or(0));
+
+    for chord in chords {
+        let key = format!("keys.{chord}");
+        let line = config.line_of(&key).unwrap_or(0);
+        let name = match config.str_of(&key) {
+            Ok(Some(name)) => name.to_string(),
+            Ok(None) => continue,
+            Err(error) => {
+                errors.push(error);
+                continue;
+            }
+        };
+        let (mods, trigger) = match parse_chord(&chord) {
+            Ok(parsed) => parsed,
+            Err(problem) => {
+                errors.push(ConfigError {
+                    line,
+                    message: format!("`{chord}`: {problem}"),
+                });
+                continue;
+            }
+        };
+        let action = if name.eq_ignore_ascii_case("none") {
+            // Unbound: the chord goes back to the shell.
+            None
+        } else {
+            match action_by_name(&name) {
+                Some(action) => Some(action),
+                None => {
+                    errors.push(ConfigError {
+                        line,
+                        message: format!(
+                            "`{name}` is not an action -- the command palette and \
+                             `meta.keybindings` list the real names"
+                        ),
+                    });
+                    continue;
+                }
+            }
+        };
+        bindings.push(UserBinding {
+            mods,
+            trigger,
+            action,
+        });
+    }
+    (bindings, errors)
+}
+
+/// The `[keys]` section, installed once at startup.
+static USER_BINDINGS: std::sync::OnceLock<Vec<UserBinding>> = std::sync::OnceLock::new();
+
+pub fn install_user_bindings(bindings: Vec<UserBinding>) {
+    if USER_BINDINGS.set(bindings).is_err() {
+        log::warn!("user key bindings were already installed");
+    }
+}
+
+fn installed() -> &'static [UserBinding] {
+    USER_BINDINGS.get().map(Vec::as_slice).unwrap_or(&[])
+}
+
+/// The bindings in force: the built-in table with the user's entries folded
+/// in. What the palette lists and the MCP surface reports, so a rebound chord
+/// shows its real meaning everywhere.
+pub fn effective_bindings() -> Vec<Binding> {
+    fold_bindings(installed())
+}
+
+fn fold_bindings(user: &[UserBinding]) -> Vec<Binding> {
+    let mut bindings: Vec<Binding> = BINDINGS
+        .iter()
+        .filter(|binding| {
+            !user
+                .iter()
+                .any(|entry| entry.mods == binding.mods && entry.trigger == binding.trigger)
+        })
+        .copied()
+        .collect();
+    bindings.extend(user.iter().filter_map(|entry| {
+        entry.action.map(|action| Binding {
+            mods: entry.mods,
+            trigger: entry.trigger,
+            action,
+        })
+    }));
+    bindings
+}
+
 /// The chord an action is bound to, spelt the way the palette spells one.
 pub fn chord_hint(action: Action) -> Option<String> {
-    BINDINGS
+    effective_bindings()
         .iter()
         .find(|binding| binding.action == action)
         .map(|binding| format!("{} {}", binding.mods.name(), binding.trigger.name()))
 }
 
+/// What this key press means to the front end, if anything.
+///
+/// The most specific binding wins: Ctrl+Shift+C is a copy, not a scroll that
+/// happens to have shift held. The user's entries win over the built-ins,
+/// which is what makes a `[keys]` line an override rather than a suggestion.
 pub fn action_for(key: &Key, ctrl: bool, shift: bool, alt: bool) -> Option<Action> {
+    action_in(installed(), key, ctrl, shift, alt)
+}
+
+fn action_in(
+    user: &[UserBinding],
+    key: &Key,
+    ctrl: bool,
+    shift: bool,
+    alt: bool,
+) -> Option<Action> {
+    let mods = Mods { ctrl, shift, alt };
+    if let Some(binding) = user
+        .iter()
+        .find(|binding| binding.mods == mods && binding.trigger.matches(key))
+    {
+        // `None` here is a deliberate unbinding, not a miss: the chord must
+        // not fall through to the built-in it was written to disable.
+        return binding.action;
+    }
     BINDINGS
         .iter()
         .filter(|binding| {
@@ -926,6 +1203,24 @@ mod added_binding_tests {
         );
     }
 
+    /// Every name `Action::name` reports can be written in a `[keys]` entry
+    /// and comes back as the same action -- the whole point of keeping one
+    /// list of names.
+    #[test]
+    fn every_built_in_action_can_be_named_in_the_config() {
+        for binding in BINDINGS {
+            assert_eq!(
+                action_by_name(binding.action.name()),
+                Some(binding.action),
+                "{} does not round-trip",
+                binding.action.name()
+            );
+        }
+        for (name, action) in NAMED_ACTIONS {
+            assert_eq!(action.name(), *name, "{name} is not the stable name");
+        }
+    }
+
     /// Every action has a name and a label, and no two *different* actions
     /// share a name -- the name is what an agent matches on over MCP.
     ///
@@ -947,5 +1242,187 @@ mod added_binding_tests {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod user_binding_tests {
+    use super::*;
+
+    fn character(text: &str) -> Key {
+        Key::Character(text.into())
+    }
+
+    fn parsed(source: &str) -> (Vec<UserBinding>, Vec<ConfigError>) {
+        let config =
+            unterm_engine::next_core::config::parse(source).expect("config should parse");
+        user_bindings_from(&config)
+    }
+
+    fn bindings(source: &str) -> Vec<UserBinding> {
+        let (bindings, errors) = parsed(source);
+        assert!(errors.is_empty(), "{errors:?}");
+        bindings
+    }
+
+    #[test]
+    fn a_user_entry_on_a_built_in_chord_replaces_it() {
+        let user = bindings("[keys]\nCTRL|SHIFT+T = \"Search\"");
+
+        assert_eq!(
+            action_in(&user, &character("t"), true, true, false),
+            Some(Action::Search),
+            "the user's meaning, not the built-in NewTab"
+        );
+        // The rest of the table is untouched.
+        assert_eq!(
+            action_in(&user, &character("c"), true, true, false),
+            Some(Action::Copy)
+        );
+    }
+
+    #[test]
+    fn a_new_chord_adds_a_binding() {
+        let user = bindings("[keys]\nCTRL|ALT+G = \"GitPanel\"");
+
+        assert_eq!(
+            action_in(&user, &character("g"), true, false, true),
+            Some(Action::GitPanel)
+        );
+    }
+
+    #[test]
+    fn none_unbinds_a_built_in_chord() {
+        let user = bindings("[keys]\nF11 = \"None\"");
+
+        assert_eq!(
+            action_in(&user, &Key::Named(NamedKey::F11), false, false, false),
+            None,
+            "the chord goes back to whatever is running"
+        );
+    }
+
+    #[test]
+    fn named_keys_and_aliases_parse() {
+        let user = bindings(
+            r#"
+            [keys]
+            SHIFT+PageUp = "MoveTabLeft"
+            ALT+Left = "PreviousTab"
+            CTRL+F5 = "Search"
+            CTRL+Equal = "ResetFontSize"
+            "#,
+        );
+
+        assert_eq!(user.len(), 4);
+        assert_eq!(
+            action_in(&user, &Key::Named(NamedKey::PageUp), false, true, false),
+            Some(Action::MoveTab(-1))
+        );
+        assert_eq!(
+            action_in(&user, &Key::Named(NamedKey::ArrowLeft), false, false, true),
+            Some(Action::PreviousTab),
+            "the user's entry beats the built-in FocusPaneLeft"
+        );
+        assert_eq!(
+            action_in(&user, &Key::Named(NamedKey::F5), true, false, false),
+            Some(Action::Search)
+        );
+        assert_eq!(
+            action_in(&user, &character("="), true, false, false),
+            Some(Action::ResetFontSize)
+        );
+    }
+
+    #[test]
+    fn the_chord_is_matched_without_regard_to_case() {
+        // `CTRL+T` and `ctrl+shift+t` are spellings, not different chords.
+        let user = bindings("[keys]\nctrl|shift+T = \"search\"");
+
+        assert_eq!(
+            action_in(&user, &character("T"), true, true, false),
+            Some(Action::Search)
+        );
+    }
+
+    #[test]
+    fn an_unknown_action_is_a_warning_that_names_the_line() {
+        let (user, errors) = parsed("[keys]\nCTRL|SHIFT+T = \"NewTabb\"");
+
+        assert!(user.is_empty());
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].line, 2);
+        assert!(errors[0].message.contains("NewTabb"), "{}", errors[0].message);
+    }
+
+    #[test]
+    fn a_bad_chord_is_a_warning_not_a_binding() {
+        let (user, errors) = parsed(
+            "[keys]\nHYPER+T = \"NewTab\"\nCTRL+Banana = \"NewTab\"\nCTRL+ = \"NewTab\"",
+        );
+
+        assert!(user.is_empty());
+        assert_eq!(errors.len(), 3);
+        assert!(errors[0].message.contains("HYPER"), "{}", errors[0].message);
+        assert!(errors[1].message.contains("Banana"), "{}", errors[1].message);
+        assert!(
+            errors[2].message.contains("without a key"),
+            "{}",
+            errors[2].message
+        );
+    }
+
+    #[test]
+    fn a_value_that_is_not_a_string_is_reported() {
+        let (user, errors) = parsed("[keys]\nCTRL|SHIFT+T = 3");
+
+        assert!(user.is_empty());
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("string"), "{}", errors[0].message);
+    }
+
+    #[test]
+    fn the_broken_entry_is_skipped_and_the_good_one_kept() {
+        let (user, errors) = parsed("[keys]\nCTRL+Nope = \"NewTab\"\nCTRL|ALT+G = \"GitPanel\"");
+
+        assert_eq!(user.len(), 1);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(user[0].action, Some(Action::GitPanel));
+    }
+
+    #[test]
+    fn folded_bindings_show_the_override_not_the_original() {
+        let user = bindings("[keys]\nCTRL|SHIFT+T = \"Search\"\nF11 = \"None\"\nCTRL|ALT+G = \"GitPanel\"");
+        let folded = fold_bindings(&user);
+
+        // One built-in replaced, one removed, one added.
+        assert_eq!(folded.len(), BINDINGS.len() + 2 - 1 - 1);
+        let on_t: Vec<Action> = folded
+            .iter()
+            .filter(|binding| binding.mods == CTRL_SHIFT && binding.trigger == Trigger::Char('t'))
+            .map(|binding| binding.action)
+            .collect();
+        assert_eq!(on_t, vec![Action::Search]);
+        assert!(
+            !folded
+                .iter()
+                .any(|binding| binding.trigger == Trigger::Function(11)),
+            "the unbound chord is not listed"
+        );
+        assert!(folded
+            .iter()
+            .any(|binding| binding.action == Action::GitPanel
+                && binding.mods
+                    == Mods {
+                        ctrl: true,
+                        shift: false,
+                        alt: true
+                    }));
+    }
+
+    #[test]
+    fn with_no_user_entries_the_folded_table_is_the_built_in_one() {
+        let folded = fold_bindings(&[]);
+        assert_eq!(folded.len(), BINDINGS.len());
     }
 }

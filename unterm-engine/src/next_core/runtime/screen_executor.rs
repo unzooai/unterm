@@ -146,8 +146,9 @@ pub(in crate::next_core) fn execute_search(
         RuntimeCommand::SearchScreen {
             pane_id,
             pattern,
+            mode,
             max_results,
-        } => screen_dispatch::search(pane_id, &pattern, max_results),
+        } => screen_dispatch::search(pane_id, &pattern, mode, max_results),
         _ => bail!("runtime screen executor expected screen search command"),
     }
 }

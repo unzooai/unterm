@@ -3129,6 +3129,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "nucleo-matcher"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf33f538733d1a5a3494b836ba913207f14d9d4a1d3cd67030c5061bdd2cac85"
+dependencies = [
+ "memchr",
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "num"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5606,6 +5616,7 @@ dependencies = [
  "anyhow",
  "arboard",
  "base64 0.22.1",
+ "chrono",
  "dirs-next",
  "embed-resource",
  "emojis",
@@ -5613,9 +5624,12 @@ dependencies = [
  "frecency",
  "image",
  "log",
+ "nucleo-matcher",
  "parking_lot",
  "pollster",
  "portable-pty",
+ "rayon",
+ "regex",
  "serde",
  "serde_json",
  "tempfile",
@@ -5670,6 +5684,7 @@ dependencies = [
  "parking_lot",
  "portable-pty",
  "procinfo",
+ "regex",
  "serde",
  "serde_json",
  "termwiz",
@@ -5741,11 +5756,14 @@ dependencies = [
  "anyhow",
  "base64 0.22.1",
  "chrono",
+ "core-foundation 0.10.0",
+ "core-graphics 0.24.0",
  "dirs-next",
  "hostname",
  "libc",
  "log",
  "parking_lot",
+ "png",
  "portable-pty",
  "regex",
  "serde",

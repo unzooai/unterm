@@ -7084,7 +7084,14 @@ impl McpHandler {
             params,
             PaneResolutionOptions::REQUIRED_EXISTING,
         )?;
-        let search_matches = engine.search(pane_id, pattern, max_results)?;
+        // Exact matching, as this tool always has: agents search for literal
+        // output they were shown, and a silently looser match would lie.
+        let search_matches = engine.search(
+            pane_id,
+            pattern,
+            unterm_engine::SearchMode::CaseSensitive,
+            max_results,
+        )?;
         let match_rows: Vec<isize> = search_matches.iter().map(|m| m.row as isize).collect();
         let matches: Vec<Value> = search_matches
             .into_iter()
@@ -8957,7 +8964,15 @@ impl McpHandler {
                 "destroyed": true,
             }));
         }
-        let command = "echo \u{001b}[31;1mnext-core-selftest-styled-capture\u{001b}[0m";
+        // Quoted for the POSIX shells the command goes through on unix: zsh
+        // reads a bare `[31;1m` as a glob, calls it a bad pattern, and the
+        // marker never prints. cmd.exe would print the quotes themselves, so
+        // it keeps the bare form.
+        let command = if cfg!(windows) {
+            "echo \u{001b}[31;1mnext-core-selftest-styled-capture\u{001b}[0m"
+        } else {
+            "echo '\u{001b}[31;1mnext-core-selftest-styled-capture\u{001b}[0m'"
+        };
         let created = self.session_create(&json!({
             "cols": 80,
             "rows": 3,

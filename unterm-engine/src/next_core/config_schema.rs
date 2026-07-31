@@ -6,7 +6,7 @@
 //! is used -- the property the Lua runtime could never offer, because a Lua
 //! config only reveals what it sets by running.
 
-use super::config::{Config, ConfigError};
+use super::config::{Config, ConfigError, Value};
 use super::tab_title;
 
 /// Every setting the engine reads.
@@ -46,6 +46,15 @@ pub const SETTINGS: &[&str] = &[
     "window_frame.button_hover_fg",
     "scrollback_lines",
     "enable_scroll_bar",
+    "text_blink_rate",
+    "text_blink_rate_rapid",
+    "visual_bell.fade_in_duration_ms",
+    "visual_bell.fade_in_function",
+    "visual_bell.fade_out_duration_ms",
+    "visual_bell.fade_out_function",
+    "visual_bell.target",
+    "hyperlink_rules",
+    "quick_select_alphabet",
     "shell",
     "path_append",
     "window.background_opacity",
@@ -56,6 +65,7 @@ pub const SETTINGS: &[&str] = &[
     "window.padding_right",
     "window.padding_top",
     "window.padding_bottom",
+    "inactive_pane.hue",
     "inactive_pane.brightness",
     "inactive_pane.saturation",
     "window.close_confirmation",
@@ -146,8 +156,73 @@ pub fn check(config: &Config) -> Vec<ConfigError> {
         }
     }
 
+    if let Some(line) = config.line_of("hyperlink_rules") {
+        match config.list_of("hyperlink_rules") {
+            Ok(Some(rules)) => {
+                for (index, rule) in rules.iter().enumerate() {
+                    if let Some(problem) = hyperlink_rule_problem(rule) {
+                        // A rule that silently never matches is the same
+                        // failure as a key that does nothing.
+                        errors.push(ConfigError {
+                            line,
+                            message: format!("hyperlink rule {}: {problem}", index + 1),
+                        });
+                    }
+                }
+            }
+            Ok(None) => {}
+            Err(error) => errors.push(error),
+        }
+    }
+
     errors.sort_by_key(|error| error.line);
     errors
+}
+
+/// What is wrong with one entry of `hyperlink_rules`, if anything.
+///
+/// An entry is `["regex", "format"]`, with an optional third element naming
+/// the capture to draw as the link -- the same three fields a 0.57 rule had.
+fn hyperlink_rule_problem(rule: &Value) -> Option<String> {
+    let Value::List(parts) = rule else {
+        return Some(r#"should be a list, as in `["\w+://\S+", "$0"]`"#.to_string());
+    };
+    let (pattern, highlight) = match parts.as_slice() {
+        [Value::Str(pattern), Value::Str(_)] => (pattern, 0),
+        [Value::Str(pattern), Value::Str(_), Value::Int(highlight)] => {
+            if *highlight < 0 {
+                return Some(format!("capture number {highlight} cannot be negative"));
+            }
+            (pattern, *highlight as usize)
+        }
+        _ => {
+            return Some(
+                "should be `[\"regex\", \"format\"]`, with an optional capture number third"
+                    .to_string(),
+            )
+        }
+    };
+    match regex::Regex::new(pattern) {
+        Err(error) => {
+            // The regex crate draws its error over several lines with a
+            // caret; the last line is the reason, and the only part that
+            // survives being put on one.
+            let reason = error.to_string();
+            let reason = reason.lines().last().unwrap_or("does not compile");
+            let reason = reason.strip_prefix("error: ").unwrap_or(reason);
+            Some(format!("`{pattern}` is not a valid regex -- {reason}"))
+        }
+        Ok(compiled) if highlight >= compiled.captures_len() => Some(format!(
+            "capture number {highlight} is out of range -- `{pattern}` has {} capture group{}",
+            compiled.captures_len() - 1,
+            if compiled.captures_len() == 2 {
+                ""
+            } else {
+                "s"
+            }
+        )),
+        Ok(_) => None,
+    }
 }
 
 #[cfg(test)]
@@ -166,6 +241,14 @@ mod tests {
             r#"
             font_size = 13
             scrollback_lines = 100000
+            text_blink_rate = 500
+            text_blink_rate_rapid = 250
+            [visual_bell]
+            fade_in_duration_ms = 75
+            fade_out_duration_ms = 75
+            fade_in_function = "EaseIn"
+            fade_out_function = "EaseOut"
+            target = "BackgroundColor"
             [tab_bar]
             position = "Left"
             title_format = "  {title}  "
@@ -289,6 +372,65 @@ mod tests {
         assert_eq!(style("macos").as_deref(), Some("MacOsCustom"));
         assert_eq!(style("windows").as_deref(), Some("Windows"));
         assert_eq!(style("linux").as_deref(), Some("Gnome"));
+    }
+
+    #[test]
+    fn hyperlink_rules_are_accepted_in_both_shapes() {
+        let errors = check_source(
+            r#"
+            hyperlink_rules = [
+              ["\b\w+://\S+", "$0"],
+              ["\bPR-(\d+)", "https://example.com/pull/$1", 1],
+            ]
+            "#,
+        );
+
+        assert!(errors.is_empty(), "{:?}", errors);
+    }
+
+    #[test]
+    fn a_hyperlink_rule_that_does_not_compile_is_rejected_with_its_line() {
+        let errors = check_source("\nhyperlink_rules = [[\"a(b\", \"$0\"]]");
+
+        // A rule that silently never matches is the same failure as a key
+        // that does nothing.
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].line, 2);
+        assert!(
+            errors[0].message.contains("not a valid regex"),
+            "{}",
+            errors[0].message
+        );
+    }
+
+    #[test]
+    fn a_hyperlink_rule_of_the_wrong_shape_says_what_one_looks_like() {
+        for source in [
+            r#"hyperlink_rules = ["just-a-string"]"#,
+            r#"hyperlink_rules = [["only-a-regex"]]"#,
+            r#"hyperlink_rules = [["a", "b", "c"]]"#,
+        ] {
+            let errors = check_source(source);
+            assert_eq!(errors.len(), 1, "{source}");
+            assert!(
+                errors[0].message.contains("\"regex\", \"format\"")
+                    || errors[0].message.contains("should be a list"),
+                "{source}: {}",
+                errors[0].message
+            );
+        }
+    }
+
+    #[test]
+    fn a_highlight_the_regex_cannot_satisfy_is_rejected() {
+        let errors = check_source(r#"hyperlink_rules = [["\bPR-(\d+)", "$1", 2]]"#);
+
+        assert_eq!(errors.len(), 1);
+        assert!(
+            errors[0].message.contains("out of range"),
+            "{}",
+            errors[0].message
+        );
     }
 
     #[test]

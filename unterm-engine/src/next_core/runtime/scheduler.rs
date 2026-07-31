@@ -319,11 +319,13 @@ pub(in crate::next_core) fn read_styled_scrollback(
 pub(in crate::next_core) fn search_screen(
     pane_id: usize,
     pattern: &str,
+    mode: crate::SearchMode,
     max_results: usize,
 ) -> Result<Vec<ScreenSearchMatch>> {
     let command = RuntimeCommand::SearchScreen {
         pane_id,
         pattern: pattern.to_string(),
+        mode,
         max_results,
     };
     match consumer::submit_and_dispatch_response(command)? {
@@ -855,8 +857,8 @@ mod tests {
 
         _runtime.reset();
         install_zero_command_budget();
-        let err =
-            search_screen(1, "needle", 1).expect_err("zero command budget should reject search");
+        let err = search_screen(1, "needle", crate::SearchMode::CaseSensitive, 1)
+            .expect_err("zero command budget should reject search");
         assert!(err
             .to_string()
             .contains("runtime screen queue rejected command"));
@@ -1002,7 +1004,8 @@ mod tests {
     fn screen_search_reads_enter_runtime_queue_before_dispatch() {
         let _runtime = test_facade::reset();
 
-        let err = search_screen(404, "needle", 5).expect_err("missing pane should fail");
+        let err = search_screen(404, "needle", crate::SearchMode::CaseSensitive, 5)
+            .expect_err("missing pane should fail");
 
         assert!(err.to_string().contains("next-core session 404 not found"));
         assert_eq!(queue_stats().pending_commands, 0);

@@ -4,7 +4,7 @@
 //! rows are. What lives here is the part a front end owns: what the bar says,
 //! which match is current, and how moving between them behaves at the ends.
 
-use unterm_engine::ScreenSearchMatch;
+use unterm_engine::{ScreenSearchMatch, SearchMode};
 
 /// An open search.
 #[derive(Clone, Debug, Default)]
@@ -13,6 +13,8 @@ pub struct Search {
     pub matches: Vec<ScreenSearchMatch>,
     /// Which match is current, if there are any.
     pub selected: usize,
+    /// How the pattern reads: ignore case to start, Ctrl+R to cycle.
+    pub mode: SearchMode,
 }
 
 impl Search {
@@ -55,16 +57,34 @@ impl Search {
         }
     }
 
+    /// The next way of reading the pattern, in the order 0.57.4 cycled:
+    /// exact, then ignore case, then regex, then around again.
+    pub fn cycle_mode(&mut self) {
+        self.mode = match self.mode {
+            SearchMode::CaseSensitive => SearchMode::CaseInsensitive,
+            SearchMode::CaseInsensitive => SearchMode::Regex,
+            SearchMode::Regex => SearchMode::CaseSensitive,
+        };
+    }
+
     /// What the bar says.
+    ///
+    /// The mode is always named, the way 0.57.4's bar named it: cycling with
+    /// Ctrl+R has to show something even when the matches do not change.
     pub fn label(&self) -> String {
+        let mode = match self.mode {
+            SearchMode::CaseSensitive => "case-sensitive",
+            SearchMode::CaseInsensitive => "ignore case",
+            SearchMode::Regex => "regex",
+        };
         if self.pattern.is_empty() {
-            return "Search: ".to_string();
+            return format!("Search:  ({mode})");
         }
         if self.matches.is_empty() {
-            return format!("Search: {}  (no matches)", self.pattern);
+            return format!("Search: {}  (no matches · {mode})", self.pattern);
         }
         format!(
-            "Search: {}  ({}/{})",
+            "Search: {}  ({}/{} · {mode})",
             self.pattern,
             self.selected + 1,
             self.matches.len()
@@ -81,6 +101,8 @@ pub enum Key {
     Backspace,
     /// Drop the whole pattern, and search again from nothing.
     Clear,
+    /// Read the pattern the next way, and search again.
+    CycleMode,
     /// Move through the results.
     Step(isize),
     /// Close the search.
@@ -109,6 +131,8 @@ pub fn key_for(named: Option<&str>, character: Option<&str>, ctrl: bool, shift: 
     match character {
         // Ctrl+U clears the line wholesale, the way readline does.
         Some(text) if ctrl && text.eq_ignore_ascii_case("u") => Key::Clear,
+        // Ctrl+R cycles how the pattern reads, as it always has.
+        Some(text) if ctrl && text.eq_ignore_ascii_case("r") => Key::CycleMode,
         // Ctrl+something else is a command, not text to search for.
         Some(text) if !ctrl => Key::Type(text.to_string()),
         _ => Key::NotOurs,
@@ -131,7 +155,7 @@ mod tests {
         Search {
             pattern: "x".to_string(),
             matches: rows.iter().map(|row| found(*row, 0)).collect(),
-            selected: 0,
+            ..Default::default()
         }
     }
 
@@ -195,9 +219,9 @@ mod tests {
     #[test]
     fn the_bar_says_where_in_the_results_you_are() {
         let mut s = search(&[1, 2, 3]);
-        assert_eq!(s.label(), "Search: x  (1/3)");
+        assert_eq!(s.label(), "Search: x  (1/3 · ignore case)");
         s.step(1);
-        assert_eq!(s.label(), "Search: x  (2/3)");
+        assert_eq!(s.label(), "Search: x  (2/3 · ignore case)");
     }
 
     #[test]
@@ -206,7 +230,31 @@ mod tests {
             pattern: "nope".to_string(),
             ..Default::default()
         };
-        assert_eq!(s.label(), "Search: nope  (no matches)");
+        assert_eq!(s.label(), "Search: nope  (no matches · ignore case)");
+    }
+
+    #[test]
+    fn the_modes_cycle_in_the_order_they_always_have() {
+        // Exact, ignore case, regex, around again — 0.57.4's order, and a
+        // fresh search starts on ignore case as it did there.
+        let mut s = Search::default();
+        assert_eq!(s.mode, SearchMode::CaseInsensitive);
+        s.cycle_mode();
+        assert_eq!(s.mode, SearchMode::Regex);
+        s.cycle_mode();
+        assert_eq!(s.mode, SearchMode::CaseSensitive);
+        s.cycle_mode();
+        assert_eq!(s.mode, SearchMode::CaseInsensitive);
+    }
+
+    #[test]
+    fn the_bar_names_the_mode_even_before_anything_is_typed() {
+        let mut s = Search::default();
+        assert_eq!(s.label(), "Search:  (ignore case)");
+        s.cycle_mode();
+        assert_eq!(s.label(), "Search:  (regex)");
+        s.cycle_mode();
+        assert_eq!(s.label(), "Search:  (case-sensitive)");
     }
 
     #[test]
@@ -253,5 +301,15 @@ mod tests {
         assert_eq!(key_for(Some("ArrowDown"), None, false, false), Key::Step(1));
         assert_eq!(key_for(Some("ArrowUp"), None, false, false), Key::Step(-1));
         assert_eq!(key_for(None, Some("u"), true, false), Key::Clear);
+    }
+
+    #[test]
+    fn ctrl_r_cycles_the_mode_and_a_plain_r_is_still_text() {
+        assert_eq!(key_for(None, Some("r"), true, false), Key::CycleMode);
+        assert_eq!(key_for(None, Some("R"), true, false), Key::CycleMode);
+        assert_eq!(
+            key_for(None, Some("r"), false, false),
+            Key::Type("r".to_string())
+        );
     }
 }

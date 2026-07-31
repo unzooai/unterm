@@ -21,6 +21,12 @@ pub enum Command {
     ChangeDirectory { path: String },
     /// Start a new tab already in a directory.
     NewTabIn { path: String },
+    /// Reopen a saved workspace, a tab per saved directory.
+    RestoreWorkspace { name: String },
+    /// Ask for a name to save the open tabs under.
+    OpenWorkspaceSave,
+    /// Save the open tabs as a workspace named by the typed line.
+    SaveWorkspace,
     /// Start or stop recording the focused pane.
     ToggleRecording,
     /// Write the focused pane's session out as markdown.

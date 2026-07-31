@@ -77,9 +77,10 @@ pub(in crate::next_core) fn read_styled_scrollback(
 pub(in crate::next_core) fn search_screen(
     pane_id: usize,
     pattern: &str,
+    mode: crate::SearchMode,
     max_results: usize,
 ) -> Result<Vec<ScreenSearchMatch>> {
-    scheduler::search_screen(pane_id, pattern, max_results)
+    scheduler::search_screen(pane_id, pattern, mode, max_results)
 }
 
 pub(in crate::next_core) fn cursor(pane_id: usize) -> Result<CursorSnapshot> {

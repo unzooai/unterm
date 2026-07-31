@@ -68,9 +68,54 @@ pub fn capture_window(title: Option<&str>, pid: Option<u32>) -> anyhow::Result<W
     })
 }
 
-#[cfg(not(windows))]
+/// Capture a window by asking `screencapture -l <CGWindowID>` to write a PNG
+/// and reading the pixels back.
+///
+/// The same route 0.57.4 took, kept for the same reasons: the tool renders
+/// exactly what the compositor shows, works on every macOS this product
+/// supports, and triggers the one Screen Recording permission prompt a person
+/// has already answered for the old version.
+#[cfg(target_os = "macos")]
+pub fn capture_window(title: Option<&str>, pid: Option<u32>) -> anyhow::Result<WindowImage> {
+    use anyhow::anyhow;
+
+    if title.is_none() && pid.is_none() {
+        return Err(anyhow!("name a window by title or pid to capture it"));
+    }
+    let target_pid = pid.unwrap_or_else(std::process::id);
+    let is_self = pid.map_or(true, |wanted| wanted == std::process::id());
+
+    // Self-capture race: right after window creation the NSWindow exists but
+    // CGWindowList may not yet flag it onScreen. A few short retries cover
+    // every startup measured; an external pid stays single-shot so a wrong
+    // pid fails fast instead of blocking.
+    let attempts = if is_self { 5 } else { 1 };
+    let mut window_id = None;
+    for attempt in 0..attempts {
+        window_id = macos::find_window_id(target_pid, title)?;
+        if window_id.is_some() {
+            break;
+        }
+        if attempt + 1 < attempts {
+            std::thread::sleep(std::time::Duration::from_millis(120));
+        }
+    }
+    let window_id = window_id.ok_or_else(|| anyhow!("no visible window matched"))?;
+
+    let path = macos::scratch_png("window");
+    let status = std::process::Command::new("/usr/sbin/screencapture")
+        .args(["-x", "-o", "-t", "png", "-l", &window_id.to_string()])
+        .arg(&path)
+        .status()
+        .map_err(|err| anyhow!("invoke /usr/sbin/screencapture: {err}"))?;
+    let image = macos::read_png(&path, status, "screencapture_window");
+    let _ = std::fs::remove_file(&path);
+    image
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 pub fn capture_window(_title: Option<&str>, _pid: Option<u32>) -> anyhow::Result<WindowImage> {
-    anyhow::bail!("capturing a window is only implemented on Windows so far")
+    anyhow::bail!("capturing a window is not implemented on this platform yet")
 }
 
 /// A rectangle on the desktop, in physical pixels.
@@ -162,9 +207,177 @@ pub fn capture_region(region: Region) -> anyhow::Result<WindowImage> {
     }
 }
 
-#[cfg(not(windows))]
+/// Copy a rectangle of the desktop: capture the screen at native resolution,
+/// then crop.
+///
+/// `screencapture -R` takes points while this API speaks physical pixels, and
+/// the conversion depends on which display the rectangle is on. A full-screen
+/// grab is already in physical pixels, so cropping it needs no conversion at
+/// all.
+#[cfg(target_os = "macos")]
+pub fn capture_region(region: Region) -> anyhow::Result<WindowImage> {
+    use anyhow::anyhow;
+
+    if !region.is_usable() {
+        anyhow::bail!("the region is too small to capture");
+    }
+    if region.left < 0 || region.top < 0 {
+        // The full-screen grab below is of the main display, whose physical
+        // origin is 0,0; a rectangle on a display left of or above it cannot
+        // be cut from that picture.
+        anyhow::bail!("capturing a region outside the main display is not supported on macOS yet");
+    }
+
+    let path = macos::scratch_png("region");
+    let status = std::process::Command::new("/usr/sbin/screencapture")
+        .args(["-x", "-t", "png"])
+        .arg(&path)
+        .status()
+        .map_err(|err| anyhow!("invoke /usr/sbin/screencapture: {err}"))?;
+    let screen = macos::read_png(&path, status, "region");
+    let _ = std::fs::remove_file(&path);
+    crop_image(
+        screen?,
+        region.left as usize,
+        region.top as usize,
+        region.width,
+        region.height,
+        "region",
+    )
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 pub fn capture_region(_region: Region) -> anyhow::Result<WindowImage> {
-    anyhow::bail!("capturing a region is only implemented on Windows so far")
+    anyhow::bail!("capturing a region is not implemented on this platform yet")
+}
+
+/// The macOS half of the platform work: window lookup and PNG readback.
+#[cfg(target_os = "macos")]
+mod macos {
+    use super::WindowImage;
+    use anyhow::{anyhow, Context as _};
+
+    /// A path for `screencapture` to write, unique enough for concurrent
+    /// captures from one process.
+    pub fn scratch_png(kind: &str) -> std::path::PathBuf {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        std::env::temp_dir().join(format!(
+            "unterm_capture_{kind}_{}_{}.png",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::Relaxed),
+        ))
+    }
+
+    /// What `screencapture` wrote, as pixels.
+    pub fn read_png(
+        path: &std::path::Path,
+        status: std::process::ExitStatus,
+        mode: &'static str,
+    ) -> anyhow::Result<WindowImage> {
+        if !status.success() {
+            anyhow::bail!("screencapture exited with {status}");
+        }
+        let file = std::fs::File::open(path)
+            .with_context(|| format!("screencapture did not produce {}", path.display()))?;
+        let decoder = png::Decoder::new(std::io::BufReader::new(file));
+        let mut reader = decoder.read_info().context("read screencapture PNG")?;
+        let mut buffer = vec![0u8; reader.output_buffer_size().unwrap_or_default()];
+        let info = reader
+            .next_frame(&mut buffer)
+            .context("decode screencapture PNG")?;
+        buffer.truncate(info.buffer_size());
+
+        // screencapture writes 8-bit RGB or RGBA; either way the answer here
+        // is RGBA with the alpha squashed to opaque, which is the truth for a
+        // picture of a screen.
+        let pixels = match (info.color_type, info.bit_depth) {
+            (png::ColorType::Rgba, png::BitDepth::Eight) => {
+                let mut pixels = buffer;
+                for pixel in pixels.chunks_exact_mut(4) {
+                    pixel[3] = 255;
+                }
+                pixels
+            }
+            (png::ColorType::Rgb, png::BitDepth::Eight) => {
+                let mut pixels = Vec::with_capacity(info.width as usize * info.height as usize * 4);
+                for pixel in buffer.chunks_exact(3) {
+                    pixels.extend_from_slice(&[pixel[0], pixel[1], pixel[2], 255]);
+                }
+                pixels
+            }
+            (color, depth) => {
+                anyhow::bail!("screencapture wrote an unexpected {color:?}/{depth:?} PNG")
+            }
+        };
+        Ok(WindowImage {
+            width: info.width as usize,
+            height: info.height as usize,
+            pixels,
+            mode,
+        })
+    }
+
+    /// The first on-screen CGWindowID owned by `pid`, optionally with `title`
+    /// in its name.
+    pub fn find_window_id(pid: u32, title: Option<&str>) -> anyhow::Result<Option<u32>> {
+        use core_foundation::array::CFArray;
+        use core_foundation::base::{CFType, TCFType};
+        use core_foundation::dictionary::CFDictionary;
+        use core_foundation::number::CFNumber;
+        use core_foundation::string::CFString;
+        use core_graphics::display::{
+            kCGNullWindowID, kCGWindowListExcludeDesktopElements, kCGWindowListOptionOnScreenOnly,
+            CGWindowListCopyWindowInfo,
+        };
+
+        let info: CFArray<CFDictionary<CFString, CFType>> = unsafe {
+            let raw = CGWindowListCopyWindowInfo(
+                kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements,
+                kCGNullWindowID,
+            );
+            if raw.is_null() {
+                return Err(anyhow!(
+                    "the window list was not available; Screen Recording permission may be missing"
+                ));
+            }
+            CFArray::wrap_under_create_rule(raw)
+        };
+
+        let pid_key = CFString::from_static_string("kCGWindowOwnerPID");
+        let id_key = CFString::from_static_string("kCGWindowNumber");
+        let name_key = CFString::from_static_string("kCGWindowName");
+
+        for entry in info.iter() {
+            let owner: i64 = entry
+                .find(&pid_key)
+                .and_then(|value| value.downcast::<CFNumber>())
+                .and_then(|number| number.to_i64())
+                .unwrap_or(-1);
+            if owner != pid as i64 {
+                continue;
+            }
+            if let Some(needle) = title {
+                let name = entry
+                    .find(&name_key)
+                    .and_then(|value| value.downcast::<CFString>())
+                    .map(|name| name.to_string())
+                    .unwrap_or_default();
+                if !name.to_lowercase().contains(&needle.to_lowercase()) {
+                    continue;
+                }
+            }
+            let id: i64 = entry
+                .find(&id_key)
+                .and_then(|value| value.downcast::<CFNumber>())
+                .and_then(|number| number.to_i64())
+                .unwrap_or(0);
+            if id > 0 {
+                return Ok(Some(id as u32));
+            }
+        }
+        Ok(None)
+    }
 }
 
 /// Windows can deny reads from the desktop DC in protected or remote
@@ -524,11 +737,12 @@ mod tests {
     fn a_region_too_small_to_capture_is_refused_rather_than_attempted() {
         let err = capture_region(Region::between((0, 0), (2, 2)))
             .expect_err("a three-pixel drag is a cancelled one");
-        // Elsewhere the refusal is the platform's, and says so instead.
-        #[cfg(windows)]
+        // Where regions are unimplemented the refusal is the platform's, and
+        // says so instead.
+        #[cfg(any(windows, target_os = "macos"))]
         assert!(err.to_string().contains("too small"), "{err}");
-        #[cfg(not(windows))]
-        assert!(err.to_string().contains("Windows"), "{err}");
+        #[cfg(not(any(windows, target_os = "macos")))]
+        assert!(err.to_string().contains("not implemented"), "{err}");
     }
 
     /// Negative coordinates are ordinary: a second monitor to the left of the

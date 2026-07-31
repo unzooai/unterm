@@ -14,6 +14,11 @@ use unterm_engine::next_core::config::{Config, ConfigError};
 
 pub const MAX_SCROLLBACK_LINES: usize = 999_999_999;
 
+/// The alphabet quick select draws its labels from when the config does not
+/// name one. 0.57.4's `quick_select_alphabet` default, kept letter for letter
+/// so the labels land where muscle memory already expects them.
+pub const DEFAULT_QUICK_SELECT_ALPHABET: &str = "asdfqwerzxcvjklmiuopghtybn";
+
 /// When an agent's write to a pty needs the user to say yes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum McpInputConfirmation {
@@ -54,6 +59,8 @@ pub struct Settings {
     pub cockpit_done_hold_secs: u64,
     /// The shell to start, as a program and its arguments.
     pub shell: Option<Vec<String>>,
+    /// The letters quick select labels spans with.
+    pub quick_select_alphabet: String,
     pub initial_cols: usize,
     pub initial_rows: usize,
     pub color_scheme: Option<String>,
@@ -76,6 +83,7 @@ impl Default for Settings {
             cockpit_auto_checkpoint: true,
             cockpit_done_hold_secs: 20,
             shell: None,
+            quick_select_alphabet: DEFAULT_QUICK_SELECT_ALPHABET.to_string(),
             initial_cols: 80,
             initial_rows: 24,
             color_scheme: None,
@@ -134,8 +142,43 @@ impl Settings {
                 settings.shell = Some(words);
             }
         }
+        if let Some(text) = config.get("quick_select_alphabet").and_then(as_str) {
+            match usable_alphabet(text) {
+                Ok(alphabet) => settings.quick_select_alphabet = alphabet,
+                // The default still works; an alphabet that cannot label a
+                // screen would break the overlay in ways a user cannot see.
+                Err(problem) => {
+                    log::warn!("quick_select_alphabet {problem}; keeping the default")
+                }
+            }
+        }
         settings
     }
+}
+
+/// A label alphabet the quick select overlay can actually use, or what is
+/// wrong with the one the config offers.
+///
+/// Labels are matched lowercase -- typing one shifted means "and paste it" --
+/// so the alphabet is folded before checking. A repeated letter would hand two
+/// spans the same label, and fewer than eight letters cannot label a busy
+/// screen even after pairing them up.
+fn usable_alphabet(text: &str) -> Result<String, String> {
+    let folded = text.to_lowercase();
+    if folded.chars().count() < 8 {
+        return Err(format!("`{text}` has fewer than 8 characters"));
+    }
+    let mut seen = Vec::new();
+    for ch in folded.chars() {
+        if ch.is_whitespace() {
+            return Err(format!("`{text}` contains whitespace"));
+        }
+        if seen.contains(&ch) {
+            return Err(format!("`{ch}` appears in `{text}` more than once"));
+        }
+        seen.push(ch);
+    }
+    Ok(folded)
 }
 
 fn as_str(value: &unterm_engine::next_core::config::Value) -> Option<&str> {
@@ -351,6 +394,44 @@ mod tests {
             settings("shell = \"cmd.exe\"").shell,
             Some(vec!["cmd.exe".to_string()])
         );
+    }
+
+    #[test]
+    fn the_quick_select_alphabet_can_be_replaced() {
+        assert_eq!(
+            settings("quick_select_alphabet = \"qwertyuiop\"").quick_select_alphabet,
+            "qwertyuiop"
+        );
+        // Labels are matched lowercase, so the alphabet is folded on the way in.
+        assert_eq!(
+            settings("quick_select_alphabet = \"QWERTYUIOP\"").quick_select_alphabet,
+            "qwertyuiop"
+        );
+    }
+
+    #[test]
+    fn an_unusable_alphabet_keeps_the_default() {
+        // A repeated letter would hand two spans the same label.
+        assert_eq!(
+            settings("quick_select_alphabet = \"aabbccddee\"").quick_select_alphabet,
+            DEFAULT_QUICK_SELECT_ALPHABET
+        );
+        // Too few letters cannot label a busy screen, even with pairs.
+        assert_eq!(
+            settings("quick_select_alphabet = \"asdf\"").quick_select_alphabet,
+            DEFAULT_QUICK_SELECT_ALPHABET
+        );
+        // Case-folding can introduce the duplicate: `a` and `A` are one label.
+        assert_eq!(
+            settings("quick_select_alphabet = \"aAsdfqwer\"").quick_select_alphabet,
+            DEFAULT_QUICK_SELECT_ALPHABET
+        );
+    }
+
+    #[test]
+    fn the_default_alphabet_is_the_one_0_57_4_shipped() {
+        assert_eq!(DEFAULT_QUICK_SELECT_ALPHABET, "asdfqwerzxcvjklmiuopghtybn");
+        assert!(usable_alphabet(DEFAULT_QUICK_SELECT_ALPHABET).is_ok());
     }
 
     #[test]

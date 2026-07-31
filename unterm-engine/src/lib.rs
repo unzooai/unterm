@@ -771,6 +771,18 @@ pub struct ScreenSearchMatch {
     pub text: String,
 }
 
+/// How a search pattern reads its haystack.
+///
+/// Ignore-case is the default because it is the friendlier one for a person
+/// typing into a search bar; exact and regex matching are a cycle away.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+pub enum SearchMode {
+    CaseSensitive,
+    #[default]
+    CaseInsensitive,
+    Regex,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct ScreenSnapshot {
     /// Text a program asked to be put on the system clipboard.
@@ -1176,6 +1188,7 @@ pub trait ScreenEngine {
         &self,
         pane_id: usize,
         pattern: &str,
+        mode: SearchMode,
         max_results: usize,
     ) -> Result<Vec<ScreenSearchMatch>>;
     fn cursor(&self, pane_id: usize) -> Result<CursorSnapshot>;
@@ -1655,6 +1668,7 @@ mod tests {
             &self,
             _pane_id: usize,
             _pattern: &str,
+            _mode: SearchMode,
             _max_results: usize,
         ) -> Result<Vec<ScreenSearchMatch>> {
             Ok(Vec::new())

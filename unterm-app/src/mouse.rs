@@ -269,6 +269,67 @@ pub fn right_click(has_selection: bool) -> RightClick {
     }
 }
 
+/// Whether a left press is really the platform's secondary click.
+///
+/// AppKit normally translates a Control-click into a right press before an
+/// app sees it, but some pointing-device drivers deliver it as Control plus
+/// a left press; macOS users mean the same thing by both. Exact match only:
+/// Ctrl combined with further modifiers is somebody's modified left click --
+/// a shifted drag, an Alt block selection -- and must stay one. On the other
+/// platforms a Ctrl+Left click is just a Ctrl+Left click.
+pub fn ctrl_left_is_secondary(held: Held) -> bool {
+    cfg!(target_os = "macos") && held.ctrl && !held.shift && !held.alt
+}
+
+/// Whether a secondary press runs the copy/paste gesture, or belongs to the
+/// program.
+///
+/// A mouse-aware TUI owns an unmodified secondary click; the user can still
+/// force the terminal's gesture by holding Shift. The exception is a
+/// terminal-side selection: in a reporting pane one can only have been made
+/// with Shift held (plain drags go to the program), so it proves the user is
+/// mid-gesture -- the click's natural completion is the copy, not a byte for
+/// the program.
+pub fn secondary_click_acts(reporting: bool, has_selection: bool) -> bool {
+    !reporting || has_selection
+}
+
+#[cfg(test)]
+mod secondary_click_tests {
+    use super::*;
+
+    /// Ctrl alone is the macOS secondary click; Ctrl with anything else is
+    /// somebody's modified left click and must stay one.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn ctrl_left_is_secondary_only_with_exactly_ctrl() {
+        assert!(ctrl_left_is_secondary(Held {
+            ctrl: true,
+            ..Default::default()
+        }));
+        assert!(!ctrl_left_is_secondary(Held {
+            ctrl: true,
+            shift: true,
+            ..Default::default()
+        }));
+        assert!(!ctrl_left_is_secondary(Held {
+            ctrl: true,
+            alt: true,
+            ..Default::default()
+        }));
+        assert!(!ctrl_left_is_secondary(Held::default()));
+    }
+
+    #[test]
+    fn a_reporting_program_owns_the_click_unless_a_selection_exists() {
+        assert!(secondary_click_acts(false, false));
+        assert!(!secondary_click_acts(true, false));
+        // A selection in a reporting pane could only have been made with
+        // Shift held, so the user is mid-gesture: the copy completes it.
+        assert!(secondary_click_acts(true, true));
+    }
+}
+
 #[cfg(test)]
 mod right_click_tests {
     use super::*;

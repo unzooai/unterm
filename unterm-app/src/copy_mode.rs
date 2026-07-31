@@ -365,12 +365,15 @@ pub struct Labelled {
     pub text: String,
 }
 
-/// The alphabet labels are drawn from.
-///
-/// Home row first, and no characters that look alike in a terminal font: an
-/// `l` next to a `1` is a label you have to look twice at, which defeats the
-/// point of a two-keystroke copy.
-const LABEL_ALPHABET: &[u8] = b"asdfghjkweruioxcvbnm";
+/// The alphabet labels are drawn from: `quick_select_alphabet` in the config,
+/// or 0.57.4's default when the config is silent. Resolved in the settings
+/// layer so an unusable alphabet has already been rejected by the time labels
+/// are computed.
+fn label_alphabet() -> String {
+    unterm_services::settings::current()
+        .quick_select_alphabet
+        .clone()
+}
 
 /// Everything on screen worth grabbing, labelled.
 ///
@@ -426,16 +429,20 @@ pub fn labelled(lines: &[StyledScreenLine]) -> Vec<Labelled> {
 ///
 /// Instead letters are *taken* from the end of the alphabet to become the
 /// first character of pairs, so no letter is ever both a label and a prefix.
-/// Twenty-one matches means the last letter stops being a label of its own and
-/// becomes the prefix for as many pairs as are still needed.
+/// One match more than the alphabet has letters means the last letter stops
+/// being a label of its own and becomes the prefix for as many pairs as are
+/// still needed.
 ///
 /// From tmux-thumbs by way of the previous front end, which is where the
 /// property came from in the first place.
 pub fn labels_for(count: usize) -> Vec<String> {
-    let alphabet: Vec<String> = LABEL_ALPHABET
-        .iter()
-        .map(|ch| (*ch as char).to_string())
-        .collect();
+    labels_from(&label_alphabet(), count)
+}
+
+/// Exactly `count` labels drawn from `alphabet`. Split from `labels_for` so
+/// the algorithm can be tested without touching the process-wide settings.
+fn labels_from(alphabet: &str, count: usize) -> Vec<String> {
+    let alphabet: Vec<String> = alphabet.chars().map(|ch| ch.to_string()).collect();
     let mut single = alphabet.clone();
     let mut paired: Vec<String> = Vec::new();
 
@@ -766,13 +773,13 @@ mod label_tests {
         }
     }
 
-    /// Twenty-one is the interesting number: one more than the alphabet, so
+    /// Twenty-seven is the interesting number: one more than the alphabet, so
     /// exactly one letter has to stop being a label and become a prefix.
     #[test]
     fn one_letter_past_the_alphabet_gives_up_exactly_one_letter() {
-        let labels = labels_for(21);
+        let labels = labels_for(27);
         let singles = labels.iter().filter(|label| label.len() == 1).count();
-        assert_eq!(singles, 19, "{labels:?}");
+        assert_eq!(singles, 25, "{labels:?}");
         assert_eq!(labels.iter().filter(|label| label.len() == 2).count(), 2);
     }
 
@@ -780,7 +787,7 @@ mod label_tests {
     /// keystrokes each while two-letter labels are still available.
     #[test]
     fn labels_stay_as_short_as_they_can() {
-        for (count, longest) in [(20, 1), (21, 2), (100, 2), (399, 2)] {
+        for (count, longest) in [(26, 1), (27, 2), (100, 2), (399, 2)] {
             let widest = labels_for(count)
                 .iter()
                 .map(|label| label.chars().count())
@@ -795,10 +802,26 @@ mod label_tests {
     #[test]
     fn labels_use_only_the_chosen_alphabet() {
         let allowed: std::collections::HashSet<char> =
-            LABEL_ALPHABET.iter().map(|ch| *ch as char).collect();
+            unterm_services::settings::DEFAULT_QUICK_SELECT_ALPHABET
+                .chars()
+                .collect();
         for label in labels_for(200) {
             for ch in label.chars() {
                 assert!(allowed.contains(&ch), "{label:?} uses {ch:?}");
+            }
+        }
+    }
+
+    /// The alphabet is the user's to choose, and the labels follow it.
+    #[test]
+    fn a_configured_alphabet_is_the_one_the_labels_come_from() {
+        assert_eq!(labels_from("jkl", 3), vec!["j", "k", "l"]);
+        // Past the alphabet, the same no-prefix rule holds for any choice.
+        let labels = labels_from("jkl", 5);
+        assert_eq!(labels.len(), 5);
+        for (index, label) in labels.iter().enumerate() {
+            for other in labels.iter().skip(index + 1) {
+                assert!(!other.starts_with(label.as_str()), "{labels:?}");
             }
         }
     }

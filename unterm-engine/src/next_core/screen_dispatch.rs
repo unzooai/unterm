@@ -133,11 +133,12 @@ pub(super) fn read_scrollback(pane_id: usize, limit: usize) -> Result<Vec<String
 pub(super) fn search(
     pane_id: usize,
     pattern: &str,
+    mode: crate::SearchMode,
     max_results: usize,
 ) -> Result<Vec<ScreenSearchMatch>> {
     let started_at = Instant::now();
     let lines = snapshot_lines(pane_id)?;
-    let matches = screen_search::find_matches(&lines, pattern, max_results);
+    let matches = screen_search::find_matches(&lines, pattern, mode, max_results);
     mark_screen_read(pane_id, started_at.elapsed())?;
     Ok(matches)
 }

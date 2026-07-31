@@ -43,8 +43,10 @@ mod theme;
 mod topbar;
 mod tree;
 mod ui_tokens;
+mod unicode_names;
 mod window;
 mod window_buttons;
+mod workspaces;
 
 fn main() -> anyhow::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().filter_or("UNTERM_LOG", "info"))
@@ -69,6 +71,15 @@ fn main() -> anyhow::Result<()> {
         log::warn!("config line {}: {}", error.line, error.message);
     }
     apply_path_append(&config);
+    apply_session_env(&config);
+    // The `[keys]` section, folded into the key table before the window and
+    // the MCP surface start reading it. A broken entry is a warning with its
+    // line, never a refusal to start.
+    let (user_bindings, binding_errors) = keys::user_bindings_from(&config);
+    for error in &binding_errors {
+        log::warn!("config line {}: {}", error.line, error.message);
+    }
+    keys::install_user_bindings(user_bindings);
     if let Ok(Some(milliseconds)) = config.int_of("stats.refresh_ms") {
         if let Ok(milliseconds) = u64::try_from(milliseconds) {
             statsbar::set_refresh_ms(milliseconds);
@@ -188,6 +199,28 @@ fn merged_path(
     paths
 }
 
+/// Put the `[env]` section into the environment every new pane inherits.
+///
+/// The Lua config called this `set_environment_variables`. Setting it on the
+/// process, like `path_append` above, means the pty spawn path, shell
+/// discovery and the agents this terminal launches all see the same values.
+fn apply_session_env(config: &unterm_engine::next_core::config::Config) {
+    let names: Vec<String> = config
+        .keys()
+        .filter_map(|key| key.strip_prefix("env."))
+        .map(String::from)
+        .collect();
+    for name in names {
+        match config.str_of(&format!("env.{name}")) {
+            Ok(Some(value)) => std::env::set_var(&name, value),
+            Ok(None) => {}
+            // A non-string value: report it with its line rather than
+            // exporting something the user did not write.
+            Err(error) => log::warn!("config line {}: {}", error.line, error.message),
+        }
+    }
+}
+
 /// Convert a Lua config from an older build, once.
 ///
 /// The previous terminal read `unterm.lua`; this one reads `unterm.conf`. A
@@ -263,6 +296,23 @@ mod path_tests {
                 std::path::PathBuf::from("third"),
             ]
         );
+    }
+
+    #[test]
+    fn the_env_section_reaches_the_process_environment() {
+        let config = unterm_engine::next_core::config::parse(
+            "[env]\nUNTERM_TEST_ENV_SECTION = \"on\"\nUNTERM_TEST_ENV_BAD = 3",
+        )
+        .unwrap();
+
+        apply_session_env(&config);
+
+        // The string is exported; the non-string is reported, not invented.
+        assert_eq!(
+            std::env::var("UNTERM_TEST_ENV_SECTION").as_deref(),
+            Ok("on")
+        );
+        assert!(std::env::var("UNTERM_TEST_ENV_BAD").is_err());
     }
 
     #[test]

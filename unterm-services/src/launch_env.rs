@@ -185,6 +185,87 @@ fn chcp_command() -> String {
     format!(r"{root}\System32\chcp.com")
 }
 
+/// Where the injection toggle lives: `~/.unterm/proxy.json`, the file the
+/// ▼ menu, Web Settings and the MCP proxy tools all share.
+fn proxy_config_path() -> std::path::PathBuf {
+    dirs_next::home_dir()
+        .unwrap_or_default()
+        .join(".unterm")
+        .join("proxy.json")
+}
+
+fn proxy_config_value() -> serde_json::Value {
+    std::fs::read_to_string(proxy_config_path())
+        .ok()
+        .and_then(|content| serde_json::from_str(&content).ok())
+        .unwrap_or_else(|| serde_json::json!({"enabled": false}))
+}
+
+/// The toggle's state, cached briefly: the status bar asks on every paint,
+/// and 0.57.4 cached the same read for the same reason. The setter below
+/// refreshes the cache, so a click on the chip is never shown stale.
+static PROXY_ENABLED_CACHE: std::sync::Mutex<Option<(std::time::Instant, bool)>> =
+    std::sync::Mutex::new(None);
+
+/// Whether new sessions get Unterm's proxy env vars.
+pub fn unterm_proxy_enabled() -> bool {
+    const TTL: std::time::Duration = std::time::Duration::from_secs(2);
+    let mut cache = PROXY_ENABLED_CACHE.lock().unwrap();
+    if let Some((at, enabled)) = cache.as_ref() {
+        if at.elapsed() < TTL {
+            return *enabled;
+        }
+    }
+    let fresh = proxy_config_value()
+        .get("enabled")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+    *cache = Some((std::time::Instant::now(), fresh));
+    fresh
+}
+
+/// Flip whether new sessions get Unterm's proxy env vars.
+///
+/// This is the whole switch: it writes `enabled` into proxy.json and nothing
+/// else changes hands. In particular it never touches the OS's own proxy
+/// settings — Unterm reads those to find a proxy, but the only thing the
+/// toggle controls is env injection into sessions Unterm spawns.
+pub fn set_unterm_proxy_enabled(enabled: bool) -> anyhow::Result<()> {
+    let path = proxy_config_path();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut value = proxy_config_value();
+    if !value.is_object() {
+        value = serde_json::json!({});
+    }
+    value["enabled"] = serde_json::Value::Bool(enabled);
+    // `mode: "off"` with the toggle on is a contradiction the MCP status
+    // surface would faithfully report. The read path treats anything
+    // non-manual as auto, so auto is what an unset mode already means; a
+    // manual mode, with its explicit URLs, is the user's and stays put.
+    if enabled {
+        let mode = value
+            .get("mode")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        if mode.is_empty() || mode == "off" {
+            value["mode"] = serde_json::Value::String("auto".to_string());
+        }
+    }
+    std::fs::write(&path, serde_json::to_string_pretty(&value)?)?;
+    *PROXY_ENABLED_CACHE.lock().unwrap() = Some((std::time::Instant::now(), enabled));
+    Ok(())
+}
+
+/// The proxy the toggle would inject right now, probed. `None` means nothing
+/// answered — the caller should leave the toggle off rather than route every
+/// command in a new shell into a dead port.
+pub fn probe_unterm_proxy() -> Option<String> {
+    let (http, socks, _no_proxy) = resolve_reachable_proxy(&proxy_config_value())?;
+    http.or(socks)
+}
+
 pub fn read_unterm_proxy_env() -> Option<Vec<(String, String)>> {
     // Reads ~/.unterm/proxy.json (managed by the ▼ menu / Web Settings).
     // Schema: { enabled, mode: "auto" | "manual", http_proxy, socks_proxy, no_proxy }.
@@ -192,14 +273,7 @@ pub fn read_unterm_proxy_env() -> Option<Vec<(String, String)>> {
     // overlays whatever stale URLs are on disk — mirroring what the UI does in
     // mcp/handler.rs::load_proxy_settings() so the ▼ menu, Web Settings, and
     // spawned shells never disagree on the active proxy URL.
-    let path = dirs_next::home_dir()
-        .unwrap_or_default()
-        .join(".unterm")
-        .join("proxy.json");
-    let value: serde_json::Value = std::fs::read_to_string(&path)
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_else(|| serde_json::json!({"enabled": false}));
+    let value = proxy_config_value();
     if !value
         .get("enabled")
         .and_then(serde_json::Value::as_bool)
@@ -208,6 +282,38 @@ pub fn read_unterm_proxy_env() -> Option<Vec<(String, String)>> {
         return None;
     }
 
+    let Some((http, socks, no_proxy)) = resolve_reachable_proxy(&value) else {
+        log::warn!(
+            "Unterm proxy is enabled but no configured/detected proxy endpoint is reachable; \
+             leaving this shell on a direct connection so it isn't cut off from the network"
+        );
+        return None;
+    };
+
+    let mut env = Vec::new();
+    if let Some(http) = &http {
+        env.push(("HTTP_PROXY".to_string(), http.clone()));
+        env.push(("HTTPS_PROXY".to_string(), http.clone()));
+        env.push(("http_proxy".to_string(), http.clone()));
+        env.push(("https_proxy".to_string(), http.clone()));
+    }
+    if let Some(socks) = &socks {
+        env.push(("ALL_PROXY".to_string(), socks.clone()));
+        env.push(("all_proxy".to_string(), socks.clone()));
+    }
+    if !no_proxy.is_empty() {
+        env.push(("NO_PROXY".to_string(), no_proxy.clone()));
+        env.push(("no_proxy".to_string(), no_proxy));
+    }
+    Some(env)
+}
+
+/// Resolve the URLs the toggle would inject — mode overlay, detection and the
+/// dead-endpoint guard included — without looking at the `enabled` flag.
+/// `None` means nothing is reachable right now.
+fn resolve_reachable_proxy(
+    value: &serde_json::Value,
+) -> Option<(Option<String>, Option<String>, String)> {
     // Mode determines whether on-disk URLs are authoritative.
     //   - "manual" (or any explicit non-auto value): trust the URLs in
     //     proxy.json exactly. This is the user saying "I know what I want."
@@ -283,41 +389,15 @@ pub fn read_unterm_proxy_env() -> Option<Vec<(String, String)>> {
     // nothing, and the shell talks to the network directly, exactly as if the
     // proxy toggle were off. (Auto mode still re-detects on the next spawn, so
     // the proxy reattaches automatically once the software is back up.)
+    //
+    // The status bar chip leans on the same guard: enabling from a click is
+    // gated on this function finding something alive.
     let http = http.filter(|u| proxy_endpoint_reachable(u));
     let socks = socks.filter(|u| proxy_endpoint_reachable(u));
     if http.is_none() && socks.is_none() {
-        log::warn!(
-            "Unterm proxy is enabled but no configured/detected proxy endpoint is reachable; \
-             leaving this shell on a direct connection so it isn't cut off from the network"
-        );
         return None;
     }
-
-    let mut env = Vec::new();
-    if let Some(http) = &http {
-        env.push(("HTTP_PROXY".to_string(), http.clone()));
-        env.push(("HTTPS_PROXY".to_string(), http.clone()));
-        env.push(("http_proxy".to_string(), http.clone()));
-        env.push(("https_proxy".to_string(), http.clone()));
-    }
-    if let Some(socks) = &socks {
-        env.push(("ALL_PROXY".to_string(), socks.clone()));
-        env.push(("all_proxy".to_string(), socks.clone()));
-    }
-    if !no_proxy.is_empty() {
-        env.push(("NO_PROXY".to_string(), no_proxy.clone()));
-        env.push(("no_proxy".to_string(), no_proxy));
-    }
-
-    if env.is_empty() {
-        log::warn!(
-            "Unterm proxy is enabled but no proxy could be detected from the OS or scan; \
-             set explicit URLs in ~/.unterm/proxy.json if needed"
-        );
-        None
-    } else {
-        Some(env)
-    }
+    Some((http, socks, no_proxy))
 }
 
 /// TCP-probe a proxy endpoint so we never inject a dead proxy into a shell.

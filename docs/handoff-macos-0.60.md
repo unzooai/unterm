@@ -65,3 +65,24 @@ macOS 机器上继续工作的唯一入口：按顺序执行，逐项打勾，�
 - Windows 侧遗留的三处已知样式差（快捷菜单为居中面板而非锚定下拉卡片、
   shell 选择器与目录跳转复用面板壳、顶栏 hover/高度非像素级），macOS 复核时
   同样适用，暂不阻塞发版。
+
+## 执行记录（2026-08-01,macOS 机器）
+
+- 步骤 1 完成:release 构建 + 全量测试全绿(修复了三个只在 macOS 暴露的
+  测试问题:chrome 符号字体缺 Apple Symbols/Menlo、[keys] 警告顺序、
+  block-cursor 测试谓词;另修两个引擎测试的平台形/回显竞态)。
+- 交互缺口全部清零:原"0.61 增强清单"的 9 项(Ctrl-R 三态、hyperlink_rules、
+  text_blink_rate/visual_bell、charselect 13 组、quick_select_alphabet、
+  [keys]/[env]、launcher workspace/键位、proxy chip 就地切换、inactive_pane
+  HSB、macOS Ctrl+左键)已全部实现并有测试,详见 parity-gap-audit 的
+  macOS 侧验收一节。Snap Layouts(Windows 专属)仍留 0.61。
+- 新发现并修复:capture.window/region 的 unterm-services 实现是
+  Windows-only stub(GUI host 路径 mac 报未实现)→ 按 0.57.4 同款移植;
+  selftest styled capture 的 zsh glob 坑;窗口标题 read→read_current。
+- selftest 13/14:仅 capture.window 因本机未授 Screen Recording 权限失败,
+  0.57.4 在本机同样失败——行为已一致,授权后两版都通。
+- 启动性能:MCP 可用耗时 0.60=22ms vs 0.57.4=7101ms(同机同法实测)。
+- FR-PROF-003(Keychain round-trip)、FR-MCP-004(unix 0600)已 Verified。
+- 未尽事项(都需要解锁的屏幕/用户一次性动作):真窗口逐面外观对照与
+  交互手势复核、FR-CAP-006 window_scroll 实测、Screen Recording 授权、
+  打包公证(按发版节奏另行)。

@@ -13,9 +13,13 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow.workspace = true
+chrono = { workspace = true, features = ["clock"] }
 dirs-next.workspace = true
 emojis.workspace = true
 frecency.workspace = true
+nucleo-matcher.workspace = true
+rayon.workspace = true
+regex.workspace = true
 serde = { workspace = true, features = ["derive"] }
 parking_lot.workspace = true
 log.workspace = true

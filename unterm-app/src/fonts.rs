@@ -43,8 +43,15 @@ const FALLBACK_FAMILIES: &[&str] = &[
     "Malgun Gothic",
     "Noto Sans CJK JP",
     "Noto Sans CJK KR",
-    // Symbols and emoji
+    // Symbols and emoji. One per platform: geometric shapes and marks like
+    // the chrome's ▶ and ✓ live in a symbol face, and each system names its
+    // own -- a machine without one draws chrome whose marks are simply gone.
     "Segoe UI Symbol",
+    // Apple Symbols has the geometric shapes but no tick; Menlo carries the
+    // tick and the dingbat-adjacent marks. Both ship with every macOS.
+    "Apple Symbols",
+    "Menlo",
+    "Noto Sans Symbols 2",
     "Segoe UI Emoji",
     "Symbols Nerd Font Mono",
     "Noto Color Emoji",
@@ -566,3 +573,4 @@ mod bundled_tests {
         }
     }
 }
+

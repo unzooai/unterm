@@ -120,6 +120,7 @@ pub(in crate::next_core) enum RuntimeCommand {
     SearchScreen {
         pane_id: usize,
         pattern: String,
+        mode: crate::SearchMode,
         max_results: usize,
     },
     Cursor {

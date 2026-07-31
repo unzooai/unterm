@@ -727,9 +727,7 @@ fn simple_inactive_pane_hsb(raw: &str) -> Result<Vec<(&'static str, String)>, St
         let name = match name.trim() {
             "brightness" => "brightness",
             "saturation" => "saturation",
-            // Hue is not currently exposed because the old product never
-            // shipped a non-identity value for it.
-            "hue" if value.trim().parse::<f64>().ok() == Some(1.0) => continue,
+            "hue" => "hue",
             other => return Err(format!("unsupported inactive pane HSB field `{other}`")),
         };
         let converted = convert_value(value)?;
@@ -928,7 +926,7 @@ config.status_update_interval = 2000
     #[test]
     fn one_line_inactive_pane_hsb_keeps_the_visible_transform() {
         let migration =
-            migrate_lua("config.inactive_pane_hsb = { brightness=0.55, saturation=0.8 }");
+            migrate_lua("config.inactive_pane_hsb = { brightness=0.55, saturation=0.8, hue=0.9 }");
         let parsed = config::parse(&migration.text).expect("output should parse");
 
         assert_eq!(
@@ -939,6 +937,7 @@ config.status_update_interval = 2000
             parsed.float_of("inactive_pane.saturation").unwrap(),
             Some(0.8)
         );
+        assert_eq!(parsed.float_of("inactive_pane.hue").unwrap(), Some(0.9));
         assert!(
             migration.unconverted.is_empty(),
             "{:?}",

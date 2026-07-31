@@ -6,7 +6,7 @@
 use crate::fonts::FontStack;
 use unterm_engine::next_core::font_raster::FontFace;
 use unterm_engine::next_core::{config::Config, font_discovery};
-use unterm_engine::{StyledCell, StyledScreenSnapshot};
+use unterm_engine::{StyledBlink, StyledCell, StyledScreenSnapshot};
 use unterm_render::atlas::{GlyphAtlas, GlyphKey};
 use unterm_render::quads::{build_row, CellMetrics, FrameColors, FrameQuads, Quad};
 
@@ -103,6 +103,199 @@ pub fn blink_is_on(elapsed_ms: u128, rate_ms: u64) -> bool {
         return true;
     }
     (elapsed_ms / rate_ms as u128) % 2 == 0
+}
+
+/// Which halves of the two text blink cadences are showing this frame.
+///
+/// SGR 5 and SGR 6 tick independently, each at its own configured rate. A
+/// rate of zero is that cadence turned off, and its cells stay visible.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BlinkPhase {
+    pub slow_on: bool,
+    pub rapid_on: bool,
+}
+
+impl BlinkPhase {
+    /// Everything visible, for frames that do not animate.
+    #[cfg(test)]
+    pub const STEADY: Self = Self {
+        slow_on: true,
+        rapid_on: true,
+    };
+
+    pub fn at(elapsed_ms: u128, slow_rate_ms: u64, rapid_rate_ms: u64) -> Self {
+        Self {
+            slow_on: blink_is_on(elapsed_ms, slow_rate_ms),
+            rapid_on: blink_is_on(elapsed_ms, rapid_rate_ms),
+        }
+    }
+
+    /// Whether a cell with this blink attribute is in its invisible half.
+    pub fn conceals(&self, blink: Option<StyledBlink>) -> bool {
+        match blink {
+            None => false,
+            Some(StyledBlink::Slow) => !self.slow_on,
+            Some(StyledBlink::Rapid) => !self.rapid_on,
+        }
+    }
+}
+
+/// The text blink rates from the config: (slow, rapid), in milliseconds.
+///
+/// The previous front end's defaults -- 500ms for SGR 5, 250ms for SGR 6 --
+/// and zero turns a cadence off, as `text_blink_rate` always has.
+pub fn text_blink_rates(config: &Config) -> (u64, u64) {
+    let rate = |key: &str, fallback: f64| {
+        config
+            .float_of(key)
+            .ok()
+            .flatten()
+            .unwrap_or(fallback)
+            .max(0.0) as u64
+    };
+    (
+        rate("text_blink_rate", 500.0),
+        rate("text_blink_rate_rapid", 250.0),
+    )
+}
+
+/// Which blink cadences the screen is using: (slow, rapid).
+///
+/// So the window can ask for frames only while something on screen actually
+/// blinks -- a screen without blinking cells must not cost a redraw per phase.
+pub fn blinking_cells(snapshot: &StyledScreenSnapshot) -> (bool, bool) {
+    let mut slow = false;
+    let mut rapid = false;
+    for line in &snapshot.lines {
+        for cell in &line.cells {
+            match cell.style.blink {
+                Some(StyledBlink::Slow) => slow = true,
+                Some(StyledBlink::Rapid) => rapid = true,
+                None => {}
+            }
+        }
+    }
+    (slow, rapid)
+}
+
+/// <https://developer.mozilla.org/en-US/docs/Web/CSS/easing-function>, by the
+/// names the previous front end's config used. An unknown name is `Ease`,
+/// which was its default.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Easing {
+    Linear,
+    #[default]
+    Ease,
+    EaseIn,
+    EaseInOut,
+    EaseOut,
+    Constant,
+}
+
+impl Easing {
+    pub fn parse(name: &str) -> Self {
+        match name.trim().to_lowercase().as_str() {
+            "linear" => Self::Linear,
+            "easein" => Self::EaseIn,
+            "easeinout" => Self::EaseInOut,
+            "easeout" => Self::EaseOut,
+            "constant" => Self::Constant,
+            _ => Self::Ease,
+        }
+    }
+
+    /// The curve's value at `position` in 0..=1, the same cubic bezier
+    /// arithmetic the previous front end used.
+    fn evaluate(&self, position: f32) -> f32 {
+        let [a, b, c, d] = match self {
+            Self::Constant => [0.0, 0.0, 0.0, 0.0],
+            Self::Linear => [0.0, 0.0, 1.0, 1.0],
+            Self::Ease => [0.25, 0.1, 0.25, 1.0],
+            Self::EaseIn => [0.42, 0.0, 1.0, 1.0],
+            Self::EaseInOut => [0.42, 0.0, 0.58, 1.0],
+            Self::EaseOut => [0.0, 0.0, 0.58, 1.0],
+        };
+        let x = position;
+        (1.0 - x).powi(3) * a
+            + 3.0 * (1.0 - x).powi(2) * x * b
+            + 3.0 * (1.0 - x) * x.powi(2) * c
+            + x.powi(3) * d
+    }
+}
+
+/// What the visual bell colours: the whole background, or the cursor's cell.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum BellTarget {
+    #[default]
+    BackgroundColor,
+    CursorColor,
+}
+
+/// The visual bell: how its flash rises and falls, and what it colours.
+///
+/// The previous front end's `visual_bell` table, keys and defaults intact --
+/// both durations zero by default, which is the bell not flashing at all.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct VisualBell {
+    pub fade_in_ms: u64,
+    pub fade_out_ms: u64,
+    pub fade_in: Easing,
+    pub fade_out: Easing,
+    pub target: BellTarget,
+}
+
+impl VisualBell {
+    pub fn from_config(config: &Config) -> Self {
+        let ms = |key: &str| {
+            config
+                .float_of(key)
+                .ok()
+                .flatten()
+                .unwrap_or(0.0)
+                .max(0.0) as u64
+        };
+        let easing = |key: &str| {
+            config
+                .str_of(key)
+                .ok()
+                .flatten()
+                .map(|name| Easing::parse(&name))
+                .unwrap_or_default()
+        };
+        Self {
+            fade_in_ms: ms("visual_bell.fade_in_duration_ms"),
+            fade_out_ms: ms("visual_bell.fade_out_duration_ms"),
+            fade_in: easing("visual_bell.fade_in_function"),
+            fade_out: easing("visual_bell.fade_out_function"),
+            target: match config.str_of("visual_bell.target").ok().flatten() {
+                Some(name) if name.eq_ignore_ascii_case("cursorcolor") => BellTarget::CursorColor,
+                _ => BellTarget::BackgroundColor,
+            },
+        }
+    }
+
+    /// A bell that would never show should never start a flash.
+    pub fn disabled(&self) -> bool {
+        self.fade_in_ms == 0 && self.fade_out_ms == 0
+    }
+
+    /// How strongly the flash shows `elapsed_ms` after the bell rang.
+    ///
+    /// One shot: rise over the fade-in, fall over the fade-out, then `None`
+    /// -- the flash is over and stops asking for frames.
+    pub fn intensity_at(&self, elapsed_ms: u128) -> Option<f32> {
+        let elapsed = elapsed_ms as f32;
+        let fade_in = self.fade_in_ms as f32;
+        if elapsed < fade_in {
+            return Some(self.fade_in.evaluate(elapsed / fade_in));
+        }
+        let completion = (elapsed - fade_in) / self.fade_out_ms as f32;
+        // A zero fade-out divides to NaN or infinity; either way it is done.
+        if !completion.is_finite() || completion >= 1.0 {
+            return None;
+        }
+        Some(1.0 - self.fade_out.evaluate(completion))
+    }
 }
 
 /// How far the cell is stretched around its glyphs.
@@ -311,6 +504,7 @@ pub fn frame_quads(
         (0.0, 0.0),
         true,
         CursorStyle::default(),
+        BlinkPhase::STEADY,
         &mut quads,
     );
     quads
@@ -330,9 +524,41 @@ pub fn append_pane(
     origin: (f32, f32),
     solid_cursor: bool,
     cursor: CursorStyle,
+    blink: BlinkPhase,
     quads: &mut FrameQuads,
 ) {
     let metrics = font.metrics();
+
+    // A blinking cell in its invisible half is drawn the way `hidden` is
+    // drawn: background kept, glyph withheld. Rows without one borrow their
+    // cells untouched, so a screen with nothing blinking -- almost every
+    // screen -- shapes exactly what the snapshot holds, copying nothing.
+    let lines: Vec<std::borrow::Cow<'_, [StyledCell]>> = snapshot
+        .lines
+        .iter()
+        .map(|line| {
+            if line
+                .cells
+                .iter()
+                .any(|cell| blink.conceals(cell.style.blink))
+            {
+                std::borrow::Cow::Owned(
+                    line.cells
+                        .iter()
+                        .map(|cell| {
+                            let mut cell = cell.clone();
+                            if blink.conceals(cell.style.blink) {
+                                cell.style.hidden = true;
+                            }
+                            cell
+                        })
+                        .collect(),
+                )
+            } else {
+                std::borrow::Cow::Borrowed(line.cells.as_slice())
+            }
+        })
+        .collect();
 
     // Shape every row and rasterize everything this frame needs *before*
     // building any quads. The atlas grows, and growing it renormalizes every
@@ -340,12 +566,12 @@ pub fn append_pane(
     // atlas bigger ends up sampling the wrong pixels. It shows up as
     // characters missing from the middle of a word, which is how this was
     // found: "example.com" rendered as "exampl  com".
-    let mut shaped_rows: Vec<Vec<(usize, ShapedRun)>> = Vec::with_capacity(snapshot.lines.len());
-    for line in &snapshot.lines {
-        shaped_rows.push(shape_row(&line.cells, font));
+    let mut shaped_rows: Vec<Vec<(usize, ShapedRun)>> = Vec::with_capacity(lines.len());
+    for cells in &lines {
+        shaped_rows.push(shape_row(cells, font));
     }
-    for line in &snapshot.lines {
-        for cell in &line.cells {
+    for cells in &lines {
+        for cell in cells.iter() {
             ensure_glyph(font, atlas, cell.ch);
         }
     }
@@ -363,8 +589,8 @@ pub fn append_pane(
     let stack_id = font.stack_id();
     let mut face_of: std::collections::HashMap<char, usize> = std::collections::HashMap::new();
     let mut index_of: std::collections::HashMap<char, u32> = std::collections::HashMap::new();
-    for line in &snapshot.lines {
-        for cell in &line.cells {
+    for cells in &lines {
+        for cell in cells.iter() {
             let face = *face_of
                 .entry(cell.ch)
                 .or_insert_with(|| font.stack.face_for(cell.ch));
@@ -388,7 +614,7 @@ pub fn append_pane(
         quads,
     );
 
-    for (row, line) in snapshot.lines.iter().enumerate() {
+    for (row, cells) in lines.iter().enumerate() {
         let top = origin.1 + row as f32 * metrics.height;
 
         // Backgrounds and any cell the shaper could not draw. Shaping runs
@@ -397,7 +623,7 @@ pub fn append_pane(
         // and the only option for one the shaper will not open.
         let shaped = place_shaped_row(
             &shaped_rows[row],
-            &line.cells,
+            cells,
             origin.0,
             top,
             metrics,
@@ -408,7 +634,7 @@ pub fn append_pane(
             quads,
         );
         build_row(
-            &line.cells,
+            cells,
             origin.0,
             top,
             metrics,
@@ -1117,10 +1343,18 @@ mod tests {
 
         // The character under the block is the one the user is about to edit;
         // an opaque block on top of it hides exactly what they need to see.
+        // Nearest-to-the-cell rather than first-within-a-cell: a face whose
+        // `a` carries a left bearing would land that neighbour in a naive
+        // window before the glyph the cursor is actually on.
         let under = quads
             .glyphs
             .iter()
-            .find(|glyph| (glyph.quad.left - font.metrics().width).abs() < font.metrics().width)
+            .min_by(|a, b| {
+                let off = |glyph: &&unterm_render::quads::GlyphQuad| {
+                    (glyph.quad.left - font.metrics().width).abs()
+                };
+                off(a).total_cmp(&off(b))
+            })
             .expect("the character under the cursor should still be drawn");
         assert_eq!(under.quad.color, colors.background);
     }
@@ -1427,6 +1661,7 @@ mod missing_glyph_regression {
             (0.0, 0.0),
             true,
             CursorStyle::default(),
+            BlinkPhase::STEADY,
             &mut quads,
         );
 
@@ -1523,6 +1758,7 @@ mod cursor_inversion_tests {
             (0.0, 0.0),
             true,
             CursorStyle::default(),
+            BlinkPhase::STEADY,
             &mut quads,
         );
 
@@ -1854,6 +2090,7 @@ mod focus_cursor_tests {
             (0.0, 0.0),
             focused,
             CursorStyle::default(),
+            BlinkPhase::STEADY,
             &mut quads,
         );
         Some(quads)
@@ -1962,6 +2199,199 @@ mod cursor_style_tests {
         for elapsed in [0, 1, 999_999] {
             assert!(blink_is_on(elapsed, 0), "at {elapsed}");
         }
+    }
+}
+
+#[cfg(test)]
+mod text_blink_tests {
+    use super::*;
+    use unterm_engine::next_core::config::parse;
+    use unterm_engine::{CellStyle, CursorSnapshot, StyledCell, StyledScreenLine};
+
+    #[test]
+    fn the_two_cadences_tick_independently() {
+        // At 600ms a 500ms slow blink is off but a 250ms rapid one is back on.
+        let phase = BlinkPhase::at(600, 500, 250);
+        assert!(!phase.slow_on);
+        assert!(phase.rapid_on);
+        assert!(phase.conceals(Some(StyledBlink::Slow)));
+        assert!(!phase.conceals(Some(StyledBlink::Rapid)));
+        assert!(!phase.conceals(None));
+    }
+
+    /// Zero is the cadence turned off: its cells stay visible forever.
+    #[test]
+    fn a_rate_of_zero_never_conceals() {
+        for elapsed in [0, 1, 250, 999_999] {
+            let phase = BlinkPhase::at(elapsed, 0, 0);
+            assert!(!phase.conceals(Some(StyledBlink::Slow)), "at {elapsed}");
+            assert!(!phase.conceals(Some(StyledBlink::Rapid)), "at {elapsed}");
+        }
+    }
+
+    /// The previous front end's defaults: 500ms slow, 250ms rapid.
+    #[test]
+    fn the_rates_default_and_read_from_the_config() {
+        let empty = parse("").expect("empty config parses");
+        assert_eq!(text_blink_rates(&empty), (500, 250));
+
+        let set = parse("text_blink_rate = 0\ntext_blink_rate_rapid = 100")
+            .expect("config parses");
+        assert_eq!(text_blink_rates(&set), (0, 100));
+    }
+
+    fn snapshot_with(blink: Option<StyledBlink>) -> StyledScreenSnapshot {
+        let mut style = CellStyle::default();
+        style.blink = blink;
+        StyledScreenSnapshot {
+            lines: vec![StyledScreenLine {
+                row: 0,
+                wrapped: false,
+                cells: "ab"
+                    .chars()
+                    .map(|ch| StyledCell {
+                        ch,
+                        style: style.clone(),
+                        width: 1,
+                    })
+                    .collect(),
+            }],
+            cursor: CursorSnapshot {
+                x: 0,
+                y: 0,
+                visible: false,
+                shape: "Default".to_string(),
+            },
+            cols: 2,
+            rows: 1,
+            scrollback_rows: 0,
+            revision: 1,
+            dirty_rows: None,
+            mouse: Default::default(),
+            bells: 0,
+            notifications: 0,
+            last_notification: None,
+            focus_reporting: false,
+            clipboard_request: None,
+        }
+    }
+
+    #[test]
+    fn only_the_scanner_reports_what_actually_blinks() {
+        assert_eq!(blinking_cells(&snapshot_with(None)), (false, false));
+        assert_eq!(
+            blinking_cells(&snapshot_with(Some(StyledBlink::Slow))),
+            (true, false)
+        );
+        assert_eq!(
+            blinking_cells(&snapshot_with(Some(StyledBlink::Rapid))),
+            (false, true)
+        );
+    }
+
+    /// The invisible half withholds the glyphs and keeps the cell -- exactly
+    /// what `hidden` does, because it is drawn through the same path.
+    #[test]
+    fn the_invisible_half_conceals_the_glyphs_and_not_the_cells() {
+        let Ok(mut font) = TerminalFont::open(16) else {
+            return;
+        };
+        let mut atlas = GlyphAtlas::new(256, 256);
+        let colors = FrameColors {
+            foreground: [1.0; 4],
+            background: [0.0, 0.0, 0.0, 1.0],
+            palette: &unterm_render::quads::DEFAULT_PALETTE,
+        };
+        let snapshot = snapshot_with(Some(StyledBlink::Slow));
+
+        let count_glyphs = |phase: BlinkPhase, font: &mut TerminalFont, atlas: &mut GlyphAtlas| {
+            let mut quads = FrameQuads::default();
+            append_pane(
+                &snapshot,
+                font,
+                atlas,
+                colors,
+                (0.0, 0.0),
+                true,
+                CursorStyle::default(),
+                phase,
+                &mut quads,
+            );
+            quads.glyphs.len()
+        };
+
+        let shown = count_glyphs(BlinkPhase::STEADY, &mut font, &mut atlas);
+        let concealed = count_glyphs(
+            BlinkPhase {
+                slow_on: false,
+                rapid_on: true,
+            },
+            &mut font,
+            &mut atlas,
+        );
+        assert!(shown > 0, "the visible half draws the text");
+        assert_eq!(concealed, 0, "the invisible half draws none of it");
+    }
+}
+
+#[cfg(test)]
+mod visual_bell_tests {
+    use super::*;
+    use unterm_engine::next_core::config::parse;
+
+    /// The previous front end's defaults: both durations zero -- no flash.
+    #[test]
+    fn the_default_bell_never_shows() {
+        let bell = VisualBell::from_config(&parse("").expect("empty config parses"));
+        assert!(bell.disabled());
+        assert_eq!(bell.intensity_at(0), None);
+        assert_eq!(bell.target, BellTarget::BackgroundColor);
+        assert_eq!(bell.fade_in, Easing::Ease);
+        assert_eq!(bell.fade_out, Easing::Ease);
+    }
+
+    #[test]
+    fn the_flash_rises_falls_and_ends() {
+        let config = parse(
+            "[visual_bell]\n\
+             fade_in_duration_ms = 100\n\
+             fade_out_duration_ms = 100\n\
+             fade_in_function = \"Linear\"\n\
+             fade_out_function = \"Linear\"\n\
+             target = \"CursorColor\"",
+        )
+        .expect("config parses");
+        let bell = VisualBell::from_config(&config);
+        assert!(!bell.disabled());
+        assert_eq!(bell.target, BellTarget::CursorColor);
+        assert_eq!(bell.intensity_at(0), Some(0.0));
+        assert_eq!(bell.intensity_at(50), Some(0.5));
+        assert_eq!(bell.intensity_at(150), Some(0.5));
+        assert_eq!(bell.intensity_at(200), None);
+        assert_eq!(bell.intensity_at(999_999), None);
+    }
+
+    /// Only a fade-out, which is what the old hardcoded flash was: full
+    /// brightness at the bell, gone when the fade completes.
+    #[test]
+    fn a_fade_out_alone_starts_at_full() {
+        let config = parse(
+            "[visual_bell]\nfade_out_duration_ms = 120\nfade_out_function = \"Linear\"",
+        )
+        .expect("config parses");
+        let bell = VisualBell::from_config(&config);
+        assert_eq!(bell.intensity_at(0), Some(1.0));
+        assert_eq!(bell.intensity_at(60), Some(0.5));
+        assert_eq!(bell.intensity_at(120), None);
+    }
+
+    /// An unknown curve is `Ease`, the old default, not a refusal to flash.
+    #[test]
+    fn easing_names_parse_and_typos_fall_back() {
+        assert_eq!(Easing::parse("Linear"), Easing::Linear);
+        assert_eq!(Easing::parse("easeinout"), Easing::EaseInOut);
+        assert_eq!(Easing::parse("Constant"), Easing::Constant);
+        assert_eq!(Easing::parse("wobbly"), Easing::Ease);
     }
 }
 

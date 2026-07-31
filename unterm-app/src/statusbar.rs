@@ -66,8 +66,13 @@ pub struct Status {
     pub rows: usize,
     /// The project the pane is in.
     pub project: String,
-    /// The proxy in force, if any.
-    pub proxy: Option<String>,
+    /// Whether new sessions get Unterm's proxy env vars. The chip shows the
+    /// toggle, not the system proxy: 0.57.4's did, and a bar that says "on"
+    /// because the OS has a proxy reads as Unterm doing something it is not.
+    pub proxy: bool,
+    /// A click just tried to switch the proxy on and nothing answered the
+    /// probe. Shown briefly in place of on/off, in the error colour.
+    pub proxy_unreachable: bool,
     /// How many times an agent has written to a pane this session, and whether
     /// one of those writes was a moment ago.
     pub agent_writes: u64,
@@ -111,6 +116,9 @@ pub struct Segment {
     /// chip's colon — in the theme's teal, which is what made the bar read as
     /// labels-and-values rather than one grey line.
     pub teal_from: Option<usize>,
+    /// The value is bad news for a moment — a proxy probe just failed — and
+    /// reads in the error colour rather than the accent.
+    pub error: bool,
     pub kind: SegmentKind,
 }
 
@@ -264,6 +272,7 @@ pub fn segments(status: &Status, columns: usize) -> Vec<Segment> {
                 text: format!("\u{2713} {}", middle(notice, columns.saturating_sub(4))),
                 dim: false,
                 teal_from: None,
+                error: false,
                 kind: SegmentKind::Notice,
             });
             return segments;
@@ -278,6 +287,7 @@ pub fn segments(status: &Status, columns: usize) -> Vec<Segment> {
                     text,
                     dim,
                     teal_from,
+                    error: false,
                     kind,
                 });
             }
@@ -317,16 +327,24 @@ pub fn segments(status: &Status, columns: usize) -> Vec<Segment> {
         push("capture:include".to_string(), true, Some(value), SegmentKind::CaptureInclude, &mut segments);
     }
     if density.show_telemetry {
-        push(
-            match status.proxy.as_deref() {
-                Some(_) => "proxy:on".to_string(),
-                None => "proxy:off".to_string(),
-            },
-            true,
-            Some("proxy:".len()),
-            SegmentKind::Proxy,
-            &mut segments,
-        );
+        // The chip is the injection toggle, and its click is the switch. The
+        // unreachable state is transient: a press tried to switch it on, the
+        // probe found nothing listening, and the chip says so for a moment
+        // rather than silently ignoring the press.
+        let (proxy_text, proxy_error) = if status.proxy_unreachable {
+            ("proxy:unreachable", true)
+        } else if status.proxy {
+            ("proxy:on", false)
+        } else {
+            ("proxy:off", false)
+        };
+        segments.push(Segment {
+            text: proxy_text.to_string(),
+            dim: true,
+            teal_from: Some("proxy:".len()),
+            error: proxy_error,
+            kind: SegmentKind::Proxy,
+        });
         // Always drawn, even at zero, so the position is stable: a chip that
         // appears and disappears moves every neighbour and every hit test with
         // it. The bolt says a write landed a moment ago, so a flash is
@@ -407,7 +425,8 @@ mod tests {
             columns: 120,
             rows: 31,
             project: "unterm".into(),
-            proxy: Some("127.0.0.1:7897".into()),
+            proxy: true,
+            proxy_unreachable: false,
             agent_writes: 0,
             agent_wrote_recently: false,
             theme: "standard".into(),
@@ -474,6 +493,36 @@ mod tests {
             !shown.iter().any(|text| text.starts_with("proxy:")),
             "a narrow bar showed telemetry: {shown:?}"
         );
+    }
+
+    /// The proxy chip is the injection toggle, so it reads off when the toggle
+    /// is off — whatever the OS's own proxy settings say.
+    #[test]
+    fn the_proxy_chip_shows_the_toggle() {
+        let mut status = status();
+        status.proxy = false;
+        let shown = texts(&segments(&status, 200));
+        assert!(shown.iter().any(|text| text == "proxy:off"), "{shown:?}");
+    }
+
+    /// A failed probe takes the chip over for a moment, in the error colour:
+    /// the press did something, and what it did was find nothing listening.
+    #[test]
+    fn a_failed_probe_shows_on_the_chip() {
+        let mut status = status();
+        status.proxy_unreachable = true;
+        let shown = segments(&status, 200);
+        let chip = shown
+            .iter()
+            .find(|segment| segment.kind == SegmentKind::Proxy)
+            .expect("the proxy chip");
+        assert_eq!(chip.text, "proxy:unreachable");
+        assert!(chip.error);
+        // And only the proxy chip carries the error colour.
+        assert!(shown
+            .iter()
+            .filter(|segment| segment.kind != SegmentKind::Proxy)
+            .all(|segment| !segment.error));
     }
 
     /// The MCP chip is always drawn once telemetry is on, even at zero: a chip

@@ -258,7 +258,8 @@ impl McpHost for AppMcpHost {
     }
 
     fn key_assignments(&self) -> Vec<Value> {
-        crate::keys::BINDINGS
+        // The folded table, so a `[keys]` override is what the agent sees.
+        crate::keys::effective_bindings()
             .iter()
             .map(|binding| {
                 json!({

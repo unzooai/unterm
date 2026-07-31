@@ -35,6 +35,12 @@ unterm-profile.workspace = true
 [target."cfg(unix)".dependencies]
 libc.workspace = true
 
+# Finding a window's CGWindowID, and reading back what `screencapture` wrote.
+[target."cfg(target_os = \"macos\")".dependencies]
+core-foundation.workspace = true
+core-graphics.workspace = true
+png.workspace = true
+
 [target."cfg(windows)".dependencies]
 winapi = { workspace = true, features = ["handleapi", "jobapi2", "processthreadsapi", "winnt", "synchapi", "errhandlingapi", "consoleapi", "wincon", "winuser", "wingdi", "psapi", "sysinfoapi", "winbase", "minwindef", "shellapi", "libloaderapi"] }
 winreg.workspace = true

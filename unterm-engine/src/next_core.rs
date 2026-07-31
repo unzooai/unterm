@@ -1919,9 +1919,10 @@ impl ScreenEngine for NextCoreEngine {
         &self,
         pane_id: usize,
         pattern: &str,
+        mode: crate::SearchMode,
         max_results: usize,
     ) -> Result<Vec<ScreenSearchMatch>> {
-        runtime::search_screen(pane_id, pattern, max_results)
+        runtime::search_screen(pane_id, pattern, mode, max_results)
     }
 
     fn cursor(&self, pane_id: usize) -> Result<CursorSnapshot> {
@@ -2807,17 +2808,24 @@ mod tests {
         assert_eq!(shell_cwd, process_cwd);
         assert_eq!(engine.get_session(session.id)?.shell.cwd, shell_cwd);
 
-        set_output_for_test(
-            session.id,
+        // The URL and the path it should become are platform-shaped: drive
+        // letters and backslashes are Windows' answer, a rooted unix path is
+        // everyone else's.
+        #[cfg(windows)]
+        let (osc7, expected) = (
             "\x1b]7;file://localhost/C:/Users/alex/osc-project\x07",
-        )?;
-        assert_eq!(
-            engine.shell(session.id)?.cwd.as_deref(),
-            Some("C:\\Users\\alex\\osc-project")
+            "C:\\Users\\alex\\osc-project",
         );
+        #[cfg(not(windows))]
+        let (osc7, expected) = (
+            "\x1b]7;file://localhost/home/alex/osc-project\x07",
+            "/home/alex/osc-project",
+        );
+        set_output_for_test(session.id, osc7)?;
+        assert_eq!(engine.shell(session.id)?.cwd.as_deref(), Some(expected));
         assert_eq!(
             engine.get_session(session.id)?.shell.cwd.as_deref(),
-            Some("C:\\Users\\alex\\osc-project")
+            Some(expected)
         );
 
         engine.destroy_session(session.id)?;
@@ -2879,17 +2887,21 @@ mod tests {
         let _guard = test_guard();
         let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
+        // A quiet command, not the default shell: the counts below are exact,
+        // and a shell that gets its prompt out before the assertions adds an
+        // output chunk of its own.
         let session = engine.create_session(CreateSessionRequest {
             cols: 80,
             rows: 3,
             command_dir: None,
-            command: None,
+            command: Some(quiet_wait_command_for_test()),
             env: Vec::new(),
             launch_policy: Default::default(),
         })?;
 
-        engine.write_input(session.id, "abc")?;
-        engine.paste_input(session.id, "token")?;
+        // Output counters first, before anything is typed: the tty echoes
+        // written input back as output chunks of its own, so once input is in
+        // flight the output counts stop being exact.
         set_output_for_test(session.id, "one\ntwo\nthree\nfour")?;
         let _ = engine.read_screen(session.id)?;
         engine.scroll_viewport_to(session.id, 1)?;
@@ -2897,14 +2909,21 @@ mod tests {
         let health = engine.health()?;
         let io = health.io.expect("next-core io health");
         assert_eq!(health.pane_count, Some(1));
-        assert_eq!(io.input_writes, 2);
-        assert_eq!(io.input_bytes, 8);
-        assert_eq!(io.paste_count, 1);
-        assert_eq!(io.paste_text_bytes, 5);
         assert_eq!(io.output_chunks, 1);
         assert_eq!(io.output_bytes, 18);
         assert_eq!(io.screen_reads, 1);
         assert_eq!(io.viewport_scrolls, 1);
+
+        engine.write_input(session.id, "abc")?;
+        engine.paste_input(session.id, "token")?;
+
+        let health = engine.health()?;
+        let io = health.io.expect("next-core io health");
+        assert_eq!(io.input_writes, 2);
+        assert_eq!(io.input_bytes, 8);
+        assert_eq!(io.paste_count, 1);
+        assert_eq!(io.paste_text_bytes, 5);
+        let health = engine.health()?;
         let lifecycle = health.lifecycle.expect("next-core lifecycle health");
         assert_eq!(lifecycle.live_sessions, 1);
         assert_eq!(lifecycle.dead_sessions, 0);
@@ -3202,7 +3221,7 @@ mod tests {
                 escapes: false,
             },
         )?;
-        let _ = engine.search(session.id, "two", 10)?;
+        let _ = engine.search(session.id, "two", crate::SearchMode::CaseSensitive, 10)?;
 
         let activity = engine.activity(session.id)?;
         let screen = activity.screen.expect("screen activity");
@@ -3232,7 +3251,14 @@ mod tests {
 
         let text = engine.read_visible_text(session.id)?;
         assert!(text.contains("next-core-output"));
-        assert!(!engine.search(session.id, "next-core-output", 1)?.is_empty());
+        assert!(!engine
+            .search(
+                session.id,
+                "next-core-output",
+                crate::SearchMode::CaseSensitive,
+                1
+            )?
+            .is_empty());
 
         let scrollback = engine.read_scrollback_text(
             session.id,
@@ -6391,7 +6417,10 @@ mod tests {
         assert_eq!(scrollback_text.lines, vec!["two", "three", "four"]);
         assert_eq!(scrollback_text.first_row, 1);
         assert_eq!(scrollback_text.row_count, 3);
-        assert_eq!(engine.search(session.id, "one", 1)?[0].row, 0);
+        assert_eq!(
+            engine.search(session.id, "one", crate::SearchMode::CaseSensitive, 1)?[0].row,
+            0
+        );
 
         engine.scroll_viewport_to(session.id, 1)?;
         let scrolled = engine.read_screen(session.id)?;
@@ -6526,7 +6555,7 @@ mod tests {
         })?;
         set_output_for_test(session.id, "你abc abc\nabc\n")?;
 
-        let matches = engine.search(session.id, "abc", 10)?;
+        let matches = engine.search(session.id, "abc", crate::SearchMode::CaseSensitive, 10)?;
         assert_eq!(
             matches
                 .iter()
@@ -6534,9 +6563,18 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![(0, 1, "你abc abc"), (0, 5, "你abc abc"), (1, 0, "abc")]
         );
-        assert_eq!(engine.search(session.id, "abc", 2)?.len(), 2);
-        assert!(engine.search(session.id, "", 10)?.is_empty());
-        assert!(engine.search(session.id, "abc", 0)?.is_empty());
+        assert_eq!(
+            engine
+                .search(session.id, "abc", crate::SearchMode::CaseSensitive, 2)?
+                .len(),
+            2
+        );
+        assert!(engine
+            .search(session.id, "", crate::SearchMode::CaseSensitive, 10)?
+            .is_empty());
+        assert!(engine
+            .search(session.id, "abc", crate::SearchMode::CaseSensitive, 0)?
+            .is_empty());
 
         engine.destroy_session(session.id)?;
         Ok(())
@@ -6783,7 +6821,9 @@ mod tests {
 
         let screen = engine.read_screen(session.id)?;
         assert_eq!(screen.lines, vec!["main-one", "main-two"]);
-        assert!(engine.search(session.id, "alt-three", 1)?.is_empty());
+        assert!(engine
+            .search(session.id, "alt-three", crate::SearchMode::CaseSensitive, 1)?
+            .is_empty());
         assert!(engine.read_scrollback(session.id, 10)?.is_empty());
 
         engine.destroy_session(session.id)?;
@@ -6821,7 +6861,9 @@ mod tests {
 
         let screen = engine.read_screen(session.id)?;
         assert_eq!(screen.lines, vec!["mainback"]);
-        assert!(engine.search(session.id, "still-alt", 1)?.is_empty());
+        assert!(engine
+            .search(session.id, "still-alt", crate::SearchMode::CaseSensitive, 1)?
+            .is_empty());
 
         engine.destroy_session(session.id)?;
         Ok(())

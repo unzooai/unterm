@@ -13,10 +13,6 @@ use crate::terminal::{colors_from, TerminalFont};
 /// line of a long scrollback does not stall the keystroke that typed it.
 const MAX_SEARCH_MATCHES: usize = 500;
 
-/// How long the bell's flash lasts.
-///
-/// Long enough to notice out of the corner of an eye, short enough that a
-/// program ringing repeatedly does not leave the screen washed out.
 /// How many rows the palette shows at once.
 ///
 /// Enough to choose from, few enough that it does not become the window. A
@@ -117,7 +113,6 @@ fn request_graphics(
 /// that has already been answered.
 const COCKPIT_TAIL_ROWS: usize = 8;
 
-const BELL_FLASH: std::time::Duration = std::time::Duration::from_millis(120);
 use anyhow::Context;
 use std::sync::Arc;
 use unterm_engine::next_core::{config, key_encoding, NextCoreEngine};
@@ -301,7 +296,8 @@ pub struct App {
     initial_rows: usize,
     /// Left, right, top and bottom terminal padding in logical pixels.
     terminal_padding: [f32; 4],
-    inactive_pane_hsb: [f32; 2],
+    /// Hue, saturation and brightness multipliers for unfocused panes.
+    inactive_pane_hsb: [f32; 3],
     /// How far the cell is stretched around its glyphs.
     font_shape: crate::terminal::Shape,
     atlas: GlyphAtlas,
@@ -327,6 +323,13 @@ pub struct App {
     tab_id: Option<usize>,
     /// The selection being dragged out, if one is.
     drag: Option<crate::select::Drag>,
+    /// Whether the rest of the current left-button gesture is spoken for.
+    ///
+    /// A Ctrl+Left press consumed as a macOS secondary click swallows its own
+    /// drag and release: left alone they would fall through to the
+    /// left-button paths -- extend a selection, complete one, open a link --
+    /// and make a single click both paste and act.
+    swallow_left_after_secondary: bool,
     /// The text of the finished selection, kept so a copy key can find it.
     selected: Option<String>,
     /// The last screen we drew, so a frame is skipped when nothing changed.
@@ -338,6 +341,11 @@ pub struct App {
     /// A blinking cursor changes only twice per period. Treating "blinking is
     /// enabled" as "redraw every tick" kept an idle WebGPU surface busy.
     drawn_cursor_solid: Option<bool>,
+    /// The text blink phase of the last submitted frame, and which cadences
+    /// that frame actually used -- so blinking text asks for one frame per
+    /// phase flip, and a screen with nothing blinking asks for none.
+    drawn_blink: Option<crate::terminal::BlinkPhase>,
+    screen_blink: (bool, bool),
     /// The breathing phase the sidebar's working badge was last drawn at, so
     /// an idle window repaints only when the phase actually changes — and not
     /// at all when nothing is working.
@@ -359,6 +367,9 @@ pub struct App {
     dragging_scrollbar: bool,
     /// The open command palette or launcher, if there is one.
     palette: Option<crate::palette::Palette>,
+    /// Which page of the character picker is open: the group Ctrl+R turns
+    /// through while the picker's palette is up. Reset each time it opens.
+    charselect_group: crate::charselect::Group,
     /// The chevron's dropdown, anchored under its button — a menu, not a
     /// search box, which is what the palette would make of the same rows.
     quick_menu: Option<QuickMenu>,
@@ -391,8 +402,14 @@ pub struct App {
     /// Whether the pane scrollbar is drawn at all — `enable_scroll_bar`,
     /// which the schema promised and nothing read until now.
     scrollbar_enabled: bool,
-    /// Whether the bell makes a sound as well as a flash.
+    /// The hyperlink rules in force: the config's own `hyperlink_rules`, or
+    /// the built-in set when it writes none.
+    link_rules: crate::links::Rules,
+    /// Whether the bell makes a sound.
     audible_bell: bool,
+    /// How the bell's flash fades and what it colours -- `visual_bell`, with
+    /// the previous front end's defaults: no flash unless the config asks.
+    visual_bell: crate::terminal::VisualBell,
     /// The config's `default_cwd`, when nothing else names a directory.
     config_default_cwd: Option<std::path::PathBuf>,
     /// `window_close_confirmation = "NeverPrompt"` turns the close
@@ -443,6 +460,9 @@ pub struct App {
     /// The cursor the config asked for, and how fast it blinks.
     cursor_style: crate::terminal::CursorStyle,
     cursor_blink_ms: u64,
+    /// How fast SGR 5 and SGR 6 text blinks; zero turns a cadence off.
+    text_blink_ms: u64,
+    text_blink_rapid_ms: u64,
     /// When the window opened, which is what a blink is measured from.
     started: std::time::Instant,
     /// The theme in force, so the picker can mark it and the next launch can
@@ -456,6 +476,9 @@ pub struct App {
     theme_request_seen: u64,
     /// Something that just happened, and when it stops being shown.
     notice: Option<(String, std::time::Instant)>,
+    /// A press on the proxy chip tried to switch it on and the probe found
+    /// nothing listening; the chip says so until this instant.
+    proxy_error_until: Option<std::time::Instant>,
     /// The git panel's contents, held while it is open.
     ///
     /// Read once when it opens rather than every frame: `git status` on a
@@ -543,6 +566,7 @@ impl App {
             .unwrap_or_default();
 
         let cursor_style = crate::terminal::CursorStyle::from_config(config);
+        let text_blink = crate::terminal::text_blink_rates(config);
         let family: Option<String> = config
             .str_of("font_family")
             .ok()
@@ -579,6 +603,7 @@ impl App {
             bell_at: None,
             dragging_scrollbar: false,
             palette: None,
+            charselect_group: Default::default(),
             quick_menu: None,
             region_selection: None,
             pending_region_capture: None,
@@ -598,12 +623,14 @@ impl App {
                 .ok()
                 .flatten()
                 .unwrap_or(true),
+            link_rules: crate::links::Rules::from_config(config),
             audible_bell: config
                 .str_of("audible_bell")
                 .ok()
                 .flatten()
                 .map(|value| !value.eq_ignore_ascii_case("disabled"))
                 .unwrap_or(true),
+            visual_bell: crate::terminal::VisualBell::from_config(config),
             config_default_cwd: config
                 .str_of("default_cwd")
                 .ok()
@@ -637,10 +664,13 @@ impl App {
             closing: false,
             cursor_style: cursor_style.0,
             cursor_blink_ms: cursor_style.1,
+            text_blink_ms: text_blink.0,
+            text_blink_rapid_ms: text_blink.1,
             started: std::time::Instant::now(),
             theme_id: crate::theme::remembered(),
             theme_request_seen: 0,
             notice: None,
+            proxy_error_until: None,
             git_panel: None,
             composer: None,
             cockpit_fed_at: std::time::Instant::now(),
@@ -671,13 +701,19 @@ impl App {
             ],
             inactive_pane_hsb: [
                 config
-                    .float_of("inactive_pane.brightness")
+                    .float_of("inactive_pane.hue")
                     .ok()
                     .flatten()
                     .unwrap_or(1.0)
                     .max(0.0) as f32,
                 config
                     .float_of("inactive_pane.saturation")
+                    .ok()
+                    .flatten()
+                    .unwrap_or(1.0)
+                    .max(0.0) as f32,
+                config
+                    .float_of("inactive_pane.brightness")
                     .ok()
                     .flatten()
                     .unwrap_or(1.0)
@@ -698,10 +734,13 @@ impl App {
             tabs: unterm_engine::next_core::tabs::TabRegistry::new(),
             tab_id: None,
             drag: None,
+            swallow_left_after_secondary: false,
             selected: None,
             state: None,
             drawn_revision: None,
             drawn_cursor_solid: None,
+            drawn_blink: None,
+            screen_blink: (false, false),
             drawn_breath_step: None,
         })
     }
@@ -877,6 +916,8 @@ impl App {
         }
         let cursor = self.cursor_style;
         let solid_cursor = self.cursor_is_solid();
+        let blink = self.blink_phase();
+        let mut screen_blink = (false, false);
         let mut revision = 0u64;
         for placement in &placements {
             let Ok(snapshot) = self.engine.read_styled_screen(placement.session_id) else {
@@ -890,6 +931,8 @@ impl App {
                 self.note_bells(snapshot.bells);
                 self.take_clipboard_request(snapshot.clipboard_request.clone());
             }
+            let blinking = crate::terminal::blinking_cells(&snapshot);
+            screen_blink = (screen_blink.0 || blinking.0, screen_blink.1 || blinking.1);
             crate::terminal::append_pane(
                 &snapshot,
                 &mut self.font,
@@ -898,6 +941,7 @@ impl App {
                 placement.origin,
                 placement.session_id == session_id && solid_cursor,
                 cursor,
+                blink,
                 &mut quads,
             );
             if placement.session_id != session_id {
@@ -907,6 +951,7 @@ impl App {
                     glyph_start,
                     self.inactive_pane_hsb[0],
                     self.inactive_pane_hsb[1],
+                    self.inactive_pane_hsb[2],
                 );
             }
         }
@@ -922,6 +967,7 @@ impl App {
             // own origin it lands on the bar, which is what the first frame
             // with a bar in it looked like.
             let origin = (self.terminal_left(), self.terminal_top());
+            screen_blink = crate::terminal::blinking_cells(&snapshot);
             crate::terminal::append_pane(
                 &snapshot,
                 &mut self.font,
@@ -930,6 +976,7 @@ impl App {
                 origin,
                 solid_cursor,
                 cursor,
+                blink,
                 &mut quads,
             );
         }
@@ -1000,6 +1047,8 @@ impl App {
         frame.present();
         self.drawn_revision = Some(revision);
         self.drawn_cursor_solid = Some(solid_cursor);
+        self.drawn_blink = Some(blink);
+        self.screen_blink = screen_blink;
         self.drawn_confirmation = unterm_mcp::handler::pending_confirmation_view().map(|v| v.id);
         self.drawn_suggestions =
             unterm_mcp::handler::pending_suggestions_for_pane(self.focused_session() as u64).len();
@@ -1042,7 +1091,11 @@ impl App {
     fn note_bells(&mut self, bells: u64) {
         if bells > self.bells_seen {
             self.bells_seen = bells;
-            self.bell_at = Some(std::time::Instant::now());
+            // A flash that would never show must not start: `bell_at` is also
+            // what keeps the window asking for frames until the fade is over.
+            if !self.visual_bell.disabled() {
+                self.bell_at = Some(std::time::Instant::now());
+            }
             // The bell is audible again, as `audible_bell` always promised;
             // the flash alone left a background beep silent.
             if self.audible_bell {
@@ -1151,13 +1204,19 @@ impl App {
                     pen = self.append_mono(&segment.text, teal, (pen, text_top), quads);
                 }
                 // A chip: its label keeps the ordinary colour, and the answer
-                // after the colon takes the accent, as 0.57.4 drew it.
+                // after the colon takes the accent, as 0.57.4 drew it — or the
+                // close button's red for the moment a proxy probe has failed.
                 Some(at) if segment.text.is_char_boundary(at) => {
                     let (label, value) = segment.text.split_at(at);
                     let label = label.to_string();
                     let value = value.to_string();
+                    let value_color = if segment.error {
+                        crate::window_buttons::CLOSE_HOVER
+                    } else {
+                        teal
+                    };
                     pen = self.append_mono(&label, color, (pen, text_top), quads);
-                    pen = self.append_mono(&value, teal, (pen, text_top), quads);
+                    pen = self.append_mono(&value, value_color, (pen, text_top), quads);
                 }
                 _ => {
                     pen = self.append_mono(&segment.text, color, (pen, text_top), quads);
@@ -1228,8 +1287,12 @@ impl App {
             // The window's identity, if one is bound. Read here rather than
             // cached because it changes only when somebody changes it.
             profile: unterm_services::server_info::read_current().profile,
-            proxy: unterm_services::system_proxy::detect()
-                .and_then(|proxy| proxy.primary_http().map(crate::statusbar::short_proxy)),
+            // The toggle, not the system proxy: the chip answers "will a new
+            // session get proxy env vars", and its click is the switch.
+            proxy: unterm_services::launch_env::unterm_proxy_enabled(),
+            proxy_unreachable: self
+                .proxy_error_until
+                .is_some_and(|until| until > std::time::Instant::now()),
         }
     }
 
@@ -1243,6 +1306,15 @@ impl App {
             return true;
         }
         crate::terminal::blink_is_on(self.started.elapsed().as_millis(), self.cursor_blink_ms)
+    }
+
+    /// The phase blinking text is in right now, both cadences at once.
+    fn blink_phase(&self) -> crate::terminal::BlinkPhase {
+        crate::terminal::BlinkPhase::at(
+            self.started.elapsed().as_millis(),
+            self.text_blink_ms,
+            self.text_blink_rapid_ms,
+        )
     }
 
     /// Highlight what is selected.
@@ -1458,21 +1530,28 @@ impl App {
     /// Draw the strip, if it is open.
     /// The characters that match what has been typed.
     ///
-    /// Built fresh each time rather than held: the whole list is thousands of
-    /// rows, and only the top of it is ever drawn.
+    /// The recents are read fresh each time; the catalogue is built once and
+    /// kept, because it is a couple of hundred thousand rows and only the top
+    /// of it is ever drawn.
     fn character_entries(&self, query: &str) -> Vec<crate::palette::Entry> {
-        let all = crate::charselect::choices();
-        crate::charselect::matching(&all, query, crate::palette::MAX_ROWS)
-            .into_iter()
-            .map(|choice| crate::palette::Entry {
-                label: format!("{}  {}", choice.glyph, choice.name),
-                hint: choice.group.heading().to_string(),
-                command: crate::palette::Command::TypeCharacter {
-                    glyph: choice.glyph,
-                    name: choice.name.into_owned(),
-                },
-            })
-            .collect()
+        let recents = crate::charselect::recent_choices();
+        crate::charselect::matching(
+            &recents,
+            crate::charselect::catalog(),
+            self.charselect_group,
+            query,
+            crate::palette::MAX_ROWS,
+        )
+        .into_iter()
+        .map(|choice| crate::palette::Entry {
+            label: format!("{}  {}", choice.glyph, choice.name),
+            hint: format!("{}  {}", choice.codepoints(), choice.group.heading()),
+            command: crate::palette::Command::TypeCharacter {
+                glyph: choice.glyph,
+                name: choice.name.into_owned(),
+            },
+        })
+        .collect()
     }
 
     /// Type a character at the prompt, and remember it was picked.
@@ -2772,34 +2851,75 @@ impl App {
         });
     }
 
-    /// A visual bell: the screen lightens for a moment.
-    ///
-    /// Visual rather than audible. A terminal that beeps out of a background
-    /// window is the reason people turn bells off entirely, and a flash says
-    /// the same thing to someone who is looking.
+    /// The visual bell, as `visual_bell` configures it: a flash that rises
+    /// and falls on the config's own curves, over the whole background or
+    /// over just the cursor's cell.
     fn append_bell_flash(&mut self, quads: &mut unterm_render::quads::FrameQuads) {
-        let Some(live) = self.state.as_ref() else {
-            return;
-        };
         let Some(rung_at) = self.bell_at else {
             return;
         };
-        let elapsed = rung_at.elapsed();
-        if elapsed >= BELL_FLASH {
+        let Some(intensity) = self.visual_bell.intensity_at(rung_at.elapsed().as_millis()) else {
+            // The fade is over; stop asking for frames on its behalf.
             self.bell_at = None;
             return;
-        }
-        // Fading out, so a bell in a stream of them does not strobe.
-        let remaining = 1.0 - elapsed.as_secs_f32() / BELL_FLASH.as_secs_f32();
+        };
+        // The previous front end coloured the flash with the palette's
+        // `visual_bell` entry and fell back to the foreground; this theme
+        // format has no such entry, so the foreground is the flash.
         let mut color = self.colors.foreground;
-        color[3] = 0.18 * remaining;
-        quads.backgrounds.push(unterm_render::quads::Quad {
-            left: 0.0,
-            top: 0.0,
-            width: live.width as f32,
-            height: live.height as f32,
-            color,
-        });
+        color[3] = intensity;
+        let quad = match self.visual_bell.target {
+            crate::terminal::BellTarget::BackgroundColor => {
+                let Some(live) = self.state.as_ref() else {
+                    return;
+                };
+                unterm_render::quads::Quad {
+                    left: 0.0,
+                    top: 0.0,
+                    width: live.width as f32,
+                    height: live.height as f32,
+                    color,
+                }
+            }
+            crate::terminal::BellTarget::CursorColor => {
+                let Some((left, top)) = self.cursor_cell_origin() else {
+                    return;
+                };
+                let metrics = self.font.metrics();
+                unterm_render::quads::Quad {
+                    left,
+                    top,
+                    width: metrics.width,
+                    height: metrics.height,
+                    color,
+                }
+            }
+        };
+        quads.backgrounds.push(quad);
+    }
+
+    /// The focused pane's cursor cell, in window pixels, if it is on screen.
+    fn cursor_cell_origin(&self) -> Option<(f32, f32)> {
+        let live = self.state.as_ref()?;
+        let snapshot = self.engine.read_styled_screen(live.session_id).ok()?;
+        if !snapshot.cursor.visible {
+            return None;
+        }
+        let row = usize::try_from(snapshot.cursor.y).ok()?;
+        if row >= snapshot.rows || snapshot.cursor.x >= snapshot.cols.max(1) {
+            return None;
+        }
+        let origin = self
+            .placements()
+            .into_iter()
+            .find(|placement| placement.session_id == live.session_id)
+            .map(|placement| placement.origin)
+            .unwrap_or((self.terminal_left(), self.terminal_top()));
+        let metrics = self.font.metrics();
+        Some((
+            origin.0 + snapshot.cursor.x as f32 * metrics.width,
+            origin.1 + row as f32 * metrics.height,
+        ))
     }
 
     /// Underline the link the pointer is over, so a link is discoverable by
@@ -2836,7 +2956,7 @@ impl App {
         let row = ((self.pointer.1 - top).max(0.0) / metrics.height.max(1.0)) as usize;
 
         let line = snapshot.lines.get(row)?;
-        crate::links::links_in_row(row, line)
+        crate::links::links_in_row(row, line, &self.link_rules)
             .into_iter()
             .find(|link| link.covers(row, column))
     }
@@ -3007,7 +3127,11 @@ impl App {
                 };
                 self.drawn_revision = None;
             }
-            Action::CommandPalette => self.open_palette(command_entries()),
+            Action::CommandPalette => {
+                let mut entries = command_entries();
+                entries.extend(workspace_entries());
+                self.open_palette(entries);
+            }
             Action::Launcher => self.open_shell_selector(),
             Action::Search => {
                 self.search = Some(crate::search::Search::default());
@@ -3021,6 +3145,10 @@ impl App {
             Action::ClosePane => self.close_pane(session_id),
             Action::ZoomPane => self.toggle_zoom(session_id),
             Action::CharSelect => {
+                // Open where 0.57.4 opened: on the recents when there are
+                // any, and on the smileys when nothing was ever picked.
+                let recents = crate::charselect::recent_choices();
+                self.charselect_group = crate::charselect::starting_group(&recents);
                 let entries = self.character_entries("");
                 self.palette = Some(crate::palette::Palette::characters(entries));
                 self.drawn_revision = None;
@@ -4561,9 +4689,76 @@ impl App {
         let _ = self.engine.write_input(live.session_id, &command);
     }
 
+    /// Open a tab whose shell starts in a directory.
+    ///
+    /// The directory travels with the session request rather than through
+    /// `start_directory`: that field is where the *first* shell starts, read
+    /// once at startup, and parking a path there opened every later tab in
+    /// the default directory instead.
     fn new_tab_in(&mut self, path: &str) {
-        self.start_directory = Some(std::path::PathBuf::from(path));
-        self.new_tab();
+        let shell = self.shell.clone();
+        self.open_tab_with(shell, Some(path.to_string()));
+    }
+
+    /// Reopen a saved workspace, a tab per saved directory.
+    ///
+    /// Next-core has no live workspaces to switch between -- a workspace is
+    /// a snapshot shared with the MCP `workspace.*` tools -- so 0.57.4's
+    /// "switch to workspace" becomes "open its tabs here".
+    fn restore_workspace(&mut self, name: &str) {
+        let cwds = crate::workspaces::cwds(name);
+        if cwds.is_empty() {
+            self.show_notice(format!("workspace `{name}` has no directories to open"));
+            return;
+        }
+        let count = cwds.len();
+        for cwd in cwds {
+            self.new_tab_in(&cwd);
+        }
+        self.show_notice(format!("workspace `{name}` opened · {count} tabs"));
+    }
+
+    /// Ask for a workspace name on the palette line. Enter saves the open
+    /// tabs under it, Esc changes nothing.
+    fn open_workspace_save(&mut self) {
+        self.palette = Some(crate::palette::Palette::writing(vec![
+            crate::palette::Entry {
+                label: "Save Workspace".to_string(),
+                hint: "type a name · Enter saves · Esc cancels".to_string(),
+                command: crate::palette::Command::SaveWorkspace,
+            },
+        ]));
+        self.drawn_revision = None;
+    }
+
+    /// Write the open tabs down under a name: one entry per tab, where its
+    /// pane is now. The same file `workspace.save` writes, so the palette and
+    /// an agent see one list.
+    fn save_workspace(&mut self, name: &str) {
+        let sessions =
+            unterm_engine::SessionEngine::list_sessions(&self.engine).unwrap_or_default();
+        let mut tabs = Vec::new();
+        for tab in self.tabs.tab_ids() {
+            let Some(pane) = self.tabs.active_pane(tab) else {
+                continue;
+            };
+            let Some(session) = sessions.iter().find(|session| session.id == pane) else {
+                continue;
+            };
+            let Some(cwd) = session.shell.cwd.clone() else {
+                continue;
+            };
+            let title = self
+                .tab_titles
+                .get(&tab)
+                .cloned()
+                .unwrap_or_else(|| session.title.clone());
+            tabs.push((title, cwd));
+        }
+        match crate::workspaces::save(name, &tabs) {
+            Ok(count) => self.show_notice(format!("workspace `{name}` saved · {count} tabs")),
+            Err(err) => self.show_notice(format!("could not save the workspace: {err}")),
+        }
     }
 
     /// Start recording the focused pane, or stop and say where it went.
@@ -4750,6 +4945,37 @@ impl App {
         window.focus_window();
     }
 
+    /// The chip under the pointer, when the pointer is in the bottom bar.
+    /// The same laying-out the painter does, so a press lands on what the
+    /// eye sees.
+    fn status_bar_segment_at_pointer(&mut self) -> Option<crate::statusbar::SegmentKind> {
+        let (width, height) = {
+            let live = self.state.as_ref()?;
+            (live.width as f32, live.height as f32)
+        };
+        if self.pointer.1 < height - self.status_bar_height() {
+            return None;
+        }
+        let metrics = self.font.metrics();
+        let columns = (width / metrics.width.max(1.0)).floor().max(0.0) as usize;
+        let status = self.status();
+        let segments = crate::statusbar::segments(&status, columns);
+        let pt = self.chrome_pt();
+        let gap = self.mono_width(crate::statusbar::GAP);
+        let mut pen = (crate::ui_tokens::CHROME_PANEL_INSET * pt).round();
+        for segment in &segments {
+            let wide = self.mono_width(&segment.text);
+            if pen + wide > width {
+                break;
+            }
+            if self.pointer.0 >= pen && self.pointer.0 < pen + wide {
+                return Some(segment.kind);
+            }
+            pen += wide + gap;
+        }
+        None
+    }
+
     /// A press on the bottom bar. True whenever it landed in the bar, so a
     /// missed chip is swallowed rather than falling through to the terminal
     /// as a stray selection; each chip does what 0.57.4's did.
@@ -4758,35 +4984,15 @@ impl App {
             return false;
         };
         let session_id = live.session_id;
-        let width = live.width as f32;
         let height = live.height as f32;
-        let bar_height = self.status_bar_height();
-        if self.pointer.1 < height - bar_height {
+        if self.pointer.1 < height - self.status_bar_height() {
             return false;
         }
-        let metrics = self.font.metrics();
-        let columns = (width / metrics.width.max(1.0)).floor().max(0.0) as usize;
-        let status = self.status();
-        let directory = status.directory.clone();
-        let segments = crate::statusbar::segments(&status, columns);
-        let pt = self.chrome_pt();
-        let gap = self.mono_width(crate::statusbar::GAP);
-        let mut pen = (crate::ui_tokens::CHROME_PANEL_INSET * pt).round();
-        let mut hit = None;
-        for segment in &segments {
-            let wide = self.mono_width(&segment.text);
-            if pen + wide > width {
-                break;
-            }
-            if self.pointer.0 >= pen && self.pointer.0 < pen + wide {
-                hit = Some(segment.kind);
-                break;
-            }
-            pen += wide + gap;
-        }
+        let hit = self.status_bar_segment_at_pointer();
         match hit {
             Some(crate::statusbar::SegmentKind::Cwd) => {
                 // A click on the path copies it, ready to paste anywhere.
+                let directory = self.status().directory;
                 self.copy_text(&directory);
                 self.show_notice(format!("\u{2713} {directory}"));
             }
@@ -4816,12 +5022,54 @@ impl App {
                 self.copy_text(&text);
                 self.show_notice("\u{2713} MCP activity copied".to_string());
             }
-            Some(crate::statusbar::SegmentKind::Proxy)
-            | Some(crate::statusbar::SegmentKind::Profile) => self.open_settings(),
+            // The chip is the switch, as 0.57.4's was; the settings page is a
+            // right press away.
+            Some(crate::statusbar::SegmentKind::Proxy) => self.toggle_proxy(),
+            Some(crate::statusbar::SegmentKind::Profile) => self.open_settings(),
             _ => {}
         }
         self.drawn_revision = None;
         true
+    }
+
+    /// The proxy chip: flip whether new sessions get Unterm's proxy env vars.
+    ///
+    /// Switching on is gated on a probe — a proxy URL injected into a shell
+    /// with nothing behind it turns every command there into a connection
+    /// failure, so when nothing answers, the toggle stays off and the chip
+    /// says so for a moment instead. Off needs no probe: it only stops the
+    /// injection. Nothing here goes near the OS's own proxy settings, on any
+    /// path — the toggle is Unterm's alone.
+    fn toggle_proxy(&mut self) {
+        if unterm_services::launch_env::unterm_proxy_enabled() {
+            if let Err(err) = unterm_services::launch_env::set_unterm_proxy_enabled(false) {
+                log::warn!("could not switch the proxy off: {err:#}");
+                return;
+            }
+            self.show_notice(unterm_services::i18n::t("proxy.disabled_for_new_shells"));
+            return;
+        }
+        match unterm_services::launch_env::probe_unterm_proxy() {
+            Some(url) => {
+                if let Err(err) = unterm_services::launch_env::set_unterm_proxy_enabled(true) {
+                    log::warn!("could not switch the proxy on: {err:#}");
+                    return;
+                }
+                // The notice names what answered, so "on" is checkable at a
+                // glance rather than an act of faith.
+                self.show_notice(format!(
+                    "{} ({})",
+                    unterm_services::i18n::t("proxy.enabled_for_new_shells"),
+                    crate::statusbar::short_proxy(&url)
+                ));
+            }
+            None => {
+                // The same moment a notice gets, on the chip itself: a notice
+                // would cover the chip whose state it is explaining.
+                const SHOWN_FOR: std::time::Duration = std::time::Duration::from_millis(2400);
+                self.proxy_error_until = Some(std::time::Instant::now() + SHOWN_FOR);
+            }
+        }
     }
 
     /// A right press on the chrome. True when the chrome takes it -- before
@@ -4838,6 +5086,13 @@ impl App {
         }
         if let Some(live) = self.state.as_ref() {
             if self.pointer.1 >= live.height as f32 - self.status_bar_height() {
+                // The proxy chip answers a right press with the settings page,
+                // as 0.57.4's did; the rest of the bar swallows it.
+                if self.status_bar_segment_at_pointer()
+                    == Some(crate::statusbar::SegmentKind::Proxy)
+                {
+                    self.open_settings();
+                }
                 return true;
             }
         }
@@ -5489,6 +5744,28 @@ impl App {
             self.drawn_revision = None;
             return true;
         }
+        // Ctrl+R turns the character picker to its next group, as it did in
+        // 0.57.4: the thirteen groups are a wheel, and shift turns it the
+        // other way. The query is cleared because it was a search over the
+        // page that is no longer open.
+        if palette.source == crate::palette::Source::Characters
+            && self.ctrl_held
+            && matches!(character.as_deref(), Some("r") | Some("R"))
+        {
+            self.charselect_group = if self.shift_held {
+                self.charselect_group.previous()
+            } else {
+                self.charselect_group.next()
+            };
+            palette.query.clear();
+            self.requery_palette(&mut palette);
+            self.palette = Some(palette);
+            self.drawn_revision = None;
+            if let Some(live) = self.state.as_ref() {
+                live.window.request_redraw();
+            }
+            return true;
+        }
         match crate::palette::key_for(named.as_deref(), character.as_deref(), self.ctrl_held) {
             crate::palette::Key::Close => keep = false,
             crate::palette::Key::Step(delta) => palette.step(delta),
@@ -5557,6 +5834,16 @@ impl App {
             }
             crate::palette::Command::ChangeDirectory { path } => self.change_directory(&path),
             crate::palette::Command::NewTabIn { path } => self.new_tab_in(&path),
+            crate::palette::Command::RestoreWorkspace { name } => self.restore_workspace(&name),
+            crate::palette::Command::OpenWorkspaceSave => self.open_workspace_save(),
+            crate::palette::Command::SaveWorkspace => {
+                let name = task.trim().to_string();
+                if name.is_empty() {
+                    self.show_notice("a workspace needs a name".to_string());
+                } else {
+                    self.save_workspace(&name);
+                }
+            }
             crate::palette::Command::ToggleRecording => self.toggle_recording(),
             crate::palette::Command::ExportSession => self.export_session(),
             crate::palette::Command::OpenSettings => self.open_settings(),
@@ -5604,16 +5891,20 @@ impl App {
     fn new_tab_running(&mut self, program: &str, args: &[String]) {
         let mut command = portable_pty::CommandBuilder::new(program);
         command.args(args);
-        self.open_tab_with(Some(command));
+        self.open_tab_with(Some(command), None);
     }
 
     /// Open a tab, with a shell of its own.
     fn new_tab(&mut self) {
         let shell = self.shell.clone();
-        self.open_tab_with(shell);
+        self.open_tab_with(shell, None);
     }
 
-    fn open_tab_with(&mut self, command: Option<portable_pty::CommandBuilder>) {
+    fn open_tab_with(
+        &mut self,
+        command: Option<portable_pty::CommandBuilder>,
+        directory: Option<String>,
+    ) {
         // A tab needs a window to open into; the size comes from the layout
         // rather than from the window, because the strip may have taken some.
         let Some(_live) = self.state.as_ref() else {
@@ -5626,7 +5917,7 @@ impl App {
         let session = match self.engine.create_session(CreateSessionRequest {
             cols,
             rows,
-            command_dir: None,
+            command_dir: directory,
             command: prepare_shell(command),
             env,
             launch_policy: LaunchPolicySnapshot::default(),
@@ -5946,6 +6237,10 @@ impl App {
                 search.pattern.clear();
                 research = true;
             }
+            crate::search::Key::CycleMode => {
+                search.cycle_mode();
+                research = true;
+            }
             crate::search::Key::Type(text) => {
                 search.pattern.push_str(&text);
                 research = true;
@@ -5964,7 +6259,12 @@ impl App {
                     .filter(|_| !search.pattern.is_empty())
                     .and_then(|live| {
                         self.engine
-                            .search(live.session_id, &search.pattern, MAX_SEARCH_MATCHES)
+                            .search(
+                                live.session_id,
+                                &search.pattern,
+                                search.mode,
+                                MAX_SEARCH_MATCHES,
+                            )
                             .ok()
                     })
                     .unwrap_or_default();
@@ -6430,7 +6730,10 @@ impl App {
             .filter(|name| !name.is_empty())
             .map(|name| format!("{name} — "))
             .unwrap_or_default();
-        let instance = unterm_services::server_info::read().id;
+        // This process's own instance, not the machine's active one: with two
+        // windows open, `read()` answers for whichever registered last, and
+        // both titles claim to be it.
+        let instance = unterm_services::server_info::read_current().id;
         let instance = if instance.is_empty() {
             String::new()
         } else {
@@ -6990,6 +7293,16 @@ impl App {
         {
             return true;
         }
+        // Blinking text likewise: one frame when a cadence the screen is
+        // using flips phase, and none at all when nothing on screen blinks.
+        if let Some(drawn) = self.drawn_blink {
+            let phase = self.blink_phase();
+            if (self.screen_blink.0 && drawn.slow_on != phase.slow_on)
+                || (self.screen_blink.1 && drawn.rapid_on != phase.rapid_on)
+            {
+                return true;
+            }
+        }
         // A breathing working badge is animation with no screen change
         // underneath: one frame per phase step, and none once nothing works.
         if self.drawn_breath_step.is_some_and(|drawn| {
@@ -7452,6 +7765,12 @@ impl ApplicationHandler for App {
                 if self.hover_palette() {
                     return;
                 }
+                // A swallowed Ctrl+Left gesture keeps its motion too: the
+                // program never saw the press, so a drag report -- or a
+                // selection -- growing out of it would come from nowhere.
+                if self.swallow_left_after_secondary {
+                    return;
+                }
                 if self.report_mouse(
                     unterm_engine::next_core::mouse_encoding::MouseEventKind::Motion,
                     self.held_mouse_button,
@@ -7482,9 +7801,43 @@ impl ApplicationHandler for App {
                 use unterm_engine::next_core::mouse_encoding::MouseEventKind;
                 use winit::event::MouseButton;
 
+                // A Ctrl+Left press consumed as a secondary click swallows
+                // the rest of that physical gesture: its release would
+                // otherwise fall through to the left-button paths --
+                // complete a selection, open a link -- and make a single
+                // click both paste and act.
+                if self.swallow_left_after_secondary {
+                    match (state, button) {
+                        (ElementState::Released, MouseButton::Left) => {
+                            self.swallow_left_after_secondary = false;
+                            // The press was consumed too, so nothing is held.
+                            self.held_mouse_button = None;
+                            return;
+                        }
+                        (ElementState::Pressed, _) => {
+                            self.swallow_left_after_secondary = false;
+                        }
+                        _ => {}
+                    }
+                }
+
+                let held = crate::mouse::Held {
+                    shift: self.shift_held,
+                    ctrl: self.ctrl_held,
+                    alt: self.alt_held,
+                };
+                // The platform's other right button: everywhere a right
+                // press acts, a macOS Ctrl+Left press acts the same.
+                let secondary = button == MouseButton::Right
+                    || (button == MouseButton::Left
+                        && crate::mouse::ctrl_left_is_secondary(held));
+
                 if self.region_selection.is_some() {
-                    if button == MouseButton::Right && state == ElementState::Pressed {
+                    if secondary && state == ElementState::Pressed {
                         self.cancel_region_selection();
+                        if button == MouseButton::Left {
+                            self.swallow_left_after_secondary = true;
+                        }
                         return;
                     }
                     if button != MouseButton::Left {
@@ -7562,6 +7915,7 @@ impl ApplicationHandler for App {
                 if self.quick_menu.is_some()
                     && state == ElementState::Pressed
                     && button == MouseButton::Left
+                    && !secondary
                     && self.click_quick_menu()
                 {
                     return;
@@ -7570,6 +7924,9 @@ impl ApplicationHandler for App {
                     // Any other button just closes it.
                     self.quick_menu = None;
                     self.drawn_revision = None;
+                    if secondary && button == MouseButton::Left {
+                        self.swallow_left_after_secondary = true;
+                    }
                     return;
                 }
                 // An open menu takes the press before the program does: a
@@ -7578,6 +7935,7 @@ impl ApplicationHandler for App {
                 if self.palette.is_some()
                     && state == ElementState::Pressed
                     && button == MouseButton::Left
+                    && !secondary
                     && self.click_palette()
                 {
                     return;
@@ -7587,6 +7945,7 @@ impl ApplicationHandler for App {
                 if self.sidebar_open
                     && state == ElementState::Pressed
                     && button == MouseButton::Left
+                    && !secondary
                     && self.click_sidebar()
                 {
                     return;
@@ -7594,38 +7953,65 @@ impl ApplicationHandler for App {
                 if self.tree.is_some()
                     && state == ElementState::Pressed
                     && button == MouseButton::Left
+                    && !secondary
                     && self.click_tree()
                 {
                     return;
                 }
                 if state == ElementState::Pressed
                     && button == MouseButton::Left
+                    && !secondary
                     && self.click_status_bar()
                 {
+                    return;
+                }
+                // A secondary press on the chrome answers with its menus
+                // before the program can see it: a right press -- or its
+                // macOS Ctrl+Left form -- aimed at a tab is asking for the
+                // tab's menu, not the pane behind it.
+                if secondary && state == ElementState::Pressed && self.chrome_right_click() {
+                    if button == MouseButton::Left {
+                        self.swallow_left_after_secondary = true;
+                    }
+                    return;
+                }
+                // The copy/paste gesture, ahead of mouse reporting when a
+                // selection proves the user is mid-gesture: in a reporting
+                // pane it can only have been made with Shift held, and its
+                // natural completion is the secondary click's copy. Without
+                // one the click still belongs to the program.
+                let reporting = !held.shift
+                    && self.mouse_modes.tracking
+                        != unterm_engine::next_core::mouse_encoding::MouseTracking::None;
+                if secondary
+                    && state == ElementState::Pressed
+                    && crate::mouse::secondary_click_acts(reporting, self.selected.is_some())
+                {
+                    if button == MouseButton::Left {
+                        self.swallow_left_after_secondary = true;
+                    }
+                    // A direct gesture rather than a menu: it copies a
+                    // selection and lets go of it, or pastes when there is
+                    // none. Only on press, so the release does not undo it.
+                    match crate::mouse::right_click(self.selected.is_some()) {
+                        crate::mouse::RightClick::CopyAndClear => {
+                            self.copy_selection();
+                            self.selected = None;
+                            self.drag = None;
+                            self.drawn_revision = None;
+                        }
+                        crate::mouse::RightClick::Paste => self.paste_clipboard(),
+                    }
                     return;
                 }
                 if self.report_mouse(kind, engine_button) {
                     return;
                 }
 
-                // Right-click is a direct gesture rather than a menu: it
-                // copies a selection and lets go of it, or pastes when there
-                // is none. Only on press, so the release does not undo it.
                 if button == MouseButton::Right {
-                    if state == ElementState::Pressed && self.chrome_right_click() {
-                        return;
-                    }
-                    if state == ElementState::Pressed {
-                        match crate::mouse::right_click(self.selected.is_some()) {
-                            crate::mouse::RightClick::CopyAndClear => {
-                                self.copy_selection();
-                                self.selected = None;
-                                self.drag = None;
-                                self.drawn_revision = None;
-                            }
-                            crate::mouse::RightClick::Paste => self.paste_clipboard(),
-                        }
-                    }
+                    // Acted on above, or forwarded: the release must not act
+                    // again, and a press the program declined still must not
+                    // start a left-button drag.
                     return;
                 }
                 if button == MouseButton::Middle {
@@ -7693,7 +8079,7 @@ impl ApplicationHandler for App {
                 }
                 if state == ElementState::Pressed && crate::links::opens_on_click(self.ctrl_held) {
                     if let Some(link) = self.link_under_pointer() {
-                        if let Err(err) = crate::links::open(&link.uri) {
+                        if let Err(err) = crate::links::open_link(&link) {
                             log::warn!("could not open {}: {err}", link.uri);
                         }
                         return;
@@ -7772,7 +8158,7 @@ impl ApplicationHandler for App {
                             self.copy_selection();
                         } else if was_click && !self.shift_held && !self.ctrl_held {
                             if let Some(link) = self.link_under_pointer() {
-                                if let Err(err) = crate::links::open(&link.uri) {
+                                if let Err(err) = crate::links::open_link(&link) {
                                     log::warn!("could not open {}: {err}", link.uri);
                                 }
                             }
@@ -8129,7 +8515,7 @@ bg_color = "#3a3a3a"
 
     #[test]
     fn inactive_pane_transform_dims_without_changing_alpha() {
-        let color = transform_hsv([0.8, 0.4, 0.2, 0.7], 0.55, 0.8);
+        let color = transform_hsv([0.8, 0.4, 0.2, 0.7], 1.0, 0.8, 0.55);
 
         assert!(color[0] < 0.8);
         assert!(color[1] < 0.4);
@@ -8140,7 +8526,17 @@ bg_color = "#3a3a3a"
     #[test]
     fn identity_inactive_pane_transform_changes_nothing() {
         let color = [0.15, 0.45, 0.8, 1.0];
-        assert_eq!(transform_hsv(color, 1.0, 1.0), color);
+        assert_eq!(transform_hsv(color, 1.0, 1.0, 1.0), color);
+    }
+
+    /// The hue factor turns the colour around the wheel without touching how
+    /// bright or how saturated it is: pure blue halved lands on pure green,
+    /// still as saturated, still as bright.
+    #[test]
+    fn the_hue_factor_turns_the_colour_without_dimming_it() {
+        let color = transform_hsv([0.0, 0.0, 1.0, 1.0], 0.5, 1.0, 1.0);
+
+        assert_eq!(color, [0.0, 1.0, 0.0, 1.0]);
     }
 
     #[test]
@@ -8253,22 +8649,32 @@ fn dim_pane_quads(
     quads: &mut unterm_render::quads::FrameQuads,
     background_start: usize,
     glyph_start: usize,
-    brightness: f32,
+    hue: f32,
     saturation: f32,
+    brightness: f32,
 ) {
-    if (brightness - 1.0).abs() < f32::EPSILON && (saturation - 1.0).abs() < f32::EPSILON {
+    if (hue - 1.0).abs() < f32::EPSILON
+        && (saturation - 1.0).abs() < f32::EPSILON
+        && (brightness - 1.0).abs() < f32::EPSILON
+    {
         return;
     }
     for quad in &mut quads.backgrounds[background_start..] {
-        quad.color = transform_hsv(quad.color, brightness, saturation);
+        quad.color = transform_hsv(quad.color, hue, saturation, brightness);
     }
     for glyph in &mut quads.glyphs[glyph_start..] {
-        glyph.quad.color = transform_hsv(glyph.quad.color, brightness, saturation);
+        glyph.quad.color = transform_hsv(glyph.quad.color, hue, saturation, brightness);
     }
 }
 
-fn transform_hsv(color: [f32; 4], brightness: f32, saturation: f32) -> [f32; 4] {
-    if (brightness - 1.0).abs() < f32::EPSILON && (saturation - 1.0).abs() < f32::EPSILON {
+/// Multiply a colour's hue, saturation and brightness, as the old renderer's
+/// shader did: each HSV component times its factor, the hue wrapping around
+/// the wheel rather than piling up at red.
+fn transform_hsv(color: [f32; 4], hue_factor: f32, saturation: f32, brightness: f32) -> [f32; 4] {
+    if (hue_factor - 1.0).abs() < f32::EPSILON
+        && (saturation - 1.0).abs() < f32::EPSILON
+        && (brightness - 1.0).abs() < f32::EPSILON
+    {
         return color;
     }
     let [red, green, blue, alpha] = color;
@@ -8284,6 +8690,7 @@ fn transform_hsv(color: [f32; 4], brightness: f32, saturation: f32) -> [f32; 4] 
     } else {
         (red - green) / delta + 4.0
     };
+    let hue = (hue * hue_factor).rem_euclid(6.0);
     let sat = if max <= f32::EPSILON {
         0.0
     } else {
@@ -8354,24 +8761,59 @@ fn append_confirmation_banner(
 /// cannot drift apart -- and the chord is shown as the hint, which is how a
 /// palette teaches the keyboard.
 fn command_entries() -> Vec<crate::palette::Entry> {
-    crate::keys::BINDINGS
-        .iter()
-        .map(|binding| crate::palette::Entry {
-            label: binding.action.label().to_string(),
+    let mut entries: Vec<crate::palette::Entry> = Vec::new();
+    for binding in crate::keys::effective_bindings() {
+        let label = binding.action.label();
+        // One row per action, whichever chord came first: nine Select Tab
+        // rows would push everything else off a short list, which is also
+        // why 0.57.4's launcher deduplicated its key assignments.
+        if entries.iter().any(|entry| entry.label == label) {
+            continue;
+        }
+        entries.push(crate::palette::Entry {
+            label: label.to_string(),
             hint: format!("{} {}", binding.mods.name(), binding.trigger.name()),
             command: crate::palette::Command::Action(binding.action),
+        });
+    }
+    entries.push(crate::palette::Entry {
+        label: "Tab Navigator".to_string(),
+        hint: "fuzzy projects and tabs".to_string(),
+        command: crate::palette::Command::OpenTabNavigator,
+    });
+    entries.push(crate::palette::Entry {
+        label: "Capture Region".to_string(),
+        hint: "drag a desktop rectangle".to_string(),
+        command: crate::palette::Command::SelectCaptureRegion,
+    });
+    entries
+}
+
+/// The saved workspaces: a row reopens each, and the last row saves one.
+///
+/// 0.57.4's launcher listed workspaces beside its commands
+/// (`LauncherFlags::WORKSPACES`); these rows are their next-core
+/// descendants, read from the same files the MCP `workspace.*` tools use.
+fn workspace_entries() -> Vec<crate::palette::Entry> {
+    let mut entries: Vec<crate::palette::Entry> = crate::workspaces::list()
+        .into_iter()
+        .map(|workspace| crate::palette::Entry {
+            label: format!("Open Workspace: {}", workspace.name),
+            hint: match workspace.cwds.len() {
+                1 => "1 saved tab".to_string(),
+                count => format!("{count} saved tabs"),
+            },
+            command: crate::palette::Command::RestoreWorkspace {
+                name: workspace.name,
+            },
         })
-        .chain(std::iter::once(crate::palette::Entry {
-            label: "Tab Navigator".to_string(),
-            hint: "fuzzy projects and tabs".to_string(),
-            command: crate::palette::Command::OpenTabNavigator,
-        }))
-        .chain(std::iter::once(crate::palette::Entry {
-            label: "Capture Region".to_string(),
-            hint: "drag a desktop rectangle".to_string(),
-            command: crate::palette::Command::SelectCaptureRegion,
-        }))
-        .collect()
+        .collect();
+    entries.push(crate::palette::Entry {
+        label: "Save Workspace".to_string(),
+        hint: "the open tabs, under a name".to_string(),
+        command: crate::palette::Command::OpenWorkspaceSave,
+    });
+    entries
 }
 
 /// The launcher's rows: the shells this machine actually has.
@@ -8498,17 +8940,23 @@ mod palette_entry_tests {
     #[test]
     fn the_palette_lists_what_the_keys_do() {
         let entries = command_entries();
-        assert_eq!(entries.len(), crate::keys::BINDINGS.len() + 2);
-        for (entry, binding) in entries
-            .iter()
-            .take(crate::keys::BINDINGS.len())
-            .zip(crate::keys::BINDINGS)
-        {
-            assert_eq!(entry.label, binding.action.label());
-            assert!(
-                entry.hint.contains(&binding.trigger.name()),
+        let bindings = crate::keys::effective_bindings();
+        for binding in &bindings {
+            let row = entries
+                .iter()
+                .find(|entry| entry.label == binding.action.label())
+                .unwrap_or_else(|| panic!("{} has no palette row", binding.action.label()));
+            // The chord shown is the first one bound to the action, which is
+            // the chord the key table would act on.
+            let first = bindings
+                .iter()
+                .find(|other| other.action.label() == binding.action.label())
+                .expect("the binding we started from");
+            assert_eq!(
+                row.hint,
+                format!("{} {}", first.mods.name(), first.trigger.name()),
                 "{} should show the chord that reaches it",
-                entry.label
+                row.label
             );
         }
         assert!(entries
@@ -8517,6 +8965,47 @@ mod palette_entry_tests {
         assert!(entries
             .iter()
             .any(|entry| matches!(entry.command, crate::palette::Command::SelectCaptureRegion)));
+    }
+
+    /// One row per action, not one per chord: nine Select Tab rows -- or two
+    /// for a launcher reachable two ways -- would push everything else off a
+    /// short list. 0.57.4's launcher deduplicated its key assignments for
+    /// the same reason.
+    #[test]
+    fn an_action_bound_twice_is_listed_once() {
+        let entries = command_entries();
+        let mut seen = std::collections::HashSet::new();
+        for entry in &entries {
+            assert!(
+                seen.insert(entry.label.clone()),
+                "{} is listed more than once",
+                entry.label
+            );
+        }
+    }
+
+    /// The last workspace row saves; it is there even before anything is.
+    ///
+    /// The reopen rows depend on what this machine has saved, which a test
+    /// cannot know -- but every reopen row carries the workspace it reopens,
+    /// and the save row is always the tail.
+    #[test]
+    fn the_workspace_rows_end_with_the_one_that_saves() {
+        let entries = workspace_entries();
+        assert!(matches!(
+            entries.last().map(|entry| &entry.command),
+            Some(crate::palette::Command::OpenWorkspaceSave)
+        ));
+        for entry in &entries[..entries.len() - 1] {
+            assert!(
+                matches!(
+                    entry.command,
+                    crate::palette::Command::RestoreWorkspace { .. }
+                ),
+                "{} should reopen a workspace",
+                entry.label
+            );
+        }
     }
 
     /// The launcher offers shells this machine has, and only those.
