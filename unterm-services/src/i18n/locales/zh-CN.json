@@ -555,5 +555,11 @@
   "cockpit.fleet_no_agents": "未安装任何 agent CLI",
   "menu.fleet_launch": "启动小队…",
   "cockpit.fleet_no_task": "先写下任务",
-  "menu.char_select": "插入字符…"
+  "menu.char_select": "插入字符…",
+  "tab.rename": "重命名标签页",
+  "tab.move_left": "左移标签页",
+  "tab.move_right": "右移标签页",
+  "tab.close": "关闭标签页",
+  "close.confirm_running": "关闭窗口 - 仍有任务在运行",
+  "close.confirm_running.hint": "Enter 关闭 - Esc 保留"
 }

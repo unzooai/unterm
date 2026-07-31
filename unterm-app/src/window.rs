@@ -362,6 +362,14 @@ pub struct App {
     /// The last press on a strip row, so only a true same-row double-click
     /// opens the rename line rather than any two fast clicks anywhere.
     last_sidebar_click: Option<crate::sidebar::RowClick>,
+    /// The last press in the terminal, so a double-click can select the word
+    /// and a triple-click the line, as they always have.
+    terminal_click: Option<crate::sidebar::RowClick>,
+    /// Where the last selection started, so Shift+click extends it instead
+    /// of starting over.
+    select_anchor: Option<unterm_engine::next_core::selection::SelectionPoint>,
+    /// Whether the close confirmation has been answered.
+    close_confirmed: bool,
     /// Names the reader has given tabs, keyed by stable tab id. A named tab
     /// keeps its name through program changes; an empty rename hands the tab
     /// back to automatic titling.
@@ -529,6 +537,9 @@ impl App {
             sidebar_points: None,
             sidebar_collapsed: Default::default(),
             last_sidebar_click: None,
+            terminal_click: None,
+            select_anchor: None,
+            close_confirmed: false,
             tab_titles: Default::default(),
             pane_notices: Default::default(),
             tree: None,
@@ -2462,12 +2473,7 @@ impl App {
                     live.window.set_maximized(!live.window.is_maximized());
                 }
             }
-            crate::topbar::Item::Close => {
-                if let Some(live) = self.state.as_ref() {
-                    live.window.set_visible(false);
-                }
-                self.closing = true;
-            }
+            crate::topbar::Item::Close => self.request_close(),
         }
         self.drawn_revision = None;
         true
@@ -2670,6 +2676,62 @@ impl App {
             log::debug!("selected {} char(s): {:?}", text.chars().count(), text);
         }
         self.selected = (!text.is_empty()).then_some(text);
+    }
+
+    /// Select the run of non-space characters under a double-click.
+    fn select_word_at(&mut self, cell: unterm_engine::next_core::selection::SelectionPoint) {
+        use unterm_engine::next_core::selection::{SelectionPoint, SelectionShape};
+        let Some(live) = self.state.as_ref() else {
+            return;
+        };
+        let Ok(snapshot) = self.engine.read_styled_screen(live.session_id) else {
+            return;
+        };
+        let Some(line) = snapshot.lines.iter().find(|line| line.row == cell.row) else {
+            return;
+        };
+        let chars: Vec<char> = line.cells.iter().map(|c| c.ch).collect();
+        if chars.is_empty() {
+            return;
+        }
+        let at = cell.column.min(chars.len() - 1);
+        if chars[at].is_whitespace() {
+            return;
+        }
+        let mut start = at;
+        while start > 0 && !chars[start - 1].is_whitespace() {
+            start -= 1;
+        }
+        let mut end = at;
+        while end + 1 < chars.len() && !chars[end + 1].is_whitespace() {
+            end += 1;
+        }
+        let mut drag = crate::select::Drag::start(
+            SelectionPoint::new(start, cell.row),
+            SelectionShape::Linear,
+        );
+        drag.extend(SelectionPoint::new(end, cell.row));
+        self.drag = Some(drag);
+        self.update_selection();
+    }
+
+    /// Select the whole row under a triple-click.
+    fn select_line_at(&mut self, cell: unterm_engine::next_core::selection::SelectionPoint) {
+        use unterm_engine::next_core::selection::{SelectionPoint, SelectionShape};
+        let Some(live) = self.state.as_ref() else {
+            return;
+        };
+        let Ok(snapshot) = self.engine.read_styled_screen(live.session_id) else {
+            return;
+        };
+        let width = snapshot.cols.max(1);
+        let mut drag = crate::select::Drag::start(
+            SelectionPoint::new(0, cell.row),
+            SelectionShape::Linear,
+        );
+        drag.extend(SelectionPoint::new(width.saturating_sub(1), cell.row));
+        self.drag = Some(drag);
+        self.update_selection();
     }
 
     /// Put the selection on the clipboard.
@@ -4184,6 +4246,201 @@ impl App {
     }
 
     /// Settings live in a browser, not in a cell grid.
+    /// Close once it is safe or once it is confirmed. Nothing running and a
+    /// single tab close immediately; anything else opens one confirmation on
+    /// the palette line, and Enter there closes for real.
+    fn request_close(&mut self) {
+        if self.close_confirmed || !self.close_needs_confirmation() {
+            self.perform_close();
+            return;
+        }
+        use unterm_services::i18n::t;
+        self.palette = Some(crate::palette::Palette::new(vec![crate::palette::Entry {
+            label: t("close.confirm_running"),
+            hint: t("close.confirm_running.hint"),
+            command: crate::palette::Command::ConfirmCloseWindow,
+        }]));
+        self.drawn_revision = None;
+    }
+
+    /// Whether closing now would take something down with it: several tabs,
+    /// or any pane with a program in front of its shell.
+    fn close_needs_confirmation(&self) -> bool {
+        let sessions =
+            unterm_engine::SessionEngine::list_sessions(&self.engine).unwrap_or_default();
+        if sessions.len() > 1 {
+            return true;
+        }
+        sessions
+            .iter()
+            .any(|session| !crate::statsbar::known_facts(session.id).title.is_empty())
+    }
+
+    fn perform_close(&mut self) {
+        if let Some(live) = self.state.as_ref() {
+            live.window.set_visible(false);
+        }
+        self.closing = true;
+    }
+
+    /// The `capture:exclude` chip: the screen without this window on it. The
+    /// window minimises for the grab and comes straight back.
+    fn capture_screen_hidden(&mut self) {
+        let Some(live) = self.state.as_ref() else {
+            return;
+        };
+        let window = live.window.clone();
+        let Some(monitor) = window.current_monitor() else {
+            return;
+        };
+        let origin = monitor.position();
+        let size = monitor.size();
+        window.set_minimized(true);
+        // Long enough for the minimise animation to leave the screen; a
+        // deliberate capture can afford a blink of stillness.
+        std::thread::sleep(std::time::Duration::from_millis(450));
+        self.pending_region_capture = Some(unterm_services::window_capture::Region::between(
+            (origin.x, origin.y),
+            (
+                origin.x.saturating_add(size.width as i32),
+                origin.y.saturating_add(size.height as i32),
+            ),
+        ));
+        self.capture_pending_region();
+        window.set_minimized(false);
+        window.focus_window();
+    }
+
+    /// A press on the bottom bar. True whenever it landed in the bar, so a
+    /// missed chip is swallowed rather than falling through to the terminal
+    /// as a stray selection; each chip does what 0.57.4's did.
+    fn click_status_bar(&mut self) -> bool {
+        let Some(live) = self.state.as_ref() else {
+            return false;
+        };
+        let session_id = live.session_id;
+        let width = live.width as f32;
+        let height = live.height as f32;
+        let bar_height = self.status_bar_height();
+        if self.pointer.1 < height - bar_height {
+            return false;
+        }
+        let metrics = self.font.metrics();
+        let columns = (width / metrics.width.max(1.0)).floor().max(0.0) as usize;
+        let status = self.status();
+        let directory = status.directory.clone();
+        let segments = crate::statusbar::segments(&status, columns);
+        let pt = self.chrome_pt();
+        let gap = self.mono_width(crate::statusbar::GAP);
+        let mut pen = (crate::ui_tokens::CHROME_PANEL_INSET * pt).round();
+        let mut hit = None;
+        for segment in &segments {
+            let wide = self.mono_width(&segment.text);
+            if pen + wide > width {
+                break;
+            }
+            if self.pointer.0 >= pen && self.pointer.0 < pen + wide {
+                hit = Some(segment.kind);
+                break;
+            }
+            pen += wide + gap;
+        }
+        match hit {
+            Some(crate::statusbar::SegmentKind::Cwd) => {
+                // A click on the path copies it, ready to paste anywhere.
+                self.copy_text(&directory);
+                self.show_notice(format!("\u{2713} {directory}"));
+            }
+            Some(crate::statusbar::SegmentKind::Project) => {
+                self.run_key_action(crate::keys::Action::DirJump, session_id);
+            }
+            Some(crate::statusbar::SegmentKind::CaptureInclude) => self.begin_region_selection(),
+            Some(crate::statusbar::SegmentKind::CaptureExclude) => self.capture_screen_hidden(),
+            Some(crate::statusbar::SegmentKind::Theme) => {
+                self.run_key_action(crate::keys::Action::ThemePicker, session_id);
+            }
+            Some(crate::statusbar::SegmentKind::Mcp) => {
+                // The chip's click exports what the bar can only count: the
+                // recent audit entries, ready to paste into a report.
+                let snapshot = unterm_mcp::handler::insights_mcp_snapshot(200);
+                let mut text = format!(
+                    "mcp inputs: {} (agents seen: {})\n",
+                    snapshot.input_count, snapshot.agents_seen
+                );
+                for entry in &snapshot.recent_audit {
+                    text.push_str(entry);
+                    text.push('\n');
+                }
+                self.copy_text(&text);
+                self.show_notice("\u{2713} MCP activity copied".to_string());
+            }
+            Some(crate::statusbar::SegmentKind::Proxy)
+            | Some(crate::statusbar::SegmentKind::Profile) => self.open_settings(),
+            _ => {}
+        }
+        self.drawn_revision = None;
+        true
+    }
+
+    /// A right press on the chrome. True when the chrome takes it -- before
+    /// this, a right-click aimed at a tab fell through to the terminal's
+    /// paste gesture, which is the worst possible answer to asking for a
+    /// menu.
+    fn chrome_right_click(&mut self) -> bool {
+        if self.pointer.1 < self.top_bar_height() {
+            return true;
+        }
+        if let Some(live) = self.state.as_ref() {
+            if self.pointer.1 >= live.height as f32 - self.status_bar_height() {
+                return true;
+            }
+        }
+        if self.sidebar_open {
+            if let Some((left, top, width, height, _row_height)) = self.sidebar_dock() {
+                let inside = self.pointer.0 >= left
+                    && self.pointer.0 < left + width
+                    && self.pointer.1 >= top
+                    && self.pointer.1 < top + height;
+                if inside {
+                    if let Some(at) = self.sidebar_row_at(self.pointer.0, self.pointer.1) {
+                        if let Some(crate::sidebar::Row::Tab { index, .. }) =
+                            self.sidebar_rows().get(at).cloned()
+                        {
+                            self.select_tab(index as u8 + 1);
+                            self.open_tab_menu(index);
+                        }
+                    }
+                    self.drawn_revision = None;
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// The tab's own menu, on the palette: 0.57.4's context-menu verbs.
+    fn open_tab_menu(&mut self, index: usize) {
+        use unterm_services::i18n::t;
+        let action = |label: String, action: crate::keys::Action| crate::palette::Entry {
+            label,
+            hint: crate::keys::chord_hint(action).unwrap_or_default(),
+            command: crate::palette::Command::Action(action),
+        };
+        self.palette = Some(crate::palette::Palette::new(vec![
+            action(t("menu.new_tab"), crate::keys::Action::NewTab),
+            action(t("settings.menu.split_right"), crate::keys::Action::SplitRight),
+            crate::palette::Entry {
+                label: t("tab.rename"),
+                hint: String::new(),
+                command: crate::palette::Command::OpenTabRename { index },
+            },
+            action(t("tab.move_left"), crate::keys::Action::MoveTab(-1)),
+            action(t("tab.move_right"), crate::keys::Action::MoveTab(1)),
+            action(t("tab.close"), crate::keys::Action::CloseTab),
+        ]));
+        self.drawn_revision = None;
+    }
+
     /// The quick menu's long screenshot: the focused pane's entire history to
     /// one tall PNG under `~/.unterm/captures/`, with the path shown where
     /// the eye already is.
@@ -4710,6 +4967,11 @@ impl App {
                     log::warn!("could not open {url}: {err}");
                 }
             }
+            crate::palette::Command::ConfirmCloseWindow => {
+                self.close_confirmed = true;
+                self.perform_close();
+            }
+            crate::palette::Command::OpenTabRename { index } => self.open_tab_rename(index),
             crate::palette::Command::SelectCaptureRegion => self.begin_region_selection(),
             crate::palette::Command::Browse { path, then } => {
                 // Stays open on the new directory rather than closing: picking
@@ -6043,12 +6305,27 @@ impl ApplicationHandler for App {
             }
 
             WindowEvent::CloseRequested => {
+                // A running program earns one confirmation before its window
+                // is taken away; 0.57.4 asked, and a stray click on the cross
+                // killing an agent mid-task is not a smaller accident now.
+                if !self.close_confirmed && self.close_needs_confirmation() {
+                    self.request_close();
+                    if let Some(live) = self.state.as_ref() {
+                        live.window.request_redraw();
+                    }
+                    return;
+                }
                 if let Some(live) = self.state.take() {
-                    // Destroy the session rather than leaving the shell running
-                    // with nothing attached to it.
-                    crate::statsbar::forget(live.session_id);
-                    unterm_services::ghost_text::forget(live.session_id as u64);
-                    let _ = self.engine.destroy_session(live.session_id);
+                    // Destroy every session, not only the front one: a shell
+                    // left running with nothing attached is a leak.
+                    let sessions = unterm_engine::SessionEngine::list_sessions(&self.engine)
+                        .unwrap_or_default();
+                    for session in sessions {
+                        crate::statsbar::forget(session.id);
+                        unterm_services::ghost_text::forget(session.id as u64);
+                        let _ = self.engine.destroy_session(session.id);
+                    }
+                    drop(live);
                 }
                 event_loop.exit();
             }
@@ -6440,6 +6717,12 @@ impl ApplicationHandler for App {
                 {
                     return;
                 }
+                if state == ElementState::Pressed
+                    && button == MouseButton::Left
+                    && self.click_status_bar()
+                {
+                    return;
+                }
                 if self.report_mouse(kind, engine_button) {
                     return;
                 }
@@ -6448,6 +6731,9 @@ impl ApplicationHandler for App {
                 // copies a selection and lets go of it, or pastes when there
                 // is none. Only on press, so the release does not undo it.
                 if button == MouseButton::Right {
+                    if state == ElementState::Pressed && self.chrome_right_click() {
+                        return;
+                    }
                     if state == ElementState::Pressed {
                         match crate::mouse::right_click(self.selected.is_some()) {
                             crate::mouse::RightClick::CopyAndClear => {
@@ -6458,6 +6744,14 @@ impl ApplicationHandler for App {
                             }
                             crate::mouse::RightClick::Paste => self.paste_clipboard(),
                         }
+                    }
+                    return;
+                }
+                if button == MouseButton::Middle {
+                    // The middle button pastes, as terminals have always had
+                    // it -- from the one clipboard this platform has.
+                    if state == ElementState::Pressed {
+                        self.paste_clipboard();
                     }
                     return;
                 }
@@ -6497,18 +6791,54 @@ impl ApplicationHandler for App {
                 }
                 match state {
                     ElementState::Pressed => {
-                        let shape = if self.shift_held {
-                            unterm_engine::next_core::selection::SelectionShape::Block
-                        } else {
-                            unterm_engine::next_core::selection::SelectionShape::Linear
+                        use unterm_engine::next_core::selection::SelectionShape;
+                        let cell = self.cell_under_pointer();
+                        // Shift extends the previous selection from its
+                        // original anchor; Alt drags out a block, as before.
+                        if self.shift_held {
+                            if let Some(anchor) = self.select_anchor {
+                                let mut drag =
+                                    crate::select::Drag::start(anchor, SelectionShape::Linear);
+                                drag.extend(cell);
+                                self.drag = Some(drag);
+                                self.update_selection();
+                                self.drawn_revision = None;
+                                return;
+                            }
+                        }
+                        let click = match self.terminal_click.take() {
+                            Some(previous) => previous.again(0, self.pointer.0, self.pointer.1),
+                            None => {
+                                crate::sidebar::RowClick::first(0, self.pointer.0, self.pointer.1)
+                            }
                         };
-                        self.drag =
-                            Some(crate::select::Drag::start(self.cell_under_pointer(), shape));
-                        self.selected = None;
+                        let streak = click.streak();
+                        self.terminal_click = Some(click);
+                        let shape = if self.alt_held {
+                            SelectionShape::Block
+                        } else {
+                            SelectionShape::Linear
+                        };
+                        self.select_anchor = Some(cell);
+                        match streak {
+                            2 => self.select_word_at(cell),
+                            n if n >= 3 => self.select_line_at(cell),
+                            _ => {
+                                self.drag = Some(crate::select::Drag::start(cell, shape));
+                                self.selected = None;
+                            }
+                        }
+                        self.drawn_revision = None;
                     }
                     ElementState::Released => {
                         self.update_selection();
                         self.drag = None;
+                        // Selecting is copying, exactly as it was before:
+                        // release the button and the text is already on the
+                        // clipboard.
+                        if self.selected.is_some() {
+                            self.copy_selection();
+                        }
                     }
                 }
             }

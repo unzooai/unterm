@@ -46,6 +46,10 @@ pub enum Command {
     CaptureScrollback,
     /// Open a page in the system browser.
     OpenUrl { url: String },
+    /// The confirmation the close request asked for.
+    ConfirmCloseWindow,
+    /// Open the rename line for one tab, by its visible position.
+    OpenTabRename { index: usize },
     /// Let the user drag a rectangle to capture from the desktop.
     SelectCaptureRegion,
 }

@@ -83,6 +83,22 @@ pub struct Status {
     pub notice: Option<String>,
 }
 
+/// What a segment is, so a press on it can do what 0.57.4's did.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SegmentKind {
+    Shell,
+    Cwd,
+    Size,
+    Project,
+    CaptureExclude,
+    CaptureInclude,
+    Proxy,
+    Mcp,
+    Theme,
+    Profile,
+    Notice,
+}
+
 /// One piece of the bar.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Segment {
@@ -95,6 +111,7 @@ pub struct Segment {
     /// chip's colon — in the theme's teal, which is what made the bar read as
     /// labels-and-values rather than one grey line.
     pub teal_from: Option<usize>,
+    pub kind: SegmentKind,
 }
 
 /// The shell's name, with the version where two versions behave differently.
@@ -247,34 +264,39 @@ pub fn segments(status: &Status, columns: usize) -> Vec<Segment> {
                 text: format!("\u{2713} {}", middle(notice, columns.saturating_sub(4))),
                 dim: false,
                 teal_from: None,
+                kind: SegmentKind::Notice,
             });
             return segments;
         }
     }
 
     let density = density(columns);
-    let mut push = |text: String, dim: bool, teal_from: Option<usize>, into: &mut Vec<Segment>| {
-        if !text.is_empty() {
-            into.push(Segment {
-                text,
-                dim,
-                teal_from,
-            });
-        }
-    };
+    let mut push =
+        |text: String, dim: bool, teal_from: Option<usize>, kind: SegmentKind, into: &mut Vec<Segment>| {
+            if !text.is_empty() {
+                into.push(Segment {
+                    text,
+                    dim,
+                    teal_from,
+                    kind,
+                });
+            }
+        };
 
     // The shell, where, and how big: the three that are always there.
-    push(status.shell.clone(), false, None, &mut segments);
+    push(status.shell.clone(), false, None, SegmentKind::Shell, &mut segments);
     push(
         short_path(&status.directory, density.cwd_columns),
         false,
         Some(0),
+        SegmentKind::Cwd,
         &mut segments,
     );
     push(
         format!("{}x{}", status.columns, status.rows),
         true,
         None,
+        SegmentKind::Size,
         &mut segments,
     );
 
@@ -283,6 +305,7 @@ pub fn segments(status: &Status, columns: usize) -> Vec<Segment> {
             format!("project:{}", middle(&status.project, 18)),
             true,
             Some("project:".len()),
+            SegmentKind::Project,
             &mut segments,
         );
     }
@@ -290,8 +313,8 @@ pub fn segments(status: &Status, columns: usize) -> Vec<Segment> {
     // decision, and one of them alone reads as a state rather than a choice.
     if density.show_capture {
         let value = "capture:".len();
-        push("capture:exclude".to_string(), true, Some(value), &mut segments);
-        push("capture:include".to_string(), true, Some(value), &mut segments);
+        push("capture:exclude".to_string(), true, Some(value), SegmentKind::CaptureExclude, &mut segments);
+        push("capture:include".to_string(), true, Some(value), SegmentKind::CaptureInclude, &mut segments);
     }
     if density.show_telemetry {
         push(
@@ -301,6 +324,7 @@ pub fn segments(status: &Status, columns: usize) -> Vec<Segment> {
             },
             true,
             Some("proxy:".len()),
+            SegmentKind::Proxy,
             &mut segments,
         );
         // Always drawn, even at zero, so the position is stable: a chip that
@@ -319,6 +343,7 @@ pub fn segments(status: &Status, columns: usize) -> Vec<Segment> {
             ),
             true,
             Some("mcp:".len()),
+            SegmentKind::Mcp,
             &mut segments,
         );
     }
@@ -327,6 +352,7 @@ pub fn segments(status: &Status, columns: usize) -> Vec<Segment> {
             format!("theme:{}", status.theme),
             true,
             Some("theme:".len()),
+            SegmentKind::Theme,
             &mut segments,
         );
     }
@@ -339,6 +365,7 @@ pub fn segments(status: &Status, columns: usize) -> Vec<Segment> {
             format!("profile:{}", middle(profile, 18)),
             true,
             Some("profile:".len()),
+            SegmentKind::Profile,
             &mut segments,
         );
     }

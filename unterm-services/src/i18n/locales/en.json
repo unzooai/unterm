@@ -555,5 +555,11 @@
   "cockpit.fleet_no_agents": "No agent CLIs are installed",
   "menu.fleet_launch": "Launch Fleet…",
   "cockpit.fleet_no_task": "Write the task first",
-  "menu.char_select": "Insert Character…"
+  "menu.char_select": "Insert Character…",
+  "tab.rename": "Rename tab",
+  "tab.move_left": "Move tab left",
+  "tab.move_right": "Move tab right",
+  "tab.close": "Close tab",
+  "close.confirm_running": "Close window - a task is still running",
+  "close.confirm_running.hint": "Enter closes - Esc keeps it open"
 }
