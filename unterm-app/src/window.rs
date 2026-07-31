@@ -1341,7 +1341,7 @@ impl App {
             self.sidebar_points,
             self.tabs.tab_ids().len(),
             window_width,
-            self.scale,
+            self.font_scale(),
         ) + crate::tree::width(self.tree.is_some(), metrics)
     }
 
@@ -1559,7 +1559,7 @@ impl App {
             self.sidebar_points,
             self.tabs.tab_ids().len(),
             window_width,
-            self.scale,
+            self.font_scale(),
         );
         Some((left, top, width, height))
     }
@@ -1646,16 +1646,38 @@ impl App {
             self.sidebar_points,
             self.tabs.tab_ids().len(),
             window_width,
-            self.scale,
+            self.font_scale(),
         );
         let top = self.terminal_top() - self.chrome_inset();
         let height = self.terminal_height() + self.chrome_inset() * 2.0;
         Some((0.0, top, width, height, self.chrome_row_height()))
     }
 
+    /// The scale text and pt tokens are drawn at, as distinct from the
+    /// display's own factor.
+    ///
+    /// On Windows this is the display scale squared, and that is deliberate:
+    /// v0.57.4 ran DPI-virtualised there -- it rasterised its faces at the
+    /// monitor's DPI inside a 96-DPI coordinate space, and the compositor
+    /// then enlarged the whole window by the same factor again. Every glyph
+    /// a Windows user of 0.57.4 ever saw was scale-squared, and drawing at
+    /// the mathematically correct size reads as the whole product having
+    /// shrunk. At 100% the two agree exactly.
+    fn font_scale_for(scale: f32) -> f32 {
+        if cfg!(windows) {
+            scale * scale
+        } else {
+            scale
+        }
+    }
+
+    fn font_scale(&self) -> f32 {
+        Self::font_scale_for(self.scale)
+    }
+
     /// One point in pixels on this display.
     fn chrome_pt(&self) -> f32 {
-        crate::chrome_font::point(self.scale)
+        crate::chrome_font::point(self.font_scale())
     }
 
     /// The gap between a docked panel and what is beside it.
@@ -1691,7 +1713,7 @@ impl App {
 
     /// How tall one chrome row is: its text plus the padding above and below.
     fn chrome_row_height(&self) -> f32 {
-        let pt = crate::chrome_font::point(self.scale);
+        let pt = crate::chrome_font::point(self.font_scale());
         (self.chrome_font.metrics().height + crate::ui_tokens::CHROME_ROW_PADDING_Y * 2.0 * pt)
             .round()
             .max(1.0)
@@ -3176,7 +3198,7 @@ impl App {
         push(right, top, live.width as f32 - right, bottom - top, dim);
 
         let border = self.chrome().focus_rail;
-        let thickness = (2.0 * crate::chrome_font::point(self.scale)).max(1.0);
+        let thickness = (2.0 * crate::chrome_font::point(self.font_scale())).max(1.0);
         push(left, top, right - left, thickness, border);
         push(
             left,
@@ -3257,7 +3279,7 @@ impl App {
 
     /// Open the font at a size in points, for a display at `scale`.
     fn reopen_font(&mut self, points: f32, scale: f32) {
-        let pixels = crate::terminal::pixels_for_points(points, scale);
+        let pixels = crate::terminal::pixels_for_points(points, Self::font_scale_for(scale));
         let Ok(font) = TerminalFont::open_named(
             self.font_family.as_deref(),
             pixels,
@@ -3271,7 +3293,7 @@ impl App {
         // The chrome follows the display's scale but not the terminal's font
         // size: making the tab labels bigger because somebody zoomed the
         // terminal is not what zooming the terminal means.
-        if let Ok(chrome) = crate::chrome_font::open(&self.font_fallbacks, scale) {
+        if let Ok(chrome) = crate::chrome_font::open(&self.font_fallbacks, Self::font_scale_for(scale)) {
             self.chrome_font = chrome;
         }
         self.font_points = points;
@@ -5332,7 +5354,7 @@ impl App {
     /// than on a 1x one, which is the difference between a rounded corner and
     /// a corner that looks slightly damaged.
     fn corner_radius(&self) -> f32 {
-        unterm_render::rounded::RADIUS * self.scale.max(1.0)
+        unterm_render::rounded::RADIUS * self.font_scale().max(1.0)
     }
 
     /// Where the open palette is, for hit-testing.

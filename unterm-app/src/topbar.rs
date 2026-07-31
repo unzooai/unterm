@@ -26,7 +26,10 @@ pub fn height(_row_height: f32, pt: f32) -> f32 {
     // first next-core version added a fully padded sidebar row *and* another
     // 8pt around it, producing the visibly oversized ~77px strip at 150% DPI.
     let cell = crate::ui_tokens::UI_FONT_SIZE as f32 * pt;
-    let base = cell * 1.6;
+    // Measured off v0.57.4 rather than derived: its bar stood 2.42 title
+    // cells tall (58px over a 24px em), padding included. 1.6 cells was the
+    // tab's own height inside that bar, not the bar.
+    let base = cell * 2.4;
     // The v0.57.4 quick-action cells were the taller constraint: one title
     // cell plus 0.18-cell margins and 0.22-cell padding on both sides, with a
     // physical-pixel border. At 150% DPI this is ~49px.
