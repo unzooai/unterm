@@ -2026,6 +2026,21 @@ impl App {
                             radius,
                             chrome.selected_bg,
                         ));
+                    } else if self.pointer.0 >= row_left
+                        && self.pointer.0 < row_left + row_width
+                        && self.pointer.1 >= row_top
+                        && self.pointer.1 < row_top + row_height
+                    {
+                        // The row under the pointer lifts faintly, the way it
+                        // did before: hover is how a list says it is a list.
+                        quads.backgrounds.extend(unterm_render::rounded::panel(
+                            row_left,
+                            row_top,
+                            row_width,
+                            row_height,
+                            radius,
+                            chrome.hover_bg,
+                        ));
                     }
                     // The rail: the one place the accent is used, and what the
                     // eye finds first. A faint one on every grouped row keeps
